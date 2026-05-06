@@ -671,6 +671,7 @@ else()
     set(ALCEDO_GENERATED_METAL_INCLUDE_DIR
         "${ALCEDO_GENERATED_THIRD_PARTY_DIR}/include")
     file(MAKE_DIRECTORY
+        "${ALCEDO_GENERATED_METAL_INCLUDE_DIR}/alcedo/metal"
         "${ALCEDO_GENERATED_METAL_INCLUDE_DIR}/puerhlab/metal")
     file(WRITE
         "${ALCEDO_GENERATED_METAL_INCLUDE_DIR}/puerhlab/metal/Metal.hpp"
@@ -679,8 +680,14 @@ else()
         "${ALCEDO_GENERATED_METAL_INCLUDE_DIR}/puerhlab/metal/MetalImplementation.hpp"
         "#pragma once\n\n#define NS_PRIVATE_IMPLEMENTATION\n#define MTL_PRIVATE_IMPLEMENTATION\n#define CA_PRIVATE_IMPLEMENTATION\n\n#include <puerhlab/metal/Metal.hpp>\n")
     file(WRITE
+        "${ALCEDO_GENERATED_METAL_INCLUDE_DIR}/alcedo/metal/Metal.hpp"
+        "#pragma once\n\n#include <puerhlab/metal/Metal.hpp>\n")
+    file(WRITE
+        "${ALCEDO_GENERATED_METAL_INCLUDE_DIR}/alcedo/metal/MetalImplementation.hpp"
+        "#pragma once\n\n#include <puerhlab/metal/MetalImplementation.hpp>\n")
+    file(WRITE
         "${ALCEDO_GENERATED_THIRD_PARTY_DIR}/puerhlab_metal_cpp_implementation.cpp"
-        "#include <puerhlab/metal/MetalImplementation.hpp>\n")
+        "#include <alcedo/metal/MetalImplementation.hpp>\n")
 
     set(PUERHLAB_METALCPP_SOURCE_DIR
         "${CMAKE_SOURCE_DIR}/alcedo_studio/src/third_party/metal-cpp"
