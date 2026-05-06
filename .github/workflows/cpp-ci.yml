@@ -35,7 +35,7 @@ jobs:
       - name: Install dependencies
         run: |
           brew update
-          brew install cmake ninja qt opencv opencolorio duckdb exiv2 glib libraw little-cms2 highway openimageio pkg-config xxhash eigen libomp
+          brew install cmake ninja qt opencv opencolorio duckdb exiv2 glib libraw little-cms2 highway openimageio pkg-config xxhash eigen libomp lensfun
 
       - name: Configure
         run: cmake --preset macos_arm_metal_ci

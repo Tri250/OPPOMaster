@@ -12,6 +12,7 @@ clone_if_missing() {
   if [[ -e "${path}/${marker}" ]]; then
     return
   fi
+  mkdir -p "$(dirname "${path}")"
   rm -rf "${path}"
   git clone --depth 1 "$@" "${url}" "${path}"
 }
@@ -34,17 +35,6 @@ download_file() {
   mkdir -p "$(dirname "${dest}")"
   curl -fsSL "${url}" -o "${dest}"
 }
-
-clone_if_missing \
-  "alcedo_studio/src/third_party/lensfun" \
-  "CMakeLists.txt" \
-  "https://github.com/lensfun/lensfun.git"
-
-clone_if_missing \
-  "alcedo_studio/src/third_party/libultrahdr" \
-  "third_party/image_io/includes/image_io/base/data_segment_data_source.h" \
-  "https://github.com/google/libultrahdr.git" \
-  --recurse-submodules
 
 clone_if_missing \
   "alcedo_studio/src/third_party/metal-cpp" \

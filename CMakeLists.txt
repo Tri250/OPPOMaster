@@ -638,7 +638,97 @@ add_compile_definitions(
 
 include(GNUInstallDirs)
 
-add_subdirectory(${CMAKE_SOURCE_DIR}/alcedo_studio/src/third_party)
+if(EXISTS "${CMAKE_SOURCE_DIR}/alcedo_studio/src/third_party/CMakeLists.txt")
+    add_subdirectory(${CMAKE_SOURCE_DIR}/alcedo_studio/src/third_party)
+else()
+    find_path(ALCEDO_LENSFUN_INCLUDE_DIR
+        NAMES lensfun/lensfun.h
+        PATHS ${ALCEDO_INCLUDE_HINTS})
+    find_library(ALCEDO_LENSFUN_LIBRARY
+        NAMES lensfun
+        PATHS ${ALCEDO_LIBRARY_HINTS})
+    if(NOT ALCEDO_LENSFUN_INCLUDE_DIR OR NOT ALCEDO_LENSFUN_LIBRARY)
+        message(FATAL_ERROR
+            "alcedo_studio/src/third_party/CMakeLists.txt is missing and system Lensfun "
+            "was not found. Install Homebrew package `lensfun` or restore the bundled "
+            "third-party wrapper.")
+    endif()
+    add_library(alcedo_lensfun SHARED IMPORTED GLOBAL)
+    set_target_properties(alcedo_lensfun PROPERTIES
+        IMPORTED_LOCATION "${ALCEDO_LENSFUN_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES "${ALCEDO_LENSFUN_INCLUDE_DIR}")
+    add_library(lensfun::lensfun ALIAS alcedo_lensfun)
+    get_filename_component(ALCEDO_LENSFUN_LIBRARY_DIR "${ALCEDO_LENSFUN_LIBRARY}" DIRECTORY)
+    set(ALCEDO_LENSFUN_INCLUDE_DIR "${ALCEDO_LENSFUN_INCLUDE_DIR}" CACHE INTERNAL
+        "Header directory for Lensfun.")
+    set(ALCEDO_LENSFUN_LIBRARY_DIR "${ALCEDO_LENSFUN_LIBRARY_DIR}" CACHE INTERNAL
+        "Runtime library directory for Lensfun.")
+
+    set(PUERHLAB_ULTRAHDR_AVAILABLE OFF CACHE INTERNAL
+        "Whether libultrahdr is available for this build.")
+
+    set(ALCEDO_GENERATED_THIRD_PARTY_DIR "${CMAKE_BINARY_DIR}/generated/third_party")
+    set(ALCEDO_GENERATED_METAL_INCLUDE_DIR
+        "${ALCEDO_GENERATED_THIRD_PARTY_DIR}/include")
+    file(MAKE_DIRECTORY
+        "${ALCEDO_GENERATED_METAL_INCLUDE_DIR}/puerhlab/metal")
+    file(WRITE
+        "${ALCEDO_GENERATED_METAL_INCLUDE_DIR}/puerhlab/metal/Metal.hpp"
+        "#pragma once\n\n#include <Metal/Metal.hpp>\n#include <QuartzCore/QuartzCore.hpp>\n")
+    file(WRITE
+        "${ALCEDO_GENERATED_METAL_INCLUDE_DIR}/puerhlab/metal/MetalImplementation.hpp"
+        "#pragma once\n\n#define NS_PRIVATE_IMPLEMENTATION\n#define MTL_PRIVATE_IMPLEMENTATION\n#define CA_PRIVATE_IMPLEMENTATION\n\n#include <puerhlab/metal/Metal.hpp>\n")
+    file(WRITE
+        "${ALCEDO_GENERATED_THIRD_PARTY_DIR}/puerhlab_metal_cpp_implementation.cpp"
+        "#include <puerhlab/metal/MetalImplementation.hpp>\n")
+
+    set(PUERHLAB_METALCPP_SOURCE_DIR
+        "${CMAKE_SOURCE_DIR}/alcedo_studio/src/third_party/metal-cpp"
+        CACHE PATH
+        "Path to the bundled metal-cpp source checkout.")
+    if(NOT EXISTS "${PUERHLAB_METALCPP_SOURCE_DIR}/Metal/Metal.hpp")
+        message(FATAL_ERROR
+            "metal-cpp was not found at ${PUERHLAB_METALCPP_SOURCE_DIR}. "
+            "Run scripts/ci_prepare_third_party.sh before configuring.")
+    endif()
+
+    add_library(puerhlab_metal_cpp INTERFACE)
+    target_include_directories(puerhlab_metal_cpp
+        INTERFACE "${ALCEDO_GENERATED_METAL_INCLUDE_DIR}")
+    target_include_directories(puerhlab_metal_cpp
+        SYSTEM INTERFACE "${PUERHLAB_METALCPP_SOURCE_DIR}")
+    target_compile_features(puerhlab_metal_cpp INTERFACE cxx_std_20)
+
+    if(APPLE)
+        find_library(PUERHLAB_FOUNDATION_FRAMEWORK Foundation REQUIRED)
+        find_library(PUERHLAB_QUARTZCORE_FRAMEWORK QuartzCore REQUIRED)
+        find_library(PUERHLAB_METAL_FRAMEWORK Metal REQUIRED)
+        add_library(puerhlab_metal_cpp_runtime STATIC
+            "${ALCEDO_GENERATED_THIRD_PARTY_DIR}/puerhlab_metal_cpp_implementation.cpp")
+        set_target_properties(puerhlab_metal_cpp_runtime PROPERTIES
+            AUTOMOC OFF
+            AUTOUIC OFF
+            AUTORCC OFF)
+        target_include_directories(puerhlab_metal_cpp_runtime
+            PRIVATE "${ALCEDO_GENERATED_METAL_INCLUDE_DIR}")
+        target_include_directories(puerhlab_metal_cpp_runtime
+            SYSTEM PRIVATE "${PUERHLAB_METALCPP_SOURCE_DIR}")
+        target_link_libraries(puerhlab_metal_cpp_runtime
+            PUBLIC
+                "${PUERHLAB_FOUNDATION_FRAMEWORK}"
+                "${PUERHLAB_QUARTZCORE_FRAMEWORK}"
+                "${PUERHLAB_METAL_FRAMEWORK}")
+        target_link_libraries(puerhlab_metal_cpp
+            INTERFACE
+                puerhlab_metal_cpp_runtime
+                "${PUERHLAB_FOUNDATION_FRAMEWORK}"
+                "${PUERHLAB_QUARTZCORE_FRAMEWORK}"
+                "${PUERHLAB_METAL_FRAMEWORK}")
+    endif()
+
+    add_library(puerhlab::metal_cpp ALIAS puerhlab_metal_cpp)
+    add_library(alcedo::metal_cpp ALIAS puerhlab_metal_cpp)
+endif()
 add_subdirectory(${CMAKE_SOURCE_DIR}/alcedo_studio/src)
 if(ALCEDO_BUILD_TESTS)
     add_subdirectory(${CMAKE_SOURCE_DIR}/alcedo_studio/tests)
