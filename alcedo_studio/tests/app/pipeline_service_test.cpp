@@ -146,12 +146,22 @@ TEST_F(PipelineServiceTests, LoadPipelineRepairsLensCalibEnableMismatchFromParam
     auto                pipeline_guard = pipeline_service.LoadPipeline(44);
     ASSERT_NE(pipeline_guard, nullptr);
 
-    auto& loading = pipeline_guard->pipeline_->GetStage(PipelineStageName::Image_Loading);
-    auto& global_params = pipeline_guard->pipeline_->GetGlobalParams();
-    nlohmann::json lens_params = pipeline_defaults::MakeDefaultLensCalibParams();
-    lens_params["lens_calib"]["enabled"] = false;
-    loading.SetOperator(OperatorType::LENS_CALIBRATION, lens_params, global_params);
-    loading.EnableOperator(OperatorType::LENS_CALIBRATION, true, global_params);
+    nlohmann::json serialized = pipeline_guard->pipeline_->ExportPipelineParams();
+    auto&          lens_entry = serialized["Image Loading"]["Image Loading"]["lens_calib"];
+    ASSERT_TRUE(lens_entry.is_object());
+    ASSERT_TRUE(lens_entry.contains("params"));
+    ASSERT_TRUE(lens_entry["params"].contains("lens_calib"));
+
+    lens_entry["enable"]                                  = true;
+    lens_entry["params"]["lens_calib"]["enabled"]         = false;
+    pipeline_guard->pipeline_->ImportPipelineParams(serialized);
+
+    auto op = pipeline_guard->pipeline_->GetStage(PipelineStageName::Image_Loading)
+                  .GetOperator(OperatorType::LENS_CALIBRATION);
+    ASSERT_TRUE(op.has_value());
+    ASSERT_NE(op.value(), nullptr);
+    ASSERT_TRUE(op.value()->enable_);
+    ASSERT_FALSE(op.value()->op_->GetParams()["lens_calib"].value("enabled", true));
 
     pipeline_guard->dirty_ = true;
     pipeline_service.SavePipeline(pipeline_guard);
