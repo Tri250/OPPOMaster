@@ -543,67 +543,71 @@
     </message>
     <message>
       <source>Capture</source>
-      <translation type="vanished">拍摄信息</translation>
+      <translation>拍摄信息</translation>
     </message>
     <message>
       <source>Gear</source>
-      <translation type="vanished">设备信息</translation>
+      <translation>设备信息</translation>
     </message>
     <message>
       <source>Storage</source>
-      <translation type="vanished">存储信息</translation>
+      <translation>存储信息</translation>
     </message>
     <message>
       <source>Original Size</source>
-      <translation type="vanished">原始尺寸</translation>
+      <translation>原始尺寸</translation>
     </message>
     <message>
       <source>Original Aspect Ratio</source>
-      <translation type="vanished">原始宽高比</translation>
+      <translation>原始宽高比</translation>
     </message>
     <message>
       <source>Captured At</source>
-      <translation type="vanished">拍摄时间</translation>
+      <translation>拍摄时间</translation>
     </message>
     <message>
       <source>Camera Brand</source>
-      <translation type="vanished">相机品牌</translation>
+      <translation>相机品牌</translation>
     </message>
     <message>
       <source>Camera Model</source>
-      <translation type="vanished">相机型号</translation>
+      <translation>相机型号</translation>
     </message>
     <message>
       <source>Aperture</source>
-      <translation type="vanished">光圈</translation>
+      <translation>光圈</translation>
     </message>
     <message>
       <source>Shutter</source>
-      <translation type="vanished">快门</translation>
+      <translation>快门</translation>
     </message>
     <message>
       <source>ISO</source>
-      <translation type="vanished">ISO</translation>
+      <translation>ISO</translation>
     </message>
     <message>
       <source>Focal Length</source>
-      <translation type="vanished">焦距</translation>
+      <translation>焦距</translation>
     </message>
     <message>
       <source>35mm Equivalent</source>
-      <translation type="vanished">35mm 等效焦距</translation>
+      <translation>35mm 等效焦距</translation>
     </message>
     <message>
       <source>Focus Distance</source>
-      <translation type="vanished">对焦距离</translation>
+      <translation>对焦距离</translation>
     </message>
     <message>
       <source>Rating</source>
-      <translation type="vanished">评分</translation>
+      <translation>评分</translation>
     </message>
     <message>
       <source>Source Directory</source>
-      <translation type="vanished">源目录</translation>
+      <translation>源目录</translation>
+    </message>
+    <message>
+      <source>Open in file manager</source>
+      <translation>在文件管理器中打开</translation>
     </message>
     <message>
       <source>No valid image was selected.</source>
@@ -723,7 +727,7 @@
     </message>
     <message>
       <source>(unnamed)</source>
-      <translation type="vanished">（未命名）</translation>
+      <translation>（未命名）</translation>
     </message>
     <message>
       <source>Unknown</source>

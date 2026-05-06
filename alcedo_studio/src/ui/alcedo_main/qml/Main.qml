@@ -580,6 +580,8 @@ ApplicationWindow {
     ImageDetailsDialog {
         id: imageDetailsDialog
         parent: Overlay.overlay
+        blurSource: mainContent
+        cornerRadius: root.windowCornerRadius
         titleText: root.imageDetailsData.title
         subtitleText: root.imageDetailsData.subtitle
         detailRows: root.imageDetailsData.rows
@@ -593,6 +595,15 @@ ApplicationWindow {
                 title: "",
                 subtitle: "",
                 rows: []
+            }
+        }
+
+        Connections {
+            target: languageManager
+            function onLanguageChanged() {
+                if (imageDetailsDialog.opened) {
+                    root.requestImageDetails()
+                }
             }
         }
     }

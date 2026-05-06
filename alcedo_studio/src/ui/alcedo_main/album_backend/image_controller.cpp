@@ -31,6 +31,34 @@ namespace alcedo::ui {
 namespace {
 using json = nlohmann::json;
 
+// Translation registry for image-detail dialog strings. Listed via
+// QT_TRANSLATE_NOOP so lupdate registers them under the "Alcedo" context;
+// the call sites below resolve them at runtime via Tr().
+[[maybe_unused]] constexpr auto kImageDetailsTranslationSources =
+    std::to_array<const char*>({
+        QT_TRANSLATE_NOOP("Alcedo", "(unnamed)"),
+        QT_TRANSLATE_NOOP("Alcedo", "Capture"),
+        QT_TRANSLATE_NOOP("Alcedo", "Gear"),
+        QT_TRANSLATE_NOOP("Alcedo", "Exposure"),
+        QT_TRANSLATE_NOOP("Alcedo", "Storage"),
+        QT_TRANSLATE_NOOP("Alcedo", "Original Size"),
+        QT_TRANSLATE_NOOP("Alcedo", "Original Aspect Ratio"),
+        QT_TRANSLATE_NOOP("Alcedo", "Captured At"),
+        QT_TRANSLATE_NOOP("Alcedo", "Camera Brand"),
+        QT_TRANSLATE_NOOP("Alcedo", "Camera Model"),
+        QT_TRANSLATE_NOOP("Alcedo", "Lens Brand"),
+        QT_TRANSLATE_NOOP("Alcedo", "Lens Model"),
+        QT_TRANSLATE_NOOP("Alcedo", "Aperture"),
+        QT_TRANSLATE_NOOP("Alcedo", "Shutter"),
+        QT_TRANSLATE_NOOP("Alcedo", "ISO"),
+        QT_TRANSLATE_NOOP("Alcedo", "Focal Length"),
+        QT_TRANSLATE_NOOP("Alcedo", "35mm Equivalent"),
+        QT_TRANSLATE_NOOP("Alcedo", "Focus Distance"),
+        QT_TRANSLATE_NOOP("Alcedo", "Rating"),
+        QT_TRANSLATE_NOOP("Alcedo", "Source Directory"),
+        QT_TRANSLATE_NOOP("Alcedo", "Open in file manager"),
+    });
+
 auto ToVariantIdList(const std::vector<sl_element_id_t>& ids) -> QVariantList {
   QVariantList out;
   out.reserve(static_cast<qsizetype>(ids.size()));

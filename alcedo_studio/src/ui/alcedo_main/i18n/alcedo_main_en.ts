@@ -231,35 +231,43 @@
     <name>Alcedo</name>
     <message>
         <source>Capture</source>
-        <translation type="vanished">Capture</translation>
+        <translation>Capture</translation>
     </message>
     <message>
         <source>Gear</source>
-        <translation type="vanished">Gear</translation>
+        <translation>Gear</translation>
     </message>
     <message>
         <source>Storage</source>
-        <translation type="vanished">Storage</translation>
+        <translation>Storage</translation>
     </message>
     <message>
         <source>Original Size</source>
-        <translation type="vanished">Original Size</translation>
+        <translation>Original Size</translation>
     </message>
     <message>
         <source>Original Aspect Ratio</source>
-        <translation type="vanished">Original Aspect Ratio</translation>
+        <translation>Original Aspect Ratio</translation>
     </message>
     <message>
         <source>Captured At</source>
-        <translation type="vanished">Captured At</translation>
+        <translation>Captured At</translation>
     </message>
     <message>
         <source>Camera Brand</source>
-        <translation type="vanished">Camera Brand</translation>
+        <translation>Camera Brand</translation>
     </message>
     <message>
         <source>Camera Model</source>
-        <translation type="vanished">Camera Model</translation>
+        <translation>Camera Model</translation>
+    </message>
+    <message>
+        <source>Open in file manager</source>
+        <translation>Open in file manager</translation>
+    </message>
+    <message>
+        <source>(unnamed)</source>
+        <translation>(unnamed)</translation>
     </message>
     <message>
         <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="247"/>
@@ -828,35 +836,35 @@
     </message>
     <message>
         <source>Aperture</source>
-        <translation type="vanished">Aperture</translation>
+        <translation>Aperture</translation>
     </message>
     <message>
         <source>Shutter</source>
-        <translation type="vanished">Shutter</translation>
+        <translation>Shutter</translation>
     </message>
     <message>
         <source>ISO</source>
-        <translation type="vanished">ISO</translation>
+        <translation>ISO</translation>
     </message>
     <message>
         <source>Focal Length</source>
-        <translation type="vanished">Focal Length</translation>
+        <translation>Focal Length</translation>
     </message>
     <message>
         <source>35mm Equivalent</source>
-        <translation type="vanished">35mm Equivalent</translation>
+        <translation>35mm Equivalent</translation>
     </message>
     <message>
         <source>Focus Distance</source>
-        <translation type="vanished">Focus Distance</translation>
+        <translation>Focus Distance</translation>
     </message>
     <message>
         <source>Rating</source>
-        <translation type="vanished">Rating</translation>
+        <translation>Rating</translation>
     </message>
     <message>
         <source>Source Directory</source>
-        <translation type="vanished">Source Directory</translation>
+        <translation>Source Directory</translation>
     </message>
     <message>
         <source>No valid image was selected.</source>
