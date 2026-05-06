@@ -37,6 +37,17 @@ download_file() {
 }
 
 clone_if_missing \
+  "alcedo_studio/src/third_party/lensfun" \
+  "CMakeLists.txt" \
+  "https://github.com/lensfun/lensfun.git"
+
+clone_if_missing \
+  "alcedo_studio/src/third_party/libultrahdr" \
+  "third_party/image_io/includes/image_io/base/data_segment_data_source.h" \
+  "https://github.com/google/libultrahdr.git" \
+  --recurse-submodules
+
+clone_if_missing \
   "alcedo_studio/src/third_party/metal-cpp" \
   "Metal/Metal.hpp" \
   "https://github.com/bkaradzic/metal-cpp.git"
