@@ -453,6 +453,7 @@ def_library(RawProcessorOp
     SOURCES ${RAW_OP_CPU_SRCS} ${RAW_OP_GPU_SRCS}
     PUBLIC_DEPS ImageBuffer libraw::raw_r Exiv2 hwy::hwy Eigen3::Eigen
 )
+target_link_libraries(RawProcessorOp PRIVATE OpenMP::OpenMP_CXX)
 
 if(ALCEDO_CUDA_ENABLED)
     set_target_properties(RawProcessorOp PROPERTIES CUDA_SEPARABLE_COMPILATION ON)

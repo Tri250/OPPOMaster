@@ -240,6 +240,7 @@ if(ALCEDO_BUILD_TESTS)
     FetchContent_Declare(
       googletest
       URL https://github.com/google/googletest/archive/refs/tags/v1.17.0.zip
+      DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
     # For Windows: Prevent overriding the parent project's compiler/linker settings
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
@@ -248,7 +249,25 @@ if(ALCEDO_BUILD_TESTS)
 endif()
 
 # OpenMP
-find_package(OpenMP REQUIRED)
+if(APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
+    find_program(ALCEDO_BREW_EXECUTABLE brew)
+    if(ALCEDO_BREW_EXECUTABLE)
+        execute_process(
+            COMMAND "${ALCEDO_BREW_EXECUTABLE}" --prefix libomp
+            OUTPUT_VARIABLE ALCEDO_LIBOMP_PREFIX
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET
+        )
+        if(ALCEDO_LIBOMP_PREFIX AND EXISTS "${ALCEDO_LIBOMP_PREFIX}")
+            list(PREPEND CMAKE_PREFIX_PATH "${ALCEDO_LIBOMP_PREFIX}")
+            set(OpenMP_libomp_LIBRARY "${ALCEDO_LIBOMP_PREFIX}/lib/libomp.dylib"
+                CACHE FILEPATH "Homebrew libomp runtime library")
+            set(OpenMP_CXX_INCLUDE_DIR "${ALCEDO_LIBOMP_PREFIX}/include"
+                CACHE PATH "Homebrew libomp include directory")
+        endif()
+    endif()
+endif()
+find_package(OpenMP COMPONENTS CXX REQUIRED)
 
 # Dawn (WebGPU) — Windows only for now.
 set(ALCEDO_WEBGPU_ENABLED OFF)

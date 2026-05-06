@@ -46,23 +46,6 @@
       }
     },
     {
-      "name": "win_hosted_ci",
-      "displayName": "Windows Hosted CI",
-      "description": "Windows hosted CI build without CUDA/WebGPU/OpenGL runtime requirements",
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/win-hosted-ci",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/vcpkg/scripts/buildsystems/vcpkg.cmake",
-        "ALCEDO_BUILD_TESTS": "ON",
-        "ALCEDO_BUILD_TESTS_BY_DEFAULT": "OFF",
-        "ALCEDO_BUILD_CI_TESTS": "ON",
-        "ALCEDO_ENABLE_CUDA": "OFF",
-        "ALCEDO_ENABLE_WEBGPU": "OFF",
-        "ALCEDO_ENABLE_OPENGL_EDITOR": "OFF"
-      }
-    },
-    {
       "name": "debug",
       "displayName": "Debug Build",
       "description": "Build with debug info",
@@ -171,15 +154,6 @@
       "jobs": 8
     },
     {
-      "name": "win_hosted_ci",
-      "configurePreset": "win_hosted_ci",
-      "jobs": 4,
-      "targets": [
-        "alcedo_tests_ci_core",
-        "alcedo_tests_ci_raw"
-      ]
-    },
-    {
       "name": "debug",
       "configurePreset": "debug",
       "jobs": 8
@@ -229,21 +203,6 @@
       "configurePreset": "win_release_test",
       "output": {
         "outputOnFailure": true
-      }
-    },
-    {
-      "name": "win_hosted_ci",
-      "configurePreset": "win_hosted_ci",
-      "filter": {
-        "include": {
-          "label": "ci_core_flow|ci_raw_flow"
-        }
-      },
-      "output": {
-        "outputOnFailure": true
-      },
-      "execution": {
-        "noTestsAction": "error"
       }
     },
     {
