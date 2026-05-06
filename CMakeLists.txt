@@ -639,6 +639,9 @@ add_compile_definitions(
 include(GNUInstallDirs)
 
 add_subdirectory(${CMAKE_SOURCE_DIR}/alcedo_studio/src/third_party)
+if(DEFINED ALCEDO_LENSFUN_LIBRARY_DIR AND NOT "${ALCEDO_LENSFUN_LIBRARY_DIR}" STREQUAL "")
+    list(APPEND CMAKE_BUILD_RPATH "${ALCEDO_LENSFUN_LIBRARY_DIR}")
+endif()
 add_subdirectory(${CMAKE_SOURCE_DIR}/alcedo_studio/src)
 if(ALCEDO_BUILD_TESTS)
     add_subdirectory(${CMAKE_SOURCE_DIR}/alcedo_studio/tests)
