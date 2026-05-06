@@ -579,11 +579,22 @@ endif()
 
 # DuckDB API
 if (WIN32)
-    add_library(DuckDB SHARED IMPORTED)
-    set_target_properties(DuckDB PROPERTIES
-        IMPORTED_LOCATION "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/libduckdb-windows/duckdb.dll"
-        IMPORTED_IMPLIB "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/libduckdb-windows/duckdb.lib"
-        INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/libduckdb-windows")
+    find_path(DUCKDB_INC NAMES duckdb.h PATHS ${ALCEDO_INCLUDE_HINTS})
+    find_library(DUCKDB_LIB NAMES duckdb PATHS ${ALCEDO_LIBRARY_HINTS})
+    if(DUCKDB_INC AND DUCKDB_LIB)
+        add_library(DuckDB UNKNOWN IMPORTED)
+        set_target_properties(DuckDB PROPERTIES
+            IMPORTED_LOCATION "${DUCKDB_LIB}"
+            INTERFACE_INCLUDE_DIRECTORIES "${DUCKDB_INC}")
+    elseif(EXISTS "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/libduckdb-windows/duckdb.lib")
+        add_library(DuckDB SHARED IMPORTED)
+        set_target_properties(DuckDB PROPERTIES
+            IMPORTED_LOCATION "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/libduckdb-windows/duckdb.dll"
+            IMPORTED_IMPLIB "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/libduckdb-windows/duckdb.lib"
+            INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/libduckdb-windows")
+    else()
+        message(FATAL_ERROR "DuckDB not found. Install vcpkg package `duckdb` or provide alcedo_studio/third_party/libduckdb-windows.")
+    endif()
 else()        
   find_path(DUCKDB_INC NAMES duckdb.h PATHS ${ALCEDO_INCLUDE_HINTS})
   find_library(DUCKDB_LIB NAMES duckdb PATHS ${ALCEDO_LIBRARY_HINTS})

@@ -1054,6 +1054,11 @@ third_party/exiv2-0.28.4-windows/
 **/jpg/*.jpg
 
 sample_images/
+!alcedo_studio/tests/resources/
+!alcedo_studio/tests/resources/sample_images/
+alcedo_studio/tests/resources/sample_images/**
+!alcedo_studio/tests/resources/sample_images/ci_rawfiles/
+!alcedo_studio/tests/resources/sample_images/ci_rawfiles/**
 
 *.pdf
 

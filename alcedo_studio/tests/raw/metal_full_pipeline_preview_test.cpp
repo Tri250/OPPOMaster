@@ -4,15 +4,14 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <future>
 #include <memory>
-#include <vector>
-
-#include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
+#include <vector>
 
 #include "edit/operators/operator_registeration.hpp"
 #include "edit/pipeline/pipeline_cpu.hpp"
@@ -56,13 +55,29 @@ auto ReadFileToBuffer(const std::filesystem::path& path) -> std::vector<uint8_t>
   return buffer;
 }
 
-auto StillLifeRawPath() -> std::filesystem::path {
-  return std::filesystem::path(TEST_IMG_PATH) / "raw" / "still_life" / "DSC_2674.NEF";
+auto CiRawFixturePath() -> std::filesystem::path {
+  const auto root = std::filesystem::path(TEST_IMG_PATH) / "ci_rawfiles";
+  if (!std::filesystem::exists(root)) {
+    return {};
+  }
+
+  std::vector<std::filesystem::path> paths;
+  for (const auto& entry : std::filesystem::directory_iterator(root)) {
+    if (entry.is_regular_file()) {
+      const auto ext = entry.path().extension().string();
+      if (ext == ".ARW" || ext == ".arw" || ext == ".DNG" || ext == ".dng" || ext == ".NEF" ||
+          ext == ".nef") {
+        paths.push_back(entry.path());
+      }
+    }
+  }
+  std::sort(paths.begin(), paths.end());
+  return paths.empty() ? std::filesystem::path{} : paths.front();
 }
 
 auto RenderBlocking(RenderType render_type, std::vector<uint8_t> raw_bytes)
     -> std::shared_ptr<ImageBuffer> {
-  auto pipeline = std::make_shared<CPUPipelineExecutor>();
+  auto         pipeline = std::make_shared<CPUPipelineExecutor>();
 
   PipelineTask task;
   task.pipeline_executor_                 = pipeline;
@@ -93,10 +108,9 @@ TEST(MetalFullPipelinePreview, DecodeGeometryAndMergedStageStillLife) {
   if (!MetalAvailable()) {
     GTEST_SKIP() << "Metal device is unavailable in this environment.";
   }
-  const auto raw_path = StillLifeRawPath();
-  if (!std::filesystem::exists(raw_path)) {
-    GTEST_SKIP() << "Sample RAW file is missing: " << raw_path.string();
-  }
+  const auto raw_path = CiRawFixturePath();
+  ASSERT_FALSE(raw_path.empty()) << "CI RAW fixtures missing under TEST_IMG_PATH/ci_rawfiles";
+  ASSERT_TRUE(std::filesystem::exists(raw_path)) << raw_path.string();
 
   auto raw_bytes = ReadFileToBuffer(raw_path);
   ASSERT_FALSE(raw_bytes.empty());
@@ -118,14 +132,6 @@ TEST(MetalFullPipelinePreview, DecodeGeometryAndMergedStageStillLife) {
   ASSERT_FALSE(full_cpu.empty());
   ASSERT_EQ(full_cpu.type(), CV_32FC4);
   ASSERT_EQ(full_cpu.channels(), 4);
-
-  cv::Mat preview;
-  cv::normalize(full_cpu, preview, 0.0, 1.0, cv::NORM_MINMAX);
-  cv::cvtColor(preview, preview, cv::COLOR_RGBA2BGR);
-
-  cv::namedWindow("Metal Full Pipeline Preview", cv::WINDOW_NORMAL);
-  cv::imshow("Metal Full Pipeline Preview", preview);
-  cv::waitKey(0);
 #endif
 }
 
@@ -136,10 +142,9 @@ TEST(MetalFullPipelinePreview, FastPreviewSchedulerStillProducesImage) {
   if (!MetalAvailable()) {
     GTEST_SKIP() << "Metal device is unavailable in this environment.";
   }
-  const auto raw_path = StillLifeRawPath();
-  if (!std::filesystem::exists(raw_path)) {
-    GTEST_SKIP() << "Sample RAW file is missing: " << raw_path.string();
-  }
+  const auto raw_path = CiRawFixturePath();
+  ASSERT_FALSE(raw_path.empty()) << "CI RAW fixtures missing under TEST_IMG_PATH/ci_rawfiles";
+  ASSERT_TRUE(std::filesystem::exists(raw_path)) << raw_path.string();
 
   RegisterAllOperators();
 
@@ -164,10 +169,9 @@ TEST(MetalFullPipelinePreview, ThumbnailSchedulerStillProducesImage) {
   if (!MetalAvailable()) {
     GTEST_SKIP() << "Metal device is unavailable in this environment.";
   }
-  const auto raw_path = StillLifeRawPath();
-  if (!std::filesystem::exists(raw_path)) {
-    GTEST_SKIP() << "Sample RAW file is missing: " << raw_path.string();
-  }
+  const auto raw_path = CiRawFixturePath();
+  ASSERT_FALSE(raw_path.empty()) << "CI RAW fixtures missing under TEST_IMG_PATH/ci_rawfiles";
+  ASSERT_TRUE(std::filesystem::exists(raw_path)) << raw_path.string();
 
   RegisterAllOperators();
 

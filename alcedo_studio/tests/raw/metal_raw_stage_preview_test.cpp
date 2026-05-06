@@ -4,13 +4,12 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <memory>
-#include <vector>
-
-#include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
+#include <vector>
 
 #include "edit/operators/operator_registeration.hpp"
 #include "edit/pipeline/default_pipeline_params.hpp"
@@ -41,17 +40,35 @@ auto ReadFileToBuffer(const std::filesystem::path& path) -> std::vector<uint8_t>
   return buffer;
 }
 
+auto CiRawFixturePath() -> std::filesystem::path {
+  const auto root = std::filesystem::path(TEST_IMG_PATH) / "ci_rawfiles";
+  if (!std::filesystem::exists(root)) {
+    return {};
+  }
+
+  std::vector<std::filesystem::path> paths;
+  for (const auto& entry : std::filesystem::directory_iterator(root)) {
+    if (entry.is_regular_file()) {
+      const auto ext = entry.path().extension().string();
+      if (ext == ".ARW" || ext == ".arw" || ext == ".DNG" || ext == ".dng" || ext == ".NEF" ||
+          ext == ".nef") {
+        paths.push_back(entry.path());
+      }
+    }
+  }
+  std::sort(paths.begin(), paths.end());
+  return paths.empty() ? std::filesystem::path{} : paths.front();
+}
+
 }  // namespace
 
 TEST(MetalRawStagePreview, DecodeStillLifeWithRawStageOnly) {
 #ifndef HAVE_METAL
   GTEST_SKIP() << "Metal is not enabled in this build.";
 #else
-  const auto raw_path =
-      std::filesystem::path(TEST_IMG_PATH) / "raw" / "still_life" / "DSC_2674.NEF";
-  if (!std::filesystem::exists(raw_path)) {
-    GTEST_SKIP() << "Sample RAW file is missing: " << raw_path.string();
-  }
+  const auto raw_path = CiRawFixturePath();
+  ASSERT_FALSE(raw_path.empty()) << "CI RAW fixtures missing under TEST_IMG_PATH/ci_rawfiles";
+  ASSERT_TRUE(std::filesystem::exists(raw_path)) << raw_path.string();
 
   auto raw_bytes = ReadFileToBuffer(raw_path);
   ASSERT_FALSE(raw_bytes.empty());
@@ -61,7 +78,7 @@ TEST(MetalRawStagePreview, DecodeStillLifeWithRawStageOnly) {
   OperatorParams global_params;
   PipelineStage  raw_stage(PipelineStageName::Image_Loading, false, false);
 
-  nlohmann::json decode_params = pipeline_defaults::MakeDefaultRawDecodeParams();
+  nlohmann::json decode_params                   = pipeline_defaults::MakeDefaultRawDecodeParams();
   decode_params["raw"]["gpu_backend"]            = "gpu";
   decode_params["raw"]["backend"]                = "alcedo";
   decode_params["raw"]["highlights_reconstruct"] = false;
@@ -81,14 +98,6 @@ TEST(MetalRawStagePreview, DecodeStillLifeWithRawStageOnly) {
   ASSERT_FALSE(raw_cpu.empty());
   EXPECT_EQ(raw_cpu.type(), CV_32FC4);
   EXPECT_EQ(raw_cpu.channels(), 4);
-
-  cv::Mat preview;
-  cv::normalize(raw_cpu, preview, 0.0, 1.0, cv::NORM_MINMAX);
-  cv::cvtColor(preview, preview, cv::COLOR_RGBA2BGR);
-
-  cv::namedWindow("Metal RAW Stage Preview", cv::WINDOW_NORMAL);
-  cv::imshow("Metal RAW Stage Preview", preview);
-  cv::waitKey(0);
 #endif
 }
 

@@ -28,6 +28,7 @@ option(ALCEDO_BUILD_UI_TESTS "Enable Qt/UI test category targets." ON)
 option(ALCEDO_BUILD_APP_TESTS "Enable application service test category targets." ON)
 option(ALCEDO_BUILD_STORAGE_TESTS "Enable storage/Sleeve test category targets." ON)
 option(ALCEDO_BUILD_DEMO_TARGETS "Enable GUI/demo target category targets." OFF)
+option(ALCEDO_BUILD_CI_TESTS "Enable zero-extra-cost GitHub CI test targets." OFF)
 option(ALCEDO_ENABLE_CUDA_IMAGE_GEOMETRY_OPS_TEST
        "Enable CudaImageGeometryOpsTest discovery and execution." ON)
 option(ALCEDO_ENABLE_CUDA_PREVIEW_VRAM_RECLAMATION_TEST
@@ -44,6 +45,9 @@ add_custom_target(alcedo_tests_ui)
 add_custom_target(alcedo_tests_app)
 add_custom_target(alcedo_tests_storage)
 add_custom_target(alcedo_tests_demos)
+add_custom_target(alcedo_tests_ci_core)
+add_custom_target(alcedo_tests_ci_raw)
+add_custom_target(alcedo_tests_ci_metal)
 
 function(alcedo_assign_test_category category option_name category_target)
   foreach(test_target IN LISTS ARGN)
@@ -147,22 +151,26 @@ if(ALCEDO_METAL_ENABLED)
   add_executable(MetalUtilsTest metal/metal_utils_test.cpp)
   target_include_directories(MetalUtilsTest PUBLIC ${ALCEDO_INCLUDE_DIR})
   target_link_libraries(MetalUtilsTest PRIVATE GTest::gtest_main MetalImage MetalUtils ${ALCEDO_TEST_OPENCV_MIN_DEPS})
-  gtest_discover_tests(MetalUtilsTest TEST_PREFIX "MetalUtilsTest.")
+  gtest_discover_tests(MetalUtilsTest TEST_PREFIX "MetalUtilsTest."
+    PROPERTIES LABELS "ci_metal_runtime")
 
   add_executable(MetalRawOpsTest raw/metal_raw_ops_test.cpp)
   target_include_directories(MetalRawOpsTest PUBLIC ${ALCEDO_INCLUDE_DIR})
   target_link_libraries(MetalRawOpsTest PRIVATE GTest::gtest_main RawProcessorOp ${ALCEDO_TEST_OPENCV_MIN_DEPS})
-  gtest_discover_tests(MetalRawOpsTest TEST_PREFIX "MetalRawOpsTest.")
+  gtest_discover_tests(MetalRawOpsTest TEST_PREFIX "MetalRawOpsTest."
+    PROPERTIES LABELS "ci_metal_runtime")
 
   add_executable(MetalRawStagePreviewTest raw/metal_raw_stage_preview_test.cpp)
   target_include_directories(MetalRawStagePreviewTest PUBLIC ${ALCEDO_INCLUDE_DIR})
   target_link_libraries(MetalRawStagePreviewTest PRIVATE GTest::gtest_main EditPipeline RawProcessor ThreadPool opencv_highgui ${ALCEDO_TEST_OPENCV_MIN_DEPS})
-  gtest_discover_tests(MetalRawStagePreviewTest TEST_PREFIX "MetalRawStagePreviewTest.")
+  gtest_discover_tests(MetalRawStagePreviewTest TEST_PREFIX "MetalRawStagePreviewTest."
+    PROPERTIES LABELS "ci_metal_runtime")
 
   add_executable(MetalFullPipelinePreviewTest raw/metal_full_pipeline_preview_test.cpp)
   target_include_directories(MetalFullPipelinePreviewTest PUBLIC ${ALCEDO_INCLUDE_DIR})
   target_link_libraries(MetalFullPipelinePreviewTest PRIVATE GTest::gtest_main EditPipeline RawProcessor PipelineScheduler ThreadPool opencv_highgui ${ALCEDO_TEST_OPENCV_MIN_DEPS})
-  gtest_discover_tests(MetalFullPipelinePreviewTest TEST_PREFIX "MetalFullPipelinePreviewTest.")
+  gtest_discover_tests(MetalFullPipelinePreviewTest TEST_PREFIX "MetalFullPipelinePreviewTest."
+    PROPERTIES LABELS "ci_metal_runtime")
 endif()
 
 if(ALCEDO_WEBGPU_ENABLED)
@@ -295,7 +303,8 @@ gtest_discover_tests(LutCatalogTest TEST_PREFIX "LutCatalogTest.")
 add_executable(CropRotateOpTest edit/operators/geometry/crop_rotate_op_test.cpp)
 target_include_directories(CropRotateOpTest PUBLIC ${ALCEDO_INCLUDE_DIR})
 target_link_libraries(CropRotateOpTest PRIVATE GTest::gtest_main Operators ${ALCEDO_TEST_OPENCV_MIN_DEPS})
-gtest_discover_tests(CropRotateOpTest TEST_PREFIX "CropRotateOpTest.")
+gtest_discover_tests(CropRotateOpTest TEST_PREFIX "CropRotateOpTest."
+  PROPERTIES LABELS "ci_core_flow")
 
 if(ALCEDO_CUDA_ENABLED)
   add_executable(ODTCudaSmokeTest edit/operators/cst/odt_cuda_smoke_test.cu)
@@ -404,7 +413,8 @@ endif()
 add_executable(PipelineServiceTest app/pipeline_service_test.cpp)
 target_include_directories(PipelineServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
 target_link_libraries(PipelineServiceTest ProjectService PipelineMgmtService GTest::gtest_main)
-gtest_discover_tests(PipelineServiceTest TEST_PREFIX "PipelineServiceTest.")
+gtest_discover_tests(PipelineServiceTest TEST_PREFIX "PipelineServiceTest."
+  PROPERTIES LABELS "ci_core_flow")
 
 if(WIN32)
   target_link_libraries(PipelineServiceTest)
@@ -413,7 +423,8 @@ endif()
 add_executable(EditHistoryMgmtServiceTest app/history_mgmt_service_test.cpp)
 target_include_directories(EditHistoryMgmtServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
 target_link_libraries(EditHistoryMgmtServiceTest ProjectService EditHistoryMgmtService GTest::gtest_main)
-gtest_discover_tests(EditHistoryMgmtServiceTest TEST_PREFIX "EditHistoryMgmtServiceTest.")
+gtest_discover_tests(EditHistoryMgmtServiceTest TEST_PREFIX "EditHistoryMgmtServiceTest."
+  PROPERTIES LABELS "ci_core_flow")
 
 if(WIN32)
   target_link_libraries(EditHistoryMgmtServiceTest)
@@ -472,6 +483,21 @@ add_executable(ImagePathEncodingTest io/image_path_encoding_test.cpp)
 target_include_directories(ImagePathEncodingTest PUBLIC ${ALCEDO_INCLUDE_DIR})
 target_link_libraries(ImagePathEncodingTest PRIVATE GTest::gtest_main ImageLoader StorageService)
 gtest_discover_tests(ImagePathEncodingTest TEST_PREFIX "ImagePathEncodingTest.")
+
+add_executable(CiRawWorkflowTest ci/ci_raw_workflow_test.cpp)
+target_include_directories(CiRawWorkflowTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(CiRawWorkflowTest
+  PRIVATE
+    GTest::gtest_main
+    ProjectService
+    ImportService
+    EditPipeline
+    PipelineScheduler
+    ThreadPool
+    ${ALCEDO_TEST_OPENCV_MIN_DEPS}
+)
+gtest_discover_tests(CiRawWorkflowTest TEST_PREFIX "CiRawWorkflowTest."
+  PROPERTIES LABELS "ci_raw_flow")
 
 add_executable(ThumbnailAlbumQtDemo app/thumbnail_album_qt_demo.cpp)
 target_include_directories(ThumbnailAlbumQtDemo PUBLIC ${ALCEDO_INCLUDE_DIR})
@@ -544,7 +570,12 @@ macro(def_ui_test TARGET_NAME SOURCE_FILE)
             Qt6::Core
     )
     include(GoogleTest)
-    gtest_discover_tests(${TARGET_NAME} TEST_PREFIX "${TARGET_NAME}.")
+    if(ARGN)
+        gtest_discover_tests(${TARGET_NAME} TEST_PREFIX "${TARGET_NAME}."
+            PROPERTIES LABELS "${ARGN}")
+    else()
+        gtest_discover_tests(${TARGET_NAME} TEST_PREFIX "${TARGET_NAME}.")
+    endif()
 endmacro()
 
 def_ui_test(AlbumBackendImportTest   album_backend_import_test.cpp)
@@ -554,6 +585,7 @@ def_ui_test(AlbumBackendImageDeleteTest album_backend_image_delete_test.cpp)
 def_ui_test(AlbumBackendImageDetailsTest album_backend_image_details_test.cpp)
 def_ui_test(AlbumBackendThumbnailTest album_backend_thumbnail_test.cpp)
 def_ui_test(AlbumBackendI18nTest album_backend_i18n_test.cpp)
+def_ui_test(AlbumBackendCiWorkflowTest album_backend_ci_workflow_test.cpp "ci_raw_flow")
 
 add_executable(LanguageManagerTest
     ui/language_manager_test.cpp
@@ -650,4 +682,22 @@ alcedo_assign_test_category(demos ALCEDO_BUILD_DEMO_TARGETS alcedo_tests_demos
   ThumbnailAlbumQtDemo
   CompleteUIDemo
   DngMetadataBenchmark
+)
+
+alcedo_assign_test_category(ci_core ALCEDO_BUILD_CI_TESTS alcedo_tests_ci_core
+  PipelineServiceTest
+  EditHistoryMgmtServiceTest
+  CropRotateOpTest
+)
+
+alcedo_assign_test_category(ci_raw ALCEDO_BUILD_CI_TESTS alcedo_tests_ci_raw
+  CiRawWorkflowTest
+  AlbumBackendCiWorkflowTest
+)
+
+alcedo_assign_test_category(ci_metal ALCEDO_BUILD_CI_TESTS alcedo_tests_ci_metal
+  MetalUtilsTest
+  MetalRawOpsTest
+  MetalRawStagePreviewTest
+  MetalFullPipelinePreviewTest
 )

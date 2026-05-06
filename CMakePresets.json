@@ -46,6 +46,23 @@
       }
     },
     {
+      "name": "win_hosted_ci",
+      "displayName": "Windows Hosted CI",
+      "description": "Windows hosted CI build without CUDA/WebGPU/OpenGL runtime requirements",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/win-hosted-ci",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/vcpkg/scripts/buildsystems/vcpkg.cmake",
+        "ALCEDO_BUILD_TESTS": "ON",
+        "ALCEDO_BUILD_TESTS_BY_DEFAULT": "OFF",
+        "ALCEDO_BUILD_CI_TESTS": "ON",
+        "ALCEDO_ENABLE_CUDA": "OFF",
+        "ALCEDO_ENABLE_WEBGPU": "OFF",
+        "ALCEDO_ENABLE_OPENGL_EDITOR": "OFF"
+      }
+    },
+    {
       "name": "debug",
       "displayName": "Debug Build",
       "description": "Build with debug info",
@@ -96,6 +113,26 @@
       }
     },
     {
+      "name": "macos_arm_metal_ci",
+      "displayName": "macOS arm64 Metal CI",
+      "description": "macOS arm64 CI build with Metal enabled and headless tests",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/macos-arm-metal-ci",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "ALCEDO_ENABLE_CUDA": "OFF",
+        "ALCEDO_ENABLE_METAL": "ON",
+        "ALCEDO_ENABLE_WEBGPU": "OFF",
+        "ALCEDO_ENABLE_OPENGL_EDITOR": "OFF",
+        "ALCEDO_BUILD_TESTS": "ON",
+        "ALCEDO_BUILD_TESTS_BY_DEFAULT": "OFF",
+        "ALCEDO_BUILD_CI_TESTS": "ON",
+        "ALCEDO_MACOS_BUNDLE": "OFF",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "13.3"
+      }
+    },
+    {
       "name": "macos_release",
       "displayName": "macOS Release",
       "description": "macOS: Metal-enabled app build without the legacy OpenGL editor",
@@ -134,6 +171,15 @@
       "jobs": 8
     },
     {
+      "name": "win_hosted_ci",
+      "configurePreset": "win_hosted_ci",
+      "jobs": 4,
+      "targets": [
+        "alcedo_tests_ci_core",
+        "alcedo_tests_ci_raw"
+      ]
+    },
+    {
       "name": "debug",
       "configurePreset": "debug",
       "jobs": 8
@@ -152,6 +198,16 @@
       "name": "macos_debug_tests",
       "configurePreset": "macos_debug_tests",
       "jobs": 8
+    },
+    {
+      "name": "macos_arm_metal_ci",
+      "configurePreset": "macos_arm_metal_ci",
+      "jobs": 4,
+      "targets": [
+        "alcedo_tests_ci_core",
+        "alcedo_tests_ci_raw",
+        "alcedo_tests_ci_metal"
+      ]
     },
     {
       "name": "macos_release",
@@ -176,10 +232,40 @@
       }
     },
     {
+      "name": "win_hosted_ci",
+      "configurePreset": "win_hosted_ci",
+      "filter": {
+        "include": {
+          "label": "ci_core_flow|ci_raw_flow"
+        }
+      },
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
       "name": "macos_debug_tests",
       "configurePreset": "macos_debug_tests",
       "output": {
         "outputOnFailure": true
+      }
+    },
+    {
+      "name": "macos_arm_metal_ci",
+      "configurePreset": "macos_arm_metal_ci",
+      "filter": {
+        "include": {
+          "label": "ci_core_flow|ci_raw_flow|ci_metal_runtime"
+        }
+      },
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
       }
     }
   ]
