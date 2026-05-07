@@ -5,6 +5,7 @@
 #include "edit/pipeline/pipeline_cpu.hpp"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <iomanip>
 #include <iostream>
@@ -38,6 +39,46 @@ auto FormatDurationMs(const double duration_ms) -> std::string {
   std::ostringstream oss;
   oss << std::fixed << std::setprecision(2) << duration_ms << " ms";
   return oss.str();
+}
+
+void SetCleanBaselineAdjustableOperators(
+    std::array<PipelineStage, static_cast<int>(PipelineStageName::Stage_Count)>& stages,
+    OperatorParams& global_params) {
+  const nlohmann::json baseline = pipeline_defaults::MakeCleanBaselineAdjustableParams();
+
+  auto set_enabled = [&](PipelineStageName stage_name, OperatorType op_type,
+                         const nlohmann::json& params, bool enabled = true) {
+    auto& stage = stages[static_cast<int>(stage_name)];
+    stage.SetOperator(op_type, params, global_params);
+    stage.EnableOperator(op_type, enabled, global_params);
+  };
+
+  set_enabled(PipelineStageName::Geometry_Adjustment, OperatorType::CROP_ROTATE,
+              baseline.at("crop_rotate"), false);
+
+  set_enabled(PipelineStageName::Basic_Adjustment, OperatorType::EXPOSURE, baseline.at("exposure"));
+  set_enabled(PipelineStageName::Basic_Adjustment, OperatorType::CONTRAST, baseline.at("contrast"));
+  set_enabled(PipelineStageName::Basic_Adjustment, OperatorType::WHITE, baseline.at("white"));
+  set_enabled(PipelineStageName::Basic_Adjustment, OperatorType::BLACK, baseline.at("black"));
+  set_enabled(PipelineStageName::Basic_Adjustment, OperatorType::HIGHLIGHTS,
+              baseline.at("highlights"));
+  set_enabled(PipelineStageName::Basic_Adjustment, OperatorType::SHADOWS, baseline.at("shadows"));
+  set_enabled(PipelineStageName::Basic_Adjustment, OperatorType::CURVE, baseline.at("curve"));
+
+  set_enabled(PipelineStageName::Color_Adjustment, OperatorType::SATURATION,
+              baseline.at("saturation"));
+  set_enabled(PipelineStageName::Color_Adjustment, OperatorType::VIBRANCE, baseline.at("vibrance"));
+  set_enabled(PipelineStageName::Color_Adjustment, OperatorType::HLS, baseline.at("HLS"));
+  set_enabled(PipelineStageName::Color_Adjustment, OperatorType::COLOR_WHEEL,
+              baseline.at("color_wheel"));
+  auto& color_stage = stages[static_cast<int>(PipelineStageName::Color_Adjustment)];
+  color_stage.EnableOperator(OperatorType::LMT, true);
+  color_stage.SetOperator(OperatorType::LMT, baseline.at("ocio_lmt"), global_params);
+
+  set_enabled(PipelineStageName::Detail_Adjustment, OperatorType::SHARPEN, baseline.at("sharpen"));
+  set_enabled(PipelineStageName::Detail_Adjustment, OperatorType::CLARITY, baseline.at("clarity"));
+
+  set_enabled(PipelineStageName::Output_Transform, OperatorType::ODT, baseline.at("odt"));
 }
 
 void PrintPipelineProfile(const ProfileClock::time_point apply_start,
@@ -424,25 +465,11 @@ void CPUPipelineExecutor::SetNextFramePreviewMetadata(const FramePreviewMetadata
 void CPUPipelineExecutor::RegisterAllOperators() {
   // It is really silly to hardcode the operators here.
   // I should keep things more flexible in the future.
+  SetCleanBaselineAdjustableOperators(stages_, global_params_);
+}
 
-  auto& basic_adjustment_stage = stages_[static_cast<int>(PipelineStageName::Basic_Adjustment)];
-  basic_adjustment_stage.SetOperator(OperatorType::EXPOSURE, {{"exposure", 1.5f}}, global_params_);
-  basic_adjustment_stage.SetOperator(OperatorType::CONTRAST, {}, global_params_);
-  basic_adjustment_stage.SetOperator(OperatorType::WHITE, {}, global_params_);
-  basic_adjustment_stage.SetOperator(OperatorType::BLACK, {}, global_params_);
-  basic_adjustment_stage.SetOperator(OperatorType::HIGHLIGHTS, {}, global_params_);
-  basic_adjustment_stage.SetOperator(OperatorType::SHADOWS, {}, global_params_);
-  basic_adjustment_stage.SetOperator(OperatorType::CURVE, {}, global_params_);
-
-  auto& color_adjustment_stage = stages_[static_cast<int>(PipelineStageName::Color_Adjustment)];
-  color_adjustment_stage.SetOperator(OperatorType::SATURATION, {{"saturation", 30.0f}}, global_params_);
-  color_adjustment_stage.SetOperator(OperatorType::VIBRANCE, {}, global_params_);
-  color_adjustment_stage.SetOperator(OperatorType::HLS, {}, global_params_);
-  color_adjustment_stage.SetOperator(OperatorType::COLOR_WHEEL, {}, global_params_);
-
-  auto& detail_adjustment_stage = stages_[static_cast<int>(PipelineStageName::Detail_Adjustment)];
-  detail_adjustment_stage.SetOperator(OperatorType::SHARPEN, {}, global_params_);
-  detail_adjustment_stage.SetOperator(OperatorType::CLARITY, {}, global_params_);
+void CPUPipelineExecutor::ResetToCleanBaselineAdjustments() {
+  SetCleanBaselineAdjustableOperators(stages_, global_params_);
 }
 
 void CPUPipelineExecutor::SetTemplateParams() {
@@ -486,6 +513,9 @@ void CPUPipelineExecutor::InjectRawMetadata(const RawRuntimeColorContext& ctx) {
       raw_op->SetPrePopulatedContext(ctx);
     }
   }
+
+  stages_[static_cast<int>(PipelineStageName::Image_Loading)].RefreshGlobalParams(global_params_);
+  stages_[static_cast<int>(PipelineStageName::To_WorkingSpace)].RefreshGlobalParams(global_params_);
 }
 
 void CPUPipelineExecutor::ClearAllIntermediateBuffers() {
