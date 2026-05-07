@@ -6,11 +6,13 @@
 
 #include <string>
 
+#include "edit/pipeline/default_pipeline_params.hpp"
+
 namespace alcedo::ui {
 
 struct RawDecodeAdjustmentState {
   bool raw_highlights_reconstruct_ = true;
-  bool lens_calib_enabled_ = true;
+  bool lens_calib_enabled_ = pipeline_defaults::kCleanBaselineLensCalibEnabled;
   std::string lens_override_make_{};
   std::string lens_override_model_{};
 };
