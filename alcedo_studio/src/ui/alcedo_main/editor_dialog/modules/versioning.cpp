@@ -312,11 +312,6 @@ void UpdateVersionUi(const VersionUiContext& ui, const Version& working_version,
   }
 
   if (ui.version_log) {
-    QString prev_selected_id;
-    if (auto* cur = ui.version_log->currentItem()) {
-      prev_selected_id = cur->data(Qt::UserRole).toString();
-    }
-
     ui.version_log->clear();
     if (history_guard && history_guard->history_) {
       const auto& tree = history_guard->history_->GetCommitTree();
@@ -458,11 +453,10 @@ void UpdateVersionUi(const VersionUiContext& ui, const Version& working_version,
 
         ui.version_log->setItemWidget(item, card);
 
-        const QString ver_id_str = QString::fromStdString(ver_id.ToString());
-        if (!prev_selected_id.isEmpty() && ver_id_str == prev_selected_id) {
+        if (is_base) {
           ui.version_log->setCurrentItem(item);
           item->setSelected(true);
-        } else if (prev_selected_id.isEmpty() && is_head) {
+        } else if (!working_version.HasParentVersion() && is_head) {
           ui.version_log->setCurrentItem(item);
           item->setSelected(true);
         }
