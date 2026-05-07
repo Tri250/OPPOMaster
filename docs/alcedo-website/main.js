@@ -72,6 +72,7 @@ const translations = {
     'cta.desc': 'Alcedo Studio 完全开源免费，无需订阅，没有功能限制。下载即可使用全部专业功能。',
     'cta.win': 'Windows 版下载',
     'cta.mac': 'macOS 版下载',
+    'cta.baidu': '网盘分流',
     'cta.note': '支持 CUDA (NVIDIA) 与 Metal (Apple Silicon) GPU 加速',
     'footer.tagline': '自由创作，从 Alcedo 开始',
     'footer.copy': ' Alcedo Studio. 开源软件，自由使用。'
@@ -144,6 +145,7 @@ const translations = {
     'cta.desc': 'Alcedo Studio is completely free and open-source. No subscription, no feature limits. Download and access all professional features immediately.',
     'cta.win': 'Download for Windows',
     'cta.mac': 'Download for macOS',
+    'cta.baidu': 'Baidu Wangpan Download ',
     'cta.note': 'Accelerated by CUDA (NVIDIA) and Metal (Apple Silicon)',
     'footer.tagline': 'Create freely, start with Alcedo',
     'footer.copy': ' Alcedo Studio. Open source, free to use.'
