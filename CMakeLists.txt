@@ -260,10 +260,11 @@ if(APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
         )
         if(ALCEDO_LIBOMP_PREFIX AND EXISTS "${ALCEDO_LIBOMP_PREFIX}")
             list(PREPEND CMAKE_PREFIX_PATH "${ALCEDO_LIBOMP_PREFIX}")
+            # Keep stale CMake caches from linking a second libomp from /usr/local.
             set(OpenMP_libomp_LIBRARY "${ALCEDO_LIBOMP_PREFIX}/lib/libomp.dylib"
-                CACHE FILEPATH "Homebrew libomp runtime library")
+                CACHE FILEPATH "Homebrew libomp runtime library" FORCE)
             set(OpenMP_CXX_INCLUDE_DIR "${ALCEDO_LIBOMP_PREFIX}/include"
-                CACHE PATH "Homebrew libomp include directory")
+                CACHE PATH "Homebrew libomp include directory" FORCE)
         endif()
     endif()
 endif()
