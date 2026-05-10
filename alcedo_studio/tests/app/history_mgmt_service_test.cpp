@@ -13,6 +13,7 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <tuple>
 
 #include "app/project_service.hpp"
 #include "edit/history/edit_history.hpp"
@@ -54,32 +55,103 @@ class EditHistoryMgmtServiceTests : public ::testing::Test {
     }
   }
 
-  static auto MakeVersionWithTwoTransactions(sl_element_id_t file_id, float exposure, float contrast)
-      -> Version {
-    Version v{file_id};
-    v.SetBasePipelineExecutor(std::make_shared<CPUPipelineExecutor>());
+  static auto MakeWorkingVersionWithTwoTransactions(EditHistory& history, sl_element_id_t file_id,
+                                                    float exposure, float contrast)
+      -> std::tuple<WorkingVersion, nlohmann::json, nlohmann::json> {
+    auto base_params = history.GetRootVersion().GetFinalPipelineParams().value_or(nlohmann::json::object());
+    CPUPipelineExecutor exec;
+    exec.ImportPipelineParams(base_params);
+
+    WorkingVersion working{file_id, history.GetRootVersionID(), base_params};
 
     EditTransaction tx1{TransactionType::_ADD,
                         OperatorType::EXPOSURE,
                         PipelineStageName::Basic_Adjustment,
-                        {{"exposure", exposure}}};
-    v.AppendEditTransaction(std::move(tx1));
+                        nlohmann::json(nullptr),
+                        nlohmann::json{{"exposure", exposure}},
+                        false,
+                        true};
+    tx1.ApplyForward(exec);
+    working.AppendEditTransaction(std::move(tx1));
 
-    const tx_id_t parent_id = v.GetTransactionByID(1).GetTransactionID();
     EditTransaction tx2{TransactionType::_ADD,
                         OperatorType::CONTRAST,
                         PipelineStageName::Basic_Adjustment,
-                        {{"contrast", contrast}},
-                        parent_id};
-    v.AppendEditTransaction(std::move(tx2));
+                        nlohmann::json(nullptr),
+                        nlohmann::json{{"contrast", contrast}},
+                        false,
+                        true};
+    tx2.ApplyForward(exec);
+    working.AppendEditTransaction(std::move(tx2));
+    const auto head_params = exec.ExportPipelineParams();
+    working.SetHeadPipelineParams(head_params);
 
-    return v;
+    return {std::move(working), base_params, head_params};
   }
 };
 
 TEST_F(EditHistoryMgmtServiceTests, InitTest) {
   ProjectService project(db_path_, meta_path_);
   EXPECT_NO_THROW(EditHistoryMgmtService history_service(project.GetStorageService()));
+}
+
+TEST_F(EditHistoryMgmtServiceTests, WorkingVersionUndoRedoAndRedoTruncation) {
+  constexpr sl_element_id_t file_id = 7;
+  EditHistory history(file_id);
+  CPUPipelineExecutor exec;
+
+  auto& stage = exec.GetStage(PipelineStageName::Basic_Adjustment);
+  auto op = stage.GetOperator(OperatorType::EXPOSURE);
+  ASSERT_TRUE(op.has_value());
+  ASSERT_NE(op.value(), nullptr);
+
+  const auto before_params = op.value()->op_->GetParams();
+  const bool before_enabled = op.value()->enable_;
+  EditTransaction exposure_tx{TransactionType::_EDIT,
+                              OperatorType::EXPOSURE,
+                              PipelineStageName::Basic_Adjustment,
+                              before_params,
+                              nlohmann::json{{"exposure", 2.0f}},
+                              before_enabled,
+                              true};
+
+  WorkingVersion working(file_id, history.GetRootVersionID(), exec.ExportPipelineParams());
+  ASSERT_TRUE(exposure_tx.ApplyForward(exec));
+  working.AppendEditTransaction(std::move(exposure_tx));
+  working.SetHeadPipelineParams(exec.ExportPipelineParams());
+  EXPECT_EQ(working.GetAppliedTransactionCount(), 1U);
+  EXPECT_FLOAT_EQ(stage.GetOperator(OperatorType::EXPOSURE)
+                      .value()
+                      ->op_->GetParams()["exposure"]
+                      .get<float>(),
+                  2.0f);
+
+  ASSERT_TRUE(working.UndoLastTransaction(exec));
+  EXPECT_EQ(working.GetAppliedTransactionCount(), 0U);
+  EXPECT_EQ(stage.GetOperator(OperatorType::EXPOSURE).value()->enable_, before_enabled);
+  EXPECT_EQ(stage.GetOperator(OperatorType::EXPOSURE).value()->op_->GetParams(), before_params);
+
+  ASSERT_TRUE(working.RedoNextTransaction(exec));
+  EXPECT_EQ(working.GetAppliedTransactionCount(), 1U);
+  EXPECT_FLOAT_EQ(stage.GetOperator(OperatorType::EXPOSURE)
+                      .value()
+                      ->op_->GetParams()["exposure"]
+                      .get<float>(),
+                  2.0f);
+
+  ASSERT_TRUE(working.UndoLastTransaction(exec));
+  EditTransaction contrast_tx{TransactionType::_EDIT,
+                              OperatorType::CONTRAST,
+                              PipelineStageName::Basic_Adjustment,
+                              stage.GetOperator(OperatorType::CONTRAST).value()->op_->GetParams(),
+                              nlohmann::json{{"contrast", 0.5f}},
+                              stage.GetOperator(OperatorType::CONTRAST).value()->enable_,
+                              true};
+  ASSERT_TRUE(contrast_tx.ApplyForward(exec));
+  working.AppendEditTransaction(std::move(contrast_tx));
+  EXPECT_EQ(working.GetAppliedTransactionCount(), 1U);
+  EXPECT_EQ(working.GetAllEditTransactions().size(), 1U);
+  EXPECT_FALSE(working.RedoNextTransaction(exec));
 }
 
 TEST_F(EditHistoryMgmtServiceTests, BasicHistoryRWTest) {
@@ -100,8 +172,10 @@ TEST_F(EditHistoryMgmtServiceTests, BasicHistoryRWTest) {
     EXPECT_FALSE(history_guard->dirty_);
 
     // Commit a version using the same patterns as edit/history tests.
-    auto v1 = MakeVersionWithTwoTransactions(file_id, 1.0f, 2.2f);
-    committed_id = history_service.CommitVersion(history_guard, std::move(v1));
+    auto [v1, base_params, head_params] =
+        MakeWorkingVersionWithTwoTransactions(*history_guard->history_, file_id, 1.0f, 2.2f);
+    committed_id = history_service.CommitVersion(history_guard, std::move(v1), base_params,
+                                                 head_params);
     EXPECT_NO_THROW((void)history_guard->history_->GetVersion(committed_id));
     EXPECT_TRUE(history_guard->dirty_);
 
@@ -153,8 +227,10 @@ TEST_F(EditHistoryMgmtServiceTests, SyncPersistsDirtyHistoryWithoutSave) {
     // Ensure a different timestamp path is exercised.
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
 
-    auto v1 = MakeVersionWithTwoTransactions(file_id, 0.3f, 0.8f);
-    committed_id = history_service.CommitVersion(history_guard, std::move(v1));
+    auto [v1, base_params, head_params] =
+        MakeWorkingVersionWithTwoTransactions(*history_guard->history_, file_id, 0.3f, 0.8f);
+    committed_id = history_service.CommitVersion(history_guard, std::move(v1), base_params,
+                                                 head_params);
     EXPECT_TRUE(history_guard->dirty_);
 
     history_service.Sync();

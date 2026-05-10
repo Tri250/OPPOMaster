@@ -105,7 +105,9 @@ auto EditHistoryMgmtService::LoadHistory(sl_element_id_t file_id)
 }
 
 auto EditHistoryMgmtService::CommitVersion(const std::shared_ptr<EditHistoryGuard>& history_guard,
-                                          Version&&                                version)
+                                          WorkingVersion&&                         working_version,
+                                          const nlohmann::json&                    base_pipeline_params,
+                                          const nlohmann::json&                    head_pipeline_params)
     -> history_id_t {
   if (!history_guard || !history_guard->history_) {
     throw std::runtime_error("[ERROR] EditHistoryMgmtService: CommitVersion called with null guard");
@@ -121,6 +123,28 @@ auto EditHistoryMgmtService::CommitVersion(const std::shared_ptr<EditHistoryGuar
     HandleEviction(evicted.value());
   }
 
+  cached_histories_[file_id] = history_guard;
+  history_guard->pinned_     = true;
+
+  const history_id_t committed_id = history_guard->history_->CommitWorkingVersion(
+      std::move(working_version), base_pipeline_params, head_pipeline_params);
+  history_guard->dirty_           = true;
+  return committed_id;
+}
+
+auto EditHistoryMgmtService::CommitVersion(const std::shared_ptr<EditHistoryGuard>& history_guard,
+                                          Version&&                                version)
+    -> history_id_t {
+  if (!history_guard || !history_guard->history_) {
+    throw std::runtime_error("[ERROR] EditHistoryMgmtService: CommitVersion called with null guard");
+  }
+
+  std::unique_lock<std::mutex> guard(lock_);
+  const sl_element_id_t file_id = history_guard->file_id_;
+  std::optional<sl_element_id_t> evicted = cache_.RecordAccess_WithEvict(file_id, file_id);
+  if (evicted.has_value()) {
+    HandleEviction(evicted.value());
+  }
   cached_histories_[file_id] = history_guard;
   history_guard->pinned_     = true;
 

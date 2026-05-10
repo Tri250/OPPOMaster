@@ -92,6 +92,22 @@ static auto ResolveStageEnableForParams(OperatorType type, const nlohmann::json&
   }
   return true;
 }
+
+static auto ParamsArePresent(const nlohmann::json& params) -> bool {
+  return !params.is_null();
+}
+
+static auto ApplyOperatorState(PipelineExecutor& pipeline, PipelineStageName stage_name,
+                               OperatorType operator_type, const nlohmann::json& params,
+                               bool enabled) -> bool {
+  auto& stage         = pipeline.GetStage(stage_name);
+  auto& global_params = pipeline.GetGlobalParams();
+  if (ParamsArePresent(params)) {
+    stage.SetOperator(operator_type, params, global_params);
+  }
+  stage.EnableOperator(operator_type, enabled, global_params);
+  return true;
+}
 }  // namespace
 
 auto EditTransaction::TransactionTypeToString(TransactionType type) -> const char* {
@@ -200,21 +216,20 @@ auto EditTransaction::Describe(bool include_params, std::size_t max_params_chars
     return oss.str();
   }
 
-  if (!operator_params_.is_object()) {
-    oss << " " << TruncateForUi(operator_params_.dump(), max_params_chars);
+  if (!after_params_.is_object()) {
+    oss << " " << TruncateForUi(after_params_.dump(), max_params_chars);
     return oss.str();
   }
 
   std::vector<std::string> parts;
-  parts.reserve(operator_params_.size());
+  parts.reserve(after_params_.size());
 
-  for (auto it = operator_params_.begin(); it != operator_params_.end(); ++it) {
+  for (auto it = after_params_.begin(); it != after_params_.end(); ++it) {
     const std::string& key = it.key();
     const auto&        val = it.value();
 
-    if (last_operator_params_.has_value() && last_operator_params_->is_object() &&
-        last_operator_params_->contains(key)) {
-      const auto& old_val = (*last_operator_params_)[key];
+    if (before_params_.is_object() && before_params_.contains(key)) {
+      const auto& old_val = before_params_[key];
       if (old_val == val) {
         continue;
       }
@@ -225,7 +240,7 @@ auto EditTransaction::Describe(bool include_params, std::size_t max_params_chars
   }
 
   if (parts.empty()) {
-    oss << " " << TruncateForUi(operator_params_.dump(), max_params_chars);
+    oss << " " << TruncateForUi(after_params_.dump(), max_params_chars);
     return oss.str();
   }
 
@@ -248,51 +263,45 @@ auto EditTransaction::Describe(bool include_params, std::size_t max_params_chars
   return oss.str();
 }
 
-auto EditTransaction::ApplyTransaction(PipelineExecutor& pipeline) const -> bool {
-  auto& stage = pipeline.GetStage(stage_name_);
-  auto& global_params = pipeline.GetGlobalParams();
-  switch (type_) {
-    case TransactionType::_ADD:
-      stage.SetOperator(operator_type_, operator_params_, global_params);
-      stage.EnableOperator(operator_type_, ResolveStageEnableForParams(operator_type_, operator_params_),
-                           global_params);
-      return true;
-    case TransactionType::_DELETE:
-      stage.EnableOperator(operator_type_, false, global_params);
-      return true;
-    case TransactionType::_EDIT:
-      stage.SetOperator(operator_type_, operator_params_, global_params);
-      stage.EnableOperator(operator_type_, ResolveStageEnableForParams(operator_type_, operator_params_),
-                           global_params);
-      return true;
-  }
-  return false;
+auto EditTransaction::ApplyForward(PipelineExecutor& pipeline) const -> bool {
+  const bool enabled = after_enabled_ &&
+                       (!ParamsArePresent(after_params_) ||
+                        ResolveStageEnableForParams(operator_type_, after_params_));
+  return ApplyOperatorState(pipeline, stage_name_, operator_type_, after_params_, enabled);
+}
+
+auto EditTransaction::ApplyBackward(PipelineExecutor& pipeline) const -> bool {
+  const bool enabled = before_enabled_ &&
+                       (!ParamsArePresent(before_params_) ||
+                        ResolveStageEnableForParams(operator_type_, before_params_));
+  return ApplyOperatorState(pipeline, stage_name_, operator_type_, before_params_, enabled);
 }
 
 auto EditTransaction::ToJSON() const -> nlohmann::json {
   nlohmann::json j;
-  j["id"]              = tx_id_;
-  j["type"]            = static_cast<int>(type_);
-  j["operator_type"]   = static_cast<int>(operator_type_);
-  j["stage_name"]      = static_cast<int>(stage_name_);
-  j["operator_params"] = operator_params_;
-  if (last_operator_params_) {
-    j["last_operator_params"] = *last_operator_params_;
-  }
+  j["id"]             = tx_id_;
+  j["type"]           = static_cast<int>(type_);
+  j["operator_type"]  = static_cast<int>(operator_type_);
+  j["stage_name"]     = static_cast<int>(stage_name_);
+  j["before_params"]  = before_params_;
+  j["after_params"]   = after_params_;
+  j["before_enabled"] = before_enabled_;
+  j["after_enabled"]  = after_enabled_;
 
   return j;
 }
 
 void EditTransaction::FromJSON(const nlohmann::json& j) {
-  tx_id_           = j["id"].get<tx_id_t>();
-  type_            = static_cast<TransactionType>(j["type"].get<int>());
-  operator_type_   = static_cast<OperatorType>(j["operator_type"].get<int>());
-  stage_name_      = static_cast<PipelineStageName>(j["stage_name"].get<int>());
-  operator_params_ = j["operator_params"];
+  tx_id_          = j["id"].get<tx_id_t>();
+  type_           = static_cast<TransactionType>(j["type"].get<int>());
+  operator_type_  = static_cast<OperatorType>(j["operator_type"].get<int>());
+  stage_name_     = static_cast<PipelineStageName>(j["stage_name"].get<int>());
+  before_params_  = j.value("before_params", nlohmann::json::object());
+  after_params_   = j.contains("after_params") ? j["after_params"] : j["operator_params"];
+  before_enabled_ = j.value("before_enabled", j.contains("last_operator_params"));
+  after_enabled_  = j.value("after_enabled", true);
   if (j.contains("last_operator_params")) {
-    last_operator_params_ = j["last_operator_params"];
-  } else {
-    last_operator_params_ = std::nullopt;
+    before_params_ = j["last_operator_params"];
   }
 }
 

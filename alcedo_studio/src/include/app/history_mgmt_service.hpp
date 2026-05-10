@@ -44,6 +44,11 @@ class EditHistoryMgmtService final {
 
   auto LoadHistory(sl_element_id_t file_id) -> std::shared_ptr<EditHistoryGuard>;
 
+  auto CommitVersion(const std::shared_ptr<EditHistoryGuard>& history_guard,
+                     WorkingVersion&& working_version,
+                     const nlohmann::json& base_pipeline_params,
+                     const nlohmann::json& head_pipeline_params)
+      -> history_id_t;
   auto CommitVersion(const std::shared_ptr<EditHistoryGuard>& history_guard, Version&& version)
       -> history_id_t;
 

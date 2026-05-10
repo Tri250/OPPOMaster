@@ -14,11 +14,9 @@
 #include <QPushButton>
 #include <QVBoxLayout>
 #include <QWidget>
-#include <algorithm>
 #include <json.hpp>
 #include <string>
 #include <utility>
-#include <vector>
 
 #include "edit/history/edit_transaction.hpp"
 #include "edit/pipeline/pipeline_cpu.hpp"
@@ -65,46 +63,10 @@ auto IsPlainModeSelected(const QComboBox* working_mode_combo) -> bool {
 auto ReconstructPipelineParamsForVersion(Version& version,
                                          const std::shared_ptr<EditHistoryGuard>& history_guard)
     -> std::optional<nlohmann::json> {
-  if (const auto snapshot = version.GetFinalPipelineParams(); snapshot.has_value()) {
-    return snapshot;
-  }
-
   if (!history_guard || !history_guard->history_) {
     return std::nullopt;
   }
-
-  std::vector<Version*> lineage;
-  lineage.push_back(&version);
-  while (lineage.back()->HasParentVersion()) {
-    try {
-      lineage.push_back(
-          &history_guard->history_->GetVersion(lineage.back()->GetParentVersionID()));
-    } catch (...) {
-      return std::nullopt;
-    }
-  }
-  std::reverse(lineage.begin(), lineage.end());
-
-  auto replay_exec = std::make_shared<CPUPipelineExecutor>();
-
-  size_t replay_from = 0;
-  for (size_t i = lineage.size(); i > 0; --i) {
-    if (const auto snapshot = lineage[i - 1]->GetFinalPipelineParams();
-        snapshot.has_value()) {
-      replay_exec->ImportPipelineParams(*snapshot);
-      replay_exec->SetExecutionStages();
-      replay_from = i;
-      break;
-    }
-  }
-
-  for (size_t i = replay_from; i < lineage.size(); ++i) {
-    const auto& txs = lineage[i]->GetAllEditTransactions();
-    for (auto it = txs.rbegin(); it != txs.rend(); ++it) {
-      (void)it->ApplyTransaction(*replay_exec);
-    }
-  }
-  return replay_exec->ExportPipelineParams();
+  return history_guard->history_->ReconstructPipelineParamsForVersion(version.GetVersionID());
 }
 
 auto ResolveSelectedVersion(QListWidgetItem* item,
@@ -159,7 +121,7 @@ auto ResolveVersionId(const QString& version_id_qstr,
   return true;
 }
 
-auto UndoLastTransaction(Version& working_version,
+auto UndoLastTransaction(WorkingVersion& working_version,
                          const std::shared_ptr<PipelineGuard>& pipeline_guard) -> UndoResult {
   UndoResult result{};
 
@@ -167,46 +129,19 @@ auto UndoLastTransaction(Version& working_version,
     return result;
   }
 
-  if (working_version.GetAllEditTransactions().empty()) {
+  if (working_version.GetAppliedTransactionCount() == 0) {
     result.no_transaction = true;
     return result;
   }
 
-  EditTransaction last_tx{TransactionType::_EDIT, OperatorType::UNKNOWN,
-                          PipelineStageName::Basic_Adjustment, nlohmann::json::object()};
   try {
-    last_tx = working_version.RemoveLastEditTransaction();
+    if (!working_version.UndoLastTransaction(*pipeline_guard->pipeline_)) {
+      result.no_transaction = true;
+      return result;
+    }
   } catch (const std::exception& e) {
     result.error = Tr("Undo failed: %1").arg(e.what());
     return result;
-  }
-
-  auto exec = pipeline_guard->pipeline_;
-
-  EditTransaction undo_delete_tx(TransactionType::_DELETE, last_tx.GetTxOperatorType(),
-                                 last_tx.GetTxOpStageName(), nlohmann::json::object());
-  if (const auto prev = last_tx.GetLastOperatorParams(); prev.has_value()) {
-    undo_delete_tx.SetLastOperatorParams(*prev);
-  }
-  (void)undo_delete_tx.ApplyTransaction(*exec);
-
-  bool restored_from_stack = false;
-  for (const auto& tx : working_version.GetAllEditTransactions()) {
-    if (tx.GetTxOpStageName() == last_tx.GetTxOpStageName() &&
-        tx.GetTxOperatorType() == last_tx.GetTxOperatorType()) {
-      (void)tx.ApplyTransaction(*exec);
-      restored_from_stack = true;
-      break;
-    }
-  }
-
-  if (!restored_from_stack) {
-    if (const auto prev = last_tx.GetLastOperatorParams();
-        prev.has_value() && prev->is_object() && !prev->empty()) {
-      EditTransaction restore_tx(TransactionType::_EDIT, last_tx.GetTxOperatorType(),
-                                 last_tx.GetTxOpStageName(), *prev);
-      (void)restore_tx.ApplyTransaction(*exec);
-    }
   }
 
   pipeline_guard->dirty_ = true;
@@ -217,7 +152,7 @@ auto UndoLastTransaction(Version& working_version,
 auto CommitWorkingVersion(const std::shared_ptr<EditHistoryMgmtService>& history_service,
                           const std::shared_ptr<EditHistoryGuard>& history_guard,
                           const std::shared_ptr<PipelineGuard>& pipeline_guard,
-                          sl_element_id_t element_id, Version&& working_version)
+                          sl_element_id_t element_id, WorkingVersion&& working_version)
     -> CommitResult {
   CommitResult result{};
 
@@ -226,26 +161,32 @@ auto CommitWorkingVersion(const std::shared_ptr<EditHistoryMgmtService>& history
     return result;
   }
 
-  if (working_version.GetAllEditTransactions().empty()) {
+  if (working_version.GetAppliedTransactionCount() == 0) {
     result.no_transactions = true;
     return result;
   }
 
   try {
-    if (pipeline_guard && pipeline_guard->pipeline_) {
-      working_version.SetFinalPipelineParams(pipeline_guard->pipeline_->ExportPipelineParams());
+    if (!pipeline_guard || !pipeline_guard->pipeline_) {
+      result.error = Tr("Pipeline service not available.");
+      return result;
     }
+    auto& base_version = history_guard->history_->GetVersion(working_version.GetParentVersionID());
+    const auto base_params = ReconstructPipelineParamsForVersion(base_version, history_guard);
+    if (!base_params.has_value()) {
+      result.error = Tr("Could not reconstruct base version.");
+      return result;
+    }
+    const auto head_params = pipeline_guard->pipeline_->ExportPipelineParams();
+    working_version.SetHeadPipelineParams(head_params);
     result.committed_id = controllers::CommitWorkingVersion(
-        history_service, history_guard, std::move(working_version));
+        history_service, history_guard, std::move(working_version), *base_params, head_params);
     return result;
   } catch (const std::exception& e) {
     result.error = Tr("Commit failed: %1").arg(e.what());
   }
 
-  Version recovery(element_id);
-  if (pipeline_guard && pipeline_guard->pipeline_) {
-    recovery.SetBasePipelineExecutor(pipeline_guard->pipeline_);
-  }
+  WorkingVersion recovery(element_id, history_guard->history_->GetRootVersionID());
   result.recovery_working_version = std::move(recovery);
   return result;
 }
@@ -253,36 +194,46 @@ auto CommitWorkingVersion(const std::shared_ptr<EditHistoryMgmtService>& history
 auto SeedWorkingVersionFromUi(sl_element_id_t element_id,
                               const std::shared_ptr<EditHistoryGuard>& history_guard,
                               const std::shared_ptr<PipelineGuard>& pipeline_guard,
-                              bool plain_mode) -> Version {
-  Version working =
-      plain_mode ? Version(element_id)
-                 : controllers::SeedWorkingVersionFromLatest(element_id, history_guard);
-  if (pipeline_guard && pipeline_guard->pipeline_) {
-    working.SetBasePipelineExecutor(pipeline_guard->pipeline_);
+                              bool plain_mode) -> WorkingVersion {
+  if (plain_mode && history_guard && history_guard->history_) {
+    auto& root = history_guard->history_->GetRootVersion();
+    const auto params = ReconstructPipelineParamsForVersion(root, history_guard);
+    if (params.has_value() && pipeline_guard && pipeline_guard->pipeline_) {
+      pipeline_guard->pipeline_->ImportPipelineParams(*params);
+      pipeline_guard->dirty_ = true;
+    }
+    return WorkingVersion(element_id, root.GetVersionID(), params);
   }
-  return working;
+  return controllers::SeedWorkingVersionFromLatest(element_id, history_guard);
 }
 
 auto SeedWorkingVersionFromCommit(sl_element_id_t element_id,
                                   const Hash128& committed_id,
                                   const std::shared_ptr<PipelineGuard>& pipeline_guard,
-                                  bool incremental_mode) -> Version {
-  Version working = controllers::SeedWorkingVersionFromParent(
-      element_id, committed_id, incremental_mode);
-  if (pipeline_guard && pipeline_guard->pipeline_) {
-    working.SetBasePipelineExecutor(pipeline_guard->pipeline_);
+                                  const std::shared_ptr<EditHistoryGuard>& history_guard,
+                                  bool incremental_mode) -> WorkingVersion {
+  WorkingVersion working = controllers::SeedWorkingVersionFromParent(
+      element_id, committed_id, incremental_mode, history_guard);
+  if (!incremental_mode && history_guard && history_guard->history_) {
+    auto& root = history_guard->history_->GetRootVersion();
+    const auto params = ReconstructPipelineParamsForVersion(root, history_guard);
+    if (params.has_value() && pipeline_guard && pipeline_guard->pipeline_) {
+      pipeline_guard->pipeline_->ImportPipelineParams(*params);
+      pipeline_guard->dirty_ = true;
+      working.SetHeadPipelineParams(*params);
+    }
   }
   return working;
 }
 
-void UpdateVersionUi(const VersionUiContext& ui, const Version& working_version,
+void UpdateVersionUi(const VersionUiContext& ui, const WorkingVersion& working_version,
                      const std::shared_ptr<EditHistoryGuard>& history_guard,
                      const std::function<void()>& refresh_selection_styles) {
   if (!ui.version_status || !ui.commit_version_btn) {
     return;
   }
 
-  const size_t tx_count = working_version.GetAllEditTransactions().size();
+  const size_t tx_count = working_version.GetAppliedTransactionCount();
   const QString label = MakeTxCountLabel(tx_count);
 
   ui.version_status->setText(label);
@@ -294,16 +245,17 @@ void UpdateVersionUi(const VersionUiContext& ui, const Version& working_version,
   if (ui.tx_stack) {
     ui.tx_stack->clear();
     const auto&  txs   = working_version.GetAllEditTransactions();
-    const size_t total = txs.size();
+    const size_t total = tx_count;
     if (total == 0) {
       AddEmptyStateItem(ui.tx_stack, Tr("No data"));
     }
     size_t i = 0;
-    for (const auto& tx : txs) {
+    for (auto it = txs.begin() + static_cast<std::ptrdiff_t>(tx_count); it != txs.begin();) {
+      --it;
       auto* item = new QListWidgetItem(ui.tx_stack);
       item->setSizeHint(QSize(0, 56));
 
-      auto* card = BuildTxHistoryCard(tx, /*draw_top*/ i > 0,
+      auto* card = BuildTxHistoryCard(*it, /*draw_top*/ i > 0,
                                       /*draw_bottom*/ (i + 1) < total, ui.tx_stack);
       card->SetSelected(i == 0);
       ui.tx_stack->setItemWidget(item, card);
@@ -333,30 +285,28 @@ void UpdateVersionUi(const VersionUiContext& ui, const Version& working_version,
         const auto  when =
             QDateTime::fromSecsSinceEpoch(static_cast<qint64>(ver.GetLastModifiedTime()))
                 .toString("MM-dd HH:mm");
-        const auto committed_tx_count =
-            static_cast<qulonglong>(ver.GetAllEditTransactions().size());
-
-        const auto& txs = ver.GetAllEditTransactions();
+        const auto committed_tx_count = static_cast<qulonglong>(ver.GetTransactionCount());
+        const auto& last_tx = ver.GetLastTransaction();
 
         const bool is_head  = (ver_id == latest_id);
         const bool is_base  = (base_parent == ver_id && working_version.HasParentVersion());
-        const bool is_plain = !ver.HasParentVersion();
+        const bool is_plain = ver.IsRoot();
         const int  version_number = std::max(1, total_rows - row_index);
         const QString version_title =
             is_plain ? Tr("Plain") : Tr("Version %1").arg(static_cast<qulonglong>(version_number));
 
         QString last_tx_summary;
         QString last_tx_full;
-        if (!txs.empty()) {
-          const QString detail = CompactTxDelta(txs.front());
+        if (last_tx.has_value()) {
+          const QString detail = CompactTxDelta(*last_tx);
           last_tx_summary = detail.isEmpty()
-                                ? OperatorDisplayName(txs.front().GetTxOperatorType())
+                                ? OperatorDisplayName(last_tx->GetTxOperatorType())
                                 : QStringLiteral("%1 | %2")
-                                      .arg(OperatorDisplayName(txs.front().GetTxOperatorType()),
+                                      .arg(OperatorDisplayName(last_tx->GetTxOperatorType()),
                                            detail);
-          last_tx_full    = QString::fromStdString(txs.front().Describe(true, 4096));
+          last_tx_full    = QString::fromStdString(last_tx->Describe(true, 4096));
         } else {
-          last_tx_summary = Tr("(empty)");
+          last_tx_summary = is_plain ? Tr("Default state") : Tr("Checkpoint");
           last_tx_full    = last_tx_summary;
         }
 

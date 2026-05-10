@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <list>
 #include <memory>
+#include <optional>
 #include <unordered_map>
 
 #include "edit/pipeline/pipeline.hpp"
@@ -43,8 +44,12 @@ class EditHistory {
   std::list<VersionNode>                    commit_tree_;
 
   std::unordered_map<history_id_t, Version> version_storage_;
+  history_id_t                              root_version_id_{};
+  history_id_t                              head_version_id_{};
+  std::optional<nlohmann::json>             head_pipeline_params_ = std::nullopt;
 
   void                                      CalculateHistoryID();
+  void                                      EnsureRootVersion();
 
  public:
   EditHistory(sl_element_id_t bound_image);
@@ -57,7 +62,15 @@ class EditHistory {
   auto GetBoundImage() const -> sl_element_id_t;
 
   auto GetVersion(history_id_t ver_id) -> Version&;
+  auto GetRootVersion() -> Version&;
+  auto GetRootVersionID() const -> history_id_t { return root_version_id_; }
+  auto GetHeadVersionID() const -> history_id_t { return head_version_id_; }
+  auto HasUserVersions() const -> bool;
+  auto ReconstructPipelineParamsForVersion(history_id_t ver_id) -> std::optional<nlohmann::json>;
   auto CommitVersion(Version&& ver) -> history_id_t;
+  auto CommitWorkingVersion(WorkingVersion&& working_version,
+                            const nlohmann::json& base_pipeline_params,
+                            const nlohmann::json& head_pipeline_params) -> history_id_t;
 
   auto GetLatestVersion() -> VersionNode&;
   auto RemoveVersion(history_id_t ver_id) -> bool;

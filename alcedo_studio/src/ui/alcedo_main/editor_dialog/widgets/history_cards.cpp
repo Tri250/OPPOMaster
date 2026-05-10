@@ -1113,11 +1113,11 @@ auto TxActionGlyph(TransactionType type) -> QString {
 
 auto CompactTxDelta(const EditTransaction& tx) -> QString {
   const TxCardSummary summary = BuildTxSummary(tx);
-  const QString detail_text =
-      !summary.detail.isEmpty() ? summary.detail
-                                : (!summary.value.isEmpty() ? summary.value : CompactTxDelta(tx));
   if (!summary.detail.isEmpty()) {
     return summary.detail;
+  }
+  if (!summary.value.isEmpty()) {
+    return summary.value;
   }
   return FirstMeaningfulDelta(tx);
 }

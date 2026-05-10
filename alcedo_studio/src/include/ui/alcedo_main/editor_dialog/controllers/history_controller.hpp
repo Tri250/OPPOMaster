@@ -13,14 +13,18 @@ namespace alcedo::ui::controllers {
 
 auto SeedWorkingVersionFromLatest(sl_element_id_t element_id,
                                   const std::shared_ptr<EditHistoryGuard>& history_guard)
-    -> Version;
+    -> WorkingVersion;
 
 auto SeedWorkingVersionFromParent(sl_element_id_t element_id,
                                   const Hash128& parent_id,
-                                  bool incremental_mode) -> Version;
+                                  bool incremental_mode,
+                                  const std::shared_ptr<EditHistoryGuard>& history_guard)
+    -> WorkingVersion;
 
 auto CommitWorkingVersion(const std::shared_ptr<EditHistoryMgmtService>& history_service,
                           const std::shared_ptr<EditHistoryGuard>& history_guard,
-                          Version&& working_version) -> history_id_t;
+                          WorkingVersion&& working_version,
+                          const nlohmann::json& base_pipeline_params,
+                          const nlohmann::json& head_pipeline_params) -> history_id_t;
 
 }  // namespace alcedo::ui::controllers

@@ -782,6 +782,7 @@ void PipelineStage::ImportStageParams(const nlohmann::json& j) {
     OperatorType   op_type = op_json.value("type", OperatorType::UNKNOWN);
     if (op_type != OperatorType::UNKNOWN && op_type != OperatorType::RESIZE) {
       SetOperator(op_type, params);
+      EnableOperator(op_type, op_json.value("enable", true));
     }
   }
 }
@@ -802,6 +803,7 @@ void PipelineStage::ImportStageParams(const nlohmann::json& j, OperatorParams& g
     OperatorType   op_type = op_json.value("type", OperatorType::UNKNOWN);
     if (op_type != OperatorType::UNKNOWN && op_type != OperatorType::RESIZE) {
       SetOperator(op_type, params, global_params);
+      EnableOperator(op_type, op_json.value("enable", true), global_params);
     }
   }
 }

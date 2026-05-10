@@ -84,6 +84,9 @@ EditorDialog::EditorDialog(std::shared_ptr<ImagePoolService>       image_pool,
                 SyncControlsFromState();
                 if (render_coordinator_) {
                   render_coordinator_->AdvancePreviewGeneration();
+                  render_coordinator_->RequestRenderWithoutApplyingState(
+                      /*use_viewport_region=*/false,
+                      /*bump_preview_generation=*/false);
                   render_coordinator_->TriggerQualityPreviewRenderFromPipeline();
                 }
                 return true;

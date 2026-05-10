@@ -51,7 +51,7 @@ struct CommitResult {
   std::optional<history_id_t> committed_id;
   bool                        no_transactions = false;
   QString                     error;
-  std::optional<Version>      recovery_working_version;
+  std::optional<WorkingVersion> recovery_working_version;
 };
 
 auto MakeTxCountLabel(size_t tx_count) -> QString;
@@ -71,25 +71,26 @@ auto ResolveVersionId(const QString& version_id_str,
                       ResolvedVersionSelection* out_selection,
                       QString* error) -> bool;
 
-auto UndoLastTransaction(Version& working_version,
+auto UndoLastTransaction(WorkingVersion& working_version,
                          const std::shared_ptr<PipelineGuard>& pipeline_guard) -> UndoResult;
 
 auto CommitWorkingVersion(const std::shared_ptr<EditHistoryMgmtService>& history_service,
                           const std::shared_ptr<EditHistoryGuard>& history_guard,
                           const std::shared_ptr<PipelineGuard>& pipeline_guard,
-                          sl_element_id_t element_id, Version&& working_version)
+                          sl_element_id_t element_id, WorkingVersion&& working_version)
     -> CommitResult;
 
 auto SeedWorkingVersionFromUi(sl_element_id_t element_id,
                               const std::shared_ptr<EditHistoryGuard>& history_guard,
                               const std::shared_ptr<PipelineGuard>& pipeline_guard,
-                              bool plain_mode) -> Version;
+                              bool plain_mode) -> WorkingVersion;
 
 auto SeedWorkingVersionFromCommit(sl_element_id_t element_id, const Hash128& committed_id,
                                   const std::shared_ptr<PipelineGuard>& pipeline_guard,
-                                  bool incremental_mode) -> Version;
+                                  const std::shared_ptr<EditHistoryGuard>& history_guard,
+                                  bool incremental_mode) -> WorkingVersion;
 
-void UpdateVersionUi(const VersionUiContext& ui, const Version& working_version,
+void UpdateVersionUi(const VersionUiContext& ui, const WorkingVersion& working_version,
                      const std::shared_ptr<EditHistoryGuard>& history_guard,
                      const std::function<void()>& refresh_selection_styles);
 

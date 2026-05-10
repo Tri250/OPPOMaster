@@ -17,9 +17,9 @@ namespace alcedo::ui {
 EditorHistoryCoordinator::EditorHistoryCoordinator(Dependencies dependencies, Callbacks callbacks)
     : dependencies_(std::move(dependencies)), callbacks_(std::move(callbacks)) {}
 
-auto EditorHistoryCoordinator::WorkingVersion() -> Version& { return working_version_; }
+auto EditorHistoryCoordinator::WorkingVersion() -> alcedo::WorkingVersion& { return working_version_; }
 
-auto EditorHistoryCoordinator::WorkingVersion() const -> const Version& {
+auto EditorHistoryCoordinator::WorkingVersion() const -> const alcedo::WorkingVersion& {
   return working_version_;
 }
 
@@ -31,9 +31,6 @@ void EditorHistoryCoordinator::SeedWorkingVersionFromLatest() {
   working_version_ =
       controllers::SeedWorkingVersionFromLatest(dependencies_.element_id,
                                                 dependencies_.history_guard);
-  if (dependencies_.pipeline_guard && dependencies_.pipeline_guard->pipeline_) {
-    working_version_.SetBasePipelineExecutor(dependencies_.pipeline_guard->pipeline_);
-  }
 }
 
 auto EditorHistoryCoordinator::ReconstructPipelineParamsForVersion(Version& version) const
@@ -108,7 +105,7 @@ void EditorHistoryCoordinator::CheckoutVersionById(const QString& version_id) {
 
   working_version_ = versioning::SeedWorkingVersionFromCommit(
       dependencies_.element_id, selection.version_id, dependencies_.pipeline_guard,
-      IsIncrementalWorkingMode());
+      dependencies_.history_guard, IsIncrementalWorkingMode());
   UpdateVersionUi();
 }
 
@@ -177,7 +174,7 @@ void EditorHistoryCoordinator::StartNewWorkingVersionFromUi() {
 
 void EditorHistoryCoordinator::StartNewWorkingVersionFromCommit(const Hash128& committed_id) {
   working_version_ = versioning::SeedWorkingVersionFromCommit(
-      dependencies_.element_id, committed_id, dependencies_.pipeline_guard,
+      dependencies_.element_id, committed_id, dependencies_.pipeline_guard, dependencies_.history_guard,
       IsIncrementalWorkingMode());
 }
 

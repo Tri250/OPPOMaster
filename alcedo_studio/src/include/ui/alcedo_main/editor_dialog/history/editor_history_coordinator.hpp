@@ -40,8 +40,8 @@ class EditorHistoryCoordinator {
 
   EditorHistoryCoordinator(Dependencies dependencies, Callbacks callbacks);
 
-  auto WorkingVersion() -> Version&;
-  auto WorkingVersion() const -> const Version&;
+  auto WorkingVersion() -> alcedo::WorkingVersion&;
+  auto WorkingVersion() const -> const alcedo::WorkingVersion&;
 
   void SetUiContext(const versioning::VersionUiContext& ui);
   void SeedWorkingVersionFromLatest();
@@ -67,7 +67,7 @@ class EditorHistoryCoordinator {
   Dependencies                 dependencies_;
   Callbacks                    callbacks_;
   versioning::VersionUiContext ui_{};
-  Version                      working_version_{};
+  alcedo::WorkingVersion       working_version_{};
 };
 
 }  // namespace alcedo::ui
