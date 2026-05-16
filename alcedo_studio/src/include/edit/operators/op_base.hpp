@@ -202,6 +202,8 @@ struct OperatorParams {
   float                        raw_lens_focus_distance_m_ = 0.0f;
   float                        raw_lens_focal_35mm_       = 0.0f;
   float                        raw_lens_crop_factor_hint_ = 0.0f;
+  bool                         raw_dng_warp_rectilinear_present_ = false;
+  bool                         raw_dng_warp_rectilinear_applied_ = false;
 
   bool                         lens_calib_enabled_          = true;
   bool                         lens_calib_runtime_dirty_    = true;
@@ -324,6 +326,8 @@ struct OperatorParams {
     raw_lens_focus_distance_m_ = ctx.focus_distance_m_;
     raw_lens_focal_35mm_       = ctx.focal_35mm_mm_;
     raw_lens_crop_factor_hint_ = ctx.crop_factor_hint_;
+    raw_dng_warp_rectilinear_present_ = ctx.dng_warp_rectilinear_present_;
+    raw_dng_warp_rectilinear_applied_ = ctx.dng_warp_rectilinear_applied_;
 
     // Mark dependent operators dirty so they re-resolve on next SetGlobalParams call
     lens_calib_runtime_dirty_  = true;

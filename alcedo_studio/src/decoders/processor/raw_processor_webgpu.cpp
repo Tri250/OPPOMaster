@@ -97,7 +97,8 @@ auto RawProcessor::ProcessWebGpu() -> ImageBuffer {
     webgpu::Bayer2x2ToRGB_RCD(gpu_img, cfa_pattern_.bayer_pattern);
   }
   const cv::Rect crop_rect = detail::BuildDecodeCropRect(
-      raw_data_.sizes, cv::Size(gpu_img.Width(), gpu_img.Height()), params_.decode_res_);
+      raw_data_.sizes, default_crop_, cv::Size(gpu_img.Width(), gpu_img.Height()),
+      params_.decode_res_);
   CropWebGpuImage(gpu_img, crop_rect);
 
   webgpu::ApplyInverseCamMulAndOrientRGBA(gpu_img, raw_data_.color.cam_mul, raw_data_.sizes.flip);

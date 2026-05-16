@@ -48,10 +48,22 @@ struct AffineParams {
   float    border[4];
 };
 
+struct WarpRectilinearParams {
+  uint32_t coefficient_set_count;
+  uint32_t width;
+  uint32_t height;
+  uint32_t src_stride;
+  uint32_t dst_stride;
+  float    coefficient_sets[3][6];
+  float    center_x;
+  float    center_y;
+};
+
 enum class GeometryKernel : uint32_t {
   Linear,
   Area,
   WarpAffineLinear,
+  WarpRectilinear,
 };
 
 constexpr uint32_t kRowAlignmentBytes = 256;
@@ -106,6 +118,13 @@ auto KernelNameFor(GeometryKernel kernel, PixelFormat format) -> const char* {
           return "warp_affine_linear_r32f";
         case PixelFormat::RGBA32FLOAT:
           return "warp_affine_linear_rgba32f";
+        default:
+          return nullptr;
+      }
+    case GeometryKernel::WarpRectilinear:
+      switch (format) {
+        case PixelFormat::RGBA32FLOAT:
+          return "warp_rectilinear_rgba32f";
         default:
           return nullptr;
       }
@@ -318,6 +337,54 @@ void DispatchWarpAffine(const MetalImage& src, MetalImage& dst, const cv::Mat& m
   command_buffer->waitUntilCompleted();
 }
 
+void DispatchWarpRectilinear(const MetalImage& src, MetalImage& dst,
+                             const dng::WarpRectilinear& warp) {
+  const auto src_row_bytes = RowBytesFor(src.Width(), src.Format());
+  const auto dst_row_bytes = RowBytesFor(dst.Width(), dst.Format());
+  const auto src_size      = src_row_bytes * src.Height();
+  const auto dst_size      = dst_row_bytes * dst.Height();
+
+  auto src_buffer = MakeSharedBuffer(src_size);
+  auto dst_buffer = MakeSharedBuffer(dst_size);
+
+  auto command_buffer = MakeCommandBuffer();
+  WarpRectilinearParams params{
+      .coefficient_set_count = warp.coefficient_set_count,
+      .width                 = src.Width(),
+      .height                = src.Height(),
+      .src_stride            = static_cast<uint32_t>(
+          src_row_bytes / CV_ELEM_SIZE(MetalImage::CVTypeFromPixelFormat(src.Format()))),
+      .dst_stride            = static_cast<uint32_t>(
+          dst_row_bytes / CV_ELEM_SIZE(MetalImage::CVTypeFromPixelFormat(dst.Format()))),
+      .center_x              = static_cast<float>(warp.center_x),
+      .center_y              = static_cast<float>(warp.center_y),
+  };
+  for (size_t set = 0; set < warp.coefficient_sets.size(); ++set) {
+    for (size_t term = 0; term < warp.coefficient_sets[set].size(); ++term) {
+      params.coefficient_sets[set][term] = static_cast<float>(warp.coefficient_sets[set][term]);
+    }
+  }
+
+  EncodeTextureToBuffer(command_buffer.get(), src, src_buffer.get(), src_row_bytes, src_size);
+
+  {
+    auto pipeline = GetGeometryPipelineState(GeometryKernel::WarpRectilinear, src.Format());
+    auto compute  = NS::RetainPtr(command_buffer->computeCommandEncoder());
+
+    compute->setComputePipelineState(pipeline.get());
+    compute->setBuffer(src_buffer.get(), 0, 0);
+    compute->setBuffer(dst_buffer.get(), 0, 1);
+    compute->setBytes(&params, sizeof(params), 2);
+    DispatchThreads(compute.get(), pipeline.get(), dst.Width(), dst.Height());
+    compute->endEncoding();
+  }
+
+  EncodeBufferToTexture(command_buffer.get(), dst, dst_buffer.get(), dst_row_bytes, dst_size);
+
+  command_buffer->commit();
+  command_buffer->waitUntilCompleted();
+}
+
 }  // namespace
 
 void ResizeTexture(const MetalImage& src, MetalImage& dst, cv::Size dst_size,
@@ -376,6 +443,25 @@ void WarpAffineLinearTexture(const MetalImage& src, MetalImage& dst, const cv::M
   dst.Create(static_cast<uint32_t>(out_size.width), static_cast<uint32_t>(out_size.height),
              src.Format(), true, true, HasRenderTargetUsage(src));
   DispatchWarpAffine(src, dst, matrix, border_value);
+}
+
+void WarpRectilinearTexture(const MetalImage& src, MetalImage& dst,
+                            const dng::WarpRectilinear& warp) {
+  if (src.Empty()) {
+    throw std::runtime_error("Metal geometry utils: source texture is empty.");
+  }
+  if (src.Format() != PixelFormat::RGBA32FLOAT) {
+    throw std::runtime_error("Metal geometry utils: DNG warp expects RGBA32FLOAT input.");
+  }
+  if (!dst.Empty() && src.Texture() == dst.Texture()) {
+    throw std::runtime_error("Metal geometry utils: source and destination textures must differ.");
+  }
+  if (warp.coefficient_set_count == 0 || warp.coefficient_set_count > 3) {
+    throw std::runtime_error("Metal geometry utils: invalid DNG warp coefficient set count.");
+  }
+
+  dst.Create(src.Width(), src.Height(), src.Format(), true, true, HasRenderTargetUsage(src));
+  DispatchWarpRectilinear(src, dst, warp);
 }
 
 }  // namespace alcedo::metal::utils

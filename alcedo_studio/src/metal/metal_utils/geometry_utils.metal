@@ -35,6 +35,17 @@ struct AffineParams {
   float4 border;
 };
 
+struct WarpRectilinearParams {
+  uint  coefficient_set_count;
+  uint  width;
+  uint  height;
+  uint  src_stride;
+  uint  dst_stride;
+  float coefficient_sets[3][6];
+  float center_x;
+  float center_y;
+};
+
 template <typename PixelT>
 struct PixelOps;
 
@@ -261,6 +272,68 @@ static inline void WarpAffineLinear(device const PixelT* src, device PixelT* dst
   dst[gid.y * params.dst_stride + gid.x] = BilinearSampleAffine(src, params, sx, sy);
 }
 
+static inline auto ReadOrZero(device const float4* src, constant WarpRectilinearParams& params,
+                              int x, int y) -> float4 {
+  if (x < 0 || y < 0 || x >= static_cast<int>(params.width) ||
+      y >= static_cast<int>(params.height)) {
+    return float4(0.0f);
+  }
+  return src[static_cast<uint>(y) * params.src_stride + static_cast<uint>(x)];
+}
+
+static inline auto BilinearSampleWarp(device const float4* src,
+                                      constant WarpRectilinearParams& params, float sx, float sy)
+    -> float4 {
+  const int   x0  = static_cast<int>(floor(sx));
+  const int   y0  = static_cast<int>(floor(sy));
+  const int   x1  = x0 + 1;
+  const int   y1  = y0 + 1;
+  const float fx  = sx - static_cast<float>(x0);
+  const float fy  = sy - static_cast<float>(y0);
+  const float w00 = (1.0f - fx) * (1.0f - fy);
+  const float w10 = fx * (1.0f - fy);
+  const float w01 = (1.0f - fx) * fy;
+  const float w11 = fx * fy;
+
+  const float4 p00 = ReadOrZero(src, params, x0, y0);
+  const float4 p10 = ReadOrZero(src, params, x1, y0);
+  const float4 p01 = ReadOrZero(src, params, x0, y1);
+  const float4 p11 = ReadOrZero(src, params, x1, y1);
+  return p00 * w00 + p10 * w10 + p01 * w01 + p11 * w11;
+}
+
+static inline auto WarpRectilinearSourceCoord(uint x, uint y, uint plane,
+                                              constant WarpRectilinearParams& params) -> float2 {
+  const float x0 = 0.0f;
+  const float y0 = 0.0f;
+  const float x1 = static_cast<float>(max(static_cast<int>(params.width) - 1, 0));
+  const float y1 = static_cast<float>(max(static_cast<int>(params.height) - 1, 0));
+  const float cx = x0 + params.center_x * (x1 - x0);
+  const float cy = y0 + params.center_y * (y1 - y0);
+  const float mx = max(abs(x0 - cx), abs(x1 - cx));
+  const float my = max(abs(y0 - cy), abs(y1 - cy));
+  const float m  = sqrt(mx * mx + my * my);
+  if (m <= 1e-8f) {
+    return float2(static_cast<float>(x), static_cast<float>(y));
+  }
+
+  const uint   set_index = params.coefficient_set_count <= 1u ? 0u : min(plane, 2u);
+  const float  dx        = (static_cast<float>(x) - cx) / m;
+  const float  dy        = (static_cast<float>(y) - cy) / m;
+  const float  r2        = dx * dx + dy * dy;
+  const float  f         = params.coefficient_sets[set_index][0] +
+                  params.coefficient_sets[set_index][1] * r2 +
+                  params.coefficient_sets[set_index][2] * r2 * r2 +
+                  params.coefficient_sets[set_index][3] * r2 * r2 * r2;
+  const float dxr = f * dx;
+  const float dyr = f * dy;
+  const float dxt = params.coefficient_sets[set_index][4] * (2.0f * dx * dy) +
+                    params.coefficient_sets[set_index][5] * (r2 + 2.0f * dx * dx);
+  const float dyt = params.coefficient_sets[set_index][5] * (2.0f * dx * dy) +
+                    params.coefficient_sets[set_index][4] * (r2 + 2.0f * dy * dy);
+  return float2(cx + m * (dxr + dxt), cy + m * (dyr + dyt));
+}
+
 kernel void crop_resize_linear_r32f(device const float* src [[buffer(0)]],
                                     device float*       dst [[buffer(1)]],
                                     constant ResizeParams& params [[buffer(2)]],
@@ -301,4 +374,21 @@ kernel void warp_affine_linear_rgba32f(device const float4* src [[buffer(0)]],
                                        constant AffineParams& params [[buffer(2)]],
                                        uint2 gid [[thread_position_in_grid]]) {
   WarpAffineLinear<float4>(src, dst, params, gid);
+}
+
+kernel void warp_rectilinear_rgba32f(device const float4* src [[buffer(0)]],
+                                     device float4*       dst [[buffer(1)]],
+                                     constant WarpRectilinearParams& params [[buffer(2)]],
+                                     uint2 gid [[thread_position_in_grid]]) {
+  if (gid.x >= params.width || gid.y >= params.height) {
+    return;
+  }
+
+  const float2 red   = WarpRectilinearSourceCoord(gid.x, gid.y, 0u, params);
+  const float2 green = WarpRectilinearSourceCoord(gid.x, gid.y, 1u, params);
+  const float2 blue  = WarpRectilinearSourceCoord(gid.x, gid.y, 2u, params);
+  const float4 r_px  = BilinearSampleWarp(src, params, red.x, red.y);
+  const float4 g_px  = BilinearSampleWarp(src, params, green.x, green.y);
+  const float4 b_px  = BilinearSampleWarp(src, params, blue.x, blue.y);
+  dst[gid.y * params.dst_stride + gid.x] = float4(r_px.x, g_px.y, b_px.z, g_px.w);
 }

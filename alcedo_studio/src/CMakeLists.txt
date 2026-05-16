@@ -414,6 +414,7 @@ if(ALCEDO_CUDA_ENABLED)
         decoders/processor/operators/gpu/cuda_color_space_conv.cu
         decoders/processor/operators/gpu/cuda_debayer_ahd.cu
         decoders/processor/operators/gpu/cuda_debayer_rcd.cu
+        decoders/processor/operators/gpu/cuda_dng_warp.cu
         decoders/processor/operators/gpu/cuda_downsample.cu
         decoders/processor/operators/gpu/cuda_highlight_reconstruct.cu
         decoders/processor/operators/gpu/cuda_image_ops.cu

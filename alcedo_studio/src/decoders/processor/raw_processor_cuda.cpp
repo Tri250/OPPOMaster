@@ -17,6 +17,7 @@
 
 #include "decoders/processor/operators/gpu/cuda_color_space_conv.hpp"
 #include "decoders/processor/operators/gpu/cuda_debayer_rcd.hpp"
+#include "decoders/processor/operators/gpu/cuda_dng_warp.hpp"
 #include "decoders/processor/operators/gpu/cuda_downsample.hpp"
 #include "decoders/processor/operators/gpu/cuda_highlight_reconstruct.hpp"
 #include "decoders/processor/operators/gpu/cuda_rotate.hpp"
@@ -214,8 +215,8 @@ auto RawProcessor::ProcessCudaFullFrame() -> ImageBuffer {
       &stream);
   LogCudaProfileStep(stream, "RAW CUDA FullFrame downsample", stage_downsample_start);
 
-  const cv::Rect crop_rect =
-      detail::BuildDecodeCropRect(raw_data_.sizes, gpu_img.size(), params_.decode_res_);
+  const cv::Rect crop_rect = detail::BuildDecodeCropRect(
+      raw_data_.sizes, default_crop_, gpu_img.size(), params_.decode_res_);
 
   const auto stage_linear_start = ProfileClock::now();
   CUDA::ToLinearRef(gpu_img, raw_processor_, cfa_pattern_, &stream);
@@ -246,11 +247,19 @@ auto RawProcessor::ProcessCudaFullFrame() -> ImageBuffer {
     LogCpuProfileStep("RAW CUDA FullFrame highlight stats", stage_highlight_stats_start);
 
     const auto stage_highlight_start = ProfileClock::now();
-    CUDA::ApplyHighlightCorrectionAndPackRGBAOriented(debayer_r, debayer_g, debayer_b, output_rgba,
-                                                      correction, raw_data_.color.cam_mul,
-                                                      raw_data_.sizes.flip, &highlight_workspace,
-                                                      &stream);
-    LogCudaProfileStep(stream, "RAW CUDA FullFrame highlight reconstruct + pack rgba (oriented)",
+    if (dng_warp_rectilinear_.has_value()) {
+      CUDA::ApplyHighlightCorrectionAndPackRGBA(debayer_r, debayer_g, debayer_b, output_rgba,
+                                                correction, raw_data_.color.cam_mul,
+                                                &highlight_workspace, &stream);
+      CUDA::ApplyDngWarpRectilinear(output_rgba, *dng_warp_rectilinear_, &stream);
+      runtime_color_context_.dng_warp_rectilinear_applied_ = true;
+      ApplyCudaGeometricCorrections(output_rgba, raw_data_.sizes.flip, &stream);
+    } else {
+      CUDA::ApplyHighlightCorrectionAndPackRGBAOriented(
+          debayer_r, debayer_g, debayer_b, output_rgba, correction, raw_data_.color.cam_mul,
+          raw_data_.sizes.flip, &highlight_workspace, &stream);
+    }
+    LogCudaProfileStep(stream, "RAW CUDA FullFrame highlight reconstruct + warp + pack rgba",
                        stage_highlight_start);
 
     runtime_color_context_.output_in_camera_space_ = true;
@@ -283,9 +292,16 @@ auto RawProcessor::ProcessCudaFullFrame() -> ImageBuffer {
   }
 
   const auto stage_pack_start = ProfileClock::now();
-  CUDA::ApplyInverseCamMulAndPackRGBAOriented(gpu_img, output_rgba, raw_data_.color.cam_mul,
-                                              raw_data_.sizes.flip, &stream);
-  LogCudaProfileStep(stream, "RAW CUDA FullFrame apply inverse cam mul + pack rgba (oriented)",
+  if (dng_warp_rectilinear_.has_value()) {
+    CUDA::ApplyInverseCamMulAndPackRGBA(gpu_img, output_rgba, raw_data_.color.cam_mul, &stream);
+    CUDA::ApplyDngWarpRectilinear(output_rgba, *dng_warp_rectilinear_, &stream);
+    runtime_color_context_.dng_warp_rectilinear_applied_ = true;
+    ApplyCudaGeometricCorrections(output_rgba, raw_data_.sizes.flip, &stream);
+  } else {
+    CUDA::ApplyInverseCamMulAndPackRGBAOriented(gpu_img, output_rgba, raw_data_.color.cam_mul,
+                                                raw_data_.sizes.flip, &stream);
+  }
+  LogCudaProfileStep(stream, "RAW CUDA FullFrame apply inverse cam mul + warp + pack rgba",
                      stage_pack_start);
 
   runtime_color_context_.output_in_camera_space_ = true;
@@ -322,7 +338,8 @@ auto RawProcessor::ProcessCudaTiled() -> ImageBuffer {
 
   const auto stage_jobs_start = ProfileClock::now();
   const cv::Rect active_rect =
-      detail::BuildDecodeCropRect(raw_data_.sizes, linear_raw.size(), params_.decode_res_);
+      detail::BuildDecodeCropRect(raw_data_.sizes, default_crop_, linear_raw.size(),
+                                  params_.decode_res_);
   auto jobs = BuildTileJobs(active_rect, linear_raw.size());
   LogCpuProfileStep("RAW CUDA Tiled build tile jobs", stage_jobs_start);
 
@@ -365,6 +382,10 @@ auto RawProcessor::ProcessCudaTiled() -> ImageBuffer {
                        stage_tiles_start);
 
     const auto stage_geo_start = ProfileClock::now();
+    if (dng_warp_rectilinear_.has_value()) {
+      CUDA::ApplyDngWarpRectilinear(output_rgba, *dng_warp_rectilinear_, &stream);
+      runtime_color_context_.dng_warp_rectilinear_applied_ = true;
+    }
     ApplyCudaGeometricCorrections(output_rgba, raw_data_.sizes.flip, &stream);
     LogCudaProfileStep(stream, "RAW CUDA Tiled geometric corrections", stage_geo_start);
   } else {
@@ -381,6 +402,10 @@ auto RawProcessor::ProcessCudaTiled() -> ImageBuffer {
     LogCudaProfileStep(stream, "RAW CUDA Tiled tile assembly", stage_tiles_start);
 
     const auto stage_geo_start = ProfileClock::now();
+    if (dng_warp_rectilinear_.has_value()) {
+      CUDA::ApplyDngWarpRectilinear(output_rgb, *dng_warp_rectilinear_, &stream);
+      runtime_color_context_.dng_warp_rectilinear_applied_ = true;
+    }
     ApplyCudaGeometricCorrections(output_rgb, raw_data_.sizes.flip, &stream);
     LogCudaProfileStep(stream, "RAW CUDA Tiled geometric corrections", stage_geo_start);
 
@@ -428,7 +453,8 @@ auto RawProcessor::ProcessCuda() -> ImageBuffer {
 
   const auto stage_mode_select_start = ProfileClock::now();
   const cv::Rect active_rect =
-      detail::BuildDecodeCropRect(raw_data_.sizes, cpu_data.size(), params_.decode_res_);
+      detail::BuildDecodeCropRect(raw_data_.sizes, default_crop_, cpu_data.size(),
+                                  params_.decode_res_);
   const detail::CudaExecutionMode mode =
       detail::SelectCudaExecutionMode(params_, cfa_pattern_, active_rect);
   LogCpuProfileStep("RAW CUDA setup mode-select", stage_mode_select_start);

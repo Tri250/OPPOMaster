@@ -5,10 +5,12 @@
 #include <gtest/gtest.h>
 #include <libraw/libraw.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <limits>
 #include <optional>
+#include <span>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -18,6 +20,7 @@
 
 #include "decoders/processor/raw_processor_internal.hpp"
 #include "decoders/processor/raw_processor_pattern.hpp"
+#include "decoders/dng_default_crop.hpp"
 #include "edit/operators/raw/raw_decode_op.hpp"
 #include "image/image_buffer.hpp"
 #include "type/type.hpp"
@@ -29,6 +32,7 @@ struct SampleSelection {
   std::filesystem::path path;
   BayerPattern2x2       pattern;
   libraw_image_sizes_t  sizes;
+  ushort                default_crop[4] = {};
 };
 
 auto MakeXTransPattern() -> XTransPattern6x6 {
@@ -120,6 +124,7 @@ auto TrySelectNonRggbSample(const std::filesystem::path& path) -> std::optional<
       .pattern = pattern,
       .sizes   = raw_processor.imgdata.sizes,
   };
+  std::copy_n(raw_processor.imgdata.color.dng_levels.default_crop, 4, result.default_crop);
   raw_processor.recycle();
   return result;
 }
@@ -137,9 +142,15 @@ auto FindFirstNonRggbBayerSample() -> std::optional<SampleSelection> {
   return std::nullopt;
 }
 
-auto ExpectedHalfDecodeSize(const libraw_image_sizes_t& sizes) -> cv::Size {
-  int width  = static_cast<int>(sizes.raw_width) / 2;
-  int height = static_cast<int>(sizes.raw_height) / 2;
+auto ExpectedHalfDecodeSize(const libraw_image_sizes_t& sizes, const ushort default_crop[4])
+    -> cv::Size {
+  const cv::Rect crop =
+      detail::BuildDecodeCropRect(sizes, default_crop,
+                                  cv::Size(static_cast<int>(sizes.raw_width) / 2,
+                                           static_cast<int>(sizes.raw_height) / 2),
+                                  DecodeRes::HALF);
+  int width  = crop.width;
+  int height = crop.height;
   if (sizes.flip == 5 || sizes.flip == 6) {
     std::swap(width, height);
   }
@@ -148,6 +159,11 @@ auto ExpectedHalfDecodeSize(const libraw_image_sizes_t& sizes) -> cv::Size {
 
 auto LinearDngSamplePath() -> std::filesystem::path {
   return std::filesystem::path(TEST_IMG_PATH) / "raw" / "linear_dng" / "mfzoty.dng";
+}
+
+auto LeicaQ2SamplePath() -> std::filesystem::path {
+  return std::filesystem::path(TEST_IMG_PATH) / "raw" / "camera" / "leica" / "q2" /
+         "L1010202.DNG";
 }
 
 auto EnsureCudaDevice() -> bool {
@@ -194,6 +210,7 @@ auto TrySelectLargeBayerSample(const std::filesystem::path& path) -> std::option
 
   const cv::Rect active_rect =
       detail::BuildDecodeCropRect(raw_processor.imgdata.sizes,
+                                  raw_processor.imgdata.color.dng_levels.default_crop,
                                   cv::Size(static_cast<int>(raw_processor.imgdata.sizes.raw_width),
                                            static_cast<int>(raw_processor.imgdata.sizes.raw_height)),
                                   DecodeRes::FULL);
@@ -208,6 +225,7 @@ auto TrySelectLargeBayerSample(const std::filesystem::path& path) -> std::option
       .pattern = cfa_pattern.bayer_pattern,
       .sizes   = raw_processor.imgdata.sizes,
   };
+  std::copy_n(raw_processor.imgdata.color.dng_levels.default_crop, 4, result.default_crop);
   raw_processor.recycle();
   return result;
 }
@@ -322,6 +340,91 @@ TEST(RawProcessorPattern, DescribeAndValidateClassicPatterns) {
   EXPECT_EQ(DescribeBayerPattern(grbg), "GRBG");
   EXPECT_EQ(DescribeBayerPattern(gbrg), "GBRG");
   EXPECT_EQ(DescribeBayerPattern(bggr), "BGGR");
+}
+
+TEST(RawProcessorPattern, DecodeCropPrefersValidDefaultCropInsideActiveArea) {
+  libraw_image_sizes_t sizes{};
+  sizes.raw_width        = 8424;
+  sizes.raw_height       = 5632;
+  sizes.left_margin      = 0;
+  sizes.top_margin       = 0;
+  sizes.width            = 8392;
+  sizes.height           = 5632;
+  const ushort default_crop[4] = {12, 24, 8368, 5584};
+
+  const cv::Rect crop =
+      detail::BuildDecodeCropRect(sizes, default_crop, cv::Size(8424, 5632), DecodeRes::FULL);
+  EXPECT_EQ(crop, cv::Rect(12, 24, 8368, 5584));
+}
+
+TEST(RawProcessorPattern, DecodeCropFallsBackToActiveAreaWhenDefaultCropIsInvalid) {
+  libraw_image_sizes_t sizes{};
+  sizes.raw_width        = 6880;
+  sizes.raw_height       = 4544;
+  sizes.left_margin      = 136;
+  sizes.top_margin       = 42;
+  sizes.width            = 6744;
+  sizes.height           = 4502;
+  const ushort default_crop[4] = {120, 54, 6720, 4480};
+
+  const cv::Rect crop =
+      detail::BuildDecodeCropRect(sizes, default_crop, cv::Size(6880, 4544), DecodeRes::FULL);
+  EXPECT_EQ(crop, cv::Rect(136, 42, 6744, 4502));
+}
+
+TEST(RawProcessorPattern, RawDecodeUsesLeicaQ2DngDefaultCropAtEighthResolution) {
+#ifndef HAVE_CUDA
+  GTEST_SKIP() << "CUDA is not enabled in this build.";
+#else
+  if (!EnsureCudaDevice()) {
+    GTEST_SKIP() << "No CUDA device available.";
+  }
+
+  const std::filesystem::path sample_path = LeicaQ2SamplePath();
+  if (!std::filesystem::exists(sample_path)) {
+    GTEST_SKIP() << "Leica Q2 sample not found: " << sample_path.string();
+  }
+
+  std::vector<uint8_t> raw_bytes = ReadFileToBuffer(sample_path);
+  ASSERT_FALSE(raw_bytes.empty());
+
+  auto input = std::make_shared<ImageBuffer>(std::move(raw_bytes));
+
+  nlohmann::json decode_params;
+  decode_params["raw"] = {{"gpu_backend", "gpu"},
+                          {"highlights_reconstruct", false},
+                          {"use_camera_wb", true},
+                          {"backend", "alcedo"},
+                          {"decode_res", static_cast<int>(DecodeRes::EIGHTH)}};
+
+  RawDecodeOp raw_decode_op(decode_params);
+  ASSERT_NO_THROW(raw_decode_op.ApplyGPU(input));
+
+  EXPECT_EQ(input->GetGPUWidth(), 1047);
+  EXPECT_EQ(input->GetGPUHeight(), 698);
+
+  OperatorParams params;
+  raw_decode_op.SetGlobalParams(params);
+  EXPECT_TRUE(params.raw_dng_warp_rectilinear_present_);
+  EXPECT_TRUE(params.raw_dng_warp_rectilinear_applied_);
+#endif
+}
+
+TEST(RawProcessorPattern, ParsesLeicaQ2WarpRectilinearOpcode) {
+  const std::filesystem::path sample_path = LeicaQ2SamplePath();
+  if (!std::filesystem::exists(sample_path)) {
+    GTEST_SKIP() << "Leica Q2 sample not found: " << sample_path.string();
+  }
+
+  const std::vector<uint8_t> raw_bytes = ReadFileToBuffer(sample_path);
+  ASSERT_FALSE(raw_bytes.empty());
+
+  const dng::Metadata metadata =
+      dng::ExtractMetadata(std::span<const uint8_t>(raw_bytes.data(), raw_bytes.size()));
+  ASSERT_TRUE(metadata.warp_rectilinear.has_value());
+  EXPECT_EQ(metadata.warp_rectilinear->coefficient_set_count, 3U);
+  EXPECT_NEAR(metadata.warp_rectilinear->center_x, 0.5, 1e-12);
+  EXPECT_NEAR(metadata.warp_rectilinear->center_y, 0.5, 1e-12);
 }
 
 TEST(RawProcessorPattern, ClassifyRawInputLayouts) {
@@ -478,7 +581,7 @@ TEST(RawProcessorPattern, CudaDecodeSupportsNonRggbClassicBayer) {
   RawDecodeOp raw_decode_op(decode_params);
   ASSERT_NO_THROW(raw_decode_op.ApplyGPU(input));
 
-  const cv::Size expected_size = ExpectedHalfDecodeSize(sample->sizes);
+  const cv::Size expected_size = ExpectedHalfDecodeSize(sample->sizes, sample->default_crop);
   EXPECT_EQ(input->GetGPUType(), CV_32FC4);
   EXPECT_EQ(input->GetGPUWidth(), expected_size.width);
   EXPECT_EQ(input->GetGPUHeight(), expected_size.height);

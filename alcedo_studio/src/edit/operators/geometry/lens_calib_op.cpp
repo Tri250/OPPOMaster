@@ -385,9 +385,8 @@ auto FindBestLens(const lfDatabase* db, const lfCamera* camera, const InputMeta&
 }
 
 auto ResolveScaleFromModifier(const lfLens* lens, float focal_mm, float crop_factor, int width,
-                              int height, const lfLensCalibDistortion* distortion_model,
-                              const lfLensCalibTCA* tca_model, bool apply_projection,
-                              lfLensType target_projection) -> float {
+                              int height, bool apply_distortion, bool apply_tca,
+                              bool apply_projection, lfLensType target_projection) -> float {
   if (!lens || !IsFinitePositive(focal_mm) || !IsFinitePositive(crop_factor)) {
     return 1.0f;
   }
@@ -399,10 +398,10 @@ auto ResolveScaleFromModifier(const lfLens* lens, float focal_mm, float crop_fac
   }
 
   int flags = 0;
-  if (distortion_model != nullptr) {
+  if (apply_distortion) {
     flags |= LF_MODIFY_DISTORTION;
   }
-  if (tca_model != nullptr) {
+  if (apply_tca) {
     flags |= LF_MODIFY_TCA;
   }
   if (apply_projection) {
@@ -414,10 +413,10 @@ auto ResolveScaleFromModifier(const lfLens* lens, float focal_mm, float crop_fac
 
   const lfLensType source_projection = lens->Type;
   const lfLensType resolved_target   = apply_projection ? target_projection : source_projection;
-  if (distortion_model != nullptr) {
+  if (apply_distortion) {
     (void)lf_modifier_enable_distortion_correction(modifier.get());
   }
-  if (tca_model != nullptr) {
+  if (apply_tca) {
     (void)lf_modifier_enable_tca_correction(modifier.get());
   }
   if (apply_projection) {
@@ -429,6 +428,26 @@ auto ResolveScaleFromModifier(const lfLens* lens, float focal_mm, float crop_fac
     return 1.0f;
   }
   return scale;
+}
+
+auto ResolveScaleForImageSize(const InputMeta& meta, const std::filesystem::path& db_path,
+                              const LensCalibGpuParams& params, int width, int height) -> float {
+  const auto  db_root = ResolveDbRootPath(db_path);
+  lfDatabase* db      = GetLensfunDb(db_root);
+  if (!db) {
+    return params.resolved_scale;
+  }
+
+  const lfCamera* camera = FindBestCamera(db, meta.cam_maker_, meta.cam_model_);
+  const lfLens*   lens   = FindBestLens(db, camera, meta);
+  if (!lens) {
+    return params.resolved_scale;
+  }
+
+  return ResolveScaleFromModifier(
+      lens, meta.focal_length_mm_, params.camera_crop_factor, width, height,
+      params.apply_distortion != 0, params.apply_tca != 0, params.apply_projection != 0,
+      LensTypeToLensfun(static_cast<LensCalibProjectionType>(params.target_projection)));
 }
 
 void HashCombine(std::uint64_t& seed, std::uint64_t value) {
@@ -526,6 +545,11 @@ void LensCalibOp::ApplyGPU(std::shared_ptr<ImageBuffer> input) {
   resolved_params_.src_height = gpu.rows;
   resolved_params_.dst_width  = gpu.cols;
   resolved_params_.dst_height = gpu.rows;
+  if (resolved_params_.use_auto_scale != 0 && resolved_params_.use_user_scale == 0) {
+    resolved_params_.resolved_scale =
+        ResolveScaleForImageSize(resolved_input_meta_, lens_profile_db_path_, resolved_params_,
+                                 gpu.cols, gpu.rows);
+  }
 
   const double width          = (gpu.cols >= 2) ? static_cast<double>(gpu.cols - 1) : 1.0;
   const double height         = (gpu.rows >= 2) ? static_cast<double>(gpu.rows - 1) : 1.0;
@@ -558,6 +582,11 @@ void LensCalibOp::ApplyGPU(std::shared_ptr<ImageBuffer> input) {
   resolved_params_.src_height = static_cast<std::int32_t>(gpu.Height());
   resolved_params_.dst_width  = static_cast<std::int32_t>(gpu.Width());
   resolved_params_.dst_height = static_cast<std::int32_t>(gpu.Height());
+  if (resolved_params_.use_auto_scale != 0 && resolved_params_.use_user_scale == 0) {
+    resolved_params_.resolved_scale =
+        ResolveScaleForImageSize(resolved_input_meta_, lens_profile_db_path_, resolved_params_,
+                                 static_cast<int>(gpu.Width()), static_cast<int>(gpu.Height()));
+  }
 
   const double width          = (gpu.Width() >= 2U) ? static_cast<double>(gpu.Width() - 1U) : 1.0;
   const double height         = (gpu.Height() >= 2U) ? static_cast<double>(gpu.Height() - 1U) : 1.0;
@@ -644,6 +673,7 @@ void LensCalibOp::SetParams(const nlohmann::json& params) {
     lens_profile_db_path_ = ResolveDefaultDbPath();
   }
   has_resolved_params_ = false;
+  resolved_input_meta_ = {};
 }
 
 auto LensCalibOp::BuildRuntimeCacheKey(const OperatorParams& params) const -> uint64_t {
@@ -668,6 +698,7 @@ auto LensCalibOp::BuildRuntimeCacheKey(const OperatorParams& params) const -> ui
   HashCombine(key, HashFloatBits(params.raw_lens_focus_distance_m_));
   HashCombine(key, HashFloatBits(params.raw_lens_focal_35mm_));
   HashCombine(key, HashFloatBits(params.raw_lens_crop_factor_hint_));
+  HashCombine(key, static_cast<std::uint64_t>(params.raw_dng_warp_rectilinear_present_));
   HashCombine(key, static_cast<std::uint64_t>(std::hash<std::string>{}(input_meta_.cam_maker_)));
   HashCombine(key, static_cast<std::uint64_t>(std::hash<std::string>{}(input_meta_.cam_model_)));
   HashCombine(key, static_cast<std::uint64_t>(std::hash<std::string>{}(input_meta_.lens_maker_)));
@@ -821,8 +852,10 @@ void LensCalibOp::ResolveRuntime(OperatorParams& params) const {
   lfLensCalibCrop crop{};
   const bool      crop_ok =
       lf_lens_interpolate_crop(lens, crop_factor, meta.focal_length_mm_, &crop) != 0;
+  const bool      dng_geometry_wins = params.raw_dng_warp_rectilinear_present_;
 
   LensCalibGpuParams runtime{};
+  resolved_input_meta_ = meta;
   runtime.src_width             = 0;
   runtime.src_height            = 0;
   runtime.nominal_focal_mm      = meta.focal_length_mm_;
@@ -839,12 +872,12 @@ void LensCalibOp::ResolveRuntime(OperatorParams& params) const {
   runtime.target_projection     = static_cast<std::int32_t>(target_projection);
 
   runtime.apply_distortion =
-      (apply_distortion_ && distortion_ok &&
+      (!dng_geometry_wins && apply_distortion_ && distortion_ok &&
        (distortion.Model == LF_DIST_MODEL_POLY3 || distortion.Model == LF_DIST_MODEL_POLY5 ||
         distortion.Model == LF_DIST_MODEL_PTLENS))
           ? 1
           : 0;
-  runtime.apply_tca = (apply_tca_ && tca_ok &&
+  runtime.apply_tca = (!dng_geometry_wins && apply_tca_ && tca_ok &&
                        (tca.Model == LF_TCA_MODEL_LINEAR || tca.Model == LF_TCA_MODEL_POLY3))
                           ? 1
                           : 0;
@@ -853,11 +886,11 @@ void LensCalibOp::ResolveRuntime(OperatorParams& params) const {
 
   const bool projection_valid = target_projection != LensCalibProjectionType::UNKNOWN &&
                                 target_projection != LensTypeFromLensfun(lens->Type);
-  runtime.apply_projection = (projection_enabled_ && projection_valid) ? 1 : 0;
+  runtime.apply_projection = (!dng_geometry_wins && projection_enabled_ && projection_valid) ? 1 : 0;
 
   const bool crop_profile_valid =
       crop_ok && (crop.CropMode == LF_CROP_RECTANGLE || crop.CropMode == LF_CROP_CIRCLE);
-  runtime.apply_crop        = (apply_crop_ && crop_profile_valid) ? 1 : 0;
+  runtime.apply_crop        = (!dng_geometry_wins && apply_crop_ && crop_profile_valid) ? 1 : 0;
   runtime.apply_crop_circle = (runtime.apply_crop && crop.CropMode == LF_CROP_CIRCLE) ? 1 : 0;
 
   switch (distortion.Model) {
@@ -903,31 +936,14 @@ void LensCalibOp::ResolveRuntime(OperatorParams& params) const {
   }
   std::memcpy(runtime.crop_bounds, crop.Crop, sizeof(runtime.crop_bounds));
 
-  // Fallback path: some lens profiles do not contain explicit crop data.
-  // In that case, keep apply_crop enabled so CUDA can auto-crop transparent
-  // borders after geometric warping.
-  const bool has_geometry_warp =
-      runtime.apply_distortion != 0 || runtime.apply_tca != 0 || runtime.apply_projection != 0;
-  if (apply_crop_ && !crop_profile_valid && has_geometry_warp) {
-    runtime.apply_crop        = 1;
-    runtime.apply_crop_circle = 0;
-    runtime.crop_mode         = static_cast<std::int32_t>(LensCalibCropMode::NONE);
-    runtime.crop_bounds[0]    = 0.0f;
-    runtime.crop_bounds[1]    = 1.0f;
-    runtime.crop_bounds[2]    = 0.0f;
-    runtime.crop_bounds[3]    = 1.0f;
-  }
-
   runtime.resolved_scale = 1.0f;
   if (use_user_scale_ && IsFinitePositive(user_scale_)) {
     runtime.resolved_scale = user_scale_;
   } else if (auto_scale_) {
-    const lfLensCalibDistortion* distortion_for_scale =
-        (runtime.apply_distortion != 0) ? &distortion : nullptr;
-    const lfLensCalibTCA* tca_for_scale = (runtime.apply_tca != 0) ? &tca : nullptr;
     runtime.resolved_scale              = ResolveScaleFromModifier(
-        lens, meta.focal_length_mm_, crop_factor, 4096, 4096, distortion_for_scale, tca_for_scale,
-        runtime.apply_projection != 0, LensTypeToLensfun(target_projection));
+        lens, meta.focal_length_mm_, crop_factor, 4096, 4096, runtime.apply_distortion != 0,
+        runtime.apply_tca != 0, runtime.apply_projection != 0,
+        LensTypeToLensfun(target_projection));
   }
   if (!IsFinitePositive(runtime.resolved_scale)) {
     runtime.resolved_scale = 1.0f;
@@ -950,6 +966,7 @@ void LensCalibOp::ResolveRuntime(OperatorParams& params) const {
             << " apply_tca=" << runtime.apply_tca
             << " apply_projection=" << runtime.apply_projection
             << " apply_crop=" << runtime.apply_crop
+            << " dng_geometry_wins=" << dng_geometry_wins
             << " crop_mode=" << runtime.crop_mode
             << " resolved_scale=" << runtime.resolved_scale
             << " crop_bounds=[" << runtime.crop_bounds[0] << ", " << runtime.crop_bounds[1]

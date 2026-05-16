@@ -7,10 +7,12 @@
 #include <libraw/libraw.h>
 
 #include <cstdint>
+#include <optional>
 #include <opencv2/core/types.hpp>
 #include <string>
 
 #include "decoders/decoder_scheduler.hpp"
+#include "decoders/dng_default_crop.hpp"
 #include "decoders/processor/raw_color_context.hpp"
 #include "decoders/processor/raw_processor_pattern.hpp"
 #include "image/image_buffer.hpp"
@@ -50,6 +52,8 @@ class RawProcessor {
   RawCfaPattern           cfa_pattern_;
   RawInputKind            input_kind_                  = RawInputKind::Unsupported;
   int                     gpu_input_downsample_passes_ = 0;
+  ushort                  default_crop_[4]             = {};
+  std::optional<dng::WarpRectilinear> dng_warp_rectilinear_ = std::nullopt;
 
   const libraw_rawdata_t& raw_data_;
   LibRaw&                 raw_processor_;
@@ -113,7 +117,8 @@ class RawProcessor {
  public:
   RawProcessor() = delete;
   RawProcessor(const RawParams& params, const libraw_rawdata_t& rawdata, LibRaw& raw_processor,
-               const RawRuntimeColorContext& pre_ctx);
+               const RawRuntimeColorContext& pre_ctx, const ushort default_crop[4],
+               std::optional<dng::WarpRectilinear> dng_warp_rectilinear = std::nullopt);
   auto Process() -> ImageBuffer;
   auto GetRuntimeColorContext() const -> const RawRuntimeColorContext& {
     return runtime_color_context_;
