@@ -428,6 +428,20 @@ gtest_discover_tests(EditHistoryMgmtServiceTest TEST_PREFIX "EditHistoryMgmtServ
 
 if(WIN32)
   target_link_libraries(EditHistoryMgmtServiceTest)
+  if(TARGET alcedo_lensfun)
+    add_custom_command(TARGET EditHistoryMgmtServiceTest POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "$<TARGET_FILE:alcedo_lensfun>"
+              "$<TARGET_FILE_DIR:EditHistoryMgmtServiceTest>/lensfun.dll"
+      VERBATIM)
+  endif()
+  if(EXISTS "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/libduckdb-windows/duckdb.dll")
+    add_custom_command(TARGET EditHistoryMgmtServiceTest POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/libduckdb-windows/duckdb.dll"
+              "$<TARGET_FILE_DIR:EditHistoryMgmtServiceTest>/duckdb.dll"
+      VERBATIM)
+  endif()
 endif()
 
 add_executable(ThumbnailServiceTest app/thumbnail_service_test.cpp)

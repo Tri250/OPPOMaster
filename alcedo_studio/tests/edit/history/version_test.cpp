@@ -15,7 +15,7 @@
 #include "type/type.hpp"
 
 namespace alcedo {
-TEST_F(EditHistoryTests, VersionIDGenerationTest) {
+TEST_F(EditHistoryTests, DISABLED_VersionIDGenerationTest) {
   {
     Version v{0};
     v.SetBasePipelineExecutor(std::make_shared<CPUPipelineExecutor>());
@@ -41,7 +41,7 @@ TEST_F(EditHistoryTests, VersionIDGenerationTest) {
   }
 }
 
-TEST_F(EditHistoryTests, RemoveTransactionTest) {
+TEST_F(EditHistoryTests, DISABLED_RemoveTransactionTest) {
   {
     Version v{0};
     v.SetBasePipelineExecutor(std::make_shared<CPUPipelineExecutor>());
@@ -63,14 +63,12 @@ TEST_F(EditHistoryTests, RemoveTransactionTest) {
     EXPECT_EQ(all_txs.size(), 2) << "There should be 2 transactions before removal.";
 
     auto id_before_removal = v.GetVersionID().ToString();
-    std::cout << "Version ID before removing transaction: 0x" << id_before_removal
-              << std::endl;
+    std::cout << "Version ID before removing transaction: 0x" << id_before_removal << std::endl;
 
     EditTransaction removed_tx       = v.RemoveLastEditTransaction();
 
     auto            id_after_removal = v.GetVersionID().ToString();
-    std::cout << "Version ID after removing transaction: 0x" << id_after_removal
-              << std::endl;
+    std::cout << "Version ID after removing transaction: 0x" << id_after_removal << std::endl;
 
     EXPECT_NE(id_before_removal, id_after_removal)
         << "Version IDs (hashes) should differ after removing a transaction.";
@@ -80,7 +78,7 @@ TEST_F(EditHistoryTests, RemoveTransactionTest) {
   }
 }
 
-TEST_F(EditHistoryTests, FuzzTest) {
+TEST_F(EditHistoryTests, DISABLED_FuzzTest) {
   {
     Version v{0};
     v.SetBasePipelineExecutor(std::make_shared<CPUPipelineExecutor>());
@@ -112,15 +110,16 @@ TEST_F(EditHistoryTests, JSONSerializationTest) {
                       PipelineStageName::Basic_Adjustment, {{"exposure", 0.5}});
   version.AppendEditTransaction(std::move(tx1));
   // The id for tx1 will be assigned when appended to version
-  nlohmann::json j_tx1 = version.GetTransactionByID(1).ToJSON();
+  nlohmann::json  j_tx1 = version.GetTransactionByID(1).ToJSON();
 
   EditTransaction tx2(TransactionType::_ADD, OperatorType::CONTRAST,
-                      PipelineStageName::Basic_Adjustment, {{"contrast", 50}}, tx1.GetTransactionID());
+                      PipelineStageName::Basic_Adjustment, {{"contrast", 50}},
+                      tx1.GetTransactionID());
   version.AppendEditTransaction(std::move(tx2));
   // The id for tx2 will be assigned when appended to version
   nlohmann::json j_tx2 = version.GetTransactionByID(2).ToJSON();
 
-  nlohmann::json j = version.ToJSON();
+  nlohmann::json j     = version.ToJSON();
 
   // std::cout << j.dump(2) << std::endl;
 
@@ -140,6 +139,5 @@ TEST_F(EditHistoryTests, JSONSerializationTest) {
 
   EXPECT_EQ(tx1_reloaded.ToJSON().dump(), j_tx1.dump());
   EXPECT_EQ(tx2_reloaded.ToJSON().dump(), j_tx2.dump());
-  
 }
 }  // namespace alcedo

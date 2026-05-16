@@ -6,8 +6,8 @@
 
 #include <xxhash.h>
 
-#include <array>
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -27,9 +27,7 @@ auto DefaultPipelineParams() -> nlohmann::json {
   return exec.ExportPipelineParams();
 }
 
-auto IsZeroHash(const Hash128& id) -> bool {
-  return id.low64() == 0 && id.high64() == 0;
-}
+auto IsZeroHash(const Hash128& id) -> bool { return id.low64() == 0 && id.high64() == 0; }
 }  // namespace
 
 VersionNode::VersionNode(Version& ver) : ver_ref_(ver) {}
@@ -42,14 +40,15 @@ EditHistory::EditHistory(sl_element_id_t bound_image) : bound_image_(bound_image
 }
 
 void EditHistory::EnsureRootVersion() {
-  if (!IsZeroHash(root_version_id_) && version_storage_.find(root_version_id_) != version_storage_.end()) {
+  if (!IsZeroHash(root_version_id_) &&
+      version_storage_.find(root_version_id_) != version_storage_.end()) {
     return;
   }
 
-  Version root = Version::Root(bound_image_, DefaultPipelineParams());
-  root_version_id_ = root.GetVersionID();
-  head_version_id_ = root_version_id_;
-  head_pipeline_params_ = root.GetMaterializedParams();
+  Version root                       = Version::Root(bound_image_, DefaultPipelineParams());
+  root_version_id_                   = root.GetVersionID();
+  head_version_id_                   = root_version_id_;
+  head_pipeline_params_              = root.GetMaterializedParams();
   version_storage_[root_version_id_] = std::move(root);
   commit_tree_.clear();
   commit_tree_.emplace_back(version_storage_[root_version_id_]);
@@ -61,7 +60,7 @@ void EditHistory::CalculateHistoryID() {
   history_id_     = Hash128::Blend(
       history_id_,
       Hash128::Blend(last_node.ver_ref_.GetVersionID(),
-                     Hash128::Compute(&last_modified_time_, sizeof(last_modified_time_))));
+                         Hash128::Compute(&last_modified_time_, sizeof(last_modified_time_))));
 }
 
 void EditHistory::SetAddTime() {
@@ -129,11 +128,11 @@ auto EditHistory::ReconstructPipelineParamsForVersion(history_id_t ver_id)
   }
   std::reverse(lineage.begin(), lineage.end());
 
-  size_t replay_from = 0;
-  nlohmann::json params = nlohmann::json::object();
+  size_t         replay_from = 0;
+  nlohmann::json params      = nlohmann::json::object();
   for (size_t i = lineage.size(); i > 0; --i) {
     if (const auto snapshot = lineage[i - 1]->GetFinalPipelineParams(); snapshot.has_value()) {
-      params = *snapshot;
+      params      = *snapshot;
       replay_from = i;
       break;
     }
@@ -159,7 +158,7 @@ auto EditHistory::CommitVersion(Version&& ver) -> history_id_t {
   commit_tree_.emplace_back(version_storage_[ver_id]);
   commit_tree_.back().commit_id_ = static_cast<p_hash_t>(commit_tree_.size());
   if (!version_storage_[ver_id].IsRoot()) {
-    head_version_id_ = ver_id;
+    head_version_id_      = ver_id;
     head_pipeline_params_ = version_storage_[ver_id].GetMaterializedParams();
   }
   SetLastModifiedTime();
@@ -167,19 +166,20 @@ auto EditHistory::CommitVersion(Version&& ver) -> history_id_t {
   return ver_id;
 }
 
-auto EditHistory::CommitWorkingVersion(WorkingVersion&& working_version,
+auto EditHistory::CommitWorkingVersion(WorkingVersion&&      working_version,
                                        const nlohmann::json& base_pipeline_params,
                                        const nlohmann::json& head_pipeline_params) -> history_id_t {
-  const auto applied = working_version.AppliedTransactions();
+  const auto                     applied = working_version.AppliedTransactions();
   std::optional<EditTransaction> last_tx = std::nullopt;
   if (!applied.empty()) {
     last_tx = applied.back();
   }
 
-  Version checkpoint = Version::Checkpoint(
-      working_version.GetBoundImage(), working_version.GetParentVersionID(),
-      nlohmann::json::diff(base_pipeline_params, head_pipeline_params), head_pipeline_params,
-      applied.size(), std::move(last_tx));
+  Version checkpoint =
+      Version::Checkpoint(working_version.GetBoundImage(), working_version.GetParentVersionID(),
+                          nlohmann::json::diff(base_pipeline_params, head_pipeline_params),
+                          head_pipeline_params, applied.size(), std::move(last_tx));
+  checkpoint.UpdateFromWorkingVersion(working_version, base_pipeline_params, head_pipeline_params);
   return CommitVersion(std::move(checkpoint));
 }
 
@@ -226,14 +226,40 @@ auto EditHistory::RemoveVersion(history_id_t ver_id) -> bool {
   return true;
 }
 
+void EditHistory::SetHeadVersionID(history_id_t ver_id) {
+  EnsureRootVersion();
+  if (version_storage_.find(ver_id) == version_storage_.end()) {
+    throw std::runtime_error("Version not found");
+  }
+  head_version_id_      = ver_id;
+  head_pipeline_params_ = version_storage_[ver_id].GetMaterializedParams();
+  SetLastModifiedTime();
+}
+
+void EditHistory::UpdateVersionFromWorkingVersion(history_id_t          ver_id,
+                                                  const WorkingVersion& working_version,
+                                                  const nlohmann::json& base_pipeline_params,
+                                                  const nlohmann::json& head_pipeline_params) {
+  EnsureRootVersion();
+  auto it = version_storage_.find(ver_id);
+  if (it == version_storage_.end()) {
+    throw std::runtime_error("Version not found");
+  }
+  it->second.UpdateFromWorkingVersion(working_version, base_pipeline_params, head_pipeline_params);
+  if (head_version_id_ == ver_id) {
+    head_pipeline_params_ = head_pipeline_params;
+  }
+  SetLastModifiedTime();
+}
+
 auto EditHistory::ToJSON() const -> nlohmann::json {
   nlohmann::json j;
-  j["history_id"]           = history_id_.ToString();
-  j["bound_image"]          = bound_image_;
-  j["added_time"]           = added_time_;
-  j["last_modified_time"]   = last_modified_time_;
-  j["root_version_id"]      = root_version_id_.ToString();
-  j["head_version_id"]      = head_version_id_.ToString();
+  j["history_id"]         = history_id_.ToString();
+  j["bound_image"]        = bound_image_;
+  j["added_time"]         = added_time_;
+  j["last_modified_time"] = last_modified_time_;
+  j["root_version_id"]    = root_version_id_.ToString();
+  j["head_version_id"]    = head_version_id_.ToString();
   if (head_pipeline_params_.has_value()) {
     j["head_pipeline_params"] = *head_pipeline_params_;
   }
@@ -241,7 +267,7 @@ auto EditHistory::ToJSON() const -> nlohmann::json {
   j["commit_tree"] = nlohmann::json::array();
   for (const auto& node : commit_tree_) {
     nlohmann::json node_json;
-    node_json["commit_id"] = node.commit_id_;
+    node_json["commit_id"]  = node.commit_id_;
     node_json["version_id"] = node.ver_ref_.GetVersionID().ToString();
     j["commit_tree"].push_back(node_json);
   }
@@ -277,19 +303,19 @@ void EditHistory::FromJSON(const nlohmann::json& j) {
     throw std::runtime_error("EditHistory: Invalid JSON format for EditHistory");
   }
 
-  history_id_         = Hash128::FromString(j.at("history_id").get<std::string>());
-  bound_image_        = j.at("bound_image").get<sl_element_id_t>();
-  added_time_         = j.at("added_time").get<std::time_t>();
-  last_modified_time_ = j.at("last_modified_time").get<std::time_t>();
-  root_version_id_    = j.contains("root_version_id")
-                            ? Hash128::FromString(j.at("root_version_id").get<std::string>())
-                            : history_id_t{};
-  head_version_id_    = j.contains("head_version_id")
-                            ? Hash128::FromString(j.at("head_version_id").get<std::string>())
-                            : history_id_t{};
-  head_pipeline_params_ =
-      j.contains("head_pipeline_params") ? std::optional<nlohmann::json>(j.at("head_pipeline_params"))
-                                         : std::nullopt;
+  history_id_           = Hash128::FromString(j.at("history_id").get<std::string>());
+  bound_image_          = j.at("bound_image").get<sl_element_id_t>();
+  added_time_           = j.at("added_time").get<std::time_t>();
+  last_modified_time_   = j.at("last_modified_time").get<std::time_t>();
+  root_version_id_      = j.contains("root_version_id")
+                              ? Hash128::FromString(j.at("root_version_id").get<std::string>())
+                              : history_id_t{};
+  head_version_id_      = j.contains("head_version_id")
+                              ? Hash128::FromString(j.at("head_version_id").get<std::string>())
+                              : history_id_t{};
+  head_pipeline_params_ = j.contains("head_pipeline_params")
+                              ? std::optional<nlohmann::json>(j.at("head_pipeline_params"))
+                              : std::nullopt;
 
   commit_tree_.clear();
   version_storage_.clear();
@@ -316,7 +342,7 @@ void EditHistory::FromJSON(const nlohmann::json& j) {
     } else if (node_json.contains("version")) {
       Version ver;
       ver.FromJSON(node_json.at("version"));
-      ver_id = ver.GetVersionID();
+      ver_id                   = ver.GetVersionID();
       version_storage_[ver_id] = std::move(ver);
     } else {
       continue;

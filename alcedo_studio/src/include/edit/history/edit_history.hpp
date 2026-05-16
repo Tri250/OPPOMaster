@@ -68,12 +68,16 @@ class EditHistory {
   auto HasUserVersions() const -> bool;
   auto ReconstructPipelineParamsForVersion(history_id_t ver_id) -> std::optional<nlohmann::json>;
   auto CommitVersion(Version&& ver) -> history_id_t;
-  auto CommitWorkingVersion(WorkingVersion&& working_version,
+  auto CommitWorkingVersion(WorkingVersion&&      working_version,
                             const nlohmann::json& base_pipeline_params,
                             const nlohmann::json& head_pipeline_params) -> history_id_t;
 
   auto GetLatestVersion() -> VersionNode&;
   auto RemoveVersion(history_id_t ver_id) -> bool;
+  void SetHeadVersionID(history_id_t ver_id);
+  void UpdateVersionFromWorkingVersion(history_id_t ver_id, const WorkingVersion& working_version,
+                                       const nlohmann::json& base_pipeline_params,
+                                       const nlohmann::json& head_pipeline_params);
 
   auto GetCommitTree() const -> const std::list<VersionNode>& { return commit_tree_; }
 
