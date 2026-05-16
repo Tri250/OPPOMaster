@@ -241,6 +241,7 @@ TEST_F(PipelineServiceTests, LoadPipelineRepairsLensCalibEnableMismatchFromParam
     ASSERT_TRUE(op.has_value());
     ASSERT_NE(op.value(), nullptr);
     EXPECT_FALSE(op.value()->enable_);
+    EXPECT_FALSE(op.value()->op_->GetParams()["lens_calib"].value("enabled", true));
   }
 }
 

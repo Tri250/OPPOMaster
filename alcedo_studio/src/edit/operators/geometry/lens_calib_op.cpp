@@ -987,10 +987,9 @@ void LensCalibOp::SetGlobalParams(OperatorParams& params) const {
 }
 
 void LensCalibOp::EnableGlobalParams(OperatorParams& params, bool enable) {
-  if (enabled_ == enable && params.lens_calib_enabled_ == enable) {
+  if (params.lens_calib_enabled_ == enable) {
     return;  // No state change; avoid unnecessary dirty marking.
   }
-  enabled_                         = enable;
   params.lens_calib_enabled_       = enable;
   params.lens_calib_runtime_dirty_ = true;
   has_resolved_params_             = false;
