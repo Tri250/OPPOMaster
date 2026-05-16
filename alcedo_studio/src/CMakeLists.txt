@@ -324,7 +324,7 @@ if(ALCEDO_METAL_ENABLED)
     target_compile_definitions(MetalUtils PRIVATE ALCEDO_METAL_UTILS_METALLIB_PATH="${METAL_UTILS_METALLIB}")
     def_library(MetalGeometryUtils
         SOURCES metal/metal_utils/geometry_utils.cpp
-        PUBLIC_DEPS MetalImage alcedo::metal_cpp ${ALCEDO_OPENCV_CORE_DEPS}
+        PUBLIC_DEPS MetalImage alcedo::metal_cpp ${ALCEDO_OPENCV_CORE_DEPS} libraw::raw_r
     )
     add_dependencies(MetalGeometryUtils MetalGeometryUtilsShaders)
     target_compile_definitions(MetalGeometryUtils PRIVATE ALCEDO_METAL_GEOMETRY_UTILS_METALLIB_PATH="${METAL_GEOMETRY_UTILS_METALLIB}")
