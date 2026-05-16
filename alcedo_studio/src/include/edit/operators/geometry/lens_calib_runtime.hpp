@@ -69,6 +69,8 @@ struct LensCalibGpuParams {
   float camera_crop_factor = 0.0f;
   float nominal_focal_mm   = 0.0f;
   float real_focal_mm      = 0.0f;
+  float lens_center_x      = 0.0f;
+  float lens_center_y      = 0.0f;
 
   std::int32_t source_projection =
       static_cast<std::int32_t>(LensCalibProjectionType::UNKNOWN);
@@ -117,4 +119,3 @@ struct LensCalibGpuParams {
 };
 
 }  // namespace alcedo
-

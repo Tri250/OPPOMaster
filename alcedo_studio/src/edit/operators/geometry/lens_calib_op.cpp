@@ -257,6 +257,71 @@ void RescalePaVignettingTerms(lfLensCalibVignetting* vignette, float real_focal_
   vignette->Terms[2] *= hs2 * hs2 * hs2;
 }
 
+auto HuginScaleInMillimeters(float crop_factor, float aspect_ratio) -> float {
+  if (!IsFinitePositive(crop_factor) || !IsFinitePositive(aspect_ratio)) {
+    return 0.0f;
+  }
+  return kFullFrameDiagonalMm / crop_factor / std::hypot(aspect_ratio, 1.0f) * 0.5f;
+}
+
+void RescaleDistortionTerms(lfLensCalibDistortion* distortion, float real_focal_mm) {
+  if (!distortion || !IsFinitePositive(real_focal_mm)) {
+    return;
+  }
+  const float hugin_scale_in_mm =
+      HuginScaleInMillimeters(distortion->CalibAttr.CropFactor, distortion->CalibAttr.AspectRatio);
+  if (!IsFinitePositive(hugin_scale_in_mm)) {
+    return;
+  }
+
+  const float hugin_scaling = real_focal_mm / hugin_scale_in_mm;
+  switch (distortion->Model) {
+    case LF_DIST_MODEL_POLY3: {
+      const float d = 1.0f - distortion->Terms[0];
+      if (std::fabs(d) <= kEpsilon) {
+        return;
+      }
+      distortion->Terms[0] *= std::pow(hugin_scaling, 2.0f) / std::pow(d, 3.0f);
+      break;
+    }
+    case LF_DIST_MODEL_POLY5:
+      distortion->Terms[0] *= std::pow(hugin_scaling, 2.0f);
+      distortion->Terms[1] *= std::pow(hugin_scaling, 4.0f);
+      break;
+    case LF_DIST_MODEL_PTLENS: {
+      const float d = 1.0f - distortion->Terms[0] - distortion->Terms[1] - distortion->Terms[2];
+      if (std::fabs(d) <= kEpsilon) {
+        return;
+      }
+      distortion->Terms[0] *= std::pow(hugin_scaling, 3.0f) / std::pow(d, 4.0f);
+      distortion->Terms[1] *= std::pow(hugin_scaling, 2.0f) / std::pow(d, 3.0f);
+      distortion->Terms[2] *= hugin_scaling / std::pow(d, 2.0f);
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+void RescaleTcaTerms(lfLensCalibTCA* tca, float real_focal_mm) {
+  if (!tca || !IsFinitePositive(real_focal_mm)) {
+    return;
+  }
+  const float hugin_scale_in_mm =
+      HuginScaleInMillimeters(tca->CalibAttr.CropFactor, tca->CalibAttr.AspectRatio);
+  if (!IsFinitePositive(hugin_scale_in_mm)) {
+    return;
+  }
+
+  const float hugin_scaling = real_focal_mm / hugin_scale_in_mm;
+  if (tca->Model == LF_TCA_MODEL_POLY3) {
+    tca->Terms[2] *= hugin_scaling;
+    tca->Terms[3] *= hugin_scaling;
+    tca->Terms[4] *= hugin_scaling * hugin_scaling;
+    tca->Terms[5] *= hugin_scaling * hugin_scaling;
+  }
+}
+
 auto CanonicalizeProjectionToken(std::string text) -> std::string {
   std::transform(text.begin(), text.end(), text.begin(),
                  [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
@@ -392,7 +457,7 @@ auto ResolveScaleFromModifier(const lfLens* lens, float focal_mm, float crop_fac
   }
 
   auto modifier = std::unique_ptr<lfModifier, LensfunModifierDeleter>(
-      lf_modifier_create(lens, focal_mm, crop_factor, width, height, LF_PF_F32, true));
+      lf_modifier_create(lens, focal_mm, crop_factor, width, height, LF_PF_F32, false));
   if (!modifier) {
     return 1.0f;
   }
@@ -564,8 +629,11 @@ void LensCalibOp::ApplyGPU(std::shared_ptr<ImageBuffer> input) {
   resolved_params_.norm_scale = static_cast<float>(norm_scale);
   resolved_params_.norm_unscale =
       (std::fabs(norm_scale) > kEpsilon) ? static_cast<float>(1.0 / norm_scale) : 1.0f;
-  resolved_params_.center_x = static_cast<float>((width * 0.5) * norm_scale);
-  resolved_params_.center_y = static_cast<float>((height * 0.5) * norm_scale);
+  const double min_size = std::min(width, height);
+  resolved_params_.center_x = static_cast<float>(
+      (width * 0.5 + min_size * 0.5 * resolved_params_.lens_center_x) * norm_scale);
+  resolved_params_.center_y = static_cast<float>(
+      (height * 0.5 + min_size * 0.5 * resolved_params_.lens_center_y) * norm_scale);
 
 #ifdef HAVE_CUDA
   CUDA::ApplyLensCalibration(gpu, resolved_params_);
@@ -601,8 +669,11 @@ void LensCalibOp::ApplyGPU(std::shared_ptr<ImageBuffer> input) {
   resolved_params_.norm_scale = static_cast<float>(norm_scale);
   resolved_params_.norm_unscale =
       (std::fabs(norm_scale) > kEpsilon) ? static_cast<float>(1.0 / norm_scale) : 1.0f;
-  resolved_params_.center_x = static_cast<float>((width * 0.5) * norm_scale);
-  resolved_params_.center_y = static_cast<float>((height * 0.5) * norm_scale);
+  const double min_size = std::min(width, height);
+  resolved_params_.center_x = static_cast<float>(
+      (width * 0.5 + min_size * 0.5 * resolved_params_.lens_center_x) * norm_scale);
+  resolved_params_.center_y = static_cast<float>(
+      (height * 0.5 + min_size * 0.5 * resolved_params_.lens_center_y) * norm_scale);
 
   metal::ApplyLensCalibration(gpu, resolved_params_);
   input->gpu_data_valid_ = true;
@@ -832,9 +903,15 @@ void LensCalibOp::ResolveRuntime(OperatorParams& params) const {
   if (distortion_ok && IsFinitePositive(distortion.RealFocal)) {
     real_focal_mm = distortion.RealFocal;
   }
+  if (distortion_ok) {
+    RescaleDistortionTerms(&distortion, real_focal_mm);
+  }
 
   lfLensCalibTCA tca{};
   const bool tca_ok = lf_lens_interpolate_tca(lens, crop_factor, meta.focal_length_mm_, &tca) != 0;
+  if (tca_ok) {
+    RescaleTcaTerms(&tca, real_focal_mm);
+  }
 
   lfLensCalibVignetting vignette{};
   const float           safe_aperture =
@@ -865,6 +942,8 @@ void LensCalibOp::ResolveRuntime(OperatorParams& params) const {
   runtime.use_user_scale        = use_user_scale_ ? 1 : 0;
   runtime.use_auto_scale        = (auto_scale_ && !use_user_scale_) ? 1 : 0;
   runtime.low_precision_preview = low_precision_preview_ ? 1 : 0;
+  runtime.lens_center_x         = lens->CenterX;
+  runtime.lens_center_y         = lens->CenterY;
 
   runtime.source_projection     = static_cast<std::int32_t>(LensTypeFromLensfun(lens->Type));
   const auto target_projection  = projection_enabled_ ? ProjectionFromString(target_projection_)
