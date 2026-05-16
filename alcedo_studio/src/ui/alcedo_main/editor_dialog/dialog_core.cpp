@@ -98,8 +98,6 @@ EditorDialog::EditorDialog(std::shared_ptr<ImagePoolService>       image_pool,
                   look_panel_->ClearAppliedLutPath();
                 }
               },
-          .is_plain_working_mode =
-              [this]() { return versioning_panel_ && versioning_panel_->IsPlainWorkingMode(); },
           .refresh_version_log_selection_styles =
               [this]() {
                 if (versioning_panel_) {
@@ -197,28 +195,22 @@ EditorDialog::EditorDialog(std::shared_ptr<ImagePoolService>       image_pool,
                 history_coordinator_->UndoLastTransaction();
               }
             },
-        .commit_working_version =
-            [this]() {
+        .move_history_cursor =
+            [this](size_t target_cursor) {
               if (history_coordinator_) {
-                history_coordinator_->CommitWorkingVersion();
+                history_coordinator_->MoveCursorTo(target_cursor);
               }
             },
-        .start_new_working_version =
+        .create_version =
             [this]() {
               if (history_coordinator_) {
-                history_coordinator_->StartNewWorkingVersionFromUi();
+                history_coordinator_->CreateVersion();
               }
             },
         .checkout_version_by_id =
             [this](const QString& version_id) {
               if (history_coordinator_) {
                 history_coordinator_->CheckoutVersionById(version_id);
-              }
-            },
-        .on_working_mode_changed =
-            [this]() {
-              if (history_coordinator_) {
-                history_coordinator_->UpdateVersionUi();
               }
             },
         .viewer_geometry = [this]() -> QRect {
@@ -299,7 +291,7 @@ void EditorDialog::RegisterShortcuts() {
 
   shortcut_registry_->Register({
       .id               = kShortcutUndoHistoryId,
-      .description      = Tr("Undo last uncommitted transaction"),
+      .description      = Tr("Undo last transaction"),
       .default_sequence = QKeySequence(QKeySequence::Undo),
       .context          = Qt::WidgetWithChildrenShortcut,
       .on_trigger =
@@ -351,7 +343,7 @@ void EditorDialog::RegisterShortcuts() {
 
   if (versioning_panel_ && versioning_panel_->UndoButton()) {
     versioning_panel_->UndoButton()->setToolTip(shortcut_registry_->DecorateTooltip(
-        Tr("Undo last uncommitted transaction"), kShortcutUndoHistoryId));
+        Tr("Undo last transaction"), kShortcutUndoHistoryId));
   }
   if (geometry_panel_ && geometry_panel_->ResetButton()) {
     geometry_panel_->ResetButton()->setToolTip(
@@ -495,7 +487,7 @@ void EditorDialog::BuildToneControlPanel() {
 
   // Seed a working version from the latest committed one (if any).
   if (history_coordinator_) {
-    history_coordinator_->SeedWorkingVersionFromLatest();
+    history_coordinator_->SeedWorkingVersionFromActive();
   }
   ToneControlPanelWidget::Dependencies deps{
       .session                = adjustment_session_.get(),

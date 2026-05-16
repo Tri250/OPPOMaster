@@ -55,14 +55,14 @@ class EditHistoryMgmtServiceTests : public ::testing::Test {
   }
 
   static auto MakeWorkingVersionWithTwoTransactions(EditHistory& history, sl_element_id_t file_id,
-                                                    float exposure, float contrast)
+                                                    history_id_t version_id, float exposure,
+                                                    float contrast)
       -> std::tuple<WorkingVersion, nlohmann::json, nlohmann::json> {
-    auto base_params =
-        history.GetRootVersion().GetFinalPipelineParams().value_or(nlohmann::json::object());
+    auto base_params = history.GetImportPipelineParams();
     CPUPipelineExecutor exec;
     exec.ImportPipelineParams(base_params);
 
-    WorkingVersion  working{file_id, history.GetRootVersionID(), base_params};
+    WorkingVersion  working{file_id, version_id, base_params};
 
     EditTransaction tx1{TransactionType::_ADD,
                         OperatorType::EXPOSURE,
@@ -95,6 +95,17 @@ TEST_F(EditHistoryMgmtServiceTests, InitTest) {
   EXPECT_NO_THROW(EditHistoryMgmtService history_service(project.GetStorageService()));
 }
 
+TEST_F(EditHistoryMgmtServiceTests, NewHistoryStartsWithVisibleDefaultVersion) {
+  constexpr sl_element_id_t file_id = 6;
+  EditHistory               history(file_id);
+
+  const auto default_id = history.GetDefaultVersionID();
+  EXPECT_EQ(history.GetActiveVersionID(), default_id);
+  EXPECT_EQ(history.GetVersions().size(), 1U);
+  EXPECT_EQ(history.GetDefaultVersion().GetDisplayName(), "Default");
+  EXPECT_EQ(history.GetDefaultVersion().GetAllEditTransactions().size(), 0U);
+}
+
 TEST_F(EditHistoryMgmtServiceTests, WorkingVersionUndoRedoAndRedoTruncation) {
   constexpr sl_element_id_t file_id = 7;
   EditHistory               history(file_id);
@@ -115,7 +126,7 @@ TEST_F(EditHistoryMgmtServiceTests, WorkingVersionUndoRedoAndRedoTruncation) {
                               before_enabled,
                               true};
 
-  WorkingVersion  working(file_id, history.GetRootVersionID(), exec.ExportPipelineParams());
+  WorkingVersion  working(file_id, history.GetDefaultVersionID(), exec.ExportPipelineParams());
   ASSERT_TRUE(exposure_tx.ApplyForward(exec));
   working.AppendEditTransaction(std::move(exposure_tx));
   working.SetHeadPipelineParams(exec.ExportPipelineParams());
@@ -169,9 +180,11 @@ TEST_F(EditHistoryMgmtServiceTests, BasicHistoryRWTest) {
 
     // Commit a version using the same patterns as edit/history tests.
     auto [v1, base_params, head_params] =
-        MakeWorkingVersionWithTwoTransactions(*history_guard->history_, file_id, 1.0f, 2.2f);
-    committed_id =
-        history_service.CommitVersion(history_guard, std::move(v1), base_params, head_params);
+        MakeWorkingVersionWithTwoTransactions(*history_guard->history_, file_id,
+                                              history_guard->history_->GetDefaultVersionID(), 1.0f,
+                                              2.2f);
+    committed_id = history_guard->history_->GetDefaultVersionID();
+    history_service.UpdateVersion(history_guard, committed_id, v1, head_params);
     EXPECT_NO_THROW((void)history_guard->history_->GetVersion(committed_id));
     EXPECT_TRUE(history_guard->dirty_);
 
@@ -208,7 +221,7 @@ TEST_F(EditHistoryMgmtServiceTests, BasicHistoryRWTest) {
   }
 }
 
-TEST_F(EditHistoryMgmtServiceTests, CommitWorkingVersionPersistsFullTimeline) {
+TEST_F(EditHistoryMgmtServiceTests, UpdateVersionPersistsFullTimeline) {
   constexpr sl_element_id_t file_id = 11;
 
   ProjectService            project(db_path_, meta_path_);
@@ -218,15 +231,39 @@ TEST_F(EditHistoryMgmtServiceTests, CommitWorkingVersionPersistsFullTimeline) {
   ASSERT_NE(history_guard, nullptr);
 
   auto [working, base_params, head_params] =
-      MakeWorkingVersionWithTwoTransactions(*history_guard->history_, file_id, 0.8f, 1.4f);
-  const auto committed_id =
-      history_service.CommitVersion(history_guard, std::move(working), base_params, head_params);
+      MakeWorkingVersionWithTwoTransactions(*history_guard->history_, file_id,
+                                            history_guard->history_->GetDefaultVersionID(), 0.8f,
+                                            1.4f);
+  const auto committed_id = history_guard->history_->GetDefaultVersionID();
+  history_service.UpdateVersion(history_guard, committed_id, working, head_params);
 
   auto& committed = history_guard->history_->GetVersion(committed_id);
-  EXPECT_EQ(committed.GetParentVersionID(), history_guard->history_->GetRootVersionID());
   EXPECT_EQ(committed.GetAllEditTransactions().size(), 2U);
   EXPECT_EQ(committed.GetCursor(), 2U);
   EXPECT_EQ(committed.GetTransactionCount(), 2U);
+}
+
+TEST_F(EditHistoryMgmtServiceTests, NewVersionStartsFromImportBaselineNotActiveLook) {
+  constexpr sl_element_id_t file_id = 14;
+
+  ProjectService         project(db_path_, meta_path_);
+  EditHistoryMgmtService history_service(project.GetStorageService());
+  auto                   history_guard = history_service.LoadHistory(file_id);
+  ASSERT_NE(history_guard, nullptr);
+
+  const auto default_id = history_guard->history_->GetDefaultVersionID();
+  auto [default_working, base_params, default_head] =
+      MakeWorkingVersionWithTwoTransactions(*history_guard->history_, file_id, default_id, 1.0f,
+                                            0.5f);
+  history_service.UpdateVersion(history_guard, default_id, default_working, default_head);
+
+  const auto fresh_id = history_service.CreateVersion(history_guard, "Fresh");
+  auto       fresh_params =
+      history_guard->history_->ReconstructPipelineParamsForVersion(fresh_id);
+  ASSERT_TRUE(fresh_params.has_value());
+  EXPECT_EQ(*fresh_params, history_guard->history_->GetImportPipelineParams());
+  EXPECT_NE(*fresh_params,
+            history_guard->history_->ReconstructPipelineParamsForVersion(default_id));
 }
 
 TEST_F(EditHistoryMgmtServiceTests, VersionsStayIndependentAndNamesRoundTrip) {
@@ -241,25 +278,22 @@ TEST_F(EditHistoryMgmtServiceTests, VersionsStayIndependentAndNamesRoundTrip) {
     auto                   history_guard = history_service.LoadHistory(file_id);
     ASSERT_NE(history_guard, nullptr);
 
+    warm_id = history_service.CreateVersion(history_guard, "Warm");
     auto [warm_working, warm_base, warm_head] =
-        MakeWorkingVersionWithTwoTransactions(*history_guard->history_, file_id, 1.1f, 0.6f);
-    warm_id =
-        history_service.CommitVersion(history_guard, std::move(warm_working), warm_base, warm_head);
+        MakeWorkingVersionWithTwoTransactions(*history_guard->history_, file_id, warm_id, 1.1f,
+                                              0.6f);
+    history_service.UpdateVersion(history_guard, warm_id, warm_working, warm_head);
 
+    cool_id = history_service.CreateVersion(history_guard, "Cool");
     auto [cool_working, cool_base, cool_head] =
-        MakeWorkingVersionWithTwoTransactions(*history_guard->history_, file_id, -0.4f, 1.8f);
-    cool_id =
-        history_service.CommitVersion(history_guard, std::move(cool_working), cool_base, cool_head);
+        MakeWorkingVersionWithTwoTransactions(*history_guard->history_, file_id, cool_id, -0.4f,
+                                              1.8f);
+    history_service.UpdateVersion(history_guard, cool_id, cool_working, cool_head);
 
     auto& warm_version = history_guard->history_->GetVersion(warm_id);
     auto& cool_version = history_guard->history_->GetVersion(cool_id);
-    warm_version.SetDisplayName("Warm");
-    cool_version.SetDisplayName("Cool");
-    history_guard->dirty_ = true;
-
-    const auto root_id    = history_guard->history_->GetRootVersionID();
-    EXPECT_EQ(warm_version.GetParentVersionID(), root_id);
-    EXPECT_EQ(cool_version.GetParentVersionID(), root_id);
+    EXPECT_EQ(warm_version.GetDisplayName(), "Warm");
+    EXPECT_EQ(cool_version.GetDisplayName(), "Cool");
     EXPECT_NE(warm_id, cool_id);
     EXPECT_NE(history_guard->history_->ReconstructPipelineParamsForVersion(warm_id),
               history_guard->history_->ReconstructPipelineParamsForVersion(cool_id));
@@ -279,8 +313,6 @@ TEST_F(EditHistoryMgmtServiceTests, VersionsStayIndependentAndNamesRoundTrip) {
     auto& cool_version = history_guard->history_->GetVersion(cool_id);
     EXPECT_EQ(warm_version.GetDisplayName(), "Warm");
     EXPECT_EQ(cool_version.GetDisplayName(), "Cool");
-    EXPECT_EQ(warm_version.GetParentVersionID(), history_guard->history_->GetRootVersionID());
-    EXPECT_EQ(cool_version.GetParentVersionID(), history_guard->history_->GetRootVersionID());
   }
 }
 
@@ -294,9 +326,11 @@ TEST_F(EditHistoryMgmtServiceTests, PersistedCursorKeepsRedoTailUntilNewEdit) {
   ASSERT_NE(history_guard, nullptr);
 
   auto [working, base_params, head_params] =
-      MakeWorkingVersionWithTwoTransactions(*history_guard->history_, file_id, 0.5f, 1.2f);
-  const auto committed_id =
-      history_service.CommitVersion(history_guard, std::move(working), base_params, head_params);
+      MakeWorkingVersionWithTwoTransactions(*history_guard->history_, file_id,
+                                            history_guard->history_->GetDefaultVersionID(), 0.5f,
+                                            1.2f);
+  const auto committed_id = history_guard->history_->GetDefaultVersionID();
+  history_service.UpdateVersion(history_guard, committed_id, working, head_params);
 
   auto&               committed = history_guard->history_->GetVersion(committed_id);
   CPUPipelineExecutor exec;
@@ -306,8 +340,7 @@ TEST_F(EditHistoryMgmtServiceTests, PersistedCursorKeepsRedoTailUntilNewEdit) {
 
   ASSERT_TRUE(replay.UndoLastTransaction(exec));
   const auto undone_params = exec.ExportPipelineParams();
-  history_guard->history_->UpdateVersionFromWorkingVersion(committed_id, replay, base_params,
-                                                           undone_params);
+  history_guard->history_->UpdateVersionFromWorkingVersion(committed_id, replay, undone_params);
 
   auto& updated = history_guard->history_->GetVersion(committed_id);
   EXPECT_EQ(updated.GetVersionID(), committed_id);
@@ -362,9 +395,11 @@ TEST_F(EditHistoryMgmtServiceTests, SyncPersistsDirtyHistoryWithoutSave) {
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
 
     auto [v1, base_params, head_params] =
-        MakeWorkingVersionWithTwoTransactions(*history_guard->history_, file_id, 0.3f, 0.8f);
-    committed_id =
-        history_service.CommitVersion(history_guard, std::move(v1), base_params, head_params);
+        MakeWorkingVersionWithTwoTransactions(*history_guard->history_, file_id,
+                                              history_guard->history_->GetDefaultVersionID(), 0.3f,
+                                              0.8f);
+    committed_id = history_guard->history_->GetDefaultVersionID();
+    history_service.UpdateVersion(history_guard, committed_id, v1, head_params);
     EXPECT_TRUE(history_guard->dirty_);
 
     history_service.Sync();

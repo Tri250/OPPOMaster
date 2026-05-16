@@ -821,6 +821,9 @@ auto AppTheme::EditorHistoryCardStyle() -> QString {
                         "QFrame#HistoryCard[selected=\"true\"]:hover {"
                         "  background: %2;"
                         "}"
+                        "QFrame#HistoryCard[future=\"true\"] {"
+                        "  background: transparent;"
+                        "}"
                         "QFrame#HistoryCard QFrame#HistoryTxIconTile {"
                         "  background: %3;"
                         "  border: none;"
@@ -833,12 +836,17 @@ auto AppTheme::EditorHistoryCardStyle() -> QString {
                         "QFrame#HistoryCard QLabel#HistoryTxSubtitle {"
                         "  color: %5;"
                         "  background: transparent;"
+                        "}"
+                        "QFrame#HistoryCard[future=\"true\"] QLabel#HistoryTxTitle,"
+                        "QFrame#HistoryCard[future=\"true\"] QLabel#HistoryTxSubtitle {"
+                        "  color: %6;"
                         "}")
       .arg(Rgba(WithAlpha(theme.bgPanelColor(), 132)),
            Rgba(WithAlpha(theme.bgPanelColor(), 118)),
            Rgba(WithAlpha(theme.bgDeepColor(), 228)),
            Hex(theme.textColor()),
-           Hex(theme.textMutedColor()));
+           Hex(theme.textMutedColor()),
+           Rgba(WithAlpha(theme.textMutedColor(), 132)));
 }
 
 auto AppTheme::EditorTransparentFrameStyle() -> QString {

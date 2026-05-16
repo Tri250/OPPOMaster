@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <mutex>
+#include <string>
 #include <unordered_map>
 
 #include "edit/history/edit_history.hpp"
@@ -44,13 +45,17 @@ class EditHistoryMgmtService final {
 
   auto LoadHistory(sl_element_id_t file_id) -> std::shared_ptr<EditHistoryGuard>;
 
-  auto CommitVersion(const std::shared_ptr<EditHistoryGuard>& history_guard,
-                     WorkingVersion&& working_version,
-                     const nlohmann::json& base_pipeline_params,
-                     const nlohmann::json& head_pipeline_params)
-      -> history_id_t;
   auto CommitVersion(const std::shared_ptr<EditHistoryGuard>& history_guard, Version&& version)
       -> history_id_t;
+  auto CreateVersion(const std::shared_ptr<EditHistoryGuard>& history_guard,
+                     std::string display_name = {}) -> history_id_t;
+  void RenameVersion(const std::shared_ptr<EditHistoryGuard>& history_guard, history_id_t version_id,
+                     std::string display_name);
+  void SetActiveVersion(const std::shared_ptr<EditHistoryGuard>& history_guard,
+                        history_id_t version_id);
+  void UpdateVersion(const std::shared_ptr<EditHistoryGuard>& history_guard, history_id_t version_id,
+                     const WorkingVersion& working_version,
+                     const nlohmann::json& head_pipeline_params);
 
   void SaveHistory(const std::shared_ptr<EditHistoryGuard>& history_guard);
   void DeleteHistory(sl_element_id_t file_id);

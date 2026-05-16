@@ -28,10 +28,11 @@ class VersionNode {
 
 using history_id_t = Hash128;
 /**
- * @brief A history of edits applied to a specific image. Each EditHistory instance is
- *        associated with a single image and tracks all changes made to it over time.
- *        It maintains a collection of Version instances, each representing a snapshot of the
- *        image at a specific point in time. This class is serializable to JSON.
+ * @brief A history of alternate looks for a specific image.
+ *
+ * Each Version is a user-visible look with its own transaction timeline. Versions replay from the
+ * image-specific import baseline rather than from one another; cached materialized params are an
+ * internal acceleration detail only.
  */
 class EditHistory {
  private:
@@ -41,15 +42,16 @@ class EditHistory {
   std::time_t                               added_time_;
   std::time_t                               last_modified_time_;
 
-  std::list<VersionNode>                    commit_tree_;
+  std::list<VersionNode>                    version_order_;
 
   std::unordered_map<history_id_t, Version> version_storage_;
-  history_id_t                              root_version_id_{};
-  history_id_t                              head_version_id_{};
-  std::optional<nlohmann::json>             head_pipeline_params_ = std::nullopt;
+  history_id_t                              default_version_id_{};
+  history_id_t                              active_version_id_{};
+  nlohmann::json                            import_pipeline_params_ = nlohmann::json::object();
+  std::optional<nlohmann::json>             active_pipeline_params_ = std::nullopt;
 
   void                                      CalculateHistoryID();
-  void                                      EnsureRootVersion();
+  void                                      EnsureDefaultVersion();
 
  public:
   EditHistory(sl_element_id_t bound_image);
@@ -62,24 +64,23 @@ class EditHistory {
   auto GetBoundImage() const -> sl_element_id_t;
 
   auto GetVersion(history_id_t ver_id) -> Version&;
-  auto GetRootVersion() -> Version&;
-  auto GetRootVersionID() const -> history_id_t { return root_version_id_; }
-  auto GetHeadVersionID() const -> history_id_t { return head_version_id_; }
-  auto HasUserVersions() const -> bool;
+  auto GetDefaultVersion() -> Version&;
+  auto GetDefaultVersionID() const -> history_id_t { return default_version_id_; }
+  auto GetActiveVersionID() const -> history_id_t { return active_version_id_; }
+  auto GetActiveVersion() -> Version&;
+  auto GetImportPipelineParams() const -> const nlohmann::json& { return import_pipeline_params_; }
+  void SetImportPipelineParams(nlohmann::json params);
   auto ReconstructPipelineParamsForVersion(history_id_t ver_id) -> std::optional<nlohmann::json>;
+  auto CreateVersion(std::string display_name = {}) -> history_id_t;
   auto CommitVersion(Version&& ver) -> history_id_t;
-  auto CommitWorkingVersion(WorkingVersion&&      working_version,
-                            const nlohmann::json& base_pipeline_params,
-                            const nlohmann::json& head_pipeline_params) -> history_id_t;
+  void RenameVersion(history_id_t ver_id, std::string display_name);
 
-  auto GetLatestVersion() -> VersionNode&;
   auto RemoveVersion(history_id_t ver_id) -> bool;
-  void SetHeadVersionID(history_id_t ver_id);
+  void SetActiveVersionID(history_id_t ver_id);
   void UpdateVersionFromWorkingVersion(history_id_t ver_id, const WorkingVersion& working_version,
-                                       const nlohmann::json& base_pipeline_params,
                                        const nlohmann::json& head_pipeline_params);
 
-  auto GetCommitTree() const -> const std::list<VersionNode>& { return commit_tree_; }
+  auto GetVersions() const -> const std::list<VersionNode>& { return version_order_; }
 
   auto ToJSON() const -> nlohmann::json;
   void FromJSON(const nlohmann::json& j);

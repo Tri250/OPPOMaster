@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include <QInputDialog>
 #include <QListWidgetItem>
 #include <QMessageBox>
 
@@ -25,11 +26,22 @@ auto EditorHistoryCoordinator::WorkingVersion() const -> const alcedo::WorkingVe
 
 void EditorHistoryCoordinator::SetUiContext(const versioning::VersionUiContext& ui) {
   ui_ = ui;
+  ui_callbacks_.request_rename_version =
+      [this](const QString& version_id) { RenameVersionById(version_id); };
 }
 
-void EditorHistoryCoordinator::SeedWorkingVersionFromLatest() {
+void EditorHistoryCoordinator::SeedWorkingVersionFromActive() {
+  if (dependencies_.history_guard && dependencies_.history_guard->history_ &&
+      dependencies_.pipeline_guard && dependencies_.pipeline_guard->pipeline_) {
+    auto& history         = *dependencies_.history_guard->history_;
+    auto& default_version = history.GetDefaultVersion();
+    if (history.GetVersions().size() == 1 && default_version.GetAllEditTransactions().empty()) {
+      history.SetImportPipelineParams(dependencies_.pipeline_guard->pipeline_->ExportPipelineParams());
+      dependencies_.history_guard->dirty_ = true;
+    }
+  }
   working_version_ =
-      controllers::SeedWorkingVersionFromLatest(dependencies_.element_id,
+      controllers::SeedWorkingVersionFromActive(dependencies_.element_id,
                                                 dependencies_.history_guard);
 }
 
@@ -103,9 +115,42 @@ void EditorHistoryCoordinator::CheckoutVersionById(const QString& version_id) {
     return;
   }
 
-  working_version_ = versioning::SeedWorkingVersionFromCommit(
-      dependencies_.element_id, selection.version_id, dependencies_.pipeline_guard,
-      dependencies_.history_guard, IsIncrementalWorkingMode());
+  if (dependencies_.history_service) {
+    dependencies_.history_service->SetActiveVersion(dependencies_.history_guard,
+                                                    selection.version_id);
+  }
+  working_version_ =
+      versioning::SeedWorkingVersionFromVersion(dependencies_.element_id, selection.version_id,
+                                                dependencies_.history_guard);
+  UpdateVersionUi();
+}
+
+void EditorHistoryCoordinator::RenameVersionById(const QString& version_id) {
+  versioning::ResolvedVersionSelection selection{};
+  QString                              selection_error;
+  if (!versioning::ResolveVersionId(version_id, dependencies_.history_guard, &selection,
+                                    &selection_error) ||
+      !selection.version) {
+    if (!selection_error.isEmpty()) {
+      QMessageBox::warning(dependencies_.message_parent, Tr("Versions"), selection_error);
+    }
+    return;
+  }
+
+  const QString current_name = QString::fromStdString(selection.version->GetDisplayName());
+  bool          ok           = false;
+  const QString next_name    = QInputDialog::getText(
+      dependencies_.message_parent, Tr("Rename version"), Tr("Version name"),
+      QLineEdit::Normal, current_name, &ok);
+  if (!ok) {
+    return;
+  }
+  const QString trimmed = next_name.trimmed();
+  if (trimmed.isEmpty() || trimmed == current_name) {
+    return;
+  }
+  dependencies_.history_service->RenameVersion(dependencies_.history_guard, selection.version_id,
+                                                trimmed.toStdString());
   UpdateVersionUi();
 }
 
@@ -116,7 +161,7 @@ void EditorHistoryCoordinator::UndoLastTransaction() {
 
   const auto undo_result =
       versioning::UndoLastTransaction(working_version_, dependencies_.pipeline_guard);
-  if (undo_result.no_transaction) {
+  if (!undo_result.moved && undo_result.error.isEmpty()) {
     QMessageBox::information(dependencies_.message_parent, Tr("History"),
                              Tr("No transaction to undo."));
     return;
@@ -125,65 +170,57 @@ void EditorHistoryCoordinator::UndoLastTransaction() {
     QMessageBox::warning(dependencies_.message_parent, Tr("History"), undo_result.error);
     return;
   }
-  if (!undo_result.undone) {
-    return;
-  }
   if (!ReloadUiStateFromPipeline(/*reset_to_defaults_if_missing=*/false)) {
     QMessageBox::warning(dependencies_.message_parent, Tr("History"),
                          Tr("Undo failed while reloading pipeline state."));
     return;
   }
+  versioning::PersistWorkingVersion(dependencies_.history_service, dependencies_.history_guard,
+                                    working_version_, dependencies_.pipeline_guard);
+  UpdateVersionUi();
+}
+
+void EditorHistoryCoordinator::MoveCursorTo(size_t target_cursor) {
+  const auto move_result =
+      versioning::MoveCursorTo(working_version_, target_cursor, dependencies_.pipeline_guard);
+  if (!move_result.error.isEmpty()) {
+    QMessageBox::warning(dependencies_.message_parent, Tr("History"), move_result.error);
+    return;
+  }
+  if (!move_result.moved) {
+    return;
+  }
+  if (!ReloadUiStateFromPipeline(/*reset_to_defaults_if_missing=*/false)) {
+    QMessageBox::warning(dependencies_.message_parent, Tr("History"),
+                         Tr("History jump failed while reloading pipeline state."));
+    return;
+  }
+  versioning::PersistWorkingVersion(dependencies_.history_service, dependencies_.history_guard,
+                                    working_version_, dependencies_.pipeline_guard);
   UpdateVersionUi();
 }
 
 void EditorHistoryCoordinator::UpdateVersionUi() {
-  versioning::UpdateVersionUi(ui_, working_version_, dependencies_.history_guard,
+  versioning::PersistWorkingVersion(dependencies_.history_service, dependencies_.history_guard,
+                                    working_version_, dependencies_.pipeline_guard);
+  versioning::UpdateVersionUi(ui_, ui_callbacks_, working_version_, dependencies_.history_guard,
                               callbacks_.refresh_version_log_selection_styles);
 }
 
-void EditorHistoryCoordinator::CommitWorkingVersion() {
-  const auto commit_result = versioning::CommitWorkingVersion(
-      dependencies_.history_service, dependencies_.history_guard, dependencies_.pipeline_guard,
-      dependencies_.element_id, std::move(working_version_));
-  if (commit_result.no_transactions) {
-    QMessageBox::information(dependencies_.message_parent, Tr("History"),
-                             Tr("No uncommitted transactions."));
+void EditorHistoryCoordinator::CreateVersion() {
+  if (!dependencies_.history_service || !dependencies_.history_guard ||
+      !dependencies_.history_guard->history_) {
     return;
   }
-  if (!commit_result.committed_id.has_value()) {
-    QMessageBox::warning(dependencies_.message_parent, Tr("History"),
-                         commit_result.error.isEmpty() ? Tr("Commit failed.")
-                                                       : commit_result.error);
-    if (commit_result.recovery_working_version.has_value()) {
-      working_version_ = std::move(*commit_result.recovery_working_version);
-      UpdateVersionUi();
-    }
-    return;
+  const auto version_id = dependencies_.history_service->CreateVersion(dependencies_.history_guard);
+  auto&      version    = dependencies_.history_guard->history_->GetVersion(version_id);
+  const auto params     = ReconstructPipelineParamsForVersion(version);
+  if (params.has_value()) {
+    ApplyPipelineParamsToEditor(*params);
   }
-
-  StartNewWorkingVersionFromCommit(*commit_result.committed_id);
+  working_version_ = versioning::SeedWorkingVersionFromVersion(
+      dependencies_.element_id, version_id, dependencies_.history_guard);
   UpdateVersionUi();
-}
-
-void EditorHistoryCoordinator::StartNewWorkingVersionFromUi() {
-  working_version_ = versioning::SeedWorkingVersionFromUi(
-      dependencies_.element_id, dependencies_.history_guard, dependencies_.pipeline_guard,
-      IsPlainWorkingMode());
-  UpdateVersionUi();
-}
-
-void EditorHistoryCoordinator::StartNewWorkingVersionFromCommit(const Hash128& committed_id) {
-  working_version_ = versioning::SeedWorkingVersionFromCommit(
-      dependencies_.element_id, committed_id, dependencies_.pipeline_guard, dependencies_.history_guard,
-      IsIncrementalWorkingMode());
-}
-
-auto EditorHistoryCoordinator::IsPlainWorkingMode() const -> bool {
-  return callbacks_.is_plain_working_mode ? callbacks_.is_plain_working_mode() : false;
-}
-
-auto EditorHistoryCoordinator::IsIncrementalWorkingMode() const -> bool {
-  return !IsPlainWorkingMode();
 }
 
 }  // namespace alcedo::ui

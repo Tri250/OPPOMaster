@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <ctime>
 #include <optional>
 #include <string>
 
@@ -33,6 +34,7 @@ class EditTransaction {
   nlohmann::json                after_params_;
   bool                          before_enabled_ = false;
   bool                          after_enabled_  = true;
+  std::time_t                   created_time_   = 0;
 
  public:
   EditTransaction(TransactionType type, OperatorType operator_type, PipelineStageName stage_name,
@@ -46,6 +48,7 @@ class EditTransaction {
         before_enabled_(false),
         after_enabled_(true) {
     (void)parent_tx_id;
+    SetCreateTime();
   }
 
   EditTransaction(TransactionType type, OperatorType operator_type, PipelineStageName stage_name,
@@ -57,7 +60,9 @@ class EditTransaction {
         before_params_(std::move(before_params)),
         after_params_(std::move(after_params)),
         before_enabled_(before_enabled),
-        after_enabled_(after_enabled) {}
+        after_enabled_(after_enabled) {
+    SetCreateTime();
+  }
 
   EditTransaction(const nlohmann::json& j) { FromJSON(j); }
 
@@ -71,6 +76,7 @@ class EditTransaction {
   auto GetAfterParams() const -> const nlohmann::json& { return after_params_; }
   auto GetBeforeEnabled() const -> bool { return before_enabled_; }
   auto GetAfterEnabled() const -> bool { return after_enabled_; }
+  auto GetCreateTime() const -> std::time_t { return created_time_; }
 
   auto ApplyForward(PipelineExecutor& pipeline) const -> bool;
   auto ApplyBackward(PipelineExecutor& pipeline) const -> bool;
@@ -119,5 +125,8 @@ class EditTransaction {
   static auto StageNameToString(PipelineStageName stage) -> const char*;
   auto Describe(bool include_params = true, std::size_t max_params_chars = 160) const
       -> std::string;
+
+ private:
+  void SetCreateTime();
 };
 };  // namespace alcedo

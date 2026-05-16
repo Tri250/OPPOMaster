@@ -19,10 +19,6 @@
 
 namespace alcedo {
 namespace {
-auto ZeroHash() -> version_id_t { return version_id_t{}; }
-
-auto IsZeroHash(const version_id_t& id) -> bool { return id.low64() == 0 && id.high64() == 0; }
-
 auto JsonHash(const nlohmann::json& j) -> Hash128 {
   const std::string text = j.dump();
   return Hash128::Compute(text.data(), text.size());
@@ -48,7 +44,6 @@ Version::Version() {
   added_time_         = NowTime();
   last_modified_time_ = added_time_;
   creation_nonce_     = NewCreationNonce();
-  kind_               = VersionKind::Root;
   CalculateVersionID();
 }
 
@@ -56,54 +51,34 @@ Version::Version(sl_element_id_t bound_image) : bound_image_(bound_image) {
   added_time_         = NowTime();
   last_modified_time_ = added_time_;
   creation_nonce_     = NewCreationNonce();
-  kind_               = VersionKind::Root;
-  CalculateVersionID();
-}
-
-Version::Version(sl_element_id_t bound_image, version_id_t parent_version_id)
-    : parent_version_id_(parent_version_id), bound_image_(bound_image) {
-  added_time_         = NowTime();
-  last_modified_time_ = added_time_;
-  creation_nonce_     = NewCreationNonce();
-  kind_               = VersionKind::UserVersion;
   CalculateVersionID();
 }
 
 Version::Version(nlohmann::json& j) { FromJSON(j); }
 
-auto Version::Root(sl_element_id_t bound_image, nlohmann::json params) -> Version {
+auto Version::Default(sl_element_id_t bound_image, nlohmann::json params) -> Version {
   Version version(bound_image);
-  version.kind_                = VersionKind::Root;
-  version.parent_version_id_   = ZeroHash();
-  version.delta_from_parent_   = nlohmann::json::array();
   version.materialized_params_ = std::move(params);
   version.transaction_count_   = 0;
   version.last_transaction_    = std::nullopt;
+  version.display_name_        = "Default";
   version.CalculateVersionID();
   return version;
 }
 
-auto Version::Checkpoint(sl_element_id_t bound_image, version_id_t parent_version_id,
-                         nlohmann::json                delta_from_parent,
-                         std::optional<nlohmann::json> materialized_params,
-                         size_t transaction_count, std::optional<EditTransaction> last_transaction)
-    -> Version {
-  Version version(bound_image, parent_version_id);
-  version.kind_                = VersionKind::UserVersion;
-  version.delta_from_parent_   = std::move(delta_from_parent);
+auto Version::Empty(sl_element_id_t bound_image, std::string display_name,
+                    std::optional<nlohmann::json> materialized_params) -> Version {
+  Version version(bound_image);
   version.materialized_params_ = std::move(materialized_params);
-  version.transaction_count_   = transaction_count;
-  version.last_transaction_    = std::move(last_transaction);
+  version.transaction_count_   = 0;
+  version.last_transaction_    = std::nullopt;
+  version.display_name_        = std::move(display_name);
   version.CalculateVersionID();
   return version;
 }
 
 void Version::CalculateVersionID() {
   Hash128   h          = Hash128::Compute(&bound_image_, sizeof(bound_image_));
-  const int kind_value = static_cast<int>(kind_);
-  h                    = Hash128::Blend(h, Hash128::Compute(&kind_value, sizeof(kind_value)));
-  h                    = Hash128::Blend(h, parent_version_id_);
-  h                    = Hash128::Blend(h, JsonHash(delta_from_parent_));
   if (materialized_params_.has_value()) {
     h = Hash128::Blend(h, JsonHash(*materialized_params_));
   }
@@ -111,30 +86,12 @@ void Version::CalculateVersionID() {
   if (last_transaction_.has_value()) {
     h = Hash128::Blend(h, last_transaction_->Hash());
   }
-  if (kind_ == VersionKind::UserVersion) {
-    h = Hash128::Blend(h, Hash128::Compute(&added_time_, sizeof(added_time_)));
-    h = Hash128::Blend(h, Hash128::Compute(&creation_nonce_, sizeof(creation_nonce_)));
-  }
+  h = Hash128::Blend(h, Hash128::Compute(&added_time_, sizeof(added_time_)));
+  h = Hash128::Blend(h, Hash128::Compute(&creation_nonce_, sizeof(creation_nonce_)));
   version_id_ = h;
 }
 
 auto Version::GetVersionID() const -> version_id_t { return version_id_; }
-
-auto Version::GetParentVersionID() const -> version_id_t { return parent_version_id_; }
-
-auto Version::HasParentVersion() const -> bool { return !IsZeroHash(parent_version_id_); }
-
-void Version::SetParentVersionID(version_id_t parent_version_id) {
-  parent_version_id_ = parent_version_id;
-  kind_ = IsZeroHash(parent_version_id_) ? VersionKind::Root : VersionKind::UserVersion;
-  SetLastModifiedTime();
-}
-
-void Version::ClearParentVersionID() {
-  parent_version_id_ = ZeroHash();
-  kind_              = VersionKind::Root;
-  SetLastModifiedTime();
-}
 
 auto Version::GetAddTime() const -> std::time_t { return added_time_; }
 
@@ -193,9 +150,7 @@ auto Version::GetAllEditTransactions() const -> const std::vector<EditTransactio
 }
 
 void Version::UpdateFromWorkingVersion(const WorkingVersion& working_version,
-                                       const nlohmann::json& base_pipeline_params,
                                        const nlohmann::json& head_pipeline_params) {
-  delta_from_parent_   = nlohmann::json::diff(base_pipeline_params, head_pipeline_params);
   materialized_params_ = head_pipeline_params;
   transactions_        = working_version.GetAllEditTransactions();
   cursor_              = working_version.GetCursor();
@@ -210,15 +165,10 @@ auto Version::ToJSON() const -> nlohmann::json {
   j["version_id"]          = version_id_.ToString();
   j["version_id_low"]      = version_id_.low64();
   j["version_id_high"]     = version_id_.high64();
-  j["parent_version_id"]   = parent_version_id_.ToString();
-  j["parent_version_low"]  = parent_version_id_.low64();
-  j["parent_version_high"] = parent_version_id_.high64();
-  j["kind"]                = static_cast<int>(kind_);
   j["added_time"]          = added_time_;
   j["last_modified_time"]  = last_modified_time_;
   j["creation_nonce"]      = creation_nonce_;
   j["bound_image"]         = bound_image_;
-  j["delta_from_parent"]   = delta_from_parent_;
   j["transaction_count"]   = transaction_count_;
   j["display_name"]        = display_name_;
   j["cursor"]              = cursor_;
@@ -248,21 +198,10 @@ void Version::FromJSON(const nlohmann::json& j) {
     version_id_ = Hash128::FromString(j.at("version_id").get<std::string>());
   }
 
-  if (j.contains("parent_version_low") && j.contains("parent_version_high")) {
-    parent_version_id_ = Hash128(j.at("parent_version_low").get<uint64_t>(),
-                                 j.at("parent_version_high").get<uint64_t>());
-  } else if (j.contains("parent_version_id")) {
-    parent_version_id_ = Hash128::FromString(j.at("parent_version_id").get<std::string>());
-  } else {
-    parent_version_id_ = ZeroHash();
-  }
-
-  kind_               = static_cast<VersionKind>(j.value("kind", HasParentVersion() ? 1 : 0));
   added_time_         = j.at("added_time").get<std::time_t>();
   last_modified_time_ = j.at("last_modified_time").get<std::time_t>();
   creation_nonce_     = j.value("creation_nonce", uint64_t{0});
   bound_image_        = j.at("bound_image").get<sl_element_id_t>();
-  delta_from_parent_  = j.value("delta_from_parent", nlohmann::json::array());
   transaction_count_  = j.value("transaction_count", size_t{0});
   display_name_       = j.value("display_name", std::string{});
 
@@ -294,16 +233,16 @@ void Version::FromJSON(const nlohmann::json& j) {
   }
 }
 
-WorkingVersion::WorkingVersion(sl_element_id_t bound_image, version_id_t base_version_id,
+WorkingVersion::WorkingVersion(sl_element_id_t bound_image, version_id_t version_id,
                                std::optional<nlohmann::json> head_pipeline_params)
-    : base_version_id_(base_version_id),
+    : version_id_(version_id),
       bound_image_(bound_image),
       head_pipeline_params_(std::move(head_pipeline_params)) {}
 
-WorkingVersion::WorkingVersion(sl_element_id_t bound_image, version_id_t base_version_id,
+WorkingVersion::WorkingVersion(sl_element_id_t bound_image, version_id_t version_id,
                                std::optional<nlohmann::json> head_pipeline_params,
                                std::vector<EditTransaction> transactions, size_t cursor)
-    : base_version_id_(base_version_id),
+    : version_id_(version_id),
       bound_image_(bound_image),
       transactions_(std::move(transactions)),
       cursor_(std::min(cursor, transactions_.size())),
@@ -379,7 +318,7 @@ auto WorkingVersion::AppliedTransactions() const -> std::vector<EditTransaction>
 
 auto WorkingVersion::ToJSON() const -> nlohmann::json {
   nlohmann::json j;
-  j["base_version_id"] = base_version_id_.ToString();
+  j["version_id"]      = version_id_.ToString();
   j["bound_image"]     = bound_image_;
   j["cursor"]          = cursor_;
   j["tx_id_start"]     = tx_id_generator_.GetCurrentID();
@@ -394,11 +333,11 @@ auto WorkingVersion::ToJSON() const -> nlohmann::json {
 }
 
 void WorkingVersion::FromJSON(const nlohmann::json& j) {
-  if (!j.is_object() || !j.contains("base_version_id") || !j.contains("bound_image") ||
+  if (!j.is_object() || !j.contains("version_id") || !j.contains("bound_image") ||
       !j.contains("cursor") || !j.contains("transactions")) {
     throw std::runtime_error("WorkingVersion: Invalid JSON format");
   }
-  base_version_id_ = Hash128::FromString(j.at("base_version_id").get<std::string>());
+  version_id_      = Hash128::FromString(j.at("version_id").get<std::string>());
   bound_image_     = j.at("bound_image").get<sl_element_id_t>();
   cursor_          = j.at("cursor").get<size_t>();
   tx_id_generator_.SetStartID(j.value("tx_id_start", tx_id_t{0}));

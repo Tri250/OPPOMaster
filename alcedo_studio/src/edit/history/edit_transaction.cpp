@@ -5,12 +5,14 @@
 #include "edit/history/edit_transaction.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <optional>
 #include <sstream>
 #include <string>
 #include <vector>
 
 #include "edit/pipeline/pipeline.hpp"
+#include "utils/clock/time_provider.hpp"
 
 namespace alcedo {
 namespace {
@@ -109,6 +111,10 @@ static auto ApplyOperatorState(PipelineExecutor& pipeline, PipelineStageName sta
   return true;
 }
 }  // namespace
+
+void EditTransaction::SetCreateTime() {
+  created_time_ = std::chrono::system_clock::to_time_t(TimeProvider::Now());
+}
 
 auto EditTransaction::TransactionTypeToString(TransactionType type) -> const char* {
   switch (type) {
@@ -287,6 +293,7 @@ auto EditTransaction::ToJSON() const -> nlohmann::json {
   j["after_params"]   = after_params_;
   j["before_enabled"] = before_enabled_;
   j["after_enabled"]  = after_enabled_;
+  j["created_time"]   = created_time_;
 
   return j;
 }
@@ -300,6 +307,10 @@ void EditTransaction::FromJSON(const nlohmann::json& j) {
   after_params_   = j.contains("after_params") ? j["after_params"] : j["operator_params"];
   before_enabled_ = j.value("before_enabled", j.contains("last_operator_params"));
   after_enabled_  = j.value("after_enabled", true);
+  created_time_   = j.value("created_time", std::time_t{0});
+  if (created_time_ == 0) {
+    SetCreateTime();
+  }
   if (j.contains("last_operator_params")) {
     before_params_ = j["last_operator_params"];
   }
