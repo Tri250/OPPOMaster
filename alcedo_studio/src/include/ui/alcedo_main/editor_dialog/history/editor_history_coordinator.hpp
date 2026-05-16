@@ -34,17 +34,16 @@ class EditorHistoryCoordinator {
   struct Callbacks {
     std::function<bool(bool)>                    reload_ui_state_from_pipeline;
     std::function<void()>                        after_pipeline_params_imported;
-    std::function<bool()>                        is_plain_working_mode;
     std::function<void()>                        refresh_version_log_selection_styles;
   };
 
   EditorHistoryCoordinator(Dependencies dependencies, Callbacks callbacks);
 
-  auto WorkingVersion() -> Version&;
-  auto WorkingVersion() const -> const Version&;
+  auto WorkingVersion() -> alcedo::WorkingVersion&;
+  auto WorkingVersion() const -> const alcedo::WorkingVersion&;
 
   void SetUiContext(const versioning::VersionUiContext& ui);
-  void SeedWorkingVersionFromLatest();
+  void SeedWorkingVersionFromActive();
 
   auto ReconstructPipelineParamsForVersion(Version& version) const
       -> std::optional<nlohmann::json>;
@@ -54,20 +53,18 @@ class EditorHistoryCoordinator {
 
   void CheckoutSelectedVersion(QListWidgetItem* item);
   void CheckoutVersionById(const QString& version_id);
+  void RenameVersionById(const QString& version_id);
   void UndoLastTransaction();
+  void MoveCursorTo(size_t target_cursor);
   void UpdateVersionUi();
-  void CommitWorkingVersion();
-  void StartNewWorkingVersionFromUi();
-  void StartNewWorkingVersionFromCommit(const Hash128& committed_id);
+  void CreateVersion();
 
  private:
-  auto IsPlainWorkingMode() const -> bool;
-  auto IsIncrementalWorkingMode() const -> bool;
-
   Dependencies                 dependencies_;
   Callbacks                    callbacks_;
   versioning::VersionUiContext ui_{};
-  Version                      working_version_{};
+  versioning::VersionUiCallbacks ui_callbacks_{};
+  alcedo::WorkingVersion       working_version_{};
 };
 
 }  // namespace alcedo::ui

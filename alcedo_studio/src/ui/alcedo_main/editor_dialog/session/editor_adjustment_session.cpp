@@ -30,21 +30,22 @@ auto EditorAdjustmentSession::Commit(const AdjustmentCommit& commit) -> CommitRe
   }
 
   const auto [stage_name, op_type] = FieldSpec(commit.field);
-  const auto old_params =
-      commit.old_params.value_or(ParamsForField(commit.field, *dependencies_.committed_state));
   const auto new_params =
       commit.new_params.value_or(ParamsForField(commit.field, *dependencies_.state));
+  const auto before_params =
+      commit.old_params.value_or(ParamsForField(commit.field, *dependencies_.committed_state));
 
   auto                  exec  = dependencies_.pipeline_guard->pipeline_;
   auto&                 stage = exec->GetStage(stage_name);
   const auto            op    = stage.GetOperator(op_type);
   const TransactionType tx_type =
       (op.has_value() && op.value() != nullptr) ? TransactionType::_EDIT : TransactionType::_ADD;
+  const bool before_enabled = !before_params.is_null();
 
-  EditTransaction tx{tx_type, op_type, stage_name, new_params};
-  tx.SetLastOperatorParams(old_params);
+  EditTransaction tx{tx_type, op_type, stage_name, before_params, new_params,
+                     before_enabled, true};
   try {
-    (void)tx.ApplyTransaction(*exec);
+    (void)tx.ApplyForward(*exec);
   } catch (const std::exception& e) {
     return {.status = CommitStatus::Failed, .error = QString::fromUtf8(e.what())};
   } catch (...) {
@@ -52,6 +53,7 @@ auto EditorAdjustmentSession::Commit(const AdjustmentCommit& commit) -> CommitRe
   }
 
   dependencies_.working_version->AppendEditTransaction(std::move(tx));
+  dependencies_.working_version->SetHeadPipelineParams(exec->ExportPipelineParams());
   dependencies_.pipeline_guard->dirty_ = true;
 
   CopyFieldState(commit.field, *dependencies_.state, *dependencies_.committed_state);

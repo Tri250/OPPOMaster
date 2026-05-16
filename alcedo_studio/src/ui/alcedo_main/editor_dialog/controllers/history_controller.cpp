@@ -4,34 +4,46 @@
 
 #include "ui/alcedo_main/editor_dialog/controllers/history_controller.hpp"
 
-namespace alcedo::ui::controllers {
+#include <optional>
 
-auto SeedWorkingVersionFromLatest(sl_element_id_t element_id,
+namespace alcedo::ui::controllers {
+namespace {
+auto ParamsForVersion(const std::shared_ptr<EditHistoryGuard>& history_guard, const Hash128& id)
+    -> std::optional<nlohmann::json> {
+  if (!history_guard || !history_guard->history_) {
+    return std::nullopt;
+  }
+  return history_guard->history_->ReconstructPipelineParamsForVersion(id);
+}
+}  // namespace
+
+auto SeedWorkingVersionFromActive(sl_element_id_t element_id,
                                   const std::shared_ptr<EditHistoryGuard>& history_guard)
-    -> Version {
+    -> WorkingVersion {
   try {
     if (history_guard && history_guard->history_) {
-      const auto parent_id = history_guard->history_->GetLatestVersion().ver_ref_.GetVersionID();
-      return Version(element_id, parent_id);
+      auto& active = history_guard->history_->GetActiveVersion();
+      const auto version_id = active.GetVersionID();
+      return WorkingVersion(element_id, version_id, ParamsForVersion(history_guard, version_id),
+                            active.GetAllEditTransactions(), active.GetCursor());
     }
   } catch (...) {
   }
-  return Version(element_id);
+  return WorkingVersion(element_id, Hash128{});
 }
 
-auto SeedWorkingVersionFromParent(sl_element_id_t element_id,
-                                  const Hash128& parent_id,
-                                  bool incremental_mode) -> Version {
-  if (incremental_mode) {
-    return Version(element_id, parent_id);
+auto SeedWorkingVersionFromVersion(sl_element_id_t element_id, const Hash128& version_id,
+                                   const std::shared_ptr<EditHistoryGuard>& history_guard)
+    -> WorkingVersion {
+  if (history_guard && history_guard->history_) {
+    try {
+      auto& version = history_guard->history_->GetVersion(version_id);
+      return WorkingVersion(element_id, version_id, ParamsForVersion(history_guard, version_id),
+                            version.GetAllEditTransactions(), version.GetCursor());
+    } catch (...) {
+    }
   }
-  return Version(element_id);
-}
-
-auto CommitWorkingVersion(const std::shared_ptr<EditHistoryMgmtService>& history_service,
-                          const std::shared_ptr<EditHistoryGuard>& history_guard,
-                          Version&& working_version) -> history_id_t {
-  return history_service->CommitVersion(history_guard, std::move(working_version));
+  return WorkingVersion(element_id, Hash128{});
 }
 
 }  // namespace alcedo::ui::controllers

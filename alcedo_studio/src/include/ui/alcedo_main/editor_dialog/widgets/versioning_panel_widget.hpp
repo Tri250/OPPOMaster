@@ -4,7 +4,6 @@
 
 #pragma once
 
-#include <QComboBox>
 #include <QGraphicsOpacityEffect>
 #include <QLabel>
 #include <QListWidget>
@@ -22,17 +21,15 @@ namespace alcedo::ui {
 
 class VersioningPanelWidget final : public QWidget {
  public:
-  enum class WorkingMode : int { Incremental = 0, Plain = 1 };
   enum class FlyoutPage : int { History = 0, Versions = 1 };
 
   static constexpr int kCollapsedWidth = 64;
 
   struct Callbacks {
     std::function<void()>              undo_last_transaction;
-    std::function<void()>              commit_working_version;
-    std::function<void()>              start_new_working_version;
+    std::function<void(size_t)>        move_history_cursor;
+    std::function<void()>              create_version;
     std::function<void(const QString&)> checkout_version_by_id;
-    std::function<void()>              on_working_mode_changed;
     std::function<QRect()>             viewer_geometry;
   };
 
@@ -43,9 +40,6 @@ class VersioningPanelWidget final : public QWidget {
   void RetranslateUi();
 
   auto MakeUiContext() const -> versioning::VersionUiContext;
-
-  auto CurrentWorkingMode() const -> WorkingMode;
-  auto IsPlainWorkingMode() const -> bool;
 
   auto UndoButton() const -> QPushButton* { return undo_tx_btn_; }
   auto IsCollapsed() const -> bool { return collapsed_; }
@@ -83,13 +77,11 @@ class VersioningPanelWidget final : public QWidget {
   QVBoxLayout*            shared_layout_         = nullptr;
 
   // Page widgets.
-  QLabel*      version_status_     = nullptr;
-  QPushButton* undo_tx_btn_        = nullptr;
-  QPushButton* commit_version_btn_ = nullptr;
-  QListWidget* tx_stack_           = nullptr;
-  QComboBox*   working_mode_combo_ = nullptr;
-  QPushButton* new_working_btn_    = nullptr;
-  QListWidget* version_log_        = nullptr;
+  QLabel*      history_status_   = nullptr;
+  QPushButton* undo_tx_btn_      = nullptr;
+  QListWidget* tx_stack_         = nullptr;
+  QPushButton* create_version_btn_ = nullptr;
+  QListWidget* version_log_      = nullptr;
 
   bool       collapsed_   = true;
   qreal      progress_    = 0.0;

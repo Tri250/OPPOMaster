@@ -22,7 +22,7 @@ class EditorAdjustmentSession {
  public:
   struct Dependencies {
     std::shared_ptr<PipelineGuard> pipeline_guard;
-    Version*                       working_version = nullptr;
+    WorkingVersion*                working_version = nullptr;
     AdjustmentState*               state           = nullptr;
     AdjustmentState*               committed_state = nullptr;
   };

@@ -39,6 +39,7 @@ class HistoryCardWidget final : public QFrame {
   explicit HistoryCardWidget(QWidget* parent = nullptr);
 
   void SetSelected(bool selected);
+  void SetFuture(bool future);
 };
 
 class ElidedLabel final : public QLabel {
@@ -72,7 +73,7 @@ auto TxActionGlyph(TransactionType type) -> QString;
 // Git-tree styled card that summarises a single transaction in two lines:
 //   line 1: operator display name  (action glyph on the right)
 //   line 2: compact delta          (e.g. "exp: 0.00 -> +1.20")
-auto BuildTxHistoryCard(const EditTransaction& tx, bool draw_top, bool draw_bottom,
-                        QWidget* parent = nullptr) -> HistoryCardWidget*;
+auto BuildTxHistoryCard(const EditTransaction& tx, bool draw_top, bool draw_bottom, bool current,
+                        bool future, QWidget* parent = nullptr) -> HistoryCardWidget*;
 
 }  // namespace alcedo::ui

@@ -98,10 +98,20 @@ void EnsureDefaultLensCalib(CPUPipelineExecutor& exec) {
   }
 
   bool enabled = op.value()->enable_;
-  const auto params = op.value()->op_->GetParams();
+  auto params  = op.value()->op_->GetParams();
   if (params.contains("lens_calib") && params["lens_calib"].is_object()) {
     enabled = params["lens_calib"].value("enabled", enabled);
   }
+
+  if (!params.contains("lens_calib") || !params["lens_calib"].is_object()) {
+    params["lens_calib"] = nlohmann::json::object();
+  }
+  params["lens_calib"]["enabled"] = enabled;
+
+  // Keep the operator-local descriptor and the stage-level enable bit in lockstep.
+  // Stored pipelines may carry an older mismatch between the two; nested params are
+  // the durable source of truth because they are part of the serialized operator state.
+  loading_stage.SetOperator(OperatorType::LENS_CALIBRATION, params, global_params);
   loading_stage.EnableOperator(OperatorType::LENS_CALIBRATION, enabled, global_params);
 }
 

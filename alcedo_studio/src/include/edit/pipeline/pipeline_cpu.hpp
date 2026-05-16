@@ -101,6 +101,7 @@ class CPUPipelineExecutor : public PipelineExecutor {
   void SetDecodeRes(DecodeRes res);
 
   void RegisterAllOperators();
+  void ResetToCleanBaselineAdjustments();
 
   void InitDefaultPipeline();
 

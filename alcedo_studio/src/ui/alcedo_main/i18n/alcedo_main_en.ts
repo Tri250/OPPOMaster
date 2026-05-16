@@ -660,33 +660,68 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="332"/>
-        <source>Baseline</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="333"/>
         <source>Undo Last</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="334"/>
-        <source>Commit All</source>
+        <source>Position</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="335"/>
-        <source>Version Tree</source>
+        <source>Current</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="336"/>
-        <source>Working mode</source>
+        <source>Returned to step %1 of %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="337"/>
-        <source>New Working</source>
+        <source>No edits yet</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="338"/>
+        <source>Versions</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="339"/>
+        <source>New Version</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="340"/>
+        <source>Modified %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="341"/>
+        <source>CURRENT</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="342"/>
+        <source>Rename version</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="343"/>
+        <source>Version name</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="344"/>
+        <source>Untitled</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="345"/>
+        <source>No versions</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

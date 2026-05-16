@@ -7,6 +7,7 @@
 #include <json.hpp>
 
 #include "edit/pipeline/default_pipeline_params.hpp"
+#include "image/image.hpp"
 namespace alcedo::ui::controllers {
 namespace {
 
@@ -101,6 +102,31 @@ void EnsureLoadingOperatorDefaults(const std::shared_ptr<CPUPipelineExecutor>& e
                   pipeline_defaults::MakeDefaultRawDecodeParams(), false);
   ensure_defaults(OperatorType::LENS_CALIBRATION,
                   pipeline_defaults::MakeDefaultLensCalibParams(), true, "lens_calib");
+}
+
+void RebuildBaselinePipelineForImage(const std::shared_ptr<CPUPipelineExecutor>& exec,
+                                     const std::shared_ptr<ImagePoolService>& image_pool,
+                                     image_id_t image_id) {
+  if (!exec) {
+    return;
+  }
+
+  EnsureLoadingOperatorDefaults(exec);
+  exec->ResetToCleanBaselineAdjustments();
+
+  if (image_pool && image_id != 0) {
+    try {
+      auto img = image_pool->Read<std::shared_ptr<Image>>(
+          image_id, [](const std::shared_ptr<Image>& image) { return image; });
+      if (img && img->HasRawColorContext()) {
+        exec->InjectRawMetadata(img->GetRawColorContext());
+      }
+    } catch (...) {
+      // Match editor startup: metadata injection is best-effort for non-RAW inputs.
+    }
+  }
+
+  exec->SetExecutionStages();
 }
 
 void AttachExecutionStages(const std::shared_ptr<CPUPipelineExecutor>& exec,

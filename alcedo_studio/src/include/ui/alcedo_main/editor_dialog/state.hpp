@@ -15,6 +15,7 @@
 
 #include "edit/operators/cst/open_drt_cpu.hpp"
 #include "edit/operators/op_base.hpp"
+#include "edit/pipeline/default_pipeline_params.hpp"
 #include "renderer/pipeline_task.hpp"
 #include "ui/alcedo_main/editor_dialog/modules/color_temp.hpp"
 #include "ui/alcedo_main/editor_dialog/modules/color_wheel.hpp"
@@ -103,11 +104,11 @@ struct OdtState {
 // ---------------------------------------------------------------------------
 
 struct AdjustmentState {
-  float                      exposure_                   = 1.5f;
+  float                      exposure_                   = pipeline_defaults::kCleanBaselineExposure;
   float                      contrast_                   = 0.0f;
-  float                      saturation_                 = 30.0f;
+  float                      saturation_                 = pipeline_defaults::kCleanBaselineSaturation;
   bool                       raw_highlights_reconstruct_ = true;
-  bool                       lens_calib_enabled_         = true;
+  bool                       lens_calib_enabled_         = pipeline_defaults::kCleanBaselineLensCalibEnabled;
   std::string                lens_override_make_{};
   std::string                lens_override_model_{};
   ColorTempMode              color_temp_mode_             = ColorTempMode::AS_SHOT;

@@ -6,12 +6,16 @@
 
 #include <memory>
 
+#include "app/image_pool_service.hpp"
 #include "edit/pipeline/pipeline_cpu.hpp"
 #include "ui/edit_viewer/frame_sink.hpp"
 
 namespace alcedo::ui::controllers {
 
 void EnsureLoadingOperatorDefaults(const std::shared_ptr<CPUPipelineExecutor>& exec);
+void RebuildBaselinePipelineForImage(const std::shared_ptr<CPUPipelineExecutor>& exec,
+                                     const std::shared_ptr<ImagePoolService>& image_pool,
+                                     image_id_t image_id);
 void AttachExecutionStages(const std::shared_ptr<CPUPipelineExecutor>& exec,
                            IFrameSink* frame_sink);
 

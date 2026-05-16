@@ -138,6 +138,67 @@ TEST_F(PipelineServiceTests, DefaultOutputTransformUsesOpenDRT) {
   EXPECT_EQ(exported.dump(), reloaded->pipeline_->ExportPipelineParams().dump());
 }
 
+TEST_F(PipelineServiceTests, DefaultPipelineAdjustmentsUseCleanBaseline) {
+  CPUPipelineExecutor exec;
+
+  const auto exported = exec.ExportPipelineParams();
+  EXPECT_EQ(exported["Basic Adjustment"]["Basic Adjustment"]["exposure"]["params"]["exposure"],
+            1.5);
+  EXPECT_EQ(exported["Basic Adjustment"]["Basic Adjustment"]["contrast"]["params"]["contrast"],
+            0.0);
+  EXPECT_EQ(exported["Color Adjustment"]["Color Adjustment"]["saturation"]["params"]["saturation"],
+            30.0);
+  EXPECT_EQ(exported["Color Adjustment"]["Color Adjustment"]["ocio_lmt"]["params"]["ocio_lmt"],
+            "");
+  EXPECT_FALSE(exported["Geometry Adjustment"]["Geometry Adjustment"]["crop_rotate"]["enable"]
+                   .get<bool>());
+  EXPECT_EQ(exported["Geometry Adjustment"]["Geometry Adjustment"]["crop_rotate"]["params"]
+                    ["crop_rotate"]["enabled"],
+            false);
+  EXPECT_EQ(exported["Output Transform"]["Output Transform"]["odt"]["params"]["odt"]["method"],
+            "open_drt");
+
+  const auto& global = exec.GetGlobalParams();
+  EXPECT_FLOAT_EQ(global.exposure_offset_, 1.5f / 17.52f);
+  EXPECT_TRUE(global.contrast_enabled_);
+  EXPECT_FLOAT_EQ(global.contrast_scale_, 4.0f);
+  EXPECT_FLOAT_EQ(global.saturation_offset_, 1.3f);
+  EXPECT_FALSE(global.lmt_enabled_);
+}
+
+TEST_F(PipelineServiceTests, ResetToCleanBaselineAdjustmentsPreservesLoadingAndColorTemp) {
+  CPUPipelineExecutor exec;
+  auto&               loading = exec.GetStage(PipelineStageName::Image_Loading);
+  auto&               to_ws   = exec.GetStage(PipelineStageName::To_WorkingSpace);
+
+  nlohmann::json raw_params = pipeline_defaults::MakeDefaultRawDecodeParams();
+  raw_params["raw"]["highlights_reconstruct"] = false;
+  loading.SetOperator(OperatorType::RAW_DECODE, raw_params);
+
+  nlohmann::json color_temp_params = {
+      {"color_temp", {{"mode", "custom"}, {"cct", 7200.0f}, {"tint", 12.0f}}}};
+  to_ws.SetOperator(OperatorType::COLOR_TEMP, color_temp_params, exec.GetGlobalParams());
+
+  exec.GetStage(PipelineStageName::Basic_Adjustment)
+      .SetOperator(OperatorType::EXPOSURE, {{"exposure", 2.0f}}, exec.GetGlobalParams());
+  exec.GetStage(PipelineStageName::Color_Adjustment)
+      .SetOperator(OperatorType::SATURATION, {{"saturation", 55.0f}}, exec.GetGlobalParams());
+
+  exec.ResetToCleanBaselineAdjustments();
+
+  const auto exported = exec.ExportPipelineParams();
+  EXPECT_EQ(exported["Image Loading"]["Image Loading"]["raw_decode"]["params"]["raw"]
+                    ["highlights_reconstruct"],
+            false);
+  EXPECT_EQ(exported["To Working Space"]["To Working Space"]["color_temp"]["params"]
+                    ["color_temp"]["mode"],
+            "custom");
+  EXPECT_EQ(exported["Basic Adjustment"]["Basic Adjustment"]["exposure"]["params"]["exposure"],
+            1.5);
+  EXPECT_EQ(exported["Color Adjustment"]["Color Adjustment"]["saturation"]["params"]["saturation"],
+            30.0);
+}
+
 TEST_F(PipelineServiceTests, LoadPipelineRepairsLensCalibEnableMismatchFromParams) {
   {
     ProjectService      project(db_path_, meta_path_);
@@ -180,6 +241,7 @@ TEST_F(PipelineServiceTests, LoadPipelineRepairsLensCalibEnableMismatchFromParam
     ASSERT_TRUE(op.has_value());
     ASSERT_NE(op.value(), nullptr);
     EXPECT_FALSE(op.value()->enable_);
+    EXPECT_FALSE(op.value()->op_->GetParams()["lens_calib"].value("enabled", true));
   }
 }
 

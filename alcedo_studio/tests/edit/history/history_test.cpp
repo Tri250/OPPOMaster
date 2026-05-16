@@ -16,6 +16,9 @@ TEST_F(EditHistoryTests, CreateEditHistory) {
   sl_element_id_t image_id = 12345;
   EditHistory     history(image_id);
   EXPECT_EQ(history.GetBoundImage(), image_id);
+  EXPECT_EQ(history.GetVersions().size(), 1U);
+  EXPECT_EQ(history.GetDefaultVersion().GetDisplayName(), "Default");
+  EXPECT_EQ(history.GetActiveVersionID(), history.GetDefaultVersionID());
   // EXPECT_NE(history.GetHistoryId(), 0);
   EXPECT_NE(history.GetAddTime(), 0);
   EXPECT_EQ(history.GetAddTime(), history.GetLastModifiedTime());
@@ -24,8 +27,8 @@ TEST_F(EditHistoryTests, CreateEditHistory) {
 TEST_F(EditHistoryTests, CommitVersion) {
   sl_element_id_t image_id = 12345;
   EditHistory     history(image_id);
-  Version         ver1(image_id);
-  Version         ver2(image_id);
+  Version         ver1 = Version::Empty(image_id, "Version 1");
+  Version         ver2 = Version::Empty(image_id, "Version 2");
 
   // It is unlikely that we will commit two versions at the exact same time.
   // Therefore, the history ID should be different.
@@ -42,8 +45,8 @@ TEST_F(EditHistoryTests, CommitVersion) {
 TEST_F(EditHistoryTests, SerializeDeserialize) {
   sl_element_id_t image_id = 12345;
   EditHistory     history(image_id);
-  Version         ver1(image_id);
-  Version         ver2(image_id);
+  Version         ver1 = Version::Empty(image_id, "Version 1");
+  Version         ver2 = Version::Empty(image_id, "Version 2");
 
   std::this_thread::sleep_for(std::chrono::milliseconds(10)); // Ensure different timestamps
   ver2.SetLastModifiedTime();

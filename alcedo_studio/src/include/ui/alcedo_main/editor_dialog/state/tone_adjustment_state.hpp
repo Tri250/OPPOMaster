@@ -6,19 +6,20 @@
 
 #include <vector>
 
+#include "edit/pipeline/default_pipeline_params.hpp"
 #include "ui/alcedo_main/editor_dialog/modules/curve.hpp"
 
 namespace alcedo::ui {
 
 struct ToneAdjustmentState {
-  float exposure_ = 1.5f;
+  float exposure_ = pipeline_defaults::kCleanBaselineExposure;
   float contrast_ = 0.0f;
   float blacks_ = 0.0f;
   float whites_ = 0.0f;
   float shadows_ = 0.0f;
   float highlights_ = 0.0f;
   std::vector<QPointF> curve_points_ = curve::DefaultCurveControlPoints();
-  float saturation_ = 30.0f;
+  float saturation_ = pipeline_defaults::kCleanBaselineSaturation;
   float sharpen_ = 0.0f;
   float clarity_ = 0.0f;
 };

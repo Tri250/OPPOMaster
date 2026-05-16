@@ -8,6 +8,7 @@
 #include <QFileInfo>
 #include <QFontMetrics>
 #include <QHBoxLayout>
+#include <QDateTime>
 #include <QPainter>
 #include <QPen>
 #include <QPixmap>
@@ -964,6 +965,7 @@ HistoryCardWidget::HistoryCardWidget(QWidget* parent) : QFrame(parent) {
   setAttribute(Qt::WA_StyledBackground, true);
   setAttribute(Qt::WA_Hover, true);
   setProperty("selected", false);
+  setProperty("future", false);
 
   setStyleSheet(AppTheme::EditorHistoryCardStyle());
 }
@@ -973,6 +975,16 @@ void HistoryCardWidget::SetSelected(bool selected) {
     return;
   }
   setProperty("selected", selected);
+  style()->unpolish(this);
+  style()->polish(this);
+  update();
+}
+
+void HistoryCardWidget::SetFuture(bool future) {
+  if (property("future").toBool() == future) {
+    return;
+  }
+  setProperty("future", future);
   style()->unpolish(this);
   style()->polish(this);
   update();
@@ -1113,18 +1125,20 @@ auto TxActionGlyph(TransactionType type) -> QString {
 
 auto CompactTxDelta(const EditTransaction& tx) -> QString {
   const TxCardSummary summary = BuildTxSummary(tx);
-  const QString detail_text =
-      !summary.detail.isEmpty() ? summary.detail
-                                : (!summary.value.isEmpty() ? summary.value : CompactTxDelta(tx));
   if (!summary.detail.isEmpty()) {
     return summary.detail;
+  }
+  if (!summary.value.isEmpty()) {
+    return summary.value;
   }
   return FirstMeaningfulDelta(tx);
 }
 
-auto BuildTxHistoryCard(const EditTransaction& tx, bool draw_top, bool draw_bottom,
-                        QWidget* parent) -> HistoryCardWidget* {
+auto BuildTxHistoryCard(const EditTransaction& tx, bool draw_top, bool draw_bottom, bool current,
+                        bool future, QWidget* parent) -> HistoryCardWidget* {
   auto* card = new HistoryCardWidget(parent);
+  card->SetSelected(current);
+  card->SetFuture(future);
 
   auto* row = new QHBoxLayout(card);
   row->setContentsMargins(8, 5, 8, 5);
@@ -1164,6 +1178,10 @@ auto BuildTxHistoryCard(const EditTransaction& tx, bool draw_top, bool draw_bott
   body->setContentsMargins(0, 0, 0, 0);
   body->setSpacing(1);
 
+  auto* title_row = new QHBoxLayout();
+  title_row->setContentsMargins(0, 0, 0, 0);
+  title_row->setSpacing(6);
+
   auto* title_l = new ElidedLabel(OperatorDisplayName(tx.GetTxOperatorType()), card);
   title_l->setObjectName(QStringLiteral("HistoryTxTitle"));
   QFont title_font = AppTheme::Font(AppTheme::FontRole::UiBodyStrong);
@@ -1173,7 +1191,18 @@ auto BuildTxHistoryCard(const EditTransaction& tx, bool draw_top, bool draw_bott
   title_l->setFont(title_font);
   title_l->setAttribute(Qt::WA_TransparentForMouseEvents, true);
   title_l->setMinimumHeight(QFontMetrics(title_font).lineSpacing() + 2);
-  body->addWidget(title_l);
+  title_row->addWidget(title_l, 1);
+
+  const QString time_text =
+      QDateTime::fromSecsSinceEpoch(static_cast<qint64>(tx.GetCreateTime())).toString("HH:mm");
+  auto* time_l = new QLabel(time_text, card);
+  QFont time_font = AppTheme::Font(AppTheme::FontRole::DataCaption);
+  time_font.setPointSizeF(7.5);
+  time_l->setFont(time_font);
+  time_l->setStyleSheet(AppTheme::EditorLabelStyle(AppTheme::Instance().textMutedColor()));
+  time_l->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+  title_row->addWidget(time_l, 0, Qt::AlignTop | Qt::AlignRight);
+  body->addLayout(title_row);
 
   auto* detail_l = new ElidedLabel(detail_text, card);
   detail_l->setObjectName(QStringLiteral("HistoryTxSubtitle"));

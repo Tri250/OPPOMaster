@@ -1199,10 +1199,6 @@
       <translation type="vanished">工作版本：</translation>
     </message>
     <message>
-      <source>Versions</source>
-      <translation type="vanished">版本</translation>
-    </message>
-    <message>
       <source>Uncommitted transactions (stack)</source>
       <translation type="vanished">未提交事务（栈）</translation>
     </message>
@@ -1589,34 +1585,69 @@
       <translation>已提交状态</translation>
     </message>
     <message>
-      <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="332" />
-      <source>Baseline</source>
-      <translation>基线</translation>
-    </message>
-    <message>
       <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="333" />
       <source>Undo Last</source>
       <translation>撤销上一步</translation>
     </message>
     <message>
       <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="334" />
-      <source>Commit All</source>
-      <translation>全部提交</translation>
+      <source>Position</source>
+      <translation>位置</translation>
     </message>
     <message>
       <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="335" />
-      <source>Version Tree</source>
-      <translation>版本树</translation>
+      <source>Current</source>
+      <translation>当前</translation>
     </message>
     <message>
       <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="336" />
-      <source>Working mode</source>
-      <translation>工作模式</translation>
+      <source>Returned to step %1 of %2</source>
+      <translation>已回到第 %1 / %2 步</translation>
     </message>
     <message>
       <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="337" />
-      <source>New Working</source>
-      <translation>新建工作版本</translation>
+      <source>No edits yet</source>
+      <translation>还没有编辑记录</translation>
+    </message>
+    <message>
+      <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="338" />
+      <source>Versions</source>
+      <translation>版本</translation>
+    </message>
+    <message>
+      <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="339" />
+      <source>New Version</source>
+      <translation>新建版本</translation>
+    </message>
+    <message>
+      <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="340" />
+      <source>Modified %1</source>
+      <translation>最近修改 %1</translation>
+    </message>
+    <message>
+      <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="341" />
+      <source>CURRENT</source>
+      <translation>当前</translation>
+    </message>
+    <message>
+      <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="342" />
+      <source>Rename version</source>
+      <translation>重命名版本</translation>
+    </message>
+    <message>
+      <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="343" />
+      <source>Version name</source>
+      <translation>版本名称</translation>
+    </message>
+    <message>
+      <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="344" />
+      <source>Untitled</source>
+      <translation>未命名</translation>
+    </message>
+    <message>
+      <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="345" />
+      <source>No versions</source>
+      <translation>还没有版本</translation>
     </message>
     <message>
       <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="338" />

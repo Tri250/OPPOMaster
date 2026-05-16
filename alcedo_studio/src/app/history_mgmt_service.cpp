@@ -112,21 +112,69 @@ auto EditHistoryMgmtService::CommitVersion(const std::shared_ptr<EditHistoryGuar
   }
 
   std::unique_lock<std::mutex> guard(lock_);
-
   const sl_element_id_t file_id = history_guard->file_id_;
-
-  // Ensure the guard remains tracked by the cache even if constructed externally.
   std::optional<sl_element_id_t> evicted = cache_.RecordAccess_WithEvict(file_id, file_id);
   if (evicted.has_value()) {
     HandleEviction(evicted.value());
   }
-
   cached_histories_[file_id] = history_guard;
   history_guard->pinned_     = true;
 
   const history_id_t committed_id = history_guard->history_->CommitVersion(std::move(version));
   history_guard->dirty_           = true;
   return committed_id;
+}
+
+auto EditHistoryMgmtService::CreateVersion(const std::shared_ptr<EditHistoryGuard>& history_guard,
+                                          std::string display_name) -> history_id_t {
+  if (!history_guard || !history_guard->history_) {
+    throw std::runtime_error("[ERROR] EditHistoryMgmtService: CreateVersion called with null guard");
+  }
+
+  std::unique_lock<std::mutex> guard(lock_);
+  const sl_element_id_t file_id = history_guard->file_id_;
+  std::optional<sl_element_id_t> evicted = cache_.RecordAccess_WithEvict(file_id, file_id);
+  if (evicted.has_value()) {
+    HandleEviction(evicted.value());
+  }
+  cached_histories_[file_id] = history_guard;
+  history_guard->pinned_     = true;
+
+  const auto version_id = history_guard->history_->CreateVersion(std::move(display_name));
+  history_guard->dirty_ = true;
+  return version_id;
+}
+
+void EditHistoryMgmtService::RenameVersion(const std::shared_ptr<EditHistoryGuard>& history_guard,
+                                           history_id_t version_id, std::string display_name) {
+  if (!history_guard || !history_guard->history_) {
+    throw std::runtime_error("[ERROR] EditHistoryMgmtService: RenameVersion called with null guard");
+  }
+  std::unique_lock<std::mutex> guard(lock_);
+  history_guard->history_->RenameVersion(version_id, std::move(display_name));
+  history_guard->dirty_ = true;
+}
+
+void EditHistoryMgmtService::SetActiveVersion(
+    const std::shared_ptr<EditHistoryGuard>& history_guard, history_id_t version_id) {
+  if (!history_guard || !history_guard->history_) {
+    throw std::runtime_error("[ERROR] EditHistoryMgmtService: SetActiveVersion called with null guard");
+  }
+  std::unique_lock<std::mutex> guard(lock_);
+  history_guard->history_->SetActiveVersionID(version_id);
+  history_guard->dirty_ = true;
+}
+
+void EditHistoryMgmtService::UpdateVersion(
+    const std::shared_ptr<EditHistoryGuard>& history_guard, history_id_t version_id,
+    const WorkingVersion& working_version, const nlohmann::json& head_pipeline_params) {
+  if (!history_guard || !history_guard->history_) {
+    throw std::runtime_error("[ERROR] EditHistoryMgmtService: UpdateVersion called with null guard");
+  }
+  std::unique_lock<std::mutex> guard(lock_);
+  history_guard->history_->UpdateVersionFromWorkingVersion(version_id, working_version,
+                                                           head_pipeline_params);
+  history_guard->dirty_ = true;
 }
 
 void EditHistoryMgmtService::SaveHistory(const std::shared_ptr<EditHistoryGuard>& history_guard) {
