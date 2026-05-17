@@ -3,12 +3,15 @@
 //  Additional permission under GPLv3 section 7 applies; see the LICENSE file.
 
 #include <gtest/gtest.h>
+#include <lensfun/lensfun.h>
 #include <libraw/libraw.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <limits>
 #include <optional>
+#include <span>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -18,6 +21,8 @@
 
 #include "decoders/processor/raw_processor_internal.hpp"
 #include "decoders/processor/raw_processor_pattern.hpp"
+#include "decoders/dng_default_crop.hpp"
+#include "edit/operators/geometry/lens_calib_op.hpp"
 #include "edit/operators/raw/raw_decode_op.hpp"
 #include "image/image_buffer.hpp"
 #include "type/type.hpp"
@@ -29,6 +34,7 @@ struct SampleSelection {
   std::filesystem::path path;
   BayerPattern2x2       pattern;
   libraw_image_sizes_t  sizes;
+  ushort                default_crop[4] = {};
 };
 
 auto MakeXTransPattern() -> XTransPattern6x6 {
@@ -68,6 +74,45 @@ auto ReadFileToBuffer(const std::filesystem::path& path) -> std::vector<uint8_t>
   }
   return buffer;
 }
+
+auto PixelToNormalizedForTest(const LensCalibGpuParams& params, float x, float y) -> cv::Point2f {
+  return {x * params.norm_scale - params.center_x, y * params.norm_scale - params.center_y};
+}
+
+auto NormalizedToPixelForTest(const LensCalibGpuParams& params, const cv::Point2f& point)
+    -> cv::Point2f {
+  return {(point.x + params.center_x) * params.norm_unscale,
+          (point.y + params.center_y) * params.norm_unscale};
+}
+
+auto ApplyDistortionForTest(const LensCalibGpuParams& params, const cv::Point2f& point)
+    -> cv::Point2f {
+  const float x   = point.x;
+  const float y   = point.y;
+  const float ru2 = x * x + y * y;
+  switch (static_cast<LensCalibDistortionModel>(params.distortion_model)) {
+    case LensCalibDistortionModel::POLY3: {
+      const float poly = 1.0f + params.distortion_terms[0] * ru2;
+      return {x * poly, y * poly};
+    }
+    case LensCalibDistortionModel::POLY5: {
+      const float poly =
+          1.0f + params.distortion_terms[0] * ru2 + params.distortion_terms[1] * ru2 * ru2;
+      return {x * poly, y * poly};
+    }
+    case LensCalibDistortionModel::PTLENS: {
+      const float r = std::sqrt(ru2);
+      const float poly = params.distortion_terms[0] * ru2 * r +
+                         params.distortion_terms[1] * ru2 +
+                         params.distortion_terms[2] * r + 1.0f;
+      return {x * poly, y * poly};
+    }
+    case LensCalibDistortionModel::NONE:
+    default:
+      return point;
+  }
+}
+
 
 auto IsRawExtension(const std::filesystem::path& path) -> bool {
   const auto ext = path.extension().wstring();
@@ -120,6 +165,7 @@ auto TrySelectNonRggbSample(const std::filesystem::path& path) -> std::optional<
       .pattern = pattern,
       .sizes   = raw_processor.imgdata.sizes,
   };
+  std::copy_n(raw_processor.imgdata.color.dng_levels.default_crop, 4, result.default_crop);
   raw_processor.recycle();
   return result;
 }
@@ -137,9 +183,15 @@ auto FindFirstNonRggbBayerSample() -> std::optional<SampleSelection> {
   return std::nullopt;
 }
 
-auto ExpectedHalfDecodeSize(const libraw_image_sizes_t& sizes) -> cv::Size {
-  int width  = static_cast<int>(sizes.raw_width) / 2;
-  int height = static_cast<int>(sizes.raw_height) / 2;
+auto ExpectedHalfDecodeSize(const libraw_image_sizes_t& sizes, const ushort default_crop[4])
+    -> cv::Size {
+  const cv::Rect crop =
+      detail::BuildDecodeCropRect(sizes, default_crop,
+                                  cv::Size(static_cast<int>(sizes.raw_width) / 2,
+                                           static_cast<int>(sizes.raw_height) / 2),
+                                  DecodeRes::HALF);
+  int width  = crop.width;
+  int height = crop.height;
   if (sizes.flip == 5 || sizes.flip == 6) {
     std::swap(width, height);
   }
@@ -148,6 +200,11 @@ auto ExpectedHalfDecodeSize(const libraw_image_sizes_t& sizes) -> cv::Size {
 
 auto LinearDngSamplePath() -> std::filesystem::path {
   return std::filesystem::path(TEST_IMG_PATH) / "raw" / "linear_dng" / "mfzoty.dng";
+}
+
+auto LeicaQ2SamplePath() -> std::filesystem::path {
+  return std::filesystem::path(TEST_IMG_PATH) / "raw" / "camera" / "leica" / "q2" /
+         "L1010202.DNG";
 }
 
 auto EnsureCudaDevice() -> bool {
@@ -194,6 +251,7 @@ auto TrySelectLargeBayerSample(const std::filesystem::path& path) -> std::option
 
   const cv::Rect active_rect =
       detail::BuildDecodeCropRect(raw_processor.imgdata.sizes,
+                                  raw_processor.imgdata.color.dng_levels.default_crop,
                                   cv::Size(static_cast<int>(raw_processor.imgdata.sizes.raw_width),
                                            static_cast<int>(raw_processor.imgdata.sizes.raw_height)),
                                   DecodeRes::FULL);
@@ -208,6 +266,7 @@ auto TrySelectLargeBayerSample(const std::filesystem::path& path) -> std::option
       .pattern = cfa_pattern.bayer_pattern,
       .sizes   = raw_processor.imgdata.sizes,
   };
+  std::copy_n(raw_processor.imgdata.color.dng_levels.default_crop, 4, result.default_crop);
   raw_processor.recycle();
   return result;
 }
@@ -322,6 +381,91 @@ TEST(RawProcessorPattern, DescribeAndValidateClassicPatterns) {
   EXPECT_EQ(DescribeBayerPattern(grbg), "GRBG");
   EXPECT_EQ(DescribeBayerPattern(gbrg), "GBRG");
   EXPECT_EQ(DescribeBayerPattern(bggr), "BGGR");
+}
+
+TEST(RawProcessorPattern, DecodeCropPrefersValidDefaultCropInsideActiveArea) {
+  libraw_image_sizes_t sizes{};
+  sizes.raw_width        = 8424;
+  sizes.raw_height       = 5632;
+  sizes.left_margin      = 0;
+  sizes.top_margin       = 0;
+  sizes.width            = 8392;
+  sizes.height           = 5632;
+  const ushort default_crop[4] = {12, 24, 8368, 5584};
+
+  const cv::Rect crop =
+      detail::BuildDecodeCropRect(sizes, default_crop, cv::Size(8424, 5632), DecodeRes::FULL);
+  EXPECT_EQ(crop, cv::Rect(12, 24, 8368, 5584));
+}
+
+TEST(RawProcessorPattern, DecodeCropFallsBackToActiveAreaWhenDefaultCropIsInvalid) {
+  libraw_image_sizes_t sizes{};
+  sizes.raw_width        = 6880;
+  sizes.raw_height       = 4544;
+  sizes.left_margin      = 136;
+  sizes.top_margin       = 42;
+  sizes.width            = 6744;
+  sizes.height           = 4502;
+  const ushort default_crop[4] = {120, 54, 6720, 4480};
+
+  const cv::Rect crop =
+      detail::BuildDecodeCropRect(sizes, default_crop, cv::Size(6880, 4544), DecodeRes::FULL);
+  EXPECT_EQ(crop, cv::Rect(136, 42, 6744, 4502));
+}
+
+TEST(RawProcessorPattern, RawDecodeUsesLeicaQ2DngDefaultCropAtEighthResolution) {
+#ifndef HAVE_CUDA
+  GTEST_SKIP() << "CUDA is not enabled in this build.";
+#else
+  if (!EnsureCudaDevice()) {
+    GTEST_SKIP() << "No CUDA device available.";
+  }
+
+  const std::filesystem::path sample_path = LeicaQ2SamplePath();
+  if (!std::filesystem::exists(sample_path)) {
+    GTEST_SKIP() << "Leica Q2 sample not found: " << sample_path.string();
+  }
+
+  std::vector<uint8_t> raw_bytes = ReadFileToBuffer(sample_path);
+  ASSERT_FALSE(raw_bytes.empty());
+
+  auto input = std::make_shared<ImageBuffer>(std::move(raw_bytes));
+
+  nlohmann::json decode_params;
+  decode_params["raw"] = {{"gpu_backend", "gpu"},
+                          {"highlights_reconstruct", false},
+                          {"use_camera_wb", true},
+                          {"backend", "alcedo"},
+                          {"decode_res", static_cast<int>(DecodeRes::EIGHTH)}};
+
+  RawDecodeOp raw_decode_op(decode_params);
+  ASSERT_NO_THROW(raw_decode_op.ApplyGPU(input));
+
+  EXPECT_EQ(input->GetGPUWidth(), 1047);
+  EXPECT_EQ(input->GetGPUHeight(), 698);
+
+  OperatorParams params;
+  raw_decode_op.SetGlobalParams(params);
+  EXPECT_TRUE(params.raw_dng_warp_rectilinear_present_);
+  EXPECT_TRUE(params.raw_dng_warp_rectilinear_applied_);
+#endif
+}
+
+TEST(RawProcessorPattern, ParsesLeicaQ2WarpRectilinearOpcode) {
+  const std::filesystem::path sample_path = LeicaQ2SamplePath();
+  if (!std::filesystem::exists(sample_path)) {
+    GTEST_SKIP() << "Leica Q2 sample not found: " << sample_path.string();
+  }
+
+  const std::vector<uint8_t> raw_bytes = ReadFileToBuffer(sample_path);
+  ASSERT_FALSE(raw_bytes.empty());
+
+  const dng::Metadata metadata =
+      dng::ExtractMetadata(std::span<const uint8_t>(raw_bytes.data(), raw_bytes.size()));
+  ASSERT_TRUE(metadata.warp_rectilinear.has_value());
+  EXPECT_EQ(metadata.warp_rectilinear->coefficient_set_count, 3U);
+  EXPECT_NEAR(metadata.warp_rectilinear->center_x, 0.5, 1e-12);
+  EXPECT_NEAR(metadata.warp_rectilinear->center_y, 0.5, 1e-12);
 }
 
 TEST(RawProcessorPattern, ClassifyRawInputLayouts) {
@@ -478,7 +622,7 @@ TEST(RawProcessorPattern, CudaDecodeSupportsNonRggbClassicBayer) {
   RawDecodeOp raw_decode_op(decode_params);
   ASSERT_NO_THROW(raw_decode_op.ApplyGPU(input));
 
-  const cv::Size expected_size = ExpectedHalfDecodeSize(sample->sizes);
+  const cv::Size expected_size = ExpectedHalfDecodeSize(sample->sizes, sample->default_crop);
   EXPECT_EQ(input->GetGPUType(), CV_32FC4);
   EXPECT_EQ(input->GetGPUWidth(), expected_size.width);
   EXPECT_EQ(input->GetGPUHeight(), expected_size.height);
@@ -562,6 +706,193 @@ TEST(RawProcessorPattern, GpuDecodeSupportsLinearDngSample) {
   EXPECT_TRUE(params.raw_runtime_valid_);
   EXPECT_EQ(params.raw_decode_input_space_, RawDecodeInputSpace::CAMERA);
 #endif
+}
+
+TEST(RawProcessorPattern, LensCalibDistortionMatchesLensfunModifierCoordinates) {
+  const auto db_path = std::filesystem::weakly_canonical(
+      std::filesystem::path(__FILE__).parent_path().parent_path().parent_path() /
+      "src/config/lens_calib");
+  ASSERT_TRUE(std::filesystem::exists(db_path));
+
+  nlohmann::json params = {
+      {"lens_calib",
+       {{"enabled", true},
+        {"apply_vignetting", false},
+        {"apply_distortion", true},
+        {"apply_tca", false},
+        {"apply_crop", false},
+        {"auto_scale", false},
+        {"lens_profile_db_path", db_path.string()}}},
+  };
+
+  LensCalibOp   op(params);
+  OperatorParams global{};
+  global.raw_runtime_valid_         = true;
+  global.raw_camera_make_           = "Canon";
+  global.raw_camera_model_          = "Canon EOS R8";
+  global.raw_lens_make_             = "Canon";
+  global.raw_lens_model_            = "Canon RF 24-50mm F4.5-6.3 IS STM";
+  global.raw_lens_focal_mm_         = 24.0f;
+  global.raw_lens_aperture_f_       = 4.5f;
+  global.raw_lens_focus_distance_m_ = 1000.0f;
+  global.raw_lens_crop_factor_hint_ = 1.0f;
+  op.SetGlobalParams(global);
+  ASSERT_TRUE(global.lens_calib_runtime_valid_);
+
+  lfDatabase* db = lf_db_create();
+  ASSERT_NE(db, nullptr);
+  ASSERT_EQ(lf_db_load_path(db, db_path.string().c_str()), LF_NO_ERROR);
+  const lfCamera** cameras = lf_db_find_cameras(db, "Canon", "Canon EOS R8");
+  ASSERT_NE(cameras, nullptr);
+  ASSERT_NE(cameras[0], nullptr);
+  constexpr int flags = LF_SEARCH_SORT_AND_UNIQUIFY | LF_SEARCH_LOOSE;
+  const lfLens** lenses =
+      lf_db_find_lenses(db, cameras[0], "Canon", "Canon RF 24-50mm F4.5-6.3 IS STM", flags);
+  ASSERT_NE(lenses, nullptr);
+  ASSERT_NE(lenses[0], nullptr);
+
+  const lfLens* best_lens  = nullptr;
+  int           best_score = std::numeric_limits<int>::min();
+  for (int i = 0; lenses[i] != nullptr; ++i) {
+    int score = lenses[i]->Score;
+    score += (24.0f >= lenses[i]->MinFocal - 0.2f && 24.0f <= lenses[i]->MaxFocal + 0.2f)
+                 ? 2000
+                 : -2000;
+    score += (4.5f >= lenses[i]->MinAperture - 0.1f && 4.5f <= lenses[i]->MaxAperture + 0.1f)
+                 ? 200
+                 : -200;
+    if (score > best_score) {
+      best_score = score;
+      best_lens  = lenses[i];
+    }
+  }
+  ASSERT_NE(best_lens, nullptr);
+
+  lfModifier* modifier =
+      lf_modifier_create(best_lens, 24.0f, 1.0f, 6000, 4000, LF_PF_F32, false);
+  ASSERT_NE(modifier, nullptr);
+  (void)lf_modifier_enable_distortion_correction(modifier);
+
+  auto runtime = global.lens_calib_runtime_params_;
+  runtime.src_width  = 6000;
+  runtime.src_height = 4000;
+  runtime.dst_width  = 6000;
+  runtime.dst_height = 4000;
+  const double width      = 5999.0;
+  const double height     = 3999.0;
+  const double norm_scale =
+      43.2666153 / std::hypot(width + 1.0, height + 1.0) / runtime.real_focal_mm;
+  const double min_size   = std::min(width, height);
+  runtime.norm_scale      = static_cast<float>(norm_scale);
+  runtime.norm_unscale    = static_cast<float>(1.0 / norm_scale);
+  runtime.center_x        = static_cast<float>(
+      (width * 0.5 + min_size * 0.5 * runtime.lens_center_x) * norm_scale);
+  runtime.center_y        = static_cast<float>(
+      (height * 0.5 + min_size * 0.5 * runtime.lens_center_y) * norm_scale);
+
+  const std::array<cv::Point2f, 5> samples = {
+      cv::Point2f(0.0f, 0.0f), cv::Point2f(5999.0f, 0.0f), cv::Point2f(0.0f, 3999.0f),
+      cv::Point2f(5999.0f, 3999.0f), cv::Point2f(3000.0f, 2000.0f),
+  };
+  for (const auto& sample : samples) {
+    float lf_coord[2] = {};
+    ASSERT_TRUE(lf_modifier_apply_geometry_distortion(modifier, sample.x, sample.y, 1, 1,
+                                                      lf_coord));
+    const cv::Point2f normalized = PixelToNormalizedForTest(runtime, sample.x, sample.y);
+    const cv::Point2f distorted  = ApplyDistortionForTest(runtime, normalized);
+    const cv::Point2f ours       = NormalizedToPixelForTest(runtime, distorted);
+    EXPECT_NEAR(ours.x, lf_coord[0], 1e-3f);
+    EXPECT_NEAR(ours.y, lf_coord[1], 1e-3f);
+  }
+
+  lf_modifier_destroy(modifier);
+  lf_free(const_cast<lfLens**>(lenses));
+  lf_free(const_cast<lfCamera**>(cameras));
+  lf_db_destroy(db);
+}
+
+TEST(RawProcessorPattern, LensCalibAutoScaleMatchesAlignedLensfunGeometry) {
+  const auto db_path = std::filesystem::weakly_canonical(
+      std::filesystem::path(__FILE__).parent_path().parent_path().parent_path() /
+      "src/config/lens_calib");
+  ASSERT_TRUE(std::filesystem::exists(db_path));
+
+  nlohmann::json params = {
+      {"lens_calib",
+       {{"enabled", true},
+        {"apply_vignetting", false},
+        {"apply_distortion", true},
+        {"apply_tca", true},
+        {"apply_crop", false},
+        {"auto_scale", true},
+        {"lens_profile_db_path", db_path.string()}}},
+  };
+
+  LensCalibOp   op(params);
+  OperatorParams global{};
+  global.raw_runtime_valid_         = true;
+  global.raw_camera_make_           = "Canon";
+  global.raw_camera_model_          = "Canon EOS R8";
+  global.raw_lens_make_             = "Canon";
+  global.raw_lens_model_            = "Canon RF 24-50mm F4.5-6.3 IS STM";
+  global.raw_lens_focal_mm_         = 24.0f;
+  global.raw_lens_aperture_f_       = 4.5f;
+  global.raw_lens_focus_distance_m_ = 1000.0f;
+  global.raw_lens_crop_factor_hint_ = 1.0f;
+  op.SetGlobalParams(global);
+  ASSERT_TRUE(global.lens_calib_runtime_valid_);
+
+  lfDatabase* db = lf_db_create();
+  ASSERT_NE(db, nullptr);
+  ASSERT_EQ(lf_db_load_path(db, db_path.string().c_str()), LF_NO_ERROR);
+  const lfCamera** cameras = lf_db_find_cameras(db, "Canon", "Canon EOS R8");
+  ASSERT_NE(cameras, nullptr);
+  ASSERT_NE(cameras[0], nullptr);
+  constexpr int flags = LF_SEARCH_SORT_AND_UNIQUIFY | LF_SEARCH_LOOSE;
+  const lfLens** lenses =
+      lf_db_find_lenses(db, cameras[0], "Canon", "Canon RF 24-50mm F4.5-6.3 IS STM", flags);
+  ASSERT_NE(lenses, nullptr);
+  ASSERT_NE(lenses[0], nullptr);
+
+  const lfLens* best_lens  = nullptr;
+  int           best_score = std::numeric_limits<int>::min();
+  for (int i = 0; lenses[i] != nullptr; ++i) {
+    int score = lenses[i]->Score;
+    score += (24.0f >= lenses[i]->MinFocal - 0.2f && 24.0f <= lenses[i]->MaxFocal + 0.2f)
+                 ? 2000
+                 : -2000;
+    score += (4.5f >= lenses[i]->MinAperture - 0.1f && 4.5f <= lenses[i]->MaxAperture + 0.1f)
+                 ? 200
+                 : -200;
+    if (score > best_score) {
+      best_score = score;
+      best_lens  = lenses[i];
+    }
+  }
+  ASSERT_NE(best_lens, nullptr);
+
+  lfModifier* correction =
+      lf_modifier_create(best_lens, 24.0f, 1.0f, 4096, 4096, LF_PF_F32, false);
+  lfModifier* reverse =
+      lf_modifier_create(best_lens, 24.0f, 1.0f, 4096, 4096, LF_PF_F32, true);
+  ASSERT_NE(correction, nullptr);
+  ASSERT_NE(reverse, nullptr);
+  (void)lf_modifier_enable_distortion_correction(correction);
+  (void)lf_modifier_enable_tca_correction(correction);
+  (void)lf_modifier_enable_distortion_correction(reverse);
+  (void)lf_modifier_enable_tca_correction(reverse);
+
+  const float correction_scale = lf_modifier_get_auto_scale(correction, false);
+  const float reverse_scale    = lf_modifier_get_auto_scale(reverse, false);
+  const float runtime_scale    = global.lens_calib_runtime_params_.resolved_scale;
+  EXPECT_NEAR(runtime_scale, correction_scale, 1e-6f);
+  EXPECT_GT(std::fabs(runtime_scale - reverse_scale), 1e-4f);
+
+  lf_modifier_destroy(reverse);
+  lf_modifier_destroy(correction);
+  lf_free(const_cast<lfLens**>(lenses));
+  lf_free(const_cast<lfCamera**>(cameras));
+  lf_db_destroy(db);
 }
 
 TEST(RawProcessorPattern, CudaExecutionModeUsesLongEdgeThresholdForLargeBayer) {

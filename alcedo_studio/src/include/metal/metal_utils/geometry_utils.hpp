@@ -9,6 +9,7 @@
 #include <opencv2/core/mat.hpp>
 #include <opencv2/core/types.hpp>
 
+#include "decoders/dng_default_crop.hpp"
 #include "edit/operators/geometry/resize_algorithm.hpp"
 
 namespace alcedo::metal {
@@ -25,6 +26,8 @@ void CropResizeTexture(const MetalImage& src, MetalImage& dst, const cv::Rect& c
                            ResizeDownsampleAlgorithm::Area);
 void WarpAffineLinearTexture(const MetalImage& src, MetalImage& dst, const cv::Mat& matrix,
                              cv::Size out_size, const cv::Scalar& border_value);
+void WarpRectilinearTexture(const MetalImage& src, MetalImage& dst,
+                            const dng::WarpRectilinear& warp);
 
 }  // namespace alcedo::metal::utils
 

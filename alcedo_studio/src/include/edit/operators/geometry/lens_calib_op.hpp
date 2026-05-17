@@ -37,6 +37,7 @@ class LensCalibOp : public OperatorBase<LensCalibOp> {
   bool                  projection_enabled_  = false;
   std::string           target_projection_   = "unknown";
   bool                  low_precision_preview_ = false;
+  mutable InputMeta     resolved_input_meta_   = {};
   mutable LensCalibGpuParams resolved_params_ = {};
   mutable bool            has_resolved_params_ = false;
 

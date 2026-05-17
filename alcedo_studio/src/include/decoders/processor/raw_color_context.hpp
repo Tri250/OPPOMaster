@@ -29,6 +29,8 @@ struct RawRuntimeColorContext {
   float             focus_distance_m_        = 0.0f;
   float             focal_35mm_mm_           = 0.0f;
   float             crop_factor_hint_        = 0.0f;
+  bool              dng_warp_rectilinear_present_ = false;
+  bool              dng_warp_rectilinear_applied_ = false;
 
   // Adobe DNG colour matrices resolved at import time from the camera
   // matrix database.  Avoids repeated database lookups per frame.

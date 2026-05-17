@@ -14,7 +14,6 @@
 #include <cstring>
 #include <stdexcept>
 #include <utility>
-#include <vector>
 
 #include <opencv2/core/mat.hpp>
 
@@ -196,65 +195,6 @@ auto ComputeRectCropRoi(const LensCalibGpuParams& params) -> cv::Rect {
   return cv::Rect(x0, y0, std::max(1, x1 - x0), std::max(1, y1 - y0));
 }
 
-auto ComputeAutoCropRoiFromAlpha(const cv::Mat& image,
-                                 float alpha_threshold = 1.0f - 1e-4f) -> cv::Rect {
-  if (image.empty() || image.type() != CV_32FC4) {
-    return cv::Rect();
-  }
-
-  std::vector<int> heights(static_cast<size_t>(image.cols), 0);
-  std::vector<int> stack;
-  stack.reserve(static_cast<size_t>(image.cols) + 1U);
-
-  int best_left   = 0;
-  int best_right  = image.cols;
-  int best_top    = 0;
-  int best_bottom = image.rows;
-  int best_area   = 0;
-
-  for (int y = 0; y < image.rows; ++y) {
-    const auto* row = image.ptr<cv::Vec4f>(y);
-    for (int x = 0; x < image.cols; ++x) {
-      heights[static_cast<size_t>(x)] = (row[x][3] >= alpha_threshold)
-                                            ? (heights[static_cast<size_t>(x)] + 1)
-                                            : 0;
-    }
-
-    stack.clear();
-    for (int x = 0; x <= image.cols; ++x) {
-      const int current_height =
-          (x < image.cols) ? heights[static_cast<size_t>(x)] : 0;
-      while (!stack.empty() &&
-             heights[static_cast<size_t>(stack.back())] > current_height) {
-        const int height = heights[static_cast<size_t>(stack.back())];
-        stack.pop_back();
-
-        const int left   = stack.empty() ? 0 : (stack.back() + 1);
-        const int right  = x;
-        const int area   = height * (right - left);
-        const int bottom = y + 1;
-        const int top    = bottom - height;
-
-        if (area > best_area) {
-          best_area   = area;
-          best_left   = left;
-          best_right  = right;
-          best_top    = top;
-          best_bottom = bottom;
-        }
-      }
-      stack.push_back(x);
-    }
-  }
-
-  if (best_area <= 0) {
-    return cv::Rect(0, 0, image.cols, image.rows);
-  }
-
-  return cv::Rect(best_left, best_top, std::max(1, best_right - best_left),
-                  std::max(1, best_bottom - best_top));
-}
-
 void DispatchVignetting(MTL::CommandBuffer* command_buffer, MTL::Buffer* image_buffer,
                         const LensCalibDispatchParams& params, uint32_t width, uint32_t height) {
   auto pipeline = GetLensPipelineState(LensKernel::Vignetting);
@@ -306,11 +246,6 @@ void ApplyLensCalibration(MetalImage& image, const LensCalibGpuParams& params) {
   const bool has_rect_crop  = (launch.apply_crop != 0 &&
                               static_cast<LensCalibCropMode>(launch.crop_mode) ==
                                   LensCalibCropMode::RECTANGLE);
-  const bool has_auto_crop  = (launch.apply_crop != 0 &&
-                              static_cast<LensCalibCropMode>(launch.crop_mode) ==
-                                  LensCalibCropMode::NONE &&
-                              has_warp);
-
   if (!has_vignetting && !has_warp && !has_rect_crop) {
     return;
   }
@@ -365,16 +300,6 @@ void ApplyLensCalibration(MetalImage& image, const LensCalibGpuParams& params) {
     if (roi.width > 0 && roi.height > 0 &&
         (roi.width < static_cast<int>(working.Width()) ||
          roi.height < static_cast<int>(working.Height()))) {
-      MetalImage cropped;
-      utils::CropResizeTexture(working, cropped, roi, roi.size());
-      working = std::move(cropped);
-    }
-  } else if (has_auto_crop) {
-    cv::Mat host;
-    working.Download(host);
-    const cv::Rect roi = ComputeAutoCropRoiFromAlpha(host);
-    if (roi.width > 0 && roi.height > 0 &&
-        (roi.width < host.cols || roi.height < host.rows)) {
       MetalImage cropped;
       utils::CropResizeTexture(working, cropped, roi, roi.size());
       working = std::move(cropped);

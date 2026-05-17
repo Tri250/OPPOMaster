@@ -16,6 +16,7 @@
 #include <stdexcept>
 
 #include "decoders/libraw_unpack_guard.hpp"
+#include "decoders/dng_default_crop.hpp"
 #include "decoders/processor/raw_processor.hpp"
 #include "image/image.hpp"
 #include "image/image_buffer.hpp"
@@ -78,7 +79,11 @@ void RawDecoder::Decode(std::vector<char>&& buffer, std::shared_ptr<Image> sourc
   raw_params.use_camera_wb_          = true;
   raw_params.user_wb_                = 0;
 
-  RawProcessor processor{raw_params, raw_processor->imgdata.rawdata, *raw_processor, ctx};
+  const auto dng_metadata = dng::ExtractMetadata(std::span<const uint8_t>(
+      reinterpret_cast<const uint8_t*>(buffer.data()), buffer.size()));
+  ctx.dng_warp_rectilinear_present_ = dng_metadata.warp_rectilinear.has_value();
+  RawProcessor processor{raw_params, raw_processor->imgdata.rawdata, *raw_processor, ctx,
+                         dng_metadata.default_crop.data(), dng_metadata.warp_rectilinear};
 
   auto         processed = processor.Process();
 

@@ -17,7 +17,9 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <sstream>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -25,6 +27,7 @@
 #include <vector>
 
 #include "decoders/libraw_unpack_guard.hpp"
+#include "decoders/dng_default_crop.hpp"
 #include "edit/operators/basic/camera_matrices.hpp"
 #include "json.hpp"
 #include "type/supported_file_type.hpp"
@@ -120,6 +123,24 @@ auto ResolveCropFactorHint(float focal_mm, float focal_35mm_mm) -> float {
 auto PathToUtf8(const std::filesystem::path& path) -> std::string {
   const auto u8 = path.u8string();
   return std::string(reinterpret_cast<const char*>(u8.data()), u8.size());
+}
+
+auto ExtractDngGeometryMetadataFromFile(const std::filesystem::path& path)
+    -> std::optional<dng::Metadata> {
+  std::ifstream ifs(path, std::ios::binary | std::ios::ate);
+  if (!ifs.is_open()) {
+    return std::nullopt;
+  }
+  const auto size = ifs.tellg();
+  if (size <= 0) {
+    return std::nullopt;
+  }
+  std::vector<uint8_t> buffer(static_cast<size_t>(size));
+  ifs.seekg(0, std::ios::beg);
+  if (!ifs.read(reinterpret_cast<char*>(buffer.data()), size)) {
+    return std::nullopt;
+  }
+  return dng::ExtractMetadata(std::span<const uint8_t>(buffer.data(), buffer.size()));
 }
 
 // ---------------------------------------------------------------------------
@@ -1132,6 +1153,10 @@ auto ExtractDngMetadataToImageFast(const image_path_t& image_path, Image& image)
   ctx.crop_factor_hint_ = ResolveCropFactorHint(ctx.focal_length_mm_, ctx.focal_35mm_mm_);
   ctx.lens_metadata_valid_ =
       !ctx.lens_model_.empty() && std::isfinite(ctx.focal_length_mm_) && ctx.focal_length_mm_ > 0.0f;
+  if (const auto dng_metadata = ExtractDngGeometryMetadataFromFile(image_path);
+      dng_metadata.has_value()) {
+    ctx.dng_warp_rectilinear_present_ = dng_metadata->warp_rectilinear.has_value();
+  }
 
   ctx.valid_                  = true;
   ctx.output_in_camera_space_ = true;
@@ -1517,6 +1542,10 @@ auto MetadataExtractor::ExtractRawMetadata_ToImage(const image_path_t& image_pat
   PopulateMetadataRuntimeContext(*raw_processor, ctx);
 
   if (IsDngExtension(image_path)) {
+    if (const auto dng_metadata = ExtractDngGeometryMetadataFromFile(image_path);
+        dng_metadata.has_value()) {
+      ctx.dng_warp_rectilinear_present_ = dng_metadata->warp_rectilinear.has_value();
+    }
     try {
       auto exif_data = ExtractEXIF(image_path);
       if (exif_data && !exif_data->exifData().empty()) {

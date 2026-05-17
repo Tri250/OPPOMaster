@@ -88,15 +88,86 @@ auto RawGpuBackendName(const RawGpuBackend backend) -> const char* {
                            " backend is not compiled.");
 }
 
-auto CropToActiveArea(const cv::Mat& src, const libraw_image_sizes_t& sizes) -> cv::Mat {
-  const cv::Rect active_rect = detail::BuildActiveAreaRect(sizes, src.size());
-  return src(active_rect).clone();
+auto CropToDecodeArea(const cv::Mat& src, const libraw_image_sizes_t& sizes,
+                      const ushort default_crop[4]) -> cv::Mat {
+  const cv::Rect decode_rect =
+      detail::BuildDecodeCropRect(sizes, default_crop, src.size(), DecodeRes::FULL);
+  return src(decode_rect).clone();
 }
 
 auto BuildOpaqueRgbaFromRgb(const cv::Mat& rgb) -> cv::Mat {
   cv::Mat rgba;
   cv::cvtColor(rgb, rgba, cv::COLOR_RGB2RGBA);
   return rgba;
+}
+
+auto ResolveWarpCoefficientSet(const dng::WarpRectilinear& warp, const int plane)
+    -> const std::array<double, 6>& {
+  const size_t index =
+      warp.coefficient_set_count == 1 ? 0 : static_cast<size_t>(std::clamp(plane, 0, 2));
+  return warp.coefficient_sets[index];
+}
+
+void BuildWarpRectilinearMaps(const dng::WarpRectilinear& warp, const cv::Size& size,
+                              const int plane, cv::Mat& map_x, cv::Mat& map_y) {
+  map_x.create(size, CV_32FC1);
+  map_y.create(size, CV_32FC1);
+  const auto& coeffs = ResolveWarpCoefficientSet(warp, plane);
+
+  const double x0 = 0.0;
+  const double y0 = 0.0;
+  const double x1 = static_cast<double>(std::max(size.width - 1, 0));
+  const double y1 = static_cast<double>(std::max(size.height - 1, 0));
+  const double cx = x0 + warp.center_x * (x1 - x0);
+  const double cy = y0 + warp.center_y * (y1 - y0);
+  const double mx = std::max(std::abs(x0 - cx), std::abs(x1 - cx));
+  const double my = std::max(std::abs(y0 - cy), std::abs(y1 - cy));
+  const double m  = std::sqrt(mx * mx + my * my);
+  if (m <= std::numeric_limits<double>::epsilon()) {
+    for (int y = 0; y < size.height; ++y) {
+      for (int x = 0; x < size.width; ++x) {
+        map_x.at<float>(y, x) = static_cast<float>(x);
+        map_y.at<float>(y, x) = static_cast<float>(y);
+      }
+    }
+    return;
+  }
+
+  for (int y = 0; y < size.height; ++y) {
+    for (int x = 0; x < size.width; ++x) {
+      const double dx = (static_cast<double>(x) - cx) / m;
+      const double dy = (static_cast<double>(y) - cy) / m;
+      const double r2 = dx * dx + dy * dy;
+      const double f =
+          coeffs[0] + coeffs[1] * r2 + coeffs[2] * r2 * r2 + coeffs[3] * r2 * r2 * r2;
+      const double dxr = f * dx;
+      const double dyr = f * dy;
+      const double dxt = coeffs[4] * (2.0 * dx * dy) +
+                         coeffs[5] * (r2 + 2.0 * dx * dx);
+      const double dyt = coeffs[5] * (2.0 * dx * dy) +
+                         coeffs[4] * (r2 + 2.0 * dy * dy);
+      map_x.at<float>(y, x) = static_cast<float>(cx + m * (dxr + dxt));
+      map_y.at<float>(y, x) = static_cast<float>(cy + m * (dyr + dyt));
+    }
+  }
+}
+
+void ApplyDngWarpRectilinear(cv::Mat& img, const dng::WarpRectilinear& warp) {
+  if (img.empty() || img.type() != CV_32FC3) {
+    return;
+  }
+
+  std::vector<cv::Mat> src_planes;
+  cv::split(img, src_planes);
+  std::vector<cv::Mat> dst_planes(src_planes.size());
+  cv::Mat              map_x;
+  cv::Mat              map_y;
+  for (size_t plane = 0; plane < src_planes.size(); ++plane) {
+    BuildWarpRectilinearMaps(warp, img.size(), static_cast<int>(plane), map_x, map_y);
+    cv::remap(src_planes[plane], dst_planes[plane], map_x, map_y, cv::INTER_CUBIC,
+              cv::BORDER_CONSTANT, cv::Scalar(0.0f));
+  }
+  cv::merge(dst_planes, img);
 }
 
 auto ExtractRgbFromFourChannel(const cv::Mat& src) -> cv::Mat {
@@ -118,7 +189,8 @@ auto BuildDirectRgbRgba(const libraw_rawdata_t& raw_data, const libraw_iparams_t
                                 : static_cast<size_t>(raw_width) * sizeof(uint16_t) * 3;
     cv::Mat      view(raw_height, raw_width, CV_16UC3, raw_data.color3_image, row_step);
     cv::Mat      rgb32f;
-    CropToActiveArea(view, sizes).convertTo(rgb32f, CV_32FC3, 1.0 / 65535.0);
+    CropToDecodeArea(view, sizes, raw_data.color.dng_levels.default_crop)
+        .convertTo(rgb32f, CV_32FC3, 1.0 / 65535.0);
     return BuildOpaqueRgbaFromRgb(rgb32f);
   }
 
@@ -127,7 +199,8 @@ auto BuildDirectRgbRgba(const libraw_rawdata_t& raw_data, const libraw_iparams_t
                                 ? static_cast<size_t>(sizes.raw_pitch)
                                 : static_cast<size_t>(raw_width) * sizeof(float) * 3;
     cv::Mat      view(raw_height, raw_width, CV_32FC3, raw_data.float3_image, row_step);
-    return BuildOpaqueRgbaFromRgb(CropToActiveArea(view, sizes));
+    return BuildOpaqueRgbaFromRgb(
+        CropToDecodeArea(view, sizes, raw_data.color.dng_levels.default_crop));
   }
 
   if (raw_data.color4_image != nullptr && idata.colors == 3) {
@@ -135,7 +208,8 @@ auto BuildDirectRgbRgba(const libraw_rawdata_t& raw_data, const libraw_iparams_t
                                 ? static_cast<size_t>(sizes.raw_pitch)
                                 : static_cast<size_t>(raw_width) * sizeof(uint16_t) * 4;
     cv::Mat      view(raw_height, raw_width, CV_16UC4, raw_data.color4_image, row_step);
-    cv::Mat      rgb16 = ExtractRgbFromFourChannel(CropToActiveArea(view, sizes));
+    cv::Mat rgb16 = ExtractRgbFromFourChannel(
+        CropToDecodeArea(view, sizes, raw_data.color.dng_levels.default_crop));
     cv::Mat      rgb32f;
     rgb16.convertTo(rgb32f, CV_32FC3, 1.0 / 65535.0);
     return BuildOpaqueRgbaFromRgb(rgb32f);
@@ -146,7 +220,8 @@ auto BuildDirectRgbRgba(const libraw_rawdata_t& raw_data, const libraw_iparams_t
                                 ? static_cast<size_t>(sizes.raw_pitch)
                                 : static_cast<size_t>(raw_width) * sizeof(float) * 4;
     cv::Mat      view(raw_height, raw_width, CV_32FC4, raw_data.float4_image, row_step);
-    return BuildOpaqueRgbaFromRgb(ExtractRgbFromFourChannel(CropToActiveArea(view, sizes)));
+    return BuildOpaqueRgbaFromRgb(ExtractRgbFromFourChannel(
+        CropToDecodeArea(view, sizes, raw_data.color.dng_levels.default_crop)));
   }
 
   throw std::runtime_error("RawProcessor: direct RGB input is missing a 3-channel source buffer.");
@@ -218,11 +293,17 @@ auto GetCudaExecutionModeOverrideForTesting() -> std::optional<CudaExecutionMode
 }  // namespace detail
 
 RawProcessor::RawProcessor(const RawParams& params, const libraw_rawdata_t& rawdata,
-                           LibRaw& raw_processor, const RawRuntimeColorContext& pre_ctx)
+                           LibRaw& raw_processor, const RawRuntimeColorContext& pre_ctx,
+                           const ushort default_crop[4],
+                           std::optional<dng::WarpRectilinear> dng_warp_rectilinear)
     : params_(params),
       runtime_color_context_(pre_ctx),
+      dng_warp_rectilinear_(std::move(dng_warp_rectilinear)),
       raw_data_(rawdata),
-      raw_processor_(raw_processor) {}
+      raw_processor_(raw_processor) {
+  std::copy_n(default_crop, 4, default_crop_);
+  runtime_color_context_.dng_warp_rectilinear_present_ = dng_warp_rectilinear_.has_value();
+}
 
 void RawProcessor::SetDecodeRes() {
   auto& cpu_data  = process_buffer_.GetCPUData();
@@ -266,9 +347,13 @@ void RawProcessor::ApplyDebayer() {
   }
   CPU::BayerRGGB2RGB_RCD(img);
   const cv::Rect crop_rect =
-      detail::BuildDecodeCropRect(raw_data_.sizes, img.size(), params_.decode_res_);
+      detail::BuildDecodeCropRect(raw_data_.sizes, default_crop_, img.size(), params_.decode_res_);
   if (!detail::IsFullImageRect(crop_rect, img.size())) {
     img = img(crop_rect);
+  }
+  if (dng_warp_rectilinear_.has_value()) {
+    ApplyDngWarpRectilinear(img, *dng_warp_rectilinear_);
+    runtime_color_context_.dng_warp_rectilinear_applied_ = true;
   }
 }
 

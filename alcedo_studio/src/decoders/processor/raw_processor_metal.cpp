@@ -12,6 +12,7 @@
 #include "decoders/processor/operators/gpu/metal_to_linear_ref.hpp"
 #include "decoders/processor/operators/gpu/metal_xtrans_interpolate.hpp"
 #include "decoders/processor/raw_processor_internal.hpp"
+#include "metal/metal_utils/geometry_utils.hpp"
 #include "metal/metal_utils/metal_convert_utils.hpp"
 
 namespace alcedo {
@@ -58,8 +59,8 @@ auto RawProcessor::ProcessMetal() -> ImageBuffer {
   if (cfa_pattern_.kind == RawCfaKind::Bayer2x2 && params_.highlights_reconstruct_) {
     metal::Bayer2x2ToRGB_RCD(gpu_img, cfa_pattern_.bayer_pattern);
     const cv::Rect crop_rect =
-        detail::BuildDecodeCropRect(raw_data_.sizes, cv::Size(gpu_img.Width(), gpu_img.Height()),
-                                    params_.decode_res_);
+        detail::BuildDecodeCropRect(raw_data_.sizes, default_crop_,
+                                    cv::Size(gpu_img.Width(), gpu_img.Height()), params_.decode_res_);
     if (!detail::IsFullImageRect(crop_rect, cv::Size(gpu_img.Width(), gpu_img.Height()))) {
       metal::MetalImage cropped;
       gpu_img.CropTo(cropped, crop_rect);
@@ -75,8 +76,8 @@ auto RawProcessor::ProcessMetal() -> ImageBuffer {
       metal::Bayer2x2ToRGB_RCD(gpu_img, cfa_pattern_.bayer_pattern);
     }
     const cv::Rect crop_rect =
-        detail::BuildDecodeCropRect(raw_data_.sizes, cv::Size(gpu_img.Width(), gpu_img.Height()),
-                                    params_.decode_res_);
+        detail::BuildDecodeCropRect(raw_data_.sizes, default_crop_,
+                                    cv::Size(gpu_img.Width(), gpu_img.Height()), params_.decode_res_);
     if (!detail::IsFullImageRect(crop_rect, cv::Size(gpu_img.Width(), gpu_img.Height()))) {
       metal::MetalImage cropped;
       gpu_img.CropTo(cropped, crop_rect);
@@ -85,6 +86,12 @@ auto RawProcessor::ProcessMetal() -> ImageBuffer {
   }
 
   metal::ApplyInverseCamMul(gpu_img, raw_data_.color.cam_mul);
+  if (dng_warp_rectilinear_.has_value()) {
+    metal::MetalImage warped;
+    metal::utils::WarpRectilinearTexture(gpu_img, warped, *dng_warp_rectilinear_);
+    gpu_img = std::move(warped);
+    runtime_color_context_.dng_warp_rectilinear_applied_ = true;
+  }
   runtime_color_context_.output_in_camera_space_ = true;
   ApplyMetalGeometricCorrections(gpu_img, raw_data_.sizes.flip);
   return {std::move(process_buffer_)};

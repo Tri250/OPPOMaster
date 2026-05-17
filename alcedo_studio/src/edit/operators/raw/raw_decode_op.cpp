@@ -15,6 +15,7 @@
 #include <sstream>
 #include <vector>
 
+#include "decoders/dng_default_crop.hpp"
 #include "decoders/libraw_unpack_guard.hpp"
 #include "decoders/processor/raw_processor.hpp"
 #include "image/image_buffer.hpp"
@@ -96,6 +97,7 @@ auto RawGpuBackendToString(RawGpuBackend backend) -> const char* {
       return "cpu";
   }
 }
+
 }  // namespace
 
 RawDecodeOp::RawDecodeOp(const nlohmann::json& params) { SetParams(params); }
@@ -117,6 +119,8 @@ void RawDecodeOp::Apply(std::shared_ptr<ImageBuffer> input) {
   raw_processor->imgdata.rawparams.use_rawspeed = 1;
   ImageBuffer output;
   latest_runtime_context_ = {};
+  const auto dng_metadata = dng::ExtractMetadata(
+      std::span<const uint8_t>(buffer.data(), buffer.size()));
 
   switch (backend_) {
     case RawProcessBackend::ALCEDO: {
@@ -131,8 +135,10 @@ void RawDecodeOp::Apply(std::shared_ptr<ImageBuffer> input) {
       if (!ctx.valid_) {
         MetadataExtractor::PopulateRuntimeContextFromOpenLibRaw(*raw_processor, ctx);
       }
+      ctx.dng_warp_rectilinear_present_ = dng_metadata.warp_rectilinear.has_value();
 
-      RawProcessor processor{params_, raw_processor->imgdata.rawdata, *raw_processor, ctx};
+      RawProcessor processor{params_, raw_processor->imgdata.rawdata, *raw_processor, ctx,
+                             dng_metadata.default_crop.data(), dng_metadata.warp_rectilinear};
 
       const auto   process_start = ProfileClock::now();
       output                     = processor.Process();
@@ -307,6 +313,10 @@ void RawDecodeOp::SetGlobalParams(OperatorParams& params) const {
   params.raw_lens_focus_distance_m_ = latest_runtime_context_.focus_distance_m_;
   params.raw_lens_focal_35mm_       = latest_runtime_context_.focal_35mm_mm_;
   params.raw_lens_crop_factor_hint_ = latest_runtime_context_.crop_factor_hint_;
+  params.raw_dng_warp_rectilinear_present_ =
+      latest_runtime_context_.dng_warp_rectilinear_present_;
+  params.raw_dng_warp_rectilinear_applied_ =
+      latest_runtime_context_.dng_warp_rectilinear_applied_;
 
   params.lens_calib_runtime_dirty_  = true;
   params.color_temp_runtime_dirty_  = true;
