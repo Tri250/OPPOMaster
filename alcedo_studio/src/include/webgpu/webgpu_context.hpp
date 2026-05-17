@@ -7,6 +7,7 @@
 
 #include <webgpu/webgpu_cpp.h>
 
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -17,12 +18,19 @@ class Instance;
 namespace alcedo {
 namespace webgpu {
 
+struct WebGpuLimits {
+  uint32_t max_texture_dimension_2d = 0;
+  uint64_t max_buffer_size          = 0;
+};
+
 class WebGpuContext {
  public:
   static auto        Instance() -> WebGpuContext&;
 
   [[nodiscard]] auto IsAvailable() const noexcept -> bool;
   [[nodiscard]] auto InitializationLog() const noexcept -> const std::string&;
+  [[nodiscard]] auto Limits() const noexcept -> const WebGpuLimits&;
+  [[nodiscard]] auto RecommendedTileEdge() const noexcept -> uint32_t;
   [[nodiscard]] auto Device() const -> const wgpu::Device&;
   [[nodiscard]] auto Queue() const -> const wgpu::Queue&;
   void               Wait(const wgpu::Future& future) const;
@@ -39,6 +47,8 @@ class WebGpuContext {
   wgpu::Device                            device_ = nullptr;
   wgpu::Queue                             queue_  = nullptr;
   std::string                             initialization_log_;
+  WebGpuLimits                            limits_;
+  uint32_t                                recommended_tile_edge_ = 0;
   bool                                    available_ = false;
 };
 

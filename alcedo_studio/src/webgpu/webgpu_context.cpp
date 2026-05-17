@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <limits>
+#include <algorithm>
 #include <sstream>
 #include <stdexcept>
 #include <string_view>
@@ -103,6 +104,23 @@ auto AdapterInfoLabel(WGPUAdapter adapter) -> std::string {
   return result;
 }
 
+auto RoundDownToPowerOfTwo(uint32_t value) -> uint32_t {
+  if (value == 0) {
+    return 0;
+  }
+  uint32_t result = 1;
+  while (result <= (value / 2)) {
+    result <<= 1;
+  }
+  return result;
+}
+
+auto ComputeRecommendedTileEdge(uint32_t max_texture_dimension_2d) -> uint32_t {
+  constexpr uint32_t kPreferredTileEdge = 2048;
+  const uint32_t capped_edge            = std::min(max_texture_dimension_2d, kPreferredTileEdge);
+  return RoundDownToPowerOfTwo(capped_edge);
+}
+
 }  // namespace
 
 auto WebGpuContext::Instance() -> WebGpuContext& {
@@ -169,7 +187,8 @@ WebGpuContext::WebGpuContext() {
       WGPULimits   adapter_limits = WGPU_LIMITS_INIT;
       wgpu::Limits required_limits{};
       if (wgpuAdapterGetLimits(adapter.Get(), &adapter_limits) == WGPUStatus_Success) {
-        required_limits.maxBufferSize    = adapter_limits.maxBufferSize;
+        required_limits.maxTextureDimension2D = adapter_limits.maxTextureDimension2D;
+        required_limits.maxBufferSize         = adapter_limits.maxBufferSize;
         device_descriptor.requiredLimits = &required_limits;
       }
       WGPUDevice raw_device = adapter.CreateDevice(&device_descriptor);
@@ -180,8 +199,20 @@ WebGpuContext::WebGpuContext() {
 
       device_    = wgpu::Device::Acquire(raw_device);
       queue_     = device_.GetQueue();
+      WGPULimits device_limits = WGPU_LIMITS_INIT;
+      if (wgpuDeviceGetLimits(device_.Get(), &device_limits) == WGPUStatus_Success) {
+        limits_.max_texture_dimension_2d = device_limits.maxTextureDimension2D;
+        limits_.max_buffer_size          = device_limits.maxBufferSize;
+      } else if (adapter_limits.maxTextureDimension2D != WGPU_LIMIT_U32_UNDEFINED) {
+        limits_.max_texture_dimension_2d = adapter_limits.maxTextureDimension2D;
+        limits_.max_buffer_size          = adapter_limits.maxBufferSize;
+      }
+      recommended_tile_edge_ = ComputeRecommendedTileEdge(limits_.max_texture_dimension_2d);
       available_ = true;
-      log << ": selected";
+      log << ": selected"
+          << " maxTextureDimension2D=" << limits_.max_texture_dimension_2d
+          << " maxBufferSize=" << limits_.max_buffer_size
+          << " recommendedTileEdge=" << recommended_tile_edge_;
       initialization_log_ = log.str();
       return;
     }
@@ -196,6 +227,12 @@ auto WebGpuContext::IsAvailable() const noexcept -> bool { return available_ && 
 
 auto WebGpuContext::InitializationLog() const noexcept -> const std::string& {
   return initialization_log_;
+}
+
+auto WebGpuContext::Limits() const noexcept -> const WebGpuLimits& { return limits_; }
+
+auto WebGpuContext::RecommendedTileEdge() const noexcept -> uint32_t {
+  return recommended_tile_edge_;
 }
 
 auto WebGpuContext::Device() const -> const wgpu::Device& {

@@ -40,6 +40,11 @@ class WebGpuImage {
   void Upload(const cv::Mat& host_image);
   void Download(cv::Mat& host_image) const;
   void CopyTo(WebGpuImage& dst) const;
+  void EncodeCopyRegionTo(wgpu::CommandEncoder& encoder, WebGpuImage& dst, uint32_t src_x,
+                          uint32_t src_y, uint32_t width, uint32_t height, uint32_t dst_x = 0,
+                          uint32_t dst_y = 0) const;
+  void CopyRegionTo(WebGpuImage& dst, uint32_t src_x, uint32_t src_y, uint32_t width,
+                    uint32_t height, uint32_t dst_x = 0, uint32_t dst_y = 0) const;
   void ConvertTo(WebGpuImage& dst, PixelFormat dst_format, double alpha = 1.0,
                  double beta = 0.0) const;
   void Release() noexcept;

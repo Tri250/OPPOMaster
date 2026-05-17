@@ -357,6 +357,7 @@ set(IMAGE_BUFFER_SRCS image/image_buffer.cpp)
 if(ALCEDO_WEBGPU_ENABLED)
     list(APPEND IMAGE_BUFFER_SRCS
         image/webgpu_image.cpp
+        image/tiled_webgpu_image.cpp
     )
 endif()
 add_library(ImageBuffer ${IMAGE_BUFFER_SRCS})

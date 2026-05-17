@@ -101,6 +101,14 @@ auto MakeTextureCopy(const wgpu::Texture& texture) -> wgpu::TexelCopyTextureInfo
   return copy;
 }
 
+auto MakeTextureCopy(const wgpu::Texture& texture, uint32_t x, uint32_t y)
+    -> wgpu::TexelCopyTextureInfo {
+  auto copy     = MakeTextureCopy(texture);
+  copy.origin.x = x;
+  copy.origin.y = y;
+  return copy;
+}
+
 auto MakeTextureCopy(const wgpu::Texture& texture, uint32_t y) -> wgpu::TexelCopyTextureInfo {
   auto copy     = MakeTextureCopy(texture);
   copy.origin.y = y;
@@ -301,6 +309,41 @@ void WebGpuImage::CopyTo(WebGpuImage& dst) const {
   auto extent  = MakeExtent(width_, height_);
   encoder.CopyTextureToTexture(&src, &out, &extent);
   SubmitAndWait(encoder.Finish());
+}
+
+void WebGpuImage::CopyRegionTo(WebGpuImage& dst, uint32_t src_x, uint32_t src_y, uint32_t width,
+                               uint32_t height, uint32_t dst_x, uint32_t dst_y) const {
+  auto encoder = WebGpuContext::Instance().Device().CreateCommandEncoder();
+  EncodeCopyRegionTo(encoder, dst, src_x, src_y, width, height, dst_x, dst_y);
+  SubmitAndWait(encoder.Finish());
+}
+
+void WebGpuImage::EncodeCopyRegionTo(wgpu::CommandEncoder& encoder, WebGpuImage& dst,
+                                     uint32_t src_x, uint32_t src_y, uint32_t width,
+                                     uint32_t height, uint32_t dst_x, uint32_t dst_y) const {
+  if (Empty()) {
+    throw std::runtime_error("WebGpuImage: Cannot copy from an empty texture.");
+  }
+  if (width == 0 || height == 0) {
+    throw std::invalid_argument("WebGpuImage: Copy region dimensions must be non-zero.");
+  }
+  if (src_x + width > width_ || src_y + height > height_) {
+    throw std::out_of_range("WebGpuImage: Source copy region is out of bounds.");
+  }
+  if (dst.Empty()) {
+    throw std::runtime_error("WebGpuImage: Destination texture is empty.");
+  }
+  if (dst.format_ != format_) {
+    throw std::invalid_argument("WebGpuImage: Copy region requires matching pixel formats.");
+  }
+  if (dst_x + width > dst.width_ || dst_y + height > dst.height_) {
+    throw std::out_of_range("WebGpuImage: Destination copy region is out of bounds.");
+  }
+
+  auto src     = MakeTextureCopy(texture_, src_x, src_y);
+  auto out     = MakeTextureCopy(dst.texture_, dst_x, dst_y);
+  auto extent  = MakeExtent(width, height);
+  encoder.CopyTextureToTexture(&src, &out, &extent);
 }
 
 void WebGpuImage::ConvertTo(WebGpuImage& dst, PixelFormat dst_format, double alpha,

@@ -11,6 +11,7 @@
 #include <string>
 
 #include "image/image_buffer.hpp"
+#include "image/tiled_webgpu_image.hpp"
 #include "webgpu/webgpu_context.hpp"
 
 namespace alcedo {
@@ -138,6 +139,102 @@ TEST(ImageBufferWebGpuTest, SupportsRgba32FloatRoundTrip) {
       }
     }
   }
+}
+
+TEST(ImageBufferWebGpuTest, ExposesNegotiatedLimitsAndRecommendedTileEdge) {
+  SCOPED_TRACE(WebGpuInitializationLog());
+  if (!WebGpuAvailable()) {
+    GTEST_SKIP() << "WebGPU device is unavailable in this environment.\n"
+                 << WebGpuInitializationLog();
+  }
+
+  const auto& context = webgpu::WebGpuContext::Instance();
+  const auto& limits  = context.Limits();
+  EXPECT_GT(limits.max_texture_dimension_2d, 0u);
+  EXPECT_GT(limits.max_buffer_size, 0u);
+  EXPECT_GT(context.RecommendedTileEdge(), 0u);
+  EXPECT_LE(context.RecommendedTileEdge(), limits.max_texture_dimension_2d);
+}
+
+TEST(ImageBufferWebGpuTest, TiledWebGpuImageRoundTripsOddLogicalExtent) {
+  SCOPED_TRACE(WebGpuInitializationLog());
+  if (!WebGpuAvailable()) {
+    GTEST_SKIP() << "WebGPU device is unavailable in this environment.\n"
+                 << WebGpuInitializationLog();
+  }
+
+  const auto expected = MakeRampU16C1();
+  webgpu::TiledWebGpuImage tiled;
+  tiled.Upload(expected, 128);
+
+  EXPECT_EQ(tiled.Width(), static_cast<uint32_t>(expected.cols));
+  EXPECT_EQ(tiled.Height(), static_cast<uint32_t>(expected.rows));
+  EXPECT_EQ(tiled.TileColumns(), 3u);
+  EXPECT_EQ(tiled.TileRows(), 1u);
+  EXPECT_EQ(tiled.TileRegion({2, 0}), (webgpu::TileRect{256, 0, 1, 3}));
+
+  cv::Mat actual;
+  tiled.Download(actual);
+  EXPECT_TRUE(MatsEqual(actual, expected));
+}
+
+TEST(ImageBufferWebGpuTest, TiledWebGpuImageCropPreservesCrossTileRoi) {
+  SCOPED_TRACE(WebGpuInitializationLog());
+  if (!WebGpuAvailable()) {
+    GTEST_SKIP() << "WebGPU device is unavailable in this environment.\n"
+                 << WebGpuInitializationLog();
+  }
+
+  cv::Mat expected(9, 11, CV_32FC4);
+  for (int y = 0; y < expected.rows; ++y) {
+    for (int x = 0; x < expected.cols; ++x) {
+      expected.at<cv::Vec4f>(y, x) =
+          cv::Vec4f(static_cast<float>(x), static_cast<float>(y),
+                    static_cast<float>(10 * y + x), 1.0f);
+    }
+  }
+
+  webgpu::TiledWebGpuImage tiled;
+  tiled.Upload(expected, 4);
+  tiled.Crop({3, 2, 6, 5});
+
+  cv::Mat actual;
+  tiled.Download(actual);
+  const cv::Mat cropped_expected = expected(cv::Rect(3, 2, 6, 5)).clone();
+  EXPECT_LE(cv::norm(actual, cropped_expected, cv::NORM_INF), 0.0);
+}
+
+TEST(ImageBufferWebGpuTest, ImageBufferStoresWebGpuImagesAsTiledLogicalImages) {
+  SCOPED_TRACE(WebGpuInitializationLog());
+  if (!WebGpuAvailable()) {
+    GTEST_SKIP() << "WebGPU device is unavailable in this environment.\n"
+                 << WebGpuInitializationLog();
+  }
+
+  const auto  expected = MakeRampU16C1();
+  ImageBuffer buffer{expected.clone()};
+  buffer.SyncToGPU(GpuBackendKind::WebGPU);
+
+  const auto& tiled = buffer.GetWebGpuImage();
+  EXPECT_EQ(tiled.Width(), static_cast<uint32_t>(expected.cols));
+  EXPECT_EQ(tiled.Height(), static_cast<uint32_t>(expected.rows));
+  EXPECT_GE(tiled.TileCount(), 1u);
+}
+
+TEST(ImageBufferWebGpuTest, WebGpuImageAccessorReturnsLogicalTiledImage) {
+  SCOPED_TRACE(WebGpuInitializationLog());
+  if (!WebGpuAvailable()) {
+    GTEST_SKIP() << "WebGPU device is unavailable in this environment.\n"
+                 << WebGpuInitializationLog();
+  }
+
+  webgpu::TiledWebGpuImage tiled;
+  tiled.Create(257, 3, webgpu::PixelFormat::R16UINT, 128);
+  ImageBuffer buffer{std::move(tiled)};
+
+  EXPECT_EQ(buffer.GetWebGpuImage().TileColumns(), 3u);
+  EXPECT_EQ(buffer.GetWebGpuImage().TileRows(), 1u);
+  EXPECT_THROW(buffer.GetWebGpuImage().SingleTile(), std::runtime_error);
 }
 
 }  // namespace alcedo

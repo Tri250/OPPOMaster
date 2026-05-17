@@ -19,7 +19,7 @@
 #include <utility>
 #include <vector>
 
-#include "image/webgpu_image.hpp"
+#include "image/tiled_webgpu_image.hpp"
 #include "webgpu/webgpu_context.hpp"
 
 namespace alcedo {
@@ -272,6 +272,59 @@ struct BindingResource {
   wgpu::Buffer       buffer  = nullptr;
 };
 
+auto ShiftBayerPattern(const BayerPattern2x2& pattern, uint32_t y_offset, uint32_t x_offset)
+    -> BayerPattern2x2 {
+  BayerPattern2x2 shifted = {};
+  for (int y = 0; y < 2; ++y) {
+    for (int x = 0; x < 2; ++x) {
+      const int src_idx = BayerCellIndex(y + static_cast<int>(y_offset),
+                                         x + static_cast<int>(x_offset));
+      const int dst_idx = BayerCellIndex(y, x);
+      shifted.raw_fc[dst_idx] = pattern.raw_fc[src_idx];
+      shifted.rgb_fc[dst_idx] = pattern.rgb_fc[src_idx];
+    }
+  }
+  return shifted;
+}
+
+auto Intersect(const TileRect& lhs, const TileRect& rhs) -> TileRect {
+  const uint32_t left   = std::max(lhs.x, rhs.x);
+  const uint32_t top    = std::max(lhs.y, rhs.y);
+  const uint32_t right  = std::min(lhs.x + lhs.width, rhs.x + rhs.width);
+  const uint32_t bottom = std::min(lhs.y + lhs.height, rhs.y + rhs.height);
+  if (right <= left || bottom <= top) {
+    return {};
+  }
+  return {left, top, right - left, bottom - top};
+}
+
+auto ExpandWithHalo(const TileRect& rect, uint32_t halo, uint32_t width, uint32_t height)
+    -> TileRect {
+  const uint32_t left   = rect.x > halo ? rect.x - halo : 0;
+  const uint32_t top    = rect.y > halo ? rect.y - halo : 0;
+  const uint32_t right  = std::min(width, rect.x + rect.width + halo);
+  const uint32_t bottom = std::min(height, rect.y + rect.height + halo);
+  return {left, top, right - left, bottom - top};
+}
+
+void EncodeCopyLogicalRegionIntoTile(wgpu::CommandEncoder& encoder, const TiledWebGpuImage& src,
+                                     const TileRect& logical_region, WebGpuImage& dst) {
+  for (uint32_t tile_y = 0; tile_y < src.TileRows(); ++tile_y) {
+    for (uint32_t tile_x = 0; tile_x < src.TileColumns(); ++tile_x) {
+      const TileIndex src_index{tile_x, tile_y};
+      const TileRect  src_rect = src.TileRegion(src_index);
+      const TileRect  overlap  = Intersect(src_rect, logical_region);
+      if (overlap.width == 0 || overlap.height == 0) {
+        continue;
+      }
+      src.Tile(src_index)
+          .EncodeCopyRegionTo(encoder, dst, overlap.x - src_rect.x, overlap.y - src_rect.y,
+                              overlap.width, overlap.height, overlap.x - logical_region.x,
+                              overlap.y - logical_region.y);
+    }
+  }
+}
+
 auto CreateBindGroup(const wgpu::ComputePipeline&        pipeline,
                      const std::vector<BindingResource>& resources) -> wgpu::BindGroup {
   std::vector<wgpu::TextureView> views;
@@ -327,6 +380,64 @@ void Dispatch(wgpu::ComputePassEncoder& compute, Kernel kernel,
             << " workgroups=" << groups_x << 'x' << groups_y << "\n";
 }
 
+struct RcdJob {
+  WebGpuImage input;
+  WebGpuImage g0;
+  WebGpuImage g1;
+  WebGpuImage dir;
+  WebGpuImage output;
+  wgpu::Buffer params_buffer = nullptr;
+  uint32_t     width         = 0;
+  uint32_t     height        = 0;
+};
+
+auto CreatePlaneParamsBuffer(const WebGpuImage& image, const BayerPattern2x2& pattern)
+    -> wgpu::Buffer {
+  const SinglePlaneParams plane_params{
+      .rgb_fc = {static_cast<uint32_t>(pattern.rgb_fc[0]), static_cast<uint32_t>(pattern.rgb_fc[1]),
+                 static_cast<uint32_t>(pattern.rgb_fc[2]),
+                 static_cast<uint32_t>(pattern.rgb_fc[3])},
+      .width  = image.Width(),
+      .height = image.Height(),
+      .stride = image.Width(),
+      .padding = 0,
+  };
+  auto params_buffer = MakeBuffer(sizeof(SinglePlaneParams),
+                                  wgpu::BufferUsage::Uniform | wgpu::BufferUsage::CopyDst);
+  WebGpuContext::Instance().Queue().WriteBuffer(params_buffer, 0, &plane_params,
+                                                sizeof(plane_params));
+  return params_buffer;
+}
+
+auto CreateRcdJob(WebGpuImage&& input, const BayerPattern2x2& pattern) -> RcdJob {
+  if (input.Empty()) {
+    throw std::runtime_error("WebGPU Debayer RCD: job input image is empty.");
+  }
+
+  RcdJob job{};
+  job.width  = input.Width();
+  job.height = input.Height();
+  job.input  = std::move(input);
+  job.g0.Create(job.width, job.height, PixelFormat::R32FLOAT);
+  job.g1.Create(job.width, job.height, PixelFormat::R32FLOAT);
+  job.dir.Create(job.width, job.height, PixelFormat::RGBA16FLOAT);
+  job.output.Create(job.width, job.height, PixelFormat::RGBA32FLOAT);
+  job.params_buffer = CreatePlaneParamsBuffer(job.input, pattern);
+  return job;
+}
+
+void EncodeRcdJob(wgpu::ComputePassEncoder& compute, RcdJob& job) {
+  Dispatch(compute, Kernel::InitAndVH,
+           {{&job.input}, {&job.g0}, {&job.dir}, {nullptr, job.params_buffer}}, job.width,
+           job.height);
+  Dispatch(compute, Kernel::GreenAtRB,
+           {{&job.input}, {&job.dir}, {&job.g0}, {&job.g1}, {nullptr, job.params_buffer}},
+           job.width, job.height);
+  Dispatch(compute, Kernel::FinalRGBA,
+           {{&job.dir}, {&job.g1}, {&job.input}, {&job.output}, {nullptr, job.params_buffer}},
+           job.width, job.height);
+}
+
 }  // namespace
 
 void Bayer2x2ToRGB_RCD(WebGpuImage& image, const BayerPattern2x2& pattern) {
@@ -337,42 +448,14 @@ void Bayer2x2ToRGB_RCD(WebGpuImage& image, const BayerPattern2x2& pattern) {
     throw std::runtime_error("WebGPU Debayer RCD: expected R32FLOAT Bayer input.");
   }
 
-  const uint32_t width  = image.Width();
-  const uint32_t height = image.Height();
-  if (width == 0 || height == 0) {
+  if (image.Width() == 0 || image.Height() == 0) {
     return;
   }
 
-  WebGpuImage g0;
-  WebGpuImage g1;
-  WebGpuImage dir;
-  WebGpuImage output;
   auto        stage_start = Clock::now();
-  g0.Create(width, height, PixelFormat::R32FLOAT);
-  g1.Create(width, height, PixelFormat::R32FLOAT);
-  dir.Create(width, height, PixelFormat::RGBA16FLOAT);
-  output.Create(width, height, PixelFormat::RGBA32FLOAT);
-  const auto texture_create_ms = MsSince(stage_start);
-
-  const SinglePlaneParams plane_params{
-      .rgb_fc = {static_cast<uint32_t>(pattern.rgb_fc[0]), static_cast<uint32_t>(pattern.rgb_fc[1]),
-                 static_cast<uint32_t>(pattern.rgb_fc[2]),
-                 static_cast<uint32_t>(pattern.rgb_fc[3])},
-      .width  = width,
-      .height = height,
-      .stride = width,
-      .padding = 0,
-  };
+  RcdJob      job         = CreateRcdJob(std::move(image), pattern);
+  const auto  job_create_ms = MsSince(stage_start);
   stage_start = Clock::now();
-  auto plane_params_buffer = MakeBuffer(sizeof(SinglePlaneParams),
-                                        wgpu::BufferUsage::Uniform | wgpu::BufferUsage::CopyDst);
-  const auto uniform_buffer_ms = MsSince(stage_start);
-  stage_start                  = Clock::now();
-  WebGpuContext::Instance().Queue().WriteBuffer(plane_params_buffer, 0, &plane_params,
-                                                sizeof(plane_params));
-  const auto uniform_write_ms = MsSince(stage_start);
-
-  stage_start  = Clock::now();
   auto encoder = WebGpuContext::Instance().Device().CreateCommandEncoder();
   const auto encoder_create_ms = MsSince(stage_start);
   {
@@ -380,19 +463,11 @@ void Bayer2x2ToRGB_RCD(WebGpuImage& image, const BayerPattern2x2& pattern) {
     auto compute = encoder.BeginComputePass();
     const auto begin_compute_ms = MsSince(stage_start);
     std::cout << "[WebGPU RCD timing] setup"
-              << " texture_create=" << texture_create_ms << " ms"
-              << " uniform_buffer=" << uniform_buffer_ms << " ms"
-              << " uniform_write=" << uniform_write_ms << " ms"
+              << " job_create=" << job_create_ms << " ms"
               << " encoder_create=" << encoder_create_ms << " ms"
               << " begin_compute=" << begin_compute_ms << " ms\n";
 
-    Dispatch(compute, Kernel::InitAndVH,
-             {{&image}, {&g0}, {&dir}, {nullptr, plane_params_buffer}}, width, height);
-    Dispatch(compute, Kernel::GreenAtRB,
-             {{&image}, {&dir}, {&g0}, {&g1}, {nullptr, plane_params_buffer}}, width, height);
-    Dispatch(compute, Kernel::FinalRGBA,
-             {{&dir}, {&g1}, {&image}, {&output}, {nullptr, plane_params_buffer}}, width,
-             height);
+    EncodeRcdJob(compute, job);
 
     stage_start = Clock::now();
     compute.End();
@@ -403,6 +478,70 @@ void Bayer2x2ToRGB_RCD(WebGpuImage& image, const BayerPattern2x2& pattern) {
   std::cout << "[WebGPU RCD timing] encoder_finish=" << MsSince(stage_start) << " ms\n";
   SubmitAndWait(command_buffer);
 
+  image = std::move(job.output);
+}
+
+void Bayer2x2ToRGB_RCD(TiledWebGpuImage& image, const BayerPattern2x2& pattern) {
+  if (image.Empty()) {
+    throw std::runtime_error("WebGPU Debayer RCD: tiled input image is empty.");
+  }
+  if (image.Format() != PixelFormat::R32FLOAT) {
+    throw std::runtime_error("WebGPU Debayer RCD: expected R32FLOAT Bayer input.");
+  }
+
+  // The tiled path reruns the whole three-stage RCD chain on a temporary patch, so the
+  // required halo is the composed dependency radius, not the largest radius of any single
+  // kernel. Final green reconstruction reaches helper RB samples at +/-3; those helper
+  // samples read green values at +/-2; and green reconstruction itself depends on raw input
+  // out to +/-5 through the dir/VH path. 3 + 2 + 5 => 10.
+  constexpr uint32_t kHalo = 10;
+  TiledWebGpuImage   output;
+  output.Create(image.Width(), image.Height(), PixelFormat::RGBA32FLOAT,
+                image.TileShape().width);
+
+  struct TiledRcdJob {
+    TileIndex out_index;
+    TileRect  out_rect;
+    TileRect  halo_rect;
+    RcdJob    rcd;
+  };
+
+  std::vector<TiledRcdJob> jobs;
+  jobs.reserve(image.TileCount());
+
+  auto encoder = WebGpuContext::Instance().Device().CreateCommandEncoder();
+  for (uint32_t tile_y = 0; tile_y < image.TileRows(); ++tile_y) {
+    for (uint32_t tile_x = 0; tile_x < image.TileColumns(); ++tile_x) {
+      const TileIndex out_index{tile_x, tile_y};
+      const TileRect  out_rect = image.TileRegion(out_index);
+      const TileRect  halo_rect = ExpandWithHalo(out_rect, kHalo, image.Width(), image.Height());
+
+      WebGpuImage halo_input;
+      halo_input.Create(halo_rect.width, halo_rect.height, PixelFormat::R32FLOAT);
+      EncodeCopyLogicalRegionIntoTile(encoder, image, halo_rect, halo_input);
+
+      const auto shifted_pattern = ShiftBayerPattern(pattern, halo_rect.y, halo_rect.x);
+      jobs.push_back({out_index, out_rect, halo_rect,
+                      CreateRcdJob(std::move(halo_input), shifted_pattern)});
+    }
+  }
+
+  {
+    auto compute = encoder.BeginComputePass();
+    for (auto& job : jobs) {
+      EncodeRcdJob(compute, job.rcd);
+    }
+    compute.End();
+  }
+
+  for (auto& job : jobs) {
+    auto& out_tile = output.Tile(job.out_index);
+    job.rcd.output.EncodeCopyRegionTo(
+        encoder, out_tile, job.out_rect.x - job.halo_rect.x, job.out_rect.y - job.halo_rect.y,
+        job.out_rect.width, job.out_rect.height);
+  }
+
+  SubmitAndWait(encoder.Finish());
   image = std::move(output);
 }
 

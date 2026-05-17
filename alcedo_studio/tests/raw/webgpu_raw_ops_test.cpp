@@ -28,6 +28,7 @@
 #include "decoders/processor/raw_normalization.hpp"
 #include "decoders/processor/raw_processor_pattern.hpp"
 #include "image/webgpu_image.hpp"
+#include "image/tiled_webgpu_image.hpp"
 #include "webgpu/webgpu_context.hpp"
 #include "webgpu/webgpu_geometry_utils.hpp"
 
@@ -353,6 +354,40 @@ TEST(WebGpuRawOpsTest, ToLinearRefMatchesScalarReferenceForBayerAndXTrans) {
 #endif
 }
 
+TEST(WebGpuRawOpsTest, TiledToLinearRefPreservesGlobalCfaAndBlackPatternPhase) {
+#ifndef HAVE_WEBGPU
+  GTEST_SKIP() << "WebGPU is not enabled in this build.";
+#else
+  SCOPED_TRACE(WebGpuInitializationLog());
+  if (!WebGpuAvailable()) {
+    GTEST_SKIP() << "WebGPU device is unavailable in this environment.\n"
+                 << WebGpuInitializationLog();
+  }
+
+  auto                  raw_processor = MakeLinearizationRawProcessor();
+  const BayerPattern2x2 bayer_pattern = MakePattern(0);
+  RawCfaPattern         bayer_cfa     = {};
+  bayer_cfa.kind                      = RawCfaKind::Bayer2x2;
+  bayer_cfa.bayer_pattern             = bayer_pattern;
+
+  cv::Mat bayer_raw(7, 9, CV_16UC1);
+  for (int y = 0; y < bayer_raw.rows; ++y) {
+    for (int x = 0; x < bayer_raw.cols; ++x) {
+      bayer_raw.at<uint16_t>(y, x) = static_cast<uint16_t>(1600 + 41 * y + 23 * x);
+    }
+  }
+
+  webgpu::TiledWebGpuImage tiled;
+  tiled.Upload(bayer_raw, 4);
+  ASSERT_NO_THROW(webgpu::ToLinearRef(tiled, *raw_processor, bayer_cfa));
+
+  cv::Mat tiled_gpu;
+  tiled.Download(tiled_gpu);
+  const cv::Mat expected = ComputeLinearizedReference(bayer_raw, bayer_cfa, *raw_processor);
+  EXPECT_LE(cv::norm(tiled_gpu, expected, cv::NORM_INF), 2e-5);
+#endif
+}
+
 TEST(WebGpuRawOpsTest, ToLinearRefRejectsNonR16UintInput) {
 #ifndef HAVE_WEBGPU
   GTEST_SKIP() << "WebGPU is not enabled in this build.";
@@ -450,6 +485,37 @@ TEST(WebGpuRawOpsTest, DebayerRcdProducesRGBAAndPreservesCFASamples) {
 #endif
 }
 
+TEST(WebGpuRawOpsTest, TiledDebayerRcdMatchesFullFrameAcrossTileBoundaries) {
+#ifndef HAVE_WEBGPU
+  GTEST_SKIP() << "WebGPU is not enabled in this build.";
+#else
+  SCOPED_TRACE(WebGpuInitializationLog());
+  if (!WebGpuAvailable()) {
+    GTEST_SKIP() << "WebGPU device is unavailable in this environment.\n"
+                 << WebGpuInitializationLog();
+  }
+
+  const cv::Mat       bayer   = MakeBayerPattern(18, 20);
+  const auto          pattern = MakePattern(1);
+
+  webgpu::WebGpuImage full_frame;
+  full_frame.Upload(bayer);
+  ASSERT_NO_THROW(webgpu::Bayer2x2ToRGB_RCD(full_frame, pattern));
+  cv::Mat expected;
+  full_frame.Download(expected);
+
+  webgpu::TiledWebGpuImage tiled;
+  tiled.Upload(bayer, 8);
+  ASSERT_NO_THROW(webgpu::Bayer2x2ToRGB_RCD(tiled, pattern));
+  cv::Mat actual;
+  tiled.Download(actual);
+
+  ASSERT_EQ(actual.type(), CV_32FC4);
+  ASSERT_EQ(actual.size(), expected.size());
+  EXPECT_LE(cv::norm(actual, expected, cv::NORM_INF), 1e-6);
+#endif
+}
+
 TEST(WebGpuRawOpsTest, Clamp01ClampsSingleChannelRawTexture) {
 #ifndef HAVE_WEBGPU
   GTEST_SKIP() << "WebGPU is not enabled in this build.";
@@ -498,6 +564,38 @@ TEST(WebGpuRawOpsTest, ApplyInverseCamMulAndOrientRGBAMatchesCpuReference) {
 
   webgpu::WebGpuImage        image;
   image.Upload(src);
+
+  ASSERT_NO_THROW(webgpu::ApplyInverseCamMulAndOrientRGBA(image, cam_mul.data(), 6));
+
+  cv::Mat gpu_result;
+  image.Download(gpu_result);
+
+  const cv::Mat scaled = ApplyInverseCamMulReference(src, cam_mul);
+  cv::Mat       expected;
+  cv::transpose(scaled, expected);
+  cv::flip(expected, expected, 1);
+
+  ASSERT_EQ(gpu_result.type(), CV_32FC4);
+  ASSERT_EQ(gpu_result.size(), expected.size());
+  EXPECT_LE(cv::norm(gpu_result, expected, cv::NORM_INF), 1e-6);
+#endif
+}
+
+TEST(WebGpuRawOpsTest, TiledApplyInverseCamMulAndOrientRGBAMatchesCpuReference) {
+#ifndef HAVE_WEBGPU
+  GTEST_SKIP() << "WebGPU is not enabled in this build.";
+#else
+  SCOPED_TRACE(WebGpuInitializationLog());
+  if (!WebGpuAvailable()) {
+    GTEST_SKIP() << "WebGPU device is unavailable in this environment.\n"
+                 << WebGpuInitializationLog();
+  }
+
+  const cv::Mat src = MakeRGBAImage(5, 7);
+  const std::array<float, 4> cam_mul{2.0f, 1.0f, 4.0f, 1.0f};
+
+  webgpu::TiledWebGpuImage image;
+  image.Upload(src, 3);
 
   ASSERT_NO_THROW(webgpu::ApplyInverseCamMulAndOrientRGBA(image, cam_mul.data(), 6));
 
@@ -732,6 +830,31 @@ TEST(WebGpuRawOpsTest, Rotate180MatchesCpuReference) {
 #endif
 }
 
+TEST(WebGpuRawOpsTest, TiledRotate180MatchesCpuReferenceAcrossTileBoundaries) {
+#ifndef HAVE_WEBGPU
+  GTEST_SKIP() << "WebGPU is not enabled in this build.";
+#else
+  SCOPED_TRACE(WebGpuInitializationLog());
+  if (!WebGpuAvailable()) {
+    GTEST_SKIP() << "WebGPU device is unavailable in this environment.\n"
+                 << WebGpuInitializationLog();
+  }
+
+  const cv::Mat src = MakeRGBAImage(5, 7);
+  webgpu::TiledWebGpuImage image;
+  image.Upload(src, 3);
+
+  ASSERT_NO_THROW(webgpu::utils::Rotate180(image));
+
+  cv::Mat gpu_result;
+  image.Download(gpu_result);
+
+  cv::Mat expected;
+  cv::flip(src, expected, -1);
+  EXPECT_LE(cv::norm(gpu_result, expected, cv::NORM_INF), 1e-6);
+#endif
+}
+
 TEST(WebGpuRawOpsTest, Rotate90CWMatchesCpuReference) {
 #ifndef HAVE_WEBGPU
   GTEST_SKIP() << "WebGPU is not enabled in this build.";
@@ -762,6 +885,32 @@ TEST(WebGpuRawOpsTest, Rotate90CWMatchesCpuReference) {
 #endif
 }
 
+TEST(WebGpuRawOpsTest, TiledRotate90CWMatchesCpuReferenceAcrossTileBoundaries) {
+#ifndef HAVE_WEBGPU
+  GTEST_SKIP() << "WebGPU is not enabled in this build.";
+#else
+  SCOPED_TRACE(WebGpuInitializationLog());
+  if (!WebGpuAvailable()) {
+    GTEST_SKIP() << "WebGPU device is unavailable in this environment.\n"
+                 << WebGpuInitializationLog();
+  }
+
+  const cv::Mat src = MakeRGBAImage(5, 7);
+  webgpu::TiledWebGpuImage image;
+  image.Upload(src, 3);
+
+  ASSERT_NO_THROW(webgpu::utils::Rotate90CW(image));
+
+  cv::Mat gpu_result;
+  image.Download(gpu_result);
+
+  cv::Mat expected;
+  cv::transpose(src, expected);
+  cv::flip(expected, expected, 1);
+  EXPECT_LE(cv::norm(gpu_result, expected, cv::NORM_INF), 1e-6);
+#endif
+}
+
 TEST(WebGpuRawOpsTest, Rotate90CCWMatchesCpuReference) {
 #ifndef HAVE_WEBGPU
   GTEST_SKIP() << "WebGPU is not enabled in this build.";
@@ -788,6 +937,32 @@ TEST(WebGpuRawOpsTest, Rotate90CCWMatchesCpuReference) {
 
   ASSERT_EQ(gpu_result.type(), CV_32FC4);
   ASSERT_EQ(gpu_result.size(), expected.size());
+  EXPECT_LE(cv::norm(gpu_result, expected, cv::NORM_INF), 1e-6);
+#endif
+}
+
+TEST(WebGpuRawOpsTest, TiledRotate90CCWMatchesCpuReferenceAcrossTileBoundaries) {
+#ifndef HAVE_WEBGPU
+  GTEST_SKIP() << "WebGPU is not enabled in this build.";
+#else
+  SCOPED_TRACE(WebGpuInitializationLog());
+  if (!WebGpuAvailable()) {
+    GTEST_SKIP() << "WebGPU device is unavailable in this environment.\n"
+                 << WebGpuInitializationLog();
+  }
+
+  const cv::Mat src = MakeRGBAImage(5, 7);
+  webgpu::TiledWebGpuImage image;
+  image.Upload(src, 3);
+
+  ASSERT_NO_THROW(webgpu::utils::Rotate90CCW(image));
+
+  cv::Mat gpu_result;
+  image.Download(gpu_result);
+
+  cv::Mat expected;
+  cv::transpose(src, expected);
+  cv::flip(expected, expected, 0);
   EXPECT_LE(cv::norm(gpu_result, expected, cv::NORM_INF), 1e-6);
 #endif
 }

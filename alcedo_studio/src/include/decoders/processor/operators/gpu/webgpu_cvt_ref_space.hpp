@@ -6,13 +6,15 @@
 
 #ifdef HAVE_WEBGPU
 
-#include "image/webgpu_image.hpp"
+#include "image/tiled_webgpu_image.hpp"
 
 namespace alcedo {
 namespace webgpu {
 
 void Clamp01(WebGpuImage& image);
+void Clamp01(TiledWebGpuImage& image);
 void ApplyInverseCamMulAndOrientRGBA(WebGpuImage& image, const float* cam_mul, int flip);
+void ApplyInverseCamMulAndOrientRGBA(TiledWebGpuImage& image, const float* cam_mul, int flip);
 
 }  // namespace webgpu
 }  // namespace alcedo

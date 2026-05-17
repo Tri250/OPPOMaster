@@ -7,12 +7,13 @@
 #ifdef HAVE_WEBGPU
 
 #include "decoders/processor/raw_processor_pattern.hpp"
-#include "image/webgpu_image.hpp"
+#include "image/tiled_webgpu_image.hpp"
 
 namespace alcedo {
 namespace webgpu {
 
 void Bayer2x2ToRGB_RCD(WebGpuImage& image, const BayerPattern2x2& pattern);
+void Bayer2x2ToRGB_RCD(TiledWebGpuImage& image, const BayerPattern2x2& pattern);
 
 }  // namespace webgpu
 }  // namespace alcedo

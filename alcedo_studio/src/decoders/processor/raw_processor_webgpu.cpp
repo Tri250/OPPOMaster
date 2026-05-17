@@ -35,7 +35,7 @@ void EnsureWebGpuRawBackendAvailable() {
 
 auto IsUnorientedOrIdentityFlip(const int flip) -> bool { return flip == 0 || flip == 1; }
 
-void ApplyWebGpuGeometricCorrections(webgpu::WebGpuImage& gpu_img, const int flip) {
+void ApplyWebGpuGeometricCorrections(webgpu::TiledWebGpuImage& gpu_img, const int flip) {
   switch (flip) {
     case 3:
       webgpu::utils::Rotate180(gpu_img);
@@ -51,15 +51,13 @@ void ApplyWebGpuGeometricCorrections(webgpu::WebGpuImage& gpu_img, const int fli
   }
 }
 
-void CropWebGpuImage(webgpu::WebGpuImage& gpu_img, const cv::Rect& crop_rect) {
+void CropWebGpuImage(webgpu::TiledWebGpuImage& gpu_img, const cv::Rect& crop_rect) {
   if (detail::IsFullImageRect(crop_rect, cv::Size(gpu_img.Width(), gpu_img.Height()))) {
     return;
   }
 
-  cv::Mat host;
-  gpu_img.Download(host);
-  cv::Mat cropped = host(crop_rect).clone();
-  gpu_img.Upload(cropped);
+  gpu_img.Crop({static_cast<uint32_t>(crop_rect.x), static_cast<uint32_t>(crop_rect.y),
+                static_cast<uint32_t>(crop_rect.width), static_cast<uint32_t>(crop_rect.height)});
 }
 
 }  // namespace
@@ -90,7 +88,6 @@ auto RawProcessor::ProcessWebGpu() -> ImageBuffer {
   auto& gpu_img = process_buffer_.GetWebGpuImage();
   webgpu::ToLinearRef(gpu_img, raw_processor_, cfa_pattern_);
 
-  webgpu::Clamp01(gpu_img);
   if (cfa_pattern_.kind == RawCfaKind::XTrans6x6) {
     throw std::runtime_error("RawProcessor: WebGPU X-Trans interpolation is not implemented yet.");
   } else {
@@ -101,7 +98,10 @@ auto RawProcessor::ProcessWebGpu() -> ImageBuffer {
       params_.decode_res_);
   CropWebGpuImage(gpu_img, crop_rect);
 
-  webgpu::ApplyInverseCamMulAndOrientRGBA(gpu_img, raw_data_.color.cam_mul, raw_data_.sizes.flip);
+  webgpu::Clamp01(gpu_img);
+
+  webgpu::ApplyInverseCamMulAndOrientRGBA(gpu_img, raw_data_.color.cam_mul,
+                                          raw_data_.sizes.flip);
   runtime_color_context_.output_in_camera_space_ = true;
   return {std::move(process_buffer_)};
 }

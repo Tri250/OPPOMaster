@@ -9,12 +9,14 @@
 #include <libraw/libraw.h>
 
 #include "decoders/processor/raw_processor_pattern.hpp"
-#include "image/webgpu_image.hpp"
+#include "image/tiled_webgpu_image.hpp"
 
 namespace alcedo {
 namespace webgpu {
 
 void ToLinearRef(webgpu::WebGpuImage& img, LibRaw& raw_processor, const RawCfaPattern& pattern);
+void ToLinearRef(webgpu::TiledWebGpuImage& img, LibRaw& raw_processor,
+                 const RawCfaPattern& pattern);
 
 }  // namespace webgpu
 }  // namespace alcedo

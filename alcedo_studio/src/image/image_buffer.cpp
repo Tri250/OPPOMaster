@@ -68,20 +68,25 @@ auto GpuImageWrapper::GetMetalImage() const -> const metal::MetalImage& {
 
 #ifdef HAVE_WEBGPU
 GpuImageWrapper::GpuImageWrapper(webgpu::WebGpuImage&& image)
-    : backend_(GpuBackendKind::WebGPU), webgpu_image_(std::move(image)) {}
-
-auto GpuImageWrapper::GetWebGpuImage() -> webgpu::WebGpuImage& {
-  if (backend_ != GpuBackendKind::WebGPU) {
-    throw std::runtime_error("GpuImageWrapper: Active GPU backend is not WebGPU.");
-  }
-  return webgpu_image_;
+    : backend_(GpuBackendKind::WebGPU) {
+  tiled_webgpu_image_.AdoptSingleTile(std::move(image));
 }
 
-auto GpuImageWrapper::GetWebGpuImage() const -> const webgpu::WebGpuImage& {
+GpuImageWrapper::GpuImageWrapper(webgpu::TiledWebGpuImage&& image)
+    : backend_(GpuBackendKind::WebGPU), tiled_webgpu_image_(std::move(image)) {}
+
+auto GpuImageWrapper::GetWebGpuImage() -> webgpu::TiledWebGpuImage& {
   if (backend_ != GpuBackendKind::WebGPU) {
     throw std::runtime_error("GpuImageWrapper: Active GPU backend is not WebGPU.");
   }
-  return webgpu_image_;
+  return tiled_webgpu_image_;
+}
+
+auto GpuImageWrapper::GetWebGpuImage() const -> const webgpu::TiledWebGpuImage& {
+  if (backend_ != GpuBackendKind::WebGPU) {
+    throw std::runtime_error("GpuImageWrapper: Active GPU backend is not WebGPU.");
+  }
+  return tiled_webgpu_image_;
 }
 #endif
 
@@ -99,7 +104,7 @@ auto GpuImageWrapper::Empty() const -> bool {
 #endif
 #ifdef HAVE_WEBGPU
     case GpuBackendKind::WebGPU:
-      return webgpu_image_.Empty();
+      return tiled_webgpu_image_.Empty();
 #endif
     case GpuBackendKind::None:
       return true;
@@ -119,7 +124,7 @@ auto GpuImageWrapper::Width() const -> int {
 #endif
 #ifdef HAVE_WEBGPU
     case GpuBackendKind::WebGPU:
-      return static_cast<int>(webgpu_image_.Width());
+      return static_cast<int>(tiled_webgpu_image_.Width());
 #endif
     case GpuBackendKind::None:
       return 0;
@@ -139,7 +144,7 @@ auto GpuImageWrapper::Height() const -> int {
 #endif
 #ifdef HAVE_WEBGPU
     case GpuBackendKind::WebGPU:
-      return static_cast<int>(webgpu_image_.Height());
+      return static_cast<int>(tiled_webgpu_image_.Height());
 #endif
     case GpuBackendKind::None:
       return 0;
@@ -159,7 +164,7 @@ auto GpuImageWrapper::Type() const -> int {
 #endif
 #ifdef HAVE_WEBGPU
     case GpuBackendKind::WebGPU:
-      return webgpu::WebGpuImage::CVTypeFromPixelFormat(webgpu_image_.Format());
+      return webgpu::WebGpuImage::CVTypeFromPixelFormat(tiled_webgpu_image_.Format());
 #endif
     case GpuBackendKind::None:
       return -1;
@@ -187,8 +192,8 @@ void GpuImageWrapper::Create(int width, int height, int type, GpuBackendKind bac
 #endif
 #ifdef HAVE_WEBGPU
     case GpuBackendKind::WebGPU:
-      webgpu_image_.Create(static_cast<uint32_t>(width), static_cast<uint32_t>(height),
-                           webgpu::WebGpuImage::PixelFormatFromCVType(type));
+      tiled_webgpu_image_.Create(static_cast<uint32_t>(width), static_cast<uint32_t>(height),
+                                 webgpu::WebGpuImage::PixelFormatFromCVType(type));
       return;
 #endif
     case GpuBackendKind::None:
@@ -216,7 +221,7 @@ void GpuImageWrapper::Upload(const cv::Mat& cpu_data, GpuBackendKind backend) {
 #endif
 #ifdef HAVE_WEBGPU
     case GpuBackendKind::WebGPU:
-      webgpu_image_.Upload(cpu_data);
+      tiled_webgpu_image_.Upload(cpu_data);
       return;
 #endif
     case GpuBackendKind::None:
@@ -239,7 +244,7 @@ void GpuImageWrapper::Download(cv::Mat& cpu_data) const {
 #endif
 #ifdef HAVE_WEBGPU
     case GpuBackendKind::WebGPU:
-      webgpu_image_.Download(cpu_data);
+      tiled_webgpu_image_.Download(cpu_data);
       return;
 #endif
     case GpuBackendKind::None:
@@ -269,7 +274,7 @@ void GpuImageWrapper::ShareFrom(const GpuImageWrapper& src) {
 #endif
 #ifdef HAVE_WEBGPU
     case GpuBackendKind::WebGPU:
-      webgpu_image_ = src.webgpu_image_;
+      tiled_webgpu_image_ = src.tiled_webgpu_image_;
       return;
 #endif
     case GpuBackendKind::None:
@@ -299,7 +304,7 @@ void GpuImageWrapper::CopyTo(GpuImageWrapper& dst) const {
 #endif
 #ifdef HAVE_WEBGPU
     case GpuBackendKind::WebGPU:
-      webgpu_image_.CopyTo(dst.webgpu_image_);
+      tiled_webgpu_image_.CopyTo(dst.tiled_webgpu_image_);
       return;
 #endif
     case GpuBackendKind::None:
@@ -329,8 +334,8 @@ void GpuImageWrapper::ConvertTo(GpuImageWrapper& dst, int type, double alpha, do
 #endif
 #ifdef HAVE_WEBGPU
     case GpuBackendKind::WebGPU:
-      webgpu_image_.ConvertTo(dst.webgpu_image_, webgpu::WebGpuImage::PixelFormatFromCVType(type),
-                              alpha, beta);
+      tiled_webgpu_image_.ConvertTo(dst.tiled_webgpu_image_,
+                                    webgpu::WebGpuImage::PixelFormatFromCVType(type), alpha, beta);
       return;
 #endif
     case GpuBackendKind::None:
@@ -347,7 +352,7 @@ void GpuImageWrapper::Release() {
   metal_image_.Release();
 #endif
 #ifdef HAVE_WEBGPU
-  webgpu_image_.Release();
+  tiled_webgpu_image_.Release();
 #endif
   backend_ = GpuBackendKind::None;
 }
@@ -393,6 +398,9 @@ ImageBuffer::ImageBuffer(metal::MetalImage&& data)
 
 #ifdef HAVE_WEBGPU
 ImageBuffer::ImageBuffer(webgpu::WebGpuImage&& data)
+    : gpu_data_(std::move(data)), gpu_data_valid_(true) {}
+
+ImageBuffer::ImageBuffer(webgpu::TiledWebGpuImage&& data)
     : gpu_data_(std::move(data)), gpu_data_valid_(true) {}
 #endif
 
@@ -464,14 +472,14 @@ auto ImageBuffer::GetMetalImage() const -> const metal::MetalImage& {
 #endif
 
 #ifdef HAVE_WEBGPU
-auto ImageBuffer::GetWebGpuImage() -> webgpu::WebGpuImage& {
+auto ImageBuffer::GetWebGpuImage() -> webgpu::TiledWebGpuImage& {
   if (!gpu_data_valid_) {
     throw std::runtime_error("ImageBuffer: No valid GPU image data.");
   }
   return gpu_data_.GetWebGpuImage();
 }
 
-auto ImageBuffer::GetWebGpuImage() const -> const webgpu::WebGpuImage& {
+auto ImageBuffer::GetWebGpuImage() const -> const webgpu::TiledWebGpuImage& {
   if (!gpu_data_valid_) {
     throw std::runtime_error("ImageBuffer: No valid GPU image data.");
   }
