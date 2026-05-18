@@ -88,8 +88,6 @@ auto RawGpuBackendToString(RawGpuBackend backend) -> const char* {
       return "cuda";
     case RawGpuBackend::Metal:
       return "metal";
-    case RawGpuBackend::WebGPU:
-      return "webgpu";
     case RawGpuBackend::GPU:
       return "gpu";
     case RawGpuBackend::CPU:
@@ -246,8 +244,6 @@ void RawDecodeOp::SetParams(const nlohmann::json& params) {
       params_.gpu_backend_ = RawGpuBackend::CUDA;
     } else if (backend == "metal") {
       params_.gpu_backend_ = RawGpuBackend::Metal;
-    } else if (backend == "webgpu" || backend == "dawn") {
-      params_.gpu_backend_ = RawGpuBackend::WebGPU;
     } else {
       throw std::runtime_error("RawDecodeOp: Unknown gpu_backend " + backend);
     }

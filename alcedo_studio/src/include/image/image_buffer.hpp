@@ -20,9 +20,6 @@
 #include "metal_image.hpp"
 #endif
 
-#ifdef HAVE_WEBGPU
-#include "tiled_webgpu_image.hpp"
-#endif
 
 namespace alcedo {
 class GpuImageWrapper {
@@ -45,13 +42,6 @@ class GpuImageWrapper {
   auto GetMetalImage() -> metal::MetalImage&;
   auto GetMetalImage() const -> const metal::MetalImage&;
 #endif
-#ifdef HAVE_WEBGPU
-  explicit GpuImageWrapper(webgpu::WebGpuImage&& image);
-  explicit GpuImageWrapper(webgpu::TiledWebGpuImage&& image);
-  auto GetWebGpuImage() -> webgpu::TiledWebGpuImage&;
-  auto GetWebGpuImage() const -> const webgpu::TiledWebGpuImage&;
-#endif
-
   auto Backend() const -> GpuBackendKind;
   auto Empty() const -> bool;
   auto Width() const -> int;
@@ -72,9 +62,6 @@ class GpuImageWrapper {
   cv::cuda::GpuMat cuda_image_;
 #elif defined(HAVE_METAL)
   metal::MetalImage metal_image_;
-#endif
-#if defined(HAVE_WEBGPU)
-  webgpu::TiledWebGpuImage tiled_webgpu_image_;
 #endif
 };
 
@@ -109,10 +96,6 @@ class ImageBuffer {
 #ifdef HAVE_METAL
   ImageBuffer(metal::MetalImage&& data);
 #endif
-#ifdef HAVE_WEBGPU
-  ImageBuffer(webgpu::WebGpuImage&& data);
-  ImageBuffer(webgpu::TiledWebGpuImage&& data);
-#endif
   ImageBuffer(std::vector<uint8_t>&& buffer);
 
   void ReadFromVectorBuffer(std::vector<uint8_t>&& buffer);
@@ -128,11 +111,6 @@ class ImageBuffer {
   auto GetMetalImage() -> metal::MetalImage&;
   auto GetMetalImage() const -> const metal::MetalImage&;
 #endif
-#ifdef HAVE_WEBGPU
-  auto GetWebGpuImage() -> webgpu::TiledWebGpuImage&;
-  auto GetWebGpuImage() const -> const webgpu::TiledWebGpuImage&;
-#endif
-
   auto GetGPUBackend() const -> GpuBackendKind;
   auto GetGPUWidth() const -> int;
   auto GetGPUHeight() const -> int;

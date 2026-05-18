@@ -9,7 +9,6 @@ enum class GpuBackendKind {
   None,
   CUDA,
   Metal,
-  WebGPU,
 };
 
 }  // namespace alcedo

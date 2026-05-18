@@ -22,7 +22,7 @@ option(ALCEDO_BUILD_CORE_TESTS "Enable small core/unit test category targets." O
 option(ALCEDO_BUILD_IMAGE_TESTS "Enable image and ImageBuffer test category targets." ON)
 option(ALCEDO_BUILD_IO_TESTS "Enable IO/export/metadata test category targets." ON)
 option(ALCEDO_BUILD_RAW_TESTS "Enable RAW decode/processor test category targets." ON)
-option(ALCEDO_BUILD_GPU_TESTS "Enable CUDA/Metal/WebGPU GPU test category targets." ON)
+option(ALCEDO_BUILD_GPU_TESTS "Enable CUDA/Metal GPU test category targets." ON)
 option(ALCEDO_BUILD_EDIT_TESTS "Enable edit operator and pipeline test category targets." ON)
 option(ALCEDO_BUILD_UI_TESTS "Enable Qt/UI test category targets." ON)
 option(ALCEDO_BUILD_APP_TESTS "Enable application service test category targets." ON)
@@ -171,32 +171,6 @@ if(ALCEDO_METAL_ENABLED)
   target_link_libraries(MetalFullPipelinePreviewTest PRIVATE GTest::gtest_main EditPipeline RawProcessor PipelineScheduler ThreadPool opencv_highgui ${ALCEDO_TEST_OPENCV_MIN_DEPS})
   gtest_discover_tests(MetalFullPipelinePreviewTest TEST_PREFIX "MetalFullPipelinePreviewTest."
     PROPERTIES LABELS "ci_metal_runtime")
-endif()
-
-if(ALCEDO_WEBGPU_ENABLED)
-  add_executable(ImageBufferWebGpuTest image/image_buffer_webgpu_test.cpp)
-  target_include_directories(ImageBufferWebGpuTest PUBLIC ${ALCEDO_INCLUDE_DIR})
-  target_link_libraries(ImageBufferWebGpuTest PRIVATE GTest::gtest_main ImageBuffer ${ALCEDO_TEST_OPENCV_MIN_DEPS})
-  if(WIN32 AND ALCEDO_DAWN_RUNTIME_DLLS)
-    add_custom_command(TARGET ImageBufferWebGpuTest POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different
-              ${ALCEDO_DAWN_RUNTIME_DLLS}
-              $<TARGET_FILE_DIR:ImageBufferWebGpuTest>
-      COMMENT "Copying Dawn runtime DLLs for ImageBufferWebGpuTest")
-  endif()
-  gtest_discover_tests(ImageBufferWebGpuTest TEST_PREFIX "ImageBufferWebGpuTest.")
-
-  add_executable(WebGpuRawOpsTest raw/webgpu_raw_ops_test.cpp)
-  target_include_directories(WebGpuRawOpsTest PUBLIC ${ALCEDO_INCLUDE_DIR})
-  target_link_libraries(WebGpuRawOpsTest PRIVATE GTest::gtest_main RawProcessorOp WebGpuGeometryUtils Qt6::Widgets ${ALCEDO_TEST_OPENCV_MIN_DEPS})
-  if(WIN32 AND ALCEDO_DAWN_RUNTIME_DLLS)
-    add_custom_command(TARGET WebGpuRawOpsTest POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different
-              ${ALCEDO_DAWN_RUNTIME_DLLS}
-              $<TARGET_FILE_DIR:WebGpuRawOpsTest>
-      COMMENT "Copying Dawn runtime DLLs for WebGpuRawOpsTest")
-  endif()
-  gtest_discover_tests(WebGpuRawOpsTest TEST_PREFIX "WebGpuRawOpsTest.")
 endif()
 
 # add_executable(ImageDecoderTest decoders/image_decoder_test.cpp)
@@ -626,7 +600,6 @@ alcedo_assign_test_category(core ALCEDO_BUILD_CORE_TESTS alcedo_tests_core
 
 alcedo_assign_test_category(image ALCEDO_BUILD_IMAGE_TESTS alcedo_tests_image
   ImageBufferMetalTest
-  ImageBufferWebGpuTest
   MetadataExtractorTest
   BatchImportDngMetadataTest
 )
@@ -652,7 +625,6 @@ alcedo_assign_test_category(gpu ALCEDO_BUILD_GPU_TESTS alcedo_tests_gpu
   CudaRawOpsTest
   MetalUtilsTest
   MetalRawOpsTest
-  WebGpuRawOpsTest
   ODTCudaSmokeTest
   CudaPreviewVramReclamationTest
 )
