@@ -467,6 +467,18 @@ target_include_directories(CudaDriverRequirementsTest PUBLIC ${ALCEDO_INCLUDE_DI
 target_link_libraries(CudaDriverRequirementsTest PRIVATE GTest::gtest_main)
 gtest_discover_tests(CudaDriverRequirementsTest TEST_PREFIX "CudaDriverRequirementsTest.")
 
+if(ALCEDO_OPENCL_ENABLED)
+  add_executable(OpenClProgramLibraryTest opencl/opencl_program_library_test.cpp)
+  target_include_directories(OpenClProgramLibraryTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+  target_link_libraries(OpenClProgramLibraryTest PRIVATE GTest::gtest_main OpenClProgramLibrary)
+  gtest_discover_tests(OpenClProgramLibraryTest TEST_PREFIX "OpenClProgramLibraryTest.")
+
+  add_executable(OpenClRuntimeTest opencl/opencl_runtime_test.cpp)
+  target_include_directories(OpenClRuntimeTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+  target_link_libraries(OpenClRuntimeTest PRIVATE GTest::gtest_main OpenClProgramLibrary)
+  gtest_discover_tests(OpenClRuntimeTest TEST_PREFIX "OpenClRuntimeTest.")
+endif()
+
 add_executable(ImagePathEncodingTest io/image_path_encoding_test.cpp)
 target_include_directories(ImagePathEncodingTest PUBLIC ${ALCEDO_INCLUDE_DIR})
 target_link_libraries(ImagePathEncodingTest PRIVATE GTest::gtest_main ImageLoader StorageService)
@@ -596,6 +608,8 @@ gtest_discover_tests(LanguageManagerTest TEST_PREFIX "LanguageManagerTest.")
 alcedo_assign_test_category(core ALCEDO_BUILD_CORE_TESTS alcedo_tests_core
   SampleTest
   CudaDriverRequirementsTest
+  OpenClProgramLibraryTest
+  OpenClRuntimeTest
 )
 
 alcedo_assign_test_category(image ALCEDO_BUILD_IMAGE_TESTS alcedo_tests_image

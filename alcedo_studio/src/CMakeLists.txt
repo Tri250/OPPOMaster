@@ -37,6 +37,20 @@ if(ALCEDO_METAL_ENABLED)
     target_link_libraries(ThreadPool PUBLIC alcedo::metal_cpp)
 endif()
 
+if(ALCEDO_OPENCL_ENABLED)
+    def_library(OpenClContext SOURCES opencl/opencl_context.cpp PUBLIC_DEPS OpenCL::OpenCL)
+    def_library(OpenClProgramLibrary
+        SOURCES
+            opencl/opencl_program_library.cpp
+            opencl/opencl_runtime.cpp
+        PUBLIC_DEPS
+            OpenClContext
+            OpenCL::OpenCL
+        PRIVATE_DEPS
+            StrConv
+    )
+endif()
+
 def_library(TimeProvider SOURCES utils/clock/time_provider.cpp)
 
 def_library(UiLocalization

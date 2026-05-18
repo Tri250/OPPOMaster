@@ -1235,7 +1235,7 @@ RhiEditViewerSurface::RhiEditViewerSurface(QWidget* parent)
   setAutoFillBackground(false);
   setMouseTracking(false);
 #if defined(Q_OS_WIN)
-  setApi(QRhiWidget::Api::Direct3D12);
+  setApi(QRhiWidget::Api::Direct3D11);
 #elif defined(HAVE_METAL)
   setApi(QRhiWidget::Api::Metal);
 #endif
