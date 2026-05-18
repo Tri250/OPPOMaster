@@ -77,8 +77,6 @@ auto RawGpuBackendName(const RawGpuBackend backend) -> const char* {
       return "CUDA";
     case RawGpuBackend::Metal:
       return "Metal";
-    case RawGpuBackend::WebGPU:
-      return "WebGPU";
   }
   return "unknown";
 }
@@ -420,19 +418,11 @@ auto RawProcessor::ProcessGpu() -> ImageBuffer {
 #else
       ThrowUnavailableRawGpuBackend(params_.gpu_backend_);
 #endif
-    case RawGpuBackend::WebGPU:
-#ifdef HAVE_WEBGPU
-      return ProcessWebGpu();
-#else
-      ThrowUnavailableRawGpuBackend(params_.gpu_backend_);
-#endif
     case RawGpuBackend::GPU:
 #ifdef HAVE_CUDA
       return ProcessCuda();
 #elif defined(HAVE_METAL)
       return ProcessMetal();
-#elif defined(HAVE_WEBGPU)
-      return ProcessWebGpu();
 #else
       ThrowUnsupportedGPUBackend("Process");
 #endif

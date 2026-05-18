@@ -26,7 +26,6 @@ enum class RawGpuBackend {
   GPU,
   CUDA,
   Metal,
-  WebGPU,
 };
 
 inline auto IsRawGpuBackend(const RawGpuBackend backend) -> bool {
@@ -69,10 +68,6 @@ class RawProcessor {
 #ifdef HAVE_METAL
   auto ProcessMetal() -> ImageBuffer;
   auto ProcessDirectRgbMetal() -> ImageBuffer;
-#endif
-#ifdef HAVE_WEBGPU
-  auto ProcessWebGpu() -> ImageBuffer;
-  auto ProcessDirectRgbWebGpu() -> ImageBuffer;
 #endif
 
   /**

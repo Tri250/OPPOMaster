@@ -329,24 +329,6 @@ if(ALCEDO_METAL_ENABLED)
     add_dependencies(MetalGeometryUtils MetalGeometryUtilsShaders)
     target_compile_definitions(MetalGeometryUtils PRIVATE ALCEDO_METAL_GEOMETRY_UTILS_METALLIB_PATH="${METAL_GEOMETRY_UTILS_METALLIB}")
 endif()
-if(ALCEDO_WEBGPU_ENABLED)
-    def_library(WebGpuContext SOURCES webgpu/webgpu_context.cpp PUBLIC_DEPS dawn::webgpu_dawn)
-    set_target_properties(WebGpuContext PROPERTIES NO_SYSTEM_FROM_IMPORTED ON)
-    if(WIN32)
-        target_link_libraries(WebGpuContext PUBLIC OneCore.lib dxguid.lib)
-    endif()
-
-    set(WEBGPU_GEOMETRY_UTILS_WGSL "${CMAKE_CURRENT_SOURCE_DIR}/webgpu/webgpu_geometry_utils.wgsl")
-    set_source_files_properties("${WEBGPU_GEOMETRY_UTILS_WGSL}" PROPERTIES HEADER_FILE_ONLY TRUE)
-    def_library(WebGpuGeometryUtils
-        SOURCES webgpu/webgpu_geometry_utils.cpp "${WEBGPU_GEOMETRY_UTILS_WGSL}"
-        PUBLIC_DEPS WebGpuContext ${ALCEDO_OPENCV_CORE_DEPS}
-    )
-    set_target_properties(WebGpuGeometryUtils PROPERTIES NO_SYSTEM_FROM_IMPORTED ON)
-    target_compile_definitions(WebGpuGeometryUtils PRIVATE
-        ALCEDO_WEBGPU_GEOMETRY_UTILS_WGSL_PATH="${WEBGPU_GEOMETRY_UTILS_WGSL}"
-    )
-endif()
 
 # ==============================================================================
 # 2. Core Image Handling 
@@ -354,11 +336,6 @@ endif()
 
 # ImageBuffer (Platform specific deps handling)
 set(IMAGE_BUFFER_SRCS image/image_buffer.cpp)
-if(ALCEDO_WEBGPU_ENABLED)
-    list(APPEND IMAGE_BUFFER_SRCS
-        image/webgpu_image.cpp
-    )
-endif()
 add_library(ImageBuffer ${IMAGE_BUFFER_SRCS})
 target_include_directories(ImageBuffer PUBLIC include)
 
@@ -368,11 +345,6 @@ set(IMAGE_BUFFER_DEPS Exiv2 ${ALCEDO_OPENCV_CORE_DEPS} libraw::raw_r TimeProvide
 # Platform specific dependencies
 if (WIN32)
     target_link_libraries(ImageBuffer PUBLIC ${IMAGE_BUFFER_DEPS} xxHash::xxhash)
-    if(ALCEDO_WEBGPU_ENABLED)
-        target_link_libraries(ImageBuffer PUBLIC WebGpuContext)
-        set_target_properties(ImageBuffer PROPERTIES NO_SYSTEM_FROM_IMPORTED ON)
-        target_include_directories(ImageBuffer BEFORE PRIVATE "${ALCEDO_DAWN_PACKAGE_DIR}/include")
-    endif()
 elseif(ALCEDO_METAL_ENABLED)
     target_link_libraries(ImageBuffer PUBLIC ${IMAGE_BUFFER_DEPS} xxHash MetalImage MetalUtils)
 else()
@@ -432,22 +404,6 @@ if(ALCEDO_METAL_ENABLED)
         decoders/processor/operators/gpu/metal_xtrans_interpolate.cpp
     )
 endif()
-if(ALCEDO_WEBGPU_ENABLED)
-    set(WEBGPU_TO_LINEAR_REF_WGSL "${CMAKE_CURRENT_SOURCE_DIR}/decoders/processor/operators/gpu/webgpu_shader/to_linear_ref.wgsl")
-    set_source_files_properties("${WEBGPU_TO_LINEAR_REF_WGSL}" PROPERTIES HEADER_FILE_ONLY TRUE)
-    set(WEBGPU_DEBAYER_RCD_WGSL "${CMAKE_CURRENT_SOURCE_DIR}/decoders/processor/operators/gpu/webgpu_shader/debayer_rcd.wgsl")
-    set_source_files_properties("${WEBGPU_DEBAYER_RCD_WGSL}" PROPERTIES HEADER_FILE_ONLY TRUE)
-    set(WEBGPU_CVT_REF_SPACE_WGSL "${CMAKE_CURRENT_SOURCE_DIR}/decoders/processor/operators/gpu/webgpu_shader/cvt_ref_space.wgsl")
-    set_source_files_properties("${WEBGPU_CVT_REF_SPACE_WGSL}" PROPERTIES HEADER_FILE_ONLY TRUE)
-    list(APPEND RAW_OP_GPU_SRCS
-        decoders/processor/operators/gpu/webgpu_to_linear_ref.cpp
-        decoders/processor/operators/gpu/webgpu_debayer_rcd.cpp
-        decoders/processor/operators/gpu/webgpu_cvt_ref_space.cpp
-        "${WEBGPU_TO_LINEAR_REF_WGSL}"
-        "${WEBGPU_DEBAYER_RCD_WGSL}"
-        "${WEBGPU_CVT_REF_SPACE_WGSL}"
-    )
-endif()
 
 # RawProcessorOp Target
 def_library(RawProcessorOp
@@ -469,15 +425,6 @@ if(ALCEDO_METAL_ENABLED)
         ALCEDO_METAL_HIGHLIGHT_RECONSTRUCT_METALLIB_PATH="${METAL_HIGHLIGHT_RECONSTRUCT_METALLIB}"
         ALCEDO_METAL_XTRANS_INTERPOLATE_METALLIB_PATH="${METAL_XTRANS_INTERPOLATE_METALLIB}"
         ALCEDO_METAL_CVT_REF_SPACE_METALLIB_PATH="${METAL_CVT_REF_SPACE_METALLIB}"
-    )
-endif()
-if(ALCEDO_WEBGPU_ENABLED)
-    set_target_properties(RawProcessorOp PROPERTIES NO_SYSTEM_FROM_IMPORTED ON)
-    target_include_directories(RawProcessorOp BEFORE PRIVATE "${ALCEDO_DAWN_PACKAGE_DIR}/include")
-    target_compile_definitions(RawProcessorOp PRIVATE
-        ALCEDO_WEBGPU_TO_LINEAR_REF_WGSL_PATH="${WEBGPU_TO_LINEAR_REF_WGSL}"
-        ALCEDO_WEBGPU_DEBAYER_RCD_WGSL_PATH="${WEBGPU_DEBAYER_RCD_WGSL}"
-        ALCEDO_WEBGPU_CVT_REF_SPACE_WGSL_PATH="${WEBGPU_CVT_REF_SPACE_WGSL}"
     )
 endif()
 
@@ -605,18 +552,12 @@ endif()
 if(ALCEDO_METAL_ENABLED)
     list(APPEND RAW_PROCESSOR_BACKEND_SRCS decoders/processor/raw_processor_metal.cpp)
 endif()
-if(ALCEDO_WEBGPU_ENABLED)
-    list(APPEND RAW_PROCESSOR_BACKEND_SRCS decoders/processor/raw_processor_webgpu.cpp)
-endif()
 
 def_library(RawProcessor
     SOURCES decoders/processor/raw_processor.cpp ${RAW_PROCESSOR_BACKEND_SRCS}
     PUBLIC_DEPS Image libraw::raw_r Exiv2 RawProcessorOp
     PRIVATE_DEPS opencv_imgproc
 )
-if(ALCEDO_WEBGPU_ENABLED)
-    target_link_libraries(RawProcessor PRIVATE WebGpuGeometryUtils)
-endif()
 
 # ==============================================================================
 # 4. Decoding & IO
