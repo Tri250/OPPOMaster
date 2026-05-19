@@ -41,6 +41,7 @@ if(ALCEDO_OPENCL_ENABLED)
     def_library(OpenClContext SOURCES opencl/opencl_context.cpp PUBLIC_DEPS OpenCL::OpenCL)
     def_library(OpenClProgramLibrary
         SOURCES
+            opencl/opencl_backend_program_registry.cpp
             opencl/opencl_program_library.cpp
             opencl/opencl_runtime.cpp
         PUBLIC_DEPS
@@ -350,6 +351,9 @@ endif()
 
 # ImageBuffer (Platform specific deps handling)
 set(IMAGE_BUFFER_SRCS image/image_buffer.cpp)
+if(ALCEDO_OPENCL_ENABLED)
+    list(APPEND IMAGE_BUFFER_SRCS image/opencl_image.cpp)
+endif()
 add_library(ImageBuffer ${IMAGE_BUFFER_SRCS})
 target_include_directories(ImageBuffer PUBLIC include)
 
@@ -363,6 +367,9 @@ elseif(ALCEDO_METAL_ENABLED)
     target_link_libraries(ImageBuffer PUBLIC ${IMAGE_BUFFER_DEPS} xxHash MetalImage MetalUtils)
 else()
     target_link_libraries(ImageBuffer PUBLIC ${IMAGE_BUFFER_DEPS} xxHash)
+endif()
+if(ALCEDO_OPENCL_ENABLED)
+    target_link_libraries(ImageBuffer PUBLIC OpenClContext)
 endif()
 
 # Image Base

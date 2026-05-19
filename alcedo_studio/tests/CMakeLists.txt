@@ -173,6 +173,13 @@ if(ALCEDO_METAL_ENABLED)
     PROPERTIES LABELS "ci_metal_runtime")
 endif()
 
+if(ALCEDO_OPENCL_ENABLED)
+  add_executable(ImageBufferOpenClTest image/image_buffer_opencl_test.cpp)
+  target_include_directories(ImageBufferOpenClTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+  target_link_libraries(ImageBufferOpenClTest PRIVATE GTest::gtest_main ImageBuffer ${ALCEDO_TEST_OPENCV_MIN_DEPS})
+  gtest_discover_tests(ImageBufferOpenClTest TEST_PREFIX "ImageBufferOpenClTest.")
+endif()
+
 # add_executable(ImageDecoderTest decoders/image_decoder_test.cpp)
 # target_include_directories(ImageDecoderTest PUBLIC ${CMAKE_SOURCE_DIR}/alcedo/src/include)
 # target_link_libraries(ImageDecoderTest PRIVATE GTest::gtest_main ImageDecoder Exiv2)
@@ -614,6 +621,7 @@ alcedo_assign_test_category(core ALCEDO_BUILD_CORE_TESTS alcedo_tests_core
 
 alcedo_assign_test_category(image ALCEDO_BUILD_IMAGE_TESTS alcedo_tests_image
   ImageBufferMetalTest
+  ImageBufferOpenClTest
   MetadataExtractorTest
   BatchImportDngMetadataTest
 )

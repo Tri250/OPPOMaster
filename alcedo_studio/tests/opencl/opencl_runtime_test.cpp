@@ -3,6 +3,7 @@
 //  Additional permission under GPLv3 section 7 applies; see the LICENSE file.
 
 #include "opencl/opencl_context.hpp"
+#include "opencl/opencl_backend_program_registry.hpp"
 #include "opencl/opencl_program_library.hpp"
 
 #include <gtest/gtest.h>
@@ -102,12 +103,20 @@ struct RegisteredProgram {
 
 auto BuildProgramFromSource(const std::string& suffix, const std::filesystem::path& source_path,
                             bool required_at_startup = false) -> RegisteredProgram {
-  const auto program_name = UniqueProgramName(suffix.c_str());
-  OpenClProgramLibrary::Instance().RegisterProgram(OpenClProgramDescriptor{
-      .name                = program_name,
-      .source_paths        = {source_path},
-      .required_at_startup = required_at_startup,
+  const auto program_name  = UniqueProgramName(suffix.c_str());
+  const auto manifest_name = program_name + "_mock_manifest";
+  OpenClBackendProgramRegistry::Instance().RegisterManifest(OpenClProgramManifest{
+      .name = manifest_name,
+      .programs =
+          {
+              OpenClProgramDescriptor{
+                  .name                = program_name,
+                  .source_paths        = {source_path},
+                  .required_at_startup = required_at_startup,
+              },
+          },
   });
+  RegisterOpenClBackendPrograms();
   if (required_at_startup) {
     OpenClProgramLibrary::Instance().WarmUpRequiredPrograms();
   }

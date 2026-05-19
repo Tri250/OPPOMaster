@@ -6,21 +6,23 @@
 
 #include "opencl/opencl_runtime.hpp"
 
+#include "opencl/opencl_backend_program_registry.hpp"
 #include "opencl/opencl_program_library.hpp"
 
 namespace alcedo {
 
 void PrepareOpenClRuntime(const OpenClInitializationOptions& options) {
+  RegisterOpenClBackendPrograms();
   OpenClContext::Instance().Initialize(options);
   OpenClProgramLibrary::Instance().WarmUpRequiredPrograms();
 }
 
 auto TryPrepareOpenClRuntime(const OpenClInitializationOptions& options) -> bool {
-  if (!OpenClContext::Instance().TryInitialize(options)) {
-    return false;
-  }
-
   try {
+    RegisterOpenClBackendPrograms();
+    if (!OpenClContext::Instance().TryInitialize(options)) {
+      return false;
+    }
     OpenClProgramLibrary::Instance().WarmUpRequiredPrograms();
     return true;
   } catch (...) {
