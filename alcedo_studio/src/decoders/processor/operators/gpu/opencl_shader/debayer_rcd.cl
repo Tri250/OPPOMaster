@@ -39,7 +39,7 @@ static inline float LoadDir(global const float* dir, constant SinglePlaneParams*
 }
 
 static inline float ClampRcdOutput(float value) {
-  return clamp(value, 0.0f, 1.0f);
+  return fmax(value, 0.0f);
 }
 
 static inline float RcdDirectionalStat(float c, float m1, float p1, float m2, float p2,

@@ -202,6 +202,17 @@ if(ALCEDO_OPENCL_ENABLED)
             "$<TARGET_FILE_DIR:OpenCLRawPreview>/platforms"
     VERBATIM
   )
+
+  add_executable(OpenCLRawHLRPreview gui_pocs/opencl_raw_hlr_preview.cpp)
+  target_include_directories(OpenCLRawHLRPreview PUBLIC ${ALCEDO_INCLUDE_DIR})
+  target_link_libraries(OpenCLRawHLRPreview PRIVATE RawProcessor Qt6::Widgets ${ALCEDO_TEST_OPENCV_MIN_DEPS})
+  add_custom_command(TARGET OpenCLRawHLRPreview POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:OpenCLRawHLRPreview>/platforms"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${ALCEDO_QT_PLATFORMS_DIR}"
+            "$<TARGET_FILE_DIR:OpenCLRawHLRPreview>/platforms"
+    VERBATIM
+  )
 endif()
 
 # add_executable(ImageDecoderTest decoders/image_decoder_test.cpp)
@@ -542,17 +553,18 @@ add_custom_command(TARGET ThumbnailAlbumQtDemo POST_BUILD
   VERBATIM
 )
 
-if(TARGET EditViewer)
-  add_executable(CompleteUIDemo gui_pocs/album_editor_qt_demo.cpp)
-  target_include_directories(CompleteUIDemo PUBLIC ${ALCEDO_INCLUDE_DIR})
-  target_link_libraries(CompleteUIDemo PRIVATE ThumbnailService ProjectService ImportService ExportService PipelineMgmtService EditHistoryMgmtService FSService Qt6::Widgets SleeveFilterService EditPipeline EditViewer)
-  target_compile_definitions(CompleteUIDemo PRIVATE ALCEDO_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-  add_custom_command(TARGET CompleteUIDemo POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:CompleteUIDemo>/fonts"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${ALCEDO_DEMO_FONT_SRC}" "$<TARGET_FILE_DIR:CompleteUIDemo>/fonts/main_IBM.ttf"
-    VERBATIM
-  )
-endif()
+# CompleteUIDemo disabled — album_editor_qt_demo.cpp is no longer maintained.
+# if(TARGET EditViewer)
+#   add_executable(CompleteUIDemo gui_pocs/album_editor_qt_demo.cpp)
+#   target_include_directories(CompleteUIDemo PUBLIC ${ALCEDO_INCLUDE_DIR})
+#   target_link_libraries(CompleteUIDemo PRIVATE ThumbnailService ProjectService ImportService ExportService PipelineMgmtService EditHistoryMgmtService FSService Qt6::Widgets SleeveFilterService EditPipeline EditViewer)
+#   target_compile_definitions(CompleteUIDemo PRIVATE ALCEDO_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+#   add_custom_command(TARGET CompleteUIDemo POST_BUILD
+#     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:CompleteUIDemo>/fonts"
+#     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${ALCEDO_DEMO_FONT_SRC}" "$<TARGET_FILE_DIR:CompleteUIDemo>/fonts/main_IBM.ttf"
+#     VERBATIM
+#   )
+# endif()
 
 include(GoogleTest)
 
@@ -713,8 +725,9 @@ alcedo_assign_test_category(storage ALCEDO_BUILD_STORAGE_TESTS alcedo_tests_stor
 alcedo_assign_test_category(demos ALCEDO_BUILD_DEMO_TARGETS alcedo_tests_demos
   ImagePreview
   OpenCLRawPreview
+  OpenCLRawHLRPreview
   ThumbnailAlbumQtDemo
-  CompleteUIDemo
+  # CompleteUIDemo  # disabled
   DngMetadataBenchmark
 )
 
