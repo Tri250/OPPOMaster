@@ -40,6 +40,8 @@ endif()
 if(ALCEDO_OPENCL_ENABLED)
     set(OPENCL_RAW_UTILS_CL "${CMAKE_CURRENT_SOURCE_DIR}/decoders/processor/operators/gpu/opencl_shader/raw_utils_opencl.cl")
     set(OPENCL_RAW_TO_LINEAR_REF_CL "${CMAKE_CURRENT_SOURCE_DIR}/decoders/processor/operators/gpu/opencl_shader/to_linear_ref.cl")
+    set(OPENCL_DEBAYER_RCD_CL "${CMAKE_CURRENT_SOURCE_DIR}/decoders/processor/operators/gpu/opencl_shader/debayer_rcd.cl")
+    set(OPENCL_CVT_REF_SPACE_CL "${CMAKE_CURRENT_SOURCE_DIR}/decoders/processor/operators/gpu/opencl_shader/cvt_ref_space.cl")
     def_library(OpenClContext SOURCES opencl/opencl_context.cpp PUBLIC_DEPS OpenCL::OpenCL)
     def_library(OpenClProgramLibrary
         SOURCES
@@ -56,6 +58,8 @@ if(ALCEDO_OPENCL_ENABLED)
     target_compile_definitions(OpenClProgramLibrary PRIVATE
         ALCEDO_OPENCL_RAW_UTILS_CL="${OPENCL_RAW_UTILS_CL}"
         ALCEDO_OPENCL_RAW_TO_LINEAR_REF_CL="${OPENCL_RAW_TO_LINEAR_REF_CL}"
+        ALCEDO_OPENCL_DEBAYER_RCD_CL="${OPENCL_DEBAYER_RCD_CL}"
+        ALCEDO_OPENCL_CVT_REF_SPACE_CL="${OPENCL_CVT_REF_SPACE_CL}"
     )
 endif()
 
@@ -435,6 +439,8 @@ endif()
 if(ALCEDO_OPENCL_ENABLED)
     list(APPEND RAW_OP_GPU_SRCS
         decoders/processor/operators/gpu/opencl_to_linear_ref.cpp
+        decoders/processor/operators/gpu/opencl_debayer_rcd.cpp
+        decoders/processor/operators/gpu/opencl_cvt_ref_space.cpp
     )
 endif()
 

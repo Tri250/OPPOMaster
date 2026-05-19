@@ -21,6 +21,18 @@ void RegisterOpenClRawProcessorPrograms() {
                     .build_options   = "-cl-std=CL1.2",
                     .required_at_startup = false,
                 },
+                OpenClProgramDescriptor{
+                    .name            = "raw_processor_debayer_rcd",
+                    .source_paths    = {ALCEDO_OPENCL_RAW_UTILS_CL, ALCEDO_OPENCL_DEBAYER_RCD_CL},
+                    .build_options   = "-cl-std=CL1.2",
+                    .required_at_startup = false,
+                },
+                OpenClProgramDescriptor{
+                    .name            = "raw_processor_cvt_ref_space",
+                    .source_paths    = {ALCEDO_OPENCL_CVT_REF_SPACE_CL},
+                    .build_options   = "-cl-std=CL1.2",
+                    .required_at_startup = false,
+                },
             },
     });
   });

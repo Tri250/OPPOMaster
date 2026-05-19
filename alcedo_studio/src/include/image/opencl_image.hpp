@@ -46,6 +46,7 @@ class OpenClImage {
   void ShareFrom(const OpenClImage& src);
   void CopyTo(OpenClImage& dst) const;
   void ConvertTo(OpenClImage& dst, int type, double alpha = 1.0, double beta = 0.0) const;
+  void CropTo(OpenClImage& dst, const cv::Rect& crop_rect) const;
   void Release();
 };
 

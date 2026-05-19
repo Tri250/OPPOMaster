@@ -187,6 +187,35 @@ void OpenClImage::ConvertTo(OpenClImage& dst, int type, double alpha, double bet
   dst.Upload(converted);
 }
 
+void OpenClImage::CropTo(OpenClImage& dst, const cv::Rect& crop_rect) const {
+  if (Empty()) {
+    throw std::runtime_error("OpenClImage: cannot crop an empty image.");
+  }
+  if (crop_rect.x < 0 || crop_rect.y < 0 || crop_rect.width <= 0 || crop_rect.height <= 0 ||
+      crop_rect.x + crop_rect.width > width_ || crop_rect.y + crop_rect.height > height_) {
+    throw std::runtime_error("OpenClImage: invalid crop rectangle.");
+  }
+
+  dst.Create(crop_rect.width, crop_rect.height, type_);
+
+  auto& context = CheckedContext();
+  const size_t src_origin[3] = {
+      static_cast<size_t>(crop_rect.x) * CV_ELEM_SIZE(type_),
+      static_cast<size_t>(crop_rect.y),
+      0};
+  const size_t dst_origin[3] = {0, 0, 0};
+  const size_t region[3] = {
+      static_cast<size_t>(crop_rect.width) * CV_ELEM_SIZE(type_),
+      static_cast<size_t>(crop_rect.height),
+      1};
+
+  CheckOpenCl(
+      clEnqueueCopyBufferRect(context.Queue(), buffer_, dst.buffer_, src_origin, dst_origin, region,
+                              row_bytes_, 0, dst.row_bytes_, 0, 0, nullptr, nullptr),
+      "clEnqueueCopyBufferRect");
+  CheckOpenCl(clFinish(context.Queue()), "clFinish");
+}
+
 void OpenClImage::Release() {
   if (buffer_ != nullptr) {
     clReleaseMemObject(buffer_);

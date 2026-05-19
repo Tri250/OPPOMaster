@@ -147,6 +147,11 @@ if(ALCEDO_CUDA_ENABLED AND ALCEDO_OPENCL_ENABLED)
   target_include_directories(OpenClCudaToLinearRefCompareTest PUBLIC ${ALCEDO_INCLUDE_DIR})
   target_link_libraries(OpenClCudaToLinearRefCompareTest PRIVATE GTest::gtest_main RawProcessorOp ${ALCEDO_TEST_OPENCV_MIN_DEPS})
   gtest_discover_tests(OpenClCudaToLinearRefCompareTest TEST_PREFIX "OpenClCudaCompare.")
+
+  add_executable(OpenClCudaRcdCompareTest raw/opencl_cuda_rcd_compare_test.cpp)
+  target_include_directories(OpenClCudaRcdCompareTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+  target_link_libraries(OpenClCudaRcdCompareTest PRIVATE GTest::gtest_main RawProcessorOp ${ALCEDO_TEST_OPENCV_MIN_DEPS})
+  gtest_discover_tests(OpenClCudaRcdCompareTest TEST_PREFIX "OpenClCudaCompare.")
 endif()
 
 if(ALCEDO_METAL_ENABLED)
@@ -185,6 +190,18 @@ if(ALCEDO_OPENCL_ENABLED)
   target_include_directories(ImageBufferOpenClTest PUBLIC ${ALCEDO_INCLUDE_DIR})
   target_link_libraries(ImageBufferOpenClTest PRIVATE GTest::gtest_main ImageBuffer ${ALCEDO_TEST_OPENCV_MIN_DEPS})
   gtest_discover_tests(ImageBufferOpenClTest TEST_PREFIX "ImageBufferOpenClTest.")
+
+  add_executable(OpenCLRawPreview gui_pocs/opencl_raw_preview.cpp)
+  target_include_directories(OpenCLRawPreview PUBLIC ${ALCEDO_INCLUDE_DIR})
+  target_link_libraries(OpenCLRawPreview PRIVATE RawProcessor Qt6::Widgets ${ALCEDO_TEST_OPENCV_MIN_DEPS})
+  set(ALCEDO_QT_PLATFORMS_DIR "${Qt6_DIR}/../../../plugins/platforms")
+  add_custom_command(TARGET OpenCLRawPreview POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:OpenCLRawPreview>/platforms"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${ALCEDO_QT_PLATFORMS_DIR}"
+            "$<TARGET_FILE_DIR:OpenCLRawPreview>/platforms"
+    VERBATIM
+  )
 endif()
 
 # add_executable(ImageDecoderTest decoders/image_decoder_test.cpp)
@@ -695,6 +712,7 @@ alcedo_assign_test_category(storage ALCEDO_BUILD_STORAGE_TESTS alcedo_tests_stor
 
 alcedo_assign_test_category(demos ALCEDO_BUILD_DEMO_TARGETS alcedo_tests_demos
   ImagePreview
+  OpenCLRawPreview
   ThumbnailAlbumQtDemo
   CompleteUIDemo
   DngMetadataBenchmark
