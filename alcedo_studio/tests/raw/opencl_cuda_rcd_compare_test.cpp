@@ -191,16 +191,14 @@ void RunRcdComparison(const std::filesystem::path& test_img, const char* image_n
   // ------------------------------------------------------------------------
   // Compare
   // ------------------------------------------------------------------------
-  // OpenCL RCD crops the 4-pixel invalid border band, so the output is
-  // smaller than CUDA by 8 pixels in each dimension.  Compare the overlapping
-  // inner region.
+  // Both CUDA and OpenCL RCD crop the 4-pixel invalid border band.
   const int overlap_w = std::min(cuda_result.cols, opencl_result.cols);
   const int overlap_h = std::min(cuda_result.rows, opencl_result.rows);
 
   ASSERT_GT(overlap_w, 0) << "No overlapping region between CUDA and OpenCL outputs.";
   ASSERT_GT(overlap_h, 0) << "No overlapping region between CUDA and OpenCL outputs.";
 
-  const cv::Rect cuda_roi(4, 4, overlap_w, overlap_h);
+  const cv::Rect cuda_roi(0, 0, overlap_w, overlap_h);
   const cv::Rect opencl_roi(0, 0, overlap_w, overlap_h);
 
   const DiffStats diff_stats = ComputeMaxAbsDiff(cuda_result(cuda_roi), opencl_result(opencl_roi));

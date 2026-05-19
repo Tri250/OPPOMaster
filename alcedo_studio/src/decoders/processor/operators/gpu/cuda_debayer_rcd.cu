@@ -21,6 +21,7 @@
 #include <opencv2/core/cuda_stream_accessor.hpp>
 #include <opencv2/core/cuda_types.hpp>
 #include <sstream>
+#include <stdexcept>
 
 #include "decoders/processor/operators/gpu/cuda_raw_proc_utils.hpp"
 
@@ -32,7 +33,6 @@ namespace {
 constexpr float kEps              = 1e-5f;
 constexpr float kEpsSq            = 1e-10f;
 constexpr int   kRcdRadius        = 4;
-constexpr int   kEdgeFallbackRadius = kRcdRadius;
 constexpr int   kThreadsX         = 32;
 constexpr int   kThreadsY         = 8;
 constexpr int   kTileWidth        = kThreadsX + 2 * kRcdRadius;
@@ -49,11 +49,6 @@ __device__ __forceinline__ int FC(const BayerPattern2x2& pattern, const int y, c
 
 __device__ __forceinline__ int ClampCoord(const int value, const int limit) {
   return max(0, min(value, limit - 1));
-}
-
-__device__ __forceinline__ float SafeRawRead(const cv::cuda::PtrStep<float> raw, const int width,
-                                             const int height, const int y, const int x) {
-  return raw.ptr(ClampCoord(y, height))[ClampCoord(x, width)];
 }
 
 __device__ __forceinline__ void LoadRawTileFull(const cv::cuda::PtrStep<float> raw, const int width,
@@ -139,46 +134,6 @@ __device__ __forceinline__ float RcdDirectionalStat(const float c, const float m
   stat += m4 * m4;
   stat += p4 * p4;
   return fmaxf(stat, kEpsSq);
-}
-
-__device__ float EstimateEdgeChannel(const cv::cuda::PtrStep<float> raw, const int width,
-                                     const int height, const BayerPattern2x2& pattern, const int y,
-                                     const int x, const int target_color) {
-  if (FC(pattern, y, x) == target_color) {
-    return raw.ptr(y)[x];
-  }
-
-  float weighted_sum = 0.0f;
-  float weight_sum   = 0.0f;
-
-  for (int radius = 1; radius <= kEdgeFallbackRadius; ++radius) {
-    for (int dy = -radius; dy <= radius; ++dy) {
-      for (int dx = -radius; dx <= radius; ++dx) {
-        if (max(abs(dx), abs(dy)) != radius) {
-          continue;
-        }
-
-        const int sample_y = ClampCoord(y + dy, height);
-        const int sample_x = ClampCoord(x + dx, width);
-        if (FC(pattern, sample_y, sample_x) != target_color) {
-          continue;
-        }
-
-        const float weight = 1.0f / static_cast<float>(abs(dx) + abs(dy));
-        weighted_sum += SafeRawRead(raw, width, height, sample_y, sample_x) * weight;
-        weight_sum += weight;
-      }
-    }
-
-    if (weight_sum > 0.0f) {
-      break;
-    }
-  }
-
-  if (weight_sum > 0.0f) {
-    return weighted_sum / weight_sum;
-  }
-  return raw.ptr(y)[x];
 }
 
 __global__ void RCD_InitAndVHKernel(const cv::cuda::PtrStep<float> raw, cv::cuda::PtrStep<float> r,
@@ -618,27 +573,6 @@ __global__ void RCD_RBAtGKernel(const cv::cuda::PtrStep<float> vh_dir,
   }
 }
 
-__global__ void RCD_FillEdgeKernel(const cv::cuda::PtrStep<float> raw, cv::cuda::PtrStep<float> r,
-                                   cv::cuda::PtrStep<float> g, cv::cuda::PtrStep<float> b,
-                                   const int width, const int height, BayerPattern2x2 pattern) {
-  const int x = blockIdx.x * blockDim.x + threadIdx.x;
-  const int y = blockIdx.y * blockDim.y + threadIdx.y;
-  if (x >= width || y >= height) {
-    return;
-  }
-
-  if (y >= kEdgeFallbackRadius && y < height - kEdgeFallbackRadius && x >= kEdgeFallbackRadius &&
-      x < width - kEdgeFallbackRadius) {
-    return;
-  }
-
-  // RCD needs a 4-pixel neighborhood. Fill the border band with a simple CFA-aware fallback
-  // instead of cropping away valid output pixels.
-  r.ptr(y)[x] = EstimateEdgeChannel(raw, width, height, pattern, y, x, 0);
-  g.ptr(y)[x] = EstimateEdgeChannel(raw, width, height, pattern, y, x, 1);
-  b.ptr(y)[x] = EstimateEdgeChannel(raw, width, height, pattern, y, x, 2);
-}
-
 }  // namespace
 
 namespace {
@@ -651,6 +585,9 @@ void RunRcdKernels(const cv::cuda::GpuMat& raw, const BayerPattern2x2& pattern,
   if (width <= 0 || height <= 0) {
     return;
   }
+  if (width <= 2 * kRcdRadius || height <= 2 * kRcdRadius) {
+    throw std::runtime_error("CUDA RCD: image too small for RCD radius.");
+  }
 
   workspace.Reserve(cv::Size(width, height));
 
@@ -661,14 +598,13 @@ void RunRcdKernels(const cv::cuda::GpuMat& raw, const BayerPattern2x2& pattern,
   cv::cuda::GpuMat& pq_dir = workspace.pq_dir;
 
   const cudaStream_t cuda_stream = cv::cuda::StreamAccessor::getStream(stream);
-  constexpr std::array<const char*, 6> kStageNames = {"RAW CUDA RCD init+dir",
+  constexpr std::array<const char*, 5> kStageNames = {"RAW CUDA RCD init+dir",
                                                       "RAW CUDA RCD green@rb",
                                                       "RAW CUDA RCD rb@rb",
                                                       "RAW CUDA RCD rb@g",
-                                                      "RAW CUDA RCD fill-edge",
                                                       "RAW CUDA RCD merge"};
-  const size_t stage_count = merged_output == nullptr ? 5 : 6;
-  std::array<cudaEvent_t, 7> stage_events{};
+  const size_t stage_count = merged_output == nullptr ? 4 : 5;
+  std::array<cudaEvent_t, 6> stage_events{};
 
   if constexpr (kLogRcdKernelBreakdown) {
     for (cudaEvent_t& event : stage_events) {
@@ -709,21 +645,25 @@ void RunRcdKernels(const cv::cuda::GpuMat& raw, const BayerPattern2x2& pattern,
     CUDA_CHECK(cudaEventRecord(stage_events[4], cuda_stream));
   }
 
-  RCD_FillEdgeKernel<<<blocks, threads, 0, cuda_stream>>>(raw, r, g, b, width, height, pattern);
-  CUDA_CHECK(cudaGetLastError());
-  if constexpr (kLogRcdKernelBreakdown) {
-    CUDA_CHECK(cudaEventRecord(stage_events[5], cuda_stream));
-  }
+  const cv::Rect valid_roi(kRcdRadius, kRcdRadius, width - 2 * kRcdRadius,
+                           height - 2 * kRcdRadius);
+  cv::cuda::GpuMat r_valid = r(valid_roi);
+  cv::cuda::GpuMat g_valid = g(valid_roi);
+  cv::cuda::GpuMat b_valid = b(valid_roi);
 
   if (merged_output != nullptr) {
-    MergeRGB(r, g, b, *merged_output, &stream);
+    MergeRGB(r_valid, g_valid, b_valid, *merged_output, &stream);
     if constexpr (kLogRcdKernelBreakdown) {
-      CUDA_CHECK(cudaEventRecord(stage_events[6], cuda_stream));
+      CUDA_CHECK(cudaEventRecord(stage_events[5], cuda_stream));
     }
+  } else {
+    workspace.r = std::move(r_valid);
+    workspace.g = std::move(g_valid);
+    workspace.b = std::move(b_valid);
   }
 
   if constexpr (kLogRcdKernelBreakdown) {
-    const size_t last_event = merged_output == nullptr ? 5 : 6;
+    const size_t last_event = merged_output == nullptr ? 4 : 5;
     CUDA_CHECK(cudaEventSynchronize(stage_events[last_event]));
 
     std::ostringstream oss;
