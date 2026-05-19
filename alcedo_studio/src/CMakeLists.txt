@@ -38,17 +38,24 @@ if(ALCEDO_METAL_ENABLED)
 endif()
 
 if(ALCEDO_OPENCL_ENABLED)
+    set(OPENCL_RAW_UTILS_CL "${CMAKE_CURRENT_SOURCE_DIR}/decoders/processor/operators/gpu/opencl_shader/raw_utils_opencl.cl")
+    set(OPENCL_RAW_TO_LINEAR_REF_CL "${CMAKE_CURRENT_SOURCE_DIR}/decoders/processor/operators/gpu/opencl_shader/to_linear_ref.cl")
     def_library(OpenClContext SOURCES opencl/opencl_context.cpp PUBLIC_DEPS OpenCL::OpenCL)
     def_library(OpenClProgramLibrary
         SOURCES
             opencl/opencl_backend_program_registry.cpp
             opencl/opencl_program_library.cpp
             opencl/opencl_runtime.cpp
+            decoders/processor/operators/gpu/opencl_raw_programs.cpp
         PUBLIC_DEPS
             OpenClContext
             OpenCL::OpenCL
         PRIVATE_DEPS
             StrConv
+    )
+    target_compile_definitions(OpenClProgramLibrary PRIVATE
+        ALCEDO_OPENCL_RAW_UTILS_CL="${OPENCL_RAW_UTILS_CL}"
+        ALCEDO_OPENCL_RAW_TO_LINEAR_REF_CL="${OPENCL_RAW_TO_LINEAR_REF_CL}"
     )
 endif()
 
@@ -425,6 +432,11 @@ if(ALCEDO_METAL_ENABLED)
         decoders/processor/operators/gpu/metal_xtrans_interpolate.cpp
     )
 endif()
+if(ALCEDO_OPENCL_ENABLED)
+    list(APPEND RAW_OP_GPU_SRCS
+        decoders/processor/operators/gpu/opencl_to_linear_ref.cpp
+    )
+endif()
 
 # RawProcessorOp Target
 def_library(RawProcessorOp
@@ -447,6 +459,10 @@ if(ALCEDO_METAL_ENABLED)
         ALCEDO_METAL_XTRANS_INTERPOLATE_METALLIB_PATH="${METAL_XTRANS_INTERPOLATE_METALLIB}"
         ALCEDO_METAL_CVT_REF_SPACE_METALLIB_PATH="${METAL_CVT_REF_SPACE_METALLIB}"
     )
+endif()
+if(ALCEDO_OPENCL_ENABLED)
+    target_link_libraries(RawProcessorOp PUBLIC OpenClProgramLibrary)
+    target_compile_definitions(RawProcessorOp PUBLIC HAVE_OPENCL)
 endif()
 
 # --- Edit Operators ---
@@ -572,6 +588,9 @@ if(ALCEDO_CUDA_ENABLED)
 endif()
 if(ALCEDO_METAL_ENABLED)
     list(APPEND RAW_PROCESSOR_BACKEND_SRCS decoders/processor/raw_processor_metal.cpp)
+endif()
+if(ALCEDO_OPENCL_ENABLED)
+    list(APPEND RAW_PROCESSOR_BACKEND_SRCS decoders/processor/raw_processor_opencl.cpp)
 endif()
 
 def_library(RawProcessor

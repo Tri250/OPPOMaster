@@ -12,6 +12,9 @@
 #include <utility>
 
 namespace alcedo {
+
+void RegisterOpenClRawProcessorPrograms();
+
 namespace {
 
 void RegisterBuiltinOpenClProgramManifests() {
@@ -21,6 +24,7 @@ void RegisterBuiltinOpenClProgramManifests() {
     // This file is intentionally the app/project lifecycle aggregation point;
     // short-lived RAW processor or pipeline instances should not register
     // programs directly.
+    RegisterOpenClRawProcessorPrograms();
   });
 }
 

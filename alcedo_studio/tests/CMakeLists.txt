@@ -142,6 +142,13 @@ if(ALCEDO_CUDA_ENABLED)
   gtest_discover_tests(CudaRawOpsTest TEST_PREFIX "CudaRawOpsTest.")
 endif()
 
+if(ALCEDO_CUDA_ENABLED AND ALCEDO_OPENCL_ENABLED)
+  add_executable(OpenClCudaToLinearRefCompareTest raw/opencl_cuda_to_linear_ref_compare_test.cpp)
+  target_include_directories(OpenClCudaToLinearRefCompareTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+  target_link_libraries(OpenClCudaToLinearRefCompareTest PRIVATE GTest::gtest_main RawProcessorOp ${ALCEDO_TEST_OPENCV_MIN_DEPS})
+  gtest_discover_tests(OpenClCudaToLinearRefCompareTest TEST_PREFIX "OpenClCudaCompare.")
+endif()
+
 if(ALCEDO_METAL_ENABLED)
   add_executable(ImageBufferMetalTest image/image_buffer_metal_test.cpp)
   target_include_directories(ImageBufferMetalTest PUBLIC ${ALCEDO_INCLUDE_DIR})
@@ -649,6 +656,7 @@ alcedo_assign_test_category(gpu ALCEDO_BUILD_GPU_TESTS alcedo_tests_gpu
   MetalRawOpsTest
   ODTCudaSmokeTest
   CudaPreviewVramReclamationTest
+  OpenClCudaToLinearRefCompareTest
 )
 
 alcedo_assign_test_category(edit ALCEDO_BUILD_EDIT_TESTS alcedo_tests_edit

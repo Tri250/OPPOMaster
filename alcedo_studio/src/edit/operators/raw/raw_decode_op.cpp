@@ -88,6 +88,8 @@ auto RawGpuBackendToString(RawGpuBackend backend) -> const char* {
       return "cuda";
     case RawGpuBackend::Metal:
       return "metal";
+    case RawGpuBackend::OpenCL:
+      return "opencl";
     case RawGpuBackend::GPU:
       return "gpu";
     case RawGpuBackend::CPU:
@@ -208,10 +210,15 @@ auto RawDecodeOp::GetParams() const -> nlohmann::json {
   nlohmann::json inner;
 
   inner["gpu_backend"] = RawGpuBackendToString(params_.gpu_backend_);
-  inner["cuda"]        = false;
+  inner["cuda"]     = false;
 #ifdef HAVE_CUDA
   inner["cuda"] =
       (params_.gpu_backend_ == RawGpuBackend::GPU || params_.gpu_backend_ == RawGpuBackend::CUDA);
+#endif
+  inner["opencl"] = false;
+#ifdef HAVE_OPENCL
+  inner["opencl"] =
+      (params_.gpu_backend_ == RawGpuBackend::GPU || params_.gpu_backend_ == RawGpuBackend::OpenCL);
 #endif
   inner["highlights_reconstruct"] = params_.highlights_reconstruct_;
   inner["use_camera_wb"]          = params_.use_camera_wb_;
@@ -244,6 +251,8 @@ void RawDecodeOp::SetParams(const nlohmann::json& params) {
       params_.gpu_backend_ = RawGpuBackend::CUDA;
     } else if (backend == "metal") {
       params_.gpu_backend_ = RawGpuBackend::Metal;
+    } else if (backend == "opencl") {
+      params_.gpu_backend_ = RawGpuBackend::OpenCL;
     } else {
       throw std::runtime_error("RawDecodeOp: Unknown gpu_backend " + backend);
     }
