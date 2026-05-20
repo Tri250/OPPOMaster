@@ -45,6 +45,8 @@ if(ALCEDO_OPENCL_ENABLED)
     set(OPENCL_CVT_REF_SPACE_CL "${CMAKE_CURRENT_SOURCE_DIR}/decoders/processor/operators/gpu/opencl_shader/cvt_ref_space.cl")
     set(OPENCL_EDIT_PIPELINE_FUSED_PARAMS_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/fused_params.cl")
     set(OPENCL_EDIT_PIPELINE_FUSED_PARAMS_VALIDATION_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/fused_params_validation.cl")
+    set(OPENCL_GEOMETRY_UTILS_CL "${CMAKE_CURRENT_SOURCE_DIR}/opencl/opencl_shader/geometry_utils.cl")
+    set(OPENCL_EDIT_GEOMETRY_LENS_CALIB_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/operators/geometry/opencl_shader/lens_calib.cl")
     def_library(OpenClContext SOURCES opencl/opencl_context.cpp PUBLIC_DEPS OpenCL::OpenCL)
     def_library(OpenClProgramLibrary
         SOURCES
@@ -53,6 +55,7 @@ if(ALCEDO_OPENCL_ENABLED)
             opencl/opencl_runtime.cpp
             decoders/processor/operators/gpu/opencl_raw_programs.cpp
             edit/pipeline/opencl_pipeline_programs.cpp
+            opencl/opencl_geometry_programs.cpp
         PUBLIC_DEPS
             OpenClContext
             OpenCL::OpenCL
@@ -67,6 +70,8 @@ if(ALCEDO_OPENCL_ENABLED)
         ALCEDO_OPENCL_CVT_REF_SPACE_CL="${OPENCL_CVT_REF_SPACE_CL}"
         ALCEDO_OPENCL_EDIT_PIPELINE_FUSED_PARAMS_CL="${OPENCL_EDIT_PIPELINE_FUSED_PARAMS_CL}"
         ALCEDO_OPENCL_EDIT_PIPELINE_FUSED_PARAMS_VALIDATION_CL="${OPENCL_EDIT_PIPELINE_FUSED_PARAMS_VALIDATION_CL}"
+        ALCEDO_OPENCL_GEOMETRY_UTILS_CL="${OPENCL_GEOMETRY_UTILS_CL}"
+        ALCEDO_OPENCL_EDIT_GEOMETRY_LENS_CALIB_CL="${OPENCL_EDIT_GEOMETRY_LENS_CALIB_CL}"
     )
 endif()
 
@@ -390,6 +395,14 @@ if(ALCEDO_OPENCL_ENABLED)
     target_link_libraries(ImageBuffer PUBLIC OpenClContext)
 endif()
 
+if(ALCEDO_OPENCL_ENABLED)
+    def_library(OpenClGeometryUtils
+        SOURCES opencl/opencl_geometry_utils.cpp
+        PUBLIC_DEPS ImageBuffer OpenClProgramLibrary ${ALCEDO_OPENCV_CORE_DEPS}
+    )
+    target_compile_definitions(OpenClGeometryUtils PUBLIC HAVE_OPENCL)
+endif()
+
 # Image Base
 def_library(Image
     SOURCES image/image.cpp 
@@ -522,6 +535,11 @@ if(ALCEDO_METAL_ENABLED)
         edit/operators/geometry/metal_lens_calib.cpp
     )
 endif()
+if(ALCEDO_OPENCL_ENABLED)
+    list(APPEND OPERATORS_SRCS
+        edit/operators/geometry/opencl_lens_calib_ops.cpp
+    )
+endif()
 
 def_library(Operators
     SOURCES ${OPERATORS_SRCS}
@@ -537,6 +555,10 @@ if(ALCEDO_METAL_ENABLED)
     target_compile_definitions(Operators PRIVATE
         ALCEDO_METAL_LENS_CALIB_METALLIB_PATH="${METAL_LENS_CALIB_METALLIB}"
     )
+endif()
+if(ALCEDO_OPENCL_ENABLED)
+    target_compile_definitions(Operators PUBLIC HAVE_OPENCL)
+    target_link_libraries(Operators PRIVATE OpenClProgramLibrary OpenClGeometryUtils)
 endif()
 if(DEFINED ALCEDO_LENSFUN_INCLUDE_DIR AND NOT "${ALCEDO_LENSFUN_INCLUDE_DIR}" STREQUAL "")
     target_include_directories(Operators SYSTEM BEFORE PUBLIC "${ALCEDO_LENSFUN_INCLUDE_DIR}")
@@ -622,6 +644,9 @@ def_library(RawProcessor
     PUBLIC_DEPS Image libraw::raw_r Exiv2 RawProcessorOp
     PRIVATE_DEPS opencv_imgproc
 )
+if(ALCEDO_OPENCL_ENABLED)
+    target_link_libraries(RawProcessor PRIVATE OpenClGeometryUtils)
+endif()
 
 # ==============================================================================
 # 4. Decoding & IO

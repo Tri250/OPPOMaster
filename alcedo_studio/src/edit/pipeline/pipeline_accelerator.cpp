@@ -46,8 +46,8 @@ void PrepareExplicitOpenClRuntime() {
 }
 
 [[noreturn]] void ThrowUnavailableBackend(std::string_view backend) {
-  throw std::runtime_error("Requested accelerator backend is unavailable: " +
-                           std::string(backend) + ".");
+  throw std::runtime_error("Requested accelerator backend is unavailable: " + std::string(backend) +
+                           ".");
 }
 
 }  // namespace
@@ -168,6 +168,11 @@ auto IsImplementedGeometryOperatorBackend(GpuBackendKind backend) -> bool {
       return false;
 #endif
     case GpuBackendKind::OpenCL:
+#ifdef HAVE_OPENCL
+      return true;
+#else
+      return false;
+#endif
     case GpuBackendKind::None:
       return false;
   }

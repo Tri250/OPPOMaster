@@ -521,6 +521,13 @@ if(ALCEDO_OPENCL_ENABLED)
   gtest_discover_tests(OpenClRuntimeTest TEST_PREFIX "OpenClRuntimeTest.")
 endif()
 
+if(ALCEDO_CUDA_ENABLED AND ALCEDO_OPENCL_ENABLED)
+  add_executable(OpenClGeometryUtilsTest opencl/opencl_geometry_utils_test.cpp)
+  target_include_directories(OpenClGeometryUtilsTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+  target_link_libraries(OpenClGeometryUtilsTest PRIVATE GTest::gtest_main Operators RawProcessorOp OpenClGeometryUtils ${ALCEDO_TEST_OPENCV_MIN_DEPS})
+  gtest_discover_tests(OpenClGeometryUtilsTest TEST_PREFIX "OpenClGeometryUtilsTest.")
+endif()
+
 add_executable(ImagePathEncodingTest io/image_path_encoding_test.cpp)
 target_include_directories(ImagePathEncodingTest PUBLIC ${ALCEDO_INCLUDE_DIR})
 target_link_libraries(ImagePathEncodingTest PRIVATE GTest::gtest_main ImageLoader StorageService)
@@ -686,6 +693,7 @@ alcedo_assign_test_category(gpu ALCEDO_BUILD_GPU_TESTS alcedo_tests_gpu
   ODTCudaSmokeTest
   CudaPreviewVramReclamationTest
   OpenClCudaToLinearRefCompareTest
+  OpenClGeometryUtilsTest
 )
 
 alcedo_assign_test_category(edit ALCEDO_BUILD_EDIT_TESTS alcedo_tests_edit

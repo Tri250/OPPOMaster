@@ -32,6 +32,9 @@
 #ifdef HAVE_METAL
 #include "edit/operators/geometry/metal_lens_calib.hpp"
 #endif
+#ifdef HAVE_OPENCL
+#include "edit/operators/geometry/opencl_lens_calib_ops.hpp"
+#endif
 #include "utils/string/convert.hpp"
 
 namespace alcedo {
@@ -599,86 +602,139 @@ void LensCalibOp::ApplyGPU(std::shared_ptr<ImageBuffer> input) {
   if (!input->gpu_data_valid_) {
     input->SyncToGPU();
   }
-#if defined(HAVE_CUDA)
-  auto& gpu = input->GetCUDAImage();
-  if (gpu.empty()) {
-    std::cout << "LensCalibOp: Input GPU data is empty, skipping lens calibration." << std::endl;
+
+#if !defined(HAVE_CUDA) && !defined(HAVE_METAL) && !defined(HAVE_OPENCL)
+  throw std::runtime_error("LensCalibOp::ApplyGPU requires HAVE_CUDA, HAVE_METAL, or HAVE_OPENCL");
+#else
+
+#ifdef HAVE_OPENCL
+  if (input->GetGPUBackend() == GpuBackendKind::OpenCL) {
+    auto& gpu = input->GetOpenClImage();
+    if (gpu.Empty()) {
+      std::cout << "LensCalibOp: Input GPU data is empty, skipping lens calibration." << std::endl;
+      return;
+    }
+
+    resolved_params_.src_width  = static_cast<std::int32_t>(gpu.Width());
+    resolved_params_.src_height = static_cast<std::int32_t>(gpu.Height());
+    resolved_params_.dst_width  = static_cast<std::int32_t>(gpu.Width());
+    resolved_params_.dst_height = static_cast<std::int32_t>(gpu.Height());
+    if (resolved_params_.use_auto_scale != 0 && resolved_params_.use_user_scale == 0) {
+      resolved_params_.resolved_scale = ResolveScaleForImageSize(
+          resolved_input_meta_, lens_profile_db_path_, resolved_params_, gpu.Width(), gpu.Height());
+    }
+
+    const double width       = (gpu.Width() >= 2) ? static_cast<double>(gpu.Width() - 1) : 1.0;
+    const double height      = (gpu.Height() >= 2) ? static_cast<double>(gpu.Height() - 1) : 1.0;
+    const double crop_factor = IsFinitePositive(resolved_params_.camera_crop_factor)
+                                   ? resolved_params_.camera_crop_factor
+                                   : 1.0;
+    const double real_focal =
+        IsFinitePositive(resolved_params_.real_focal_mm) ? resolved_params_.real_focal_mm : 1.0;
+
+    const double norm_scale = static_cast<double>(kFullFrameDiagonalMm) / crop_factor /
+                              std::hypot(width + 1.0, height + 1.0) / real_focal;
+    resolved_params_.norm_scale = static_cast<float>(norm_scale);
+    resolved_params_.norm_unscale =
+        (std::fabs(norm_scale) > kEpsilon) ? static_cast<float>(1.0 / norm_scale) : 1.0f;
+    const double min_size     = std::min(width, height);
+    resolved_params_.center_x = static_cast<float>(
+        (width * 0.5 + min_size * 0.5 * resolved_params_.lens_center_x) * norm_scale);
+    resolved_params_.center_y = static_cast<float>(
+        (height * 0.5 + min_size * 0.5 * resolved_params_.lens_center_y) * norm_scale);
+
+    OpenCL::Geometry::ApplyLensCalibration(gpu, resolved_params_);
+    input->gpu_data_valid_ = true;
     return;
   }
-
-  resolved_params_.src_width  = gpu.cols;
-  resolved_params_.src_height = gpu.rows;
-  resolved_params_.dst_width  = gpu.cols;
-  resolved_params_.dst_height = gpu.rows;
-  if (resolved_params_.use_auto_scale != 0 && resolved_params_.use_user_scale == 0) {
-    resolved_params_.resolved_scale =
-        ResolveScaleForImageSize(resolved_input_meta_, lens_profile_db_path_, resolved_params_,
-                                 gpu.cols, gpu.rows);
-  }
-
-  const double width          = (gpu.cols >= 2) ? static_cast<double>(gpu.cols - 1) : 1.0;
-  const double height         = (gpu.rows >= 2) ? static_cast<double>(gpu.rows - 1) : 1.0;
-  const double crop_factor    = IsFinitePositive(resolved_params_.camera_crop_factor)
-                                    ? resolved_params_.camera_crop_factor
-                                    : 1.0;
-  const double real_focal =
-      IsFinitePositive(resolved_params_.real_focal_mm) ? resolved_params_.real_focal_mm : 1.0;
-
-  const double norm_scale = static_cast<double>(kFullFrameDiagonalMm) / crop_factor /
-                            std::hypot(width + 1.0, height + 1.0) / real_focal;
-  resolved_params_.norm_scale = static_cast<float>(norm_scale);
-  resolved_params_.norm_unscale =
-      (std::fabs(norm_scale) > kEpsilon) ? static_cast<float>(1.0 / norm_scale) : 1.0f;
-  const double min_size = std::min(width, height);
-  resolved_params_.center_x = static_cast<float>(
-      (width * 0.5 + min_size * 0.5 * resolved_params_.lens_center_x) * norm_scale);
-  resolved_params_.center_y = static_cast<float>(
-      (height * 0.5 + min_size * 0.5 * resolved_params_.lens_center_y) * norm_scale);
+#endif
 
 #ifdef HAVE_CUDA
-  CUDA::ApplyLensCalibration(gpu, resolved_params_);
-  input->gpu_data_valid_ = true;
-#endif
-#elif defined(HAVE_METAL)
-  auto& gpu = input->GetMetalImage();
-  if (gpu.Empty()) {
-    std::cout << "LensCalibOp: Input GPU data is empty, skipping lens calibration." << std::endl;
+  if (input->GetGPUBackend() == GpuBackendKind::CUDA) {
+    auto& gpu = input->GetCUDAImage();
+    if (gpu.empty()) {
+      std::cout << "LensCalibOp: Input GPU data is empty, skipping lens calibration." << std::endl;
+      return;
+    }
+
+    resolved_params_.src_width  = gpu.cols;
+    resolved_params_.src_height = gpu.rows;
+    resolved_params_.dst_width  = gpu.cols;
+    resolved_params_.dst_height = gpu.rows;
+    if (resolved_params_.use_auto_scale != 0 && resolved_params_.use_user_scale == 0) {
+      resolved_params_.resolved_scale = ResolveScaleForImageSize(
+          resolved_input_meta_, lens_profile_db_path_, resolved_params_, gpu.cols, gpu.rows);
+    }
+
+    const double width       = (gpu.cols >= 2) ? static_cast<double>(gpu.cols - 1) : 1.0;
+    const double height      = (gpu.rows >= 2) ? static_cast<double>(gpu.rows - 1) : 1.0;
+    const double crop_factor = IsFinitePositive(resolved_params_.camera_crop_factor)
+                                   ? resolved_params_.camera_crop_factor
+                                   : 1.0;
+    const double real_focal =
+        IsFinitePositive(resolved_params_.real_focal_mm) ? resolved_params_.real_focal_mm : 1.0;
+
+    const double norm_scale = static_cast<double>(kFullFrameDiagonalMm) / crop_factor /
+                              std::hypot(width + 1.0, height + 1.0) / real_focal;
+    resolved_params_.norm_scale = static_cast<float>(norm_scale);
+    resolved_params_.norm_unscale =
+        (std::fabs(norm_scale) > kEpsilon) ? static_cast<float>(1.0 / norm_scale) : 1.0f;
+    const double min_size     = std::min(width, height);
+    resolved_params_.center_x = static_cast<float>(
+        (width * 0.5 + min_size * 0.5 * resolved_params_.lens_center_x) * norm_scale);
+    resolved_params_.center_y = static_cast<float>(
+        (height * 0.5 + min_size * 0.5 * resolved_params_.lens_center_y) * norm_scale);
+
+    CUDA::ApplyLensCalibration(gpu, resolved_params_);
+    input->gpu_data_valid_ = true;
     return;
   }
+#endif
 
-  resolved_params_.src_width  = static_cast<std::int32_t>(gpu.Width());
-  resolved_params_.src_height = static_cast<std::int32_t>(gpu.Height());
-  resolved_params_.dst_width  = static_cast<std::int32_t>(gpu.Width());
-  resolved_params_.dst_height = static_cast<std::int32_t>(gpu.Height());
-  if (resolved_params_.use_auto_scale != 0 && resolved_params_.use_user_scale == 0) {
-    resolved_params_.resolved_scale =
-        ResolveScaleForImageSize(resolved_input_meta_, lens_profile_db_path_, resolved_params_,
-                                 static_cast<int>(gpu.Width()), static_cast<int>(gpu.Height()));
+#ifdef HAVE_METAL
+  if (input->GetGPUBackend() == GpuBackendKind::Metal) {
+    auto& gpu = input->GetMetalImage();
+    if (gpu.Empty()) {
+      std::cout << "LensCalibOp: Input GPU data is empty, skipping lens calibration." << std::endl;
+      return;
+    }
+
+    resolved_params_.src_width  = static_cast<std::int32_t>(gpu.Width());
+    resolved_params_.src_height = static_cast<std::int32_t>(gpu.Height());
+    resolved_params_.dst_width  = static_cast<std::int32_t>(gpu.Width());
+    resolved_params_.dst_height = static_cast<std::int32_t>(gpu.Height());
+    if (resolved_params_.use_auto_scale != 0 && resolved_params_.use_user_scale == 0) {
+      resolved_params_.resolved_scale =
+          ResolveScaleForImageSize(resolved_input_meta_, lens_profile_db_path_, resolved_params_,
+                                   static_cast<int>(gpu.Width()), static_cast<int>(gpu.Height()));
+    }
+
+    const double width       = (gpu.Width() >= 2U) ? static_cast<double>(gpu.Width() - 1U) : 1.0;
+    const double height      = (gpu.Height() >= 2U) ? static_cast<double>(gpu.Height() - 1U) : 1.0;
+    const double crop_factor = IsFinitePositive(resolved_params_.camera_crop_factor)
+                                   ? resolved_params_.camera_crop_factor
+                                   : 1.0;
+    const double real_focal =
+        IsFinitePositive(resolved_params_.real_focal_mm) ? resolved_params_.real_focal_mm : 1.0;
+
+    const double norm_scale = static_cast<double>(kFullFrameDiagonalMm) / crop_factor /
+                              std::hypot(width + 1.0, height + 1.0) / real_focal;
+    resolved_params_.norm_scale = static_cast<float>(norm_scale);
+    resolved_params_.norm_unscale =
+        (std::fabs(norm_scale) > kEpsilon) ? static_cast<float>(1.0 / norm_scale) : 1.0f;
+    const double min_size     = std::min(width, height);
+    resolved_params_.center_x = static_cast<float>(
+        (width * 0.5 + min_size * 0.5 * resolved_params_.lens_center_x) * norm_scale);
+    resolved_params_.center_y = static_cast<float>(
+        (height * 0.5 + min_size * 0.5 * resolved_params_.lens_center_y) * norm_scale);
+
+    metal::ApplyLensCalibration(gpu, resolved_params_);
+    input->gpu_data_valid_ = true;
+    return;
   }
+#endif
 
-  const double width          = (gpu.Width() >= 2U) ? static_cast<double>(gpu.Width() - 1U) : 1.0;
-  const double height         = (gpu.Height() >= 2U) ? static_cast<double>(gpu.Height() - 1U) : 1.0;
-  const double crop_factor    = IsFinitePositive(resolved_params_.camera_crop_factor)
-                                    ? resolved_params_.camera_crop_factor
-                                    : 1.0;
-  const double real_focal =
-      IsFinitePositive(resolved_params_.real_focal_mm) ? resolved_params_.real_focal_mm : 1.0;
-
-  const double norm_scale = static_cast<double>(kFullFrameDiagonalMm) / crop_factor /
-                            std::hypot(width + 1.0, height + 1.0) / real_focal;
-  resolved_params_.norm_scale = static_cast<float>(norm_scale);
-  resolved_params_.norm_unscale =
-      (std::fabs(norm_scale) > kEpsilon) ? static_cast<float>(1.0 / norm_scale) : 1.0f;
-  const double min_size = std::min(width, height);
-  resolved_params_.center_x = static_cast<float>(
-      (width * 0.5 + min_size * 0.5 * resolved_params_.lens_center_x) * norm_scale);
-  resolved_params_.center_y = static_cast<float>(
-      (height * 0.5 + min_size * 0.5 * resolved_params_.lens_center_y) * norm_scale);
-
-  metal::ApplyLensCalibration(gpu, resolved_params_);
-  input->gpu_data_valid_ = true;
-#else
-  throw std::runtime_error("LensCalibOp::ApplyGPU requires HAVE_CUDA or HAVE_METAL");
+  throw std::runtime_error("LensCalibOp::ApplyGPU: active GPU backend is not supported");
 #endif
 }
 
@@ -929,10 +985,10 @@ void LensCalibOp::ResolveRuntime(OperatorParams& params) const {
   lfLensCalibCrop crop{};
   const bool      crop_ok =
       lf_lens_interpolate_crop(lens, crop_factor, meta.focal_length_mm_, &crop) != 0;
-  const bool      dng_geometry_wins = params.raw_dng_warp_rectilinear_present_;
+  const bool         dng_geometry_wins = params.raw_dng_warp_rectilinear_present_;
 
   LensCalibGpuParams runtime{};
-  resolved_input_meta_ = meta;
+  resolved_input_meta_          = meta;
   runtime.src_width             = 0;
   runtime.src_height            = 0;
   runtime.nominal_focal_mm      = meta.focal_length_mm_;
@@ -965,7 +1021,8 @@ void LensCalibOp::ResolveRuntime(OperatorParams& params) const {
 
   const bool projection_valid = target_projection != LensCalibProjectionType::UNKNOWN &&
                                 target_projection != LensTypeFromLensfun(lens->Type);
-  runtime.apply_projection = (!dng_geometry_wins && projection_enabled_ && projection_valid) ? 1 : 0;
+  runtime.apply_projection =
+      (!dng_geometry_wins && projection_enabled_ && projection_valid) ? 1 : 0;
 
   const bool crop_profile_valid =
       crop_ok && (crop.CropMode == LF_CROP_RECTANGLE || crop.CropMode == LF_CROP_CIRCLE);
@@ -1019,7 +1076,7 @@ void LensCalibOp::ResolveRuntime(OperatorParams& params) const {
   if (use_user_scale_ && IsFinitePositive(user_scale_)) {
     runtime.resolved_scale = user_scale_;
   } else if (auto_scale_) {
-    runtime.resolved_scale              = ResolveScaleFromModifier(
+    runtime.resolved_scale = ResolveScaleFromModifier(
         lens, meta.focal_length_mm_, crop_factor, 4096, 4096, runtime.apply_distortion != 0,
         runtime.apply_tca != 0, runtime.apply_projection != 0,
         LensTypeToLensfun(target_projection));
@@ -1044,13 +1101,10 @@ void LensCalibOp::ResolveRuntime(OperatorParams& params) const {
             << " apply_distortion=" << runtime.apply_distortion
             << " apply_tca=" << runtime.apply_tca
             << " apply_projection=" << runtime.apply_projection
-            << " apply_crop=" << runtime.apply_crop
-            << " dng_geometry_wins=" << dng_geometry_wins
-            << " crop_mode=" << runtime.crop_mode
-            << " resolved_scale=" << runtime.resolved_scale
-            << " crop_bounds=[" << runtime.crop_bounds[0] << ", " << runtime.crop_bounds[1]
-            << ", " << runtime.crop_bounds[2] << ", " << runtime.crop_bounds[3] << "]"
-            << std::endl;
+            << " apply_crop=" << runtime.apply_crop << " dng_geometry_wins=" << dng_geometry_wins
+            << " crop_mode=" << runtime.crop_mode << " resolved_scale=" << runtime.resolved_scale
+            << " crop_bounds=[" << runtime.crop_bounds[0] << ", " << runtime.crop_bounds[1] << ", "
+            << runtime.crop_bounds[2] << ", " << runtime.crop_bounds[3] << "]" << std::endl;
 
   if (runtime.apply_vignetting == 0 && runtime.apply_distortion == 0 && runtime.apply_tca == 0 &&
       runtime.apply_projection == 0 && runtime.apply_crop == 0) {

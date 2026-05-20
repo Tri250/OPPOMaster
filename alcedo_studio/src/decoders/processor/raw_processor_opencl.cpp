@@ -17,6 +17,7 @@
 #include "decoders/processor/operators/gpu/opencl_highlight_reconstruct.hpp"
 #include "decoders/processor/operators/gpu/opencl_to_linear_ref.hpp"
 #include "decoders/processor/raw_processor_internal.hpp"
+#include "opencl/opencl_geometry_utils.hpp"
 
 namespace alcedo {
 
@@ -27,9 +28,9 @@ using ProfileClock = std::chrono::steady_clock;
 struct DeferredOpenClLog {
   std::vector<std::string> entries;
 
-  void Add(std::string entry) { entries.push_back(std::move(entry)); }
+  void                     Add(std::string entry) { entries.push_back(std::move(entry)); }
 
-  void Flush() const {
+  void                     Flush() const {
     if (entries.empty()) {
       return;
     }
@@ -57,13 +58,38 @@ void LogProfileStep(DeferredOpenClLog& log, const char* label,
   PrintProfileMs(log, label, ProfileClock::now() - start);
 }
 
+void ApplyOpenClGeometricCorrections(opencl::OpenClImage& gpu_img, const int flip) {
+  switch (flip) {
+    case 3:
+      OpenCL::Geometry::Rotate180(gpu_img);
+      break;
+    case 5:
+      OpenCL::Geometry::Rotate90CCW(gpu_img);
+      break;
+    case 6:
+      OpenCL::Geometry::Rotate90CW(gpu_img);
+      break;
+    default:
+      break;
+  }
+}
+
+void CropOpenClImage(opencl::OpenClImage& gpu_img, const cv::Rect& crop_rect) {
+  if (detail::IsFullImageRect(crop_rect, cv::Size(gpu_img.Width(), gpu_img.Height()))) {
+    return;
+  }
+  opencl::OpenClImage cropped;
+  OpenCL::Geometry::CropResize(gpu_img, cropped, crop_rect, crop_rect.size());
+  gpu_img = std::move(cropped);
+}
+
 }  // namespace
 
 auto RawProcessor::ProcessDirectRgbOpenCL() -> ImageBuffer {
   process_buffer_.SyncToGPU(GpuBackendKind::OpenCL);
   process_buffer_.ReleaseCPUData();
-  // TODO: Apply geometric corrections on OpenCL when implemented.
-  // For now the buffer stays on the GPU for downstream consumption.
+  auto& gpu_img = process_buffer_.GetOpenClImage();
+  ApplyOpenClGeometricCorrections(gpu_img, raw_data_.sizes.flip);
   return {std::move(process_buffer_)};
 }
 
@@ -73,10 +99,10 @@ auto RawProcessor::ProcessOpenCL() -> ImageBuffer {
   }
 
   DeferredOpenClLog deferred_log;
-  const auto        full_frame_start = ProfileClock::now();
+  const auto        full_frame_start       = ProfileClock::now();
 
   // CPU downsample (same as Metal / CUDA paths).
-  const auto stage_decode_res_start = ProfileClock::now();
+  const auto        stage_decode_res_start = ProfileClock::now();
   SetDecodeRes();
   LogProfileStep(deferred_log, "RAW OpenCL setup decode-res", stage_decode_res_start);
 
@@ -85,7 +111,7 @@ auto RawProcessor::ProcessOpenCL() -> ImageBuffer {
   process_buffer_.ReleaseCPUData();
   LogProfileStep(deferred_log, "RAW OpenCL sync/upload", stage_upload_start);
 
-  auto& gpu_img = process_buffer_.GetOpenClImage();
+  auto&      gpu_img            = process_buffer_.GetOpenClImage();
 
   const auto stage_linear_start = ProfileClock::now();
   OpenCL::ToLinearRef(gpu_img, raw_processor_, cfa_pattern_);
@@ -96,15 +122,11 @@ auto RawProcessor::ProcessOpenCL() -> ImageBuffer {
     OpenCL::Bayer2x2ToRGB_RCD(gpu_img, cfa_pattern_.bayer_pattern);
     LogProfileStep(deferred_log, "RAW OpenCL debayer", stage_debayer_start);
 
-    const auto stage_crop_start = ProfileClock::now();
-    const cv::Rect crop_rect = detail::BuildDecodeCropRect(
-        raw_data_.sizes, default_crop_,
-        cv::Size(gpu_img.Width(), gpu_img.Height()), params_.decode_res_);
-    if (!detail::IsFullImageRect(crop_rect, cv::Size(gpu_img.Width(), gpu_img.Height()))) {
-      opencl::OpenClImage cropped;
-      gpu_img.CropTo(cropped, crop_rect);
-      gpu_img = std::move(cropped);
-    }
+    const auto     stage_crop_start = ProfileClock::now();
+    const cv::Rect crop_rect        = detail::BuildDecodeCropRect(
+        raw_data_.sizes, default_crop_, cv::Size(gpu_img.Width(), gpu_img.Height()),
+        params_.decode_res_);
+    CropOpenClImage(gpu_img, crop_rect);
     LogProfileStep(deferred_log, "RAW OpenCL crop", stage_crop_start);
 
     const auto stage_highlight_start = ProfileClock::now();
@@ -120,15 +142,11 @@ auto RawProcessor::ProcessOpenCL() -> ImageBuffer {
       LogProfileStep(deferred_log, "RAW OpenCL debayer", stage_debayer_start);
     }
 
-    const auto stage_crop_start = ProfileClock::now();
-    const cv::Rect crop_rect = detail::BuildDecodeCropRect(
-        raw_data_.sizes, default_crop_,
-        cv::Size(gpu_img.Width(), gpu_img.Height()), params_.decode_res_);
-    if (!detail::IsFullImageRect(crop_rect, cv::Size(gpu_img.Width(), gpu_img.Height()))) {
-      opencl::OpenClImage cropped;
-      gpu_img.CropTo(cropped, crop_rect);
-      gpu_img = std::move(cropped);
-    }
+    const auto     stage_crop_start = ProfileClock::now();
+    const cv::Rect crop_rect        = detail::BuildDecodeCropRect(
+        raw_data_.sizes, default_crop_, cv::Size(gpu_img.Width(), gpu_img.Height()),
+        params_.decode_res_);
+    CropOpenClImage(gpu_img, crop_rect);
     LogProfileStep(deferred_log, "RAW OpenCL crop", stage_crop_start);
   }
 
@@ -141,8 +159,9 @@ auto RawProcessor::ProcessOpenCL() -> ImageBuffer {
   }
 
   runtime_color_context_.output_in_camera_space_ = true;
-  // TODO: Apply geometric corrections on OpenCL when implemented.
-  // For now the buffer stays on the GPU for downstream consumption.
+  const auto stage_geo_start                     = ProfileClock::now();
+  ApplyOpenClGeometricCorrections(gpu_img, raw_data_.sizes.flip);
+  LogProfileStep(deferred_log, "RAW OpenCL geometric corrections", stage_geo_start);
 
   PrintProfileMs(deferred_log, "RAW OpenCL FullFrame", ProfileClock::now() - full_frame_start);
   deferred_log.Flush();

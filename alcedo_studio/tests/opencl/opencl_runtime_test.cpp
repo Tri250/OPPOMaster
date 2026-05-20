@@ -2,11 +2,6 @@
 //  SPDX-License-Identifier: GPL-3.0-only
 //  Additional permission under GPLv3 section 7 applies; see the LICENSE file.
 
-#include "edit/pipeline/opencl_pipeline_programs.hpp"
-#include "opencl/opencl_backend_program_registry.hpp"
-#include "opencl/opencl_context.hpp"
-#include "opencl/opencl_program_library.hpp"
-
 #include <gtest/gtest.h>
 
 #include <chrono>
@@ -17,6 +12,12 @@
 #include <numeric>
 #include <string>
 #include <vector>
+
+#include "edit/pipeline/opencl_pipeline_programs.hpp"
+#include "opencl/opencl_backend_program_registry.hpp"
+#include "opencl/opencl_context.hpp"
+#include "opencl/opencl_geometry_programs.hpp"
+#include "opencl/opencl_program_library.hpp"
 
 namespace alcedo {
 namespace {
@@ -29,9 +30,8 @@ auto UniqueProgramName(const char* suffix) -> std::string {
 auto MakeUniqueTempDirectory() -> std::filesystem::path {
   const auto tick = std::chrono::steady_clock::now().time_since_epoch().count();
 #if defined(_WIN32)
-  const auto path =
-      std::filesystem::temp_directory_path() / (std::wstring(L"alcedo_opencl_测试_") +
-                                                std::to_wstring(tick));
+  const auto path = std::filesystem::temp_directory_path() /
+                    (std::wstring(L"alcedo_opencl_测试_") + std::to_wstring(tick));
 #else
   const auto path =
       std::filesystem::temp_directory_path() / ("alcedo_opencl_test_" + std::to_string(tick));
@@ -138,10 +138,10 @@ auto ComputeCpuMidpointSquareIntegral(cl_uint sample_count) -> double {
 }
 
 auto ComputeCpuIteratedIntegral(cl_uint sample_count, cl_uint iteration_count) -> double {
-  const float dx = 1.0F / static_cast<float>(sample_count);
+  const float dx  = 1.0F / static_cast<float>(sample_count);
   double      sum = 0.0;
   for (cl_uint index = 0; index < sample_count; ++index) {
-    const float x = (static_cast<float>(index) + 0.5F) * dx;
+    const float x     = (static_cast<float>(index) + 0.5F) * dx;
     float       value = x;
     for (cl_uint iteration = 0; iteration < iteration_count; ++iteration) {
       value = value * 0.99991F + 0.00009F * (x + static_cast<float>(iteration & 7U));
@@ -155,9 +155,9 @@ auto RunMidpointSquareIntegration(OpenClContext& context, cl_program program, cl
     -> double {
   std::vector<float> partials(sample_count, 0.0F);
 
-  cl_int error = CL_SUCCESS;
-  ClMemGuard partials_buffer(clCreateBuffer(context.Context(), CL_MEM_WRITE_ONLY,
-                                            partials.size() * sizeof(float), nullptr, &error));
+  cl_int             error = CL_SUCCESS;
+  ClMemGuard         partials_buffer(clCreateBuffer(context.Context(), CL_MEM_WRITE_ONLY,
+                                                    partials.size() * sizeof(float), nullptr, &error));
   EXPECT_EQ(error, CL_SUCCESS);
   EXPECT_NE(partials_buffer.Get(), nullptr);
   if (error != CL_SUCCESS || partials_buffer.Get() == nullptr) {
@@ -179,10 +179,10 @@ auto RunMidpointSquareIntegration(OpenClContext& context, cl_program program, cl
   EXPECT_EQ(clEnqueueNDRangeKernel(context.Queue(), kernel.Get(), 1, nullptr, &global_work_size,
                                    nullptr, 0, nullptr, nullptr),
             CL_SUCCESS);
-  EXPECT_EQ(clEnqueueReadBuffer(context.Queue(), partials_buffer.Get(), CL_TRUE, 0,
-                                partials.size() * sizeof(float), partials.data(), 0, nullptr,
-                                nullptr),
-            CL_SUCCESS);
+  EXPECT_EQ(
+      clEnqueueReadBuffer(context.Queue(), partials_buffer.Get(), CL_TRUE, 0,
+                          partials.size() * sizeof(float), partials.data(), 0, nullptr, nullptr),
+      CL_SUCCESS);
 
   return std::accumulate(partials.begin(), partials.end(), 0.0);
 }
@@ -191,9 +191,9 @@ auto RunIteratedIntegration(OpenClContext& context, cl_program program, cl_uint 
                             cl_uint iteration_count) -> double {
   std::vector<float> partials(sample_count, 0.0F);
 
-  cl_int error = CL_SUCCESS;
-  ClMemGuard partials_buffer(clCreateBuffer(context.Context(), CL_MEM_WRITE_ONLY,
-                                            partials.size() * sizeof(float), nullptr, &error));
+  cl_int             error = CL_SUCCESS;
+  ClMemGuard         partials_buffer(clCreateBuffer(context.Context(), CL_MEM_WRITE_ONLY,
+                                                    partials.size() * sizeof(float), nullptr, &error));
   EXPECT_EQ(error, CL_SUCCESS);
   EXPECT_NE(partials_buffer.Get(), nullptr);
   if (error != CL_SUCCESS || partials_buffer.Get() == nullptr) {
@@ -216,10 +216,10 @@ auto RunIteratedIntegration(OpenClContext& context, cl_program program, cl_uint 
   EXPECT_EQ(clEnqueueNDRangeKernel(context.Queue(), kernel.Get(), 1, nullptr, &global_work_size,
                                    nullptr, 0, nullptr, nullptr),
             CL_SUCCESS);
-  EXPECT_EQ(clEnqueueReadBuffer(context.Queue(), partials_buffer.Get(), CL_TRUE, 0,
-                                partials.size() * sizeof(float), partials.data(), 0, nullptr,
-                                nullptr),
-            CL_SUCCESS);
+  EXPECT_EQ(
+      clEnqueueReadBuffer(context.Queue(), partials_buffer.Get(), CL_TRUE, 0,
+                          partials.size() * sizeof(float), partials.data(), 0, nullptr, nullptr),
+      CL_SUCCESS);
 
   return std::accumulate(partials.begin(), partials.end(), 0.0);
 }
@@ -303,13 +303,58 @@ TEST(OpenClRuntimeTest, BuiltinEditPipelineFusedParamsProgramCompiles) {
       OpenClProgramLibrary::Instance().GetProgram(OpenCL::Pipeline::kFusedProgramName);
   ASSERT_NE(program, nullptr);
 
-  cl_int    error  = CL_SUCCESS;
-  cl_kernel kernel = clCreateKernel(program, OpenCL::Pipeline::kValidateFusedParamsKernelName,
-                                    &error);
+  cl_int    error = CL_SUCCESS;
+  cl_kernel kernel =
+      clCreateKernel(program, OpenCL::Pipeline::kValidateFusedParamsKernelName, &error);
   EXPECT_EQ(error, CL_SUCCESS);
   EXPECT_NE(kernel, nullptr);
   if (kernel != nullptr) {
     clReleaseKernel(kernel);
+  }
+}
+
+TEST(OpenClRuntimeTest, BuiltinGeometryProgramsCompile) {
+  auto& context = OpenClContext::Instance();
+  if (!TryEnsureOpenClContext()) {
+    GTEST_SKIP() << context.LastInitializationError();
+  }
+
+  RegisterOpenClBackendPrograms();
+  cl_program geometry_program =
+      OpenClProgramLibrary::Instance().GetProgram(OpenCL::Geometry::kGeometryProgramName);
+  ASSERT_NE(geometry_program, nullptr);
+  cl_program lens_program =
+      OpenClProgramLibrary::Instance().GetProgram(OpenCL::Geometry::kLensCalibProgramName);
+  ASSERT_NE(lens_program, nullptr);
+
+  const char* geometry_kernels[] = {
+      OpenCL::Geometry::kCropResizeLinearKernelName,
+      OpenCL::Geometry::kCropResizeAreaKernelName,
+      OpenCL::Geometry::kWarpAffineLinearKernelName,
+      OpenCL::Geometry::kRotateKernelName,
+  };
+  for (const char* kernel_name : geometry_kernels) {
+    cl_int    error  = CL_SUCCESS;
+    cl_kernel kernel = clCreateKernel(geometry_program, kernel_name, &error);
+    EXPECT_EQ(error, CL_SUCCESS) << kernel_name;
+    EXPECT_NE(kernel, nullptr) << kernel_name;
+    if (kernel != nullptr) {
+      clReleaseKernel(kernel);
+    }
+  }
+
+  const char* lens_kernels[] = {
+      OpenCL::Geometry::kLensVignettingKernelName,
+      OpenCL::Geometry::kLensWarpKernelName,
+  };
+  for (const char* kernel_name : lens_kernels) {
+    cl_int    error  = CL_SUCCESS;
+    cl_kernel kernel = clCreateKernel(lens_program, kernel_name, &error);
+    EXPECT_EQ(error, CL_SUCCESS) << kernel_name;
+    EXPECT_NE(kernel, nullptr) << kernel_name;
+    if (kernel != nullptr) {
+      clReleaseKernel(kernel);
+    }
   }
 }
 
@@ -328,9 +373,9 @@ __kernel void vector_add(__global const float* lhs, __global const float* rhs,
   output[gid] = lhs[gid] + rhs[gid];
 }
 )");
-  const auto program = BuildProgramFromSource("vector_add", source_path);
+  const auto         program       = BuildProgramFromSource("vector_add", source_path);
 
-  constexpr size_t element_count = 4096;
+  constexpr size_t   element_count = 4096;
   std::vector<float> lhs(element_count);
   std::vector<float> rhs(element_count);
   std::vector<float> output(element_count, 0.0F);
@@ -339,7 +384,7 @@ __kernel void vector_add(__global const float* lhs, __global const float* rhs,
     rhs[index] = static_cast<float>(element_count - index) * 0.5F;
   }
 
-  cl_int error = CL_SUCCESS;
+  cl_int     error = CL_SUCCESS;
   ClMemGuard lhs_buffer(clCreateBuffer(context.Context(), CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
                                        lhs.size() * sizeof(float), lhs.data(), &error));
   ASSERT_EQ(error, CL_SUCCESS);
@@ -350,9 +395,8 @@ __kernel void vector_add(__global const float* lhs, __global const float* rhs,
   ASSERT_EQ(error, CL_SUCCESS);
   ASSERT_NE(rhs_buffer.Get(), nullptr);
 
-  ClMemGuard output_buffer(
-      clCreateBuffer(context.Context(), CL_MEM_WRITE_ONLY, output.size() * sizeof(float), nullptr,
-                     &error));
+  ClMemGuard output_buffer(clCreateBuffer(context.Context(), CL_MEM_WRITE_ONLY,
+                                          output.size() * sizeof(float), nullptr, &error));
   ASSERT_EQ(error, CL_SUCCESS);
   ASSERT_NE(output_buffer.Get(), nullptr);
 
@@ -386,12 +430,12 @@ TEST(OpenClRuntimeTest, MidpointIntegrationMatchesCpuBaseline) {
     GTEST_SKIP() << context.LastInitializationError();
   }
 
-  TempDirectory temp_directory;
-  const auto    source_path = temp_directory.Path() / "integrate_square.cl";
-  const auto    program     = BuildIntegrationProgram(source_path, false);
+  TempDirectory     temp_directory;
+  const auto        source_path  = temp_directory.Path() / "integrate_square.cl";
+  const auto        program      = BuildIntegrationProgram(source_path, false);
 
-  constexpr cl_uint sample_count   = 1U << 16U;
-  const double      cpu_integral   = ComputeCpuMidpointSquareIntegral(sample_count);
+  constexpr cl_uint sample_count = 1U << 16U;
+  const double      cpu_integral = ComputeCpuMidpointSquareIntegral(sample_count);
   const double      opencl_integral =
       RunMidpointSquareIntegration(context, program.program, sample_count);
 
@@ -412,25 +456,24 @@ TEST(OpenClRuntimeTest, PrecompiledProgramAcceleratesComputeHeavyIntegration) {
   // A second lookup should reuse the already-built program instead of compiling again.
   EXPECT_EQ(OpenClProgramLibrary::Instance().GetProgram(program.name), program.program);
 
-  constexpr cl_uint sample_count   = 1U << 20U;
+  constexpr cl_uint sample_count    = 1U << 20U;
   constexpr cl_uint iteration_count = 256U;
 
-  const auto cpu_begin    = std::chrono::steady_clock::now();
-  const auto cpu_integral = ComputeCpuIteratedIntegral(sample_count, iteration_count);
-  const auto cpu_end      = std::chrono::steady_clock::now();
+  const auto        cpu_begin       = std::chrono::steady_clock::now();
+  const auto        cpu_integral    = ComputeCpuIteratedIntegral(sample_count, iteration_count);
+  const auto        cpu_end         = std::chrono::steady_clock::now();
 
-  const auto opencl_begin    = std::chrono::steady_clock::now();
-  const auto opencl_integral =
+  const auto        opencl_begin    = std::chrono::steady_clock::now();
+  const auto        opencl_integral =
       RunIteratedIntegration(context, program.program, sample_count, iteration_count);
-  const auto opencl_end      = std::chrono::steady_clock::now();
+  const auto opencl_end = std::chrono::steady_clock::now();
 
   const auto cpu_ms =
       std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(cpu_end - cpu_begin)
           .count();
-  const auto opencl_ms =
-      std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(opencl_end -
-                                                                              opencl_begin)
-          .count();
+  const auto opencl_ms = std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(
+                             opencl_end - opencl_begin)
+                             .count();
 
   RecordProperty("cpu_baseline_ms", cpu_ms);
   RecordProperty("opencl_precompiled_ms", opencl_ms);
