@@ -17,12 +17,16 @@ inline constexpr bool kCleanBaselineLensCalibEnabled = false;
 inline auto MakeDefaultRawDecodeParams() -> nlohmann::json {
   nlohmann::json decode_params;
   decode_params["raw"]["gpu_backend"] = "cpu";
-#if defined(HAVE_CUDA) || defined(HAVE_METAL)
+#if defined(HAVE_CUDA) || defined(HAVE_METAL) || defined(HAVE_OPENCL)
   decode_params["raw"]["gpu_backend"] = "gpu";
 #endif
   decode_params["raw"]["cuda"] = false;
 #ifdef HAVE_CUDA
   decode_params["raw"]["cuda"] = true;
+#endif
+  decode_params["raw"]["opencl"] = false;
+#ifdef HAVE_OPENCL
+  decode_params["raw"]["opencl"] = true;
 #endif
   decode_params["raw"]["highlights_reconstruct"] = true;
   decode_params["raw"]["use_camera_wb"]          = true;

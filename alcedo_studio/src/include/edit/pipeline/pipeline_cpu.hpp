@@ -9,6 +9,7 @@
 #include <optional>
 
 #include "edit/operators/op_base.hpp"
+#include "edit/pipeline/pipeline_accelerator.hpp"
 #include "edit/pipeline/pipeline_stage.hpp"
 #include "image/image_buffer.hpp"
 #include "pipeline.hpp"
@@ -33,6 +34,9 @@ class CPUPipelineExecutor : public PipelineExecutor {
 
   bool                             force_cpu_output_                                        = false;
   DecodeRes                        decode_res_    = DecodeRes::FULL;
+  AcceleratorBackendPreference     accelerator_preference_ =
+      AcceleratorBackendPreference::Auto;
+  GpuBackendKind                   resolved_accelerator_backend_ = GpuBackendKind::None;
 
   nlohmann::json                   render_params_ = {};
 
@@ -47,6 +51,9 @@ class CPUPipelineExecutor : public PipelineExecutor {
   void                             ResetExecutionStagesCache();
 
   void                             SetTemplateParams();
+  void                             ResolveAcceleratorBackend();
+  void                             ApplyAcceleratorBackendToStages();
+  void                             SyncRawDecodeBackendToAccelerator();
 
  public:
   CPUPipelineExecutor();
@@ -59,6 +66,15 @@ class CPUPipelineExecutor : public PipelineExecutor {
   auto GetBackend() -> PipelineBackend override;
 
   void SetForceCPUOutput(bool force) override { force_cpu_output_ = force; }
+
+  void SetAcceleratorBackendPreference(AcceleratorBackendPreference preference);
+  [[nodiscard]] auto GetAcceleratorBackendPreference() const
+      -> AcceleratorBackendPreference {
+    return accelerator_preference_;
+  }
+  [[nodiscard]] auto GetResolvedAcceleratorBackend() const -> GpuBackendKind {
+    return resolved_accelerator_backend_;
+  }
 
   auto GetRenderLock() -> std::mutex& { return render_lock_; }
 

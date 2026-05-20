@@ -258,6 +258,9 @@ void RawDecodeOp::SetParams(const nlohmann::json& params) {
     }
   } else if (inner.contains("cuda")) {
     params_.gpu_backend_ = inner["cuda"].get<bool>() ? RawGpuBackend::GPU : RawGpuBackend::CPU;
+  } else if (inner.contains("opencl")) {
+    params_.gpu_backend_ =
+        inner["opencl"].get<bool>() ? RawGpuBackend::OpenCL : RawGpuBackend::CPU;
   }
   if (inner.contains("highlights_reconstruct"))
     params_.highlights_reconstruct_ = inner["highlights_reconstruct"].get<bool>();

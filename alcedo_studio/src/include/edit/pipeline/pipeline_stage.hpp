@@ -155,6 +155,8 @@ class PipelineStage {
   std::unique_ptr<StaticTileScheduler<StaticKernelStreamType>> static_tile_scheduler_;
 
   GPUPipelineWrapper                                           gpu_executor_;
+  GpuBackendKind                                               accelerator_backend_ =
+      GpuBackendKind::None;
   bool                                                         gpu_setup_done_ = false;
 
  public:
@@ -173,6 +175,11 @@ class PipelineStage {
   PipelineStage(PipelineStageName stage, bool enable_cache, bool is_streamable);
 
   auto IsStreamable() const -> bool { return is_streamable_; }
+
+  void SetAcceleratorBackend(GpuBackendKind backend);
+  [[nodiscard]] auto GetAcceleratorBackend() const -> GpuBackendKind {
+    return accelerator_backend_;
+  }
 
   void SetStaticTileScheduler() {
     static_tile_scheduler_ = std::make_unique<StaticTileScheduler<StaticKernelStreamType>>(
@@ -288,7 +295,8 @@ class PipelineStage {
   auto GetLastProfileSummary() const -> const std::string& { return last_profile_summary_; }
 
  private:
-  static StageRole             DetermineStageRole(PipelineStageName stage, bool is_streamable);
+  static StageRole             DetermineStageRole(PipelineStageName stage, bool is_streamable,
+                                                  GpuBackendKind backend);
 
   bool                         HasEnabledOperator() const;
 

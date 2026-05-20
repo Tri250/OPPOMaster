@@ -7,6 +7,8 @@
 #include <stdexcept>
 #include <utility>
 
+#include "edit/pipeline/pipeline_accelerator.hpp"
+
 namespace alcedo {
 #ifdef HAVE_CUDA
 auto CreateCUDAGPUPipeline() -> std::unique_ptr<GPUPipelineImpl>;
@@ -33,24 +35,51 @@ class UnavailableGPUPipeline final : public GPUPipelineImpl {
   void ReleaseResources() override {}
 };
 
-auto CreateDefaultGPUPipeline() -> std::unique_ptr<GPUPipelineImpl> {
+auto CreateGPUPipeline(const GpuBackendKind backend) -> std::unique_ptr<GPUPipelineImpl> {
+  switch (backend) {
+    case GpuBackendKind::CUDA:
 #ifdef HAVE_CUDA
-  return CreateCUDAGPUPipeline();
-#elif defined(HAVE_METAL)
-  return CreateMetalGPUPipeline();
+      return CreateCUDAGPUPipeline();
 #else
-  return std::make_unique<UnavailableGPUPipeline>();
+      break;
 #endif
+    case GpuBackendKind::Metal:
+#ifdef HAVE_METAL
+      return CreateMetalGPUPipeline();
+#else
+      break;
+#endif
+    case GpuBackendKind::OpenCL:
+    case GpuBackendKind::None:
+      break;
+  }
+  return std::make_unique<UnavailableGPUPipeline>();
 }
 }  // namespace
 
-GPUPipelineWrapper::GPUPipelineWrapper() : impl_(CreateDefaultGPUPipeline()) {}
+GPUPipelineWrapper::GPUPipelineWrapper() : GPUPipelineWrapper(GpuBackendKind::None) {}
+
+GPUPipelineWrapper::GPUPipelineWrapper(GpuBackendKind backend)
+    : impl_(CreateGPUPipeline(backend)), backend_(backend) {}
 
 GPUPipelineWrapper::~GPUPipelineWrapper() {
   if (impl_) {
     impl_->ReleaseResources();
   }
 }
+
+void GPUPipelineWrapper::SetBackend(const GpuBackendKind backend) {
+  if (backend_ == backend && impl_) {
+    return;
+  }
+  if (impl_) {
+    impl_->ReleaseResources();
+  }
+  backend_ = backend;
+  impl_    = CreateGPUPipeline(backend_);
+}
+
+auto GPUPipelineWrapper::Backend() const -> GpuBackendKind { return backend_; }
 
 void GPUPipelineWrapper::SetInputImage(std::shared_ptr<ImageBuffer> input_image) {
   impl_->SetInputImage(std::move(input_image));
@@ -65,11 +94,7 @@ void GPUPipelineWrapper::Execute(std::shared_ptr<ImageBuffer> output) {
 }
 
 auto GPUPipelineWrapper::HasAcceleratedBackend() const -> bool {
-#if defined(HAVE_CUDA) || defined(HAVE_METAL)
-  return true;
-#else
-  return false;
-#endif
+  return IsImplementedMergedPipelineBackend(backend_);
 }
 
 void GPUPipelineWrapper::ReleaseResources() { impl_->ReleaseResources(); }

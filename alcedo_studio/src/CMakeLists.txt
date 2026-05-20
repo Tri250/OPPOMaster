@@ -547,6 +547,7 @@ endif()
 
 # --- Edit Pipeline ---
 set(PIPELINE_SRCS
+    edit/pipeline/pipeline_accelerator.cpp
     edit/pipeline/pipeline_cpu.cpp
     edit/pipeline/pipeline_stage.cpp
     edit/pipeline/pipeline_gpu_wrapper.cpp

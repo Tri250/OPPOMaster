@@ -16,6 +16,8 @@ auto DefaultGpuBackend() -> GpuBackendKind {
   return GpuBackendKind::CUDA;
 #elif defined(HAVE_METAL)
   return GpuBackendKind::Metal;
+#elif defined(HAVE_OPENCL)
+  return GpuBackendKind::OpenCL;
 #else
   return GpuBackendKind::None;
 #endif
