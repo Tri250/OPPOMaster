@@ -14,6 +14,7 @@
 namespace alcedo {
 
 void RegisterOpenClRawProcessorPrograms();
+void RegisterOpenClEditPipelinePrograms();
 
 namespace {
 
@@ -25,6 +26,7 @@ void RegisterBuiltinOpenClProgramManifests() {
     // short-lived RAW processor or pipeline instances should not register
     // programs directly.
     RegisterOpenClRawProcessorPrograms();
+    RegisterOpenClEditPipelinePrograms();
   });
 }
 

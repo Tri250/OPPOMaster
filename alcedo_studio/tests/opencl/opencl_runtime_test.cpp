@@ -2,8 +2,9 @@
 //  SPDX-License-Identifier: GPL-3.0-only
 //  Additional permission under GPLv3 section 7 applies; see the LICENSE file.
 
-#include "opencl/opencl_context.hpp"
+#include "edit/pipeline/opencl_pipeline_programs.hpp"
 #include "opencl/opencl_backend_program_registry.hpp"
+#include "opencl/opencl_context.hpp"
 #include "opencl/opencl_program_library.hpp"
 
 #include <gtest/gtest.h>
@@ -289,6 +290,27 @@ __kernel void write_one(__global int* output) {
 
   const auto program = BuildProgramFromSource("unicode_path", source_path, true);
   EXPECT_NE(program.program, nullptr);
+}
+
+TEST(OpenClRuntimeTest, BuiltinEditPipelineFusedParamsProgramCompiles) {
+  auto& context = OpenClContext::Instance();
+  if (!TryEnsureOpenClContext()) {
+    GTEST_SKIP() << context.LastInitializationError();
+  }
+
+  RegisterOpenClBackendPrograms();
+  cl_program program =
+      OpenClProgramLibrary::Instance().GetProgram(OpenCL::Pipeline::kFusedProgramName);
+  ASSERT_NE(program, nullptr);
+
+  cl_int    error  = CL_SUCCESS;
+  cl_kernel kernel = clCreateKernel(program, OpenCL::Pipeline::kValidateFusedParamsKernelName,
+                                    &error);
+  EXPECT_EQ(error, CL_SUCCESS);
+  EXPECT_NE(kernel, nullptr);
+  if (kernel != nullptr) {
+    clReleaseKernel(kernel);
+  }
 }
 
 TEST(OpenClRuntimeTest, VectorAddKernelExecutesAcrossManyWorkItems) {

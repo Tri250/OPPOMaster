@@ -43,6 +43,8 @@ if(ALCEDO_OPENCL_ENABLED)
     set(OPENCL_DEBAYER_RCD_CL "${CMAKE_CURRENT_SOURCE_DIR}/decoders/processor/operators/gpu/opencl_shader/debayer_rcd.cl")
     set(OPENCL_HIGHLIGHT_RECONSTRUCT_CL "${CMAKE_CURRENT_SOURCE_DIR}/decoders/processor/operators/gpu/opencl_shader/highlight_reconstruct.cl")
     set(OPENCL_CVT_REF_SPACE_CL "${CMAKE_CURRENT_SOURCE_DIR}/decoders/processor/operators/gpu/opencl_shader/cvt_ref_space.cl")
+    set(OPENCL_EDIT_PIPELINE_FUSED_PARAMS_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/fused_params.cl")
+    set(OPENCL_EDIT_PIPELINE_FUSED_PARAMS_VALIDATION_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/fused_params_validation.cl")
     def_library(OpenClContext SOURCES opencl/opencl_context.cpp PUBLIC_DEPS OpenCL::OpenCL)
     def_library(OpenClProgramLibrary
         SOURCES
@@ -50,6 +52,7 @@ if(ALCEDO_OPENCL_ENABLED)
             opencl/opencl_program_library.cpp
             opencl/opencl_runtime.cpp
             decoders/processor/operators/gpu/opencl_raw_programs.cpp
+            edit/pipeline/opencl_pipeline_programs.cpp
         PUBLIC_DEPS
             OpenClContext
             OpenCL::OpenCL
@@ -62,6 +65,8 @@ if(ALCEDO_OPENCL_ENABLED)
         ALCEDO_OPENCL_DEBAYER_RCD_CL="${OPENCL_DEBAYER_RCD_CL}"
         ALCEDO_OPENCL_HIGHLIGHT_RECONSTRUCT_CL="${OPENCL_HIGHLIGHT_RECONSTRUCT_CL}"
         ALCEDO_OPENCL_CVT_REF_SPACE_CL="${OPENCL_CVT_REF_SPACE_CL}"
+        ALCEDO_OPENCL_EDIT_PIPELINE_FUSED_PARAMS_CL="${OPENCL_EDIT_PIPELINE_FUSED_PARAMS_CL}"
+        ALCEDO_OPENCL_EDIT_PIPELINE_FUSED_PARAMS_VALIDATION_CL="${OPENCL_EDIT_PIPELINE_FUSED_PARAMS_VALIDATION_CL}"
     )
 endif()
 
@@ -561,6 +566,11 @@ if(ALCEDO_METAL_ENABLED)
         edit/scope/metal_scope_analyzer.cpp
     )
 endif()
+if(ALCEDO_OPENCL_ENABLED)
+    list(APPEND GPU_PIPELINE_SRCS
+        edit/pipeline/pipeline_opencl_param.cpp
+    )
+endif()
 
 def_library(EditPipeline
     SOURCES ${PIPELINE_SRCS} ${GPU_PIPELINE_SRCS}
@@ -583,6 +593,10 @@ if(ALCEDO_METAL_ENABLED)
         ALCEDO_METAL_SCOPE_ANALYZER_METALLIB_PATH="${METAL_SCOPE_ANALYZER_METALLIB}"
     )
     target_link_libraries(EditPipeline PRIVATE MetalImage MetalContext)
+endif()
+if(ALCEDO_OPENCL_ENABLED)
+    target_compile_definitions(EditPipeline PUBLIC HAVE_OPENCL)
+    target_link_libraries(EditPipeline PRIVATE OpenClProgramLibrary)
 endif()
 
 set(RENDERER_SRCS renderer/pipeline_scheduler.cpp)
