@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "edit/operators/op_base.hpp"
+#include "image/gpu_backend.hpp"
 
 namespace alcedo {
 class ImageBuffer;
@@ -29,7 +30,11 @@ class GPUPipelineImpl {
 class GPUPipelineWrapper {
  public:
   GPUPipelineWrapper();
+  explicit GPUPipelineWrapper(GpuBackendKind backend);
   ~GPUPipelineWrapper();
+
+  void SetBackend(GpuBackendKind backend);
+  [[nodiscard]] auto Backend() const -> GpuBackendKind;
 
   void SetInputImage(std::shared_ptr<ImageBuffer> input_image);
 
@@ -54,5 +59,6 @@ class GPUPipelineWrapper {
 
  private:
   std::unique_ptr<GPUPipelineImpl> impl_;
+  GpuBackendKind                   backend_ = GpuBackendKind::None;
 };
 }  // namespace alcedo

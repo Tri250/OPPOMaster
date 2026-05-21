@@ -9,6 +9,8 @@
 #include <cstddef>
 #include <cstring>
 #include <limits>
+#include <utility>
+#include <vector>
 
 #ifdef HAVE_CUDA
 #include <cuda_runtime_api.h>
@@ -18,6 +20,11 @@
 
 #ifdef HAVE_METAL
 #include "edit/scope/detail/scope_metal_shared.hpp"
+#endif
+
+#ifdef HAVE_OPENCL
+#include "edit/scope/detail/scope_opencl_shared.hpp"
+#include "opencl/opencl_context.hpp"
 #endif
 
 namespace alcedo {
@@ -34,17 +41,64 @@ class NullScopeAnalyzer final : public IScopeAnalyzer {
   void ReleaseResources() override {}
 };
 
+class CompositeScopeAnalyzer final : public IScopeAnalyzer {
+ public:
+  explicit CompositeScopeAnalyzer(std::vector<std::shared_ptr<IScopeAnalyzer>> analyzers)
+      : analyzers_(std::move(analyzers)) {}
+
+  void SubmitFrame(const FinalDisplayFrameView& frame, const ScopeRequest& request) override {
+    for (const auto& analyzer : analyzers_) {
+      if (analyzer) {
+        analyzer->SubmitFrame(frame, request);
+      }
+    }
+  }
+
+  auto GetLatestOutput() -> ScopeOutputSet override {
+    ScopeOutputSet latest;
+    for (const auto& analyzer : analyzers_) {
+      if (!analyzer) {
+        continue;
+      }
+      ScopeOutputSet output = analyzer->GetLatestOutput();
+      if (output.generation > latest.generation) {
+        latest = std::move(output);
+      }
+    }
+    return latest;
+  }
+
+  void ResizeResources(const ScopeRequest& request) override {
+    for (const auto& analyzer : analyzers_) {
+      if (analyzer) {
+        analyzer->ResizeResources(request);
+      }
+    }
+  }
+
+  void ReleaseResources() override {
+    for (const auto& analyzer : analyzers_) {
+      if (analyzer) {
+        analyzer->ReleaseResources();
+      }
+    }
+  }
+
+ private:
+  std::vector<std::shared_ptr<IScopeAnalyzer>> analyzers_;
+};
+
 constexpr float kHistogramClipWarningRatio = 0.02f;
 
-auto HistogramTailBins(int bins) -> int {
+auto            HistogramTailBins(int bins) -> int {
   if (bins <= 0) {
     return 0;
   }
   return std::clamp(bins / 64, 1, 4);
 }
 
-auto AverageTailRatio(const std::vector<uint32_t>& counts, int bins, int tail_bins, bool highlight_tail)
-    -> float {
+auto AverageTailRatio(const std::vector<uint32_t>& counts, int bins, int tail_bins,
+                      bool highlight_tail) -> float {
   if (bins <= 0 || tail_bins <= 0 || counts.size() < static_cast<size_t>(bins * 3)) {
     return 0.0f;
   }
@@ -63,8 +117,8 @@ auto AverageTailRatio(const std::vector<uint32_t>& counts, int bins, int tail_bi
       }
     }
     if (total_count > 0U) {
-      max_ratio = std::max(max_ratio,
-                           static_cast<float>(tail_count) / static_cast<float>(total_count));
+      max_ratio =
+          std::max(max_ratio, static_cast<float>(tail_count) / static_cast<float>(total_count));
     }
   }
 
@@ -85,13 +139,12 @@ auto NormalizeHistogramToUnitRange(const std::vector<uint32_t>& counts, int bins
   data.shadow_clip_warning    = data.shadow_clip_ratio >= kHistogramClipWarningRatio;
   data.highlight_clip_warning = data.highlight_clip_ratio >= kHistogramClipWarningRatio;
 
-  uint32_t denom_count = 0U;
+  uint32_t denom_count        = 0U;
   for (int channel = 0; channel < 3; ++channel) {
     const size_t channel_offset = static_cast<size_t>(channel) * static_cast<size_t>(bins);
     for (int bin = 0; bin < bins; ++bin) {
-      const bool skip_shadow = data.shadow_clip_warning && bin < data.clip_tail_bins;
-      const bool skip_highlight =
-          data.highlight_clip_warning && bin >= bins - data.clip_tail_bins;
+      const bool skip_shadow    = data.shadow_clip_warning && bin < data.clip_tail_bins;
+      const bool skip_highlight = data.highlight_clip_warning && bin >= bins - data.clip_tail_bins;
       if (skip_shadow || skip_highlight) {
         continue;
       }
@@ -169,14 +222,30 @@ auto CreateMetalScopeAnalyzer() -> std::shared_ptr<IScopeAnalyzer> {
 }
 #endif
 
-auto CreateDefaultScopeAnalyzer() -> std::shared_ptr<IScopeAnalyzer> {
-#ifdef HAVE_CUDA
-  return CreateCudaScopeAnalyzer();
-#elif defined(HAVE_METAL)
-  return CreateMetalScopeAnalyzer();
-#else
+#ifndef HAVE_OPENCL
+auto CreateOpenClScopeAnalyzer() -> std::shared_ptr<IScopeAnalyzer> {
   return std::make_shared<NullScopeAnalyzer>();
+}
 #endif
+
+auto CreateDefaultScopeAnalyzer() -> std::shared_ptr<IScopeAnalyzer> {
+  std::vector<std::shared_ptr<IScopeAnalyzer>> analyzers;
+#ifdef HAVE_CUDA
+  analyzers.push_back(CreateCudaScopeAnalyzer());
+#endif
+#ifdef HAVE_OPENCL
+  analyzers.push_back(CreateOpenClScopeAnalyzer());
+#endif
+#ifdef HAVE_METAL
+  analyzers.push_back(CreateMetalScopeAnalyzer());
+#endif
+  if (analyzers.empty()) {
+    return std::make_shared<NullScopeAnalyzer>();
+  }
+  if (analyzers.size() == 1U) {
+    return analyzers.front();
+  }
+  return std::make_shared<CompositeScopeAnalyzer>(std::move(analyzers));
 }
 
 auto ReadScopeRenderSnapshot(const ScopeOutputSet& output) -> ScopeRenderSnapshot {
@@ -190,7 +259,7 @@ auto ReadScopeRenderSnapshot(const ScopeOutputSet& output) -> ScopeRenderSnapsho
         output.histogram_buffer.resource.get());
     if (resource && resource->device_ptr && output.histogram_bins > 0) {
       std::vector<uint32_t> counts(static_cast<size_t>(output.histogram_bins) * 3U, 0U);
-      const size_t expected_bytes = counts.size() * sizeof(uint32_t);
+      const size_t          expected_bytes = counts.size() * sizeof(uint32_t);
       if (resource->size_bytes >= expected_bytes &&
           cudaMemcpy(counts.data(), resource->device_ptr, expected_bytes, cudaMemcpyDeviceToHost) ==
               cudaSuccess) {
@@ -203,17 +272,75 @@ auto ReadScopeRenderSnapshot(const ScopeOutputSet& output) -> ScopeRenderSnapsho
       output.waveform_image.backend == GpuBackend::Cuda) {
     const auto* resource = static_cast<const scope::cuda_detail::CudaLinearImageResource*>(
         output.waveform_image.resource.get());
-    if (resource && resource->device_ptr && output.waveform_width > 0 && output.waveform_height > 0) {
+    if (resource && resource->device_ptr && output.waveform_width > 0 &&
+        output.waveform_height > 0) {
       std::vector<float> rgba(static_cast<size_t>(output.waveform_width) *
                                   static_cast<size_t>(output.waveform_height) * 4U,
                               0.0f);
       const size_t row_bytes = static_cast<size_t>(output.waveform_width) * sizeof(float) * 4U;
-      const auto copy_status =
+      const auto   copy_status =
           cudaMemcpy2D(rgba.data(), row_bytes, resource->device_ptr, resource->row_bytes, row_bytes,
                        static_cast<size_t>(output.waveform_height), cudaMemcpyDeviceToHost);
       if (copy_status == cudaSuccess) {
         snapshot.waveform =
             NormalizeWaveformToUnitRange(rgba, output.waveform_width, output.waveform_height);
+      }
+    }
+  }
+#endif
+
+#ifdef HAVE_OPENCL
+  if (output.histogram_valid && output.histogram_buffer &&
+      output.histogram_buffer.backend == GpuBackend::OpenCL) {
+    const auto* resource = static_cast<const scope::opencl_detail::OpenClBufferResource*>(
+        output.histogram_buffer.resource.get());
+    if (resource && resource->buffer && output.histogram_bins > 0 &&
+        OpenClContext::Instance().IsInitialized()) {
+      std::vector<uint32_t> counts(static_cast<size_t>(output.histogram_bins) * 3U, 0U);
+      const size_t          expected_bytes = counts.size() * sizeof(uint32_t);
+      if (resource->size_bytes >= expected_bytes &&
+          clEnqueueReadBuffer(OpenClContext::Instance().Queue(), resource->buffer, CL_TRUE, 0,
+                              expected_bytes, counts.data(), 0, nullptr, nullptr) == CL_SUCCESS) {
+        snapshot.histogram = NormalizeHistogramToUnitRange(counts, output.histogram_bins);
+      }
+    }
+  }
+
+  if (output.waveform_valid && output.waveform_image &&
+      output.waveform_image.backend == GpuBackend::OpenCL) {
+    const auto* resource = static_cast<const scope::opencl_detail::OpenClLinearImageResource*>(
+        output.waveform_image.resource.get());
+    if (resource && resource->buffer && output.waveform_width > 0 && output.waveform_height > 0 &&
+        OpenClContext::Instance().IsInitialized()) {
+      std::vector<uint32_t> rgba(static_cast<size_t>(output.waveform_width) *
+                                     static_cast<size_t>(output.waveform_height) * 4U,
+                                 0U);
+      const size_t row_bytes = static_cast<size_t>(output.waveform_width) * sizeof(uint32_t) * 4U;
+      if (resource->row_bytes == row_bytes) {
+        if (clEnqueueReadBuffer(OpenClContext::Instance().Queue(), resource->buffer, CL_TRUE, 0,
+                                rgba.size() * sizeof(uint32_t), rgba.data(), 0, nullptr,
+                                nullptr) == CL_SUCCESS) {
+          snapshot.waveform = NormalizeWaveformCountsToUnitRange(rgba, output.waveform_width,
+                                                                 output.waveform_height);
+        }
+      } else if (resource->row_bytes >= row_bytes) {
+        bool read_ok = true;
+        for (int y = 0; y < output.waveform_height; ++y) {
+          const cl_int err =
+              clEnqueueReadBuffer(OpenClContext::Instance().Queue(), resource->buffer, CL_TRUE,
+                                  static_cast<size_t>(y) * resource->row_bytes, row_bytes,
+                                  rgba.data() + static_cast<size_t>(y) *
+                                                    static_cast<size_t>(output.waveform_width) * 4U,
+                                  0, nullptr, nullptr);
+          if (err != CL_SUCCESS) {
+            read_ok = false;
+            break;
+          }
+        }
+        if (read_ok) {
+          snapshot.waveform = NormalizeWaveformCountsToUnitRange(rgba, output.waveform_width,
+                                                                 output.waveform_height);
+        }
       }
     }
   }
@@ -226,7 +353,7 @@ auto ReadScopeRenderSnapshot(const ScopeOutputSet& output) -> ScopeRenderSnapsho
         output.histogram_buffer.resource.get());
     if (resource && resource->buffer && output.histogram_bins > 0) {
       std::vector<uint32_t> counts(static_cast<size_t>(output.histogram_bins) * 3U, 0U);
-      const size_t expected_bytes = counts.size() * sizeof(uint32_t);
+      const size_t          expected_bytes = counts.size() * sizeof(uint32_t);
       if (resource->size_bytes >= expected_bytes) {
         std::memcpy(counts.data(), resource->buffer->contents(), expected_bytes);
         snapshot.histogram = NormalizeHistogramToUnitRange(counts, output.histogram_bins);
@@ -246,9 +373,9 @@ auto ReadScopeRenderSnapshot(const ScopeOutputSet& output) -> ScopeRenderSnapsho
       const size_t row_bytes = static_cast<size_t>(output.waveform_width) * sizeof(uint32_t) * 4U;
       const auto*  src_bytes = static_cast<const std::byte*>(resource->buffer->contents());
       for (int y = 0; y < output.waveform_height; ++y) {
-        std::memcpy(rgba.data() +
-                        static_cast<size_t>(y) * static_cast<size_t>(output.waveform_width) * 4U,
-                    src_bytes + static_cast<size_t>(y) * resource->row_bytes, row_bytes);
+        std::memcpy(
+            rgba.data() + static_cast<size_t>(y) * static_cast<size_t>(output.waveform_width) * 4U,
+            src_bytes + static_cast<size_t>(y) * resource->row_bytes, row_bytes);
       }
       snapshot.waveform =
           NormalizeWaveformCountsToUnitRange(rgba, output.waveform_width, output.waveform_height);
@@ -256,7 +383,7 @@ auto ReadScopeRenderSnapshot(const ScopeOutputSet& output) -> ScopeRenderSnapsho
   }
 #endif
 
-#if !defined(HAVE_CUDA) && !defined(HAVE_METAL)
+#if !defined(HAVE_CUDA) && !defined(HAVE_METAL) && !defined(HAVE_OPENCL)
   (void)output;
 #endif
 

@@ -37,6 +37,59 @@ if(ALCEDO_METAL_ENABLED)
     target_link_libraries(ThreadPool PUBLIC alcedo::metal_cpp)
 endif()
 
+if(ALCEDO_OPENCL_ENABLED)
+    set(OPENCL_RAW_UTILS_CL "${CMAKE_CURRENT_SOURCE_DIR}/decoders/processor/operators/gpu/opencl_shader/raw_utils_opencl.cl")
+    set(OPENCL_RAW_TO_LINEAR_REF_CL "${CMAKE_CURRENT_SOURCE_DIR}/decoders/processor/operators/gpu/opencl_shader/to_linear_ref.cl")
+    set(OPENCL_DEBAYER_RCD_CL "${CMAKE_CURRENT_SOURCE_DIR}/decoders/processor/operators/gpu/opencl_shader/debayer_rcd.cl")
+    set(OPENCL_HIGHLIGHT_RECONSTRUCT_CL "${CMAKE_CURRENT_SOURCE_DIR}/decoders/processor/operators/gpu/opencl_shader/highlight_reconstruct.cl")
+    set(OPENCL_CVT_REF_SPACE_CL "${CMAKE_CURRENT_SOURCE_DIR}/decoders/processor/operators/gpu/opencl_shader/cvt_ref_space.cl")
+    set(OPENCL_EDIT_PIPELINE_FUSED_PARAMS_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/fused_params.cl")
+    set(OPENCL_EDIT_PIPELINE_FUSED_PARAMS_VALIDATION_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/fused_params_validation.cl")
+    set(OPENCL_EDIT_PIPELINE_FUSED_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/edit_pipeline_fused.cl")
+    set(OPENCL_EDIT_PIPELINE_DETAIL_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/edit_pipeline_detail.cl")
+    set(OPENCL_EDIT_PIPELINE_COMMON_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/common.cl")
+    set(OPENCL_EDIT_PIPELINE_BASIC_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/basic.cl")
+    set(OPENCL_EDIT_PIPELINE_COLOR_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/color.cl")
+    set(OPENCL_EDIT_PIPELINE_CST_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/cst.cl")
+    set(OPENCL_GEOMETRY_UTILS_CL "${CMAKE_CURRENT_SOURCE_DIR}/opencl/opencl_shader/geometry_utils.cl")
+    set(OPENCL_EDIT_GEOMETRY_LENS_CALIB_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/operators/geometry/opencl_shader/lens_calib.cl")
+    set(OPENCL_SCOPE_ANALYZER_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/scope/opencl_shader/scope_analyzer.cl")
+    def_library(OpenClContext SOURCES opencl/opencl_context.cpp PUBLIC_DEPS OpenCL::OpenCL)
+    def_library(OpenClProgramLibrary
+        SOURCES
+            opencl/opencl_backend_program_registry.cpp
+            opencl/opencl_program_library.cpp
+            opencl/opencl_runtime.cpp
+            decoders/processor/operators/gpu/opencl_raw_programs.cpp
+            edit/pipeline/opencl_pipeline_programs.cpp
+            edit/scope/opencl_scope_programs.cpp
+            opencl/opencl_geometry_programs.cpp
+        PUBLIC_DEPS
+            OpenClContext
+            OpenCL::OpenCL
+        PRIVATE_DEPS
+            StrConv
+    )
+    target_compile_definitions(OpenClProgramLibrary PRIVATE
+        ALCEDO_OPENCL_RAW_UTILS_CL="${OPENCL_RAW_UTILS_CL}"
+        ALCEDO_OPENCL_RAW_TO_LINEAR_REF_CL="${OPENCL_RAW_TO_LINEAR_REF_CL}"
+        ALCEDO_OPENCL_DEBAYER_RCD_CL="${OPENCL_DEBAYER_RCD_CL}"
+        ALCEDO_OPENCL_HIGHLIGHT_RECONSTRUCT_CL="${OPENCL_HIGHLIGHT_RECONSTRUCT_CL}"
+        ALCEDO_OPENCL_CVT_REF_SPACE_CL="${OPENCL_CVT_REF_SPACE_CL}"
+        ALCEDO_OPENCL_EDIT_PIPELINE_FUSED_PARAMS_CL="${OPENCL_EDIT_PIPELINE_FUSED_PARAMS_CL}"
+        ALCEDO_OPENCL_EDIT_PIPELINE_FUSED_PARAMS_VALIDATION_CL="${OPENCL_EDIT_PIPELINE_FUSED_PARAMS_VALIDATION_CL}"
+        ALCEDO_OPENCL_EDIT_PIPELINE_FUSED_CL="${OPENCL_EDIT_PIPELINE_FUSED_CL}"
+        ALCEDO_OPENCL_EDIT_PIPELINE_DETAIL_CL="${OPENCL_EDIT_PIPELINE_DETAIL_CL}"
+        ALCEDO_OPENCL_EDIT_PIPELINE_COMMON_CL="${OPENCL_EDIT_PIPELINE_COMMON_CL}"
+        ALCEDO_OPENCL_EDIT_PIPELINE_BASIC_CL="${OPENCL_EDIT_PIPELINE_BASIC_CL}"
+        ALCEDO_OPENCL_EDIT_PIPELINE_COLOR_CL="${OPENCL_EDIT_PIPELINE_COLOR_CL}"
+        ALCEDO_OPENCL_EDIT_PIPELINE_CST_CL="${OPENCL_EDIT_PIPELINE_CST_CL}"
+        ALCEDO_OPENCL_GEOMETRY_UTILS_CL="${OPENCL_GEOMETRY_UTILS_CL}"
+        ALCEDO_OPENCL_EDIT_GEOMETRY_LENS_CALIB_CL="${OPENCL_EDIT_GEOMETRY_LENS_CALIB_CL}"
+        ALCEDO_OPENCL_SCOPE_ANALYZER_CL="${OPENCL_SCOPE_ANALYZER_CL}"
+    )
+endif()
+
 def_library(TimeProvider SOURCES utils/clock/time_provider.cpp)
 
 def_library(UiLocalization
@@ -336,6 +389,9 @@ endif()
 
 # ImageBuffer (Platform specific deps handling)
 set(IMAGE_BUFFER_SRCS image/image_buffer.cpp)
+if(ALCEDO_OPENCL_ENABLED)
+    list(APPEND IMAGE_BUFFER_SRCS image/opencl_image.cpp)
+endif()
 add_library(ImageBuffer ${IMAGE_BUFFER_SRCS})
 target_include_directories(ImageBuffer PUBLIC include)
 
@@ -349,6 +405,17 @@ elseif(ALCEDO_METAL_ENABLED)
     target_link_libraries(ImageBuffer PUBLIC ${IMAGE_BUFFER_DEPS} xxHash MetalImage MetalUtils)
 else()
     target_link_libraries(ImageBuffer PUBLIC ${IMAGE_BUFFER_DEPS} xxHash)
+endif()
+if(ALCEDO_OPENCL_ENABLED)
+    target_link_libraries(ImageBuffer PUBLIC OpenClContext)
+endif()
+
+if(ALCEDO_OPENCL_ENABLED)
+    def_library(OpenClGeometryUtils
+        SOURCES opencl/opencl_geometry_utils.cpp
+        PUBLIC_DEPS ImageBuffer OpenClProgramLibrary ${ALCEDO_OPENCV_CORE_DEPS}
+    )
+    target_compile_definitions(OpenClGeometryUtils PUBLIC HAVE_OPENCL)
 endif()
 
 # Image Base
@@ -404,6 +471,14 @@ if(ALCEDO_METAL_ENABLED)
         decoders/processor/operators/gpu/metal_xtrans_interpolate.cpp
     )
 endif()
+if(ALCEDO_OPENCL_ENABLED)
+    list(APPEND RAW_OP_GPU_SRCS
+        decoders/processor/operators/gpu/opencl_to_linear_ref.cpp
+        decoders/processor/operators/gpu/opencl_debayer_rcd.cpp
+        decoders/processor/operators/gpu/opencl_highlight_reconstruct.cpp
+        decoders/processor/operators/gpu/opencl_cvt_ref_space.cpp
+    )
+endif()
 
 # RawProcessorOp Target
 def_library(RawProcessorOp
@@ -426,6 +501,10 @@ if(ALCEDO_METAL_ENABLED)
         ALCEDO_METAL_XTRANS_INTERPOLATE_METALLIB_PATH="${METAL_XTRANS_INTERPOLATE_METALLIB}"
         ALCEDO_METAL_CVT_REF_SPACE_METALLIB_PATH="${METAL_CVT_REF_SPACE_METALLIB}"
     )
+endif()
+if(ALCEDO_OPENCL_ENABLED)
+    target_link_libraries(RawProcessorOp PUBLIC OpenClProgramLibrary)
+    target_compile_definitions(RawProcessorOp PUBLIC HAVE_OPENCL)
 endif()
 
 # --- Edit Operators ---
@@ -471,6 +550,11 @@ if(ALCEDO_METAL_ENABLED)
         edit/operators/geometry/metal_lens_calib.cpp
     )
 endif()
+if(ALCEDO_OPENCL_ENABLED)
+    list(APPEND OPERATORS_SRCS
+        edit/operators/geometry/opencl_lens_calib_ops.cpp
+    )
+endif()
 
 def_library(Operators
     SOURCES ${OPERATORS_SRCS}
@@ -487,6 +571,10 @@ if(ALCEDO_METAL_ENABLED)
         ALCEDO_METAL_LENS_CALIB_METALLIB_PATH="${METAL_LENS_CALIB_METALLIB}"
     )
 endif()
+if(ALCEDO_OPENCL_ENABLED)
+    target_compile_definitions(Operators PUBLIC HAVE_OPENCL)
+    target_link_libraries(Operators PRIVATE OpenClProgramLibrary OpenClGeometryUtils)
+endif()
 if(DEFINED ALCEDO_LENSFUN_INCLUDE_DIR AND NOT "${ALCEDO_LENSFUN_INCLUDE_DIR}" STREQUAL "")
     target_include_directories(Operators SYSTEM BEFORE PUBLIC "${ALCEDO_LENSFUN_INCLUDE_DIR}")
 endif()
@@ -496,6 +584,7 @@ endif()
 
 # --- Edit Pipeline ---
 set(PIPELINE_SRCS
+    edit/pipeline/pipeline_accelerator.cpp
     edit/pipeline/pipeline_cpu.cpp
     edit/pipeline/pipeline_stage.cpp
     edit/pipeline/pipeline_gpu_wrapper.cpp
@@ -513,6 +602,13 @@ if(ALCEDO_METAL_ENABLED)
     list(APPEND GPU_PIPELINE_SRCS
         edit/pipeline/pipeline_metal_impl.cpp
         edit/scope/metal_scope_analyzer.cpp
+    )
+endif()
+if(ALCEDO_OPENCL_ENABLED)
+    list(APPEND GPU_PIPELINE_SRCS
+        edit/pipeline/pipeline_opencl_impl.cpp
+        edit/pipeline/pipeline_opencl_param.cpp
+        edit/scope/opencl_scope_analyzer.cpp
     )
 endif()
 
@@ -538,6 +634,10 @@ if(ALCEDO_METAL_ENABLED)
     )
     target_link_libraries(EditPipeline PRIVATE MetalImage MetalContext)
 endif()
+if(ALCEDO_OPENCL_ENABLED)
+    target_compile_definitions(EditPipeline PUBLIC HAVE_OPENCL)
+    target_link_libraries(EditPipeline PRIVATE OpenClProgramLibrary)
+endif()
 
 set(RENDERER_SRCS renderer/pipeline_scheduler.cpp)
 def_library(PipelineScheduler
@@ -552,12 +652,18 @@ endif()
 if(ALCEDO_METAL_ENABLED)
     list(APPEND RAW_PROCESSOR_BACKEND_SRCS decoders/processor/raw_processor_metal.cpp)
 endif()
+if(ALCEDO_OPENCL_ENABLED)
+    list(APPEND RAW_PROCESSOR_BACKEND_SRCS decoders/processor/raw_processor_opencl.cpp)
+endif()
 
 def_library(RawProcessor
     SOURCES decoders/processor/raw_processor.cpp ${RAW_PROCESSOR_BACKEND_SRCS}
     PUBLIC_DEPS Image libraw::raw_r Exiv2 RawProcessorOp
     PRIVATE_DEPS opencv_imgproc
 )
+if(ALCEDO_OPENCL_ENABLED)
+    target_link_libraries(RawProcessor PRIVATE OpenClGeometryUtils)
+endif()
 
 # ==============================================================================
 # 4. Decoding & IO
@@ -846,6 +952,10 @@ if(ALCEDO_REAL_WIDGET_EDITOR)
     if(ALCEDO_CUDA_ENABLED)
         set_target_properties(EditViewer PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
         target_compile_definitions(EditViewer PUBLIC HAVE_CUDA)
+    endif()
+    if(ALCEDO_OPENCL_ENABLED)
+        target_compile_definitions(EditViewer PUBLIC HAVE_OPENCL)
+        target_link_libraries(EditViewer PRIVATE OpenClProgramLibrary)
     endif()
 
     if(ALCEDO_RHI_WIDGET_EDITOR AND APPLE)

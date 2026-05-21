@@ -14,9 +14,10 @@
 namespace alcedo {
 
 enum class GpuBackend : uint32_t {
-  None  = 0,
-  Cuda  = 1,
-  Metal = 2,
+  None   = 0,
+  Cuda   = 1,
+  Metal  = 2,
+  OpenCL = 3,
 };
 
 enum class AnalysisDomain : uint32_t {
@@ -40,27 +41,27 @@ struct SharedGpuBufferHandle {
   std::shared_ptr<void> resource   = {};
   size_t                size_bytes = 0;
 
-  explicit operator bool() const { return resource != nullptr && size_bytes > 0; }
+  explicit              operator bool() const { return resource != nullptr && size_bytes > 0; }
 };
 
 struct GpuSignalHandle {
   GpuBackend            backend  = GpuBackend::None;
   std::shared_ptr<void> resource = {};
 
-  explicit operator bool() const { return resource != nullptr; }
+  explicit              operator bool() const { return resource != nullptr; }
 };
 
 struct FinalDisplayFrameView {
-  SharedGpuImageHandle  image             = {};
-  int                   width             = 0;
-  int                   height            = 0;
-  FramePixelFormat      format            = FramePixelFormat::RGBA32F;
-  ViewerDisplayConfig   display_config    = {};
-  AnalysisDomain        domain            = AnalysisDomain::DisplayEncoded;
-  GpuSignalHandle       ready_signal      = {};
-  uint64_t              frame_id          = 0;
+  SharedGpuImageHandle image          = {};
+  int                  width          = 0;
+  int                  height         = 0;
+  FramePixelFormat     format         = FramePixelFormat::RGBA32F;
+  ViewerDisplayConfig  display_config = {};
+  AnalysisDomain       domain         = AnalysisDomain::DisplayEncoded;
+  GpuSignalHandle      ready_signal   = {};
+  uint64_t             frame_id       = 0;
 
-  explicit operator bool() const { return image && width > 0 && height > 0; }
+  explicit             operator bool() const { return image && width > 0 && height > 0; }
 };
 
 enum class ScopeType : uint32_t {
@@ -71,45 +72,45 @@ enum class ScopeType : uint32_t {
 };
 
 struct ScopeRequest {
-  uint32_t enabled_mask        = static_cast<uint32_t>(ScopeType::Histogram) |
-                          static_cast<uint32_t>(ScopeType::Waveform);
-  int      histogram_bins      = 256;
-  int      waveform_width      = 384;
-  int      waveform_height     = 192;
-  int      vectorscope_size    = 256;
-  int      chromaticity_size   = 256;
-  int      analysis_downsample = 4;
-  int      target_fps          = 20;
+  uint32_t enabled_mask =
+      static_cast<uint32_t>(ScopeType::Histogram) | static_cast<uint32_t>(ScopeType::Waveform);
+  int histogram_bins      = 256;
+  int waveform_width      = 384;
+  int waveform_height     = 192;
+  int vectorscope_size    = 256;
+  int chromaticity_size   = 256;
+  int analysis_downsample = 4;
+  int target_fps          = 20;
 };
 
 struct ScopeOutputSet {
-  SharedGpuBufferHandle histogram_buffer     = {};
-  SharedGpuImageHandle  waveform_image       = {};
-  SharedGpuImageHandle  vectorscope_image    = {};
-  SharedGpuImageHandle  chromaticity_image   = {};
+  SharedGpuBufferHandle histogram_buffer   = {};
+  SharedGpuImageHandle  waveform_image     = {};
+  SharedGpuImageHandle  vectorscope_image  = {};
+  SharedGpuImageHandle  chromaticity_image = {};
 
-  int                   histogram_bins       = 0;
-  int                   waveform_width       = 0;
-  int                   waveform_height      = 0;
-  int                   vectorscope_size     = 0;
-  int                   chromaticity_size    = 0;
+  int                   histogram_bins     = 0;
+  int                   waveform_width     = 0;
+  int                   waveform_height    = 0;
+  int                   vectorscope_size   = 0;
+  int                   chromaticity_size  = 0;
 
-  bool                  histogram_valid      = false;
-  bool                  waveform_valid       = false;
-  bool                  vectorscope_valid    = false;
-  bool                  chromaticity_valid   = false;
-  uint64_t              generation           = 0;
+  bool                  histogram_valid    = false;
+  bool                  waveform_valid     = false;
+  bool                  vectorscope_valid  = false;
+  bool                  chromaticity_valid = false;
+  uint64_t              generation         = 0;
 };
 
 struct ScopeHistogramRenderData {
-  int                bins                     = 0;
-  int                clip_tail_bins           = 0;
-  float              shadow_clip_ratio        = 0.0f;
-  float              highlight_clip_ratio     = 0.0f;
-  bool               shadow_clip_warning      = false;
-  bool               highlight_clip_warning   = false;
-  std::vector<float> rgb                      = {};
-  bool               valid                    = false;
+  int                bins                   = 0;
+  int                clip_tail_bins         = 0;
+  float              shadow_clip_ratio      = 0.0f;
+  float              highlight_clip_ratio   = 0.0f;
+  bool               shadow_clip_warning    = false;
+  bool               highlight_clip_warning = false;
+  std::vector<float> rgb                    = {};
+  bool               valid                  = false;
 };
 
 struct ScopeWaveformRenderData {
@@ -120,8 +121,8 @@ struct ScopeWaveformRenderData {
 };
 
 struct ScopeRenderSnapshot {
-  ScopeHistogramRenderData histogram = {};
-  ScopeWaveformRenderData  waveform  = {};
+  ScopeHistogramRenderData histogram  = {};
+  ScopeWaveformRenderData  waveform   = {};
   uint64_t                 generation = 0;
 };
 
@@ -129,28 +130,29 @@ class IScopeAnalyzer {
  public:
   virtual ~IScopeAnalyzer() = default;
 
-  virtual void SubmitFrame(const FinalDisplayFrameView& frame,
-                           const ScopeRequest& request) = 0;
+  virtual void SubmitFrame(const FinalDisplayFrameView& frame, const ScopeRequest& request) = 0;
 
-  virtual auto GetLatestOutput() -> ScopeOutputSet = 0;
+  virtual auto GetLatestOutput() -> ScopeOutputSet                                          = 0;
 
-  virtual void ResizeResources(const ScopeRequest& request) = 0;
+  virtual void ResizeResources(const ScopeRequest& request)                                 = 0;
 
-  virtual void ReleaseResources() = 0;
+  virtual void ReleaseResources()                                                           = 0;
 };
 
 class IFinalDisplayFrameProvider {
  public:
-  virtual ~IFinalDisplayFrameProvider() = default;
+  virtual ~IFinalDisplayFrameProvider()                                    = default;
 
   virtual auto GetCurrentDisplayFrameView() const -> FinalDisplayFrameView = 0;
 };
 
 class CudaScopeAnalyzer;
 class MetalScopeAnalyzer;
+class OpenClScopeAnalyzer;
 
 auto CreateCudaScopeAnalyzer() -> std::shared_ptr<IScopeAnalyzer>;
 auto CreateMetalScopeAnalyzer() -> std::shared_ptr<IScopeAnalyzer>;
+auto CreateOpenClScopeAnalyzer() -> std::shared_ptr<IScopeAnalyzer>;
 auto CreateDefaultScopeAnalyzer() -> std::shared_ptr<IScopeAnalyzer>;
 
 auto ReadScopeRenderSnapshot(const ScopeOutputSet& output) -> ScopeRenderSnapshot;

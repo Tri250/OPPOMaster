@@ -16,6 +16,8 @@ auto DefaultGpuBackend() -> GpuBackendKind {
   return GpuBackendKind::CUDA;
 #elif defined(HAVE_METAL)
   return GpuBackendKind::Metal;
+#elif defined(HAVE_OPENCL)
+  return GpuBackendKind::OpenCL;
 #else
   return GpuBackendKind::None;
 #endif
@@ -42,6 +44,25 @@ auto GpuImageWrapper::GetCUDAImage() const -> const cv::cuda::GpuMat& {
     throw std::runtime_error("GpuImageWrapper: Active GPU backend is not CUDA.");
   }
   return cuda_image_;
+}
+#endif
+
+#ifdef HAVE_OPENCL
+GpuImageWrapper::GpuImageWrapper(opencl::OpenClImage&& image)
+    : backend_(GpuBackendKind::OpenCL), opencl_image_(std::move(image)) {}
+
+auto GpuImageWrapper::GetOpenClImage() -> opencl::OpenClImage& {
+  if (backend_ != GpuBackendKind::OpenCL) {
+    throw std::runtime_error("GpuImageWrapper: Active GPU backend is not OpenCL.");
+  }
+  return opencl_image_;
+}
+
+auto GpuImageWrapper::GetOpenClImage() const -> const opencl::OpenClImage& {
+  if (backend_ != GpuBackendKind::OpenCL) {
+    throw std::runtime_error("GpuImageWrapper: Active GPU backend is not OpenCL.");
+  }
+  return opencl_image_;
 }
 #endif
 
@@ -72,6 +93,10 @@ auto GpuImageWrapper::Empty() const -> bool {
     case GpuBackendKind::CUDA:
       return cuda_image_.empty();
 #endif
+#ifdef HAVE_OPENCL
+    case GpuBackendKind::OpenCL:
+      return opencl_image_.Empty();
+#endif
 #ifdef HAVE_METAL
     case GpuBackendKind::Metal:
       return metal_image_.Empty();
@@ -87,6 +112,10 @@ auto GpuImageWrapper::Width() const -> int {
 #ifdef HAVE_CUDA
     case GpuBackendKind::CUDA:
       return cuda_image_.cols;
+#endif
+#ifdef HAVE_OPENCL
+    case GpuBackendKind::OpenCL:
+      return opencl_image_.Width();
 #endif
 #ifdef HAVE_METAL
     case GpuBackendKind::Metal:
@@ -104,6 +133,10 @@ auto GpuImageWrapper::Height() const -> int {
     case GpuBackendKind::CUDA:
       return cuda_image_.rows;
 #endif
+#ifdef HAVE_OPENCL
+    case GpuBackendKind::OpenCL:
+      return opencl_image_.Height();
+#endif
 #ifdef HAVE_METAL
     case GpuBackendKind::Metal:
       return static_cast<int>(metal_image_.Height());
@@ -119,6 +152,10 @@ auto GpuImageWrapper::Type() const -> int {
 #ifdef HAVE_CUDA
     case GpuBackendKind::CUDA:
       return cuda_image_.type();
+#endif
+#ifdef HAVE_OPENCL
+    case GpuBackendKind::OpenCL:
+      return opencl_image_.Type();
 #endif
 #ifdef HAVE_METAL
     case GpuBackendKind::Metal:
@@ -140,6 +177,11 @@ void GpuImageWrapper::Create(int width, int height, int type, GpuBackendKind bac
 #ifdef HAVE_CUDA
     case GpuBackendKind::CUDA:
       cuda_image_.create(height, width, type);
+      return;
+#endif
+#ifdef HAVE_OPENCL
+    case GpuBackendKind::OpenCL:
+      opencl_image_.Create(width, height, type);
       return;
 #endif
 #ifdef HAVE_METAL
@@ -166,6 +208,11 @@ void GpuImageWrapper::Upload(const cv::Mat& cpu_data, GpuBackendKind backend) {
       cuda_image_.upload(cpu_data);
       return;
 #endif
+#ifdef HAVE_OPENCL
+    case GpuBackendKind::OpenCL:
+      opencl_image_.Upload(cpu_data);
+      return;
+#endif
 #ifdef HAVE_METAL
     case GpuBackendKind::Metal:
       metal_image_.Upload(cpu_data);
@@ -182,6 +229,11 @@ void GpuImageWrapper::Download(cv::Mat& cpu_data) const {
 #ifdef HAVE_CUDA
     case GpuBackendKind::CUDA:
       cuda_image_.download(cpu_data);
+      return;
+#endif
+#ifdef HAVE_OPENCL
+    case GpuBackendKind::OpenCL:
+      opencl_image_.Download(cpu_data);
       return;
 #endif
 #ifdef HAVE_METAL
@@ -209,6 +261,11 @@ void GpuImageWrapper::ShareFrom(const GpuImageWrapper& src) {
       cuda_image_ = src.cuda_image_;
       return;
 #endif
+#ifdef HAVE_OPENCL
+    case GpuBackendKind::OpenCL:
+      opencl_image_.ShareFrom(src.opencl_image_);
+      return;
+#endif
 #ifdef HAVE_METAL
     case GpuBackendKind::Metal:
       metal_image_ = src.metal_image_;
@@ -232,6 +289,11 @@ void GpuImageWrapper::CopyTo(GpuImageWrapper& dst) const {
     case GpuBackendKind::CUDA:
       dst.cuda_image_.create(cuda_image_.rows, cuda_image_.cols, cuda_image_.type());
       cuda_image_.copyTo(dst.cuda_image_);
+      return;
+#endif
+#ifdef HAVE_OPENCL
+    case GpuBackendKind::OpenCL:
+      opencl_image_.CopyTo(dst.opencl_image_);
       return;
 #endif
 #ifdef HAVE_METAL
@@ -258,6 +320,11 @@ void GpuImageWrapper::ConvertTo(GpuImageWrapper& dst, int type, double alpha, do
       cuda_image_.convertTo(dst.cuda_image_, type, alpha, beta);
       return;
 #endif
+#ifdef HAVE_OPENCL
+    case GpuBackendKind::OpenCL:
+      opencl_image_.ConvertTo(dst.opencl_image_, type, alpha, beta);
+      return;
+#endif
 #ifdef HAVE_METAL
     case GpuBackendKind::Metal:
       metal_image_.ConvertTo(dst.metal_image_, metal::MetalImage::PixelFormatFromCVType(type),
@@ -273,6 +340,9 @@ void GpuImageWrapper::ConvertTo(GpuImageWrapper& dst, int type, double alpha, do
 void GpuImageWrapper::Release() {
 #ifdef HAVE_CUDA
   cuda_image_.release();
+#endif
+#ifdef HAVE_OPENCL
+  opencl_image_.Release();
 #endif
 #ifdef HAVE_METAL
   metal_image_.Release();
@@ -311,6 +381,11 @@ ImageBuffer::ImageBuffer(ImageBuffer&& other) noexcept
 
 #ifdef HAVE_CUDA
 ImageBuffer::ImageBuffer(cv::cuda::GpuMat&& data)
+    : gpu_data_(std::move(data)), gpu_data_valid_(true) {}
+#endif
+
+#ifdef HAVE_OPENCL
+ImageBuffer::ImageBuffer(opencl::OpenClImage&& data)
     : gpu_data_(std::move(data)), gpu_data_valid_(true) {}
 #endif
 
@@ -367,6 +442,22 @@ auto ImageBuffer::GetCUDAImage() const -> const cv::cuda::GpuMat& {
     throw std::runtime_error("ImageBuffer: No valid GPU image data.");
   }
   return gpu_data_.GetCUDAImage();
+}
+#endif
+
+#ifdef HAVE_OPENCL
+auto ImageBuffer::GetOpenClImage() -> opencl::OpenClImage& {
+  if (!gpu_data_valid_) {
+    throw std::runtime_error("ImageBuffer: No valid GPU image data.");
+  }
+  return gpu_data_.GetOpenClImage();
+}
+
+auto ImageBuffer::GetOpenClImage() const -> const opencl::OpenClImage& {
+  if (!gpu_data_valid_) {
+    throw std::runtime_error("ImageBuffer: No valid GPU image data.");
+  }
+  return gpu_data_.GetOpenClImage();
 }
 #endif
 

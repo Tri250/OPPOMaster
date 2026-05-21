@@ -6,18 +6,20 @@
 
 #include <algorithm>
 #include <cmath>
+#include <opencv2/imgproc.hpp>
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
-
-#include <opencv2/imgproc.hpp>
 #ifdef HAVE_CUDA
 #include "edit/operators/geometry/cuda_geometry_ops.hpp"
 #endif
 #ifdef HAVE_METAL
 #include "metal/metal_utils/geometry_utils.hpp"
+#endif
+#ifdef HAVE_OPENCL
+#include "opencl/opencl_geometry_utils.hpp"
 #endif
 
 namespace alcedo {
@@ -174,8 +176,8 @@ auto PresetAspectPair(CropAspectPreset preset) -> std::optional<std::pair<float,
   }
 }
 
-auto ResolveAspectRatio(CropAspectPreset preset, float aspect_width,
-                        float aspect_height) -> std::optional<float> {
+auto ResolveAspectRatio(CropAspectPreset preset, float aspect_width, float aspect_height)
+    -> std::optional<float> {
   if (preset == CropAspectPreset::Free) {
     return std::nullopt;
   }
@@ -196,13 +198,13 @@ auto FitAspectRectInsideBounds(NormalizedCropRect rect, int width, int height, f
     return rect;
   }
 
-  const float source_aspect = std::max(static_cast<float>(width) / static_cast<float>(height),
-                                       kCropEpsilon);
-  const float target_ratio  = std::max(aspect_ratio, kCropEpsilon);
+  const float source_aspect =
+      std::max(static_cast<float>(width) / static_cast<float>(height), kCropEpsilon);
+  const float target_ratio          = std::max(aspect_ratio, kCropEpsilon);
   const float max_width_from_height = rect.h_ * (target_ratio / source_aspect);
 
-  float resolved_w = rect.w_;
-  float resolved_h = rect.h_;
+  float       resolved_w            = rect.w_;
+  float       resolved_h            = rect.h_;
   if (max_width_from_height <= rect.w_ + kCropEpsilon) {
     resolved_w = std::clamp(max_width_from_height, kCropEpsilon, rect.w_);
     resolved_h = std::clamp(resolved_w * (source_aspect / target_ratio), kCropEpsilon, rect.h_);
@@ -213,8 +215,8 @@ auto FitAspectRectInsideBounds(NormalizedCropRect rect, int width, int height, f
 
   const float cx = rect.x_ + (rect.w_ * 0.5f);
   const float cy = rect.y_ + (rect.h_ * 0.5f);
-  return ClampCropRect({cx - (resolved_w * 0.5f), cy - (resolved_h * 0.5f), resolved_w,
-                        resolved_h});
+  return ClampCropRect(
+      {cx - (resolved_w * 0.5f), cy - (resolved_h * 0.5f), resolved_w, resolved_h});
 }
 
 void SanitizeAspectState(std::string& preset_id, float& aspect_width, float& aspect_height) {
@@ -229,9 +231,9 @@ void SanitizeAspectState(std::string& preset_id, float& aspect_width, float& asp
       return;
     }
     if (const auto ratio = PresetAspectPair(*preset); ratio.has_value()) {
-      preset_id      = AspectPresetId(*preset);
-      aspect_width   = ratio->first;
-      aspect_height  = ratio->second;
+      preset_id     = AspectPresetId(*preset);
+      aspect_width  = ratio->first;
+      aspect_height = ratio->second;
       return;
     }
   }
@@ -241,29 +243,29 @@ void SanitizeAspectState(std::string& preset_id, float& aspect_width, float& asp
     return;
   }
 
-  preset_id      = AspectPresetId(CropAspectPreset::Free);
-  aspect_width   = 1.0f;
-  aspect_height  = 1.0f;
+  preset_id     = AspectPresetId(CropAspectPreset::Free);
+  aspect_width  = 1.0f;
+  aspect_height = 1.0f;
 }
 
 auto ClampCropRectForRotation(NormalizedCropRect rect, float angle_degrees) -> NormalizedCropRect {
-  rect = ClampCropRect(rect);
+  rect                      = ClampCropRect(rect);
 
   const float angle_radians = NormalizeAngleDegrees(angle_degrees) * (kPi / 180.0f);
   const float c             = std::abs(std::cos(angle_radians));
   const float s             = std::abs(std::sin(angle_radians));
 
-  float cx = rect.x_ + rect.w_ * 0.5f;
-  float cy = rect.y_ + rect.h_ * 0.5f;
-  float hw = rect.w_ * 0.5f;
-  float hh = rect.h_ * 0.5f;
+  float       cx            = rect.x_ + rect.w_ * 0.5f;
+  float       cy            = rect.y_ + rect.h_ * 0.5f;
+  float       hw            = rect.w_ * 0.5f;
+  float       hh            = rect.h_ * 0.5f;
 
-  const float extent_x = (c * hw) + (s * hh);
-  const float extent_y = (s * hw) + (c * hh);
-  const float room_x   = std::max(0.0f, std::min(cx, 1.0f - cx));
-  const float room_y   = std::max(0.0f, std::min(cy, 1.0f - cy));
+  const float extent_x      = (c * hw) + (s * hh);
+  const float extent_y      = (s * hw) + (c * hh);
+  const float room_x        = std::max(0.0f, std::min(cx, 1.0f - cx));
+  const float room_y        = std::max(0.0f, std::min(cy, 1.0f - cy));
 
-  float scale = 1.0f;
+  float       scale         = 1.0f;
   if (extent_x > room_x + kCropEpsilon) {
     scale = std::min(scale, room_x / std::max(extent_x, kCropEpsilon));
   }
@@ -301,31 +303,32 @@ auto ComputeCropRoi(int width, int height, const NormalizedCropRect& rect) -> cv
       std::clamp(static_cast<int>(std::lround(static_cast<float>(width) * clamped.w_)), 1, width);
   const int roi_h =
       std::clamp(static_cast<int>(std::lround(static_cast<float>(height) * clamped.h_)), 1, height);
-  int roi_x =
-      std::clamp(static_cast<int>(std::lround(static_cast<float>(width) * clamped.x_)), 0, width - 1);
+  int roi_x = std::clamp(static_cast<int>(std::lround(static_cast<float>(width) * clamped.x_)), 0,
+                         width - 1);
   int roi_y = std::clamp(static_cast<int>(std::lround(static_cast<float>(height) * clamped.y_)), 0,
                          height - 1);
-  roi_x = std::clamp(roi_x, 0, std::max(0, width - roi_w));
-  roi_y = std::clamp(roi_y, 0, std::max(0, height - roi_h));
+  roi_x     = std::clamp(roi_x, 0, std::max(0, width - roi_w));
+  roi_y     = std::clamp(roi_y, 0, std::max(0, height - roi_h));
   return cv::Rect(roi_x, roi_y, roi_w, roi_h);
 }
 
-auto BuildRotatedCropMatrix(int width, int height, const NormalizedCropRect& rect, float angle_degrees,
-                            cv::Size& out_size) -> cv::Mat {
+auto BuildRotatedCropMatrix(int width, int height, const NormalizedCropRect& rect,
+                            float angle_degrees, cv::Size& out_size) -> cv::Mat {
   const int out_w =
       std::clamp(static_cast<int>(std::lround(static_cast<float>(width) * rect.w_)), 1, width);
   const int out_h =
       std::clamp(static_cast<int>(std::lround(static_cast<float>(height) * rect.h_)), 1, height);
 
-  const double angle_radians = static_cast<double>(angle_degrees) * (static_cast<double>(kPi) / 180.0);
-  const double c             = std::cos(angle_radians);
-  const double s             = std::sin(angle_radians);
+  const double angle_radians =
+      static_cast<double>(angle_degrees) * (static_cast<double>(kPi) / 180.0);
+  const double c      = std::cos(angle_radians);
+  const double s      = std::sin(angle_radians);
   const double src_cx = static_cast<double>(rect.x_ + rect.w_ * 0.5f) * static_cast<double>(width);
   const double src_cy = static_cast<double>(rect.y_ + rect.h_ * 0.5f) * static_cast<double>(height);
   const double dst_cx = (static_cast<double>(out_w) - 1.0) * 0.5;
   const double dst_cy = (static_cast<double>(out_h) - 1.0) * 0.5;
 
-  cv::Mat matrix(2, 3, CV_64F);
+  cv::Mat      matrix(2, 3, CV_64F);
   matrix.at<double>(0, 0) = c;
   matrix.at<double>(0, 1) = -s;
   matrix.at<double>(1, 0) = s;
@@ -333,7 +336,7 @@ auto BuildRotatedCropMatrix(int width, int height, const NormalizedCropRect& rec
   matrix.at<double>(0, 2) = src_cx - (c * dst_cx) + (s * dst_cy);
   matrix.at<double>(1, 2) = src_cy - (s * dst_cx) - (c * dst_cy);
 
-  out_size = cv::Size(out_w, out_h);
+  out_size                = cv::Size(out_w, out_h);
   return matrix;
 }
 
@@ -352,7 +355,7 @@ auto ResolveRuntimeCropRect(const NormalizedCropRect& rect, int width, int heigh
 CropRotateOp::CropRotateOp(const nlohmann::json& params) { SetParams(params); }
 
 void CropRotateOp::Apply(std::shared_ptr<ImageBuffer> input) {
-  auto& img = input->GetCPUData();
+  auto&     img    = input->GetCPUData();
   const int width  = img.cols;
   const int height = img.rows;
   if (width <= 0 || height <= 0) {
@@ -364,10 +367,10 @@ void CropRotateOp::Apply(std::shared_ptr<ImageBuffer> input) {
   }
 
   const float angle_degrees = NormalizeAngleDegrees(angle_degrees_);
-  const auto  resolved_rect = ResolveRuntimeCropRect(crop_rect_, width, height, aspect_ratio_preset_,
-                                                     aspect_ratio_width_, aspect_ratio_height_);
-  const auto  crop_rect     = ClampCropRectForRotation(resolved_rect, angle_degrees);
-  const bool  has_rotation  = std::abs(angle_degrees) > kAngleEpsilon;
+  const auto resolved_rect = ResolveRuntimeCropRect(crop_rect_, width, height, aspect_ratio_preset_,
+                                                    aspect_ratio_width_, aspect_ratio_height_);
+  const auto crop_rect     = ClampCropRectForRotation(resolved_rect, angle_degrees);
+  const bool has_rotation  = std::abs(angle_degrees) > kAngleEpsilon;
   if (IsFullCropRect(crop_rect) && !has_rotation) {
     return;
   }
@@ -388,92 +391,150 @@ void CropRotateOp::Apply(std::shared_ptr<ImageBuffer> input) {
 }
 
 void CropRotateOp::ApplyGPU(std::shared_ptr<ImageBuffer> input) {
-#if !defined(HAVE_CUDA) && !defined(HAVE_METAL)
-  throw std::runtime_error("CropRotateOp::ApplyGPU requires HAVE_CUDA or HAVE_METAL");
-#elif defined(HAVE_CUDA)
-  auto& img = input->GetCUDAImage();
-  const int width  = img.cols;
-  const int height = img.rows;
-  if (width <= 0 || height <= 0) {
-    return;
-  }
-
-  if (!enabled_ || !enable_crop_) {
-    return;
-  }
-
-  const float angle_degrees = NormalizeAngleDegrees(angle_degrees_);
-  const auto  resolved_rect = ResolveRuntimeCropRect(crop_rect_, width, height, aspect_ratio_preset_,
-                                                     aspect_ratio_width_, aspect_ratio_height_);
-  const auto  crop_rect     = ClampCropRectForRotation(resolved_rect, angle_degrees);
-  const bool  has_rotation  = std::abs(angle_degrees) > kAngleEpsilon;
-  if (IsFullCropRect(crop_rect) && !has_rotation) {
-    return;
-  }
-
-  if (!has_rotation) {
-    const cv::Rect roi = ComputeCropRoi(width, height, crop_rect);
-    img                = img(roi).clone();
-    return;
-  }
-
-  // In rotated-crop-frame semantics, expand_to_fit is intentionally ignored.
-  cv::Size out_size;
-  cv::Mat  matrix = BuildRotatedCropMatrix(width, height, crop_rect, angle_degrees, out_size);
-  cv::cuda::GpuMat rotated_crop;
-#ifdef HAVE_CUDA
-  CUDA::WarpAffineLinear(img, rotated_crop, matrix, out_size, MakeWarpBorderScalar(img.channels()));
+#if !defined(HAVE_CUDA) && !defined(HAVE_METAL) && !defined(HAVE_OPENCL)
+  throw std::runtime_error("CropRotateOp::ApplyGPU requires HAVE_CUDA, HAVE_METAL, or HAVE_OPENCL");
 #else
-  throw std::runtime_error("CropRotateOp::ApplyGPU requires HAVE_CUDA");
-#endif
-  img = std::move(rotated_crop);
-#elif defined(HAVE_METAL)
-  auto& img = input->GetMetalImage();
-  const int width  = static_cast<int>(img.Width());
-  const int height = static_cast<int>(img.Height());
-  if (width <= 0 || height <= 0) {
-    return;
+  if (!input->gpu_data_valid_) {
+    input->SyncToGPU();
   }
 
-  if (!enabled_ || !enable_crop_) {
-    return;
-  }
+#ifdef HAVE_OPENCL
+  if (input->GetGPUBackend() == GpuBackendKind::OpenCL) {
+    auto&     img    = input->GetOpenClImage();
+    const int width  = img.Width();
+    const int height = img.Height();
+    if (width <= 0 || height <= 0) {
+      return;
+    }
 
-  const float angle_degrees = NormalizeAngleDegrees(angle_degrees_);
-  const auto  resolved_rect = ResolveRuntimeCropRect(crop_rect_, width, height, aspect_ratio_preset_,
-                                                     aspect_ratio_width_, aspect_ratio_height_);
-  const auto  crop_rect     = ClampCropRectForRotation(resolved_rect, angle_degrees);
-  const bool  has_rotation  = std::abs(angle_degrees) > kAngleEpsilon;
-  if (IsFullCropRect(crop_rect) && !has_rotation) {
-    return;
-  }
+    if (!enabled_ || !enable_crop_) {
+      return;
+    }
 
-  metal::MetalImage dst;
-  if (!has_rotation) {
-    const cv::Rect roi = ComputeCropRoi(width, height, crop_rect);
-    metal::utils::CropResizeTexture(img, dst, roi, roi.size());
+    const float angle_degrees = NormalizeAngleDegrees(angle_degrees_);
+    const auto  resolved_rect = ResolveRuntimeCropRect(
+        crop_rect_, width, height, aspect_ratio_preset_, aspect_ratio_width_, aspect_ratio_height_);
+    const auto crop_rect    = ClampCropRectForRotation(resolved_rect, angle_degrees);
+    const bool has_rotation = std::abs(angle_degrees) > kAngleEpsilon;
+    if (IsFullCropRect(crop_rect) && !has_rotation) {
+      return;
+    }
+
+    opencl::OpenClImage dst;
+    if (!has_rotation) {
+      const cv::Rect roi = ComputeCropRoi(width, height, crop_rect);
+      OpenCL::Geometry::CropResize(img, dst, roi, roi.size());
+      img = std::move(dst);
+      return;
+    }
+
+    cv::Size out_size;
+    cv::Mat  matrix = BuildRotatedCropMatrix(width, height, crop_rect, angle_degrees, out_size);
+    OpenCL::Geometry::WarpAffineLinear(img, dst, matrix, out_size,
+                                       MakeWarpBorderScalar(CV_MAT_CN(img.Type())));
     img = std::move(dst);
     return;
   }
+#endif
 
-  // In rotated-crop-frame semantics, expand_to_fit is intentionally ignored.
-  cv::Size out_size;
-  cv::Mat  matrix = BuildRotatedCropMatrix(width, height, crop_rect, angle_degrees, out_size);
-  metal::utils::WarpAffineLinearTexture(img, dst, matrix, out_size, MakeMetalWarpBorderScalar(img));
-  img = std::move(dst);
+#ifdef HAVE_CUDA
+  if (input->GetGPUBackend() == GpuBackendKind::CUDA) {
+    auto&     img    = input->GetCUDAImage();
+    const int width  = img.cols;
+    const int height = img.rows;
+    if (width <= 0 || height <= 0) {
+      return;
+    }
+
+    if (!enabled_ || !enable_crop_) {
+      return;
+    }
+
+    const float angle_degrees = NormalizeAngleDegrees(angle_degrees_);
+    const auto  resolved_rect = ResolveRuntimeCropRect(
+        crop_rect_, width, height, aspect_ratio_preset_, aspect_ratio_width_, aspect_ratio_height_);
+    const auto crop_rect    = ClampCropRectForRotation(resolved_rect, angle_degrees);
+    const bool has_rotation = std::abs(angle_degrees) > kAngleEpsilon;
+    if (IsFullCropRect(crop_rect) && !has_rotation) {
+      return;
+    }
+
+    if (!has_rotation) {
+      const cv::Rect roi = ComputeCropRoi(width, height, crop_rect);
+      img                = img(roi).clone();
+      return;
+    }
+
+    // In rotated-crop-frame semantics, expand_to_fit is intentionally ignored.
+    cv::Size out_size;
+    cv::Mat  matrix = BuildRotatedCropMatrix(width, height, crop_rect, angle_degrees, out_size);
+    cv::cuda::GpuMat rotated_crop;
+#ifdef HAVE_CUDA
+    CUDA::WarpAffineLinear(img, rotated_crop, matrix, out_size,
+                           MakeWarpBorderScalar(img.channels()));
+#else
+    throw std::runtime_error("CropRotateOp::ApplyGPU requires HAVE_CUDA");
+#endif
+    img = std::move(rotated_crop);
+    return;
+  }
+#endif
+
+#ifdef HAVE_METAL
+  if (input->GetGPUBackend() == GpuBackendKind::Metal) {
+    auto&     img    = input->GetMetalImage();
+    const int width  = static_cast<int>(img.Width());
+    const int height = static_cast<int>(img.Height());
+    if (width <= 0 || height <= 0) {
+      return;
+    }
+
+    if (!enabled_ || !enable_crop_) {
+      return;
+    }
+
+    const float angle_degrees = NormalizeAngleDegrees(angle_degrees_);
+    const auto  resolved_rect = ResolveRuntimeCropRect(
+        crop_rect_, width, height, aspect_ratio_preset_, aspect_ratio_width_, aspect_ratio_height_);
+    const auto crop_rect    = ClampCropRectForRotation(resolved_rect, angle_degrees);
+    const bool has_rotation = std::abs(angle_degrees) > kAngleEpsilon;
+    if (IsFullCropRect(crop_rect) && !has_rotation) {
+      return;
+    }
+
+    metal::MetalImage dst;
+    if (!has_rotation) {
+      const cv::Rect roi = ComputeCropRoi(width, height, crop_rect);
+      metal::utils::CropResizeTexture(img, dst, roi, roi.size());
+      img = std::move(dst);
+      return;
+    }
+
+    // In rotated-crop-frame semantics, expand_to_fit is intentionally ignored.
+    cv::Size out_size;
+    cv::Mat  matrix = BuildRotatedCropMatrix(width, height, crop_rect, angle_degrees, out_size);
+    metal::utils::WarpAffineLinearTexture(img, dst, matrix, out_size,
+                                          MakeMetalWarpBorderScalar(img));
+    img = std::move(dst);
+    return;
+  }
+#endif
+
+  throw std::runtime_error("CropRotateOp::ApplyGPU: active GPU backend is not supported");
 #endif
 }
 
 auto CropRotateOp::GetParams() const -> nlohmann::json {
-  return {{std::string(script_name_),
-           {{"enabled", enabled_},
-            {"angle_degrees", angle_degrees_},
-            {"enable_crop", enable_crop_},
-            {"crop_rect",
-             {{"x", crop_rect_.x_}, {"y", crop_rect_.y_}, {"w", crop_rect_.w_}, {"h", crop_rect_.h_}}},
-            {"expand_to_fit", expand_to_fit_},
-            {"aspect_ratio_preset", aspect_ratio_preset_},
-            {"aspect_ratio", {{"width", aspect_ratio_width_}, {"height", aspect_ratio_height_}}}}}};
+  return {
+      {std::string(script_name_),
+       {{"enabled", enabled_},
+        {"angle_degrees", angle_degrees_},
+        {"enable_crop", enable_crop_},
+        {"crop_rect",
+         {{"x", crop_rect_.x_}, {"y", crop_rect_.y_}, {"w", crop_rect_.w_}, {"h", crop_rect_.h_}}},
+        {"expand_to_fit", expand_to_fit_},
+        {"aspect_ratio_preset", aspect_ratio_preset_},
+        {"aspect_ratio", {{"width", aspect_ratio_width_}, {"height", aspect_ratio_height_}}}}}};
 }
 
 void CropRotateOp::SetParams(const nlohmann::json& params) {
@@ -506,8 +567,8 @@ void CropRotateOp::SetParams(const nlohmann::json& params) {
     aspect_ratio_preset_ = inner["aspect_ratio_preset"].get<std::string>();
   }
   if (inner.contains("aspect_ratio") && inner["aspect_ratio"].is_object()) {
-    const auto& aspect  = inner["aspect_ratio"];
-    aspect_ratio_width_ = aspect.value("width", aspect_ratio_width_);
+    const auto& aspect   = inner["aspect_ratio"];
+    aspect_ratio_width_  = aspect.value("width", aspect_ratio_width_);
     aspect_ratio_height_ = aspect.value("height", aspect_ratio_height_);
   }
 

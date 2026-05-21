@@ -366,8 +366,8 @@ void QtEditViewer::ClearExpectedDetailToken() {
 }
 
 void QtEditViewer::EnsureSize(int width, int height) {
-#ifdef HAVE_CUDA
-  if (render_target_surface_ && render_target_surface_->supportsDirectCudaPresent()) {
+#if defined(HAVE_CUDA) || defined(HAVE_OPENCL)
+  if (render_target_surface_ && render_target_surface_->supportsDirectGpuPresent()) {
     const auto decision = render_target_surface_->prepareRenderTarget(width, height);
     if (decision.need_resize) {
       emit RequestResize(width, height);
@@ -384,36 +384,46 @@ void QtEditViewer::EnsureSize(int width, int height) {
 #endif
 }
 
-auto QtEditViewer::MapResourceForWrite() -> FrameWriteMapping {
-#ifdef HAVE_CUDA
-  if (render_target_surface_ && render_target_surface_->supportsDirectCudaPresent()) {
-    return render_target_surface_->mapResourceForWrite();
+auto QtEditViewer::MapResourceForWrite(FrameMemoryDomain preferred_domain) -> FrameWriteMapping {
+#if defined(HAVE_CUDA) || defined(HAVE_OPENCL)
+  if (render_target_surface_ && render_target_surface_->supportsDirectGpuPresent()) {
+    return render_target_surface_->mapResourceForWrite(preferred_domain);
   }
+#ifdef HAVE_CUDA
   return frame_mailbox_.MapResourceForWrite();
 #else
+  (void)preferred_domain;
+  return {};
+#endif
+#else
+  (void)preferred_domain;
   return {};
 #endif
 }
 
 void QtEditViewer::UnmapResource() {
-#ifdef HAVE_CUDA
-  if (render_target_surface_ && render_target_surface_->supportsDirectCudaPresent()) {
+#if defined(HAVE_CUDA) || defined(HAVE_OPENCL)
+  if (render_target_surface_ && render_target_surface_->supportsDirectGpuPresent()) {
     render_target_surface_->unmapResource();
     return;
   }
+#ifdef HAVE_CUDA
   frame_mailbox_.UnmapResource();
+#endif
 #endif
 }
 
 void QtEditViewer::NotifyFrameReady() {
-#ifdef HAVE_CUDA
-  if (render_target_surface_ && render_target_surface_->supportsDirectCudaPresent()) {
+#if defined(HAVE_CUDA) || defined(HAVE_OPENCL)
+  if (render_target_surface_ && render_target_surface_->supportsDirectGpuPresent()) {
     render_target_surface_->notifyFrameReady();
     emit RequestUpdate();
     return;
   }
+#ifdef HAVE_CUDA
   frame_mailbox_.NotifyFrameReady();
   emit RequestUpdate();
+#endif
 #endif
 }
 
@@ -458,16 +468,18 @@ void QtEditViewer::SubmitMetalFrame(const ViewerMetalFrame& frame) {
 #endif
 
 auto QtEditViewer::GetWidth() const -> int {
-#ifdef HAVE_CUDA
-  if (render_target_surface_ && render_target_surface_->supportsDirectCudaPresent()) {
+#if defined(HAVE_CUDA) || defined(HAVE_OPENCL)
+  if (render_target_surface_ && render_target_surface_->supportsDirectGpuPresent()) {
     const auto state = render_target_surface_->activeRenderTargetState();
     if (state.width > 0) {
       return state.width;
     }
   }
+#ifdef HAVE_CUDA
   if (HasLegacyGlSurface(surface_.get())) {
     return frame_mailbox_.GetWidth();
   }
+#endif
   std::lock_guard<std::mutex> lock(host_frame_mutex_);
   return active_frame_width_;
 #else
@@ -477,16 +489,18 @@ auto QtEditViewer::GetWidth() const -> int {
 }
 
 auto QtEditViewer::GetHeight() const -> int {
-#ifdef HAVE_CUDA
-  if (render_target_surface_ && render_target_surface_->supportsDirectCudaPresent()) {
+#if defined(HAVE_CUDA) || defined(HAVE_OPENCL)
+  if (render_target_surface_ && render_target_surface_->supportsDirectGpuPresent()) {
     const auto state = render_target_surface_->activeRenderTargetState();
     if (state.height > 0) {
       return state.height;
     }
   }
+#ifdef HAVE_CUDA
   if (HasLegacyGlSurface(surface_.get())) {
     return frame_mailbox_.GetHeight();
   }
+#endif
   std::lock_guard<std::mutex> lock(host_frame_mutex_);
   return active_frame_height_;
 #else
@@ -500,8 +514,8 @@ auto QtEditViewer::GetViewportRenderRegion() const -> std::optional<ViewportRend
 }
 
 void QtEditViewer::SetNextFramePresentationMode(FramePresentationMode mode) {
-#ifdef HAVE_CUDA
-  if (render_target_surface_ && render_target_surface_->supportsDirectCudaPresent()) {
+#if defined(HAVE_CUDA) || defined(HAVE_OPENCL)
+  if (render_target_surface_ && render_target_surface_->supportsDirectGpuPresent()) {
     render_target_surface_->setNextFramePresentationMode(mode);
   }
 #ifdef ALCEDO_HAS_LEGACY_GL_VIEWER
@@ -518,8 +532,8 @@ void QtEditViewer::SetNextFramePresentationMode(FramePresentationMode mode) {
 }
 
 void QtEditViewer::SetNextFramePreviewMetadata(const FramePreviewMetadata& metadata) {
-#ifdef HAVE_CUDA
-  if (render_target_surface_ && render_target_surface_->supportsDirectCudaPresent()) {
+#if defined(HAVE_CUDA) || defined(HAVE_OPENCL)
+  if (render_target_surface_ && render_target_surface_->supportsDirectGpuPresent()) {
     render_target_surface_->setNextFramePreviewMetadata(metadata);
   }
 #endif
@@ -805,12 +819,12 @@ void QtEditViewer::HandleQueuedUpdate() {
 }
 
 void QtEditViewer::OnResizeSurface(int w, int h) {
-#ifdef HAVE_CUDA
+#if defined(HAVE_CUDA) || defined(HAVE_OPENCL)
   if (!surface_ || !render_target_surface_) {
     return;
   }
 
-  if (render_target_surface_->supportsDirectCudaPresent()) {
+  if (render_target_surface_->supportsDirectGpuPresent()) {
     const auto decision = render_target_surface_->prepareRenderTarget(w, h);
     if (render_target_surface_->hasRenderTarget(decision.slot_index, w, h)) {
       render_target_surface_->commitRenderTargetResize(decision.slot_index, w, h);
@@ -828,6 +842,7 @@ void QtEditViewer::OnResizeSurface(int w, int h) {
     return;
   }
 
+#ifdef HAVE_CUDA
   const int target_slot = frame_mailbox_.GetRenderTargetSlotIndex();
   if (render_target_surface_->hasRenderTarget(target_slot, w, h)) {
     frame_mailbox_.CommitResize(target_slot, w, h);
@@ -842,6 +857,7 @@ void QtEditViewer::OnResizeSurface(int w, int h) {
   }
   UpdateSurface();
   UpdateOverlay();
+#endif
 #else
   (void)w;
   (void)h;
@@ -919,22 +935,26 @@ void QtEditViewer::ReconcileViewTransformForRenderReference() {
 }
 
 void QtEditViewer::RefreshFrameDerivedState() {
-#ifdef HAVE_CUDA
+#if defined(HAVE_CUDA) || defined(HAVE_OPENCL)
   EditViewerRenderTargetState active_frame{};
-  if (render_target_surface_ && render_target_surface_->supportsDirectCudaPresent()) {
+  if (render_target_surface_ && render_target_surface_->supportsDirectGpuPresent()) {
     active_frame = render_target_surface_->activeRenderTargetState();
   }
   if (active_frame.width <= 0 || active_frame.height <= 0) {
+#ifdef HAVE_CUDA
     if (HasLegacyGlSurface(surface_.get())) {
       const auto mailbox_frame = frame_mailbox_.GetActiveFrame();
       active_frame             = {mailbox_frame.slot_index, mailbox_frame.width, mailbox_frame.height,
                                   mailbox_frame.presentation_mode};
     } else {
+#endif
       std::lock_guard<std::mutex> lock(host_frame_mutex_);
       active_frame.width             = active_frame_width_;
       active_frame.height            = active_frame_height_;
       active_frame.presentation_mode = active_presentation_mode_;
+#ifdef HAVE_CUDA
     }
+#endif
   }
 #else
   struct FrameState {
@@ -1066,20 +1086,24 @@ auto QtEditViewer::CurrentWidgetInfo() const -> ViewportWidgetInfo {
 }
 
 auto QtEditViewer::CurrentImageInfo() const -> ViewportImageInfo {
-#ifdef HAVE_CUDA
+#if defined(HAVE_CUDA) || defined(HAVE_OPENCL)
   EditViewerRenderTargetState active_frame{};
-  if (render_target_surface_ && render_target_surface_->supportsDirectCudaPresent()) {
+  if (render_target_surface_ && render_target_surface_->supportsDirectGpuPresent()) {
     active_frame = render_target_surface_->activeRenderTargetState();
   }
   if (active_frame.width <= 0 || active_frame.height <= 0) {
+#ifdef HAVE_CUDA
     if (HasLegacyGlSurface(surface_.get())) {
       const auto mailbox_frame = frame_mailbox_.GetActiveFrame();
       active_frame             = {mailbox_frame.slot_index, mailbox_frame.width, mailbox_frame.height,
                                   mailbox_frame.presentation_mode};
     } else {
+#endif
       std::lock_guard<std::mutex> lock(host_frame_mutex_);
       return {active_frame_width_, active_frame_height_};
+#ifdef HAVE_CUDA
     }
+#endif
   }
   return {active_frame.width, active_frame.height};
 #else
@@ -1097,16 +1121,18 @@ auto QtEditViewer::CurrentInteractionImageInfo() const -> ViewportImageInfo {
 }
 
 auto QtEditViewer::CurrentPresentationMode() const -> FramePresentationMode {
-#ifdef HAVE_CUDA
-  if (render_target_surface_ && render_target_surface_->supportsDirectCudaPresent()) {
+#if defined(HAVE_CUDA) || defined(HAVE_OPENCL)
+  if (render_target_surface_ && render_target_surface_->supportsDirectGpuPresent()) {
     const auto state = render_target_surface_->activeRenderTargetState();
     if (state.width > 0 && state.height > 0) {
       return state.presentation_mode;
     }
   }
+#ifdef HAVE_CUDA
   if (HasLegacyGlSurface(surface_.get())) {
     return frame_mailbox_.GetActiveFrame().presentation_mode;
   }
+#endif
   std::lock_guard<std::mutex> lock(host_frame_mutex_);
   return active_presentation_mode_;
 #else

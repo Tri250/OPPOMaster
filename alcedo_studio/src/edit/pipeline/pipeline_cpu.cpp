@@ -290,6 +290,10 @@ CPUPipelineExecutor::SetPreviewMode(bool) {
 }
 
 void CPUPipelineExecutor::SetExecutionStages() {
+  ResolveAcceleratorBackend();
+  ApplyAcceleratorBackendToStages();
+  SyncRawDecodeBackendToAccelerator();
+
   exec_stages_.clear();
   frame_sink_ = nullptr;
   std::vector<PipelineStage*> streamable_stages;
@@ -297,6 +301,7 @@ void CPUPipelineExecutor::SetExecutionStages() {
   // Merged GPU stream stage is always re-executed; keeping its cache enabled only retains
   // transient objects without reuse value.
   auto merged = std::make_unique<PipelineStage>(PipelineStageName::Merged_Stage, false, true);
+  merged->SetAcceleratorBackend(resolved_accelerator_backend_);
 
   exec_stages_.push_back(&stages_[static_cast<int>(PipelineStageName::Image_Loading)]);
   exec_stages_.push_back(&stages_[static_cast<int>(PipelineStageName::Geometry_Adjustment)]);
@@ -321,6 +326,61 @@ void CPUPipelineExecutor::SetExecutionStages() {
                                          ? false
                                          : enable_cache_;
     stage->SetEnableCache(stage_cache_enabled);
+  }
+}
+
+void CPUPipelineExecutor::ResolveAcceleratorBackend() {
+  resolved_accelerator_backend_ = alcedo::ResolveAcceleratorBackend(accelerator_preference_);
+}
+
+void CPUPipelineExecutor::ApplyAcceleratorBackendToStages() {
+  for (auto& stage : stages_) {
+    stage.SetAcceleratorBackend(resolved_accelerator_backend_);
+  }
+  if (merged_stages_) {
+    merged_stages_->SetAcceleratorBackend(resolved_accelerator_backend_);
+  }
+}
+
+void CPUPipelineExecutor::SyncRawDecodeBackendToAccelerator() {
+  auto& raw_stage = stages_[static_cast<int>(PipelineStageName::Image_Loading)];
+  auto  entry     = raw_stage.GetOperator(OperatorType::RAW_DECODE);
+  if (!entry.has_value() || !entry.value() || !entry.value()->op_) {
+    return;
+  }
+
+  nlohmann::json params = entry.value()->op_->GetParams();
+  if (!params.contains("raw") || !params["raw"].is_object()) {
+    params["raw"] = nlohmann::json::object();
+  }
+
+  auto& raw          = params["raw"];
+  raw["gpu_backend"] = std::string(GpuBackendKindToRawGpuBackendString(
+      resolved_accelerator_backend_));
+  raw["cuda"]        = resolved_accelerator_backend_ == GpuBackendKind::CUDA;
+  raw["opencl"]      = resolved_accelerator_backend_ == GpuBackendKind::OpenCL;
+  raw_stage.SetOperator(OperatorType::RAW_DECODE, params);
+}
+
+void CPUPipelineExecutor::SetAcceleratorBackendPreference(
+    const AcceleratorBackendPreference preference) {
+  const auto resolved_backend = alcedo::ResolveAcceleratorBackend(preference);
+  if (accelerator_preference_ == preference &&
+      resolved_accelerator_backend_ == resolved_backend) {
+    return;
+  }
+
+  accelerator_preference_          = preference;
+  resolved_accelerator_backend_    = resolved_backend;
+  SyncRawDecodeBackendToAccelerator();
+
+  const auto previous_frame_sink = frame_sink_;
+  ResetExecutionStages();
+  ApplyAcceleratorBackendToStages();
+  if (previous_frame_sink != nullptr) {
+    SetExecutionStages(previous_frame_sink);
+  } else {
+    SetExecutionStages();
   }
 }
 
@@ -473,10 +533,16 @@ void CPUPipelineExecutor::ResetToCleanBaselineAdjustments() {
 }
 
 void CPUPipelineExecutor::SetTemplateParams() {
+  ResolveAcceleratorBackend();
+
   // Set some common parameters for template pipelines
   auto&          raw_stage     = GetStage(PipelineStageName::Image_Loading);
   auto&          global_params = GetGlobalParams();
   nlohmann::json decode_params = pipeline_defaults::MakeDefaultRawDecodeParams();
+  decode_params["raw"]["gpu_backend"] = std::string(
+      GpuBackendKindToRawGpuBackendString(resolved_accelerator_backend_));
+  decode_params["raw"]["cuda"]        = resolved_accelerator_backend_ == GpuBackendKind::CUDA;
+  decode_params["raw"]["opencl"]      = resolved_accelerator_backend_ == GpuBackendKind::OpenCL;
   raw_stage.SetOperator(OperatorType::RAW_DECODE, decode_params);
 
   nlohmann::json lens_params = pipeline_defaults::MakeDefaultLensCalibParams();

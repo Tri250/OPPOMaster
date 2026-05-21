@@ -30,6 +30,8 @@ namespace {
 
 using ProfileClock = std::chrono::steady_clock;
 
+constexpr int kRcdOutputCropRadius = 4;
+
 struct DeferredCudaLog {
   std::vector<std::string> entries;
 
@@ -136,6 +138,14 @@ struct CudaTileJob {
   cv::Rect output_rect;
 };
 
+auto ShiftRect(const cv::Rect& rect, const int dx, const int dy) -> cv::Rect {
+  return {rect.x + dx, rect.y + dy, rect.width, rect.height};
+}
+
+auto RcdCroppedTileRect(const cv::Rect& rect) -> cv::Rect {
+  return {rect.x - kRcdOutputCropRadius, rect.y - kRcdOutputCropRadius, rect.width, rect.height};
+}
+
 auto ShiftBayerPattern(const BayerPattern2x2& pattern, const int y_offset, const int x_offset)
     -> BayerPattern2x2 {
   BayerPattern2x2 shifted = {};
@@ -215,9 +225,6 @@ auto RawProcessor::ProcessCudaFullFrame() -> ImageBuffer {
       &stream);
   LogCudaProfileStep(stream, "RAW CUDA FullFrame downsample", stage_downsample_start);
 
-  const cv::Rect crop_rect = detail::BuildDecodeCropRect(
-      raw_data_.sizes, default_crop_, gpu_img.size(), params_.decode_res_);
-
   const auto stage_linear_start = ProfileClock::now();
   CUDA::ToLinearRef(gpu_img, raw_processor_, cfa_pattern_, &stream);
   LogCudaProfileStep(stream, "RAW CUDA FullFrame to-linear", stage_linear_start);
@@ -230,8 +237,10 @@ auto RawProcessor::ProcessCudaFullFrame() -> ImageBuffer {
     cv::cuda::GpuMat debayer_r = rcd_workspace.r;
     cv::cuda::GpuMat debayer_g = rcd_workspace.g;
     cv::cuda::GpuMat debayer_b = rcd_workspace.b;
+    const cv::Rect crop_rect = detail::BuildDecodeCropRect(
+        raw_data_.sizes, default_crop_, debayer_r.size(), params_.decode_res_);
     const auto stage_crop_start = ProfileClock::now();
-    if (!detail::IsFullImageRect(crop_rect, gpu_img.size())) {
+    if (!detail::IsFullImageRect(crop_rect, debayer_r.size())) {
       debayer_r = debayer_r(crop_rect);
       debayer_g = debayer_g(crop_rect);
       debayer_b = debayer_b(crop_rect);
@@ -284,6 +293,8 @@ auto RawProcessor::ProcessCudaFullFrame() -> ImageBuffer {
       LogCudaProfileStep(stream, "RAW CUDA FullFrame debayer", stage_debayer_start);
     }
 
+    const cv::Rect crop_rect = detail::BuildDecodeCropRect(
+        raw_data_.sizes, default_crop_, gpu_img.size(), params_.decode_res_);
     const auto stage_crop_start = ProfileClock::now();
     if (!detail::IsFullImageRect(crop_rect, gpu_img.size())) {
       gpu_img = gpu_img(crop_rect);
@@ -337,10 +348,16 @@ auto RawProcessor::ProcessCudaTiled() -> ImageBuffer {
   LogCudaProfileStep(stream, "RAW CUDA Tiled to-linear", stage_linear_start);
 
   const auto stage_jobs_start = ProfileClock::now();
-  const cv::Rect active_rect =
-      detail::BuildDecodeCropRect(raw_data_.sizes, default_crop_, linear_raw.size(),
-                                  params_.decode_res_);
-  auto jobs = BuildTileJobs(active_rect, linear_raw.size());
+  const cv::Size rcd_output_size(linear_raw.cols - 2 * kRcdOutputCropRadius,
+                                 linear_raw.rows - 2 * kRcdOutputCropRadius);
+  if (rcd_output_size.width <= 0 || rcd_output_size.height <= 0) {
+    throw std::runtime_error("RawProcessor: CUDA tiled RCD input is too small.");
+  }
+  const cv::Rect active_rect = detail::BuildDecodeCropRect(
+      raw_data_.sizes, default_crop_, rcd_output_size, params_.decode_res_);
+  const cv::Rect tile_active_rect =
+      ShiftRect(active_rect, kRcdOutputCropRadius, kRcdOutputCropRadius);
+  auto jobs = BuildTileJobs(tile_active_rect, linear_raw.size());
   LogCpuProfileStep("RAW CUDA Tiled build tile jobs", stage_jobs_start);
 
   CUDA::HighlightCorrection   correction = CUDA::BuildHighlightCorrection(raw_processor_);
@@ -355,8 +372,9 @@ auto RawProcessor::ProcessCudaTiled() -> ImageBuffer {
       const BayerPattern2x2 tile_pattern =
           ShiftBayerPattern(cfa_pattern_.bayer_pattern, job.source_rect.y, job.source_rect.x);
       CUDA::Bayer2x2ToPlanarRGB_RCD(tile_raw, tile_pattern, &rcd_workspace, &stream);
+      const cv::Rect rcd_inner_rect = RcdCroppedTileRect(job.inner_rect_in_tile);
       CUDA::AccumulateHighlightStats(rcd_workspace.r, rcd_workspace.g, rcd_workspace.b, correction,
-                                     job.inner_rect_in_tile, highlight_workspace, accumulation,
+                                     rcd_inner_rect, highlight_workspace, accumulation,
                                      &stream);
     }
     CUDA::FinalizeHighlightCorrection(accumulation, correction);
@@ -376,7 +394,8 @@ auto RawProcessor::ProcessCudaTiled() -> ImageBuffer {
       CUDA::ApplyHighlightCorrectionAndPackRGBA(rcd_workspace.r, rcd_workspace.g, rcd_workspace.b,
                                                 tile_rgba, correction, raw_data_.color.cam_mul,
                                                 &highlight_workspace, &stream);
-      tile_rgba(job.inner_rect_in_tile).copyTo(output_rgba(job.output_rect), stream);
+      tile_rgba(RcdCroppedTileRect(job.inner_rect_in_tile)).copyTo(output_rgba(job.output_rect),
+                                                                   stream);
     }
     LogCudaProfileStep(stream, "RAW CUDA Tiled highlight reconstruct + pack tile assembly",
                        stage_tiles_start);
@@ -397,7 +416,8 @@ auto RawProcessor::ProcessCudaTiled() -> ImageBuffer {
           ShiftBayerPattern(cfa_pattern_.bayer_pattern, job.source_rect.y, job.source_rect.x);
       CUDA::Clamp01(tile_raw, &stream);
       CUDA::Bayer2x2ToRGB_RCD(tile_raw, tile_pattern, &rcd_workspace, &stream);
-      tile_raw(job.inner_rect_in_tile).copyTo(output_rgb(job.output_rect), stream);
+      tile_raw(RcdCroppedTileRect(job.inner_rect_in_tile)).copyTo(output_rgb(job.output_rect),
+                                                                  stream);
     }
     LogCudaProfileStep(stream, "RAW CUDA Tiled tile assembly", stage_tiles_start);
 

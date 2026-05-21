@@ -142,6 +142,44 @@ if(ALCEDO_CUDA_ENABLED)
   gtest_discover_tests(CudaRawOpsTest TEST_PREFIX "CudaRawOpsTest.")
 endif()
 
+if(ALCEDO_CUDA_ENABLED AND ALCEDO_OPENCL_ENABLED)
+  add_executable(OpenClCudaToLinearRefCompareTest raw/opencl_cuda_to_linear_ref_compare_test.cpp)
+  target_include_directories(OpenClCudaToLinearRefCompareTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+  target_link_libraries(OpenClCudaToLinearRefCompareTest PRIVATE GTest::gtest_main RawProcessorOp ${ALCEDO_TEST_OPENCV_MIN_DEPS})
+  gtest_discover_tests(OpenClCudaToLinearRefCompareTest TEST_PREFIX "OpenClCudaCompare.")
+
+  add_executable(OpenClCudaRcdCompareTest raw/opencl_cuda_rcd_compare_test.cpp)
+  target_include_directories(OpenClCudaRcdCompareTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+  target_link_libraries(OpenClCudaRcdCompareTest PRIVATE GTest::gtest_main RawProcessorOp ${ALCEDO_TEST_OPENCV_MIN_DEPS})
+  gtest_discover_tests(OpenClCudaRcdCompareTest TEST_PREFIX "OpenClCudaCompare.")
+
+  add_executable(OpenClCudaPipelineCompareTest raw/opencl_cuda_pipeline_compare_test.cpp)
+  target_include_directories(OpenClCudaPipelineCompareTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+  target_link_libraries(OpenClCudaPipelineCompareTest PRIVATE GTest::gtest_main Operators RawProcessor OpenClGeometryUtils OpenClProgramLibrary ${ALCEDO_TEST_OPENCV_MIN_DEPS})
+  if(WIN32 AND TARGET alcedo_lensfun)
+    add_custom_command(TARGET OpenClCudaPipelineCompareTest POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "$<TARGET_FILE:alcedo_lensfun>"
+              "$<TARGET_FILE_DIR:OpenClCudaPipelineCompareTest>/lensfun.dll"
+      VERBATIM
+    )
+  endif()
+  gtest_discover_tests(OpenClCudaPipelineCompareTest TEST_PREFIX "OpenClCudaCompare.")
+
+  add_executable(OpenClCudaFullPipelineBenchmark raw/opencl_cuda_full_pipeline_benchmark.cpp)
+  target_include_directories(OpenClCudaFullPipelineBenchmark PUBLIC ${ALCEDO_INCLUDE_DIR})
+  target_link_libraries(OpenClCudaFullPipelineBenchmark PRIVATE GTest::gtest_main Operators RawProcessor OpenClProgramLibrary EditPipeline PipelineScheduler ThreadPool ${ALCEDO_TEST_OPENCV_MIN_DEPS})
+  if(WIN32 AND TARGET alcedo_lensfun)
+    add_custom_command(TARGET OpenClCudaFullPipelineBenchmark POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "$<TARGET_FILE:alcedo_lensfun>"
+              "$<TARGET_FILE_DIR:OpenClCudaFullPipelineBenchmark>/lensfun.dll"
+      VERBATIM
+    )
+  endif()
+  gtest_discover_tests(OpenClCudaFullPipelineBenchmark TEST_PREFIX "OpenClCudaBenchmark.")
+endif()
+
 if(ALCEDO_METAL_ENABLED)
   add_executable(ImageBufferMetalTest image/image_buffer_metal_test.cpp)
   target_include_directories(ImageBufferMetalTest PUBLIC ${ALCEDO_INCLUDE_DIR})
@@ -171,6 +209,57 @@ if(ALCEDO_METAL_ENABLED)
   target_link_libraries(MetalFullPipelinePreviewTest PRIVATE GTest::gtest_main EditPipeline RawProcessor PipelineScheduler ThreadPool opencv_highgui ${ALCEDO_TEST_OPENCV_MIN_DEPS})
   gtest_discover_tests(MetalFullPipelinePreviewTest TEST_PREFIX "MetalFullPipelinePreviewTest."
     PROPERTIES LABELS "ci_metal_runtime")
+endif()
+
+if(ALCEDO_OPENCL_ENABLED)
+  add_executable(ImageBufferOpenClTest image/image_buffer_opencl_test.cpp)
+  target_include_directories(ImageBufferOpenClTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+  target_link_libraries(ImageBufferOpenClTest PRIVATE GTest::gtest_main ImageBuffer ${ALCEDO_TEST_OPENCV_MIN_DEPS})
+  gtest_discover_tests(ImageBufferOpenClTest TEST_PREFIX "ImageBufferOpenClTest.")
+
+  add_executable(OpenCLRawPreview gui_pocs/opencl_raw_preview.cpp)
+  target_include_directories(OpenCLRawPreview PUBLIC ${ALCEDO_INCLUDE_DIR})
+  target_link_libraries(OpenCLRawPreview PRIVATE RawProcessor Qt6::Widgets ${ALCEDO_TEST_OPENCV_MIN_DEPS})
+  set(ALCEDO_QT_PLATFORMS_DIR "${Qt6_DIR}/../../../plugins/platforms")
+  add_custom_command(TARGET OpenCLRawPreview POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:OpenCLRawPreview>/platforms"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${ALCEDO_QT_PLATFORMS_DIR}"
+            "$<TARGET_FILE_DIR:OpenCLRawPreview>/platforms"
+    VERBATIM
+  )
+
+  add_executable(OpenCLRawHLRPreview gui_pocs/opencl_raw_hlr_preview.cpp)
+  target_include_directories(OpenCLRawHLRPreview PUBLIC ${ALCEDO_INCLUDE_DIR})
+  target_link_libraries(OpenCLRawHLRPreview PRIVATE RawProcessor Qt6::Widgets ${ALCEDO_TEST_OPENCV_MIN_DEPS})
+  add_custom_command(TARGET OpenCLRawHLRPreview POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:OpenCLRawHLRPreview>/platforms"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${ALCEDO_QT_PLATFORMS_DIR}"
+            "$<TARGET_FILE_DIR:OpenCLRawHLRPreview>/platforms"
+    VERBATIM
+  )
+
+  if(ALCEDO_CUDA_ENABLED)
+    add_executable(OpenClCudaPipelinePreview gui_pocs/opencl_cuda_pipeline_preview.cpp)
+    target_include_directories(OpenClCudaPipelinePreview PUBLIC ${ALCEDO_INCLUDE_DIR})
+    target_link_libraries(OpenClCudaPipelinePreview PRIVATE Operators RawProcessor OpenClGeometryUtils OpenClProgramLibrary Qt6::Widgets ${ALCEDO_TEST_OPENCV_MIN_DEPS})
+    if(WIN32 AND TARGET alcedo_lensfun)
+      add_custom_command(TARGET OpenClCudaPipelinePreview POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE:alcedo_lensfun>"
+                "$<TARGET_FILE_DIR:OpenClCudaPipelinePreview>/lensfun.dll"
+        VERBATIM
+      )
+    endif()
+    add_custom_command(TARGET OpenClCudaPipelinePreview POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:OpenClCudaPipelinePreview>/platforms"
+      COMMAND ${CMAKE_COMMAND} -E copy_directory
+              "${ALCEDO_QT_PLATFORMS_DIR}"
+              "$<TARGET_FILE_DIR:OpenClCudaPipelinePreview>/platforms"
+      VERBATIM
+    )
+  endif()
 endif()
 
 # add_executable(ImageDecoderTest decoders/image_decoder_test.cpp)
@@ -467,6 +556,36 @@ target_include_directories(CudaDriverRequirementsTest PUBLIC ${ALCEDO_INCLUDE_DI
 target_link_libraries(CudaDriverRequirementsTest PRIVATE GTest::gtest_main)
 gtest_discover_tests(CudaDriverRequirementsTest TEST_PREFIX "CudaDriverRequirementsTest.")
 
+if(ALCEDO_OPENCL_ENABLED)
+  add_executable(OpenClProgramLibraryTest opencl/opencl_program_library_test.cpp)
+  target_include_directories(OpenClProgramLibraryTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+  target_link_libraries(OpenClProgramLibraryTest PRIVATE GTest::gtest_main OpenClProgramLibrary)
+  gtest_discover_tests(OpenClProgramLibraryTest TEST_PREFIX "OpenClProgramLibraryTest.")
+
+  add_executable(OpenClRuntimeTest opencl/opencl_runtime_test.cpp)
+  target_include_directories(OpenClRuntimeTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+  target_link_libraries(OpenClRuntimeTest PRIVATE GTest::gtest_main OpenClProgramLibrary)
+  gtest_discover_tests(OpenClRuntimeTest TEST_PREFIX "OpenClRuntimeTest.")
+
+  add_executable(OpenClFusedEditPipelineTest opencl/opencl_fused_edit_pipeline_test.cpp)
+  target_include_directories(OpenClFusedEditPipelineTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+  target_link_libraries(OpenClFusedEditPipelineTest
+    PRIVATE
+      GTest::gtest_main
+      EditPipeline
+      OpenClProgramLibrary
+      ${ALCEDO_TEST_OPENCV_MIN_DEPS}
+  )
+  gtest_discover_tests(OpenClFusedEditPipelineTest TEST_PREFIX "OpenClFusedEditPipelineTest.")
+endif()
+
+if(ALCEDO_CUDA_ENABLED AND ALCEDO_OPENCL_ENABLED)
+  add_executable(OpenClGeometryUtilsTest opencl/opencl_geometry_utils_test.cpp)
+  target_include_directories(OpenClGeometryUtilsTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+  target_link_libraries(OpenClGeometryUtilsTest PRIVATE GTest::gtest_main Operators RawProcessorOp OpenClGeometryUtils ${ALCEDO_TEST_OPENCV_MIN_DEPS})
+  gtest_discover_tests(OpenClGeometryUtilsTest TEST_PREFIX "OpenClGeometryUtilsTest.")
+endif()
+
 add_executable(ImagePathEncodingTest io/image_path_encoding_test.cpp)
 target_include_directories(ImagePathEncodingTest PUBLIC ${ALCEDO_INCLUDE_DIR})
 target_link_libraries(ImagePathEncodingTest PRIVATE GTest::gtest_main ImageLoader StorageService)
@@ -499,17 +618,18 @@ add_custom_command(TARGET ThumbnailAlbumQtDemo POST_BUILD
   VERBATIM
 )
 
-if(TARGET EditViewer)
-  add_executable(CompleteUIDemo gui_pocs/album_editor_qt_demo.cpp)
-  target_include_directories(CompleteUIDemo PUBLIC ${ALCEDO_INCLUDE_DIR})
-  target_link_libraries(CompleteUIDemo PRIVATE ThumbnailService ProjectService ImportService ExportService PipelineMgmtService EditHistoryMgmtService FSService Qt6::Widgets SleeveFilterService EditPipeline EditViewer)
-  target_compile_definitions(CompleteUIDemo PRIVATE ALCEDO_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-  add_custom_command(TARGET CompleteUIDemo POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:CompleteUIDemo>/fonts"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${ALCEDO_DEMO_FONT_SRC}" "$<TARGET_FILE_DIR:CompleteUIDemo>/fonts/main_IBM.ttf"
-    VERBATIM
-  )
-endif()
+# CompleteUIDemo disabled — album_editor_qt_demo.cpp is no longer maintained.
+# if(TARGET EditViewer)
+#   add_executable(CompleteUIDemo gui_pocs/album_editor_qt_demo.cpp)
+#   target_include_directories(CompleteUIDemo PUBLIC ${ALCEDO_INCLUDE_DIR})
+#   target_link_libraries(CompleteUIDemo PRIVATE ThumbnailService ProjectService ImportService ExportService PipelineMgmtService EditHistoryMgmtService FSService Qt6::Widgets SleeveFilterService EditPipeline EditViewer)
+#   target_compile_definitions(CompleteUIDemo PRIVATE ALCEDO_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+#   add_custom_command(TARGET CompleteUIDemo POST_BUILD
+#     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:CompleteUIDemo>/fonts"
+#     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${ALCEDO_DEMO_FONT_SRC}" "$<TARGET_FILE_DIR:CompleteUIDemo>/fonts/main_IBM.ttf"
+#     VERBATIM
+#   )
+# endif()
 
 include(GoogleTest)
 
@@ -596,10 +716,13 @@ gtest_discover_tests(LanguageManagerTest TEST_PREFIX "LanguageManagerTest.")
 alcedo_assign_test_category(core ALCEDO_BUILD_CORE_TESTS alcedo_tests_core
   SampleTest
   CudaDriverRequirementsTest
+  OpenClProgramLibraryTest
+  OpenClRuntimeTest
 )
 
 alcedo_assign_test_category(image ALCEDO_BUILD_IMAGE_TESTS alcedo_tests_image
   ImageBufferMetalTest
+  ImageBufferOpenClTest
   MetadataExtractorTest
   BatchImportDngMetadataTest
 )
@@ -627,6 +750,11 @@ alcedo_assign_test_category(gpu ALCEDO_BUILD_GPU_TESTS alcedo_tests_gpu
   MetalRawOpsTest
   ODTCudaSmokeTest
   CudaPreviewVramReclamationTest
+  OpenClCudaToLinearRefCompareTest
+  OpenClCudaPipelineCompareTest
+  OpenClCudaFullPipelineBenchmark
+  OpenClFusedEditPipelineTest
+  OpenClGeometryUtilsTest
 )
 
 alcedo_assign_test_category(edit ALCEDO_BUILD_EDIT_TESTS alcedo_tests_edit
@@ -665,8 +793,11 @@ alcedo_assign_test_category(storage ALCEDO_BUILD_STORAGE_TESTS alcedo_tests_stor
 
 alcedo_assign_test_category(demos ALCEDO_BUILD_DEMO_TARGETS alcedo_tests_demos
   ImagePreview
+  OpenCLRawPreview
+  OpenCLRawHLRPreview
+  OpenClCudaPipelinePreview
   ThumbnailAlbumQtDemo
-  CompleteUIDemo
+  # CompleteUIDemo  # disabled
   DngMetadataBenchmark
 )
 

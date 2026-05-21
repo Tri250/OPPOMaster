@@ -8,6 +8,7 @@ namespace alcedo {
 enum class GpuBackendKind {
   None,
   CUDA,
+  OpenCL,
   Metal,
 };
 

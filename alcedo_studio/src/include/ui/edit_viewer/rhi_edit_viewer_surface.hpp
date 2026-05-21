@@ -155,10 +155,12 @@ class RhiEditViewerSurface final : public QRhiWidget,
   void setViewState(const ViewerViewState& state) override;
   void requestRedraw() override;
 
+  auto supportsDirectGpuPresent() const -> bool override;
   auto supportsDirectCudaPresent() const -> bool override;
   auto prepareRenderTarget(int width, int height) -> EditViewerRenderTargetResizeDecision override;
   void commitRenderTargetResize(int slot_index, int width, int height) override;
-  auto mapResourceForWrite() -> FrameWriteMapping override;
+  auto mapResourceForWrite(
+      FrameMemoryDomain preferred_domain = FrameMemoryDomain::CudaDevice) -> FrameWriteMapping override;
   void unmapResource() override;
   void notifyFrameReady() override;
   void setNextFramePresentationMode(FramePresentationMode mode) override;

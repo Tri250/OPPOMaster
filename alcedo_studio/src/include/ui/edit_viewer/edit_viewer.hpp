@@ -58,7 +58,8 @@ class QtEditViewer : public QWidget, public alcedo::IFrameSink {
 
   // Overrides from IFrameSink
   void    EnsureSize(int width, int height) override;
-  auto    MapResourceForWrite() -> FrameWriteMapping override;
+  auto    MapResourceForWrite(
+      FrameMemoryDomain preferred_domain = FrameMemoryDomain::CudaDevice) -> FrameWriteMapping override;
   void    UnmapResource() override;
   void    NotifyFrameReady() override;
   void    SubmitHostFrame(const ViewerFrame& frame) override;

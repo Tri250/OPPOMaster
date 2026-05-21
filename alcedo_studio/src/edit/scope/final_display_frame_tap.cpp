@@ -38,8 +38,10 @@ void FinalDisplayFrameTapSink::EnsureSize(int width, int height) {
   }
 }
 
-auto FinalDisplayFrameTapSink::MapResourceForWrite() -> FrameWriteMapping {
-  return downstream_sink_ ? downstream_sink_->MapResourceForWrite() : FrameWriteMapping{};
+auto FinalDisplayFrameTapSink::MapResourceForWrite(FrameMemoryDomain preferred_domain)
+    -> FrameWriteMapping {
+  return downstream_sink_ ? downstream_sink_->MapResourceForWrite(preferred_domain)
+                          : FrameWriteMapping{};
 }
 
 void FinalDisplayFrameTapSink::UnmapResource() {

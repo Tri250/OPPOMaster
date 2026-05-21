@@ -24,8 +24,8 @@ struct RcdWorkspace {
     r.create(size, CV_32FC1);
     g.create(size, CV_32FC1);
     b.create(size, CV_32FC1);
-    vh_dir.create(size, CV_16UC1);
-    pq_dir.create(size, CV_16UC1);
+    vh_dir.create(size, CV_32FC1);
+    pq_dir.create(size, CV_32FC1);
   }
 };
 

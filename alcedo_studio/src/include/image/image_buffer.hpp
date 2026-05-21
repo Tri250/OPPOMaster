@@ -20,6 +20,9 @@
 #include "metal_image.hpp"
 #endif
 
+#ifdef HAVE_OPENCL
+#include "image/opencl_image.hpp"
+#endif
 
 namespace alcedo {
 class GpuImageWrapper {
@@ -35,6 +38,12 @@ class GpuImageWrapper {
   explicit GpuImageWrapper(cv::cuda::GpuMat&& image);
   auto GetCUDAImage() -> cv::cuda::GpuMat&;
   auto GetCUDAImage() const -> const cv::cuda::GpuMat&;
+#endif
+
+#ifdef HAVE_OPENCL
+  explicit GpuImageWrapper(opencl::OpenClImage&& image);
+  auto GetOpenClImage() -> opencl::OpenClImage&;
+  auto GetOpenClImage() const -> const opencl::OpenClImage&;
 #endif
 
 #ifdef HAVE_METAL
@@ -58,9 +67,13 @@ class GpuImageWrapper {
 
  private:
   GpuBackendKind backend_ = GpuBackendKind::None;
-#if defined(HAVE_CUDA)
+#ifdef HAVE_CUDA
   cv::cuda::GpuMat cuda_image_;
-#elif defined(HAVE_METAL)
+#endif
+#ifdef HAVE_OPENCL
+  opencl::OpenClImage opencl_image_;
+#endif
+#ifdef HAVE_METAL
   metal::MetalImage metal_image_;
 #endif
 };
@@ -93,6 +106,9 @@ class ImageBuffer {
 #ifdef HAVE_CUDA
   ImageBuffer(cv::cuda::GpuMat&& data);
 #endif
+#ifdef HAVE_OPENCL
+  ImageBuffer(opencl::OpenClImage&& data);
+#endif
 #ifdef HAVE_METAL
   ImageBuffer(metal::MetalImage&& data);
 #endif
@@ -107,24 +123,28 @@ class ImageBuffer {
   auto GetCUDAImage() -> cv::cuda::GpuMat&;
   auto GetCUDAImage() const -> const cv::cuda::GpuMat&;
 #endif
+#ifdef HAVE_OPENCL
+  auto GetOpenClImage() -> opencl::OpenClImage&;
+  auto GetOpenClImage() const -> const opencl::OpenClImage&;
+#endif
 #ifdef HAVE_METAL
   auto GetMetalImage() -> metal::MetalImage&;
   auto GetMetalImage() const -> const metal::MetalImage&;
 #endif
-  auto GetGPUBackend() const -> GpuBackendKind;
-  auto GetGPUWidth() const -> int;
-  auto GetGPUHeight() const -> int;
-  auto GetGPUType() const -> int;
+  auto        GetGPUBackend() const -> GpuBackendKind;
+  auto        GetGPUWidth() const -> int;
+  auto        GetGPUHeight() const -> int;
+  auto        GetGPUType() const -> int;
 
   void SyncToGPU();
-  void SyncToGPU(GpuBackendKind backend);
-  void SyncToCPU();
-  void ConvertGPUDataTo(int type, double alpha = 1.0, double beta = 0.0);
-  void ShareGPUDataFrom(const ImageBuffer& src);
-  void CopyGPUDataTo(ImageBuffer& dst) const;
+  void        SyncToGPU(GpuBackendKind backend);
+  void        SyncToCPU();
+  void        ConvertGPUDataTo(int type, double alpha = 1.0, double beta = 0.0);
+  void        ShareGPUDataFrom(const ImageBuffer& src);
+  void        CopyGPUDataTo(ImageBuffer& dst) const;
 
   void InitGPUData(int width, int height, int type, GpuBackendKind backend = GpuBackendKind::None);
-  void SetGPUDataValid(bool valid);
+  void        SetGPUDataValid(bool valid);
 
   ImageBuffer Clone() const;
 

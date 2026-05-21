@@ -149,6 +149,8 @@ __device__ __forceinline__ float gamma22_encode(float linear) {
  */
 struct GPU_TOWS_Kernel : GPUPointOpTag {
   __device__ __forceinline__ void operator()(float4* p, GPUOperatorParams& params) const {
+    if (!params.to_ws_enabled_) return;
+
     float      ap1_r, ap1_g, ap1_b;
     const bool use_camera_to_ap1 =
         (params.raw_decode_input_space_ == 1) && params.color_temp_matrices_valid_;
@@ -215,6 +217,8 @@ struct GPU_LMT_Kernel : GPUPointOpTag {
  */
 struct GPU_OUTPUT_Kernel : GPUPointOpTag {
   __device__ __forceinline__ void operator()(float4* p, GPUOperatorParams& params) const {
+    if (!params.to_output_enabled_) return;
+
     const float3 aces_linear =
         make_float3(acescc_decode(p->x), acescc_decode(p->y), acescc_decode(p->z));
 

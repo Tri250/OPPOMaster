@@ -77,6 +77,8 @@ auto RawGpuBackendName(const RawGpuBackend backend) -> const char* {
       return "CUDA";
     case RawGpuBackend::Metal:
       return "Metal";
+    case RawGpuBackend::OpenCL:
+      return "OpenCL";
   }
   return "unknown";
 }
@@ -418,11 +420,19 @@ auto RawProcessor::ProcessGpu() -> ImageBuffer {
 #else
       ThrowUnavailableRawGpuBackend(params_.gpu_backend_);
 #endif
+    case RawGpuBackend::OpenCL:
+#ifdef HAVE_OPENCL
+      return ProcessOpenCL();
+#else
+      ThrowUnavailableRawGpuBackend(params_.gpu_backend_);
+#endif
     case RawGpuBackend::GPU:
 #ifdef HAVE_CUDA
       return ProcessCuda();
 #elif defined(HAVE_METAL)
       return ProcessMetal();
+#elif defined(HAVE_OPENCL)
+      return ProcessOpenCL();
 #else
       ThrowUnsupportedGPUBackend("Process");
 #endif

@@ -18,6 +18,9 @@
 #ifdef HAVE_METAL
 #include "metal/metal_utils/geometry_utils.hpp"
 #endif
+#ifdef HAVE_OPENCL
+#include "opencl/opencl_geometry_utils.hpp"
+#endif
 
 namespace alcedo {
 namespace {
@@ -89,8 +92,8 @@ auto BuildResizePlan(int w, int h, bool enable_scale, int maximum_edge, bool ena
     return std::clamp(roi.y_, 0, std::max(0, h - roi_h));
   }();
 
-  plan.use_roi    = true;
-  plan.roi_rect   = cv::Rect(roi_x, roi_y, roi_w, roi_h);
+  plan.use_roi  = true;
+  plan.roi_rect = cv::Rect(roi_x, roi_y, roi_w, roi_h);
 
   const float roi_scale =
       std::min(1.0f, static_cast<float>(maximum_edge) / static_cast<float>(std::max(roi_w, roi_h)));
@@ -172,6 +175,32 @@ void ResizeGpuMatWithCuda(const cv::cuda::GpuMat& src, cv::cuda::GpuMat& dst, cv
 }
 #endif
 
+#ifdef HAVE_OPENCL
+void ResizeOpenClImage(const opencl::OpenClImage& src, opencl::OpenClImage& dst,
+                       cv::Size output_size, ResizeDownsampleAlgorithm downsample_algorithm) {
+  if (output_size.width <= 0 || output_size.height <= 0) {
+    throw std::runtime_error("ResizeOp::ApplyGPU: destination size must be positive");
+  }
+
+  if (src.Width() == output_size.width && src.Height() == output_size.height) {
+    src.CopyTo(dst);
+    return;
+  }
+
+  if (src.Width() <= output_size.width || src.Height() <= output_size.height) {
+    OpenCL::Geometry::ResizeLinear(src, dst, output_size);
+    return;
+  }
+
+  if (downsample_algorithm == ResizeDownsampleAlgorithm::Bilinear) {
+    OpenCL::Geometry::ResizeLinear(src, dst, output_size);
+    return;
+  }
+
+  OpenCL::Geometry::ResizeAreaApprox(src, dst, output_size);
+}
+#endif
+
 }  // namespace
 
 ResizeOp::ResizeOp(const nlohmann::json& params) { SetParams(params); }
@@ -198,50 +227,90 @@ void ResizeOp::Apply(std::shared_ptr<ImageBuffer> input) {
 }
 
 void ResizeOp::ApplyGPU(std::shared_ptr<ImageBuffer> input) {
-#if !defined(HAVE_CUDA) && !defined(HAVE_METAL)
-  throw std::runtime_error("ResizeOp::ApplyGPU requires HAVE_CUDA or HAVE_METAL");
-#elif defined(HAVE_CUDA)
-  auto&      img = input->GetCUDAImage();
-  const auto plan =
-      BuildResizePlan(img.cols, img.rows, enable_scale_, maximum_edge_, enable_roi_, roi_);
-  if (plan.noop) {
-    return;
+#if !defined(HAVE_CUDA) && !defined(HAVE_METAL) && !defined(HAVE_OPENCL)
+  throw std::runtime_error("ResizeOp::ApplyGPU requires HAVE_CUDA, HAVE_METAL, or HAVE_OPENCL");
+#else
+  if (!input->gpu_data_valid_) {
+    input->SyncToGPU();
   }
 
-  if (plan.use_roi) {
-    cv::cuda::GpuMat roi_src = img(plan.roi_rect);
-    if (!plan.needs_resize) {
-      img = roi_src.clone();
+#ifdef HAVE_OPENCL
+  if (input->GetGPUBackend() == GpuBackendKind::OpenCL) {
+    auto&      img = input->GetOpenClImage();
+    const auto plan =
+        BuildResizePlan(img.Width(), img.Height(), enable_scale_, maximum_edge_, enable_roi_, roi_);
+    if (plan.noop) {
       return;
     }
 
-    cv::cuda::GpuMat roi_dst;
-    ResizeGpuMatWithCuda(roi_src, roi_dst, plan.output_size, downsample_algorithm_);
-    img      = std::move(roi_dst);
+    if (plan.use_roi) {
+      opencl::OpenClImage dst;
+      OpenCL::Geometry::CropResize(img, dst, plan.roi_rect, plan.output_size,
+                                   downsample_algorithm_);
+      img = std::move(dst);
+      return;
+    }
 
+    opencl::OpenClImage dst;
+    ResizeOpenClImage(img, dst, plan.output_size, downsample_algorithm_);
+    img = std::move(dst);
     return;
   }
+#endif
 
-  cv::cuda::GpuMat dst;
-  ResizeGpuMatWithCuda(img, dst, plan.output_size, downsample_algorithm_);
+#ifdef HAVE_CUDA
+  if (input->GetGPUBackend() == GpuBackendKind::CUDA) {
+    auto&      img = input->GetCUDAImage();
+    const auto plan =
+        BuildResizePlan(img.cols, img.rows, enable_scale_, maximum_edge_, enable_roi_, roi_);
+    if (plan.noop) {
+      return;
+    }
 
-  img      = std::move(dst);
-#elif defined(HAVE_METAL)
-  auto&      img  = input->GetMetalImage();
-  const auto plan = BuildResizePlan(static_cast<int>(img.Width()), static_cast<int>(img.Height()),
-                                    enable_scale_, maximum_edge_, enable_roi_, roi_);
-  if (plan.noop) {
+    if (plan.use_roi) {
+      cv::cuda::GpuMat roi_src = img(plan.roi_rect);
+      if (!plan.needs_resize) {
+        img = roi_src.clone();
+        return;
+      }
+
+      cv::cuda::GpuMat roi_dst;
+      ResizeGpuMatWithCuda(roi_src, roi_dst, plan.output_size, downsample_algorithm_);
+      img = std::move(roi_dst);
+
+      return;
+    }
+
+    cv::cuda::GpuMat dst;
+    ResizeGpuMatWithCuda(img, dst, plan.output_size, downsample_algorithm_);
+
+    img = std::move(dst);
     return;
   }
+#endif
 
-  metal::MetalImage dst;
-  if (plan.use_roi) {
-    metal::utils::CropResizeTexture(img, dst, plan.roi_rect, plan.output_size,
-                                    downsample_algorithm_);
-  } else {
-    metal::utils::ResizeTexture(img, dst, plan.output_size, downsample_algorithm_);
+#ifdef HAVE_METAL
+  if (input->GetGPUBackend() == GpuBackendKind::Metal) {
+    auto&      img  = input->GetMetalImage();
+    const auto plan = BuildResizePlan(static_cast<int>(img.Width()), static_cast<int>(img.Height()),
+                                      enable_scale_, maximum_edge_, enable_roi_, roi_);
+    if (plan.noop) {
+      return;
+    }
+
+    metal::MetalImage dst;
+    if (plan.use_roi) {
+      metal::utils::CropResizeTexture(img, dst, plan.roi_rect, plan.output_size,
+                                      downsample_algorithm_);
+    } else {
+      metal::utils::ResizeTexture(img, dst, plan.output_size, downsample_algorithm_);
+    }
+    img = std::move(dst);
+    return;
   }
-  img = std::move(dst);
+#endif
+
+  throw std::runtime_error("ResizeOp::ApplyGPU: active GPU backend is not supported");
 #endif
 }
 
@@ -284,13 +353,13 @@ auto ResizeOp::SetParams(const nlohmann::json& params) -> void {
     }
     downsample_algorithm_ = ParseDownsampleAlgorithm(inner);
     if (enable_roi_ && inner.contains("roi")) {
-      auto roi_json         = inner.at("roi");
-      roi_.x_               = roi_json.value("x", 0);
-      roi_.y_               = roi_json.value("y", 0);
-      roi_.resize_factor_   = roi_json.value("resize_factor", 1.0f);
-      roi_.resize_factor_x_ = roi_json.value("resize_factor_x", roi_.resize_factor_);
-      roi_.resize_factor_y_ = roi_json.value("resize_factor_y", roi_.resize_factor_);
-      roi_.reference_width_ = roi_json.value("reference_width", 0);
+      auto roi_json          = inner.at("roi");
+      roi_.x_                = roi_json.value("x", 0);
+      roi_.y_                = roi_json.value("y", 0);
+      roi_.resize_factor_    = roi_json.value("resize_factor", 1.0f);
+      roi_.resize_factor_x_  = roi_json.value("resize_factor_x", roi_.resize_factor_);
+      roi_.resize_factor_y_  = roi_json.value("resize_factor_y", roi_.resize_factor_);
+      roi_.reference_width_  = roi_json.value("reference_width", 0);
       roi_.reference_height_ = roi_json.value("reference_height", 0);
     }
   } else {
