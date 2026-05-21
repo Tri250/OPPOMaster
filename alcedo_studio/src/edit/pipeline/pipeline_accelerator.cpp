@@ -147,6 +147,11 @@ auto IsImplementedMergedPipelineBackend(GpuBackendKind backend) -> bool {
       return false;
 #endif
     case GpuBackendKind::OpenCL:
+#ifdef HAVE_OPENCL
+      return true;
+#else
+      return false;
+#endif
     case GpuBackendKind::None:
       return false;
   }

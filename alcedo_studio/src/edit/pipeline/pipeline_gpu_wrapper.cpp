@@ -16,6 +16,9 @@ auto CreateCUDAGPUPipeline() -> std::unique_ptr<GPUPipelineImpl>;
 #ifdef HAVE_METAL
 auto CreateMetalGPUPipeline() -> std::unique_ptr<GPUPipelineImpl>;
 #endif
+#ifdef HAVE_OPENCL
+auto CreateOpenCLGPUPipeline() -> std::unique_ptr<GPUPipelineImpl>;
+#endif
 
 namespace {
 class UnavailableGPUPipeline final : public GPUPipelineImpl {
@@ -50,6 +53,11 @@ auto CreateGPUPipeline(const GpuBackendKind backend) -> std::unique_ptr<GPUPipel
       break;
 #endif
     case GpuBackendKind::OpenCL:
+#ifdef HAVE_OPENCL
+      return CreateOpenCLGPUPipeline();
+#else
+      break;
+#endif
     case GpuBackendKind::None:
       break;
   }

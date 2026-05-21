@@ -45,6 +45,8 @@ if(ALCEDO_OPENCL_ENABLED)
     set(OPENCL_CVT_REF_SPACE_CL "${CMAKE_CURRENT_SOURCE_DIR}/decoders/processor/operators/gpu/opencl_shader/cvt_ref_space.cl")
     set(OPENCL_EDIT_PIPELINE_FUSED_PARAMS_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/fused_params.cl")
     set(OPENCL_EDIT_PIPELINE_FUSED_PARAMS_VALIDATION_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/fused_params_validation.cl")
+    set(OPENCL_EDIT_PIPELINE_FUSED_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/edit_pipeline_fused.cl")
+    set(OPENCL_EDIT_PIPELINE_DETAIL_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/edit_pipeline_detail.cl")
     set(OPENCL_GEOMETRY_UTILS_CL "${CMAKE_CURRENT_SOURCE_DIR}/opencl/opencl_shader/geometry_utils.cl")
     set(OPENCL_EDIT_GEOMETRY_LENS_CALIB_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/operators/geometry/opencl_shader/lens_calib.cl")
     def_library(OpenClContext SOURCES opencl/opencl_context.cpp PUBLIC_DEPS OpenCL::OpenCL)
@@ -70,6 +72,8 @@ if(ALCEDO_OPENCL_ENABLED)
         ALCEDO_OPENCL_CVT_REF_SPACE_CL="${OPENCL_CVT_REF_SPACE_CL}"
         ALCEDO_OPENCL_EDIT_PIPELINE_FUSED_PARAMS_CL="${OPENCL_EDIT_PIPELINE_FUSED_PARAMS_CL}"
         ALCEDO_OPENCL_EDIT_PIPELINE_FUSED_PARAMS_VALIDATION_CL="${OPENCL_EDIT_PIPELINE_FUSED_PARAMS_VALIDATION_CL}"
+        ALCEDO_OPENCL_EDIT_PIPELINE_FUSED_CL="${OPENCL_EDIT_PIPELINE_FUSED_CL}"
+        ALCEDO_OPENCL_EDIT_PIPELINE_DETAIL_CL="${OPENCL_EDIT_PIPELINE_DETAIL_CL}"
         ALCEDO_OPENCL_GEOMETRY_UTILS_CL="${OPENCL_GEOMETRY_UTILS_CL}"
         ALCEDO_OPENCL_EDIT_GEOMETRY_LENS_CALIB_CL="${OPENCL_EDIT_GEOMETRY_LENS_CALIB_CL}"
     )
@@ -591,6 +595,7 @@ if(ALCEDO_METAL_ENABLED)
 endif()
 if(ALCEDO_OPENCL_ENABLED)
     list(APPEND GPU_PIPELINE_SRCS
+        edit/pipeline/pipeline_opencl_impl.cpp
         edit/pipeline/pipeline_opencl_param.cpp
     )
 endif()

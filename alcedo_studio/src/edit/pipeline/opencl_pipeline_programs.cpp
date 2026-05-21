@@ -23,6 +23,7 @@ void RegisterOpenClEditPipelinePrograms() {
                     .source_paths =
                         {
                             ALCEDO_OPENCL_EDIT_PIPELINE_FUSED_PARAMS_CL,
+                            ALCEDO_OPENCL_EDIT_PIPELINE_FUSED_CL,
                             ALCEDO_OPENCL_EDIT_PIPELINE_FUSED_PARAMS_VALIDATION_CL,
                         },
                     .build_options       = "-cl-std=CL1.2",
