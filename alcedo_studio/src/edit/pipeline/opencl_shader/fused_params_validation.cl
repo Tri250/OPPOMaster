@@ -17,6 +17,10 @@ __kernel void edit_pipeline_validate_fused_params(__global const OpenClFusedPara
               params->to_output_params_.display_linear_scale_;
   output[5] = params->to_output_params_.limit_to_display_matx[0] +
               params->to_output_params_.open_drt_params_.tn_con_;
-  output[6] = (float)params->curve_enabled_ + (float)params->curve_ctrl_pts_size_;
-  output[7] = (float)params->lmt_lut_enabled_ + (float)params->lmt_lut_edge_size_;
+  output[6] = params->to_output_params_.aces_params_.ts_.forward_limit_;
+  output[7] = params->to_output_params_.aces_params_.limit_J_max;
+  output[8] = params->to_output_params_.open_drt_params_.ts_s_;
+  output[9] = params->to_output_params_.open_drt_params_.ts_m2_;
+  output[10] = params->to_output_params_.aces_params_.ts_.m_2_;
+  output[11] = params->to_output_params_.aces_params_.ts_.g_;
 }

@@ -34,7 +34,8 @@ __kernel void edit_pipeline_fused_rgba32f(__global const float* input,
   px = opencl_hls_op(px, params);
   // 4. CST: LMT (3D LUT look modification transform)
   px = opencl_lmt_op(px, params, lmt_lut);
-  // 5. CST: ToOutput — deferred to later phase
+  // 5. CST: ToOutput (ACES 2.0 or OpenDRT)
+  px = opencl_output_op(px, params);
 
   output[idx + 0] = px.x;
   output[idx + 1] = px.y;

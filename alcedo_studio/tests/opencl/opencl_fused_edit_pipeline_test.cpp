@@ -7,9 +7,11 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <memory>
 
 #include "edit/operators/cst/odt_op.hpp"
@@ -80,6 +82,24 @@ auto RunOpenClFusedPipeline(const cv::Mat& input, OperatorParams params) -> cv::
   return RunOpenClFusedPipeline(pipeline, input, params);
 }
 
+auto RunFusedPipeline(GpuBackendKind backend, const cv::Mat& input, OperatorParams params,
+                      double* elapsed_ms = nullptr) -> cv::Mat {
+  GPUPipelineWrapper pipeline(backend);
+  auto               input_buffer  = std::make_shared<ImageBuffer>(input.clone());
+  auto               output_buffer = std::make_shared<ImageBuffer>();
+
+  pipeline.SetInputImage(input_buffer);
+  pipeline.SetParams(params);
+  const auto start = std::chrono::steady_clock::now();
+  pipeline.Execute(output_buffer);
+  output_buffer->SyncToCPU();
+  const auto end = std::chrono::steady_clock::now();
+  if (elapsed_ms != nullptr) {
+    *elapsed_ms = std::chrono::duration<double, std::milli>(end - start).count();
+  }
+  return output_buffer->GetCPUData().clone();
+}
+
 auto MaxRgbDiff(const cv::Mat& a, const cv::Mat& b) -> float {
   CV_Assert(a.size() == b.size());
   CV_Assert(a.type() == b.type());
@@ -94,6 +114,39 @@ auto MaxRgbDiff(const cv::Mat& a, const cv::Mat& b) -> float {
     }
   }
   return max_diff;
+}
+
+struct RgbDiffStats {
+  float max_diff = 0.0f;
+  int   x        = 0;
+  int   y        = 0;
+  int   channel  = 0;
+  float lhs      = 0.0f;
+  float rhs      = 0.0f;
+};
+
+auto ComputeRgbDiffStats(const cv::Mat& a, const cv::Mat& b) -> RgbDiffStats {
+  CV_Assert(a.size() == b.size());
+  CV_Assert(a.type() == b.type());
+  RgbDiffStats stats;
+  for (int y = 0; y < a.rows; ++y) {
+    for (int x = 0; x < a.cols; ++x) {
+      const cv::Vec4f lhs = a.at<cv::Vec4f>(y, x);
+      const cv::Vec4f rhs = b.at<cv::Vec4f>(y, x);
+      for (int c = 0; c < 3; ++c) {
+        const float diff = std::abs(lhs[c] - rhs[c]);
+        if (diff > stats.max_diff) {
+          stats.max_diff = diff;
+          stats.x        = x;
+          stats.y        = y;
+          stats.channel  = c;
+          stats.lhs      = lhs[c];
+          stats.rhs      = rhs[c];
+        }
+      }
+    }
+  }
+  return stats;
 }
 
 auto MakeRgbOffsetImage(const cv::Mat& input, const cv::Vec3f& offset) -> cv::Mat {
@@ -121,16 +174,20 @@ void ExpectFiniteRgba32f(const cv::Mat& image) {
   }
 }
 
-auto MakeDefaultOutputTransformParams() -> OperatorParams {
+auto MakeOutputTransformParams(std::string method) -> OperatorParams {
   auto   params = MakeNoOpFusedParams();
   ODT_Op odt({{"odt",
-               {{"method", "open_drt"},
+               {{"method", method},
                 {"encoding_space", "rec709"},
                 {"encoding_eotf", "gamma_2_2"},
                 {"peak_luminance", 100.0f}}}});
   odt.SetGlobalParams(params);
   params.to_output_enabled_ = true;
   return params;
+}
+
+auto MakeDefaultOutputTransformParams() -> OperatorParams {
+  return MakeOutputTransformParams("open_drt");
 }
 
 }  // namespace
@@ -163,7 +220,7 @@ TEST(OpenClFusedEditPipelineTest, AppliesPointOperatorsWhenOutputTransformDisabl
   EXPECT_NEAR(output.at<cv::Vec4f>(0, 1)[3], 0.75f, 1.0e-6f);
 }
 
-TEST(OpenClFusedEditPipelineTest, OutputTransformIsDeferredInPhase3) {
+TEST(OpenClFusedEditPipelineTest, OutputTransformAppliesWhenEnabled) {
   if (!TryEnsureOpenClRuntime()) {
     GTEST_SKIP() << OpenClContext::Instance().LastInitializationError();
   }
@@ -178,9 +235,59 @@ TEST(OpenClFusedEditPipelineTest, OutputTransformIsDeferredInPhase3) {
 
   ExpectFiniteRgba32f(output_disabled);
   ExpectFiniteRgba32f(output_enabled);
-  EXPECT_LE(MaxRgbDiff(output_enabled, output_disabled), 1.0e-6f)
-      << "Phase 3 OpenCL fused pipeline should not apply deferred CST/ToOutput yet.";
+  EXPECT_GT(MaxRgbDiff(output_enabled, output_disabled), 1.0e-4f)
+      << "Enabled OpenCL CST/ToOutput should change ACEScc input into display output.";
 }
+
+#ifdef HAVE_CUDA
+TEST(OpenClFusedEditPipelineTest, OutputTransformMatchesCudaForOpenDrtAndAces) {
+  if (!TryEnsureOpenClRuntime()) {
+    GTEST_SKIP() << OpenClContext::Instance().LastInitializationError();
+  }
+
+  cv::Mat input(64, 128, CV_32FC4);
+  for (int y = 0; y < input.rows; ++y) {
+    for (int x = 0; x < input.cols; ++x) {
+      const float fx            = static_cast<float>(x) / static_cast<float>(input.cols - 1);
+      const float fy            = static_cast<float>(y) / static_cast<float>(input.rows - 1);
+      const float base          = 0.01f + 0.24f * fx;
+      input.at<cv::Vec4f>(y, x) = {base, base + 0.012f * fy,
+                                   fmax(0.0f, base - 0.008f * (1.0f - fy)), 1.0f};
+    }
+  }
+
+  for (const std::string method : {"open_drt", "aces_2_0"}) {
+    double  cuda_ms   = 0.0;
+    double  opencl_ms = 0.0;
+    cv::Mat cuda_output;
+    cv::Mat opencl_output;
+    try {
+      auto cuda_params             = MakeOutputTransformParams(method);
+      auto opencl_params           = MakeOutputTransformParams(method);
+      cuda_params.to_ws_enabled_   = true;
+      opencl_params.to_ws_enabled_ = true;
+      cuda_output   = RunFusedPipeline(GpuBackendKind::CUDA, input, cuda_params, &cuda_ms);
+      opencl_output = RunFusedPipeline(GpuBackendKind::OpenCL, input, opencl_params, &opencl_ms);
+    } catch (const std::exception& e) {
+      GTEST_SKIP() << "CUDA/OpenCL output transform comparison unavailable: " << e.what();
+    }
+
+    ExpectFiniteRgba32f(cuda_output);
+    ExpectFiniteRgba32f(opencl_output);
+    const RgbDiffStats stats = ComputeRgbDiffStats(cuda_output, opencl_output);
+    const float        diff  = stats.max_diff;
+    std::cout << "[OpenCL fused " << method << "] CUDA: " << cuda_ms
+              << " ms | OpenCL: " << opencl_ms << " ms | max_abs_diff=" << diff << " at ("
+              << stats.x << "," << stats.y << ") channel=" << stats.channel << " cuda=" << stats.lhs
+              << " opencl=" << stats.rhs << "\n";
+
+    EXPECT_LE(diff, method == "aces_2_0" ? 8.0e-3f : 5.0e-3f) << method;
+    EXPECT_GT(cuda_ms, 0.0);
+    EXPECT_GT(opencl_ms, 0.0);
+    EXPECT_LT(opencl_ms, cuda_ms * 100.0 + 50.0) << method;
+  }
+}
+#endif
 
 TEST(OpenClFusedEditPipelineTest, LmtPassthroughWhenDisabled) {
   if (!TryEnsureOpenClRuntime()) {
