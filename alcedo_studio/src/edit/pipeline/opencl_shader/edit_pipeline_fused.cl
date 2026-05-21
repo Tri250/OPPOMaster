@@ -12,9 +12,29 @@ __kernel void edit_pipeline_fused_rgba32f(__global const float* input,
   if (x >= width || y >= height) {
     return;
   }
+
   int idx = (y * width + x) * 4;
-  output[idx + 0] = input[idx + 0];
-  output[idx + 1] = input[idx + 1];
-  output[idx + 2] = input[idx + 2];
-  output[idx + 3] = input[idx + 3];
+  float4 px = (float4)(input[idx + 0], input[idx + 1], input[idx + 2], input[idx + 3]);
+
+  // Point-wise pipeline (order matches CUDA/Metal fused pipeline):
+  // 1. To Working Space (AP0 → AP1 → RGC → ACEScc)
+  px = opencl_tows_op(px, params);
+  // 2. Basic tonal operators
+  px = opencl_exposure_op(px, params);
+  px = opencl_contrast_op(px, params);
+  px = opencl_tone_op(px, params);
+  px = opencl_highlight_op(px, params);
+  px = opencl_shadow_op(px, params);
+  px = opencl_curve_op(px, params);
+  // 3. Color adjustment operators
+  px = opencl_saturation_op(px, params);
+  px = opencl_vibrance_op(px, params);
+  px = opencl_color_wheel_op(px, params);
+  px = opencl_hls_op(px, params);
+  // 4. CST: LMT + ToOutput — deferred to later phase
+
+  output[idx + 0] = px.x;
+  output[idx + 1] = px.y;
+  output[idx + 2] = px.z;
+  output[idx + 3] = px.w;
 }

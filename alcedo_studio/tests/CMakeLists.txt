@@ -553,6 +553,17 @@ if(ALCEDO_OPENCL_ENABLED)
   target_include_directories(OpenClRuntimeTest PUBLIC ${ALCEDO_INCLUDE_DIR})
   target_link_libraries(OpenClRuntimeTest PRIVATE GTest::gtest_main OpenClProgramLibrary)
   gtest_discover_tests(OpenClRuntimeTest TEST_PREFIX "OpenClRuntimeTest.")
+
+  add_executable(OpenClFusedEditPipelineTest opencl/opencl_fused_edit_pipeline_test.cpp)
+  target_include_directories(OpenClFusedEditPipelineTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+  target_link_libraries(OpenClFusedEditPipelineTest
+    PRIVATE
+      GTest::gtest_main
+      EditPipeline
+      OpenClProgramLibrary
+      ${ALCEDO_TEST_OPENCV_MIN_DEPS}
+  )
+  gtest_discover_tests(OpenClFusedEditPipelineTest TEST_PREFIX "OpenClFusedEditPipelineTest.")
 endif()
 
 if(ALCEDO_CUDA_ENABLED AND ALCEDO_OPENCL_ENABLED)
@@ -728,6 +739,7 @@ alcedo_assign_test_category(gpu ALCEDO_BUILD_GPU_TESTS alcedo_tests_gpu
   CudaPreviewVramReclamationTest
   OpenClCudaToLinearRefCompareTest
   OpenClCudaPipelineCompareTest
+  OpenClFusedEditPipelineTest
   OpenClGeometryUtilsTest
 )
 

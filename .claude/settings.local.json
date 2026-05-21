@@ -51,7 +51,14 @@
       "Bash(./build/debug/alcedo_studio/tests/OpenClRuntimeSmokeTest.exe)",
       "Bash(./build/debug/alcedo_studio/tests/OpenClProgramLibraryTest.exe)",
       "Bash(./build/debug/alcedo_studio/tests/ImageBufferOpenClTest.exe)",
-      "Bash(./build/debug/alcedo_studio/tests/PipelineServiceTest.exe)"
+      "Bash(./build/debug/alcedo_studio/tests/PipelineServiceTest.exe)",
+      "Bash(cmd /c \"scripts\\\\msvc_env.cmd --preset win_debug -DCMAKE_PREFIX_PATH=D:/Qt/6.9.3/msvc2022_64/lib/cmake\")",
+      "Bash(cmd /c \"scripts\\\\msvc_env.cmd --build --preset win_debug --parallel 4\")",
+      "Bash(cmake --build \"D:/Projects/pu-erh_lab/build/debug\" --config Debug --parallel 4)",
+      "Bash(cmd //c \"D:\\\\\\\\Projects\\\\\\\\pu-erh_lab\\\\\\\\scripts\\\\\\\\msvc_env.cmd --build --preset win_debug --parallel 4\")",
+      "Bash(cmd //c \"D:\\\\\\\\Projects\\\\\\\\pu-erh_lab\\\\\\\\scripts\\\\\\\\msvc_env.cmd --build --preset win_debug --parallel 4 --target OpenClCudaPipelineCompareTest\")",
+      "Bash(\"D:/Projects/pu-erh_lab/build/debug/alcedo_studio/tests/OpenClCudaPipelineCompareTest.exe\")",
+      "Bash(\"D:/Projects/pu-erh_lab/build/debug/alcedo_studio/tests/PipelineServiceTest.exe\")"
     ]
   }
 }
