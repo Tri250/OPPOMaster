@@ -10,10 +10,12 @@
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <mutex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
+#include <unordered_map>
 #include <vector>
 
 #include "edit/operators/GPU_kernels/fused_param.hpp"
@@ -359,6 +361,40 @@ class OpenClFusedParamUploader {
   }
 
  private:
+  struct OpenClLutCacheEntry {
+    OpenClBuffer buffer;
+    uint32_t     edge_size = 0;
+  };
+
+  // Intentionally leaked to avoid OpenCL shutdown ordering issues during static destruction.
+  static auto GetOpenClLutPathCache() -> std::unordered_map<std::string, OpenClLutCacheEntry>& {
+    static auto* cache = new std::unordered_map<std::string, OpenClLutCacheEntry>();
+    return *cache;
+  }
+
+  static auto GetOpenClLutPathCacheMutex() -> std::mutex& {
+    static auto* mutex = new std::mutex();
+    return *mutex;
+  }
+
+  static auto BuildOpenClLutPathCacheKey(const std::filesystem::path& path) -> std::string {
+    std::error_code ec;
+    const auto      abs_path   = std::filesystem::absolute(path, ec);
+    const auto      normalized = (ec ? path : abs_path).lexically_normal();
+    const auto      utf8       = normalized.generic_u8string();
+    std::string     key{reinterpret_cast<const char*>(utf8.data()), utf8.size()};
+
+    std::error_code size_ec;
+    const auto      file_size = std::filesystem::file_size(normalized, size_ec);
+    key += "|s=" + std::to_string(size_ec ? static_cast<std::uintmax_t>(0) : file_size);
+
+    std::error_code time_ec;
+    const auto      mtime = std::filesystem::last_write_time(normalized, time_ec);
+    const auto      stamp = time_ec ? 0LL : mtime.time_since_epoch().count();
+    key += "|t=" + std::to_string(stamp);
+
+    return key;
+  }
   static auto BuildOpenClParams(const FusedOperatorParams&  fused_params,
                                 const OperatorParams&       cpu_params,
                                 const OpenClFusedResources& resources) -> OpenClFusedParams {
@@ -673,6 +709,24 @@ class OpenClFusedParamUploader {
       throw std::runtime_error("OpenCL fused params: LMT is enabled but lmt_lut_path_ is empty.");
     }
 
+    // Check global path-based cache first (keyed by path + size + mtime).
+    // This avoids re-parsing and re-uploading the LUT every frame when
+    // to_lmt_dirty_ is spuriously true even though the file hasn't changed.
+    const std::string cache_key = BuildOpenClLutPathCacheKey(cpu_params.lmt_lut_path_);
+    {
+      auto&                      cache = GetOpenClLutPathCache();
+      std::lock_guard<std::mutex> lock(GetOpenClLutPathCacheMutex());
+      const auto                 it = cache.find(cache_key);
+      if (it != cache.end()) {
+        resources.lmt_lut_buffer_    = it->second.buffer;
+        resources.lmt_lut_edge_size_ = it->second.edge_size;
+        resources.lmt_lut_source_id_ = BuildPathIdentity(cpu_params.lmt_lut_path_);
+        cpu_params.to_lmt_dirty_     = false;
+        return;
+      }
+    }
+
+    // Fall back to the per-pipeline resource cache.
     const auto source_id = BuildPathIdentity(cpu_params.lmt_lut_path_);
     if (!cpu_params.to_lmt_dirty_ && resources.lmt_lut_buffer_.Get() != nullptr &&
         resources.lmt_lut_edge_size_ > 1U && resources.lmt_lut_source_id_ == source_id) {
@@ -706,6 +760,16 @@ class OpenClFusedParamUploader {
     resources.lmt_lut_edge_size_ = static_cast<uint32_t>(lut.edge3d_);
     resources.lmt_lut_source_id_ = source_id;
     cpu_params.to_lmt_dirty_     = false;
+
+    // Store in global cache for future frames.
+    {
+      OpenClLutCacheEntry entry;
+      entry.buffer    = resources.lmt_lut_buffer_;
+      entry.edge_size = resources.lmt_lut_edge_size_;
+      auto&                      cache = GetOpenClLutPathCache();
+      std::lock_guard<std::mutex> lock(GetOpenClLutPathCacheMutex());
+      cache.emplace(cache_key, entry);
+    }
   }
 };
 

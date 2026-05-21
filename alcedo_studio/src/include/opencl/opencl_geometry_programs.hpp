@@ -14,6 +14,7 @@ inline constexpr const char* kGeometryProgramName        = "opencl_geometry_util
 inline constexpr const char* kCropResizeLinearKernelName = "opencl_geometry_crop_resize_linear";
 inline constexpr const char* kCropResizeAreaKernelName   = "opencl_geometry_crop_resize_area";
 inline constexpr const char* kWarpAffineLinearKernelName = "opencl_geometry_warp_affine_linear";
+inline constexpr const char* kWarpRectilinearKernelName  = "opencl_geometry_warp_rectilinear";
 inline constexpr const char* kRotateKernelName           = "opencl_geometry_rotate";
 
 inline constexpr const char* kLensCalibProgramName       = "edit_geometry_lens_calib";

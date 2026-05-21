@@ -18,6 +18,8 @@
 #include <string>
 #include <vector>
 
+#include "decoders/dng_default_crop.hpp"
+#include "decoders/processor/operators/gpu/cuda_dng_warp.hpp"
 #include "decoders/processor/operators/gpu/cuda_rotate.hpp"
 #include "edit/operators/geometry/crop_rotate_op.hpp"
 #include "edit/operators/geometry/cuda_geometry_ops.hpp"
@@ -248,6 +250,25 @@ auto RunOpenClWarpAffine(const cv::Mat& src, const cv::Mat& matrix, cv::Size out
   return output;
 }
 
+auto RunOpenClDngWarp(const cv::Mat& src, const dng::WarpRectilinear& warp) -> cv::Mat {
+  opencl::OpenClImage src_image;
+  src_image.Upload(src);
+  opencl::OpenClImage dst_image;
+  OpenCL::Geometry::WarpRectilinear(src_image, dst_image, warp);
+  cv::Mat output;
+  dst_image.Download(output);
+  return output;
+}
+
+auto RunCudaDngWarp(const cv::Mat& src, const dng::WarpRectilinear& warp) -> cv::Mat {
+  cv::cuda::GpuMat image(src);
+  CUDA::ApplyDngWarpRectilinear(image, warp);
+  SynchronizeCuda();
+  cv::Mat output;
+  image.download(output);
+  return output;
+}
+
 auto RunCudaWarpAffine(const cv::Mat& src, const cv::Mat& matrix, cv::Size out_size,
                        const cv::Scalar& border_value) -> cv::Mat {
   cv::cuda::GpuMat src_image(src);
@@ -344,6 +365,30 @@ TEST(OpenClGeometryUtilsTest, WarpAffineLinearMatchesCuda) {
   const cv::Mat    expected = RunCudaWarpAffine(src, matrix, out_size, border);
 
   ExpectGeometryNear("WarpAffineLinear", actual, expected, 1.0e-5f);
+}
+
+TEST(OpenClGeometryUtilsTest, WarpRectilinearMatchesCuda) {
+  RequireOpenClAndCuda();
+
+  dng::WarpRectilinear warp{};
+  warp.coefficient_set_count = 3;
+  warp.center_x              = 0.48;
+  warp.center_y              = 0.53;
+  warp.coefficient_sets[0]   = {1.0, -0.08, 0.012, -0.002, 0.0015, -0.001};
+  warp.coefficient_sets[1]   = {1.0, -0.06, 0.010, -0.001, 0.0010, -0.0005};
+  warp.coefficient_sets[2]   = {1.0, -0.04, 0.008, -0.001, 0.0005, -0.0002};
+
+  const std::vector<std::pair<const char*, int>> cases = {
+      {"WarpRectilinear3C", CV_32FC3},
+      {"WarpRectilinear4C", CV_32FC4},
+  };
+
+  for (const auto& [name, type] : cases) {
+    const cv::Mat src      = MakePattern(17, 13, type);
+    const cv::Mat actual   = RunOpenClDngWarp(src, warp);
+    const cv::Mat expected = RunCudaDngWarp(src, warp);
+    ExpectGeometryNear(name, actual, expected, 1.0e-5f);
+  }
 }
 
 TEST(OpenClGeometryUtilsTest, RotatesLikeCudaRawGeometryUtils) {

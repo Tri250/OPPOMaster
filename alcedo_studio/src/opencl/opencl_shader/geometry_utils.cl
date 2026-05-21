@@ -159,6 +159,98 @@ __kernel void opencl_geometry_warp_affine_linear(__global const float* src, int 
   edit_geometry_write_pixel(dst, dst_stride, channels, x, y, value);
 }
 
+typedef struct OpenClDngWarpRectilinearParams {
+  uint  coefficient_set_count;
+  uint  width;
+  uint  height;
+  uint  src_stride;
+  uint  dst_stride;
+  uint  channels;
+  float coefficient_sets[3][6];
+  float center_x;
+  float center_y;
+} OpenClDngWarpRectilinearParams;
+
+inline float opencl_geometry_read_channel_or_zero(__global const float*          src,
+                                                  OpenClDngWarpRectilinearParams p, int x, int y,
+                                                  int channel) {
+  if (x < 0 || y < 0 || x >= (int)p.width || y >= (int)p.height || channel < 0 ||
+      channel >= (int)p.channels) {
+    return 0.0f;
+  }
+  return src[(uint)y * p.src_stride + (uint)x * p.channels + (uint)channel];
+}
+
+inline float opencl_geometry_bilinear_sample_channel(__global const float*          src,
+                                                     OpenClDngWarpRectilinearParams p, float sx,
+                                                     float sy, int channel) {
+  const int   x0  = (int)floor(sx);
+  const int   y0  = (int)floor(sy);
+  const int   x1  = x0 + 1;
+  const int   y1  = y0 + 1;
+  const float fx  = sx - (float)x0;
+  const float fy  = sy - (float)y0;
+  const float w00 = (1.0f - fx) * (1.0f - fy);
+  const float w10 = fx * (1.0f - fy);
+  const float w01 = (1.0f - fx) * fy;
+  const float w11 = fx * fy;
+  return opencl_geometry_read_channel_or_zero(src, p, x0, y0, channel) * w00 +
+         opencl_geometry_read_channel_or_zero(src, p, x1, y0, channel) * w10 +
+         opencl_geometry_read_channel_or_zero(src, p, x0, y1, channel) * w01 +
+         opencl_geometry_read_channel_or_zero(src, p, x1, y1, channel) * w11;
+}
+
+inline float2 opencl_geometry_warp_rectilinear_source_coord(int x, int y, int plane,
+                                                            OpenClDngWarpRectilinearParams p) {
+  const float x0 = 0.0f;
+  const float y0 = 0.0f;
+  const float x1 = (float)max((int)p.width - 1, 0);
+  const float y1 = (float)max((int)p.height - 1, 0);
+  const float cx = x0 + p.center_x * (x1 - x0);
+  const float cy = y0 + p.center_y * (y1 - y0);
+  const float mx = fmax(fabs(x0 - cx), fabs(x1 - cx));
+  const float my = fmax(fabs(y0 - cy), fabs(y1 - cy));
+  const float m  = sqrt(mx * mx + my * my);
+  if (m <= 1.0e-8f) {
+    return (float2)((float)x, (float)y);
+  }
+
+  const uint  set_index = p.coefficient_set_count <= 1u ? 0u : (uint)min(max(plane, 0), 2);
+  const float dx        = ((float)x - cx) / m;
+  const float dy        = ((float)y - cy) / m;
+  const float r2        = dx * dx + dy * dy;
+  const float f         = p.coefficient_sets[set_index][0] + p.coefficient_sets[set_index][1] * r2 +
+                  p.coefficient_sets[set_index][2] * r2 * r2 +
+                  p.coefficient_sets[set_index][3] * r2 * r2 * r2;
+  const float dxr = f * dx;
+  const float dyr = f * dy;
+  const float dxt = p.coefficient_sets[set_index][4] * (2.0f * dx * dy) +
+                    p.coefficient_sets[set_index][5] * (r2 + 2.0f * dx * dx);
+  const float dyt = p.coefficient_sets[set_index][5] * (2.0f * dx * dy) +
+                    p.coefficient_sets[set_index][4] * (r2 + 2.0f * dy * dy);
+  return (float2)(cx + m * (dxr + dxt), cy + m * (dyr + dyt));
+}
+
+__kernel void opencl_geometry_warp_rectilinear(__global const float* src, __global float* dst,
+                                               OpenClDngWarpRectilinearParams p) {
+  const int x = (int)get_global_id(0);
+  const int y = (int)get_global_id(1);
+  if (x >= (int)p.width || y >= (int)p.height) {
+    return;
+  }
+
+  const float2    red   = opencl_geometry_warp_rectilinear_source_coord(x, y, 0, p);
+  const float2    green = opencl_geometry_warp_rectilinear_source_coord(x, y, 1, p);
+  const float2    blue  = opencl_geometry_warp_rectilinear_source_coord(x, y, 2, p);
+  __global float* out   = dst + (uint)y * p.dst_stride + (uint)x * p.channels;
+  out[0]                = opencl_geometry_bilinear_sample_channel(src, p, red.x, red.y, 0);
+  out[1]                = opencl_geometry_bilinear_sample_channel(src, p, green.x, green.y, 1);
+  out[2]                = opencl_geometry_bilinear_sample_channel(src, p, blue.x, blue.y, 2);
+  if (p.channels == 4u) {
+    out[3] = opencl_geometry_bilinear_sample_channel(src, p, green.x, green.y, 3);
+  }
+}
+
 __kernel void opencl_geometry_rotate(__global const float* src, int src_width, int src_height,
                                      int src_stride, int channels, __global float* dst,
                                      int dst_width, int dst_height, int dst_stride, int mode) {

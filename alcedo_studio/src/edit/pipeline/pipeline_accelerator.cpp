@@ -89,11 +89,11 @@ auto ResolveAcceleratorBackend(AcceleratorBackendPreference preference) -> GpuBa
       return GpuBackendKind::None;
 #endif
 #else
-      if (IsCudaRuntimeAvailable()) {
-        return GpuBackendKind::CUDA;
-      }
       if (TryOpenClRuntime()) {
         return GpuBackendKind::OpenCL;
+      }
+      if (IsCudaRuntimeAvailable()) {
+        return GpuBackendKind::CUDA;
       }
 #ifdef HAVE_METAL
       return GpuBackendKind::Metal;

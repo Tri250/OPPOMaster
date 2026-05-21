@@ -8,6 +8,7 @@
 
 #include <opencv2/core.hpp>
 
+#include "decoders/dng_default_crop.hpp"
 #include "edit/operators/geometry/resize_algorithm.hpp"
 #include "image/opencl_image.hpp"
 
@@ -26,6 +27,9 @@ void ResizeLinear(const opencl::OpenClImage& src, opencl::OpenClImage& dst, cv::
 
 void WarpAffineLinear(const opencl::OpenClImage& src, opencl::OpenClImage& dst,
                       const cv::Mat& matrix, cv::Size out_size, const cv::Scalar& border_value);
+
+void WarpRectilinear(const opencl::OpenClImage& src, opencl::OpenClImage& dst,
+                     const dng::WarpRectilinear& warp);
 
 void Rotate180(opencl::OpenClImage& image);
 

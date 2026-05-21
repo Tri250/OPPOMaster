@@ -155,7 +155,12 @@ auto RawProcessor::ProcessOpenCL() -> ImageBuffer {
   LogProfileStep(deferred_log, "RAW OpenCL apply inverse cam mul", stage_cam_mul_start);
 
   if (dng_warp_rectilinear_.has_value()) {
-    throw std::runtime_error("RawProcessor: OpenCL DNG warp is not yet implemented.");
+    const auto          stage_dng_warp_start = ProfileClock::now();
+    opencl::OpenClImage warped;
+    OpenCL::Geometry::WarpRectilinear(gpu_img, warped, *dng_warp_rectilinear_);
+    gpu_img                                              = std::move(warped);
+    runtime_color_context_.dng_warp_rectilinear_applied_ = true;
+    LogProfileStep(deferred_log, "RAW OpenCL DNG warp rectilinear", stage_dng_warp_start);
   }
 
   runtime_color_context_.output_in_camera_space_ = true;

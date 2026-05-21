@@ -7,6 +7,7 @@
 #include "opencl/opencl_geometry_utils.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <stdexcept>
 #include <string>
 
@@ -16,6 +17,18 @@
 
 namespace alcedo::OpenCL::Geometry {
 namespace {
+
+struct DngWarpRectilinearParams {
+  std::uint32_t coefficient_set_count  = 0;
+  std::uint32_t width                  = 0;
+  std::uint32_t height                 = 0;
+  std::uint32_t src_stride             = 0;
+  std::uint32_t dst_stride             = 0;
+  std::uint32_t channels               = 0;
+  float         coefficient_sets[3][6] = {};
+  float         center_x               = 0.5f;
+  float         center_y               = 0.5f;
+};
 
 void Check(cl_int error, const char* operation) {
   if (error != CL_SUCCESS) {
@@ -234,6 +247,46 @@ void WarpAffineLinear(const opencl::OpenClImage& src, opencl::OpenClImage& dst,
   SetKernelArg(kernel.Get(), 14, matrix_32f.at<float>(1, 2));
   SetKernelArg(kernel.Get(), 15, border);
   Enqueue2D(kernel.Get(), out_size.width, out_size.height);
+}
+
+void WarpRectilinear(const opencl::OpenClImage& src, opencl::OpenClImage& dst,
+                     const dng::WarpRectilinear& warp) {
+  if (src.Empty()) {
+    dst.Release();
+    return;
+  }
+  const int channels = ChannelCountFromType(src.Type());
+  if (channels != 3 && channels != 4) {
+    throw std::runtime_error("OpenCL geometry DNG warp: expected CV_32FC3 or CV_32FC4 input.");
+  }
+  if (warp.coefficient_set_count == 0 || warp.coefficient_set_count > 3) {
+    throw std::runtime_error("OpenCL geometry DNG warp: invalid coefficient set count.");
+  }
+
+  dst.Create(src.Width(), src.Height(), src.Type());
+  DngWarpRectilinearParams params{
+      .coefficient_set_count = warp.coefficient_set_count,
+      .width                 = static_cast<std::uint32_t>(src.Width()),
+      .height                = static_cast<std::uint32_t>(src.Height()),
+      .src_stride            = static_cast<std::uint32_t>(src.RowBytes() / sizeof(float)),
+      .dst_stride            = static_cast<std::uint32_t>(dst.RowBytes() / sizeof(float)),
+      .channels              = static_cast<std::uint32_t>(channels),
+      .center_x              = static_cast<float>(warp.center_x),
+      .center_y              = static_cast<float>(warp.center_y),
+  };
+  for (size_t set = 0; set < warp.coefficient_sets.size(); ++set) {
+    for (size_t term = 0; term < warp.coefficient_sets[set].size(); ++term) {
+      params.coefficient_sets[set][term] = static_cast<float>(warp.coefficient_sets[set][term]);
+    }
+  }
+
+  KernelHandle kernel(kWarpRectilinearKernelName);
+  cl_mem       src_buffer = src.Buffer();
+  cl_mem       dst_buffer = dst.Buffer();
+  SetKernelArg(kernel.Get(), 0, src_buffer);
+  SetKernelArg(kernel.Get(), 1, dst_buffer);
+  SetKernelArg(kernel.Get(), 2, params);
+  Enqueue2D(kernel.Get(), src.Width(), src.Height());
 }
 
 void Rotate180(opencl::OpenClImage& image) {
