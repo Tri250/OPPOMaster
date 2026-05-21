@@ -33,6 +33,15 @@ void RegisterOpenClEditPipelinePrograms() {
                     .build_options       = "-cl-std=CL1.2",
                     .required_at_startup = false,
                 },
+                OpenClProgramDescriptor{
+                    .name = OpenCL::Pipeline::kDetailProgramName,
+                    .source_paths =
+                        {
+                            ALCEDO_OPENCL_EDIT_PIPELINE_DETAIL_CL,
+                        },
+                    .build_options       = "-cl-std=CL1.2",
+                    .required_at_startup = false,
+                },
             },
     });
   });

@@ -5,6 +5,7 @@
 #ifdef HAVE_OPENCL
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -26,9 +27,89 @@
 namespace alcedo {
 namespace {
 
+constexpr uint32_t kOpenClNeighborMaxTapCount = 64;
+
+enum class OpenClNeighborOpKind : uint32_t {
+  Sharpen = 1,
+  Clarity = 2,
+};
+
+struct OpenClNeighborStageParams {
+  uint32_t                                 kind_      = 0;
+  uint32_t                                 radius_    = 0;
+  uint32_t                                 tap_count_ = 0;
+  float                                    amount_    = 0.0f;
+  float                                    threshold_ = 0.0f;
+  std::array<float, kOpenClNeighborMaxTapCount> weights_ = {};
+};
+
+struct OpenClNeighborStage {
+  OpenClNeighborStageParams params_ = {};
+};
+
 auto ResolveViewerDisplayConfig(const OperatorParams& params) -> ViewerDisplayConfig {
   return ViewerDisplayConfig{params.to_output_params_.encoding_space_,
                              params.to_output_params_.eotf_};
+}
+
+auto BuildGaussianWeights(float sigma, uint32_t radius)
+    -> std::array<float, kOpenClNeighborMaxTapCount> {
+  std::array<float, kOpenClNeighborMaxTapCount> weights{};
+  const double safe_sigma  = std::max(static_cast<double>(sigma), 1.0e-4);
+  const double inv2sigma2  = 0.5 / (safe_sigma * safe_sigma);
+  double       full_weight = 1.0;
+
+  weights[0] = 1.0f;
+  for (uint32_t tap = 1; tap <= radius; ++tap) {
+    const double w = std::exp(-(static_cast<double>(tap) * static_cast<double>(tap)) * inv2sigma2);
+    weights[tap]   = static_cast<float>(w);
+    full_weight += 2.0 * w;
+  }
+
+  if (full_weight > 0.0) {
+    for (uint32_t tap = 0; tap <= radius; ++tap) {
+      weights[tap] = static_cast<float>(static_cast<double>(weights[tap]) / full_weight);
+    }
+  }
+
+  return weights;
+}
+
+auto BuildNeighborStageParams(OpenClNeighborOpKind kind, float sigma, float amount, float threshold,
+                              int gaussian_tap_count, const float* gaussian_weights)
+    -> OpenClNeighborStageParams {
+  OpenClNeighborStageParams params;
+
+  params.kind_      = static_cast<uint32_t>(kind);
+  params.amount_    = amount;
+  params.threshold_ = threshold;
+
+  const int clamped_tap_count =
+      std::clamp(gaussian_tap_count, 0, static_cast<int>(kOpenClNeighborMaxTapCount));
+  if (clamped_tap_count > 0 && gaussian_weights != nullptr) {
+    params.tap_count_ = static_cast<uint32_t>(clamped_tap_count);
+    params.radius_    = params.tap_count_ - 1U;
+    std::copy_n(gaussian_weights, clamped_tap_count, params.weights_.begin());
+    return params;
+  }
+
+  if (sigma <= 0.0f) {
+    return params;
+  }
+
+  const float    safe_sigma = std::max(sigma, 1.0e-4f);
+  const uint32_t max_radius =
+      (kOpenClNeighborMaxTapCount > 0U) ? (kOpenClNeighborMaxTapCount - 1U) : 0U;
+  params.radius_ =
+      std::clamp<uint32_t>(static_cast<uint32_t>(std::ceil(3.0f * safe_sigma)), 1U, max_radius);
+  params.tap_count_ = params.radius_ + 1U;
+  params.weights_   = BuildGaussianWeights(safe_sigma, params.radius_);
+  return params;
+}
+
+auto UploadStageParams(const OpenClNeighborStageParams& params) -> OpenCL::Pipeline::OpenClBuffer {
+  return OpenCL::Pipeline::OpenClBuffer::CreateReadOnlyCopy(&params,
+                                                            sizeof(OpenClNeighborStageParams));
 }
 
 class OpenCLGPUPipeline final : public GPUPipelineImpl {
@@ -41,10 +122,14 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
 
   cl_kernel                              fused_kernel_    = nullptr;
   cl_kernel                              validate_kernel_ = nullptr;
+  cl_kernel                              blur_h_kernel_   = nullptr;
+  cl_kernel                              apply_v_kernel_  = nullptr;
 
   opencl::OpenClImage                    working_;
+  opencl::OpenClImage                    blur_horizontal_;
+  opencl::OpenClImage                    detail_scratch_;
 
-  void                                   EnsureOpenClInput() {
+  void EnsureOpenClInput() {
     if (!input_img_) {
       throw std::runtime_error("OpenCL fused pipeline: input image is null.");
     }
@@ -70,11 +155,11 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
     }
   }
 
-  void EnsureKernels() {
+  void EnsureFusedKernels() {
     auto&      library = OpenClProgramLibrary::Instance();
     cl_program program = library.GetProgram(OpenCL::Pipeline::kFusedProgramName);
     if (program == nullptr) {
-      throw std::runtime_error("OpenCL fused pipeline: failed to get program from library.");
+      throw std::runtime_error("OpenCL fused pipeline: failed to get fused program from library.");
     }
 
     if (fused_kernel_ == nullptr) {
@@ -94,6 +179,36 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
       if (err != CL_SUCCESS || validate_kernel_ == nullptr) {
         throw std::runtime_error(
             "OpenCL fused pipeline: failed to create validation kernel with error " +
+            std::to_string(err) + ".");
+      }
+    }
+  }
+
+  void EnsureDetailKernels() {
+    auto&      library = OpenClProgramLibrary::Instance();
+    cl_program program = library.GetProgram(OpenCL::Pipeline::kDetailProgramName);
+    if (program == nullptr) {
+      throw std::runtime_error("OpenCL fused pipeline: failed to get detail program from library.");
+    }
+
+    if (blur_h_kernel_ == nullptr) {
+      cl_int err     = CL_SUCCESS;
+      blur_h_kernel_ = clCreateKernel(program, OpenCL::Pipeline::kNeighborBlurHorizontalKernelName, &err);
+      if (err != CL_SUCCESS || blur_h_kernel_ == nullptr) {
+        throw std::runtime_error(
+            "OpenCL fused pipeline: failed to create kernel '" +
+            std::string(OpenCL::Pipeline::kNeighborBlurHorizontalKernelName) + "' with error " +
+            std::to_string(err) + ".");
+      }
+    }
+
+    if (apply_v_kernel_ == nullptr) {
+      cl_int err      = CL_SUCCESS;
+      apply_v_kernel_ = clCreateKernel(program, OpenCL::Pipeline::kNeighborApplyVerticalKernelName, &err);
+      if (err != CL_SUCCESS || apply_v_kernel_ == nullptr) {
+        throw std::runtime_error(
+            "OpenCL fused pipeline: failed to create kernel '" +
+            std::string(OpenCL::Pipeline::kNeighborApplyVerticalKernelName) + "' with error " +
             std::to_string(err) + ".");
       }
     }
@@ -184,9 +299,6 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
     cl_int             width             = src.Width();
     cl_int             height            = src.Height();
 
-    // Always pass a valid LUT buffer to satisfy the kernel signature.
-    // When LMT is disabled, the kernel will skip the lookup via the
-    // lmt_lut_enabled_ guard and never actually read from this buffer.
     static const float kDummyLutEntry[4] = {0.0f, 0.0f, 0.0f, 1.0f};
     cl_mem             fallback_lut      = nullptr;
     if (lmt_lut_buffer == nullptr) {
@@ -225,6 +337,106 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
     }
   }
 
+  void EnqueueNeighborBlurHorizontal(const opencl::OpenClImage& src, opencl::OpenClImage& dst,
+                                     cl_mem stage_buffer) {
+    auto& context = OpenClContext::Instance();
+
+    dst.Create(src.Width(), src.Height(), src.Type());
+
+    cl_int  err       = CL_SUCCESS;
+    cl_uint arg_index = 0;
+    cl_mem  src_buf   = src.Buffer();
+    cl_mem  dst_buf   = dst.Buffer();
+    cl_int  width     = src.Width();
+    cl_int  height    = src.Height();
+
+    err |= clSetKernelArg(blur_h_kernel_, arg_index++, sizeof(cl_mem), &src_buf);
+    err |= clSetKernelArg(blur_h_kernel_, arg_index++, sizeof(cl_mem), &dst_buf);
+    err |= clSetKernelArg(blur_h_kernel_, arg_index++, sizeof(cl_mem), &stage_buffer);
+    err |= clSetKernelArg(blur_h_kernel_, arg_index++, sizeof(cl_int), &width);
+    err |= clSetKernelArg(blur_h_kernel_, arg_index++, sizeof(cl_int), &height);
+
+    if (err != CL_SUCCESS) {
+      throw std::runtime_error("OpenCL fused pipeline: failed to set blur horizontal kernel arguments.");
+    }
+
+    size_t global_size[2] = {static_cast<size_t>(width), static_cast<size_t>(height)};
+    err = clEnqueueNDRangeKernel(context.Queue(), blur_h_kernel_, 2, nullptr, global_size, nullptr,
+                                 0, nullptr, nullptr);
+    if (err != CL_SUCCESS) {
+      throw std::runtime_error(
+          "OpenCL fused pipeline: failed to enqueue blur horizontal kernel with error " +
+          std::to_string(err) + ".");
+    }
+  }
+
+  void EnqueueNeighborApplyVertical(const opencl::OpenClImage& src,
+                                    const opencl::OpenClImage& blur_horizontal,
+                                    opencl::OpenClImage& dst, cl_mem stage_buffer) {
+    auto& context = OpenClContext::Instance();
+
+    dst.Create(src.Width(), src.Height(), src.Type());
+
+    cl_int  err       = CL_SUCCESS;
+    cl_uint arg_index = 0;
+    cl_mem  src_buf   = src.Buffer();
+    cl_mem  blur_buf  = blur_horizontal.Buffer();
+    cl_mem  dst_buf   = dst.Buffer();
+    cl_int  width     = src.Width();
+    cl_int  height    = src.Height();
+
+    err |= clSetKernelArg(apply_v_kernel_, arg_index++, sizeof(cl_mem), &src_buf);
+    err |= clSetKernelArg(apply_v_kernel_, arg_index++, sizeof(cl_mem), &blur_buf);
+    err |= clSetKernelArg(apply_v_kernel_, arg_index++, sizeof(cl_mem), &dst_buf);
+    err |= clSetKernelArg(apply_v_kernel_, arg_index++, sizeof(cl_mem), &stage_buffer);
+    err |= clSetKernelArg(apply_v_kernel_, arg_index++, sizeof(cl_int), &width);
+    err |= clSetKernelArg(apply_v_kernel_, arg_index++, sizeof(cl_int), &height);
+
+    if (err != CL_SUCCESS) {
+      throw std::runtime_error(
+          "OpenCL fused pipeline: failed to set neighbor apply vertical kernel arguments.");
+    }
+
+    size_t global_size[2] = {static_cast<size_t>(width), static_cast<size_t>(height)};
+    err = clEnqueueNDRangeKernel(context.Queue(), apply_v_kernel_, 2, nullptr, global_size, nullptr,
+                                 0, nullptr, nullptr);
+    if (err != CL_SUCCESS) {
+      throw std::runtime_error(
+          "OpenCL fused pipeline: failed to enqueue neighbor apply vertical kernel with error " +
+          std::to_string(err) + ".");
+    }
+  }
+
+  auto ShouldRunSharpen() const -> bool {
+    return fused_params_.sharpen_enabled_ && fused_params_.sharpen_offset_ != 0.0f &&
+           fused_params_.sharpen_radius_ > 0.0f;
+  }
+
+  auto ShouldRunClarity() const -> bool {
+    return fused_params_.clarity_enabled_ && fused_params_.clarity_offset_ != 0.0f &&
+           fused_params_.clarity_radius_ > 0.0f;
+  }
+
+  auto BuildNeighborStages() const -> std::vector<OpenClNeighborStage> {
+    std::vector<OpenClNeighborStage> stages;
+    stages.reserve(2);
+
+    if (ShouldRunSharpen()) {
+      stages.push_back(OpenClNeighborStage{BuildNeighborStageParams(
+          OpenClNeighborOpKind::Sharpen, fused_params_.sharpen_radius_, fused_params_.sharpen_offset_,
+          fused_params_.sharpen_threshold_, fused_params_.sharpen_gaussian_tap_count_,
+          fused_params_.sharpen_gaussian_weights_)});
+    }
+    if (ShouldRunClarity()) {
+      stages.push_back(OpenClNeighborStage{BuildNeighborStageParams(
+          OpenClNeighborOpKind::Clarity, fused_params_.clarity_radius_, fused_params_.clarity_offset_,
+          0.0f, fused_params_.clarity_gaussian_tap_count_,
+          fused_params_.clarity_gaussian_weights_)});
+    }
+
+    return stages;
+  }
+
  public:
   void SetInputImage(std::shared_ptr<ImageBuffer> input_image) override {
     input_img_ = std::move(input_image);
@@ -245,19 +457,41 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
     }
 
     EnsureOpenClInput();
-    EnsureKernels();
+    EnsureFusedKernels();
     ValidateParamsABI();
+
+    const auto neighbor_stages = BuildNeighborStages();
+
+    if (!neighbor_stages.empty()) {
+      EnsureDetailKernels();
+    }
 
     const auto& input = input_img_->GetOpenClImage();
 
     EnqueueFusedKernel(input);
+
+    opencl::OpenClImage* detail_src = &working_;
+    opencl::OpenClImage* detail_dst = &detail_scratch_;
+
+    std::vector<OpenCL::Pipeline::OpenClBuffer> stage_buffers;
+    stage_buffers.reserve(neighbor_stages.size());
+
+    for (const auto& stage : neighbor_stages) {
+      stage_buffers.push_back(UploadStageParams(stage.params_));
+      cl_mem stage_buffer = stage_buffers.back().Get();
+
+      EnqueueNeighborBlurHorizontal(*detail_src, blur_horizontal_, stage_buffer);
+      EnqueueNeighborApplyVertical(*detail_src, blur_horizontal_, *detail_dst, stage_buffer);
+
+      std::swap(detail_src, detail_dst);
+    }
 
     auto& context = OpenClContext::Instance();
     clFinish(context.Queue());
 
     if (frame_sink_) {
       cv::Mat host_image;
-      working_.Download(host_image);
+      detail_src->Download(host_image);
 
       if (host_image.type() != CV_32FC4) {
         throw std::runtime_error("OpenCL fused pipeline: expected RGBA32F host frame for viewer.");
@@ -279,7 +513,7 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
     }
 
     if (output_img) {
-      *output_img = ImageBuffer(std::move(working_));
+      *output_img = ImageBuffer(std::move(*detail_src));
     }
   }
 
@@ -292,7 +526,17 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
       clReleaseKernel(validate_kernel_);
       validate_kernel_ = nullptr;
     }
+    if (blur_h_kernel_ != nullptr) {
+      clReleaseKernel(blur_h_kernel_);
+      blur_h_kernel_ = nullptr;
+    }
+    if (apply_v_kernel_ != nullptr) {
+      clReleaseKernel(apply_v_kernel_);
+      apply_v_kernel_ = nullptr;
+    }
     working_.Release();
+    blur_horizontal_.Release();
+    detail_scratch_.Release();
     resources_.Reset();
   }
 };
