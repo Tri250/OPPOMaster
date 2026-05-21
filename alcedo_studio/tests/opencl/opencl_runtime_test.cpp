@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "edit/pipeline/opencl_pipeline_programs.hpp"
+#include "edit/scope/opencl_scope_programs.hpp"
 #include "opencl/opencl_backend_program_registry.hpp"
 #include "opencl/opencl_context.hpp"
 #include "opencl/opencl_geometry_programs.hpp"
@@ -350,6 +351,32 @@ TEST(OpenClRuntimeTest, BuiltinGeometryProgramsCompile) {
   for (const char* kernel_name : lens_kernels) {
     cl_int    error  = CL_SUCCESS;
     cl_kernel kernel = clCreateKernel(lens_program, kernel_name, &error);
+    EXPECT_EQ(error, CL_SUCCESS) << kernel_name;
+    EXPECT_NE(kernel, nullptr) << kernel_name;
+    if (kernel != nullptr) {
+      clReleaseKernel(kernel);
+    }
+  }
+}
+
+TEST(OpenClRuntimeTest, BuiltinScopeProgramCompiles) {
+  auto& context = OpenClContext::Instance();
+  if (!TryEnsureOpenClContext()) {
+    GTEST_SKIP() << context.LastInitializationError();
+  }
+
+  RegisterOpenClBackendPrograms();
+  cl_program program =
+      OpenClProgramLibrary::Instance().GetProgram(OpenCL::Scope::kScopeProgramName);
+  ASSERT_NE(program, nullptr);
+
+  const char* scope_kernels[] = {
+      OpenCL::Scope::kHistogramKernelName,
+      OpenCL::Scope::kWaveformKernelName,
+  };
+  for (const char* kernel_name : scope_kernels) {
+    cl_int    error  = CL_SUCCESS;
+    cl_kernel kernel = clCreateKernel(program, kernel_name, &error);
     EXPECT_EQ(error, CL_SUCCESS) << kernel_name;
     EXPECT_NE(kernel, nullptr) << kernel_name;
     if (kernel != nullptr) {

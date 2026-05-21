@@ -16,6 +16,7 @@ namespace alcedo {
 void RegisterOpenClRawProcessorPrograms();
 void RegisterOpenClEditPipelinePrograms();
 void RegisterOpenClGeometryPrograms();
+void RegisterOpenClScopePrograms();
 
 namespace {
 
@@ -29,6 +30,7 @@ void RegisterBuiltinOpenClProgramManifests() {
     RegisterOpenClRawProcessorPrograms();
     RegisterOpenClEditPipelinePrograms();
     RegisterOpenClGeometryPrograms();
+    RegisterOpenClScopePrograms();
   });
 }
 

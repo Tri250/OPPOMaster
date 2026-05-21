@@ -53,6 +53,7 @@ if(ALCEDO_OPENCL_ENABLED)
     set(OPENCL_EDIT_PIPELINE_CST_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/cst.cl")
     set(OPENCL_GEOMETRY_UTILS_CL "${CMAKE_CURRENT_SOURCE_DIR}/opencl/opencl_shader/geometry_utils.cl")
     set(OPENCL_EDIT_GEOMETRY_LENS_CALIB_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/operators/geometry/opencl_shader/lens_calib.cl")
+    set(OPENCL_SCOPE_ANALYZER_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/scope/opencl_shader/scope_analyzer.cl")
     def_library(OpenClContext SOURCES opencl/opencl_context.cpp PUBLIC_DEPS OpenCL::OpenCL)
     def_library(OpenClProgramLibrary
         SOURCES
@@ -61,6 +62,7 @@ if(ALCEDO_OPENCL_ENABLED)
             opencl/opencl_runtime.cpp
             decoders/processor/operators/gpu/opencl_raw_programs.cpp
             edit/pipeline/opencl_pipeline_programs.cpp
+            edit/scope/opencl_scope_programs.cpp
             opencl/opencl_geometry_programs.cpp
         PUBLIC_DEPS
             OpenClContext
@@ -84,6 +86,7 @@ if(ALCEDO_OPENCL_ENABLED)
         ALCEDO_OPENCL_EDIT_PIPELINE_CST_CL="${OPENCL_EDIT_PIPELINE_CST_CL}"
         ALCEDO_OPENCL_GEOMETRY_UTILS_CL="${OPENCL_GEOMETRY_UTILS_CL}"
         ALCEDO_OPENCL_EDIT_GEOMETRY_LENS_CALIB_CL="${OPENCL_EDIT_GEOMETRY_LENS_CALIB_CL}"
+        ALCEDO_OPENCL_SCOPE_ANALYZER_CL="${OPENCL_SCOPE_ANALYZER_CL}"
     )
 endif()
 
@@ -605,6 +608,7 @@ if(ALCEDO_OPENCL_ENABLED)
     list(APPEND GPU_PIPELINE_SRCS
         edit/pipeline/pipeline_opencl_impl.cpp
         edit/pipeline/pipeline_opencl_param.cpp
+        edit/scope/opencl_scope_analyzer.cpp
     )
 endif()
 

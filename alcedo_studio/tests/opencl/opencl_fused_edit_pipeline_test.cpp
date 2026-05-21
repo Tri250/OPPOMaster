@@ -17,7 +17,10 @@
 
 #include "edit/operators/cst/odt_op.hpp"
 #include "edit/pipeline/pipeline_gpu_wrapper.hpp"
+#include "edit/scope/detail/scope_opencl_shared.hpp"
+#include "edit/scope/scope_analyzer.hpp"
 #include "image/image_buffer.hpp"
+#include "image/opencl_image.hpp"
 #include "opencl/opencl_context.hpp"
 #include "opencl/opencl_runtime.hpp"
 
@@ -66,17 +69,16 @@ auto MakeAcesccTestImage() -> cv::Mat {
 }
 
 void SetGaussianWeights(OperatorParams& params, bool is_sharpen, float sigma, float /*radius*/) {
-  constexpr int                 kMaxTap = OperatorParams::kDetailMaxGaussianTapCount;
-  const float                   safe_sigma = std::max(sigma, 1.0e-4f);
-  const uint32_t                computed_radius =
-      std::min<uint32_t>(static_cast<uint32_t>(std::ceil(3.0f * safe_sigma)),
-                         static_cast<uint32_t>(kMaxTap - 1));
-  const uint32_t                tap_count = computed_radius + 1U;
+  constexpr int  kMaxTap         = OperatorParams::kDetailMaxGaussianTapCount;
+  const float    safe_sigma      = std::max(sigma, 1.0e-4f);
+  const uint32_t computed_radius = std::min<uint32_t>(
+      static_cast<uint32_t>(std::ceil(3.0f * safe_sigma)), static_cast<uint32_t>(kMaxTap - 1));
+  const uint32_t             tap_count = computed_radius + 1U;
 
-  std::array<float, kMaxTap>    weights{};
-  const double                  inv2sigma2 = 0.5 / (static_cast<double>(safe_sigma) * safe_sigma);
-  double                        full_weight = 1.0;
-  weights[0] = 1.0f;
+  std::array<float, kMaxTap> weights{};
+  const double               inv2sigma2  = 0.5 / (static_cast<double>(safe_sigma) * safe_sigma);
+  double                     full_weight = 1.0;
+  weights[0]                             = 1.0f;
   for (uint32_t tap = 1; tap <= computed_radius; ++tap) {
     const double w = std::exp(-(static_cast<double>(tap) * static_cast<double>(tap)) * inv2sigma2);
     weights[tap]   = static_cast<float>(w);
@@ -232,23 +234,21 @@ auto MaxRgbDiffOnBorder(const cv::Mat& a, const cv::Mat& b, int border) -> float
 void ExpectFiniteRgba32f(const cv::Mat& image);
 
 void ExpectCudaOpenClDetailClose(const char* label, const cv::Mat& cuda_output,
-                                 const cv::Mat& opencl_output, double cuda_ms,
-                                 double opencl_ms) {
+                                 const cv::Mat& opencl_output, double cuda_ms, double opencl_ms) {
   ExpectFiniteRgba32f(cuda_output);
   ExpectFiniteRgba32f(opencl_output);
 
-  constexpr int   kBorder      = 10;
-  constexpr float kDiffTol     = 2.0e-4f;
-  const auto      stats        = ComputeRgbDiffStats(cuda_output, opencl_output);
+  constexpr int   kBorder       = 10;
+  constexpr float kDiffTol      = 2.0e-4f;
+  const auto      stats         = ComputeRgbDiffStats(cuda_output, opencl_output);
   const float     interior_diff = MaxRgbDiffInsideBorder(cuda_output, opencl_output, kBorder);
-  const float     border_diff  = MaxRgbDiffOnBorder(cuda_output, opencl_output, kBorder);
+  const float     border_diff   = MaxRgbDiffOnBorder(cuda_output, opencl_output, kBorder);
 
   std::cout << label << " CUDA: " << cuda_ms << " ms | OpenCL: " << opencl_ms
-            << " ms | max_abs_diff=" << stats.max_diff
-            << " max_interior_diff=" << interior_diff
+            << " ms | max_abs_diff=" << stats.max_diff << " max_interior_diff=" << interior_diff
             << " max_border_diff=" << border_diff << " at (" << stats.x << "," << stats.y
-            << ") channel=" << stats.channel << " cuda=" << stats.lhs
-            << " opencl=" << stats.rhs << "\n";
+            << ") channel=" << stats.channel << " cuda=" << stats.lhs << " opencl=" << stats.rhs
+            << "\n";
 
   EXPECT_LE(interior_diff, kDiffTol)
       << label << " differs away from image borders, so this is not a border handling issue.";
@@ -579,13 +579,13 @@ TEST(OpenClFusedEditPipelineTest, DetailPassPassthroughWhenDisabled) {
     GTEST_SKIP() << OpenClContext::Instance().LastInitializationError();
   }
 
-  const cv::Mat input  = MakeAcesccTestImage();
+  const cv::Mat input     = MakeAcesccTestImage();
 
-  auto          params = MakeNoOpFusedParams();
+  auto          params    = MakeNoOpFusedParams();
   params.sharpen_enabled_ = false;
   params.clarity_enabled_ = false;
 
-  const cv::Mat output = RunOpenClFusedPipeline(input, params);
+  const cv::Mat output    = RunOpenClFusedPipeline(input, params);
 
   ExpectFiniteRgba32f(output);
   ASSERT_EQ(output.rows, input.rows);
@@ -609,19 +609,19 @@ TEST(OpenClFusedEditPipelineTest, DetailSharpenMatchesCuda) {
       const float fy            = static_cast<float>(y) / static_cast<float>(kH - 1);
       const float edge          = (x >= kW / 2) ? 0.7f : 0.3f;
       const float base          = 0.2f + 0.3f * fx + 0.1f * edge;
-      input.at<cv::Vec4f>(y, x) = {base, base + 0.05f * fy,
-                                   fmax(0.0f, base - 0.03f * (1.0f - fy)), 1.0f};
+      input.at<cv::Vec4f>(y, x) = {base, base + 0.05f * fy, fmax(0.0f, base - 0.03f * (1.0f - fy)),
+                                   1.0f};
     }
   }
 
   // Verify sharpen modifies the image (non-identity).
-  auto noop_params = MakeNoOpFusedParams();
+  auto noop_params           = MakeNoOpFusedParams();
   noop_params.to_ws_enabled_ = true;
-  const cv::Mat noop_output = RunOpenClFusedPipeline(input, noop_params);
+  const cv::Mat noop_output  = RunOpenClFusedPipeline(input, noop_params);
   ExpectFiniteRgba32f(noop_output);
 
-  auto sharpen_params = MakeNoOpFusedParams();
-  sharpen_params.to_ws_enabled_   = true;
+  auto sharpen_params               = MakeNoOpFusedParams();
+  sharpen_params.to_ws_enabled_     = true;
   sharpen_params.sharpen_enabled_   = true;
   sharpen_params.sharpen_offset_    = 0.5f;
   sharpen_params.sharpen_radius_    = 3.0f;
@@ -633,8 +633,7 @@ TEST(OpenClFusedEditPipelineTest, DetailSharpenMatchesCuda) {
 
   const float diff = MaxRgbDiff(sharpen_output, noop_output);
   std::cout << "[OpenCL sharpen standalone] max_diff_vs_noop=" << diff << "\n";
-  EXPECT_GT(diff, 1.0e-4f)
-      << "OpenCL sharpen with offset=0.5 should modify the image vs no-op.";
+  EXPECT_GT(diff, 1.0e-4f) << "OpenCL sharpen with offset=0.5 should modify the image vs no-op.";
 
   double  cuda_ms   = 0.0;
   double  opencl_ms = 0.0;
@@ -643,8 +642,8 @@ TEST(OpenClFusedEditPipelineTest, DetailSharpenMatchesCuda) {
   try {
     auto cuda_params   = sharpen_params;
     auto opencl_params = sharpen_params;
-    cuda_output   = RunFusedPipeline(GpuBackendKind::CUDA, input, cuda_params, &cuda_ms);
-    opencl_output = RunFusedPipeline(GpuBackendKind::OpenCL, input, opencl_params, &opencl_ms);
+    cuda_output        = RunFusedPipeline(GpuBackendKind::CUDA, input, cuda_params, &cuda_ms);
+    opencl_output      = RunFusedPipeline(GpuBackendKind::OpenCL, input, opencl_params, &opencl_ms);
   } catch (const std::exception& e) {
     GTEST_SKIP() << "CUDA/OpenCL sharpen comparison unavailable: " << e.what();
   }
@@ -667,19 +666,19 @@ TEST(OpenClFusedEditPipelineTest, DetailClarityMatchesCuda) {
       const float fy            = static_cast<float>(y) / static_cast<float>(kH - 1);
       const float edge          = (x >= kW / 2) ? 0.7f : 0.3f;
       const float base          = 0.2f + 0.3f * fx + 0.1f * edge;
-      input.at<cv::Vec4f>(y, x) = {base, base + 0.05f * fy,
-                                   fmax(0.0f, base - 0.03f * (1.0f - fy)), 1.0f};
+      input.at<cv::Vec4f>(y, x) = {base, base + 0.05f * fy, fmax(0.0f, base - 0.03f * (1.0f - fy)),
+                                   1.0f};
     }
   }
 
   // Verify clarity modifies the image (non-identity).
-  auto noop_params = MakeNoOpFusedParams();
-  const cv::Mat noop_output = RunOpenClFusedPipeline(input, noop_params);
+  auto          noop_params       = MakeNoOpFusedParams();
+  const cv::Mat noop_output       = RunOpenClFusedPipeline(input, noop_params);
 
-  auto clarity_params = MakeNoOpFusedParams();
-  clarity_params.clarity_enabled_  = true;
-  clarity_params.clarity_offset_   = 0.3f;
-  clarity_params.clarity_radius_   = 5.0f;
+  auto          clarity_params    = MakeNoOpFusedParams();
+  clarity_params.clarity_enabled_ = true;
+  clarity_params.clarity_offset_  = 0.3f;
+  clarity_params.clarity_radius_  = 5.0f;
   SetGaussianWeights(clarity_params, false, clarity_params.clarity_radius_,
                      clarity_params.clarity_radius_);
   const cv::Mat clarity_output = RunOpenClFusedPipeline(input, clarity_params);
@@ -687,8 +686,7 @@ TEST(OpenClFusedEditPipelineTest, DetailClarityMatchesCuda) {
 
   const float diff = MaxRgbDiff(clarity_output, noop_output);
   std::cout << "[OpenCL clarity standalone] max_diff_vs_noop=" << diff << "\n";
-  EXPECT_GT(diff, 1.0e-4f)
-      << "OpenCL clarity with offset=0.3 should modify the image vs no-op.";
+  EXPECT_GT(diff, 1.0e-4f) << "OpenCL clarity with offset=0.3 should modify the image vs no-op.";
 
   double  cuda_ms   = 0.0;
   double  opencl_ms = 0.0;
@@ -697,8 +695,8 @@ TEST(OpenClFusedEditPipelineTest, DetailClarityMatchesCuda) {
   try {
     auto cuda_params   = clarity_params;
     auto opencl_params = clarity_params;
-    cuda_output   = RunFusedPipeline(GpuBackendKind::CUDA, input, cuda_params, &cuda_ms);
-    opencl_output = RunFusedPipeline(GpuBackendKind::OpenCL, input, opencl_params, &opencl_ms);
+    cuda_output        = RunFusedPipeline(GpuBackendKind::CUDA, input, cuda_params, &cuda_ms);
+    opencl_output      = RunFusedPipeline(GpuBackendKind::OpenCL, input, opencl_params, &opencl_ms);
   } catch (const std::exception& e) {
     GTEST_SKIP() << "CUDA/OpenCL clarity comparison unavailable: " << e.what();
   }
@@ -721,13 +719,13 @@ TEST(OpenClFusedEditPipelineTest, DetailSharpenWithThresholdMatchesCuda) {
       const float fy            = static_cast<float>(y) / static_cast<float>(kH - 1);
       const float edge          = (x >= kW / 2) ? 0.7f : 0.3f;
       const float base          = 0.2f + 0.3f * fx + 0.1f * edge;
-      input.at<cv::Vec4f>(y, x) = {base, base + 0.05f * fy,
-                                   fmax(0.0f, base - 0.03f * (1.0f - fy)), 1.0f};
+      input.at<cv::Vec4f>(y, x) = {base, base + 0.05f * fy, fmax(0.0f, base - 0.03f * (1.0f - fy)),
+                                   1.0f};
     }
   }
 
   // Verify sharpen with threshold produces different result than sharpen without.
-  auto sharpen_no_thresh = MakeNoOpFusedParams();
+  auto sharpen_no_thresh               = MakeNoOpFusedParams();
   sharpen_no_thresh.sharpen_enabled_   = true;
   sharpen_no_thresh.sharpen_offset_    = 0.8f;
   sharpen_no_thresh.sharpen_radius_    = 2.0f;
@@ -737,7 +735,7 @@ TEST(OpenClFusedEditPipelineTest, DetailSharpenWithThresholdMatchesCuda) {
   const cv::Mat output_no_thresh = RunOpenClFusedPipeline(input, sharpen_no_thresh);
   ExpectFiniteRgba32f(output_no_thresh);
 
-  auto sharpen_with_thresh = MakeNoOpFusedParams();
+  auto sharpen_with_thresh               = MakeNoOpFusedParams();
   sharpen_with_thresh.sharpen_enabled_   = true;
   sharpen_with_thresh.sharpen_offset_    = 0.8f;
   sharpen_with_thresh.sharpen_radius_    = 2.0f;
@@ -750,8 +748,7 @@ TEST(OpenClFusedEditPipelineTest, DetailSharpenWithThresholdMatchesCuda) {
   const float diff_thresh = MaxRgbDiff(output_with_thresh, output_no_thresh);
   std::cout << "[OpenCL sharpen threshold standalone] max_diff_with_vs_without_threshold="
             << diff_thresh << "\n";
-  EXPECT_GT(diff_thresh, 1.0e-6f)
-      << "Sharpen with threshold=0.05 should differ from threshold=0.";
+  EXPECT_GT(diff_thresh, 1.0e-6f) << "Sharpen with threshold=0.05 should differ from threshold=0.";
 
   double  cuda_ms   = 0.0;
   double  opencl_ms = 0.0;
@@ -760,14 +757,83 @@ TEST(OpenClFusedEditPipelineTest, DetailSharpenWithThresholdMatchesCuda) {
   try {
     auto cuda_params   = sharpen_with_thresh;
     auto opencl_params = sharpen_with_thresh;
-    cuda_output   = RunFusedPipeline(GpuBackendKind::CUDA, input, cuda_params, &cuda_ms);
-    opencl_output = RunFusedPipeline(GpuBackendKind::OpenCL, input, opencl_params, &opencl_ms);
+    cuda_output        = RunFusedPipeline(GpuBackendKind::CUDA, input, cuda_params, &cuda_ms);
+    opencl_output      = RunFusedPipeline(GpuBackendKind::OpenCL, input, opencl_params, &opencl_ms);
   } catch (const std::exception& e) {
     GTEST_SKIP() << "CUDA/OpenCL sharpen threshold comparison unavailable: " << e.what();
   }
 
   ExpectCudaOpenClDetailClose("[OpenCL fused sharpen+threshold]", cuda_output, opencl_output,
                               cuda_ms, opencl_ms);
+}
+
+TEST(OpenClFusedEditPipelineTest, ScopeAnalyzerProcessesOpenClFrame) {
+  auto& context = OpenClContext::Instance();
+  if (!TryEnsureOpenClRuntime()) {
+    GTEST_SKIP() << context.LastInitializationError();
+  }
+
+  cv::Mat input(8, 8, CV_32FC4);
+  for (int y = 0; y < input.rows; ++y) {
+    for (int x = 0; x < input.cols; ++x) {
+      input.at<cv::Vec4f>(y, x) = {
+          static_cast<float>(x) / static_cast<float>(input.cols - 1),
+          static_cast<float>(y) / static_cast<float>(input.rows - 1),
+          static_cast<float>(x + y) / static_cast<float>(input.cols + input.rows - 2), 1.0f};
+    }
+  }
+
+  opencl::OpenClImage gpu_image;
+  gpu_image.Upload(input);
+  ASSERT_NE(gpu_image.Buffer(), nullptr);
+  ASSERT_EQ(clRetainMemObject(gpu_image.Buffer()), CL_SUCCESS);
+
+  auto resource           = std::make_shared<scope::opencl_detail::OpenClLinearImageResource>();
+  resource->buffer        = gpu_image.Buffer();
+  resource->row_bytes     = gpu_image.RowBytes();
+  resource->width         = gpu_image.Width();
+  resource->height        = gpu_image.Height();
+  resource->format        = FramePixelFormat::RGBA32F;
+  resource->owns_memory   = true;
+  resource->native_object = reinterpret_cast<std::uintptr_t>(gpu_image.Buffer());
+
+  ScopeRequest request;
+  request.enabled_mask =
+      static_cast<uint32_t>(ScopeType::Histogram) | static_cast<uint32_t>(ScopeType::Waveform);
+  request.histogram_bins      = 16;
+  request.waveform_width      = 16;
+  request.waveform_height     = 16;
+  request.analysis_downsample = 1;
+  request.target_fps          = 0;
+
+  const auto analyzer         = CreateOpenClScopeAnalyzer();
+  analyzer->SubmitFrame(
+      FinalDisplayFrameView{
+          SharedGpuImageHandle{GpuBackend::OpenCL, std::shared_ptr<void>(resource, resource.get()),
+                               gpu_image.Width(), gpu_image.Height(), gpu_image.RowBytes(),
+                               FramePixelFormat::RGBA32F},
+          gpu_image.Width(),
+          gpu_image.Height(),
+          FramePixelFormat::RGBA32F,
+          ViewerDisplayConfig{},
+          AnalysisDomain::DisplayEncoded,
+          {},
+          1},
+      request);
+
+  const ScopeOutputSet output = analyzer->GetLatestOutput();
+  EXPECT_TRUE(output.histogram_valid);
+  EXPECT_TRUE(output.waveform_valid);
+  EXPECT_EQ(output.histogram_bins, request.histogram_bins);
+  EXPECT_EQ(output.waveform_width, request.waveform_width);
+  EXPECT_EQ(output.waveform_height, request.waveform_height);
+
+  const ScopeRenderSnapshot snapshot = ReadScopeRenderSnapshot(output);
+  EXPECT_TRUE(snapshot.histogram.valid);
+  EXPECT_TRUE(snapshot.waveform.valid);
+  EXPECT_EQ(snapshot.histogram.bins, request.histogram_bins);
+  EXPECT_EQ(snapshot.waveform.width, request.waveform_width);
+  EXPECT_EQ(snapshot.waveform.height, request.waveform_height);
 }
 #endif
 

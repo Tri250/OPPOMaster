@@ -21,6 +21,8 @@
 #include "edit/operators/GPU_kernels/opencl_param.hpp"
 #include "edit/pipeline/opencl_pipeline_programs.hpp"
 #include "edit/pipeline/pipeline_gpu_wrapper.hpp"
+#include "edit/scope/detail/scope_opencl_shared.hpp"
+#include "edit/scope/scope_analyzer.hpp"
 #include "image/image_buffer.hpp"
 #include "image/opencl_image.hpp"
 #include "opencl/opencl_context.hpp"
@@ -38,12 +40,12 @@ enum class OpenClNeighborOpKind : uint32_t {
 };
 
 struct OpenClNeighborStageParams {
-  uint32_t                                 kind_      = 0;
-  uint32_t                                 radius_    = 0;
-  uint32_t                                 tap_count_ = 0;
-  float                                    amount_    = 0.0f;
-  float                                    threshold_ = 0.0f;
-  std::array<float, kOpenClNeighborMaxTapCount> weights_ = {};
+  uint32_t                                      kind_      = 0;
+  uint32_t                                      radius_    = 0;
+  uint32_t                                      tap_count_ = 0;
+  float                                         amount_    = 0.0f;
+  float                                         threshold_ = 0.0f;
+  std::array<float, kOpenClNeighborMaxTapCount> weights_   = {};
 };
 
 struct OpenClNeighborStage {
@@ -62,7 +64,7 @@ auto BuildGaussianWeights(float sigma, uint32_t radius)
   const double inv2sigma2  = 0.5 / (safe_sigma * safe_sigma);
   double       full_weight = 1.0;
 
-  weights[0] = 1.0f;
+  weights[0]               = 1.0f;
   for (uint32_t tap = 1; tap <= radius; ++tap) {
     const double w = std::exp(-(static_cast<double>(tap) * static_cast<double>(tap)) * inv2sigma2);
     weights[tap]   = static_cast<float>(w);
@@ -122,11 +124,9 @@ void CheckOpenClFrameCopy(cl_int error, const char* operation) {
   }
 }
 
-auto TrySubmitOpenClFrameToSink(opencl::OpenClImage& image,
-                                IFrameSink& frame_sink) -> bool {
+auto TrySubmitOpenClFrameToSink(opencl::OpenClImage& image, IFrameSink& frame_sink) -> bool {
   frame_sink.EnsureSize(image.Width(), image.Height());
-  const FrameWriteMapping mapping =
-      frame_sink.MapResourceForWrite(FrameMemoryDomain::OpenClDevice);
+  const FrameWriteMapping mapping = frame_sink.MapResourceForWrite(FrameMemoryDomain::OpenClDevice);
   if (!mapping) {
     return false;
   }
@@ -134,20 +134,18 @@ auto TrySubmitOpenClFrameToSink(opencl::OpenClImage& image,
   const auto unmap = [&frame_sink]() { frame_sink.UnmapResource(); };
   if (mapping.pixel_format != FramePixelFormat::RGBA32F ||
       mapping.memory_domain != FrameMemoryDomain::OpenClDevice ||
-      mapping.target_type != FrameWriteTargetType::OpenClImage ||
-      mapping.data == nullptr) {
+      mapping.target_type != FrameWriteTargetType::OpenClImage || mapping.data == nullptr) {
     unmap();
     return false;
   }
 
-  auto& context = OpenClContext::Instance();
+  auto&        context   = OpenClContext::Instance();
   const size_t origin[3] = {0, 0, 0};
-  const size_t region[3] = {static_cast<size_t>(image.Width()),
-                            static_cast<size_t>(image.Height()), 1};
-  cl_mem target_image = static_cast<cl_mem>(mapping.data);
-  const cl_int copy_error =
-      clEnqueueCopyBufferToImage(context.Queue(), image.Buffer(), target_image, 0, origin, region,
-                                 0, nullptr, nullptr);
+  const size_t region[3] = {static_cast<size_t>(image.Width()), static_cast<size_t>(image.Height()),
+                            1};
+  cl_mem       target_image = static_cast<cl_mem>(mapping.data);
+  const cl_int copy_error   = clEnqueueCopyBufferToImage(
+      context.Queue(), image.Buffer(), target_image, 0, origin, region, 0, nullptr, nullptr);
   if (copy_error != CL_SUCCESS) {
     unmap();
     CheckOpenClFrameCopy(copy_error, "clEnqueueCopyBufferToImage");
@@ -157,6 +155,44 @@ auto TrySubmitOpenClFrameToSink(opencl::OpenClImage& image,
   CheckOpenClFrameCopy(clFinish(context.Queue()), "clFinish after D3D11 frame copy");
   frame_sink.NotifyFrameReady();
   return true;
+}
+
+auto MakeOpenClScopeImageResource(const opencl::OpenClImage& image)
+    -> std::shared_ptr<scope::opencl_detail::OpenClLinearImageResource> {
+  if (image.Empty() || image.Type() != CV_32FC4 || image.Buffer() == nullptr) {
+    return {};
+  }
+
+  CheckOpenClFrameCopy(clRetainMemObject(image.Buffer()), "clRetainMemObject(scope frame)");
+  auto resource           = std::make_shared<scope::opencl_detail::OpenClLinearImageResource>();
+  resource->buffer        = image.Buffer();
+  resource->row_bytes     = image.RowBytes();
+  resource->width         = image.Width();
+  resource->height        = image.Height();
+  resource->format        = FramePixelFormat::RGBA32F;
+  resource->owns_memory   = true;
+  resource->native_object = reinterpret_cast<std::uintptr_t>(image.Buffer());
+  return resource;
+}
+
+void SubmitOpenClFrameForScope(const opencl::OpenClImage& image, IFrameSink& frame_sink,
+                               const ViewerDisplayConfig& display_config) {
+  auto final_image = MakeOpenClScopeImageResource(image);
+  if (!final_image) {
+    return;
+  }
+
+  frame_sink.SubmitFinalDisplayFrame(FinalDisplayFrameView{
+      SharedGpuImageHandle{GpuBackend::OpenCL,
+                           std::shared_ptr<void>(final_image, final_image.get()), image.Width(),
+                           image.Height(), image.RowBytes(), FramePixelFormat::RGBA32F},
+      image.Width(),
+      image.Height(),
+      FramePixelFormat::RGBA32F,
+      display_config,
+      AnalysisDomain::DisplayEncoded,
+      {},
+      0});
 }
 
 class OpenCLGPUPipeline final : public GPUPipelineImpl {
@@ -176,7 +212,7 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
   opencl::OpenClImage                    blur_horizontal_;
   opencl::OpenClImage                    detail_scratch_;
 
-  void EnsureOpenClInput() {
+  void                                   EnsureOpenClInput() {
     if (!input_img_) {
       throw std::runtime_error("OpenCL fused pipeline: input image is null.");
     }
@@ -239,24 +275,24 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
     }
 
     if (blur_h_kernel_ == nullptr) {
-      cl_int err     = CL_SUCCESS;
-      blur_h_kernel_ = clCreateKernel(program, OpenCL::Pipeline::kNeighborBlurHorizontalKernelName, &err);
+      cl_int err = CL_SUCCESS;
+      blur_h_kernel_ =
+          clCreateKernel(program, OpenCL::Pipeline::kNeighborBlurHorizontalKernelName, &err);
       if (err != CL_SUCCESS || blur_h_kernel_ == nullptr) {
-        throw std::runtime_error(
-            "OpenCL fused pipeline: failed to create kernel '" +
-            std::string(OpenCL::Pipeline::kNeighborBlurHorizontalKernelName) + "' with error " +
-            std::to_string(err) + ".");
+        throw std::runtime_error("OpenCL fused pipeline: failed to create kernel '" +
+                                 std::string(OpenCL::Pipeline::kNeighborBlurHorizontalKernelName) +
+                                 "' with error " + std::to_string(err) + ".");
       }
     }
 
     if (apply_v_kernel_ == nullptr) {
-      cl_int err      = CL_SUCCESS;
-      apply_v_kernel_ = clCreateKernel(program, OpenCL::Pipeline::kNeighborApplyVerticalKernelName, &err);
+      cl_int err = CL_SUCCESS;
+      apply_v_kernel_ =
+          clCreateKernel(program, OpenCL::Pipeline::kNeighborApplyVerticalKernelName, &err);
       if (err != CL_SUCCESS || apply_v_kernel_ == nullptr) {
-        throw std::runtime_error(
-            "OpenCL fused pipeline: failed to create kernel '" +
-            std::string(OpenCL::Pipeline::kNeighborApplyVerticalKernelName) + "' with error " +
-            std::to_string(err) + ".");
+        throw std::runtime_error("OpenCL fused pipeline: failed to create kernel '" +
+                                 std::string(OpenCL::Pipeline::kNeighborApplyVerticalKernelName) +
+                                 "' with error " + std::to_string(err) + ".");
       }
     }
   }
@@ -404,7 +440,8 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
     err |= clSetKernelArg(blur_h_kernel_, arg_index++, sizeof(cl_int), &height);
 
     if (err != CL_SUCCESS) {
-      throw std::runtime_error("OpenCL fused pipeline: failed to set blur horizontal kernel arguments.");
+      throw std::runtime_error(
+          "OpenCL fused pipeline: failed to set blur horizontal kernel arguments.");
     }
 
     size_t global_size[2] = {static_cast<size_t>(width), static_cast<size_t>(height)};
@@ -470,14 +507,14 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
 
     if (ShouldRunSharpen()) {
       stages.push_back(OpenClNeighborStage{BuildNeighborStageParams(
-          OpenClNeighborOpKind::Sharpen, fused_params_.sharpen_radius_, fused_params_.sharpen_offset_,
-          fused_params_.sharpen_threshold_, fused_params_.sharpen_gaussian_tap_count_,
-          fused_params_.sharpen_gaussian_weights_)});
+          OpenClNeighborOpKind::Sharpen, fused_params_.sharpen_radius_,
+          fused_params_.sharpen_offset_, fused_params_.sharpen_threshold_,
+          fused_params_.sharpen_gaussian_tap_count_, fused_params_.sharpen_gaussian_weights_)});
     }
     if (ShouldRunClarity()) {
       stages.push_back(OpenClNeighborStage{BuildNeighborStageParams(
-          OpenClNeighborOpKind::Clarity, fused_params_.clarity_radius_, fused_params_.clarity_offset_,
-          0.0f, fused_params_.clarity_gaussian_tap_count_,
+          OpenClNeighborOpKind::Clarity, fused_params_.clarity_radius_,
+          fused_params_.clarity_offset_, 0.0f, fused_params_.clarity_gaussian_tap_count_,
           fused_params_.clarity_gaussian_weights_)});
     }
 
@@ -499,36 +536,34 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
   void SetFrameSink(IFrameSink* frame_sink) override { frame_sink_ = frame_sink; }
 
   void Execute(std::shared_ptr<ImageBuffer> output_img) override {
-    using ProfileClock = std::chrono::steady_clock;
+    using ProfileClock    = std::chrono::steady_clock;
     const auto exec_start = ProfileClock::now();
 
     if (!cpu_params_) {
       throw std::runtime_error("OpenCL fused pipeline: parameters were not set.");
     }
 
-    double ensure_input_ms   = 0.0;
-    double ensure_kernels_ms = 0.0;
-    double validate_abi_ms   = 0.0;
-    double fused_kernel_ms   = 0.0;
-    double detail_ms         = 0.0;
-    double sync_ms           = 0.0;
-    double download_ms       = 0.0;
-    double submit_ms         = 0.0;
+    double ensure_input_ms     = 0.0;
+    double ensure_kernels_ms   = 0.0;
+    double validate_abi_ms     = 0.0;
+    double fused_kernel_ms     = 0.0;
+    double detail_ms           = 0.0;
+    double sync_ms             = 0.0;
+    double download_ms         = 0.0;
+    double submit_ms           = 0.0;
     bool   submitted_gpu_frame = false;
 
     {
       const auto t0 = ProfileClock::now();
       EnsureOpenClInput();
-      ensure_input_ms = std::chrono::duration<double, std::milli>(
-                            ProfileClock::now() - t0).count();
+      ensure_input_ms = std::chrono::duration<double, std::milli>(ProfileClock::now() - t0).count();
     }
 
     {
       const auto t0 = ProfileClock::now();
       EnsureFusedKernels();
       ValidateParamsABI();
-      validate_abi_ms = std::chrono::duration<double, std::milli>(
-                            ProfileClock::now() - t0).count();
+      validate_abi_ms = std::chrono::duration<double, std::milli>(ProfileClock::now() - t0).count();
     }
 
     const auto neighbor_stages = BuildNeighborStages();
@@ -538,8 +573,8 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
       if (!neighbor_stages.empty()) {
         EnsureDetailKernels();
       }
-      ensure_kernels_ms = std::chrono::duration<double, std::milli>(
-                              ProfileClock::now() - t0).count();
+      ensure_kernels_ms =
+          std::chrono::duration<double, std::milli>(ProfileClock::now() - t0).count();
     }
 
     const auto& input = input_img_->GetOpenClImage();
@@ -547,12 +582,11 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
     {
       const auto t0 = ProfileClock::now();
       EnqueueFusedKernel(input);
-      fused_kernel_ms = std::chrono::duration<double, std::milli>(
-                            ProfileClock::now() - t0).count();
+      fused_kernel_ms = std::chrono::duration<double, std::milli>(ProfileClock::now() - t0).count();
     }
 
-    opencl::OpenClImage* detail_src = &working_;
-    opencl::OpenClImage* detail_dst = &detail_scratch_;
+    opencl::OpenClImage*                        detail_src = &working_;
+    opencl::OpenClImage*                        detail_dst = &detail_scratch_;
 
     std::vector<OpenCL::Pipeline::OpenClBuffer> stage_buffers;
     stage_buffers.reserve(neighbor_stages.size());
@@ -568,16 +602,14 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
 
         std::swap(detail_src, detail_dst);
       }
-      detail_ms = std::chrono::duration<double, std::milli>(
-                      ProfileClock::now() - t0).count();
+      detail_ms = std::chrono::duration<double, std::milli>(ProfileClock::now() - t0).count();
     }
 
     {
-      const auto t0 = ProfileClock::now();
-      auto& context = OpenClContext::Instance();
+      const auto t0      = ProfileClock::now();
+      auto&      context = OpenClContext::Instance();
       clFinish(context.Queue());
-      sync_ms = std::chrono::duration<double, std::milli>(
-                    ProfileClock::now() - t0).count();
+      sync_ms = std::chrono::duration<double, std::milli>(ProfileClock::now() - t0).count();
     }
 
     if (frame_sink_) {
@@ -588,12 +620,12 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
         {
           const auto t0 = ProfileClock::now();
           detail_src->Download(host_image);
-          download_ms = std::chrono::duration<double, std::milli>(
-                            ProfileClock::now() - t0).count();
+          download_ms = std::chrono::duration<double, std::milli>(ProfileClock::now() - t0).count();
         }
 
         if (host_image.type() != CV_32FC4) {
-          throw std::runtime_error("OpenCL fused pipeline: expected RGBA32F host frame for viewer.");
+          throw std::runtime_error(
+              "OpenCL fused pipeline: expected RGBA32F host frame for viewer.");
         }
 
         const size_t row_bytes =
@@ -607,38 +639,33 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
         const auto t0 = ProfileClock::now();
         frame_sink_->SubmitHostFrame(
             ViewerFrame{host_image.cols, host_image.rows, row_bytes,
-                        std::shared_ptr<const void>(host_pixels, host_pixels->data()), display_config,
-                        FramePresentationMode::FullFrame});
-        submit_ms = std::chrono::duration<double, std::milli>(
-                        ProfileClock::now() - t0).count();
+                        std::shared_ptr<const void>(host_pixels, host_pixels->data()),
+                        display_config, FramePresentationMode::FullFrame});
+        submit_ms = std::chrono::duration<double, std::milli>(ProfileClock::now() - t0).count();
       } else {
         submit_ms = 0.0;
       }
+      SubmitOpenClFrameForScope(*detail_src, *frame_sink_, display_config);
     }
 
     if (output_img) {
       *output_img = ImageBuffer(std::move(*detail_src));
     }
 
-    const double total_ms = std::chrono::duration<double, std::milli>(
-                                ProfileClock::now() - exec_start).count();
+    const double total_ms =
+        std::chrono::duration<double, std::milli>(ProfileClock::now() - exec_start).count();
 
-    static int            frame_count  = 0;
-    static constexpr int  kLogInterval = 30;
+    static int           frame_count  = 0;
+    static constexpr int kLogInterval = 30;
     if (++frame_count % kLogInterval == 1) {
-      std::cout << "[OpenCL Pipeline] frame=" << frame_count
-                << " total=" << std::fixed << std::setprecision(2) << total_ms << " ms"
-                << " | input=" << ensure_input_ms
-                << " abi=" << validate_abi_ms
-                << " kernels=" << ensure_kernels_ms
-                << " fused=" << fused_kernel_ms
-                << " detail=" << detail_ms
-                << " sync=" << sync_ms
-                << " download=" << download_ms
+      std::cout << "[OpenCL Pipeline] frame=" << frame_count << " total=" << std::fixed
+                << std::setprecision(2) << total_ms << " ms"
+                << " | input=" << ensure_input_ms << " abi=" << validate_abi_ms
+                << " kernels=" << ensure_kernels_ms << " fused=" << fused_kernel_ms
+                << " detail=" << detail_ms << " sync=" << sync_ms << " download=" << download_ms
                 << " submit=" << submit_ms
                 << " present=" << (submitted_gpu_frame ? "direct_d3d11" : "host_upload")
-                << " | size=" << input.Width() << "x" << input.Height()
-                << std::endl;
+                << " | size=" << input.Width() << "x" << input.Height() << std::endl;
     }
   }
 
