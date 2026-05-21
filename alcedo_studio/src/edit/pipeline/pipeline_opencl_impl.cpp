@@ -172,16 +172,36 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
     cl_mem src_buffer = src.Buffer();
     cl_mem dst_buffer = working_.Buffer();
     cl_mem params_buffer = resources_.params_buffer_.Get();
+    cl_mem lmt_lut_buffer = resources_.lmt_lut_buffer_.Get();
     cl_int width = src.Width();
     cl_int height = src.Height();
+
+    // Always pass a valid LUT buffer to satisfy the kernel signature.
+    // When LMT is disabled, the kernel will skip the lookup via the
+    // lmt_lut_enabled_ guard and never actually read from this buffer.
+    static const float kDummyLutEntry[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+    cl_mem fallback_lut = nullptr;
+    if (lmt_lut_buffer == nullptr) {
+      fallback_lut = clCreateBuffer(context.Context(),
+                                     CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                                     sizeof(kDummyLutEntry),
+                                     const_cast<float*>(kDummyLutEntry), &err);
+      if (err != CL_SUCCESS || fallback_lut == nullptr) {
+        throw std::runtime_error(
+            "OpenCL fused pipeline: failed to create fallback LUT buffer.");
+      }
+      lmt_lut_buffer = fallback_lut;
+    }
 
     err |= clSetKernelArg(fused_kernel_, arg_index++, sizeof(cl_mem), &src_buffer);
     err |= clSetKernelArg(fused_kernel_, arg_index++, sizeof(cl_mem), &dst_buffer);
     err |= clSetKernelArg(fused_kernel_, arg_index++, sizeof(cl_mem), &params_buffer);
+    err |= clSetKernelArg(fused_kernel_, arg_index++, sizeof(cl_mem), &lmt_lut_buffer);
     err |= clSetKernelArg(fused_kernel_, arg_index++, sizeof(cl_int), &width);
     err |= clSetKernelArg(fused_kernel_, arg_index++, sizeof(cl_int), &height);
 
     if (err != CL_SUCCESS) {
+      if (fallback_lut != nullptr) clReleaseMemObject(fallback_lut);
       throw std::runtime_error(
           "OpenCL fused pipeline: failed to set fused kernel arguments.");
     }
@@ -189,6 +209,11 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
     size_t global_size[2] = {static_cast<size_t>(width), static_cast<size_t>(height)};
     err = clEnqueueNDRangeKernel(context.Queue(), fused_kernel_, 2, nullptr,
                                   global_size, nullptr, 0, nullptr, nullptr);
+
+    if (fallback_lut != nullptr) {
+      clReleaseMemObject(fallback_lut);
+    }
+
     if (err != CL_SUCCESS) {
       throw std::runtime_error(
           "OpenCL fused pipeline: failed to enqueue fused kernel with error " +

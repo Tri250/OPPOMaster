@@ -58,7 +58,10 @@
       "Bash(cmd //c \"D:\\\\\\\\Projects\\\\\\\\pu-erh_lab\\\\\\\\scripts\\\\\\\\msvc_env.cmd --build --preset win_debug --parallel 4\")",
       "Bash(cmd //c \"D:\\\\\\\\Projects\\\\\\\\pu-erh_lab\\\\\\\\scripts\\\\\\\\msvc_env.cmd --build --preset win_debug --parallel 4 --target OpenClCudaPipelineCompareTest\")",
       "Bash(\"D:/Projects/pu-erh_lab/build/debug/alcedo_studio/tests/OpenClCudaPipelineCompareTest.exe\")",
-      "Bash(\"D:/Projects/pu-erh_lab/build/debug/alcedo_studio/tests/PipelineServiceTest.exe\")"
+      "Bash(\"D:/Projects/pu-erh_lab/build/debug/alcedo_studio/tests/PipelineServiceTest.exe\")",
+      "Bash(cmake --build D:/Projects/pu-erh_lab/build/debug --target OpenClProgramLibrary --parallel 8)",
+      "Bash(cmd /c \"scripts\\\\msvc_env.cmd --build --preset win_debug --parallel 8 --target EditPipeline\")",
+      "Bash(call scripts\\\\msvc_env.cmd --build --preset win_debug --parallel 8)"
     ]
   }
 }

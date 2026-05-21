@@ -26,6 +26,7 @@ void RegisterOpenClEditPipelinePrograms() {
                             ALCEDO_OPENCL_EDIT_PIPELINE_COMMON_CL,
                             ALCEDO_OPENCL_EDIT_PIPELINE_BASIC_CL,
                             ALCEDO_OPENCL_EDIT_PIPELINE_COLOR_CL,
+                            ALCEDO_OPENCL_EDIT_PIPELINE_CST_CL,
                             ALCEDO_OPENCL_EDIT_PIPELINE_FUSED_CL,
                             ALCEDO_OPENCL_EDIT_PIPELINE_FUSED_PARAMS_VALIDATION_CL,
                         },
