@@ -15,6 +15,14 @@
 #include <utility>
 #include <vector>
 
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <d3d11.h>
+#include <CL/cl_d3d11.h>
+#endif
+
 namespace alcedo {
 namespace {
 
@@ -229,14 +237,62 @@ auto ResolvePreferredDevice(const OpenClInitializationOptions& options)
   return std::nullopt;
 }
 
+#if defined(_WIN32)
+auto GetD3D11DeviceIds(cl_platform_id platform, ID3D11Device* d3d11_device)
+    -> std::vector<cl_device_id> {
+  if (platform == nullptr || d3d11_device == nullptr) {
+    return {};
+  }
+
+  auto get_device_ids_from_d3d11 =
+      reinterpret_cast<clGetDeviceIDsFromD3D11KHR_fn>(
+          clGetExtensionFunctionAddressForPlatform(platform, "clGetDeviceIDsFromD3D11KHR"));
+  if (get_device_ids_from_d3d11 == nullptr) {
+    return {};
+  }
+
+  cl_uint count = 0;
+  cl_int  error = get_device_ids_from_d3d11(platform, CL_D3D11_DEVICE_KHR, d3d11_device,
+                                            CL_PREFERRED_DEVICES_FOR_D3D11_KHR, 0, nullptr, &count);
+  if (error != CL_SUCCESS || count == 0) {
+    error = get_device_ids_from_d3d11(platform, CL_D3D11_DEVICE_KHR, d3d11_device,
+                                      CL_ALL_DEVICES_FOR_D3D11_KHR, 0, nullptr, &count);
+  }
+  if (error != CL_SUCCESS || count == 0) {
+    return {};
+  }
+
+  std::vector<cl_device_id> devices(count);
+  error = get_device_ids_from_d3d11(platform, CL_D3D11_DEVICE_KHR, d3d11_device,
+                                    CL_ALL_DEVICES_FOR_D3D11_KHR, count, devices.data(), nullptr);
+  if (error != CL_SUCCESS) {
+    return {};
+  }
+  return devices;
+}
+
+auto SupportsD3D11Sharing(const OpenClDeviceCandidate& candidate, void* d3d11_device) -> bool {
+  if (d3d11_device == nullptr) {
+    return true;
+  }
+  const auto devices =
+      GetD3D11DeviceIds(candidate.platform, static_cast<ID3D11Device*>(d3d11_device));
+  return std::find(devices.begin(), devices.end(), candidate.device) != devices.end();
+}
+#else
+auto SupportsD3D11Sharing(const OpenClDeviceCandidate&, void* d3d11_device) -> bool {
+  return d3d11_device == nullptr;
+}
+#endif
+
 auto SelectCandidate(const std::vector<OpenClDeviceCandidate>& candidates,
-                     const OpenClInitializationOptions& options) -> const OpenClDeviceCandidate& {
+                      const OpenClInitializationOptions& options) -> const OpenClDeviceCandidate& {
   std::vector<const OpenClDeviceCandidate*> usable_candidates;
   std::vector<const OpenClDeviceCandidate*> usable_gpu_candidates;
   usable_candidates.reserve(candidates.size());
   usable_gpu_candidates.reserve(candidates.size());
   for (const auto& candidate : candidates) {
-    if (IsUsable(candidate)) {
+    if (IsUsable(candidate) && SupportsD3D11Sharing(candidate, options.d3d11_device)) {
       usable_candidates.push_back(&candidate);
       if (IsGpu(candidate)) {
         usable_gpu_candidates.push_back(&candidate);
@@ -245,7 +301,10 @@ auto SelectCandidate(const std::vector<OpenClDeviceCandidate>& candidates,
   }
 
   if (usable_candidates.empty()) {
-    throw std::runtime_error("[FATAL] OpenClContext: OpenCL devices exist, but none are usable.");
+    throw std::runtime_error(
+        options.d3d11_device != nullptr
+            ? "[FATAL] OpenClContext: no usable OpenCL device supports D3D11 sharing."
+            : "[FATAL] OpenClContext: OpenCL devices exist, but none are usable.");
   }
 
   const auto preferred_device = ResolvePreferredDevice(options);
@@ -306,8 +365,22 @@ void OpenClContext::Initialize(const OpenClInitializationOptions& options) {
   const auto                  candidates           = EnumerateCandidates();
   const auto&                 selected             = SelectCandidate(candidates, options);
 
-  const cl_context_properties context_properties[] = {
+#if defined(_WIN32)
+  const cl_context_properties d3d11_context_properties[] = {
+      CL_CONTEXT_PLATFORM,
+      reinterpret_cast<cl_context_properties>(selected.platform),
+      CL_CONTEXT_D3D11_DEVICE_KHR,
+      reinterpret_cast<cl_context_properties>(options.d3d11_device),
+      0};
+#endif
+  const cl_context_properties default_context_properties[] = {
       CL_CONTEXT_PLATFORM, reinterpret_cast<cl_context_properties>(selected.platform), 0};
+  const cl_context_properties* context_properties =
+#if defined(_WIN32)
+      options.d3d11_device != nullptr ? d3d11_context_properties : default_context_properties;
+#else
+      default_context_properties;
+#endif
   cl_int error = CL_SUCCESS;
   context_     = clCreateContext(context_properties, 1, &selected.device, nullptr, nullptr, &error);
   if (error != CL_SUCCESS || context_ == nullptr) {
@@ -324,6 +397,12 @@ void OpenClContext::Initialize(const OpenClInitializationOptions& options) {
   platform_     = selected.platform;
   device_       = selected.device;
   capabilities_ = selected.capabilities;
+  d3d11_sharing_enabled_ =
+#if defined(_WIN32)
+      options.d3d11_device != nullptr;
+#else
+      false;
+#endif
   initialized_  = true;
   last_initialization_error_.clear();
 }
@@ -378,6 +457,11 @@ auto OpenClContext::Context() const -> cl_context {
 auto OpenClContext::Queue() const -> cl_command_queue {
   std::lock_guard<std::mutex> lock(mutex_);
   return queue_;
+}
+
+auto OpenClContext::D3D11SharingEnabled() const -> bool {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return d3d11_sharing_enabled_;
 }
 
 auto OpenClContext::Capabilities() const -> const OpenClDeviceCapabilities& {

@@ -50,7 +50,8 @@ class IEditViewerRenderTargetSurface {
  public:
   virtual ~IEditViewerRenderTargetSurface() = default;
 
-  virtual auto supportsDirectCudaPresent() const -> bool { return false; }
+  virtual auto supportsDirectGpuPresent() const -> bool { return false; }
+  virtual auto supportsDirectCudaPresent() const -> bool { return supportsDirectGpuPresent(); }
   virtual auto prepareRenderTarget(int width, int height)
       -> EditViewerRenderTargetResizeDecision {
     (void)width;
@@ -62,7 +63,11 @@ class IEditViewerRenderTargetSurface {
     (void)width;
     (void)height;
   }
-  virtual auto mapResourceForWrite() -> FrameWriteMapping { return {}; }
+  virtual auto mapResourceForWrite(
+      FrameMemoryDomain preferred_domain = FrameMemoryDomain::CudaDevice) -> FrameWriteMapping {
+    (void)preferred_domain;
+    return {};
+  }
   virtual void unmapResource() {}
   virtual void notifyFrameReady() {}
   virtual void setNextFramePresentationMode(FramePresentationMode) {}

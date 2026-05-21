@@ -65,11 +65,13 @@ enum class FramePixelFormat {
 enum class FrameMemoryDomain {
   HostVisible,
   CudaDevice,
+  OpenClDevice,
 };
 
 enum class FrameWriteTargetType {
   LinearBuffer,
   CudaArray,
+  OpenClImage,
 };
 
 struct FrameWriteMapping {
@@ -136,7 +138,8 @@ class IFrameSink {
 
   virtual void    EnsureSize(int width, int height) = 0;
 
-  virtual auto    MapResourceForWrite() -> FrameWriteMapping = 0;
+  virtual auto    MapResourceForWrite(
+      FrameMemoryDomain preferred_domain = FrameMemoryDomain::CudaDevice) -> FrameWriteMapping = 0;
 
   virtual void    UnmapResource()                   = 0;
 

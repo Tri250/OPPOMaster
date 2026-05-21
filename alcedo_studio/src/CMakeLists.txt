@@ -949,6 +949,10 @@ if(ALCEDO_REAL_WIDGET_EDITOR)
         set_target_properties(EditViewer PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
         target_compile_definitions(EditViewer PUBLIC HAVE_CUDA)
     endif()
+    if(ALCEDO_OPENCL_ENABLED)
+        target_compile_definitions(EditViewer PUBLIC HAVE_OPENCL)
+        target_link_libraries(EditViewer PRIVATE OpenClProgramLibrary)
+    endif()
 
     if(ALCEDO_RHI_WIDGET_EDITOR AND APPLE)
         target_link_libraries(EditViewer PRIVATE

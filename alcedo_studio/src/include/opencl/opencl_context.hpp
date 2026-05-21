@@ -44,6 +44,11 @@ struct OpenClInitializationOptions {
   // Useful for user preferences such as "nvidia" or "intel arc". If omitted,
   // Initialize() also checks ALCEDO_OPENCL_DEVICE as a lightweight user override.
   std::optional<std::string> preferred_device;
+
+  // Optional ID3D11Device* on Windows. When set, OpenCL initialization selects a
+  // device that supports cl_khr_d3d11_sharing with that D3D11 device and creates
+  // the context with the matching D3D11 sharing properties.
+  void*                      d3d11_device = nullptr;
 };
 
 class OpenClContext {
@@ -55,6 +60,7 @@ class OpenClContext {
   OpenClDeviceCapabilities capabilities_;
   bool                     initialized_              = false;
   bool                     initialization_attempted_ = false;
+  bool                     d3d11_sharing_enabled_    = false;
   std::string              last_initialization_error_;
   mutable std::mutex       mutex_;
 
@@ -86,6 +92,7 @@ class OpenClContext {
   auto        Device() const -> cl_device_id;
   auto        Context() const -> cl_context;
   auto        Queue() const -> cl_command_queue;
+  auto        D3D11SharingEnabled() const -> bool;
   auto        Capabilities() const -> const OpenClDeviceCapabilities&;
 };
 

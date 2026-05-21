@@ -165,6 +165,19 @@ if(ALCEDO_CUDA_ENABLED AND ALCEDO_OPENCL_ENABLED)
     )
   endif()
   gtest_discover_tests(OpenClCudaPipelineCompareTest TEST_PREFIX "OpenClCudaCompare.")
+
+  add_executable(OpenClCudaFullPipelineBenchmark raw/opencl_cuda_full_pipeline_benchmark.cpp)
+  target_include_directories(OpenClCudaFullPipelineBenchmark PUBLIC ${ALCEDO_INCLUDE_DIR})
+  target_link_libraries(OpenClCudaFullPipelineBenchmark PRIVATE GTest::gtest_main Operators RawProcessor OpenClProgramLibrary EditPipeline PipelineScheduler ThreadPool ${ALCEDO_TEST_OPENCV_MIN_DEPS})
+  if(WIN32 AND TARGET alcedo_lensfun)
+    add_custom_command(TARGET OpenClCudaFullPipelineBenchmark POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "$<TARGET_FILE:alcedo_lensfun>"
+              "$<TARGET_FILE_DIR:OpenClCudaFullPipelineBenchmark>/lensfun.dll"
+      VERBATIM
+    )
+  endif()
+  gtest_discover_tests(OpenClCudaFullPipelineBenchmark TEST_PREFIX "OpenClCudaBenchmark.")
 endif()
 
 if(ALCEDO_METAL_ENABLED)
@@ -739,6 +752,7 @@ alcedo_assign_test_category(gpu ALCEDO_BUILD_GPU_TESTS alcedo_tests_gpu
   CudaPreviewVramReclamationTest
   OpenClCudaToLinearRefCompareTest
   OpenClCudaPipelineCompareTest
+  OpenClCudaFullPipelineBenchmark
   OpenClFusedEditPipelineTest
   OpenClGeometryUtilsTest
 )
