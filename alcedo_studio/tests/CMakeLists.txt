@@ -152,6 +152,19 @@ if(ALCEDO_CUDA_ENABLED AND ALCEDO_OPENCL_ENABLED)
   target_include_directories(OpenClCudaRcdCompareTest PUBLIC ${ALCEDO_INCLUDE_DIR})
   target_link_libraries(OpenClCudaRcdCompareTest PRIVATE GTest::gtest_main RawProcessorOp ${ALCEDO_TEST_OPENCV_MIN_DEPS})
   gtest_discover_tests(OpenClCudaRcdCompareTest TEST_PREFIX "OpenClCudaCompare.")
+
+  add_executable(OpenClCudaPipelineCompareTest raw/opencl_cuda_pipeline_compare_test.cpp)
+  target_include_directories(OpenClCudaPipelineCompareTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+  target_link_libraries(OpenClCudaPipelineCompareTest PRIVATE GTest::gtest_main Operators RawProcessor OpenClGeometryUtils OpenClProgramLibrary ${ALCEDO_TEST_OPENCV_MIN_DEPS})
+  if(WIN32 AND TARGET alcedo_lensfun)
+    add_custom_command(TARGET OpenClCudaPipelineCompareTest POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "$<TARGET_FILE:alcedo_lensfun>"
+              "$<TARGET_FILE_DIR:OpenClCudaPipelineCompareTest>/lensfun.dll"
+      VERBATIM
+    )
+  endif()
+  gtest_discover_tests(OpenClCudaPipelineCompareTest TEST_PREFIX "OpenClCudaCompare.")
 endif()
 
 if(ALCEDO_METAL_ENABLED)
@@ -213,6 +226,27 @@ if(ALCEDO_OPENCL_ENABLED)
             "$<TARGET_FILE_DIR:OpenCLRawHLRPreview>/platforms"
     VERBATIM
   )
+
+  if(ALCEDO_CUDA_ENABLED)
+    add_executable(OpenClCudaPipelinePreview gui_pocs/opencl_cuda_pipeline_preview.cpp)
+    target_include_directories(OpenClCudaPipelinePreview PUBLIC ${ALCEDO_INCLUDE_DIR})
+    target_link_libraries(OpenClCudaPipelinePreview PRIVATE Operators RawProcessor OpenClGeometryUtils OpenClProgramLibrary Qt6::Widgets ${ALCEDO_TEST_OPENCV_MIN_DEPS})
+    if(WIN32 AND TARGET alcedo_lensfun)
+      add_custom_command(TARGET OpenClCudaPipelinePreview POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE:alcedo_lensfun>"
+                "$<TARGET_FILE_DIR:OpenClCudaPipelinePreview>/lensfun.dll"
+        VERBATIM
+      )
+    endif()
+    add_custom_command(TARGET OpenClCudaPipelinePreview POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:OpenClCudaPipelinePreview>/platforms"
+      COMMAND ${CMAKE_COMMAND} -E copy_directory
+              "${ALCEDO_QT_PLATFORMS_DIR}"
+              "$<TARGET_FILE_DIR:OpenClCudaPipelinePreview>/platforms"
+      VERBATIM
+    )
+  endif()
 endif()
 
 # add_executable(ImageDecoderTest decoders/image_decoder_test.cpp)
@@ -693,6 +727,7 @@ alcedo_assign_test_category(gpu ALCEDO_BUILD_GPU_TESTS alcedo_tests_gpu
   ODTCudaSmokeTest
   CudaPreviewVramReclamationTest
   OpenClCudaToLinearRefCompareTest
+  OpenClCudaPipelineCompareTest
   OpenClGeometryUtilsTest
 )
 
@@ -734,6 +769,7 @@ alcedo_assign_test_category(demos ALCEDO_BUILD_DEMO_TARGETS alcedo_tests_demos
   ImagePreview
   OpenCLRawPreview
   OpenCLRawHLRPreview
+  OpenClCudaPipelinePreview
   ThumbnailAlbumQtDemo
   # CompleteUIDemo  # disabled
   DngMetadataBenchmark
