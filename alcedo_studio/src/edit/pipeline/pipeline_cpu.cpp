@@ -355,10 +355,9 @@ void CPUPipelineExecutor::SyncRawDecodeBackendToAccelerator() {
   }
 
   auto& raw          = params["raw"];
-  raw["gpu_backend"] = std::string(GpuBackendKindToRawGpuBackendString(
-      resolved_accelerator_backend_));
-  raw["cuda"]        = resolved_accelerator_backend_ == GpuBackendKind::CUDA;
-  raw["opencl"]      = resolved_accelerator_backend_ == GpuBackendKind::OpenCL;
+  raw["gpu_backend"] = std::string(AcceleratorBackendPreferenceToString(accelerator_preference_));
+  raw["cuda"]        = accelerator_preference_ == AcceleratorBackendPreference::CUDA;
+  raw["opencl"]      = accelerator_preference_ == AcceleratorBackendPreference::OpenCL;
   raw_stage.SetOperator(OperatorType::RAW_DECODE, params);
 }
 
@@ -539,10 +538,10 @@ void CPUPipelineExecutor::SetTemplateParams() {
   auto&          raw_stage     = GetStage(PipelineStageName::Image_Loading);
   auto&          global_params = GetGlobalParams();
   nlohmann::json decode_params = pipeline_defaults::MakeDefaultRawDecodeParams();
-  decode_params["raw"]["gpu_backend"] = std::string(
-      GpuBackendKindToRawGpuBackendString(resolved_accelerator_backend_));
-  decode_params["raw"]["cuda"]        = resolved_accelerator_backend_ == GpuBackendKind::CUDA;
-  decode_params["raw"]["opencl"]      = resolved_accelerator_backend_ == GpuBackendKind::OpenCL;
+  decode_params["raw"]["gpu_backend"] =
+      std::string(AcceleratorBackendPreferenceToString(accelerator_preference_));
+  decode_params["raw"]["cuda"]   = accelerator_preference_ == AcceleratorBackendPreference::CUDA;
+  decode_params["raw"]["opencl"] = accelerator_preference_ == AcceleratorBackendPreference::OpenCL;
   raw_stage.SetOperator(OperatorType::RAW_DECODE, decode_params);
 
   nlohmann::json lens_params = pipeline_defaults::MakeDefaultLensCalibParams();

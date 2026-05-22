@@ -586,9 +586,27 @@ if(TARGET puerhlab_lensfun_build)
     add_dependencies(Operators puerhlab_lensfun_build)
 endif()
 
+# --- Accelerator Backend Selection ---
+def_library(AcceleratorBackend
+    SOURCES edit/pipeline/pipeline_accelerator.cpp
+    PUBLIC_DEPS Image
+    PRIVATE_DEPS ${ALCEDO_OPENCV_CORE_DEPS} CudaDriverRequirements
+)
+if(ALCEDO_CUDA_ENABLED)
+    target_compile_definitions(AcceleratorBackend PUBLIC HAVE_CUDA)
+    target_include_directories(AcceleratorBackend PRIVATE ${CUDAToolkit_INCLUDE_DIRS})
+endif()
+if(ALCEDO_METAL_ENABLED)
+    target_compile_definitions(AcceleratorBackend PUBLIC HAVE_METAL)
+endif()
+if(ALCEDO_OPENCL_ENABLED)
+    target_compile_definitions(AcceleratorBackend PUBLIC HAVE_OPENCL)
+    target_link_libraries(AcceleratorBackend PRIVATE OpenClProgramLibrary)
+endif()
+target_link_libraries(Operators PRIVATE AcceleratorBackend)
+
 # --- Edit Pipeline ---
 set(PIPELINE_SRCS
-    edit/pipeline/pipeline_accelerator.cpp
     edit/pipeline/pipeline_cpu.cpp
     edit/pipeline/pipeline_stage.cpp
     edit/pipeline/pipeline_gpu_wrapper.cpp
@@ -619,7 +637,7 @@ endif()
 def_library(EditPipeline
     SOURCES ${PIPELINE_SRCS} ${GPU_PIPELINE_SRCS}
     PUBLIC_DEPS Operators
-    PRIVATE_DEPS ThreadPool opencv_imgproc CudaDriverRequirements
+    PRIVATE_DEPS ThreadPool opencv_imgproc CudaDriverRequirements AcceleratorBackend
 )
 
 if(ALCEDO_CUDA_ENABLED)
@@ -663,7 +681,7 @@ endif()
 def_library(RawProcessor
     SOURCES decoders/processor/raw_processor.cpp ${RAW_PROCESSOR_BACKEND_SRCS}
     PUBLIC_DEPS Image libraw::raw_r Exiv2 RawProcessorOp
-    PRIVATE_DEPS opencv_imgproc
+    PRIVATE_DEPS opencv_imgproc AcceleratorBackend
 )
 if(ALCEDO_OPENCL_ENABLED)
     target_link_libraries(RawProcessor PRIVATE OpenClGeometryUtils)

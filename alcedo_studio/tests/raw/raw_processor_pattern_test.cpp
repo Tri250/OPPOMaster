@@ -340,7 +340,7 @@ auto DecodeLargeRawWithMode(const std::filesystem::path& path, const detail::Cud
 
   auto input = std::make_shared<ImageBuffer>(std::move(raw_bytes));
   nlohmann::json decode_params;
-  decode_params["raw"] = {{"gpu_backend", "gpu"},
+  decode_params["raw"] = {{"gpu_backend", "cuda"},
                           {"highlights_reconstruct", highlights_reconstruct},
                           {"use_camera_wb", true},
                           {"backend", "alcedo"},
@@ -432,7 +432,7 @@ TEST(RawProcessorPattern, RawDecodeUsesLeicaQ2DngDefaultCropAtEighthResolution) 
   auto input = std::make_shared<ImageBuffer>(std::move(raw_bytes));
 
   nlohmann::json decode_params;
-  decode_params["raw"] = {{"gpu_backend", "gpu"},
+  decode_params["raw"] = {{"gpu_backend", "cuda"},
                           {"highlights_reconstruct", false},
                           {"use_camera_wb", true},
                           {"backend", "alcedo"},
@@ -613,7 +613,7 @@ TEST(RawProcessorPattern, CudaDecodeSupportsNonRggbClassicBayer) {
   auto input = std::make_shared<ImageBuffer>(std::move(raw_bytes));
 
   nlohmann::json decode_params;
-  decode_params["raw"] = {{"gpu_backend", "gpu"},
+  decode_params["raw"] = {{"gpu_backend", "cuda"},
                           {"highlights_reconstruct", false},
                           {"use_camera_wb", true},
                           {"backend", "alcedo"},
@@ -688,7 +688,7 @@ TEST(RawProcessorPattern, GpuDecodeSupportsLinearDngSample) {
   auto input = std::make_shared<ImageBuffer>(std::move(raw_bytes));
 
   nlohmann::json decode_params;
-  decode_params["raw"] = {{"gpu_backend", "gpu"},
+  decode_params["raw"] = {{"gpu_backend", "cuda"},
                           {"highlights_reconstruct", true},
                           {"use_camera_wb", true},
                           {"backend", "alcedo"},

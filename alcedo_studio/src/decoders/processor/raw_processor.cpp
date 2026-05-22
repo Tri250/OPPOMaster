@@ -22,6 +22,7 @@
 #include "decoders/processor/operators/cpu/raw_proc_utils.hpp"
 #include "decoders/processor/operators/cpu/white_balance.hpp"
 #include "decoders/processor/raw_processor_internal.hpp"
+#include "edit/pipeline/pipeline_accelerator.hpp"
 #include "image/image_buffer.hpp"
 
 namespace alcedo {
@@ -86,6 +87,45 @@ auto RawGpuBackendName(const RawGpuBackend backend) -> const char* {
 [[noreturn]] void ThrowUnavailableRawGpuBackend(const RawGpuBackend backend) {
   throw std::runtime_error(std::string("RawProcessor: requested ") + RawGpuBackendName(backend) +
                            " backend is not compiled.");
+}
+
+auto RawGpuBackendToAcceleratorPreference(const RawGpuBackend backend)
+    -> AcceleratorBackendPreference {
+  switch (backend) {
+    case RawGpuBackend::CPU:
+      return AcceleratorBackendPreference::CPU;
+    case RawGpuBackend::GPU:
+      return AcceleratorBackendPreference::Auto;
+    case RawGpuBackend::CUDA:
+      return AcceleratorBackendPreference::CUDA;
+    case RawGpuBackend::Metal:
+      return AcceleratorBackendPreference::Metal;
+    case RawGpuBackend::OpenCL:
+      return AcceleratorBackendPreference::OpenCL;
+  }
+  return AcceleratorBackendPreference::CPU;
+}
+
+auto GpuBackendKindToRawGpuBackend(const GpuBackendKind backend) -> RawGpuBackend {
+  switch (backend) {
+    case GpuBackendKind::None:
+      return RawGpuBackend::CPU;
+    case GpuBackendKind::CUDA:
+      return RawGpuBackend::CUDA;
+    case GpuBackendKind::OpenCL:
+      return RawGpuBackend::OpenCL;
+    case GpuBackendKind::Metal:
+      return RawGpuBackend::Metal;
+  }
+  return RawGpuBackend::CPU;
+}
+
+auto ResolveRuntimeRawGpuBackend(const RawGpuBackend backend) -> RawGpuBackend {
+  if (!IsRawGpuBackend(backend)) {
+    return backend;
+  }
+  return GpuBackendKindToRawGpuBackend(
+      ResolveAcceleratorBackend(RawGpuBackendToAcceleratorPreference(backend)));
 }
 
 auto CropToDecodeArea(const cv::Mat& src, const libraw_image_sizes_t& sizes,
@@ -390,7 +430,7 @@ void RawProcessor::ConvertToWorkingSpace() {
 }
 
 auto RawProcessor::ProcessGpu() -> ImageBuffer {
-  switch (params_.gpu_backend_) {
+  switch (ResolveRuntimeRawGpuBackend(params_.gpu_backend_)) {
     case RawGpuBackend::CPU:
       ThrowUnsupportedGPUBackend("Process");
     case RawGpuBackend::CUDA:
@@ -429,6 +469,7 @@ auto RawProcessor::Process() -> ImageBuffer {
   input_kind_ = ClassifyRawInput(raw_data_, raw_processor_.imgdata.idata);
   runtime_color_context_.output_in_camera_space_ = false;
   gpu_input_downsample_passes_                   = 0;
+  params_.gpu_backend_                           = ResolveRuntimeRawGpuBackend(params_.gpu_backend_);
 
   if (input_kind_ == RawInputKind::DebayeredRgb) {
     params_.highlights_reconstruct_ = false;
