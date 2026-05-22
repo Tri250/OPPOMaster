@@ -305,30 +305,15 @@ RawProcessor::RawProcessor(const RawParams& params, const libraw_rawdata_t& rawd
   runtime_color_context_.dng_warp_rectilinear_present_ = dng_warp_rectilinear_.has_value();
 }
 
-void RawProcessor::SetDecodeRes() {
+void RawProcessor::SetDecodeRes(int already_done_passes) {
   auto& cpu_data  = process_buffer_.GetCPUData();
   int   long_side = std::max(cpu_data.rows, cpu_data.cols);
   if (long_side > 8500 && params_.decode_res_ == DecodeRes::QUARTER) {
     params_.decode_res_ = DecodeRes::EIGHTH;
   }
 
-  int downsample_passes = 0;
-  switch (params_.decode_res_) {
-    case DecodeRes::FULL:
-      downsample_passes = 0;
-      break;
-    case DecodeRes::HALF:
-      downsample_passes = 1;
-      break;
-    case DecodeRes::QUARTER:
-      downsample_passes = 2;
-      break;
-    case DecodeRes::EIGHTH:
-      downsample_passes = 3;
-      break;
-    default:
-      throw std::runtime_error("RawProcessor: Unknown decode resolution");
-  }
+  int total_passes = DecodeResToDownsamplePasses(params_.decode_res_);
+  int downsample_passes = std::max(0, total_passes - already_done_passes);
 
   for (int pass = 0; pass < downsample_passes; ++pass) {
     cpu_data = DownsampleRaw2x(cpu_data, cfa_pattern_);

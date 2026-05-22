@@ -2,47 +2,19 @@
 <!DOCTYPE TS>
 <TS version="2.1" language="en_US">
 <context>
-    <name>AlbumBackend</name>
-    <message>
-        <location filename="../album_backend/album_backend.cpp" line="283"/>
-        <source>Select Project Package or Metadata JSON</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../album_backend/album_backend.cpp" line="284"/>
-        <source>Packed Project (*.alcd);;Project Metadata (*.json);;All Files (*)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../album_backend/album_backend.cpp" line="294"/>
-        <source>Select Parent Folder for New Project</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../album_backend/album_backend.cpp" line="302"/>
-        <source>Name New Project</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../album_backend/album_backend.cpp" line="302"/>
-        <source>Project name</source>
-        <translation type="unfinished"></translation>
-    </message>
-</context>
-<context>
     <name>AlbumExportDialog</name>
     <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="210"/>
+        <location filename="../qml/AlbumExportDialog.qml" line="221"/>
         <source>Select Export Folder</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="238"/>
+        <location filename="../qml/AlbumExportDialog.qml" line="249"/>
         <source>Export Images</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="319"/>
+        <location filename="../qml/AlbumExportDialog.qml" line="330"/>
         <source>Select output directory...</source>
         <translation type="unfinished"></translation>
     </message>
@@ -72,157 +44,147 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="246"/>
+        <location filename="../qml/AlbumExportDialog.qml" line="257"/>
         <source>Configure settings for current batch</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="306"/>
+        <location filename="../qml/AlbumExportDialog.qml" line="317"/>
         <source>Destination</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="325"/>
+        <location filename="../qml/AlbumExportDialog.qml" line="336"/>
         <source>Browse</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="348"/>
+        <location filename="../qml/AlbumExportDialog.qml" line="359"/>
         <source>Put in Subfolder</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="385"/>
+        <location filename="../qml/AlbumExportDialog.qml" line="396"/>
         <source>File Settings</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="395"/>
+        <location filename="../qml/AlbumExportDialog.qml" line="406"/>
         <source>Image Format</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="419"/>
+        <location filename="../qml/AlbumExportDialog.qml" line="430"/>
         <source>Bit Depth</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="453"/>
+        <location filename="../qml/AlbumExportDialog.qml" line="464"/>
         <source>Quality</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="484"/>
+        <location filename="../qml/AlbumExportDialog.qml" line="495"/>
         <source>PNG level</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="502"/>
+        <location filename="../qml/AlbumExportDialog.qml" line="513"/>
         <source>Compression</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="510"/>
+        <location filename="../qml/AlbumExportDialog.qml" line="521"/>
         <source>None</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="526"/>
+        <location filename="../qml/AlbumExportDialog.qml" line="537"/>
         <source>Limit Longest Edge (px)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="559"/>
+        <location filename="../qml/AlbumExportDialog.qml" line="573"/>
         <source>Metadata &amp; Output</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="569"/>
-        <source>HDR Output Format</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="579"/>
+        <location filename="../qml/AlbumExportDialog.qml" line="601"/>
         <source>Ultra HDR</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="580"/>
+        <location filename="../qml/AlbumExportDialog.qml" line="627"/>
         <source>Embed ICC Profile</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="594"/>
-        <source>Embed Color Profile</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="606"/>
-        <source>Ultra HDR is only available when every queued item uses an HDR output EOTF (PQ or HLG). For SDR output, only ICC profile embedding is available.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="608"/>
-        <source>Ultra HDR exports are written as JPEG and include SDR fallback for legacy viewers.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="609"/>
-        <source>Embed the active output ICC profile without Ultra HDR encoding. This mode keeps all export formats available.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="631"/>
+        <location filename="../qml/AlbumExportDialog.qml" line="654"/>
         <source>Export Queue</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="646"/>
+        <location filename="../qml/AlbumExportDialog.qml" line="669"/>
         <source>Items</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="790"/>
+        <location filename="../qml/AlbumExportDialog.qml" line="813"/>
         <source>Export Progress</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="847"/>
+        <location filename="../qml/AlbumExportDialog.qml" line="870"/>
         <source>Export 1 File</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="848"/>
+        <location filename="../qml/AlbumExportDialog.qml" line="871"/>
         <source>Export %1 Files</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="659"/>
+        <location filename="../qml/AlbumExportDialog.qml" line="682"/>
         <source>Add Selected (%1)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="675"/>
+        <location filename="../qml/AlbumExportDialog.qml" line="591"/>
+        <source>HDR Export</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../qml/AlbumExportDialog.qml" line="602"/>
+        <source>ICC Profile</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../qml/AlbumExportDialog.qml" line="620"/>
+        <source>SDR Export</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../qml/AlbumExportDialog.qml" line="698"/>
         <source>Clear</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="759"/>
+        <location filename="../qml/AlbumExportDialog.qml" line="782"/>
         <source>Queue is empty</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="826"/>
+        <location filename="../qml/AlbumExportDialog.qml" line="849"/>
         <source>Close</source>
         <translation type="unfinished">Close</translation>
     </message>
     <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="827"/>
+        <location filename="../qml/AlbumExportDialog.qml" line="850"/>
         <source>Cancel</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/AlbumExportDialog.qml" line="845"/>
+        <location filename="../qml/AlbumExportDialog.qml" line="868"/>
         <source>Exporting...</source>
         <translation type="unfinished"></translation>
     </message>
@@ -230,674 +192,690 @@
 <context>
     <name>Alcedo</name>
     <message>
+        <location filename="../album_backend/image_controller.cpp" line="40"/>
         <source>Capture</source>
         <translation>Capture</translation>
     </message>
     <message>
+        <location filename="../album_backend/image_controller.cpp" line="41"/>
         <source>Gear</source>
         <translation>Gear</translation>
     </message>
     <message>
+        <location filename="../album_backend/image_controller.cpp" line="43"/>
         <source>Storage</source>
         <translation>Storage</translation>
     </message>
     <message>
+        <location filename="../album_backend/image_controller.cpp" line="44"/>
         <source>Original Size</source>
         <translation>Original Size</translation>
     </message>
     <message>
+        <location filename="../album_backend/image_controller.cpp" line="45"/>
         <source>Original Aspect Ratio</source>
         <translation>Original Aspect Ratio</translation>
     </message>
     <message>
+        <location filename="../album_backend/image_controller.cpp" line="46"/>
         <source>Captured At</source>
         <translation>Captured At</translation>
     </message>
     <message>
+        <location filename="../album_backend/image_controller.cpp" line="47"/>
         <source>Camera Brand</source>
         <translation>Camera Brand</translation>
     </message>
     <message>
+        <location filename="../album_backend/image_controller.cpp" line="48"/>
         <source>Camera Model</source>
         <translation>Camera Model</translation>
     </message>
     <message>
+        <location filename="../album_backend/image_controller.cpp" line="59"/>
         <source>Open in file manager</source>
         <translation>Open in file manager</translation>
     </message>
     <message>
+        <location filename="../album_backend/image_controller.cpp" line="39"/>
         <source>(unnamed)</source>
         <translation>(unnamed)</translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="247"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="242"/>
         <source>Adjustments</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="248"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="243"/>
         <source>Tone</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="249"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="244"/>
         <source>Primary tonal shaping controls.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="251"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="246"/>
         <source>Contrast</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="252"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="247"/>
         <source>Highlights</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="253"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="248"/>
         <source>Shadows</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="254"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="249"/>
         <source>Whites</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="255"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="250"/>
         <source>Blacks</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="256"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="251"/>
         <source>Tone Curve</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="257"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="252"/>
         <source>Smooth tone curve mapped from input [0, 1] to output [0, 1].</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="259"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="253"/>
         <source>Left click/drag to shape. Right click a point to remove. Double click to reset.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="261"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="256"/>
         <source>Reset Curve</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="262"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="257"/>
         <source>Color</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="263"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="258"/>
         <source>Color balance and saturation.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="264"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="259"/>
         <source>Saturation</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="265"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="260"/>
         <source>White Balance</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="266"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="261"/>
         <source>As Shot</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="267"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="262"/>
         <source>Custom</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="268"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="263"/>
         <source>Color Temp</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="269"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="264"/>
         <source>Color Tint</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="270"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="265"/>
         <source>Color temperature/tint is unavailable for this image.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="271"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="266"/>
         <source>Detail</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="272"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="267"/>
         <source>Micro-contrast and sharpen controls.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="273"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="268"/>
         <source>Sharpen</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="274"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="269"/>
         <source>Clarity</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="275"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="270"/>
         <source>LUT</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="276"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="271"/>
         <source>Browse and apply look-up tables.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="277"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="272"/>
         <source>HSL / Color</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="278"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="273"/>
         <source>Per-hue lightness and saturation adjustments.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="279"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="274"/>
         <source>Hue Shift</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="280"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="275"/>
         <source>Lightness</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="281"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="276"/>
         <source>HSL Saturation</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="282"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="277"/>
         <source>Hue Range</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="283"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="278"/>
         <source>Color Wheels</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="284"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="279"/>
         <source>CDL: Lift / Gamma / Gain with master offset.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="285"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="280"/>
         <source>Gamma</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="286"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="281"/>
         <source>Lift</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="287"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="282"/>
         <source>Gain</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="288"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="283"/>
         <source>Display Rendering Transform</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="289"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="284"/>
         <source>Display RT</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="290"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="285"/>
         <source>Encoding Space</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="291"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="286"/>
         <source>Encoding EOTF</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="292"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="287"/>
         <source>Peak Luminance</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="293"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="288"/>
         <source>Rendering Method</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="294"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="289"/>
         <source>Choose the transform family. Shared encoding settings stay above; method-specific settings stay preserved per method.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="296"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="292"/>
         <source>ACES 2.0</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="297"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="293"/>
         <source>OpenDRT</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="298"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="294"/>
         <source>Limiting Space</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="299"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="295"/>
         <source>Look Preset</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="300"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="296"/>
         <source>Tonescale Preset</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="301"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="297"/>
         <source>Creative White</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="302"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="298"/>
         <source>Geometry</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="303"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="299"/>
         <source>Crop &amp; Aspect Ratio</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="304"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="300"/>
         <source>Aspect</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="305"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="301"/>
         <source>Rotate &amp; Flip</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="306"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="302"/>
         <source>Angle</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="307"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="303"/>
         <source>Rotate 90° left</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="308"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="304"/>
         <source>Rotate 90° right</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="309"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="305"/>
         <source>Flip horizontal (coming soon)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="310"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="306"/>
         <source>Crop Offset</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="311"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="307"/>
         <source>X</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="312"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="308"/>
         <source>Y</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="313"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="309"/>
         <source>Width</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="314"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="310"/>
         <source>Height</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="315"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="311"/>
         <source>Apply Crop</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="316"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="312"/>
         <source>Reset</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="317"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="313"/>
         <source>Pixels update on Apply. Double click any slider or the viewer to reset. Ctrl+R resets all geometry.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="319"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="316"/>
         <source>RAW Decode</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="320"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="317"/>
         <source>Configure RAW decode options. These settings are shared with thumbnail rendering.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="322"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="320"/>
         <source>Enable Highlight Reconstruction</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="323"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="321"/>
         <source>Lens Calibration</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="324"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="322"/>
         <source>Enable correction and optionally override lens metadata with catalog entries.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="326"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="324"/>
         <source>Enable Lens Calibration</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="327"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="325"/>
+        <location filename="../album_backend/image_controller.cpp" line="49"/>
         <source>Lens Brand</source>
         <translation>Lens Brand</translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="328"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="326"/>
+        <location filename="../album_backend/image_controller.cpp" line="50"/>
         <source>Lens Model</source>
         <translation>Lens Model</translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="329"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="327"/>
         <source>Edit History</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="330"/>
-        <source>Uncommitted</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="331"/>
-        <source>COMMITTED STATE</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="333"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="329"/>
         <source>Undo Last</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="334"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="328"/>
         <source>Position</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="335"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="330"/>
+        <source>Undo last transaction</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="331"/>
         <source>Current</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="336"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="332"/>
         <source>Returned to step %1 of %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="337"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="333"/>
         <source>No edits yet</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="338"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="334"/>
         <source>Versions</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="339"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="335"/>
         <source>New Version</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="340"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="336"/>
         <source>Modified %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="341"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="337"/>
         <source>CURRENT</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="342"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="338"/>
         <source>Rename version</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="343"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="339"/>
         <source>Version name</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="344"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="340"/>
         <source>Untitled</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="345"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="341"/>
         <source>No versions</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="338"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="342"/>
         <source>Rec.709</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="339"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="343"/>
         <source>P3-D65</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="340"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="344"/>
         <source>P3-D60</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="341"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="345"/>
         <source>P3-DCI</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="342"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="346"/>
         <source>XYZ</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="343"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="347"/>
         <source>Rec.2020</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="344"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="348"/>
         <source>ProPhoto RGB</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="345"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="349"/>
         <source>Adobe RGB</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="346"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="350"/>
         <source>Standard</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="347"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="351"/>
         <source>Arriba</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="348"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="352"/>
         <source>Sylvan</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="349"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="353"/>
         <source>Colorful</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="350"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="354"/>
         <source>Aery</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="351"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="355"/>
         <source>Dystopic</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="352"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="356"/>
         <source>Umbra</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="353"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="357"/>
         <source>Use Look Preset</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="354"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="358"/>
         <source>Low Contrast</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="355"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="359"/>
         <source>Medium Contrast</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="356"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="360"/>
         <source>High Contrast</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="357"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="361"/>
         <source>Arriba Tonescale</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="358"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="362"/>
         <source>Sylvan Tonescale</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="359"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="363"/>
         <source>Colorful Tonescale</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="360"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="364"/>
         <source>Aery Tonescale</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="361"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="365"/>
         <source>Dystopic Tonescale</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="362"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="366"/>
         <source>Umbra Tonescale</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="363"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="367"/>
         <source>Marvelous Tonscape</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="364"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="368"/>
         <source>Dagrinchi Tonegroan</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="365"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="369"/>
         <source>D93</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../../include/ui/alcedo_main/editor_dialog/dialog_internal.hpp" line="250"/>
+        <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="245"/>
+        <location filename="../album_backend/image_controller.cpp" line="42"/>
         <source>Exposure</source>
         <translation>Exposure</translation>
     </message>
     <message>
+        <location filename="../album_backend/image_controller.cpp" line="51"/>
         <source>Aperture</source>
         <translation>Aperture</translation>
     </message>
     <message>
+        <location filename="../album_backend/image_controller.cpp" line="52"/>
         <source>Shutter</source>
         <translation>Shutter</translation>
     </message>
     <message>
+        <location filename="../album_backend/image_controller.cpp" line="53"/>
         <source>ISO</source>
         <translation>ISO</translation>
     </message>
     <message>
+        <location filename="../album_backend/image_controller.cpp" line="54"/>
         <source>Focal Length</source>
         <translation>Focal Length</translation>
     </message>
     <message>
+        <location filename="../album_backend/image_controller.cpp" line="55"/>
         <source>35mm Equivalent</source>
         <translation>35mm Equivalent</translation>
     </message>
     <message>
+        <location filename="../album_backend/image_controller.cpp" line="56"/>
         <source>Focus Distance</source>
         <translation>Focus Distance</translation>
     </message>
     <message>
+        <location filename="../album_backend/image_controller.cpp" line="57"/>
         <source>Rating</source>
         <translation>Rating</translation>
     </message>
     <message>
+        <location filename="../album_backend/image_controller.cpp" line="58"/>
         <source>Source Directory</source>
         <translation>Source Directory</translation>
     </message>
@@ -1025,6 +1003,78 @@
         <source>Reimporting %1 converted DNG file(s)...</source>
         <translation type="vanished">Reimporting %1 converted DNG file(s)...</translation>
     </message>
+    <message>
+        <location filename="../album_backend/album_backend.cpp" line="45"/>
+        <source>CPU</source>
+        <translation>CPU</translation>
+    </message>
+    <message>
+        <location filename="../album_backend/album_backend.cpp" line="46"/>
+        <source>Auto</source>
+        <translation>Auto</translation>
+    </message>
+    <message>
+        <location filename="../album_backend/album_backend.cpp" line="47"/>
+        <source>Detected CUDA driver compatibility: %1.</source>
+        <translation>Detected CUDA driver compatibility: %1.</translation>
+    </message>
+    <message>
+        <location filename="../album_backend/album_backend.cpp" line="48"/>
+        <source>No usable NVIDIA CUDA driver was detected.</source>
+        <translation>No usable NVIDIA CUDA driver was detected.</translation>
+    </message>
+    <message>
+        <location filename="../album_backend/album_backend.cpp" line="49"/>
+        <source>Failed to query the installed NVIDIA CUDA driver.</source>
+        <translation>Failed to query the installed NVIDIA CUDA driver.</translation>
+    </message>
+    <message>
+        <location filename="../album_backend/album_backend.cpp" line="50"/>
+        <source>This machine has an NVIDIA graphics card, but it does not meet Alcedo&apos;s CUDA runtime requirements. CUDA requires an NVIDIA graphics driver with CUDA %1 or newer.
+
+%2
+
+Alcedo will use %3 instead.</source>
+        <translation>This machine has an NVIDIA graphics card, but it does not meet Alcedo&apos;s CUDA runtime requirements. CUDA requires an NVIDIA graphics driver with CUDA %1 or newer.
+
+%2
+
+Alcedo will use %3 instead.</translation>
+    </message>
+    <message>
+        <location filename="../album_backend/album_backend.cpp" line="54"/>
+        <source>CUDA acceleration is not supported on this machine because no NVIDIA graphics card was detected.
+
+Alcedo will use %1 instead.</source>
+        <translation>CUDA acceleration is not supported on this machine because no NVIDIA graphics card was detected.
+
+Alcedo will use %1 instead.</translation>
+    </message>
+    <message>
+        <location filename="../album_backend/album_backend.cpp" line="57"/>
+        <source>Unknown accelerator backend.</source>
+        <translation>Unknown accelerator backend.</translation>
+    </message>
+    <message>
+        <location filename="../album_backend/album_backend.cpp" line="58"/>
+        <source>Selected accelerator backend is unavailable.</source>
+        <translation>Selected accelerator backend is unavailable.</translation>
+    </message>
+    <message>
+        <location filename="../album_backend/album_backend.cpp" line="59"/>
+        <source>Failed to switch accelerator backend: %1</source>
+        <translation>Failed to switch accelerator backend: %1</translation>
+    </message>
+    <message>
+        <location filename="../album_backend/album_backend.cpp" line="60"/>
+        <source>Failed to switch accelerator backend.</source>
+        <translation>Failed to switch accelerator backend.</translation>
+    </message>
+    <message>
+        <location filename="../album_backend/album_backend.cpp" line="61"/>
+        <source>Using %1 acceleration.</source>
+        <translation>Using %1 acceleration.</translation>
+    </message>
 </context>
 <context>
     <name>Alcedo.Main</name>
@@ -1096,12 +1146,12 @@
         <translation>No collections yet</translation>
     </message>
     <message>
-        <location filename="../qml/CollectionsPanel.qml" line="449"/>
+        <location filename="../qml/CollectionsPanel.qml" line="450"/>
         <source>Delete collection</source>
         <translation>Delete collection</translation>
     </message>
     <message>
-        <location filename="../qml/CollectionsPanel.qml" line="471"/>
+        <location filename="../qml/CollectionsPanel.qml" line="472"/>
         <source>Import</source>
         <translation>Import</translation>
     </message>
@@ -1112,18 +1162,18 @@
         <location filename="../qml/ExportQueueState.qml" line="29"/>
         <location filename="../qml/ExportQueueState.qml" line="115"/>
         <source>(unnamed)</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">(unnamed)</translation>
     </message>
 </context>
 <context>
     <name>ImageDetailsDialog</name>
     <message>
-        <location filename="../qml/ImageDetailsDialog.qml" line="188"/>
+        <location filename="../qml/ImageDetailsDialog.qml" line="346"/>
         <source>Open in file manager</source>
         <translation>Open in file manager</translation>
     </message>
     <message>
-        <location filename="../qml/ImageDetailsDialog.qml" line="214"/>
+        <location filename="../qml/ImageDetailsDialog.qml" line="369"/>
         <source>Close</source>
         <translation>Close</translation>
     </message>
@@ -1177,206 +1227,206 @@
 <context>
     <name>Main</name>
     <message>
-        <location filename="../qml/Main.qml" line="14"/>
+        <location filename="../qml/Main.qml" line="16"/>
         <source>Alcedo Studio</source>
         <translation type="unfinished">Alcedo Studio</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="223"/>
-        <location filename="../qml/Main.qml" line="242"/>
-        <location filename="../qml/Main.qml" line="285"/>
-        <location filename="../qml/Main.qml" line="317"/>
-        <location filename="../qml/Main.qml" line="337"/>
+        <location filename="../qml/Main.qml" line="232"/>
+        <location filename="../qml/Main.qml" line="251"/>
+        <location filename="../qml/Main.qml" line="294"/>
+        <location filename="../qml/Main.qml" line="326"/>
+        <location filename="../qml/Main.qml" line="346"/>
         <source>(unnamed)</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">(unnamed)</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="253"/>
+        <location filename="../qml/Main.qml" line="262"/>
         <source>Delete this image from project?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="255"/>
+        <location filename="../qml/Main.qml" line="264"/>
         <source>Delete %1 images from project?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="372"/>
+        <location filename="../qml/Main.qml" line="381"/>
         <source>All Files (*)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="685"/>
-        <location filename="../qml/Main.qml" line="1436"/>
+        <location filename="../qml/Main.qml" line="705"/>
+        <location filename="../qml/Main.qml" line="1713"/>
         <source>Cancel</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="368"/>
+        <location filename="../qml/Main.qml" line="377"/>
         <source>Select Images</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="371"/>
+        <location filename="../qml/Main.qml" line="380"/>
         <source>RAW Images (*.raw *.dng *.nef *.cr2 *.cr3 *.arw *.rw2 *.raf *.3fr *.fff)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="467"/>
+        <location filename="../qml/Main.qml" line="476"/>
         <source>Choose theme and language, then save to apply changes.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="477"/>
+        <location filename="../qml/Main.qml" line="486"/>
         <source>Theme</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="528"/>
+        <location filename="../qml/Main.qml" line="537"/>
         <source>Close</source>
         <translation type="unfinished">Close</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="555"/>
-        <location filename="../qml/Main.qml" line="696"/>
+        <location filename="../qml/Main.qml" line="564"/>
+        <location filename="../qml/Main.qml" line="716"/>
         <source>Delete</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="660"/>
+        <location filename="../qml/Main.qml" line="680"/>
         <source>Confirm Deletion</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="671"/>
+        <location filename="../qml/Main.qml" line="691"/>
         <source>%1
 Original source files on disk will be kept.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="910"/>
+        <location filename="../qml/Main.qml" line="951"/>
         <source>Collapse Inspector</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="910"/>
+        <location filename="../qml/Main.qml" line="951"/>
         <source>Expand Inspector</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="855"/>
+        <location filename="../qml/Main.qml" line="896"/>
         <source>File</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="536"/>
+        <location filename="../qml/Main.qml" line="545"/>
         <source>Save</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="846"/>
+        <location filename="../qml/Main.qml" line="887"/>
         <source>Alcedo</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="848"/>
+        <location filename="../qml/Main.qml" line="889"/>
         <source>Studio</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="871"/>
+        <location filename="../qml/Main.qml" line="912"/>
         <source>Create Project</source>
         <translation type="unfinished">Create Project</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="878"/>
+        <location filename="../qml/Main.qml" line="919"/>
         <source>Save Project</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1173"/>
+        <location filename="../qml/Main.qml" line="1301"/>
         <source>Add to Queue</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1202"/>
+        <location filename="../qml/Main.qml" line="1330"/>
         <source>Export</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="752"/>
+        <location filename="../qml/Main.qml" line="778"/>
         <source>Imported %1 image(s).</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="769"/>
+        <location filename="../qml/Main.qml" line="795"/>
         <source>Exported %1 image(s).</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="457"/>
-        <location filename="../qml/Main.qml" line="887"/>
+        <location filename="../qml/Main.qml" line="466"/>
+        <location filename="../qml/Main.qml" line="928"/>
         <source>Settings</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="992"/>
+        <location filename="../qml/Main.qml" line="1120"/>
         <source>Browser</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1107"/>
+        <location filename="../qml/Main.qml" line="1235"/>
         <source>No Photos Yet</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1107"/>
+        <location filename="../qml/Main.qml" line="1235"/>
         <source>Open or Create a Project</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1115"/>
+        <location filename="../qml/Main.qml" line="1243"/>
         <source>Import your images for RAW adjustments.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1116"/>
+        <location filename="../qml/Main.qml" line="1244"/>
         <source>Use File &gt; Load Project or File &gt; Create Project to choose .alcd files.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="866"/>
-        <location filename="../qml/Main.qml" line="1123"/>
+        <location filename="../qml/Main.qml" line="907"/>
+        <location filename="../qml/Main.qml" line="1251"/>
         <source>Load Project</source>
         <translation type="unfinished">Load Project</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="501"/>
+        <location filename="../qml/Main.qml" line="510"/>
         <source>Language</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1382"/>
+        <location filename="../qml/Main.qml" line="1659"/>
         <source>Importing Photos</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1404"/>
+        <location filename="../qml/Main.qml" line="1681"/>
         <source>%1 / %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1417"/>
+        <location filename="../qml/Main.qml" line="1694"/>
         <source>Preparing...</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1427"/>
+        <location filename="../qml/Main.qml" line="1704"/>
         <source>%1 file(s) failed</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="550"/>
+        <location filename="../qml/Main.qml" line="559"/>
         <source>Details</source>
         <translation>Details</translation>
     </message>
@@ -1579,17 +1629,22 @@ Original source files on disk will be kept.</source>
 <context>
     <name>ThumbnailGridView</name>
     <message>
-        <location filename="../qml/ThumbnailGridView.qml" line="226"/>
+        <location filename="../qml/ThumbnailGridView.qml" line="62"/>
+        <source>(unnamed)</source>
+        <translation type="unfinished">(unnamed)</translation>
+    </message>
+    <message>
+        <location filename="../qml/ThumbnailGridView.qml" line="247"/>
         <source>%1 | ISO %2 | f/%3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/ThumbnailGridView.qml" line="236"/>
+        <location filename="../qml/ThumbnailGridView.qml" line="257"/>
         <source>%1 | Rating %2/5</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/ThumbnailGridView.qml" line="205"/>
+        <location filename="../qml/ThumbnailGridView.qml" line="226"/>
         <source>Source file was moved or deleted</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1620,17 +1675,17 @@ Original source files on disk will be kept.</source>
 <context>
     <name>WelcomeDialog</name>
     <message>
-        <location filename="../qml/WelcomeDialog.qml" line="55"/>
+        <location filename="../qml/WelcomeDialog.qml" line="177"/>
         <source>Opened recently</source>
         <translation>Opened recently</translation>
     </message>
     <message>
-        <location filename="../qml/WelcomeDialog.qml" line="60"/>
+        <location filename="../qml/WelcomeDialog.qml" line="182"/>
         <source>Opened just now</source>
         <translation>Opened just now</translation>
     </message>
     <message numerus="yes">
-        <location filename="../qml/WelcomeDialog.qml" line="63"/>
+        <location filename="../qml/WelcomeDialog.qml" line="185"/>
         <source>Opened %n minute(s) ago</source>
         <translation>
             <numerusform>Opened %n minute ago</numerusform>
@@ -1638,7 +1693,7 @@ Original source files on disk will be kept.</source>
         </translation>
     </message>
     <message numerus="yes">
-        <location filename="../qml/WelcomeDialog.qml" line="68"/>
+        <location filename="../qml/WelcomeDialog.qml" line="190"/>
         <source>Opened %n hour(s) ago</source>
         <translation>
             <numerusform>Opened %n hour ago</numerusform>
@@ -1646,13 +1701,13 @@ Original source files on disk will be kept.</source>
         </translation>
     </message>
     <message>
-        <location filename="../qml/WelcomeDialog.qml" line="73"/>
+        <location filename="../qml/WelcomeDialog.qml" line="195"/>
         <source>Opened yesterday</source>
         <translation>Opened yesterday</translation>
     </message>
     <message numerus="yes">
-        <location filename="../qml/WelcomeDialog.qml" line="76"/>
-        <location filename="../qml/WelcomeDialog.qml" line="81"/>
+        <location filename="../qml/WelcomeDialog.qml" line="198"/>
+        <location filename="../qml/WelcomeDialog.qml" line="203"/>
         <source>Opened %n day(s) ago</source>
         <translation>
             <numerusform>Opened %n day ago</numerusform>
@@ -1660,7 +1715,7 @@ Original source files on disk will be kept.</source>
         </translation>
     </message>
     <message>
-        <location filename="../qml/WelcomeDialog.qml" line="79"/>
+        <location filename="../qml/WelcomeDialog.qml" line="201"/>
         <source>Opened last week</source>
         <translation>Opened last week</translation>
     </message>
@@ -1669,65 +1724,140 @@ Original source files on disk will be kept.</source>
         <translation type="vanished">Alcedo Studio</translation>
     </message>
     <message>
-        <location filename="../qml/WelcomeDialog.qml" line="146"/>
+        <location filename="../qml/WelcomeDialog.qml" line="46"/>
+        <location filename="../qml/WelcomeDialog.qml" line="63"/>
+        <source>Untitled Project</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../qml/WelcomeDialog.qml" line="77"/>
+        <source>Select Project Storage Location</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../qml/WelcomeDialog.qml" line="88"/>
+        <source>CUDA unavailable</source>
+        <translation>CUDA unavailable</translation>
+    </message>
+    <message>
+        <location filename="../qml/WelcomeDialog.qml" line="302"/>
         <source>Alcedo</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/WelcomeDialog.qml" line="154"/>
+        <location filename="../qml/WelcomeDialog.qml" line="310"/>
         <source>Studio</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/WelcomeDialog.qml" line="171"/>
+        <location filename="../qml/WelcomeDialog.qml" line="327"/>
         <source>Load Project</source>
         <translation>Load Project</translation>
     </message>
     <message>
-        <location filename="../qml/WelcomeDialog.qml" line="244"/>
+        <location filename="../qml/WelcomeDialog.qml" line="393"/>
+        <location filename="../qml/WelcomeDialog.qml" line="937"/>
         <source>Create Project</source>
         <translation>Create Project</translation>
     </message>
     <message>
-        <location filename="../qml/WelcomeDialog.qml" line="337"/>
+        <location filename="../qml/WelcomeDialog.qml" line="462"/>
+        <source>Acceleration</source>
+        <translation>Acceleration</translation>
+    </message>
+    <message>
+        <location filename="../qml/WelcomeDialog.qml" line="522"/>
         <source>Exit Application</source>
         <translation>Exit Application</translation>
     </message>
     <message>
-        <location filename="../qml/WelcomeDialog.qml" line="385"/>
+        <location filename="../qml/WelcomeDialog.qml" line="570"/>
         <source>Recent Projects</source>
         <translation>Recent Projects</translation>
     </message>
     <message>
-        <location filename="../qml/WelcomeDialog.qml" line="399"/>
+        <location filename="../qml/WelcomeDialog.qml" line="584"/>
         <source>Collapse</source>
         <translation>Collapse</translation>
     </message>
     <message>
-        <location filename="../qml/WelcomeDialog.qml" line="399"/>
+        <location filename="../qml/WelcomeDialog.qml" line="584"/>
         <source>View All</source>
         <translation>View All</translation>
     </message>
     <message>
-        <location filename="../qml/WelcomeDialog.qml" line="422"/>
+        <location filename="../qml/WelcomeDialog.qml" line="607"/>
         <source>No recent projects yet</source>
         <translation>No recent projects yet</translation>
     </message>
     <message>
-        <location filename="../qml/WelcomeDialog.qml" line="430"/>
+        <location filename="../qml/WelcomeDialog.qml" line="615"/>
         <source>Projects you open or create here will appear in this list.</source>
         <translation>Projects you open or create here will appear in this list.</translation>
+    </message>
+    <message>
+        <location filename="../qml/WelcomeDialog.qml" line="757"/>
+        <source>New Project</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../qml/WelcomeDialog.qml" line="765"/>
+        <source>Configure your workspace settings.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../qml/WelcomeDialog.qml" line="793"/>
+        <source>Project Name</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../qml/WelcomeDialog.qml" line="828"/>
+        <source>Storage Location</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../qml/WelcomeDialog.qml" line="854"/>
+        <source>Select a parent folder...</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>alcedo::ui::AlbumBackend</name>
+    <message>
+        <location filename="../album_backend/album_backend.cpp" line="524"/>
+        <source>Select Project Package or Metadata JSON</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../album_backend/album_backend.cpp" line="525"/>
+        <source>Packed Project (*.alcd);;Project Metadata (*.json);;All Files (*)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../album_backend/album_backend.cpp" line="535"/>
+        <source>Select Parent Folder for New Project</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../album_backend/album_backend.cpp" line="543"/>
+        <source>Name New Project</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../album_backend/album_backend.cpp" line="543"/>
+        <source>Project name</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
     <name>alcedo::ui::AppTheme</name>
     <message>
-        <location filename="../app_theme.cpp" line="932"/>
+        <location filename="../app_theme.cpp" line="940"/>
         <source>Alcedo</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../app_theme.cpp" line="933"/>
+        <location filename="../app_theme.cpp" line="941"/>
         <source>Classic</source>
         <translation type="unfinished"></translation>
     </message>

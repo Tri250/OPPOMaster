@@ -11,12 +11,84 @@
 #include "ui/album_backend_test_fixture.hpp"
 
 #include <QSignalSpy>
+#include <algorithm>
+#include <array>
+#include <chrono>
 #include <fstream>
+#include <optional>
+
+#include <json.hpp>
+
+#include "app/project_package_backend.hpp"
+#include "app/project_service.hpp"
 
 namespace alcedo::ui::test {
 namespace {
 
 using ProjectTests = AlbumBackendTestFixture;
+
+auto FindPackedProjectPath(const std::filesystem::path& dir)
+    -> std::optional<std::filesystem::path> {
+  for (const auto& entry : std::filesystem::directory_iterator(dir)) {
+    if (entry.is_regular_file() && entry.path().extension() == ".alcd") {
+      return entry.path();
+    }
+  }
+  return std::nullopt;
+}
+
+void WriteU32Le(std::ostream& stream, uint32_t value) {
+  std::array<unsigned char, 4> bytes{};
+  bytes[0] = static_cast<unsigned char>(value & 0xFFU);
+  bytes[1] = static_cast<unsigned char>((value >> 8U) & 0xFFU);
+  bytes[2] = static_cast<unsigned char>((value >> 16U) & 0xFFU);
+  bytes[3] = static_cast<unsigned char>((value >> 24U) & 0xFFU);
+  stream.write(reinterpret_cast<const char*>(bytes.data()),
+               static_cast<std::streamsize>(bytes.size()));
+}
+
+void CreateMetadataProject(const std::filesystem::path& dbPath,
+                           const std::filesystem::path& metaPath) {
+  {
+    ProjectService project(dbPath, metaPath, ProjectOpenMode::kCreateNew);
+    project.GetSleeveService()->Sync();
+    project.GetImagePoolService()->SyncWithStorage();
+    project.SaveProject(metaPath);
+  }
+
+  uint64_t checksum = 0;
+  ASSERT_TRUE(project_pack::ComputeFileChecksum(dbPath, &checksum));
+
+  nlohmann::json metadata;
+  {
+    std::ifstream in(metaPath);
+    in >> metadata;
+  }
+  metadata["db_checksum_xxh3_64"] = project_pack::FormatChecksum(checksum);
+  {
+    std::ofstream out(metaPath, std::ios::trunc);
+    out << metadata.dump(4);
+  }
+}
+
+bool WaitForProjectLoadToFinish(AlbumBackend& backend, int timeoutMs = 15000) {
+  if (!backend.ProjectLoading()) {
+    return true;
+  }
+
+  QSignalSpy spy(&backend, &AlbumBackend::ProjectLoadStateChanged);
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+  while (backend.ProjectLoading() && std::chrono::steady_clock::now() < deadline) {
+    const auto remaining =
+        std::chrono::duration_cast<std::chrono::milliseconds>(deadline -
+                                                              std::chrono::steady_clock::now())
+            .count();
+    if (remaining <= 0 || !spy.wait(static_cast<int>(std::min<qint64>(remaining, 500)))) {
+      ProcessEvents(50);
+    }
+  }
+  return !backend.ProjectLoading();
+}
 
 // ── Initial state ──────────────────────────────────────────────────────────
 
@@ -107,6 +179,86 @@ TEST_F(ProjectTests, LoadProject_InvalidFormat_Fails) {
 
   const bool ok = backend.LoadProject(PathToQString(txtPath));
   EXPECT_FALSE(ok);
+}
+
+TEST_F(ProjectTests, LoadProject_OldPackedProjectVersion_Fails) {
+  const auto oldProjectPath = temp_dir_ / "old_project.alcd";
+  {
+    std::ofstream out(oldProjectPath, std::ios::binary | std::ios::trunc);
+    out.write(project_pack::kPackedProjectMagic.data(),
+              static_cast<std::streamsize>(project_pack::kPackedProjectMagic.size()));
+    WriteU32Le(out, project_pack::kPackedProjectVersion - 1);
+  }
+
+  AlbumBackend backend;
+  EXPECT_FALSE(backend.LoadProject(PathToQString(oldProjectPath)));
+  EXPECT_FALSE(backend.ServiceReady());
+}
+
+TEST_F(ProjectTests, LoadProject_CorruptMetadata_Fails) {
+  const auto dbPath = temp_dir_ / "corrupt_meta.db";
+  const auto metaPath = temp_dir_ / "corrupt_meta.json";
+  CreateMetadataProject(dbPath, metaPath);
+  {
+    std::ofstream out(metaPath, std::ios::trunc);
+    out << "{ not valid json";
+  }
+
+  AlbumBackend backend;
+  EXPECT_FALSE(backend.LoadProject(PathToQString(metaPath)));
+  EXPECT_FALSE(backend.ServiceReady());
+}
+
+TEST_F(ProjectTests, LoadProject_CorruptDatabaseChecksum_Fails) {
+  const auto dbPath = temp_dir_ / "corrupt_db.db";
+  const auto metaPath = temp_dir_ / "corrupt_db.json";
+  CreateMetadataProject(dbPath, metaPath);
+  {
+    std::ofstream out(dbPath, std::ios::binary | std::ios::trunc);
+    out << "not a duckdb database";
+  }
+
+  AlbumBackend backend;
+  QSignalSpy projectSpy(&backend, &AlbumBackend::ProjectChanged);
+  ASSERT_TRUE(backend.LoadProject(PathToQString(metaPath)));
+  ASSERT_TRUE(WaitForProjectLoadToFinish(backend));
+  ProcessEvents(200);
+
+  EXPECT_TRUE(projectSpy.isEmpty());
+  EXPECT_FALSE(backend.ServiceReady());
+}
+
+TEST_F(ProjectTests, LoadProject_ValidMetadataProject_Succeeds) {
+  const auto dbPath = temp_dir_ / "valid_project.db";
+  const auto metaPath = temp_dir_ / "valid_project.json";
+  CreateMetadataProject(dbPath, metaPath);
+
+  AlbumBackend backend;
+  QSignalSpy projectSpy(&backend, &AlbumBackend::ProjectChanged);
+  ASSERT_TRUE(backend.LoadProject(PathToQString(metaPath)));
+  ASSERT_TRUE(WaitForSignal(projectSpy, 15000));
+  ProcessEvents(500);
+
+  EXPECT_TRUE(backend.ServiceReady());
+}
+
+TEST_F(ProjectTests, LoadProject_ValidPackedProject_Succeeds) {
+  {
+    AlbumBackend backend;
+    ASSERT_TRUE(CreateTestProject(backend, "valid_packed_project"));
+    ASSERT_TRUE(backend.SaveProject());
+  }
+
+  const auto packedProjectPath = FindPackedProjectPath(temp_dir_);
+  ASSERT_TRUE(packedProjectPath.has_value());
+
+  AlbumBackend backend;
+  QSignalSpy projectSpy(&backend, &AlbumBackend::ProjectChanged);
+  ASSERT_TRUE(backend.LoadProject(PathToQString(*packedProjectPath)));
+  ASSERT_TRUE(WaitForSignal(projectSpy, 15000));
+  ProcessEvents(500);
+
+  EXPECT_TRUE(backend.ServiceReady());
 }
 
 // ── Save project — no project loaded ───────────────────────────────────────

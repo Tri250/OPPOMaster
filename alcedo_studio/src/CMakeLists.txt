@@ -92,6 +92,10 @@ endif()
 
 def_library(TimeProvider SOURCES utils/clock/time_provider.cpp)
 
+def_library(CudaDriverRequirements
+    SOURCES utils/cuda/cuda_driver_requirements.cpp
+)
+
 def_library(UiLocalization
     SOURCES
         include/ui/alcedo_main/i18n.hpp
@@ -615,7 +619,7 @@ endif()
 def_library(EditPipeline
     SOURCES ${PIPELINE_SRCS} ${GPU_PIPELINE_SRCS}
     PUBLIC_DEPS Operators
-    PRIVATE_DEPS ThreadPool opencv_imgproc
+    PRIVATE_DEPS ThreadPool opencv_imgproc CudaDriverRequirements
 )
 
 if(ALCEDO_CUDA_ENABLED)
@@ -861,7 +865,7 @@ def_library(ImagePoolService
 def_library(ProjectService
     SOURCES app/project_service.cpp
     PUBLIC_DEPS FSService StorageService ImagePoolService AlbumBrowseService
-                StrConv JSON
+                StrConv JSON xxHash
 )
 
 def_library(PipelineMgmtService
@@ -1034,6 +1038,8 @@ target_link_libraries(AlbumBackendLib
         SleeveFilterService
         FSService
         EditPipeline
+        xxHash
+        CudaDriverRequirements
 )
 
 if(TARGET EditViewer)
@@ -1153,7 +1159,6 @@ set(ALCEDO_MAIN_SOURCES
     ui/alcedo_main/main.cpp
     ui/alcedo_main/app_theme.cpp
     ui/alcedo_main/shortcut_registry.cpp
-    utils/cuda/cuda_driver_requirements.cpp
     config/resource.qrc
     include/ui/alcedo_main/app_theme.hpp
     include/ui/alcedo_main/i18n.hpp
@@ -1231,6 +1236,10 @@ target_link_libraries(alcedo_main
         Qt6::Svg
         Qt6::QuickEffects
 )
+
+if(WIN32 AND ALCEDO_OPENCL_ENABLED)
+    target_link_libraries(alcedo_main PRIVATE OpenGL::GL)
+endif()
 
 qt_add_qml_module(alcedo_main
     URI Alcedo.Main

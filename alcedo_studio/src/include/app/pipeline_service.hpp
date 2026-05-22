@@ -9,6 +9,7 @@
 #include <unordered_map>
 
 #include "app/image_pool_service.hpp"
+#include "edit/pipeline/pipeline_accelerator.hpp"
 #include "edit/pipeline/pipeline.hpp"
 #include "renderer/pipeline_scheduler.hpp"
 #include "sleeve/storage_service.hpp"
@@ -37,6 +38,8 @@ class PipelineMgmtService final {
 
   static constexpr size_t                                             default_cache_capacity_ = 16;
 
+  AcceleratorBackendPreference accelerator_preference_ = AcceleratorBackendPreference::Auto;
+
   void HandleEviction(sl_element_id_t evicted_id);
 
  public:
@@ -51,6 +54,11 @@ class PipelineMgmtService final {
   auto LoadPipeline(sl_element_id_t id) -> std::shared_ptr<PipelineGuard>;
 
   void DeletePipeline(sl_element_id_t id);
+
+  void SetAcceleratorBackendPreference(AcceleratorBackendPreference preference);
+  [[nodiscard]] auto GetAcceleratorBackendPreference() const -> AcceleratorBackendPreference {
+    return accelerator_preference_;
+  }
 
   void Sync();
 };

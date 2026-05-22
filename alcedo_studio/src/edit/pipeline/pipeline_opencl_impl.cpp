@@ -152,7 +152,7 @@ auto TrySubmitOpenClFrameToSink(opencl::OpenClImage& image, IFrameSink& frame_si
   }
 
   frame_sink.UnmapResource();
-  CheckOpenClFrameCopy(clFinish(context.Queue()), "clFinish after D3D11 frame copy");
+  CheckOpenClFrameCopy(clFinish(context.Queue()), "clFinish after OpenGL frame copy");
   frame_sink.NotifyFrameReady();
   return true;
 }
@@ -664,7 +664,7 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
                 << " kernels=" << ensure_kernels_ms << " fused=" << fused_kernel_ms
                 << " detail=" << detail_ms << " sync=" << sync_ms << " download=" << download_ms
                 << " submit=" << submit_ms
-                << " present=" << (submitted_gpu_frame ? "direct_d3d11" : "host_upload")
+                << " present=" << (submitted_gpu_frame ? "direct_opengl" : "host_upload")
                 << " | size=" << input.Width() << "x" << input.Height() << std::endl;
     }
   }

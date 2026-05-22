@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <vector>
 
+#include "edit/pipeline/pipeline_accelerator.hpp"
 #include "ui/alcedo_main/i18n.hpp"
 #include "ui/alcedo_main/album_backend/album_types.hpp"
 #include "ui/alcedo_main/album_backend/project_handler.hpp"
@@ -46,6 +47,9 @@ class AlbumBackend final : public QObject {
   Q_PROPERTY(bool serviceReady READ ServiceReady NOTIFY ServiceStateChanged)
   Q_PROPERTY(QString serviceMessage READ ServiceMessage NOTIFY ServiceStateChanged)
   Q_PROPERTY(QVariantList recentProjects READ RecentProjects NOTIFY RecentProjectsChanged)
+  Q_PROPERTY(QVariantList acceleratorOptions READ AcceleratorOptions NOTIFY AcceleratorStateChanged)
+  Q_PROPERTY(QString acceleratorBackend READ AcceleratorBackend NOTIFY AcceleratorStateChanged)
+  Q_PROPERTY(QString acceleratorWarning READ AcceleratorWarning NOTIFY AcceleratorStateChanged)
   Q_PROPERTY(bool projectLoading READ ProjectLoading NOTIFY ProjectLoadStateChanged)
   Q_PROPERTY(QString projectLoadingMessage READ ProjectLoadingMessage NOTIFY ProjectLoadStateChanged)
   Q_PROPERTY(QString taskStatus READ TaskStatus NOTIFY TaskStateChanged)
@@ -114,6 +118,11 @@ class AlbumBackend final : public QObject {
   bool ServiceReady() const { return service_ready_; }
   QString ServiceMessage() const { return service_message_text_.Render(); }
   QVariantList RecentProjects() const { return recent_projects_; }
+  QVariantList AcceleratorOptions() const { return accelerator_options_; }
+  QString AcceleratorBackend() const { return accelerator_backend_key_; }
+  QString AcceleratorWarning() const {
+    return IsAcceleratorWarningAcknowledged() ? QString{} : accelerator_warning_text_.Render();
+  }
   bool ProjectLoading() const { return project_handler_.project_loading(); }
   QString ProjectLoadingMessage() const { return project_handler_.project_loading_message(); }
   QString TaskStatus() const { return task_status_text_.Render(); }
@@ -173,6 +182,8 @@ class AlbumBackend final : public QObject {
   Q_INVOKABLE void CancelImport();
   Q_INVOKABLE bool PromptAndLoadProject();
   Q_INVOKABLE bool PromptAndCreateProject();
+  Q_INVOKABLE bool SetAcceleratorBackend(const QString& backendKey);
+  Q_INVOKABLE void AcknowledgeAcceleratorWarning();
   Q_INVOKABLE bool LoadProject(const QString& metaFileUrlOrPath);
   Q_INVOKABLE bool CreateProjectInFolder(const QString& folderUrlOrPath);
   Q_INVOKABLE bool CreateProjectInFolderNamed(const QString& folderUrlOrPath,
@@ -228,6 +239,7 @@ signals:
   void StatsChanged();
   void ServiceStateChanged();
   void RecentProjectsChanged();
+  void AcceleratorStateChanged();
   void TaskStateChanged();
   void ImportStateChanged();
   void importStateChanged();
@@ -259,6 +271,11 @@ signals:
   void ScheduleIdleTaskStateReset(int delayMs);
   void SetTaskState(const i18n::LocalizedText& status, int progress, bool cancelVisible);
   void RefreshTranslations();
+  void InitializeAcceleratorSettings();
+  void RebuildAcceleratorOptions();
+  void ApplyAcceleratorPreferenceToServices();
+  bool IsAcceleratorWarningAcknowledged() const;
+  void PersistAcceleratorWarningAcknowledgement() const;
   void LoadRecentProjectsFromSettings();
   void PersistRecentProjects() const;
   void RegisterRecentProject(const std::filesystem::path& projectPath);
@@ -286,6 +303,15 @@ signals:
   i18n::LocalizedText                                 service_message_text_{};
   bool                                                service_ready_   = false;
   QVariantList                                        recent_projects_{};
+  AcceleratorBackendPreference                        accelerator_preference_ =
+      AcceleratorBackendPreference::Auto;
+  QString                                             accelerator_backend_key_{};
+  QString                                             accelerator_warning_id_{};
+  QVariantList                                        accelerator_options_{};
+  i18n::LocalizedText                                 accelerator_warning_text_{};
+  bool                                                cuda_backend_available_   = false;
+  bool                                                opencl_backend_available_ = false;
+  bool                                                metal_backend_available_  = false;
   i18n::LocalizedText                                 task_status_text_{};
   int                                                 task_progress_   = 0;
   bool                                                task_cancel_visible_ = false;

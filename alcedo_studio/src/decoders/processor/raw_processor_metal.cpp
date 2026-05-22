@@ -49,7 +49,7 @@ auto RawProcessor::ProcessMetal() -> ImageBuffer {
     return ProcessDirectRgbMetal();
   }
 
-  SetDecodeRes();
+  SetDecodeRes(gpu_input_downsample_passes_);
   process_buffer_.SyncToGPU();
   process_buffer_.ReleaseCPUData();
 

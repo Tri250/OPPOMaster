@@ -21,6 +21,7 @@ struct DriverSupportInfo {
   DriverSupportStatus status = DriverSupportStatus::kQueryFailed;
   int                 detected_cuda_driver_version = 0;
   std::string         detail;
+  bool                nvidia_adapter_detected = false;
 
   [[nodiscard]] auto IsSupported() const -> bool {
     return status == DriverSupportStatus::kSupported;

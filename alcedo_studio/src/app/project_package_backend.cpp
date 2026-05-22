@@ -13,10 +13,14 @@
 #include <algorithm>
 #include <cwctype>
 #include <fstream>
+#include <iomanip>
 #include <limits>
+#include <sstream>
+#include <vector>
 
 #include <duckdb.h>
 #include <json.hpp>
+#include <xxhash.h>
 
 #include "app/project_service.hpp"
 #include "ui/alcedo_main/album_backend/path_utils.hpp"
@@ -83,6 +87,72 @@ auto ReadU64Le(std::istream& stream, uint64_t* value) -> bool {
   return true;
 }
 
+auto ParseSemVer(std::string_view version, std::array<int, 3>* out) -> bool {
+  std::array<int, 3> parts{};
+  size_t             begin = 0;
+  for (size_t index = 0; index < parts.size(); ++index) {
+    const size_t end = version.find('.', begin);
+    const auto   token =
+        version.substr(begin, end == std::string_view::npos ? version.size() - begin : end - begin);
+    if (token.empty()) {
+      return false;
+    }
+    int value = 0;
+    for (const char ch : token) {
+      if (ch < '0' || ch > '9') {
+        return false;
+      }
+      value = value * 10 + (ch - '0');
+    }
+    parts[index] = value;
+    if (index + 1 < parts.size()) {
+      if (end == std::string_view::npos) {
+        return false;
+      }
+      begin = end + 1;
+    } else if (end != std::string_view::npos) {
+      return false;
+    }
+  }
+  *out = parts;
+  return true;
+}
+
+auto ReadMetadataVersion(const std::filesystem::path& path, std::string* versionOut) -> bool {
+  std::ifstream file(path);
+  if (!file.is_open()) {
+    return false;
+  }
+
+  nlohmann::json metadata;
+  try {
+    file >> metadata;
+  } catch (...) {
+    return false;
+  }
+  if (!metadata.is_object() || !metadata.contains("project_file_version") ||
+      !metadata.at("project_file_version").is_string()) {
+    return false;
+  }
+  *versionOut = metadata.at("project_file_version").get<std::string>();
+  return true;
+}
+
+auto PackedProjectHeaderIsSupported(const std::filesystem::path& path) -> bool {
+  std::ifstream in(path, std::ios::binary);
+  if (!in.is_open()) {
+    return false;
+  }
+  std::array<char, kPackedProjectMagic.size()> magic{};
+  if (!ReadExact(in, magic.data(), static_cast<std::streamsize>(magic.size())) ||
+      !std::equal(magic.begin(), magic.end(), kPackedProjectMagic.begin())) {
+    return false;
+  }
+
+  uint32_t version = 0;
+  return ReadU32Le(in, &version) && version == kPackedProjectVersion;
+}
+
 }  // namespace
 
 auto IsMetadataJsonPath(const std::filesystem::path& path) -> bool {
@@ -107,6 +177,17 @@ auto IsPackedProjectFile(const std::filesystem::path& path) -> bool {
     return false;
   }
   return std::equal(magic.begin(), magic.end(), kPackedProjectMagic.begin());
+}
+
+auto IsSupportedProjectFile(const std::filesystem::path& path) -> bool {
+  if (IsPackedProjectPath(path) || IsPackedProjectFile(path)) {
+    return PackedProjectHeaderIsSupported(path);
+  }
+  if (!IsMetadataJsonPath(path)) {
+    return false;
+  }
+  std::string version;
+  return ReadMetadataVersion(path, &version) && ProjectVersionIsSupported(version);
 }
 
 auto ReadFileBytes(const std::filesystem::path& path, std::string* out) -> bool {
@@ -136,6 +217,57 @@ auto WriteFileBytes(const std::filesystem::path& path, const std::string& data) 
     out.write(data.data(), static_cast<std::streamsize>(data.size()));
   }
   return static_cast<bool>(out);
+}
+
+auto ComputeFileChecksum(const std::filesystem::path& path, uint64_t* checksumOut) -> bool {
+  std::ifstream in(path, std::ios::binary);
+  if (!in.is_open()) {
+    return false;
+  }
+
+  XXH3_state_t* state = XXH3_createState();
+  if (state == nullptr) {
+    return false;
+  }
+  if (XXH3_64bits_reset(state) == XXH_ERROR) {
+    XXH3_freeState(state);
+    return false;
+  }
+
+  std::vector<char> buffer(1024 * 1024);
+  while (in.good()) {
+    in.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+    const std::streamsize read_count = in.gcount();
+    if (read_count > 0 &&
+        XXH3_64bits_update(state, buffer.data(), static_cast<size_t>(read_count)) == XXH_ERROR) {
+      XXH3_freeState(state);
+      return false;
+    }
+  }
+  if (!in.eof()) {
+    XXH3_freeState(state);
+    return false;
+  }
+
+  *checksumOut = XXH3_64bits_digest(state);
+  XXH3_freeState(state);
+  return true;
+}
+
+auto FormatChecksum(uint64_t checksum) -> std::string {
+  std::ostringstream out;
+  out << std::hex << std::setfill('0') << std::setw(16) << checksum;
+  return out.str();
+}
+
+auto ProjectVersionIsSupported(std::string_view version) -> bool {
+  std::array<int, 3> parsed{};
+  std::array<int, 3> min_supported{};
+  std::array<int, 3> max_supported{};
+  return ParseSemVer(version, &parsed) &&
+         ParseSemVer(kMinSupportedProjectFileVersion, &min_supported) &&
+         ParseSemVer(kMaxSupportedProjectFileVersion, &max_supported) &&
+         parsed >= min_supported && parsed <= max_supported;
 }
 
 auto BuildUniquePackedProjectPath(const std::filesystem::path& folder,
@@ -459,6 +591,18 @@ auto WritePackedProject(const std::filesystem::path& packedPath,
     }
     return false;
   }
+  const uint64_t db_checksum = XXH3_64bits(db_bytes.data(), db_bytes.size());
+
+  try {
+    nlohmann::json metadata = nlohmann::json::parse(meta_bytes);
+    metadata["db_checksum_xxh3_64"] = FormatChecksum(db_checksum);
+    meta_bytes = metadata.dump(4);
+  } catch (...) {
+    if (errorOut) {
+      *errorOut = Tr("Project metadata JSON is invalid.");
+    }
+    return false;
+  }
 
   if (!album_util::EnsureDirectoryExists(packedPath.parent_path())) {
     if (errorOut) {
@@ -479,9 +623,11 @@ auto WritePackedProject(const std::filesystem::path& packedPath,
 
   out.write(kPackedProjectMagic.data(),
             static_cast<std::streamsize>(kPackedProjectMagic.size()));
+  const uint64_t meta_checksum = XXH3_64bits(meta_bytes.data(), meta_bytes.size());
   if (!WriteU32Le(out, kPackedProjectVersion) ||
       !WriteU64Le(out, static_cast<uint64_t>(meta_bytes.size())) ||
-      !WriteU64Le(out, static_cast<uint64_t>(db_bytes.size()))) {
+      !WriteU64Le(out, static_cast<uint64_t>(db_bytes.size())) ||
+      !WriteU64Le(out, meta_checksum) || !WriteU64Le(out, db_checksum)) {
     if (errorOut) {
       *errorOut = Tr("Failed to write packed project header.");
     }
@@ -560,7 +706,10 @@ auto ReadPackedProject(const std::filesystem::path& packedPath,
 
   uint64_t meta_size = 0;
   uint64_t db_size   = 0;
-  if (!ReadU64Le(in, &meta_size) || !ReadU64Le(in, &db_size)) {
+  uint64_t meta_checksum = 0;
+  uint64_t db_checksum   = 0;
+  if (!ReadU64Le(in, &meta_size) || !ReadU64Le(in, &db_size) ||
+      !ReadU64Le(in, &meta_checksum) || !ReadU64Le(in, &db_checksum)) {
     if (errorOut) {
       *errorOut = Tr("Packed project header is corrupted.");
     }
@@ -596,6 +745,20 @@ auto ReadPackedProject(const std::filesystem::path& packedPath,
     }
     return false;
   }
+  if (in.peek() != std::char_traits<char>::eof()) {
+    if (errorOut) {
+      *errorOut = Tr("Packed project contains unexpected trailing data.");
+    }
+    return false;
+  }
+
+  if (XXH3_64bits(metaBytes->data(), metaBytes->size()) != meta_checksum ||
+      XXH3_64bits(dbBytes->data(), dbBytes->size()) != db_checksum) {
+    if (errorOut) {
+      *errorOut = Tr("Packed project checksum verification failed.");
+    }
+    return false;
+  }
 
   return true;
 }
@@ -622,6 +785,14 @@ auto UnpackProjectToWorkspace(const std::filesystem::path& packedPath,
   } catch (...) {
     if (errorOut) {
       *errorOut = Tr("Packed project metadata JSON is invalid.");
+    }
+    return false;
+  }
+  if (!metadata.is_object() || !metadata.contains("project_file_version") ||
+      !metadata.at("project_file_version").is_string() ||
+      !ProjectVersionIsSupported(metadata.at("project_file_version").get<std::string>())) {
+    if (errorOut) {
+      *errorOut = Tr("Packed project metadata version is not supported.");
     }
     return false;
   }

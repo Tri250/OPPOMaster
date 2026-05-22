@@ -6,6 +6,7 @@
 
 #include "app/project_package_service.hpp"
 #include "edit/operators/utils/color_utils.hpp"
+#include "utils/cuda/cuda_driver_requirements.hpp"
 #include "ui/alcedo_main/album_backend/path_utils.hpp"
 
 #include <QDesktopServices>
@@ -21,6 +22,7 @@
 #include <QUrl>
 
 #include <algorithm>
+#include <optional>
 
 #include "image/image.hpp"
 
@@ -36,7 +38,107 @@ using namespace album_util;
 namespace {
 
 constexpr auto kRecentProjectsKey = "projects/recent";
+constexpr auto kAcceleratorBackendKey = "gpu/acceleratorBackend";
+constexpr auto kAcceleratorWarningAcknowledgedKey = "gpu/acceleratorWarningAcknowledged";
 constexpr int  kMaxRecentProjects = 12;
+
+[[maybe_unused]] constexpr const char* kAcceleratorTranslationStrings[] = {
+    QT_TRANSLATE_NOOP("Alcedo", "CPU"),
+    QT_TRANSLATE_NOOP("Alcedo", "Auto"),
+    QT_TRANSLATE_NOOP("Alcedo", "Detected CUDA driver compatibility: %1."),
+    QT_TRANSLATE_NOOP("Alcedo", "No usable NVIDIA CUDA driver was detected."),
+    QT_TRANSLATE_NOOP("Alcedo", "Failed to query the installed NVIDIA CUDA driver."),
+    QT_TRANSLATE_NOOP("Alcedo",
+                      "This machine has an NVIDIA graphics card, but it does not meet Alcedo's "
+                      "CUDA runtime requirements. CUDA requires an NVIDIA graphics driver with "
+                      "CUDA %1 or newer.\n\n%2\n\nAlcedo will use %3 instead."),
+    QT_TRANSLATE_NOOP("Alcedo",
+                      "CUDA acceleration is not supported on this machine because no NVIDIA "
+                      "graphics card was detected.\n\nAlcedo will use %1 instead."),
+    QT_TRANSLATE_NOOP("Alcedo", "Unknown accelerator backend."),
+    QT_TRANSLATE_NOOP("Alcedo", "Selected accelerator backend is unavailable."),
+    QT_TRANSLATE_NOOP("Alcedo", "Failed to switch accelerator backend: %1"),
+    QT_TRANSLATE_NOOP("Alcedo", "Failed to switch accelerator backend."),
+    QT_TRANSLATE_NOOP("Alcedo", "Using %1 acceleration."),
+};
+
+auto AcceleratorPreferenceKey(AcceleratorBackendPreference preference) -> QString {
+  switch (preference) {
+    case AcceleratorBackendPreference::CPU:
+      return QStringLiteral("cpu");
+    case AcceleratorBackendPreference::Auto:
+      return QStringLiteral("auto");
+    case AcceleratorBackendPreference::CUDA:
+      return QStringLiteral("cuda");
+    case AcceleratorBackendPreference::OpenCL:
+      return QStringLiteral("opencl");
+    case AcceleratorBackendPreference::Metal:
+      return QStringLiteral("metal");
+  }
+  return QStringLiteral("auto");
+}
+
+auto AcceleratorPreferenceLabel(AcceleratorBackendPreference preference) -> QString {
+  switch (preference) {
+    case AcceleratorBackendPreference::CUDA:
+      return QStringLiteral("CUDA");
+    case AcceleratorBackendPreference::OpenCL:
+      return QStringLiteral("OpenCL");
+    case AcceleratorBackendPreference::Metal:
+      return QStringLiteral("Metal");
+    case AcceleratorBackendPreference::CPU:
+      return Tr("CPU");
+    case AcceleratorBackendPreference::Auto:
+      return Tr("Auto");
+  }
+  return Tr("Auto");
+}
+
+auto AcceleratorPreferenceFromKey(const QString& key)
+    -> std::optional<AcceleratorBackendPreference> {
+  const QString normalized = key.trimmed().toLower();
+  if (normalized == QLatin1String("cuda")) {
+    return AcceleratorBackendPreference::CUDA;
+  }
+  if (normalized == QLatin1String("opencl")) {
+    return AcceleratorBackendPreference::OpenCL;
+  }
+  if (normalized == QLatin1String("metal")) {
+    return AcceleratorBackendPreference::Metal;
+  }
+  if (normalized == QLatin1String("cpu")) {
+    return AcceleratorBackendPreference::CPU;
+  }
+  if (normalized == QLatin1String("auto")) {
+    return AcceleratorBackendPreference::Auto;
+  }
+  return std::nullopt;
+}
+
+auto AcceleratorOption(AcceleratorBackendPreference preference) -> QVariantMap {
+  return QVariantMap{
+      {QStringLiteral("label"), AcceleratorPreferenceLabel(preference)},
+      {QStringLiteral("value"), AcceleratorPreferenceKey(preference)},
+  };
+}
+
+auto CanResolveAccelerator(AcceleratorBackendPreference preference) -> bool {
+  try {
+    (void)ResolveAcceleratorBackend(preference);
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+
+auto FindOptionIndex(const QVariantList& options, const QString& backendKey) -> int {
+  for (int i = 0; i < options.size(); ++i) {
+    if (options[i].toMap().value(QStringLiteral("value")).toString() == backendKey) {
+      return i;
+    }
+  }
+  return -1;
+}
 
 auto IsHdrExportEotf(const ColorUtils::EOTF eotf) -> bool {
   return eotf == ColorUtils::EOTF::ST2084 || eotf == ColorUtils::EOTF::HLG;
@@ -85,6 +187,7 @@ AlbumBackend::AlbumBackend(QObject* parent)
   LoadRecentProjectsFromSettings();
   QObject::connect(&i18n::TranslationNotifier::Instance(), &i18n::TranslationNotifier::LanguageChanged,
                    this, &AlbumBackend::RefreshTranslations);
+  InitializeAcceleratorSettings();
   editor_.InitializeEditorLuts();
   SetServiceState(false, PL_TEXT("Select a project: load a .alcd package or metadata JSON, "
                                  "or create a new packed project."));
@@ -177,6 +280,188 @@ void AlbumBackend::ClearStatsFilter() {
 
 void AlbumBackend::StartImport(const QStringList& fileUrlsOrPaths) { import_export_.StartImport(fileUrlsOrPaths); }
 void AlbumBackend::CancelImport() { import_export_.CancelImport(); }
+
+void AlbumBackend::InitializeAcceleratorSettings() {
+  const QString stored_key =
+      QSettings{}.value(QLatin1String(kAcceleratorBackendKey)).toString();
+  const auto stored_preference = AcceleratorPreferenceFromKey(stored_key);
+  const bool stored_cuda_preference =
+      stored_preference.has_value() &&
+      *stored_preference == AcceleratorBackendPreference::CUDA;
+
+#if defined(__APPLE__)
+  metal_backend_available_ = CanResolveAccelerator(AcceleratorBackendPreference::Metal);
+#else
+  cuda_backend_available_ = CanResolveAccelerator(AcceleratorBackendPreference::CUDA);
+  opencl_backend_available_ = CanResolveAccelerator(AcceleratorBackendPreference::OpenCL);
+#if defined(_WIN32) && defined(HAVE_CUDA)
+  const auto cuda_support = cuda::CheckDriverSupport();
+  if (!cuda_backend_available_) {
+    const QString fallback_backend =
+        opencl_backend_available_ ? QStringLiteral("OpenCL")
+                                  : AcceleratorPreferenceLabel(AcceleratorBackendPreference::CPU);
+
+    if (cuda_support.nvidia_adapter_detected) {
+      accelerator_warning_id_ =
+          QStringLiteral("cuda-driver:%1:%2:%3")
+              .arg(static_cast<int>(cuda_support.status))
+              .arg(cuda_support.detected_cuda_driver_version)
+              .arg(cuda::kMinimumSupportedCudaDriverVersion);
+      const QString required_version = QString::fromStdString(
+          cuda::FormatCudaVersion(cuda::kMinimumSupportedCudaDriverVersion));
+      const QString detected_version = QString::fromStdString(
+          cuda::FormatCudaVersion(cuda_support.detected_cuda_driver_version));
+
+      QString detail;
+      switch (cuda_support.status) {
+        case cuda::DriverSupportStatus::kDriverTooOld:
+          detail = PL_TEXT("Detected CUDA driver compatibility: %1.", detected_version).Render();
+          break;
+        case cuda::DriverSupportStatus::kDriverUnavailable:
+          detail = PL_TEXT("No usable NVIDIA CUDA driver was detected.").Render();
+          break;
+        case cuda::DriverSupportStatus::kQueryFailed:
+          detail = PL_TEXT("Failed to query the installed NVIDIA CUDA driver.").Render();
+          break;
+        case cuda::DriverSupportStatus::kSupported:
+          break;
+      }
+      if (!cuda_support.detail.empty()) {
+        const QString raw_detail = QString::fromStdString(cuda_support.detail);
+        detail = detail.isEmpty() ? raw_detail : detail + QStringLiteral("\n") + raw_detail;
+      }
+
+      accelerator_warning_text_ = PL_TEXT(
+          "This machine has an NVIDIA graphics card, but it does not meet Alcedo's CUDA "
+          "runtime requirements. CUDA requires an NVIDIA graphics driver with CUDA %1 or newer.\n\n"
+          "%2\n\nAlcedo will use %3 instead.",
+          required_version, detail, fallback_backend);
+    } else {
+      accelerator_warning_id_ = QStringLiteral("cuda-no-nvidia");
+      accelerator_warning_text_ = PL_TEXT(
+          "CUDA acceleration is not supported on this machine because no NVIDIA graphics card was "
+          "detected.\n\nAlcedo will use %1 instead.",
+          fallback_backend);
+    }
+
+    if (stored_cuda_preference) {
+      const QString stored_cuda_warning =
+          PL_TEXT("The saved CUDA accelerator setting is unavailable. Alcedo will use %1 instead.",
+                  fallback_backend)
+              .Render();
+      accelerator_warning_text_ =
+          accelerator_warning_text_.IsEmpty()
+              ? PL_TEXT("%1", stored_cuda_warning)
+              : PL_TEXT("%1\n\n%2", accelerator_warning_text_.Render(), stored_cuda_warning);
+    }
+  }
+#endif
+#endif
+
+  RebuildAcceleratorOptions();
+
+  if (stored_preference.has_value() &&
+      FindOptionIndex(accelerator_options_, AcceleratorPreferenceKey(*stored_preference)) >= 0) {
+    accelerator_preference_   = *stored_preference;
+    accelerator_backend_key_  = AcceleratorPreferenceKey(accelerator_preference_);
+    return;
+  }
+
+  if (!accelerator_options_.isEmpty()) {
+    const QString first_key =
+        accelerator_options_.front().toMap().value(QStringLiteral("value")).toString();
+    accelerator_preference_ =
+        AcceleratorPreferenceFromKey(first_key).value_or(AcceleratorBackendPreference::Auto);
+    accelerator_backend_key_ = first_key;
+  } else {
+    accelerator_preference_  = AcceleratorBackendPreference::CPU;
+    accelerator_backend_key_ = AcceleratorPreferenceKey(accelerator_preference_);
+  }
+  QSettings{}.setValue(QLatin1String(kAcceleratorBackendKey), accelerator_backend_key_);
+}
+
+void AlbumBackend::RebuildAcceleratorOptions() {
+  QVariantList options;
+#if defined(__APPLE__)
+  if (metal_backend_available_) {
+    options.push_back(AcceleratorOption(AcceleratorBackendPreference::Metal));
+  }
+#else
+  if (cuda_backend_available_) {
+    options.push_back(AcceleratorOption(AcceleratorBackendPreference::CUDA));
+  }
+  if (opencl_backend_available_) {
+    options.push_back(AcceleratorOption(AcceleratorBackendPreference::OpenCL));
+  }
+#endif
+  if (options.isEmpty()) {
+    options.push_back(AcceleratorOption(AcceleratorBackendPreference::CPU));
+  }
+  accelerator_options_ = options;
+}
+
+void AlbumBackend::ApplyAcceleratorPreferenceToServices() {
+  const auto& psvc = project_handler_.pipeline_service();
+  if (psvc) {
+    psvc->SetAcceleratorBackendPreference(accelerator_preference_);
+  }
+}
+
+bool AlbumBackend::SetAcceleratorBackend(const QString& backendKey) {
+  const auto preference = AcceleratorPreferenceFromKey(backendKey);
+  if (!preference.has_value()) {
+    SetServiceMessageForCurrentProject(PL_TEXT("Unknown accelerator backend."));
+    return false;
+  }
+
+  const QString normalized_key = AcceleratorPreferenceKey(*preference);
+  if (FindOptionIndex(accelerator_options_, normalized_key) < 0) {
+    SetServiceMessageForCurrentProject(PL_TEXT("Selected accelerator backend is unavailable."));
+    return false;
+  }
+
+  try {
+    (void)ResolveAcceleratorBackend(*preference);
+    accelerator_preference_  = *preference;
+    accelerator_backend_key_ = normalized_key;
+    QSettings{}.setValue(QLatin1String(kAcceleratorBackendKey), accelerator_backend_key_);
+    ApplyAcceleratorPreferenceToServices();
+  } catch (const std::exception& e) {
+    SetServiceMessageForCurrentProject(
+        PL_TEXT("Failed to switch accelerator backend: %1", QString::fromUtf8(e.what())));
+    return false;
+  } catch (...) {
+    SetServiceMessageForCurrentProject(PL_TEXT("Failed to switch accelerator backend."));
+    return false;
+  }
+
+  emit AcceleratorStateChanged();
+  SetServiceMessageForCurrentProject(
+      PL_TEXT("Using %1 acceleration.", AcceleratorPreferenceLabel(accelerator_preference_)));
+  return true;
+}
+
+void AlbumBackend::AcknowledgeAcceleratorWarning() {
+  if (accelerator_warning_id_.isEmpty()) {
+    return;
+  }
+  PersistAcceleratorWarningAcknowledgement();
+  emit AcceleratorStateChanged();
+}
+
+bool AlbumBackend::IsAcceleratorWarningAcknowledged() const {
+  return !accelerator_warning_id_.isEmpty() &&
+         QSettings{}
+                 .value(QLatin1String(kAcceleratorWarningAcknowledgedKey))
+                 .toString() == accelerator_warning_id_;
+}
+
+void AlbumBackend::PersistAcceleratorWarningAcknowledgement() const {
+  if (!accelerator_warning_id_.isEmpty()) {
+    QSettings{}.setValue(QLatin1String(kAcceleratorWarningAcknowledgedKey),
+                         accelerator_warning_id_);
+  }
+}
 
 void AlbumBackend::StartExport(const QString& outputDirUrlOrPath) {
   import_export_.StartExport(outputDirUrlOrPath);
@@ -335,6 +620,12 @@ bool AlbumBackend::LoadProject(const QString& metaFileUrlOrPath) {
   }
 
   ProjectPackageService package_service;
+  if (!package_service.IsSupportedProjectFile(project_path)) {
+    RemoveRecentProject(project_path);
+    SetServiceMessageForCurrentProject(
+        PL_TEXT("Project file version is not supported by this Alcedo build."));
+    return false;
+  }
 
   if (package_service.IsPackedProjectPath(project_path) ||
       package_service.IsPackedProjectFile(project_path)) {
@@ -515,6 +806,8 @@ void AlbumBackend::RefreshTranslations() {
   }
   stats_.RefreshStats();
   emit ServiceStateChanged();
+  RebuildAcceleratorOptions();
+  emit AcceleratorStateChanged();
   emit TaskStateChanged();
   emit ProjectLoadStateChanged();
   emit ImportStateChanged();
@@ -531,6 +824,7 @@ void AlbumBackend::LoadRecentProjectsFromSettings() {
   QVariantList normalized_entries;
   QStringList  seen_paths;
   bool         changed = false;
+  ProjectPackageService package_service;
 
   for (const QVariant& entry_variant : stored_entries) {
     const QVariantMap entry_map = entry_variant.toMap();
@@ -549,6 +843,11 @@ void AlbumBackend::LoadRecentProjectsFromSettings() {
 
     const QFileInfo info(normalized_path);
     if (!info.exists() || !info.isFile()) {
+      changed = true;
+      continue;
+    }
+    if (!package_service.IsSupportedProjectFile(
+            std::filesystem::path(normalized_path.toStdWString()))) {
       changed = true;
       continue;
     }

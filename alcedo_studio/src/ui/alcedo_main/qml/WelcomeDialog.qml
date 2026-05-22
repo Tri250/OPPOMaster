@@ -22,7 +22,11 @@ Dialog {
     property Item blurSource: null
     property var recentProjects: []
     property var languageOptions: []
+    property var acceleratorOptions: []
     property int currentLanguageIndex: 0
+    property string currentAcceleratorBackend: ""
+    property string acceleratorWarning: ""
+    property bool acceleratorWarningShown: false
     property string serviceMessage: ""
     property string headlineFontFamily: appTheme.headlineFontFamily
     readonly property string dataFontFamily: appTheme.dataFontFamily
@@ -47,6 +51,8 @@ Dialog {
     signal createRequested(string projectName, string storageLocation)
     signal exitRequested()
     signal languageRequested(string languageCode)
+    signal acceleratorRequested(string backend)
+    signal acceleratorWarningAcknowledged()
     signal recentProjectRequested(string projectPath)
 
     onVisibleChanged: {
@@ -57,6 +63,13 @@ Dialog {
             if (projectName.length === 0) {
                 projectName = qsTr("Untitled Project")
             }
+            maybeShowAcceleratorWarning()
+        }
+    }
+
+    onAcceleratorWarningChanged: {
+        if (visible) {
+            maybeShowAcceleratorWarning()
         }
     }
 
@@ -64,6 +77,100 @@ Dialog {
         id: projectFolderDialog
         title: qsTr("Select Project Storage Location")
         onAccepted: dialog.storageLocation = selectedFolder.toString()
+    }
+
+    Dialog {
+        id: acceleratorWarningDialog
+        parent: Overlay.overlay
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape
+        standardButtons: Dialog.Ok
+        title: qsTr("CUDA unavailable")
+        width: Math.min((parent ? parent.width : 560) - 72, 520)
+        x: parent ? Math.round((parent.width - width) / 2) : 0
+        y: parent ? Math.round((parent.height - height) / 2) : 0
+        onClosed: dialog.acceleratorWarningAcknowledged()
+
+        Overlay.modal: Item {
+            anchors.fill: parent
+
+            Rectangle {
+                id: warningBackdropMask
+                anchors.fill: parent
+                radius: dialog.cornerRadius
+                color: "white"
+                visible: false
+                layer.enabled: true
+                layer.smooth: true
+            }
+
+            Item {
+                anchors.fill: parent
+                layer.enabled: true
+                layer.smooth: true
+                layer.effect: MultiEffect {
+                    maskEnabled: dialog.cornerRadius > 0
+                    maskSource: warningBackdropMask
+                }
+
+                MultiEffect {
+                    anchors.fill: parent
+                    source: dialog.blurSource
+                    blurEnabled: true
+                    blur: 0.72
+                    blurMax: 72
+                    saturation: -0.24
+                    brightness: -0.10
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    color: Qt.rgba(11 / 255, 12 / 255, 14 / 255, 0.66)
+                }
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                hoverEnabled: true
+            }
+        }
+
+        background: Rectangle {
+            radius: 14
+            color: Qt.rgba(dialog.panelColor.r, dialog.panelColor.g, dialog.panelColor.b, 0.98)
+            border.width: 1
+            border.color: dialog.panelBorderColor
+        }
+
+        contentItem: Label {
+            text: dialog.acceleratorWarning
+            wrapMode: Text.WordWrap
+            color: dialog.textColor
+            font.family: dialog.font.family
+            font.pixelSize: 14
+            lineHeight: 1.2
+        }
+    }
+
+    function acceleratorIndexForValue(value) {
+        for (let i = 0; i < acceleratorOptions.length; ++i) {
+            if (acceleratorOptions[i].value === value) {
+                return i
+            }
+        }
+        return acceleratorOptions.length > 0 ? 0 : -1
+    }
+
+    function maybeShowAcceleratorWarning() {
+        if (acceleratorWarning.length > 0 && !acceleratorWarningShown) {
+            acceleratorWarningShown = true
+            Qt.callLater(function() {
+                if (dialog.visible && acceleratorWarning.length > 0) {
+                    acceleratorWarningDialog.open()
+                }
+            })
+        }
     }
 
     function relativeTimeLabel(lastOpenedMs) {
@@ -345,6 +452,42 @@ Dialog {
                                     font.family: dialog.font.family
                                     font.pixelSize: 13
                                     lineHeight: 1.2
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 8
+                                    visible: dialog.acceleratorOptions.length > 0
+
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: qsTr("Acceleration")
+                                        color: dialog.mutedTextColor
+                                        font.family: dialog.font.family
+                                        font.pixelSize: 12
+                                        font.weight: 700
+                                    }
+
+                                    ComboBox {
+                                        id: acceleratorCombo
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 42
+                                        model: dialog.acceleratorOptions
+                                        textRole: "label"
+                                        valueRole: "value"
+                                        currentIndex: dialog.acceleratorIndexForValue(
+                                                          dialog.currentAcceleratorBackend)
+                                        font.family: dialog.font.family
+                                        font.pixelSize: 14
+                                        onActivated: function(index) {
+                                            const item = dialog.acceleratorOptions[index]
+                                            if (item) {
+                                                dialog.acceleratorRequested(item.value)
+                                            }
+                                        }
+                                        Material.background: Qt.rgba(dialog.panelColor.r, dialog.panelColor.g, dialog.panelColor.b, 0.92)
+                                        Material.foreground: dialog.textColor
+                                    }
                                 }
 
                                 Item {

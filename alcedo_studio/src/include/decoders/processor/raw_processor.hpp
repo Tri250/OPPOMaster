@@ -58,7 +58,7 @@ class RawProcessor {
   const libraw_rawdata_t& raw_data_;
   LibRaw&                 raw_processor_;
 
-  void                    SetDecodeRes();
+  void                    SetDecodeRes(int already_done_passes = 0);
   auto                    ProcessGpu() -> ImageBuffer;
 #ifdef HAVE_CUDA
   auto ProcessCuda() -> ImageBuffer;

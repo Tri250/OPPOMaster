@@ -9,7 +9,7 @@ endif()
 #set(CMAKE_CXX_COMPILER "clang++")
 # Compiler flags.
 
-project(alcedo VERSION 0.2.3 LANGUAGES C CXX)
+project(alcedo VERSION 0.2.4 LANGUAGES C CXX)
 
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build alcedo libraries as static by default." FORCE)
 
@@ -304,11 +304,9 @@ set_target_properties(MurmurHash3 PROPERTIES
 )
 
 # xxHash
-if (WIN32)
-    find_package(xxHash CONFIG REQUIRED)
-else()
-    find_package(xxHash CONFIG REQUIRED)
-    # Create a unified alias target 'xxHash' so the rest of the project can link to it.
+find_package(xxHash CONFIG REQUIRED)
+# Create a unified alias target 'xxHash' so the rest of the project can link to it.
+if (NOT TARGET xxHash)
     add_library(xxHash INTERFACE)
     if (TARGET xxHash::xxhash)
         target_link_libraries(xxHash INTERFACE xxHash::xxhash)
@@ -344,7 +342,11 @@ elseif(ALCEDO_ENABLE_OPENGL_EDITOR)
     message(STATUS "OpenGL editor requested, but no accelerated backend is available. Building editor stub only.")
 endif()
 
-if((WIN32 AND ALCEDO_CUDA_ENABLED) OR (APPLE AND ALCEDO_METAL_ENABLED))
+if(WIN32 AND ALCEDO_OPENCL_ENABLED)
+    find_package(OpenGL REQUIRED)
+endif()
+
+if((WIN32 AND (ALCEDO_CUDA_ENABLED OR ALCEDO_OPENCL_ENABLED)) OR (APPLE AND ALCEDO_METAL_ENABLED))
     find_package(Qt6 REQUIRED COMPONENTS ShaderTools GuiPrivate)
     set(ALCEDO_RHI_WIDGET_EDITOR ON)
     set(ALCEDO_REAL_WIDGET_EDITOR ON)
