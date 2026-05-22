@@ -4,6 +4,7 @@
 
 #include "edit/pipeline/pipeline_accelerator.hpp"
 
+#include <string>
 #include <stdexcept>
 
 #ifdef HAVE_CUDA
