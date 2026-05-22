@@ -49,26 +49,10 @@ void WriteU32Le(std::ostream& stream, uint32_t value) {
 
 void CreateMetadataProject(const std::filesystem::path& dbPath,
                            const std::filesystem::path& metaPath) {
-  {
     ProjectService project(dbPath, metaPath, ProjectOpenMode::kCreateNew);
     project.GetSleeveService()->Sync();
     project.GetImagePoolService()->SyncWithStorage();
     project.SaveProject(metaPath);
-  }
-
-  uint64_t checksum = 0;
-  ASSERT_TRUE(project_pack::ComputeFileChecksum(dbPath, &checksum));
-
-  nlohmann::json metadata;
-  {
-    std::ifstream in(metaPath);
-    in >> metadata;
-  }
-  metadata["db_checksum_xxh3_64"] = project_pack::FormatChecksum(checksum);
-  {
-    std::ofstream out(metaPath, std::ios::trunc);
-    out << metadata.dump(4);
-  }
 }
 
 bool WaitForProjectLoadToFinish(AlbumBackend& backend, int timeoutMs = 15000) {
