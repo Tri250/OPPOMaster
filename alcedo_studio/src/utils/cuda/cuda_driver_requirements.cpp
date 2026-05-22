@@ -11,6 +11,9 @@
 #endif
 
 #include <sstream>
+#include <cstdlib>
+#include <optional>
+#include <string>
 #include <utility>
 
 namespace {
@@ -20,6 +23,49 @@ constexpr int kCudaSuccess = 0;
 #if defined(_WIN32)
 using CuInitFn = int(__stdcall*)(unsigned int);
 using CuDriverGetVersionFn = int(__stdcall*)(int*);
+
+auto GetSimulationMode() -> std::optional<std::string> {
+  char*  raw_value = nullptr;
+  size_t value_size = 0;
+  if (_dupenv_s(&raw_value, &value_size, "ALCEDO_SIMULATE_CUDA_DRIVER_REQUIREMENTS") != 0 ||
+      raw_value == nullptr) {
+    return std::nullopt;
+  }
+
+  std::string value(raw_value);
+  std::free(raw_value);
+  if (value.empty()) {
+    return std::nullopt;
+  }
+  return value;
+}
+
+auto ContainsAsciiInsensitive(std::wstring value, const wchar_t* needle) -> bool {
+  for (auto& ch : value) {
+    if (ch >= L'a' && ch <= L'z') {
+      ch = static_cast<wchar_t>(ch - L'a' + L'A');
+    }
+  }
+  return value.find(needle) != std::wstring::npos;
+}
+
+auto HasNvidiaDisplayAdapter() -> bool {
+  for (DWORD index = 0;; ++index) {
+    DISPLAY_DEVICEW device{};
+    device.cb = sizeof(device);
+    if (::EnumDisplayDevicesW(nullptr, index, &device, 0) == FALSE) {
+      break;
+    }
+
+    const std::wstring device_string(device.DeviceString);
+    const std::wstring device_id(device.DeviceID);
+    if (ContainsAsciiInsensitive(device_string, L"NVIDIA") ||
+        ContainsAsciiInsensitive(device_id, L"VEN_10DE")) {
+      return true;
+    }
+  }
+  return false;
+}
 
 class ScopedModule final {
  public:
@@ -82,14 +128,30 @@ auto CheckDriverSupport(int minimum_cuda_driver_version) -> DriverSupportInfo {
       .status = DriverSupportStatus::kSupported,
       .detected_cuda_driver_version = 0,
       .detail = {},
+      .nvidia_adapter_detected = false,
   };
 #else
+  if (const auto simulation_mode = GetSimulationMode(); simulation_mode.has_value()) {
+    if (*simulation_mode == "non_nvidia") {
+      return {
+          .status = DriverSupportStatus::kDriverUnavailable,
+          .detected_cuda_driver_version = 0,
+          .detail = "Simulated non-NVIDIA display adapter.",
+          .nvidia_adapter_detected = false,
+      };
+    }
+  }
+
+  const bool nvidia_adapter_detected = HasNvidiaDisplayAdapter();
+
   ScopedModule cuda_driver(::LoadLibraryW(L"nvcuda.dll"));
   if (cuda_driver.Get() == nullptr) {
     return {
         .status = DriverSupportStatus::kDriverUnavailable,
         .detected_cuda_driver_version = 0,
-        .detail = "nvcuda.dll was not found.",
+        .detail = nvidia_adapter_detected ? "nvcuda.dll was not found."
+                                          : "No NVIDIA display adapter was detected.",
+        .nvidia_adapter_detected = nvidia_adapter_detected,
     };
   }
 
@@ -101,6 +163,7 @@ auto CheckDriverSupport(int minimum_cuda_driver_version) -> DriverSupportInfo {
         .status = DriverSupportStatus::kQueryFailed,
         .detected_cuda_driver_version = 0,
         .detail = "Failed to resolve CUDA driver entry points from nvcuda.dll.",
+        .nvidia_adapter_detected = nvidia_adapter_detected,
     };
   }
 
@@ -110,6 +173,7 @@ auto CheckDriverSupport(int minimum_cuda_driver_version) -> DriverSupportInfo {
         .status = DriverSupportStatus::kDriverUnavailable,
         .detected_cuda_driver_version = 0,
         .detail = "cuInit failed with error code " + std::to_string(init_status) + '.',
+        .nvidia_adapter_detected = nvidia_adapter_detected,
     };
   }
 
@@ -120,6 +184,7 @@ auto CheckDriverSupport(int minimum_cuda_driver_version) -> DriverSupportInfo {
         .status = DriverSupportStatus::kQueryFailed,
         .detected_cuda_driver_version = 0,
         .detail = "cuDriverGetVersion failed with error code " + std::to_string(version_status) + '.',
+        .nvidia_adapter_detected = nvidia_adapter_detected,
     };
   }
 
@@ -128,6 +193,7 @@ auto CheckDriverSupport(int minimum_cuda_driver_version) -> DriverSupportInfo {
         .status = DriverSupportStatus::kDriverTooOld,
         .detected_cuda_driver_version = detected_cuda_driver_version,
         .detail = {},
+        .nvidia_adapter_detected = nvidia_adapter_detected,
     };
   }
 
@@ -135,6 +201,7 @@ auto CheckDriverSupport(int minimum_cuda_driver_version) -> DriverSupportInfo {
       .status = DriverSupportStatus::kSupported,
       .detected_cuda_driver_version = detected_cuda_driver_version,
       .detail = {},
+      .nvidia_adapter_detected = nvidia_adapter_detected,
   };
 #endif
 }

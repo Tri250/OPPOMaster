@@ -7,6 +7,8 @@
 #include <stdexcept>
 
 #ifdef HAVE_CUDA
+#include "utils/cuda/cuda_driver_requirements.hpp"
+
 #include <opencv2/core/cuda.hpp>
 #endif
 
@@ -20,6 +22,11 @@ namespace {
 auto IsCudaRuntimeAvailable() -> bool {
 #ifdef HAVE_CUDA
   try {
+#if defined(_WIN32)
+    if (!cuda::CheckDriverSupport().IsSupported()) {
+      return false;
+    }
+#endif
     return cv::cuda::getCudaEnabledDeviceCount() > 0;
   } catch (...) {
     return false;

@@ -1550,7 +1550,10 @@ ApplicationWindow {
         cornerRadius: root.windowCornerRadius
         recentProjects: albumBackend.recentProjects
         languageOptions: root.languageOptions
+        acceleratorOptions: albumBackend.acceleratorOptions
         currentLanguageIndex: root.languageIndexForCode(languageManager.currentLanguageCode)
+        currentAcceleratorBackend: albumBackend.acceleratorBackend
+        acceleratorWarning: albumBackend.acceleratorWarning
         serviceMessage: albumBackend.serviceMessage
         headlineFontFamily: root.headlineFontFamily
         primaryAccent: root.colButtonPrimary
@@ -1580,6 +1583,11 @@ ApplicationWindow {
         onExitRequested: Qt.quit()
         onLanguageRequested: function(languageCode) {
             languageManager.setLanguage(languageCode)
+        }
+        onAcceleratorRequested: function(backend) {
+            if (!albumBackend.SetAcceleratorBackend(backend)) {
+                root.showSnackbar(albumBackend.serviceMessage)
+            }
         }
         onRecentProjectRequested: function(projectPath) {
             root.dismissWelcomeForProjectLaunch()

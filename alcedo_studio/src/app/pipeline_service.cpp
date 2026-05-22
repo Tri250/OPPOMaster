@@ -198,6 +198,7 @@ auto PipelineMgmtService::LoadPipeline(sl_element_id_t id) -> std::shared_ptr<Pi
         // that don't explicitly call SetExecutionStages() won't pay the cost or crash.
         if (!it->second->pinned_) {
           it->second->pipeline_->SetBoundFile(id);
+          it->second->pipeline_->SetAcceleratorBackendPreference(accelerator_preference_);
           it->second->pipeline_->SetExecutionStages();
           // Reset transient render/cache state to a consistent preview baseline.
           ResetTransientPreviewState(*it->second->pipeline_);
@@ -235,6 +236,7 @@ auto PipelineMgmtService::LoadPipeline(sl_element_id_t id) -> std::shared_ptr<Pi
 
     // Ensure the loaded pipeline is bound to the requested element id.
     pipeline->SetBoundFile(id);
+    pipeline->SetAcceleratorBackendPreference(accelerator_preference_);
     ResetTransientPreviewState(*pipeline);
 
     EnsureDefaultOutputTransform(*pipeline);
@@ -317,6 +319,25 @@ void PipelineMgmtService::DeletePipeline(sl_element_id_t id) {
   try {
     storage_service_->GetElementController().RemovePipelineByElementId(id);
   } catch (...) {
+  }
+}
+
+void PipelineMgmtService::SetAcceleratorBackendPreference(
+    AcceleratorBackendPreference preference) {
+  std::unique_lock<std::mutex> guard(lock_);
+  if (accelerator_preference_ == preference) {
+    return;
+  }
+
+  accelerator_preference_ = preference;
+  for (auto& [id, pipeline_guard] : loaded_pipelines_) {
+    (void)id;
+    if (!pipeline_guard || !pipeline_guard->pipeline_) {
+      continue;
+    }
+    std::unique_lock<std::mutex> render_guard(pipeline_guard->pipeline_->GetRenderLock());
+    pipeline_guard->pipeline_->SetAcceleratorBackendPreference(preference);
+    pipeline_guard->pipeline_->ClearAllIntermediateBuffers();
   }
 }
 

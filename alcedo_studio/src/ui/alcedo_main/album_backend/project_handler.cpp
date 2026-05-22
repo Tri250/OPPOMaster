@@ -58,6 +58,7 @@ bool ProjectHandler::InitializeServices(const std::filesystem::path& dbPath,
   backend_.SetTaskState(PL_TEXT("Opening project..."), 0, false);
 
   const auto request_id = ++project_load_request_id_;
+  const auto accelerator_preference = backend_.accelerator_preference_;
 
   auto old_project   = project_;
   auto old_pipeline  = pipeline_service_;
@@ -69,7 +70,8 @@ bool ProjectHandler::InitializeServices(const std::filesystem::path& dbPath,
   std::thread([self, request_id, old_project = std::move(old_project),
                old_pipeline = std::move(old_pipeline), old_meta = std::move(old_meta),
                old_package = std::move(old_package), old_workspace = std::move(old_workspace),
-               dbPath, metaPath, packagePath, workspaceDir, recentProjectPath, openMode]() mutable {
+               dbPath, metaPath, packagePath, workspaceDir, recentProjectPath, openMode,
+               accelerator_preference]() mutable {
     struct LoadResult {
       bool                                    success_ = false;
       QString                                 error_{};
@@ -129,6 +131,7 @@ bool ProjectHandler::InitializeServices(const std::filesystem::path& dbPath,
 
       result->project_   = std::make_shared<ProjectService>(dbPath, metaPath, openMode);
       result->pipeline_  = std::make_shared<PipelineMgmtService>(result->project_->GetStorageService());
+      result->pipeline_->SetAcceleratorBackendPreference(accelerator_preference);
       result->history_   = std::make_shared<EditHistoryMgmtService>(result->project_->GetStorageService());
       result->thumbnail_ = std::make_shared<ThumbnailService>(
           result->project_->GetSleeveService(), result->project_->GetImagePoolService(),

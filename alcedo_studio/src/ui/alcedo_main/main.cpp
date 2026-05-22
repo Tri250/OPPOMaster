@@ -8,7 +8,6 @@
 #include <QFontDatabase>
 #include <QGuiApplication>
 #include <QIcon>
-#include <QSettings>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
@@ -24,14 +23,7 @@
 #include "ui/alcedo_main/app_theme.hpp"
 #include "ui/alcedo_main/language_manager.hpp"
 #include "edit/operators/operator_registeration.hpp"
-#include "utils/cuda/cuda_driver_requirements.hpp"
 #include "utils/clock/time_provider.hpp"
-
-#if defined(_WIN32)
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <Windows.h>
-#endif
 
 namespace {
 
@@ -53,46 +45,6 @@ auto FindArgValue(int argc, char** argv, std::string_view option_name)
   return std::nullopt;
 }
 
-#if defined(_WIN32)
-void ShowStartupErrorDialog(const QString& message) {
-  ::MessageBoxW(nullptr, reinterpret_cast<LPCWSTR>(message.utf16()), L"Alcedo",
-                MB_OK | MB_ICONERROR | MB_TOPMOST);
-}
-
-auto BuildCudaDriverUpdateMessage(const alcedo::cuda::DriverSupportInfo& support_info) -> QString {
-  const QString required_version = QString::fromStdString(
-      alcedo::cuda::FormatCudaVersion(alcedo::cuda::kMinimumSupportedCudaDriverVersion));
-  const QString detected_version = QString::fromStdString(
-      alcedo::cuda::FormatCudaVersion(support_info.detected_cuda_driver_version));
-
-  QString detail_line;
-  switch (support_info.status) {
-    case alcedo::cuda::DriverSupportStatus::kDriverTooOld:
-      detail_line = QStringLiteral("Detected CUDA driver compatibility: %1.\n")
-                        .arg(detected_version);
-      break;
-    case alcedo::cuda::DriverSupportStatus::kDriverUnavailable:
-      detail_line = QStringLiteral("No usable NVIDIA CUDA driver was detected.\n");
-      break;
-    case alcedo::cuda::DriverSupportStatus::kQueryFailed:
-      detail_line = QStringLiteral("Failed to query the installed NVIDIA CUDA driver.\n");
-      break;
-    case alcedo::cuda::DriverSupportStatus::kSupported:
-      break;
-  }
-
-  QString message =
-      QStringLiteral("Alcedo requires an NVIDIA graphics driver with CUDA %1 or newer on "
-                     "Windows.\n\n%2Please update your graphics driver to the latest version "
-                     "and launch the app again.")
-          .arg(required_version, detail_line);
-  if (!support_info.detail.empty()) {
-    message += QStringLiteral("\n\nDetails: %1").arg(QString::fromStdString(support_info.detail));
-  }
-  return message;
-}
-#endif
-
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -102,14 +54,6 @@ int main(int argc, char* argv[]) {
 #else
   QGuiApplication::setHighDpiScaleFactorRoundingPolicy(
       Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
-#endif
-
-#if defined(_WIN32)
-  const auto cuda_driver_support = alcedo::cuda::CheckDriverSupport();
-  if (!cuda_driver_support.IsSupported()) {
-    ShowStartupErrorDialog(BuildCudaDriverUpdateMessage(cuda_driver_support));
-    return -1;
-  }
 #endif
 
   alcedo::TimeProvider::Refresh();
