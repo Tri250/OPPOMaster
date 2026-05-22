@@ -5,17 +5,11 @@
 #include "app/project_service.hpp"
 
 #include <array>
-#include <chrono>
 #include <fstream>
-#include <iomanip>
 #include <json.hpp>
-#include <random>
-#include <sstream>
 #include <stdexcept>
 #include <string_view>
-#include <vector>
 #include <duckdb.h>
-#include <xxhash.h>
 
 #include "app/project_package_backend.hpp"
 #include "app/project_package_service.hpp"
@@ -63,172 +57,6 @@ auto IsSupportedProjectVersion(std::string_view version) -> bool {
          ParseSemVer(project_pack::kMinSupportedProjectFileVersion, &min_supported) &&
          ParseSemVer(project_pack::kMaxSupportedProjectFileVersion, &max_supported) &&
          parsed >= min_supported && parsed <= max_supported;
-}
-
-auto ComputeProjectFileChecksum(const std::filesystem::path& path, uint64_t* checksum_out) -> bool {
-  std::ifstream in(path, std::ios::binary);
-  if (!in.is_open()) {
-    return false;
-  }
-
-  XXH3_state_t* state = XXH3_createState();
-  if (state == nullptr) {
-    return false;
-  }
-  if (XXH3_64bits_reset(state) == XXH_ERROR) {
-    XXH3_freeState(state);
-    return false;
-  }
-
-  std::vector<char> buffer(1024 * 1024);
-  while (in.good()) {
-    in.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
-    const std::streamsize read_count = in.gcount();
-    if (read_count > 0 &&
-        XXH3_64bits_update(state, buffer.data(), static_cast<size_t>(read_count)) == XXH_ERROR) {
-      XXH3_freeState(state);
-      return false;
-    }
-  }
-  if (!in.eof()) {
-    XXH3_freeState(state);
-    return false;
-  }
-
-  *checksum_out = XXH3_64bits_digest(state);
-  XXH3_freeState(state);
-  return true;
-}
-
-auto FormatChecksum(uint64_t checksum) -> std::string {
-  std::ostringstream out;
-  out << std::hex << std::setfill('0') << std::setw(16) << checksum;
-  return out.str();
-}
-
-auto EscapeSqlStringLiteral(const std::string& value) -> std::string {
-  std::string escaped;
-  escaped.reserve(value.size());
-  for (const char ch : value) {
-    if (ch == '\'') {
-      escaped += "''";
-    } else {
-      escaped += ch;
-    }
-  }
-  return escaped;
-}
-
-auto EscapeSqlIdentifier(const std::string& value) -> std::string {
-  std::string escaped;
-  escaped.reserve(value.size());
-  for (const char ch : value) {
-    if (ch == '"') {
-      escaped += "\"\"";
-    } else {
-      escaped += ch;
-    }
-  }
-  return escaped;
-}
-
-void RunDuckDbQuery(duckdb_connection conn, const std::string& sql, const char* stage) {
-  duckdb_result result;
-  if (duckdb_query(conn, sql.c_str(), &result) != DuckDBSuccess) {
-    const char* error_message = duckdb_result_error(&result);
-    const std::string message = std::string(stage) + " failed: " +
-                                (error_message ? error_message : "unknown DuckDB error");
-    duckdb_destroy_result(&result);
-    throw std::runtime_error(message);
-  }
-  duckdb_destroy_result(&result);
-}
-
-auto QueryCurrentCatalog(duckdb_connection conn) -> std::string {
-  duckdb_result result;
-  if (duckdb_query(conn, "SELECT current_catalog();", &result) != DuckDBSuccess) {
-    const char* error_message = duckdb_result_error(&result);
-    const std::string message =
-        std::string("DuckDB current catalog query failed: ") +
-        (error_message ? error_message : "unknown DuckDB error");
-    duckdb_destroy_result(&result);
-    throw std::runtime_error(message);
-  }
-
-  if (duckdb_row_count(&result) == 0 || duckdb_column_count(&result) == 0) {
-    duckdb_destroy_result(&result);
-    throw std::runtime_error("DuckDB current catalog query returned no rows");
-  }
-
-  const char* value = duckdb_value_varchar(&result, 0, 0);
-  if (value == nullptr || value[0] == '\0') {
-    if (value != nullptr) {
-      duckdb_free(const_cast<char*>(value));
-    }
-    duckdb_destroy_result(&result);
-    throw std::runtime_error("DuckDB current catalog query returned an empty value");
-  }
-
-  std::string catalog = value;
-  duckdb_free(const_cast<char*>(value));
-  duckdb_destroy_result(&result);
-  return catalog;
-}
-
-auto BuildChecksumSnapshotPath() -> std::filesystem::path {
-  const auto temp_dir = std::filesystem::temp_directory_path() / "alcedo_main";
-  std::error_code ec;
-  std::filesystem::create_directories(temp_dir, ec);
-  if (ec) {
-    throw std::runtime_error("Failed to create temp directory for project checksum");
-  }
-
-  const auto now =
-      static_cast<unsigned long long>(std::chrono::steady_clock::now().time_since_epoch().count());
-  std::mt19937_64 rng{std::random_device{}()};
-  for (int attempt = 0; attempt < 128; ++attempt) {
-    const auto candidate =
-        temp_dir / ("project_checksum_" + std::to_string(now) + "_" +
-                    std::to_string(rng() + static_cast<unsigned long long>(attempt)) + ".db");
-    if (!std::filesystem::exists(candidate, ec) || ec) {
-      return candidate;
-    }
-  }
-  throw std::runtime_error("Failed to allocate temp project checksum path");
-}
-
-auto ComputeProjectDatabaseChecksum(StorageService& storage_service) -> uint64_t {
-  const auto snapshot_path = BuildChecksumSnapshotPath();
-  std::error_code ec;
-  std::filesystem::remove(snapshot_path, ec);
-
-  try {
-    auto guard = storage_service.GetDBController().GetConnectionGuard();
-    RunDuckDbQuery(guard.conn_, "CHECKPOINT;", "DuckDB checkpoint");
-    const std::string snapshot_path_utf8 = conv::ToBytes(snapshot_path.generic_wstring());
-    const std::string snapshot_sql_path = EscapeSqlStringLiteral(snapshot_path_utf8);
-    const std::string source_catalog = QueryCurrentCatalog(guard.conn_);
-    const std::string source_ident = "\"" + EscapeSqlIdentifier(source_catalog) + "\"";
-
-    RunDuckDbQuery(guard.conn_, "ATTACH '" + snapshot_sql_path + "' AS checksum_snapshot;",
-                   "DuckDB attach checksum snapshot");
-    RunDuckDbQuery(guard.conn_, "COPY FROM DATABASE " + source_ident + " TO checksum_snapshot;",
-                   "DuckDB copy checksum snapshot");
-    RunDuckDbQuery(guard.conn_, "CHECKPOINT checksum_snapshot;",
-                   "DuckDB checkpoint checksum snapshot");
-    RunDuckDbQuery(guard.conn_, "DETACH checksum_snapshot;",
-                   "DuckDB detach checksum snapshot");
-
-    uint64_t checksum = 0;
-    if (!ComputeProjectFileChecksum(snapshot_path, &checksum)) {
-      throw std::runtime_error("Failed to compute project database checksum");
-    }
-    std::filesystem::remove(snapshot_path, ec);
-    return checksum;
-  } catch (...) {
-    std::filesystem::remove(snapshot_path, ec);
-    throw;
-  }
 }
 
 }  // namespace
@@ -296,8 +124,24 @@ void ProjectService::SaveProject(const std::filesystem::path& meta_path) {
   metadata["start_id"]            = sleeve_service_->GetCurrentID();
   metadata["image_pool_start_id"] = pool_service_->GetCurrentID();
 
-  const uint64_t db_checksum = ComputeProjectDatabaseChecksum(*storage_service_);
-  metadata["db_checksum_xxh3_64"] = FormatChecksum(db_checksum);
+  // Checkpoint the database so it is flushed to disk, then compute the
+  // checksum directly on the database file.
+  {
+    auto  guard = storage_service_->GetDBController().GetConnectionGuard();
+    duckdb_result result;
+    if (duckdb_query(guard.conn_, "CHECKPOINT;", &result) != DuckDBSuccess) {
+      const char* err = duckdb_result_error(&result);
+      std::string msg = std::string("CHECKPOINT failed: ") + (err ? err : "unknown");
+      duckdb_destroy_result(&result);
+      throw std::runtime_error(msg);
+    }
+    duckdb_destroy_result(&result);
+  }
+  uint64_t db_checksum = 0;
+  if (!project_pack::ComputeFileChecksum(db_path_, &db_checksum)) {
+    throw std::runtime_error("Failed to compute project database checksum");
+  }
+  metadata["db_checksum_xxh3_64"] = project_pack::FormatChecksum(db_checksum);
 
   std::ofstream file(meta_path_);
   if (!file.is_open()) {
@@ -351,10 +195,10 @@ void ProjectService::LoadProject(const std::filesystem::path& meta_path) {
   }
 
   uint64_t db_checksum = 0;
-  if (!ComputeProjectFileChecksum(db_path_, &db_checksum)) {
+  if (!project_pack::ComputeFileChecksum(db_path_, &db_checksum)) {
     throw std::runtime_error("Failed to compute project database checksum");
   }
-  if (metadata.at("db_checksum_xxh3_64").get<std::string>() != FormatChecksum(db_checksum)) {
+  if (metadata.at("db_checksum_xxh3_64").get<std::string>() != project_pack::FormatChecksum(db_checksum)) {
     throw std::runtime_error("Project database checksum verification failed");
   }
 
