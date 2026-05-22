@@ -4,10 +4,13 @@
 
 #include <QApplication>
 #include <QCoreApplication>
+#include <QDebug>
 #include <QFont>
 #include <QFontDatabase>
 #include <QGuiApplication>
 #include <QIcon>
+#include <QOffscreenSurface>
+#include <QOpenGLContext>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
@@ -15,6 +18,7 @@
 #include <QtGlobal>
 
 #include <exiv2/error.hpp>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -23,7 +27,20 @@
 #include "ui/alcedo_main/app_theme.hpp"
 #include "ui/alcedo_main/language_manager.hpp"
 #include "edit/operators/operator_registeration.hpp"
+#ifdef HAVE_OPENCL
+#include "opencl/opencl_runtime.hpp"
+#endif
 #include "utils/clock/time_provider.hpp"
+
+#if defined(Q_OS_WIN) && defined(HAVE_OPENCL)
+#include <QtGui/qopenglcontext_platform.h>
+
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <GL/gl.h>
+#endif
 
 namespace {
 
@@ -45,6 +62,67 @@ auto FindArgValue(int argc, char** argv, std::string_view option_name)
   return std::nullopt;
 }
 
+#if defined(Q_OS_WIN) && defined(HAVE_OPENCL)
+class OpenClGlSharingBootstrap {
+ public:
+  auto Initialize() -> bool {
+    if (initialized_) {
+      return true;
+    }
+
+    context_ = std::make_unique<QOpenGLContext>();
+    if (auto* global_share_context = QOpenGLContext::globalShareContext()) {
+      context_->setShareContext(global_share_context);
+      context_->setFormat(global_share_context->format());
+    }
+    if (!context_->create()) {
+      qWarning("OpenCL/OpenGL bootstrap: failed to create hidden OpenGL context.");
+      context_.reset();
+      return false;
+    }
+
+    surface_ = std::make_unique<QOffscreenSurface>();
+    surface_->setFormat(context_->format());
+    surface_->create();
+    if (!surface_->isValid() || !context_->makeCurrent(surface_.get())) {
+      qWarning("OpenCL/OpenGL bootstrap: failed to make hidden OpenGL context current.");
+      surface_.reset();
+      context_.reset();
+      return false;
+    }
+
+    auto* native_context = context_->nativeInterface<QNativeInterface::QWGLContext>();
+    HGLRC hglrc = native_context ? native_context->nativeContext() : nullptr;
+    HDC   hdc   = wglGetCurrentDC();
+    if (hglrc == nullptr || hdc == nullptr) {
+      qWarning("OpenCL/OpenGL bootstrap: failed to resolve WGL context handles.");
+      context_->doneCurrent();
+      surface_.reset();
+      context_.reset();
+      return false;
+    }
+
+    alcedo::OpenClInitializationOptions options;
+    options.gl_context        = hglrc;
+    options.gl_device_context = hdc;
+    initialized_ = alcedo::TryPrepareOpenClRuntime(options);
+    context_->doneCurrent();
+
+    if (!initialized_) {
+      qWarning("OpenCL/OpenGL bootstrap: failed to initialize OpenCL with OpenGL sharing.");
+      surface_.reset();
+      context_.reset();
+    }
+    return initialized_;
+  }
+
+ private:
+  std::unique_ptr<QOpenGLContext>  context_;
+  std::unique_ptr<QOffscreenSurface> surface_;
+  bool                             initialized_ = false;
+};
+#endif
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -54,6 +132,9 @@ int main(int argc, char* argv[]) {
 #else
   QGuiApplication::setHighDpiScaleFactorRoundingPolicy(
       Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
+#endif
+#if defined(Q_OS_WIN) && defined(HAVE_OPENCL)
+  QCoreApplication::setAttribute(Qt::AA_ShareOpenGLContexts);
 #endif
 
   alcedo::TimeProvider::Refresh();
@@ -86,6 +167,11 @@ int main(int argc, char* argv[]) {
                      alcedo::ui::AppTheme::ApplyApplicationFont(app);
                    });
   QQuickStyle::setStyle("Material");
+
+#if defined(Q_OS_WIN) && defined(HAVE_OPENCL)
+  OpenClGlSharingBootstrap opencl_gl_bootstrap;
+  (void)opencl_gl_bootstrap.Initialize();
+#endif
 
   alcedo::ui::AlbumBackend backend;
 

@@ -51,7 +51,7 @@ class IEditViewerRenderTargetSurface {
   virtual ~IEditViewerRenderTargetSurface() = default;
 
   virtual auto supportsDirectGpuPresent() const -> bool { return false; }
-  virtual auto supportsDirectCudaPresent() const -> bool { return supportsDirectGpuPresent(); }
+  virtual auto supportsDirectCudaPresent() const -> bool { return false; }
   virtual auto prepareRenderTarget(int width, int height)
       -> EditViewerRenderTargetResizeDecision {
     (void)width;

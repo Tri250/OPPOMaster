@@ -1237,6 +1237,10 @@ target_link_libraries(alcedo_main
         Qt6::QuickEffects
 )
 
+if(WIN32 AND ALCEDO_OPENCL_ENABLED)
+    target_link_libraries(alcedo_main PRIVATE OpenGL::GL)
+endif()
+
 qt_add_qml_module(alcedo_main
     URI Alcedo.Main
     VERSION 1.0

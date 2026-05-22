@@ -342,7 +342,11 @@ elseif(ALCEDO_ENABLE_OPENGL_EDITOR)
     message(STATUS "OpenGL editor requested, but no accelerated backend is available. Building editor stub only.")
 endif()
 
-if((WIN32 AND ALCEDO_CUDA_ENABLED) OR (APPLE AND ALCEDO_METAL_ENABLED))
+if(WIN32 AND ALCEDO_OPENCL_ENABLED)
+    find_package(OpenGL REQUIRED)
+endif()
+
+if((WIN32 AND (ALCEDO_CUDA_ENABLED OR ALCEDO_OPENCL_ENABLED)) OR (APPLE AND ALCEDO_METAL_ENABLED))
     find_package(Qt6 REQUIRED COMPONENTS ShaderTools GuiPrivate)
     set(ALCEDO_RHI_WIDGET_EDITOR ON)
     set(ALCEDO_REAL_WIDGET_EDITOR ON)

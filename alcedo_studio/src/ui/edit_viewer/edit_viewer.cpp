@@ -20,6 +20,7 @@
 #include <QPainterPath>
 #include <QPen>
 #include <QPolygonF>
+#include <QSettings>
 #include <QWheelEvent>
 
 #include <algorithm>
@@ -50,6 +51,17 @@ auto HasLegacyGlSurface(const IEditViewerSurface* surface) -> bool {
   return false;
 #endif
 }
+
+#if defined(ALCEDO_HAS_RHI_VIEWER) && defined(Q_OS_WIN)
+constexpr auto kAcceleratorBackendKey = "gpu/acceleratorBackend";
+
+auto ShouldUseOpenClRhiBackend() -> bool {
+  return QSettings{}
+             .value(QLatin1String(kAcceleratorBackendKey))
+             .toString()
+             .compare(QStringLiteral("opencl"), Qt::CaseInsensitive) == 0;
+}
+#endif
 
 #if defined(ALCEDO_HAS_RHI_VIEWER) && defined(Q_OS_WIN) && defined(HAVE_CUDA)
 using Microsoft::WRL::ComPtr;
@@ -183,7 +195,9 @@ QtEditViewer::QtEditViewer(QWidget* parent) : QWidget(parent) {
 
 #ifdef ALCEDO_HAS_RHI_VIEWER
 #if defined(Q_OS_WIN) && defined(HAVE_CUDA)
-  ConfigureQtD3DAdapterForCurrentCudaDevice();
+  if (!ShouldUseOpenClRhiBackend()) {
+    ConfigureQtD3DAdapterForCurrentCudaDevice();
+  }
 #endif
   surface_ = std::make_unique<RhiEditViewerSurface>(this);
   render_target_surface_ = dynamic_cast<IEditViewerRenderTargetSurface*>(surface_.get());

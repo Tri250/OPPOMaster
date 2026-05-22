@@ -49,6 +49,12 @@ struct OpenClInitializationOptions {
   // device that supports cl_khr_d3d11_sharing with that D3D11 device and creates
   // the context with the matching D3D11 sharing properties.
   void*                      d3d11_device = nullptr;
+
+  // Optional native OpenGL context/display handles. On Windows these are HGLRC
+  // and HDC. When set, OpenCL initialization selects a device that can share
+  // with the GL context and creates a cl_khr_gl_sharing context.
+  void*                      gl_context = nullptr;
+  void*                      gl_device_context = nullptr;
 };
 
 class OpenClContext {
@@ -61,6 +67,7 @@ class OpenClContext {
   bool                     initialized_              = false;
   bool                     initialization_attempted_ = false;
   bool                     d3d11_sharing_enabled_    = false;
+  bool                     gl_sharing_enabled_       = false;
   std::string              last_initialization_error_;
   mutable std::mutex       mutex_;
 
@@ -93,6 +100,7 @@ class OpenClContext {
   auto        Context() const -> cl_context;
   auto        Queue() const -> cl_command_queue;
   auto        D3D11SharingEnabled() const -> bool;
+  auto        GLSharingEnabled() const -> bool;
   auto        Capabilities() const -> const OpenClDeviceCapabilities&;
 };
 

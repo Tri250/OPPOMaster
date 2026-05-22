@@ -282,6 +282,13 @@ void AlbumBackend::StartImport(const QStringList& fileUrlsOrPaths) { import_expo
 void AlbumBackend::CancelImport() { import_export_.CancelImport(); }
 
 void AlbumBackend::InitializeAcceleratorSettings() {
+  const QString stored_key =
+      QSettings{}.value(QLatin1String(kAcceleratorBackendKey)).toString();
+  const auto stored_preference = AcceleratorPreferenceFromKey(stored_key);
+  const bool stored_cuda_preference =
+      stored_preference.has_value() &&
+      *stored_preference == AcceleratorBackendPreference::CUDA;
+
 #if defined(__APPLE__)
   metal_backend_available_ = CanResolveAccelerator(AcceleratorBackendPreference::Metal);
 #else
@@ -289,7 +296,7 @@ void AlbumBackend::InitializeAcceleratorSettings() {
   opencl_backend_available_ = CanResolveAccelerator(AcceleratorBackendPreference::OpenCL);
 #if defined(_WIN32) && defined(HAVE_CUDA)
   const auto cuda_support = cuda::CheckDriverSupport();
-  if (!cuda_backend_available_ && !cuda_support.IsSupported()) {
+  if (!cuda_backend_available_) {
     const QString fallback_backend =
         opencl_backend_available_ ? QStringLiteral("OpenCL")
                                   : AcceleratorPreferenceLabel(AcceleratorBackendPreference::CPU);
@@ -336,15 +343,23 @@ void AlbumBackend::InitializeAcceleratorSettings() {
           "detected.\n\nAlcedo will use %1 instead.",
           fallback_backend);
     }
+
+    if (stored_cuda_preference) {
+      const QString stored_cuda_warning =
+          PL_TEXT("The saved CUDA accelerator setting is unavailable. Alcedo will use %1 instead.",
+                  fallback_backend)
+              .Render();
+      accelerator_warning_text_ =
+          accelerator_warning_text_.IsEmpty()
+              ? PL_TEXT("%1", stored_cuda_warning)
+              : PL_TEXT("%1\n\n%2", accelerator_warning_text_.Render(), stored_cuda_warning);
+    }
   }
 #endif
 #endif
 
   RebuildAcceleratorOptions();
 
-  const QString stored_key =
-      QSettings{}.value(QLatin1String(kAcceleratorBackendKey)).toString();
-  const auto stored_preference = AcceleratorPreferenceFromKey(stored_key);
   if (stored_preference.has_value() &&
       FindOptionIndex(accelerator_options_, AcceleratorPreferenceKey(*stored_preference)) >= 0) {
     accelerator_preference_   = *stored_preference;
