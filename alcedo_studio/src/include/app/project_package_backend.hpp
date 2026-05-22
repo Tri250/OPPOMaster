@@ -10,6 +10,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include <duckdb.h>
@@ -24,15 +25,22 @@ namespace alcedo::project_pack {
 constexpr std::wstring_view kPackedProjectExtension = L".alcd";
 constexpr std::array<char, 8> kPackedProjectMagic{
     {'P', 'U', 'E', 'R', 'H', 'P', 'K', '1'}};
-constexpr uint32_t kPackedProjectVersion = 1;
+constexpr uint32_t kPackedProjectVersion = 2;
 constexpr uint64_t kMaxPackedComponentBytes = 2ULL * 1024ULL * 1024ULL * 1024ULL;
+constexpr std::string_view kProjectFileVersion = "0.2.4";
+constexpr std::string_view kMinSupportedProjectFileVersion = "0.2.4";
+constexpr std::string_view kMaxSupportedProjectFileVersion = "0.2.4";
 
 auto IsMetadataJsonPath(const std::filesystem::path& path) -> bool;
 auto IsPackedProjectPath(const std::filesystem::path& path) -> bool;
 auto IsPackedProjectFile(const std::filesystem::path& path) -> bool;
+auto IsSupportedProjectFile(const std::filesystem::path& path) -> bool;
 
 auto ReadFileBytes(const std::filesystem::path& path, std::string* out) -> bool;
 auto WriteFileBytes(const std::filesystem::path& path, const std::string& data) -> bool;
+auto ComputeFileChecksum(const std::filesystem::path& path, uint64_t* checksumOut) -> bool;
+auto FormatChecksum(uint64_t checksum) -> std::string;
+auto ProjectVersionIsSupported(std::string_view version) -> bool;
 
 auto BuildUniquePackedProjectPath(const std::filesystem::path& folder,
                                   const QString& projectName,

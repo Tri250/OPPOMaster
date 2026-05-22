@@ -20,6 +20,7 @@ class ProjectPackageService {
   [[nodiscard]] auto IsMetadataJsonPath(const std::filesystem::path& path) const -> bool;
   [[nodiscard]] auto IsPackedProjectPath(const std::filesystem::path& path) const -> bool;
   [[nodiscard]] auto IsPackedProjectFile(const std::filesystem::path& path) const -> bool;
+  [[nodiscard]] auto IsSupportedProjectFile(const std::filesystem::path& path) const -> bool;
 
   [[nodiscard]] auto BuildUniquePackedProjectPath(const std::filesystem::path& folder,
                                                   const QString& project_name,

@@ -39,6 +39,7 @@ namespace {
 
 constexpr auto kRecentProjectsKey = "projects/recent";
 constexpr auto kAcceleratorBackendKey = "gpu/acceleratorBackend";
+constexpr auto kAcceleratorWarningAcknowledgedKey = "gpu/acceleratorWarningAcknowledged";
 constexpr int  kMaxRecentProjects = 12;
 
 [[maybe_unused]] constexpr const char* kAcceleratorTranslationStrings[] = {
@@ -294,6 +295,11 @@ void AlbumBackend::InitializeAcceleratorSettings() {
                                   : AcceleratorPreferenceLabel(AcceleratorBackendPreference::CPU);
 
     if (cuda_support.nvidia_adapter_detected) {
+      accelerator_warning_id_ =
+          QStringLiteral("cuda-driver:%1:%2:%3")
+              .arg(static_cast<int>(cuda_support.status))
+              .arg(cuda_support.detected_cuda_driver_version)
+              .arg(cuda::kMinimumSupportedCudaDriverVersion);
       const QString required_version = QString::fromStdString(
           cuda::FormatCudaVersion(cuda::kMinimumSupportedCudaDriverVersion));
       const QString detected_version = QString::fromStdString(
@@ -324,6 +330,7 @@ void AlbumBackend::InitializeAcceleratorSettings() {
           "%2\n\nAlcedo will use %3 instead.",
           required_version, detail, fallback_backend);
     } else {
+      accelerator_warning_id_ = QStringLiteral("cuda-no-nvidia");
       accelerator_warning_text_ = PL_TEXT(
           "CUDA acceleration is not supported on this machine because no NVIDIA graphics card was "
           "detected.\n\nAlcedo will use %1 instead.",
@@ -417,6 +424,28 @@ bool AlbumBackend::SetAcceleratorBackend(const QString& backendKey) {
   SetServiceMessageForCurrentProject(
       PL_TEXT("Using %1 acceleration.", AcceleratorPreferenceLabel(accelerator_preference_)));
   return true;
+}
+
+void AlbumBackend::AcknowledgeAcceleratorWarning() {
+  if (accelerator_warning_id_.isEmpty()) {
+    return;
+  }
+  PersistAcceleratorWarningAcknowledgement();
+  emit AcceleratorStateChanged();
+}
+
+bool AlbumBackend::IsAcceleratorWarningAcknowledged() const {
+  return !accelerator_warning_id_.isEmpty() &&
+         QSettings{}
+                 .value(QLatin1String(kAcceleratorWarningAcknowledgedKey))
+                 .toString() == accelerator_warning_id_;
+}
+
+void AlbumBackend::PersistAcceleratorWarningAcknowledgement() const {
+  if (!accelerator_warning_id_.isEmpty()) {
+    QSettings{}.setValue(QLatin1String(kAcceleratorWarningAcknowledgedKey),
+                         accelerator_warning_id_);
+  }
 }
 
 void AlbumBackend::StartExport(const QString& outputDirUrlOrPath) {
@@ -576,6 +605,12 @@ bool AlbumBackend::LoadProject(const QString& metaFileUrlOrPath) {
   }
 
   ProjectPackageService package_service;
+  if (!package_service.IsSupportedProjectFile(project_path)) {
+    RemoveRecentProject(project_path);
+    SetServiceMessageForCurrentProject(
+        PL_TEXT("Project file version is not supported by this Alcedo build."));
+    return false;
+  }
 
   if (package_service.IsPackedProjectPath(project_path) ||
       package_service.IsPackedProjectFile(project_path)) {
@@ -774,6 +809,7 @@ void AlbumBackend::LoadRecentProjectsFromSettings() {
   QVariantList normalized_entries;
   QStringList  seen_paths;
   bool         changed = false;
+  ProjectPackageService package_service;
 
   for (const QVariant& entry_variant : stored_entries) {
     const QVariantMap entry_map = entry_variant.toMap();
@@ -792,6 +828,11 @@ void AlbumBackend::LoadRecentProjectsFromSettings() {
 
     const QFileInfo info(normalized_path);
     if (!info.exists() || !info.isFile()) {
+      changed = true;
+      continue;
+    }
+    if (!package_service.IsSupportedProjectFile(
+            std::filesystem::path(normalized_path.toStdWString()))) {
       changed = true;
       continue;
     }

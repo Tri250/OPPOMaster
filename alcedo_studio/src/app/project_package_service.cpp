@@ -20,6 +20,10 @@ auto ProjectPackageService::IsPackedProjectFile(const std::filesystem::path& pat
   return project_pack::IsPackedProjectFile(path);
 }
 
+auto ProjectPackageService::IsSupportedProjectFile(const std::filesystem::path& path) const -> bool {
+  return project_pack::IsSupportedProjectFile(path);
+}
+
 auto ProjectPackageService::BuildUniquePackedProjectPath(const std::filesystem::path& folder,
                                                          const QString& project_name,
                                                          QString* error_out) const

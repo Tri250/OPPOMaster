@@ -103,7 +103,7 @@ auto RawProcessor::ProcessOpenCL() -> ImageBuffer {
 
   // CPU downsample (same as Metal / CUDA paths).
   const auto        stage_decode_res_start = ProfileClock::now();
-  SetDecodeRes();
+  SetDecodeRes(gpu_input_downsample_passes_);
   LogProfileStep(deferred_log, "RAW OpenCL setup decode-res", stage_decode_res_start);
 
   const auto stage_upload_start = ProfileClock::now();

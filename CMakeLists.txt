@@ -9,7 +9,7 @@ endif()
 #set(CMAKE_CXX_COMPILER "clang++")
 # Compiler flags.
 
-project(alcedo VERSION 0.2.3 LANGUAGES C CXX)
+project(alcedo VERSION 0.2.4 LANGUAGES C CXX)
 
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build alcedo libraries as static by default." FORCE)
 
@@ -304,11 +304,9 @@ set_target_properties(MurmurHash3 PROPERTIES
 )
 
 # xxHash
-if (WIN32)
-    find_package(xxHash CONFIG REQUIRED)
-else()
-    find_package(xxHash CONFIG REQUIRED)
-    # Create a unified alias target 'xxHash' so the rest of the project can link to it.
+find_package(xxHash CONFIG REQUIRED)
+# Create a unified alias target 'xxHash' so the rest of the project can link to it.
+if (NOT TARGET xxHash)
     add_library(xxHash INTERFACE)
     if (TARGET xxHash::xxhash)
         target_link_libraries(xxHash INTERFACE xxHash::xxhash)

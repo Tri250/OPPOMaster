@@ -1589,6 +1589,7 @@ ApplicationWindow {
                 root.showSnackbar(albumBackend.serviceMessage)
             }
         }
+        onAcceleratorWarningAcknowledged: albumBackend.AcknowledgeAcceleratorWarning()
         onRecentProjectRequested: function(projectPath) {
             root.dismissWelcomeForProjectLaunch()
             root.updateWelcomeDialogVisibility()

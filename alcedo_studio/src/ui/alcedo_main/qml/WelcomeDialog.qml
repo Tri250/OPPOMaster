@@ -52,6 +52,7 @@ Dialog {
     signal exitRequested()
     signal languageRequested(string languageCode)
     signal acceleratorRequested(string backend)
+    signal acceleratorWarningAcknowledged()
     signal recentProjectRequested(string projectPath)
 
     onVisibleChanged: {
@@ -89,6 +90,7 @@ Dialog {
         width: Math.min((parent ? parent.width : 560) - 72, 520)
         x: parent ? Math.round((parent.width - width) / 2) : 0
         y: parent ? Math.round((parent.height - height) / 2) : 0
+        onClosed: dialog.acceleratorWarningAcknowledged()
 
         Overlay.modal: Item {
             anchors.fill: parent

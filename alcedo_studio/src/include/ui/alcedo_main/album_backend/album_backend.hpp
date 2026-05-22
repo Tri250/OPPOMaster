@@ -120,7 +120,9 @@ class AlbumBackend final : public QObject {
   QVariantList RecentProjects() const { return recent_projects_; }
   QVariantList AcceleratorOptions() const { return accelerator_options_; }
   QString AcceleratorBackend() const { return accelerator_backend_key_; }
-  QString AcceleratorWarning() const { return accelerator_warning_text_.Render(); }
+  QString AcceleratorWarning() const {
+    return IsAcceleratorWarningAcknowledged() ? QString{} : accelerator_warning_text_.Render();
+  }
   bool ProjectLoading() const { return project_handler_.project_loading(); }
   QString ProjectLoadingMessage() const { return project_handler_.project_loading_message(); }
   QString TaskStatus() const { return task_status_text_.Render(); }
@@ -181,6 +183,7 @@ class AlbumBackend final : public QObject {
   Q_INVOKABLE bool PromptAndLoadProject();
   Q_INVOKABLE bool PromptAndCreateProject();
   Q_INVOKABLE bool SetAcceleratorBackend(const QString& backendKey);
+  Q_INVOKABLE void AcknowledgeAcceleratorWarning();
   Q_INVOKABLE bool LoadProject(const QString& metaFileUrlOrPath);
   Q_INVOKABLE bool CreateProjectInFolder(const QString& folderUrlOrPath);
   Q_INVOKABLE bool CreateProjectInFolderNamed(const QString& folderUrlOrPath,
@@ -271,6 +274,8 @@ signals:
   void InitializeAcceleratorSettings();
   void RebuildAcceleratorOptions();
   void ApplyAcceleratorPreferenceToServices();
+  bool IsAcceleratorWarningAcknowledged() const;
+  void PersistAcceleratorWarningAcknowledgement() const;
   void LoadRecentProjectsFromSettings();
   void PersistRecentProjects() const;
   void RegisterRecentProject(const std::filesystem::path& projectPath);
@@ -301,6 +306,7 @@ signals:
   AcceleratorBackendPreference                        accelerator_preference_ =
       AcceleratorBackendPreference::Auto;
   QString                                             accelerator_backend_key_{};
+  QString                                             accelerator_warning_id_{};
   QVariantList                                        accelerator_options_{};
   i18n::LocalizedText                                 accelerator_warning_text_{};
   bool                                                cuda_backend_available_   = false;
