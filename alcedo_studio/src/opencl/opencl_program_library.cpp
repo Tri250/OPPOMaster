@@ -12,7 +12,12 @@
 #include <iterator>
 #include <sstream>
 #include <stdexcept>
+#include <system_error>
 #include <utility>
+
+#if defined(_WIN32)
+#include <windows.h>
+#endif
 
 #include "utils/string/convert.hpp"
 
@@ -25,6 +30,69 @@ auto FormatPathForOpenClDiagnostics(const std::filesystem::path& path) -> std::s
 #else
   return path.string();
 #endif
+}
+
+auto IsRegularFile(const std::filesystem::path& path) -> bool {
+  std::error_code ec;
+  return std::filesystem::exists(path, ec) && !ec && std::filesystem::is_regular_file(path, ec) &&
+         !ec;
+}
+
+auto GetExecutableDir() -> std::filesystem::path {
+#if defined(_WIN32)
+  std::wstring buffer(MAX_PATH, L'\0');
+  while (true) {
+    const DWORD copied =
+        GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+    if (copied == 0) {
+      return {};
+    }
+    if (copied < buffer.size()) {
+      buffer.resize(copied);
+      return std::filesystem::path(buffer).parent_path();
+    }
+    buffer.resize(buffer.size() * 2);
+  }
+#else
+  return {};
+#endif
+}
+
+auto RelativeOpenClSourcePath(const std::filesystem::path& path) -> std::filesystem::path {
+#ifdef ALCEDO_OPENCL_SHADER_SOURCE_ROOT
+  const auto root = std::filesystem::path(ALCEDO_OPENCL_SHADER_SOURCE_ROOT).lexically_normal();
+  const auto rel  = path.lexically_normal().lexically_relative(root);
+  if (!rel.empty() && !rel.is_absolute()) {
+    const auto first = *rel.begin();
+    if (first != "..") {
+      return rel;
+    }
+  }
+#endif
+  return {};
+}
+
+auto ResolveOpenClSourcePath(const std::filesystem::path& path) -> std::filesystem::path {
+  if (IsRegularFile(path)) {
+    return path;
+  }
+
+  const auto rel = RelativeOpenClSourcePath(path);
+  const auto exe_dir = GetExecutableDir();
+  if (rel.empty() || exe_dir.empty()) {
+    return path;
+  }
+
+  const std::vector<std::filesystem::path> candidates = {
+      exe_dir / "opencl" / rel,
+      exe_dir / "Resources" / "opencl" / rel,
+  };
+  for (const auto& candidate : candidates) {
+    if (IsRegularFile(candidate)) {
+      return candidate;
+    }
+  }
+  return path;
 }
 
 }  // namespace detail
@@ -61,10 +129,11 @@ auto OpenClProgramLibrary::LoadSourceText(const std::vector<std::filesystem::pat
   std::vector<std::string> sources;
   sources.reserve(source_paths.size());
   for (const auto& path : source_paths) {
-    std::ifstream file(path, std::ios::binary);
+    const auto    resolved_path = detail::ResolveOpenClSourcePath(path);
+    std::ifstream file(resolved_path, std::ios::binary);
     if (!file.is_open()) {
       throw std::runtime_error("OpenClProgramLibrary: failed to open source file: " +
-                               detail::FormatPathForOpenClDiagnostics(path));
+                               detail::FormatPathForOpenClDiagnostics(resolved_path));
     }
     sources.emplace_back(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
   }

@@ -38,6 +38,7 @@ if(ALCEDO_METAL_ENABLED)
 endif()
 
 if(ALCEDO_OPENCL_ENABLED)
+    set(ALCEDO_OPENCL_SHADER_SOURCE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}")
     set(OPENCL_RAW_UTILS_CL "${CMAKE_CURRENT_SOURCE_DIR}/decoders/processor/operators/gpu/opencl_shader/raw_utils_opencl.cl")
     set(OPENCL_RAW_TO_LINEAR_REF_CL "${CMAKE_CURRENT_SOURCE_DIR}/decoders/processor/operators/gpu/opencl_shader/to_linear_ref.cl")
     set(OPENCL_DEBAYER_RCD_CL "${CMAKE_CURRENT_SOURCE_DIR}/decoders/processor/operators/gpu/opencl_shader/debayer_rcd.cl")
@@ -87,6 +88,7 @@ if(ALCEDO_OPENCL_ENABLED)
         ALCEDO_OPENCL_GEOMETRY_UTILS_CL="${OPENCL_GEOMETRY_UTILS_CL}"
         ALCEDO_OPENCL_EDIT_GEOMETRY_LENS_CALIB_CL="${OPENCL_EDIT_GEOMETRY_LENS_CALIB_CL}"
         ALCEDO_OPENCL_SCOPE_ANALYZER_CL="${OPENCL_SCOPE_ANALYZER_CL}"
+        ALCEDO_OPENCL_SHADER_SOURCE_ROOT="${ALCEDO_OPENCL_SHADER_SOURCE_ROOT}"
     )
 endif()
 
