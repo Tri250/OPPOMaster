@@ -245,7 +245,7 @@ void RawDecodeOp::SetParams(const nlohmann::json& params) {
     const std::string backend = inner["gpu_backend"].get<std::string>();
     if (backend == "cpu") {
       params_.gpu_backend_ = RawGpuBackend::CPU;
-    } else if (backend == "gpu") {
+    } else if (backend == "gpu" || backend == "auto") {
       params_.gpu_backend_ = RawGpuBackend::GPU;
     } else if (backend == "cuda") {
       params_.gpu_backend_ = RawGpuBackend::CUDA;
@@ -257,7 +257,7 @@ void RawDecodeOp::SetParams(const nlohmann::json& params) {
       throw std::runtime_error("RawDecodeOp: Unknown gpu_backend " + backend);
     }
   } else if (inner.contains("cuda")) {
-    params_.gpu_backend_ = inner["cuda"].get<bool>() ? RawGpuBackend::GPU : RawGpuBackend::CPU;
+    params_.gpu_backend_ = inner["cuda"].get<bool>() ? RawGpuBackend::CUDA : RawGpuBackend::CPU;
   } else if (inner.contains("opencl")) {
     params_.gpu_backend_ =
         inner["opencl"].get<bool>() ? RawGpuBackend::OpenCL : RawGpuBackend::CPU;

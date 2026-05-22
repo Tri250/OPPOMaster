@@ -536,9 +536,20 @@ if(TARGET ${ALCEDO_MAIN_BIN})
         install(DIRECTORY "${_config_dir}/icc/" DESTINATION "${_bundle_macos_dest}/config/icc")
         install(DIRECTORY "${_config_dir}/lens_calib/" DESTINATION "${_bundle_macos_dest}/config/lens_calib")
         install(DIRECTORY "${_config_dir}/nikon_lens/" DESTINATION "${_bundle_macos_dest}/config/nikon_lens")
-        file(GLOB _acescc_luts "${_config_dir}/LUTs/*ACEScc*.cube")
-        if(_acescc_luts)
-            install(FILES ${_acescc_luts} DESTINATION "${_bundle_macos_dest}/LUTs")
+        if(EXISTS "${_config_dir}/LUTs")
+            install(DIRECTORY "${_config_dir}/LUTs/" DESTINATION "${_bundle_macos_dest}/LUTs")
+        endif()
+        if(ALCEDO_OPENCL_ENABLED)
+            install(DIRECTORY "${CMAKE_SOURCE_DIR}/alcedo_studio/src/decoders/processor/operators/gpu/opencl_shader/"
+                DESTINATION "${_bundle_macos_dest}/opencl/decoders/processor/operators/gpu/opencl_shader")
+            install(DIRECTORY "${CMAKE_SOURCE_DIR}/alcedo_studio/src/edit/pipeline/opencl_shader/"
+                DESTINATION "${_bundle_macos_dest}/opencl/edit/pipeline/opencl_shader")
+            install(DIRECTORY "${CMAKE_SOURCE_DIR}/alcedo_studio/src/edit/operators/geometry/opencl_shader/"
+                DESTINATION "${_bundle_macos_dest}/opencl/edit/operators/geometry/opencl_shader")
+            install(DIRECTORY "${CMAKE_SOURCE_DIR}/alcedo_studio/src/edit/scope/opencl_shader/"
+                DESTINATION "${_bundle_macos_dest}/opencl/edit/scope/opencl_shader")
+            install(DIRECTORY "${CMAKE_SOURCE_DIR}/alcedo_studio/src/opencl/opencl_shader/"
+                DESTINATION "${_bundle_macos_dest}/opencl/opencl/opencl_shader")
         endif()
         if(ALCEDO_METAL_ENABLED AND ALCEDO_METAL_RUNTIME_LIBS)
             install(FILES ${ALCEDO_METAL_RUNTIME_LIBS}
@@ -628,10 +639,20 @@ if(TARGET ${ALCEDO_MAIN_BIN})
         install(DIRECTORY "${_config_dir}/lens_calib/" DESTINATION "${CMAKE_INSTALL_BINDIR}/config/lens_calib")
         install(DIRECTORY "${_config_dir}/nikon_lens/" DESTINATION "${CMAKE_INSTALL_BINDIR}/config/nikon_lens")
 
-        # Install ACEScc LUTs into bin/LUTs
-        file(GLOB _acescc_luts "${_config_dir}/LUTs/*ACEScc*.cube")
-        if(_acescc_luts)
-            install(FILES ${_acescc_luts} DESTINATION "${CMAKE_INSTALL_BINDIR}/LUTs")
+        if(EXISTS "${_config_dir}/LUTs")
+            install(DIRECTORY "${_config_dir}/LUTs/" DESTINATION "${CMAKE_INSTALL_BINDIR}/LUTs")
+        endif()
+        if(ALCEDO_OPENCL_ENABLED)
+            install(DIRECTORY "${CMAKE_SOURCE_DIR}/alcedo_studio/src/decoders/processor/operators/gpu/opencl_shader/"
+                DESTINATION "${CMAKE_INSTALL_BINDIR}/opencl/decoders/processor/operators/gpu/opencl_shader")
+            install(DIRECTORY "${CMAKE_SOURCE_DIR}/alcedo_studio/src/edit/pipeline/opencl_shader/"
+                DESTINATION "${CMAKE_INSTALL_BINDIR}/opencl/edit/pipeline/opencl_shader")
+            install(DIRECTORY "${CMAKE_SOURCE_DIR}/alcedo_studio/src/edit/operators/geometry/opencl_shader/"
+                DESTINATION "${CMAKE_INSTALL_BINDIR}/opencl/edit/operators/geometry/opencl_shader")
+            install(DIRECTORY "${CMAKE_SOURCE_DIR}/alcedo_studio/src/edit/scope/opencl_shader/"
+                DESTINATION "${CMAKE_INSTALL_BINDIR}/opencl/edit/scope/opencl_shader")
+            install(DIRECTORY "${CMAKE_SOURCE_DIR}/alcedo_studio/src/opencl/opencl_shader/"
+                DESTINATION "${CMAKE_INSTALL_BINDIR}/opencl/opencl/opencl_shader")
         endif()
 
         if(APPLE AND ALCEDO_METAL_ENABLED AND ALCEDO_METAL_RUNTIME_LIBS)
@@ -683,6 +704,7 @@ if(WIN32 AND TARGET ${ALCEDO_MAIN_BIN})
              \"${_third_party_duckdb_bin}\"
              \"${_vcpkg_bin_dir}\"
              \"${_qt6_bin_dir}\"
+             \"${_cuda_bin_dir}\"
              \${ALCEDO_RUNTIME_DEP_DIRS}
          )
          if(NOT \"${_third_party_dawn_bin}\" STREQUAL \"\")
