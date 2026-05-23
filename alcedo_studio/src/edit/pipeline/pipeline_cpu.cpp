@@ -531,6 +531,13 @@ auto CPUPipelineExecutor::GetViewportRenderRegion() const -> std::optional<Viewp
   return frame_sink_->GetViewportRenderRegion();
 }
 
+void CPUPipelineExecutor::DetachFrameSink() {
+  frame_sink_ = nullptr;
+  if (!exec_stages_.empty()) {
+    exec_stages_.back()->SetFrameSink(nullptr);
+  }
+}
+
 void CPUPipelineExecutor::SetNextFramePresentationMode(FramePresentationMode mode) const {
   if (!frame_sink_) {
     return;

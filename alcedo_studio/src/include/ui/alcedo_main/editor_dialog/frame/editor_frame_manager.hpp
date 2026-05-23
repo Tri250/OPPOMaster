@@ -42,11 +42,12 @@ class EditorFrameManager final {
                                        ControlPanelKind next_panel) -> bool;
 
  private:
-  QtEditViewer*                         viewer_      = nullptr;
-  ScopePanel*                           scope_panel_ = nullptr;
-  std::shared_ptr<IScopeAnalyzer>       scope_analyzer_{};
-  std::unique_ptr<FinalDisplayFrameTapSink> final_display_frame_tap_{};
-  bool                                  force_next_full_frame_preview_ = false;
+  QtEditViewer*                              viewer_      = nullptr;
+  ScopePanel*                                scope_panel_ = nullptr;
+  std::shared_ptr<IScopeAnalyzer>            scope_analyzer_{};
+  std::unique_ptr<FinalDisplayFrameTapSink>  final_display_frame_tap_{};
+  bool                                       force_next_full_frame_preview_ = false;
+  std::weak_ptr<CPUPipelineExecutor>         attached_executor_{};
 };
 
 }  // namespace alcedo::ui

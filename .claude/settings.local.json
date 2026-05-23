@@ -73,7 +73,10 @@
       "Bash(cmd //c \"D:\\\\Projects\\\\pu-erh_lab\\\\build\\\\build_test3.cmd\")",
       "Bash(cmd //c \"D:\\\\Projects\\\\pu-erh_lab\\\\build\\\\run_test.cmd\")",
       "Bash(cmd //c \"D:\\\\Projects\\\\pu-erh_lab\\\\build\\\\build_test4.cmd\")",
-      "Bash(taskkill //f //im ThumbnailServiceTest.exe)"
+      "Bash(taskkill //f //im ThumbnailServiceTest.exe)",
+      "Bash(cmake --build /Users/zidage/Projects/PuerhLab/build/debug --target alcedo_main)",
+      "Bash(cmake --preset macos_debug)",
+      "Bash(cmake --build /Users/zidage/Projects/PuerhLab/build/macos-debug --target alcedo_main)"
     ]
   }
 }

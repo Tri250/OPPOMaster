@@ -4,6 +4,8 @@
 
 #include "ui/alcedo_main/editor_dialog/frame/editor_frame_manager.hpp"
 
+#include <mutex>
+
 #include "edit/pipeline/pipeline_cpu.hpp"
 #include "edit/scope/final_display_frame_tap.hpp"
 #include "ui/edit_viewer/edit_viewer.hpp"
@@ -12,7 +14,12 @@
 
 namespace alcedo::ui {
 
-EditorFrameManager::~EditorFrameManager() = default;
+EditorFrameManager::~EditorFrameManager() {
+  if (auto exec = attached_executor_.lock()) {
+    std::unique_lock<std::mutex> lock(exec->GetRenderLock());
+    exec->DetachFrameSink();
+  }
+}
 
 void EditorFrameManager::SetViewer(QtEditViewer* viewer) {
   if (viewer_ == viewer) {
@@ -60,6 +67,7 @@ void EditorFrameManager::AttachExecutionStages(
     const std::shared_ptr<CPUPipelineExecutor>& exec) {
   EnsureFrameRouting();
   controllers::AttachExecutionStages(exec, CurrentFrameSink());
+  attached_executor_ = exec;
 }
 
 auto EditorFrameManager::CurrentFrameSink() -> IFrameSink* {

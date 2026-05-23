@@ -87,6 +87,7 @@ class CPUPipelineExecutor : public PipelineExecutor {
 
   void SetPreviewMode(bool is_preview);
 
+  void DetachFrameSink();
   void SetExecutionStages();
   void SetExecutionStages(IFrameSink* frame_sink);
   void ResetExecutionStages();
