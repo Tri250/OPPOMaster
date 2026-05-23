@@ -179,51 +179,51 @@ TEST_F(ProjectTests, LoadProject_OldPackedProjectVersion_Fails) {
   EXPECT_FALSE(backend.ServiceReady());
 }
 
-TEST_F(ProjectTests, LoadProject_CorruptMetadata_Fails) {
+TEST_F(ProjectTests, LoadProject_MetadataJsonProject_Fails) {
   const auto dbPath = temp_dir_ / "corrupt_meta.db";
   const auto metaPath = temp_dir_ / "corrupt_meta.json";
   CreateMetadataProject(dbPath, metaPath);
-  {
-    std::ofstream out(metaPath, std::ios::trunc);
-    out << "{ not valid json";
-  }
 
   AlbumBackend backend;
   EXPECT_FALSE(backend.LoadProject(PathToQString(metaPath)));
   EXPECT_FALSE(backend.ServiceReady());
 }
 
-TEST_F(ProjectTests, LoadProject_CorruptDatabaseChecksum_Fails) {
-  const auto dbPath = temp_dir_ / "corrupt_db.db";
-  const auto metaPath = temp_dir_ / "corrupt_db.json";
-  CreateMetadataProject(dbPath, metaPath);
+TEST_F(ProjectTests, LoadProject_CorruptPackedProjectPayload_Fails) {
   {
-    std::ofstream out(dbPath, std::ios::binary | std::ios::trunc);
-    out << "not a duckdb database";
+    AlbumBackend backend;
+    ASSERT_TRUE(CreateTestProject(backend, "corrupt_packed_project"));
+    ASSERT_TRUE(backend.SaveProject());
+  }
+
+  const auto packedProjectPath = FindPackedProjectPath(temp_dir_);
+  ASSERT_TRUE(packedProjectPath.has_value());
+
+  {
+    std::fstream file(*packedProjectPath, std::ios::binary | std::ios::in | std::ios::out);
+    ASSERT_TRUE(file.is_open());
+    file.seekg(-1, std::ios::end);
+    char byte = 0;
+    file.read(&byte, 1);
+    file.clear();
+    file.seekp(-1, std::ios::end);
+    byte ^= 0x01;
+    file.write(&byte, 1);
   }
 
   AlbumBackend backend;
-  QSignalSpy projectSpy(&backend, &AlbumBackend::ProjectChanged);
-  ASSERT_TRUE(backend.LoadProject(PathToQString(metaPath)));
-  ASSERT_TRUE(WaitForProjectLoadToFinish(backend));
-  ProcessEvents(200);
-
-  EXPECT_TRUE(projectSpy.isEmpty());
+  EXPECT_FALSE(backend.LoadProject(PathToQString(*packedProjectPath)));
   EXPECT_FALSE(backend.ServiceReady());
 }
 
-TEST_F(ProjectTests, LoadProject_ValidMetadataProject_Succeeds) {
+TEST_F(ProjectTests, LoadProject_ValidMetadataProject_Fails) {
   const auto dbPath = temp_dir_ / "valid_project.db";
   const auto metaPath = temp_dir_ / "valid_project.json";
   CreateMetadataProject(dbPath, metaPath);
 
   AlbumBackend backend;
-  QSignalSpy projectSpy(&backend, &AlbumBackend::ProjectChanged);
-  ASSERT_TRUE(backend.LoadProject(PathToQString(metaPath)));
-  ASSERT_TRUE(WaitForSignal(projectSpy, 15000));
-  ProcessEvents(500);
-
-  EXPECT_TRUE(backend.ServiceReady());
+  EXPECT_FALSE(backend.LoadProject(PathToQString(metaPath)));
+  EXPECT_FALSE(backend.ServiceReady());
 }
 
 TEST_F(ProjectTests, LoadProject_ValidPackedProject_Succeeds) {
