@@ -5,8 +5,9 @@
 /// @file album_backend_project_test.cpp
 /// @brief Project lifecycle tests for AlbumBackend.
 ///
-/// Covers: create project, load project (valid/invalid), save project, and
-/// initial service state.
+/// Covers: create project, load project (valid/invalid), save project,
+/// pack/unpack integrity, data_summary diagnostics, and initial service
+/// state.
 
 #include "ui/album_backend_test_fixture.hpp"
 
@@ -15,12 +16,17 @@
 #include <array>
 #include <chrono>
 #include <fstream>
+#include <memory>
 #include <optional>
+#include <sstream>
+#include <string>
 
+#include <duckdb.h>
 #include <json.hpp>
 
 #include "app/project_package_backend.hpp"
 #include "app/project_service.hpp"
+#include "sleeve/storage_service.hpp"
 
 namespace alcedo::ui::test {
 namespace {
@@ -261,6 +267,237 @@ TEST_F(ProjectTests, SaveProject_AfterCreate_Succeeds) {
 
   const bool ok = backend.SaveProject();
   EXPECT_TRUE(ok);
+}
+
+// ── Stderr capture for warning verification ─────────────────────────────────
+
+class ScopedStderrCapture {
+ public:
+  ScopedStderrCapture() : old_(std::cerr.rdbuf(ss_.rdbuf())) {}
+  ~ScopedStderrCapture() { std::cerr.rdbuf(old_); }
+  auto str() const -> std::string { return ss_.str(); }
+
+ private:
+  std::stringstream ss_;
+  std::streambuf*   old_;
+};
+
+// ── Pack/Unpack round-trip ──────────────────────────────────────────────────
+
+TEST_F(ProjectTests, PackUnpack_RoundTrip_Succeeds) {
+  const auto dbPath   = temp_dir_ / "roundtrip.db";
+  const auto metaPath = temp_dir_ / "roundtrip.json";
+  CreateMetadataProject(dbPath, metaPath);
+
+  auto project =
+      std::make_shared<ProjectService>(dbPath, metaPath, ProjectOpenMode::kLoadExisting);
+
+  std::filesystem::path snapshotPath;
+  ASSERT_TRUE(project_pack::BuildTempDbSnapshotPath(&snapshotPath, nullptr));
+  ASSERT_TRUE(project_pack::CreateLiveDbSnapshot(project, snapshotPath, nullptr));
+
+  const auto packedPath = temp_dir_ / "roundtrip.alcd";
+  ASSERT_TRUE(project_pack::WritePackedProject(packedPath, metaPath, snapshotPath, nullptr));
+
+  // Read back and verify the binary header.
+  std::string metaBytes, dbBytes;
+  ASSERT_TRUE(project_pack::ReadPackedProject(packedPath, &metaBytes, &dbBytes, nullptr));
+  EXPECT_FALSE(metaBytes.empty());
+  EXPECT_FALSE(dbBytes.empty());
+
+  // Unpack to workspace and verify the project loads without warnings.
+  std::filesystem::path workspaceDir;
+  ASSERT_TRUE(project_pack::CreateProjectWorkspace("roundtrip_test", &workspaceDir, nullptr));
+  std::filesystem::path unpackedDbPath, unpackedMetaPath;
+  ASSERT_TRUE(project_pack::UnpackProjectToWorkspace(packedPath, workspaceDir,
+                                                      "roundtrip_test", &unpackedDbPath,
+                                                      &unpackedMetaPath, nullptr));
+
+  {
+    ScopedStderrCapture capture;
+    EXPECT_NO_THROW({
+      ProjectService(unpackedDbPath, unpackedMetaPath, ProjectOpenMode::kLoadExisting);
+    });
+    // No data summary warning expected for a clean round-trip.
+    std::string output = capture.str();
+    EXPECT_TRUE(output.empty()) << "Unexpected stderr: " << output;
+  }
+
+  // Metadata should contain the expected fields.
+  std::ifstream metaFile(unpackedMetaPath);
+  ASSERT_TRUE(metaFile.is_open());
+  nlohmann::json meta;
+  metaFile >> meta;
+  EXPECT_TRUE(meta.contains("project_file_version"));
+  EXPECT_TRUE(meta.contains("data_summary"));
+  EXPECT_TRUE(meta["data_summary"].contains("tables"));
+
+  std::error_code ec;
+  std::filesystem::remove_all(workspaceDir, ec);
+  std::filesystem::remove(snapshotPath, ec);
+}
+
+// ── Header corruption detection ──────────────────────────────────────────────
+
+TEST_F(ProjectTests, PackUnpack_CorruptHeader_Detected) {
+  const auto dbPath   = temp_dir_ / "corrupt_hdr.db";
+  const auto metaPath = temp_dir_ / "corrupt_hdr.json";
+  CreateMetadataProject(dbPath, metaPath);
+
+  auto project =
+      std::make_shared<ProjectService>(dbPath, metaPath, ProjectOpenMode::kLoadExisting);
+
+  std::filesystem::path snapshotPath;
+  ASSERT_TRUE(project_pack::BuildTempDbSnapshotPath(&snapshotPath, nullptr));
+  ASSERT_TRUE(project_pack::CreateLiveDbSnapshot(project, snapshotPath, nullptr));
+
+  const auto packedPath = temp_dir_ / "corrupt_hdr.alcd";
+  ASSERT_TRUE(project_pack::WritePackedProject(packedPath, metaPath, snapshotPath, nullptr));
+
+  // Corrupt the version field (offset 8, byte 0) — the version is stored as
+  // 4-byte LE right after the 8-byte magic.
+  {
+    std::fstream f(packedPath, std::ios::binary | std::ios::in | std::ios::out);
+    ASSERT_TRUE(f.is_open());
+    f.seekp(8);  // first byte of version
+    char corrupt = 0xFF;
+    f.write(&corrupt, 1);
+    f.close();
+  }
+
+  std::string metaBytes, dbBytes;
+  EXPECT_FALSE(project_pack::ReadPackedProject(packedPath, &metaBytes, &dbBytes, nullptr));
+
+  std::error_code ec;
+  std::filesystem::remove(snapshotPath, ec);
+}
+
+TEST_F(ProjectTests, PackUnpack_CorruptChecksum_Detected) {
+  const auto dbPath   = temp_dir_ / "corrupt_cs.db";
+  const auto metaPath = temp_dir_ / "corrupt_cs.json";
+  CreateMetadataProject(dbPath, metaPath);
+
+  auto project =
+      std::make_shared<ProjectService>(dbPath, metaPath, ProjectOpenMode::kLoadExisting);
+
+  std::filesystem::path snapshotPath;
+  ASSERT_TRUE(project_pack::BuildTempDbSnapshotPath(&snapshotPath, nullptr));
+  ASSERT_TRUE(project_pack::CreateLiveDbSnapshot(project, snapshotPath, nullptr));
+
+  const auto packedPath = temp_dir_ / "corrupt_cs.alcd";
+  ASSERT_TRUE(project_pack::WritePackedProject(packedPath, metaPath, snapshotPath, nullptr));
+
+  // Corrupt a metadata byte so the checksum won't match.  Metadata starts at
+  // offset 8 (magic) + 4 (version) + 8 (meta_size) + 8 (db_size) + 8 (checksum) = 36.
+  {
+    std::fstream f(packedPath, std::ios::binary | std::ios::in | std::ios::out);
+    ASSERT_TRUE(f.is_open());
+    f.seekp(36);  // first byte of meta payload
+    char corrupt = 0xCC;
+    f.write(&corrupt, 1);
+    f.close();
+  }
+
+  std::string metaBytes, dbBytes;
+  EXPECT_FALSE(project_pack::ReadPackedProject(packedPath, &metaBytes, &dbBytes, nullptr));
+
+  std::error_code ec2;
+  std::filesystem::remove(snapshotPath, ec2);
+}
+
+// ── data_summary diagnostics: tampered metadata ──────────────────────────────
+
+TEST_F(ProjectTests, DataSummary_WarnsOnTamperedMetadata) {
+  const auto dbPath   = temp_dir_ / "tamper_meta.db";
+  const auto metaPath = temp_dir_ / "tamper_meta.json";
+  CreateMetadataProject(dbPath, metaPath);
+
+  // Modify the saved data_summary to claim more rows than exist.
+  nlohmann::json metadata;
+  {
+    std::ifstream f(metaPath);
+    ASSERT_TRUE(f.is_open());
+    f >> metadata;
+  }
+  ASSERT_TRUE(metadata.contains("data_summary"));
+  metadata["data_summary"]["tables"]["Element"]["rows"] = 999999;
+  {
+    std::ofstream f(metaPath, std::ios::trunc);
+    ASSERT_TRUE(f.is_open());
+    f << metadata.dump(4);
+  }
+
+  // Repack so the checksum covers the modified metadata.
+  auto project =
+      std::make_shared<ProjectService>(dbPath, metaPath, ProjectOpenMode::kLoadExisting);
+
+  std::filesystem::path snapshotPath;
+  ASSERT_TRUE(project_pack::BuildTempDbSnapshotPath(&snapshotPath, nullptr));
+  ASSERT_TRUE(project_pack::CreateLiveDbSnapshot(project, snapshotPath, nullptr));
+
+  const auto packedPath = temp_dir_ / "tamper_meta.alcd";
+  ASSERT_TRUE(project_pack::WritePackedProject(packedPath, metaPath, snapshotPath, nullptr));
+
+  // Unpack to workspace.
+  std::filesystem::path workspaceDir;
+  ASSERT_TRUE(project_pack::CreateProjectWorkspace("tamper_test", &workspaceDir, nullptr));
+  std::filesystem::path unpackedDbPath, unpackedMetaPath;
+  ASSERT_TRUE(project_pack::UnpackProjectToWorkspace(packedPath, workspaceDir,
+                                                      "tamper_test", &unpackedDbPath,
+                                                      &unpackedMetaPath, nullptr));
+
+  // Loading should succeed but emit a data_summary warning.
+  {
+    ScopedStderrCapture capture;
+    EXPECT_NO_THROW({
+      ProjectService(unpackedDbPath, unpackedMetaPath, ProjectOpenMode::kLoadExisting);
+    });
+    std::string output = capture.str();
+    EXPECT_FALSE(output.empty()) << "Expected a data-summary warning on stderr";
+    EXPECT_NE(output.find("[Alcedo] Project data summary differs"),
+              std::string::npos)
+        << "stderr: " << output;
+  }
+
+  std::error_code ec;
+  std::filesystem::remove_all(workspaceDir, ec);
+  std::filesystem::remove(snapshotPath, ec);
+}
+
+// ── data_summary diagnostics: DB modified after save ─────────────────────────
+
+TEST_F(ProjectTests, DataSummary_WarnsOnDbChanged) {
+  const auto dbPath   = temp_dir_ / "db_mod.db";
+  const auto metaPath = temp_dir_ / "db_mod.json";
+  CreateMetadataProject(dbPath, metaPath);
+
+  // Modify the database outside of the project so the stored data_summary
+  // no longer matches.
+  {
+    StorageService storage(dbPath);
+    auto           guard = storage.GetDBController().GetConnectionGuard();
+    duckdb_result  result;
+    ASSERT_EQ(duckdb_query(guard.conn_,
+                           "INSERT INTO Element (id, type, element_name, "
+                           "added_time, modified_time, ref_count) "
+                           "VALUES (88888, 1, 'extra_elem', NOW(), NOW(), 0);",
+                           &result),
+              DuckDBSuccess);
+    duckdb_destroy_result(&result);
+  }
+
+  // Load — should succeed but warn about mismatched summary.
+  {
+    ScopedStderrCapture capture;
+    EXPECT_NO_THROW({
+      ProjectService(dbPath, metaPath, ProjectOpenMode::kLoadExisting);
+    });
+    std::string output = capture.str();
+    EXPECT_FALSE(output.empty()) << "Expected a data-summary warning on stderr";
+    EXPECT_NE(output.find("[Alcedo] Project data summary differs"),
+              std::string::npos)
+        << "stderr: " << output;
+  }
 }
 
 // ── Create project with default name via convenience overload ──────────────

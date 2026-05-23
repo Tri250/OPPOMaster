@@ -25,7 +25,7 @@ namespace alcedo::project_pack {
 constexpr std::wstring_view kPackedProjectExtension = L".alcd";
 constexpr std::array<char, 8> kPackedProjectMagic{
     {'P', 'U', 'E', 'R', 'H', 'P', 'K', '1'}};
-constexpr uint32_t kPackedProjectVersion = 2;
+constexpr uint32_t kPackedProjectVersion = 3;
 constexpr uint64_t kMaxPackedComponentBytes = 2ULL * 1024ULL * 1024ULL * 1024ULL;
 constexpr std::string_view kProjectFileVersion = "0.2.4";
 constexpr std::string_view kMinSupportedProjectFileVersion = "0.2.4";
