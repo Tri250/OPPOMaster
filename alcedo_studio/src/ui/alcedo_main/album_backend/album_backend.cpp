@@ -556,8 +556,23 @@ void AlbumBackend::SetEditorClarity(double value) { editor_.SetEditorClarity(val
 
 // ── Q_INVOKABLE: Thumbnail delegation ───────────────────────────────────────
 
-void AlbumBackend::SetThumbnailVisible(uint elementId, uint imageId, bool visible) {
-  thumb_.SetThumbnailVisible(elementId, imageId, visible);
+void AlbumBackend::SetThumbnailVisible(uint elementId, uint imageId, bool visible,
+                                       uint maxEdge) {
+  thumb_.SetThumbnailVisible(elementId, imageId, visible, maxEdge);
+}
+
+void AlbumBackend::SetThumbnailCacheHint(uint visibleCells) {
+  auto thumb_svc = project_handler_.thumbnail_service();
+  if (!thumb_svc) {
+    return;
+  }
+
+  // Cache = 3x visible cells for scroll buffer, min 64.
+  const uint32_t desired = std::max<uint32_t>(64, visibleCells * 3);
+  try {
+    thumb_svc->ResizeCache(desired);
+  } catch (...) {
+  }
 }
 
 // ── Q_INVOKABLE: Project I/O ────────────────────────────────────────────────

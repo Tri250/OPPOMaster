@@ -36,6 +36,8 @@ struct RenderDesc {
   float      scale_factor_y_ = 1.0f;
   bool       use_viewport_region_ = true;
   FramePreviewMetadata frame_metadata_ = {};
+  uint32_t   max_edge_     = 1024;       // max edge for thumbnail/export resize
+  DecodeRes   decode_res_   = DecodeRes::QUARTER;  // RAW decode resolution for thumbnails
 };
 
 struct TaskOptions {
@@ -56,6 +58,7 @@ struct PipelineTask {
   std::optional<std::function<void(ImageBuffer&)>>            callback_;  // used for callback tasks
   std::optional<std::function<void(ImageBuffer&, uint32_t)>>
               seq_callback_;  // used for callback tasks
+  std::function<bool()> cancel_requested_;
 
   TaskOptions options_;
 

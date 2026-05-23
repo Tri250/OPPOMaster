@@ -208,9 +208,9 @@ void PipelineTask::SetExecutorRenderParams() {
     pipeline_executor_->SetResizeDownsampleAlgorithm(ResizeDownsampleAlgorithm::Bilinear);
     pipeline_executor_->SetRenderRegion(0, 0, 1.0f);
     pipeline_executor_->SetForceCPUOutput(true);
-    pipeline_executor_->SetRenderRes(false, 1024);
+    pipeline_executor_->SetRenderRes(false, static_cast<int>(desc.max_edge_));
     pipeline_executor_->SetEnableCache(false);
-    pipeline_executor_->SetDecodeRes(DecodeRes::QUARTER);
+    pipeline_executor_->SetDecodeRes(desc.decode_res_);
     return;
   }
   if (requested_render_type == RenderType::FULL_RES_PREVIEW) {
@@ -328,13 +328,34 @@ void PipelineScheduler::ScheduleTask(PipelineTask&& task) {
       }
     };
 
+    const auto task_cancelled = [&task]() {
+      if (!task.cancel_requested_) {
+        return false;
+      }
+      try {
+        return task.cancel_requested_();
+      } catch (...) {
+        return true;
+      }
+    };
+
     try {
       std::shared_ptr<ImageBuffer> result_copy;
       {
+        if (task_cancelled()) {
+          notify_thumbnail_failure_callbacks();
+          set_blocking_value(nullptr);
+          return;
+        }
         if (task.input_desc_ && !task.input_) {
           // Load image data into buffer
           task.input_ = std::make_shared<ImageBuffer>(
               ByteBufferLoader::LoadByteBufferFromImage(task.input_desc_));
+        }
+        if (task_cancelled()) {
+          notify_thumbnail_failure_callbacks();
+          set_blocking_value(nullptr);
+          return;
         }
         if (task.input_) {
           std::unique_lock<std::mutex> render_lock;
@@ -351,6 +372,13 @@ void PipelineScheduler::ScheduleTask(PipelineTask&& task) {
 
           auto& render_desc = task.options_.render_desc_;
           task.SetExecutorRenderParams();
+
+          if (task_cancelled()) {
+            apply_state_transition_after_render();
+            notify_thumbnail_failure_callbacks();
+            set_blocking_value(nullptr);
+            return;
+          }
 
           auto result = task.pipeline_executor_->Apply(task.input_);
           bool result_has_cpu = false;

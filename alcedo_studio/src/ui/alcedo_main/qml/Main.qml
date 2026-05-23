@@ -123,6 +123,7 @@ ApplicationWindow {
         - contentRowSpacingTotal
         - 5)
     property bool gridMode: true
+    property int gridZoomLevel: 4  // 0..7, maps to column counts 2/3/4/5/6/8/11/14
     readonly property bool backendInteractive: albumBackend.serviceReady && !albumBackend.projectLoading
     readonly property var selectedImagesById: selectionState.selectedImagesById
     readonly property var exportQueueById: exportQueueState.exportQueueById
@@ -1119,6 +1120,82 @@ ApplicationWindow {
                         Layout.preferredHeight: 40
                         Label { text: qsTr("Browser"); color: root.colTextMuted; font.pixelSize: 13; font.weight: 600 }
                         Item { Layout.fillWidth: true }
+
+                        // ── Zoom slider ──
+                        Item {
+                            Layout.preferredWidth: 180
+                            Layout.preferredHeight: 36
+
+                            RowLayout {
+                                anchors.fill: parent
+                                spacing: 8
+
+                                Label {
+                                    text: "-"
+                                    color: root.colTextMuted
+                                    font.family: root.dataFontFamily
+                                    font.pixelSize: 18
+                                    font.weight: 600
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: root.gridZoomLevel = Math.min(7, root.gridZoomLevel + 1)
+                                    }
+                                }
+
+                                Slider {
+                                    id: zoomSlider
+                                    Layout.fillWidth: true
+                                    Layout.alignment: Qt.AlignVCenter
+                                    from: 0
+                                    to: 7
+                                    stepSize: 1
+                                    value: root.gridZoomLevel
+                                    onValueChanged: root.gridZoomLevel = Math.round(value)
+                                    background: Rectangle {
+                                        x: zoomSlider.leftPadding
+                                        y: zoomSlider.topPadding + zoomSlider.availableHeight / 2 - height / 2
+                                        implicitWidth: zoomSlider.availableWidth
+                                        implicitHeight: 4
+                                        width: zoomSlider.availableWidth
+                                        height: implicitHeight
+                                        radius: 2
+                                        color: Qt.rgba(root.colBgBase.r, root.colBgBase.g, root.colBgBase.b, 0.98)
+                                        Rectangle {
+                                            width: zoomSlider.visualPosition * parent.width
+                                            height: parent.height
+                                            color: root.colAccentPrimary
+                                            radius: 2
+                                        }
+                                    }
+                                    handle: Rectangle {
+                                        x: zoomSlider.leftPadding + zoomSlider.visualPosition * (zoomSlider.availableWidth - width)
+                                        y: zoomSlider.topPadding + zoomSlider.availableHeight / 2 - height / 2
+                                        implicitWidth: 14
+                                        implicitHeight: 14
+                                        radius: 7
+                                        color: root.colAccentPrimary
+                                        border.width: 1
+                                        border.color: root.colAccentSecondary
+                                    }
+                                }
+
+                                Label {
+                                    text: "+"
+                                    color: root.colText
+                                    font.family: root.dataFontFamily
+                                    font.pixelSize: 18
+                                    font.weight: 600
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: root.gridZoomLevel = Math.max(0, root.gridZoomLevel - 1)
+                                    }
+                                }
+                            }
+                        }
+
+                        Item { Layout.preferredWidth: 10 }
                         Item {
                             id: viewModeSwitch
                             Layout.preferredWidth: 132
@@ -1723,6 +1800,8 @@ ApplicationWindow {
     Component {
         id: gridComp
         ThumbnailGridView {
+            zoomLevel: root.gridZoomLevel
+            onZoomLevelChanged: root.gridZoomLevel = zoomLevel
             selectedImagesById: root.selectedImagesById
             exportQueueById: root.exportQueueById
             onImageSelectionChanged: function(elementId, imageId, fileName, selected) {

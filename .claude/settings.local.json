@@ -61,7 +61,19 @@
       "Bash(\"D:/Projects/pu-erh_lab/build/debug/alcedo_studio/tests/PipelineServiceTest.exe\")",
       "Bash(cmake --build D:/Projects/pu-erh_lab/build/debug --target OpenClProgramLibrary --parallel 8)",
       "Bash(cmd /c \"scripts\\\\msvc_env.cmd --build --preset win_debug --parallel 8 --target EditPipeline\")",
-      "Bash(call scripts\\\\msvc_env.cmd --build --preset win_debug --parallel 8)"
+      "Bash(call scripts\\\\msvc_env.cmd --build --preset win_debug --parallel 8)",
+      "Bash(cmake --build build/debug --target alcedo_main --parallel 4)",
+      "Bash(cmd /c \"D:\\\\Projects\\\\pu-erh_lab\\\\build\\\\run_build.cmd\")",
+      "Bash(cmd //c \"D:\\\\Projects\\\\pu-erh_lab\\\\build\\\\verify_build.cmd\")",
+      "Bash(cmd //c \"D:\\\\Projects\\\\pu-erh_lab\\\\scripts\\\\msvc_env.cmd --build --preset win_debug --parallel 4 --target thumbnail_service_test\")",
+      "Bash(cmake --build . --target help)",
+      "Bash(cmd //c \"D:\\\\Projects\\\\pu-erh_lab\\\\build\\\\build_test.cmd\")",
+      "Bash(cmd //c \"D:\\\\Projects\\\\pu-erh_lab\\\\build\\\\debug\\\\alcedo_studio\\\\tests\\\\ThumbnailServiceTest.exe\")",
+      "Bash(cmd //c \"D:\\\\Projects\\\\pu-erh_lab\\\\build\\\\build_test2.cmd\")",
+      "Bash(cmd //c \"D:\\\\Projects\\\\pu-erh_lab\\\\build\\\\build_test3.cmd\")",
+      "Bash(cmd //c \"D:\\\\Projects\\\\pu-erh_lab\\\\build\\\\run_test.cmd\")",
+      "Bash(cmd //c \"D:\\\\Projects\\\\pu-erh_lab\\\\build\\\\build_test4.cmd\")",
+      "Bash(taskkill //f //im ThumbnailServiceTest.exe)"
     ]
   }
 }

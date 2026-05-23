@@ -20,9 +20,37 @@ Item {
     property var selectedImagesById: ({})
     property var exportQueueById: ({})
 
+    // ── Zoom control ──────────────────────────────────────────────────
+    // zoomLevel maps to column counts: 2, 3, 4, 5, 6, 8, 11, 14
+    readonly property var zoomColumns: [2, 3, 4, 5, 6, 8, 11, 14]
+    // resolution tiers per zoom level (max edge px): 2048, 1024, 1024, 512, 512, 256, 256, 256
+    readonly property var zoomResolutionEdges: [2048, 1024, 1024, 512, 512, 256, 256, 256]
+    readonly property int zoomLevelCount: zoomColumns.length
+    property int zoomLevel: 4  // default: 6 columns
+
+    readonly property int columns: zoomColumns[Math.min(zoomLevel, zoomLevelCount - 1)]
+    readonly property int desiredMaxEdge: zoomResolutionEdges[Math.min(zoomLevel, zoomLevelCount - 1)]
+
     signal imageSelectionChanged(int elementId, int imageId, string fileName, bool selected)
     signal replaceSelection(var items)
     signal contextMenuRequested(var item, real sceneX, real sceneY)
+    signal zoomChanged(int zoomLevel)
+
+    onZoomLevelChanged: {
+        zoomChanged(zoomLevel)
+        updateCacheHint()
+    }
+    onWidthChanged: updateCacheHint()
+    onHeightChanged: updateCacheHint()
+
+    function updateCacheHint() {
+        if (grid.width <= 0 || grid.cellWidth <= 0 || grid.cellHeight <= 0) {
+            return
+        }
+        const cols = Math.max(1, Math.floor(grid.width / grid.cellWidth))
+        const rows = Math.max(1, Math.floor(grid.height / grid.cellHeight))
+        albumBackend.SetThumbnailCacheHint(cols * rows)
+    }
 
     function keyForElement(elementId) {
         return String(Number(elementId))
@@ -69,8 +97,8 @@ Item {
         model: albumBackend.thumbnails
         clip: true
         cacheBuffer: 0
-        cellWidth: 242
-        cellHeight: 240
+        cellWidth: Math.max(100, Math.floor((width - 12) / root.columns))
+        cellHeight: Math.max(96, cellWidth * 0.99)
         interactive: false
 
         delegate: Rectangle {
@@ -106,7 +134,7 @@ Item {
                 return
             }
             if (pinnedElementId !== 0 && pinnedImageId !== 0) {
-                albumBackend.SetThumbnailVisible(pinnedElementId, pinnedImageId, false)
+                albumBackend.SetThumbnailVisible(pinnedElementId, pinnedImageId, false, root.desiredMaxEdge)
             }
             pinnedElementId = elementId
             pinnedImageId = imageId
@@ -114,7 +142,7 @@ Item {
             liveThumbLoading = thumbLoading
             liveThumbMissingSource = thumbMissingSource
             if (pinnedElementId !== 0 && pinnedImageId !== 0) {
-                albumBackend.SetThumbnailVisible(pinnedElementId, pinnedImageId, true)
+                albumBackend.SetThumbnailVisible(pinnedElementId, pinnedImageId, true, root.desiredMaxEdge)
             }
         }
 
@@ -123,15 +151,15 @@ Item {
         onImageIdChanged: bindThumbnailLifetime()
         Component.onDestruction: {
             if (pinnedElementId !== 0 && pinnedImageId !== 0) {
-                albumBackend.SetThumbnailVisible(pinnedElementId, pinnedImageId, false)
+                albumBackend.SetThumbnailVisible(pinnedElementId, pinnedImageId, false, root.desiredMaxEdge)
             }
         }
 
             readonly property bool isSelected: root.isImageSelected(elementId)
             readonly property bool isHovered: overlay.hoveredIndex === index
 
-        width: 230
-        height: 224
+        width: grid.cellWidth - 12
+        height: grid.cellHeight - 16
         radius: appTheme.panelRadius
             color: isSelected ? root.cardBgSelected
                    : (isHovered ? root.cardBgHover : root.cardBg)
@@ -420,6 +448,15 @@ Item {
         onExited: hoveredIndex = -1
 
         onWheel: function(wheel) {
+            // Ctrl+Scroll → zoom, otherwise → scroll
+            if (wheel.modifiers & Qt.ControlModifier) {
+                const delta = wheel.angleDelta.y > 0 ? 1 : -1
+                root.zoomLevel = Math.max(0, Math.min(root.zoomLevelCount - 1,
+                                                       root.zoomLevel + delta))
+                wheel.accepted = true
+                return
+            }
+
             grid.contentY = Math.max(0, Math.min(
                 grid.contentHeight - grid.height,
                 grid.contentY - wheel.angleDelta.y))

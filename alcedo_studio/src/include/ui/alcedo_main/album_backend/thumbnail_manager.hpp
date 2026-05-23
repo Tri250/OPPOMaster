@@ -5,8 +5,10 @@
 #pragma once
 
 #include <QString>
+#include <atomic>
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <unordered_map>
 
 #include "type/type.hpp"
@@ -21,8 +23,10 @@ class ThumbnailManager {
  public:
   explicit ThumbnailManager(AlbumBackend& backend);
 
-  void SetThumbnailVisible(sl_element_id_t elementId, image_id_t imageId, bool visible);
-  void RequestThumbnail(sl_element_id_t elementId, image_id_t imageId);
+  void SetThumbnailVisible(sl_element_id_t elementId, image_id_t imageId, bool visible,
+                           uint32_t maxEdge = 1024);
+  void RequestThumbnail(sl_element_id_t elementId, image_id_t imageId,
+                         uint32_t maxEdge = 1024);
   void UpdateThumbnailState(sl_element_id_t elementId, const QString& dataUrl, bool loading,
                             bool missingSource);
   [[nodiscard]] bool IsThumbnailPinned(sl_element_id_t elementId) const;
@@ -38,6 +42,8 @@ class ThumbnailManager {
   AlbumBackend&                                 backend_;
   // TODO: Move pin ref-count tracking into ThumbnailService.
   std::unordered_map<sl_element_id_t, uint32_t> thumbnail_pin_ref_counts_{};
+  // Strategy B: active flags for in-flight thumbnail requests.
+  std::unordered_map<sl_element_id_t, std::shared_ptr<std::atomic<bool>>> thumbnail_active_flags_{};
 };
 
 }  // namespace alcedo::ui
