@@ -359,6 +359,26 @@ void CPUPipelineExecutor::SyncRawDecodeBackendToAccelerator() {
   raw["cuda"]        = accelerator_preference_ == AcceleratorBackendPreference::CUDA;
   raw["opencl"]      = accelerator_preference_ == AcceleratorBackendPreference::OpenCL;
   raw_stage.SetOperator(OperatorType::RAW_DECODE, params);
+  SyncRawDecodeRuntimeControls();
+}
+
+void CPUPipelineExecutor::SyncRawDecodeRuntimeControls() {
+  auto& raw_stage = stages_[static_cast<int>(PipelineStageName::Image_Loading)];
+  auto  entry     = raw_stage.GetOperator(OperatorType::RAW_DECODE);
+  if (!entry.has_value() || !entry.value() || !entry.value()->op_) {
+    return;
+  }
+
+  auto* raw_op = dynamic_cast<RawDecodeOp*>(entry.value()->op_.get());
+  if (!raw_op) {
+    return;
+  }
+  raw_op->SetCancelRequested(cancel_requested_);
+}
+
+void CPUPipelineExecutor::SetCancelRequested(std::function<bool()> cancel_requested) {
+  cancel_requested_ = std::move(cancel_requested);
+  SyncRawDecodeRuntimeControls();
 }
 
 void CPUPipelineExecutor::SetAcceleratorBackendPreference(
@@ -488,16 +508,20 @@ void CPUPipelineExecutor::SetResizeDownsampleAlgorithm(ResizeDownsampleAlgorithm
 }
 
 void CPUPipelineExecutor::SetDecodeRes(DecodeRes res) {
-  if (decode_res_ == res) {
-    return;
-  }
-  decode_res_     = res;
+  decode_res_ = res;
 
   // TODO: Abstraction leak, need better design later
   auto& raw_stage = GetStage(PipelineStageName::Image_Loading);
   auto  raw_param = raw_stage.GetOperator(OperatorType::RAW_DECODE).value()->ExportOperatorParams();
-  raw_param["params"]["raw"]["decode_res"] = static_cast<int>(res);
-  raw_stage.SetOperator(OperatorType::RAW_DECODE, raw_param["params"]);
+  auto& params = raw_param["params"];
+  if (!params.contains("raw") || !params["raw"].is_object()) {
+    params["raw"] = nlohmann::json::object();
+  }
+  if (params["raw"].value("decode_res", -1) != static_cast<int>(res)) {
+    params["raw"]["decode_res"] = static_cast<int>(res);
+    raw_stage.SetOperator(OperatorType::RAW_DECODE, raw_param["params"]);
+  }
+  SyncRawDecodeRuntimeControls();
 }
 
 auto CPUPipelineExecutor::GetViewportRenderRegion() const -> std::optional<ViewportRenderRegion> {

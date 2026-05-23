@@ -101,6 +101,7 @@ void PipelineTask::SetExecutorRenderParams() {
   if (!pipeline_executor_) {
     return;
   }
+  pipeline_executor_->SetCancelRequested(cancel_requested_);
   auto& desc = options_.render_desc_;
   const auto requested_render_type = desc.render_type_;
 
@@ -249,6 +250,7 @@ void PipelineTask::ResetPreviewRenderParams() {
   pipeline_executor_->SetForceCPUOutput(false);
   pipeline_executor_->SetEnableCache(true);
   pipeline_executor_->SetDecodeRes(DecodeRes::FULL);
+  pipeline_executor_->SetCancelRequested(nullptr);
   pipeline_executor_->ReleasePreviewGpuScratch();
 }
 
@@ -262,6 +264,8 @@ void PipelineTask::ResetThumbnailRenderParams() {
   pipeline_executor_->SetForceCPUOutput(false);
   pipeline_executor_->SetEnableCache(true);
   pipeline_executor_->SetDecodeRes(DecodeRes::FULL);
+  pipeline_executor_->SetCancelRequested(nullptr);
+  pipeline_executor_->ClearAllIntermediateBuffers();
 }
 
 PipelineScheduler::PipelineScheduler() : thread_pool_(1) {}

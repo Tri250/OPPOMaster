@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -34,6 +35,7 @@ class CPUPipelineExecutor : public PipelineExecutor {
 
   bool                             force_cpu_output_                                        = false;
   DecodeRes                        decode_res_    = DecodeRes::FULL;
+  std::function<bool()>            cancel_requested_;
   AcceleratorBackendPreference     accelerator_preference_ =
       AcceleratorBackendPreference::Auto;
   GpuBackendKind                   resolved_accelerator_backend_ = GpuBackendKind::None;
@@ -54,6 +56,7 @@ class CPUPipelineExecutor : public PipelineExecutor {
   void                             ResolveAcceleratorBackend();
   void                             ApplyAcceleratorBackendToStages();
   void                             SyncRawDecodeBackendToAccelerator();
+  void                             SyncRawDecodeRuntimeControls();
 
  public:
   CPUPipelineExecutor();
@@ -66,6 +69,7 @@ class CPUPipelineExecutor : public PipelineExecutor {
   auto GetBackend() -> PipelineBackend override;
 
   void SetForceCPUOutput(bool force) override { force_cpu_output_ = force; }
+  void SetCancelRequested(std::function<bool()> cancel_requested);
 
   void SetAcceleratorBackendPreference(AcceleratorBackendPreference preference);
   [[nodiscard]] auto GetAcceleratorBackendPreference() const

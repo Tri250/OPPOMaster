@@ -483,7 +483,10 @@ void ThumbnailService::ResizeCache(uint32_t desired_capacity) {
   }
 
   const uint32_t effective_capacity = std::max(capacity, pinned_count);
-  st->thumbnail_cache_.Resize(effective_capacity);
+  const auto     evicted_keys = st->thumbnail_cache_.Resize_WithEvict(effective_capacity);
+  for (const auto& evicted_key : evicted_keys) {
+    HandleEvict(*st, evicted_key);
+  }
 }
 
 void ThumbnailService::HandleEvict(State& st, std::optional<ThumbnailCacheKey> evicted_key) {
@@ -500,11 +503,6 @@ void ThumbnailService::HandleEvict(State& st, std::optional<ThumbnailCacheKey> e
         st.thumbnail_cache_.Resize(static_cast<uint32_t>(st.thumbnail_cache_data_.size() + 5));
         st.thumbnail_cache_.RecordAccess(key, key);
       }
-    }
-  } else {
-    // No eviction happened, check cache size.
-    if (st.thumbnail_cache_data_.size() > State::default_cache_size_) {
-      st.thumbnail_cache_.Resize(static_cast<uint32_t>(st.thumbnail_cache_data_.size() - 1));
     }
   }
 }

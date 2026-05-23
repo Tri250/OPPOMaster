@@ -11,6 +11,7 @@
 #include <memory>
 #include <unordered_map>
 
+#include "app/thumbnail_service.hpp"
 #include "type/type.hpp"
 
 
@@ -30,10 +31,16 @@ class ThumbnailManager {
   void UpdateThumbnailState(sl_element_id_t elementId, const QString& dataUrl, bool loading,
                             bool missingSource);
   [[nodiscard]] bool IsThumbnailPinned(sl_element_id_t elementId) const;
- void               RemoveThumbnailState(sl_element_id_t elementId, image_id_t imageId);
+  void               RemoveThumbnailState(sl_element_id_t elementId, image_id_t imageId);
   void               ReleaseVisibleThumbnailPins();
 
  private:
+  struct PinnedThumbnailState {
+    uint32_t            ref_count_  = 0;
+    image_id_t          image_id_    = 0;
+    ThumbnailResolution resolution_  = ThumbnailResolution::k1024;
+  };
+
   [[nodiscard]] auto ResolveThumbnailSourcePath(sl_element_id_t elementId,
                                                 image_id_t imageId) const
       -> std::filesystem::path;
@@ -41,7 +48,7 @@ class ThumbnailManager {
 
   AlbumBackend&                                 backend_;
   // TODO: Move pin ref-count tracking into ThumbnailService.
-  std::unordered_map<sl_element_id_t, uint32_t> thumbnail_pin_ref_counts_{};
+  std::unordered_map<sl_element_id_t, PinnedThumbnailState> thumbnail_pins_{};
   // Strategy B: active flags for in-flight thumbnail requests.
   std::unordered_map<sl_element_id_t, std::shared_ptr<std::atomic<bool>>> thumbnail_active_flags_{};
 };

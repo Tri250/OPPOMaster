@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <functional>
 #include <memory>
 
 #include "decoders/processor/raw_processor.hpp"
@@ -25,12 +26,16 @@ class RawDecodeOp : public OperatorBase<RawDecodeOp> {
   RawProcessBackend                  backend_ = RawProcessBackend::ALCEDO;
   RawRuntimeColorContext             latest_runtime_context_;
   RawRuntimeColorContext             pre_populated_ctx_;
+  std::function<bool()>              cancel_requested_;
 
   RawDecodeOp() = delete;
 
   RawDecodeOp(const nlohmann::json& params);
 
   void SetPrePopulatedContext(const RawRuntimeColorContext& ctx) { pre_populated_ctx_ = ctx; }
+  void SetCancelRequested(std::function<bool()> cancel_requested) {
+    cancel_requested_ = std::move(cancel_requested);
+  }
 
   void Apply(std::shared_ptr<ImageBuffer> input) override;
   void ApplyGPU(std::shared_ptr<ImageBuffer> input) override;

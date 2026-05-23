@@ -30,6 +30,14 @@ Item {
 
     readonly property int columns: zoomColumns[Math.min(zoomLevel, zoomLevelCount - 1)]
     readonly property int desiredMaxEdge: zoomResolutionEdges[Math.min(zoomLevel, zoomLevelCount - 1)]
+    readonly property bool compactText: columns >= 8
+    readonly property bool hideMetadata: columns >= 8
+    readonly property bool hideAllText: columns >= 14
+    readonly property int cardInset: columns >= 11 ? 4 : (columns >= 8 ? 6 : 8)
+    readonly property int delegateGap: columns >= 11 ? 4 : (columns >= 8 ? 6 : 12)
+    readonly property int textAreaHeight: hideAllText ? 0 : (hideMetadata ? 18 : 42)
+    readonly property int titleFontSize: columns >= 11 ? 9 : (columns >= 8 ? 10 : 12)
+    readonly property int metadataFontSize: columns >= 8 ? 8 : 10
 
     signal imageSelectionChanged(int elementId, int imageId, string fileName, bool selected)
     signal replaceSelection(var items)
@@ -42,6 +50,32 @@ Item {
     }
     onWidthChanged: updateCacheHint()
     onHeightChanged: updateCacheHint()
+
+    function maxContentY() {
+        return Math.max(0, grid.contentHeight - grid.height)
+    }
+
+    function clampContentY() {
+        grid.contentY = Math.max(0, Math.min(maxContentY(), grid.contentY))
+    }
+
+    function setZoomLevelAt(nextZoomLevel, focusViewportY) {
+        const clamped = Math.max(0, Math.min(zoomLevelCount - 1, nextZoomLevel))
+        if (clamped === zoomLevel) {
+            return
+        }
+
+        const oldHeight = Math.max(1, grid.contentHeight)
+        const focusY = Math.max(0, Math.min(grid.height, focusViewportY))
+        const focusRatio = (grid.contentY + focusY) / oldHeight
+        zoomLevel = clamped
+        Qt.callLater(function() {
+            grid.forceLayout()
+            grid.contentY = Math.max(0, Math.min(maxContentY(),
+                                                 focusRatio * grid.contentHeight - focusY))
+            updateCacheHint()
+        })
+    }
 
     function updateCacheHint() {
         if (grid.width <= 0 || grid.cellWidth <= 0 || grid.cellHeight <= 0) {
@@ -97,9 +131,15 @@ Item {
         model: albumBackend.thumbnails
         clip: true
         cacheBuffer: 0
-        cellWidth: Math.max(100, Math.floor((width - 12) / root.columns))
-        cellHeight: Math.max(96, cellWidth * 0.99)
+        cellWidth: Math.max(72, Math.floor(width / root.columns))
+        cellHeight: Math.max(64, Math.round((cellWidth - root.cardInset * 2) * 2 / 3
+                                            + root.textAreaHeight
+                                            + root.cardInset * 2
+                                            + root.delegateGap))
         interactive: false
+        onContentHeightChanged: root.clampContentY()
+        onHeightChanged: root.clampContentY()
+        onCellHeightChanged: root.clampContentY()
 
         delegate: Rectangle {
             id: cardDelegate
@@ -124,43 +164,57 @@ Item {
         onThumbMissingSourceChanged: liveThumbMissingSource = thumbMissingSource
         property int pinnedElementId: 0
         property int pinnedImageId: 0
+        property int pinnedMaxEdge: 0
         readonly property bool thumbnailReady: liveThumbUrl.length > 0
         readonly property bool thumbnailLoadingState: liveThumbLoading
         readonly property bool thumbnailMissingState: !thumbnailReady && !thumbnailLoadingState && liveThumbMissingSource
         readonly property bool thumbnailIdleState: !thumbnailReady && !thumbnailLoadingState && !thumbnailMissingState
 
-        function bindThumbnailLifetime() {
-            if (pinnedElementId === elementId && pinnedImageId === imageId) {
+        function releasePinnedThumbnail() {
+            if (pinnedElementId !== 0 && pinnedImageId !== 0) {
+                albumBackend.SetThumbnailVisible(pinnedElementId, pinnedImageId, false,
+                                                 pinnedMaxEdge > 0 ? pinnedMaxEdge : root.desiredMaxEdge)
+            }
+            pinnedElementId = 0
+            pinnedImageId = 0
+            pinnedMaxEdge = 0
+        }
+
+        function bindThumbnailLifetime(force) {
+            if (!force && pinnedElementId === elementId && pinnedImageId === imageId
+                    && pinnedMaxEdge === root.desiredMaxEdge) {
                 return
             }
-            if (pinnedElementId !== 0 && pinnedImageId !== 0) {
-                albumBackend.SetThumbnailVisible(pinnedElementId, pinnedImageId, false, root.desiredMaxEdge)
-            }
+            releasePinnedThumbnail()
             pinnedElementId = elementId
             pinnedImageId = imageId
+            pinnedMaxEdge = root.desiredMaxEdge
             liveThumbUrl = thumbUrl
             liveThumbLoading = thumbLoading
             liveThumbMissingSource = thumbMissingSource
             if (pinnedElementId !== 0 && pinnedImageId !== 0) {
-                albumBackend.SetThumbnailVisible(pinnedElementId, pinnedImageId, true, root.desiredMaxEdge)
+                albumBackend.SetThumbnailVisible(pinnedElementId, pinnedImageId, true, pinnedMaxEdge)
             }
         }
 
-        Component.onCompleted: bindThumbnailLifetime()
-        onElementIdChanged: bindThumbnailLifetime()
-        onImageIdChanged: bindThumbnailLifetime()
-        Component.onDestruction: {
-            if (pinnedElementId !== 0 && pinnedImageId !== 0) {
-                albumBackend.SetThumbnailVisible(pinnedElementId, pinnedImageId, false, root.desiredMaxEdge)
+        Component.onCompleted: bindThumbnailLifetime(false)
+        onElementIdChanged: bindThumbnailLifetime(false)
+        onImageIdChanged: bindThumbnailLifetime(false)
+        Component.onDestruction: releasePinnedThumbnail()
+
+        Connections {
+            target: root
+            function onDesiredMaxEdgeChanged() {
+                cardDelegate.bindThumbnailLifetime(true)
             }
         }
 
             readonly property bool isSelected: root.isImageSelected(elementId)
             readonly property bool isHovered: overlay.hoveredIndex === index
 
-        width: grid.cellWidth - 12
-        height: grid.cellHeight - 16
-        radius: appTheme.panelRadius
+        width: grid.cellWidth - root.delegateGap
+        height: grid.cellHeight - root.delegateGap
+        radius: root.columns >= 11 ? 6 : appTheme.panelRadius
             color: isSelected ? root.cardBgSelected
                    : (isHovered ? root.cardBgHover : root.cardBg)
             border.width: isSelected ? 2 : 0
@@ -184,15 +238,16 @@ Item {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.top: parent.top
-                anchors.margins: 8
-                height: width * 2 / 3
+                anchors.margins: root.cardInset
+                height: Math.max(48, parent.height - root.textAreaHeight - root.cardInset * 2
+                                 - (root.textAreaHeight > 0 ? 4 : 0))
                 clip: true
 
                 Rectangle {
                     anchors.fill: parent
-                    radius: 10
+                    radius: root.columns >= 11 ? 5 : 10
                     color: appTheme.bgBaseColor
-                    border.width: 2
+                    border.width: root.columns >= 11 ? 1 : 2
                     border.color: appTheme.dividerColor
                 }
                 BusyIndicator {
@@ -215,7 +270,7 @@ Item {
                 Rectangle {
                     id: thumbMask
                     anchors.fill: thumbImage
-                    radius: 8
+                    radius: root.columns >= 11 ? 4 : 8
                     visible: false
                     layer.enabled: true
                 }
@@ -256,36 +311,44 @@ Item {
         }
 
         Column {
+            id: textColumn
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
-            anchors.margins: 8
-            spacing: 2
+            anchors.margins: root.cardInset
+            height: root.textAreaHeight
+            visible: root.textAreaHeight > 0
+            spacing: root.compactText ? 0 : 2
             Label {
+                visible: !root.hideAllText
                 text: fileName
                 color: root.cardText
                 font.family: appTheme.dataFontFamily
-                font.pixelSize: 12
+                font.pixelSize: root.titleFontSize
                 font.weight: root.dataFontWeight
                 font.letterSpacing: root.dataLetterSpacing
                 elide: Text.ElideRight
                 width: parent.width
+                height: root.compactText ? root.textAreaHeight : implicitHeight
+                verticalAlignment: Text.AlignVCenter
             }
             Label {
+                visible: !root.hideMetadata
                 text: qsTr("%1 | ISO %2 | f/%3").arg(cameraModel).arg(iso).arg(aperture)
                 color: root.cardMuted
                 font.family: appTheme.dataFontFamily
-                font.pixelSize: 10
+                font.pixelSize: root.metadataFontSize
                 font.weight: root.dataFontWeight
                 font.letterSpacing: root.dataLetterSpacing
                 elide: Text.ElideRight
                 width: parent.width
             }
             Label {
+                visible: !root.hideMetadata
                 text: qsTr("%1 | Rating %2/5").arg(captureDate).arg(rating)
                 color: root.cardMuted
                 font.family: appTheme.dataFontFamily
-                font.pixelSize: 10
+                font.pixelSize: root.metadataFontSize
                 font.weight: root.dataFontWeight
                 font.letterSpacing: root.dataLetterSpacing
                 elide: Text.ElideRight
@@ -451,14 +514,13 @@ Item {
             // Ctrl+Scroll → zoom, otherwise → scroll
             if (wheel.modifiers & Qt.ControlModifier) {
                 const delta = wheel.angleDelta.y > 0 ? 1 : -1
-                root.zoomLevel = Math.max(0, Math.min(root.zoomLevelCount - 1,
-                                                       root.zoomLevel + delta))
+                root.setZoomLevelAt(root.zoomLevel + delta, wheel.y)
                 wheel.accepted = true
                 return
             }
 
             grid.contentY = Math.max(0, Math.min(
-                grid.contentHeight - grid.height,
+                root.maxContentY(),
                 grid.contentY - wheel.angleDelta.y))
             if (isDragging) {
                 applyRubberBandSelection()

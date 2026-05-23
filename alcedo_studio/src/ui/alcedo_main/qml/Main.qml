@@ -123,7 +123,8 @@ ApplicationWindow {
         - contentRowSpacingTotal
         - 5)
     property bool gridMode: true
-    property int gridZoomLevel: 4  // 0..7, maps to column counts 2/3/4/5/6/8/11/14
+    readonly property int defaultGridZoomLevel: 4
+    property int gridZoomLevel: defaultGridZoomLevel  // 0..7, maps to column counts 2/3/4/5/6/8/11/14
     readonly property bool backendInteractive: albumBackend.serviceReady && !albumBackend.projectLoading
     readonly property var selectedImagesById: selectionState.selectedImagesById
     readonly property var exportQueueById: exportQueueState.exportQueueById
@@ -1125,6 +1126,11 @@ ApplicationWindow {
                         Item {
                             Layout.preferredWidth: 180
                             Layout.preferredHeight: 36
+
+                            TapHandler {
+                                acceptedButtons: Qt.LeftButton
+                                onDoubleTapped: root.gridZoomLevel = root.defaultGridZoomLevel
+                            }
 
                             RowLayout {
                                 anchors.fill: parent

@@ -12,6 +12,7 @@
 #include <QMetaObject>
 #include <QPointer>
 
+#include <algorithm>
 #include <atomic>
 #include <filesystem>
 #include <system_error>
@@ -81,37 +82,61 @@ void ThumbnailManager::SetThumbnailVisible(sl_element_id_t elementId, image_id_t
   }
 
   auto thumb_svc = backend_.project_handler_.thumbnail_service();
+  const auto resolution = NearestResolutionTier(maxEdge);
 
   if (visible) {
     if (!thumb_svc) {
       return;
     }
-    auto& ref = thumbnail_pin_ref_counts_[elementId];
-    ref++;
-    if (ref == 1) {
-      const auto* item = backend_.FindAlbumItem(elementId);
-      const bool known_missing = item != nullptr && item->thumb_missing_source;
-      const auto source_path = ResolveThumbnailSourcePath(elementId, imageId);
-      if (known_missing && !source_path.empty() && !PathExists(source_path)) {
-        UpdateThumbnailState(elementId, QString(), false, true);
+
+    auto pin_it = thumbnail_pins_.find(elementId);
+    if (pin_it != thumbnail_pins_.end()) {
+      auto& pin = pin_it->second;
+      if (pin.image_id_ == imageId && pin.resolution_ == resolution) {
+        pin.ref_count_++;
         return;
       }
-      RequestThumbnail(elementId, imageId, maxEdge);
+
+      if (auto flag_it = thumbnail_active_flags_.find(elementId);
+          flag_it != thumbnail_active_flags_.end() && flag_it->second) {
+        flag_it->second->store(false);
+      }
+      thumbnail_active_flags_.erase(elementId);
+      try {
+        thumb_svc->CancelPending(elementId);
+        thumb_svc->InvalidateThumbnail(elementId);
+      } catch (...) {
+      }
+      pin.image_id_ = imageId;
+      pin.resolution_ = resolution;
+    } else {
+      thumbnail_pins_[elementId] = {.ref_count_ = 1,
+                                    .image_id_ = imageId,
+                                    .resolution_ = resolution};
     }
+
+    const auto* item = backend_.FindAlbumItem(elementId);
+    const bool known_missing = item != nullptr && item->thumb_missing_source;
+    const auto source_path = ResolveThumbnailSourcePath(elementId, imageId);
+    if (known_missing && !source_path.empty() && !PathExists(source_path)) {
+      UpdateThumbnailState(elementId, QString(), false, true);
+      return;
+    }
+    RequestThumbnail(elementId, imageId, maxEdge);
     return;
   }
 
-  const auto it = thumbnail_pin_ref_counts_.find(elementId);
-  if (it == thumbnail_pin_ref_counts_.end()) {
+  const auto it = thumbnail_pins_.find(elementId);
+  if (it == thumbnail_pins_.end()) {
     return;
   }
 
-  if (it->second > 1) {
-    it->second--;
+  if (it->second.ref_count_ > 1) {
+    it->second.ref_count_--;
     return;
   }
 
-  thumbnail_pin_ref_counts_.erase(it);
+  thumbnail_pins_.erase(it);
 
   // Strategy B: mark any in-flight request for this element as inactive.
   {
@@ -128,7 +153,7 @@ void ThumbnailManager::SetThumbnailVisible(sl_element_id_t elementId, image_id_t
   if (thumb_svc) {
     try {
       thumb_svc->CancelPending(elementId);
-      thumb_svc->ReleaseThumbnail(elementId);
+      thumb_svc->InvalidateThumbnail(elementId);
     } catch (...) {
     }
   }
@@ -172,7 +197,8 @@ void ThumbnailManager::RequestThumbnail(sl_element_id_t elementId, image_id_t im
 
   service->GetThumbnail(
       elementId, imageId,
-      [self, service, elementId, imageId, is_active](std::shared_ptr<ThumbnailGuard> guard) {
+      [self, service, elementId, imageId, maxEdge,
+       is_active](std::shared_ptr<ThumbnailGuard> guard) {
         // Strategy B: skip QImage conversion if this request was cancelled.
         if (!is_active || !is_active->load()) {
           return;
@@ -202,7 +228,8 @@ void ThumbnailManager::RequestThumbnail(sl_element_id_t elementId, image_id_t im
           return;
         }
 
-        std::thread([self, service, elementId, is_active, guard = std::move(guard)]() mutable {
+        std::thread([self, service, elementId, maxEdge, is_active,
+                     guard = std::move(guard)]() mutable {
           // Strategy B: re-check before expensive conversion.
           if (!is_active || !is_active->load()) {
             return;
@@ -218,7 +245,8 @@ void ThumbnailManager::RequestThumbnail(sl_element_id_t elementId, image_id_t im
               if (buffer->cpu_data_valid_) {
                 QImage image = album_util::MatRgba32fToQImageCopy(buffer->GetCPUData());
                 if (!image.isNull()) {
-                  QImage scaled = image.scaled(220, 160, Qt::KeepAspectRatio,
+                  const int scaled_max_edge = static_cast<int>(std::max<uint32_t>(1, maxEdge));
+                  QImage scaled = image.scaled(scaled_max_edge, scaled_max_edge, Qt::KeepAspectRatio,
                                                Qt::SmoothTransformation);
                   dataUrl = album_util::DataUrlFromImage(scaled);
                 }
@@ -293,8 +321,8 @@ void ThumbnailManager::UpdateThumbnailState(sl_element_id_t elementId, const QSt
 }
 
 bool ThumbnailManager::IsThumbnailPinned(sl_element_id_t elementId) const {
-  const auto it = thumbnail_pin_ref_counts_.find(elementId);
-  return it != thumbnail_pin_ref_counts_.end() && it->second > 0;
+  const auto it = thumbnail_pins_.find(elementId);
+  return it != thumbnail_pins_.end() && it->second.ref_count_ > 0;
 }
 
 void ThumbnailManager::RemoveThumbnailState(sl_element_id_t elementId, image_id_t imageId) {
@@ -303,7 +331,7 @@ void ThumbnailManager::RemoveThumbnailState(sl_element_id_t elementId, image_id_
     return;
   }
 
-  thumbnail_pin_ref_counts_.erase(elementId);
+  thumbnail_pins_.erase(elementId);
 
   // Strategy B: invalidate active flag.
   {
@@ -322,23 +350,20 @@ void ThumbnailManager::RemoveThumbnailState(sl_element_id_t elementId, image_id_
   }
 
   try {
+    thumb_svc->CancelPending(elementId);
     thumb_svc->InvalidateThumbnail(elementId);
-  } catch (...) {
-  }
-  try {
-    thumb_svc->ReleaseThumbnail(elementId);
   } catch (...) {
   }
 }
 
 void ThumbnailManager::ReleaseVisibleThumbnailPins() {
-  if (thumbnail_pin_ref_counts_.empty()) {
+  if (thumbnail_pins_.empty()) {
     return;
   }
 
   auto thumb_svc = backend_.project_handler_.thumbnail_service();
 
-  for (const auto& [id, _] : thumbnail_pin_ref_counts_) {
+  for (const auto& [id, _] : thumbnail_pins_) {
     auto* item = backend_.FindAlbumItem(id);
     if (item) {
       item->thumb_data_url.clear();
@@ -356,12 +381,12 @@ void ThumbnailManager::ReleaseVisibleThumbnailPins() {
     if (thumb_svc) {
       try {
         thumb_svc->CancelPending(id);
-        thumb_svc->ReleaseThumbnail(id);
+        thumb_svc->InvalidateThumbnail(id);
       } catch (...) {
       }
     }
   }
-  thumbnail_pin_ref_counts_.clear();
+  thumbnail_pins_.clear();
   thumbnail_active_flags_.clear();
 }
 

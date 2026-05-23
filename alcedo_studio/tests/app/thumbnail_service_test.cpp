@@ -32,6 +32,7 @@
 #include "io/image/image_loader.hpp"
 #include "renderer/pipeline_scheduler.hpp"
 #include "type/type.hpp"
+#include "utils/cache/lru_cache.hpp"
 #include "utils/clock/time_provider.hpp"
 #ifdef HAVE_METAL
 #include "image/metal_image.hpp"
@@ -654,6 +655,58 @@ class ThumbnailServiceTests : public ::testing::Test {
 #endif
   }
 };
+
+TEST(ThumbnailCacheUtilityTest, ResizeWithEvictDropsLruRecordsImmediately) {
+  LRUCache<int, int> cache(4);
+  cache.RecordAccess(1, 1);
+  cache.RecordAccess(2, 2);
+  cache.RecordAccess(3, 3);
+  cache.RecordAccess(4, 4);
+
+  const auto evicted = cache.Resize_WithEvict(2);
+
+  ASSERT_EQ(evicted.size(), 2u);
+  EXPECT_EQ(evicted[0], 1);
+  EXPECT_EQ(evicted[1], 2);
+  EXPECT_FALSE(cache.Contains(1));
+  EXPECT_FALSE(cache.Contains(2));
+  EXPECT_TRUE(cache.Contains(3));
+  EXPECT_TRUE(cache.Contains(4));
+}
+
+TEST_F(ThumbnailServiceTests, ThumbnailTaskPropagatesDecodeResolutionToRawOperator) {
+  auto exec = std::make_shared<CPUPipelineExecutor>(false);
+
+  PipelineTask task;
+  task.pipeline_executor_ = exec;
+  task.options_.render_desc_.render_type_ = RenderType::THUMBNAIL;
+  task.options_.render_desc_.max_edge_ = 256;
+  task.options_.render_desc_.decode_res_ = DecodeRes::EIGHTH;
+
+  task.SetExecutorRenderParams();
+
+  auto& raw_stage = exec->GetStage(PipelineStageName::Image_Loading);
+  auto raw_entry = raw_stage.GetOperator(OperatorType::RAW_DECODE);
+  ASSERT_TRUE(raw_entry.has_value());
+  ASSERT_NE(raw_entry.value(), nullptr);
+  ASSERT_NE(raw_entry.value()->op_, nullptr);
+  const auto params = raw_entry.value()->op_->GetParams();
+  ASSERT_TRUE(params.contains("raw"));
+  EXPECT_EQ(params["raw"].value("decode_res", -1), static_cast<int>(DecodeRes::EIGHTH));
+
+  task.options_.render_desc_.max_edge_ = 512;
+  task.options_.render_desc_.decode_res_ = DecodeRes::QUARTER;
+  task.SetExecutorRenderParams();
+  raw_entry = raw_stage.GetOperator(OperatorType::RAW_DECODE);
+  ASSERT_TRUE(raw_entry.has_value());
+  ASSERT_NE(raw_entry.value(), nullptr);
+  ASSERT_NE(raw_entry.value()->op_, nullptr);
+  const auto updated_params = raw_entry.value()->op_->GetParams();
+  EXPECT_EQ(updated_params["raw"].value("decode_res", -1),
+            static_cast<int>(DecodeRes::QUARTER));
+
+  task.ResetThumbnailRenderParams();
+}
 
 TEST_F(ThumbnailServiceTests, DISABLED_GenerateThumbnailAndCallbacks) {
   ProjectService            project(db_path_, meta_path_);
