@@ -591,18 +591,39 @@ auto WritePackedProject(const std::filesystem::path& packedPath,
     }
     return false;
   }
-  const uint64_t db_checksum = XXH3_64bits(db_bytes.data(), db_bytes.size());
+  const uint64_t meta_size = static_cast<uint64_t>(meta_bytes.size());
+  const uint64_t db_size   = static_cast<uint64_t>(db_bytes.size());
 
-  try {
-    nlohmann::json metadata = nlohmann::json::parse(meta_bytes);
-    metadata["db_checksum_xxh3_64"] = FormatChecksum(db_checksum);
-    meta_bytes = metadata.dump(4);
-  } catch (...) {
-    if (errorOut) {
-      *errorOut = Tr("Project metadata JSON is invalid.");
-    }
-    return false;
+  // Build the fixed-width header prefix for checksum computation:
+  //   magic (8B) || version (4B LE) || meta_size (8B LE) || db_size (8B LE)
+  // The checksum covers this prefix plus meta_bytes, but not db_bytes.
+  std::string hash_input;
+  hash_input.reserve(kPackedProjectMagic.size() + 4 + 8 + 8 + meta_bytes.size());
+  hash_input.append(kPackedProjectMagic.data(), kPackedProjectMagic.size());
+  {
+    std::array<unsigned char, 4> bytes{};
+    bytes[0] = static_cast<unsigned char>(kPackedProjectVersion & 0xFFU);
+    bytes[1] = static_cast<unsigned char>((kPackedProjectVersion >> 8U) & 0xFFU);
+    bytes[2] = static_cast<unsigned char>((kPackedProjectVersion >> 16U) & 0xFFU);
+    bytes[3] = static_cast<unsigned char>((kPackedProjectVersion >> 24U) & 0xFFU);
+    hash_input.append(reinterpret_cast<const char*>(bytes.data()), bytes.size());
   }
+  {
+    std::array<unsigned char, 8> bytes{};
+    for (size_t i = 0; i < bytes.size(); ++i) {
+      bytes[i] = static_cast<unsigned char>((meta_size >> (i * 8ULL)) & 0xFFULL);
+    }
+    hash_input.append(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+  }
+  {
+    std::array<unsigned char, 8> bytes{};
+    for (size_t i = 0; i < bytes.size(); ++i) {
+      bytes[i] = static_cast<unsigned char>((db_size >> (i * 8ULL)) & 0xFFULL);
+    }
+    hash_input.append(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+  }
+  hash_input.append(meta_bytes);
+  const uint64_t checksum = XXH3_64bits(hash_input.data(), hash_input.size());
 
   if (!album_util::EnsureDirectoryExists(packedPath.parent_path())) {
     if (errorOut) {
@@ -623,11 +644,9 @@ auto WritePackedProject(const std::filesystem::path& packedPath,
 
   out.write(kPackedProjectMagic.data(),
             static_cast<std::streamsize>(kPackedProjectMagic.size()));
-  const uint64_t meta_checksum = XXH3_64bits(meta_bytes.data(), meta_bytes.size());
   if (!WriteU32Le(out, kPackedProjectVersion) ||
-      !WriteU64Le(out, static_cast<uint64_t>(meta_bytes.size())) ||
-      !WriteU64Le(out, static_cast<uint64_t>(db_bytes.size())) ||
-      !WriteU64Le(out, meta_checksum) || !WriteU64Le(out, db_checksum)) {
+      !WriteU64Le(out, meta_size) || !WriteU64Le(out, db_size) ||
+      !WriteU64Le(out, checksum)) {
     if (errorOut) {
       *errorOut = Tr("Failed to write packed project header.");
     }
@@ -706,10 +725,9 @@ auto ReadPackedProject(const std::filesystem::path& packedPath,
 
   uint64_t meta_size = 0;
   uint64_t db_size   = 0;
-  uint64_t meta_checksum = 0;
-  uint64_t db_checksum   = 0;
+  uint64_t checksum  = 0;
   if (!ReadU64Le(in, &meta_size) || !ReadU64Le(in, &db_size) ||
-      !ReadU64Le(in, &meta_checksum) || !ReadU64Le(in, &db_checksum)) {
+      !ReadU64Le(in, &checksum)) {
     if (errorOut) {
       *errorOut = Tr("Packed project header is corrupted.");
     }
@@ -752,8 +770,36 @@ auto ReadPackedProject(const std::filesystem::path& packedPath,
     return false;
   }
 
-  if (XXH3_64bits(metaBytes->data(), metaBytes->size()) != meta_checksum ||
-      XXH3_64bits(dbBytes->data(), dbBytes->size()) != db_checksum) {
+  // Rebuild the same hash input used during WritePackedProject:
+  //   magic (8B) || version (4B LE) || meta_size (8B LE) || db_size (8B LE) || meta_bytes
+  std::string hash_input;
+  hash_input.reserve(kPackedProjectMagic.size() + 4 + 8 + 8 + metaBytes->size());
+  hash_input.append(magic.data(), magic.size());
+  {
+    std::array<unsigned char, 4> bytes{};
+    bytes[0] = static_cast<unsigned char>(version & 0xFFU);
+    bytes[1] = static_cast<unsigned char>((version >> 8U) & 0xFFU);
+    bytes[2] = static_cast<unsigned char>((version >> 16U) & 0xFFU);
+    bytes[3] = static_cast<unsigned char>((version >> 24U) & 0xFFU);
+    hash_input.append(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+  }
+  {
+    std::array<unsigned char, 8> bytes{};
+    for (size_t i = 0; i < bytes.size(); ++i) {
+      bytes[i] = static_cast<unsigned char>((meta_size >> (i * 8ULL)) & 0xFFULL);
+    }
+    hash_input.append(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+  }
+  {
+    std::array<unsigned char, 8> bytes{};
+    for (size_t i = 0; i < bytes.size(); ++i) {
+      bytes[i] = static_cast<unsigned char>((db_size >> (i * 8ULL)) & 0xFFULL);
+    }
+    hash_input.append(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+  }
+  hash_input.append(*metaBytes);
+
+  if (XXH3_64bits(hash_input.data(), hash_input.size()) != checksum) {
     if (errorOut) {
       *errorOut = Tr("Packed project checksum verification failed.");
     }

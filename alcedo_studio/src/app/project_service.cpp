@@ -5,9 +5,9 @@
 #include "app/project_service.hpp"
 
 #include <array>
-#include <chrono>
 #include <fstream>
-#include <random>
+#include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <string_view>
 
@@ -62,120 +62,69 @@ auto IsSupportedProjectVersion(std::string_view version) -> bool {
          parsed >= min_supported && parsed <= max_supported;
 }
 
-auto BuildChecksumSnapshotPath() -> std::filesystem::path {
-  const auto temp_dir = std::filesystem::temp_directory_path() / "alcedo_main";
-  std::error_code ec;
-  std::filesystem::create_directories(temp_dir, ec);
-  if (ec) {
-    throw std::runtime_error("Failed to create temp directory for project checksum");
-  }
+// Collects lightweight diagnostic summary of the project database:
+// per-table row counts and min/max primary key ranges. This is NOT
+// a strong integrity check — mismatches produce a warning, not a
+// load failure. Use data_fingerprint (L3) for semantic verification.
+auto ComputeProjectDataSummary(StorageService& storage_service) -> nlohmann::json {
+  auto guard = storage_service.GetDBController().GetConnectionGuard();
 
-  const auto now =
-      static_cast<unsigned long long>(std::chrono::steady_clock::now().time_since_epoch().count());
-  std::mt19937_64 rng{std::random_device{}()};
-  for (int attempt = 0; attempt < 128; ++attempt) {
-    const auto candidate =
-        temp_dir / ("project_checksum_" + std::to_string(now) + "_" +
-                    std::to_string(rng() + static_cast<unsigned long long>(attempt)) + ".db");
-    if (!std::filesystem::exists(candidate, ec) || ec) {
-      return candidate;
+  auto query_int64 = [&](const std::string& sql) -> std::optional<int64_t> {
+    duckdb_result result;
+    if (duckdb_query(guard.conn_, sql.c_str(), &result) != DuckDBSuccess) {
+      duckdb_destroy_result(&result);
+      return std::nullopt;
     }
-  }
-  throw std::runtime_error("Failed to allocate temp project checksum path");
-}
-
-auto QueryCurrentCatalog(duckdb_connection conn) -> std::string {
-  duckdb_result result;
-  if (duckdb_query(conn, "SELECT current_catalog();", &result) != DuckDBSuccess) {
-    const char* err = duckdb_result_error(&result);
-    std::string msg = std::string("current_catalog query failed: ") + (err ? err : "unknown");
+    std::optional<int64_t> value;
+    if (duckdb_row_count(&result) > 0 && duckdb_column_count(&result) > 0) {
+      if (!duckdb_value_is_null(&result, 0, 0)) {
+        value = duckdb_value_int64(&result, 0, 0);
+      }
+    }
     duckdb_destroy_result(&result);
-    throw std::runtime_error(msg);
-  }
-  if (duckdb_row_count(&result) == 0 || duckdb_column_count(&result) == 0) {
-    duckdb_destroy_result(&result);
-    throw std::runtime_error("current_catalog query returned no rows");
-  }
-  const char* value = duckdb_value_varchar(&result, 0, 0);
-  if (value == nullptr || value[0] == '\0') {
-    if (value != nullptr) duckdb_free(const_cast<char*>(value));
-    duckdb_destroy_result(&result);
-    throw std::runtime_error("current_catalog query returned empty value");
-  }
-  std::string catalog = value;
-  duckdb_free(const_cast<char*>(value));
-  duckdb_destroy_result(&result);
-  return catalog;
-}
+    return value;
+  };
 
-void RunDuckDbQuery(duckdb_connection conn, const std::string& sql, const char* stage) {
-  duckdb_result result;
-  if (duckdb_query(conn, sql.c_str(), &result) != DuckDBSuccess) {
-    const char* err = duckdb_result_error(&result);
-    std::string msg = std::string(stage) + " failed: " + (err ? err : "unknown");
-    duckdb_destroy_result(&result);
-    throw std::runtime_error(msg);
-  }
-  duckdb_destroy_result(&result);
-}
+  struct TableInfo {
+    const char* name;
+    const char* pk_column;  // nullptr if no meaningful single numeric PK
+  };
+  static constexpr TableInfo kTables[] = {
+      {"Sleeve", "id"},         {"Image", "id"},        {"SleeveRoot", "id"},
+      {"Element", "id"},        {"FolderContent", nullptr}, {"FileImage", "file_id"},
+      {"ComboFolder", "combo_id"}, {"Filter", "combo_id"},  {"EditHistory", "file_id"},
+      {"Version", "hash"},      {"PipelineParam", "file_id"},
+  };
 
-// Computes the checksum of a live DuckDB database by creating a
-// logical snapshot (COPY FROM DATABASE) and hashing the snapshot file.
-// This avoids reading the live database file directly, which may be
-// locked on some platforms. LoadProject uses the same mechanism so
-// that the checksums are comparable.
-auto ComputeDatabaseChecksum(StorageService& storage_service) -> uint64_t {
-  const auto snapshot_path = BuildChecksumSnapshotPath();
-  std::error_code ec;
-  std::filesystem::remove(snapshot_path, ec);
+  nlohmann::json summary;
+  summary["version"] = 1;
+  nlohmann::json tables = nlohmann::json::object();
 
-  try {
-    auto guard = storage_service.GetDBController().GetConnectionGuard();
+  for (const auto& table : kTables) {
+    nlohmann::json entry;
 
-    RunDuckDbQuery(guard.conn_, "CHECKPOINT;", "CHECKPOINT");
+    auto count = query_int64(
+        std::string("SELECT COUNT(*) FROM \"") + table.name + "\"");
+    if (!count.has_value()) continue;
+    entry["rows"] = *count;
 
-    const std::string source_catalog = QueryCurrentCatalog(guard.conn_);
-    const std::string snapshot_utf8 = conv::ToBytes(snapshot_path.generic_wstring());
-
-    // Escape single-quotes by doubling them for DuckDB SQL string literals.
-    std::string escaped_path;
-    escaped_path.reserve(snapshot_utf8.size());
-    for (const char ch : snapshot_utf8) {
-      if (ch == '\'') escaped_path += "''";
-      else escaped_path += ch;
+    if (table.pk_column != nullptr) {
+      const std::string pk_str(table.pk_column);
+      auto min_val = query_int64(
+          std::string("SELECT MIN(\"") + pk_str + "\") FROM \"" + table.name + "\"");
+      auto max_val = query_int64(
+          std::string("SELECT MAX(\"") + pk_str + "\") FROM \"" + table.name + "\"");
+      if (min_val.has_value() && max_val.has_value()) {
+        entry["min_id"] = *min_val;
+        entry["max_id"] = *max_val;
+      }
     }
 
-    // Escape the catalog name as a SQL identifier (double-quotes).
-    std::string escaped_catalog;
-    escaped_catalog.reserve(source_catalog.size());
-    for (const char ch : source_catalog) {
-      if (ch == '"') escaped_catalog += "\"\"";
-      else escaped_catalog += ch;
-    }
-
-    RunDuckDbQuery(guard.conn_,
-                   "ATTACH '" + escaped_path + "' AS checksum_snapshot;",
-                   "ATTACH snapshot");
-    RunDuckDbQuery(guard.conn_,
-                   "COPY FROM DATABASE \"" + escaped_catalog + "\" TO checksum_snapshot;",
-                   "COPY FROM DATABASE");
-    RunDuckDbQuery(guard.conn_,
-                   "CHECKPOINT checksum_snapshot;",
-                   "CHECKPOINT snapshot");
-    RunDuckDbQuery(guard.conn_,
-                   "DETACH checksum_snapshot;",
-                   "DETACH snapshot");
-
-    uint64_t checksum = 0;
-    if (!project_pack::ComputeFileChecksum(snapshot_path, &checksum)) {
-      throw std::runtime_error("Failed to compute project database checksum");
-    }
-    std::filesystem::remove(snapshot_path, ec);
-    return checksum;
-  } catch (...) {
-    std::filesystem::remove(snapshot_path, ec);
-    throw;
+    tables[table.name] = entry;
   }
+
+  summary["tables"] = tables;
+  return summary;
 }
 
 }  // namespace
@@ -242,8 +191,7 @@ void ProjectService::SaveProject(const std::filesystem::path& meta_path) {
       std::string(project_pack::kMaxSupportedProjectFileVersion);
   metadata["start_id"]            = sleeve_service_->GetCurrentID();
   metadata["image_pool_start_id"] = pool_service_->GetCurrentID();
-  metadata["db_checksum_xxh3_64"] = project_pack::FormatChecksum(
-      ComputeDatabaseChecksum(*storage_service_));
+  metadata["data_summary"]        = ComputeProjectDataSummary(*storage_service_);
 
   std::ofstream file(meta_path_);
   if (!file.is_open()) {
@@ -291,11 +239,12 @@ void ProjectService::LoadProject(const std::filesystem::path& meta_path) {
     throw std::runtime_error("Project database file does not exist");
   }
 
-  bool has_checksum = metadata.contains("db_checksum_xxh3_64") &&
-                      metadata.at("db_checksum_xxh3_64").is_string();
-  std::string expected_checksum;
-  if (has_checksum) {
-    expected_checksum = metadata.at("db_checksum_xxh3_64").get<std::string>();
+  // Parse data_summary for diagnostic purposes — mismatch is a
+  // warning, not a load failure. Old projects carry db_checksum_xxh3_64
+  // instead; that field is silently ignored here.
+  std::optional<nlohmann::json> expected_summary;
+  if (metadata.contains("data_summary") && metadata.at("data_summary").is_object()) {
+    expected_summary = metadata.at("data_summary");
   }
 
   sl_element_id_t start_id = 0;
@@ -308,22 +257,20 @@ void ProjectService::LoadProject(const std::filesystem::path& meta_path) {
           ? static_cast<sl_element_id_t>(metadata.at("image_pool_start_id"))
           : 0;
 
-  // Open the database first so we can create a snapshot for checksum
-  // verification — matching how SaveProject computed the checksum.
   storage_service_ = std::make_shared<StorageService>(db_path_);
 
-  if (has_checksum) {
-    bool checksum_ok = false;
+  if (expected_summary.has_value()) {
     try {
-      const uint64_t db_checksum = ComputeDatabaseChecksum(*storage_service_);
-      checksum_ok = (project_pack::FormatChecksum(db_checksum) == expected_checksum);
+      nlohmann::json actual_summary = ComputeProjectDataSummary(*storage_service_);
+      if (actual_summary != *expected_summary) {
+        std::cerr << "[Alcedo] Project data summary differs from saved metadata. "
+                     "This may indicate data changes since the project was saved.\n";
+      }
+    } catch (const std::exception& e) {
+      std::cerr << "[Alcedo] Unable to compute project data summary for comparison: "
+                << e.what() << "\n";
     } catch (...) {
-      storage_service_.reset();
-      throw;
-    }
-    if (!checksum_ok) {
-      storage_service_.reset();
-      throw std::runtime_error("Project database checksum verification failed");
+      std::cerr << "[Alcedo] Unable to compute project data summary for comparison.\n";
     }
   }
 
