@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import com.omaster.app.data.ThemeMode
 
 private val DarkColorScheme = darkColorScheme(
     primary = AccentPrimary,
@@ -43,10 +44,16 @@ private val LightColorScheme = lightColorScheme(
 
 @Composable
 fun OMasterTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    themeMode: Int = ThemeMode.SYSTEM.value,
     dynamicColor: Boolean = true,
     content: @Composable () -> Unit
 ) {
+    val darkTheme = when (themeMode) {
+        ThemeMode.LIGHT.value -> false
+        ThemeMode.DARK.value -> true
+        else -> isSystemInDarkTheme()
+    }
+
     val colorScheme = when {
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             val context = LocalContext.current

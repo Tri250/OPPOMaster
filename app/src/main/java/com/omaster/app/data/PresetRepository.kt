@@ -3,15 +3,17 @@ package com.omaster.app.data
 import com.omaster.app.model.CameraParams
 import com.omaster.app.model.Preset
 import com.omaster.app.model.Section
+import com.omaster.app.network.PresetApi
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class PresetRepository @Inject constructor(
-    private val preferencesDataStore: PreferencesDataStore
+    private val preferencesDataStore: PreferencesDataStore,
+    private val presetApi: PresetApi?
 ) {
     private val samplePresets = listOf(
         Preset(
@@ -149,5 +151,23 @@ class PresetRepository @Inject constructor(
 
     fun getPresetById(id: String): Preset? {
         return samplePresets.find { it.id == id }
+    }
+
+    suspend fun fetchPresetsFromNetwork(): List<Preset>? {
+        return try {
+            presetApi?.let {
+                val response = it.getPresets()
+                if (response.isSuccessful) {
+                    Timber.d("成功从网络获取预设")
+                    response.body()
+                } else {
+                    Timber.e("网络请求失败: ${response.code()}")
+                    null
+                }
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "获取预设时发生错误")
+            null
+        }
     }
 }

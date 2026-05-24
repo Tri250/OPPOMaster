@@ -10,7 +10,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.omaster.app.data.PresetRepository
 import com.omaster.app.model.Preset
 import com.omaster.app.navigation.Screen
 import com.omaster.app.ui.screens.DetailScreen
@@ -29,7 +28,10 @@ class MainActivity : ComponentActivity() {
             Timber.plant(Timber.DebugTree())
         }
         setContent {
-            OMasterTheme {
+            val viewModel: MainViewModel = hiltViewModel()
+            val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+            
+            OMasterTheme(themeMode = themeMode) {
                 OMasterApp()
             }
         }
@@ -56,10 +58,10 @@ fun OMasterApp(
             )
         }
         composable(
-            route = "detail/{presetId}",
-            arguments = listOf(navArgument("presetId") { type = NavType.StringType })
+            route = "detail/{preset_id}",
+            arguments = listOf(navArgument("preset_id") { type = NavType.StringType })
         ) { backStackEntry ->
-            val presetId = backStackEntry.arguments?.getString("presetId")
+            val presetId = backStackEntry.arguments?.getString("preset_id")
             val viewModel: MainViewModel = hiltViewModel()
             val presets by viewModel.presets.collectAsStateWithLifecycle()
             val preset = presets.find { it.id == presetId }

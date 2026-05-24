@@ -2,6 +2,8 @@ package com.omaster.app.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.omaster.app.data.PreferencesDataStore
+import com.omaster.app.data.ThemeMode
 import com.omaster.app.data.PresetRepository
 import com.omaster.app.model.Preset
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -14,9 +16,13 @@ import javax.inject.Inject
 
 @HiltViewModel
 class MainViewModel @Inject constructor(
-    private val repository: PresetRepository
+    private val repository: PresetRepository,
+    private val preferencesDataStore: PreferencesDataStore
 ) : ViewModel() {
     val presets = repository.presets
+    val themeMode = preferencesDataStore.themeMode
+    val fluidCloudEnabled = preferencesDataStore.fluidCloudEnabled
+    val overlayEnabled = preferencesDataStore.overlayEnabled
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -50,6 +56,27 @@ class MainViewModel @Inject constructor(
 
     fun selectPreset(preset: Preset) {
         _selectedPreset.value = preset
+    }
+
+    fun setThemeMode(themeMode: ThemeMode) {
+        viewModelScope.launch {
+            preferencesDataStore.setThemeMode(themeMode)
+            Timber.d("Theme mode changed: $themeMode")
+        }
+    }
+
+    fun setFluidCloudEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            preferencesDataStore.setFluidCloudEnabled(enabled)
+            Timber.d("Fluid cloud enabled: $enabled")
+        }
+    }
+
+    fun setOverlayEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            preferencesDataStore.setOverlayEnabled(enabled)
+            Timber.d("Overlay enabled: $enabled")
+        }
     }
 }
 
