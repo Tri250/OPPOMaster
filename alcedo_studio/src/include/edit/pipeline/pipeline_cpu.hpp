@@ -88,10 +88,16 @@ class CPUPipelineExecutor : public PipelineExecutor {
   void SetPreviewMode(bool is_preview);
 
   void DetachFrameSink();
+
+  // Re-attach a frame sink without rebuilding execution stages.
+  // Must be called under render_lock_.
+  void AttachFrameSink(IFrameSink* frame_sink);
+
   void SetExecutionStages();
   void SetExecutionStages(IFrameSink* frame_sink);
   void ResetExecutionStages();
 
+  // Returns the raw frame sink pointer. Caller must hold render_lock_.
   auto GetFrameSink() const -> IFrameSink* { return frame_sink_; }
 
   auto GetViewportRenderRegion() const -> std::optional<ViewportRenderRegion>;

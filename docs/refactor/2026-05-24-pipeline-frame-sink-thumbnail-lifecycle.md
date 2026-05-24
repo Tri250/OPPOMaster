@@ -278,3 +278,57 @@ However, it does not yet make frame sink ownership clean.
 4. Complete Phase 1 by moving frame sink selection to render invocation/editor session state, or by
    adding a narrow executor API that temporarily renders without a sink without rebuilding execution
    stages or exposing raw sink pointers.
+
+## Phase 1 Follow-up: 2026-05-24 (same day)
+
+### Completed
+
+1. **Exception-safe sink restoration** (Finding 1):
+   - Added `CPUPipelineExecutor::AttachFrameSink(IFrameSink*)` — lightweight inverse of
+     `DetachFrameSink()` that sets the sink without rebuilding execution stages.
+   - Replaced the `restore_frame_sink` call to use `AttachFrameSink()` instead of
+     `SetExecutionStages()` (which was unnecessarily expensive).
+   - Added an RAII scope guard in `PipelineScheduler::ScheduleTask()` that guarantees sink
+     restoration on every exit path, including the outer `catch(...)` block.
+   - The scope guard uses `std::unique_ptr` with a non-null sentinel to ensure the deleter is
+     always invoked.
+
+2. **Locked raw sink access** (Finding 3):
+   - Documented `GetFrameSink()` as requiring `render_lock_` in the header.
+   - Documented `AttachFrameSink()` as requiring `render_lock_`.
+
+3. **Narrow executor API** (Next Step 4, partial):
+   - `AttachFrameSink()` provides a targeted API for re-attaching a sink without rebuilding
+     stages, replacing scheduler calls to `SetExecutionStages(saved_frame_sink)`.
+   - This is a meaningful improvement: `SetExecutionStages()` rebuilds the entire execution stage
+     vector; `AttachFrameSink()` just sets two pointers.
+
+4. **New tests** (6 new test cases in `pipeline_frame_sink_test.cpp`):
+   - `AttachFrameSinkSetsPointerWithoutRebuildingStages`
+   - `AttachDetachRoundTripWithoutStageRebuild`
+   - `DetachThenAttachPreservesSinkCalls`
+   - `SinkIsRestoredAfterExceptionDuringRender`
+   - `SinkIsRestoredAfterExceptionBeforeRender`
+   - `SinkIsNotRestoredIfNeverDetached`
+
+### Updated Phase 1 Acceptance Assessment
+
+- **Thumbnail rendering cannot call into an editor-owned `IFrameSink`**: satisfied via temporary
+  detach; now also exception-safe.
+- **Closing the editor while preview work is in flight cannot leave a dangling sink pointer**:
+  improved by lock-protected detach paths; unchanged from prior assessment.
+- **Reopening the editor or importing history cannot mutate execution stages concurrently with
+  render**: unchanged from prior assessment (`SetExecutionStages()` remains publicly callable
+  without lock enforcement).
+- **A cached pipeline can be reused for thumbnail/export/editor without carrying stale UI output
+  state**: improved — `AttachFrameSink` provides a lightweight sink swap without rebuilding
+  stages, but `frame_sink_` remains durable executor state. The preferred full decoupling
+  (making `IFrameSink` invocation-scoped) is deferred.
+
+### Remaining
+
+The `frame_sink_` member still persists on cached `CPUPipelineExecutor` instances. Full Phase 1
+completion would move frame sink binding from cached executor state to per-invocation render
+context (e.g., passing an optional `IFrameSink*` through `PipelineTask::options_` or a dedicated
+render context struct). The current hardening is sufficient to prevent the concrete crash paths,
+but future thumbnail/editor interactions may benefit from the cleaner model.

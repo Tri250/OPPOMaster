@@ -538,6 +538,13 @@ void CPUPipelineExecutor::DetachFrameSink() {
   }
 }
 
+void CPUPipelineExecutor::AttachFrameSink(IFrameSink* frame_sink) {
+  frame_sink_ = frame_sink;
+  if (!exec_stages_.empty()) {
+    exec_stages_.back()->SetFrameSink(frame_sink);
+  }
+}
+
 void CPUPipelineExecutor::SetNextFramePresentationMode(FramePresentationMode mode) const {
   if (!frame_sink_) {
     return;

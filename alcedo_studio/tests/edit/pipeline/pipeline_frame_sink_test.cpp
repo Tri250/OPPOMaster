@@ -175,6 +175,89 @@ TEST_F(PipelineFrameSinkTest, ReattachAfterDetachIsSafe) {
   EXPECT_EQ(exec->GetFrameSink(), &sink2);
 }
 
+TEST_F(PipelineFrameSinkTest, AttachFrameSinkSetsPointerWithoutRebuildingStages) {
+  // AttachFrameSink should set the sink on both the executor and the tail
+  // execution stage without tearing down and rebuilding the stage vector.
+  auto          exec = std::make_shared<CPUPipelineExecutor>();
+  MockFrameSink sink;
+
+  exec->SetExecutionStages();
+  EXPECT_EQ(exec->GetFrameSink(), nullptr);
+
+  {
+    std::unique_lock<std::mutex> lock(exec->GetRenderLock());
+    exec->AttachFrameSink(&sink);
+  }
+  EXPECT_EQ(exec->GetFrameSink(), &sink);
+
+  // Verify the sink delegates work — the tail stage should forward
+  // presentation metadata to the attached sink.
+  exec->SetNextFramePresentationMode(FramePresentationMode::RoiFrame);
+  EXPECT_EQ(sink.presentation_mode_calls_, 1);
+  EXPECT_EQ(sink.last_mode_, FramePresentationMode::RoiFrame);
+}
+
+TEST_F(PipelineFrameSinkTest, AttachDetachRoundTripWithoutStageRebuild) {
+  // Verify that AttachFrameSink / DetachFrameSink form a lightweight
+  // round-trip that does not require SetExecutionStages (which is expensive).
+  auto          exec = std::make_shared<CPUPipelineExecutor>();
+  MockFrameSink sink;
+
+  exec->SetExecutionStages(&sink);
+  EXPECT_EQ(exec->GetFrameSink(), &sink);
+
+  // Round-trip: detach → re-attach → detach again.
+  {
+    std::unique_lock<std::mutex> lock(exec->GetRenderLock());
+    exec->DetachFrameSink();
+    EXPECT_EQ(exec->GetFrameSink(), nullptr);
+    exec->AttachFrameSink(&sink);
+    EXPECT_EQ(exec->GetFrameSink(), &sink);
+    exec->DetachFrameSink();
+    EXPECT_EQ(exec->GetFrameSink(), nullptr);
+  }
+
+  // Re-attach after round-trip still works.
+  {
+    std::unique_lock<std::mutex> lock(exec->GetRenderLock());
+    exec->AttachFrameSink(&sink);
+  }
+  EXPECT_EQ(exec->GetFrameSink(), &sink);
+
+  exec->SetNextFramePreviewMetadata(FramePreviewMetadata{});
+  EXPECT_EQ(sink.preview_metadata_calls_, 1);
+}
+
+TEST_F(PipelineFrameSinkTest, DetachThenAttachPreservesSinkCalls) {
+  // After detach+attach, the re-attached sink should receive subsequent
+  // frame presentation calls normally.
+  auto          exec = std::make_shared<CPUPipelineExecutor>();
+  MockFrameSink sink;
+
+  exec->SetExecutionStages(&sink);
+  exec->SetNextFramePresentationMode(FramePresentationMode::FullFrame);
+  EXPECT_EQ(sink.presentation_mode_calls_, 1);
+
+  {
+    std::unique_lock<std::mutex> lock(exec->GetRenderLock());
+    exec->DetachFrameSink();
+  }
+
+  // While detached, calls are no-ops.
+  exec->SetNextFramePresentationMode(FramePresentationMode::RoiFrame);
+  EXPECT_EQ(sink.presentation_mode_calls_, 1);  // unchanged
+
+  {
+    std::unique_lock<std::mutex> lock(exec->GetRenderLock());
+    exec->AttachFrameSink(&sink);
+  }
+
+  // After re-attach, calls go through again.
+  exec->SetNextFramePresentationMode(FramePresentationMode::RoiFrame);
+  EXPECT_EQ(sink.presentation_mode_calls_, 2);
+  EXPECT_EQ(sink.last_mode_, FramePresentationMode::RoiFrame);
+}
+
 // =========================================================================
 // Phase 1 Acceptance Criterion 4:
 //   "A cached pipeline can be reused for thumbnail/export/editor without
@@ -349,6 +432,119 @@ TEST_F(PipelineFrameSinkTest, ConcurrentImportPipelineParamsAndRenderIsDeadlockF
 
   EXPECT_GT(ops.load(), 0);
   SUCCEED();
+}
+
+// =========================================================================
+// Exception-safety tests
+// =========================================================================
+
+TEST_F(PipelineFrameSinkTest, SinkIsRestoredAfterExceptionDuringRender) {
+  // Simulates the scenario from Phase 1 Review Finding 1:
+  // if an exception is thrown after detaching the editor frame sink,
+  // the RAII guard must restore the sink before the exception propagates.
+  auto          exec = std::make_shared<CPUPipelineExecutor>();
+  MockFrameSink sink;
+
+  exec->SetExecutionStages(&sink);
+  EXPECT_EQ(exec->GetFrameSink(), &sink);
+
+  IFrameSink* saved_sink = nullptr;
+  bool        caught     = false;
+
+  try {
+    std::unique_lock<std::mutex> lock(exec->GetRenderLock());
+
+    saved_sink = exec->GetFrameSink();
+    ASSERT_NE(saved_sink, nullptr);
+    exec->DetachFrameSink();
+    EXPECT_EQ(exec->GetFrameSink(), nullptr);
+
+    const auto restore_sink = [&]() {
+      if (saved_sink && exec) {
+        exec->AttachFrameSink(saved_sink);
+      }
+    };
+    auto sink_guard = std::unique_ptr<void, std::function<void(void*)>>(
+        reinterpret_cast<void*>(1), [&restore_sink](void*) { restore_sink(); });
+
+    // Simulate render work that throws.
+    throw std::runtime_error("simulated render failure");
+  } catch (const std::runtime_error&) {
+    caught = true;
+  }
+
+  EXPECT_TRUE(caught);
+  // After exception, the RAII guard must have restored the sink.
+  EXPECT_EQ(exec->GetFrameSink(), &sink);
+
+  // And the sink is still functional.
+  exec->SetNextFramePresentationMode(FramePresentationMode::FullFrame);
+  EXPECT_EQ(sink.presentation_mode_calls_, 1);
+}
+
+TEST_F(PipelineFrameSinkTest, SinkIsRestoredAfterExceptionBeforeRender) {
+  // If an exception is thrown between detach and Apply() (e.g., in
+  // SetExecutorRenderParams), the RAII guard must still restore the sink.
+  auto          exec = std::make_shared<CPUPipelineExecutor>();
+  MockFrameSink sink;
+
+  exec->SetExecutionStages(&sink);
+
+  IFrameSink* saved_sink = nullptr;
+  bool        caught     = false;
+
+  try {
+    std::unique_lock<std::mutex> lock(exec->GetRenderLock());
+
+    saved_sink = exec->GetFrameSink();
+    exec->DetachFrameSink();
+
+    const auto restore_sink = [&]() {
+      if (saved_sink && exec) {
+        exec->AttachFrameSink(saved_sink);
+      }
+    };
+    auto sink_guard = std::unique_ptr<void, std::function<void(void*)>>(
+        reinterpret_cast<void*>(1), [&restore_sink](void*) { restore_sink(); });
+
+    // Throw before SetExecutorRenderParams / Apply.
+    throw std::logic_error("pre-render failure");
+  } catch (const std::logic_error&) {
+    caught = true;
+  }
+
+  EXPECT_TRUE(caught);
+  EXPECT_EQ(exec->GetFrameSink(), &sink);
+}
+
+TEST_F(PipelineFrameSinkTest, SinkIsNotRestoredIfNeverDetached) {
+  // If no sink was attached when entering the render path, the RAII guard
+  // must be a no-op (no spurious attach of nullptr).
+  auto exec = std::make_shared<CPUPipelineExecutor>();
+  exec->SetExecutionStages();  // no sink attached
+
+  bool caught = false;
+  try {
+    std::unique_lock<std::mutex> lock(exec->GetRenderLock());
+
+    IFrameSink* saved_sink = exec->GetFrameSink();  // nullptr
+    // No detach — saved_sink is nullptr.
+
+    const auto restore_sink = [&]() {
+      if (saved_sink && exec) {
+        exec->AttachFrameSink(saved_sink);
+      }
+    };
+    auto sink_guard = std::unique_ptr<void, std::function<void(void*)>>(
+        reinterpret_cast<void*>(1), [&restore_sink](void*) { restore_sink(); });
+
+    throw std::runtime_error("no-sink render failure");
+  } catch (const std::runtime_error&) {
+    caught = true;
+  }
+
+  EXPECT_TRUE(caught);
+  EXPECT_EQ(exec->GetFrameSink(), nullptr);
 }
 
 }  // namespace alcedo

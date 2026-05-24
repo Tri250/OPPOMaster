@@ -389,15 +389,20 @@ void PipelineScheduler::ScheduleTask(PipelineTask&& task) {
 
           const auto restore_frame_sink = [&]() {
             if (saved_frame_sink && task.pipeline_executor_) {
-              task.pipeline_executor_->SetExecutionStages(saved_frame_sink);
+              task.pipeline_executor_->AttachFrameSink(saved_frame_sink);
             }
           };
+          // RAII guard ensures the editor frame sink is restored on every exit
+          // path, including exceptions thrown after detaching.
+          // Uses a non-null sentinel so unique_ptr's destructor invokes the deleter.
+          auto sink_guard = std::unique_ptr<void, std::function<void(void*)>>(
+              reinterpret_cast<void*>(1),
+              [&restore_frame_sink](void*) { restore_frame_sink(); });
 
           task.SetExecutorRenderParams();
 
           if (task_cancelled()) {
             apply_state_transition_after_render();
-            restore_frame_sink();
             notify_thumbnail_failure_callbacks();
             set_blocking_value(nullptr);
             return;
@@ -428,13 +433,11 @@ void PipelineScheduler::ScheduleTask(PipelineTask&& task) {
             }
             set_blocking_value(result);
             apply_state_transition_after_render();
-            restore_frame_sink();
             return;
           }
 
           result_copy = std::make_shared<ImageBuffer>(result->GetCPUData());
           apply_state_transition_after_render();
-          restore_frame_sink();
         }
       }
 

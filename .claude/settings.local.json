@@ -85,7 +85,13 @@
       "Bash(build/macos-debug/alcedo_studio/tests/PipelineFrameSinkTest *)",
       "Bash(cmake --build build/macos-debug --target EditPipeline)",
       "Bash(cmake --build build/macos-debug --target PipelineScheduler)",
-      "Bash(cmake --build build/macos-debug --target alcedo_main)"
+      "Bash(cmake --build build/macos-debug --target alcedo_main)",
+      "Bash(cmake --build /Users/zidage/Projects/PuerhLab/build/macos-debug --target pipeline_frame_sink_test)",
+      "Bash(cmake --build /Users/zidage/Projects/PuerhLab/build/macos-debug --target help)",
+      "Bash(cmake --build /Users/zidage/Projects/PuerhLab/build/macos-debug-tests --target PipelineFrameSinkTest)",
+      "Bash(cmake --build /Users/zidage/Projects/PuerhLab/build/macos-debug --target PipelineFrameSinkTest)",
+      "Bash(./build/macos-debug/alcedo_studio/tests/PipelineFrameSinkTest *)",
+      "Bash(cmake --build /Users/zidage/Projects/PuerhLab/build/macos-debug)"
     ]
   }
 }
