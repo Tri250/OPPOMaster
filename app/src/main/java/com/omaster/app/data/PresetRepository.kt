@@ -2,6 +2,7 @@ package com.omaster.app.data
 
 import com.omaster.app.model.CameraParams
 import com.omaster.app.model.Preset
+import com.omaster.app.model.SceneType
 import com.omaster.app.model.Section
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,7 +38,8 @@ class PresetRepository {
                     hasselblad_hncs = true
                 ),
                 deviceModel = "Find X8 Pro",
-                source = "omaster_cloud"
+                source = "omaster_cloud",
+                applicableScenes = listOf(SceneType.SUNSET, SceneType.LANDSCAPE, SceneType.STREET)
             ),
             Preset(
                 id = "2",
@@ -57,7 +59,8 @@ class PresetRepository {
                     hasselblad_hncs = false
                 ),
                 deviceModel = "Find X8 Ultra",
-                source = "omaster_cloud"
+                source = "omaster_cloud",
+                applicableScenes = listOf(SceneType.NIGHT, SceneType.STREET)
             ),
             Preset(
                 id = "3",
@@ -77,7 +80,8 @@ class PresetRepository {
                     hasselblad_hncs = true
                 ),
                 deviceModel = "Reno 12 Pro",
-                source = "omaster_cloud"
+                source = "omaster_cloud",
+                applicableScenes = listOf(SceneType.NATURE, SceneType.LANDSCAPE, SceneType.MACRO, SceneType.FOOD)
             ),
             Preset(
                 id = "4",
@@ -97,7 +101,8 @@ class PresetRepository {
                     hasselblad_hncs = true
                 ),
                 deviceModel = "Find X7 Ultra",
-                source = "omaster_cloud"
+                source = "omaster_cloud",
+                applicableScenes = listOf(SceneType.SUNSET, SceneType.LANDSCAPE)
             ),
             Preset(
                 id = "5",
@@ -117,7 +122,8 @@ class PresetRepository {
                     hasselblad_hncs = false
                 ),
                 deviceModel = "Find X8",
-                source = "omaster_cloud"
+                source = "omaster_cloud",
+                applicableScenes = listOf(SceneType.STREET, SceneType.ARCHITECTURE)
             ),
             Preset(
                 id = "6",
@@ -137,7 +143,8 @@ class PresetRepository {
                     hasselblad_hncs = true
                 ),
                 deviceModel = "Reno 12",
-                source = "omaster_cloud"
+                source = "omaster_cloud",
+                applicableScenes = listOf(SceneType.PORTRAIT, SceneType.NATURE, SceneType.LANDSCAPE)
             )
         )
     }

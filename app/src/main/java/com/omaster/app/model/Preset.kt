@@ -13,5 +13,6 @@ data class Preset(
     val cameraParams: CameraParams? = null,
     val deviceModel: String = "",
     val source: String = "omaster_cloud",
-    val isFavorite: Boolean = false
+    val isFavorite: Boolean = false,
+    val applicableScenes: List<SceneType> = emptyList()
 )

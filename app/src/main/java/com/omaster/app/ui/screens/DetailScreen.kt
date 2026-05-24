@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Share
@@ -31,6 +32,7 @@ fun DetailScreen(
     preset: Preset,
     repository: PresetRepository,
     onBack: () -> Unit,
+    onAiFineTuneClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val currentPreset by remember {
@@ -186,6 +188,29 @@ fun DetailScreen(
                     }
 
                     Spacer(modifier = Modifier.height(24.dp))
+                }
+                
+                if (onAiFineTuneClick != null) {
+                    OutlinedButton(
+                        onClick = onAiFineTuneClick,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = HasselbladOrange
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = "AI 微调"
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "AI 样张微调",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
                 }
 
                 Button(
