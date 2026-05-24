@@ -363,8 +363,21 @@ void PipelineScheduler::ScheduleTask(PipelineTask&& task) {
         }
         if (task.input_) {
           std::unique_lock<std::mutex> render_lock;
+          auto& render_desc = task.options_.render_desc_;
+          IFrameSink* saved_frame_sink = nullptr;
+
           if (task.pipeline_executor_) {
             render_lock = std::unique_lock<std::mutex>(task.pipeline_executor_->GetRenderLock());
+
+            // Thumbnail and export tasks must not interact with any editor-owned
+            // frame sink that may still be attached to a cached pipeline.
+            if (render_desc.render_type_ == RenderType::THUMBNAIL ||
+                render_desc.render_type_ == RenderType::FULL_RES_EXPORT) {
+              saved_frame_sink = task.pipeline_executor_->GetFrameSink();
+              if (saved_frame_sink) {
+                task.pipeline_executor_->DetachFrameSink();
+              }
+            }
 
             // Refresh the executor from the Image's pre-extracted raw metadata so that
             // downstream operators (ColorTemp, LensCalib) resolve eagerly and RawDecodeOp
@@ -374,11 +387,17 @@ void PipelineScheduler::ScheduleTask(PipelineTask&& task) {
             }
           }
 
-          auto& render_desc = task.options_.render_desc_;
+          const auto restore_frame_sink = [&]() {
+            if (saved_frame_sink && task.pipeline_executor_) {
+              task.pipeline_executor_->SetExecutionStages(saved_frame_sink);
+            }
+          };
+
           task.SetExecutorRenderParams();
 
           if (task_cancelled()) {
             apply_state_transition_after_render();
+            restore_frame_sink();
             notify_thumbnail_failure_callbacks();
             set_blocking_value(nullptr);
             return;
@@ -409,11 +428,13 @@ void PipelineScheduler::ScheduleTask(PipelineTask&& task) {
             }
             set_blocking_value(result);
             apply_state_transition_after_render();
+            restore_frame_sink();
             return;
           }
 
           result_copy = std::make_shared<ImageBuffer>(result->GetCPUData());
           apply_state_transition_after_render();
+          restore_frame_sink();
         }
       }
 

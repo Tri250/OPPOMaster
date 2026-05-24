@@ -92,6 +92,8 @@ class CPUPipelineExecutor : public PipelineExecutor {
   void SetExecutionStages(IFrameSink* frame_sink);
   void ResetExecutionStages();
 
+  auto GetFrameSink() const -> IFrameSink* { return frame_sink_; }
+
   auto GetViewportRenderRegion() const -> std::optional<ViewportRenderRegion>;
   void SetNextFramePresentationMode(FramePresentationMode mode) const;
   void SetNextFramePreviewMetadata(const FramePreviewMetadata& metadata) const;

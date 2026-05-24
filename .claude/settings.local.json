@@ -76,7 +76,16 @@
       "Bash(taskkill //f //im ThumbnailServiceTest.exe)",
       "Bash(cmake --build /Users/zidage/Projects/PuerhLab/build/debug --target alcedo_main)",
       "Bash(cmake --preset macos_debug)",
-      "Bash(cmake --build /Users/zidage/Projects/PuerhLab/build/macos-debug --target alcedo_main)"
+      "Bash(cmake --build /Users/zidage/Projects/PuerhLab/build/macos-debug --target alcedo_main)",
+      "Bash(cmake --build build/macos-debug --target PipelineFrameSinkTest -- -j4)",
+      "Bash(cmake --preset macos_debug -DALCEDO_BUILD_EDIT_TESTS=ON)",
+      "Bash(cmake --build build/macos-debug --target PipelineFrameSinkTest)",
+      "Bash(ninja -C /Users/zidage/Projects/PuerhLab/build/macos-debug -t targets all)",
+      "Bash(cmake --preset macos_debug -DALCEDO_BUILD_TESTS=ON)",
+      "Bash(build/macos-debug/alcedo_studio/tests/PipelineFrameSinkTest *)",
+      "Bash(cmake --build build/macos-debug --target EditPipeline)",
+      "Bash(cmake --build build/macos-debug --target PipelineScheduler)",
+      "Bash(cmake --build build/macos-debug --target alcedo_main)"
     ]
   }
 }

@@ -430,6 +430,11 @@ endif()
 # if (WIN32)
 # target_link_libraries(PipelineSerialTest easy_profiler)
 # endif()
+
+add_executable(PipelineFrameSinkTest edit/pipeline/pipeline_frame_sink_test.cpp)
+target_include_directories(PipelineFrameSinkTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(PipelineFrameSinkTest PRIVATE GTest::gtest_main Operators EditPipeline PipelineScheduler)
+gtest_discover_tests(PipelineFrameSinkTest TEST_PREFIX "PipelineFrameSinkTest.")
 if(TARGET EditViewer)
   add_executable(ImagePreview gui_pocs/image_preview_cpu.cpp)
   target_include_directories(ImagePreview PUBLIC ${ALCEDO_INCLUDE_DIR})
@@ -761,6 +766,7 @@ alcedo_assign_test_category(edit ALCEDO_BUILD_EDIT_TESTS alcedo_tests_edit
   SharedToneCurveTest
   ODTOpTest
   CropRotateOpTest
+  PipelineFrameSinkTest
 )
 
 alcedo_assign_test_category(ui ALCEDO_BUILD_UI_TESTS alcedo_tests_ui
