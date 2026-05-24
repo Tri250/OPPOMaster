@@ -4,7 +4,10 @@
 
 #include "app/project_service.hpp"
 
+#include <array>
 #include <fstream>
+#include <iostream>
+#include <optional>
 #include <stdexcept>
 
 #include <json.hpp>
@@ -14,6 +17,115 @@
 #include "utils/string/convert.hpp"
 
 namespace alcedo {
+namespace {
+
+auto ParseSemVer(std::string_view version, std::array<int, 3>* out) -> bool {
+  std::array<int, 3> parts{};
+  size_t             begin = 0;
+  for (size_t index = 0; index < parts.size(); ++index) {
+    const size_t end = version.find('.', begin);
+    const auto   token =
+        version.substr(begin, end == std::string_view::npos ? version.size() - begin : end - begin);
+    if (token.empty()) {
+      return false;
+    }
+    int value = 0;
+    for (const char ch : token) {
+      if (ch < '0' || ch > '9') {
+        return false;
+      }
+      value = value * 10 + (ch - '0');
+    }
+    parts[index] = value;
+    if (index + 1 < parts.size()) {
+      if (end == std::string_view::npos) {
+        return false;
+      }
+      begin = end + 1;
+    } else if (end != std::string_view::npos) {
+      return false;
+    }
+  }
+  *out = parts;
+  return true;
+}
+
+auto IsSupportedProjectVersion(std::string_view version) -> bool {
+  std::array<int, 3> parsed{};
+  std::array<int, 3> min_supported{};
+  std::array<int, 3> max_supported{};
+  return ParseSemVer(version, &parsed) &&
+         ParseSemVer(project_pack::kMinSupportedProjectFileVersion, &min_supported) &&
+         ParseSemVer(project_pack::kMaxSupportedProjectFileVersion, &max_supported) &&
+         parsed >= min_supported && parsed <= max_supported;
+}
+
+// Collects lightweight diagnostic summary of the project database:
+// per-table row counts and min/max primary key ranges. This is NOT
+// a strong integrity check — mismatches produce a warning, not a
+// load failure. Use data_fingerprint (L3) for semantic verification.
+auto ComputeProjectDataSummary(StorageService& storage_service) -> nlohmann::json {
+  auto guard = storage_service.GetDBController().GetConnectionGuard();
+
+  auto query_int64 = [&](const std::string& sql) -> std::optional<int64_t> {
+    duckdb_result result;
+    if (duckdb_query(guard.conn_, sql.c_str(), &result) != DuckDBSuccess) {
+      duckdb_destroy_result(&result);
+      return std::nullopt;
+    }
+    std::optional<int64_t> value;
+    if (duckdb_row_count(&result) > 0 && duckdb_column_count(&result) > 0) {
+      if (!duckdb_value_is_null(&result, 0, 0)) {
+        value = duckdb_value_int64(&result, 0, 0);
+      }
+    }
+    duckdb_destroy_result(&result);
+    return value;
+  };
+
+  struct TableInfo {
+    const char* name;
+    const char* pk_column;  // nullptr if no meaningful single numeric PK
+  };
+  static constexpr TableInfo kTables[] = {
+      {"Sleeve", "id"},         {"Image", "id"},        {"SleeveRoot", "id"},
+      {"Element", "id"},        {"FolderContent", nullptr}, {"FileImage", "file_id"},
+      {"ComboFolder", "combo_id"}, {"Filter", "combo_id"},  {"EditHistory", "file_id"},
+      {"Version", "hash"},      {"PipelineParam", "file_id"},
+  };
+
+  nlohmann::json summary;
+  summary["version"] = 1;
+  nlohmann::json tables = nlohmann::json::object();
+
+  for (const auto& table : kTables) {
+    nlohmann::json entry;
+
+    auto count = query_int64(
+        std::string("SELECT COUNT(*) FROM \"") + table.name + "\"");
+    if (!count.has_value()) continue;
+    entry["rows"] = *count;
+
+    if (table.pk_column != nullptr) {
+      const std::string pk_str(table.pk_column);
+      auto min_val = query_int64(
+          std::string("SELECT MIN(\"") + pk_str + "\") FROM \"" + table.name + "\"");
+      auto max_val = query_int64(
+          std::string("SELECT MAX(\"") + pk_str + "\") FROM \"" + table.name + "\"");
+      if (min_val.has_value() && max_val.has_value()) {
+        entry["min_id"] = *min_val;
+        entry["max_id"] = *max_val;
+      }
+    }
+
+    tables[table.name] = entry;
+  }
+
+  summary["tables"] = tables;
+  return summary;
+}
+
+}  // namespace
 
 ProjectService::ProjectService(const std::filesystem::path& db_path,
                                const std::filesystem::path& meta_path,
@@ -77,6 +189,7 @@ void ProjectService::SaveProject(const std::filesystem::path& meta_path) {
       std::string(project_pack::kMaxSupportedProjectFileVersion);
   metadata["start_id"]            = sleeve_service_->GetCurrentID();
   metadata["image_pool_start_id"] = pool_service_->GetCurrentID();
+  metadata["data_summary"]        = ComputeProjectDataSummary(*storage_service_);
 
   std::ofstream file(meta_path_);
   if (!file.is_open()) {
@@ -124,6 +237,14 @@ void ProjectService::LoadProject(const std::filesystem::path& meta_path) {
     throw std::runtime_error("Project database file does not exist");
   }
 
+  // Parse data_summary for diagnostic purposes — mismatch is a
+  // warning, not a load failure. Old projects carry db_checksum_xxh3_64
+  // instead; that field is silently ignored here.
+  std::optional<nlohmann::json> expected_summary;
+  if (metadata.contains("data_summary") && metadata.at("data_summary").is_object()) {
+    expected_summary = metadata.at("data_summary");
+  }
+
   sl_element_id_t start_id = 0;
   if (metadata.contains("start_id")) {
     start_id = static_cast<sl_element_id_t>(metadata.at("start_id"));
@@ -135,6 +256,21 @@ void ProjectService::LoadProject(const std::filesystem::path& meta_path) {
           : 0;
 
   storage_service_ = std::make_shared<StorageService>(db_path_);
+
+  if (expected_summary.has_value()) {
+    try {
+      nlohmann::json actual_summary = ComputeProjectDataSummary(*storage_service_);
+      if (actual_summary != *expected_summary) {
+        std::cerr << "[Alcedo] Project data summary differs from saved metadata. "
+                     "This may indicate data changes since the project was saved.\n";
+      }
+    } catch (const std::exception& e) {
+      std::cerr << "[Alcedo] Unable to compute project data summary for comparison: "
+                << e.what() << "\n";
+    } catch (...) {
+      std::cerr << "[Alcedo] Unable to compute project data summary for comparison.\n";
+    }
+  }
 
   RecreateSleeveService(start_id);
   pool_service_ = std::make_shared<ImagePoolService>(storage_service_, image_pool_start_id);
