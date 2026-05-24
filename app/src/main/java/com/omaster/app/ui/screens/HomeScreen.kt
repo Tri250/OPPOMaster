@@ -9,23 +9,44 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.omaster.app.data.PresetRepository
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.omaster.app.model.Preset
+import com.omaster.app.ui.components.FilterChips
 import com.omaster.app.ui.components.PresetCard
+import com.omaster.app.ui.components.SearchBar
 import com.omaster.app.ui.theme.*
+import com.omaster.app.viewmodel.FilterType
+import com.omaster.app.viewmodel.MainViewModel
 
 @Composable
 fun HomeScreen(
-    repository: PresetRepository,
     onPresetClick: (Preset) -> Unit,
     onSettingsClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    viewModel: MainViewModel = hiltViewModel()
 ) {
-    val presets by repository.presets.collectAsState()
+    val presets by viewModel.presets.collectAsStateWithLifecycle()
+    val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val filterType by viewModel.filterType.collectAsStateWithLifecycle()
+
+    val filteredPresets = remember(presets, searchQuery, filterType) {
+        presets.filter { preset ->
+            val matchesQuery = searchQuery.isEmpty() ||
+                    preset.name.contains(searchQuery, ignoreCase = true)
+            val matchesFilter = when (filterType) {
+                FilterType.ALL -> true
+                FilterType.FAVORITES -> preset.isFavorite
+                FilterType.HNCS -> preset.cameraParams?.hasselblad_hncs == true
+                FilterType.FIND_X -> preset.deviceModel?.contains("Find X", ignoreCase = true) == true
+                FilterType.RENO -> preset.deviceModel?.contains("Reno", ignoreCase = true) == true
+            }
+            matchesQuery && matchesFilter
+        }
+    }
 
     Scaffold(
         modifier = modifier,
-        containerColor = DeepSpace,
         topBar = {
             TopAppBar(
                 title = {
@@ -36,14 +57,14 @@ fun HomeScreen(
                     )
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = DeepSpace
+                    containerColor = MaterialTheme.colorScheme.background
                 ),
                 actions = {
                     IconButton(onClick = onSettingsClick) {
                         Icon(
                             imageVector = Icons.Default.Settings,
                             contentDescription = "设置",
-                            tint = TextPrimary
+                            tint = MaterialTheme.colorScheme.onBackground
                         )
                     }
                 }
@@ -54,16 +75,58 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            items(presets) { preset ->
-                PresetCard(
-                    preset = preset,
-                    onClick = { onPresetClick(preset) },
-                    onFavoriteToggle = { repository.toggleFavorite(preset.id) }
+            item {
+                SearchBar(
+                    query = searchQuery,
+                    onQueryChange = { viewModel.onSearchQueryChanged(it) },
+                    onClearQuery = { viewModel.onSearchQueryChanged("") }
                 )
             }
+            item {
+                FilterChips(
+                    selectedFilter = filterType,
+                    onFilterSelected = { viewModel.onFilterTypeChanged(it) }
+                )
+            }
+            if (filteredPresets.isEmpty()) {
+                item {
+                    EmptyState(
+                        message = if (searchQuery.isNotEmpty() || filterType != FilterType.ALL)
+                            "没有找到匹配的预设" else "暂无预设",
+                        modifier = Modifier.fillParentMaxWidth()
+                    )
+                }
+            } else {
+                items(filteredPresets, key = { it.id }) { preset ->
+                    PresetCard(
+                        preset = preset,
+                        onClick = { onPresetClick(preset) },
+                        onFavoriteToggle = { viewModel.toggleFavorite(preset) },
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+                }
+            }
         }
+    }
+}
+
+@Composable
+fun EmptyState(
+    message: String,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.padding(32.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }

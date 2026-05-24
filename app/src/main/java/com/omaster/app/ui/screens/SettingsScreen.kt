@@ -1,6 +1,7 @@
 package com.omaster.app.ui.screens
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
@@ -20,14 +21,13 @@ fun SettingsScreen(
 
     Scaffold(
         modifier = modifier,
-        containerColor = DeepSpace,
         topBar = {
             TopAppBar(
                 title = {
                     Text(
                         text = "设置",
                         style = MaterialTheme.typography.headlineSmall,
-                        color = TextPrimary
+                        color = MaterialTheme.colorScheme.onBackground
                     )
                 },
                 navigationIcon = {
@@ -35,12 +35,12 @@ fun SettingsScreen(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "返回",
-                            tint = TextPrimary
+                            tint = MaterialTheme.colorScheme.onBackground
                         )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = DeepSpace
+                    containerColor = MaterialTheme.colorScheme.background
                 )
             )
         }
@@ -55,7 +55,7 @@ fun SettingsScreen(
             Text(
                 text = "系统能力",
                 style = MaterialTheme.typography.titleMedium,
-                color = TextSecondary
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             SettingsItem(
@@ -77,14 +77,11 @@ fun SettingsScreen(
             Text(
                 text = "关于",
                 style = MaterialTheme.typography.titleMedium,
-                color = TextSecondary
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = DeepSpaceLight
-                ),
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Column(
@@ -99,13 +96,13 @@ fun SettingsScreen(
                     Text(
                         text = "版本 1.0.0",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = TextSecondary
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
                         text = "OPPO 哈苏影像系统级参数中枢",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = TextSecondary
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -122,9 +119,6 @@ fun SettingsItem(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = DeepSpaceLight
-        ),
         shape = RoundedCornerShape(12.dp)
     ) {
         Row(
@@ -138,12 +132,12 @@ fun SettingsItem(
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleLarge,
-                    color = TextPrimary
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
                     text = description,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             Switch(

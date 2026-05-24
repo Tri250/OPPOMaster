@@ -3,59 +3,76 @@ package com.omaster.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.runtime.*
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.omaster.app.data.PresetRepository
 import com.omaster.app.model.Preset
+import com.omaster.app.navigation.Screen
 import com.omaster.app.ui.screens.DetailScreen
 import com.omaster.app.ui.screens.HomeScreen
 import com.omaster.app.ui.screens.SettingsScreen
 import com.omaster.app.ui.theme.OMasterTheme
+import com.omaster.app.viewmodel.MainViewModel
+import dagger.hilt.android.AndroidEntryPoint
+import timber.log.Timber
 
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
-    private val repository = PresetRepository()
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (BuildConfig.DEBUG) {
+            Timber.plant(Timber.DebugTree())
+        }
         setContent {
             OMasterTheme {
-                OMasterApp(repository)
+                OMasterApp()
             }
         }
     }
 }
 
 @Composable
-fun OMasterApp(repository: PresetRepository) {
+fun OMasterApp(
+    modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier
+) {
     val navController = rememberNavController()
-    var selectedPreset by remember { mutableStateOf<Preset?>(null) }
 
     NavHost(
         navController = navController,
-        startDestination = "home"
+        startDestination = Screen.Home.route,
+        modifier = modifier
     ) {
-        composable("home") {
+        composable(Screen.Home.route) {
             HomeScreen(
-                repository = repository,
                 onPresetClick = { preset ->
-                    selectedPreset = preset
-                    navController.navigate("detail")
+                    navController.navigate(Screen.Detail.createRoute(preset.id))
                 },
-                onSettingsClick = { navController.navigate("settings") }
+                onSettingsClick = { navController.navigate(Screen.Settings.route) }
             )
         }
-        composable("detail") {
-            selectedPreset?.let { preset ->
+        composable(
+            route = "detail/{presetId}",
+            arguments = listOf(navArgument("presetId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val presetId = backStackEntry.arguments?.getString("presetId")
+            val viewModel: MainViewModel = hiltViewModel()
+            val presets by viewModel.presets.collectAsStateWithLifecycle()
+            val preset = presets.find { it.id == presetId }
+
+            preset?.let {
                 DetailScreen(
-                    preset = preset,
-                    repository = repository,
-                    onBack = { navController.popBackStack() }
+                    preset = it,
+                    onBack = { navController.popBackStack() },
+                    onFavoriteToggle = { viewModel.toggleFavorite(it) }
                 )
             }
         }
-        composable("settings") {
+        composable(Screen.Settings.route) {
             SettingsScreen(
                 onBack = { navController.popBackStack() }
             )

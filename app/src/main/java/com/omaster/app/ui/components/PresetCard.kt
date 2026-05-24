@@ -18,6 +18,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.material3.LocalContentColor
 import coil.compose.AsyncImage
 import com.omaster.app.model.Preset
 import com.omaster.app.ui.theme.*
@@ -29,13 +30,12 @@ fun PresetCard(
     onFavoriteToggle: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val isDarkTheme = MaterialTheme.colorScheme.background == DeepSpace
+
     Card(
         modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(
-            containerColor = DeepSpaceLight
-        ),
         shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
@@ -51,7 +51,7 @@ fun PresetCard(
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
                 )
-                
+
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -64,7 +64,7 @@ fun PresetCard(
                             )
                         )
                 )
-                
+
                 if (preset.cameraParams?.hasselblad_hncs == true) {
                     Surface(
                         modifier = Modifier
@@ -82,7 +82,7 @@ fun PresetCard(
                         )
                     }
                 }
-                
+
                 IconButton(
                     onClick = onFavoriteToggle,
                     modifier = Modifier
@@ -92,38 +92,40 @@ fun PresetCard(
                     Icon(
                         imageVector = if (preset.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                         contentDescription = if (preset.isFavorite) "取消收藏" else "收藏",
-                        tint = if (preset.isFavorite) AccentPrimary else TextSecondary
+                        tint = if (preset.isFavorite) AccentPrimary else Color.White
                     )
                 }
             }
-            
+
             Column(
                 modifier = Modifier.padding(16.dp)
             ) {
                 Text(
                     text = preset.name,
                     style = MaterialTheme.typography.titleLarge,
-                    color = TextPrimary,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
-                
+
                 Spacer(modifier = Modifier.height(8.dp))
-                
-                if (preset.deviceModel.isNotEmpty()) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(
-                            color = GlassBackground,
-                            shape = RoundedCornerShape(12.dp)
+
+                preset.deviceModel?.let { deviceModel ->
+                    if (deviceModel.isNotEmpty()) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = preset.deviceModel,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = TextSecondary
-                            )
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text(
+                                    text = deviceModel,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }
