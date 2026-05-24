@@ -9,9 +9,7 @@
 #include <iostream>
 #include <optional>
 #include <stdexcept>
-#include <string_view>
 
-#include <duckdb.h>
 #include <json.hpp>
 
 #include "app/project_package_backend.hpp"
@@ -214,7 +212,7 @@ void ProjectService::LoadProject(const std::filesystem::path& meta_path) {
       !metadata.at("project_file_version").is_string()) {
     throw std::runtime_error("Project metadata version is missing");
   }
-  if (!IsSupportedProjectVersion(
+  if (!project_pack::ProjectVersionIsSupported(
           metadata.at("project_file_version").get<std::string>())) {
     throw std::runtime_error("Project metadata version is not supported");
   }

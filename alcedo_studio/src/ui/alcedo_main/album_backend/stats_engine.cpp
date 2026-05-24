@@ -125,7 +125,8 @@ auto StatsEngine::MakeThumbMap(const AlbumItem& image, int index) const -> QVari
                                     : image.accent},
                      {"thumbUrl", image.thumb_data_url},
                      {"thumbLoading", image.thumb_loading},
-                     {"thumbMissingSource", image.thumb_missing_source}};
+                     {"thumbMissingSource", image.thumb_missing_source},
+                     {"thumbErrorText", image.thumb_error_text}};
 }
 
 void StatsEngine::ToggleFilter(const QString& category, const QString& label) {

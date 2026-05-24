@@ -37,6 +37,7 @@ struct AlbumItem {
   QString         thumb_data_url{};
   bool            thumb_loading    = false;
   bool            thumb_missing_source = false;
+  QString         thumb_error_text{};
 };
 
 /// Per-parameter snapshot used by the embedded editor.

@@ -4,8 +4,11 @@
 
 #include "app/thumbnail_service.hpp"
 
+#include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <format>
+#include <iterator>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -20,18 +23,35 @@
 
 namespace alcedo {
 namespace {
-void DispatchThumbnailCallback(const ThumbnailCallback&           callback,
-                               const CallbackDispatcher&          dispatcher,
-                               const std::shared_ptr<ThumbnailGuard>& guard) {
+
+// Map ThumbnailResolution to the max_edge value for SetRenderRes.
+constexpr uint32_t ResolutionToMaxEdge(ThumbnailResolution res) {
+  return static_cast<uint32_t>(res);
+}
+
+// Map ThumbnailResolution to the appropriate DecodeRes for RAW decoding.
+constexpr DecodeRes ResolutionToDecodeRes(ThumbnailResolution res) {
+  switch (res) {
+    case ThumbnailResolution::k256:  return DecodeRes::EIGHTH;
+    case ThumbnailResolution::k512:  return DecodeRes::QUARTER;
+    case ThumbnailResolution::k1024: return DecodeRes::QUARTER;
+    case ThumbnailResolution::k2048: return DecodeRes::HALF;
+  }
+  return DecodeRes::QUARTER;
+}
+
+void DispatchThumbnailResultCallback(const ThumbnailResultCallback& callback,
+                                     const CallbackDispatcher&      dispatcher,
+                                     ThumbnailRequestResult         result) {
   if (!callback) {
     return;
   }
 
   try {
     if (dispatcher) {
-      dispatcher([callback, guard]() { callback(guard); });
+      dispatcher([callback, result = std::move(result)]() mutable { callback(std::move(result)); });
     } else {
-      callback(guard);
+      callback(std::move(result));
     }
   } catch (...) {
   }
@@ -55,14 +75,22 @@ auto ReadColorTempOperatorParams(const std::shared_ptr<PipelineGuard>& pipeline)
 
   return color_temp_entry.value()->op_->GetParams();
 }
+
+constexpr ThumbnailResolution kAllThumbnailResolutions[] = {
+    ThumbnailResolution::k256,
+    ThumbnailResolution::k512,
+    ThumbnailResolution::k1024,
+    ThumbnailResolution::k2048,
+};
 }  // namespace
 
 struct ThumbnailService::State {
   static constexpr size_t                    default_cache_size_ = 64;
 
   struct PendingCallback {
-    ThumbnailCallback  callback_{};
-    CallbackDispatcher dispatcher_{};
+    ThumbnailResultCallback callback_{};
+    CallbackDispatcher      dispatcher_{};
+    ThumbnailCacheKey       key_{};
   };
 
   std::shared_ptr<SleeveServiceImpl>         sleeve_service_     = nullptr;
@@ -71,9 +99,16 @@ struct ThumbnailService::State {
 
   std::mutex                                 cache_lock_;
 
-  LRUCache<sl_element_id_t, sl_element_id_t> thumbnail_cache_;
-  std::unordered_map<sl_element_id_t, std::shared_ptr<ThumbnailGuard>> thumbnail_cache_data_{};
-  std::unordered_map<sl_element_id_t, std::vector<PendingCallback>>    pending_{};
+  // LRU keyed by composite {element_id, resolution_tier}.
+  LRUCache<ThumbnailCacheKey, ThumbnailCacheKey> thumbnail_cache_;
+  std::unordered_map<ThumbnailCacheKey, std::shared_ptr<ThumbnailGuard>> thumbnail_cache_data_{};
+  std::unordered_map<ThumbnailCacheKey, std::vector<PendingCallback>>    pending_{};
+
+  // Generation tokens for Strategy A (pre-flight cancellation).
+  // Tokens are keyed by {element, resolution} so cancelling an old zoom tier
+  // does not invalidate the currently visible tier for the same element.
+  std::unordered_map<ThumbnailCacheKey, std::shared_ptr<std::atomic<uint64_t>>>
+      generation_tokens_{};
 
   // Pipeline scheduler (global/shared), must outlive tasks.
   std::shared_ptr<PipelineScheduler> pipeline_scheduler_ = nullptr;
@@ -87,6 +122,23 @@ struct ThumbnailService::State {
         thumbnail_cache_(default_cache_size_) {
     pipeline_scheduler_ = RenderService::GetThumbnailOrExportScheduler();
   }
+
+  // Get or create a generation token for the given request key.
+  auto GetOrCreateGenerationToken(const ThumbnailCacheKey& key)
+      -> std::shared_ptr<std::atomic<uint64_t>> {
+    auto it = generation_tokens_.find(key);
+    if (it != generation_tokens_.end() && it->second) {
+      return it->second;
+    }
+    auto token = std::make_shared<std::atomic<uint64_t>>(0);
+    generation_tokens_[key] = token;
+    return token;
+  }
+
+  void IncrementGenerationTokenLocked(const ThumbnailCacheKey& key) {
+    auto token = GetOrCreateGenerationToken(key);
+    token->fetch_add(1);
+  }
 };
 
 ThumbnailService::ThumbnailService(std::shared_ptr<SleeveServiceImpl>   sleeve_service,
@@ -98,144 +150,232 @@ ThumbnailService::ThumbnailService(std::shared_ptr<SleeveServiceImpl>   sleeve_s
 
 void ThumbnailService::GetThumbnail(sl_element_id_t id, image_id_t image_id,
                                     ThumbnailCallback callback, bool pin_if_found,
-                                    CallbackDispatcher dispatcher) {
+                                    CallbackDispatcher dispatcher,
+                                    ThumbnailResolution resolution) {
+  GetThumbnailDetailed(
+      id, image_id,
+      [callback = std::move(callback)](ThumbnailRequestResult result) {
+        if (callback) {
+          callback(std::move(result.guard));
+        }
+      },
+      pin_if_found, std::move(dispatcher), resolution);
+}
+
+void ThumbnailService::GetThumbnailDetailed(sl_element_id_t id, image_id_t image_id,
+                                            ThumbnailResultCallback callback, bool pin_if_found,
+                                            CallbackDispatcher dispatcher,
+                                            ThumbnailResolution resolution) {
   auto st = state_;
   if (!st || !st->image_pool_service_ || !st->pipeline_service_ || !st->pipeline_scheduler_) {
     throw std::runtime_error("[ERROR] ThumbnailService: Services not initialized.");
   }
 
+  const ThumbnailCacheKey cache_key{id, resolution};
+
   std::shared_ptr<ThumbnailGuard> guard;
   {
     std::unique_lock lock(st->cache_lock_);
-    if (st->thumbnail_cache_.Contains(id)) {
-      auto guard_it = st->thumbnail_cache_data_.find(id);
+    if (st->thumbnail_cache_.Contains(cache_key)) {
+      auto guard_it = st->thumbnail_cache_data_.find(cache_key);
       if (guard_it != st->thumbnail_cache_data_.end() && guard_it->second) {
         guard = guard_it->second;
         if (pin_if_found) {
           guard->pin_count_++;
         }
       } else {
-        // Keep LRU and payload map consistent.
-        st->thumbnail_cache_.RemoveRecord(id);
+        st->thumbnail_cache_.RemoveRecord(cache_key);
       }
     }
   }
 
   if (guard) {
-    DispatchThumbnailCallback(callback, dispatcher, guard);
+    DispatchThumbnailResultCallback(
+        callback, dispatcher,
+        ThumbnailRequestResult{.guard = guard,
+                               .status = ThumbnailRequestStatus::kReady,
+                               .message = {},
+                               .key = cache_key});
     return;
   }
 
+  std::shared_ptr<std::atomic<uint64_t>> gen_token;
+  uint64_t                               expected_gen = 0;
   {
     std::unique_lock lock(st->cache_lock_);
-    auto it = st->pending_.find(id);
+    auto it = st->pending_.find(cache_key);
     if (it != st->pending_.end()) {
       State::PendingCallback pending_cb{};
       pending_cb.callback_   = std::move(callback);
       pending_cb.dispatcher_ = std::move(dispatcher);
+      pending_cb.key_        = cache_key;
       it->second.push_back(std::move(pending_cb));
       return;
     }
     State::PendingCallback pending_cb{};
     pending_cb.callback_   = std::move(callback);
     pending_cb.dispatcher_ = std::move(dispatcher);
+    pending_cb.key_        = cache_key;
     std::vector<State::PendingCallback> pending_callbacks;
     pending_callbacks.push_back(std::move(pending_cb));
-    st->pending_.emplace(id, std::move(pending_callbacks));
+    st->pending_.emplace(cache_key, std::move(pending_callbacks));
+
+    gen_token    = st->GetOrCreateGenerationToken(cache_key);
+    expected_gen = gen_token->load();
   }
 
-  auto fail_pending_request = [&](const std::string&               message,
-                                  const std::shared_ptr<PipelineGuard>& pipeline) -> void {
+  struct ThumbnailTaskContext {
+    std::shared_ptr<PipelineGuard> pipeline{};
+    std::optional<nlohmann::json>  pre_render_color_temp_params{};
+    std::atomic<bool>              pipeline_released{false};
+  };
+
+  auto task_context = std::make_shared<ThumbnailTaskContext>();
+
+  auto release_task_pipeline = [st, task_context]() {
+    auto pipeline = task_context->pipeline;
+    if (!pipeline || task_context->pipeline_released.exchange(true)) {
+      return;
+    }
+    try {
+      st->pipeline_service_->SavePipeline(pipeline);
+    } catch (...) {
+    }
+  };
+
+  auto fail_pending_request = [st, cache_key, task_context, release_task_pipeline](
+                                  const std::string& message,
+                                  const std::shared_ptr<PipelineGuard>& pipeline,
+                                  bool throw_after) -> bool {
     std::vector<State::PendingCallback> callbacks;
     {
       std::unique_lock lock(st->cache_lock_);
-      auto             it = st->pending_.find(id);
+      auto             it = st->pending_.find(cache_key);
       if (it != st->pending_.end()) {
         callbacks = std::move(it->second);
         st->pending_.erase(it);
       }
-      st->thumbnail_cache_.RemoveRecord(id);
-      st->thumbnail_cache_data_.erase(id);
+      st->thumbnail_cache_.RemoveRecord(cache_key);
+      st->thumbnail_cache_data_.erase(cache_key);
     }
 
     if (pipeline) {
-      try {
-        st->pipeline_service_->SavePipeline(pipeline);
-      } catch (...) {
+      if (task_context->pipeline == pipeline) {
+        release_task_pipeline();
+      } else {
+        try {
+          st->pipeline_service_->SavePipeline(pipeline);
+        } catch (...) {
+        }
       }
     }
 
     for (const auto& pending_cb : callbacks) {
-      DispatchThumbnailCallback(pending_cb.callback_, pending_cb.dispatcher_, nullptr);
+      DispatchThumbnailResultCallback(
+          pending_cb.callback_, pending_cb.dispatcher_,
+          ThumbnailRequestResult{.guard = nullptr,
+                                 .status = ThumbnailRequestStatus::kError,
+                                 .message = message,
+                                 .key = cache_key});
     }
 
-    throw std::runtime_error(message);
+    if (throw_after) {
+      throw std::runtime_error(message);
+    }
+    return false;
   };
 
-  std::shared_ptr<PipelineGuard> pipeline;
-  try {
-    pipeline = st->pipeline_service_->LoadPipeline(id);
-  } catch (const std::exception& e) {
-    fail_pending_request(
-        std::format("[ERROR] ThumbnailService: Failed to load pipeline for file ID {}: {}", id,
-                    e.what()),
-        nullptr);
-  } catch (...) {
-    fail_pending_request(
-        std::format(
-            "[ERROR] ThumbnailService: Failed to load pipeline for file ID {}: unknown error.", id),
-        nullptr);
-  }
-
-  if (!pipeline || !pipeline->pipeline_) {
-    fail_pending_request(
-        std::format("[ERROR] ThumbnailService: Pipeline for file ID {} not available.", id),
-        nullptr);
-  }
-
-  pipeline->pipeline_->SetForceCPUOutput(true);
-
-  std::shared_ptr<Image> img_result;
-  try {
-    img_result = st->image_pool_service_->Read<std::shared_ptr<Image>>(
-        image_id, [](const std::shared_ptr<Image>& img) { return img; });
-  } catch (const std::exception& e) {
-    fail_pending_request(
-        std::format("[ERROR] ThumbnailService: Failed to load image ID {} for element {}: {}",
-                    image_id, id, e.what()),
-        pipeline);
-  } catch (...) {
-    fail_pending_request(
-        std::format(
-            "[ERROR] ThumbnailService: Failed to load image ID {} for element {}: unknown error.",
-            image_id, id),
-        pipeline);
-  }
-
-  if (!img_result) {
-    fail_pending_request(
-        std::format("[ERROR] ThumbnailService: Image with ID {} not found in pool.", image_id),
-        pipeline);
-  }
+  const uint32_t max_edge  = ResolutionToMaxEdge(resolution);
+  const DecodeRes decode_res = ResolutionToDecodeRes(resolution);
 
   PipelineTask thumb_task;
-  thumb_task.pipeline_executor_                 = pipeline->pipeline_;
-  thumb_task.input_desc_                        = std::move(img_result);
   thumb_task.options_.render_desc_.render_type_ = RenderType::THUMBNAIL;
+  thumb_task.options_.render_desc_.max_edge_    = max_edge;
+  thumb_task.options_.render_desc_.decode_res_  = decode_res;
   thumb_task.options_.is_blocking_              = false;
   thumb_task.options_.is_callback_              = true;
   thumb_task.options_.is_seq_callback_          = false;
+  thumb_task.cancel_requested_ = [gen_token, expected_gen]() {
+    return gen_token && gen_token->load() != expected_gen;
+  };
 
-  const auto pre_render_color_temp_params = ReadColorTempOperatorParams(pipeline);
+  thumb_task.prepare_ = [st, id, image_id, task_context, fail_pending_request](
+                            PipelineTask& task) mutable -> bool {
+    std::shared_ptr<PipelineGuard> pipeline;
+    try {
+      pipeline = st->pipeline_service_->LoadPipeline(id);
+    } catch (const std::exception& e) {
+      return fail_pending_request(
+          std::format("[ERROR] ThumbnailService: Failed to load pipeline for file ID {}: {}", id,
+                      e.what()),
+          nullptr, false);
+    } catch (...) {
+      return fail_pending_request(
+          std::format(
+              "[ERROR] ThumbnailService: Failed to load pipeline for file ID {}: unknown error.",
+              id),
+          nullptr, false);
+    }
 
-  thumb_task.callback_ = [st, id, pipeline, pre_render_color_temp_params](ImageBuffer& result_buffer) {
+    task_context->pipeline = pipeline;
+    if (!pipeline || !pipeline->pipeline_) {
+      return fail_pending_request(
+          std::format("[ERROR] ThumbnailService: Pipeline for file ID {} not available.", id),
+          pipeline, false);
+    }
+
+    pipeline->pipeline_->SetForceCPUOutput(true);
+
+    std::shared_ptr<Image> img_result;
+    try {
+      img_result = st->image_pool_service_->Read<std::shared_ptr<Image>>(
+          image_id, [](const std::shared_ptr<Image>& img) { return img; });
+    } catch (const std::exception& e) {
+      return fail_pending_request(
+          std::format("[ERROR] ThumbnailService: Failed to load image ID {} for element {}: {}",
+                      image_id, id, e.what()),
+          pipeline, false);
+    } catch (...) {
+      return fail_pending_request(
+          std::format(
+              "[ERROR] ThumbnailService: Failed to load image ID {} for element {}: unknown error.",
+              image_id, id),
+          pipeline, false);
+    }
+
+    if (!img_result) {
+      return fail_pending_request(
+          std::format("[ERROR] ThumbnailService: Image with ID {} not found in pool.", image_id),
+          pipeline, false);
+    }
+
+    task_context->pre_render_color_temp_params = ReadColorTempOperatorParams(pipeline);
+    task.pipeline_executor_ = pipeline->pipeline_;
+    task.input_desc_        = std::move(img_result);
+    return true;
+  };
+
+  thumb_task.callback_ = [st, id, cache_key, task_context, release_task_pipeline,
+                          gen_token, expected_gen](ImageBuffer& result_buffer) {
+    // Strategy A: stale tasks must not touch pending_ because a newer request
+    // for the same element/resolution may already have claimed that slot.
+    if (gen_token && gen_token->load() != expected_gen) {
+      release_task_pipeline();
+      return;
+    }
+
     std::shared_ptr<ThumbnailGuard>      guard;
     std::vector<State::PendingCallback> callbacks;
 
     {
       std::unique_lock lock(st->cache_lock_);
 
-      auto             pending_it = st->pending_.find(id);
+      if (gen_token && gen_token->load() != expected_gen) {
+        release_task_pipeline();
+        return;
+      }
+
+      auto             pending_it = st->pending_.find(cache_key);
       const bool       request_active = (pending_it != st->pending_.end());
       if (request_active) {
         callbacks = std::move(pending_it->second);
@@ -248,27 +388,61 @@ void ThumbnailService::GetThumbnail(sl_element_id_t id, image_id_t image_id,
         guard->thumbnail_buffer_ = std::make_unique<ImageBuffer>(std::move(result_buffer));
         guard->pin_count_        = 1;
 
-        auto evicted = st->thumbnail_cache_.RecordAccess_WithEvict(id, id);
+        auto evicted = st->thumbnail_cache_.RecordAccess_WithEvict(cache_key, cache_key);
         HandleEvict(*st, evicted);
-        st->thumbnail_cache_data_[id] = guard;
+        st->thumbnail_cache_data_[cache_key] = guard;
       } else {
-        st->thumbnail_cache_.RemoveRecord(id);
-        st->thumbnail_cache_data_.erase(id);
+        st->thumbnail_cache_.RemoveRecord(cache_key);
+        st->thumbnail_cache_data_.erase(cache_key);
       }
     }
 
-    const auto post_render_color_temp_params = ReadColorTempOperatorParams(pipeline);
-    if (post_render_color_temp_params != pre_render_color_temp_params) {
-      pipeline->dirty_ = true;
+    // Strategy A: re-check token after pipeline work (before callbacks).
+    // If cancelled mid-render, remove only the guard inserted by this task.
+    if (gen_token && gen_token->load() != expected_gen) {
+      if (guard) {
+        std::unique_lock lock(st->cache_lock_);
+        auto guard_it = st->thumbnail_cache_data_.find(cache_key);
+        if (guard_it != st->thumbnail_cache_data_.end() && guard_it->second == guard) {
+          st->thumbnail_cache_.RemoveRecord(cache_key);
+          st->thumbnail_cache_data_.erase(guard_it);
+        }
+      }
+      release_task_pipeline();
+      for (const auto& pending_cb : callbacks) {
+        DispatchThumbnailResultCallback(
+            pending_cb.callback_, pending_cb.dispatcher_,
+            ThumbnailRequestResult{.guard = nullptr,
+                                   .status = ThumbnailRequestStatus::kCanceled,
+                                   .message = "Thumbnail request was canceled.",
+                                   .key = cache_key});
+      }
+      return;
     }
 
-    try {
-      st->pipeline_service_->SavePipeline(pipeline);
-    } catch (...) {
+    const auto pipeline = task_context->pipeline;
+    if (pipeline) {
+      const auto post_render_color_temp_params = ReadColorTempOperatorParams(pipeline);
+      if (post_render_color_temp_params != task_context->pre_render_color_temp_params) {
+        pipeline->dirty_ = true;
+      }
     }
 
+    release_task_pipeline();
+
+    const auto status = guard ? ThumbnailRequestStatus::kReady : ThumbnailRequestStatus::kError;
+    const std::string message =
+        guard ? std::string{}
+              : std::format(
+                    "[ERROR] ThumbnailService: Render for element {} produced no thumbnail buffer.",
+                    id);
     for (const auto& pending_cb : callbacks) {
-      DispatchThumbnailCallback(pending_cb.callback_, pending_cb.dispatcher_, guard);
+      DispatchThumbnailResultCallback(
+          pending_cb.callback_, pending_cb.dispatcher_,
+          ThumbnailRequestResult{.guard = guard,
+                                 .status = status,
+                                 .message = message,
+                                 .key = cache_key});
     }
   };
 
@@ -278,26 +452,95 @@ void ThumbnailService::GetThumbnail(sl_element_id_t id, image_id_t image_id,
     fail_pending_request(
         std::format("[ERROR] ThumbnailService: Failed to schedule thumbnail for element {}: {}", id,
                     e.what()),
-        pipeline);
+        task_context->pipeline, true);
   } catch (...) {
     fail_pending_request(
         std::format(
             "[ERROR] ThumbnailService: Failed to schedule thumbnail for element {}: unknown error.",
             id),
-        pipeline);
+        task_context->pipeline, true);
   }
 }
 
-void ThumbnailService::ReleaseThumbnail(sl_element_id_t sleeve_element_id) {
+void ThumbnailService::CancelPending(const ThumbnailCacheKey& key) {
   auto st = state_;
   if (!st) {
     return;
   }
 
+  std::vector<State::PendingCallback> callbacks_to_dispatch;
+  {
+    std::unique_lock lock(st->cache_lock_);
+
+    // Increment the generation token so queued/in-flight work for this key
+    // sees the mismatch and skips publishing stale results.
+    st->IncrementGenerationTokenLocked(key);
+
+    auto it = st->pending_.find(key);
+    if (it != st->pending_.end()) {
+      callbacks_to_dispatch = std::move(it->second);
+      st->pending_.erase(it);
+    }
+  }
+
+  for (const auto& cb : callbacks_to_dispatch) {
+    DispatchThumbnailResultCallback(
+        cb.callback_, cb.dispatcher_,
+        ThumbnailRequestResult{.guard = nullptr,
+                               .status = ThumbnailRequestStatus::kCanceled,
+                               .message = "Thumbnail request was canceled.",
+                               .key = key});
+  }
+}
+
+void ThumbnailService::CancelPending(sl_element_id_t sleeve_element_id) {
+  auto st = state_;
+  if (!st) {
+    return;
+  }
+
+  std::vector<State::PendingCallback> callbacks_to_dispatch;
+  {
+    std::unique_lock lock(st->cache_lock_);
+
+    for (auto res : kAllThumbnailResolutions) {
+      ThumbnailCacheKey key{sleeve_element_id, res};
+      st->IncrementGenerationTokenLocked(key);
+      auto it = st->pending_.find(key);
+      if (it == st->pending_.end()) {
+        continue;
+      }
+      auto callbacks = std::move(it->second);
+      st->pending_.erase(it);
+      callbacks_to_dispatch.insert(callbacks_to_dispatch.end(),
+                                   std::make_move_iterator(callbacks.begin()),
+                                   std::make_move_iterator(callbacks.end()));
+    }
+  }
+
+  for (const auto& cb : callbacks_to_dispatch) {
+    DispatchThumbnailResultCallback(
+        cb.callback_, cb.dispatcher_,
+        ThumbnailRequestResult{.guard = nullptr,
+                               .status = ThumbnailRequestStatus::kCanceled,
+                               .message = "Thumbnail request was canceled.",
+                               .key = cb.key_});
+  }
+}
+
+void ThumbnailService::ReleaseThumbnail(const ThumbnailCacheKey& key) {
+  auto st = state_;
+  if (!st) {
+    return;
+  }
+
+  CancelPending(key);
+
   std::unique_lock lock(st->cache_lock_);
-  auto             it = st->thumbnail_cache_data_.find(sleeve_element_id);
+
+  auto it = st->thumbnail_cache_data_.find(key);
   if (it == st->thumbnail_cache_data_.end() || !it->second) {
-    st->thumbnail_cache_.RemoveRecord(sleeve_element_id);
+    st->thumbnail_cache_.RemoveRecord(key);
     return;
   }
 
@@ -307,9 +550,14 @@ void ThumbnailService::ReleaseThumbnail(sl_element_id_t sleeve_element_id) {
   }
 
   if (guard->pin_count_ == 0) {
-    // Out-of-range thumbnails should be released immediately.
-    st->thumbnail_cache_.RemoveRecord(sleeve_element_id);
+    st->thumbnail_cache_.RemoveRecord(key);
     st->thumbnail_cache_data_.erase(it);
+  }
+}
+
+void ThumbnailService::ReleaseThumbnail(sl_element_id_t sleeve_element_id) {
+  for (auto res : kAllThumbnailResolutions) {
+    ReleaseThumbnail(ThumbnailCacheKey{sleeve_element_id, res});
   }
 }
 
@@ -320,35 +568,61 @@ void ThumbnailService::InvalidateThumbnail(sl_element_id_t sleeve_element_id) {
   }
 
   std::unique_lock lock(st->cache_lock_);
-  // Cancel in-flight joiners for this id and drop any cached payload.
-  st->pending_.erase(sleeve_element_id);
-  st->thumbnail_cache_.RemoveRecord(sleeve_element_id);
-  st->thumbnail_cache_data_.erase(sleeve_element_id);
+
+  // Invalidate all resolution tiers for this element.
+  for (auto res : kAllThumbnailResolutions) {
+    ThumbnailCacheKey key{sleeve_element_id, res};
+    st->IncrementGenerationTokenLocked(key);
+    st->pending_.erase(key);
+    st->thumbnail_cache_.RemoveRecord(key);
+    st->thumbnail_cache_data_.erase(key);
+  }
 }
 
-void ThumbnailService::HandleEvict(State& st, std::optional<sl_element_id_t> evicted_id) {
-  if (evicted_id.has_value()) {
-    const auto id = evicted_id.value();
-    auto       it = st.thumbnail_cache_data_.find(id);
+void ThumbnailService::ResizeCache(uint32_t desired_capacity) {
+  auto st = state_;
+  if (!st) {
+    return;
+  }
+
+  std::unique_lock lock(st->cache_lock_);
+
+  // Clamp to reasonable bounds. The UI may request very small capacities for
+  // 2048px tiers because cached thumbnails are float RGBA ImageBuffers.
+  constexpr uint32_t kMinCacheSize = 4;
+  constexpr uint32_t kMaxCacheSize = 1024;
+  const uint32_t capacity = std::clamp(desired_capacity, kMinCacheSize, kMaxCacheSize);
+
+  // Only shrink if all currently-cached entries are unpinned.
+  // If pinned items would exceed capacity, keep current size.
+  uint32_t pinned_count = 0;
+  for (const auto& [key, guard] : st->thumbnail_cache_data_) {
+    if (guard && guard->pin_count_ > 0) {
+      pinned_count++;
+    }
+  }
+
+  const uint32_t effective_capacity = std::max(capacity, pinned_count);
+  const auto     evicted_keys = st->thumbnail_cache_.Resize_WithEvict(effective_capacity);
+  for (const auto& evicted_key : evicted_keys) {
+    HandleEvict(*st, evicted_key);
+  }
+}
+
+void ThumbnailService::HandleEvict(State& st, std::optional<ThumbnailCacheKey> evicted_key) {
+  if (evicted_key.has_value()) {
+    const auto& key = evicted_key.value();
+    auto it = st.thumbnail_cache_data_.find(key);
     if (it != st.thumbnail_cache_data_.end() && it->second) {
       auto guard = it->second;
       if (guard->pin_count_ <= 0) {
-        // RAII: erasing from map drops the shared_ptr reference.
-        // When the last reference is dropped, ThumbnailGuard destructor runs,
-        // which destroys thumbnail_buffer_, which in turn releases all image data.
         st.thumbnail_cache_data_.erase(it);
       } else {
-        // Re-insert into cache since it's still pinned
-        // "Boost" the cache size to avoid immediate eviction
+        // Re-insert into cache since it's still pinned.
+        // Boost the cache size to avoid immediate eviction.
         st.thumbnail_cache_.Resize(static_cast<uint32_t>(st.thumbnail_cache_data_.size() + 5));
-        st.thumbnail_cache_.RecordAccess(id, id);
+        st.thumbnail_cache_.RecordAccess(key, key);
       }
-    }
-  } else {
-    // No eviction happened, check cache size
-    if (st.thumbnail_cache_data_.size() > State::default_cache_size_) {
-      // Try to reduce size
-      st.thumbnail_cache_.Resize(static_cast<uint32_t>(st.thumbnail_cache_data_.size() - 1));
     }
   }
 }

@@ -118,26 +118,6 @@ auto ParseSemVer(std::string_view version, std::array<int, 3>* out) -> bool {
   return true;
 }
 
-auto ReadMetadataVersion(const std::filesystem::path& path, std::string* versionOut) -> bool {
-  std::ifstream file(path);
-  if (!file.is_open()) {
-    return false;
-  }
-
-  nlohmann::json metadata;
-  try {
-    file >> metadata;
-  } catch (...) {
-    return false;
-  }
-  if (!metadata.is_object() || !metadata.contains("project_file_version") ||
-      !metadata.at("project_file_version").is_string()) {
-    return false;
-  }
-  *versionOut = metadata.at("project_file_version").get<std::string>();
-  return true;
-}
-
 auto PackedProjectHeaderIsSupported(const std::filesystem::path& path) -> bool {
   std::ifstream in(path, std::ios::binary);
   if (!in.is_open()) {
@@ -180,14 +160,7 @@ auto IsPackedProjectFile(const std::filesystem::path& path) -> bool {
 }
 
 auto IsSupportedProjectFile(const std::filesystem::path& path) -> bool {
-  if (IsPackedProjectPath(path) || IsPackedProjectFile(path)) {
-    return PackedProjectHeaderIsSupported(path);
-  }
-  if (!IsMetadataJsonPath(path)) {
-    return false;
-  }
-  std::string version;
-  return ReadMetadataVersion(path, &version) && ProjectVersionIsSupported(version);
+  return IsPackedProjectPath(path) && PackedProjectHeaderIsSupported(path);
 }
 
 auto ReadFileBytes(const std::filesystem::path& path, std::string* out) -> bool {

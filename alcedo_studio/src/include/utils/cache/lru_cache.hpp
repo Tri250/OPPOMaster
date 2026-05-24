@@ -80,7 +80,6 @@ class LRUCache {
       cache_map_[key] = cache_list_.begin();
       return evicted;
     }
-    return std::nullopt;
   }
 
   void RemoveRecord(const K& path) {
@@ -127,6 +126,23 @@ class LRUCache {
     } else {
       capacity_ = new_capacity;
     }
+  }
+
+  auto Resize_WithEvict(uint32_t new_capacity) -> std::vector<V> {
+    std::vector<V> evicted;
+    if (new_capacity > capacity_) {
+      Resize(new_capacity);
+      return evicted;
+    }
+
+    capacity_ = new_capacity;
+    while (cache_list_.size() > capacity_) {
+      auto value = Evict();
+      if (value.has_value()) {
+        evicted.push_back(value.value());
+      }
+    }
+    return evicted;
   }
 
   void Flush() {

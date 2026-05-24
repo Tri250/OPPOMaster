@@ -224,7 +224,9 @@ class AlbumBackend final : public QObject {
   Q_INVOKABLE void SetEditorHighlights(double value);
   Q_INVOKABLE void SetEditorSharpen(double value);
   Q_INVOKABLE void SetEditorClarity(double value);
-  Q_INVOKABLE void SetThumbnailVisible(uint elementId, uint imageId, bool visible);
+  Q_INVOKABLE void SetThumbnailVisible(uint elementId, uint imageId, bool visible,
+                                       uint maxEdge = 1024);
+  Q_INVOKABLE void SetThumbnailCacheHint(uint visibleCells, uint maxEdge = 1024);
   Q_INVOKABLE void ToggleStatsFilter(const QString& category, const QString& label);
   Q_INVOKABLE void ClearStatsFilter();
 
@@ -232,9 +234,9 @@ signals:
   void ThumbnailsChanged();
   void thumbnailsChanged();
   void ThumbnailUpdated(uint elementId, const QString& dataUrl, bool loading,
-                        bool missingSource);
+                        bool missingSource, const QString& errorText);
   void thumbnailUpdated(uint elementId, const QString& dataUrl, bool loading,
-                        bool missingSource);
+                        bool missingSource, const QString& errorText);
   void CountsChanged();
   void StatsChanged();
   void ServiceStateChanged();

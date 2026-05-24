@@ -4,8 +4,11 @@
 
 #include "ui/album_backend_test_fixture.hpp"
 
+#include <QByteArray>
+#include <QImage>
 #include <QSignalSpy>
 
+#include <algorithm>
 #include <filesystem>
 #include <functional>
 
@@ -85,6 +88,22 @@ auto WaitForThumbnailRow(AlbumBackend& backend, sl_element_id_t element_id,
     ProcessEvents(100);
   }
   return {};
+}
+
+auto DecodeDataUrlImage(const QString& data_url) -> QImage {
+  const int comma = data_url.indexOf(',');
+  if (comma < 0) {
+    return {};
+  }
+
+  const QByteArray encoded = data_url.mid(comma + 1).toLatin1();
+  QImage           image;
+  image.loadFromData(QByteArray::fromBase64(encoded));
+  return image;
+}
+
+auto MaxImageEdge(const QImage& image) -> int {
+  return std::max(image.width(), image.height());
 }
 
 }  // namespace
@@ -228,8 +247,64 @@ TEST_F(ThumbnailTests, MissingSourceThumbnailStopsLoadingAndSetsMissingFlag) {
       10000);
   ASSERT_FALSE(missing_row.isEmpty())
       << "Missing-source thumbnail row did not settle into the expected error state.";
+  EXPECT_FALSE(missing_row.value("thumbErrorText").toString().isEmpty())
+      << "Missing-source thumbnail row should expose a user-visible error message.";
 
   backend.SetThumbnailVisible(static_cast<uint>(element_id), static_cast<uint>(image_id), false);
+  ProcessEvents(250);
+}
+
+TEST_F(ThumbnailTests, VisibleThumbnailRerequestsWhenMaxEdgeChanges) {
+  AlbumBackend backend;
+  ASSERT_TRUE(CreateTestProject(backend));
+
+  auto images = CollectRawTestImages("airplane", 1);
+  if (images.empty()) {
+    images = CollectRawTestImages("still_life", 1);
+  }
+  ASSERT_FALSE(images.empty()) << "No RAW test image available for zoom-tier thumbnail test.";
+
+  backend.StartImport(PathsToQStringList(images));
+  WaitForImportFinished(backend);
+
+  ASSERT_FALSE(backend.ImportRunning());
+  ASSERT_GE(backend.ShownCount(), 1);
+
+  const QVariantMap first_row = backend.Thumbnails().front().toMap();
+  const auto        element_id =
+      static_cast<sl_element_id_t>(first_row.value("elementId").toUInt());
+  const auto image_id = static_cast<image_id_t>(first_row.value("imageId").toUInt());
+  ASSERT_NE(element_id, 0);
+  ASSERT_NE(image_id, 0);
+
+  backend.SetThumbnailVisible(static_cast<uint>(element_id), static_cast<uint>(image_id), true,
+                              2048);
+  const QString high_url = WaitForThumbnailUrl(backend, element_id, true, 30000);
+  ASSERT_FALSE(high_url.isEmpty());
+
+  const QImage high_image = DecodeDataUrlImage(high_url);
+  ASSERT_FALSE(high_image.isNull());
+  ASSERT_LE(MaxImageEdge(high_image), 2048);
+
+  backend.SetThumbnailVisible(static_cast<uint>(element_id), static_cast<uint>(image_id), true,
+                              256);
+  const QVariantMap high_row = WaitForThumbnailRow(
+      backend, element_id,
+      [&high_url](const QVariantMap& row) {
+        const QString url = row.value("thumbUrl").toString();
+        return !url.isEmpty() && url != high_url && !row.value("thumbLoading").toBool();
+      },
+      30000);
+  ASSERT_FALSE(high_row.isEmpty())
+      << "Changing maxEdge on a pinned thumbnail did not refresh.";
+
+  const QImage low_image = DecodeDataUrlImage(high_row.value("thumbUrl").toString());
+  ASSERT_FALSE(low_image.isNull());
+  EXPECT_LT(MaxImageEdge(low_image), MaxImageEdge(high_image));
+  EXPECT_LE(MaxImageEdge(low_image), 256);
+
+  backend.SetThumbnailVisible(static_cast<uint>(element_id), static_cast<uint>(image_id), false,
+                              256);
   ProcessEvents(250);
 }
 

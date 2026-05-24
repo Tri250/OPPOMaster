@@ -101,6 +101,7 @@ void PipelineTask::SetExecutorRenderParams() {
   if (!pipeline_executor_) {
     return;
   }
+  pipeline_executor_->SetCancelRequested(cancel_requested_);
   auto& desc = options_.render_desc_;
   const auto requested_render_type = desc.render_type_;
 
@@ -208,9 +209,9 @@ void PipelineTask::SetExecutorRenderParams() {
     pipeline_executor_->SetResizeDownsampleAlgorithm(ResizeDownsampleAlgorithm::Bilinear);
     pipeline_executor_->SetRenderRegion(0, 0, 1.0f);
     pipeline_executor_->SetForceCPUOutput(true);
-    pipeline_executor_->SetRenderRes(false, 1024);
+    pipeline_executor_->SetRenderRes(false, static_cast<int>(desc.max_edge_));
     pipeline_executor_->SetEnableCache(false);
-    pipeline_executor_->SetDecodeRes(DecodeRes::QUARTER);
+    pipeline_executor_->SetDecodeRes(desc.decode_res_);
     return;
   }
   if (requested_render_type == RenderType::FULL_RES_PREVIEW) {
@@ -249,6 +250,7 @@ void PipelineTask::ResetPreviewRenderParams() {
   pipeline_executor_->SetForceCPUOutput(false);
   pipeline_executor_->SetEnableCache(true);
   pipeline_executor_->SetDecodeRes(DecodeRes::FULL);
+  pipeline_executor_->SetCancelRequested(nullptr);
   pipeline_executor_->ReleasePreviewGpuScratch();
 }
 
@@ -262,6 +264,8 @@ void PipelineTask::ResetThumbnailRenderParams() {
   pipeline_executor_->SetForceCPUOutput(false);
   pipeline_executor_->SetEnableCache(true);
   pipeline_executor_->SetDecodeRes(DecodeRes::FULL);
+  pipeline_executor_->SetCancelRequested(nullptr);
+  pipeline_executor_->ClearAllIntermediateBuffers();
 }
 
 PipelineScheduler::PipelineScheduler() : thread_pool_(1) {}
@@ -328,18 +332,72 @@ void PipelineScheduler::ScheduleTask(PipelineTask&& task) {
       }
     };
 
+    const auto task_cancelled = [&task]() {
+      if (!task.cancel_requested_) {
+        return false;
+      }
+      try {
+        return task.cancel_requested_();
+      } catch (...) {
+        return true;
+      }
+    };
+
     try {
       std::shared_ptr<ImageBuffer> result_copy;
       {
+        if (task_cancelled()) {
+          notify_thumbnail_failure_callbacks();
+          set_blocking_value(nullptr);
+          return;
+        }
+        if (task.prepare_) {
+          bool prepared = false;
+          try {
+            prepared = (*task.prepare_)(task);
+          } catch (...) {
+            notify_thumbnail_failure_callbacks();
+            set_blocking_exception();
+            return;
+          }
+          if (!prepared) {
+            notify_thumbnail_failure_callbacks();
+            set_blocking_value(nullptr);
+            return;
+          }
+        }
+        if (task_cancelled()) {
+          notify_thumbnail_failure_callbacks();
+          set_blocking_value(nullptr);
+          return;
+        }
         if (task.input_desc_ && !task.input_) {
           // Load image data into buffer
           task.input_ = std::make_shared<ImageBuffer>(
               ByteBufferLoader::LoadByteBufferFromImage(task.input_desc_));
         }
+        if (task_cancelled()) {
+          notify_thumbnail_failure_callbacks();
+          set_blocking_value(nullptr);
+          return;
+        }
         if (task.input_) {
           std::unique_lock<std::mutex> render_lock;
+          auto& render_desc = task.options_.render_desc_;
+          IFrameSink* saved_frame_sink = nullptr;
+
           if (task.pipeline_executor_) {
             render_lock = std::unique_lock<std::mutex>(task.pipeline_executor_->GetRenderLock());
+
+            // Thumbnail and export tasks must not interact with any editor-owned
+            // frame sink that may still be attached to a cached pipeline.
+            if (render_desc.render_type_ == RenderType::THUMBNAIL ||
+                render_desc.render_type_ == RenderType::FULL_RES_EXPORT) {
+              saved_frame_sink = task.pipeline_executor_->GetFrameSink();
+              if (saved_frame_sink) {
+                task.pipeline_executor_->DetachFrameSink();
+              }
+            }
 
             // Refresh the executor from the Image's pre-extracted raw metadata so that
             // downstream operators (ColorTemp, LensCalib) resolve eagerly and RawDecodeOp
@@ -349,8 +407,26 @@ void PipelineScheduler::ScheduleTask(PipelineTask&& task) {
             }
           }
 
-          auto& render_desc = task.options_.render_desc_;
+          const auto restore_frame_sink = [&]() {
+            if (saved_frame_sink && task.pipeline_executor_) {
+              task.pipeline_executor_->AttachFrameSink(saved_frame_sink);
+            }
+          };
+          // RAII guard ensures the editor frame sink is restored on every exit
+          // path, including exceptions thrown after detaching.
+          // Uses a non-null sentinel so unique_ptr's destructor invokes the deleter.
+          auto sink_guard = std::unique_ptr<void, std::function<void(void*)>>(
+              reinterpret_cast<void*>(1),
+              [&restore_frame_sink](void*) { restore_frame_sink(); });
+
           task.SetExecutorRenderParams();
+
+          if (task_cancelled()) {
+            apply_state_transition_after_render();
+            notify_thumbnail_failure_callbacks();
+            set_blocking_value(nullptr);
+            return;
+          }
 
           auto result = task.pipeline_executor_->Apply(task.input_);
           bool result_has_cpu = false;

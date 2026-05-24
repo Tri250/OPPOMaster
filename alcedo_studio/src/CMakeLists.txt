@@ -883,9 +883,18 @@ def_library(ImagePoolService
 )
 
 def_library(ProjectService
-    SOURCES app/project_service.cpp
+    SOURCES
+        app/project_service.cpp
+        app/project_package_backend.cpp
+        app/project_package_service.cpp
+        ui/alcedo_main/album_backend/path_utils.cpp
     PUBLIC_DEPS FSService StorageService ImagePoolService AlbumBrowseService
                 StrConv JSON xxHash
+    PRIVATE_DEPS
+        UiLocalization
+        Qt6::Core
+        Qt6::Gui
+        opencv_core
 )
 
 def_library(PipelineMgmtService
@@ -1009,10 +1018,7 @@ endif()
 # ── AlbumBackendLib: reusable static library for album_backend ──────────────
 add_library(AlbumBackendLib STATIC
     ui/alcedo_main/album_backend/album_backend.cpp
-    ui/alcedo_main/album_backend/path_utils.cpp
-    app/project_package_backend.cpp
     ui/alcedo_main/album_backend/project_handler.cpp
-    app/project_package_service.cpp
     ui/alcedo_main/album_backend/thumbnail_manager.cpp
     ui/alcedo_main/album_backend/folder_controller.cpp
     ui/alcedo_main/album_backend/image_controller.cpp

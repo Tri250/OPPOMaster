@@ -189,8 +189,8 @@ AlbumBackend::AlbumBackend(QObject* parent)
                    this, &AlbumBackend::RefreshTranslations);
   InitializeAcceleratorSettings();
   editor_.InitializeEditorLuts();
-  SetServiceState(false, PL_TEXT("Select a project: load a .alcd package or metadata JSON, "
-                                 "or create a new packed project."));
+  SetServiceState(false, PL_TEXT("Select a project: load a .alcd package or create a new "
+                                 "packed project."));
   task_status_text_ = PL_TEXT("Open or create a project to begin.");
 }
 
@@ -556,8 +556,33 @@ void AlbumBackend::SetEditorClarity(double value) { editor_.SetEditorClarity(val
 
 // ── Q_INVOKABLE: Thumbnail delegation ───────────────────────────────────────
 
-void AlbumBackend::SetThumbnailVisible(uint elementId, uint imageId, bool visible) {
-  thumb_.SetThumbnailVisible(elementId, imageId, visible);
+void AlbumBackend::SetThumbnailVisible(uint elementId, uint imageId, bool visible,
+                                       uint maxEdge) {
+  thumb_.SetThumbnailVisible(elementId, imageId, visible, maxEdge);
+}
+
+void AlbumBackend::SetThumbnailCacheHint(uint visibleCells, uint maxEdge) {
+  auto thumb_svc = project_handler_.thumbnail_service();
+  if (!thumb_svc) {
+    return;
+  }
+
+  // Cache by count, but cap high-resolution tiers aggressively because
+  // thumbnails are stored as float RGBA ImageBuffers before QML conversion.
+  const uint32_t scroll_buffer = std::max<uint32_t>(visibleCells * 3, visibleCells + 4);
+  uint32_t       tier_cap      = 96;
+  if (maxEdge > 1024) {
+    tier_cap = 8;
+  } else if (maxEdge > 512) {
+    tier_cap = 16;
+  } else if (maxEdge > 256) {
+    tier_cap = 48;
+  }
+  const uint32_t desired = std::clamp<uint32_t>(scroll_buffer, 4, tier_cap);
+  try {
+    thumb_svc->ResizeCache(desired);
+  } catch (...) {
+  }
 }
 
 // ── Q_INVOKABLE: Project I/O ────────────────────────────────────────────────
@@ -565,8 +590,8 @@ void AlbumBackend::SetThumbnailVisible(uint elementId, uint imageId, bool visibl
 bool AlbumBackend::PromptAndLoadProject() {
   const QString start_dir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
   const QString selected_path =
-      QFileDialog::getOpenFileName(nullptr, tr("Select Project Package or Metadata JSON"), start_dir,
-                                   tr("Packed Project (*.alcd);;Project Metadata (*.json);;All Files (*)"));
+      QFileDialog::getOpenFileName(nullptr, tr("Select Project Package"), start_dir,
+                                   tr("Packed Project (*.alcd);;All Files (*)"));
   if (selected_path.isEmpty()) {
     return false;
   }
@@ -623,12 +648,11 @@ bool AlbumBackend::LoadProject(const QString& metaFileUrlOrPath) {
   if (!package_service.IsSupportedProjectFile(project_path)) {
     RemoveRecentProject(project_path);
     SetServiceMessageForCurrentProject(
-        PL_TEXT("Project file version is not supported by this Alcedo build."));
+        PL_TEXT("Unsupported or damaged project package. Choose a valid .alcd file."));
     return false;
   }
 
-  if (package_service.IsPackedProjectPath(project_path) ||
-      package_service.IsPackedProjectFile(project_path)) {
+  if (package_service.IsPackedProjectPath(project_path)) {
     const QString project_name = QFileInfo(PathToQString(project_path)).completeBaseName();
     std::filesystem::path workspace_dir;
     QString               workspace_error;
@@ -658,18 +682,9 @@ bool AlbumBackend::LoadProject(const QString& metaFileUrlOrPath) {
                                                project_path, workspace_dir, project_path);
   }
 
-  if (!package_service.IsMetadataJsonPath(project_path)) {
-    SetServiceMessageForCurrentProject(
-        PL_TEXT("Unsupported project format. Choose a .json or .alcd file."));
-    return false;
-  }
-
-  const auto db_hint_path =
-      project_path.parent_path() / (project_path.stem().wstring() + L".db");
-  return project_handler_.InitializeServices(db_hint_path, project_path,
-                                             ProjectOpenMode::kLoadExisting,
-                                             package_service.BuildBundlePathFromMetaPath(project_path),
-                                             {}, project_path);
+  SetServiceMessageForCurrentProject(
+      PL_TEXT("Unsupported project format. Choose a .alcd file."));
+  return false;
 }
 
 bool AlbumBackend::CreateProjectInFolder(const QString& folderUrlOrPath) {
