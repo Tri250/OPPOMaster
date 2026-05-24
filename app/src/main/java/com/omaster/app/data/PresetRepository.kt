@@ -13,7 +13,7 @@ import javax.inject.Singleton
 @Singleton
 class PresetRepository @Inject constructor(
     private val preferencesDataStore: PreferencesDataStore,
-    private val presetApi: PresetApi?
+    private val presetApi: PresetApi
 ) {
     private val samplePresets = listOf(
         Preset(
@@ -155,15 +155,13 @@ class PresetRepository @Inject constructor(
 
     suspend fun fetchPresetsFromNetwork(): List<Preset>? {
         return try {
-            presetApi?.let {
-                val response = it.getPresets()
-                if (response.isSuccessful) {
-                    Timber.d("成功从网络获取预设")
-                    response.body()
-                } else {
-                    Timber.e("网络请求失败: ${response.code()}")
-                    null
-                }
+            val response = presetApi.getPresets()
+            if (response.isSuccessful) {
+                Timber.d("成功从网络获取预设")
+                response.body()
+            } else {
+                Timber.e("网络请求失败: ${response.code()}")
+                null
             }
         } catch (e: Exception) {
             Timber.e(e, "获取预设时发生错误")
