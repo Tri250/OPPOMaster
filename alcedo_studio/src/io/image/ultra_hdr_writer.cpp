@@ -15,10 +15,13 @@
 #include <cstring>
 #include <fstream>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
+
+#include "image/metadata.hpp"
 
 namespace alcedo {
 namespace {
@@ -178,6 +181,36 @@ void SanitizeExifData(Exiv2::ExifData& exif_data, int width, int height) {
   exif_data["Exif.Photo.PixelYDimension"] = static_cast<uint32_t>(std::max(height, 1));
 }
 
+auto RatingPercentFor(int rating) -> uint16_t {
+  switch (ExifDisplayMetaData::NormalizeRating(rating)) {
+    case 1:
+      return 1;
+    case 2:
+      return 25;
+    case 3:
+      return 50;
+    case 4:
+      return 75;
+    case 5:
+      return 99;
+    default:
+      return 0;
+  }
+}
+
+void ApplyExifRating(Exiv2::ExifData& exif_data, std::optional<int> rating) {
+  if (!rating.has_value()) {
+    return;
+  }
+
+  const int normalized_rating = ExifDisplayMetaData::NormalizeRating(*rating);
+  exif_data["Exif.Image.Rating"] = static_cast<uint16_t>(normalized_rating);
+  try {
+    exif_data["Exif.Image.RatingPercent"] = RatingPercentFor(normalized_rating);
+  } catch (...) {
+  }
+}
+
 void ApplyBaseJpegColorProfile(ImageSpec& spec, const ExportColorProfileConfig& color_profile) {
   const std::vector<uint8_t> icc_bytes =
       ExportIccProfileResolver::ResolveIccProfileBytes(color_profile);
@@ -285,6 +318,11 @@ auto BuildBaseJpegBytes(const cv::Mat&                  linear_rgba32f,
 
 auto UltraHdrWriter::BuildSanitizedExifData(const image_path_t& source_path, int width, int height)
     -> std::vector<uint8_t> {
+  return BuildSanitizedExifData(source_path, width, height, std::nullopt);
+}
+
+auto UltraHdrWriter::BuildSanitizedExifData(const image_path_t& source_path, int width, int height,
+                                            std::optional<int> rating) -> std::vector<uint8_t> {
   try {
     auto image = Exiv2::ImageFactory::open(PathToUtf8(source_path));
     if (!image) {
@@ -293,11 +331,12 @@ auto UltraHdrWriter::BuildSanitizedExifData(const image_path_t& source_path, int
 
     image->readMetadata();
     Exiv2::ExifData exif_data = image->exifData();
-    if (exif_data.empty()) {
+    if (exif_data.empty() && !rating.has_value()) {
       return {};
     }
 
     SanitizeExifData(exif_data, width, height);
+    ApplyExifRating(exif_data, rating);
 
     Exiv2::Blob blob;
     Exiv2::ByteOrder byte_order = image->byteOrder();
@@ -315,14 +354,15 @@ void UltraHdrWriter::WriteImageToPath(const image_path_t&             src_path,
                                       const std::filesystem::path&    export_path,
                                       const cv::Mat&                  rgba32f,
                                       const ExportFormatOptions&      options,
-                                      const ExportColorProfileConfig& color_profile) {
+                                      const ExportColorProfileConfig& color_profile,
+                                      std::optional<int>              rating) {
   if (rgba32f.empty() || rgba32f.type() != CV_32FC4) {
     throw std::runtime_error("UltraHdrWriter: expected non-empty CV_32FC4 image.");
   }
 
   cv::Mat linear_rgba32f = ConvertHdrIntentToLinear(rgba32f, color_profile.encoding_eotf);
   std::vector<uint8_t> exif_bytes =
-      BuildSanitizedExifData(src_path, linear_rgba32f.cols, linear_rgba32f.rows);
+      BuildSanitizedExifData(src_path, linear_rgba32f.cols, linear_rgba32f.rows, rating);
   std::vector<uint8_t> base_jpeg_bytes =
       BuildBaseJpegBytes(linear_rgba32f, options, color_profile, exif_bytes);
 

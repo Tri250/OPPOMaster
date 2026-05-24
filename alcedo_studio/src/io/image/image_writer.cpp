@@ -7,6 +7,7 @@
 #include "io/image/ultra_hdr_writer.hpp"
 
 #include <OpenImageIO/imageio.h>
+#include <exiv2/exiv2.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -19,6 +20,8 @@
 #include <utility>
 #include <vector>
 
+#include "image/metadata.hpp"
+
 namespace alcedo {
 namespace {
 OIIO_NAMESPACE_USING
@@ -26,6 +29,23 @@ OIIO_NAMESPACE_USING
 auto PathToUtf8(const std::filesystem::path& path) -> std::string {
   auto u8 = path.u8string();
   return std::string(reinterpret_cast<const char*>(u8.data()), u8.size());
+}
+
+auto RatingPercentFor(int rating) -> uint16_t {
+  switch (ExifDisplayMetaData::NormalizeRating(rating)) {
+    case 1:
+      return 1;
+    case 2:
+      return 25;
+    case 3:
+      return 50;
+    case 4:
+      return 75;
+    case 5:
+      return 99;
+    default:
+      return 0;
+  }
 }
 
 auto ShouldResize(const ExportFormatOptions& options) -> bool {
@@ -221,6 +241,44 @@ void ApplyExportColorProfile(ImageSpec& spec,
                  icc_bytes.data());
 }
 
+void ApplyRatingMetadata(const std::filesystem::path& export_path, std::optional<int> rating) {
+  if (!rating.has_value()) {
+    return;
+  }
+
+  try {
+    auto image = Exiv2::ImageFactory::open(PathToUtf8(export_path));
+    if (!image) {
+      return;
+    }
+
+    const int normalized_rating = ExifDisplayMetaData::NormalizeRating(*rating);
+    image->readMetadata();
+
+    try {
+      Exiv2::XmpData xmp_data = image->xmpData();
+      xmp_data["Xmp.xmp.Rating"] = normalized_rating;
+      image->setXmpData(xmp_data);
+    } catch (...) {
+    }
+
+    try {
+      Exiv2::ExifData exif_data = image->exifData();
+      exif_data["Exif.Image.Rating"] = static_cast<uint16_t>(normalized_rating);
+      try {
+        exif_data["Exif.Image.RatingPercent"] = RatingPercentFor(normalized_rating);
+      } catch (...) {
+      }
+      image->setExifData(exif_data);
+    } catch (...) {
+    }
+
+    image->writeMetadata();
+  } catch (...) {
+    // Metadata injection is best-effort; pixel export should not fail for unsupported tags/formats.
+  }
+}
+
 auto TryWriteWithOpenImageIO(const image_path_t& src_path, const std::filesystem::path& export_path,
                              const cv::Mat& rgba32f, const ExportFormatOptions& options,
                              const std::optional<ExportColorProfileConfig>& color_profile,
@@ -353,7 +411,8 @@ auto ImageWriter::ShouldWriteUltraHdr(
 void ImageWriter::WriteImageToPath(const image_path_t&          src_path,
                                    std::shared_ptr<ImageBuffer> image_data,
                                    ExportFormatOptions          options,
-                                   std::optional<ExportColorProfileConfig> color_profile) {
+                                   std::optional<ExportColorProfileConfig> color_profile,
+                                   std::optional<int> rating) {
   if (!image_data) {
     throw std::runtime_error("ImageWriter: image_data is null");
   }
@@ -387,7 +446,8 @@ void ImageWriter::WriteImageToPath(const image_path_t&          src_path,
 
   if (ShouldWriteUltraHdr(options, color_profile)) {
 #if defined(ALCEDO_HAS_ULTRAHDR)
-    UltraHdrWriter::WriteImageToPath(src_path, export_path, working, options, *color_profile);
+    UltraHdrWriter::WriteImageToPath(src_path, export_path, working, options, *color_profile,
+                                     rating);
     return;
 #else
     throw std::runtime_error(
@@ -399,6 +459,7 @@ void ImageWriter::WriteImageToPath(const image_path_t&          src_path,
   try {
     if (TryWriteWithOpenImageIO(src_path, export_path, working, options, color_profile,
                                 oiio_err)) {
+      ApplyRatingMetadata(export_path, rating);
       return;
     }
   } catch (const std::exception& e) {
@@ -407,6 +468,7 @@ void ImageWriter::WriteImageToPath(const image_path_t&          src_path,
 
   std::string cv_err;
   if (TryWriteWithOpenCV(export_path, working, options, cv_err)) {
+    ApplyRatingMetadata(export_path, rating);
     return;
   }
 

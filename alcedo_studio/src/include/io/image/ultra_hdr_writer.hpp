@@ -5,6 +5,7 @@
 #pragma once
 
 #include <filesystem>
+#include <optional>
 #include <vector>
 
 #include <opencv2/core.hpp>
@@ -20,10 +21,13 @@ class UltraHdrWriter {
                                const std::filesystem::path&    export_path,
                                const cv::Mat&                  rgba32f,
                                const ExportFormatOptions&      options,
-                               const ExportColorProfileConfig& color_profile);
+                               const ExportColorProfileConfig& color_profile,
+                               std::optional<int> rating = std::nullopt);
 
   static auto BuildSanitizedExifData(const image_path_t& source_path, int width, int height)
       -> std::vector<uint8_t>;
+  static auto BuildSanitizedExifData(const image_path_t& source_path, int width, int height,
+                                     std::optional<int> rating) -> std::vector<uint8_t>;
 };
 
 }  // namespace alcedo

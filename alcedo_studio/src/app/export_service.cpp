@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <memory>
 #include <mutex>
+#include <optional>
 
 #include "image/image.hpp"
 #include "image/image_buffer.hpp"
@@ -25,6 +26,29 @@ auto ResolveExportColorProfileConfig(const OperatorParams& params) -> ExportColo
                                   params.to_output_params_.peak_luminance_};
 }
 
+auto RatedValueOrNull(int rating) -> std::optional<int> {
+  const int normalized_rating = ExifDisplayMetaData::NormalizeRating(rating);
+  if (normalized_rating <= 0) {
+    return std::nullopt;
+  }
+  return normalized_rating;
+}
+
+auto ResolveImageRating(const std::shared_ptr<Image>& image) -> std::optional<int> {
+  if (!image) {
+    return std::nullopt;
+  }
+  if (image->has_exif_display_.load()) {
+    return RatedValueOrNull(image->exif_display_.rating_);
+  }
+  if (image->has_exif_json_.load()) {
+    ExifDisplayMetaData metadata;
+    metadata.FromJson(image->exif_json_);
+    return RatedValueOrNull(metadata.rating_);
+  }
+  return std::nullopt;
+}
+
 }  // namespace
 
 auto ExportService::RunExportRenderTask(const ExportTask& task) -> ExportResult {
@@ -37,8 +61,14 @@ auto ExportService::RunExportRenderTask(const ExportTask& task) -> ExportResult 
                              std::to_string(task.sleeve_id_));
   }
   // Get the image from image pool service
-  auto img_src_path = image_pool_service_->Read<std::filesystem::path>(
-      task.image_id_, [](std::shared_ptr<Image> img) { return img->image_path_; });
+  auto source_img = image_pool_service_->Read<std::shared_ptr<Image>>(
+      task.image_id_, [](const std::shared_ptr<Image>& img) { return img; });
+  if (!source_img) {
+    throw std::runtime_error("[ERROR] ExportService: Failed to load image for id " +
+                             std::to_string(task.image_id_));
+  }
+  auto img_src_path = source_img->image_path_;
+  const auto export_rating = ResolveImageRating(source_img);
 
   // Create a pipeline task for export
   PipelineTask render_task;
@@ -53,10 +83,8 @@ auto ExportService::RunExportRenderTask(const ExportTask& task) -> ExportResult 
   // Inject pre-extracted raw metadata from the real Image into the pipeline
   // so downstream operators resolve eagerly.
   try {
-    auto full_img = image_pool_service_->Read<std::shared_ptr<Image>>(
-        task.image_id_, [](const std::shared_ptr<Image>& i) { return i; });
-    if (full_img && full_img->HasRawColorContext()) {
-      pipeline_guard->pipeline_->InjectRawMetadata(full_img->GetRawColorContext());
+    if (source_img->HasRawColorContext()) {
+      pipeline_guard->pipeline_->InjectRawMetadata(source_img->GetRawColorContext());
     }
   } catch (...) {
     // Non-fatal: metadata injection is best-effort.
@@ -90,7 +118,8 @@ auto ExportService::RunExportRenderTask(const ExportTask& task) -> ExportResult 
       task.options_.format_ == ImageFormatType::JPEG;
   pipeline_service_->SavePipeline(pipeline_guard);
   // Use ImageWriter to write the image to disk
-  ImageWriter::WriteImageToPath(img_src_path, rendered_image, task.options_, export_profile);
+  ImageWriter::WriteImageToPath(img_src_path, rendered_image, task.options_, export_profile,
+                                export_rating);
   result.success_ = true;
   result.wrote_ultra_hdr_ = wrote_ultra_hdr;
   result.used_embedded_profile_fallback_ = requested_ultra_hdr && !wrote_ultra_hdr;

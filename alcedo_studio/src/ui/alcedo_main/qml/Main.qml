@@ -136,6 +136,7 @@ ApplicationWindow {
     property string pendingLanguageCode: languageManager.currentLanguageCode
     property var pendingDeleteTargets: []
     property var pendingDetailsTarget: ({})
+    property var pendingRatingTarget: ({})
     property string deleteConfirmText: ""
     property string snackbarText: ""
     property bool importSessionObserved: false
@@ -252,6 +253,17 @@ ApplicationWindow {
             imageId: Number(clickedItem.imageId),
             fileName: clickedItem.fileName ? clickedItem.fileName : qsTr("(unnamed)")
         }
+        const ratingResult = albumBackend.GetImageRating(
+            Number(clickedItem.elementId),
+            Number(clickedItem.imageId))
+        root.pendingRatingTarget = {
+            elementId: Number(clickedItem.elementId),
+            imageId: Number(clickedItem.imageId),
+            fileName: clickedItem.fileName ? clickedItem.fileName : qsTr("(unnamed)"),
+            rating: ratingResult && ratingResult.success === true
+                    ? Number(ratingResult.rating)
+                    : Number(clickedItem.rating || 0)
+        }
         imageContextMenu.openAt(sceneX, sceneY)
     }
 
@@ -298,6 +310,25 @@ ApplicationWindow {
             rows: result.rows ? result.rows : []
         }
         imageDetailsDialog.open()
+    }
+
+    function requestSetImageRating(rating) {
+        if (!root.pendingRatingTarget || Number(root.pendingRatingTarget.imageId) <= 0) {
+            return
+        }
+        const normalizedRating = Math.max(0, Math.min(5, Number(rating)))
+        const result = albumBackend.SetImageRating(
+            Number(root.pendingRatingTarget.elementId),
+            Number(root.pendingRatingTarget.imageId),
+            normalizedRating)
+        if (result && result.success === true) {
+            root.pendingRatingTarget = Object.assign({}, root.pendingRatingTarget, {
+                rating: Number(result.rating)
+            })
+        }
+        if (result && result.message) {
+            root.showSnackbar(result.message)
+        }
     }
 
     ExportQueueState {
@@ -555,6 +586,8 @@ ApplicationWindow {
 
     ImageContextMenu {
         id: imageContextMenu
+        ratingEnabled: Number(root.pendingRatingTarget.imageId) > 0
+        currentRating: Math.max(0, Math.min(5, Number(root.pendingRatingTarget.rating || 0)))
         actions: [
             {
                 id: "details",
@@ -567,6 +600,10 @@ ApplicationWindow {
                 enabled: root.pendingDeleteTargets.length > 0
             }
         ]
+        onRatingRequested: function(rating) {
+            imageContextMenu.close()
+            root.requestSetImageRating(rating)
+        }
         onActionRequested: function(actionId) {
             imageContextMenu.close()
             if (actionId === "details") {
@@ -737,6 +774,7 @@ ApplicationWindow {
             exportQueueState.clearQueue()
             root.pendingDeleteTargets = []
             root.pendingDetailsTarget = ({})
+            root.pendingRatingTarget = ({})
             deleteConfirmDialog.close()
             imageDetailsDialog.close()
             root.showSnackbar(albumBackend.serviceMessage)
@@ -751,6 +789,7 @@ ApplicationWindow {
             selectionState.clearSelectedImages()
             root.pendingDeleteTargets = []
             root.pendingDetailsTarget = ({})
+            root.pendingRatingTarget = ({})
             deleteConfirmDialog.close()
             imageDetailsDialog.close()
         }

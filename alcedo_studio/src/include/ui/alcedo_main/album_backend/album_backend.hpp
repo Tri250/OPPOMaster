@@ -176,6 +176,8 @@ class AlbumBackend final : public QObject {
   Q_INVOKABLE void DeleteFolder(uint folderId);
   Q_INVOKABLE QVariantMap DeleteImages(const QVariantList& targetEntries);
   Q_INVOKABLE QVariantMap GetImageDetails(uint elementId, uint imageId);
+  Q_INVOKABLE QVariantMap GetImageRating(uint elementId, uint imageId);
+  Q_INVOKABLE QVariantMap SetImageRating(uint elementId, uint imageId, int rating);
   Q_INVOKABLE bool OpenDirectoryInFileManager(const QString& dirUrlOrPath);
 
   Q_INVOKABLE void StartImport(const QStringList& fileUrlsOrPaths);

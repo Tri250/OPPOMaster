@@ -292,7 +292,8 @@ ListView {
                 root.contextMenuRequested({
                     elementId: elementId,
                     imageId: imageId,
-                    fileName: fileName
+                    fileName: fileName,
+                    rating: rating
                 }, scenePoint.x, scenePoint.y)
             }
             onClicked: function(mouse) {
@@ -306,7 +307,8 @@ ListView {
                     root.replaceSelection([{
                         elementId: elementId,
                         imageId: imageId,
-                        fileName: fileName
+                        fileName: fileName,
+                        rating: rating
                     }])
                 }
             }

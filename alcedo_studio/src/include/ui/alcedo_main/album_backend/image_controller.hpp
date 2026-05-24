@@ -40,10 +40,18 @@ class ImageController {
   auto DeleteImages(const QVariantList& targetEntries) -> QVariantMap;
   auto DeleteTargets(const std::vector<DeleteTarget>& targets) -> DeleteExecutionResult;
   auto GetImageDetails(uint elementId, uint imageId) -> QVariantMap;
+  auto GetImageRating(uint elementId, uint imageId) -> QVariantMap;
+  auto SetImageRating(uint elementId, uint imageId, int rating) -> QVariantMap;
 
  private:
+  struct RatingTarget {
+    sl_element_id_t element_id_ = 0;
+    image_id_t      image_id_   = 0;
+  };
+
   [[nodiscard]] auto CollectDeleteTargets(const QVariantList& targetEntries) const
       -> std::vector<DeleteTarget>;
+  [[nodiscard]] auto ResolveRatingTarget(uint elementId, uint imageId) const -> RatingTarget;
 
   AlbumBackend& backend_;
 };

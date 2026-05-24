@@ -199,7 +199,8 @@ Item {
         return {
             elementId: elementId,
             imageId: Number(row.imageId),
-            fileName: row.fileName ? row.fileName : qsTr("(unnamed)")
+            fileName: row.fileName ? row.fileName : qsTr("(unnamed)"),
+            rating: Number(row.rating)
         }
     }
 

@@ -1425,6 +1425,40 @@ static void GetDisplayMetadataFromExif(Exiv2::ExifData&     exif_data,
   }
 }
 
+auto ReadRatingValue(int64_t rating) -> int {
+  if (rating < ExifDisplayMetaData::kMinRating || rating > ExifDisplayMetaData::kMaxRating) {
+    return ExifDisplayMetaData::kMinRating;
+  }
+  return static_cast<int>(rating);
+}
+
+auto ReadRatingFromXmp(const Exiv2::XmpData& xmp_data) -> std::optional<int> {
+  const auto it = xmp_data.findKey(Exiv2::XmpKey("Xmp.xmp.Rating"));
+  if (it == xmp_data.end()) {
+    return std::nullopt;
+  }
+  return ReadRatingValue(it->toInt64());
+}
+
+auto ReadRatingFromExif(const Exiv2::ExifData& exif_data) -> std::optional<int> {
+  const auto it = exif_data.findKey(Exiv2::ExifKey("Exif.Image.Rating"));
+  if (it == exif_data.end()) {
+    return std::nullopt;
+  }
+  return ReadRatingValue(it->toInt64());
+}
+
+void PopulateStandardRating(const Exiv2::Image& exif_image,
+                            ExifDisplayMetaData& display_metadata) {
+  if (const auto xmp_rating = ReadRatingFromXmp(exif_image.xmpData()); xmp_rating.has_value()) {
+    display_metadata.rating_ = *xmp_rating;
+    return;
+  }
+  if (const auto exif_rating = ReadRatingFromExif(exif_image.exifData()); exif_rating.has_value()) {
+    display_metadata.rating_ = *exif_rating;
+  }
+}
+
 auto MetadataExtractor::ExtractEXIF(const image_path_t& image_path) -> Exiv2::Image::UniquePtr {
   Exiv2::Image::UniquePtr image = Exiv2::ImageFactory::open(image_path.string());
   image->readMetadata();
@@ -1445,10 +1479,13 @@ auto MetadataExtractor::ExtractEXIFFromBuffer(const uint8_t* buffer, size_t size
 auto MetadataExtractor::EXIFToDisplayMetaData(const Exiv2::Image::UniquePtr& exif_data)
     -> ExifDisplayMetaData {
   ExifDisplayMetaData display_metadata;
-  if (exif_data->exifData().empty()) {
+  if (!exif_data) {
     return display_metadata;
   }
-  GetDisplayMetadataFromExif(exif_data->exifData(), display_metadata);
+  if (!exif_data->exifData().empty()) {
+    GetDisplayMetadataFromExif(exif_data->exifData(), display_metadata);
+  }
+  PopulateStandardRating(*exif_data, display_metadata);
   return display_metadata;
 }
 
@@ -1457,10 +1494,13 @@ auto MetadataExtractor::BufferToDisplayMetaData(const uint8_t* buffer, size_t si
   ExifDisplayMetaData display_metadata;
   try {
     auto exif_data = ExtractEXIFFromBuffer(buffer, size);
-    if (!exif_data || exif_data->exifData().empty()) {
+    if (!exif_data) {
       return display_metadata;
     }
-    GetDisplayMetadataFromExif(exif_data->exifData(), display_metadata);
+    if (!exif_data->exifData().empty()) {
+      GetDisplayMetadataFromExif(exif_data->exifData(), display_metadata);
+    }
+    PopulateStandardRating(*exif_data, display_metadata);
   } catch (...) {
     return ExifDisplayMetaData{};
   }
@@ -1487,11 +1527,14 @@ void MetadataExtractor::ExtractEXIF_ToImage(const image_path_t& image_path, Imag
   }
 
   auto exif_data = ExtractEXIF(image_path);
-  if (exif_data->exifData().empty()) {
+  if (!exif_data) {
     return;
   }
   ExifDisplayMetaData display_metadata;
-  GetDisplayMetadataFromExif(exif_data->exifData(), display_metadata);
+  if (!exif_data->exifData().empty()) {
+    GetDisplayMetadataFromExif(exif_data->exifData(), display_metadata);
+  }
+  PopulateStandardRating(*exif_data, display_metadata);
   image.SetExifDisplayMetaData(std::move(display_metadata));
 }
 
