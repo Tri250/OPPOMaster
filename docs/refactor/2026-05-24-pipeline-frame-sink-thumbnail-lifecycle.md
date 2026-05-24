@@ -201,3 +201,80 @@ state for the current request, not to a missing-source state.
 6. Remove durable `frame_sink_` state from cached pipelines, or restrict it to an invocation-scoped
    render context.
 
+## Phase 1 Review: 2026-05-24
+
+Reviewed commit `63258c0b` (`feat: Enhance pipeline frame sink management and add unit tests`).
+
+### Current Status
+
+Phase 1 is partially complete. The implementation follows the short-term hardening path rather
+than the preferred full decoupling path.
+
+Improvements that are in place:
+
+- `EditorFrameManager` detaches the current frame sink under `render_lock_` during destruction.
+- `SetViewer()` and `SetScopePanel()` detach the current sink before replacing the viewer or scope
+  panel.
+- `AttachExecutionStages()` detaches any previous executor before attaching a new one.
+- Editor-side attach now happens under `render_lock_`.
+- Thumbnail and export tasks temporarily detach any attached frame sink before rendering, so their
+  render parameter setup does not call into an editor-owned sink.
+- Unit tests were added around detached sinks, reset behavior, and basic lock/deadlock scenarios.
+
+This is a meaningful stabilization pass and should reduce the original dangling-sink crash risk.
+However, it does not yet make frame sink ownership clean.
+
+### Findings
+
+1. `PipelineScheduler::restore_frame_sink()` is not exception-safe.
+
+   In `alcedo_studio/src/renderer/pipeline_scheduler.cpp`, thumbnail/export tasks save the current
+   sink, detach it, render, then restore it on normal exits. If `SetExecutorRenderParams()`,
+   `Apply()`, `GetCPUData()`, or `apply_state_transition_after_render()` throws after detaching,
+   the outer catch path does not restore the sink. An open editor can silently lose its frame sink
+   after a thumbnail/export failure on the same pinned executor.
+
+   Recommended fix: use an RAII scope guard or otherwise guarantee restoration from every exit path
+   after a temporary detach.
+
+2. The implementation still mutates cached pipeline state for thumbnail/export rendering.
+
+   Thumbnail/export tasks temporarily call `DetachFrameSink()` and later
+   `SetExecutionStages(saved_frame_sink)`. This prevents those tasks from calling the editor sink
+   during the render, but the cached or pinned `CPUPipelineExecutor` still carries UI output state
+   before and after the task.
+
+   This satisfies part of the short-term hardening goal, but it does not satisfy the stronger
+   target that "a cached pipeline can be reused for thumbnail/export/editor without carrying stale
+   UI output state."
+
+3. `CPUPipelineExecutor::GetFrameSink()` exposes the raw sink pointer without encoding the locking
+   requirement.
+
+   The current scheduler use is under `render_lock_`, but the public API makes future unlocked
+   reads easy. If this accessor stays, it should be documented as requiring `render_lock_`, or
+   replaced by a locked helper that performs the specific temporary-detach operation needed by
+   thumbnail/export.
+
+### Phase 1 Acceptance Assessment
+
+- Thumbnail rendering cannot call into an editor-owned `IFrameSink`: mostly satisfied for normal
+  thumbnail/export render paths, but implemented through temporary mutation of cached executor
+  state.
+- Closing the editor while preview work is in flight cannot leave a dangling sink pointer:
+  materially improved by lock-protected detach paths.
+- Reopening the editor or importing history cannot mutate execution stages concurrently with
+  render: improved for editor attach paths, but the lower-level `SetExecutionStages()` API remains
+  publicly callable without lock enforcement.
+- A cached pipeline can be reused for thumbnail/export/editor without carrying stale UI output
+  state: not fully satisfied. The executor still stores `frame_sink_`; thumbnail/export now bypass
+  it temporarily rather than eliminating the cached UI state.
+
+### Next Steps
+
+1. Make scheduler temporary sink restoration exception-safe.
+2. Avoid exposing unlocked raw sink access where possible.
+3. Treat the current implementation as a hardening patch, not as the final Phase 1 design.
+4. Complete Phase 1 by moving frame sink selection to render invocation/editor session state, or by
+   adding a narrow executor API that temporarily renders without a sink without rebuilding execution
+   stages or exposing raw sink pointers.
