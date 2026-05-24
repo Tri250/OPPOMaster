@@ -58,6 +58,7 @@ struct PipelineTask {
   std::optional<std::function<void(ImageBuffer&)>>            callback_;  // used for callback tasks
   std::optional<std::function<void(ImageBuffer&, uint32_t)>>
               seq_callback_;  // used for callback tasks
+  std::optional<std::function<bool(PipelineTask&)>>            prepare_;
   std::function<bool()> cancel_requested_;
 
   TaskOptions options_;

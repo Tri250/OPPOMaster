@@ -279,6 +279,35 @@ However, it does not yet make frame sink ownership clean.
    adding a narrow executor API that temporarily renders without a sink without rebuilding execution
    stages or exposing raw sink pointers.
 
+## Phase 2 Implementation Note: 2026-05-24
+
+Phase 2 was implemented with request-key scoped thumbnail lifecycle management.
+
+Implemented changes:
+
+- `ThumbnailService` now has key-scoped `CancelPending(ThumbnailCacheKey)` and
+  `ReleaseThumbnail(ThumbnailCacheKey)` APIs.
+- Thumbnail generation tokens are keyed by `(element_id, resolution)` instead of only
+  `element_id`, so cancelling one zoom tier no longer invalidates another tier for the same
+  element.
+- Element-scoped `CancelPending(element_id)`, `ReleaseThumbnail(element_id)`, and
+  `InvalidateThumbnail(element_id)` remain available for content-level teardown, delete, import, or
+  edit-commit invalidation.
+- `ThumbnailManager` now tracks visible pins and active async flags by `ThumbnailCacheKey`.
+- Zoom/recycle paths release only the stale request key instead of cancelling and invalidating all
+  tiers for the element.
+- Content replacement paths still invalidate all tiers for the affected element.
+- A service regression test verifies that releasing one resolution key does not release another
+  cached/pinned tier for the same element.
+
+Verification run:
+
+- `git diff --check`
+- `cmd /c scripts\msvc_env.cmd --build --preset win_debug --target ThumbnailServiceTest --parallel 4`
+- `cmd /c scripts\msvc_env.cmd --build --preset win_debug --target AlbumBackendThumbnailTest --parallel 4`
+- `build\debug\alcedo_studio\tests\ThumbnailServiceTest.exe --gtest_filter=ThumbnailServiceTests.CacheKeySeparatesResolutions`
+- `ctest --test-dir build/debug --output-on-failure -R "AlbumBackendThumbnailTest.*VisibleThumbnailRerequestsWhenMaxEdgeChanges"`
+
 ## Phase 1 Follow-up: 2026-05-24 (same day)
 
 ### Completed

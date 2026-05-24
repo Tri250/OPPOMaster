@@ -61,18 +61,28 @@ ListView {
         required property string thumbUrl
         required property bool thumbLoading
         required property bool thumbMissingSource
+        required property string thumbErrorText
         property string liveThumbUrl: thumbUrl
         onThumbUrlChanged: liveThumbUrl = thumbUrl
         property bool liveThumbLoading: thumbLoading
         onThumbLoadingChanged: liveThumbLoading = thumbLoading
         property bool liveThumbMissingSource: thumbMissingSource
         onThumbMissingSourceChanged: liveThumbMissingSource = thumbMissingSource
+        property string liveThumbErrorText: thumbErrorText
+        onThumbErrorTextChanged: liveThumbErrorText = thumbErrorText
         property int pinnedElementId: 0
         property int pinnedImageId: 0
         readonly property bool thumbnailReady: liveThumbUrl.length > 0
         readonly property bool thumbnailLoadingState: liveThumbLoading
         readonly property bool thumbnailMissingState: !thumbnailReady && !thumbnailLoadingState && liveThumbMissingSource
-        readonly property bool thumbnailIdleState: !thumbnailReady && !thumbnailLoadingState && !thumbnailMissingState
+        readonly property bool thumbnailErrorState: !thumbnailReady && !thumbnailLoadingState
+                                                    && liveThumbErrorText.length > 0
+        readonly property bool thumbnailProblemState: thumbnailMissingState || thumbnailErrorState
+        readonly property string thumbnailProblemText: liveThumbErrorText.length > 0
+                                                       ? liveThumbErrorText
+                                                       : qsTr("Source file was moved or deleted")
+        readonly property bool thumbnailIdleState: !thumbnailReady && !thumbnailLoadingState
+                                                   && !thumbnailProblemState
 
         function bindThumbnailLifetime() {
             if (pinnedElementId === elementId && pinnedImageId === imageId) {
@@ -86,6 +96,7 @@ ListView {
             liveThumbUrl = thumbUrl
             liveThumbLoading = thumbLoading
             liveThumbMissingSource = thumbMissingSource
+            liveThumbErrorText = thumbErrorText
             if (pinnedElementId !== 0 && pinnedImageId !== 0) {
                 albumBackend.SetThumbnailVisible(pinnedElementId, pinnedImageId, true)
             }
@@ -114,11 +125,12 @@ ListView {
         Connections {
             target: albumBackend
             ignoreUnknownSignals: true
-            function onThumbnailUpdated(updatedElementId, updatedUrl, loading, missingSource) {
+            function onThumbnailUpdated(updatedElementId, updatedUrl, loading, missingSource, errorText) {
                 if (updatedElementId === elementId) {
                     liveThumbUrl = updatedUrl
                     liveThumbLoading = loading
                     liveThumbMissingSource = missingSource
+                    liveThumbErrorText = errorText
                 }
             }
         }
@@ -176,25 +188,42 @@ ListView {
                     width: 16
                     height: 16
                     radius: 8
-                    visible: thumbnailMissingState
+                    visible: thumbnailProblemState
                     color: root.rowDangerTint
                     border.width: 1
                     border.color: root.rowDanger
                 }
-                Label {
+                Column {
                     anchors.centerIn: parent
-                    visible: thumbnailMissingState
-                    text: "!"
-                    color: root.rowDanger
-                    font.family: appTheme.dataFontFamily
-                    font.pixelSize: 28
-                    font.weight: 700
+                    width: parent.width - 12
+                    visible: thumbnailProblemState
+                    spacing: 2
+                    Label {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: "!"
+                        color: root.rowDanger
+                        font.family: appTheme.dataFontFamily
+                        font.pixelSize: 26
+                        font.weight: 700
+                    }
+                    Label {
+                        width: parent.width
+                        text: thumbnailProblemText
+                        color: root.rowDanger
+                        font.family: appTheme.dataFontFamily
+                        font.pixelSize: 9
+                        font.weight: root.dataFontWeight
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.Wrap
+                        maximumLineCount: 2
+                        elide: Text.ElideRight
+                    }
                 }
                 HoverHandler {
                     id: thumbHover
                 }
-                ToolTip.visible: thumbnailMissingState && thumbHover.hovered
-                ToolTip.text: qsTr("Source file was moved or deleted")
+                ToolTip.visible: thumbnailProblemState && thumbHover.hovered
+                ToolTip.text: thumbnailProblemText
                 ToolTip.delay: 150
             }
             ColumnLayout {

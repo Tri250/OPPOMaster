@@ -38,6 +38,9 @@ Item {
     readonly property int textAreaHeight: hideAllText ? 0 : (hideMetadata ? 18 : 42)
     readonly property int titleFontSize: columns >= 11 ? 9 : (columns >= 8 ? 10 : 12)
     readonly property int metadataFontSize: columns >= 8 ? 8 : 10
+    property bool _inZoomToCursor: false
+    property int _layoutRequestId: 0
+    property int _zoomRequestId: 0
 
     signal imageSelectionChanged(int elementId, int imageId, string fileName, bool selected)
     signal replaceSelection(var items)
@@ -46,17 +49,81 @@ Item {
 
     onZoomLevelChanged: {
         zoomChanged(zoomLevel)
+        relayoutAndClamp()
         updateCacheHint()
     }
-    onWidthChanged: updateCacheHint()
-    onHeightChanged: updateCacheHint()
+    onWidthChanged: {
+        relayoutAndClamp()
+        updateCacheHint()
+    }
+    onHeightChanged: {
+        clampContentY()
+        updateCacheHint()
+    }
+
+    function modelCount() {
+        return grid.count
+    }
+
+    function effectiveColumnCount() {
+        if (grid.width <= 0 || grid.cellWidth <= 0) {
+            return 1
+        }
+        return Math.max(1, Math.floor(grid.width / grid.cellWidth))
+    }
+
+    function estimatedContentHeight() {
+        if (grid.cellHeight <= 0) {
+            return 0
+        }
+        return Math.ceil(modelCount() / effectiveColumnCount()) * grid.cellHeight
+    }
+
+    function layoutContentHeight() {
+        const estimated = estimatedContentHeight()
+        if (estimated > 0 || modelCount() === 0) {
+            return estimated
+        }
+        return grid.contentHeight
+    }
 
     function maxContentY() {
-        return Math.max(0, grid.contentHeight - grid.height)
+        return maxContentYForHeight(layoutContentHeight(), grid.originY)
+    }
+
+    function maxContentYForHeight(contentHeight, originY) {
+        return originY + Math.max(0, contentHeight - grid.height)
+    }
+
+    function clampYForHeight(contentHeight, contentY, originY) {
+        const minY = originY === undefined ? grid.originY : originY
+        return Math.max(minY, Math.min(maxContentYForHeight(contentHeight, minY), contentY))
     }
 
     function clampContentY() {
-        grid.contentY = Math.max(0, Math.min(maxContentY(), grid.contentY))
+        if (_inZoomToCursor) {
+            return
+        }
+        grid.contentY = clampYForHeight(layoutContentHeight(), grid.contentY)
+    }
+
+    function scrollBy(deltaY) {
+        grid.contentY = clampYForHeight(layoutContentHeight(), grid.contentY + deltaY)
+    }
+
+    function relayoutAndClamp() {
+        if (_inZoomToCursor) {
+            return
+        }
+        const requestId = ++_layoutRequestId
+        Qt.callLater(function() {
+            if (requestId !== _layoutRequestId || _inZoomToCursor) {
+                return
+            }
+            grid.forceLayout()
+            clampContentY()
+            updateCacheHint()
+        })
     }
 
     function setZoomLevelAt(nextZoomLevel, focusViewportY) {
@@ -65,14 +132,25 @@ Item {
             return
         }
 
-        const oldHeight = Math.max(1, grid.contentHeight)
+        const oldOriginY = grid.originY
+        const oldHeight = Math.max(1, layoutContentHeight())
+        const oldContentY = clampYForHeight(oldHeight, grid.contentY, oldOriginY)
         const focusY = Math.max(0, Math.min(grid.height, focusViewportY))
-        const focusRatio = (grid.contentY + focusY) / oldHeight
+        const focusRatio = (oldContentY - oldOriginY + focusY) / oldHeight
+        _inZoomToCursor = true
+        ++_layoutRequestId
+        const zoomRequestId = ++_zoomRequestId
         zoomLevel = clamped
         Qt.callLater(function() {
+            if (zoomRequestId !== _zoomRequestId) {
+                return
+            }
             grid.forceLayout()
-            grid.contentY = Math.max(0, Math.min(maxContentY(),
-                                                 focusRatio * grid.contentHeight - focusY))
+            const newOriginY = grid.originY
+            const newHeight = Math.max(1, layoutContentHeight())
+            const targetY = newOriginY + focusRatio * newHeight - focusY
+            grid.contentY = clampYForHeight(newHeight, targetY, newOriginY)
+            _inZoomToCursor = false
             updateCacheHint()
         })
     }
@@ -81,9 +159,9 @@ Item {
         if (grid.width <= 0 || grid.cellWidth <= 0 || grid.cellHeight <= 0) {
             return
         }
-        const cols = Math.max(1, Math.floor(grid.width / grid.cellWidth))
-        const rows = Math.max(1, Math.floor(grid.height / grid.cellHeight))
-        albumBackend.SetThumbnailCacheHint(cols * rows)
+        const cols = effectiveColumnCount()
+        const rows = Math.max(1, Math.ceil(grid.height / grid.cellHeight))
+        albumBackend.SetThumbnailCacheHint(cols * rows, root.desiredMaxEdge)
     }
 
     function keyForElement(elementId) {
@@ -131,6 +209,7 @@ Item {
         model: albumBackend.thumbnails
         clip: true
         cacheBuffer: 0
+        boundsBehavior: Flickable.StopAtBounds
         cellWidth: Math.max(72, Math.floor(width / root.columns))
         cellHeight: Math.max(64, Math.round((cellWidth - root.cardInset * 2) * 2 / 3
                                             + root.textAreaHeight
@@ -139,7 +218,9 @@ Item {
         interactive: false
         onContentHeightChanged: root.clampContentY()
         onHeightChanged: root.clampContentY()
+        onCellWidthChanged: root.relayoutAndClamp()
         onCellHeightChanged: root.clampContentY()
+        onCountChanged: root.relayoutAndClamp()
 
         delegate: Rectangle {
             id: cardDelegate
@@ -156,19 +237,29 @@ Item {
         required property string thumbUrl
         required property bool thumbLoading
         required property bool thumbMissingSource
+        required property string thumbErrorText
         property string liveThumbUrl: thumbUrl
         onThumbUrlChanged: liveThumbUrl = thumbUrl
         property bool liveThumbLoading: thumbLoading
         onThumbLoadingChanged: liveThumbLoading = thumbLoading
         property bool liveThumbMissingSource: thumbMissingSource
         onThumbMissingSourceChanged: liveThumbMissingSource = thumbMissingSource
+        property string liveThumbErrorText: thumbErrorText
+        onThumbErrorTextChanged: liveThumbErrorText = thumbErrorText
         property int pinnedElementId: 0
         property int pinnedImageId: 0
         property int pinnedMaxEdge: 0
         readonly property bool thumbnailReady: liveThumbUrl.length > 0
         readonly property bool thumbnailLoadingState: liveThumbLoading
         readonly property bool thumbnailMissingState: !thumbnailReady && !thumbnailLoadingState && liveThumbMissingSource
-        readonly property bool thumbnailIdleState: !thumbnailReady && !thumbnailLoadingState && !thumbnailMissingState
+        readonly property bool thumbnailErrorState: !thumbnailReady && !thumbnailLoadingState
+                                                    && liveThumbErrorText.length > 0
+        readonly property bool thumbnailProblemState: thumbnailMissingState || thumbnailErrorState
+        readonly property string thumbnailProblemText: liveThumbErrorText.length > 0
+                                                       ? liveThumbErrorText
+                                                       : qsTr("Source file was moved or deleted")
+        readonly property bool thumbnailIdleState: !thumbnailReady && !thumbnailLoadingState
+                                                   && !thumbnailProblemState
 
         function releasePinnedThumbnail() {
             if (pinnedElementId !== 0 && pinnedImageId !== 0) {
@@ -185,6 +276,24 @@ Item {
                     && pinnedMaxEdge === root.desiredMaxEdge) {
                 return
             }
+
+            if (pinnedElementId === elementId && pinnedImageId === imageId
+                    && pinnedMaxEdge !== root.desiredMaxEdge) {
+                const oldMaxEdge = pinnedMaxEdge
+                pinnedMaxEdge = root.desiredMaxEdge
+                liveThumbUrl = thumbUrl
+                liveThumbLoading = thumbLoading
+                liveThumbMissingSource = thumbMissingSource
+                liveThumbErrorText = thumbErrorText
+                if (pinnedElementId !== 0 && pinnedImageId !== 0) {
+                    albumBackend.SetThumbnailVisible(pinnedElementId, pinnedImageId, true,
+                                                     pinnedMaxEdge)
+                    albumBackend.SetThumbnailVisible(pinnedElementId, pinnedImageId, false,
+                                                     oldMaxEdge)
+                }
+                return
+            }
+
             releasePinnedThumbnail()
             pinnedElementId = elementId
             pinnedImageId = imageId
@@ -192,6 +301,7 @@ Item {
             liveThumbUrl = thumbUrl
             liveThumbLoading = thumbLoading
             liveThumbMissingSource = thumbMissingSource
+            liveThumbErrorText = thumbErrorText
             if (pinnedElementId !== 0 && pinnedImageId !== 0) {
                 albumBackend.SetThumbnailVisible(pinnedElementId, pinnedImageId, true, pinnedMaxEdge)
             }
@@ -225,11 +335,12 @@ Item {
         Connections {
             target: albumBackend
             ignoreUnknownSignals: true
-            function onThumbnailUpdated(updatedElementId, updatedUrl, loading, missingSource) {
+            function onThumbnailUpdated(updatedElementId, updatedUrl, loading, missingSource, errorText) {
                 if (updatedElementId === elementId) {
                     liveThumbUrl = updatedUrl
                     liveThumbLoading = loading
                     liveThumbMissingSource = missingSource
+                    liveThumbErrorText = errorText
                 }
             }
         }
@@ -288,25 +399,42 @@ Item {
                     width: 18
                     height: 18
                     radius: 9
-                    visible: thumbnailMissingState
+                    visible: thumbnailProblemState
                     color: root.cardDangerTint
                     border.width: 1
                     border.color: root.cardDanger
                 }
-                Label {
+                Column {
                     anchors.centerIn: parent
-                    visible: thumbnailMissingState
-                    text: "!"
-                    color: root.cardDanger
-                    font.family: appTheme.dataFontFamily
-                    font.pixelSize: 30
-                    font.weight: 700
+                    width: parent.width - 12
+                    visible: thumbnailProblemState
+                    spacing: 2
+                    Label {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: "!"
+                        color: root.cardDanger
+                        font.family: appTheme.dataFontFamily
+                        font.pixelSize: root.columns >= 11 ? 24 : 30
+                        font.weight: 700
+                    }
+                    Label {
+                        width: parent.width
+                        text: thumbnailProblemText
+                        color: root.cardDanger
+                        font.family: appTheme.dataFontFamily
+                        font.pixelSize: root.columns >= 11 ? 8 : 10
+                        font.weight: root.dataFontWeight
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.Wrap
+                        maximumLineCount: 2
+                        elide: Text.ElideRight
+                    }
                 }
                 HoverHandler {
                     id: thumbHover
                 }
-                ToolTip.visible: thumbnailMissingState && thumbHover.hovered
-                ToolTip.text: qsTr("Source file was moved or deleted")
+                ToolTip.visible: thumbnailProblemState && thumbHover.hovered
+                ToolTip.text: thumbnailProblemText
                 ToolTip.delay: 150
         }
 
@@ -519,13 +647,12 @@ Item {
                 return
             }
 
-            grid.contentY = Math.max(0, Math.min(
-                root.maxContentY(),
-                grid.contentY - wheel.angleDelta.y))
+            const wheelDelta = wheel.pixelDelta.y !== 0 ? wheel.pixelDelta.y : wheel.angleDelta.y
+            root.scrollBy(-wheelDelta)
             if (isDragging) {
                 applyRubberBandSelection()
             }
-            hoveredIndex = gridIndexAt(mouseX, mouseY)
+            hoveredIndex = gridIndexAt(wheel.x, wheel.y)
             wheel.accepted = true
         }
     }

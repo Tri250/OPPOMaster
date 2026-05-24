@@ -247,6 +247,8 @@ TEST_F(ThumbnailTests, MissingSourceThumbnailStopsLoadingAndSetsMissingFlag) {
       10000);
   ASSERT_FALSE(missing_row.isEmpty())
       << "Missing-source thumbnail row did not settle into the expected error state.";
+  EXPECT_FALSE(missing_row.value("thumbErrorText").toString().isEmpty())
+      << "Missing-source thumbnail row should expose a user-visible error message.";
 
   backend.SetThumbnailVisible(static_cast<uint>(element_id), static_cast<uint>(image_id), false);
   ProcessEvents(250);

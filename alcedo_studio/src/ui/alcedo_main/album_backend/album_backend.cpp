@@ -561,14 +561,24 @@ void AlbumBackend::SetThumbnailVisible(uint elementId, uint imageId, bool visibl
   thumb_.SetThumbnailVisible(elementId, imageId, visible, maxEdge);
 }
 
-void AlbumBackend::SetThumbnailCacheHint(uint visibleCells) {
+void AlbumBackend::SetThumbnailCacheHint(uint visibleCells, uint maxEdge) {
   auto thumb_svc = project_handler_.thumbnail_service();
   if (!thumb_svc) {
     return;
   }
 
-  // Cache = 3x visible cells for scroll buffer, min 64.
-  const uint32_t desired = std::max<uint32_t>(64, visibleCells * 3);
+  // Cache by count, but cap high-resolution tiers aggressively because
+  // thumbnails are stored as float RGBA ImageBuffers before QML conversion.
+  const uint32_t scroll_buffer = std::max<uint32_t>(visibleCells * 3, visibleCells + 4);
+  uint32_t       tier_cap      = 96;
+  if (maxEdge > 1024) {
+    tier_cap = 8;
+  } else if (maxEdge > 512) {
+    tier_cap = 16;
+  } else if (maxEdge > 256) {
+    tier_cap = 48;
+  }
+  const uint32_t desired = std::clamp<uint32_t>(scroll_buffer, 4, tier_cap);
   try {
     thumb_svc->ResizeCache(desired);
   } catch (...) {

@@ -66,7 +66,21 @@ struct ThumbnailGuard {
   ThumbnailGuard& operator=(ThumbnailGuard&&) = default;
 };
 
+enum class ThumbnailRequestStatus {
+  kReady,
+  kCanceled,
+  kError,
+};
+
+struct ThumbnailRequestResult {
+  std::shared_ptr<ThumbnailGuard> guard{};
+  ThumbnailRequestStatus          status = ThumbnailRequestStatus::kError;
+  std::string                     message{};
+  ThumbnailCacheKey               key{};
+};
+
 using ThumbnailCallback  = std::function<void(std::shared_ptr<ThumbnailGuard>)>;
+using ThumbnailResultCallback = std::function<void(ThumbnailRequestResult)>;
 using CallbackDispatcher = std::function<void(std::function<void()>)>;
 
 class ThumbnailService {
@@ -90,14 +104,31 @@ class ThumbnailService {
                     CallbackDispatcher dispatcher = nullptr,
                     ThumbnailResolution resolution = ThumbnailResolution::k1024);
 
+  // Request a thumbnail and receive a detailed result. This distinguishes
+  // cancellation from render/load failures, while GetThumbnail preserves the
+  // legacy guard/null callback contract.
+  void GetThumbnailDetailed(sl_element_id_t id, image_id_t image_id,
+                            ThumbnailResultCallback callback, bool pin_if_found = true,
+                            CallbackDispatcher dispatcher = nullptr,
+                            ThumbnailResolution resolution = ThumbnailResolution::k1024);
+
+  // Cancel a pending thumbnail request for one element/resolution key.
+  // Also increments the key generation token so queued tasks skip execution.
+  void CancelPending(const ThumbnailCacheKey& key);
+
   // Cancel all pending thumbnail requests for the given element at all resolutions.
-  // Also increments the generation token so queued tasks skip execution.
+  // Use this only for content-level invalidation, deletion, or full element teardown.
   void CancelPending(sl_element_id_t sleeve_element_id);
 
   // Force the cached thumbnail for this sleeve element to be discarded.
   // Next GetThumbnail() will re-render via pipeline.
   void InvalidateThumbnail(sl_element_id_t sleeve_element_id);
 
+  // Release a cached/pending thumbnail for one element/resolution key.
+  void ReleaseThumbnail(const ThumbnailCacheKey& key);
+
+  // Release all resolution tiers for an element.
+  // Use this only for full element teardown or legacy callers.
   void ReleaseThumbnail(sl_element_id_t sleeve_element_id);
 
   // Proactively resize the cache to the desired capacity.

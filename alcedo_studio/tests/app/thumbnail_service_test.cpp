@@ -1567,6 +1567,14 @@ TEST_F(ThumbnailServiceTests, CacheKeySeparatesResolutions) {
     // Different resolutions → different cache entries (different guard objects).
     EXPECT_NE(guard_256.get(), guard_1024.get());
 
+    // Releasing one request key must not release the other tier for the same element.
+    svc.ReleaseThumbnail(ThumbnailCacheKey{eid, ThumbnailResolution::k256});
+    auto guard_1024_still_cached = GetThumbnailBlocking(svc, eid, iid, true,
+                                                        ThumbnailResolution::k1024);
+    ASSERT_NE(guard_1024_still_cached, nullptr);
+    EXPECT_EQ(guard_1024_still_cached.get(), guard_1024.get());
+    svc.ReleaseThumbnail(ThumbnailCacheKey{eid, ThumbnailResolution::k1024});
+
     // k256 resolution should be ≤ 256 on the max edge.
     {
       auto* buf = guard_256->thumbnail_buffer_.get();
@@ -1872,7 +1880,7 @@ TEST_F(ThumbnailServiceTests, ResizeCachePreservesPinnedEntries) {
 }
 
 TEST_F(ThumbnailServiceTests, ResizeCacheClampsToBounds) {
-  // ResizeCache clamps to [kMinCacheSize=32, kMaxCacheSize=1024].
+  // ResizeCache clamps to a small positive lower bound and a large upper bound.
   ProjectService            project(db_path_, meta_path_);
   auto                      fs_service = project.GetSleeveService();
   auto                      img_pool   = project.GetImagePoolService();

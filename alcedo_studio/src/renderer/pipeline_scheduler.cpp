@@ -351,6 +351,26 @@ void PipelineScheduler::ScheduleTask(PipelineTask&& task) {
           set_blocking_value(nullptr);
           return;
         }
+        if (task.prepare_) {
+          bool prepared = false;
+          try {
+            prepared = (*task.prepare_)(task);
+          } catch (...) {
+            notify_thumbnail_failure_callbacks();
+            set_blocking_exception();
+            return;
+          }
+          if (!prepared) {
+            notify_thumbnail_failure_callbacks();
+            set_blocking_value(nullptr);
+            return;
+          }
+        }
+        if (task_cancelled()) {
+          notify_thumbnail_failure_callbacks();
+          set_blocking_value(nullptr);
+          return;
+        }
         if (task.input_desc_ && !task.input_) {
           // Load image data into buffer
           task.input_ = std::make_shared<ImageBuffer>(

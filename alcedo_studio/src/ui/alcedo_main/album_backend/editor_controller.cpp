@@ -119,9 +119,7 @@ void EditorController::OpenEditor(sl_element_id_t elementId, image_id_t imageId)
           tsvc->InvalidateThumbnail(elementId);
         } catch (...) {
         }
-        if (backend_.thumb_.IsThumbnailPinned(elementId)) {
-          backend_.thumb_.RequestThumbnail(elementId, imageId);
-        } else {
+        if (!backend_.thumb_.RefreshCurrentThumbnail(elementId, imageId)) {
           backend_.thumb_.UpdateThumbnailState(elementId, QString(), false, false);
         }
       }
@@ -572,9 +570,7 @@ void EditorController::FinalizeEditorSession(bool persistChanges) {
       tsvc->InvalidateThumbnail(finishedElement);
     } catch (...) {
     }
-    if (backend_.thumb_.IsThumbnailPinned(finishedElement)) {
-      backend_.thumb_.RequestThumbnail(finishedElement, finishedImage);
-    } else {
+    if (!backend_.thumb_.RefreshCurrentThumbnail(finishedElement, finishedImage)) {
       backend_.thumb_.UpdateThumbnailState(finishedElement, QString(), false, false);
     }
   }
