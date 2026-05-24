@@ -244,6 +244,13 @@ auto ElementController::BuildFolderStats(
           "GROUP BY l ORDER BY c DESC",
           base_join));
 
+  out.rating_stats_ = RunGroupByQuery(
+      guard_.conn_,
+      std::format(
+          "SELECT json_extract(i.metadata, '$.Rating')::VARCHAR AS r, COUNT(*) AS c {} "
+          "GROUP BY r ORDER BY r DESC",
+          base_join));
+
   return out;
 }
 

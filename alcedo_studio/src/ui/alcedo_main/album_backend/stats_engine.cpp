@@ -56,6 +56,7 @@ void StatsEngine::RefreshStats() {
     date_stats_.clear();
     camera_stats_.clear();
     lens_stats_.clear();
+    rating_stats_.clear();
     total_photo_count_ = 0;
     emit backend_.StatsChanged();
     return;
@@ -73,6 +74,7 @@ void StatsEngine::RefreshStats() {
       date_stats_.clear();
       camera_stats_.clear();
       lens_stats_.clear();
+      rating_stats_.clear();
       total_photo_count_ = 0;
       emit backend_.StatsChanged();
       return;
@@ -83,6 +85,7 @@ void StatsEngine::RefreshStats() {
     date_stats_        = ToStatsRows(stats.date_stats_);
     camera_stats_      = ToStatsRows(stats.camera_stats_);
     lens_stats_        = ToStatsRows(stats.lens_stats_);
+    rating_stats_      = ToStatsRows(stats.rating_stats_);
   } catch (...) {
     // Keep previous stats if service query failed.
   }
@@ -136,6 +139,8 @@ void StatsEngine::ToggleFilter(const QString& category, const QString& label) {
     filter_camera_ = (filter_camera_ == label) ? QString{} : label;
   } else if (category == u"lens") {
     filter_lens_ = (filter_lens_ == label) ? QString{} : label;
+  } else if (category == u"rating") {
+    filter_rating_ = (filter_rating_ == label) ? QString{} : label;
   }
 }
 
@@ -143,10 +148,12 @@ void StatsEngine::ClearFilters() {
   filter_date_.clear();
   filter_camera_.clear();
   filter_lens_.clear();
+  filter_rating_.clear();
 }
 
 bool StatsEngine::HasActiveFilter() const {
-  return !filter_date_.isEmpty() || !filter_camera_.isEmpty() || !filter_lens_.isEmpty();
+  return !filter_date_.isEmpty() || !filter_camera_.isEmpty() || !filter_lens_.isEmpty()
+         || !filter_rating_.isEmpty();
 }
 
 bool StatsEngine::MatchesActiveFilters(const AlbumItem& image) const {
@@ -176,6 +183,12 @@ bool StatsEngine::MatchesActiveFilters(const AlbumItem& image) const {
     } else {
       if (image.lens != filter_lens_) return false;
     }
+  }
+
+  if (!filter_rating_.isEmpty()) {
+    bool ok = false;
+    int filterVal = filter_rating_.toInt(&ok);
+    if (ok && image.rating != filterVal) return false;
   }
 
   return true;

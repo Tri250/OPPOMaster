@@ -85,6 +85,11 @@ auto SleeveFilterService::BuildFolderStats(
     out.lens_stats_.push_back({bucket.label_, bucket.count_});
   }
 
+  out.rating_stats_.reserve(storage_stats.rating_stats_.size());
+  for (const auto& bucket : storage_stats.rating_stats_) {
+    out.rating_stats_.push_back({bucket.label_, bucket.count_});
+  }
+
   return out;
 }
 }  // namespace alcedo

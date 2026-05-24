@@ -104,6 +104,15 @@ ScrollView {
                 onBarClicked: function(label) { albumBackend.ToggleStatsFilter("camera", label) }
             }
 
+            StarRatingFilter {
+                Layout.fillWidth: true
+                selectedRating: albumBackend.statsFilterRating
+                accentColor: appTheme.toneGold
+                onStarClicked: function(rating) {
+                    albumBackend.ToggleStatsFilter("rating", rating);
+                }
+            }
+
             StatsCard {
                 Layout.fillWidth: true
                 title: qsTr("By Lens")

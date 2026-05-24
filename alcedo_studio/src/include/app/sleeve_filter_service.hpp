@@ -26,6 +26,7 @@ struct AlbumStatsView {
   std::vector<StatsBucket> date_stats_{};
   std::vector<StatsBucket> camera_stats_{};
   std::vector<StatsBucket> lens_stats_{};
+  std::vector<StatsBucket> rating_stats_{};
 };
 
 // This service should not be used in multi-threaded scenarios.
