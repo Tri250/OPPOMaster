@@ -2,6 +2,9 @@
 //  SPDX-License-Identifier: GPL-3.0-only
 //  Additional permission under GPLv3 section 7 applies; see the LICENSE file.
 
+#include "app/sleeve_service.hpp"
+
+#include <duckdb.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -22,6 +25,78 @@ namespace alcedo {
 namespace {
 auto ContainsId(const std::vector<sl_element_id_t>& ids, sl_element_id_t id) -> bool {
   return std::find(ids.begin(), ids.end(), id) != ids.end();
+}
+
+auto RunDuckDbSql(const std::filesystem::path& db_path, const std::string& sql) -> bool {
+  duckdb_database   db;
+  duckdb_connection conn;
+  if (duckdb_open(conv::ToBytes(db_path.wstring()).c_str(), &db) != DuckDBSuccess) {
+    return false;
+  }
+  if (duckdb_connect(db, &conn) != DuckDBSuccess) {
+    duckdb_close(&db);
+    return false;
+  }
+
+  duckdb_result result;
+  const bool    ok = duckdb_query(conn, sql.c_str(), &result) == DuckDBSuccess;
+  duckdb_destroy_result(&result);
+  duckdb_disconnect(&conn);
+  duckdb_close(&db);
+  return ok;
+}
+
+auto QueryDuckDbInt64(const std::filesystem::path& db_path, const std::string& sql) -> int64_t {
+  duckdb_database   db;
+  duckdb_connection conn;
+  if (duckdb_open(conv::ToBytes(db_path.wstring()).c_str(), &db) != DuckDBSuccess) {
+    throw std::runtime_error("Failed to open test database");
+  }
+  if (duckdb_connect(db, &conn) != DuckDBSuccess) {
+    duckdb_close(&db);
+    throw std::runtime_error("Failed to connect test database");
+  }
+
+  duckdb_result result;
+  if (duckdb_query(conn, sql.c_str(), &result) != DuckDBSuccess) {
+    const std::string error_message = duckdb_result_error(&result);
+    duckdb_destroy_result(&result);
+    duckdb_disconnect(&conn);
+    duckdb_close(&db);
+    throw std::runtime_error(error_message);
+  }
+  int64_t value = 0;
+  if (duckdb_row_count(&result) > 0) {
+    value = duckdb_value_int64(&result, 0, 0);
+  }
+  duckdb_destroy_result(&result);
+  duckdb_disconnect(&conn);
+  duckdb_close(&db);
+  return value;
+}
+
+void CreateLegacyDbWithDuplicateAlbumRowsAndMissingRootFile(const std::filesystem::path& db_path) {
+  ASSERT_TRUE(RunDuckDbSql(
+      db_path,
+      "CREATE TABLE Sleeve (id BIGINT PRIMARY KEY);"
+      "CREATE TABLE Image (id BIGINT PRIMARY KEY, image_path TEXT, file_name TEXT, type INTEGER, "
+      "metadata JSON);"
+      "CREATE TABLE SleeveRoot (id BIGINT PRIMARY KEY);"
+      "CREATE TABLE Element (id BIGINT PRIMARY KEY, type INTEGER, element_name TEXT, added_time "
+      "TIMESTAMP, modified_time TIMESTAMP, ref_count BIGINT);"
+      "CREATE TABLE FolderContent (folder_id BIGINT NOT NULL, element_id BIGINT NOT NULL);"
+      "CREATE TABLE FileImage (file_id BIGINT, image_id BIGINT);"
+      "CREATE TABLE ComboFolder (combo_id BIGINT, folder_id BIGINT);"
+      "CREATE TABLE Filter (combo_id BIGINT, type INTEGER, data JSON);"
+      "CREATE TABLE EditHistory (file_id BIGINT PRIMARY KEY, history JSON);"
+      "CREATE TABLE Version (hash BIGINT PRIMARY KEY, history_id BIGINT, parent_hash BIGINT, "
+      "content JSON);"
+      "CREATE TABLE PipelineParam(file_id BIGINT PRIMARY KEY, param_json JSON);"
+      "INSERT INTO Element VALUES "
+      "(0, 1, '', now(), now(), 1),"
+      "(1, 0, 'Legacy.arw', now(), now(), 1),"
+      "(2, 1, 'Album', now(), now(), 1);"
+      "INSERT INTO FolderContent VALUES (0, 2), (2, 1), (2, 1);"));
 }
 }  // namespace
 
@@ -139,9 +214,13 @@ TEST_F(SleeveServiceTests, ResolveAndListImmediateChildrenByPath) {
       [](FileSystem& fs) { return fs.Create(L"/Folder/Nested", L"Image", ElementType::FILE); });
 
   const auto root_entries = service->ListFolderEntries(L"/");
-  ASSERT_EQ(root_entries.size(), 1u);
-  EXPECT_EQ(root_entries.front()->element_name_, L"Folder");
-  EXPECT_EQ(root_entries.front()->type_, ElementType::FOLDER);
+  ASSERT_EQ(root_entries.size(), 2u);
+  EXPECT_TRUE(std::any_of(root_entries.begin(), root_entries.end(), [](const auto& entry) {
+    return entry && entry->element_name_ == L"Folder" && entry->type_ == ElementType::FOLDER;
+  }));
+  EXPECT_TRUE(std::any_of(root_entries.begin(), root_entries.end(), [](const auto& entry) {
+    return entry && entry->element_name_ == L"Image" && entry->type_ == ElementType::FILE;
+  }));
 
   const auto folder = service->ResolveFolder(L"/Folder");
   ASSERT_NE(folder, nullptr);
@@ -157,7 +236,7 @@ TEST_F(SleeveServiceTests, CreateAndDeleteFolderByPathApi) {
   ProjectService project(db_path_, meta_path_);
   auto           service = project.GetSleeveService();
 
-  const auto created = service->CreateFolder(L"/", L"ToDelete");
+  const auto     created = service->CreateFolder(L"/", L"ToDelete");
   ASSERT_NE(created.first, nullptr);
   EXPECT_TRUE(created.second.success_);
   EXPECT_EQ(created.first->element_name_, L"ToDelete");
@@ -172,7 +251,7 @@ TEST_F(SleeveServiceTests, ReloadedFolderWriteDoesNotCloneSingleParentFolder) {
     ProjectService project(db_path_, meta_path_);
     auto           service = project.GetSleeveService();
 
-    const auto created = service->CreateFolder(L"/", L"test");
+    const auto     created = service->CreateFolder(L"/", L"test");
     ASSERT_NE(created.first, nullptr);
     ASSERT_TRUE(created.second.success_);
 
@@ -182,9 +261,9 @@ TEST_F(SleeveServiceTests, ReloadedFolderWriteDoesNotCloneSingleParentFolder) {
   }
 
   ProjectService reloaded_project(db_path_, meta_path_);
-  auto           service = reloaded_project.GetSleeveService();
+  auto           service      = reloaded_project.GetSleeveService();
 
-  const auto root_entries = service->ListFolderEntries(L"/");
+  const auto     root_entries = service->ListFolderEntries(L"/");
   ASSERT_EQ(root_entries.size(), 1u);
   ASSERT_EQ(root_entries.front()->element_name_, L"test");
 
@@ -214,7 +293,7 @@ TEST_F(SleeveServiceTests, CreateFileInLibraryAndLinkToAlbumKeepsSingleFileIdent
   ProjectService project(db_path_, meta_path_);
   auto           service = project.GetSleeveService();
 
-  const auto album = service->CreateFolder(L"/", L"Album").first;
+  const auto     album   = service->CreateFolder(L"/", L"Album").first;
   ASSERT_NE(album, nullptr);
 
   const auto file = service->Write<std::shared_ptr<SleeveFile>>(
@@ -244,8 +323,8 @@ TEST_F(SleeveServiceTests, AlbumMembershipWriteDoesNotTriggerFileCow) {
   ProjectService project(db_path_, meta_path_);
   auto           service = project.GetSleeveService();
 
-  const auto album_a = service->CreateFolder(L"/", L"AlbumA").first;
-  const auto album_b = service->CreateFolder(L"/", L"AlbumB").first;
+  const auto     album_a = service->CreateFolder(L"/", L"AlbumA").first;
+  const auto     album_b = service->CreateFolder(L"/", L"AlbumB").first;
   ASSERT_NE(album_a, nullptr);
   ASSERT_NE(album_b, nullptr);
 
@@ -267,14 +346,12 @@ TEST_F(SleeveServiceTests, AlbumMembershipWriteDoesNotTriggerFileCow) {
   ASSERT_NE(edited, nullptr);
   EXPECT_EQ(edited->element_id_, file.first->element_id_);
 
-  const auto from_root =
-      service->Read<std::shared_ptr<SleeveFile>>([](FileSystem& fs) {
-        return std::static_pointer_cast<SleeveFile>(fs.Get(L"/Shared.arw", false));
-      });
-  const auto from_album_b =
-      service->Read<std::shared_ptr<SleeveFile>>([](FileSystem& fs) {
-        return std::static_pointer_cast<SleeveFile>(fs.Get(L"/AlbumB/Shared.arw", false));
-      });
+  const auto from_root    = service->Read<std::shared_ptr<SleeveFile>>([](FileSystem& fs) {
+    return std::static_pointer_cast<SleeveFile>(fs.Get(L"/Shared.arw", false));
+  });
+  const auto from_album_b = service->Read<std::shared_ptr<SleeveFile>>([](FileSystem& fs) {
+    return std::static_pointer_cast<SleeveFile>(fs.Get(L"/AlbumB/Shared.arw", false));
+  });
 
   EXPECT_EQ(from_root->element_id_, file.first->element_id_);
   EXPECT_EQ(from_album_b->element_id_, file.first->element_id_);
@@ -282,11 +359,216 @@ TEST_F(SleeveServiceTests, AlbumMembershipWriteDoesNotTriggerFileCow) {
   EXPECT_EQ(from_album_b->last_modified_time_, edited->last_modified_time_);
 }
 
+TEST_F(SleeveServiceTests, SharedAlbumFileEditIsVisibleFromRootAndOtherAlbums) {
+  sl_element_id_t file_id       = 0;
+  std::time_t     modified_time = 0;
+  {
+    ProjectService project(db_path_, meta_path_);
+    auto           service = project.GetSleeveService();
+
+    const auto     album_a = service->CreateFolder(L"/", L"AlbumA").first;
+    const auto     album_b = service->CreateFolder(L"/", L"AlbumB").first;
+    ASSERT_NE(album_a, nullptr);
+    ASSERT_NE(album_b, nullptr);
+
+    const auto file = service->CreateFileInLibrary(L"SharedEdit.arw").first;
+    ASSERT_NE(file, nullptr);
+    file_id = file->element_id_;
+
+    service->Write<void>([&](FileSystem& fs) {
+      fs.LinkFileToFolder(file_id, album_a->element_id_);
+      fs.LinkFileToFolder(file_id, album_b->element_id_);
+    });
+
+    modified_time           = service->Write_NoSync<std::time_t>([](FileSystem& fs) {
+      auto album_file =
+          std::static_pointer_cast<SleeveFile>(fs.Get(L"/AlbumA/SharedEdit.arw", true));
+      album_file->SetLastModifiedTime();
+      return album_file->last_modified_time_;
+    });
+
+    const auto from_root    = service->Read<std::shared_ptr<SleeveFile>>([](FileSystem& fs) {
+      return std::static_pointer_cast<SleeveFile>(fs.Get(L"/SharedEdit.arw", false));
+    });
+    const auto from_album_b = service->Read<std::shared_ptr<SleeveFile>>([](FileSystem& fs) {
+      return std::static_pointer_cast<SleeveFile>(fs.Get(L"/AlbumB/SharedEdit.arw", false));
+    });
+
+    EXPECT_EQ(from_root->element_id_, file_id);
+    EXPECT_EQ(from_album_b->element_id_, file_id);
+    EXPECT_EQ(from_root->last_modified_time_, modified_time);
+    EXPECT_EQ(from_album_b->last_modified_time_, modified_time);
+  }
+}
+
+TEST_F(SleeveServiceTests, ReloadedRootMembershipKeepsLibraryFile) {
+  sl_element_id_t file_id = 0;
+  {
+    ProjectService project(db_path_, meta_path_);
+    auto           service = project.GetSleeveService();
+
+    const auto     file    = service->CreateFileInLibrary(L"RootOnly.arw").first;
+    ASSERT_NE(file, nullptr);
+    file_id = file->element_id_;
+
+    project.SaveProject(meta_path_);
+  }
+
+  ProjectService reloaded_project(db_path_, meta_path_);
+  auto           service  = reloaded_project.GetSleeveService();
+  const auto     root_ids = service->Read<std::vector<sl_element_id_t>>(
+      [](FileSystem& fs) { return fs.ListFolderContent(0); });
+
+  EXPECT_TRUE(ContainsId(root_ids, file_id));
+  EXPECT_EQ(service->ResolveFile(L"/RootOnly.arw")->element_id_, file_id);
+}
+
+TEST_F(SleeveServiceTests, ReloadedAlbumMembershipKeepsSharedFileIdentity) {
+  sl_element_id_t file_id  = 0;
+  sl_element_id_t album_id = 0;
+  {
+    ProjectService project(db_path_, meta_path_);
+    auto           service = project.GetSleeveService();
+
+    const auto     album   = service->CreateFolder(L"/", L"Album").first;
+    const auto     file    = service->CreateFileInLibrary(L"AlbumImport.arw").first;
+    ASSERT_NE(album, nullptr);
+    ASSERT_NE(file, nullptr);
+    file_id           = file->element_id_;
+    album_id          = album->element_id_;
+
+    const auto linked = service->LinkFileToFolder(file_id, album_id);
+    ASSERT_TRUE(linked.success_);
+
+    project.SaveProject(meta_path_);
+  }
+
+  ProjectService reloaded_project(db_path_, meta_path_);
+  auto           service  = reloaded_project.GetSleeveService();
+  const auto     root_ids = service->Read<std::vector<sl_element_id_t>>(
+      [](FileSystem& fs) { return fs.ListFolderContent(0); });
+  const auto album_ids = service->Read<std::vector<sl_element_id_t>>(
+      [album_id](FileSystem& fs) { return fs.ListFolderContent(album_id); });
+
+  EXPECT_TRUE(ContainsId(root_ids, file_id));
+  ASSERT_EQ(album_ids.size(), 1u);
+  EXPECT_EQ(album_ids.front(), file_id);
+  EXPECT_EQ(service->ResolveFile(L"/AlbumImport.arw")->element_id_, file_id);
+  EXPECT_EQ(service->ResolveFile(L"/Album/AlbumImport.arw")->element_id_, file_id);
+}
+
+TEST_F(SleeveServiceTests, ReloadedAlbumUnlinkKeepsRootMembershipOnly) {
+  sl_element_id_t file_id  = 0;
+  sl_element_id_t album_id = 0;
+  {
+    ProjectService project(db_path_, meta_path_);
+    auto           service = project.GetSleeveService();
+
+    const auto     album   = service->CreateFolder(L"/", L"Album").first;
+    const auto     file    = service->CreateFileInLibrary(L"UnlinkOnly.arw").first;
+    ASSERT_NE(album, nullptr);
+    ASSERT_NE(file, nullptr);
+    file_id  = file->element_id_;
+    album_id = album->element_id_;
+
+    service->LinkFileToFolder(file_id, album_id);
+    const auto unlinked = service->DeleteFileFromFolder(file_id, album_id);
+    ASSERT_TRUE(unlinked.success_);
+
+    project.SaveProject(meta_path_);
+  }
+
+  ProjectService reloaded_project(db_path_, meta_path_);
+  auto           service  = reloaded_project.GetSleeveService();
+  const auto     root_ids = service->Read<std::vector<sl_element_id_t>>(
+      [](FileSystem& fs) { return fs.ListFolderContent(0); });
+  const auto album_ids = service->Read<std::vector<sl_element_id_t>>(
+      [album_id](FileSystem& fs) { return fs.ListFolderContent(album_id); });
+
+  EXPECT_TRUE(ContainsId(root_ids, file_id));
+  EXPECT_FALSE(ContainsId(album_ids, file_id));
+  EXPECT_EQ(service->ResolveFile(L"/UnlinkOnly.arw")->element_id_, file_id);
+  EXPECT_THROW(service->ResolveFile(L"/Album/UnlinkOnly.arw"), std::runtime_error);
+}
+
+TEST_F(SleeveServiceTests, DuplicateLinkIsIdempotentAndPersistsAsSingleMembership) {
+  sl_element_id_t file_id  = 0;
+  sl_element_id_t album_id = 0;
+  {
+    ProjectService project(db_path_, meta_path_);
+    auto           service = project.GetSleeveService();
+
+    const auto     album   = service->CreateFolder(L"/", L"Album").first;
+    const auto     file    = service->CreateFileInLibrary(L"RepeatLink.arw").first;
+    ASSERT_NE(album, nullptr);
+    ASSERT_NE(file, nullptr);
+    file_id  = file->element_id_;
+    album_id = album->element_id_;
+
+    service->Write<void>([&](FileSystem& fs) {
+      fs.LinkFileToFolder(file_id, album_id);
+      fs.LinkFileToFolder(file_id, album_id);
+    });
+    project.SaveProject(meta_path_);
+  }
+
+  ProjectService reloaded_project(db_path_, meta_path_);
+  auto           service   = reloaded_project.GetSleeveService();
+  const auto     album_ids = service->Read<std::vector<sl_element_id_t>>(
+      [album_id](FileSystem& fs) { return fs.ListFolderContent(album_id); });
+
+  ASSERT_EQ(album_ids.size(), 1u);
+  EXPECT_EQ(album_ids.front(), file_id);
+}
+
+TEST_F(SleeveServiceTests, FolderContentUniqueConstraintRejectsDuplicateRows) {
+  sl_element_id_t file_id = 0;
+  {
+    ProjectService project(db_path_, meta_path_);
+    auto           service = project.GetSleeveService();
+    const auto     file    = service->CreateFileInLibrary(L"UniqueRow.arw").first;
+    ASSERT_NE(file, nullptr);
+    file_id = file->element_id_;
+    project.SaveProject(meta_path_);
+  }
+
+  EXPECT_FALSE(
+      RunDuckDbSql(db_path_, "INSERT INTO FolderContent(folder_id, element_id) VALUES (0, " +
+                                 std::to_string(file_id) + ");"));
+  EXPECT_EQ(
+      QueryDuckDbInt64(db_path_, std::string("SELECT COUNT(*) FROM FolderContent WHERE folder_id = "
+                                             "0 AND element_id = ") +
+                                     std::to_string(file_id)),
+      1);
+}
+
+TEST_F(SleeveServiceTests, LegacyFolderContentMigrationDeduplicatesAndBackfillsRootFiles) {
+  CreateLegacyDbWithDuplicateAlbumRowsAndMissingRootFile(db_path_);
+
+  auto              storage = std::make_shared<StorageService>(db_path_);
+  SleeveServiceImpl service(storage, db_path_, 3);
+
+  const auto        root_ids = service.Read<std::vector<sl_element_id_t>>(
+      [](FileSystem& fs) { return fs.ListFolderContent(0); });
+  const auto album_ids = service.Read<std::vector<sl_element_id_t>>(
+      [](FileSystem& fs) { return fs.ListFolderContent(2); });
+
+  EXPECT_TRUE(ContainsId(root_ids, 1));
+  ASSERT_EQ(album_ids.size(), 1u);
+  EXPECT_EQ(album_ids.front(), 1u);
+  EXPECT_EQ(QueryDuckDbInt64(db_path_,
+                             "SELECT COUNT(*) FROM FolderContent WHERE folder_id = 2 AND "
+                             "element_id = 1"),
+            1);
+  EXPECT_FALSE(
+      RunDuckDbSql(db_path_, "INSERT INTO FolderContent(folder_id, element_id) VALUES (2, 1);"));
+}
+
 TEST_F(SleeveServiceTests, DeletingFromAlbumOnlyUnlinksMembership) {
   ProjectService project(db_path_, meta_path_);
   auto           service = project.GetSleeveService();
 
-  const auto album = service->CreateFolder(L"/", L"Album").first;
+  const auto     album   = service->CreateFolder(L"/", L"Album").first;
   ASSERT_NE(album, nullptr);
 
   const auto file = service->Write<std::shared_ptr<SleeveFile>>(
@@ -315,7 +597,7 @@ TEST_F(SleeveServiceTests, DeletingFromRootDeletesFileEverywhereAndPersists) {
     ProjectService project(db_path_, meta_path_);
     auto           service = project.GetSleeveService();
 
-    const auto album = service->CreateFolder(L"/", L"Album").first;
+    const auto     album   = service->CreateFolder(L"/", L"Album").first;
     ASSERT_NE(album, nullptr);
 
     const auto file = service->Write<std::shared_ptr<SleeveFile>>(
@@ -342,7 +624,7 @@ TEST_F(SleeveServiceTests, DeletingFromRootDeletesFileEverywhereAndPersists) {
   ProjectService reloaded_project(db_path_, meta_path_);
   auto           reloaded_service = reloaded_project.GetSleeveService();
 
-  const auto root_entries = reloaded_service->ListFolderEntries(L"/");
+  const auto     root_entries     = reloaded_service->ListFolderEntries(L"/");
   ASSERT_EQ(root_entries.size(), 1u);
   ASSERT_EQ(root_entries.front()->element_name_, L"Album");
 

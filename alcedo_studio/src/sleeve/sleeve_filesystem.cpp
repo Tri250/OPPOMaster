@@ -63,8 +63,13 @@ auto FileSystem::Create(std::filesystem::path dest, std::wstring filename, Eleme
   if (dest_element->type_ != ElementType::FOLDER) {
     throw std::runtime_error("Filesystem: Cannot create element under a file");
   }
-  auto dest_folder = std::static_pointer_cast<SleeveFolder>(dest_element);
-  while (dest_folder->Contains(filename)) {
+  auto       dest_folder                  = std::static_pointer_cast<SleeveFolder>(dest_element);
+  const bool create_album_file_membership = type == ElementType::FILE && !IsRootPath(dest);
+  if (create_album_file_membership) {
+    storage_handler_.EnsureChildrenLoaded(root_);
+  }
+  while (dest_folder->Contains(filename) ||
+         (create_album_file_membership && root_->Contains(filename))) {
     filename = filename + L"@";
   }
   auto new_id      = id_gen_.GenerateID();
@@ -73,7 +78,12 @@ auto FileSystem::Create(std::filesystem::path dest, std::wstring filename, Eleme
     std::static_pointer_cast<SleeveFolder>(new_element)->MarkChildrenLoaded();
   }
   storage_[new_id] = new_element;
-  dest_folder->AddElementToMap(new_element);
+  if (create_album_file_membership) {
+    root_->AddElementToMap(new_element);
+    dest_folder->AddElementToMap(new_element, true, false);
+  } else {
+    dest_folder->AddElementToMap(new_element);
+  }
 
   return new_element;
 }
@@ -150,7 +160,7 @@ auto FileSystem::DuplicateFileToFolder(sl_element_id_t file_id, sl_element_id_t 
     throw std::runtime_error("Filesystem: Folder already contains an element with this name");
   }
 
-  auto duplicated = std::static_pointer_cast<SleeveFile>(source->Copy(id_gen_.GenerateID()));
+  auto duplicated       = std::static_pointer_cast<SleeveFile>(source->Copy(id_gen_.GenerateID()));
   duplicated->image_id_ = std::static_pointer_cast<SleeveFile>(source)->image_id_;
   duplicated->SetEditHistory(std::make_shared<EditHistory>(duplicated->element_id_));
   storage_[duplicated->element_id_] = duplicated;
@@ -233,7 +243,7 @@ void FileSystem::Delete(std::filesystem::path target) {
   if (!resolver_.Contains(parent) || !resolver_.Contains(target)) {
     throw std::runtime_error("Filesystem: Deleting node does not exist");
   }
-  auto parent_node = std::static_pointer_cast<SleeveFolder>(resolver_.Resolve(parent));
+  auto parent_node    = std::static_pointer_cast<SleeveFolder>(resolver_.Resolve(parent));
   auto delete_node_id = parent_node->GetElementIdByName(delete_node_name.wstring());
   auto delete_node    = storage_handler_.GetElement(delete_node_id.value());
   if (delete_node->type_ == ElementType::FILE) {
@@ -290,8 +300,8 @@ void FileSystem::Delete(sl_element_id_t target_id) {
     return;
   }
 
-  const auto decrement_folder_children =
-      [this](const std::shared_ptr<SleeveFolder>& folder, const auto& self) -> void {
+  const auto decrement_folder_children = [this](const std::shared_ptr<SleeveFolder>& folder,
+                                                const auto&                          self) -> void {
     storage_handler_.EnsureChildrenLoaded(folder);
     const auto children = folder->ListElements();
     for (const auto child_id : children) {
@@ -306,10 +316,9 @@ void FileSystem::Delete(sl_element_id_t target_id) {
     }
   };
 
-  const auto remove_from_folder =
-      [this, target_id, &delete_node,
-       &decrement_folder_children](const std::shared_ptr<SleeveFolder>& folder,
-                                   const auto& self) -> bool {
+  const auto remove_from_folder = [this, target_id, &delete_node, &decrement_folder_children](
+                                      const std::shared_ptr<SleeveFolder>& folder,
+                                      const auto&                          self) -> bool {
     storage_handler_.EnsureChildrenLoaded(folder);
     const auto children = folder->ListElements();
     for (const auto child_id : children) {

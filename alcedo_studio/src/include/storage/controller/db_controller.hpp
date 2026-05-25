@@ -48,6 +48,11 @@ class DBController {
   constexpr static const char* migration_query =
       "CREATE OR REPLACE TABLE FolderContent AS "
       "SELECT DISTINCT folder_id, element_id FROM FolderContent;"
+      "INSERT INTO FolderContent "
+      "SELECT 0, e.id FROM Element e "
+      "WHERE e.type = 0 AND NOT EXISTS ("
+      "SELECT 1 FROM FolderContent fc WHERE fc.folder_id = 0 AND fc.element_id = e.id"
+      ");"
       "CREATE UNIQUE INDEX IF NOT EXISTS idx_folder_content_unique "
       "ON FolderContent(folder_id, element_id);"
       "CREATE INDEX IF NOT EXISTS idx_folder_content_folder ON FolderContent(folder_id);"
