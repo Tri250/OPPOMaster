@@ -59,5 +59,12 @@ class SleeveFilterService {
   auto BuildFolderStats(sl_element_id_t                  parent_id,
                         const std::optional<FilterNode>& extra_filter = std::nullopt)
       -> AlbumStatsView;
+
+  /// Invalidate all cached filter results for a specific folder scope.
+  /// Call after membership changes (link / unlink / delete) that affect that folder.
+  void InvalidateResultCache(sl_element_id_t folder_id);
+
+  /// Invalidate the entire filter result cache.
+  void InvalidateResultCache();
 };
 }  // namespace alcedo

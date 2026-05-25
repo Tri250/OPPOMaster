@@ -100,4 +100,18 @@ auto SleeveFilterService::BuildFolderStats(sl_element_id_t                  pare
 
   return out;
 }
+
+void SleeveFilterService::InvalidateResultCache(sl_element_id_t folder_id) {
+  const auto keys = filter_result_cache_.GetLRUKeys();
+  for (const auto& key : keys) {
+    const auto key_folder_id = static_cast<sl_element_id_t>(key >> 32U);
+    if (key_folder_id == folder_id) {
+      filter_result_cache_.RemoveRecord(key);
+    }
+  }
+}
+
+void SleeveFilterService::InvalidateResultCache() {
+  filter_result_cache_.Flush();
+}
 }  // namespace alcedo

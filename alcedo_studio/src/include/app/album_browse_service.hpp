@@ -50,6 +50,8 @@ class AlbumBrowseService {
       -> std::vector<AlbumFolderView>;
   [[nodiscard]] auto ListFilesInFolder(const std::filesystem::path& folder_path) const
       -> std::vector<AlbumFileView>;
+  [[nodiscard]] auto ListFilesInFolderById(sl_element_id_t folder_id) const
+      -> std::vector<AlbumFileView>;
 
   [[nodiscard]] auto CreateFolder(const std::filesystem::path& parent_folder_path,
                                   const file_name_t& name) -> std::optional<AlbumFolderView>;

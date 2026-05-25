@@ -91,7 +91,16 @@
       "Bash(cmake --build /Users/zidage/Projects/PuerhLab/build/macos-debug-tests --target PipelineFrameSinkTest)",
       "Bash(cmake --build /Users/zidage/Projects/PuerhLab/build/macos-debug --target PipelineFrameSinkTest)",
       "Bash(./build/macos-debug/alcedo_studio/tests/PipelineFrameSinkTest *)",
-      "Bash(cmake --build /Users/zidage/Projects/PuerhLab/build/macos-debug)"
+      "Bash(cmake --build /Users/zidage/Projects/PuerhLab/build/macos-debug)",
+      "Bash(Get-ChildItem \"D:\\\\Projects\\\\pu-erh_lab\\\\alcedo_studio\" -Directory -Recurse -Depth 2)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(cmd *)",
+      "PowerShell(cmd /c \"scripts\\\\msvc_env.cmd --build --preset win_debug --target FilterServiceTest --parallel 4\")",
+      "PowerShell(./build/debug/alcedo_studio/tests/FilterServiceTest.exe 2>&1)",
+      "PowerShell(cmd /c \"scripts\\\\msvc_env.cmd --build --preset win_debug --target SleeveServiceTest --target SleeveFSTest --target ImportServiceTest --parallel 4\" 2>&1)",
+      "PowerShell(ctest *)",
+      "PowerShell(./build/debug/alcedo_studio/tests/AlbumBackendImageDetailsTest.exe --gtest_filter=\"ImageDetailsTests.GetImageDetails_RejectsInvalidIds\" 2>&1)",
+      "PowerShell(./build/debug/alcedo_studio/tests/AlbumBackendImageDetailsTest.exe --gtest_filter=\"ImageDetailsTests.GetImageDetails_ReturnsStructuredExifSummary\" 2>&1)"
     ]
   }
 }

@@ -9,6 +9,7 @@
 #include <future>
 #include <memory>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "app/import_service.hpp"
@@ -461,6 +462,182 @@ TEST_F(FilterServiceTests, FolderIndexTest_DateRange) {
 
   // Six Sony ARWs plus one Nikon D850 NEF fall in the 2025 capture-date range.
   EXPECT_EQ(result_opt->size(), 7u);
+}
+
+TEST_F(FilterServiceTests, ListFilesInFolderByIdMatchesPathBasedList) {
+  ProjectService project(db_path_, meta_path_);
+  const uint32_t imported = LoadBatchToRoot(project);
+  ASSERT_GT(imported, 0u);
+
+  auto sleeve_service = project.GetSleeveService();
+  auto browse         = project.GetAlbumBrowseService();
+  ASSERT_NE(browse, nullptr);
+
+  auto root_folder = sleeve_service->Read<std::shared_ptr<SleeveElement>>(
+      [](FileSystem& fs) { return fs.Get(L"/", false); });
+  ASSERT_NE(root_folder, nullptr);
+
+  const auto path_based = browse->ListFilesInFolder(std::filesystem::path(L"/"));
+  const auto id_based   = browse->ListFilesInFolderById(root_folder->element_id_);
+  ASSERT_EQ(path_based.size(), id_based.size());
+
+  std::unordered_set<sl_element_id_t> path_ids;
+  for (const auto& f : path_based) {
+    path_ids.insert(f.file_id_);
+  }
+  for (const auto& f : id_based) {
+    EXPECT_TRUE(path_ids.contains(f.file_id_))
+        << "DB-first result file_id " << f.file_id_ << " not in path-based list";
+  }
+}
+
+TEST_F(FilterServiceTests, ListCountMatchesStatsCount) {
+  ProjectService project(db_path_, meta_path_);
+  const uint32_t imported = LoadBatchToRoot(project);
+  ASSERT_GT(imported, 0u);
+
+  auto sleeve_service = project.GetSleeveService();
+  auto root_folder    = sleeve_service->Read<std::shared_ptr<SleeveElement>>(
+      [](FileSystem& fs) { return fs.Get(L"/", false); });
+  ASSERT_NE(root_folder, nullptr);
+
+  SleeveFilterService filter_service(project.GetStorageService());
+  const auto          stats = filter_service.BuildFolderStats(root_folder->element_id_);
+  const auto list =
+      project.GetStorageService()->GetElementController().ListFilesInFolder(
+          root_folder->element_id_);
+  EXPECT_EQ(static_cast<size_t>(stats.total_photo_count_), list.size());
+}
+
+TEST_F(FilterServiceTests, FilterCacheInvalidationAfterLink) {
+  ProjectService project(db_path_, meta_path_);
+  const auto     file_id = CreateSyntheticFile(project, L"cache_test.dng", "Nikon D850");
+  ASSERT_NE(file_id, 0u);
+
+  auto sleeve_service = project.GetSleeveService();
+  auto album =
+      sleeve_service->CreateFolder(L"/", L"CacheTestAlbum");
+  ASSERT_TRUE(album.second.success_);
+  ASSERT_NE(album.first, nullptr);
+  const auto album_id = album.first->element_id_;
+
+  SleeveFilterService filter_service(project.GetStorageService());
+  FieldCondition       cond{
+            .field_ = FilterField::ExifCameraModel,
+            .op_    = CompareOp::CONTAINS,
+            .value_ = std::wstring(L"D850"),
+  };
+  FilterNode root{FilterNode::Type::Condition, {}, {}, std::move(cond), std::nullopt};
+  const auto filter_id = filter_service.CreateFilterCombo(root);
+
+  // Apply filter on the empty album — should return empty.
+  auto result_before = filter_service.ApplyFilterOn(filter_id, album_id);
+  ASSERT_TRUE(result_before.has_value());
+  EXPECT_TRUE(result_before->empty());
+
+  // Link file to album, invalidate, then re-apply — should now find the file.
+  ASSERT_TRUE(sleeve_service->LinkFileToFolder(file_id, album_id).success_);
+  filter_service.InvalidateResultCache(album_id);
+
+  auto result_after = filter_service.ApplyFilterOn(filter_id, album_id);
+  ASSERT_TRUE(result_after.has_value());
+  ASSERT_EQ(result_after->size(), 1u);
+  EXPECT_EQ(result_after->front(), file_id);
+}
+
+TEST_F(FilterServiceTests, FilterCacheInvalidationAfterUnlink) {
+  ProjectService project(db_path_, meta_path_);
+  const auto     file_id = CreateSyntheticFile(project, L"unlink_test.dng", "Nikon D850");
+  ASSERT_NE(file_id, 0u);
+
+  auto sleeve_service = project.GetSleeveService();
+  auto album =
+      sleeve_service->CreateFolder(L"/", L"UnlinkTestAlbum");
+  ASSERT_TRUE(album.second.success_);
+  ASSERT_NE(album.first, nullptr);
+  const auto album_id = album.first->element_id_;
+
+  ASSERT_TRUE(sleeve_service->LinkFileToFolder(file_id, album_id).success_);
+
+  SleeveFilterService filter_service(project.GetStorageService());
+  FieldCondition       cond{
+            .field_ = FilterField::ExifCameraModel,
+            .op_    = CompareOp::CONTAINS,
+            .value_ = std::wstring(L"D850"),
+  };
+  FilterNode root{FilterNode::Type::Condition, {}, {}, std::move(cond), std::nullopt};
+  const auto filter_id = filter_service.CreateFilterCombo(root);
+
+  // Apply filter on the album — should find the file.
+  auto result_before = filter_service.ApplyFilterOn(filter_id, album_id);
+  ASSERT_TRUE(result_before.has_value());
+  ASSERT_EQ(result_before->size(), 1u);
+
+  // Unlink file from album, invalidate, then re-apply — should be empty.
+  ASSERT_TRUE(sleeve_service->DeleteFileFromFolder(file_id, album_id).success_);
+  filter_service.InvalidateResultCache(album_id);
+
+  auto result_after = filter_service.ApplyFilterOn(filter_id, album_id);
+  ASSERT_TRUE(result_after.has_value());
+  EXPECT_TRUE(result_after->empty());
+}
+
+TEST_F(FilterServiceTests, FilterCacheInvalidationAfterDeleteEverywhere) {
+  ProjectService project(db_path_, meta_path_);
+  const auto     file_id = CreateSyntheticFile(project, L"del_test.dng", "Nikon D850");
+  ASSERT_NE(file_id, 0u);
+
+  auto sleeve_service = project.GetSleeveService();
+  auto root_folder    = sleeve_service->Read<std::shared_ptr<SleeveElement>>(
+      [](FileSystem& fs) { return fs.Get(L"/", false); });
+  ASSERT_NE(root_folder, nullptr);
+
+  SleeveFilterService filter_service(project.GetStorageService());
+  FieldCondition       cond{
+            .field_ = FilterField::ExifCameraModel,
+            .op_    = CompareOp::CONTAINS,
+            .value_ = std::wstring(L"D850"),
+  };
+  FilterNode root{FilterNode::Type::Condition, {}, {}, std::move(cond), std::nullopt};
+  const auto filter_id = filter_service.CreateFilterCombo(root);
+
+  // Apply filter on Root — should find the file.
+  auto result_before = filter_service.ApplyFilterOn(filter_id, root_folder->element_id_);
+  ASSERT_TRUE(result_before.has_value());
+  ASSERT_EQ(result_before->size(), 1u);
+
+  // Delete everywhere, invalidate entire cache, re-apply — should be empty.
+  ASSERT_TRUE(sleeve_service->DeleteFileEverywhere(file_id).success_);
+  filter_service.InvalidateResultCache();
+
+  auto result_after = filter_service.ApplyFilterOn(filter_id, root_folder->element_id_);
+  ASSERT_TRUE(result_after.has_value());
+  EXPECT_TRUE(result_after->empty());
+}
+
+TEST_F(FilterServiceTests, AlbumScopeListAndStatsAreConsistent) {
+  ProjectService project(db_path_, meta_path_);
+  const auto     file1_id = CreateSyntheticFile(project, L"consist1.dng", "Nikon D850");
+  const auto     file2_id = CreateSyntheticFile(project, L"consist2.dng", "Sony A7");
+  ASSERT_NE(file1_id, 0u);
+  ASSERT_NE(file2_id, 0u);
+
+  auto sleeve_service = project.GetSleeveService();
+  auto album =
+      sleeve_service->CreateFolder(L"/", L"ConsistencyAlbum");
+  ASSERT_TRUE(album.second.success_);
+  ASSERT_NE(album.first, nullptr);
+  const auto album_id = album.first->element_id_;
+
+  ASSERT_TRUE(sleeve_service->LinkFileToFolder(file1_id, album_id).success_);
+  ASSERT_TRUE(sleeve_service->LinkFileToFolder(file2_id, album_id).success_);
+
+  SleeveFilterService filter_service(project.GetStorageService());
+  const auto          stats = filter_service.BuildFolderStats(album_id);
+  const auto list =
+      project.GetStorageService()->GetElementController().ListFilesInFolder(album_id);
+  EXPECT_EQ(static_cast<size_t>(stats.total_photo_count_), list.size());
+  EXPECT_EQ(list.size(), 2u);
 }
 
 }  // namespace alcedo

@@ -985,12 +985,24 @@ void AlbumBackend::ReloadCurrentFolder() {
     return;
   }
 
-  const auto files = browse->ListFilesInFolder(folder_ctrl_.CurrentFolderFsPath());
+  const auto folder_id_opt = folder_ctrl_.CurrentFolderElementId();
+  if (!folder_id_opt.has_value()) {
+    stats_.RebuildThumbnailView();
+    stats_.RefreshStats();
+    return;
+  }
+
+  const auto folder_id  = folder_id_opt.value();
+  const auto folder_path = folder_ctrl_.CurrentFolderFsPath();
+  const auto files       = browse->ListFilesInFolderById(folder_id);
   for (const auto& file : files) {
+    const auto file_path = file.file_path_.empty()
+                               ? folder_path / file.file_name_
+                               : file.file_path_;
     AddOrUpdateAlbumItem(
         file.file_id_, file.image_id_, file.folder_id_,
         file.scope_type_ == AlbumScopeType::Root ? QStringLiteral("root") : QStringLiteral("album"),
-        file.file_name_, file.file_path_);
+        file.file_name_, file_path);
   }
 
   stats_.RebuildThumbnailView();

@@ -96,6 +96,39 @@ auto AlbumBrowseService::ListFilesInFolder(const std::filesystem::path& folder_p
   return files;
 }
 
+auto AlbumBrowseService::ListFilesInFolderById(sl_element_id_t folder_id) const
+    -> std::vector<AlbumFileView> {
+  std::vector<AlbumFileView> files;
+  if (!sleeve_service_) {
+    return files;
+  }
+
+  try {
+    const auto storage  = sleeve_service_->GetStorageService();
+    const auto& ctrl    = storage->GetElementController();
+    const auto entries  = ctrl.ListFilesInFolder(folder_id);
+    files.reserve(entries.size());
+    for (const auto& entry : entries) {
+      if (entry.file_id_ == 0 || entry.image_id_ == 0) {
+        continue;
+      }
+      AlbumFileView view;
+      view.element_id_ = entry.file_id_;
+      view.file_id_    = entry.file_id_;
+      view.image_id_   = entry.image_id_;
+      view.folder_id_  = folder_id;
+      view.scope_type_ = folder_id == 0 ? AlbumScopeType::Root : AlbumScopeType::Album;
+      view.file_name_  = conv::FromBytes(entry.file_name_);
+      view.file_path_  = std::filesystem::path{};
+      files.push_back(std::move(view));
+    }
+  } catch (...) {
+    return {};
+  }
+
+  return files;
+}
+
 auto AlbumBrowseService::CreateFolder(const std::filesystem::path& parent_folder_path,
                                       const file_name_t& name) -> std::optional<AlbumFolderView> {
   if (!sleeve_service_) {

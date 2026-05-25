@@ -36,6 +36,23 @@ struct FolderStatsView {
   std::vector<StorageStatsBucket> rating_stats_{};
 };
 
+struct ScopedFileQuery {
+  std::string from_where_;
+};
+
+/// Build the shared scope query fragment (FROM ... JOIN ... WHERE) for file-in-folder queries.
+/// All folder-scoped file lookups (search, stats, listing, pagination) must use this builder so
+/// the scope definition stays consistent across the application.
+auto BuildScopedFileQuery(sl_element_id_t                    folder_id,
+                          const std::optional<std::wstring>& extra_filter_where = std::nullopt)
+    -> ScopedFileQuery;
+
+struct FileListEntry {
+  sl_element_id_t file_id_   = 0;
+  image_id_t      image_id_  = 0;
+  std::string     file_name_{};
+};
+
 class ElementController {
  private:
   ConnectionGuard    guard_;
@@ -73,6 +90,10 @@ class ElementController {
   auto BuildFolderStats(sl_element_id_t                           folder_id,
                         const std::optional<std::wstring>& extra_filter_where = std::nullopt)
       -> FolderStatsView;
+
+  /// Return lightweight file metadata for every live File in a folder, queried directly from DB
+  /// without materializing full SleeveElement objects.
+  auto ListFilesInFolder(sl_element_id_t folder_id) const -> std::vector<FileListEntry>;
 
   void EnsureChildrenLoaded(sl_element_id_t folder_id);
 

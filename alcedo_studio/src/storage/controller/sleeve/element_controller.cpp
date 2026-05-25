@@ -19,13 +19,9 @@
 #include "utils/string/convert.hpp"
 
 namespace alcedo {
-namespace {
-struct ScopedFileQuery {
-  std::string from_where_;
-};
 
 auto BuildScopedFileQuery(sl_element_id_t                    folder_id,
-                          const std::optional<std::wstring>& extra_filter_where = std::nullopt)
+                          const std::optional<std::wstring>& extra_filter_where)
     -> ScopedFileQuery {
   std::string extra_where;
   if (extra_filter_where.has_value() && !extra_filter_where->empty()) {
@@ -40,6 +36,8 @@ auto BuildScopedFileQuery(sl_element_id_t                    folder_id,
                   "WHERE fc.folder_id = {} AND e.type = {}{}",
                   folder_id, static_cast<uint32_t>(ElementType::FILE), extra_where)};
 }
+
+namespace {
 
 auto RunGroupByQuery(duckdb_connection conn, const std::string& sql)
     -> std::vector<StorageStatsBucket> {
@@ -273,6 +271,36 @@ auto ElementController::BuildFolderStats(sl_element_id_t                    fold
                   "GROUP BY r ORDER BY r DESC",
                   base_join));
 
+  return out;
+}
+
+auto ElementController::ListFilesInFolder(sl_element_id_t folder_id) const -> std::vector<FileListEntry> {
+  std::vector<FileListEntry> out;
+  const auto                 scope = BuildScopedFileQuery(folder_id);
+  const auto                 sql =
+      std::format("SELECT e.id, fi.image_id, e.element_name {} ORDER BY e.id", scope.from_where_);
+
+  duckdb_result result;
+  if (duckdb_query(guard_.conn_, sql.c_str(), &result) != DuckDBSuccess) {
+    duckdb_destroy_result(&result);
+    return out;
+  }
+
+  const auto row_count = duckdb_row_count(&result);
+  out.reserve(static_cast<size_t>(row_count));
+  for (idx_t r = 0; r < row_count; ++r) {
+    FileListEntry entry;
+    entry.file_id_  = static_cast<sl_element_id_t>(duckdb_value_int64(&result, 0, r));
+    entry.image_id_ = static_cast<image_id_t>(duckdb_value_int64(&result, 1, r));
+    char* name_raw  = duckdb_value_varchar(&result, 2, r);
+    if (name_raw) {
+      entry.file_name_ = name_raw;
+      duckdb_free(name_raw);
+    }
+    out.push_back(std::move(entry));
+  }
+
+  duckdb_destroy_result(&result);
   return out;
 }
 

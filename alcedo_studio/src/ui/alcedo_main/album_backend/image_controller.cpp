@@ -460,6 +460,9 @@ auto ImageController::AddImagesToFolder(const QVariantList& targetEntries, uint 
 
   bool save_ok = true;
   if (!added_ids.empty()) {
+    if (auto filter_svc = ph.project()->GetSleeveFilterService(); filter_svc) {
+      filter_svc->InvalidateResultCache(target_folder_id.value());
+    }
     try {
       if (!ph.meta_path().empty()) {
         ph.project()->SaveProject(ph.meta_path());
@@ -605,6 +608,16 @@ auto ImageController::DeleteTargets(const std::vector<DeleteTarget>& targets)
   deleted_ids.reserve(delete_result.deleted_files_.size());
   for (const auto& file : delete_result.deleted_files_) {
     deleted_ids.push_back(file.element_id_);
+  }
+
+  if (!deleted_ids.empty()) {
+    if (auto filter_svc = proj->GetSleeveFilterService(); filter_svc) {
+      if (delete_from_library) {
+        filter_svc->InvalidateResultCache();
+      } else {
+        filter_svc->InvalidateResultCache(folder_id.value());
+      }
+    }
   }
 
   std::unordered_set<sl_element_id_t> deleted_id_set(deleted_ids.begin(), deleted_ids.end());
