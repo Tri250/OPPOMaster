@@ -16,9 +16,11 @@
 #include <exception>
 #include <numeric>
 #include <unordered_set>
+#include <utility>
 
 #include <json.hpp>
 
+#include "image/image.hpp"
 #include "ui/alcedo_main/album_backend/path_utils.hpp"
 
 namespace alcedo::ui {
@@ -369,6 +371,22 @@ auto ImageController::CollectDeleteTargets(const QVariantList& targetEntries) co
   return targets;
 }
 
+auto ImageController::ResolveRatingTarget(uint elementId, uint imageId) const -> RatingTarget {
+  RatingTarget target;
+  target.element_id_ = static_cast<sl_element_id_t>(elementId);
+  target.image_id_   = static_cast<image_id_t>(imageId);
+
+  if (target.element_id_ != 0) {
+    if (const auto* item = backend_.FindAlbumItem(target.element_id_); item) {
+      if (target.image_id_ == 0) {
+        target.image_id_ = item->image_id;
+      }
+    }
+  }
+
+  return target;
+}
+
 auto ImageController::DeleteImages(const QVariantList& targetEntries) -> QVariantMap {
   const auto delete_result = DeleteTargets(CollectDeleteTargets(targetEntries));
 
@@ -649,6 +667,180 @@ auto ImageController::GetImageDetails(uint elementId, uint imageId) -> QVariantM
     return result;
   } catch (...) {
     const auto msg = PL_TEXT("Failed to load image details.");
+    backend_.SetTaskState(msg, 0, false);
+    result["message"] = msg.Render();
+    return result;
+  }
+}
+
+auto ImageController::GetImageRating(uint elementId, uint imageId) -> QVariantMap {
+  QVariantMap result{{"success", false}, {"message", QString{}}, {"rating", 0}};
+
+  auto& ph = backend_.project_handler_;
+  if (ph.project_loading()) {
+    const auto msg = PL_TEXT("Project is loading. Please wait.");
+    result["message"] = msg.Render();
+    return result;
+  }
+  if (!ph.project()) {
+    const auto msg = PL_TEXT("No project is loaded.");
+    result["message"] = msg.Render();
+    return result;
+  }
+
+  const RatingTarget target = ResolveRatingTarget(elementId, imageId);
+  if (target.image_id_ == 0) {
+    const auto msg = PL_TEXT("No valid image was selected.");
+    result["message"] = msg.Render();
+    return result;
+  }
+
+  auto image_pool = ph.project()->GetImagePoolService();
+  if (!image_pool) {
+    const auto msg = PL_TEXT("Image service is unavailable.");
+    result["message"] = msg.Render();
+    return result;
+  }
+
+  try {
+    const int rating = image_pool->Read<int>(
+        target.image_id_, [](const std::shared_ptr<Image>& image) -> int {
+          if (!image) {
+            return 0;
+          }
+          if (image->has_exif_display_.load()) {
+            return ExifDisplayMetaData::NormalizeRating(image->exif_display_.rating_);
+          }
+          if (image->has_exif_json_.load()) {
+            ExifDisplayMetaData metadata;
+            metadata.FromJson(image->exif_json_);
+            return ExifDisplayMetaData::NormalizeRating(metadata.rating_);
+          }
+          return 0;
+        });
+    result["success"] = true;
+    result["rating"]  = rating;
+    return result;
+  } catch (...) {
+    const auto msg = PL_TEXT("Failed to load image rating.");
+    result["message"] = msg.Render();
+    return result;
+  }
+}
+
+auto ImageController::SetImageRating(uint elementId, uint imageId, int rating) -> QVariantMap {
+  QVariantMap result{{"success", false}, {"message", QString{}}, {"rating", 0}};
+
+  if (rating < ExifDisplayMetaData::kMinRating || rating > ExifDisplayMetaData::kMaxRating) {
+    const auto msg = PL_TEXT("Rating must be between 0 and 5.");
+    result["message"] = msg.Render();
+    return result;
+  }
+
+  auto& ph = backend_.project_handler_;
+  if (ph.project_loading()) {
+    const auto msg = PL_TEXT("Project is loading. Please wait.");
+    backend_.SetTaskState(msg, 0, false);
+    result["message"] = msg.Render();
+    return result;
+  }
+  if (!ph.project()) {
+    const auto msg = PL_TEXT("No project is loaded.");
+    backend_.SetTaskState(msg, 0, false);
+    result["message"] = msg.Render();
+    return result;
+  }
+
+  const RatingTarget target = ResolveRatingTarget(elementId, imageId);
+  if (target.image_id_ == 0) {
+    const auto msg = PL_TEXT("No valid image was selected.");
+    backend_.SetTaskState(msg, 0, false);
+    result["message"] = msg.Render();
+    return result;
+  }
+
+  auto proj       = ph.project();
+  auto image_pool = proj->GetImagePoolService();
+  if (!image_pool) {
+    const auto msg = PL_TEXT("Image service is unavailable.");
+    backend_.SetTaskState(msg, 0, false);
+    result["message"] = msg.Render();
+    return result;
+  }
+
+  try {
+    image_pool->Write_NoSync<void>(
+        target.image_id_, [rating](const std::shared_ptr<Image>& image) {
+          if (!image) {
+            return;
+          }
+          ExifDisplayMetaData metadata;
+          if (image->has_exif_display_.load()) {
+            metadata = image->exif_display_;
+          } else if (image->has_exif_json_.load()) {
+            metadata.FromJson(image->exif_json_);
+          }
+          metadata.rating_ = ExifDisplayMetaData::NormalizeRating(rating);
+          image->SetExifDisplayMetaData(std::move(metadata));
+        });
+
+    const auto sync_status = image_pool->SyncWithStorage();
+    const auto failed_it =
+        std::find_if(sync_status.failed_images_.begin(), sync_status.failed_images_.end(),
+                     [target](const ImagePoolSyncErrorResult& error) {
+                       return error.image_id_ == target.image_id_;
+                     });
+    if (failed_it != sync_status.failed_images_.end()) {
+      const auto msg = PL_TEXT("Failed to save image rating.");
+      backend_.SetTaskState(msg, 0, false);
+      result["message"] = msg.Render();
+      return result;
+    }
+
+    if (target.element_id_ != 0) {
+      if (auto* item = backend_.FindAlbumItem(target.element_id_); item &&
+          item->image_id == target.image_id_) {
+        item->rating = rating;
+      }
+    } else {
+      for (auto& item : backend_.view_state_.all_images_) {
+        if (item.image_id == target.image_id_) {
+          item.rating = rating;
+        }
+      }
+    }
+    backend_.stats_.RebuildThumbnailView();
+
+    bool save_ok = true;
+    try {
+      if (!ph.meta_path().empty()) {
+        proj->SaveProject(ph.meta_path());
+      }
+      QString ignored_error;
+      if (!ph.PackageCurrentProjectFiles(&ignored_error)) {
+        save_ok = false;
+      }
+    } catch (...) {
+      save_ok = false;
+    }
+
+    auto msg = rating == 0 ? PL_TEXT("Image rating cleared.")
+                           : PL_TEXT("Image rating set to %1/5.", rating);
+    if (!save_ok) {
+      msg = PL_TEXT("%1 Project state save failed.", msg.Render());
+    }
+    backend_.SetServiceMessageForCurrentProject(msg);
+    backend_.SetTaskState(msg, save_ok ? 100 : 0, false);
+    if (save_ok) {
+      backend_.ScheduleIdleTaskStateReset(1200);
+    }
+
+    result["success"] = true;
+    result["rating"]  = rating;
+    result["message"] = msg.Render();
+    return result;
+  } catch (...) {
+    const auto msg = PL_TEXT("Failed to save image rating.");
     backend_.SetTaskState(msg, 0, false);
     result["message"] = msg.Render();
     return result;

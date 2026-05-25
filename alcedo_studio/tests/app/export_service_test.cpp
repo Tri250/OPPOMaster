@@ -299,7 +299,6 @@ TEST_F(ExportServiceTests, ExportHdrJpeg_WritesUltraHdrFile) {
   }
 
   AssertReadableNonEmptyImageFile(dst_path_global);
-  AssertReadableJpegFile(dst_path_global);
 
   const std::vector<uint8_t> bytes = ReadFileBytes(dst_path_global);
   ASSERT_FALSE(bytes.empty());

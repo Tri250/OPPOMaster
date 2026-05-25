@@ -44,6 +44,8 @@ class AlbumBackend final : public QObject {
   Q_PROPERTY(QString statsFilterDate READ StatsFilterDate NOTIFY StatsFilterChanged)
   Q_PROPERTY(QString statsFilterCamera READ StatsFilterCamera NOTIFY StatsFilterChanged)
   Q_PROPERTY(QString statsFilterLens READ StatsFilterLens NOTIFY StatsFilterChanged)
+  Q_PROPERTY(QVariantList ratingStats READ RatingStats NOTIFY StatsChanged)
+  Q_PROPERTY(QString statsFilterRating READ StatsFilterRating NOTIFY StatsFilterChanged)
   Q_PROPERTY(bool serviceReady READ ServiceReady NOTIFY ServiceStateChanged)
   Q_PROPERTY(QString serviceMessage READ ServiceMessage NOTIFY ServiceStateChanged)
   Q_PROPERTY(QVariantList recentProjects READ RecentProjects NOTIFY RecentProjectsChanged)
@@ -111,10 +113,12 @@ class AlbumBackend final : public QObject {
   QVariantList DateStats() const { return stats_.date_stats(); }
   QVariantList CameraStats() const { return stats_.camera_stats(); }
   QVariantList LensStats() const { return stats_.lens_stats(); }
+  QVariantList RatingStats() const { return stats_.rating_stats(); }
   int TotalPhotoCount() const { return stats_.total_photo_count(); }
   const QString& StatsFilterDate() const { return stats_.filter_date(); }
   const QString& StatsFilterCamera() const { return stats_.filter_camera(); }
   const QString& StatsFilterLens() const { return stats_.filter_lens(); }
+  const QString& StatsFilterRating() const { return stats_.filter_rating(); }
   bool ServiceReady() const { return service_ready_; }
   QString ServiceMessage() const { return service_message_text_.Render(); }
   QVariantList RecentProjects() const { return recent_projects_; }
@@ -176,6 +180,8 @@ class AlbumBackend final : public QObject {
   Q_INVOKABLE void DeleteFolder(uint folderId);
   Q_INVOKABLE QVariantMap DeleteImages(const QVariantList& targetEntries);
   Q_INVOKABLE QVariantMap GetImageDetails(uint elementId, uint imageId);
+  Q_INVOKABLE QVariantMap GetImageRating(uint elementId, uint imageId);
+  Q_INVOKABLE QVariantMap SetImageRating(uint elementId, uint imageId, int rating);
   Q_INVOKABLE bool OpenDirectoryInFileManager(const QString& dirUrlOrPath);
 
   Q_INVOKABLE void StartImport(const QStringList& fileUrlsOrPaths);

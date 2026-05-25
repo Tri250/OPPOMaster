@@ -38,6 +38,13 @@ class ExifDisplayMetaData {
   ExifDisplayMetaData()             = default;
   ExifDisplayMetaData(nlohmann::json exif_json);
 
+  static constexpr int kMinRating = 0;
+  static constexpr int kMaxRating = 5;
+
+  static constexpr auto NormalizeRating(int rating) -> int {
+    return rating < kMinRating ? kMinRating : (rating > kMaxRating ? kMaxRating : rating);
+  }
+
   void        ExtractFromJson(nlohmann::json exif_json);
 
   std::string ToString() const {
@@ -82,7 +89,7 @@ class ExifDisplayMetaData {
     exif_json["DateTimeString"] = date_time_str_;
 
     // Other
-    exif_json["Rating"]         = rating_;
+    exif_json["Rating"]         = NormalizeRating(rating_);
     return exif_json;
   }
 
@@ -112,7 +119,7 @@ class ExifDisplayMetaData {
     // Time
     date_time_str_ = exif_json.value("DateTimeString", "");
     // Other
-    rating_        = exif_json.value("Rating", 0);
+    rating_        = NormalizeRating(exif_json.value("Rating", 0));
   }
 };
 };  // namespace alcedo

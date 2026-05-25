@@ -60,6 +60,28 @@ auto HasEmbeddedIccProfile(const std::filesystem::path& path) -> bool {
   return has_icc;
 }
 
+auto ReadXmpRating(const std::filesystem::path& path) -> int {
+  auto image = Exiv2::ImageFactory::open(path.string());
+  if (!image) {
+    return -1;
+  }
+  image->readMetadata();
+  const auto& xmp_data = image->xmpData();
+  const auto  rating   = xmp_data.findKey(Exiv2::XmpKey("Xmp.xmp.Rating"));
+  return rating == xmp_data.end() ? -1 : static_cast<int>(rating->toInt64());
+}
+
+auto ReadExifRating(const std::filesystem::path& path) -> int {
+  auto image = Exiv2::ImageFactory::open(path.string());
+  if (!image) {
+    return -1;
+  }
+  image->readMetadata();
+  const auto& exif_data = image->exifData();
+  const auto  rating    = exif_data.findKey(Exiv2::ExifKey("Exif.Image.Rating"));
+  return rating == exif_data.end() ? -1 : static_cast<int>(rating->toInt64());
+}
+
 void WriteTestJpeg(const std::filesystem::path& path, const std::vector<uint8_t>& rgb,
                    int width, int height) {
   OIIO_NAMESPACE_USING
@@ -194,6 +216,44 @@ TEST_F(ImageWriterTests, EmbeddedHdrIccModeWritesRegularJpegWithProfile) {
   ASSERT_FALSE(bytes.empty());
   EXPECT_EQ(is_uhdr_image(const_cast<uint8_t*>(bytes.data()), static_cast<int>(bytes.size())), 0);
 #endif
+}
+
+TEST_F(ImageWriterTests, ExportWritesCurrentRatingMetadata) {
+  const auto src_path = temp_dir_ / "rating_source.jpg";
+  const auto dst_path = temp_dir_ / "rating_exported.jpg";
+
+  WriteTestJpeg(src_path, {32, 64, 96, 96, 64, 32}, 2, 1);
+
+  {
+    auto image = Exiv2::ImageFactory::open(src_path.string());
+    ASSERT_TRUE(image != nullptr);
+    image->readMetadata();
+    Exiv2::XmpData xmp_data = image->xmpData();
+    xmp_data["Xmp.xmp.Rating"] = 1;
+    image->setXmpData(xmp_data);
+    Exiv2::ExifData exif_data = image->exifData();
+    exif_data["Exif.Image.Rating"] = static_cast<uint16_t>(1);
+    image->setExifData(exif_data);
+    image->writeMetadata();
+  }
+
+  cv::Mat rgba32f(1, 2, CV_32FC4);
+  rgba32f.at<cv::Vec4f>(0, 0) = cv::Vec4f(0.2f, 0.4f, 0.6f, 1.0f);
+  rgba32f.at<cv::Vec4f>(0, 1) = cv::Vec4f(0.6f, 0.4f, 0.2f, 1.0f);
+  auto image_data = std::make_shared<ImageBuffer>(std::move(rgba32f));
+
+  ExportFormatOptions options;
+  options.format_ = ImageFormatType::JPEG;
+  options.export_path_ = dst_path;
+
+  ImageWriter::WriteImageToPath(src_path, image_data, options, std::nullopt, 4);
+
+  ASSERT_TRUE(std::filesystem::exists(dst_path));
+  EXPECT_EQ(ReadExifRating(dst_path), 4);
+  const int xmp_rating = ReadXmpRating(dst_path);
+  if (xmp_rating >= 0) {
+    EXPECT_EQ(xmp_rating, 4);
+  }
 }
 
 }  // namespace alcedo

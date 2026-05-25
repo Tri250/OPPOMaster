@@ -14,6 +14,7 @@
 #include <exiv2/types.hpp>
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include <stdexcept>
 
 #include "type/type.hpp"
@@ -25,6 +26,40 @@ auto RationalToFloat(const Exiv2::Rational& value) -> float {
     return 0.0f;
   }
   return static_cast<float>(value.first) / static_cast<float>(value.second);
+}
+
+auto ReadRatingValue(int64_t rating) -> int {
+  if (rating < ExifDisplayMetaData::kMinRating || rating > ExifDisplayMetaData::kMaxRating) {
+    return ExifDisplayMetaData::kMinRating;
+  }
+  return static_cast<int>(rating);
+}
+
+auto ReadRatingFromXmp(const Exiv2::XmpData& xmp_data) -> std::optional<int> {
+  const auto it = xmp_data.findKey(Exiv2::XmpKey("Xmp.xmp.Rating"));
+  if (it == xmp_data.end()) {
+    return std::nullopt;
+  }
+  return ReadRatingValue(it->toInt64());
+}
+
+auto ReadRatingFromExif(const Exiv2::ExifData& exif_data) -> std::optional<int> {
+  const auto it = exif_data.findKey(Exiv2::ExifKey("Exif.Image.Rating"));
+  if (it == exif_data.end()) {
+    return std::nullopt;
+  }
+  return ReadRatingValue(it->toInt64());
+}
+
+void PopulateStandardRating(const Exiv2::Image& exif_image,
+                            ExifDisplayMetaData& display_metadata) {
+  if (const auto xmp_rating = ReadRatingFromXmp(exif_image.xmpData()); xmp_rating.has_value()) {
+    display_metadata.rating_ = *xmp_rating;
+    return;
+  }
+  if (const auto exif_rating = ReadRatingFromExif(exif_image.exifData()); exif_rating.has_value()) {
+    display_metadata.rating_ = *exif_rating;
+  }
 }
 }  // namespace
 
@@ -100,6 +135,7 @@ void MetadataDecoder::Decode(std::vector<char> buffer, std::filesystem::path fil
     img->has_exif_ = !img->exif_data_->exifData().empty();
 
     GetDisplayMetadataFromExif(img->exif_data_->exifData(), img->exif_display_);
+    PopulateStandardRating(*img->exif_data_, img->exif_display_);
 
     result->push(img);
     promise->set_value(id);
@@ -124,6 +160,7 @@ void MetadataDecoder::Decode(std::vector<char> buffer, std::shared_ptr<Image> so
     source_img->exif_data_->readMetadata();
     source_img->has_exif_ = !source_img->exif_data_->exifData().empty();
     GetDisplayMetadataFromExif(source_img->exif_data_->exifData(), source_img->exif_display_);
+    PopulateStandardRating(*source_img->exif_data_, source_img->exif_display_);
     result->push(source_img);
     promise->set_value(source_img->image_id_);
 

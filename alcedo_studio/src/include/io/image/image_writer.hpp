@@ -23,6 +23,7 @@ class ImageWriter {
   static void WriteImageToPath(const image_path_t&          src_path,
                                std::shared_ptr<ImageBuffer> image_data,
                                ExportFormatOptions          options,
-                               std::optional<ExportColorProfileConfig> color_profile = std::nullopt);
+                               std::optional<ExportColorProfileConfig> color_profile = std::nullopt,
+                               std::optional<int> rating = std::nullopt);
 };
 };  // namespace alcedo

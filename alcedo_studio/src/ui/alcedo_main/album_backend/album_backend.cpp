@@ -239,6 +239,12 @@ auto AlbumBackend::DeleteImages(const QVariantList& targetEntries) -> QVariantMa
 auto AlbumBackend::GetImageDetails(uint elementId, uint imageId) -> QVariantMap {
   return image_ctrl_.GetImageDetails(elementId, imageId);
 }
+auto AlbumBackend::GetImageRating(uint elementId, uint imageId) -> QVariantMap {
+  return image_ctrl_.GetImageRating(elementId, imageId);
+}
+auto AlbumBackend::SetImageRating(uint elementId, uint imageId, int rating) -> QVariantMap {
+  return image_ctrl_.SetImageRating(elementId, imageId, rating);
+}
 bool AlbumBackend::OpenDirectoryInFileManager(const QString& dirUrlOrPath) {
   const auto dir_path_opt = InputToPath(dirUrlOrPath);
   if (!dir_path_opt.has_value()) {
