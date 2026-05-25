@@ -8,16 +8,19 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.omaster.app.model.Preset
 import com.omaster.app.ui.components.FilterChips
+import com.omaster.app.ui.components.InfoSnackbar
 import com.omaster.app.ui.components.PresetCard
 import com.omaster.app.ui.components.SearchBar
 import com.omaster.app.ui.theme.*
 import com.omaster.app.viewmodel.FilterType
 import com.omaster.app.viewmodel.MainViewModel
+import kotlinx.coroutines.launch
 
 @Composable
 fun HomeScreen(
@@ -29,6 +32,9 @@ fun HomeScreen(
     val presets by viewModel.presets.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val filterType by viewModel.filterType.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     val filteredPresets = remember(presets, searchQuery, filterType) {
         presets.filter { preset ->
@@ -69,6 +75,9 @@ fun HomeScreen(
                     }
                 }
             )
+        },
+        snackbarHost = {
+            InfoSnackbar(snackbarHostState = snackbarHostState)
         }
     ) { paddingValues ->
         LazyColumn(
@@ -104,7 +113,14 @@ fun HomeScreen(
                     PresetCard(
                         preset = preset,
                         onClick = { onPresetClick(preset) },
-                        onFavoriteToggle = { viewModel.toggleFavorite(preset) },
+                        onFavoriteToggle = { 
+                            viewModel.toggleFavorite(preset)
+                            scope.launch {
+                                snackbarHostState.showSnackbar(
+                                    if (preset.isFavorite) "已取消收藏" else "已添加收藏"
+                                )
+                            }
+                        },
                         modifier = Modifier.padding(horizontal = 16.dp)
                     )
                 }
