@@ -43,6 +43,21 @@ constexpr auto   kAcceleratorWarningAcknowledgedKey = "gpu/acceleratorWarningAck
 constexpr int    kMaxRecentProjects                 = 12;
 constexpr size_t kAlbumMetadataPageSize             = 1000;
 
+class ThumbnailModelLoadingGuard {
+ public:
+  explicit ThumbnailModelLoadingGuard(AlbumThumbnailModel& model) : model_(model) {
+    model_.setLoading(true);
+  }
+
+  ~ThumbnailModelLoadingGuard() { model_.setLoading(false); }
+
+  ThumbnailModelLoadingGuard(const ThumbnailModelLoadingGuard&)            = delete;
+  ThumbnailModelLoadingGuard& operator=(const ThumbnailModelLoadingGuard&) = delete;
+
+ private:
+  AlbumThumbnailModel& model_;
+};
+
 [[maybe_unused]] constexpr const char* kAcceleratorTranslationStrings[] = {
     QT_TRANSLATE_NOOP("Alcedo", "CPU"),
     QT_TRANSLATE_NOOP("Alcedo", "Auto"),
@@ -230,6 +245,16 @@ int AlbumBackend::TotalCount() const {
 
 bool AlbumBackend::HasMoreThumbnails() const {
   return thumbnail_model_.hasMore();
+}
+
+QVariantList AlbumBackend::Thumbnails() const {
+  QVariantList rows;
+  rows.reserve(static_cast<qsizetype>(thumbnail_model_.items().size()));
+  int index = 0;
+  for (const AlbumItem& image : thumbnail_model_.items()) {
+    rows.push_back(stats_.MakeThumbMap(image, index++));
+  }
+  return rows;
 }
 
 // ── Q_INVOKABLE: Folder delegation ──────────────────────────────────────────
@@ -595,7 +620,12 @@ void AlbumBackend::SetThumbnailCacheHint(uint visibleCells, uint maxEdge) {
   }
 }
 
-bool AlbumBackend::LoadMoreThumbnails() { return stats_.LoadMoreThumbnailView(); }
+bool AlbumBackend::LoadMoreThumbnails() {
+  if (thumbnail_model_.loading() || !thumbnail_model_.hasMore()) {
+    return false;
+  }
+  return stats_.LoadMoreThumbnailView();
+}
 
 // ── Q_INVOKABLE: Project I/O ────────────────────────────────────────────────
 
@@ -980,15 +1010,17 @@ void AlbumBackend::ReloadCurrentFolder() {
 }
 
 bool AlbumBackend::LoadThumbnailWindow(const std::optional<std::wstring>& filterWhere, bool reset) {
+  if (thumbnail_model_.loading()) {
+    return false;
+  }
+  ThumbnailModelLoadingGuard loading_guard(thumbnail_model_);
+
   if (reset) {
     thumb_.ReleaseVisibleThumbnailPins();
 
     view_state_.all_images_.clear();
-    view_state_.visible_thumbnails_.clear();
     view_state_.total_count_ = 0;
     thumbnail_model_.resetModel({}, 0);
-    emit ThumbnailsChanged();
-    emit thumbnailsChanged();
     emit CountsChanged();
   }
 
@@ -1031,7 +1063,6 @@ bool AlbumBackend::LoadThumbnailWindow(const std::optional<std::wstring>& filter
         file.file_name_, file_path);
   }
 
-  // Build the new batch for incremental model insertion
   const size_t newSize = view_state_.all_images_.size();
   std::vector<AlbumItem> newBatch;
   if (newSize > oldSize) {
@@ -1041,7 +1072,6 @@ bool AlbumBackend::LoadThumbnailWindow(const std::optional<std::wstring>& filter
     }
   }
 
-  // Update the model: reset on first load, append on subsequent pages
   if (oldSize == 0) {
     thumbnail_model_.resetModel(view_state_.all_images_, view_state_.total_count_);
   } else if (!newBatch.empty()) {
@@ -1050,17 +1080,6 @@ bool AlbumBackend::LoadThumbnailWindow(const std::optional<std::wstring>& filter
     thumbnail_model_.setHasMore(thumbnail_model_.items().size() < view_state_.total_count_);
   }
 
-  // Rebuild visible_thumbnails_ for backward compatibility
-  QVariantList next;
-  next.reserve(static_cast<qsizetype>(view_state_.all_images_.size()));
-  int index = 0;
-  for (const AlbumItem& image : view_state_.all_images_) {
-    next.push_back(stats_.MakeThumbMap(image, index++));
-  }
-  view_state_.visible_thumbnails_ = std::move(next);
-
-  emit ThumbnailsChanged();
-  emit thumbnailsChanged();
   emit CountsChanged();
   return !files.empty();
 }

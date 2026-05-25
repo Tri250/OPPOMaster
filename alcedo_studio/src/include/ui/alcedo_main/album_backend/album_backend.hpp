@@ -114,12 +114,12 @@ class AlbumBackend final : public QObject {
   ~AlbumBackend() override;
 
   // ── Q_PROPERTY getters ──────────────────────────────────────────────
-  QVariantList Thumbnails() const { return view_state_.visible_thumbnails_; }
+  QVariantList Thumbnails() const;
   QObject* ThumbnailModel() { return &thumbnail_model_; }
   QVariantList Folders() const { return folder_ctrl_.folders(); }
   uint CurrentFolderId() const { return static_cast<uint>(folder_ctrl_.current_folder_id()); }
   const QString& CurrentFolderPath() const { return folder_ctrl_.current_folder_path_text(); }
-  int     ShownCount() const { return static_cast<int>(view_state_.visible_thumbnails_.size()); }
+  int     ShownCount() const { return thumbnail_model_.count(); }
   int     TotalCount() const;
   bool    HasMoreThumbnails() const;
   QString FilterInfo() const;

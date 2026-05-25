@@ -28,12 +28,21 @@ ListView {
     signal contextMenuRequested(var item, real sceneX, real sceneY)
 
     function maybeLoadMoreThumbnails() {
-        if (!albumBackend.thumbnailModel.hasMore) {
+        if (!albumBackend.thumbnailModel.hasMore || albumBackend.thumbnailModel.loading) {
             return
         }
         const threshold = Math.max(360, height * 0.5)
         if (contentY >= originY + Math.max(0, contentHeight - height) - threshold) {
             albumBackend.LoadMoreThumbnails()
+        }
+    }
+
+    Connections {
+        target: albumBackend.thumbnailModel
+        function onLoadingChanged() {
+            if (!albumBackend.thumbnailModel.loading) {
+                Qt.callLater(root.maybeLoadMoreThumbnails)
+            }
         }
     }
 

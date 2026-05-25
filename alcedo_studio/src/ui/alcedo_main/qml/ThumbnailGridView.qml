@@ -165,12 +165,23 @@ Item {
     }
 
     function maybeLoadMoreThumbnails() {
-        if (!albumBackend.thumbnailModel.hasMore || grid.cellHeight <= 0) {
+        if (!albumBackend.thumbnailModel.hasMore
+                || albumBackend.thumbnailModel.loading
+                || grid.cellHeight <= 0) {
             return
         }
         const threshold = Math.max(grid.cellHeight * 3, grid.height * 0.5)
         if (grid.contentY >= root.maxContentY() - threshold) {
             albumBackend.LoadMoreThumbnails()
+        }
+    }
+
+    Connections {
+        target: albumBackend.thumbnailModel
+        function onLoadingChanged() {
+            if (!albumBackend.thumbnailModel.loading) {
+                Qt.callLater(root.maybeLoadMoreThumbnails)
+            }
         }
     }
 
