@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <stdexcept>
 
 #include "image/metadata_extractor.hpp"
 #include "sleeve/sleeve_element/sleeve_element.hpp"
@@ -14,6 +15,14 @@
 #include "type/supported_file_type.hpp"
 
 namespace alcedo {
+namespace {
+
+auto IsRootImportDestination(const image_path_t& dest) -> bool {
+  const auto normalized = dest.lexically_normal();
+  return normalized.empty() || normalized == image_path_t{L"/"} || normalized == image_path_t{L"."};
+}
+
+}  // namespace
 
 static void SetImportResult(std::shared_ptr<ImportJob> job, uint32_t requested, uint32_t imported,
                             uint32_t failed) {
@@ -66,7 +75,18 @@ auto ImportServiceImpl::ImportToFolder(const std::vector<image_path_t>& paths,
     try {
       element = fs_service_->Write_NoSync<std::shared_ptr<SleeveElement>>(
           [&dest, &file_name](FileSystem& fs) {
-            return fs.Create(dest, file_name, ElementType::FILE);
+            std::shared_ptr<SleeveElement> target;
+            if (!IsRootImportDestination(dest)) {
+              target = fs.Get(dest, false);
+              if (!target || target->type_ != ElementType::FOLDER) {
+                throw std::runtime_error("ImportService: import target is not a folder");
+              }
+            }
+            auto file = fs.CreateFileInLibrary(file_name);
+            if (target) {
+              fs.LinkFileToFolder(file->element_id_, target->element_id_);
+            }
+            return file;
           });
     } catch (...) {
       progress_ptr->failed_.fetch_add(1);
@@ -171,16 +191,16 @@ auto ImportServiceImpl::ImportToFolder(const std::vector<image_path_t>& paths,
 
 void ImportServiceImpl::SyncImports(const ImportLogSnapshot& log_snapshot,
                                     const image_path_t&      dest) {
+  (void)dest;
   if (!image_pool_service_) {
     return;
   }
 
   for (const auto& entry : log_snapshot.metadata_failed_) {
-    if (!entry.file_name_.empty()) {
+    if (entry.element_id_ != 0) {
       try {
-        // fs_->Delete(dest / entry.file_name_);
         fs_service_->Write_NoSync<void>(
-            [&dest, &entry](FileSystem& fs) { fs.Delete(dest / image_path_t(entry.file_name_)); });
+            [&entry](FileSystem& fs) { fs.DeleteFileEverywhere(entry.element_id_); });
       } catch (...) {
       }
     }

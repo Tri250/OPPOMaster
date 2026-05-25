@@ -238,13 +238,73 @@ bool children_loaded_ = false;
 - 删除后使用 tombstone / `SyncFlag::DELETED` / DB 删除，再通过 database `VACUUM` 或 project repack 回收空间。
 - 如果未来需要数组形式，也只能使用 `vector<optional<...>>` 或 sparse set，不允许改变已分配 id。
 
+## Current Progress
+
+最新基线 commit：
+
+- `06e7c4a3 refact: Complete Phase 1 refactor`
+
+该 commit 已经落地了 Phase 1 的核心基础设施：
+
+- `FileSystem` / `SleeveService` 已新增 id-based membership API：
+  - `CreateFileInLibrary`
+  - `LinkFileToFolder`
+  - `UnlinkFileFromFolder`
+  - `DuplicateFileToFolder`
+  - `DeleteFileEverywhere`
+- `FileSystem::Delete(path)` 已经可以根据 parent scope 区分 Root 删除和子相册 unlink。
+- `FileSystem::Copy(from, dest)` 对 File 已经转为 link membership，而不是复制 File identity。
+- `SleeveServiceTest` 已覆盖 link、unlink、delete-everywhere、copy/link、duplicate 等基础语义。
+
+本轮 review 后的工作区修复进一步补齐了 Phase 1 缺口：
+
+- `ImportService::ImportToFolder` 已改为先在 library/root 创建 File，再按需 link 到目标相册。
+- 导入到不存在目标时会先校验目标 folder，不再先创建 Root 文件后失败。
+- metadata/import 失败回滚已改为按 `element_id` 调用 `DeleteFileEverywhere`，避免子相册导入失败后遗留 Root membership。
+- `ImportServiceTest` 已补充：
+  - 导入不存在目标不会残留 Root 文件。
+  - 导入子相册后，Root 和目标相册看到同一 `element_id`。
+  - sync 前后 Root/album membership 都保持正确。
+- `EditHistoryService::GetEditHistoryByFileId` 在无记录时返回 `nullptr`，避免手工 filesystem 测试文件被加载时构造默认 `EditHistory` 导致崩溃。
+- `ElementController::UpdateElement` 仅在文件已有 history 时更新 history，避免对无 history 文件执行无意义 upsert。
+- `PathResolver::Tree()` 输出已排序，避免 DB 恢复后 membership 枚举顺序导致测试不稳定。
+
+已验证：
+
+- `SleeveServiceTest.exe`: 12/12 passed
+- `ImportServiceTest.exe`: 13/13 passed
+- `git diff --check`: passed
+
+仍未完成或仍需单独收口：
+
+- `FolderContent(folder_id, element_id)` 的唯一约束和索引迁移尚未确认。
+- UI 层仍主要通过 folder path 浏览，列表项和操作路径还没有全面迁到 `file_id + folder_id`。
+- 搜索、统计、缩略图分页还没有统一 scope query builder。
+- `ref_count_`、`ResolveForWrite()` 和 `SleeveFile::Copy()` 的 CoW 边界还没有彻底拆分。
+- `NodeStorageHandler::EnsureChildrenLoaded()` 仍存在“空文件夹”和“未加载”状态混淆风险。
+
 ## Migration Phases
 
-### Phase 1: Lock Down Semantics With Tests
+### Phase 1: Membership Semantics And Import Correctness
 
-- 添加导入到 Root、导入到子相册、添加到其他相册、从子相册删除、从 Root 删除、编辑共享可见性的测试。
-- 明确 `DeleteFileFromFolder` 和 `DeleteFileEverywhere` 的差异。
-- 为 `FolderContent` 添加唯一约束和索引迁移计划。
+目标：先让“同一 File 可出现在 Root 和多个相册，编辑共享同一 File identity”成为可测试、可恢复的事实。
+
+已完成：
+
+- 增加 id-based membership API。
+- 明确 `UnlinkFileFromFolder` 和 `DeleteFileEverywhere` 的差异。
+- `Copy(file, folder)` 对 File 走 membership link。
+- `DuplicateFileToFolder` 保留为独立 File identity。
+- `ImportService` 导入到任意目标时都先创建 Root/library File，再按需 link 到目标相册。
+- 导入失败回滚通过 `DeleteFileEverywhere(file_id)` 清理。
+- 增加 SleeveService 和 ImportService 关键行为测试。
+
+待收口：
+
+- 为 `FolderContent` 添加或确认 `(folder_id, element_id)` 唯一约束。
+- 为 `FolderContent.folder_id` 和 `FolderContent.element_id` 添加或确认索引。
+- 补充“同一 File 从任意相册编辑后 Root/其他相册可见同一结果”的服务层测试。
+- 用同一套测试覆盖 DB 重启恢复后的 Root/album membership。
 
 Acceptance criteria:
 
@@ -252,31 +312,48 @@ Acceptance criteria:
 - 子相册删除不会删除 File 本体。
 - Root 删除会清理所有 membership。
 - 相册 membership 不触发 CoW。
+- 导入失败不会留下孤儿 membership 或无 image 绑定的 File。
 
-### Phase 2: Add Membership APIs
+### Phase 2: Album UI And Service-Surface Migration
 
-- 在 `FileSystem` / `SleeveService` 增加 id-based link/unlink/delete-everywhere API。
-- `AlbumBrowseService` 列表项返回当前 folder scope 和 file id。
-- UI 删除路径改为根据当前 folder scope 调用不同语义。
-- 旧路径 API 保留兼容，但内部转调新 API。
+目标：让 UI 明确知道当前相册 scope 和 File identity，避免继续把 path 当作照片身份。
+
+工作项：
+
+- `AlbumBrowseService` 列表项返回当前 `folder_id` / folder path 和 `file_id`。
+- UI 删除路径改为：
+  - 当前 scope 是 Root：调用 `DeleteFileEverywhere(file_id)`。
+  - 当前 scope 是 album：调用 `UnlinkFileFromFolder(file_id, folder_id)`。
+- 增加“添加到相册”入口，调用 `LinkFileToFolder(file_id, target_folder_id)`。
+- 重复添加同一 File 到同一相册应幂等或返回明确错误。
+- 旧 path API 保留兼容，但 UI 不再依赖它表达照片身份。
 
 Acceptance criteria:
 
 - UI 可以把同一 File 添加到另一个相册。
 - 重复添加同一 File 到同一相册被唯一约束拒绝或幂等处理。
 - 所有相关操作 sync 后可从 DB 正确恢复。
+- UI 打开编辑器时只使用 `file_id`，不依赖 album path。
 
-### Phase 3: Change Import Flow
+### Phase 3: Database Constraints And Migration
 
-- `ImportService` 改成始终先创建 File 到 library/root。
-- 如果目标 folder 不是 Root，再创建 target membership。
-- 失败回滚覆盖 Root membership、target membership、FileImage、ImagePool placeholder。
+目标：把 Phase 1 的运行时语义固化到 schema 和旧项目迁移中。
+
+工作项：
+
+- 检查现有 `FolderContent` schema 是否已经有 `PRIMARY KEY(folder_id, element_id)` 或等价唯一约束。
+- 如无约束，添加 migration：
+  - deduplicate 现有重复 membership。
+  - 添加唯一约束。
+  - 添加 `folder_id` / `element_id` 查询索引。
+- 旧项目启动时补齐 Root membership，或明确切换到虚拟 Root 查询。
+- 增加 migration 测试：重复 membership、缺 Root membership、旧项目恢复。
 
 Acceptance criteria:
 
-- 导入到任意相册后，Root 都能看到图片。
-- 导入到子相册后，子相册也能看到同一 file id。
-- 元数据失败清理不会留下孤儿 membership。
+- DB 层无法插入重复 `(folder_id, element_id)`。
+- 旧项目升级后 Root 能看到所有 live File。
+- 旧项目重复 membership 被安全去重。
 
 ### Phase 4: Search And Stats Scope Refactor
 
@@ -291,7 +368,7 @@ Acceptance criteria:
 - 子相册搜索只返回当前相册 membership 中的 File。
 - 统计结果和筛选结果使用同一 scope 定义。
 
-### Phase 5: Split CoW From Membership
+### Phase 5: Split CoW From Membership And Duplicate
 
 - 停止用 `ref_count_` 判断 album membership 是否共享。
 - 将 CoW 触发限制到显式 duplicate / payload sharing 场景。
@@ -331,14 +408,14 @@ Acceptance criteria:
 - 独立副本的 edit history 是 fork 当前 version tree，还是只复制当前 pipeline snapshot？
 - Delete from Root 是否应总是强确认，并提示会从所有相册移除？
 
-## Recommended First PR Scope
+## Recommended Next PR Scope
 
-第一 PR 不建议同时改 CoW、搜索和懒加载。建议只做语义基础设施：
+当前代码已经越过了原计划的“只加测试”阶段。下一 PR 不建议继续扩大到搜索、CoW 和懒加载，建议只做 Phase 1 收口和 Phase 2 的最小 UI 服务面迁移：
 
-- 添加 membership API。
-- 为 `FolderContent` 加唯一约束和索引。
-- 添加核心行为测试。
-- 改 UI/服务层删除语义的最小路径。
-- 保持现有 `ref_count_` 字段不大改，但确保 `LinkFileToFolder` 不走会触发 File CoW 的路径。
+- 确认或添加 `FolderContent(folder_id, element_id)` 唯一约束和索引。
+- 补齐 DB 重启恢复、编辑共享可见性、重复 link 幂等/失败的测试。
+- 让 `AlbumBrowseService` 明确返回 `file_id` 和当前 folder scope。
+- 将 UI 删除和添加到相册操作迁移到 id-based API。
+- 保持 `ref_count_` 字段暂不大改，但确认普通 membership link 不进入 File CoW 路径。
 
-这样可以先建立“同一 File 多相册共享编辑”的产品语义，再逐步清理 CoW 和缓存结构。
+这样可以先把用户可见的相册语义闭环，再单独处理搜索 scope、CoW 拆分和大库懒加载。

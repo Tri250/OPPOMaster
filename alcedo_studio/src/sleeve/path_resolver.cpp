@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <exception>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <sstream>
 #include <stack>
@@ -177,14 +178,18 @@ auto PathResolver::Tree(const std::filesystem::path& path) -> std::wstring {
   }
 
   auto dfs_stack    = std::stack<TreeNode>();
+  const auto push_children = [&dfs_stack](std::vector<sl_element_id_t> children, int depth) {
+    std::sort(children.begin(), children.end(), std::greater<sl_element_id_t>{});
+    for (auto& e : children) {
+      dfs_stack.push({e, depth, false});
+    }
+  };
 
   auto visit_folder = std::static_pointer_cast<SleeveFolder>(start_node);
   storage_handler_.EnsureChildrenLoaded(visit_folder);
 
   auto contains = visit_folder->ListElements();
-  for (auto& e : contains) {
-    dfs_stack.push({e, 0, storage_handler_.GetElement(e)->type_ == ElementType::FILE});
-  }
+  push_children(std::vector<sl_element_id_t>(contains.begin(), contains.end()), 0);
 
   tree_str << visit_folder->element_name_ << L"id:" << std::to_wstring(visit_folder->element_id_)
            << L"\n";
@@ -204,10 +209,8 @@ auto PathResolver::Tree(const std::filesystem::path& path) -> std::wstring {
       auto sub_folder = std::static_pointer_cast<SleeveFolder>(next_visit_element);
       storage_handler_.EnsureChildrenLoaded(sub_folder);
       contains = sub_folder->ListElements();
-      for (auto& e : contains) {
-        dfs_stack.push(
-            {e, next_visit.depth_ + 1, storage_handler_.GetElement(e)->type_ == ElementType::FILE});
-      }
+      push_children(std::vector<sl_element_id_t>(contains.begin(), contains.end()),
+                    next_visit.depth_ + 1);
     } else {
       for (int i = 0; i < next_visit.depth_; ++i) {
         tree_str << L"    ";

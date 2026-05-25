@@ -34,7 +34,7 @@ auto EditHistoryService::GetEditHistoryByFileId(const sl_element_id_t file_id)
                              std::to_string(file_id));
   }
   if (result.empty()) {
-    return std::make_shared<EditHistory>(file_id);
+    return nullptr;
   }
   return result.front();
 }

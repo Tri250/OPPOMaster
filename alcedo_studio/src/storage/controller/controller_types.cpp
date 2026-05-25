@@ -11,5 +11,9 @@ ConnectionGuard::ConnectionGuard(ConnectionGuard&& other) noexcept : conn_(other
   other.conn_ = nullptr;
 }
 
-ConnectionGuard::~ConnectionGuard() { duckdb_disconnect(&conn_); }
+ConnectionGuard::~ConnectionGuard() {
+  if (conn_ != nullptr) {
+    duckdb_disconnect(&conn_);
+  }
+}
 };  // namespace alcedo

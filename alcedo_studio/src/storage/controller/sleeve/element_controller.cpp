@@ -178,7 +178,9 @@ void ElementController::UpdateElement(const std::shared_ptr<SleeveElement> eleme
   if (element->type_ == ElementType::FILE) {
     auto file = std::static_pointer_cast<SleeveFile>(element);
     file_service_.Update({file->element_id_, file->image_id_}, file->image_id_);
-    history_service_.Update(file->GetEditHistory(), file->element_id_);
+    if (file->GetEditHistory() != nullptr) {
+      history_service_.Update(file->GetEditHistory(), file->element_id_);
+    }
   } else if (element->type_ == ElementType::FOLDER) {
     auto folder = std::static_pointer_cast<SleeveFolder>(element);
     folder_service_.RemoveById(folder->element_id_);

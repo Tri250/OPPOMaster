@@ -489,6 +489,7 @@ TEST_F(ImportServiceTests, ImportToNonExistentDestination) {
 
   auto snapshot = import_job->import_log_->Snapshot();
   EXPECT_NO_THROW(import_service->SyncImports(snapshot, non_existent_dest));
+  EXPECT_TRUE(fs_service->ListFolderEntries(L"/").empty());
 }
 
 // Verify that after import, element names and image names match the original
@@ -579,6 +580,26 @@ TEST_F(ImportServiceTests, ImportToSubfolder_KeepsUnsyncedAndModifiedSetsDisjoin
   const ImportResult result = final_result_future.get();
   ASSERT_EQ(result.imported_, 1u);
   ASSERT_NE(import_job->import_log_, nullptr);
+  const auto imported_name = std::filesystem::path(paths.front()).filename().wstring();
+
+  const auto root_entries_before_sync = fs_service->ListFolderEntries(L"/");
+  const auto album_entries_before_sync = fs_service->ListFolderEntries(L"/Imports");
+  sl_element_id_t root_file_id = 0;
+  sl_element_id_t album_file_id = 0;
+  for (const auto& entry : root_entries_before_sync) {
+    ASSERT_NE(entry, nullptr);
+    if (entry->type_ == ElementType::FILE && entry->element_name_ == imported_name) {
+      root_file_id = entry->element_id_;
+    }
+  }
+  for (const auto& entry : album_entries_before_sync) {
+    ASSERT_NE(entry, nullptr);
+    if (entry->type_ == ElementType::FILE && entry->element_name_ == imported_name) {
+      album_file_id = entry->element_id_;
+    }
+  }
+  ASSERT_NE(root_file_id, 0u);
+  ASSERT_EQ(album_file_id, root_file_id);
 
   const auto unsynced_before_sync =
       fs_service->Read<std::vector<std::shared_ptr<SleeveElement>>>([](FileSystem& fs) {
@@ -620,6 +641,25 @@ TEST_F(ImportServiceTests, ImportToSubfolder_KeepsUnsyncedAndModifiedSetsDisjoin
 
   const auto snapshot = import_job->import_log_->Snapshot();
   import_service->SyncImports(snapshot, L"/Imports");
+
+  const auto root_entries_after_sync = fs_service->ListFolderEntries(L"/");
+  const auto album_entries_after_sync = fs_service->ListFolderEntries(L"/Imports");
+  bool found_root_membership = false;
+  bool found_album_membership = false;
+  for (const auto& entry : root_entries_after_sync) {
+    ASSERT_NE(entry, nullptr);
+    if (entry->element_id_ == root_file_id) {
+      found_root_membership = true;
+    }
+  }
+  for (const auto& entry : album_entries_after_sync) {
+    ASSERT_NE(entry, nullptr);
+    if (entry->element_id_ == root_file_id) {
+      found_album_membership = true;
+    }
+  }
+  EXPECT_TRUE(found_root_membership);
+  EXPECT_TRUE(found_album_membership);
 
   const auto unsynced_after_sync =
       fs_service->Read<std::vector<std::shared_ptr<SleeveElement>>>([](FileSystem& fs) {
