@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -32,14 +33,14 @@ struct AlbumStatsView {
 // This service should not be used in multi-threaded scenarios.
 class SleeveFilterService {
  private:
-  std::shared_ptr<StorageService>                     storage_service_;
+  std::shared_ptr<StorageService>                       storage_service_;
 
   // Filter will not be saved in DB for now. It will be only stored in memory for the lifetime of
   // the application.
-  IncrID::IDGenerator<filter_id_t>                    filter_id_generator_;
+  IncrID::IDGenerator<filter_id_t>                      filter_id_generator_;
 
-  LRUCache<filter_id_t, std::shared_ptr<FilterCombo>>                  filter_storage_;
-  LRUCache<filter_id_t, std::vector<sl_element_id_t>> filter_result_cache_;
+  LRUCache<filter_id_t, std::shared_ptr<FilterCombo>>   filter_storage_;
+  LRUCache<std::uint64_t, std::vector<sl_element_id_t>> filter_result_cache_;
 
  public:
   // Disable all copy operations
@@ -55,7 +56,7 @@ class SleeveFilterService {
   void RemoveFilterCombo(filter_id_t filter_id);
   auto ApplyFilterOn(filter_id_t filter_id, sl_element_id_t parent_id)
       -> std::optional<std::vector<sl_element_id_t>>;
-  auto BuildFolderStats(sl_element_id_t parent_id,
+  auto BuildFolderStats(sl_element_id_t                  parent_id,
                         const std::optional<FilterNode>& extra_filter = std::nullopt)
       -> AlbumStatsView;
 };

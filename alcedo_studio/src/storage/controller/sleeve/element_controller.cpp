@@ -20,7 +20,29 @@
 
 namespace alcedo {
 namespace {
-auto RunGroupByQuery(duckdb_connection conn, const std::string& sql) -> std::vector<StorageStatsBucket> {
+struct ScopedFileQuery {
+  std::string from_where_;
+};
+
+auto BuildScopedFileQuery(sl_element_id_t                    folder_id,
+                          const std::optional<std::wstring>& extra_filter_where = std::nullopt)
+    -> ScopedFileQuery {
+  std::string extra_where;
+  if (extra_filter_where.has_value() && !extra_filter_where->empty()) {
+    extra_where = " AND (" + conv::ToBytes(*extra_filter_where) + ")";
+  }
+
+  return {
+      std::format("FROM FolderContent fc "
+                  "JOIN Element e ON fc.element_id = e.id "
+                  "JOIN FileImage fi ON fi.file_id = e.id "
+                  "JOIN Image i ON i.id = fi.image_id "
+                  "WHERE fc.folder_id = {} AND e.type = {}{}",
+                  folder_id, static_cast<uint32_t>(ElementType::FILE), extra_where)};
+}
+
+auto RunGroupByQuery(duckdb_connection conn, const std::string& sql)
+    -> std::vector<StorageStatsBucket> {
   std::vector<StorageStatsBucket> rows;
   duckdb_result                   result;
   if (duckdb_query(conn, sql.c_str(), &result) != DuckDBSuccess) {
@@ -108,8 +130,7 @@ void ElementController::AddFolderContent(sl_element_id_t folder_id, sl_element_i
   folder_service_.Insert({folder_id, content_id});
 }
 
-void ElementController::RemoveFolderContent(sl_element_id_t folder_id,
-                                            sl_element_id_t content_id) {
+void ElementController::RemoveFolderContent(sl_element_id_t folder_id, sl_element_id_t content_id) {
   folder_service_.RemoveFolderContent(folder_id, content_id);
 }
 
@@ -122,7 +143,7 @@ void ElementController::RemoveFolderContent(sl_element_id_t folder_id,
 auto ElementController::GetElementById(const sl_element_id_t id) -> std::shared_ptr<SleeveElement> {
   auto result = element_service_.GetElementById(id);
   if (result->type_ == ElementType::FILE) {
-    auto file    = std::static_pointer_cast<SleeveFile>(result);
+    auto file = std::static_pointer_cast<SleeveFile>(result);
     try {
       file->image_id_ = file_service_.GetBoundImageById(file->element_id_);
     } catch (...) {
@@ -194,36 +215,30 @@ void ElementController::UpdateElement(const std::shared_ptr<SleeveElement> eleme
 auto ElementController::GetElementsInFolderByFilter(const std::shared_ptr<FilterCombo> filter,
                                                     const sl_element_id_t              folder_id)
     -> std::vector<std::shared_ptr<SleeveElement>> {
-  // Build SQL query from the filter
-  std::wstring filter_sql = filter->GenerateSQLOn(folder_id);
+  const auto where      = FilterSQLCompiler::Compile(filter->GetRoot());
+  const auto scope      = BuildScopedFileQuery(folder_id, where);
+  const auto sql        = std::format("SELECT e.* {};", scope.from_where_);
+  const auto filter_sql = conv::FromBytes(sql);
   return element_service_.GetElementsInFolderByFilter(filter_sql);  // for specialized queries only
 }
 
 auto ElementController::GetElementIdsInFolderByFilter(const std::shared_ptr<FilterCombo> filter,
-                                                         const sl_element_id_t folder_id)
+                                                      const sl_element_id_t              folder_id)
     -> std::vector<sl_element_id_t> {
-  // Build SQL query from the filter
-  std::wstring filter_sql = filter->GenerateIdSQLOn(folder_id);
+  const auto where      = FilterSQLCompiler::Compile(filter->GetRoot());
+  const auto scope      = BuildScopedFileQuery(folder_id, where);
+  const auto sql        = std::format("SELECT e.id {};", scope.from_where_);
+  const auto filter_sql = conv::FromBytes(sql);
   return element_id_service_.GetElementIdsByQuery(filter_sql);  // for specialized queries only
 }
 
-auto ElementController::BuildFolderStats(
-    sl_element_id_t folder_id, const std::optional<std::wstring>& extra_filter_where)
+auto ElementController::BuildFolderStats(sl_element_id_t                    folder_id,
+                                         const std::optional<std::wstring>& extra_filter_where)
     -> FolderStatsView {
   FolderStatsView out;
 
-  std::string extra_where;
-  if (extra_filter_where.has_value() && !extra_filter_where->empty()) {
-    extra_where = " AND (" + conv::ToBytes(*extra_filter_where) + ")";
-  }
-
-  const auto base_join = std::format(
-      "FROM FolderContent fc "
-      "JOIN Element e ON fc.element_id = e.id "
-      "JOIN FileImage fi ON fi.file_id = e.id "
-      "JOIN Image i ON i.id = fi.image_id "
-      "WHERE fc.folder_id = {} AND e.type = 0{}",
-      folder_id, extra_where);
+  const auto      base_query = BuildScopedFileQuery(folder_id, extra_filter_where);
+  const auto&     base_join  = base_query.from_where_;
 
   out.total_photo_count_ =
       static_cast<int>(RunScalarInt64(guard_.conn_, std::format("SELECT COUNT(*) {}", base_join)));
@@ -254,10 +269,9 @@ auto ElementController::BuildFolderStats(
 
   out.rating_stats_ = RunGroupByQuery(
       guard_.conn_,
-      std::format(
-          "SELECT json_extract(i.metadata, '$.Rating')::VARCHAR AS r, COUNT(*) AS c {} "
-          "GROUP BY r ORDER BY r DESC",
-          base_join));
+      std::format("SELECT json_extract(i.metadata, '$.Rating')::VARCHAR AS r, COUNT(*) AS c {} "
+                  "GROUP BY r ORDER BY r DESC",
+                  base_join));
 
   return out;
 }
@@ -268,8 +282,7 @@ auto ElementController::GetPipelineByElementId(const sl_element_id_t element_id)
 }
 
 auto ElementController::UpdatePipelineByElementId(
-    const sl_element_id_t                      element_id,
-    const std::shared_ptr<CPUPipelineExecutor> pipeline) -> void {
+    const sl_element_id_t element_id, const std::shared_ptr<CPUPipelineExecutor> pipeline) -> void {
   pipeline_service_.UpdatePipelineParamByFileId(element_id, pipeline);
 }
 

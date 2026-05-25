@@ -5,7 +5,6 @@
 #include <gtest/gtest.h>
 
 #include <exiv2/exiv2.hpp>
-
 #include <filesystem>
 #include <future>
 #include <memory>
@@ -17,6 +16,7 @@
 #include "app/sleeve_filter_service.hpp"
 #include "edit/operators/operator_registeration.hpp"
 #include "sleeve/sleeve_element/sleeve_element.hpp"
+#include "sleeve/sleeve_element/sleeve_file.hpp"
 #include "sleeve/sleeve_filter/filter_combo.hpp"
 #include "type/supported_file_type.hpp"
 #include "utils/clock/time_provider.hpp"
@@ -27,12 +27,12 @@ class FilterServiceTests : public ::testing::Test {
   std::filesystem::path db_path_;
   std::filesystem::path meta_path_;
 
-  void SetUp() override {
+  void                  SetUp() override {
     TimeProvider::Refresh();
     Exiv2::LogMsg::setLevel(Exiv2::LogMsg::Level::mute);
     RegisterAllOperators();
 
-    db_path_   = std::filesystem::temp_directory_path() / "filter_service_test.db";
+    db_path_ = std::filesystem::temp_directory_path() / "filter_service_test.db";
     meta_path_ = std::filesystem::temp_directory_path() / "filter_service_test.json";
 
     if (std::filesystem::exists(db_path_)) {
@@ -53,13 +53,13 @@ class FilterServiceTests : public ::testing::Test {
   }
 
   static auto LoadBatchToRoot(ProjectService& project) -> uint32_t {
-    auto fs_service       = project.GetSleeveService();
-    auto img_pool_service = project.GetImagePoolService();
+    auto                           fs_service       = project.GetSleeveService();
+    auto                           img_pool_service = project.GetImagePoolService();
 
     std::unique_ptr<ImportService> import_service =
         std::make_unique<ImportServiceImpl>(fs_service, img_pool_service);
 
-    const image_path_t batch_dir = std::string(TEST_IMG_PATH) + "/raw/batch";
+    const image_path_t        batch_dir = std::string(TEST_IMG_PATH) + "/raw/batch";
 
     std::vector<image_path_t> paths;
     for (const auto& img : std::filesystem::directory_iterator(batch_dir)) {
@@ -73,7 +73,7 @@ class FilterServiceTests : public ::testing::Test {
     std::promise<ImportResult> final_result;
     auto                       final_result_future = final_result.get_future();
 
-    import_job->on_finished_ = [&final_result](const ImportResult& result) {
+    import_job->on_finished_                       = [&final_result](const ImportResult& result) {
       final_result.set_value(result);
     };
 
@@ -91,6 +91,37 @@ class FilterServiceTests : public ::testing::Test {
     import_service->SyncImports(snapshot, L"");
 
     return result.imported_;
+  }
+
+  static auto CreateSyntheticFile(ProjectService& project, const file_name_t& file_name,
+                                  const std::string& camera_model) -> sl_element_id_t {
+    auto image_pool          = project.GetImagePoolService();
+    auto image               = image_pool->CreateAndReturnPinnedEmpty();
+    auto image_id            = image.Get()->image_id_;
+    image.Get()->image_name_ = file_name;
+    image.Get()->image_path_ = std::filesystem::path{file_name};
+    image.Get()->image_type_ = ImageType::DNG;
+
+    ExifDisplayMetaData metadata;
+    metadata.model_         = camera_model;
+    metadata.lens_          = "Synthetic 50mm";
+    metadata.date_time_str_ = "2025-01-02 03:04:05";
+    metadata.aperture_      = 5.6f;
+    metadata.iso_           = 200;
+    metadata.focal_         = 50.0f;
+    image.Get()->SetExifDisplayMetaData(std::move(metadata));
+    image_pool->SyncWithStorage();
+
+    auto sleeve = project.GetSleeveService();
+    auto file   = sleeve->Write<std::shared_ptr<SleeveFile>>(
+        [file_name, image_id](FileSystem& fs) -> std::shared_ptr<SleeveFile> {
+          auto created       = fs.CreateFileInLibrary(file_name);
+          created->image_id_ = image_id;
+          return created;
+        });
+    EXPECT_TRUE(file.second.success_);
+    EXPECT_NE(file.first, nullptr);
+    return file.first ? file.first->element_id_ : 0;
   }
 };
 
@@ -114,7 +145,7 @@ TEST_F(FilterServiceTests, SQLCompilationTest) {
       .op_    = CompareOp::EQUALS,
       .value_ = std::wstring(L"Canon EOS 5D Mark IV"),
   };
-  FilterNode root{FilterNode::Type::Condition, {}, {}, std::move(cond), std::nullopt};
+  FilterNode   root{FilterNode::Type::Condition, {}, {}, std::move(cond), std::nullopt};
 
   std::wstring sql          = FilterSQLCompiler::Compile(root);
   std::wstring expected_sql = L"(json_extract(metadata, '$.Model') = 'Canon EOS 5D Mark IV')";
@@ -127,16 +158,16 @@ TEST_F(FilterServiceTests, ComplexFilterSQLTest) {
       .op_    = CompareOp::EQUALS,
       .value_ = std::wstring(L"Nikon D850"),
   };
-  FilterNode node1{FilterNode::Type::Condition, {}, {}, std::move(cond1), std::nullopt};
+  FilterNode     node1{FilterNode::Type::Condition, {}, {}, std::move(cond1), std::nullopt};
 
   FieldCondition cond2{
       .field_ = FilterField::FileExtension,
       .op_    = CompareOp::ENDS_WITH,
       .value_ = std::wstring(L".NEF"),
   };
-  FilterNode node2{FilterNode::Type::Condition, {}, {}, std::move(cond2), std::nullopt};
+  FilterNode   node2{FilterNode::Type::Condition, {}, {}, std::move(cond2), std::nullopt};
 
-  FilterNode root{FilterNode::Type::Logical, FilterOp::AND, {node1, node2}, {}, std::nullopt};
+  FilterNode   root{FilterNode::Type::Logical, FilterOp::AND, {node1, node2}, {}, std::nullopt};
 
   std::wstring sql = FilterSQLCompiler::Compile(root);
   std::wstring expected_sql =
@@ -151,7 +182,7 @@ TEST_F(FilterServiceTests, BetweenConditionSQLTest) {
       .value_        = int64_t(100),
       .second_value_ = int64_t(800),
   };
-  FilterNode root{FilterNode::Type::Condition, {}, {}, std::move(cond), std::nullopt};
+  FilterNode   root{FilterNode::Type::Condition, {}, {}, std::move(cond), std::nullopt};
 
   std::wstring sql          = FilterSQLCompiler::Compile(root);
   std::wstring expected_sql = L"(json_extract(metadata, '$.ISO')::INT BETWEEN 100 AND 800)";
@@ -159,47 +190,96 @@ TEST_F(FilterServiceTests, BetweenConditionSQLTest) {
 }
 
 TEST_F(FilterServiceTests, FolderIndexTest_Model) {
-  ProjectService       project(db_path_, meta_path_);
-  const uint32_t       imported = LoadBatchToRoot(project);
+  ProjectService project(db_path_, meta_path_);
+  const uint32_t imported = LoadBatchToRoot(project);
   ASSERT_GT(imported, 0u);
 
   auto sleeve_service = project.GetSleeveService();
-  auto root_folder = sleeve_service->Read<std::shared_ptr<SleeveElement>>(
+  auto root_folder    = sleeve_service->Read<std::shared_ptr<SleeveElement>>(
       [](FileSystem& fs) { return fs.Get(L"/", false); });
   ASSERT_NE(root_folder, nullptr);
 
   SleeveFilterService filter_service(project.GetStorageService());
 
-  FieldCondition cond{
-      .field_ = FilterField::ExifCameraModel,
-      .op_    = CompareOp::CONTAINS,
-      .value_ = std::wstring(L"D850"),
+  FieldCondition      cond{
+           .field_ = FilterField::ExifCameraModel,
+           .op_    = CompareOp::CONTAINS,
+           .value_ = std::wstring(L"D850"),
   };
   FilterNode root{FilterNode::Type::Condition, {}, {}, std::move(cond), std::nullopt};
 
-  const auto filter_id   = filter_service.CreateFilterCombo(root);
-  auto       result_opt  = filter_service.ApplyFilterOn(filter_id, root_folder->element_id_);
+  const auto filter_id  = filter_service.CreateFilterCombo(root);
+  auto       result_opt = filter_service.ApplyFilterOn(filter_id, root_folder->element_id_);
   ASSERT_TRUE(result_opt.has_value());
 
   EXPECT_EQ(result_opt->size(), 5u);
 }
 
-TEST_F(FilterServiceTests, FolderIndexTest_FileExtension) {
-  ProjectService       project(db_path_, meta_path_);
-  const uint32_t       imported = LoadBatchToRoot(project);
-  ASSERT_GT(imported, 0u);
+TEST_F(FilterServiceTests, AlbumScopeFilterUsesMembershipOnly) {
+  ProjectService project(db_path_, meta_path_);
+  const auto     d850_file_id  = CreateSyntheticFile(project, L"d850.dng", "Nikon D850");
+  const auto     other_file_id = CreateSyntheticFile(project, L"other.dng", "Sony A7");
+  ASSERT_NE(d850_file_id, 0u);
+  ASSERT_NE(other_file_id, 0u);
 
   auto sleeve_service = project.GetSleeveService();
-  auto root_folder = sleeve_service->Read<std::shared_ptr<SleeveElement>>(
+  auto root_folder    = sleeve_service->Read<std::shared_ptr<SleeveElement>>(
       [](FileSystem& fs) { return fs.Get(L"/", false); });
   ASSERT_NE(root_folder, nullptr);
 
   SleeveFilterService filter_service(project.GetStorageService());
 
-  FieldCondition cond{
-      .field_ = FilterField::FileExtension,
-      .op_    = CompareOp::ENDS_WITH,
-      .value_ = std::wstring(L".NEF"),
+  FieldCondition      cond{
+           .field_ = FilterField::ExifCameraModel,
+           .op_    = CompareOp::CONTAINS,
+           .value_ = std::wstring(L"D850"),
+  };
+  FilterNode root{FilterNode::Type::Condition, {}, {}, std::move(cond), std::nullopt};
+
+  const auto filter_id   = filter_service.CreateFilterCombo(root);
+  auto       root_result = filter_service.ApplyFilterOn(filter_id, root_folder->element_id_);
+  ASSERT_TRUE(root_result.has_value());
+  ASSERT_EQ(root_result->size(), 1u);
+  ASSERT_EQ(root_result->front(), d850_file_id);
+
+  auto created_album = sleeve_service->CreateFolder(L"/", L"AlbumScope");
+  ASSERT_TRUE(created_album.second.success_);
+  ASSERT_NE(created_album.first, nullptr);
+  const auto album_id = created_album.first->element_id_;
+
+  ASSERT_TRUE(sleeve_service->LinkFileToFolder(d850_file_id, album_id).success_);
+
+  auto album_result = filter_service.ApplyFilterOn(filter_id, album_id);
+  ASSERT_TRUE(album_result.has_value());
+
+  ASSERT_EQ(album_result->size(), 1u);
+  EXPECT_EQ(album_result->front(), d850_file_id);
+
+  const auto other_album = sleeve_service->CreateFolder(L"/", L"OtherAlbum");
+  ASSERT_TRUE(other_album.second.success_);
+  ASSERT_TRUE(
+      sleeve_service->LinkFileToFolder(other_file_id, other_album.first->element_id_).success_);
+  auto other_album_result = filter_service.ApplyFilterOn(filter_id, other_album.first->element_id_);
+  ASSERT_TRUE(other_album_result.has_value());
+  EXPECT_TRUE(other_album_result->empty());
+}
+
+TEST_F(FilterServiceTests, FolderIndexTest_FileExtension) {
+  ProjectService project(db_path_, meta_path_);
+  const uint32_t imported = LoadBatchToRoot(project);
+  ASSERT_GT(imported, 0u);
+
+  auto sleeve_service = project.GetSleeveService();
+  auto root_folder    = sleeve_service->Read<std::shared_ptr<SleeveElement>>(
+      [](FileSystem& fs) { return fs.Get(L"/", false); });
+  ASSERT_NE(root_folder, nullptr);
+
+  SleeveFilterService filter_service(project.GetStorageService());
+
+  FieldCondition      cond{
+           .field_ = FilterField::FileExtension,
+           .op_    = CompareOp::ENDS_WITH,
+           .value_ = std::wstring(L".NEF"),
   };
   FilterNode root{FilterNode::Type::Condition, {}, {}, std::move(cond), std::nullopt};
 
@@ -211,21 +291,21 @@ TEST_F(FilterServiceTests, FolderIndexTest_FileExtension) {
 }
 
 TEST_F(FilterServiceTests, FolderIndexTest_Aperature) {
-  ProjectService       project(db_path_, meta_path_);
-  const uint32_t       imported = LoadBatchToRoot(project);
+  ProjectService project(db_path_, meta_path_);
+  const uint32_t imported = LoadBatchToRoot(project);
   ASSERT_GT(imported, 0u);
 
   auto sleeve_service = project.GetSleeveService();
-  auto root_folder = sleeve_service->Read<std::shared_ptr<SleeveElement>>(
+  auto root_folder    = sleeve_service->Read<std::shared_ptr<SleeveElement>>(
       [](FileSystem& fs) { return fs.Get(L"/", false); });
   ASSERT_NE(root_folder, nullptr);
 
   SleeveFilterService filter_service(project.GetStorageService());
 
-  FieldCondition cond{
-      .field_ = FilterField::ExifAperture,
-      .op_    = CompareOp::GREATER_THAN,
-      .value_ = double(5.6),
+  FieldCondition      cond{
+           .field_ = FilterField::ExifAperture,
+           .op_    = CompareOp::GREATER_THAN,
+           .value_ = double(5.6),
   };
   FilterNode root{FilterNode::Type::Condition, {}, {}, std::move(cond), std::nullopt};
 
@@ -237,22 +317,22 @@ TEST_F(FilterServiceTests, FolderIndexTest_Aperature) {
 }
 
 TEST_F(FilterServiceTests, FolderIndexTest_ISO) {
-  ProjectService       project(db_path_, meta_path_);
-  const uint32_t       imported = LoadBatchToRoot(project);
+  ProjectService project(db_path_, meta_path_);
+  const uint32_t imported = LoadBatchToRoot(project);
   ASSERT_GT(imported, 0u);
 
   auto sleeve_service = project.GetSleeveService();
-  auto root_folder = sleeve_service->Read<std::shared_ptr<SleeveElement>>(
+  auto root_folder    = sleeve_service->Read<std::shared_ptr<SleeveElement>>(
       [](FileSystem& fs) { return fs.Get(L"/", false); });
   ASSERT_NE(root_folder, nullptr);
 
   SleeveFilterService filter_service(project.GetStorageService());
 
-  FieldCondition cond{
-      .field_        = FilterField::ExifISO,
-      .op_           = CompareOp::BETWEEN,
-      .value_        = int64_t(100),
-      .second_value_ = int64_t(400),
+  FieldCondition      cond{
+           .field_        = FilterField::ExifISO,
+           .op_           = CompareOp::BETWEEN,
+           .value_        = int64_t(100),
+           .second_value_ = int64_t(400),
   };
   FilterNode root{FilterNode::Type::Condition, {}, {}, std::move(cond), std::nullopt};
 
@@ -264,21 +344,21 @@ TEST_F(FilterServiceTests, FolderIndexTest_ISO) {
 }
 
 TEST_F(FilterServiceTests, FolderIndexTest_FocalLength) {
-  ProjectService       project(db_path_, meta_path_);
-  const uint32_t       imported = LoadBatchToRoot(project);
+  ProjectService project(db_path_, meta_path_);
+  const uint32_t imported = LoadBatchToRoot(project);
   ASSERT_GT(imported, 0u);
 
   auto sleeve_service = project.GetSleeveService();
-  auto root_folder = sleeve_service->Read<std::shared_ptr<SleeveElement>>(
+  auto root_folder    = sleeve_service->Read<std::shared_ptr<SleeveElement>>(
       [](FileSystem& fs) { return fs.Get(L"/", false); });
   ASSERT_NE(root_folder, nullptr);
 
   SleeveFilterService filter_service(project.GetStorageService());
 
-  FieldCondition cond{
-      .field_ = FilterField::ExifFocalLength,
-      .op_    = CompareOp::LESS_THAN,
-      .value_ = double(150.0),
+  FieldCondition      cond{
+           .field_ = FilterField::ExifFocalLength,
+           .op_    = CompareOp::LESS_THAN,
+           .value_ = double(150.0),
   };
   FilterNode root{FilterNode::Type::Condition, {}, {}, std::move(cond), std::nullopt};
 
@@ -290,23 +370,23 @@ TEST_F(FilterServiceTests, FolderIndexTest_FocalLength) {
 }
 
 TEST_F(FilterServiceTests, FolderIndexTest_Combined) {
-  ProjectService       project(db_path_, meta_path_);
-  const uint32_t       imported = LoadBatchToRoot(project);
+  ProjectService project(db_path_, meta_path_);
+  const uint32_t imported = LoadBatchToRoot(project);
   ASSERT_GT(imported, 0u);
 
   auto sleeve_service = project.GetSleeveService();
-  auto root_folder = sleeve_service->Read<std::shared_ptr<SleeveElement>>(
+  auto root_folder    = sleeve_service->Read<std::shared_ptr<SleeveElement>>(
       [](FileSystem& fs) { return fs.Get(L"/", false); });
   ASSERT_NE(root_folder, nullptr);
 
   SleeveFilterService filter_service(project.GetStorageService());
 
-  FieldCondition cond1{
-      .field_ = FilterField::ExifCameraModel,
-      .op_    = CompareOp::CONTAINS,
-      .value_ = std::wstring(L"D850"),
+  FieldCondition      cond1{
+           .field_ = FilterField::ExifCameraModel,
+           .op_    = CompareOp::CONTAINS,
+           .value_ = std::wstring(L"D850"),
   };
-  FilterNode node1{FilterNode::Type::Condition, {}, {}, std::move(cond1), std::nullopt};
+  FilterNode     node1{FilterNode::Type::Condition, {}, {}, std::move(cond1), std::nullopt};
 
   FieldCondition cond2{
       .field_ = FilterField::ExifFocalLength,
@@ -325,21 +405,21 @@ TEST_F(FilterServiceTests, FolderIndexTest_Combined) {
 }
 
 TEST_F(FilterServiceTests, FolderIndexTest_NoMatch) {
-  ProjectService       project(db_path_, meta_path_);
-  const uint32_t       imported = LoadBatchToRoot(project);
+  ProjectService project(db_path_, meta_path_);
+  const uint32_t imported = LoadBatchToRoot(project);
   ASSERT_GT(imported, 0u);
 
   auto sleeve_service = project.GetSleeveService();
-  auto root_folder = sleeve_service->Read<std::shared_ptr<SleeveElement>>(
+  auto root_folder    = sleeve_service->Read<std::shared_ptr<SleeveElement>>(
       [](FileSystem& fs) { return fs.Get(L"/", false); });
   ASSERT_NE(root_folder, nullptr);
 
   SleeveFilterService filter_service(project.GetStorageService());
 
-  FieldCondition cond{
-      .field_ = FilterField::ExifCameraModel,
-      .op_    = CompareOp::CONTAINS,
-      .value_ = std::wstring(L"A7"),
+  FieldCondition      cond{
+           .field_ = FilterField::ExifCameraModel,
+           .op_    = CompareOp::CONTAINS,
+           .value_ = std::wstring(L"A7"),
   };
   FilterNode root{FilterNode::Type::Condition, {}, {}, std::move(cond), std::nullopt};
 
@@ -351,22 +431,22 @@ TEST_F(FilterServiceTests, FolderIndexTest_NoMatch) {
 }
 
 TEST_F(FilterServiceTests, FolderIndexTest_DateRange) {
-  ProjectService       project(db_path_, meta_path_);
-  const uint32_t       imported = LoadBatchToRoot(project);
+  ProjectService project(db_path_, meta_path_);
+  const uint32_t imported = LoadBatchToRoot(project);
   ASSERT_GT(imported, 0u);
 
   auto sleeve_service = project.GetSleeveService();
-  auto root_folder = sleeve_service->Read<std::shared_ptr<SleeveElement>>(
+  auto root_folder    = sleeve_service->Read<std::shared_ptr<SleeveElement>>(
       [](FileSystem& fs) { return fs.Get(L"/", false); });
   ASSERT_NE(root_folder, nullptr);
 
   SleeveFilterService filter_service(project.GetStorageService());
 
-  FieldCondition cond{
-      .field_        = FilterField::CaptureDate,
-      .op_           = CompareOp::BETWEEN,
-      .value_        = std::tm{0, 0, 0, 1, 0, 125, 0, 0, -1},    // Jan 1, 2025
-      .second_value_ = std::tm{0, 0, 0, 31, 11, 125, 0, 0, -1},  // Dec 31, 2025
+  FieldCondition      cond{
+           .field_        = FilterField::CaptureDate,
+           .op_           = CompareOp::BETWEEN,
+           .value_        = std::tm{0, 0, 0, 1, 0, 125, 0, 0, -1},    // Jan 1, 2025
+           .second_value_ = std::tm{0, 0, 0, 31, 11, 125, 0, 0, -1},  // Dec 31, 2025
   };
   FilterNode root{FilterNode::Type::Condition, {}, {}, std::move(cond), std::nullopt};
 

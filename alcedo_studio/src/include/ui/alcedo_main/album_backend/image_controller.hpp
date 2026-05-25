@@ -7,7 +7,6 @@
 #include <QString>
 #include <QVariantList>
 #include <QVariantMap>
-
 #include <filesystem>
 #include <vector>
 
@@ -23,21 +22,23 @@ class ImageController {
   struct DeleteTarget {
     sl_element_id_t       element_id_ = 0;
     image_id_t            image_id_   = 0;
+    sl_element_id_t       folder_id_  = 0;
     std::filesystem::path file_path_{};
   };
 
   struct DeleteExecutionResult {
-    bool                        success_ = false;
-    int                         deleted_count_ = 0;
-    int                         failed_count_  = 0;
+    bool                         success_       = false;
+    int                          deleted_count_ = 0;
+    int                          failed_count_  = 0;
     std::vector<sl_element_id_t> deleted_element_ids_{};
     std::vector<sl_element_id_t> failed_element_ids_{};
-    QString                     message_{};
+    QString                      message_{};
   };
 
   explicit ImageController(AlbumBackend& backend);
 
   auto DeleteImages(const QVariantList& targetEntries) -> QVariantMap;
+  auto AddImagesToFolder(const QVariantList& targetEntries, uint targetFolderId) -> QVariantMap;
   auto DeleteTargets(const std::vector<DeleteTarget>& targets) -> DeleteExecutionResult;
   auto GetImageDetails(uint elementId, uint imageId) -> QVariantMap;
   auto GetImageRating(uint elementId, uint imageId) -> QVariantMap;
@@ -53,7 +54,7 @@ class ImageController {
       -> std::vector<DeleteTarget>;
   [[nodiscard]] auto ResolveRatingTarget(uint elementId, uint imageId) const -> RatingTarget;
 
-  AlbumBackend& backend_;
+  AlbumBackend&      backend_;
 };
 
 }  // namespace alcedo::ui

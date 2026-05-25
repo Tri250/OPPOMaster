@@ -9,22 +9,21 @@
 #include <QStringList>
 #include <QVariantList>
 #include <QVariantMap>
-
 #include <filesystem>
 #include <vector>
 
 #include "edit/pipeline/pipeline_accelerator.hpp"
-#include "ui/alcedo_main/i18n.hpp"
 #include "ui/alcedo_main/album_backend/album_types.hpp"
-#include "ui/alcedo_main/album_backend/project_handler.hpp"
-#include "ui/alcedo_main/album_backend/thumbnail_manager.hpp"
+#include "ui/alcedo_main/album_backend/editor_controller.hpp"
 #include "ui/alcedo_main/album_backend/folder_controller.hpp"
 #include "ui/alcedo_main/album_backend/image_controller.hpp"
-#include "ui/alcedo_main/album_backend/stats_engine.hpp"
 #include "ui/alcedo_main/album_backend/import_export.hpp"
-#include "ui/alcedo_main/album_backend/nikon_he_recovery_types.hpp"
 #include "ui/alcedo_main/album_backend/nikon_he_recovery_controller.hpp"
-#include "ui/alcedo_main/album_backend/editor_controller.hpp"
+#include "ui/alcedo_main/album_backend/nikon_he_recovery_types.hpp"
+#include "ui/alcedo_main/album_backend/project_handler.hpp"
+#include "ui/alcedo_main/album_backend/stats_engine.hpp"
+#include "ui/alcedo_main/album_backend/thumbnail_manager.hpp"
+#include "ui/alcedo_main/i18n.hpp"
 
 namespace alcedo::ui {
 
@@ -53,7 +52,8 @@ class AlbumBackend final : public QObject {
   Q_PROPERTY(QString acceleratorBackend READ AcceleratorBackend NOTIFY AcceleratorStateChanged)
   Q_PROPERTY(QString acceleratorWarning READ AcceleratorWarning NOTIFY AcceleratorStateChanged)
   Q_PROPERTY(bool projectLoading READ ProjectLoading NOTIFY ProjectLoadStateChanged)
-  Q_PROPERTY(QString projectLoadingMessage READ ProjectLoadingMessage NOTIFY ProjectLoadStateChanged)
+  Q_PROPERTY(
+      QString projectLoadingMessage READ ProjectLoadingMessage NOTIFY ProjectLoadStateChanged)
   Q_PROPERTY(QString taskStatus READ TaskStatus NOTIFY TaskStateChanged)
   Q_PROPERTY(int taskProgress READ TaskProgress NOTIFY TaskStateChanged)
   Q_PROPERTY(bool taskCancelVisible READ TaskCancelVisible NOTIFY TaskStateChanged)
@@ -72,13 +72,19 @@ class AlbumBackend final : public QObject {
   Q_PROPERTY(int exportFailed READ ExportFailed NOTIFY ExportStateChanged)
   Q_PROPERTY(int exportSkipped READ ExportSkipped NOTIFY ExportStateChanged)
   Q_PROPERTY(QString exportErrorSummary READ ExportErrorSummary NOTIFY ExportStateChanged)
-  Q_PROPERTY(bool nikonHeRecoveryActive READ NikonHeRecoveryActive NOTIFY NikonHeRecoveryStateChanged)
+  Q_PROPERTY(
+      bool nikonHeRecoveryActive READ NikonHeRecoveryActive NOTIFY NikonHeRecoveryStateChanged)
   Q_PROPERTY(bool nikonHeRecoveryBusy READ NikonHeRecoveryBusy NOTIFY NikonHeRecoveryStateChanged)
-  Q_PROPERTY(QString nikonHeRecoveryPhase READ NikonHeRecoveryPhase NOTIFY NikonHeRecoveryStateChanged)
-  Q_PROPERTY(QString nikonHeRecoveryStatus READ NikonHeRecoveryStatus NOTIFY NikonHeRecoveryStateChanged)
-  Q_PROPERTY(QVariantList nikonHeUnsupportedFiles READ NikonHeUnsupportedFiles NOTIFY NikonHeRecoveryStateChanged)
-  Q_PROPERTY(QString nikonHeConverterPath READ NikonHeConverterPath NOTIFY NikonHeRecoveryStateChanged)
-  Q_PROPERTY(bool nikonHeConverterPathFromDefault READ NikonHeConverterPathFromDefault NOTIFY NikonHeRecoveryStateChanged)
+  Q_PROPERTY(
+      QString nikonHeRecoveryPhase READ NikonHeRecoveryPhase NOTIFY NikonHeRecoveryStateChanged)
+  Q_PROPERTY(
+      QString nikonHeRecoveryStatus READ NikonHeRecoveryStatus NOTIFY NikonHeRecoveryStateChanged)
+  Q_PROPERTY(QVariantList nikonHeUnsupportedFiles READ NikonHeUnsupportedFiles NOTIFY
+                 NikonHeRecoveryStateChanged)
+  Q_PROPERTY(
+      QString nikonHeConverterPath READ NikonHeConverterPath NOTIFY NikonHeRecoveryStateChanged)
+  Q_PROPERTY(bool nikonHeConverterPathFromDefault READ NikonHeConverterPathFromDefault NOTIFY
+                 NikonHeRecoveryStateChanged)
   Q_PROPERTY(bool editorActive READ EditorActive NOTIFY EditorStateChanged)
   Q_PROPERTY(bool editorBusy READ EditorBusy NOTIFY EditorStateChanged)
   Q_PROPERTY(uint editorElementId READ EditorElementId NOTIFY EditorStateChanged)
@@ -107,109 +113,105 @@ class AlbumBackend final : public QObject {
   QVariantList Folders() const { return folder_ctrl_.folders(); }
   uint CurrentFolderId() const { return static_cast<uint>(folder_ctrl_.current_folder_id()); }
   const QString& CurrentFolderPath() const { return folder_ctrl_.current_folder_path_text(); }
-  int ShownCount() const { return static_cast<int>(view_state_.visible_thumbnails_.size()); }
-  int TotalCount() const;
+  int     ShownCount() const { return static_cast<int>(view_state_.visible_thumbnails_.size()); }
+  int     TotalCount() const;
   QString FilterInfo() const;
-  QVariantList DateStats() const { return stats_.date_stats(); }
-  QVariantList CameraStats() const { return stats_.camera_stats(); }
-  QVariantList LensStats() const { return stats_.lens_stats(); }
-  QVariantList RatingStats() const { return stats_.rating_stats(); }
-  int TotalPhotoCount() const { return stats_.total_photo_count(); }
+  QVariantList   DateStats() const { return stats_.date_stats(); }
+  QVariantList   CameraStats() const { return stats_.camera_stats(); }
+  QVariantList   LensStats() const { return stats_.lens_stats(); }
+  QVariantList   RatingStats() const { return stats_.rating_stats(); }
+  int            TotalPhotoCount() const { return stats_.total_photo_count(); }
   const QString& StatsFilterDate() const { return stats_.filter_date(); }
   const QString& StatsFilterCamera() const { return stats_.filter_camera(); }
   const QString& StatsFilterLens() const { return stats_.filter_lens(); }
   const QString& StatsFilterRating() const { return stats_.filter_rating(); }
-  bool ServiceReady() const { return service_ready_; }
-  QString ServiceMessage() const { return service_message_text_.Render(); }
-  QVariantList RecentProjects() const { return recent_projects_; }
-  QVariantList AcceleratorOptions() const { return accelerator_options_; }
-  QString AcceleratorBackend() const { return accelerator_backend_key_; }
-  QString AcceleratorWarning() const {
+  bool           ServiceReady() const { return service_ready_; }
+  QString        ServiceMessage() const { return service_message_text_.Render(); }
+  QVariantList   RecentProjects() const { return recent_projects_; }
+  QVariantList   AcceleratorOptions() const { return accelerator_options_; }
+  QString        AcceleratorBackend() const { return accelerator_backend_key_; }
+  QString        AcceleratorWarning() const {
     return IsAcceleratorWarningAcknowledged() ? QString{} : accelerator_warning_text_.Render();
   }
-  bool ProjectLoading() const { return project_handler_.project_loading(); }
+  bool    ProjectLoading() const { return project_handler_.project_loading(); }
   QString ProjectLoadingMessage() const { return project_handler_.project_loading_message(); }
   QString TaskStatus() const { return task_status_text_.Render(); }
-  int TaskProgress() const { return task_progress_; }
-  bool TaskCancelVisible() const { return task_cancel_visible_; }
+  int     TaskProgress() const { return task_progress_; }
+  bool    TaskCancelVisible() const { return task_cancel_visible_; }
   const QString& DefaultExportFolder() const { return import_export_.default_export_folder(); }
-  bool ImportRunning() const { return import_export_.import_running(); }
-  int ImportTotal() const { return import_export_.import_total(); }
-  int ImportCompleted() const { return import_export_.import_completed(); }
-  int ImportFailed() const { return import_export_.import_failed(); }
-  QString ImportStatus() const { return import_export_.import_status(); }
-  bool ExportInFlight() const { return import_export_.export_inflight(); }
-  QString ExportStatus() const { return import_export_.export_status(); }
-  QVariantMap ExportItemStatuses() const { return import_export_.export_item_statuses(); }
-  int ExportTotal() const { return import_export_.export_total(); }
-  int ExportCompleted() const { return import_export_.export_completed(); }
-  int ExportSucceeded() const { return import_export_.export_succeeded(); }
-  int ExportFailed() const { return import_export_.export_failed(); }
-  int ExportSkipped() const { return import_export_.export_skipped(); }
-  QString ExportErrorSummary() const { return import_export_.export_error_summary(); }
-  bool NikonHeRecoveryActive() const { return nikon_he_recovery_.is_active(); }
-  bool NikonHeRecoveryBusy() const { return nikon_he_recovery_.is_busy(); }
-  QString NikonHeRecoveryPhase() const { return nikon_he_recovery_.phase_text(); }
-  QString NikonHeRecoveryStatus() const { return nikon_he_recovery_.status_text(); }
-  QVariantList NikonHeUnsupportedFiles() const { return nikon_he_recovery_.unsupported_files(); }
-  QString NikonHeConverterPath() const { return nikon_he_recovery_.converter_path(); }
-  bool NikonHeConverterPathFromDefault() const {
+  bool           ImportRunning() const { return import_export_.import_running(); }
+  int            ImportTotal() const { return import_export_.import_total(); }
+  int            ImportCompleted() const { return import_export_.import_completed(); }
+  int            ImportFailed() const { return import_export_.import_failed(); }
+  QString        ImportStatus() const { return import_export_.import_status(); }
+  bool           ExportInFlight() const { return import_export_.export_inflight(); }
+  QString        ExportStatus() const { return import_export_.export_status(); }
+  QVariantMap    ExportItemStatuses() const { return import_export_.export_item_statuses(); }
+  int            ExportTotal() const { return import_export_.export_total(); }
+  int            ExportCompleted() const { return import_export_.export_completed(); }
+  int            ExportSucceeded() const { return import_export_.export_succeeded(); }
+  int            ExportFailed() const { return import_export_.export_failed(); }
+  int            ExportSkipped() const { return import_export_.export_skipped(); }
+  QString        ExportErrorSummary() const { return import_export_.export_error_summary(); }
+  bool           NikonHeRecoveryActive() const { return nikon_he_recovery_.is_active(); }
+  bool           NikonHeRecoveryBusy() const { return nikon_he_recovery_.is_busy(); }
+  QString        NikonHeRecoveryPhase() const { return nikon_he_recovery_.phase_text(); }
+  QString        NikonHeRecoveryStatus() const { return nikon_he_recovery_.status_text(); }
+  QVariantList   NikonHeUnsupportedFiles() const { return nikon_he_recovery_.unsupported_files(); }
+  QString        NikonHeConverterPath() const { return nikon_he_recovery_.converter_path(); }
+  bool           NikonHeConverterPathFromDefault() const {
     return nikon_he_recovery_.converter_path_from_default();
   }
-  bool EditorActive() const { return editor_.editor_active(); }
-  bool EditorBusy() const { return editor_.editor_busy(); }
-  uint EditorElementId() const { return static_cast<uint>(editor_.editor_element_id()); }
-  QString EditorTitle() const { return editor_.editor_title(); }
-  QString EditorStatus() const { return editor_.editor_status(); }
+  bool           EditorActive() const { return editor_.editor_active(); }
+  bool           EditorBusy() const { return editor_.editor_busy(); }
+  uint           EditorElementId() const { return static_cast<uint>(editor_.editor_element_id()); }
+  QString        EditorTitle() const { return editor_.editor_title(); }
+  QString        EditorStatus() const { return editor_.editor_status(); }
   const QString& EditorPreviewUrl() const { return editor_.editor_preview_url(); }
-  QVariantList EditorLutOptions() const { return editor_.editor_lut_options(); }
-  int EditorLutIndex() const { return editor_.editor_lut_index(); }
-  double EditorExposure() const { return editor_.editor_state().exposure_; }
-  double EditorContrast() const { return editor_.editor_state().contrast_; }
-  double EditorSaturation() const { return editor_.editor_state().saturation_; }
-  double EditorTint() const { return editor_.editor_state().tint_; }
-  double EditorBlacks() const { return editor_.editor_state().blacks_; }
-  double EditorWhites() const { return editor_.editor_state().whites_; }
-  double EditorShadows() const { return editor_.editor_state().shadows_; }
-  double EditorHighlights() const { return editor_.editor_state().highlights_; }
-  double EditorSharpen() const { return editor_.editor_state().sharpen_; }
-  double EditorClarity() const { return editor_.editor_state().clarity_; }
+  QVariantList   EditorLutOptions() const { return editor_.editor_lut_options(); }
+  int            EditorLutIndex() const { return editor_.editor_lut_index(); }
+  double         EditorExposure() const { return editor_.editor_state().exposure_; }
+  double         EditorContrast() const { return editor_.editor_state().contrast_; }
+  double         EditorSaturation() const { return editor_.editor_state().saturation_; }
+  double         EditorTint() const { return editor_.editor_state().tint_; }
+  double         EditorBlacks() const { return editor_.editor_state().blacks_; }
+  double         EditorWhites() const { return editor_.editor_state().whites_; }
+  double         EditorShadows() const { return editor_.editor_state().shadows_; }
+  double         EditorHighlights() const { return editor_.editor_state().highlights_; }
+  double         EditorSharpen() const { return editor_.editor_state().sharpen_; }
+  double         EditorClarity() const { return editor_.editor_state().clarity_; }
 
-  Q_INVOKABLE void SelectFolder(uint folderId);
-  Q_INVOKABLE void CreateFolder(const QString& folderName);
-  Q_INVOKABLE void DeleteFolder(uint folderId);
+  Q_INVOKABLE void        SelectFolder(uint folderId);
+  Q_INVOKABLE void        CreateFolder(const QString& folderName);
+  Q_INVOKABLE void        DeleteFolder(uint folderId);
   Q_INVOKABLE QVariantMap DeleteImages(const QVariantList& targetEntries);
+  Q_INVOKABLE QVariantMap AddImagesToFolder(const QVariantList& targetEntries, uint targetFolderId);
   Q_INVOKABLE QVariantMap GetImageDetails(uint elementId, uint imageId);
   Q_INVOKABLE QVariantMap GetImageRating(uint elementId, uint imageId);
   Q_INVOKABLE QVariantMap SetImageRating(uint elementId, uint imageId, int rating);
-  Q_INVOKABLE bool OpenDirectoryInFileManager(const QString& dirUrlOrPath);
+  Q_INVOKABLE bool        OpenDirectoryInFileManager(const QString& dirUrlOrPath);
 
-  Q_INVOKABLE void StartImport(const QStringList& fileUrlsOrPaths);
-  Q_INVOKABLE void CancelImport();
-  Q_INVOKABLE bool PromptAndLoadProject();
-  Q_INVOKABLE bool PromptAndCreateProject();
-  Q_INVOKABLE bool SetAcceleratorBackend(const QString& backendKey);
-  Q_INVOKABLE void AcknowledgeAcceleratorWarning();
-  Q_INVOKABLE bool LoadProject(const QString& metaFileUrlOrPath);
-  Q_INVOKABLE bool CreateProjectInFolder(const QString& folderUrlOrPath);
-  Q_INVOKABLE bool CreateProjectInFolderNamed(const QString& folderUrlOrPath,
-                                              const QString& projectName);
-  Q_INVOKABLE bool SaveProject();
-  Q_INVOKABLE void StartExport(const QString& outputDirUrlOrPath);
-  Q_INVOKABLE void StartExportWithOptions(const QString& outputDirUrlOrPath,
-                                          const QString& formatName,
-                                          const QString& hdrExportMode, bool resizeEnabled,
-                                          int maxLengthSide, int quality, int bitDepth,
-                                          int pngCompressionLevel,
-                                          const QString& tiffCompression);
-  Q_INVOKABLE void StartExportWithOptionsForTargets(const QString& outputDirUrlOrPath,
-                                                    const QString& formatName,
-                                                    const QString& hdrExportMode,
-                                                    bool resizeEnabled, int maxLengthSide,
-                                                    int quality, int bitDepth,
-                                                    int pngCompressionLevel,
-                                                    const QString& tiffCompression,
-                                                    const QVariantList& targetEntries);
+  Q_INVOKABLE void        StartImport(const QStringList& fileUrlsOrPaths);
+  Q_INVOKABLE void        CancelImport();
+  Q_INVOKABLE bool        PromptAndLoadProject();
+  Q_INVOKABLE bool        PromptAndCreateProject();
+  Q_INVOKABLE bool        SetAcceleratorBackend(const QString& backendKey);
+  Q_INVOKABLE void        AcknowledgeAcceleratorWarning();
+  Q_INVOKABLE bool        LoadProject(const QString& metaFileUrlOrPath);
+  Q_INVOKABLE bool        CreateProjectInFolder(const QString& folderUrlOrPath);
+  Q_INVOKABLE bool        CreateProjectInFolderNamed(const QString& folderUrlOrPath,
+                                                     const QString& projectName);
+  Q_INVOKABLE bool        SaveProject();
+  Q_INVOKABLE void        StartExport(const QString& outputDirUrlOrPath);
+  Q_INVOKABLE void        StartExportWithOptions(const QString& outputDirUrlOrPath,
+                                                 const QString& formatName, const QString& hdrExportMode,
+                                                 bool resizeEnabled, int maxLengthSide, int quality,
+                                                 int bitDepth, int pngCompressionLevel,
+                                                 const QString& tiffCompression);
+  Q_INVOKABLE void        StartExportWithOptionsForTargets(
+             const QString& outputDirUrlOrPath, const QString& formatName, const QString& hdrExportMode,
+             bool resizeEnabled, int maxLengthSide, int quality, int bitDepth, int pngCompressionLevel,
+             const QString& tiffCompression, const QVariantList& targetEntries);
   Q_INVOKABLE void ResetExportState();
   Q_INVOKABLE bool CanUseHdrExportForTargets(const QVariantList& targetEntries) const;
   Q_INVOKABLE void BrowseNikonHeConverter();
@@ -236,13 +238,13 @@ class AlbumBackend final : public QObject {
   Q_INVOKABLE void ToggleStatsFilter(const QString& category, const QString& label);
   Q_INVOKABLE void ClearStatsFilter();
 
-signals:
+ signals:
   void ThumbnailsChanged();
   void thumbnailsChanged();
-  void ThumbnailUpdated(uint elementId, const QString& dataUrl, bool loading,
-                        bool missingSource, const QString& errorText);
-  void thumbnailUpdated(uint elementId, const QString& dataUrl, bool loading,
-                        bool missingSource, const QString& errorText);
+  void ThumbnailUpdated(uint elementId, const QString& dataUrl, bool loading, bool missingSource,
+                        const QString& errorText);
+  void thumbnailUpdated(uint elementId, const QString& dataUrl, bool loading, bool missingSource,
+                        const QString& errorText);
   void CountsChanged();
   void StatsChanged();
   void ServiceStateChanged();
@@ -290,39 +292,38 @@ signals:
   void RemoveRecentProject(const std::filesystem::path& projectPath);
   void ReloadFolderTree(const std::filesystem::path& preferredFolderPath = {});
   void ReloadCurrentFolder();
-  void AddOrUpdateAlbumItem(sl_element_id_t elementId, image_id_t imageId,
-                            const file_name_t& fallbackName,
+  void AddOrUpdateAlbumItem(sl_element_id_t elementId, image_id_t imageId, sl_element_id_t folderId,
+                            const QString& scopeType, const file_name_t& fallbackName,
                             const std::filesystem::path& filePath);
   auto FindAlbumItem(sl_element_id_t elementId) -> AlbumItem*;
   auto FindAlbumItem(sl_element_id_t elementId) const -> const AlbumItem*;
 
   // ── Helper modules ──────────────────────────────────────────────────
-  ProjectHandler     project_handler_;
-  ThumbnailManager   thumb_;
-  FolderController   folder_ctrl_;
-  ImageController    image_ctrl_;
-  StatsEngine        stats_;
-  ImportExportHandler import_export_;
-  NikonHeRecoveryController nikon_he_recovery_;
-  EditorController   editor_;
+  ProjectHandler               project_handler_;
+  ThumbnailManager             thumb_;
+  FolderController             folder_ctrl_;
+  ImageController              image_ctrl_;
+  StatsEngine                  stats_;
+  ImportExportHandler          import_export_;
+  NikonHeRecoveryController    nikon_he_recovery_;
+  EditorController             editor_;
 
   // ── Shared data (accessed by helpers via friend) ────────────────────
-  AlbumViewState                                      view_state_{};
-  i18n::LocalizedText                                 service_message_text_{};
-  bool                                                service_ready_   = false;
-  QVariantList                                        recent_projects_{};
-  AcceleratorBackendPreference                        accelerator_preference_ =
-      AcceleratorBackendPreference::Auto;
-  QString                                             accelerator_backend_key_{};
-  QString                                             accelerator_warning_id_{};
-  QVariantList                                        accelerator_options_{};
-  i18n::LocalizedText                                 accelerator_warning_text_{};
-  bool                                                cuda_backend_available_   = false;
-  bool                                                opencl_backend_available_ = false;
-  bool                                                metal_backend_available_  = false;
-  i18n::LocalizedText                                 task_status_text_{};
-  int                                                 task_progress_   = 0;
-  bool                                                task_cancel_visible_ = false;
+  AlbumViewState               view_state_{};
+  i18n::LocalizedText          service_message_text_{};
+  bool                         service_ready_ = false;
+  QVariantList                 recent_projects_{};
+  AcceleratorBackendPreference accelerator_preference_ = AcceleratorBackendPreference::Auto;
+  QString                      accelerator_backend_key_{};
+  QString                      accelerator_warning_id_{};
+  QVariantList                 accelerator_options_{};
+  i18n::LocalizedText          accelerator_warning_text_{};
+  bool                         cuda_backend_available_   = false;
+  bool                         opencl_backend_available_ = false;
+  bool                         metal_backend_available_  = false;
+  i18n::LocalizedText          task_status_text_{};
+  int                          task_progress_       = 0;
+  bool                         task_cancel_visible_ = false;
 };
 
 }  // namespace alcedo::ui

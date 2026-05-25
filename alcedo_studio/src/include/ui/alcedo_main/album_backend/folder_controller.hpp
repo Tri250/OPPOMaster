@@ -27,6 +27,8 @@ class FolderController {
   void               ApplyFolderSelection(uint folderUiId, bool emitSignal);
   [[nodiscard]] auto CurrentFolderFsPath() const -> std::filesystem::path;
   [[nodiscard]] auto CurrentFolderElementId() const -> std::optional<sl_element_id_t>;
+  [[nodiscard]] auto FolderElementIdForUiId(uint folderUiId) const
+      -> std::optional<sl_element_id_t>;
   void               SelectFolder(uint folderUiId);
   void               CreateFolder(const QString& folderName);
   void               DeleteFolder(uint folderUiId);
@@ -48,11 +50,12 @@ class FolderController {
 
  private:
   struct FolderNodeState {
-    uint32_t              ui_id_         = 0;
+    uint32_t              ui_id_      = 0;
+    sl_element_id_t       element_id_ = 0;
     file_name_t           folder_name_{};
     std::filesystem::path folder_path_{};
-    int                   depth_         = 0;
-    bool                  expanded_      = false;
+    int                   depth_    = 0;
+    bool                  expanded_ = false;
   };
 
   [[nodiscard]] auto PathKey(const std::filesystem::path& path) const -> std::wstring;
@@ -60,26 +63,25 @@ class FolderController {
   void               ResetTreeState();
   void               EnsurePathExpanded(const std::filesystem::path& folderPath);
   void               LoadChildren(const std::filesystem::path& parentPath);
-  void               AppendVisibleEntries(const std::filesystem::path& folderPath,
+  void               AppendVisibleEntries(const std::filesystem::path&      folderPath,
                                           std::vector<ExistingFolderEntry>& out) const;
   [[nodiscard]] auto TryGetPathForUiId(uint folderUiId) const
       -> std::optional<std::filesystem::path>;
   [[nodiscard]] auto EnsureNode(const std::filesystem::path& folderPath,
-                                const file_name_t&           folderName,
-                                int                          depth) -> FolderNodeState&;
+                                const file_name_t& folderName, int depth) -> FolderNodeState&;
 
-  AlbumBackend& backend_;
+  AlbumBackend&      backend_;
 
-  std::unordered_map<std::wstring, FolderNodeState>          nodes_by_path_{};
+  std::unordered_map<std::wstring, FolderNodeState>           nodes_by_path_{};
   std::unordered_map<std::wstring, std::vector<std::wstring>> child_keys_by_path_{};
-  std::unordered_map<uint32_t, std::wstring>                 path_key_by_ui_id_{};
-  std::unordered_set<std::wstring>                           loaded_paths_{};
-  std::vector<ExistingFolderEntry>                           folder_entries_{};
-  QVariantList                                               folders_{};
-  std::filesystem::path                                      current_folder_path_{};
-  QString                                                    current_folder_path_text_{};
-  uint32_t                                                   current_folder_ui_id_     = 0;
-  uint32_t                                                   next_folder_ui_id_        = 1;
+  std::unordered_map<uint32_t, std::wstring>                  path_key_by_ui_id_{};
+  std::unordered_set<std::wstring>                            loaded_paths_{};
+  std::vector<ExistingFolderEntry>                            folder_entries_{};
+  QVariantList                                                folders_{};
+  std::filesystem::path                                       current_folder_path_{};
+  QString                                                     current_folder_path_text_{};
+  uint32_t                                                    current_folder_ui_id_ = 0;
+  uint32_t                                                    next_folder_ui_id_    = 1;
 };
 
 }  // namespace alcedo::ui

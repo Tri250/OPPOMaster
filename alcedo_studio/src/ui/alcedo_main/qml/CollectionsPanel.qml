@@ -45,6 +45,7 @@ ColumnLayout {
 
             const mapped = {
                 folderId: Number(row.folderId),
+                elementId: Number(row.elementId),
                 name: row.name ? String(row.name) : "",
                 depth: Number(row.depth),
                 path: row.path ? String(row.path) : "",

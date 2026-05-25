@@ -9,19 +9,17 @@
 
 namespace alcedo::ui {
 
-#define PL_TEXT(text, ...)                                                    \
-  i18n::MakeLocalizedText(ALCEDO_I18N_CONTEXT,                              \
-                          QT_TRANSLATE_NOOP(ALCEDO_I18N_CONTEXT, text)      \
-                              __VA_OPT__(, ) __VA_ARGS__)
+#define PL_TEXT(text, ...)                     \
+  i18n::MakeLocalizedText(ALCEDO_I18N_CONTEXT, \
+                          QT_TRANSLATE_NOOP(ALCEDO_I18N_CONTEXT, text) __VA_OPT__(, ) __VA_ARGS__)
 
 namespace {
 auto ToStatsRows(const std::vector<alcedo::StatsBucket>& buckets) -> QVariantList {
   QVariantList rows;
   rows.reserve(static_cast<qsizetype>(buckets.size()));
   for (const auto& bucket : buckets) {
-    const QString label = bucket.label_.empty()
-                              ? PL_TEXT("(unknown)").Render()
-                              : QString::fromUtf8(bucket.label_.c_str());
+    const QString label = bucket.label_.empty() ? PL_TEXT("(unknown)").Render()
+                                                : QString::fromUtf8(bucket.label_.c_str());
     rows.push_back(QVariantMap{{"label", label}, {"count", bucket.count_}});
   }
   return rows;
@@ -80,7 +78,7 @@ void StatsEngine::RefreshStats() {
       return;
     }
 
-    const auto stats = filter_service->BuildFolderStats(folder_id.value());
+    const auto stats   = filter_service->BuildFolderStats(folder_id.value());
     total_photo_count_ = stats.total_photo_count_;
     date_stats_        = ToStatsRows(stats.date_stats_);
     camera_stats_      = ToStatsRows(stats.camera_stats_);
@@ -105,31 +103,32 @@ auto StatsEngine::FormatPhotoInfo(int shown, int total) const -> QString {
 
 auto StatsEngine::MakeThumbMap(const AlbumItem& image, int index) const -> QVariantMap {
   const QString aperture = image.aperture > 0.0 ? QString::number(image.aperture, 'f', 1) : "--";
-  const QString focal = image.focal_length > 0.0 ? QString::number(image.focal_length, 'f', 0) : "--";
+  const QString focal =
+      image.focal_length > 0.0 ? QString::number(image.focal_length, 'f', 0) : "--";
 
-  return QVariantMap{{"elementId", static_cast<uint>(image.element_id)},
-                     {"imageId", static_cast<uint>(image.image_id)},
-                     {"fileName", image.file_name.isEmpty() ? PL_TEXT("(unnamed)").Render()
-                                                             : image.file_name},
-                     {"cameraModel",
-                      image.camera_model.isEmpty() ? PL_TEXT("Unknown").Render()
-                                                   : image.camera_model},
-                     {"extension", image.extension.isEmpty() ? "--" : image.extension},
-                     {"iso", image.iso},
-                     {"aperture", aperture},
-                     {"focalLength", focal},
-                     {"captureDate",
-                      image.capture_date.isValid() ? image.capture_date.toString("yyyy-MM-dd")
-                                                   : "--"},
-                     {"rating", image.rating},
-                     {"tags", image.tags},
-                     {"accent", image.accent.isEmpty()
-                                    ? album_util::AccentForIndex(static_cast<size_t>(index))
-                                    : image.accent},
-                     {"thumbUrl", image.thumb_data_url},
-                     {"thumbLoading", image.thumb_loading},
-                     {"thumbMissingSource", image.thumb_missing_source},
-                     {"thumbErrorText", image.thumb_error_text}};
+  return QVariantMap{
+      {"elementId", static_cast<uint>(image.element_id)},
+      {"fileId", static_cast<uint>(image.file_id)},
+      {"imageId", static_cast<uint>(image.image_id)},
+      {"folderId", static_cast<uint>(image.folder_id)},
+      {"scopeType", image.scope_type},
+      {"fileName", image.file_name.isEmpty() ? PL_TEXT("(unnamed)").Render() : image.file_name},
+      {"cameraModel",
+       image.camera_model.isEmpty() ? PL_TEXT("Unknown").Render() : image.camera_model},
+      {"extension", image.extension.isEmpty() ? "--" : image.extension},
+      {"iso", image.iso},
+      {"aperture", aperture},
+      {"focalLength", focal},
+      {"captureDate",
+       image.capture_date.isValid() ? image.capture_date.toString("yyyy-MM-dd") : "--"},
+      {"rating", image.rating},
+      {"tags", image.tags},
+      {"accent", image.accent.isEmpty() ? album_util::AccentForIndex(static_cast<size_t>(index))
+                                        : image.accent},
+      {"thumbUrl", image.thumb_data_url},
+      {"thumbLoading", image.thumb_loading},
+      {"thumbMissingSource", image.thumb_missing_source},
+      {"thumbErrorText", image.thumb_error_text}};
 }
 
 void StatsEngine::ToggleFilter(const QString& category, const QString& label) {
@@ -152,8 +151,8 @@ void StatsEngine::ClearFilters() {
 }
 
 bool StatsEngine::HasActiveFilter() const {
-  return !filter_date_.isEmpty() || !filter_camera_.isEmpty() || !filter_lens_.isEmpty()
-         || !filter_rating_.isEmpty();
+  return !filter_date_.isEmpty() || !filter_camera_.isEmpty() || !filter_lens_.isEmpty() ||
+         !filter_rating_.isEmpty();
 }
 
 bool StatsEngine::MatchesActiveFilters(const AlbumItem& image) const {
@@ -186,8 +185,8 @@ bool StatsEngine::MatchesActiveFilters(const AlbumItem& image) const {
   }
 
   if (!filter_rating_.isEmpty()) {
-    bool ok = false;
-    int filterVal = filter_rating_.toInt(&ok);
+    bool ok        = false;
+    int  filterVal = filter_rating_.toInt(&ok);
     if (ok && image.rating != filterVal) return false;
   }
 

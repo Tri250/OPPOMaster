@@ -15,14 +15,23 @@
 namespace alcedo {
 
 struct AlbumFolderView {
+  sl_element_id_t       folder_id_ = 0;
   file_name_t           folder_name_{};
   std::filesystem::path folder_path_{};
 };
 
+enum class AlbumScopeType {
+  Root,
+  Album,
+};
+
 struct AlbumFileView {
-  sl_element_id_t element_id_       = 0;
-  image_id_t      image_id_         = 0;
-  file_name_t     file_name_{};
+  sl_element_id_t       element_id_ = 0;
+  sl_element_id_t       file_id_    = 0;
+  image_id_t            image_id_   = 0;
+  sl_element_id_t       folder_id_  = 0;
+  AlbumScopeType        scope_type_ = AlbumScopeType::Root;
+  file_name_t           file_name_{};
   std::filesystem::path file_path_{};
 };
 
@@ -43,13 +52,17 @@ class AlbumBrowseService {
       -> std::vector<AlbumFileView>;
 
   [[nodiscard]] auto CreateFolder(const std::filesystem::path& parent_folder_path,
-                                  const file_name_t&          name)
-      -> std::optional<AlbumFolderView>;
+                                  const file_name_t& name) -> std::optional<AlbumFolderView>;
   [[nodiscard]] bool DeleteFolder(const std::filesystem::path& folder_path);
   [[nodiscard]] auto DeleteFiles(const std::vector<std::filesystem::path>& file_paths)
       -> AlbumDeleteResult;
   [[nodiscard]] auto DeleteFilesByElementIds(const std::vector<sl_element_id_t>& element_ids)
       -> AlbumDeleteResult;
+  [[nodiscard]] auto DeleteFilesInFolderByElementIds(
+      sl_element_id_t folder_id, const std::vector<sl_element_id_t>& element_ids)
+      -> AlbumDeleteResult;
+  [[nodiscard]] auto LinkFilesToFolder(const std::vector<sl_element_id_t>& element_ids,
+                                       sl_element_id_t target_folder_id) -> AlbumDeleteResult;
 
  private:
   std::shared_ptr<SleeveServiceImpl> sleeve_service_{};
