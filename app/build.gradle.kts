@@ -49,7 +49,7 @@ android {
         kotlinCompilerExtensionVersion = "1.5.10"
     }
     
-    packaging {
+    packagingOptions {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
@@ -76,18 +76,14 @@ dependencies {
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("io.coil-kt:coil-compose:2.6.0")
     
-    // Hilt - 依赖注入
     implementation("com.google.dagger:hilt-android:2.48")
     kapt("com.google.dagger:hilt-android-compiler:2.48")
     implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
     
-    // DataStore - 数据持久化
     implementation("androidx.datastore:datastore-preferences:1.0.0")
     
-    // Timber - 日志
     implementation("com.jakewharton.timber:timber:5.0.1")
     
-    // Retrofit - 网络请求
     implementation("com.squareup.retrofit2:retrofit:2.9.0")
     implementation("com.squareup.retrofit2:converter-gson:2.9.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
