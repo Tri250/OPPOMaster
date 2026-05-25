@@ -62,7 +62,7 @@ Item {
     }
 
     function modelCount() {
-        return grid.count
+        return albumBackend.thumbnailModel.count
     }
 
     function effectiveColumnCount() {
@@ -165,7 +165,7 @@ Item {
     }
 
     function maybeLoadMoreThumbnails() {
-        if (!albumBackend.hasMoreThumbnails || grid.cellHeight <= 0) {
+        if (!albumBackend.thumbnailModel.hasMore || grid.cellHeight <= 0) {
             return
         }
         const threshold = Math.max(grid.cellHeight * 3, grid.height * 0.5)
@@ -193,12 +193,8 @@ Item {
     }
 
     function selectionItemForIndex(index) {
-        if (index < 0 || index >= albumBackend.thumbnails.length) {
-            return null
-        }
-
-        const row = albumBackend.thumbnails[index]
-        if (!row) {
+        const row = albumBackend.thumbnailModel.getItemAt(index)
+        if (!row || !row.elementId) {
             return null
         }
         const elementId = Number(row.elementId)
@@ -217,7 +213,7 @@ Item {
     GridView {
         id: grid
         anchors.fill: parent
-        model: albumBackend.thumbnails
+        model: albumBackend.thumbnailModel
         clip: true
         cacheBuffer: 0
         boundsBehavior: Flickable.StopAtBounds
@@ -227,6 +223,7 @@ Item {
                                             + root.cardInset * 2
                                             + root.delegateGap))
         interactive: false
+        onContentYChanged: root.maybeLoadMoreThumbnails()
         onContentHeightChanged: root.clampContentY()
         onHeightChanged: root.clampContentY()
         onCellWidthChanged: root.relayoutAndClamp()

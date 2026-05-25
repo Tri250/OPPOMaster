@@ -5,7 +5,7 @@ import QtQuick.Effects
 
 ListView {
     id: root
-    model: albumBackend.thumbnails
+    model: albumBackend.thumbnailModel
     clip: true
     cacheBuffer: 0
     spacing: 8
@@ -28,7 +28,7 @@ ListView {
     signal contextMenuRequested(var item, real sceneX, real sceneY)
 
     function maybeLoadMoreThumbnails() {
-        if (!albumBackend.hasMoreThumbnails) {
+        if (!albumBackend.thumbnailModel.hasMore) {
             return
         }
         const threshold = Math.max(360, height * 0.5)

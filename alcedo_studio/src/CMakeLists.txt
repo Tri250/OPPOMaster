@@ -1018,6 +1018,7 @@ endif()
 # ── AlbumBackendLib: reusable static library for album_backend ──────────────
 add_library(AlbumBackendLib STATIC
     ui/alcedo_main/album_backend/album_backend.cpp
+    ui/alcedo_main/album_backend/album_thumbnail_model.cpp
     ui/alcedo_main/album_backend/project_handler.cpp
     ui/alcedo_main/album_backend/thumbnail_manager.cpp
     ui/alcedo_main/album_backend/folder_controller.cpp
@@ -1027,6 +1028,7 @@ add_library(AlbumBackendLib STATIC
     ui/alcedo_main/album_backend/nikon_he_recovery_controller.cpp
     ui/alcedo_main/album_backend/editor_controller.cpp
     include/ui/alcedo_main/album_backend/album_backend.hpp
+    include/ui/alcedo_main/album_backend/album_thumbnail_model.hpp
     include/ui/alcedo_main/album_backend/album_types.hpp
     include/ui/alcedo_main/album_backend/path_utils.hpp
     include/ui/alcedo_main/album_backend/project_handler.hpp
