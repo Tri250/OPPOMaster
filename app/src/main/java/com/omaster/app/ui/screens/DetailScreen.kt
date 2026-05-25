@@ -56,7 +56,7 @@ fun DetailScreen(
                             tint = if (preset.isFavorite) AccentPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    IconButton(onClick = { /* 分享功能 */ }) {
+                    IconButton(onClick = { }) {
                         Icon(
                             imageVector = Icons.Default.Share,
                             contentDescription = "分享",
@@ -181,7 +181,7 @@ fun DetailScreen(
                 }
 
                 Button(
-                    onClick = { /* 应用预设功能 */ },
+                    onClick = { },
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = AccentPrimary

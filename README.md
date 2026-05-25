@@ -73,9 +73,6 @@ OMaster/
 ### 命令行构建
 
 ```bash
-# 进入项目目录
-cd /workspace
-
 # Debug 构建
 ./gradlew assembleDebug
 
@@ -184,3 +181,8 @@ data class CameraParams(
 - OPPO 哈苏影像系统
 - ColorOS 设计团队
 - OMaster 社区贡献者
+- OPPO Official Presets
+
+---
+
+Made with ❤️ by **带娃的小陈工**

@@ -18,7 +18,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.material3.LocalContentColor
 import coil.compose.AsyncImage
 import com.omaster.app.model.Preset
 import com.omaster.app.ui.theme.*
@@ -30,8 +29,6 @@ fun PresetCard(
     onFavoriteToggle: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val isDarkTheme = MaterialTheme.colorScheme.background == DeepSpace
-
     Card(
         modifier = modifier
             .fillMaxWidth()

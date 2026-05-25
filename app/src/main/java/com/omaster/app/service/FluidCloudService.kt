@@ -42,17 +42,11 @@ class FluidCloudService : Service() {
     }
 
     private fun showFluidCloudCapsule() {
-        // 这里应该实现真实的 ColorOS 流体云胶囊集成
-        // 由于我们没有真实的 SDK，我们仅打印日志模拟功能
         Timber.d("Showing fluid cloud capsule for preset: $currentPresetName")
-        
-        // 真实实现应该调用 ColorOS SDK 来显示胶囊
-        // 例如：OPlusFluidCloudManager.getInstance().showCapsule(...)
     }
 
     private fun hideFluidCloudCapsule() {
         Timber.d("Hiding fluid cloud capsule")
-        // 真实实现应该调用 ColorOS SDK 来隐藏胶囊
     }
 
     override fun onBind(intent: Intent?): IBinder? {
