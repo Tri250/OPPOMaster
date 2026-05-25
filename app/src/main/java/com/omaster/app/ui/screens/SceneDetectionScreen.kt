@@ -2,6 +2,7 @@ package com.omaster.app.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -29,6 +30,9 @@ import com.omaster.app.service.AiService
 import com.omaster.app.ui.components.PresetCard
 import com.omaster.app.ui.theme.*
 import kotlinx.coroutines.launch
+
+private val TextPrimary @Composable get() = if (isSystemInDarkTheme()) TextPrimaryDark else TextPrimaryLight
+private val TextSecondary @Composable get() = if (isSystemInDarkTheme()) TextSecondaryDark else TextSecondaryLight
 
 @Composable
 fun SceneDetectionScreen(

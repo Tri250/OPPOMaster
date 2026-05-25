@@ -62,6 +62,8 @@ fun OMasterTheme(
         darkTheme -> DarkColorScheme
         else -> LightColorScheme
     }
+    val textColor = if (darkTheme) TextPrimaryDark else TextPrimaryLight
+    val secondaryTextColor = if (darkTheme) TextSecondaryDark else TextSecondaryLight
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {

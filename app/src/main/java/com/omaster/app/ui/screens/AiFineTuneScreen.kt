@@ -2,6 +2,7 @@ package com.omaster.app.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -26,6 +27,9 @@ import com.omaster.app.model.Preset
 import com.omaster.app.service.AiService
 import com.omaster.app.ui.theme.*
 import kotlinx.coroutines.launch
+
+private val TextPrimary @Composable get() = if (isSystemInDarkTheme()) TextPrimaryDark else TextPrimaryLight
+private val TextSecondary @Composable get() = if (isSystemInDarkTheme()) TextSecondaryDark else TextSecondaryLight
 
 @Composable
 fun AiFineTuneScreen(
