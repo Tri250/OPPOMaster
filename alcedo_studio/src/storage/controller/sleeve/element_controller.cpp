@@ -304,6 +304,30 @@ auto ElementController::ListFilesInFolder(sl_element_id_t folder_id) const -> st
   return out;
 }
 
+auto ElementController::ListFilteredFileIds(
+    sl_element_id_t folder_id,
+    const std::optional<std::wstring>& extra_filter_where) const -> std::vector<sl_element_id_t> {
+  std::vector<sl_element_id_t> out;
+  const auto                   scope = BuildScopedFileQuery(folder_id, extra_filter_where);
+  const auto                   sql =
+      std::format("SELECT e.id {}", scope.from_where_);
+
+  duckdb_result result;
+  if (duckdb_query(guard_.conn_, sql.c_str(), &result) != DuckDBSuccess) {
+    duckdb_destroy_result(&result);
+    return out;
+  }
+
+  const auto row_count = duckdb_row_count(&result);
+  out.reserve(static_cast<size_t>(row_count));
+  for (idx_t r = 0; r < row_count; ++r) {
+    out.push_back(static_cast<sl_element_id_t>(duckdb_value_int64(&result, 0, r)));
+  }
+
+  duckdb_destroy_result(&result);
+  return out;
+}
+
 auto ElementController::GetPipelineByElementId(const sl_element_id_t element_id)
     -> std::shared_ptr<CPUPipelineExecutor> {
   return pipeline_service_.GetPipelineParamByFileId(element_id);

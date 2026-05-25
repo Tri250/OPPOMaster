@@ -640,4 +640,47 @@ TEST_F(FilterServiceTests, AlbumScopeListAndStatsAreConsistent) {
   EXPECT_EQ(list.size(), 2u);
 }
 
+TEST_F(FilterServiceTests, AutoInvalidationOnLink) {
+  ProjectService project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
+  const auto     file_id = CreateSyntheticFile(project, L"auto_inval_test.dng", "Nikon D850");
+  ASSERT_NE(file_id, 0u);
+
+  auto sleeve_service = project.GetSleeveService();
+  auto album =
+      sleeve_service->CreateFolder(L"/", L"AutoInvalAlbum");
+  ASSERT_TRUE(album.second.success_);
+  ASSERT_NE(album.first, nullptr);
+  const auto album_id = album.first->element_id_;
+
+  auto filter_service = project.GetSleeveFilterService();
+  ASSERT_NE(filter_service, nullptr);
+  auto browse_service = project.GetAlbumBrowseService();
+  ASSERT_NE(browse_service, nullptr);
+
+  FieldCondition cond{
+      .field_ = FilterField::ExifCameraModel,
+      .op_    = CompareOp::CONTAINS,
+      .value_ = std::wstring(L"D850"),
+  };
+  FilterNode root{FilterNode::Type::Condition, {}, {}, std::move(cond), std::nullopt};
+  const auto filter_id = filter_service->CreateFilterCombo(root);
+
+  // Apply filter on the empty album — should return empty.
+  auto result_before = filter_service->ApplyFilterOn(filter_id, album_id);
+  ASSERT_TRUE(result_before.has_value());
+  EXPECT_TRUE(result_before->empty());
+
+  // Link via AlbumBrowseService — this MUST auto-invalidate the filter cache.
+  const auto link_result =
+      browse_service->LinkFilesToFolder({file_id}, album_id);
+  EXPECT_EQ(link_result.deleted_files_.size(), 1u);
+
+  // Re-apply filter WITHOUT manual InvalidateResultCache.
+  // The AlbumBrowseService should have auto-invalidated the cache.
+  auto result_after = filter_service->ApplyFilterOn(filter_id, album_id);
+  ASSERT_TRUE(result_after.has_value());
+  ASSERT_EQ(result_after->size(), 1u);
+  EXPECT_EQ(result_after->front(), file_id);
+}
+
 }  // namespace alcedo

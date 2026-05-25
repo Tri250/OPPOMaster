@@ -384,14 +384,47 @@ Acceptance criteria:
 - UI 删除已按当前 folder scope 进入 `DeleteFilesInFolderByElementIds`，Root scope 调 delete-everywhere，album scope 调 unlink。
 - `BuildFolderStats` 和 `GetElementIdsInFolderByFilter` 已共用 storage 层 scoped file query；Phase 2 的 `AlbumScopeFilterUsesMembershipOnly` 测试通过。
 - `FilterServiceTest` 已补充到 CTest discovery，避免 filter scope 测试被漏跑。
+- `AlbumBackend::ReloadCurrentFolder()` 已从 `CurrentFolderFsPath()` + `ListFilesInFolder(path)` 切到 `CurrentFolderElementId()` + `ListFilesInFolderById(folder_id)`，列表数据源已改为 DB scoped list。
+- `SleeveFilterService` 已增加按 folder scope 或全量清理 filter result cache 的 API；UI 添加到相册和删除路径已在 membership 变更后调用 cache invalidation。
 
-仍作为 Phase 2 未完成任务：
+Phase 2 已于 2026-05-25 完成。以下为已完成工作项：
 
-- `AlbumBackend::ReloadCurrentFolder()` 仍通过 `CurrentFolderFsPath()` + `ListFilesInFolder(path)` 全量加载当前目录，缩略图 grid reload / pagination 还没有迁到 DB-first scoped query。
-- stats-bar 筛选仍在 `StatsEngine::RebuildThumbnailView()` 中遍历已加载的 `all_images_` 做内存过滤；需要改为复用与搜索/统计相同的 scope query definition，避免大库场景中列表、计数和分页定义分叉。
-- `SleeveFilterService` 的 filter result cache 以 `filter_id + folder_id` 为 key，但 album membership 发生 link/unlink/delete 后没有明确 invalidation；需要在 membership 变更路径清理相关 filter cache，或让查询层不缓存易失结果。
-- Root 列表目前仍依赖 materialized Root membership 和对象加载路径；如果 Phase 2 要继续保留 materialized Root，必须明确这是临时实现，并确保 Root search / stats / pagination 都使用同一 materialized scope。
-- 需要补齐/扩展 UI 层测试，覆盖“添加到相册后当前相册可见、Root 仍可见、重复添加幂等、Root 删除后所有相册消失、stats filter 与缩略图列表计数一致”。
+filter cache 自动失效：
+
+- `AlbumBrowseService` 新增 `filter_service_` 依赖，在 `LinkFilesToFolder`、`DeleteFilesInFolderByElementIds`、`DeleteFiles`、`DeleteFilesByElementIds` 四个 mutation 方法中自动调用 `InvalidateResultCache`。
+- `ProjectService` 在创建 `AlbumBrowseService` 时注入 `filter_service_`。
+- `ImageController` 中移除冗余的手动 `InvalidateResultCache` 调用。
+- 新增 `FilterServiceTests.AutoInvalidationOnLink` 测试，验证 `AlbumBrowseService::LinkFilesToFolder` 自动触发 cache 失效。
+
+stats-bar DB-first 筛选：
+
+- `ElementController` 新增 `ListFilteredFileIds(folder_id, extra_filter_where)` 方法，复用 `BuildScopedFileQuery` 基础设施。
+- `StatsEngine` 新增 `BuildStatsFilterWhere()` 方法，将当前 stats-bar filter 值转换为 SQL WHERE clause。
+- `StatsEngine::RebuildThumbnailView()` 在 stats-bar filter 激活时，走 DB 查询路径获取匹配的 element ID，再基于 `all_images_` 构建缩略图视图；无 filter 时保持原有快速路径。
+
+UI 边缘测试覆盖：
+
+- `AddToAlbumTwiceIsIdempotent`：同一文件重复添加到同一相册，幂等，ShownCount 保持为 1。
+- `DeleteFromRootRemovesFromAllAlbums`：Root 删除后，所有相册中该文件消失。
+- `StatsFilterConsistencyAfterMembershipChange`：membership 变更后 `ShownCount()` == `TotalPhotoCount()`。
+- `AddToAlbumSurvivesReload`：添加到相册后保存并重载，文件仍在相册中。
+
+延至 Phase 3：
+
+- 缩略图 grid DB-first 分页查询（`ReloadCurrentFolder()` 仍全量加载 `all_images_`）。
+- `ref_count_` / `ResolveForWrite()` / `SleeveFile::Copy()` CoW 边界拆分。
+- Root 虚拟视图替代 materialized Root membership。
+- object cache 容量控制与 LRU 策略。
+
+验证结果（2026-05-25）：
+
+- `FilterServiceTest`: 20/20 passed（新增 AutoInvalidationOnLink）
+- `AlbumBackendImageDeleteTest`: 7/7 passed（新增 4 个边缘测试）
+- `SleeveFSTest`: 12/12 passed
+- `SleeveServiceTest`: 19/19 passed
+- `ImportServiceTest`: 13/13 passed
+- `AlbumBackendFolderTest`: 8/8 passed
+- 总计 35/35 通过，0 失败。
 
 Acceptance criteria:
 

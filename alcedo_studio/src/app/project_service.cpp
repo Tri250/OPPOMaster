@@ -136,7 +136,7 @@ ProjectService::ProjectService(const std::filesystem::path& db_path,
     RecreateSleeveService(0);
     pool_service_ = std::make_shared<ImagePoolService>(storage_service_, 0);
     filter_service_  = std::make_shared<SleeveFilterService>(storage_service_);
-    browse_service_  = std::make_shared<AlbumBrowseService>(sleeve_service_);
+    browse_service_  = std::make_shared<AlbumBrowseService>(sleeve_service_, filter_service_);
     package_service_ = std::make_shared<ProjectPackageService>();
   };
 
@@ -275,7 +275,7 @@ void ProjectService::LoadProject(const std::filesystem::path& meta_path) {
   RecreateSleeveService(start_id);
   pool_service_ = std::make_shared<ImagePoolService>(storage_service_, image_pool_start_id);
   filter_service_  = std::make_shared<SleeveFilterService>(storage_service_);
-  browse_service_  = std::make_shared<AlbumBrowseService>(sleeve_service_);
+  browse_service_  = std::make_shared<AlbumBrowseService>(sleeve_service_, filter_service_);
   package_service_ = std::make_shared<ProjectPackageService>();
 }
 

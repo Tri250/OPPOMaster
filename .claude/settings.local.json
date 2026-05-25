@@ -100,7 +100,11 @@
       "PowerShell(cmd /c \"scripts\\\\msvc_env.cmd --build --preset win_debug --target SleeveServiceTest --target SleeveFSTest --target ImportServiceTest --parallel 4\" 2>&1)",
       "PowerShell(ctest *)",
       "PowerShell(./build/debug/alcedo_studio/tests/AlbumBackendImageDetailsTest.exe --gtest_filter=\"ImageDetailsTests.GetImageDetails_RejectsInvalidIds\" 2>&1)",
-      "PowerShell(./build/debug/alcedo_studio/tests/AlbumBackendImageDetailsTest.exe --gtest_filter=\"ImageDetailsTests.GetImageDetails_ReturnsStructuredExifSummary\" 2>&1)"
+      "PowerShell(./build/debug/alcedo_studio/tests/AlbumBackendImageDetailsTest.exe --gtest_filter=\"ImageDetailsTests.GetImageDetails_ReturnsStructuredExifSummary\" 2>&1)",
+      "Bash(Get-ChildItem -Path \"D:\\\\Projects\\\\pu-erh_lab\" -Depth 0)",
+      "Bash(Select-Object Name)",
+      "PowerShell(cmd /c \"scripts\\\\msvc_env.cmd --build --preset win_debug --parallel 4\" 2>&1 | Select-Object -Last 100)",
+      "PowerShell(cmd /c \"scripts\\\\msvc_env.cmd --build --preset win_debug --parallel 4\" 2>&1 | Select-Object -Last 10)"
     ]
   }
 }

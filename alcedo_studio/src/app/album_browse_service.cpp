@@ -195,6 +195,10 @@ auto AlbumBrowseService::DeleteFiles(const std::vector<std::filesystem::path>& f
     }
   }
 
+  if (filter_service_ && !out.deleted_files_.empty()) {
+    filter_service_->InvalidateResultCache();
+  }
+
   return out;
 }
 
@@ -238,6 +242,10 @@ auto AlbumBrowseService::DeleteFilesByElementIds(const std::vector<sl_element_id
     } catch (...) {
       out.failed_element_ids_.push_back(element_id);
     }
+  }
+
+  if (filter_service_ && !out.deleted_files_.empty()) {
+    filter_service_->InvalidateResultCache();
   }
 
   return out;
@@ -288,6 +296,14 @@ auto AlbumBrowseService::DeleteFilesInFolderByElementIds(
     }
   }
 
+  if (filter_service_ && !out.deleted_files_.empty()) {
+    if (folder_id == 0) {
+      filter_service_->InvalidateResultCache();
+    } else {
+      filter_service_->InvalidateResultCache(folder_id);
+    }
+  }
+
   return out;
 }
 
@@ -330,6 +346,10 @@ auto AlbumBrowseService::LinkFilesToFolder(const std::vector<sl_element_id_t>& e
     } catch (...) {
       out.failed_element_ids_.push_back(element_id);
     }
+  }
+
+  if (filter_service_ && !out.deleted_files_.empty()) {
+    filter_service_->InvalidateResultCache(target_folder_id);
   }
 
   return out;

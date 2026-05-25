@@ -53,6 +53,11 @@ class StatsEngine {
  private:
   /// Returns true if the image passes all currently active stats-bar filters.
   [[nodiscard]] bool MatchesActiveFilters(const AlbumItem& image) const;
+
+  /// Build an SQL WHERE clause fragment equivalent to the active stats-bar filters.
+  /// Returns std::nullopt if no filters are active.
+  [[nodiscard]] auto BuildStatsFilterWhere() const -> std::optional<std::wstring>;
+
   AlbumBackend& backend_;
   QVariantList  date_stats_{};
   QVariantList  camera_stats_{};

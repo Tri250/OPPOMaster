@@ -9,6 +9,7 @@
 #include <optional>
 #include <vector>
 
+#include "app/sleeve_filter_service.hpp"
 #include "app/sleeve_service.hpp"
 #include "type/type.hpp"
 
@@ -43,8 +44,10 @@ struct AlbumDeleteResult {
 
 class AlbumBrowseService {
  public:
-  explicit AlbumBrowseService(std::shared_ptr<SleeveServiceImpl> sleeve_service)
-      : sleeve_service_(std::move(sleeve_service)) {}
+  explicit AlbumBrowseService(std::shared_ptr<SleeveServiceImpl> sleeve_service,
+                              std::shared_ptr<SleeveFilterService> filter_service = nullptr)
+      : sleeve_service_(std::move(sleeve_service)),
+        filter_service_(std::move(filter_service)) {}
 
   [[nodiscard]] auto ListFolders(const std::filesystem::path& folder_path) const
       -> std::vector<AlbumFolderView>;
@@ -68,6 +71,7 @@ class AlbumBrowseService {
 
  private:
   std::shared_ptr<SleeveServiceImpl> sleeve_service_{};
+  std::shared_ptr<SleeveFilterService> filter_service_{};
 };
 
 }  // namespace alcedo

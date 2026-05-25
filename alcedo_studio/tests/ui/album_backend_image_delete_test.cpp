@@ -39,6 +39,16 @@ void WaitForImportFinished(AlbumBackend& backend, int timeoutMs = 30000) {
   ProcessEvents(600);
 }
 
+auto FindPackedProjectPath(const std::filesystem::path& dir)
+    -> std::optional<std::filesystem::path> {
+  for (const auto& entry : std::filesystem::directory_iterator(dir)) {
+    if (entry.is_regular_file() && entry.path().extension() == ".alcd") {
+      return entry.path();
+    }
+  }
+  return std::nullopt;
+}
+
 auto FindFolderId(const QVariantList& folders, const QString& name) -> uint {
   for (const auto& v : folders) {
     const auto map = v.toMap();
@@ -246,6 +256,207 @@ TEST_F(DeleteTests, AddToAlbumThenDeleteFromAlbum_KeepsRootFile) {
   EXPECT_EQ(root_after_unlink.value("elementId").toUInt(), file_id);
 
   (void)image_id;
+}
+
+TEST_F(DeleteTests, AddToAlbumTwiceIsIdempotent) {
+  const auto seeded = CreateSeededPackedProject(temp_dir_);
+  ASSERT_TRUE(seeded.has_value());
+
+  AlbumBackend backend;
+  ASSERT_TRUE(LoadPackedProject(backend, seeded->packed_path_));
+  ASSERT_FALSE(backend.Thumbnails().isEmpty());
+
+  const QVariantMap root_item = backend.Thumbnails().front().toMap();
+  const auto        file_id   = static_cast<sl_element_id_t>(root_item.value("elementId").toUInt());
+  const auto        image_id  = static_cast<image_id_t>(root_item.value("imageId").toUInt());
+
+  backend.CreateFolder("Idempotent");
+  ProcessEvents(500);
+  const uint album_ui_id = FindFolderId(backend.Folders(), "Idempotent");
+  ASSERT_NE(album_ui_id, 0u);
+
+  QVariantList targets;
+  targets.push_back(QVariantMap{{"elementId", static_cast<uint>(file_id)},
+                                {"imageId", static_cast<uint>(image_id)}});
+
+  // First add should succeed.
+  const QVariantMap result1 = backend.AddImagesToFolder(targets, album_ui_id);
+  EXPECT_TRUE(result1.value("success").toBool());
+  EXPECT_EQ(result1.value("addedCount").toInt(), 1);
+
+  // Second add of the same file to the same album must be idempotent.
+  const QVariantMap result2 = backend.AddImagesToFolder(targets, album_ui_id);
+
+  backend.SelectFolder(album_ui_id);
+  ProcessEvents(500);
+  EXPECT_EQ(backend.ShownCount(), 1);
+
+  (void)result2;
+  (void)image_id;
+}
+
+TEST_F(DeleteTests, DeleteFromRootRemovesFromAllAlbums) {
+  const auto seeded = CreateSeededPackedProject(temp_dir_);
+  ASSERT_TRUE(seeded.has_value());
+
+  AlbumBackend backend;
+  ASSERT_TRUE(LoadPackedProject(backend, seeded->packed_path_));
+  ASSERT_FALSE(backend.Thumbnails().isEmpty());
+
+  const QVariantMap root_item = backend.Thumbnails().front().toMap();
+  const auto        file_id   = static_cast<sl_element_id_t>(root_item.value("elementId").toUInt());
+  const auto        image_id  = static_cast<image_id_t>(root_item.value("imageId").toUInt());
+
+  backend.CreateFolder("Cascade1");
+  backend.CreateFolder("Cascade2");
+  ProcessEvents(500);
+
+  const uint album1_ui_id = FindFolderId(backend.Folders(), "Cascade1");
+  const uint album2_ui_id = FindFolderId(backend.Folders(), "Cascade2");
+  ASSERT_NE(album1_ui_id, 0u);
+  ASSERT_NE(album2_ui_id, 0u);
+
+  QVariantList targets;
+  targets.push_back(QVariantMap{{"elementId", static_cast<uint>(file_id)},
+                                {"imageId", static_cast<uint>(image_id)}});
+
+  ASSERT_TRUE(backend.AddImagesToFolder(targets, album1_ui_id).value("success").toBool());
+  ASSERT_TRUE(backend.AddImagesToFolder(targets, album2_ui_id).value("success").toBool());
+
+  // Verify file appears in both albums.
+  backend.SelectFolder(album1_ui_id);
+  ProcessEvents(500);
+  EXPECT_EQ(backend.ShownCount(), 1);
+  backend.SelectFolder(album2_ui_id);
+  ProcessEvents(500);
+  EXPECT_EQ(backend.ShownCount(), 1);
+
+  // Delete from Root (folderId=0).
+  backend.SelectFolder(0);
+  ProcessEvents(500);
+  ASSERT_EQ(backend.ShownCount(), 1);
+
+  const QVariantMap del_result = backend.DeleteImages(targets);
+  ProcessEvents(500);
+  EXPECT_TRUE(del_result.value("success").toBool());
+  EXPECT_EQ(backend.ShownCount(), 0);
+
+  // Both albums should now show 0 files.
+  backend.SelectFolder(album1_ui_id);
+  ProcessEvents(500);
+  EXPECT_EQ(backend.ShownCount(), 0);
+  backend.SelectFolder(album2_ui_id);
+  ProcessEvents(500);
+  EXPECT_EQ(backend.ShownCount(), 0);
+
+  (void)image_id;
+}
+
+TEST_F(DeleteTests, StatsFilterConsistencyAfterMembershipChange) {
+  const auto seeded = CreateSeededPackedProject(temp_dir_);
+  ASSERT_TRUE(seeded.has_value());
+
+  AlbumBackend backend;
+  ASSERT_TRUE(LoadPackedProject(backend, seeded->packed_path_));
+  ASSERT_FALSE(backend.Thumbnails().isEmpty());
+
+  const QVariantMap root_item = backend.Thumbnails().front().toMap();
+  const auto        file_id   = static_cast<sl_element_id_t>(root_item.value("elementId").toUInt());
+  const auto        image_id  = static_cast<image_id_t>(root_item.value("imageId").toUInt());
+
+  backend.CreateFolder("StatsConsist");
+  ProcessEvents(500);
+  const uint album_ui_id = FindFolderId(backend.Folders(), "StatsConsist");
+  ASSERT_NE(album_ui_id, 0u);
+
+  // Select the album — should be empty initially.
+  backend.SelectFolder(album_ui_id);
+  ProcessEvents(500);
+  EXPECT_EQ(backend.ShownCount(), 0);
+  EXPECT_EQ(backend.TotalPhotoCount(), 0);
+  EXPECT_EQ(backend.ShownCount(), backend.TotalPhotoCount());
+
+  // Add file to album.
+  QVariantList targets;
+  targets.push_back(QVariantMap{{"elementId", static_cast<uint>(file_id)},
+                                {"imageId", static_cast<uint>(image_id)}});
+  ASSERT_TRUE(backend.AddImagesToFolder(targets, album_ui_id).value("success").toBool());
+
+  // Verify shown count matches DB stats count.
+  backend.SelectFolder(album_ui_id);
+  ProcessEvents(500);
+  EXPECT_EQ(backend.ShownCount(), 1);
+  EXPECT_EQ(backend.TotalPhotoCount(), 1);
+  EXPECT_EQ(backend.ShownCount(), backend.TotalPhotoCount());
+
+  // Remove file from album.
+  backend.SelectFolder(album_ui_id);
+  ProcessEvents(500);
+  const QVariantMap unlink_result = backend.DeleteImages(targets);
+  ProcessEvents(500);
+  EXPECT_TRUE(unlink_result.value("success").toBool());
+
+  backend.SelectFolder(album_ui_id);
+  ProcessEvents(500);
+  EXPECT_EQ(backend.ShownCount(), 0);
+  EXPECT_EQ(backend.TotalPhotoCount(), 0);
+  EXPECT_EQ(backend.ShownCount(), backend.TotalPhotoCount());
+
+  (void)image_id;
+}
+
+TEST_F(DeleteTests, AddToAlbumSurvivesReload) {
+  const auto seeded = CreateSeededPackedProject(temp_dir_);
+  ASSERT_TRUE(seeded.has_value());
+
+  const auto file_id   = seeded->file_id_;
+  auto       alcd_path = seeded->packed_path_;
+
+  {
+    AlbumBackend backend;
+    ASSERT_TRUE(LoadPackedProject(backend, alcd_path));
+    ASSERT_FALSE(backend.Thumbnails().isEmpty());
+
+    const QVariantMap root_item = backend.Thumbnails().front().toMap();
+    const auto        image_id  = static_cast<image_id_t>(root_item.value("imageId").toUInt());
+
+    backend.CreateFolder("SurviveReload");
+    ProcessEvents(500);
+    const uint album_ui_id = FindFolderId(backend.Folders(), "SurviveReload");
+    ASSERT_NE(album_ui_id, 0u);
+
+    QVariantList targets;
+    targets.push_back(QVariantMap{{"elementId", static_cast<uint>(file_id)},
+                                  {"imageId", static_cast<uint>(image_id)}});
+    ASSERT_TRUE(backend.AddImagesToFolder(targets, album_ui_id).value("success").toBool());
+
+    ASSERT_TRUE(backend.SaveProject());
+    ProcessEvents(500);
+
+    // After SaveProject, find the repacked .alcd for reload.
+    const auto repacked = FindPackedProjectPath(temp_dir_);
+    if (repacked.has_value()) {
+      alcd_path = *repacked;
+    }
+
+    (void)image_id;
+  }
+
+  // Reload from the saved packed file.
+  {
+    AlbumBackend backend;
+    ASSERT_TRUE(LoadPackedProject(backend, alcd_path));
+
+    const uint album_ui_id = FindFolderId(backend.Folders(), "SurviveReload");
+    ASSERT_NE(album_ui_id, 0u);
+
+    backend.SelectFolder(album_ui_id);
+    ProcessEvents(500);
+    EXPECT_EQ(backend.ShownCount(), 1);
+    EXPECT_FALSE(backend.Thumbnails().isEmpty());
+    const QVariantMap album_item = backend.Thumbnails().front().toMap();
+    EXPECT_EQ(album_item.value("elementId").toUInt(), static_cast<uint>(file_id));
+  }
 }
 
 }  // namespace

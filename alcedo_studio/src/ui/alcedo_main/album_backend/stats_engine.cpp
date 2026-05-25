@@ -4,6 +4,11 @@
 
 #include "ui/alcedo_main/album_backend/stats_engine.hpp"
 
+#include <optional>
+#include <string>
+#include <unordered_set>
+#include <vector>
+
 #include "ui/alcedo_main/album_backend/album_backend.hpp"
 #include "ui/alcedo_main/album_backend/path_utils.hpp"
 
@@ -32,14 +37,40 @@ void StatsEngine::RebuildThumbnailView() {
   backend_.thumb_.ReleaseVisibleThumbnailPins();
 
   QVariantList next;
-  next.reserve(static_cast<qsizetype>(backend_.view_state_.all_images_.size()));
 
-  int index = 0;
-  for (const AlbumItem& image : backend_.view_state_.all_images_) {
-    if (!MatchesActiveFilters(image)) {
-      continue;
+  if (HasActiveFilter()) {
+    // Use the same DB scope query infrastructure as RefreshStats so the
+    // filtered thumbnail view stays consistent with the stats-bar counts.
+    auto proj = backend_.project_handler_.project();
+    if (proj) {
+      const auto folder_id = backend_.folder_ctrl_.CurrentFolderElementId();
+      if (folder_id.has_value()) {
+        auto where        = BuildStatsFilterWhere();
+        auto filtered_ids =
+            proj->GetStorageService()->GetElementController().ListFilteredFileIds(
+                folder_id.value(), where);
+
+        std::unordered_set<sl_element_id_t> id_set;
+        id_set.reserve(filtered_ids.size());
+        for (const auto id : filtered_ids) {
+          id_set.insert(id);
+        }
+
+        int index = 0;
+        next.reserve(static_cast<qsizetype>(std::min(
+            filtered_ids.size(), backend_.view_state_.all_images_.size())));
+        for (const AlbumItem& image : backend_.view_state_.all_images_) {
+          if (!id_set.contains(image.element_id)) continue;
+          next.push_back(MakeThumbMap(image, index++));
+        }
+      }
     }
-    next.push_back(MakeThumbMap(image, index++));
+  } else {
+    next.reserve(static_cast<qsizetype>(backend_.view_state_.all_images_.size()));
+    int index = 0;
+    for (const AlbumItem& image : backend_.view_state_.all_images_) {
+      next.push_back(MakeThumbMap(image, index++));
+    }
   }
 
   backend_.view_state_.visible_thumbnails_ = std::move(next);
@@ -153,6 +184,58 @@ void StatsEngine::ClearFilters() {
 bool StatsEngine::HasActiveFilter() const {
   return !filter_date_.isEmpty() || !filter_camera_.isEmpty() || !filter_lens_.isEmpty() ||
          !filter_rating_.isEmpty();
+}
+
+auto StatsEngine::BuildStatsFilterWhere() const -> std::optional<std::wstring> {
+  std::vector<std::wstring> conditions;
+
+  if (!filter_date_.isEmpty()) {
+    const auto is_unknown = (filter_date_ == PL_TEXT("(unknown)").Render());
+    if (is_unknown) {
+      conditions.push_back(
+          L"(json_extract(i.metadata, '$.DateTimeString') IS NULL "
+          L"OR json_extract(i.metadata, '$.DateTimeString') = '')");
+    } else {
+      const auto date_str = filter_date_.toStdWString();
+      conditions.push_back(
+          L"CAST(json_extract(i.metadata, '$.DateTimeString') AS DATE)::VARCHAR = '" + date_str +
+          L"'");
+    }
+  }
+
+  if (!filter_camera_.isEmpty()) {
+    const auto cam_str = filter_camera_.toStdWString();
+    conditions.push_back(
+        L"COALESCE(NULLIF(json_extract_string(i.metadata, '$.Model'), ''), '(unknown)') = '" +
+        cam_str + L"'");
+  }
+
+  if (!filter_lens_.isEmpty()) {
+    const auto lens_str = filter_lens_.toStdWString();
+    conditions.push_back(
+        L"COALESCE(NULLIF(json_extract_string(i.metadata, '$.Lens'), ''), '(unknown)') = '" +
+        lens_str + L"'");
+  }
+
+  if (!filter_rating_.isEmpty()) {
+    bool ok  = false;
+    int  val = filter_rating_.toInt(&ok);
+    if (ok) {
+      conditions.push_back(L"json_extract(i.metadata, '$.Rating')::INT = " +
+                           std::to_wstring(val));
+    } else {
+      conditions.push_back(L"json_extract(i.metadata, '$.Rating') IS NULL");
+    }
+  }
+
+  if (conditions.empty()) return std::nullopt;
+
+  std::wstring where;
+  for (size_t i = 0; i < conditions.size(); ++i) {
+    if (i > 0) where += L" AND ";
+    where += conditions[i];
+  }
+  return where;
 }
 
 bool StatsEngine::MatchesActiveFilters(const AlbumItem& image) const {

@@ -95,6 +95,12 @@ class ElementController {
   /// without materializing full SleeveElement objects.
   auto ListFilesInFolder(sl_element_id_t folder_id) const -> std::vector<FileListEntry>;
 
+  /// Return element IDs for files in a folder matching an extra SQL WHERE clause.
+  /// Uses the same BuildScopedFileQuery infrastructure for consistency with stats queries.
+  auto ListFilteredFileIds(sl_element_id_t                    folder_id,
+                           const std::optional<std::wstring>& extra_filter_where = std::nullopt) const
+      -> std::vector<sl_element_id_t>;
+
   void EnsureChildrenLoaded(sl_element_id_t folder_id);
 
   auto GetPipelineByElementId(const sl_element_id_t element_id)
