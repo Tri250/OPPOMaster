@@ -71,8 +71,11 @@ auto EditHistoryMgmtService::LoadHistory(sl_element_id_t file_id)
 
   std::shared_ptr<EditHistory>      history;
   std::shared_ptr<EditHistoryGuard> history_guard;
+  history = storage_service_->GetLiveEditHistory(file_id);
   try {
-    history = storage_service_->GetElementController().GetEditHistoryByFileId(file_id);
+    if (!history) {
+      history = storage_service_->GetElementController().GetEditHistoryByFileId(file_id);
+    }
   } catch (std::exception& e) {
     throw std::runtime_error(
         "[ERROR] EditHistoryMgmtService: Failed to load edit history from storage for file ID " +
@@ -88,6 +91,7 @@ auto EditHistoryMgmtService::LoadHistory(sl_element_id_t file_id)
   history_guard->history_  = std::move(history);
   history_guard->dirty_    = false;
   history_guard->pinned_   = true;
+  storage_service_->RememberLiveEditHistory(file_id, history_guard->history_);
 
   std::optional<sl_element_id_t> evicted = cache_.RecordAccess_WithEvict(file_id, file_id);
   if (evicted.has_value()) {
@@ -193,6 +197,7 @@ void EditHistoryMgmtService::SaveHistory(const std::shared_ptr<EditHistoryGuard>
   }
 
   cached_histories_[file_id] = history_guard;
+  storage_service_->RememberLiveEditHistory(file_id, history_guard->history_);
 
   if (history_guard->dirty_) {
     storage_service_->GetElementController().UpdateEditHistoryByFileId(file_id,
@@ -213,6 +218,7 @@ void EditHistoryMgmtService::DeleteHistory(sl_element_id_t file_id) {
   std::unique_lock<std::mutex> guard(lock_);
   cache_.RemoveRecord(file_id);
   cached_histories_.erase(file_id);
+  storage_service_->ForgetLiveEditHistory(file_id);
   try {
     storage_service_->GetElementController().RemoveEditHistoryByFileId(file_id);
   } catch (...) {

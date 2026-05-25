@@ -5,6 +5,7 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <unordered_map>
 
 #include "sleeve/sleeve_element/sleeve_element.hpp"
@@ -15,6 +16,9 @@
 #include "type/type.hpp"
 
 namespace alcedo {
+class CPUPipelineExecutor;
+class EditHistory;
+
 class NodeStorageHandler {
  private:
   ElementController&                                                   db_ctrl_;
@@ -35,6 +39,10 @@ class StorageService {
   DBController      db_ctrl_;
   ElementController el_ctrl_;
   ImageController   img_ctrl_;
+  std::mutex        live_state_lock_;
+
+  std::unordered_map<sl_element_id_t, std::weak_ptr<EditHistory>>        live_histories_;
+  std::unordered_map<sl_element_id_t, std::shared_ptr<CPUPipelineExecutor>> live_pipelines_;
 
  public:
   StorageService(std::filesystem::path db_path);
@@ -42,5 +50,14 @@ class StorageService {
   auto GetDBController() -> DBController&;
   auto GetElementController() -> ElementController&;
   auto GetImageController() -> ImageController&;
+
+  void RememberLiveEditHistory(sl_element_id_t file_id, const std::shared_ptr<EditHistory>& history);
+  auto GetLiveEditHistory(sl_element_id_t file_id) -> std::shared_ptr<EditHistory>;
+  void ForgetLiveEditHistory(sl_element_id_t file_id);
+
+  void RememberLivePipeline(sl_element_id_t file_id,
+                            const std::shared_ptr<CPUPipelineExecutor>& pipeline);
+  auto GetLivePipeline(sl_element_id_t file_id) -> std::shared_ptr<CPUPipelineExecutor>;
+  void ForgetLivePipeline(sl_element_id_t file_id);
 };
 };  // namespace alcedo

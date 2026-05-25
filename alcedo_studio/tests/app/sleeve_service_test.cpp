@@ -15,8 +15,12 @@
 #include <string>
 #include <vector>
 
+#include "app/history_mgmt_service.hpp"
+#include "app/pipeline_service.hpp"
 #include "app/project_package_backend.hpp"
 #include "app/project_service.hpp"
+#include "edit/operators/op_base.hpp"
+#include "edit/operators/operator_registeration.hpp"
 #include "sleeve/sleeve_element/sleeve_element.hpp"
 #include "sleeve/sleeve_element/sleeve_file.hpp"
 #include "utils/clock/time_provider.hpp"
@@ -76,6 +80,12 @@ auto QueryDuckDbInt64(const std::filesystem::path& db_path, const std::string& s
   return value;
 }
 
+auto ReadExposure(const std::shared_ptr<PipelineGuard>& pipeline_guard) -> float {
+  const auto exported = pipeline_guard->pipeline_->ExportPipelineParams();
+  return exported["Basic Adjustment"]["Basic Adjustment"]["exposure"]["params"]["exposure"]
+      .get<float>();
+}
+
 }  // namespace
 
 TEST(ProjectVersionTests, MembershipSchemaBumpRejectsPreviousProjectVersion) {
@@ -90,6 +100,7 @@ class SleeveServiceTests : public ::testing::Test {
 
   void                  SetUp() override {
     TimeProvider::Refresh();
+    RegisterAllOperators();
     db_path_ = std::filesystem::temp_directory_path() / "sleeve_service_test.db";
     meta_path_ = std::filesystem::temp_directory_path() / "sleeve_service_test.json";
     if (std::filesystem::exists(db_path_)) {
@@ -381,6 +392,263 @@ TEST_F(SleeveServiceTests, SharedAlbumFileEditIsVisibleFromRootAndOtherAlbums) {
     EXPECT_EQ(from_album_b->element_id_, file_id);
     EXPECT_EQ(from_root->last_modified_time_, modified_time);
     EXPECT_EQ(from_album_b->last_modified_time_, modified_time);
+  }
+}
+
+TEST_F(SleeveServiceTests, DeletingAlbumFolderKeepsLinkedLibraryFiles) {
+  sl_element_id_t file_id = 0;
+  {
+    ProjectService project(db_path_, meta_path_);
+    auto           service = project.GetSleeveService();
+
+    const auto     album   = service->CreateFolder(L"/", L"Album").first;
+    const auto     file    = service->CreateFileInLibrary(L"KeepAfterAlbumDelete.arw").first;
+    ASSERT_NE(album, nullptr);
+    ASSERT_NE(file, nullptr);
+    file_id = file->element_id_;
+
+    ASSERT_TRUE(service->LinkFileToFolder(file_id, album->element_id_).success_);
+    ASSERT_TRUE(service->DeletePath(L"/Album").success_);
+
+    const auto root_ids = service->Read<std::vector<sl_element_id_t>>(
+        [](FileSystem& fs) { return fs.ListFolderContent(0); });
+    EXPECT_TRUE(ContainsId(root_ids, file_id));
+    EXPECT_EQ(service->ResolveFile(L"/KeepAfterAlbumDelete.arw")->element_id_, file_id);
+    EXPECT_THROW(service->ResolveFolder(L"/Album"), std::runtime_error);
+
+    project.SaveProject(meta_path_);
+  }
+
+  ProjectService reloaded_project(db_path_, meta_path_);
+  auto           service  = reloaded_project.GetSleeveService();
+  const auto     root_ids = service->Read<std::vector<sl_element_id_t>>(
+      [](FileSystem& fs) { return fs.ListFolderContent(0); });
+
+  EXPECT_TRUE(ContainsId(root_ids, file_id));
+  EXPECT_EQ(service->ResolveFile(L"/KeepAfterAlbumDelete.arw")->element_id_, file_id);
+  EXPECT_THROW(service->ResolveFolder(L"/Album"), std::runtime_error);
+}
+
+TEST_F(SleeveServiceTests, FolderCopyWriteKeepsNestedFileIdentity) {
+  ProjectService project(db_path_, meta_path_);
+  auto           service = project.GetSleeveService();
+
+  ASSERT_TRUE(service->CreateFolder(L"/", L"Folder").second.success_);
+  ASSERT_TRUE(service->CreateFolder(L"/Folder", L"Subfolder").second.success_);
+
+  const auto created = service->Write<std::shared_ptr<SleeveElement>>([](FileSystem& fs) {
+    return fs.Create(L"/Folder/Subfolder", L"Linux.arw", ElementType::FILE);
+  });
+  ASSERT_NE(created.first, nullptr);
+  ASSERT_TRUE(created.second.success_);
+
+  ASSERT_TRUE(service->Write<bool>([](FileSystem& fs) {
+                fs.Copy(L"/Folder/Subfolder", L"/");
+                return true;
+              }).second.success_);
+
+  const auto written = service->Write_NoSync<std::shared_ptr<SleeveFile>>([](FileSystem& fs) {
+    auto file = std::static_pointer_cast<SleeveFile>(fs.Get(L"/Subfolder/Linux.arw", true));
+    file->SetLastModifiedTime();
+    return file;
+  });
+  ASSERT_NE(written, nullptr);
+
+  const auto from_original = service->ResolveFile(L"/Folder/Subfolder/Linux.arw");
+  const auto from_copied   = service->ResolveFile(L"/Subfolder/Linux.arw");
+  ASSERT_NE(from_original, nullptr);
+  ASSERT_NE(from_copied, nullptr);
+
+  EXPECT_EQ(from_original->element_id_, written->element_id_);
+  EXPECT_EQ(from_copied->element_id_, written->element_id_);
+  EXPECT_EQ(from_original->last_modified_time_, written->last_modified_time_);
+  EXPECT_EQ(from_copied->last_modified_time_, written->last_modified_time_);
+  EXPECT_EQ(from_original->ref_count_, 1u);
+}
+
+TEST_F(SleeveServiceTests, ExplicitDuplicateClonesStateAndKeepsHistoryAndPipelineIndependent) {
+  ProjectService project(db_path_, meta_path_);
+  auto           service = project.GetSleeveService();
+
+  const auto     album   = service->CreateFolder(L"/", L"Album").first;
+  const auto     source  = service->CreateFileInLibrary(L"Source.arw").first;
+  ASSERT_NE(album, nullptr);
+  ASSERT_NE(source, nullptr);
+
+  const auto source_id = source->element_id_;
+
+  {
+    PipelineMgmtService pipeline_service(project.GetStorageService());
+    auto                source_pipeline = pipeline_service.LoadPipeline(source_id);
+    auto&               stage = source_pipeline->pipeline_->GetStage(PipelineStageName::Basic_Adjustment);
+    stage.SetOperator(OperatorType::EXPOSURE, nlohmann::json{{"exposure", 2.5f}},
+                      source_pipeline->pipeline_->GetGlobalParams());
+    source_pipeline->dirty_ = true;
+    pipeline_service.SavePipeline(source_pipeline);
+    pipeline_service.Sync();
+  }
+
+  {
+    EditHistoryMgmtService history_service(project.GetStorageService());
+    auto                   source_history = history_service.LoadHistory(source_id);
+    ASSERT_EQ(source_history->history_->GetVersions().size(), 1u);
+    (void)history_service.CreateVersion(source_history, "Source Look");
+    history_service.SaveHistory(source_history);
+    history_service.Sync();
+  }
+
+  const auto duplicated = service->DuplicateFileToFolder(source_id, album->element_id_);
+  ASSERT_TRUE(duplicated.second.success_);
+  ASSERT_NE(duplicated.first, nullptr);
+
+  const auto duplicate_id = duplicated.first->element_id_;
+  EXPECT_NE(duplicate_id, source_id);
+  EXPECT_EQ(service->ResolveFile(L"/Source.arw")->element_id_, source_id);
+  EXPECT_EQ(service->ResolveFile(L"/Source.arw@")->element_id_, duplicate_id);
+  EXPECT_EQ(service->ResolveFile(L"/Album/Source.arw@")->element_id_, duplicate_id);
+
+  {
+    PipelineMgmtService pipeline_service(project.GetStorageService());
+    auto                source_pipeline    = pipeline_service.LoadPipeline(source_id);
+    auto                duplicate_pipeline = pipeline_service.LoadPipeline(duplicate_id);
+    ASSERT_NE(source_pipeline, nullptr);
+    ASSERT_NE(duplicate_pipeline, nullptr);
+    EXPECT_FLOAT_EQ(ReadExposure(source_pipeline), 2.5f);
+    EXPECT_FLOAT_EQ(ReadExposure(duplicate_pipeline), 2.5f);
+  }
+
+  {
+    EditHistoryMgmtService history_service(project.GetStorageService());
+    auto                   source_history    = history_service.LoadHistory(source_id);
+    auto                   duplicate_history = history_service.LoadHistory(duplicate_id);
+    ASSERT_NE(source_history, nullptr);
+    ASSERT_NE(duplicate_history, nullptr);
+    EXPECT_EQ(source_history->history_->GetVersions().size(), 2u);
+    EXPECT_EQ(duplicate_history->history_->GetVersions().size(), 2u);
+    EXPECT_EQ(duplicate_history->history_->GetBoundImage(), duplicate_id);
+  }
+
+  {
+    PipelineMgmtService pipeline_service(project.GetStorageService());
+    auto                duplicate_pipeline = pipeline_service.LoadPipeline(duplicate_id);
+    auto&               stage =
+        duplicate_pipeline->pipeline_->GetStage(PipelineStageName::Basic_Adjustment);
+    stage.SetOperator(OperatorType::EXPOSURE, nlohmann::json{{"exposure", 4.0f}},
+                      duplicate_pipeline->pipeline_->GetGlobalParams());
+    duplicate_pipeline->dirty_ = true;
+    pipeline_service.SavePipeline(duplicate_pipeline);
+    pipeline_service.Sync();
+  }
+
+  {
+    EditHistoryMgmtService history_service(project.GetStorageService());
+    auto                   duplicate_history = history_service.LoadHistory(duplicate_id);
+    (void)history_service.CreateVersion(duplicate_history, "Duplicate Look");
+    history_service.SaveHistory(duplicate_history);
+    history_service.Sync();
+  }
+
+  {
+    PipelineMgmtService pipeline_service(project.GetStorageService());
+    auto                source_pipeline    = pipeline_service.LoadPipeline(source_id);
+    auto                duplicate_pipeline = pipeline_service.LoadPipeline(duplicate_id);
+    EXPECT_FLOAT_EQ(ReadExposure(source_pipeline), 2.5f);
+    EXPECT_FLOAT_EQ(ReadExposure(duplicate_pipeline), 4.0f);
+  }
+
+  {
+    EditHistoryMgmtService history_service(project.GetStorageService());
+    auto                   source_history    = history_service.LoadHistory(source_id);
+    auto                   duplicate_history = history_service.LoadHistory(duplicate_id);
+    EXPECT_EQ(source_history->history_->GetVersions().size(), 2u);
+    EXPECT_EQ(duplicate_history->history_->GetVersions().size(), 3u);
+  }
+}
+
+TEST_F(SleeveServiceTests, DuplicateUsesLatestPipelineSnapshotBeforePipelineSync) {
+  ProjectService project(db_path_, meta_path_);
+  auto           service = project.GetSleeveService();
+
+  const auto     album   = service->CreateFolder(L"/", L"Album").first;
+  const auto     source  = service->CreateFileInLibrary(L"Source.arw").first;
+  ASSERT_NE(album, nullptr);
+  ASSERT_NE(source, nullptr);
+
+  const auto source_id = source->element_id_;
+
+  {
+    PipelineMgmtService pipeline_service(project.GetStorageService());
+    auto                source_pipeline = pipeline_service.LoadPipeline(source_id);
+    auto&               stage = source_pipeline->pipeline_->GetStage(PipelineStageName::Basic_Adjustment);
+    stage.SetOperator(OperatorType::EXPOSURE, nlohmann::json{{"exposure", 2.5f}},
+                      source_pipeline->pipeline_->GetGlobalParams());
+    source_pipeline->dirty_ = true;
+    pipeline_service.SavePipeline(source_pipeline);
+  }
+
+  const auto duplicated = service->DuplicateFileToFolder(source_id, album->element_id_);
+  ASSERT_TRUE(duplicated.second.success_);
+  ASSERT_NE(duplicated.first, nullptr);
+
+  {
+    PipelineMgmtService pipeline_service(project.GetStorageService());
+    auto                duplicate_pipeline = pipeline_service.LoadPipeline(duplicated.first->element_id_);
+    ASSERT_NE(duplicate_pipeline, nullptr);
+    EXPECT_FLOAT_EQ(ReadExposure(duplicate_pipeline), 2.5f);
+  }
+}
+
+TEST_F(SleeveServiceTests, DuplicateUsesLatestHistoryWhenLoadedFileCacheIsStale) {
+  sl_element_id_t source_id = 0;
+  sl_element_id_t album_id  = 0;
+  {
+    ProjectService project(db_path_, meta_path_);
+    auto           service = project.GetSleeveService();
+
+    const auto     album   = service->CreateFolder(L"/", L"Album").first;
+    const auto     source  = service->CreateFileInLibrary(L"Source.arw").first;
+    ASSERT_NE(album, nullptr);
+    ASSERT_NE(source, nullptr);
+
+    album_id  = album->element_id_;
+    source_id = source->element_id_;
+    {
+      EditHistoryMgmtService history_service(project.GetStorageService());
+      auto                   source_history = history_service.LoadHistory(source_id);
+      ASSERT_NE(source_history, nullptr);
+      (void)history_service.CreateVersion(source_history, "Baseline");
+      history_service.SaveHistory(source_history);
+    }
+    project.SaveProject(meta_path_);
+  }
+
+  ProjectService project(db_path_, meta_path_);
+  auto           service          = project.GetSleeveService();
+  const auto     resolved_source  = service->ResolveFile(L"/Source.arw");
+  ASSERT_NE(resolved_source, nullptr);
+  ASSERT_NE(resolved_source->GetEditHistory(), nullptr);
+  ASSERT_EQ(resolved_source->GetEditHistory()->GetVersions().size(), 2u);
+
+  {
+    EditHistoryMgmtService history_service(project.GetStorageService());
+    auto                   source_history = history_service.LoadHistory(source_id);
+    ASSERT_NE(source_history, nullptr);
+    ASSERT_EQ(source_history->history_->GetVersions().size(), 2u);
+    (void)history_service.CreateVersion(source_history, "Source Look");
+    history_service.SaveHistory(source_history);
+  }
+
+  ASSERT_EQ(resolved_source->GetEditHistory()->GetVersions().size(), 2u);
+
+  const auto duplicated = service->DuplicateFileToFolder(source_id, album_id);
+  ASSERT_TRUE(duplicated.second.success_);
+  ASSERT_NE(duplicated.first, nullptr);
+
+  {
+    EditHistoryMgmtService history_service(project.GetStorageService());
+    auto                   duplicate_history = history_service.LoadHistory(duplicated.first->element_id_);
+    ASSERT_NE(duplicate_history, nullptr);
+    EXPECT_EQ(duplicate_history->history_->GetVersions().size(), 3u);
   }
 }
 

@@ -479,6 +479,29 @@ Acceptance criteria:
 - 如存在 payload-level sharing，只在 duplicate detach 时触发。
 - duplicate 语义不再依赖 path-based copy 的隐式行为。
 
+当前审核补充（2026-05-25）：
+
+已确认落地：
+
+- `PathResolver::ResolveForWrite()` 不再因为 File `ref_count_` 触发隐式 CoW；共享写入只对 Folder identity 生效。
+- Folder CoW 只传播 child folder 的 `ref_count_`，不再把 file membership 误当成 payload/shared-file 计数。
+- 删除 album folder 只移除该 folder scope 下的 membership；library/root 中的 File 不会被级联误删。
+- `DuplicateFileToFolder()` 现在会：
+  - 为新副本分配新的 `file_id`。
+  - 维护 Root membership，并在 Root/target folder 间统一处理命名冲突。
+  - clone source edit history 到新的 file identity。
+  - 通过 `SleeveServiceImpl` clone source pipeline snapshot 到新的 file identity。
+- `SleeveServiceTest` 已新增 Phase 3 覆盖：
+  - `DeletingAlbumFolderKeepsLinkedLibraryFiles`
+  - `FolderCopyWriteKeepsNestedFileIdentity`
+  - `ExplicitDuplicateClonesStateAndKeepsHistoryAndPipelineIndependent`
+
+验证结果（2026-05-25）：
+
+- `SleeveServiceTest`: 22/22 passed
+- `PipelineServiceTest`: 8/8 passed
+- `EditHistoryMgmtServiceTest`: 4/4 passed
+
 ### Phase 4: Root Virtual View, DB-First Pagination And Bounded Cache
 
 目标：在不再混入 membership/duplicate 语义改造的前提下，单独解决 Root 虚拟视图、大库分页和对象缓存边界，让列表/筛选/分页在大库下仍保持一致和可控成本。

@@ -464,7 +464,11 @@ endif()
 
 add_executable(SleeveServiceTest app/sleeve_service_test.cpp)
 target_include_directories(SleeveServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
-target_link_libraries(SleeveServiceTest ProjectService GTest::gtest_main)
+target_link_libraries(SleeveServiceTest
+  ProjectService
+  PipelineMgmtService
+  EditHistoryMgmtService
+  GTest::gtest_main)
 
 if(WIN32)
   target_link_libraries(SleeveServiceTest)

@@ -31,7 +31,8 @@ auto SleeveFile::Clear() -> bool {
 
 auto SleeveFile::Copy(uint32_t new_id) const -> std::shared_ptr<SleeveElement> {
   std::shared_ptr<SleeveFile> new_file = std::make_shared<SleeveFile>(new_id, element_name_);
-  new_file->edit_history_              = std::make_shared<EditHistory>(new_id);
+  new_file->edit_history_              =
+      edit_history_ ? edit_history_->CloneForFile(new_id) : std::make_shared<EditHistory>(new_id);
   // TODO: Update the current_version pointer once finish implementing edit history module
   new_file->current_version_           = nullptr;
   // The image object is still reused

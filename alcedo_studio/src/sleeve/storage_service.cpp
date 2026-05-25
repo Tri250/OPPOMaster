@@ -5,6 +5,7 @@
 #include "sleeve/storage_service.hpp"
 
 #include <exception>
+#include <mutex>
 
 namespace alcedo {
 NodeStorageHandler::NodeStorageHandler(
@@ -73,4 +74,58 @@ auto StorageService::GetElementController() -> ElementController& { return el_ct
 auto StorageService::GetImageController() -> ImageController& { return img_ctrl_; }
 
 auto StorageService::GetDBController() -> DBController& { return db_ctrl_; }
+
+void StorageService::RememberLiveEditHistory(const sl_element_id_t                file_id,
+                                             const std::shared_ptr<EditHistory>& history) {
+  std::lock_guard<std::mutex> lock(live_state_lock_);
+  if (!history) {
+    live_histories_.erase(file_id);
+    return;
+  }
+  live_histories_[file_id] = history;
+}
+
+auto StorageService::GetLiveEditHistory(const sl_element_id_t file_id) -> std::shared_ptr<EditHistory> {
+  std::lock_guard<std::mutex> lock(live_state_lock_);
+  const auto                  it = live_histories_.find(file_id);
+  if (it == live_histories_.end()) {
+    return nullptr;
+  }
+
+  auto history = it->second.lock();
+  if (!history) {
+    live_histories_.erase(it);
+  }
+  return history;
+}
+
+void StorageService::ForgetLiveEditHistory(const sl_element_id_t file_id) {
+  std::lock_guard<std::mutex> lock(live_state_lock_);
+  live_histories_.erase(file_id);
+}
+
+void StorageService::RememberLivePipeline(const sl_element_id_t                        file_id,
+                                          const std::shared_ptr<CPUPipelineExecutor>& pipeline) {
+  std::lock_guard<std::mutex> lock(live_state_lock_);
+  if (!pipeline) {
+    live_pipelines_.erase(file_id);
+    return;
+  }
+  live_pipelines_[file_id] = pipeline;
+}
+
+auto StorageService::GetLivePipeline(const sl_element_id_t file_id)
+    -> std::shared_ptr<CPUPipelineExecutor> {
+  std::lock_guard<std::mutex> lock(live_state_lock_);
+  const auto                  it = live_pipelines_.find(file_id);
+  if (it == live_pipelines_.end()) {
+    return nullptr;
+  }
+  return it->second;
+}
+
+void StorageService::ForgetLivePipeline(const sl_element_id_t file_id) {
+  std::lock_guard<std::mutex> lock(live_state_lock_);
+  live_pipelines_.erase(file_id);
+}
 };  // namespace alcedo

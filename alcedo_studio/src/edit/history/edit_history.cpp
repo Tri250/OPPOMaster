@@ -96,6 +96,51 @@ auto EditHistory::GetActiveVersion() -> Version& {
   return GetVersion(active_version_id_);
 }
 
+auto EditHistory::CloneForFile(sl_element_id_t bound_image) const -> std::shared_ptr<EditHistory> {
+  auto clone                     = std::make_shared<EditHistory>(bound_image);
+  clone->import_pipeline_params_ = import_pipeline_params_;
+  clone->active_pipeline_params_ = active_pipeline_params_;
+  clone->version_order_.clear();
+  clone->version_storage_.clear();
+
+  std::unordered_map<history_id_t, history_id_t> version_id_map;
+  version_id_map.reserve(version_storage_.size());
+
+  for (const auto& [old_version_id, version] : version_storage_) {
+    auto cloned_version = version.CloneForImage(bound_image);
+    auto new_version_id = cloned_version.GetVersionID();
+    version_id_map.emplace(old_version_id, new_version_id);
+    clone->version_storage_.emplace(new_version_id, std::move(cloned_version));
+  }
+
+  if (auto default_it = version_id_map.find(default_version_id_); default_it != version_id_map.end()) {
+    clone->default_version_id_ = default_it->second;
+  }
+  if (auto active_it = version_id_map.find(active_version_id_); active_it != version_id_map.end()) {
+    clone->active_version_id_ = active_it->second;
+  }
+
+  for (const auto& node : version_order_) {
+    const auto source_version_id = node.ver_ref_.GetVersionID();
+    const auto mapped_it         = version_id_map.find(source_version_id);
+    if (mapped_it == version_id_map.end()) {
+      continue;
+    }
+
+    const auto cloned_version_it = clone->version_storage_.find(mapped_it->second);
+    if (cloned_version_it == clone->version_storage_.end()) {
+      continue;
+    }
+
+    clone->version_order_.emplace_back(cloned_version_it->second);
+    clone->version_order_.back().commit_id_ = node.commit_id_;
+  }
+
+  clone->SetLastModifiedTime();
+  clone->CalculateHistoryID();
+  return clone;
+}
+
 void EditHistory::SetImportPipelineParams(nlohmann::json params) {
   import_pipeline_params_ = std::move(params);
   if (version_storage_.find(default_version_id_) != version_storage_.end()) {

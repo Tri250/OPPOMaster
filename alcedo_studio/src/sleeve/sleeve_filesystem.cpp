@@ -156,15 +156,38 @@ auto FileSystem::DuplicateFileToFolder(sl_element_id_t file_id, sl_element_id_t 
 
   auto folder = std::static_pointer_cast<SleeveFolder>(folder_element);
   storage_handler_.EnsureChildrenLoaded(folder);
-  if (folder->Contains(source->element_name_)) {
-    throw std::runtime_error("Filesystem: Folder already contains an element with this name");
+  if (folder_id != 0) {
+    storage_handler_.EnsureChildrenLoaded(root_);
   }
 
-  auto duplicated       = std::static_pointer_cast<SleeveFile>(source->Copy(id_gen_.GenerateID()));
-  duplicated->image_id_ = std::static_pointer_cast<SleeveFile>(source)->image_id_;
-  duplicated->SetEditHistory(std::make_shared<EditHistory>(duplicated->element_id_));
+  auto source_file = std::static_pointer_cast<SleeveFile>(source);
+  auto source_history = storage_service_.GetLiveEditHistory(source_file->element_id_);
+  if (!source_history) {
+    try {
+      source_history =
+          storage_service_.GetElementController().GetEditHistoryByFileId(source_file->element_id_);
+    } catch (...) {
+    }
+  }
+  if (source_history) {
+    source_file->SetEditHistory(source_history);
+  }
+
+  auto duplicate_name = source->element_name_;
+  while (folder->Contains(duplicate_name) || (folder_id != 0 && root_->Contains(duplicate_name))) {
+    duplicate_name += L"@";
+  }
+
+  auto duplicated       = std::static_pointer_cast<SleeveFile>(source_file->Copy(id_gen_.GenerateID()));
+  duplicated->element_name_ = duplicate_name;
+  duplicated->image_id_ = source_file->image_id_;
   storage_[duplicated->element_id_] = duplicated;
-  folder->AddElementToMap(duplicated);
+  if (folder_id == 0) {
+    folder->AddElementToMap(duplicated);
+  } else {
+    root_->AddElementToMap(duplicated);
+    folder->AddElementToMap(duplicated, true, false);
+  }
   return duplicated;
 }
 
@@ -263,16 +286,19 @@ void FileSystem::Delete(std::filesystem::path target) {
 
   if (delete_node->ref_count_ <= 0) {
     // Mark the node as deleted in storage handler
-    // If it's a folder, recursively decrement children's ref count
-    // If the child's ref count reaches 0, decrement its children's ref count, and so on.
+    // Album membership does not own files. Removing a folder only decrements nested folder
+    // identities that participate in folder-tree CoW; file children remain live library files.
     if (delete_node->type_ == ElementType::FOLDER) {
       auto delete_folder = std::static_pointer_cast<SleeveFolder>(delete_node);
       storage_handler_.EnsureChildrenLoaded(delete_folder);
       auto& children = delete_folder->ListElements();
       for (auto& child_id : children) {
-        auto child = storage_.at(child_id);
+        auto child = storage_handler_.GetElement(child_id);
+        if (!child || child->sync_flag_ == SyncFlag::DELETED || child->type_ != ElementType::FOLDER) {
+          continue;
+        }
         child->DecrementRefCount();
-        if (child->ref_count_ <= 0 && child->type_ == ElementType::FOLDER) {
+        if (child->ref_count_ <= 0) {
           // Recursively decrement
           std::filesystem::path child_path =
               target / child->element_name_;  // Construct child's path for resolver
@@ -306,11 +332,11 @@ void FileSystem::Delete(sl_element_id_t target_id) {
     const auto children = folder->ListElements();
     for (const auto child_id : children) {
       auto child = storage_handler_.GetElement(child_id);
-      if (!child || child->sync_flag_ == SyncFlag::DELETED) {
+      if (!child || child->sync_flag_ == SyncFlag::DELETED || child->type_ != ElementType::FOLDER) {
         continue;
       }
       child->DecrementRefCount();
-      if (child->ref_count_ <= 0 && child->type_ == ElementType::FOLDER) {
+      if (child->ref_count_ <= 0) {
         self(std::static_pointer_cast<SleeveFolder>(child), self);
       }
     }

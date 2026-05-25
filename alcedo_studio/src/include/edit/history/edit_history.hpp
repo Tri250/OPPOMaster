@@ -68,6 +68,7 @@ class EditHistory {
   auto GetDefaultVersionID() const -> history_id_t { return default_version_id_; }
   auto GetActiveVersionID() const -> history_id_t { return active_version_id_; }
   auto GetActiveVersion() -> Version&;
+  auto CloneForFile(sl_element_id_t bound_image) const -> std::shared_ptr<EditHistory>;
   auto GetImportPipelineParams() const -> const nlohmann::json& { return import_pipeline_params_; }
   void SetImportPipelineParams(nlohmann::json params);
   auto ReconstructPipelineParamsForVersion(history_id_t ver_id) -> std::optional<nlohmann::json>;
