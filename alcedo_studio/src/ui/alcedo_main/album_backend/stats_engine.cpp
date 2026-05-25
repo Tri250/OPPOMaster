@@ -6,7 +6,6 @@
 
 #include <optional>
 #include <string>
-#include <unordered_set>
 #include <vector>
 
 #include "ui/alcedo_main/album_backend/album_backend.hpp"
@@ -34,49 +33,11 @@ auto ToStatsRows(const std::vector<alcedo::StatsBucket>& buckets) -> QVariantLis
 StatsEngine::StatsEngine(AlbumBackend& backend) : backend_(backend) {}
 
 void StatsEngine::RebuildThumbnailView() {
-  backend_.thumb_.ReleaseVisibleThumbnailPins();
+  backend_.LoadThumbnailWindow(BuildStatsFilterWhere(), true);
+}
 
-  QVariantList next;
-
-  if (HasActiveFilter()) {
-    // Use the same DB scope query infrastructure as RefreshStats so the
-    // filtered thumbnail view stays consistent with the stats-bar counts.
-    auto proj = backend_.project_handler_.project();
-    if (proj) {
-      const auto folder_id = backend_.folder_ctrl_.CurrentFolderElementId();
-      if (folder_id.has_value()) {
-        auto where        = BuildStatsFilterWhere();
-        auto filtered_ids =
-            proj->GetStorageService()->GetElementController().ListFilteredFileIds(
-                folder_id.value(), where);
-
-        std::unordered_set<sl_element_id_t> id_set;
-        id_set.reserve(filtered_ids.size());
-        for (const auto id : filtered_ids) {
-          id_set.insert(id);
-        }
-
-        int index = 0;
-        next.reserve(static_cast<qsizetype>(std::min(
-            filtered_ids.size(), backend_.view_state_.all_images_.size())));
-        for (const AlbumItem& image : backend_.view_state_.all_images_) {
-          if (!id_set.contains(image.element_id)) continue;
-          next.push_back(MakeThumbMap(image, index++));
-        }
-      }
-    }
-  } else {
-    next.reserve(static_cast<qsizetype>(backend_.view_state_.all_images_.size()));
-    int index = 0;
-    for (const AlbumItem& image : backend_.view_state_.all_images_) {
-      next.push_back(MakeThumbMap(image, index++));
-    }
-  }
-
-  backend_.view_state_.visible_thumbnails_ = std::move(next);
-  emit backend_.ThumbnailsChanged();
-  emit backend_.thumbnailsChanged();
-  emit backend_.CountsChanged();
+bool StatsEngine::LoadMoreThumbnailView() {
+  return backend_.LoadThumbnailWindow(BuildStatsFilterWhere(), false);
 }
 
 void StatsEngine::RefreshStats() {
@@ -221,8 +182,7 @@ auto StatsEngine::BuildStatsFilterWhere() const -> std::optional<std::wstring> {
     bool ok  = false;
     int  val = filter_rating_.toInt(&ok);
     if (ok) {
-      conditions.push_back(L"json_extract(i.metadata, '$.Rating')::INT = " +
-                           std::to_wstring(val));
+      conditions.push_back(L"json_extract(i.metadata, '$.Rating')::INT = " + std::to_wstring(val));
     } else {
       conditions.push_back(L"json_extract(i.metadata, '$.Rating') IS NULL");
     }

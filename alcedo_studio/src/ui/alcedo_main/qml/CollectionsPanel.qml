@@ -46,7 +46,8 @@ ColumnLayout {
             const mapped = {
                 folderId: Number(row.folderId),
                 elementId: Number(row.elementId),
-                name: row.name ? String(row.name) : "",
+                name: Number(row.folderId) === 0 ? qsTr("全部图片")
+                                                  : (row.name ? String(row.name) : ""),
                 depth: Number(row.depth),
                 path: row.path ? String(row.path) : "",
                 deletable: row.deletable === true

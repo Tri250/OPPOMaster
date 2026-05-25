@@ -28,6 +28,15 @@ auto BuildScopedFileQuery(sl_element_id_t                    folder_id,
     extra_where = " AND (" + conv::ToBytes(*extra_filter_where) + ")";
   }
 
+  if (folder_id == 0) {
+    return {
+        std::format("FROM Element e "
+                    "JOIN FileImage fi ON fi.file_id = e.id "
+                    "JOIN Image i ON i.id = fi.image_id "
+                    "WHERE e.type = {}{}",
+                    static_cast<uint32_t>(ElementType::FILE), extra_where)};
+  }
+
   return {
       std::format("FROM FolderContent fc "
                   "JOIN Element e ON fc.element_id = e.id "
@@ -274,11 +283,21 @@ auto ElementController::BuildFolderStats(sl_element_id_t                    fold
   return out;
 }
 
-auto ElementController::ListFilesInFolder(sl_element_id_t folder_id) const -> std::vector<FileListEntry> {
+auto ElementController::ListFilesInFolder(sl_element_id_t folder_id) const
+    -> std::vector<FileListEntry> {
+  return ListFilesInFolderPage(folder_id, 0, 0);
+}
+
+auto ElementController::ListFilesInFolderPage(
+    sl_element_id_t folder_id, size_t offset, size_t limit,
+    const std::optional<std::wstring>& extra_filter_where) const -> std::vector<FileListEntry> {
   std::vector<FileListEntry> out;
-  const auto                 scope = BuildScopedFileQuery(folder_id);
-  const auto                 sql =
+  const auto                 scope = BuildScopedFileQuery(folder_id, extra_filter_where);
+  auto                       sql =
       std::format("SELECT e.id, fi.image_id, e.element_name {} ORDER BY e.id", scope.from_where_);
+  if (limit > 0) {
+    sql += std::format(" LIMIT {} OFFSET {}", limit, offset);
+  }
 
   duckdb_result result;
   if (duckdb_query(guard_.conn_, sql.c_str(), &result) != DuckDBSuccess) {
@@ -304,15 +323,22 @@ auto ElementController::ListFilesInFolder(sl_element_id_t folder_id) const -> st
   return out;
 }
 
+auto ElementController::CountFilesInFolder(
+    sl_element_id_t folder_id, const std::optional<std::wstring>& extra_filter_where) const
+    -> size_t {
+  const auto scope = BuildScopedFileQuery(folder_id, extra_filter_where);
+  return static_cast<size_t>(
+      RunScalarInt64(guard_.conn_, std::format("SELECT COUNT(*) {}", scope.from_where_)));
+}
+
 auto ElementController::ListFilteredFileIds(
-    sl_element_id_t folder_id,
-    const std::optional<std::wstring>& extra_filter_where) const -> std::vector<sl_element_id_t> {
+    sl_element_id_t folder_id, const std::optional<std::wstring>& extra_filter_where) const
+    -> std::vector<sl_element_id_t> {
   std::vector<sl_element_id_t> out;
   const auto                   scope = BuildScopedFileQuery(folder_id, extra_filter_where);
-  const auto                   sql =
-      std::format("SELECT e.id {}", scope.from_where_);
+  const auto                   sql = std::format("SELECT e.id {} ORDER BY e.id", scope.from_where_);
 
-  duckdb_result result;
+  duckdb_result                result;
   if (duckdb_query(guard_.conn_, sql.c_str(), &result) != DuckDBSuccess) {
     duckdb_destroy_result(&result);
     return out;

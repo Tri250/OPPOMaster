@@ -16,7 +16,9 @@
 #include <QTimer>
 #include <QUrl>
 #include <algorithm>
+#include <limits>
 #include <optional>
+#include <string>
 
 #include "app/album_browse_service.hpp"
 #include "app/project_package_service.hpp"
@@ -35,10 +37,11 @@ using namespace album_util;
 
 namespace {
 
-constexpr auto kRecentProjectsKey                 = "projects/recent";
-constexpr auto kAcceleratorBackendKey             = "gpu/acceleratorBackend";
-constexpr auto kAcceleratorWarningAcknowledgedKey = "gpu/acceleratorWarningAcknowledged";
-constexpr int  kMaxRecentProjects                 = 12;
+constexpr auto   kRecentProjectsKey                 = "projects/recent";
+constexpr auto   kAcceleratorBackendKey             = "gpu/acceleratorBackend";
+constexpr auto   kAcceleratorWarningAcknowledgedKey = "gpu/acceleratorWarningAcknowledged";
+constexpr int    kMaxRecentProjects                 = 12;
+constexpr size_t kAlbumMetadataPageSize             = 1000;
 
 [[maybe_unused]] constexpr const char* kAcceleratorTranslationStrings[] = {
     QT_TRANSLATE_NOOP("Alcedo", "CPU"),
@@ -220,7 +223,14 @@ auto AlbumBackend::FilterInfo() const -> QString {
   return stats_.FormatPhotoInfo(ShownCount(), TotalCount());
 }
 
-int  AlbumBackend::TotalCount() const { return static_cast<int>(view_state_.all_images_.size()); }
+int AlbumBackend::TotalCount() const {
+  return static_cast<int>(
+      std::min<size_t>(view_state_.total_count_, std::numeric_limits<int>::max()));
+}
+
+bool AlbumBackend::HasMoreThumbnails() const {
+  return view_state_.all_images_.size() < view_state_.total_count_;
+}
 
 // ── Q_INVOKABLE: Folder delegation ──────────────────────────────────────────
 
@@ -584,6 +594,8 @@ void AlbumBackend::SetThumbnailCacheHint(uint visibleCells, uint maxEdge) {
   } catch (...) {
   }
 }
+
+bool AlbumBackend::LoadMoreThumbnails() { return stats_.LoadMoreThumbnailView(); }
 
 // ── Q_INVOKABLE: Project I/O ────────────────────────────────────────────────
 
@@ -963,50 +975,72 @@ void AlbumBackend::ReloadFolderTree(const std::filesystem::path& preferredFolder
 }
 
 void AlbumBackend::ReloadCurrentFolder() {
-  thumb_.ReleaseVisibleThumbnailPins();
+  stats_.RebuildThumbnailView();
+  stats_.RefreshStats();
+}
 
-  view_state_.all_images_.clear();
-  view_state_.visible_thumbnails_.clear();
-  emit ThumbnailsChanged();
-  emit thumbnailsChanged();
-  emit CountsChanged();
+bool AlbumBackend::LoadThumbnailWindow(const std::optional<std::wstring>& filterWhere, bool reset) {
+  if (reset) {
+    thumb_.ReleaseVisibleThumbnailPins();
+
+    view_state_.all_images_.clear();
+    view_state_.visible_thumbnails_.clear();
+    view_state_.total_count_ = 0;
+    emit ThumbnailsChanged();
+    emit thumbnailsChanged();
+    emit CountsChanged();
+  }
 
   auto proj = project_handler_.project();
   if (!proj) {
-    stats_.RebuildThumbnailView();
-    stats_.RefreshStats();
-    return;
+    return false;
   }
 
   auto browse = proj->GetAlbumBrowseService();
   if (!browse) {
-    stats_.RebuildThumbnailView();
-    stats_.RefreshStats();
-    return;
+    return false;
   }
 
   const auto folder_id_opt = folder_ctrl_.CurrentFolderElementId();
   if (!folder_id_opt.has_value()) {
-    stats_.RebuildThumbnailView();
-    stats_.RefreshStats();
-    return;
+    return false;
   }
 
-  const auto folder_id  = folder_id_opt.value();
+  const auto folder_id   = folder_id_opt.value();
   const auto folder_path = folder_ctrl_.CurrentFolderFsPath();
-  const auto files       = browse->ListFilesInFolderById(folder_id);
+  if (reset || view_state_.total_count_ == 0) {
+    view_state_.total_count_ = browse->CountFilesInFolderById(folder_id, filterWhere);
+  }
+
+  const size_t offset = view_state_.all_images_.size();
+  if (offset >= view_state_.total_count_) {
+    emit CountsChanged();
+    return false;
+  }
+
+  const auto files =
+      browse->ListFilesInFolderById(folder_id, offset, kAlbumMetadataPageSize, filterWhere);
   for (const auto& file : files) {
-    const auto file_path = file.file_path_.empty()
-                               ? folder_path / file.file_name_
-                               : file.file_path_;
+    const auto file_path =
+        file.file_path_.empty() ? folder_path / file.file_name_ : file.file_path_;
     AddOrUpdateAlbumItem(
         file.file_id_, file.image_id_, file.folder_id_,
         file.scope_type_ == AlbumScopeType::Root ? QStringLiteral("root") : QStringLiteral("album"),
         file.file_name_, file_path);
   }
 
-  stats_.RebuildThumbnailView();
-  stats_.RefreshStats();
+  QVariantList next;
+  next.reserve(static_cast<qsizetype>(view_state_.all_images_.size()));
+  int index = 0;
+  for (const AlbumItem& image : view_state_.all_images_) {
+    next.push_back(stats_.MakeThumbMap(image, index++));
+  }
+
+  view_state_.visible_thumbnails_ = std::move(next);
+  emit ThumbnailsChanged();
+  emit thumbnailsChanged();
+  emit CountsChanged();
+  return !files.empty();
 }
 
 void AlbumBackend::AddOrUpdateAlbumItem(sl_element_id_t elementId, image_id_t imageId,

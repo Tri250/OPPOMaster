@@ -22,6 +22,7 @@ class StatsEngine {
 
   /// Rebuild the thumbnail grid for the current folder, applying active stats filters.
   void RebuildThumbnailView();
+  bool LoadMoreThumbnailView();
 
   /// Execute GROUP BY aggregate queries and update stats properties.
   void RefreshStats();
@@ -44,19 +45,19 @@ class StatsEngine {
   /// Clear all active stats-bar filters.
   void ClearFilters();
 
-  [[nodiscard]] bool HasActiveFilter() const;
+  [[nodiscard]] bool           HasActiveFilter() const;
   [[nodiscard]] const QString& filter_date() const { return filter_date_; }
   [[nodiscard]] const QString& filter_camera() const { return filter_camera_; }
   [[nodiscard]] const QString& filter_lens() const { return filter_lens_; }
   [[nodiscard]] const QString& filter_rating() const { return filter_rating_; }
 
- private:
-  /// Returns true if the image passes all currently active stats-bar filters.
-  [[nodiscard]] bool MatchesActiveFilters(const AlbumItem& image) const;
-
   /// Build an SQL WHERE clause fragment equivalent to the active stats-bar filters.
   /// Returns std::nullopt if no filters are active.
   [[nodiscard]] auto BuildStatsFilterWhere() const -> std::optional<std::wstring>;
+
+ private:
+  /// Returns true if the image passes all currently active stats-bar filters.
+  [[nodiscard]] bool MatchesActiveFilters(const AlbumItem& image) const;
 
   AlbumBackend& backend_;
   QVariantList  date_stats_{};

@@ -98,15 +98,21 @@ auto AlbumBrowseService::ListFilesInFolder(const std::filesystem::path& folder_p
 
 auto AlbumBrowseService::ListFilesInFolderById(sl_element_id_t folder_id) const
     -> std::vector<AlbumFileView> {
+  return ListFilesInFolderById(folder_id, 0, 0);
+}
+
+auto AlbumBrowseService::ListFilesInFolderById(
+    sl_element_id_t folder_id, size_t offset, size_t limit,
+    const std::optional<std::wstring>& extra_filter_where) const -> std::vector<AlbumFileView> {
   std::vector<AlbumFileView> files;
   if (!sleeve_service_) {
     return files;
   }
 
   try {
-    const auto storage  = sleeve_service_->GetStorageService();
+    const auto  storage = sleeve_service_->GetStorageService();
     const auto& ctrl    = storage->GetElementController();
-    const auto entries  = ctrl.ListFilesInFolder(folder_id);
+    const auto  entries = ctrl.ListFilesInFolderPage(folder_id, offset, limit, extra_filter_where);
     files.reserve(entries.size());
     for (const auto& entry : entries) {
       if (entry.file_id_ == 0 || entry.image_id_ == 0) {
@@ -127,6 +133,22 @@ auto AlbumBrowseService::ListFilesInFolderById(sl_element_id_t folder_id) const
   }
 
   return files;
+}
+
+auto AlbumBrowseService::CountFilesInFolderById(
+    sl_element_id_t folder_id, const std::optional<std::wstring>& extra_filter_where) const
+    -> size_t {
+  if (!sleeve_service_) {
+    return 0;
+  }
+
+  try {
+    const auto  storage = sleeve_service_->GetStorageService();
+    const auto& ctrl    = storage->GetElementController();
+    return ctrl.CountFilesInFolder(folder_id, extra_filter_where);
+  } catch (...) {
+    return 0;
+  }
 }
 
 auto AlbumBrowseService::CreateFolder(const std::filesystem::path& parent_folder_path,

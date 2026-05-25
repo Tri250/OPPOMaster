@@ -7,6 +7,7 @@
 #include <QDate>
 #include <QString>
 #include <QVariantList>
+#include <cstddef>
 #include <filesystem>
 #include <string>
 #include <utility>
@@ -71,6 +72,7 @@ struct ExistingFolderEntry {
 struct AlbumViewState {
   std::vector<AlbumItem> all_images_{};
   QVariantList           visible_thumbnails_{};
+  size_t                 total_count_ = 0;
 };
 
 /// Key for (element, image) pairs used in export.

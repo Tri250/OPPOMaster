@@ -533,6 +533,51 @@ Acceptance criteria:
 - 列表、计数、筛选结果和缩略图分页基于同一 scope/paging 定义，不出现跨页或跨缓存不一致。
 - `storage_` 有明确容量边界，不再默认长期持有全库 element 对象。
 
+当前审核补充（2026-05-25）：
+
+已按保守方案落地：
+
+- `BuildScopedFileQuery(folder_id=0)` 已改为 Root 虚拟 File 视图：
+  - Root 查询直接从 `Element -> FileImage -> Image` 列出 live File。
+  - Root list / filter / stats / count 不再依赖 `FolderContent(0, file_id)`。
+  - 子相册仍通过 `FolderContent.folder_id = ?` join membership。
+- `ElementController` 新增 DB-first 分页/计数 API：
+  - `ListFilesInFolderPage(folder_id, offset, limit, extra_filter_where)`
+  - `CountFilesInFolder(folder_id, extra_filter_where)`
+  - 原 `ListFilesInFolder(folder_id)` 保留为兼容全量 wrapper。
+- `AlbumBrowseService` 新增对应 paged list/count API，并保留旧 `ListFilesInFolderById(folder_id)` 兼容现有调用。
+- `AlbumBackend::ReloadCurrentFolder()` 不再全量加载当前 scope：
+  - 首次加载 1000 条轻量 file metadata。
+  - `visible_thumbnails_` 只从当前已加载窗口构建。
+  - `totalCount` 来自 DB count，而不是 `all_images_.size()`。
+  - QML grid/list 滚动接近底部时调用 `LoadMoreThumbnails()` 追加下一批 1000 条。
+- stats-bar 筛选复用同一 `BuildStatsFilterWhere()`：
+  - 筛选后先走 DB count。
+  - 再按同一 filter where 分页加载 thumbnail metadata。
+  - 不再先查询全量 filtered ids 再和 `all_images_` 做内存交集。
+- `ThumbnailService` 不做分页职责扩张：
+  - 继续只管理可见 thumbnail request、pin 和 LRU。
+  - cache capacity 仍由 UI visible cell hint 控制。
+  - 避免把 album list/window state 引入复杂的缩略图渲染模块。
+
+本次有意不做：
+
+- 不引入激进的 object-cache LRU / eviction，因为当前 UI 窗口只持有轻量 metadata，1000 条左右的单批缓存成本可接受。
+- 不改 `thumbnail_service.cpp` 的调度模型；缩略图缓存已经是按可见区域和 resolution tier 管理。
+- 不引入 `FileContent` / payload-level sharing 表；Phase 3 已把 duplicate/CoW 语义收口，payload 共享优化继续后置。
+
+新增/更新测试：
+
+- `RootScopeUsesVirtualFileView`：手工移除 Root membership 后，Root DB scope 仍能通过虚拟视图列出 File，stats count 也正确。
+- `PagedScopeListUsesStableOrderAndCount`：验证 paged list 的稳定 `ORDER BY e.id`、offset/limit 和 count 一致性。
+- 回归验证 album import / folder / delete / thumbnail 相关测试，确认 1000 条窗口化不会破坏现有小库行为。
+
+验证结果（2026-05-25）：
+
+- `cmd /c scripts\msvc_env.cmd --build --preset win_debug --parallel 4`: passed
+- `ctest --test-dir build/debug -R "FilterServiceTest|AlbumBackendImageDeleteTest|AlbumBackendImportTest|AlbumBackendFolderTest|AlbumBackendThumbnailTest" --output-on-failure`: 54/54 passed（1 skipped: Metal thumbnail lifecycle on non-Metal environment）
+- `git diff --check`: passed
+
 ## Compatibility Notes
 
 - 本次 membership schema change 不提供旧项目数据迁移路径。

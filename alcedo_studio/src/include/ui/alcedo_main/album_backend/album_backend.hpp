@@ -10,6 +10,8 @@
 #include <QVariantList>
 #include <QVariantMap>
 #include <filesystem>
+#include <optional>
+#include <string>
 #include <vector>
 
 #include "edit/pipeline/pipeline_accelerator.hpp"
@@ -35,6 +37,7 @@ class AlbumBackend final : public QObject {
   Q_PROPERTY(QString currentFolderPath READ CurrentFolderPath NOTIFY FolderSelectionChanged)
   Q_PROPERTY(int shownCount READ ShownCount NOTIFY CountsChanged)
   Q_PROPERTY(int totalCount READ TotalCount NOTIFY CountsChanged)
+  Q_PROPERTY(bool hasMoreThumbnails READ HasMoreThumbnails NOTIFY CountsChanged)
   Q_PROPERTY(QString filterInfo READ FilterInfo NOTIFY CountsChanged)
   Q_PROPERTY(QVariantList dateStats READ DateStats NOTIFY StatsChanged)
   Q_PROPERTY(QVariantList cameraStats READ CameraStats NOTIFY StatsChanged)
@@ -115,6 +118,7 @@ class AlbumBackend final : public QObject {
   const QString& CurrentFolderPath() const { return folder_ctrl_.current_folder_path_text(); }
   int     ShownCount() const { return static_cast<int>(view_state_.visible_thumbnails_.size()); }
   int     TotalCount() const;
+  bool    HasMoreThumbnails() const;
   QString FilterInfo() const;
   QVariantList   DateStats() const { return stats_.date_stats(); }
   QVariantList   CameraStats() const { return stats_.camera_stats(); }
@@ -235,6 +239,7 @@ class AlbumBackend final : public QObject {
   Q_INVOKABLE void SetThumbnailVisible(uint elementId, uint imageId, bool visible,
                                        uint maxEdge = 1024);
   Q_INVOKABLE void SetThumbnailCacheHint(uint visibleCells, uint maxEdge = 1024);
+  Q_INVOKABLE bool LoadMoreThumbnails();
   Q_INVOKABLE void ToggleStatsFilter(const QString& category, const QString& label);
   Q_INVOKABLE void ClearStatsFilter();
 
@@ -292,6 +297,7 @@ class AlbumBackend final : public QObject {
   void RemoveRecentProject(const std::filesystem::path& projectPath);
   void ReloadFolderTree(const std::filesystem::path& preferredFolderPath = {});
   void ReloadCurrentFolder();
+  bool LoadThumbnailWindow(const std::optional<std::wstring>& filterWhere, bool reset);
   void AddOrUpdateAlbumItem(sl_element_id_t elementId, image_id_t imageId, sl_element_id_t folderId,
                             const QString& scopeType, const file_name_t& fallbackName,
                             const std::filesystem::path& filePath);

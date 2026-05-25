@@ -4,9 +4,11 @@
 
 #pragma once
 
+#include <cstddef>
 #include <filesystem>
 #include <memory>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "app/sleeve_filter_service.hpp"
@@ -44,10 +46,9 @@ struct AlbumDeleteResult {
 
 class AlbumBrowseService {
  public:
-  explicit AlbumBrowseService(std::shared_ptr<SleeveServiceImpl> sleeve_service,
+  explicit AlbumBrowseService(std::shared_ptr<SleeveServiceImpl>   sleeve_service,
                               std::shared_ptr<SleeveFilterService> filter_service = nullptr)
-      : sleeve_service_(std::move(sleeve_service)),
-        filter_service_(std::move(filter_service)) {}
+      : sleeve_service_(std::move(sleeve_service)), filter_service_(std::move(filter_service)) {}
 
   [[nodiscard]] auto ListFolders(const std::filesystem::path& folder_path) const
       -> std::vector<AlbumFolderView>;
@@ -55,6 +56,12 @@ class AlbumBrowseService {
       -> std::vector<AlbumFileView>;
   [[nodiscard]] auto ListFilesInFolderById(sl_element_id_t folder_id) const
       -> std::vector<AlbumFileView>;
+  [[nodiscard]] auto ListFilesInFolderById(sl_element_id_t folder_id, size_t offset, size_t limit,
+                                           const std::optional<std::wstring>& extra_filter_where =
+                                               std::nullopt) const -> std::vector<AlbumFileView>;
+  [[nodiscard]] auto CountFilesInFolderById(
+      sl_element_id_t                    folder_id,
+      const std::optional<std::wstring>& extra_filter_where = std::nullopt) const -> size_t;
 
   [[nodiscard]] auto CreateFolder(const std::filesystem::path& parent_folder_path,
                                   const file_name_t& name) -> std::optional<AlbumFolderView>;
@@ -70,7 +77,7 @@ class AlbumBrowseService {
                                        sl_element_id_t target_folder_id) -> AlbumDeleteResult;
 
  private:
-  std::shared_ptr<SleeveServiceImpl> sleeve_service_{};
+  std::shared_ptr<SleeveServiceImpl>   sleeve_service_{};
   std::shared_ptr<SleeveFilterService> filter_service_{};
 };
 
