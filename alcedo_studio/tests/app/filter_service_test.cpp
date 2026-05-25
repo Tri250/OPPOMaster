@@ -313,7 +313,10 @@ TEST_F(FilterServiceTests, FolderIndexTest_Aperature) {
   auto       result_opt = filter_service.ApplyFilterOn(filter_id, root_folder->element_id_);
   ASSERT_TRUE(result_opt.has_value());
 
-  EXPECT_EQ(result_opt->size(), 12u);
+  // raw/batch also contains JPEG siblings for the Sony ARWs. The import path keeps the RAW
+  // identities only, so filter counts must match the 11 imported RAW files rather than all 17
+  // files on disk.
+  EXPECT_EQ(result_opt->size(), 6u);
 }
 
 TEST_F(FilterServiceTests, FolderIndexTest_ISO) {
@@ -340,7 +343,8 @@ TEST_F(FilterServiceTests, FolderIndexTest_ISO) {
   auto       result_opt = filter_service.ApplyFilterOn(filter_id, root_folder->element_id_);
   ASSERT_TRUE(result_opt.has_value());
 
-  EXPECT_EQ(result_opt->size(), 12u);
+  // JPEG siblings are not imported as independent library files in this fixture.
+  EXPECT_EQ(result_opt->size(), 6u);
 }
 
 TEST_F(FilterServiceTests, FolderIndexTest_FocalLength) {
@@ -366,7 +370,8 @@ TEST_F(FilterServiceTests, FolderIndexTest_FocalLength) {
   auto       result_opt = filter_service.ApplyFilterOn(filter_id, root_folder->element_id_);
   ASSERT_TRUE(result_opt.has_value());
 
-  EXPECT_EQ(result_opt->size(), 13u);
+  // Six Sony ARWs plus one Nikon D850 NEF are under 150mm after import.
+  EXPECT_EQ(result_opt->size(), 7u);
 }
 
 TEST_F(FilterServiceTests, FolderIndexTest_Combined) {
@@ -454,7 +459,8 @@ TEST_F(FilterServiceTests, FolderIndexTest_DateRange) {
   auto       result_opt = filter_service.ApplyFilterOn(filter_id, root_folder->element_id_);
   ASSERT_TRUE(result_opt.has_value());
 
-  EXPECT_EQ(result_opt->size(), 13u);
+  // Six Sony ARWs plus one Nikon D850 NEF fall in the 2025 capture-date range.
+  EXPECT_EQ(result_opt->size(), 7u);
 }
 
 }  // namespace alcedo

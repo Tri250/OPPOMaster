@@ -473,6 +473,7 @@ endif()
 add_executable(FilterServiceTest app/filter_service_test.cpp)
 target_include_directories(FilterServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
 target_link_libraries(FilterServiceTest ImportService ProjectService SleeveFilterService GTest::gtest_main)
+gtest_discover_tests(FilterServiceTest TEST_PREFIX "FilterServiceTest.")
 
 if(WIN32)
   target_link_libraries(FilterServiceTest)

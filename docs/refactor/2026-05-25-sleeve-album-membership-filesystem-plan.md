@@ -374,6 +374,25 @@ Acceptance criteria:
   - 任何 album count 或 filtered count
 - 保留 path API 作为兼容层，但新 UI 和新服务逻辑不再依赖 path 表达图片身份。
 
+当前审核补充（2026-05-25）：
+
+已确认落地：
+
+- `AlbumBrowseService` 的 file view 已携带 `file_id`、`folder_id` 和 scope type。
+- UI 打开编辑器已通过 `elementId/fileId` 进入，不再从 album path 解析照片身份。
+- UI “添加到相册”已接入 `LinkFilesToFolder` / `LinkFileToFolder`。
+- UI 删除已按当前 folder scope 进入 `DeleteFilesInFolderByElementIds`，Root scope 调 delete-everywhere，album scope 调 unlink。
+- `BuildFolderStats` 和 `GetElementIdsInFolderByFilter` 已共用 storage 层 scoped file query；Phase 2 的 `AlbumScopeFilterUsesMembershipOnly` 测试通过。
+- `FilterServiceTest` 已补充到 CTest discovery，避免 filter scope 测试被漏跑。
+
+仍作为 Phase 2 未完成任务：
+
+- `AlbumBackend::ReloadCurrentFolder()` 仍通过 `CurrentFolderFsPath()` + `ListFilesInFolder(path)` 全量加载当前目录，缩略图 grid reload / pagination 还没有迁到 DB-first scoped query。
+- stats-bar 筛选仍在 `StatsEngine::RebuildThumbnailView()` 中遍历已加载的 `all_images_` 做内存过滤；需要改为复用与搜索/统计相同的 scope query definition，避免大库场景中列表、计数和分页定义分叉。
+- `SleeveFilterService` 的 filter result cache 以 `filter_id + folder_id` 为 key，但 album membership 发生 link/unlink/delete 后没有明确 invalidation；需要在 membership 变更路径清理相关 filter cache，或让查询层不缓存易失结果。
+- Root 列表目前仍依赖 materialized Root membership 和对象加载路径；如果 Phase 2 要继续保留 materialized Root，必须明确这是临时实现，并确保 Root search / stats / pagination 都使用同一 materialized scope。
+- 需要补齐/扩展 UI 层测试，覆盖“添加到相册后当前相册可见、Root 仍可见、重复添加幂等、Root 删除后所有相册消失、stats filter 与缩略图列表计数一致”。
+
 Acceptance criteria:
 
 - UI 可以把同一 File 添加到多个相册。
