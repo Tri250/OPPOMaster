@@ -4,9 +4,15 @@
 
 #include "app/sleeve_filter_service.hpp"
 
+#include <cstdint>
 #include <memory>
 
 namespace alcedo {
+namespace {
+auto FilterScopeCacheKey(filter_id_t filter_id, sl_element_id_t parent_id) -> std::uint64_t {
+  return (static_cast<std::uint64_t>(parent_id) << 32U) | static_cast<std::uint64_t>(filter_id);
+}
+}  // namespace
 
 auto SleeveFilterService::CreateFilterCombo(const FilterNode& root) -> filter_id_t {
   filter_id_t new_id = filter_id_generator_.GenerateID();
@@ -27,8 +33,8 @@ auto SleeveFilterService::GetFilterCombo(filter_id_t filter_id)
 void SleeveFilterService::RemoveFilterCombo(filter_id_t filter_id) {
   // If there is no record, this is a no-op.
   filter_storage_.RemoveRecord(filter_id);
-  // The same goes for the result cache.
-  filter_result_cache_.RemoveRecord(filter_id);
+  // Result cache keys include folder scope; flushing keeps removal simple and stable.
+  filter_result_cache_.Flush();
 }
 
 auto SleeveFilterService::ApplyFilterOn(filter_id_t filter_id, sl_element_id_t parent_id)
@@ -38,10 +44,11 @@ auto SleeveFilterService::ApplyFilterOn(filter_id_t filter_id, sl_element_id_t p
   if (!combo_opt.has_value()) {
     return std::nullopt;
   }
-  auto combo      = combo_opt.value();
+  auto       combo      = combo_opt.value();
 
-  // Next, check if we have a cached result for this filter.
-  auto         result_opt = filter_result_cache_.AccessElement(filter_id);
+  // Next, check if we have a cached result for this filter in this folder scope.
+  const auto cache_key  = FilterScopeCacheKey(filter_id, parent_id);
+  auto       result_opt = filter_result_cache_.AccessElement(cache_key);
   if (result_opt.has_value()) {
     return result_opt;
   }
@@ -50,12 +57,13 @@ auto SleeveFilterService::ApplyFilterOn(filter_id_t filter_id, sl_element_id_t p
   auto result_ids =
       storage_service_->GetElementController().GetElementIdsInFolderByFilter(combo, parent_id);
   // Cache the result for future use.
-  filter_result_cache_.RecordAccess(filter_id, result_ids);
+  filter_result_cache_.RecordAccess(cache_key, result_ids);
   return result_ids;
 }
 
-auto SleeveFilterService::BuildFolderStats(
-    sl_element_id_t parent_id, const std::optional<FilterNode>& extra_filter) -> AlbumStatsView {
+auto SleeveFilterService::BuildFolderStats(sl_element_id_t                  parent_id,
+                                           const std::optional<FilterNode>& extra_filter)
+    -> AlbumStatsView {
   std::optional<std::wstring> extra_where;
   if (extra_filter.has_value()) {
     const auto where_w = FilterSQLCompiler::Compile(*extra_filter);
@@ -91,5 +99,19 @@ auto SleeveFilterService::BuildFolderStats(
   }
 
   return out;
+}
+
+void SleeveFilterService::InvalidateResultCache(sl_element_id_t folder_id) {
+  const auto keys = filter_result_cache_.GetLRUKeys();
+  for (const auto& key : keys) {
+    const auto key_folder_id = static_cast<sl_element_id_t>(key >> 32U);
+    if (key_folder_id == folder_id) {
+      filter_result_cache_.RemoveRecord(key);
+    }
+  }
+}
+
+void SleeveFilterService::InvalidateResultCache() {
+  filter_result_cache_.Flush();
 }
 }  // namespace alcedo

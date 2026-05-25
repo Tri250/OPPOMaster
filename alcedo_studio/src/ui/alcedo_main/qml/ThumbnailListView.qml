@@ -27,6 +27,20 @@ ListView {
     signal replaceSelection(var items)
     signal contextMenuRequested(var item, real sceneX, real sceneY)
 
+    function maybeLoadMoreThumbnails() {
+        if (!albumBackend.hasMoreThumbnails) {
+            return
+        }
+        const threshold = Math.max(360, height * 0.5)
+        if (contentY >= originY + Math.max(0, contentHeight - height) - threshold) {
+            albumBackend.LoadMoreThumbnails()
+        }
+    }
+
+    onContentYChanged: maybeLoadMoreThumbnails()
+    onCountChanged: maybeLoadMoreThumbnails()
+    onMovementEnded: maybeLoadMoreThumbnails()
+
     function keyForElement(elementId) {
         return String(Number(elementId))
     }

@@ -4,13 +4,14 @@
 
 #pragma once
 
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
-#include "edit/pipeline/pipeline_cpu.hpp"
 #include "edit/history/edit_history.hpp"
+#include "edit/pipeline/pipeline_cpu.hpp"
 #include "sleeve/sleeve_element/sleeve_element.hpp"
 #include "sleeve/sleeve_filter/filter_combo.hpp"
 #include "storage/controller/controller_types.hpp"
@@ -36,13 +37,30 @@ struct FolderStatsView {
   std::vector<StorageStatsBucket> rating_stats_{};
 };
 
+struct ScopedFileQuery {
+  std::string from_where_;
+};
+
+/// Build the shared scope query fragment (FROM ... JOIN ... WHERE) for file-in-folder queries.
+/// All folder-scoped file lookups (search, stats, listing, pagination) must use this builder so
+/// the scope definition stays consistent across the application.
+auto BuildScopedFileQuery(sl_element_id_t                    folder_id,
+                          const std::optional<std::wstring>& extra_filter_where = std::nullopt)
+    -> ScopedFileQuery;
+
+struct FileListEntry {
+  sl_element_id_t file_id_  = 0;
+  image_id_t      image_id_ = 0;
+  std::string     file_name_{};
+};
+
 class ElementController {
  private:
   ConnectionGuard    guard_;
 
   ElementService     element_service_;
-  ElementIdService  element_id_service_;
-  
+  ElementIdService   element_id_service_;
+
   FileService        file_service_;
   FolderService      folder_service_;
   EditHistoryService history_service_;
@@ -55,6 +73,7 @@ class ElementController {
   void AddElement(const std::shared_ptr<SleeveElement> element);
 
   void AddFolderContent(sl_element_id_t folder_id, sl_element_id_t content_id);
+  void RemoveFolderContent(sl_element_id_t folder_id, sl_element_id_t content_id);
   auto GetFolderContent(const sl_element_id_t folder_id) -> std::vector<sl_element_id_t>;
 
   void RemoveElement(const sl_element_id_t id);
@@ -67,11 +86,27 @@ class ElementController {
       -> std::vector<std::shared_ptr<SleeveElement>>;
 
   auto GetElementIdsInFolderByFilter(const std::shared_ptr<FilterCombo> filter,
-                                      const sl_element_id_t folder_id)
+                                     const sl_element_id_t              folder_id)
       -> std::vector<sl_element_id_t>;
-  auto BuildFolderStats(sl_element_id_t                           folder_id,
+  auto BuildFolderStats(sl_element_id_t                    folder_id,
                         const std::optional<std::wstring>& extra_filter_where = std::nullopt)
       -> FolderStatsView;
+
+  /// Return lightweight file metadata for every live File in a folder, queried directly from DB
+  /// without materializing full SleeveElement objects.
+  auto ListFilesInFolder(sl_element_id_t folder_id) const -> std::vector<FileListEntry>;
+  auto ListFilesInFolderPage(sl_element_id_t folder_id, size_t offset, size_t limit,
+                             const std::optional<std::wstring>& extra_filter_where =
+                                 std::nullopt) const -> std::vector<FileListEntry>;
+  auto CountFilesInFolder(
+      sl_element_id_t                    folder_id,
+      const std::optional<std::wstring>& extra_filter_where = std::nullopt) const -> size_t;
+
+  /// Return element IDs for files in a folder matching an extra SQL WHERE clause.
+  /// Uses the same BuildScopedFileQuery infrastructure for consistency with stats queries.
+  auto ListFilteredFileIds(sl_element_id_t                    folder_id,
+                           const std::optional<std::wstring>& extra_filter_where =
+                               std::nullopt) const -> std::vector<sl_element_id_t>;
 
   void EnsureChildrenLoaded(sl_element_id_t folder_id);
 
@@ -82,7 +117,7 @@ class ElementController {
   auto RemovePipelineByElementId(const sl_element_id_t element_id) -> void;
 
   auto GetEditHistoryByFileId(const sl_element_id_t file_id) -> std::shared_ptr<EditHistory>;
-  auto UpdateEditHistoryByFileId(const sl_element_id_t file_id,
+  auto UpdateEditHistoryByFileId(const sl_element_id_t              file_id,
                                  const std::shared_ptr<EditHistory> history) -> void;
   auto RemoveEditHistoryByFileId(const sl_element_id_t file_id) -> void;
 

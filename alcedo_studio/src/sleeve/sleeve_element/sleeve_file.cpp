@@ -12,12 +12,15 @@
 namespace alcedo {
 SleeveFile::~SleeveFile() {}
 SleeveFile::SleeveFile(sl_element_id_t id, file_name_t element_name)
-    : SleeveElement(id, element_name) {
+    : SleeveElement(id, element_name), image_id_(0) {
   type_ = ElementType::FILE;
 }
 SleeveFile::SleeveFile(sl_element_id_t id, file_name_t element_name, std::shared_ptr<Image> image)
-    : SleeveElement(id, element_name) {
+    : SleeveElement(id, element_name), image_id_(0) {
   image_ = image;
+  if (image_) {
+    image_id_ = image_->image_id_;
+  }
   type_  = ElementType::FILE;
 }
 
@@ -28,11 +31,13 @@ auto SleeveFile::Clear() -> bool {
 
 auto SleeveFile::Copy(uint32_t new_id) const -> std::shared_ptr<SleeveElement> {
   std::shared_ptr<SleeveFile> new_file = std::make_shared<SleeveFile>(new_id, element_name_);
-  new_file->edit_history_              = edit_history_;
+  new_file->edit_history_              =
+      edit_history_ ? edit_history_->CloneForFile(new_id) : std::make_shared<EditHistory>(new_id);
   // TODO: Update the current_version pointer once finish implementing edit history module
   new_file->current_version_           = nullptr;
   // The image object is still reused
   new_file->image_                     = image_;
+  new_file->image_id_                  = image_id_;
   return new_file;
 }
 

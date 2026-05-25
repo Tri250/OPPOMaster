@@ -213,15 +213,19 @@ auto PipelineMgmtService::LoadPipeline(sl_element_id_t id) -> std::shared_ptr<Pi
         it->second->pin_count_++;
         it->second->pinned_ = true;
         it->second->id_     = id;
+        storage_service_->RememberLivePipeline(id, it->second->pipeline_);
         return it->second;
       }
     }
   } else {
     std::shared_ptr<CPUPipelineExecutor> pipeline;
     std::shared_ptr<PipelineGuard>       pipeline_guard;
+    pipeline = storage_service_->GetLivePipeline(id);
     try {
-      pipeline               = storage_service_->GetElementController().GetPipelineByElementId(id);
-      pipeline_guard         = std::make_shared<PipelineGuard>();
+      if (!pipeline) {
+        pipeline = storage_service_->GetElementController().GetPipelineByElementId(id);
+      }
+      pipeline_guard = std::make_shared<PipelineGuard>();
       pipeline_guard->dirty_ = false;
     } catch (std::exception& e) {
       throw std::runtime_error(
@@ -244,6 +248,7 @@ auto PipelineMgmtService::LoadPipeline(sl_element_id_t id) -> std::shared_ptr<Pi
     EnsureDefaultColorTemp(*pipeline);
     EnsureDefaultLensCalib(*pipeline);
     ResyncGlobalParamsFromOperators(*pipeline);
+    storage_service_->RememberLivePipeline(id, pipeline);
 
     pipeline->SetExecutionStages(); // TODO: Use service as the only way to set/reset execution stages
     pipeline_guard->pipeline_              = std::move(pipeline);
@@ -270,6 +275,7 @@ void PipelineMgmtService::SavePipeline(std::shared_ptr<PipelineGuard> pipeline) 
   }
 
   std::unique_lock<std::mutex> guard(lock_);
+  storage_service_->RememberLivePipeline(pipeline->id_, pipeline->pipeline_);
 
   if (pipeline->pin_count_ > 0) {
     pipeline->pin_count_--;
@@ -316,6 +322,7 @@ void PipelineMgmtService::DeletePipeline(sl_element_id_t id) {
   std::unique_lock<std::mutex> guard(lock_);
   pipeline_cache_.RemoveRecord(id);
   loaded_pipelines_.erase(id);
+  storage_service_->ForgetLivePipeline(id);
   try {
     storage_service_->GetElementController().RemovePipelineByElementId(id);
   } catch (...) {

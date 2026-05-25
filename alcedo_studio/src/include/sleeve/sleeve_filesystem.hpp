@@ -11,6 +11,7 @@
 
 #include "path_resolver.hpp"
 #include "sleeve/sleeve_element/sleeve_element.hpp"
+#include "sleeve/sleeve_element/sleeve_file.hpp"
 #include "sleeve/sleeve_element/sleeve_folder.hpp"
 #include "storage/image_pool/image_pool_manager.hpp"
 #include "storage_service.hpp"
@@ -46,6 +47,12 @@ class FileSystem {
 
   auto Create(std::filesystem::path dest, std::wstring filename, ElementType type)
       -> std::shared_ptr<SleeveElement>;
+  auto CreateFileInLibrary(file_name_t name) -> std::shared_ptr<SleeveFile>;
+  void LinkFileToFolder(sl_element_id_t file_id, sl_element_id_t folder_id);
+  void UnlinkFileFromFolder(sl_element_id_t file_id, sl_element_id_t folder_id);
+  auto DuplicateFileToFolder(sl_element_id_t file_id, sl_element_id_t folder_id)
+      -> std::shared_ptr<SleeveFile>;
+  void DeleteFileEverywhere(sl_element_id_t file_id);
   void Delete(std::filesystem::path target);
   void Delete(sl_element_id_t target_id);
   auto Get(std::filesystem::path target, bool write) -> std::shared_ptr<SleeveElement>;

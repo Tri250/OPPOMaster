@@ -12,9 +12,9 @@
 
 namespace alcedo::ui {
 
-#define PL_TEXT(text, ...)                                                                      \
-  i18n::MakeLocalizedText(ALCEDO_I18N_CONTEXT, QT_TRANSLATE_NOOP(ALCEDO_I18N_CONTEXT, text) \
-                                                     __VA_OPT__(, ) __VA_ARGS__)
+#define PL_TEXT(text, ...)                     \
+  i18n::MakeLocalizedText(ALCEDO_I18N_CONTEXT, \
+                          QT_TRANSLATE_NOOP(ALCEDO_I18N_CONTEXT, text) __VA_OPT__(, ) __VA_ARGS__)
 
 FolderController::FolderController(AlbumBackend& backend) : backend_(backend) {
   current_folder_path_      = album_util::RootFsPath();
@@ -38,6 +38,7 @@ void FolderController::EnsureRootNode() {
 
   FolderNodeState root;
   root.ui_id_       = 0;
+  root.element_id_  = 0;
   root.folder_path_ = root_path;
   root.depth_       = 0;
   root.expanded_    = true;
@@ -68,6 +69,7 @@ auto FolderController::EnsureNode(const std::filesystem::path& folderPath,
 
   FolderNodeState node;
   node.ui_id_                           = next_folder_ui_id_++;
+  node.element_id_                      = 0;
   node.folder_name_                     = folderName;
   node.folder_path_                     = folderPath;
   node.depth_                           = depth;
@@ -105,6 +107,7 @@ void FolderController::LoadChildren(const std::filesystem::path& parentPath) {
     for (const auto& folder : folders) {
       auto& child =
           EnsureNode(folder.folder_path_, folder.folder_name_, parent_it->second.depth_ + 1);
+      child.element_id_ = folder.folder_id_;
       child_keys.push_back(PathKey(child.folder_path_));
     }
   } catch (...) {
@@ -152,8 +155,8 @@ void FolderController::AppendVisibleEntries(const std::filesystem::path&      fo
     return;
   }
 
-  out.push_back({it->second.ui_id_, it->second.folder_name_, it->second.folder_path_,
-                 it->second.depth_, it->second.expanded_});
+  out.push_back({it->second.ui_id_, it->second.element_id_, it->second.folder_name_,
+                 it->second.folder_path_, it->second.depth_, it->second.expanded_});
 
   if (!it->second.expanded_) {
     return;
@@ -189,6 +192,7 @@ void FolderController::RebuildFolderView() {
     const QString name = folder.ui_id_ == 0 ? PL_TEXT("Root").Render()
                                             : album_util::WStringToQString(folder.folder_name_);
     next.push_back(QVariantMap{{"folderId", folder.ui_id_},
+                               {"elementId", static_cast<uint>(folder.element_id_)},
                                {"name", name},
                                {"depth", folder.depth_},
                                {"path", album_util::FolderPathToDisplay(folder.folder_path_)},
@@ -259,6 +263,33 @@ auto FolderController::CurrentFolderElementId() const -> std::optional<sl_elemen
 
   try {
     const auto folder = sleeve->ResolveFolder(current_folder_path_);
+    if (!folder) {
+      return std::nullopt;
+    }
+    return folder->element_id_;
+  } catch (...) {
+    return std::nullopt;
+  }
+}
+
+auto FolderController::FolderElementIdForUiId(uint folderUiId) const
+    -> std::optional<sl_element_id_t> {
+  const auto path_opt = TryGetPathForUiId(folderUiId);
+  if (!path_opt.has_value()) {
+    return std::nullopt;
+  }
+  auto proj = backend_.project_handler_.project();
+  if (!proj) {
+    return std::nullopt;
+  }
+
+  auto sleeve = proj->GetSleeveService();
+  if (!sleeve) {
+    return std::nullopt;
+  }
+
+  try {
+    const auto folder = sleeve->ResolveFolder(path_opt.value());
     if (!folder) {
       return std::nullopt;
     }

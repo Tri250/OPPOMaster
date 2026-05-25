@@ -19,8 +19,37 @@
 #include "utils/string/convert.hpp"
 
 namespace alcedo {
+
+auto BuildScopedFileQuery(sl_element_id_t                    folder_id,
+                          const std::optional<std::wstring>& extra_filter_where)
+    -> ScopedFileQuery {
+  std::string extra_where;
+  if (extra_filter_where.has_value() && !extra_filter_where->empty()) {
+    extra_where = " AND (" + conv::ToBytes(*extra_filter_where) + ")";
+  }
+
+  if (folder_id == 0) {
+    return {
+        std::format("FROM Element e "
+                    "JOIN FileImage fi ON fi.file_id = e.id "
+                    "JOIN Image i ON i.id = fi.image_id "
+                    "WHERE e.type = {}{}",
+                    static_cast<uint32_t>(ElementType::FILE), extra_where)};
+  }
+
+  return {
+      std::format("FROM FolderContent fc "
+                  "JOIN Element e ON fc.element_id = e.id "
+                  "JOIN FileImage fi ON fi.file_id = e.id "
+                  "JOIN Image i ON i.id = fi.image_id "
+                  "WHERE fc.folder_id = {} AND e.type = {}{}",
+                  folder_id, static_cast<uint32_t>(ElementType::FILE), extra_where)};
+}
+
 namespace {
-auto RunGroupByQuery(duckdb_connection conn, const std::string& sql) -> std::vector<StorageStatsBucket> {
+
+auto RunGroupByQuery(duckdb_connection conn, const std::string& sql)
+    -> std::vector<StorageStatsBucket> {
   std::vector<StorageStatsBucket> rows;
   duckdb_result                   result;
   if (duckdb_query(conn, sql.c_str(), &result) != DuckDBSuccess) {
@@ -105,8 +134,11 @@ void ElementController::AddElement(const std::shared_ptr<SleeveElement> element)
  * @param content_id
  */
 void ElementController::AddFolderContent(sl_element_id_t folder_id, sl_element_id_t content_id) {
-  // TODO: The uniqueness of content_id is not garanteed, SQL statement should be changed
   folder_service_.Insert({folder_id, content_id});
+}
+
+void ElementController::RemoveFolderContent(sl_element_id_t folder_id, sl_element_id_t content_id) {
+  folder_service_.RemoveFolderContent(folder_id, content_id);
 }
 
 /**
@@ -118,7 +150,7 @@ void ElementController::AddFolderContent(sl_element_id_t folder_id, sl_element_i
 auto ElementController::GetElementById(const sl_element_id_t id) -> std::shared_ptr<SleeveElement> {
   auto result = element_service_.GetElementById(id);
   if (result->type_ == ElementType::FILE) {
-    auto file    = std::static_pointer_cast<SleeveFile>(result);
+    auto file = std::static_pointer_cast<SleeveFile>(result);
     try {
       file->image_id_ = file_service_.GetBoundImageById(file->element_id_);
     } catch (...) {
@@ -154,7 +186,9 @@ void ElementController::RemoveElement(const std::shared_ptr<SleeveElement> eleme
   if (element->type_ == ElementType::FILE) {
     auto file = std::static_pointer_cast<SleeveFile>(element);
     history_service_.RemoveById(file->element_id_);
+    pipeline_service_.RemoveById(file->element_id_);
     file_service_.RemoveById(file->element_id_);
+    folder_service_.RemoveContentById(file->element_id_);
   } else if (element->type_ == ElementType::FOLDER) {
     auto folder = std::static_pointer_cast<SleeveFolder>(element);
     folder_service_.RemoveById(folder->element_id_);
@@ -172,7 +206,9 @@ void ElementController::UpdateElement(const std::shared_ptr<SleeveElement> eleme
   if (element->type_ == ElementType::FILE) {
     auto file = std::static_pointer_cast<SleeveFile>(element);
     file_service_.Update({file->element_id_, file->image_id_}, file->image_id_);
-    history_service_.Update(file->GetEditHistory(), file->element_id_);
+    if (file->GetEditHistory() != nullptr) {
+      history_service_.Update(file->GetEditHistory(), file->element_id_);
+    }
   } else if (element->type_ == ElementType::FOLDER) {
     auto folder = std::static_pointer_cast<SleeveFolder>(element);
     folder_service_.RemoveById(folder->element_id_);
@@ -186,36 +222,30 @@ void ElementController::UpdateElement(const std::shared_ptr<SleeveElement> eleme
 auto ElementController::GetElementsInFolderByFilter(const std::shared_ptr<FilterCombo> filter,
                                                     const sl_element_id_t              folder_id)
     -> std::vector<std::shared_ptr<SleeveElement>> {
-  // Build SQL query from the filter
-  std::wstring filter_sql = filter->GenerateSQLOn(folder_id);
+  const auto where      = FilterSQLCompiler::Compile(filter->GetRoot());
+  const auto scope      = BuildScopedFileQuery(folder_id, where);
+  const auto sql        = std::format("SELECT e.* {};", scope.from_where_);
+  const auto filter_sql = conv::FromBytes(sql);
   return element_service_.GetElementsInFolderByFilter(filter_sql);  // for specialized queries only
 }
 
 auto ElementController::GetElementIdsInFolderByFilter(const std::shared_ptr<FilterCombo> filter,
-                                                         const sl_element_id_t folder_id)
+                                                      const sl_element_id_t              folder_id)
     -> std::vector<sl_element_id_t> {
-  // Build SQL query from the filter
-  std::wstring filter_sql = filter->GenerateIdSQLOn(folder_id);
+  const auto where      = FilterSQLCompiler::Compile(filter->GetRoot());
+  const auto scope      = BuildScopedFileQuery(folder_id, where);
+  const auto sql        = std::format("SELECT e.id {};", scope.from_where_);
+  const auto filter_sql = conv::FromBytes(sql);
   return element_id_service_.GetElementIdsByQuery(filter_sql);  // for specialized queries only
 }
 
-auto ElementController::BuildFolderStats(
-    sl_element_id_t folder_id, const std::optional<std::wstring>& extra_filter_where)
+auto ElementController::BuildFolderStats(sl_element_id_t                    folder_id,
+                                         const std::optional<std::wstring>& extra_filter_where)
     -> FolderStatsView {
   FolderStatsView out;
 
-  std::string extra_where;
-  if (extra_filter_where.has_value() && !extra_filter_where->empty()) {
-    extra_where = " AND (" + conv::ToBytes(*extra_filter_where) + ")";
-  }
-
-  const auto base_join = std::format(
-      "FROM FolderContent fc "
-      "JOIN Element e ON fc.element_id = e.id "
-      "JOIN FileImage fi ON fi.file_id = e.id "
-      "JOIN Image i ON i.id = fi.image_id "
-      "WHERE fc.folder_id = {} AND e.type = 0{}",
-      folder_id, extra_where);
+  const auto      base_query = BuildScopedFileQuery(folder_id, extra_filter_where);
+  const auto&     base_join  = base_query.from_where_;
 
   out.total_photo_count_ =
       static_cast<int>(RunScalarInt64(guard_.conn_, std::format("SELECT COUNT(*) {}", base_join)));
@@ -246,11 +276,81 @@ auto ElementController::BuildFolderStats(
 
   out.rating_stats_ = RunGroupByQuery(
       guard_.conn_,
-      std::format(
-          "SELECT json_extract(i.metadata, '$.Rating')::VARCHAR AS r, COUNT(*) AS c {} "
-          "GROUP BY r ORDER BY r DESC",
-          base_join));
+      std::format("SELECT json_extract(i.metadata, '$.Rating')::VARCHAR AS r, COUNT(*) AS c {} "
+                  "GROUP BY r ORDER BY r DESC",
+                  base_join));
 
+  return out;
+}
+
+auto ElementController::ListFilesInFolder(sl_element_id_t folder_id) const
+    -> std::vector<FileListEntry> {
+  return ListFilesInFolderPage(folder_id, 0, 0);
+}
+
+auto ElementController::ListFilesInFolderPage(
+    sl_element_id_t folder_id, size_t offset, size_t limit,
+    const std::optional<std::wstring>& extra_filter_where) const -> std::vector<FileListEntry> {
+  std::vector<FileListEntry> out;
+  const auto                 scope = BuildScopedFileQuery(folder_id, extra_filter_where);
+  auto                       sql =
+      std::format("SELECT e.id, fi.image_id, e.element_name {} ORDER BY e.id", scope.from_where_);
+  if (limit > 0) {
+    sql += std::format(" LIMIT {} OFFSET {}", limit, offset);
+  }
+
+  duckdb_result result;
+  if (duckdb_query(guard_.conn_, sql.c_str(), &result) != DuckDBSuccess) {
+    duckdb_destroy_result(&result);
+    return out;
+  }
+
+  const auto row_count = duckdb_row_count(&result);
+  out.reserve(static_cast<size_t>(row_count));
+  for (idx_t r = 0; r < row_count; ++r) {
+    FileListEntry entry;
+    entry.file_id_  = static_cast<sl_element_id_t>(duckdb_value_int64(&result, 0, r));
+    entry.image_id_ = static_cast<image_id_t>(duckdb_value_int64(&result, 1, r));
+    char* name_raw  = duckdb_value_varchar(&result, 2, r);
+    if (name_raw) {
+      entry.file_name_ = name_raw;
+      duckdb_free(name_raw);
+    }
+    out.push_back(std::move(entry));
+  }
+
+  duckdb_destroy_result(&result);
+  return out;
+}
+
+auto ElementController::CountFilesInFolder(
+    sl_element_id_t folder_id, const std::optional<std::wstring>& extra_filter_where) const
+    -> size_t {
+  const auto scope = BuildScopedFileQuery(folder_id, extra_filter_where);
+  return static_cast<size_t>(
+      RunScalarInt64(guard_.conn_, std::format("SELECT COUNT(*) {}", scope.from_where_)));
+}
+
+auto ElementController::ListFilteredFileIds(
+    sl_element_id_t folder_id, const std::optional<std::wstring>& extra_filter_where) const
+    -> std::vector<sl_element_id_t> {
+  std::vector<sl_element_id_t> out;
+  const auto                   scope = BuildScopedFileQuery(folder_id, extra_filter_where);
+  const auto                   sql = std::format("SELECT e.id {} ORDER BY e.id", scope.from_where_);
+
+  duckdb_result                result;
+  if (duckdb_query(guard_.conn_, sql.c_str(), &result) != DuckDBSuccess) {
+    duckdb_destroy_result(&result);
+    return out;
+  }
+
+  const auto row_count = duckdb_row_count(&result);
+  out.reserve(static_cast<size_t>(row_count));
+  for (idx_t r = 0; r < row_count; ++r) {
+    out.push_back(static_cast<sl_element_id_t>(duckdb_value_int64(&result, 0, r)));
+  }
+
+  duckdb_destroy_result(&result);
   return out;
 }
 
@@ -260,8 +360,7 @@ auto ElementController::GetPipelineByElementId(const sl_element_id_t element_id)
 }
 
 auto ElementController::UpdatePipelineByElementId(
-    const sl_element_id_t                      element_id,
-    const std::shared_ptr<CPUPipelineExecutor> pipeline) -> void {
+    const sl_element_id_t element_id, const std::shared_ptr<CPUPipelineExecutor> pipeline) -> void {
   pipeline_service_.UpdatePipelineParamByFileId(element_id, pipeline);
 }
 

@@ -15,16 +15,21 @@ namespace {
 auto BuildFolderView(const std::filesystem::path&         parent_path,
                      const std::shared_ptr<SleeveFolder>& folder) -> AlbumFolderView {
   AlbumFolderView out;
+  out.folder_id_   = folder ? folder->element_id_ : 0;
   out.folder_name_ = folder ? folder->element_name_ : file_name_t{};
   out.folder_path_ = parent_path / out.folder_name_;
   return out;
 }
 
 auto BuildFileView(const std::filesystem::path&       parent_path,
-                   const std::shared_ptr<SleeveFile>& file) -> AlbumFileView {
+                   const std::shared_ptr<SleeveFile>& file, sl_element_id_t folder_id)
+    -> AlbumFileView {
   AlbumFileView out;
   out.element_id_ = file ? file->element_id_ : 0;
+  out.file_id_    = out.element_id_;
   out.image_id_   = file ? file->image_id_ : 0;
+  out.folder_id_  = folder_id;
+  out.scope_type_ = folder_id == 0 ? AlbumScopeType::Root : AlbumScopeType::Album;
   out.file_name_  = file ? file->element_name_ : file_name_t{};
   out.file_path_  = parent_path / out.file_name_;
   return out;
@@ -70,7 +75,9 @@ auto AlbumBrowseService::ListFilesInFolder(const std::filesystem::path& folder_p
   }
 
   try {
-    const auto entries = sleeve_service_->ListFolderEntries(folder_path);
+    const auto folder    = sleeve_service_->ResolveFolder(folder_path);
+    const auto folder_id = folder ? folder->element_id_ : 0;
+    const auto entries   = sleeve_service_->ListFolderEntries(folder_path);
     files.reserve(entries.size());
     for (const auto& entry : entries) {
       if (!entry || entry->type_ != ElementType::FILE || entry->sync_flag_ == SyncFlag::DELETED) {
@@ -80,13 +87,68 @@ auto AlbumBrowseService::ListFilesInFolder(const std::filesystem::path& folder_p
       if (!file || file->image_id_ == 0) {
         continue;
       }
-      files.push_back(BuildFileView(folder_path, file));
+      files.push_back(BuildFileView(folder_path, file, folder_id));
     }
   } catch (...) {
     return {};
   }
 
   return files;
+}
+
+auto AlbumBrowseService::ListFilesInFolderById(sl_element_id_t folder_id) const
+    -> std::vector<AlbumFileView> {
+  return ListFilesInFolderById(folder_id, 0, 0);
+}
+
+auto AlbumBrowseService::ListFilesInFolderById(
+    sl_element_id_t folder_id, size_t offset, size_t limit,
+    const std::optional<std::wstring>& extra_filter_where) const -> std::vector<AlbumFileView> {
+  std::vector<AlbumFileView> files;
+  if (!sleeve_service_) {
+    return files;
+  }
+
+  try {
+    const auto  storage = sleeve_service_->GetStorageService();
+    const auto& ctrl    = storage->GetElementController();
+    const auto  entries = ctrl.ListFilesInFolderPage(folder_id, offset, limit, extra_filter_where);
+    files.reserve(entries.size());
+    for (const auto& entry : entries) {
+      if (entry.file_id_ == 0 || entry.image_id_ == 0) {
+        continue;
+      }
+      AlbumFileView view;
+      view.element_id_ = entry.file_id_;
+      view.file_id_    = entry.file_id_;
+      view.image_id_   = entry.image_id_;
+      view.folder_id_  = folder_id;
+      view.scope_type_ = folder_id == 0 ? AlbumScopeType::Root : AlbumScopeType::Album;
+      view.file_name_  = conv::FromBytes(entry.file_name_);
+      view.file_path_  = std::filesystem::path{};
+      files.push_back(std::move(view));
+    }
+  } catch (...) {
+    return {};
+  }
+
+  return files;
+}
+
+auto AlbumBrowseService::CountFilesInFolderById(
+    sl_element_id_t folder_id, const std::optional<std::wstring>& extra_filter_where) const
+    -> size_t {
+  if (!sleeve_service_) {
+    return 0;
+  }
+
+  try {
+    const auto  storage = sleeve_service_->GetStorageService();
+    const auto& ctrl    = storage->GetElementController();
+    return ctrl.CountFilesInFolder(folder_id, extra_filter_where);
+  } catch (...) {
+    return 0;
+  }
 }
 
 auto AlbumBrowseService::CreateFolder(const std::filesystem::path& parent_folder_path,
@@ -141,8 +203,10 @@ auto AlbumBrowseService::DeleteFiles(const std::vector<std::filesystem::path>& f
         continue;
       }
 
-      const auto view = BuildFileView(path.parent_path(), file);
-      const auto sync = sleeve_service_->DeletePath(path);
+      const auto parent_folder = sleeve_service_->ResolveFolder(path.parent_path());
+      const auto folder_id     = parent_folder ? parent_folder->element_id_ : 0;
+      const auto view          = BuildFileView(path.parent_path(), file, folder_id);
+      const auto sync          = sleeve_service_->DeletePath(path);
       if (!sync.success_) {
         out.failed_paths_.push_back(path);
         continue;
@@ -153,11 +217,15 @@ auto AlbumBrowseService::DeleteFiles(const std::vector<std::filesystem::path>& f
     }
   }
 
+  if (filter_service_ && !out.deleted_files_.empty()) {
+    filter_service_->InvalidateResultCache();
+  }
+
   return out;
 }
 
-auto AlbumBrowseService::DeleteFilesByElementIds(
-    const std::vector<sl_element_id_t>& element_ids) -> AlbumDeleteResult {
+auto AlbumBrowseService::DeleteFilesByElementIds(const std::vector<sl_element_id_t>& element_ids)
+    -> AlbumDeleteResult {
   AlbumDeleteResult out;
   if (!sleeve_service_ || element_ids.empty()) {
     return out;
@@ -186,7 +254,7 @@ auto AlbumBrowseService::DeleteFilesByElementIds(
         continue;
       }
 
-      auto       view = BuildFileView({}, file);
+      auto       view = BuildFileView({}, file, 0);
       const auto sync = sleeve_service_->DeleteElement(element_id);
       if (!sync.success_) {
         out.failed_element_ids_.push_back(element_id);
@@ -196,6 +264,114 @@ auto AlbumBrowseService::DeleteFilesByElementIds(
     } catch (...) {
       out.failed_element_ids_.push_back(element_id);
     }
+  }
+
+  if (filter_service_ && !out.deleted_files_.empty()) {
+    filter_service_->InvalidateResultCache();
+  }
+
+  return out;
+}
+
+auto AlbumBrowseService::DeleteFilesInFolderByElementIds(
+    sl_element_id_t folder_id, const std::vector<sl_element_id_t>& element_ids)
+    -> AlbumDeleteResult {
+  AlbumDeleteResult out;
+  if (!sleeve_service_ || element_ids.empty()) {
+    return out;
+  }
+
+  std::unordered_set<sl_element_id_t> seen;
+  seen.reserve(element_ids.size() * 2 + 1);
+
+  for (const auto element_id : element_ids) {
+    if (element_id == 0 || !seen.insert(element_id).second) {
+      continue;
+    }
+
+    try {
+      const auto file = sleeve_service_->Read<std::shared_ptr<SleeveFile>>(
+          [element_id](FileSystem& fs) -> std::shared_ptr<SleeveFile> {
+            const auto element = fs.Get(element_id);
+            if (!element || element->type_ != ElementType::FILE ||
+                element->sync_flag_ == SyncFlag::DELETED) {
+              return nullptr;
+            }
+            return std::dynamic_pointer_cast<SleeveFile>(element);
+          });
+      if (!file || file->image_id_ == 0) {
+        out.failed_element_ids_.push_back(element_id);
+        continue;
+      }
+
+      auto       view = BuildFileView({}, file, folder_id);
+      const auto sync = folder_id == 0
+                            ? sleeve_service_->DeleteFileEverywhere(element_id)
+                            : sleeve_service_->DeleteFileFromFolder(element_id, folder_id);
+      if (!sync.success_) {
+        out.failed_element_ids_.push_back(element_id);
+        continue;
+      }
+      out.deleted_files_.push_back(std::move(view));
+    } catch (...) {
+      out.failed_element_ids_.push_back(element_id);
+    }
+  }
+
+  if (filter_service_ && !out.deleted_files_.empty()) {
+    if (folder_id == 0) {
+      filter_service_->InvalidateResultCache();
+    } else {
+      filter_service_->InvalidateResultCache(folder_id);
+    }
+  }
+
+  return out;
+}
+
+auto AlbumBrowseService::LinkFilesToFolder(const std::vector<sl_element_id_t>& element_ids,
+                                           sl_element_id_t target_folder_id) -> AlbumDeleteResult {
+  AlbumDeleteResult out;
+  if (!sleeve_service_ || target_folder_id == 0 || element_ids.empty()) {
+    return out;
+  }
+
+  std::unordered_set<sl_element_id_t> seen;
+  seen.reserve(element_ids.size() * 2 + 1);
+
+  for (const auto element_id : element_ids) {
+    if (element_id == 0 || !seen.insert(element_id).second) {
+      continue;
+    }
+
+    try {
+      const auto file = sleeve_service_->Read<std::shared_ptr<SleeveFile>>(
+          [element_id](FileSystem& fs) -> std::shared_ptr<SleeveFile> {
+            const auto element = fs.Get(element_id);
+            if (!element || element->type_ != ElementType::FILE ||
+                element->sync_flag_ == SyncFlag::DELETED) {
+              return nullptr;
+            }
+            return std::dynamic_pointer_cast<SleeveFile>(element);
+          });
+      if (!file || file->image_id_ == 0) {
+        out.failed_element_ids_.push_back(element_id);
+        continue;
+      }
+
+      const auto sync = sleeve_service_->LinkFileToFolder(element_id, target_folder_id);
+      if (!sync.success_) {
+        out.failed_element_ids_.push_back(element_id);
+        continue;
+      }
+      out.deleted_files_.push_back(BuildFileView({}, file, target_folder_id));
+    } catch (...) {
+      out.failed_element_ids_.push_back(element_id);
+    }
+  }
+
+  if (filter_service_ && !out.deleted_files_.empty()) {
+    filter_service_->InvalidateResultCache(target_folder_id);
   }
 
   return out;

@@ -12,6 +12,14 @@ ColumnLayout {
     property var folderRows: []
     property bool sortDescending: false
     property bool draftCollectionVisible: false
+    property string activeUtilityTab: "search"
+    readonly property var utilityTabs: [
+        {
+            tabId: "search",
+            label: qsTr("Search"),
+            iconSource: "qrc:/panel_icons/search.svg"
+        }
+    ]
     signal importRequested()
 
     function withAlpha(colorValue, alphaValue) {
@@ -37,7 +45,9 @@ ColumnLayout {
 
             const mapped = {
                 folderId: Number(row.folderId),
-                name: row.name ? String(row.name) : "",
+                elementId: Number(row.elementId),
+                name: Number(row.folderId) === 0 ? qsTr("全部图片")
+                                                  : (row.name ? String(row.name) : ""),
                 depth: Number(row.depth),
                 path: row.path ? String(row.path) : "",
                 deletable: row.deletable === true
@@ -144,53 +154,63 @@ ColumnLayout {
             anchors.margins: 14
             spacing: 12
 
-            Label {
+            ColumnLayout {
                 Layout.fillWidth: true
-                text: qsTr("Collections")
-                color: panel.withAlpha(theme.colText, 0.94)
-                font.family: appTheme.headlineFontFamily
-                font.pixelSize: 34
-                font.weight: 700
-            }
+                spacing: 6
 
-            Button {
-                id: searchPlaceholderButton
-                Layout.fillWidth: true
-                Layout.preferredHeight: 38
-                Material.foreground: theme.colText
-                onClicked: {}
+                Repeater {
+                    model: panel.utilityTabs
 
-                background: Rectangle {
-                    radius: 10
-                    color: searchPlaceholderButton.down
-                           ? panel.withAlpha(theme.colBgBase, 0.96)
-                           : panel.withAlpha(theme.colBgBase, 0.84)
-                    border.width: 1
-                    border.color: panel.withAlpha(theme.colText, searchPlaceholderButton.hovered ? 0.12 : 0.08)
-                }
+                    delegate: Rectangle {
+                        id: utilityTab
+                        required property var modelData
 
-                contentItem: RowLayout {
-                    spacing: 8
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 32
+                        radius: 8
+                        color: utilityMouse.pressed
+                               ? panel.withAlpha(theme.colHover, 0.34)
+                               : (utilityMouse.containsMouse
+                                  ? panel.withAlpha(theme.colHover, 0.24)
+                                  : "transparent")
 
-                    Image {
-                        width: 16
-                        height: 16
-                        source: "qrc:/panel_icons/search.svg"
-                        sourceSize.width: 16
-                        sourceSize.height: 16
-                        fillMode: Image.PreserveAspectFit
-                        mipmap: false
-                        smooth: false
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 2
+                            anchors.rightMargin: 8
+                            spacing: 10
+
+                            Image {
+                                Layout.preferredWidth: 17
+                                Layout.preferredHeight: 17
+                                source: modelData.iconSource
+                                sourceSize.width: 17
+                                sourceSize.height: 17
+                                fillMode: Image.PreserveAspectFit
+                                mipmap: false
+                                smooth: false
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: modelData.label
+                                color: panel.withAlpha(theme.colText, 0.92)
+                                font.family: appTheme.uiFontFamily
+                                font.pixelSize: 13
+                                font.weight: 600
+                                elide: Text.ElideRight
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                        }
+
+                        MouseArea {
+                            id: utilityMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: panel.activeUtilityTab = modelData.tabId
+                        }
                     }
-
-                    Label {
-                        text: qsTr("Search")
-                        color: panel.withAlpha(theme.colText, 0.76)
-                        font.pixelSize: 13
-                        font.weight: 500
-                    }
-
-                    Item { Layout.fillWidth: true }
                 }
             }
 
@@ -210,12 +230,29 @@ ColumnLayout {
 
                 Button {
                     id: sortButton
+                    implicitWidth: 28
+                    implicitHeight: 28
+                    Layout.minimumWidth: 28
                     Layout.preferredWidth: 28
+                    Layout.maximumWidth: 28
+                    Layout.minimumHeight: 28
                     Layout.preferredHeight: 28
+                    Layout.maximumHeight: 28
+                    Layout.alignment: Qt.AlignVCenter
+                    leftPadding: 0
+                    rightPadding: 0
+                    topPadding: 0
+                    bottomPadding: 0
+                    leftInset: 0
+                    rightInset: 0
+                    topInset: 0
+                    bottomInset: 0
                     Material.foreground: theme.colText
                     onClicked: panel.sortDescending = !panel.sortDescending
 
                     background: Rectangle {
+                        implicitWidth: 28
+                        implicitHeight: 28
                         radius: width / 2
                         color: sortButton.hovered || panel.sortDescending
                                ? panel.withAlpha(theme.colHover, 0.55)
@@ -223,6 +260,8 @@ ColumnLayout {
                     }
 
                     contentItem: Item {
+                        implicitWidth: 28
+                        implicitHeight: 28
                         Image {
                             anchors.centerIn: parent
                             width: 16
@@ -247,12 +286,29 @@ ColumnLayout {
 
                 Button {
                     id: addCollectionButton
+                    implicitWidth: 28
+                    implicitHeight: 28
+                    Layout.minimumWidth: 28
                     Layout.preferredWidth: 28
+                    Layout.maximumWidth: 28
+                    Layout.minimumHeight: 28
                     Layout.preferredHeight: 28
+                    Layout.maximumHeight: 28
+                    Layout.alignment: Qt.AlignVCenter
+                    leftPadding: 0
+                    rightPadding: 0
+                    topPadding: 0
+                    bottomPadding: 0
+                    leftInset: 0
+                    rightInset: 0
+                    topInset: 0
+                    bottomInset: 0
                     Material.foreground: theme.colText
                     onClicked: panel.beginCreateCollection()
 
                     background: Rectangle {
+                        implicitWidth: 28
+                        implicitHeight: 28
                         radius: width / 2
                         color: addCollectionButton.hovered || draftCollectionVisible
                                ? panel.withAlpha(theme.colHover, 0.55)
@@ -260,6 +316,8 @@ ColumnLayout {
                     }
 
                     contentItem: Item {
+                        implicitWidth: 28
+                        implicitHeight: 28
                         Image {
                             anchors.centerIn: parent
                             width: 16
@@ -280,56 +338,54 @@ ColumnLayout {
 
             Item {
                 Layout.fillWidth: true
-                Layout.preferredHeight: draftCollectionVisible ? 52 : 0
+                Layout.preferredHeight: draftCollectionVisible ? 78 : 0
                 clip: true
 
                 Behavior on Layout.preferredHeight {
                     NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
                 }
 
-                Rectangle {
+                ColumnLayout {
                     anchors.fill: parent
-                    radius: 10
-                    color: panel.withAlpha(theme.colHover, 0.32)
-                    border.width: 1
-                    border.color: panel.withAlpha(theme.colText, 0.08)
+                    spacing: 8
                     opacity: draftCollectionVisible ? 1.0 : 0.0
 
                     Behavior on opacity { NumberAnimation { duration: 120 } }
 
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: 10
-                        anchors.rightMargin: 10
-                        spacing: 10
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("Collection Name")
+                        color: panel.withAlpha(theme.colText, 0.90)
+                        font.pixelSize: 13
+                        font.weight: 700
+                    }
 
-                        Image {
-                            width: 15
-                            height: 15
-                            source: "qrc:/panel_icons/folder-open.svg"
-                            sourceSize.width: 15
-                            sourceSize.height: 15
-                            fillMode: Image.PreserveAspectFit
-                            mipmap: false
-                            smooth: false
+                    TextField {
+                        id: draftCollectionField
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 48
+                        selectByMouse: true
+                        color: theme.colText
+                        font.family: appTheme.dataFontFamily
+                        font.pixelSize: 16
+                        selectedTextColor: theme.colBgCanvas
+                        selectionColor: panel.withAlpha(theme.colAccentSecondary, 0.6)
+                        Material.foreground: theme.colText
+                        Material.accent: theme.colAccentSecondary
+                        background: Rectangle {
+                            radius: 10
+                            color: panel.withAlpha(theme.colBgBase, 0.72)
+                            border.width: 1
+                            border.color: draftCollectionField.activeFocus
+                                          ? panel.withAlpha(theme.colAccentSecondary, 0.62)
+                                          : panel.withAlpha(theme.colText, 0.12)
                         }
 
-                        TextField {
-                            id: draftCollectionField
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            placeholderText: qsTr("New collection...")
-                            color: theme.colText
-                            font.pixelSize: 15
-                            selectedTextColor: theme.colBgCanvas
-                            selectionColor: panel.withAlpha(theme.colAccentSecondary, 0.6)
-                            background: Item {}
-                            onAccepted: panel.commitDraftCollection()
-                            Keys.onEscapePressed: panel.cancelDraftCollection()
-                            onEditingFinished: {
-                                if (panel.draftCollectionVisible) {
-                                    panel.commitDraftCollection()
-                                }
+                        onAccepted: panel.commitDraftCollection()
+                        Keys.onEscapePressed: panel.cancelDraftCollection()
+                        onEditingFinished: {
+                            if (panel.draftCollectionVisible) {
+                                panel.commitDraftCollection()
                             }
                         }
                     }

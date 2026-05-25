@@ -164,6 +164,16 @@ Item {
         albumBackend.SetThumbnailCacheHint(cols * rows, root.desiredMaxEdge)
     }
 
+    function maybeLoadMoreThumbnails() {
+        if (!albumBackend.hasMoreThumbnails || grid.cellHeight <= 0) {
+            return
+        }
+        const threshold = Math.max(grid.cellHeight * 3, grid.height * 0.5)
+        if (grid.contentY >= root.maxContentY() - threshold) {
+            albumBackend.LoadMoreThumbnails()
+        }
+    }
+
     function keyForElement(elementId) {
         return String(Number(elementId))
     }
@@ -221,7 +231,10 @@ Item {
         onHeightChanged: root.clampContentY()
         onCellWidthChanged: root.relayoutAndClamp()
         onCellHeightChanged: root.clampContentY()
-        onCountChanged: root.relayoutAndClamp()
+        onCountChanged: {
+            root.relayoutAndClamp()
+            root.maybeLoadMoreThumbnails()
+        }
 
         delegate: Rectangle {
             id: cardDelegate
@@ -650,6 +663,7 @@ Item {
 
             const wheelDelta = wheel.pixelDelta.y !== 0 ? wheel.pixelDelta.y : wheel.angleDelta.y
             root.scrollBy(-wheelDelta)
+            root.maybeLoadMoreThumbnails()
             if (isDragging) {
                 applyRubberBandSelection()
             }

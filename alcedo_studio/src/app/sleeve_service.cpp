@@ -54,6 +54,25 @@ void LogSyncElement(const char* bucket, const std::shared_ptr<SleeveElement>& el
             << std::endl;
 }
 
+void ClonePipelineForDuplicate(StorageService& storage_service, sl_element_id_t source_file_id,
+                               sl_element_id_t duplicate_file_id) {
+  auto source_pipeline = storage_service.GetLivePipeline(source_file_id);
+  if (!source_pipeline) {
+    source_pipeline = storage_service.GetElementController().GetPipelineByElementId(source_file_id);
+  }
+  if (!source_pipeline) {
+    return;
+  }
+
+  auto duplicate_pipeline = std::make_shared<CPUPipelineExecutor>();
+  duplicate_pipeline->SetBoundFile(duplicate_file_id);
+  duplicate_pipeline->ImportPipelineParams(source_pipeline->ExportPipelineParams());
+  duplicate_pipeline->SetExecutionStages();
+  storage_service.GetElementController().UpdatePipelineByElementId(duplicate_file_id,
+                                                                   duplicate_pipeline);
+  storage_service.RememberLivePipeline(duplicate_file_id, duplicate_pipeline);
+}
+
 }  // namespace
 
 SleeveServiceImpl::SleeveServiceImpl(std::shared_ptr<StorageService> storage_service,
@@ -99,6 +118,10 @@ auto SleeveServiceImpl::Sync() -> SyncResult {
     // TODO: This should be done periodically instead of every sync
     for (auto& element : garbage_elements) {
       LogSyncElement("Deleted", element);
+      if (element && element->type_ == ElementType::FILE) {
+        storage_service_->ForgetLiveEditHistory(element->element_id_);
+        storage_service_->ForgetLivePipeline(element->element_id_);
+      }
       element_ctrl.RemoveElement(element);
       result.elements_synced_++;
     }
@@ -177,6 +200,49 @@ auto SleeveServiceImpl::CreateFolder(const std::filesystem::path& parent_path,
     throw std::runtime_error("SleeveService: Failed to create folder.");
   }
   return result;
+}
+
+auto SleeveServiceImpl::CreateFileInLibrary(const file_name_t& name)
+    -> std::pair<std::shared_ptr<SleeveFile>, SyncResult> {
+  return Write<std::shared_ptr<SleeveFile>>(
+      [name](FileSystem& fs) { return fs.CreateFileInLibrary(name); });
+}
+
+auto SleeveServiceImpl::LinkFileToFolder(sl_element_id_t file_id, sl_element_id_t folder_id)
+    -> SyncResult {
+  return Write<void>(
+      [file_id, folder_id](FileSystem& fs) { fs.LinkFileToFolder(file_id, folder_id); });
+}
+
+auto SleeveServiceImpl::DeleteFileFromFolder(sl_element_id_t file_id,
+                                             sl_element_id_t folder_id) -> SyncResult {
+  return Write<void>(
+      [file_id, folder_id](FileSystem& fs) { fs.UnlinkFileFromFolder(file_id, folder_id); });
+}
+
+auto SleeveServiceImpl::DeleteFileEverywhere(sl_element_id_t file_id) -> SyncResult {
+  return Write<void>([file_id](FileSystem& fs) { fs.DeleteFileEverywhere(file_id); });
+}
+
+auto SleeveServiceImpl::DuplicateFileToFolder(sl_element_id_t file_id,
+                                              sl_element_id_t folder_id)
+    -> std::pair<std::shared_ptr<SleeveFile>, SyncResult> {
+  std::lock_guard<std::mutex> lock(fs_lock_);
+
+  auto       duplicated  = fs_->DuplicateFileToFolder(file_id, folder_id);
+  SyncResult sync_result = Sync();
+  if (!duplicated || !sync_result.success_) {
+    return {duplicated, sync_result};
+  }
+
+  try {
+    ClonePipelineForDuplicate(*storage_service_, file_id, duplicated->element_id_);
+  } catch (const std::exception& e) {
+    sync_result.success_ = false;
+    sync_result.message_ = e.what();
+  }
+
+  return {duplicated, sync_result};
 }
 
 auto SleeveServiceImpl::DeletePath(const std::filesystem::path& target_path) -> SyncResult {

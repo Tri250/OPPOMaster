@@ -4,13 +4,8 @@
 
 #include "ui/alcedo_main/album_backend/album_backend.hpp"
 
-#include "app/project_package_service.hpp"
-#include "edit/operators/utils/color_utils.hpp"
-#include "utils/cuda/cuda_driver_requirements.hpp"
-#include "ui/alcedo_main/album_backend/path_utils.hpp"
-
-#include <QDesktopServices>
 #include <QDateTime>
+#include <QDesktopServices>
 #include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -20,27 +15,33 @@
 #include <QStandardPaths>
 #include <QTimer>
 #include <QUrl>
-
 #include <algorithm>
+#include <limits>
 #include <optional>
+#include <string>
 
+#include "app/album_browse_service.hpp"
+#include "app/project_package_service.hpp"
+#include "edit/operators/utils/color_utils.hpp"
 #include "image/image.hpp"
+#include "ui/alcedo_main/album_backend/path_utils.hpp"
+#include "utils/cuda/cuda_driver_requirements.hpp"
 
 namespace alcedo::ui {
 
 using namespace album_util;
 
-#define PL_TEXT(text, ...)                                                    \
-  i18n::MakeLocalizedText(ALCEDO_I18N_CONTEXT,                              \
-                          QT_TRANSLATE_NOOP(ALCEDO_I18N_CONTEXT, text)      \
-                              __VA_OPT__(, ) __VA_ARGS__)
+#define PL_TEXT(text, ...)                     \
+  i18n::MakeLocalizedText(ALCEDO_I18N_CONTEXT, \
+                          QT_TRANSLATE_NOOP(ALCEDO_I18N_CONTEXT, text) __VA_OPT__(, ) __VA_ARGS__)
 
 namespace {
 
-constexpr auto kRecentProjectsKey = "projects/recent";
-constexpr auto kAcceleratorBackendKey = "gpu/acceleratorBackend";
-constexpr auto kAcceleratorWarningAcknowledgedKey = "gpu/acceleratorWarningAcknowledged";
-constexpr int  kMaxRecentProjects = 12;
+constexpr auto   kRecentProjectsKey                 = "projects/recent";
+constexpr auto   kAcceleratorBackendKey             = "gpu/acceleratorBackend";
+constexpr auto   kAcceleratorWarningAcknowledgedKey = "gpu/acceleratorWarningAcknowledged";
+constexpr int    kMaxRecentProjects                 = 12;
+constexpr size_t kAlbumMetadataPageSize             = 1000;
 
 [[maybe_unused]] constexpr const char* kAcceleratorTranslationStrings[] = {
     QT_TRANSLATE_NOOP("Alcedo", "CPU"),
@@ -185,8 +186,9 @@ AlbumBackend::AlbumBackend(QObject* parent)
       nikon_he_recovery_(*this),
       editor_(*this) {
   LoadRecentProjectsFromSettings();
-  QObject::connect(&i18n::TranslationNotifier::Instance(), &i18n::TranslationNotifier::LanguageChanged,
-                   this, &AlbumBackend::RefreshTranslations);
+  QObject::connect(&i18n::TranslationNotifier::Instance(),
+                   &i18n::TranslationNotifier::LanguageChanged, this,
+                   &AlbumBackend::RefreshTranslations);
   InitializeAcceleratorSettings();
   editor_.InitializeEditorLuts();
   SetServiceState(false, PL_TEXT("Select a project: load a .alcd package or create a new "
@@ -222,19 +224,28 @@ auto AlbumBackend::FilterInfo() const -> QString {
 }
 
 int AlbumBackend::TotalCount() const {
-  return static_cast<int>(view_state_.all_images_.size());
+  return static_cast<int>(
+      std::min<size_t>(view_state_.total_count_, std::numeric_limits<int>::max()));
+}
+
+bool AlbumBackend::HasMoreThumbnails() const {
+  return view_state_.all_images_.size() < view_state_.total_count_;
 }
 
 // ── Q_INVOKABLE: Folder delegation ──────────────────────────────────────────
 
-void AlbumBackend::SelectFolder(uint folderId) {
-  folder_ctrl_.SelectFolder(folderId);
-}
+void AlbumBackend::SelectFolder(uint folderId) { folder_ctrl_.SelectFolder(folderId); }
 
-void AlbumBackend::CreateFolder(const QString& folderName) { folder_ctrl_.CreateFolder(folderName); }
+void AlbumBackend::CreateFolder(const QString& folderName) {
+  folder_ctrl_.CreateFolder(folderName);
+}
 void AlbumBackend::DeleteFolder(uint folderId) { folder_ctrl_.DeleteFolder(folderId); }
 auto AlbumBackend::DeleteImages(const QVariantList& targetEntries) -> QVariantMap {
   return image_ctrl_.DeleteImages(targetEntries);
+}
+auto AlbumBackend::AddImagesToFolder(const QVariantList& targetEntries, uint targetFolderId)
+    -> QVariantMap {
+  return image_ctrl_.AddImagesToFolder(targetEntries, targetFolderId);
 }
 auto AlbumBackend::GetImageDetails(uint elementId, uint imageId) -> QVariantMap {
   return image_ctrl_.GetImageDetails(elementId, imageId);
@@ -253,9 +264,9 @@ bool AlbumBackend::OpenDirectoryInFileManager(const QString& dirUrlOrPath) {
   }
 
   const std::filesystem::path dir_path = dir_path_opt.value().lexically_normal();
-  std::error_code ec;
-  if (!std::filesystem::exists(dir_path, ec) || ec || !std::filesystem::is_directory(dir_path, ec) ||
-      ec) {
+  std::error_code             ec;
+  if (!std::filesystem::exists(dir_path, ec) || ec ||
+      !std::filesystem::is_directory(dir_path, ec) || ec) {
     SetServiceMessageForCurrentProject(PL_TEXT("Source directory is unavailable."));
     return false;
   }
@@ -284,21 +295,21 @@ void AlbumBackend::ClearStatsFilter() {
 
 // ── Q_INVOKABLE: Import / export delegation ─────────────────────────────────
 
-void AlbumBackend::StartImport(const QStringList& fileUrlsOrPaths) { import_export_.StartImport(fileUrlsOrPaths); }
+void AlbumBackend::StartImport(const QStringList& fileUrlsOrPaths) {
+  import_export_.StartImport(fileUrlsOrPaths);
+}
 void AlbumBackend::CancelImport() { import_export_.CancelImport(); }
 
 void AlbumBackend::InitializeAcceleratorSettings() {
-  const QString stored_key =
-      QSettings{}.value(QLatin1String(kAcceleratorBackendKey)).toString();
-  const auto stored_preference = AcceleratorPreferenceFromKey(stored_key);
-  const bool stored_cuda_preference =
-      stored_preference.has_value() &&
-      *stored_preference == AcceleratorBackendPreference::CUDA;
+  const QString stored_key = QSettings{}.value(QLatin1String(kAcceleratorBackendKey)).toString();
+  const auto    stored_preference = AcceleratorPreferenceFromKey(stored_key);
+  const bool    stored_cuda_preference =
+      stored_preference.has_value() && *stored_preference == AcceleratorBackendPreference::CUDA;
 
 #if defined(__APPLE__)
   metal_backend_available_ = CanResolveAccelerator(AcceleratorBackendPreference::Metal);
 #else
-  cuda_backend_available_ = CanResolveAccelerator(AcceleratorBackendPreference::CUDA);
+  cuda_backend_available_   = CanResolveAccelerator(AcceleratorBackendPreference::CUDA);
   opencl_backend_available_ = CanResolveAccelerator(AcceleratorBackendPreference::OpenCL);
 #if defined(_WIN32) && defined(HAVE_CUDA)
   const auto cuda_support = cuda::CheckDriverSupport();
@@ -308,13 +319,12 @@ void AlbumBackend::InitializeAcceleratorSettings() {
                                   : AcceleratorPreferenceLabel(AcceleratorBackendPreference::CPU);
 
     if (cuda_support.nvidia_adapter_detected) {
-      accelerator_warning_id_ =
-          QStringLiteral("cuda-driver:%1:%2:%3")
-              .arg(static_cast<int>(cuda_support.status))
-              .arg(cuda_support.detected_cuda_driver_version)
-              .arg(cuda::kMinimumSupportedCudaDriverVersion);
-      const QString required_version = QString::fromStdString(
-          cuda::FormatCudaVersion(cuda::kMinimumSupportedCudaDriverVersion));
+      accelerator_warning_id_ = QStringLiteral("cuda-driver:%1:%2:%3")
+                                    .arg(static_cast<int>(cuda_support.status))
+                                    .arg(cuda_support.detected_cuda_driver_version)
+                                    .arg(cuda::kMinimumSupportedCudaDriverVersion);
+      const QString required_version =
+          QString::fromStdString(cuda::FormatCudaVersion(cuda::kMinimumSupportedCudaDriverVersion));
       const QString detected_version = QString::fromStdString(
           cuda::FormatCudaVersion(cuda_support.detected_cuda_driver_version));
 
@@ -343,7 +353,7 @@ void AlbumBackend::InitializeAcceleratorSettings() {
           "%2\n\nAlcedo will use %3 instead.",
           required_version, detail, fallback_backend);
     } else {
-      accelerator_warning_id_ = QStringLiteral("cuda-no-nvidia");
+      accelerator_warning_id_   = QStringLiteral("cuda-no-nvidia");
       accelerator_warning_text_ = PL_TEXT(
           "CUDA acceleration is not supported on this machine because no NVIDIA graphics card was "
           "detected.\n\nAlcedo will use %1 instead.",
@@ -368,8 +378,8 @@ void AlbumBackend::InitializeAcceleratorSettings() {
 
   if (stored_preference.has_value() &&
       FindOptionIndex(accelerator_options_, AcceleratorPreferenceKey(*stored_preference)) >= 0) {
-    accelerator_preference_   = *stored_preference;
-    accelerator_backend_key_  = AcceleratorPreferenceKey(accelerator_preference_);
+    accelerator_preference_  = *stored_preference;
+    accelerator_backend_key_ = AcceleratorPreferenceKey(accelerator_preference_);
     return;
   }
 
@@ -457,9 +467,8 @@ void AlbumBackend::AcknowledgeAcceleratorWarning() {
 
 bool AlbumBackend::IsAcceleratorWarningAcknowledged() const {
   return !accelerator_warning_id_.isEmpty() &&
-         QSettings{}
-                 .value(QLatin1String(kAcceleratorWarningAcknowledgedKey))
-                 .toString() == accelerator_warning_id_;
+         QSettings{}.value(QLatin1String(kAcceleratorWarningAcknowledgedKey)).toString() ==
+             accelerator_warning_id_;
 }
 
 void AlbumBackend::PersistAcceleratorWarningAcknowledgement() const {
@@ -474,28 +483,22 @@ void AlbumBackend::StartExport(const QString& outputDirUrlOrPath) {
 }
 
 void AlbumBackend::StartExportWithOptions(const QString& outputDirUrlOrPath,
-                                          const QString& formatName,
-                                          const QString& hdrExportMode, bool resizeEnabled,
-                                          int maxLengthSide, int quality, int bitDepth,
-                                          int pngCompressionLevel,
+                                          const QString& formatName, const QString& hdrExportMode,
+                                          bool resizeEnabled, int maxLengthSide, int quality,
+                                          int bitDepth, int pngCompressionLevel,
                                           const QString& tiffCompression) {
   import_export_.StartExportWithOptions(outputDirUrlOrPath, formatName, hdrExportMode,
                                         resizeEnabled, maxLengthSide, quality, bitDepth,
                                         pngCompressionLevel, tiffCompression);
 }
 
-void AlbumBackend::StartExportWithOptionsForTargets(const QString& outputDirUrlOrPath,
-                                                    const QString& formatName,
-                                                    const QString& hdrExportMode,
-                                                    bool resizeEnabled, int maxLengthSide,
-                                                    int quality, int bitDepth,
-                                                    int pngCompressionLevel,
-                                                    const QString& tiffCompression,
-                                                    const QVariantList& targetEntries) {
-  import_export_.StartExportWithOptionsForTargets(outputDirUrlOrPath, formatName, hdrExportMode,
-                                                  resizeEnabled, maxLengthSide, quality, bitDepth,
-                                                  pngCompressionLevel, tiffCompression,
-                                                  targetEntries);
+void AlbumBackend::StartExportWithOptionsForTargets(
+    const QString& outputDirUrlOrPath, const QString& formatName, const QString& hdrExportMode,
+    bool resizeEnabled, int maxLengthSide, int quality, int bitDepth, int pngCompressionLevel,
+    const QString& tiffCompression, const QVariantList& targetEntries) {
+  import_export_.StartExportWithOptionsForTargets(
+      outputDirUrlOrPath, formatName, hdrExportMode, resizeEnabled, maxLengthSide, quality,
+      bitDepth, pngCompressionLevel, tiffCompression, targetEntries);
 }
 
 void AlbumBackend::ResetExportState() { import_export_.ResetExportState(); }
@@ -524,8 +527,8 @@ bool AlbumBackend::CanUseHdrExportForTargets(const QVariantList& targetEntries) 
       if (!pipeline_guard || !pipeline_guard->pipeline_) {
         return false;
       }
-      hdr_eotf = IsHdrExportEotf(
-          pipeline_guard->pipeline_->GetGlobalParams().to_output_params_.eotf_);
+      hdr_eotf =
+          IsHdrExportEotf(pipeline_guard->pipeline_->GetGlobalParams().to_output_params_.eotf_);
       psvc->SavePipeline(pipeline_guard);
     } catch (...) {
       return false;
@@ -544,7 +547,9 @@ void AlbumBackend::ExitNikonHeRecovery() { nikon_he_recovery_.ExitRecovery(); }
 
 // ── Q_INVOKABLE: Editor delegation ──────────────────────────────────────────
 
-void AlbumBackend::OpenEditor(uint elementId, uint imageId) { editor_.OpenEditor(elementId, imageId); }
+void AlbumBackend::OpenEditor(uint elementId, uint imageId) {
+  editor_.OpenEditor(elementId, imageId);
+}
 void AlbumBackend::CloseEditor() { editor_.CloseEditor(); }
 void AlbumBackend::ResetEditorAdjustments() { editor_.ResetEditorAdjustments(); }
 void AlbumBackend::RequestEditorFullPreview() { editor_.RequestEditorFullPreview(); }
@@ -562,8 +567,7 @@ void AlbumBackend::SetEditorClarity(double value) { editor_.SetEditorClarity(val
 
 // ── Q_INVOKABLE: Thumbnail delegation ───────────────────────────────────────
 
-void AlbumBackend::SetThumbnailVisible(uint elementId, uint imageId, bool visible,
-                                       uint maxEdge) {
+void AlbumBackend::SetThumbnailVisible(uint elementId, uint imageId, bool visible, uint maxEdge) {
   thumb_.SetThumbnailVisible(elementId, imageId, visible, maxEdge);
 }
 
@@ -591,6 +595,8 @@ void AlbumBackend::SetThumbnailCacheHint(uint visibleCells, uint maxEdge) {
   }
 }
 
+bool AlbumBackend::LoadMoreThumbnails() { return stats_.LoadMoreThumbnailView(); }
+
 // ── Q_INVOKABLE: Project I/O ────────────────────────────────────────────────
 
 bool AlbumBackend::PromptAndLoadProject() {
@@ -605,18 +611,18 @@ bool AlbumBackend::PromptAndLoadProject() {
 }
 
 bool AlbumBackend::PromptAndCreateProject() {
-  const QString start_dir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
-  const QString selected_dir =
-      QFileDialog::getExistingDirectory(nullptr, tr("Select Parent Folder for New Project"), start_dir,
-                                        QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
+  const QString start_dir    = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+  const QString selected_dir = QFileDialog::getExistingDirectory(
+      nullptr, tr("Select Parent Folder for New Project"), start_dir,
+      QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
   if (selected_dir.isEmpty()) {
     return false;
   }
 
-  bool accepted = false;
-  QString project_name = QInputDialog::getText(
-      nullptr, tr("Name New Project"), tr("Project name"), QLineEdit::Normal,
-      QStringLiteral("album_editor_project"), &accepted);
+  bool    accepted = false;
+  QString project_name =
+      QInputDialog::getText(nullptr, tr("Name New Project"), tr("Project name"), QLineEdit::Normal,
+                            QStringLiteral("album_editor_project"), &accepted);
   if (!accepted) {
     return false;
   }
@@ -642,7 +648,7 @@ bool AlbumBackend::LoadProject(const QString& metaFileUrlOrPath) {
     return false;
   }
 
-  const auto project_path = project_path_opt.value();
+  const auto      project_path = project_path_opt.value();
   std::error_code ec;
   if (!std::filesystem::is_regular_file(project_path, ec) || ec) {
     RemoveRecentProject(project_path);
@@ -659,14 +665,13 @@ bool AlbumBackend::LoadProject(const QString& metaFileUrlOrPath) {
   }
 
   if (package_service.IsPackedProjectPath(project_path)) {
-    const QString project_name = QFileInfo(PathToQString(project_path)).completeBaseName();
+    const QString         project_name = QFileInfo(PathToQString(project_path)).completeBaseName();
     std::filesystem::path workspace_dir;
     QString               workspace_error;
     if (!package_service.CreateProjectWorkspace(project_name, &workspace_dir, &workspace_error)) {
-      SetServiceMessageForCurrentProject(
-          workspace_error.isEmpty()
-              ? PL_TEXT("Failed to prepare project temp workspace.")
-              : PL_TEXT("%1", workspace_error));
+      SetServiceMessageForCurrentProject(workspace_error.isEmpty()
+                                             ? PL_TEXT("Failed to prepare project temp workspace.")
+                                             : PL_TEXT("%1", workspace_error));
       return false;
     }
 
@@ -677,19 +682,18 @@ bool AlbumBackend::LoadProject(const QString& metaFileUrlOrPath) {
                                                   &unpacked_db_path, &unpacked_meta_path,
                                                   &unpack_error)) {
       CleanupWorkspaceDirectory(workspace_dir);
-      SetServiceMessageForCurrentProject(
-          unpack_error.isEmpty() ? PL_TEXT("Failed to unpack project package.")
-                                 : PL_TEXT("%1", unpack_error));
+      SetServiceMessageForCurrentProject(unpack_error.isEmpty()
+                                             ? PL_TEXT("Failed to unpack project package.")
+                                             : PL_TEXT("%1", unpack_error));
       return false;
     }
 
     return project_handler_.InitializeServices(unpacked_db_path, unpacked_meta_path,
-                                               ProjectOpenMode::kLoadExisting,
-                                               project_path, workspace_dir, project_path);
+                                               ProjectOpenMode::kLoadExisting, project_path,
+                                               workspace_dir, project_path);
   }
 
-  SetServiceMessageForCurrentProject(
-      PL_TEXT("Unsupported project format. Choose a .alcd file."));
+  SetServiceMessageForCurrentProject(PL_TEXT("Unsupported project format. Choose a .alcd file."));
   return false;
 }
 
@@ -712,32 +716,30 @@ bool AlbumBackend::CreateProjectInFolderNamed(const QString& folderUrlOrPath,
 
   ProjectPackageService package_service;
 
-  QString build_error;
-  const auto packed_path_opt =
-      package_service.BuildUniquePackedProjectPath(folder_path_opt.value(), projectName,
-                                                   &build_error);
+  QString               build_error;
+  const auto            packed_path_opt = package_service.BuildUniquePackedProjectPath(
+      folder_path_opt.value(), projectName, &build_error);
   if (!packed_path_opt.has_value()) {
     SetServiceMessageForCurrentProject(
-        build_error.isEmpty() ? PL_TEXT("Failed to prepare project package path in selected folder.")
-                              : PL_TEXT("%1", build_error));
+        build_error.isEmpty()
+            ? PL_TEXT("Failed to prepare project package path in selected folder.")
+            : PL_TEXT("%1", build_error));
     return false;
   }
 
   std::filesystem::path workspace_dir;
   QString               workspace_error;
   if (!package_service.CreateProjectWorkspace(projectName, &workspace_dir, &workspace_error)) {
-    SetServiceMessageForCurrentProject(
-        workspace_error.isEmpty() ? PL_TEXT("Failed to prepare project temp workspace.")
-                                  : PL_TEXT("%1", workspace_error));
+    SetServiceMessageForCurrentProject(workspace_error.isEmpty()
+                                           ? PL_TEXT("Failed to prepare project temp workspace.")
+                                           : PL_TEXT("%1", workspace_error));
     return false;
   }
 
   const auto runtime_pair = package_service.BuildRuntimeProjectPair(workspace_dir, projectName);
-  const bool started =
-      project_handler_.InitializeServices(runtime_pair.first, runtime_pair.second,
-                                          ProjectOpenMode::kCreateNew,
-                                          packed_path_opt.value(), workspace_dir,
-                                          packed_path_opt.value());
+  const bool started      = project_handler_.InitializeServices(
+      runtime_pair.first, runtime_pair.second, ProjectOpenMode::kCreateNew, packed_path_opt.value(),
+      workspace_dir, packed_path_opt.value());
   if (!started) {
     CleanupWorkspaceDirectory(workspace_dir);
   }
@@ -768,9 +770,9 @@ bool AlbumBackend::SaveProject() {
 
   QString package_error;
   if (!project_handler_.PackageCurrentProjectFiles(&package_error)) {
-    SetServiceMessageForCurrentProject(
-        package_error.isEmpty() ? PL_TEXT("Project saved, but packing failed.")
-                                : PL_TEXT("%1", package_error));
+    SetServiceMessageForCurrentProject(package_error.isEmpty()
+                                           ? PL_TEXT("Project saved, but packing failed.")
+                                           : PL_TEXT("%1", package_error));
     SetTaskState(PL_TEXT("Project packing failed."), 0, false);
     return false;
   }
@@ -794,7 +796,7 @@ void AlbumBackend::SetServiceState(bool ready, const i18n::LocalizedText& messag
       service_message_text_.args_ == message.args_) {
     return;
   }
-  service_ready_   = ready;
+  service_ready_        = ready;
   service_message_text_ = message;
   emit ServiceStateChanged();
 }
@@ -811,7 +813,8 @@ void AlbumBackend::ScheduleIdleTaskStateReset(int delayMs) {
   });
 }
 
-void AlbumBackend::SetTaskState(const i18n::LocalizedText& status, int progress, bool cancelVisible) {
+void AlbumBackend::SetTaskState(const i18n::LocalizedText& status, int progress,
+                                bool cancelVisible) {
   task_status_text_    = status;
   task_progress_       = std::clamp(progress, 0, 100);
   task_cancel_visible_ = cancelVisible;
@@ -842,14 +845,14 @@ void AlbumBackend::RefreshTranslations() {
 void AlbumBackend::LoadRecentProjectsFromSettings() {
   const QVariantList stored_entries = QSettings{}.value(QLatin1String(kRecentProjectsKey)).toList();
 
-  QVariantList normalized_entries;
-  QStringList  seen_paths;
-  bool         changed = false;
+  QVariantList       normalized_entries;
+  QStringList        seen_paths;
+  bool               changed = false;
   ProjectPackageService package_service;
 
   for (const QVariant& entry_variant : stored_entries) {
     const QVariantMap entry_map = entry_variant.toMap();
-    const QString raw_path = entry_map.value(QStringLiteral("path")).toString().trimmed();
+    const QString     raw_path  = entry_map.value(QStringLiteral("path")).toString().trimmed();
     if (raw_path.isEmpty()) {
       changed = true;
       continue;
@@ -873,8 +876,7 @@ void AlbumBackend::LoadRecentProjectsFromSettings() {
       continue;
     }
 
-    const qint64 last_opened_ms =
-        entry_map.value(QStringLiteral("lastOpenedMs")).toLongLong();
+    const qint64 last_opened_ms = entry_map.value(QStringLiteral("lastOpenedMs")).toLongLong();
     normalized_entries.push_back(
         BuildRecentProjectEntry(normalized_path, last_opened_ms > 0 ? last_opened_ms : 0));
     seen_paths.push_back(normalized_path);
@@ -904,12 +906,12 @@ void AlbumBackend::RegisterRecentProject(const std::filesystem::path& projectPat
   }
 
   QVariantList next_entries;
-  next_entries.push_back(
-      BuildRecentProjectEntry(normalized_path, QDateTime::currentDateTimeUtc().toMSecsSinceEpoch()));
+  next_entries.push_back(BuildRecentProjectEntry(
+      normalized_path, QDateTime::currentDateTimeUtc().toMSecsSinceEpoch()));
 
   for (const QVariant& entry_variant : recent_projects_) {
-    const QVariantMap entry_map = entry_variant.toMap();
-    const QString entry_path = entry_map.value(QStringLiteral("path")).toString();
+    const QVariantMap entry_map  = entry_variant.toMap();
+    const QString     entry_path = entry_map.value(QStringLiteral("path")).toString();
     if (entry_path.isEmpty() || entry_path == normalized_path) {
       continue;
     }
@@ -973,46 +975,87 @@ void AlbumBackend::ReloadFolderTree(const std::filesystem::path& preferredFolder
 }
 
 void AlbumBackend::ReloadCurrentFolder() {
-  thumb_.ReleaseVisibleThumbnailPins();
-
-  view_state_.all_images_.clear();
-  view_state_.visible_thumbnails_.clear();
-  emit ThumbnailsChanged();
-  emit thumbnailsChanged();
-  emit CountsChanged();
-
-  auto proj = project_handler_.project();
-  if (!proj) {
-    stats_.RebuildThumbnailView();
-    stats_.RefreshStats();
-    return;
-  }
-
-  auto browse = proj->GetAlbumBrowseService();
-  if (!browse) {
-    stats_.RebuildThumbnailView();
-    stats_.RefreshStats();
-    return;
-  }
-
-  const auto files = browse->ListFilesInFolder(folder_ctrl_.CurrentFolderFsPath());
-  for (const auto& file : files) {
-    AddOrUpdateAlbumItem(file.element_id_, file.image_id_, file.file_name_, file.file_path_);
-  }
-
   stats_.RebuildThumbnailView();
   stats_.RefreshStats();
 }
 
+bool AlbumBackend::LoadThumbnailWindow(const std::optional<std::wstring>& filterWhere, bool reset) {
+  if (reset) {
+    thumb_.ReleaseVisibleThumbnailPins();
+
+    view_state_.all_images_.clear();
+    view_state_.visible_thumbnails_.clear();
+    view_state_.total_count_ = 0;
+    emit ThumbnailsChanged();
+    emit thumbnailsChanged();
+    emit CountsChanged();
+  }
+
+  auto proj = project_handler_.project();
+  if (!proj) {
+    return false;
+  }
+
+  auto browse = proj->GetAlbumBrowseService();
+  if (!browse) {
+    return false;
+  }
+
+  const auto folder_id_opt = folder_ctrl_.CurrentFolderElementId();
+  if (!folder_id_opt.has_value()) {
+    return false;
+  }
+
+  const auto folder_id   = folder_id_opt.value();
+  const auto folder_path = folder_ctrl_.CurrentFolderFsPath();
+  if (reset || view_state_.total_count_ == 0) {
+    view_state_.total_count_ = browse->CountFilesInFolderById(folder_id, filterWhere);
+  }
+
+  const size_t offset = view_state_.all_images_.size();
+  if (offset >= view_state_.total_count_) {
+    emit CountsChanged();
+    return false;
+  }
+
+  const auto files =
+      browse->ListFilesInFolderById(folder_id, offset, kAlbumMetadataPageSize, filterWhere);
+  for (const auto& file : files) {
+    const auto file_path =
+        file.file_path_.empty() ? folder_path / file.file_name_ : file.file_path_;
+    AddOrUpdateAlbumItem(
+        file.file_id_, file.image_id_, file.folder_id_,
+        file.scope_type_ == AlbumScopeType::Root ? QStringLiteral("root") : QStringLiteral("album"),
+        file.file_name_, file_path);
+  }
+
+  QVariantList next;
+  next.reserve(static_cast<qsizetype>(view_state_.all_images_.size()));
+  int index = 0;
+  for (const AlbumItem& image : view_state_.all_images_) {
+    next.push_back(stats_.MakeThumbMap(image, index++));
+  }
+
+  view_state_.visible_thumbnails_ = std::move(next);
+  emit ThumbnailsChanged();
+  emit thumbnailsChanged();
+  emit CountsChanged();
+  return !files.empty();
+}
+
 void AlbumBackend::AddOrUpdateAlbumItem(sl_element_id_t elementId, image_id_t imageId,
-                                        const file_name_t& fallbackName,
+                                        sl_element_id_t folderId, const QString& scopeType,
+                                        const file_name_t&           fallbackName,
                                         const std::filesystem::path& filePath) {
   AlbumItem* item = FindAlbumItem(elementId);
 
   if (!item) {
     AlbumItem next;
     next.element_id = elementId;
+    next.file_id    = elementId;
     next.image_id   = imageId;
+    next.folder_id  = folderId;
+    next.scope_type = scopeType;
     next.file_path_ = filePath;
     next.file_name  = WStringToQString(fallbackName);
     next.extension  = ExtensionFromFileName(next.file_name);
@@ -1024,36 +1067,37 @@ void AlbumBackend::AddOrUpdateAlbumItem(sl_element_id_t elementId, image_id_t im
 
   if (!item) return;
 
-  item->element_id       = elementId;
-  item->image_id         = imageId;
-  item->file_path_       = filePath;
+  item->element_id = elementId;
+  item->file_id    = elementId;
+  item->image_id   = imageId;
+  item->folder_id  = folderId;
+  item->scope_type = scopeType;
+  item->file_path_ = filePath;
 
-  auto proj = project_handler_.project();
+  auto proj        = project_handler_.project();
   if (proj) {
     try {
-      proj->GetImagePoolService()->Read<void>(
-          imageId,
-          [item](std::shared_ptr<Image> image) {
-            if (!image) return;
-            if (!image->image_name_.empty()) {
-              item->file_name = WStringToQString(image->image_name_);
-            }
-            if (!image->image_path_.empty()) {
-              item->extension = ExtensionUpper(image->image_path_);
-            }
+      proj->GetImagePoolService()->Read<void>(imageId, [item](std::shared_ptr<Image> image) {
+        if (!image) return;
+        if (!image->image_name_.empty()) {
+          item->file_name = WStringToQString(image->image_name_);
+        }
+        if (!image->image_path_.empty()) {
+          item->extension = ExtensionUpper(image->image_path_);
+        }
 
-            const auto& exif    = image->exif_display_;
-            item->camera_model  = QString::fromUtf8(exif.model_.c_str());
-            item->lens          = QString::fromUtf8(exif.lens_.c_str());
-            item->iso           = static_cast<int>(exif.iso_);
-            item->aperture      = static_cast<double>(exif.aperture_);
-            item->focal_length  = static_cast<double>(exif.focal_);
-            item->rating        = exif.rating_;
-            const QDate captureDate = DateFromExifString(exif.date_time_str_);
-            if (captureDate.isValid()) {
-              item->capture_date = captureDate;
-            }
-          });
+        const auto& exif        = image->exif_display_;
+        item->camera_model      = QString::fromUtf8(exif.model_.c_str());
+        item->lens              = QString::fromUtf8(exif.lens_.c_str());
+        item->iso               = static_cast<int>(exif.iso_);
+        item->aperture          = static_cast<double>(exif.aperture_);
+        item->focal_length      = static_cast<double>(exif.focal_);
+        item->rating            = exif.rating_;
+        const QDate captureDate = DateFromExifString(exif.date_time_str_);
+        if (captureDate.isValid()) {
+          item->capture_date = captureDate;
+        }
+      });
     } catch (...) {
     }
   }

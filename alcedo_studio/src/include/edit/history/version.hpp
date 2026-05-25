@@ -66,6 +66,7 @@ class Version {
 
   void SetBoundImage(sl_element_id_t bound_image);
   auto GetBoundImage() const -> sl_element_id_t;
+  auto CloneForImage(sl_element_id_t bound_image) const -> Version;
 
   void SetBasePipelineExecutor(std::shared_ptr<PipelineExecutor> /*pipeline_executor*/) {}
 

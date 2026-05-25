@@ -103,6 +103,13 @@ void Version::SetBoundImage(sl_element_id_t image_id) { bound_image_ = image_id;
 
 auto Version::GetBoundImage() const -> sl_element_id_t { return bound_image_; }
 
+auto Version::CloneForImage(sl_element_id_t bound_image) const -> Version {
+  auto cloned = *this;
+  cloned.SetBoundImage(bound_image);
+  cloned.CalculateVersionID();
+  return cloned;
+}
+
 void Version::AppendEditTransaction(EditTransaction&& edit_transaction) {
   transactions_.push_back(std::move(edit_transaction));
   cursor_            = transactions_.size();

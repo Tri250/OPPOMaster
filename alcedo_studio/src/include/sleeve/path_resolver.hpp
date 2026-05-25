@@ -43,6 +43,7 @@ class PathResolver {
   auto Contains(const std::filesystem::path& path) -> bool;
   auto Resolve(const std::filesystem::path& path) -> std::shared_ptr<SleeveElement>;
   auto ResolveForWrite(const std::filesystem::path& path) -> std::shared_ptr<SleeveElement>;
+  void Invalidate(const std::filesystem::path& path);
 
   auto Tree(const std::filesystem::path& path) -> std::wstring;
 };

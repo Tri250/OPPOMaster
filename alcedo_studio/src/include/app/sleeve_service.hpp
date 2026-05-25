@@ -109,6 +109,13 @@ class SleeveServiceImpl final : public SleeveService {
       -> std::vector<std::shared_ptr<SleeveElement>>;
   auto CreateFolder(const std::filesystem::path& parent_path, const file_name_t& name)
       -> std::pair<std::shared_ptr<SleeveFolder>, SyncResult>;
+  auto CreateFileInLibrary(const file_name_t& name)
+      -> std::pair<std::shared_ptr<SleeveFile>, SyncResult>;
+  auto LinkFileToFolder(sl_element_id_t file_id, sl_element_id_t folder_id) -> SyncResult;
+  auto DeleteFileFromFolder(sl_element_id_t file_id, sl_element_id_t folder_id) -> SyncResult;
+  auto DeleteFileEverywhere(sl_element_id_t file_id) -> SyncResult;
+  auto DuplicateFileToFolder(sl_element_id_t file_id, sl_element_id_t folder_id)
+      -> std::pair<std::shared_ptr<SleeveFile>, SyncResult>;
   auto DeletePath(const std::filesystem::path& target_path) -> SyncResult;
   auto DeleteElement(sl_element_id_t target_id) -> SyncResult;
 

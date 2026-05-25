@@ -231,9 +231,33 @@ ApplicationWindow {
         }
         return [{
             elementId: Number(clickedItem.elementId),
+            fileId: Number(clickedItem.fileId || clickedItem.elementId),
             imageId: Number(clickedItem.imageId),
+            folderId: Number(clickedItem.folderId || albumBackend.currentFolderId),
+            scopeType: clickedItem.scopeType ? String(clickedItem.scopeType) : "",
             fileName: clickedItem.fileName ? clickedItem.fileName : qsTr("(unnamed)")
         }]
+    }
+
+    function albumTargetActions() {
+        const rows = albumBackend.folders ? albumBackend.folders : []
+        const actions = []
+        for (let i = 0; i < rows.length; ++i) {
+            const row = rows[i]
+            if (!row) {
+                continue
+            }
+            const folderId = Number(row.folderId)
+            if (folderId === 0 || folderId === Number(albumBackend.currentFolderId)) {
+                continue
+            }
+            actions.push({
+                id: "add-to-album:" + String(folderId),
+                label: qsTr("Add to %1").arg(row.name ? String(row.name) : qsTr("Album")),
+                enabled: root.pendingDeleteTargets.length > 0
+            })
+        }
+        return actions
     }
 
     function openImageContextMenu(clickedItem, sceneX, sceneY) {
@@ -273,11 +297,25 @@ ApplicationWindow {
             return
         }
         if (count === 1) {
-            root.deleteConfirmText = qsTr("Delete this image from project?")
+            root.deleteConfirmText = Number(albumBackend.currentFolderId) === 0
+                    ? qsTr("Delete this image from project?")
+                    : qsTr("Remove this image from this album?")
         } else {
-            root.deleteConfirmText = qsTr("Delete %1 images from project?").arg(count)
+            root.deleteConfirmText = Number(albumBackend.currentFolderId) === 0
+                    ? qsTr("Delete %1 images from project?").arg(count)
+                    : qsTr("Remove %1 images from this album?").arg(count)
         }
         deleteConfirmDialog.open()
+    }
+
+    function runAddTargetsToAlbum(targetFolderId) {
+        if (!root.pendingDeleteTargets || root.pendingDeleteTargets.length === 0) {
+            return
+        }
+        const result = albumBackend.AddImagesToFolder(root.pendingDeleteTargets, Number(targetFolderId))
+        if (result && result.message) {
+            root.showSnackbar(result.message)
+        }
     }
 
     function runDeleteTargets() {
@@ -596,10 +634,10 @@ ApplicationWindow {
             },
             {
                 id: "delete",
-                label: qsTr("Delete"),
+                label: Number(albumBackend.currentFolderId) === 0 ? qsTr("Delete") : qsTr("Remove from Album"),
                 enabled: root.pendingDeleteTargets.length > 0
             }
-        ]
+        ].concat(root.albumTargetActions())
         onRatingRequested: function(rating) {
             imageContextMenu.close()
             root.requestSetImageRating(rating)
@@ -612,6 +650,10 @@ ApplicationWindow {
             }
             if (actionId === "delete") {
                 requestDeleteConfirmation()
+                return
+            }
+            if (String(actionId).indexOf("add-to-album:") === 0) {
+                root.runAddTargetsToAlbum(Number(String(actionId).split(":")[1]))
             }
         }
     }

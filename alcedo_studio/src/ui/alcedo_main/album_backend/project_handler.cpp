@@ -305,6 +305,7 @@ void ProjectHandler::ClearProjectData() {
 
   backend_.view_state_.all_images_.clear();
   backend_.view_state_.visible_thumbnails_.clear();
+  backend_.view_state_.total_count_ = 0;
   backend_.folder_ctrl_.ClearState();
   backend_.import_export_.ClearImportTarget();
 

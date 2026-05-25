@@ -62,9 +62,10 @@ void DBController::InitializeDB() {
 
   // SQL query to create the tables
   auto guard = GetConnectionGuard();
-  if (initialized_) return;
-
   duckdb_result result;
+  if (initialized_) {
+    return;
+  }
 
   // Run the SQL query to create the tables
   if (duckdb_query(guard.conn_, init_table_query, &result) != DuckDBSuccess) {
@@ -72,6 +73,7 @@ void DBController::InitializeDB() {
     duckdb_destroy_result(&result);
     throw std::runtime_error(error_message);
   }
+  duckdb_destroy_result(&result);
   initialized_ = true;
 }
 
