@@ -3,87 +3,78 @@ package com.omaster.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.runtime.*
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.omaster.app.data.PresetRepository
-import com.omaster.app.model.Preset
-import com.omaster.app.service.AiService
-import com.omaster.app.ui.screens.AiFineTuneScreen
+import androidx.navigation.navArgument
+import com.omaster.app.navigation.Screen
 import com.omaster.app.ui.screens.DetailScreen
 import com.omaster.app.ui.screens.HomeScreen
-import com.omaster.app.ui.screens.SceneDetectionScreen
 import com.omaster.app.ui.screens.SettingsScreen
 import com.omaster.app.ui.theme.OMasterTheme
+import com.omaster.app.viewmodel.MainViewModel
+import dagger.hilt.android.AndroidEntryPoint
+import timber.log.Timber
 
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
-    private val repository = PresetRepository()
-    private val aiService = AiService()
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (BuildConfig.DEBUG) {
+            Timber.plant(Timber.DebugTree())
+        }
         setContent {
-            OMasterTheme {
-                OMasterApp(repository, aiService)
+            val viewModel: MainViewModel = hiltViewModel()
+            val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+            
+            OMasterTheme(themeMode = themeMode) {
+                OMasterApp()
             }
         }
     }
 }
 
 @Composable
-fun OMasterApp(repository: PresetRepository, aiService: AiService) {
+fun OMasterApp(
+    modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier
+) {
     val navController = rememberNavController()
-    var selectedPreset by remember { mutableStateOf<Preset?>(null) }
-    val presets by repository.presets.collectAsState()
 
     NavHost(
         navController = navController,
-        startDestination = "home"
+        startDestination = Screen.Home.route,
+        modifier = modifier
     ) {
-        composable("home") {
+        composable(Screen.Home.route) {
             HomeScreen(
-                repository = repository,
                 onPresetClick = { preset ->
-                    selectedPreset = preset
-                    navController.navigate("detail")
+                    navController.navigate(Screen.Detail.createRoute(preset.id))
                 },
-                onSettingsClick = { navController.navigate("settings") },
-                onSceneDetectionClick = { navController.navigate("scene_detection") },
-                onAiFineTuneClick = { navController.navigate("ai_finetune") }
+                onSettingsClick = { navController.navigate(Screen.Settings.route) }
             )
         }
-        composable("detail") {
-            selectedPreset?.let { preset ->
+        composable(
+            route = "detail/{preset_id}",
+            arguments = listOf(navArgument("preset_id") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val presetId = backStackEntry.arguments?.getString("preset_id")
+            val viewModel: MainViewModel = hiltViewModel()
+            val presets by viewModel.presets.collectAsStateWithLifecycle()
+            val preset = presets.find { it.id == presetId }
+
+            preset?.let {
                 DetailScreen(
-                    preset = preset,
-                    repository = repository,
+                    preset = it,
                     onBack = { navController.popBackStack() },
-                    onAiFineTuneClick = { navController.navigate("ai_finetune") }
+                    onFavoriteToggle = { viewModel.toggleFavorite(it) }
                 )
             }
         }
-        composable("settings") {
+        composable(Screen.Settings.route) {
             SettingsScreen(
-                onBack = { navController.popBackStack() }
-            )
-        }
-        composable("scene_detection") {
-            SceneDetectionScreen(
-                aiService = aiService,
-                allPresets = presets,
-                onBack = { navController.popBackStack() },
-                onPresetClick = { preset ->
-                    selectedPreset = preset
-                    navController.navigate("detail")
-                },
-                onFavoriteToggle = { repository.toggleFavorite(it) }
-            )
-        }
-        composable("ai_finetune") {
-            AiFineTuneScreen(
-                aiService = aiService,
-                preset = selectedPreset,
                 onBack = { navController.popBackStack() }
             )
         }
