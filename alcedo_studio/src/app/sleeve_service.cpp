@@ -179,6 +179,36 @@ auto SleeveServiceImpl::CreateFolder(const std::filesystem::path& parent_path,
   return result;
 }
 
+auto SleeveServiceImpl::CreateFileInLibrary(const file_name_t& name)
+    -> std::pair<std::shared_ptr<SleeveFile>, SyncResult> {
+  return Write<std::shared_ptr<SleeveFile>>(
+      [name](FileSystem& fs) { return fs.CreateFileInLibrary(name); });
+}
+
+auto SleeveServiceImpl::LinkFileToFolder(sl_element_id_t file_id, sl_element_id_t folder_id)
+    -> SyncResult {
+  return Write<void>(
+      [file_id, folder_id](FileSystem& fs) { fs.LinkFileToFolder(file_id, folder_id); });
+}
+
+auto SleeveServiceImpl::DeleteFileFromFolder(sl_element_id_t file_id,
+                                             sl_element_id_t folder_id) -> SyncResult {
+  return Write<void>(
+      [file_id, folder_id](FileSystem& fs) { fs.UnlinkFileFromFolder(file_id, folder_id); });
+}
+
+auto SleeveServiceImpl::DeleteFileEverywhere(sl_element_id_t file_id) -> SyncResult {
+  return Write<void>([file_id](FileSystem& fs) { fs.DeleteFileEverywhere(file_id); });
+}
+
+auto SleeveServiceImpl::DuplicateFileToFolder(sl_element_id_t file_id,
+                                              sl_element_id_t folder_id)
+    -> std::pair<std::shared_ptr<SleeveFile>, SyncResult> {
+  return Write<std::shared_ptr<SleeveFile>>([file_id, folder_id](FileSystem& fs) {
+    return fs.DuplicateFileToFolder(file_id, folder_id);
+  });
+}
+
 auto SleeveServiceImpl::DeletePath(const std::filesystem::path& target_path) -> SyncResult {
   return Write<void>([target_path](FileSystem& fs) { fs.Delete(target_path); });
 }

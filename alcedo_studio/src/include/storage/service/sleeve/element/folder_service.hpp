@@ -32,6 +32,7 @@ class FolderService
 
   void        RemoveAllContents(const sl_element_id_t folder_id);
   void        RemoveContentById(const sl_element_id_t content_id);
+  void        RemoveFolderContent(sl_element_id_t folder_id, sl_element_id_t content_id);
 
   void        UpdateFolderContent(const std::vector<sl_element_id_t>& content,
                                   const sl_element_id_t               folder_id);

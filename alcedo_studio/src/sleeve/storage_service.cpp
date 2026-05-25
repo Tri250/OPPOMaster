@@ -28,20 +28,25 @@ auto NodeStorageHandler::GetElement(uint32_t id) -> std::shared_ptr<SleeveElemen
 }
 
 void NodeStorageHandler::EnsureChildrenLoaded(std::shared_ptr<SleeveFolder> folder) {
-  // Assume all the lazy-loaded folder are empty for now
-  if (folder->ContentSize() == 0) {
-    try {
-      auto folder_content = db_ctrl_.GetFolderContent(folder->element_id_);
-      for (auto& content_id : folder_content) {
-        auto content = GetElement(content_id);
-        // DB-backed children already carry persisted ref counts. Rehydrating the in-memory
-        // folder map must not add an extra parent reference or the next write will trigger
-        // a bogus copy-on-write clone.
-        folder->AddElementToMap(content, false, false);
+  if (folder->ChildrenLoaded()) {
+    return;
+  }
+
+  try {
+    auto folder_content = db_ctrl_.GetFolderContent(folder->element_id_);
+    for (auto& content_id : folder_content) {
+      auto content = GetElement(content_id);
+      if (!content || content->sync_flag_ == SyncFlag::DELETED) {
+        continue;
       }
-    } catch (std::exception& e) {
-      // TODO: LOG
+      // DB-backed children already carry persisted ref counts. Rehydrating the in-memory
+      // folder map must not add an extra parent reference or the next write will trigger
+      // a bogus copy-on-write clone.
+      folder->AddElementToMap(content, false, false);
     }
+    folder->MarkChildrenLoaded();
+  } catch (std::exception& e) {
+    // TODO: LOG
   }
 }
 

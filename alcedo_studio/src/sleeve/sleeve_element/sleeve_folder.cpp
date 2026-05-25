@@ -4,9 +4,11 @@
 
 #include "sleeve/sleeve_element/sleeve_folder.hpp"
 
+#include <algorithm>
 #include <memory>
 #include <optional>
 #include <set>
+#include <stdexcept>
 #include <type_traits>
 #include <vector>
 
@@ -38,6 +40,7 @@ auto SleeveFolder::Copy(sl_element_id_t new_id) const -> std::shared_ptr<SleeveE
   // Only copy indicies cache under default filter
   copy->indicies_cache_[copy->default_filter_] =
       std::vector<sl_element_id_t>(indicies_cache_.at(default_filter_));
+  copy->children_loaded_ = children_loaded_;
   return copy;
 }
 /**
@@ -55,6 +58,15 @@ void SleeveFolder::AddElementToMap(const std::shared_ptr<SleeveElement> element,
 
 void SleeveFolder::AddElementToMap(const std::shared_ptr<SleeveElement> element, bool change_sync,
                                    bool increment_ref_count) {
+  if (auto existing = GetElementIdByName(element->element_name_); existing.has_value()) {
+    if (existing.value() == element->element_id_) {
+      return;
+    }
+    throw std::runtime_error("SleeveFolder: Name already exists in folder");
+  }
+  if (ContainsElementId(element->element_id_)) {
+    return;
+  }
   contents_[element->element_name_] = element->element_id_;
   indicies_cache_[default_filter_].push_back(element->element_id_);
   // Once a pinned element is added to the current folder, current folder also becomes pinned
@@ -117,10 +129,17 @@ auto SleeveFolder::ListElements() const -> const std::vector<sl_element_id_t>& {
   return default_list;
 }
 
+auto SleeveFolder::ContainsElementId(sl_element_id_t element_id) const -> bool {
+  const auto& default_list = indicies_cache_.at(default_filter_);
+  return std::find(default_list.begin(), default_list.end(), element_id) != default_list.end();
+}
+
 auto SleeveFolder::Clear() -> bool {
   // TODO: Add Implementation
   contents_.clear();
   indicies_cache_.clear();
+  indicies_cache_[default_filter_] = {};
+  children_loaded_                 = true;
 
   return true;
 }
@@ -153,6 +172,29 @@ void SleeveFolder::RemoveNameFromMap(const file_name_t& name) {
   if (sync_flag_ == SyncFlag::SYNCED) {
     sync_flag_ = SyncFlag::MODIFIED;
   }
+}
+
+auto SleeveFolder::RemoveElementById(sl_element_id_t element_id) -> bool {
+  auto removed = false;
+  for (auto it = contents_.begin(); it != contents_.end();) {
+    if (it->second == element_id) {
+      it      = contents_.erase(it);
+      removed = true;
+    } else {
+      ++it;
+    }
+  }
+
+  auto& default_index = indicies_cache_[default_filter_];
+  const auto old_size = default_index.size();
+  default_index.erase(std::remove(default_index.begin(), default_index.end(), element_id),
+                      default_index.end());
+  removed |= default_index.size() != old_size;
+
+  if (removed && sync_flag_ == SyncFlag::SYNCED) {
+    sync_flag_ = SyncFlag::MODIFIED;
+  }
+  return removed;
 }
 
 void SleeveFolder::CreateIndex(const std::vector<std::shared_ptr<SleeveElement>>& filtered_elements,

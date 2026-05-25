@@ -32,7 +32,10 @@ class DBController {
       "TIMESTAMP, modified_time "
       "TIMESTAMP, "
       "ref_count BIGINT);"
-      "CREATE TABLE FolderContent (folder_id BIGINT, element_id BIGINT);"
+      "CREATE TABLE FolderContent (folder_id BIGINT NOT NULL, element_id BIGINT NOT NULL, "
+      "PRIMARY KEY(folder_id, element_id));"
+      "CREATE INDEX idx_folder_content_folder ON FolderContent(folder_id);"
+      "CREATE INDEX idx_folder_content_element ON FolderContent(element_id);"
       "CREATE TABLE FileImage (file_id BIGINT, image_id BIGINT);"
       "CREATE TABLE ComboFolder (combo_id BIGINT, folder_id BIGINT);"
       "CREATE TABLE Filter (combo_id BIGINT, type INTEGER, data JSON);"
@@ -41,6 +44,14 @@ class DBController {
       "content "
       "JSON);"
       "CREATE TABLE PipelineParam(file_id BIGINT PRIMARY KEY, param_json JSON);";
+
+  constexpr static const char* migration_query =
+      "CREATE OR REPLACE TABLE FolderContent AS "
+      "SELECT DISTINCT folder_id, element_id FROM FolderContent;"
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_folder_content_unique "
+      "ON FolderContent(folder_id, element_id);"
+      "CREATE INDEX IF NOT EXISTS idx_folder_content_folder ON FolderContent(folder_id);"
+      "CREATE INDEX IF NOT EXISTS idx_folder_content_element ON FolderContent(element_id);";
 
  public:
   explicit DBController(file_path_t& db_path);

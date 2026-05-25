@@ -37,6 +37,10 @@ void FolderService::RemoveContentById(const sl_element_id_t content_id) {
   RemoveByClause(std::format("element_id={}", content_id));
 }
 
+void FolderService::RemoveFolderContent(sl_element_id_t folder_id, sl_element_id_t content_id) {
+  RemoveByClause(std::format("folder_id={} AND element_id={}", folder_id, content_id));
+}
+
 void FolderService::UpdateFolderContent(const std::vector<sl_element_id_t>& content,
                                         const sl_element_id_t               folder_id) {
   RemoveAllContents(folder_id);

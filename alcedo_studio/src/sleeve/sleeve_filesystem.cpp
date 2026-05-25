@@ -4,6 +4,7 @@
 
 #include "sleeve/sleeve_filesystem.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <exception>
 #include <filesystem>
@@ -18,6 +19,14 @@
 #include "utils/string/convert.hpp"
 
 namespace alcedo {
+namespace {
+auto IsRootPath(const std::filesystem::path& path) -> bool {
+  const auto normalized = path.lexically_normal();
+  return normalized.empty() || normalized == std::filesystem::path{L"/"} ||
+         normalized == std::filesystem::path{L"."};
+}
+}  // namespace
+
 FileSystem::FileSystem(std::filesystem::path db_path, StorageService& storage_service,
                        sl_element_id_t start_id)
     : id_gen_(start_id),
@@ -41,6 +50,9 @@ auto FileSystem::InitRoot() -> bool {
   }
   storage_[0] = root;
   root_       = std::static_pointer_cast<SleeveFolder>(root);
+  if (root_->sync_flag_ == SyncFlag::UNSYNC) {
+    root_->MarkChildrenLoaded();
+  }
   resolver_.SetRoot(root_);
   return true;
 }
@@ -57,10 +69,117 @@ auto FileSystem::Create(std::filesystem::path dest, std::wstring filename, Eleme
   }
   auto new_id      = id_gen_.GenerateID();
   auto new_element = SleeveElementFactory::CreateElement(type, new_id, filename);
+  if (new_element->type_ == ElementType::FOLDER) {
+    std::static_pointer_cast<SleeveFolder>(new_element)->MarkChildrenLoaded();
+  }
   storage_[new_id] = new_element;
   dest_folder->AddElementToMap(new_element);
 
   return new_element;
+}
+
+auto FileSystem::CreateFileInLibrary(file_name_t name) -> std::shared_ptr<SleeveFile> {
+  auto element = Create(L"", std::move(name), ElementType::FILE);
+  return std::static_pointer_cast<SleeveFile>(element);
+}
+
+void FileSystem::LinkFileToFolder(sl_element_id_t file_id, sl_element_id_t folder_id) {
+  auto file = Get(file_id);
+  if (!file || file->type_ != ElementType::FILE || file->sync_flag_ == SyncFlag::DELETED) {
+    throw std::runtime_error("Filesystem: Specified file id is not a live file");
+  }
+
+  auto folder_element = Get(folder_id);
+  if (!folder_element || folder_element->type_ != ElementType::FOLDER ||
+      folder_element->sync_flag_ == SyncFlag::DELETED) {
+    throw std::runtime_error("Filesystem: Specified folder id is not a live folder");
+  }
+
+  auto folder = std::static_pointer_cast<SleeveFolder>(folder_element);
+  storage_handler_.EnsureChildrenLoaded(folder);
+  if (folder->ContainsElementId(file_id)) {
+    return;
+  }
+  if (auto existing = folder->GetElementIdByName(file->element_name_);
+      existing.has_value() && existing.value() != file_id) {
+    throw std::runtime_error("Filesystem: Folder already contains a different element with name");
+  }
+
+  folder->AddElementToMap(file, true, false);
+}
+
+void FileSystem::UnlinkFileFromFolder(sl_element_id_t file_id, sl_element_id_t folder_id) {
+  if (folder_id == 0) {
+    throw std::runtime_error("Filesystem: Root file removal must use DeleteFileEverywhere");
+  }
+
+  auto file = Get(file_id);
+  if (!file || file->type_ != ElementType::FILE || file->sync_flag_ == SyncFlag::DELETED) {
+    throw std::runtime_error("Filesystem: Specified file id is not a live file");
+  }
+
+  auto folder_element = Get(folder_id);
+  if (!folder_element || folder_element->type_ != ElementType::FOLDER ||
+      folder_element->sync_flag_ == SyncFlag::DELETED) {
+    throw std::runtime_error("Filesystem: Specified folder id is not a live folder");
+  }
+
+  auto folder = std::static_pointer_cast<SleeveFolder>(folder_element);
+  storage_handler_.EnsureChildrenLoaded(folder);
+  if (!folder->RemoveElementById(file_id)) {
+    throw std::runtime_error("Filesystem: File is not a member of the folder");
+  }
+}
+
+auto FileSystem::DuplicateFileToFolder(sl_element_id_t file_id, sl_element_id_t folder_id)
+    -> std::shared_ptr<SleeveFile> {
+  auto source = Get(file_id);
+  if (!source || source->type_ != ElementType::FILE || source->sync_flag_ == SyncFlag::DELETED) {
+    throw std::runtime_error("Filesystem: Specified file id is not a live file");
+  }
+
+  auto folder_element = Get(folder_id);
+  if (!folder_element || folder_element->type_ != ElementType::FOLDER ||
+      folder_element->sync_flag_ == SyncFlag::DELETED) {
+    throw std::runtime_error("Filesystem: Specified folder id is not a live folder");
+  }
+
+  auto folder = std::static_pointer_cast<SleeveFolder>(folder_element);
+  storage_handler_.EnsureChildrenLoaded(folder);
+  if (folder->Contains(source->element_name_)) {
+    throw std::runtime_error("Filesystem: Folder already contains an element with this name");
+  }
+
+  auto duplicated = std::static_pointer_cast<SleeveFile>(source->Copy(id_gen_.GenerateID()));
+  duplicated->image_id_ = std::static_pointer_cast<SleeveFile>(source)->image_id_;
+  duplicated->SetEditHistory(std::make_shared<EditHistory>(duplicated->element_id_));
+  storage_[duplicated->element_id_] = duplicated;
+  folder->AddElementToMap(duplicated);
+  return duplicated;
+}
+
+void FileSystem::DeleteFileEverywhere(sl_element_id_t file_id) {
+  if (file_id == 0) {
+    throw std::runtime_error("Filesystem: root cannot be deleted");
+  }
+
+  auto file = Get(file_id);
+  if (!file || file->type_ != ElementType::FILE || file->sync_flag_ == SyncFlag::DELETED) {
+    throw std::runtime_error("Filesystem: Specified file id is not a live file");
+  }
+
+  for (auto& [_, element] : storage_) {
+    if (!element || element->type_ != ElementType::FOLDER ||
+        element->sync_flag_ == SyncFlag::DELETED) {
+      continue;
+    }
+    auto folder = std::static_pointer_cast<SleeveFolder>(element);
+    if (folder->ChildrenLoaded()) {
+      folder->RemoveElementById(file_id);
+    }
+  }
+
+  file->SetSyncFlag(SyncFlag::DELETED);
 }
 
 auto FileSystem::Get(sl_element_id_t id) -> std::shared_ptr<SleeveElement> {
@@ -114,11 +233,22 @@ void FileSystem::Delete(std::filesystem::path target) {
   if (!resolver_.Contains(parent) || !resolver_.Contains(target)) {
     throw std::runtime_error("Filesystem: Deleting node does not exist");
   }
-  // Now re-acquire parent_node using write method
+  auto parent_node = std::static_pointer_cast<SleeveFolder>(resolver_.Resolve(parent));
+  auto delete_node_id = parent_node->GetElementIdByName(delete_node_name.wstring());
+  auto delete_node    = storage_handler_.GetElement(delete_node_id.value());
+  if (delete_node->type_ == ElementType::FILE) {
+    if (IsRootPath(parent)) {
+      DeleteFileEverywhere(delete_node->element_id_);
+    } else {
+      UnlinkFileFromFolder(delete_node->element_id_, parent_node->element_id_);
+    }
+    resolver_.Invalidate(target);
+    return;
+  }
+
+  // Now re-acquire parent_node using write method for folder-tree mutation.
   auto parent_write_node =
       std::static_pointer_cast<SleeveFolder>(resolver_.ResolveForWrite(parent));
-  auto delete_node_id = parent_write_node->GetElementIdByName(delete_node_name.wstring());
-  auto delete_node    = storage_.at(delete_node_id.value());
   delete_node->DecrementRefCount();
 
   if (delete_node->ref_count_ <= 0) {
@@ -143,6 +273,7 @@ void FileSystem::Delete(std::filesystem::path target) {
   }
 
   parent_write_node->RemoveNameFromMap(delete_node_name.wstring());
+  resolver_.Invalidate(target);
 }
 
 void FileSystem::Delete(sl_element_id_t target_id) {
@@ -153,6 +284,10 @@ void FileSystem::Delete(sl_element_id_t target_id) {
   auto delete_node = Get(target_id);
   if (!delete_node || delete_node->sync_flag_ == SyncFlag::DELETED) {
     throw std::runtime_error("Filesystem: Deleting node does not exist");
+  }
+  if (delete_node->type_ == ElementType::FILE) {
+    DeleteFileEverywhere(target_id);
+    return;
   }
 
   const auto decrement_folder_children =
@@ -215,6 +350,12 @@ void FileSystem::Copy(std::filesystem::path from, std::filesystem::path dest) {
   }
 
   auto from_node = resolver_.Resolve(from);
+  if (from_node->type_ == ElementType::FILE) {
+    auto dest_node = std::static_pointer_cast<SleeveFolder>(resolver_.Resolve(dest));
+    LinkFileToFolder(from_node->element_id_, dest_node->element_id_);
+    return;
+  }
+
   auto dest_node = std::static_pointer_cast<SleeveFolder>(resolver_.ResolveForWrite(dest));
   dest_node->AddElementToMap(from_node);
 }

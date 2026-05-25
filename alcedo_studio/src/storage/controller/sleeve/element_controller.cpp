@@ -105,8 +105,12 @@ void ElementController::AddElement(const std::shared_ptr<SleeveElement> element)
  * @param content_id
  */
 void ElementController::AddFolderContent(sl_element_id_t folder_id, sl_element_id_t content_id) {
-  // TODO: The uniqueness of content_id is not garanteed, SQL statement should be changed
   folder_service_.Insert({folder_id, content_id});
+}
+
+void ElementController::RemoveFolderContent(sl_element_id_t folder_id,
+                                            sl_element_id_t content_id) {
+  folder_service_.RemoveFolderContent(folder_id, content_id);
 }
 
 /**
@@ -154,7 +158,9 @@ void ElementController::RemoveElement(const std::shared_ptr<SleeveElement> eleme
   if (element->type_ == ElementType::FILE) {
     auto file = std::static_pointer_cast<SleeveFile>(element);
     history_service_.RemoveById(file->element_id_);
+    pipeline_service_.RemoveById(file->element_id_);
     file_service_.RemoveById(file->element_id_);
+    folder_service_.RemoveContentById(file->element_id_);
   } else if (element->type_ == ElementType::FOLDER) {
     auto folder = std::static_pointer_cast<SleeveFolder>(element);
     folder_service_.RemoveById(folder->element_id_);

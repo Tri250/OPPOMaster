@@ -31,6 +31,7 @@ class SleeveFolder : public SleeveElement {
 
   uint32_t                                                      file_count_;
   uint32_t                                                      folder_count_;
+  bool                                                          children_loaded_ = false;
 
  public:
   explicit SleeveFolder(sl_element_id_t id, file_name_t element_name);
@@ -47,6 +48,7 @@ class SleeveFolder : public SleeveElement {
                         const sl_element_id_t new_id);
   auto GetElementIdByName(const file_name_t& name) const -> std::optional<sl_element_id_t>;
   auto ListElements() const -> const std::vector<sl_element_id_t>&;
+  auto ContainsElementId(sl_element_id_t element_id) const -> bool;
 
   auto HasFilterIndex(const filter_id_t filter_id) const -> bool {
     return indicies_cache_.contains(filter_id);
@@ -56,6 +58,7 @@ class SleeveFolder : public SleeveElement {
       -> const std::vector<sl_element_id_t>&;
   auto Contains(const file_name_t& name) const -> bool;
   void RemoveNameFromMap(const file_name_t& name);
+  auto RemoveElementById(sl_element_id_t element_id) -> bool;
 
   void CreateIndex(const std::vector<std::shared_ptr<SleeveElement>>& filtered_elements,
                    const filter_id_t                                  filter_id);
@@ -67,5 +70,7 @@ class SleeveFolder : public SleeveElement {
   auto Clear() -> bool;
   auto ResetFilters() -> bool;
   auto ContentSize() -> size_t;
+  auto ChildrenLoaded() const -> bool { return children_loaded_; }
+  void MarkChildrenLoaded(bool loaded = true) { children_loaded_ = loaded; }
 };
 };  // namespace alcedo

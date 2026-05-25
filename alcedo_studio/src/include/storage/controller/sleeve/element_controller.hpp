@@ -55,6 +55,7 @@ class ElementController {
   void AddElement(const std::shared_ptr<SleeveElement> element);
 
   void AddFolderContent(sl_element_id_t folder_id, sl_element_id_t content_id);
+  void RemoveFolderContent(sl_element_id_t folder_id, sl_element_id_t content_id);
   auto GetFolderContent(const sl_element_id_t folder_id) -> std::vector<sl_element_id_t>;
 
   void RemoveElement(const sl_element_id_t id);

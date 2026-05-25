@@ -64,7 +64,12 @@ auto PathResolver::Resolve(const std::filesystem::path& path) -> std::shared_ptr
 
   auto                           cached_id  = directory_cache_.AccessElement(path.wstring());
   if (cached_id.has_value()) {
-    return storage_handler_.GetElement(cached_id.value());
+    auto cached = storage_handler_.GetElement(cached_id.value());
+    if (!cached || cached->sync_flag_ == SyncFlag::DELETED) {
+      directory_cache_.RemoveRecord(path.wstring());
+      throw std::runtime_error("Path Resolver: Illegal path. Target does not exist");
+    }
+    return cached;
   }
 
   for (const auto& part : visit_path) {
@@ -92,6 +97,10 @@ auto PathResolver::Resolve(const std::filesystem::path& path) -> std::shared_ptr
     storage_handler_.EnsureChildrenLoaded(std::static_pointer_cast<SleeveFolder>(current));
   }
   return current;
+}
+
+void PathResolver::Invalidate(const std::filesystem::path& path) {
+  directory_cache_.RemoveRecord(path.wstring());
 }
 
 auto PathResolver::ResolveForWrite(const std::filesystem::path& path)
