@@ -57,10 +57,10 @@ fun OMasterApp(
             )
         }
         composable(
-            route = "detail/{preset_id}",
-            arguments = listOf(navArgument("preset_id") { type = NavType.StringType })
+            route = Screen.Detail.route,
+            arguments = listOf(navArgument("presetId") { type = NavType.StringType })
         ) { backStackEntry ->
-            val presetId = backStackEntry.arguments?.getString("preset_id")
+            val presetId = backStackEntry.arguments?.getString("presetId")
             val viewModel: MainViewModel = hiltViewModel()
             val presets by viewModel.presets.collectAsStateWithLifecycle()
             val preset = presets.find { it.id == presetId }
