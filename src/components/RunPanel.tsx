@@ -199,9 +199,9 @@ export function RunPanel() {
 
       <div className="flex-1 overflow-auto">
         <div className="border-b border-gray-700">
-          <button
+          <div
             onClick={() => toggleSection('build')}
-            className="w-full flex items-center justify-between px-4 py-2 hover:bg-gray-800/50 transition-colors"
+            className="w-full flex items-center justify-between px-4 py-2 hover:bg-gray-800/50 transition-colors cursor-pointer"
           >
             <div className="flex items-center gap-2">
               {expandedSections.build ? (
@@ -230,7 +230,7 @@ export function RunPanel() {
             >
               Build
             </button>
-          </button>
+          </div>
           {expandedSections.build && (
             <div className="px-4 py-2 bg-gray-800/50">
               <pre className="text-xs text-gray-400 font-mono whitespace-pre-wrap max-h-32 overflow-auto">
