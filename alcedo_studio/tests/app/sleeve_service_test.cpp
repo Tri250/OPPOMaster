@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 
+#include "app/project_package_backend.hpp"
 #include "app/project_service.hpp"
 #include "sleeve/sleeve_element/sleeve_element.hpp"
 #include "sleeve/sleeve_element/sleeve_file.hpp"
@@ -75,30 +76,12 @@ auto QueryDuckDbInt64(const std::filesystem::path& db_path, const std::string& s
   return value;
 }
 
-void CreateLegacyDbWithDuplicateAlbumRowsAndMissingRootFile(const std::filesystem::path& db_path) {
-  ASSERT_TRUE(RunDuckDbSql(
-      db_path,
-      "CREATE TABLE Sleeve (id BIGINT PRIMARY KEY);"
-      "CREATE TABLE Image (id BIGINT PRIMARY KEY, image_path TEXT, file_name TEXT, type INTEGER, "
-      "metadata JSON);"
-      "CREATE TABLE SleeveRoot (id BIGINT PRIMARY KEY);"
-      "CREATE TABLE Element (id BIGINT PRIMARY KEY, type INTEGER, element_name TEXT, added_time "
-      "TIMESTAMP, modified_time TIMESTAMP, ref_count BIGINT);"
-      "CREATE TABLE FolderContent (folder_id BIGINT NOT NULL, element_id BIGINT NOT NULL);"
-      "CREATE TABLE FileImage (file_id BIGINT, image_id BIGINT);"
-      "CREATE TABLE ComboFolder (combo_id BIGINT, folder_id BIGINT);"
-      "CREATE TABLE Filter (combo_id BIGINT, type INTEGER, data JSON);"
-      "CREATE TABLE EditHistory (file_id BIGINT PRIMARY KEY, history JSON);"
-      "CREATE TABLE Version (hash BIGINT PRIMARY KEY, history_id BIGINT, parent_hash BIGINT, "
-      "content JSON);"
-      "CREATE TABLE PipelineParam(file_id BIGINT PRIMARY KEY, param_json JSON);"
-      "INSERT INTO Element VALUES "
-      "(0, 1, '', now(), now(), 1),"
-      "(1, 0, 'Legacy.arw', now(), now(), 1),"
-      "(2, 1, 'Album', now(), now(), 1);"
-      "INSERT INTO FolderContent VALUES (0, 2), (2, 1), (2, 1);"));
-}
 }  // namespace
+
+TEST(ProjectVersionTests, MembershipSchemaBumpRejectsPreviousProjectVersion) {
+  EXPECT_TRUE(project_pack::ProjectVersionIsSupported(project_pack::kProjectFileVersion));
+  EXPECT_FALSE(project_pack::ProjectVersionIsSupported("0.2.4"));
+}
 
 class SleeveServiceTests : public ::testing::Test {
  protected:
@@ -540,28 +523,6 @@ TEST_F(SleeveServiceTests, FolderContentUniqueConstraintRejectsDuplicateRows) {
                                              "0 AND element_id = ") +
                                      std::to_string(file_id)),
       1);
-}
-
-TEST_F(SleeveServiceTests, LegacyFolderContentMigrationDeduplicatesAndBackfillsRootFiles) {
-  CreateLegacyDbWithDuplicateAlbumRowsAndMissingRootFile(db_path_);
-
-  auto              storage = std::make_shared<StorageService>(db_path_);
-  SleeveServiceImpl service(storage, db_path_, 3);
-
-  const auto        root_ids = service.Read<std::vector<sl_element_id_t>>(
-      [](FileSystem& fs) { return fs.ListFolderContent(0); });
-  const auto album_ids = service.Read<std::vector<sl_element_id_t>>(
-      [](FileSystem& fs) { return fs.ListFolderContent(2); });
-
-  EXPECT_TRUE(ContainsId(root_ids, 1));
-  ASSERT_EQ(album_ids.size(), 1u);
-  EXPECT_EQ(album_ids.front(), 1u);
-  EXPECT_EQ(QueryDuckDbInt64(db_path_,
-                             "SELECT COUNT(*) FROM FolderContent WHERE folder_id = 2 AND "
-                             "element_id = 1"),
-            1);
-  EXPECT_FALSE(
-      RunDuckDbSql(db_path_, "INSERT INTO FolderContent(folder_id, element_id) VALUES (2, 1);"));
 }
 
 TEST_F(SleeveServiceTests, DeletingFromAlbumOnlyUnlinksMembership) {

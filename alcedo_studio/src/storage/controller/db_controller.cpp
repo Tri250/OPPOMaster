@@ -64,12 +64,6 @@ void DBController::InitializeDB() {
   auto guard = GetConnectionGuard();
   duckdb_result result;
   if (initialized_) {
-    if (duckdb_query(guard.conn_, migration_query, &result) != DuckDBSuccess) {
-      auto error_message = duckdb_result_error(&result);
-      duckdb_destroy_result(&result);
-      throw std::runtime_error(error_message);
-    }
-    duckdb_destroy_result(&result);
     return;
   }
 

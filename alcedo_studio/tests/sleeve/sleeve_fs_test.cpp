@@ -4,10 +4,12 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <exception>
 #include <filesystem>
 #include <random>
 #include <stdexcept>
+#include <vector>
 
 #include "sleeve/sleeve_element/sleeve_element.hpp"
 #include "sleeve/sleeve_filesystem.hpp"
@@ -19,6 +21,27 @@ std::filesystem::path db_path(TEST_DB_PATH);
 std::filesystem::path meta_path(TEST_META_PATH);
 
 namespace alcedo {
+namespace {
+
+auto CountId(const std::vector<sl_element_id_t>& ids, sl_element_id_t id) -> size_t {
+  return static_cast<size_t>(std::count(ids.begin(), ids.end(), id));
+}
+
+auto ContainsId(const std::vector<sl_element_id_t>& ids, sl_element_id_t id) -> bool {
+  return std::find(ids.begin(), ids.end(), id) != ids.end();
+}
+
+void CleanupTestFiles() {
+  if (std::filesystem::exists(::db_path)) {
+    std::filesystem::remove(::db_path);
+  }
+  if (std::filesystem::exists(::meta_path)) {
+    std::filesystem::remove(::meta_path);
+  }
+}
+
+}  // namespace
+
 TEST(SleeveFSTest, InitTest1) {
   TimeProvider::Refresh();
   {
@@ -273,6 +296,143 @@ TEST(SleeveFSTest, CoWTest2) {
   if (std::filesystem::exists(db_path)) {
     std::filesystem::remove(db_path);
   }
+}
+
+TEST(SleeveFSTest, LinkFileToFoldersKeepsSingleFileIdentity) {
+  CleanupTestFiles();
+  try {
+    StorageService storage_service{db_path};
+    FileSystem     fs{db_path, storage_service, 0};
+    fs.InitRoot();
+
+    auto album_a = fs.Create(L"", L"AlbumA", ElementType::FOLDER);
+    auto album_b = fs.Create(L"", L"AlbumB", ElementType::FOLDER);
+    auto file    = fs.CreateFileInLibrary(L"Shared.arw");
+    ASSERT_NE(file, nullptr);
+
+    fs.LinkFileToFolder(file->element_id_, album_a->element_id_);
+    fs.LinkFileToFolder(file->element_id_, album_a->element_id_);
+    fs.LinkFileToFolder(file->element_id_, album_b->element_id_);
+
+    const auto root_ids    = fs.ListFolderContent(0);
+    const auto album_a_ids = fs.ListFolderContent(album_a->element_id_);
+    const auto album_b_ids = fs.ListFolderContent(album_b->element_id_);
+
+    EXPECT_EQ(CountId(root_ids, file->element_id_), 1u);
+    EXPECT_EQ(CountId(album_a_ids, file->element_id_), 1u);
+    EXPECT_EQ(CountId(album_b_ids, file->element_id_), 1u);
+    EXPECT_EQ(file->ref_count_, 1u);
+
+    auto from_root =
+        std::static_pointer_cast<SleeveFile>(fs.Get(L"/Shared.arw", false));
+    auto from_album_a =
+        std::static_pointer_cast<SleeveFile>(fs.Get(L"/AlbumA/Shared.arw", false));
+    auto from_album_b =
+        std::static_pointer_cast<SleeveFile>(fs.Get(L"/AlbumB/Shared.arw", false));
+
+    EXPECT_EQ(from_root->element_id_, file->element_id_);
+    EXPECT_EQ(from_album_a->element_id_, file->element_id_);
+    EXPECT_EQ(from_album_b->element_id_, file->element_id_);
+
+    auto edited =
+        std::static_pointer_cast<SleeveFile>(fs.Get(L"/AlbumA/Shared.arw", true));
+    edited->SetLastModifiedTime();
+    EXPECT_EQ(from_root->last_modified_time_, edited->last_modified_time_);
+    EXPECT_EQ(from_album_b->last_modified_time_, edited->last_modified_time_);
+  } catch (std::exception& e) {
+    std::cout << e.what() << std::endl;
+    FAIL();
+  }
+
+  CleanupTestFiles();
+}
+
+TEST(SleeveFSTest, CopyFilePathLinksMembershipInsteadOfDuplicatingFile) {
+  CleanupTestFiles();
+  try {
+    StorageService storage_service{db_path};
+    FileSystem     fs{db_path, storage_service, 0};
+    fs.InitRoot();
+
+    auto album = fs.Create(L"", L"Album", ElementType::FOLDER);
+    auto file  = fs.CreateFileInLibrary(L"CopyMe.arw");
+    ASSERT_NE(file, nullptr);
+
+    const auto next_id_before_copy = fs.GetCurrentID();
+    fs.Copy(L"/CopyMe.arw", L"/Album");
+    EXPECT_EQ(fs.GetCurrentID(), next_id_before_copy);
+
+    auto from_root = fs.Get(L"/CopyMe.arw", false);
+    auto from_album = fs.Get(L"/Album/CopyMe.arw", false);
+    EXPECT_EQ(from_root->element_id_, file->element_id_);
+    EXPECT_EQ(from_album->element_id_, file->element_id_);
+    EXPECT_TRUE(ContainsId(fs.ListFolderContent(album->element_id_), file->element_id_));
+    EXPECT_EQ(file->ref_count_, 1u);
+  } catch (std::exception& e) {
+    std::cout << e.what() << std::endl;
+    FAIL();
+  }
+
+  CleanupTestFiles();
+}
+
+TEST(SleeveFSTest, DeletingFromAlbumOnlyUnlinksMembership) {
+  CleanupTestFiles();
+  try {
+    StorageService storage_service{db_path};
+    FileSystem     fs{db_path, storage_service, 0};
+    fs.InitRoot();
+
+    auto album = fs.Create(L"", L"Album", ElementType::FOLDER);
+    auto file  = fs.CreateFileInLibrary(L"KeepInRoot.arw");
+    ASSERT_NE(file, nullptr);
+    fs.LinkFileToFolder(file->element_id_, album->element_id_);
+
+    fs.Delete(L"/Album/KeepInRoot.arw");
+
+    auto from_root = fs.Get(L"/KeepInRoot.arw", false);
+    EXPECT_EQ(from_root->element_id_, file->element_id_);
+    EXPECT_TRUE(ContainsId(fs.ListFolderContent(0), file->element_id_));
+    EXPECT_FALSE(ContainsId(fs.ListFolderContent(album->element_id_), file->element_id_));
+    EXPECT_NE(file->sync_flag_, SyncFlag::DELETED);
+    EXPECT_THROW(fs.Get(L"/Album/KeepInRoot.arw", false), std::runtime_error);
+  } catch (std::exception& e) {
+    std::cout << e.what() << std::endl;
+    FAIL();
+  }
+
+  CleanupTestFiles();
+}
+
+TEST(SleeveFSTest, DeletingFromRootDeletesFileEverywhere) {
+  CleanupTestFiles();
+  try {
+    StorageService storage_service{db_path};
+    FileSystem     fs{db_path, storage_service, 0};
+    fs.InitRoot();
+
+    auto album_a = fs.Create(L"", L"AlbumA", ElementType::FOLDER);
+    auto album_b = fs.Create(L"", L"AlbumB", ElementType::FOLDER);
+    auto file    = fs.CreateFileInLibrary(L"DeleteEverywhere.arw");
+    ASSERT_NE(file, nullptr);
+    fs.LinkFileToFolder(file->element_id_, album_a->element_id_);
+    fs.LinkFileToFolder(file->element_id_, album_b->element_id_);
+
+    fs.Delete(L"/DeleteEverywhere.arw");
+
+    EXPECT_EQ(file->sync_flag_, SyncFlag::DELETED);
+    EXPECT_FALSE(ContainsId(fs.ListFolderContent(0), file->element_id_));
+    EXPECT_FALSE(ContainsId(fs.ListFolderContent(album_a->element_id_), file->element_id_));
+    EXPECT_FALSE(ContainsId(fs.ListFolderContent(album_b->element_id_), file->element_id_));
+    EXPECT_THROW(fs.Get(L"/DeleteEverywhere.arw", false), std::runtime_error);
+    EXPECT_THROW(fs.Get(L"/AlbumA/DeleteEverywhere.arw", false), std::runtime_error);
+    EXPECT_THROW(fs.Get(L"/AlbumB/DeleteEverywhere.arw", false), std::runtime_error);
+  } catch (std::exception& e) {
+    std::cout << e.what() << std::endl;
+    FAIL();
+  }
+
+  CleanupTestFiles();
 }
 
 // Due to the new design of SleeveService managing the re-initialization,

@@ -240,11 +240,11 @@ bool children_loaded_ = false;
 
 ## Current Progress
 
-最新基线 commit：
+最新已检查基线 commit：
 
-- `06e7c4a3 refact: Complete Phase 1 refactor`
+- `8bb9b857 refact: Refactor sleeve_service_test.cpp to enhance database interaction and improve test coverage`
 
-该 commit 已经落地了 Phase 1 的核心基础设施：
+该 commit 和后续 Phase 1 closeout 工作区改动已经落地了 Phase 1 的核心基础设施：
 
 - `FileSystem` / `SleeveService` 已新增 id-based membership API：
   - `CreateFileInLibrary`
@@ -255,9 +255,6 @@ bool children_loaded_ = false;
 - `FileSystem::Delete(path)` 已经可以根据 parent scope 区分 Root 删除和子相册 unlink。
 - `FileSystem::Copy(from, dest)` 对 File 已经转为 link membership，而不是复制 File identity。
 - `SleeveServiceTest` 已覆盖 link、unlink、delete-everywhere、copy/link、duplicate 等基础语义。
-
-本轮 review 后的工作区修复进一步补齐了 Phase 1 缺口：
-
 - `ImportService::ImportToFolder` 已改为先在 library/root 创建 File，再按需 link 到目标相册。
 - 导入到不存在目标时会先校验目标 folder，不再先创建 Root 文件后失败。
 - metadata/import 失败回滚已改为按 `element_id` 调用 `DeleteFileEverywhere`，避免子相册导入失败后遗留 Root membership。
@@ -268,32 +265,36 @@ bool children_loaded_ = false;
 - `EditHistoryService::GetEditHistoryByFileId` 在无记录时返回 `nullptr`，避免手工 filesystem 测试文件被加载时构造默认 `EditHistory` 导致崩溃。
 - `ElementController::UpdateElement` 仅在文件已有 history 时更新 history，避免对无 history 文件执行无意义 upsert。
 - `PathResolver::Tree()` 输出已排序，避免 DB 恢复后 membership 枚举顺序导致测试不稳定。
+- `FolderContent(folder_id, element_id)` 新项目 schema 已直接创建 `PRIMARY KEY(folder_id, element_id)`，并保留 `folder_id` / `element_id` 查询索引。
+- 旧项目不做数据 migration；`project_file_version`、`project_file_min_supported_version`、`project_file_max_supported_version` 均已递增到 `0.2.5`，`0.2.4` 会被版本检查拒绝打开。
+- `DBController` 不再对已有 DB 执行 `FolderContent` 去重/backfill migration。
+- `SleeveFSTest` 已补齐 FileSystem 层的新 membership/link 语义测试：
+  - 同一 File link 到多个 album 仍保持单一 `file_id`。
+  - 重复 link 同一 File 到同一 album 幂等。
+  - `FileSystem::Copy(file_path, album_path)` 是 membership link，不创建新 File identity。
+  - 子相册删除只 unlink，Root 删除 delete-everywhere。
+  - album membership 不增加 `ref_count_`，不触发 CoW 共享判断。
+- `SleeveFolder` 已增加 `children_loaded_`，`NodeStorageHandler::EnsureChildrenLoaded()` 不再用 `ContentSize() == 0` 区分“空文件夹”和“未加载文件夹”。
 
 已验证：
 
-- `SleeveServiceTest.exe`: 12/12 passed
+- `SleeveFSTest.exe`: 12/12 passed
+- `SleeveServiceTest.exe`: 19/19 passed
 - `ImportServiceTest.exe`: 13/13 passed
 - `git diff --check`: passed
 
-当前收口项，也就是新的 Phase 1：
-
-- `FolderContent(folder_id, element_id)` 的唯一约束和索引迁移尚未确认。
-- DB 重启恢复后的 Root/album membership 行为还需要测试锁定。
-- 同一 File 从任意相册编辑后，Root/其他相册可见同一结果的服务层测试还需要补齐。
-- 重复 link 同一 File 到同一相册的幂等或错误语义还需要明确。
-
-后续结构项，进入 Phase 2/3：
+Phase 1 当前可视为完成。后续结构项进入 Phase 2/3：
 
 - UI 层仍主要通过 folder path 浏览，列表项和操作路径还没有全面迁到 `file_id + folder_id`。
 - 搜索、统计、缩略图分页还没有统一 scope query builder。
 - `ref_count_`、`ResolveForWrite()` 和 `SleeveFile::Copy()` 的 CoW 边界还没有彻底拆分。
-- `NodeStorageHandler::EnsureChildrenLoaded()` 仍存在“空文件夹”和“未加载”状态混淆风险。
+- Root 列表、搜索和缩略图分页仍没有 DB-first 化，大库场景仍可能依赖对象缓存/全量加载。
 
 ## Migration Phases
 
 ### Phase 1: Current Closeout And Schema Hardening
 
-目标：把当前已经实现的 membership/import 语义收口成可长期依赖的基础，不再留下“运行时看起来可用，但 DB/schema/test 没锁住”的风险。
+目标：把当前已经实现的 membership/import 语义收口成可长期依赖的基础，不再留下“运行时看起来可用，但 DB/schema/test 没锁住”的风险。旧项目不进入本阶段 migration；通过递增项目文件版本并提高最小支持版本，旧 schema 项目直接不支持打开。
 
 范围：
 
@@ -305,12 +306,10 @@ bool children_loaded_ = false;
 详细工作项：
 
 - 检查现有 `FolderContent` schema 是否已经有 `PRIMARY KEY(folder_id, element_id)` 或等价唯一约束。
-- 如果没有唯一约束，增加 migration：
-  - 先 deduplicate 现有重复 `(folder_id, element_id)`。
-  - 再添加唯一约束。
-  - 再添加 `folder_id` 和 `element_id` 查询索引。
+- 新项目 schema 必须直接创建 `PRIMARY KEY(folder_id, element_id)`，并创建 `folder_id` 和 `element_id` 查询索引。
+- 递增 `project_file_version` / `project_file_min_supported_version`，明确旧 schema 项目不支持打开；不实现旧 `FolderContent` 去重或 backfill migration。
 - 决定 Root 的第一版实现方式：
-  - 如果继续 materialized Root membership，启动或 migration 时补齐所有 live File 的 Root membership。
+  - 如果继续 materialized Root membership，新版本项目的所有创建/导入路径必须补齐 live File 的 Root membership。
   - 如果改为虚拟 Root 查询，`ListFolderEntries("/")`、搜索和统计必须统一走 Root scope query。
 - 补齐 DB 重启恢复测试：
   - 导入到 Root 后关闭/重开 DB，Root 能看到同一 File。
@@ -332,7 +331,7 @@ bool children_loaded_ = false;
 Acceptance criteria:
 
 - DB 层无法持久化重复 `(folder_id, element_id)`。
-- 旧项目或旧测试库升级后，Root membership 一致。
+- 旧项目因 `project_file_version` 低于当前最小支持版本而被拒绝打开，不做隐式 DB migration。
 - 同一 File 可以稳定出现在 Root 和多个相册，重启后仍成立。
 - 子相册删除只 unlink，Root 删除 delete-everywhere。
 - 导入失败不会留下孤儿 membership、无 image 绑定 File 或不可见 placeholder。
@@ -426,8 +425,8 @@ Acceptance criteria:
 
 ## Compatibility Notes
 
-- 旧项目可以通过启动时 migration 补齐 Root membership，或直接把 Root 列表改成虚拟查询来避免补齐。
-- 如果 `FolderContent` 现有数据中存在重复 `(folder_id, element_id)`，迁移前需要 deduplicate。
+- 本次 membership schema change 不提供旧项目数据迁移路径。
+- 通过递增 `project_file_version` 和 `project_file_min_supported_version`，旧项目在 metadata 版本检查阶段被拒绝打开。
 - 如果当前 `ref_count_` 数据已经因为历史 CoW/Copy 行为不准确，不能直接拿它作为新 link count 的来源。
 - `SleeveBase` 旧接口和 `FileSystem` 新接口存在重复实现，重构时应优先让应用层只依赖 `FileSystem` / `SleeveService`，再决定是否删除或降级 `SleeveBase`。
 
@@ -441,13 +440,28 @@ Acceptance criteria:
 
 ## Recommended Next PR Scope
 
-当前代码已经越过了原计划的“只加测试”阶段。下一 PR 建议只做 Phase 1，不再混入 UI、搜索、CoW 或懒加载：
+下一 PR 建议只做 Phase 2，不再混入 CoW/payload duplicate 或大库 cache cleanup：
 
-- 确认或添加 `FolderContent(folder_id, element_id)` 唯一约束和索引。
-- 补齐 DB 重启恢复、编辑共享可见性、重复 link 幂等/失败的测试。
-- 明确 Root 第一版采用 materialized membership 还是虚拟查询。
-- 如果继续 materialized Root membership，补齐旧项目/旧测试库的 Root membership migration。
-- 扩展 ImportService 失败路径测试，确保目标不存在、metadata 失败和 sync 失败都不会留下孤儿 membership。
-- 保持 UI、搜索、CoW 和 lazy loading 不动，避免 Phase 1 的验收面扩大。
+- 让 `AlbumBrowseService` 的列表项显式携带 `file_id`、当前 `folder_id`、scope 类型和 UI 所需 metadata。
+- UI 打开编辑器时只传 `file_id`，不要继续用 album path 表达照片身份。
+- UI 删除路径接入 membership API：
+  - Root scope 调 `DeleteFileEverywhere(file_id)`。
+  - Album scope 调 `UnlinkFileFromFolder(file_id, folder_id)`。
+- 增加“添加到相册”入口，调用 `LinkFileToFolder(file_id, target_folder_id)`；重复添加按 Phase 1 的幂等语义处理。
+- 建立 shared scope query builder：
+  - Root scope 查询所有 live File，或继续以 materialized Root membership 为第一版实现。
+  - Album scope 通过 `FolderContent.folder_id = ?` join File。
+  - 搜索、统计、缩略图分页必须复用同一 scope 定义。
+- 迁移并验证这些调用点：
+  - `BuildFolderStats`
+  - `GetElementIdsInFolderByFilter`
+  - 缩略图 grid reload / pagination
+  - album count / filtered count
+- 保持 Phase 2 边界清晰：不要在同一 PR 里重构 `ref_count_`、`ResolveForWrite()`、`SleeveFile::Copy()` 或 payload-level CoW；这些留给 Phase 3。
 
-这样可以先把当前已经实现的 membership/import 语义真正锁住，再进入 Phase 2 的 UI 和查询迁移。
+交接给 Phase 2 的关键假设：
+
+- 旧项目不支持打开，版本线从 `0.2.5` 开始。
+- Root 第一版当前仍是 materialized membership；如果 Phase 2 改为虚拟 Root 查询，需要同时迁移列表、搜索、统计和分页，避免 count/list 不一致。
+- 当前底层允许多级 folder tree，但 UI 第一阶段仍可以只暴露两级相册结构。
+- 编辑器和 edit history/pipeline 已以 `file_id` 为身份工作；Phase 2 的重点是让 UI 和 query surface 不再把照片身份绑定到 path。
