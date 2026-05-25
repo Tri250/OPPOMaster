@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OMaster - OPPO 哈苏影像系统级参数中枢</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --accent-primary: #E5A94A;
+            --accent-secondary: #4CAF50;
+            --hasselblad-orange: #D4A574;
+            --deep-space: #121212;
+            --deep-space-light: #1E1E1E;
+            --text-primary-dark: #FFFFFF;
+            --text-secondary-dark: #B3B3B3;
+            --light-background: #FAFAFA;
+            --light-surface: #FFFFFF;
+            --text-primary-light: #121212;
+            --text-secondary-light: #666666;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .demo-container {
+            display: flex;
+            gap: 40px;
+            flex-wrap: wrap;
+            justify-content: center;
+            max-width: 1400px;
+        }
+
+        .phone-frame {
+            width: 380px;
+            height: 780px;
+            background: #000;
+            border-radius: 45px;
+            padding: 12px;
+            box-shadow: 
+                0 50px 100px -20px rgba(0,0,0,0.5),
+                0 30px 60px -30px rgba(0,0,0,0.6),
+                inset 0 0 0 2px rgba(255,255,255,0.1);
+            position: relative;
+        }
+
+        .phone-notch {
+            position: absolute;
+            top: 12px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 150px;
+            height: 30px;
+            background: #000;
+            border-radius: 0 0 20px 20px;
+            z-index: 10;
+        }
+
+        .phone-screen {
+            width: 100%;
+            height: 100%;
+            background: var(--deep-space);
+            border-radius: 35px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .header-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--accent-primary);
+        }
+
+        .app-bar {
+            padding: 60px 20px 20px;
+            background: var(--deep-space);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .icon-btn {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: rgba(255,255,255,0.05);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .icon-btn:hover {
+            background: rgba(255,255,255,0.1);
+            transform: scale(1.05);
+        }
+
+        .search-bar {
+            margin: 0 20px 20px;
+            background: var(--deep-space-light);
+            border-radius: 24px;
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .search-input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: var(--text-primary-dark);
+            font-size: 15px;
+            outline: none;
+        }
+
+        .search-input::placeholder {
+            color: var(--text-secondary-dark);
+        }
+
+        .filter-chips {
+            display: flex;
+            gap: 10px;
+            padding: 0 20px 20px;
+            overflow-x: auto;
+        }
+
+        .chip {
+            padding: 8px 16px;
+            background: var(--deep-space-light);
+            border-radius: 20px;
+            font-size: 14px;
+            color: var(--text-secondary-dark);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            white-space: nowrap;
+        }
+
+        .chip.active {
+            background: var(--accent-primary);
+            color: var(--deep-space);
+            font-weight: 600;
+        }
+
+        .chip:hover {
+            transform: scale(1.05);
+        }
+
+        .presets-list {
+            padding: 0 20px 100px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            overflow-y: auto;
+            height: calc(100% - 280px);
+        }
+
+        .preset-card {
+            background: var(--deep-space-light);
+            border-radius: 20px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .preset-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+        }
+
+        .preset-image {
+            width: 100%;
+            height: 200px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            position: relative;
+        }
+
+        .preset-image img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .hncs-badge {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            background: var(--hasselblad-orange);
+            color: var(--deep-space);
+            padding: 6px 12px;
+            border-radius: 10px;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .favorite-btn {
+            position: absolute;
+            bottom: 12px;
+            right: 12px;
+            width: 40px;
+            height: 40px;
+            background: rgba(0,0,0,0.5);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .favorite-btn.active {
+            background: var(--accent-primary);
+        }
+
+        .favorite-btn svg {
+            fill: white;
+            width: 20px;
+            height: 20px;
+        }
+
+        .favorite-btn.active svg {
+            fill: var(--deep-space);
+        }
+
+        .preset-info {
+            padding: 16px;
+        }
+
+        .preset-name {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-primary-dark);
+            margin-bottom: 8px;
+        }
+
+        .device-tag {
+            display: inline-block;
+            background: rgba(255,255,255,0.1);
+            color: var(--text-secondary-dark);
+            padding: 6px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+        }
+
+        .detail-screen {
+            height: 100%;
+            overflow-y: auto;
+        }
+
+        .detail-hero {
+            height: 320px;
+            position: relative;
+        }
+
+        .detail-hero img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .detail-overlay {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 150px;
+            background: linear-gradient(transparent, var(--deep-space));
+        }
+
+        .detail-content {
+            padding: 20px;
+        }
+
+        .detail-title {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--text-primary-dark);
+            margin-bottom: 12px;
+        }
+
+        .detail-device {
+            display: inline-block;
+            background: var(--deep-space-light);
+            color: var(--text-secondary-dark);
+            padding: 8px 16px;
+            border-radius: 14px;
+            font-size: 13px;
+            margin-bottom: 24px;
+        }
+
+        .params-section {
+            margin-bottom: 24px;
+        }
+
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-primary-dark);
+            margin-bottom: 16px;
+        }
+
+        .param-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--deep-space-light);
+            padding: 16px;
+            border-radius: 14px;
+            margin-bottom: 12px;
+        }
+
+        .param-label {
+            color: var(--text-secondary-dark);
+            font-size: 14px;
+        }
+
+        .param-value {
+            color: var(--accent-primary);
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .apply-btn {
+            width: 100%;
+            padding: 18px;
+            background: var(--accent-primary);
+            color: var(--deep-space);
+            border: none;
+            border-radius: 16px;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .apply-btn:hover {
+            transform: scale(1.02);
+            box-shadow: 0 10px 30px rgba(229, 169, 74, 0.4);
+        }
+
+        .settings-screen {
+            padding: 60px 20px 20px;
+            height: 100%;
+            overflow-y: auto;
+        }
+
+        .settings-header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+
+        .settings-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--text-primary-dark);
+        }
+
+        .settings-section {
+            margin-bottom: 32px;
+        }
+
+        .settings-section-title {
+            font-size: 14px;
+            color: var(--text-secondary-dark);
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .settings-item {
+            background: var(--deep-space-light);
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .settings-item:hover {
+            background: rgba(255,255,255,0.08);
+        }
+
+        .settings-item-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .settings-item-info h3 {
+            font-size: 16px;
+            color: var(--text-primary-dark);
+            margin-bottom: 4px;
+        }
+
+        .settings-item-info p {
+            font-size: 13px;
+            color: var(--text-secondary-dark);
+        }
+
+        .toggle-switch {
+            width: 52px;
+            height: 32px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 16px;
+            position: relative;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .toggle-switch.active {
+            background: var(--accent-primary);
+        }
+
+        .toggle-thumb {
+            width: 26px;
+            height: 26px;
+            background: white;
+            border-radius: 50%;
+            position: absolute;
+            top: 3px;
+            left: 3px;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+
+        .toggle-switch.active .toggle-thumb {
+            left: 23px;
+        }
+
+        .about-card {
+            background: var(--deep-space-light);
+            border-radius: 20px;
+            padding: 24px;
+            text-align: center;
+        }
+
+        .about-logo {
+            font-size: 32px;
+            font-weight: 800;
+            color: var(--accent-primary);
+            margin-bottom: 8px;
+        }
+
+        .about-version {
+            color: var(--text-secondary-dark);
+            font-size: 14px;
+            margin-bottom: 16px;
+        }
+
+        .about-desc {
+            color: var(--text-secondary-dark);
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .demo-info {
+            max-width: 600px;
+            color: white;
+            align-self: center;
+        }
+
+        .demo-info h1 {
+            font-size: 42px;
+            font-weight: 800;
+            margin-bottom: 16px;
+            background: linear-gradient(135deg, var(--accent-primary) 0%, var(--hasselblad-orange) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .demo-info p {
+            font-size: 16px;
+            color: rgba(255,255,255,0.7);
+            line-height: 1.8;
+            margin-bottom: 24px;
+        }
+
+        .feature-list {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-top: 32px;
+        }
+
+        .feature-item {
+            background: rgba(255,255,255,0.05);
+            padding: 20px;
+            border-radius: 16px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .feature-icon {
+            font-size: 28px;
+            margin-bottom: 12px;
+        }
+
+        .feature-title {
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+
+        .feature-desc {
+            font-size: 13px;
+            color: rgba(255,255,255,0.6);
+        }
+
+        .screen-switcher {
+            display: flex;
+            gap: 12px;
+            margin-top: 24px;
+        }
+
+        .switch-btn {
+            padding: 12px 24px;
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: white;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+
+        .switch-btn:hover, .switch-btn.active {
+            background: var(--accent-primary);
+            border-color: var(--accent-primary);
+            color: var(--deep-space);
+        }
+
+        @media (max-width: 768px) {
+            .demo-container {
+                flex-direction: column;
+                align-items: center;
+            }
+
+            .demo-info h1 {
+                font-size: 32px;
+            }
+
+            .feature-list {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .screen {
+            display: none;
+            height: 100%;
+        }
+
+        .screen.active {
+            display: block;
+        }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.2);
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="demo-container">
+        <div class="demo-info">
+            <h1>🎨 OMaster UI 预览</h1>
+            <p>OPPO 哈苏影像系统级参数中枢 - 一个专业的调色参数库应用预览，展示首页、详情页和设置页的精美设计。</p>
+            
+            <div class="screen-switcher">
+                <button class="switch-btn active" onclick="switchScreen('home')">🏠 首页</button>
+                <button class="switch-btn" onclick="switchScreen('detail')">📄 详情页</button>
+                <button class="switch-btn" onclick="switchScreen('settings')">⚙️ 设置页</button>
+            </div>
+
+            <div class="feature-list">
+                <div class="feature-item">
+                    <div class="feature-icon">🎨</div>
+                    <div class="feature-title">哈苏金标设计</div>
+                    <div class="feature-desc">采用 ColorOS 16 Aqua Design 水生设计风格</div>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">🌙</div>
+                    <div class="feature-title">深色模式</div>
+                    <div class="feature-desc">专业优雅的暗色主题体验</div>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">⭐</div>
+                    <div class="feature-title">收藏功能</div>
+                    <div class="feature-desc">一键收藏你喜欢的预设参数</div>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">🔍</div>
+                    <div class="feature-title">搜索筛选</div>
+                    <div class="feature-desc">快速找到你想要的调色预设</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="phone-frame">
+            <div class="phone-notch"></div>
+            <div class="phone-screen">
+                <!-- 首页 -->
+                <div id="screen-home" class="screen active">
+                    <div class="app-bar">
+                        <div class="header-title">OMaster</div>
+                        <div class="icon-btn" onclick="switchScreen('settings')">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="3"/>
+                                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51v-.09a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                            </svg>
+                        </div>
+                    </div>
+
+                    <div class="search-bar">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary-dark)" stroke-width="2">
+                            <circle cx="11" cy="11" r="8"/>
+                            <path d="M21 21l-4.35-4.35"/>
+                        </svg>
+                        <input type="text" class="search-input" placeholder="搜索预设...">
+                    </div>
+
+                    <div class="filter-chips">
+                        <div class="chip active">全部</div>
+                        <div class="chip">收藏</div>
+                        <div class="chip">HNCS</div>
+                        <div class="chip">Find X</div>
+                        <div class="chip">Reno</div>
+                    </div>
+
+                    <div class="presets-list">
+                        <div class="preset-card" onclick="switchScreen('detail')">
+                            <div class="preset-image">
+                                <img src="https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=600&h=400&fit=crop" alt="佛罗伦萨">
+                                <div class="hncs-badge">HNCS</div>
+                                <div class="favorite-btn" onclick="event.stopPropagation(); toggleFavorite(this)">
+                                    <svg viewBox="0 0 24 24">
+                                        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+                                    </svg>
+                                </div>
+                            </div>
+                            <div class="preset-info">
+                                <div class="preset-name">哈苏 X2D | 慵懒午后的佛罗伦萨</div>
+                                <span class="device-tag">Find X8 Pro</span>
+                            </div>
+                        </div>
+
+                        <div class="preset-card" onclick="switchScreen('detail')">
+                            <div class="preset-image">
+                                <img src="https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?w=600&h=400&fit=crop" alt="京都夜色">
+                                <div class="favorite-btn" onclick="event.stopPropagation(); toggleFavorite(this)">
+                                    <svg viewBox="0 0 24 24">
+                                        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+                                    </svg>
+                                </div>
+                            </div>
+                            <div class="preset-info">
+                                <div class="preset-name">京都夜色 | 霓虹光斑</div>
+                                <span class="device-tag">Find X8 Ultra</span>
+                            </div>
+                        </div>
+
+                        <div class="preset-card" onclick="switchScreen('detail')">
+                            <div class="preset-image">
+                                <img src="https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=600&h=400&fit=crop" alt="北欧森林">
+                                <div class="hncs-badge">HNCS</div>
+                                <div class="favorite-btn active" onclick="event.stopPropagation(); toggleFavorite(this)">
+                                    <svg viewBox="0 0 24 24">
+                                        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+                                    </svg>
+                                </div>
+                            </div>
+                            <div class="preset-info">
+                                <div class="preset-name">北欧森林 | 自然清新</div>
+                                <span class="device-tag">Reno 12 Pro</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 详情页 -->
+                <div id="screen-detail" class="screen">
+                    <div class="detail-screen">
+                        <div class="detail-hero">
+                            <img src="https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800&h=600&fit=crop" alt="佛罗伦萨">
+                            <div class="detail-overlay"></div>
+                            <div class="app-bar" style="position: absolute; top: 0; left: 0; right: 0; background: transparent;">
+                                <div class="icon-btn" onclick="switchScreen('home')">
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M19 12H5M12 19l-7-7 7-7"/>
+                                    </svg>
+                                </div>
+                                <div style="display: flex; gap: 12px;">
+                                    <div class="favorite-btn" onclick="toggleFavorite(this)" style="position: static;">
+                                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+                                        </svg>
+                                    </div>
+                                    <div class="icon-btn">
+                                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <circle cx="18" cy="5" r="3"/>
+                                            <circle cx="6" cy="12" r="3"/>
+                                            <circle cx="18" cy="19" r="3"/>
+                                            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+                                            <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+                                        </svg>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="detail-content">
+                            <h1 class="detail-title">哈苏 X2D | 慵懒午后的佛罗伦萨</h1>
+                            <span class="detail-device">适配: Find X8 Pro</span>
+
+                            <div class="params-section">
+                                <h3 class="section-title">相机参数</h3>
+                                <div class="param-item">
+                                    <span class="param-label">ISO</span>
+                                    <span class="param-value">200</span>
+                                </div>
+                                <div class="param-item">
+                                    <span class="param-label">快门</span>
+                                    <span class="param-value">1/250</span>
+                                </div>
+                                <div class="param-item">
+                                    <span class="param-label">曝光补偿</span>
+                                    <span class="param-value">+0.3</span>
+                                </div>
+                                <div class="param-item">
+                                    <span class="param-label">白平衡</span>
+                                    <span class="param-value">5600K</span>
+                                </div>
+                                <div class="param-item">
+                                    <span class="param-label">滤镜</span>
+                                    <span class="param-value">复古</span>
+                                </div>
+                            </div>
+
+                            <div class="params-section">
+                                <h3 class="section-title">详细说明</h3>
+                                <div class="settings-item" style="cursor: default;">
+                                    <h3 style="color: var(--accent-primary); font-weight: 600; margin-bottom: 8px;">光感设置</h3>
+                                    <p style="color: var(--text-secondary-dark); font-size: 14px;">降低对比度，提高高光保留</p>
+                                </div>
+                                <div class="settings-item" style="cursor: default;">
+                                    <h3 style="color: var(--accent-primary); font-weight: 600; margin-bottom: 8px;">色彩调校</h3>
+                                    <p style="color: var(--text-secondary-dark); font-size: 14px;">暖色调偏移，饱和度适中</p>
+                                </div>
+                            </div>
+
+                            <button class="apply-btn">✨ 应用预设</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 设置页 -->
+                <div id="screen-settings" class="screen">
+                    <div class="settings-screen">
+                        <div class="settings-header">
+                            <div class="icon-btn" onclick="switchScreen('home')">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M19 12H5M12 19l-7-7 7-7"/>
+                                </svg>
+                            </div>
+                            <h2 class="settings-title">设置</h2>
+                        </div>
+
+                        <div class="settings-section">
+                            <div class="settings-section-title">外观</div>
+                            <div class="settings-item">
+                                <div class="settings-item-row">
+                                    <div class="settings-item-info">
+                                        <h3>主题</h3>
+                                        <p>跟随系统</p>
+                                    </div>
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary-dark)" stroke-width="2">
+                                        <path d="M9 18l6-6-6-6"/>
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="settings-section">
+                            <div class="settings-section-title">系统能力</div>
+                            <div class="settings-item">
+                                <div class="settings-item-row">
+                                    <div class="settings-item-info">
+                                        <h3>流体云胶囊</h3>
+                                        <p>在系统侧边栏显示当前选中的预设</p>
+                                    </div>
+                                    <div class="toggle-switch active" onclick="toggleSwitch(this)">
+                                        <div class="toggle-thumb"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="settings-item">
+                                <div class="settings-item-row">
+                                    <div class="settings-item-info">
+                                        <h3>悬浮窗（降级方案）</h3>
+                                        <p>仅适用于不支持流体云的旧系统</p>
+                                    </div>
+                                    <div class="toggle-switch" onclick="toggleSwitch(this)">
+                                        <div class="toggle-thumb"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="settings-section">
+                            <div class="settings-section-title">关于</div>
+                            <div class="about-card">
+                                <div class="about-logo">OMaster</div>
+                                <div class="about-version">版本 1.0.0</div>
+                                <div class="about-desc">OPPO 哈苏影像系统级参数中枢</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function switchScreen(screenName) {
+            document.querySelectorAll('.screen').forEach(screen => screen.classList.remove('active'));
+            document.getElementById('screen-' + screenName).classList.add('active');
+            
+            document.querySelectorAll('.switch-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+        }
+
+        function toggleFavorite(btn) {
+            btn.classList.toggle('active');
+        }
+
+        function toggleSwitch(toggle) {
+            toggle.classList.toggle('active');
+        }
+
+        document.querySelectorAll('.chip').forEach(chip => {
+            chip.addEventListener('click', function() {
+                document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+                this.classList.add('active');
+            });
+        });
+    </script>
+</body>
+</html>
