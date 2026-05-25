@@ -283,12 +283,12 @@ bool children_loaded_ = false;
 - `ImportServiceTest.exe`: 13/13 passed
 - `git diff --check`: passed
 
-Phase 1 当前可视为完成。后续结构项进入 Phase 2/3：
+Phase 1 当前可视为完成。结合本次复审，后续结构项现更新为：
 
-- UI 层仍主要通过 folder path 浏览，列表项和操作路径还没有全面迁到 `file_id + folder_id`。
-- 搜索、统计、缩略图分页还没有统一 scope query builder。
-- `ref_count_`、`ResolveForWrite()` 和 `SleeveFile::Copy()` 的 CoW 边界还没有彻底拆分。
-- Root 列表、搜索和缩略图分页仍没有 DB-first 化，大库场景仍可能依赖对象缓存/全量加载。
+- Phase 2 的主线能力已经落地：列表项携带 `file_id + folder_id`，编辑器入口不再依赖 album path，添加到相册/按 scope 删除/search/stats 的 scope query 也已接通。
+- Phase 2 仍未彻底完成的只剩“大库路径”相关内容：缩略图 grid 仍会在 `ReloadCurrentFolder()` 时全量加载当前 scope 的文件，再在内存中重建可见列表；真正的 DB-first 分页尚未完成。
+- `ref_count_`、`ResolveForWrite()` 和 `SleeveFile::Copy()` 的 CoW/duplicate 边界还没有彻底拆分。
+- Root 仍是 materialized membership；虚拟 Root 视图、bounded object cache 和大库性能治理应单独后置。
 
 ## Migration Phases
 
@@ -339,13 +339,13 @@ Acceptance criteria:
 
 ### Phase 2: Album Scope API, UI, Search And Stats
 
-目标：把“照片身份是 `file_id`，相册只是 scope/membership”贯穿到应用服务、UI、搜索、统计和缩略图分页，避免继续用 path 表达照片身份。
+目标：把“照片身份是 `file_id`，相册只是 scope/membership”贯穿到应用服务、UI、搜索、统计和当前列表 reload，避免继续用 path 表达照片身份。
 
 范围：
 
 - UI 和 AlbumBrowseService 迁到 id-based scope。
 - “添加到相册”和删除操作接入 membership API。
-- 搜索、统计、缩略图分页统一使用 scope query builder。
+- 搜索、统计和当前列表 reload 统一使用 scope query builder。
 - Root 和 album 的列表/查询语义保持一致。
 
 详细工作项：
@@ -370,7 +370,7 @@ Acceptance criteria:
 - 迁移搜索和统计：
   - `BuildFolderStats`
   - `GetElementIdsInFolderByFilter`
-  - 缩略图 grid reload / pagination
+  - 缩略图 grid reload（分页留给 Phase 4）
   - 任何 album count 或 filtered count
 - 保留 path API 作为兼容层，但新 UI 和新服务逻辑不再依赖 path 表达图片身份。
 
@@ -387,7 +387,12 @@ Acceptance criteria:
 - `AlbumBackend::ReloadCurrentFolder()` 已从 `CurrentFolderFsPath()` + `ListFilesInFolder(path)` 切到 `CurrentFolderElementId()` + `ListFilesInFolderById(folder_id)`，列表数据源已改为 DB scoped list。
 - `SleeveFilterService` 已增加按 folder scope 或全量清理 filter result cache 的 API；UI 添加到相册和删除路径已在 membership 变更后调用 cache invalidation。
 
-Phase 2 已于 2026-05-25 完成。以下为已完成工作项：
+本次审核结论（2026-05-25）：
+
+- Phase 2 的核心语义已经完成。
+- 原计划中仍带有“大库性能/分页”性质的尾项不适合继续算在 Phase 2 closeout 内，现移至后续阶段。
+
+以下为已完成工作项：
 
 filter cache 自动失效：
 
@@ -409,12 +414,19 @@ UI 边缘测试覆盖：
 - `StatsFilterConsistencyAfterMembershipChange`：membership 变更后 `ShownCount()` == `TotalPhotoCount()`。
 - `AddToAlbumSurvivesReload`：添加到相册后保存并重载，文件仍在相册中。
 
-延至 Phase 3：
+移出 Phase 2：
+
+移至 Phase 3：
+
+- `ref_count_` / `ResolveForWrite()` / `SleeveFile::Copy()` CoW 边界拆分。
+- duplicate 的 edit history / pipeline 独立性收口。
+
+移至 Phase 4（新增）：
 
 - 缩略图 grid DB-first 分页查询（`ReloadCurrentFolder()` 仍全量加载 `all_images_`）。
-- `ref_count_` / `ResolveForWrite()` / `SleeveFile::Copy()` CoW 边界拆分。
 - Root 虚拟视图替代 materialized Root membership。
 - object cache 容量控制与 LRU 策略。
+- 大库场景下的 DB-first list/search/stats/pagination 一致性治理。
 
 验证结果（2026-05-25）：
 
@@ -433,19 +445,18 @@ Acceptance criteria:
 - UI 从 Root 删除图片会从所有相册消失，并有明确确认路径。
 - Root 搜索覆盖全库 live File。
 - 子相册搜索只返回当前相册 membership 中的 File。
-- 统计、筛选、缩略图分页使用同一 scope 定义，不出现列表和计数不一致。
+- 统计、筛选、当前列表 reload 使用同一 scope 定义，不出现列表和计数不一致。
 - 编辑器入口只依赖 `file_id`。
 
-### Phase 3: CoW Boundary, Duplicate Semantics And Cache Cleanup
+### Phase 3: CoW Boundary And Duplicate Semantics
 
-目标：把当前还混在一起的 membership、duplicate、CoW 和 object cache 生命周期拆清楚，并让大库场景不依赖全量加载。
+目标：先把 membership、duplicate 和 CoW 的语义边界拆清楚，保证“添加到相册”和“复制独立副本”在底层不会再共用同一套含混语义。
 
 范围：
 
 - 拆分 `ref_count_` 的职责。
 - 明确 duplicate 和 album membership 的差异。
 - 修正 `SleeveFile::Copy()` / duplicate 的 edit history 和 pipeline 独立性。
-- 清理 lazy loading 和 object cache。
 
 详细工作项：
 
@@ -458,22 +469,46 @@ Acceptance criteria:
   - “添加到相册”绝不复制 File identity。
   - “复制为独立副本”创建新 `file_id`。
   - 新副本的 edit history / pipeline 独立。
-- 评估是否引入 `FileContent` 表：
-  - 如果只需要独立 File，不共享 payload，可以暂不引入。
-  - 如果需要 duplicate 初始共享原始 payload，则用 `FileContent.ref_count` 承载 payload-level CoW。
-- 为 `SleeveFolder` 增加显式 `children_loaded_`。
-- `NodeStorageHandler::EnsureChildrenLoaded()` 不再用 `ContentSize() == 0` 判断是否加载。
-- Root 列表、搜索和缩略图分页逐步改为 DB-first 查询。
-- `storage_` 退化为有边界的 object cache，而不是完整数据库镜像。
+- 如果 Phase 3 只追求语义正确性，可以先不引入 `FileContent` 表，直接让 duplicate 生成完全独立的 File/pipeline/history。
+- 如果 duplicate 仍要初始共享 payload，则至少把 payload-level sharing 与 album membership 明确隔离，不再复用同一个 `ref_count_` 语义。
 
 Acceptance criteria:
 
 - 同一 File 的多相册 membership 不会因为写入而复制 File。
 - 显式 duplicate 后，两个 File 的 edit history / pipeline 独立。
 - 如存在 payload-level sharing，只在 duplicate detach 时触发。
-- 空文件夹和未加载文件夹状态可区分。
-- 大库 Root 不需要一次性加载所有 File element。
-- 重启恢复、搜索、相册切换和缩略图分页行为稳定。
+- duplicate 语义不再依赖 path-based copy 的隐式行为。
+
+### Phase 4: Root Virtual View, DB-First Pagination And Bounded Cache
+
+目标：在不再混入 membership/duplicate 语义改造的前提下，单独解决 Root 虚拟视图、大库分页和对象缓存边界，让列表/筛选/分页在大库下仍保持一致和可控成本。
+
+范围：
+
+- Root 从 materialized membership 迁到虚拟视图，或至少把两种实现统一封装到同一 scope query 层。
+- 缩略图 grid 改为 DB-first 分页，不再要求 `ReloadCurrentFolder()` 先全量填充 `all_images_`。
+- `storage_` 从“完整数据库镜像倾向”退回到 bounded object cache。
+- 评估是否需要 `FileContent` 表承载 payload-level sharing 优化。
+
+详细工作项：
+
+- 为 Root/album 抽象统一的 paged scope query builder：
+  - list
+  - filtered list
+  - count
+  - stats
+  - thumbnail pagination
+- 将 `AlbumBackend::ReloadCurrentFolder()` 从“全量 list + 内存重建 visible list”改成分页/窗口化加载。
+- 把 `StatsEngine` 当前“DB 查 filtered ids，再与 `all_images_` 交集”的做法进一步收敛为真正的 paged DB-first 视图模型。
+- 让 `storage_` 只缓存当前活跃窗口和必要对象；为 `NodeStorageHandler` 增加容量上限或 LRU。
+- 如果决定实现 payload 共享优化，再引入 `FileContent(content_id, image_id, ref_count)` 一类模型，把 payload ref count 从 element membership 里彻底剥离。
+
+Acceptance criteria:
+
+- Root scope 不依赖 `FolderContent(root_id, file_id)` 也能稳定列出全库 live File。
+- 大库下切换 Root/album、搜索、stats 和缩略图分页不需要一次性加载当前 scope 的全部 File。
+- 列表、计数、筛选结果和缩略图分页基于同一 scope/paging 定义，不出现跨页或跨缓存不一致。
+- `storage_` 有明确容量边界，不再默认长期持有全库 element 对象。
 
 ## Compatibility Notes
 
@@ -492,28 +527,22 @@ Acceptance criteria:
 
 ## Recommended Next PR Scope
 
-下一 PR 建议只做 Phase 2，不再混入 CoW/payload duplicate 或大库 cache cleanup：
+下一 PR 建议只做 Phase 3，不再把大库分页和缓存治理混进来：
 
-- 让 `AlbumBrowseService` 的列表项显式携带 `file_id`、当前 `folder_id`、scope 类型和 UI 所需 metadata。
-- UI 打开编辑器时只传 `file_id`，不要继续用 album path 表达照片身份。
-- UI 删除路径接入 membership API：
-  - Root scope 调 `DeleteFileEverywhere(file_id)`。
-  - Album scope 调 `UnlinkFileFromFolder(file_id, folder_id)`。
-- 增加“添加到相册”入口，调用 `LinkFileToFolder(file_id, target_folder_id)`；重复添加按 Phase 1 的幂等语义处理。
-- 建立 shared scope query builder：
-  - Root scope 查询所有 live File，或继续以 materialized Root membership 为第一版实现。
-  - Album scope 通过 `FolderContent.folder_id = ?` join File。
-  - 搜索、统计、缩略图分页必须复用同一 scope 定义。
-- 迁移并验证这些调用点：
-  - `BuildFolderStats`
-  - `GetElementIdsInFolderByFilter`
-  - 缩略图 grid reload / pagination
-  - album count / filtered count
-- 保持 Phase 2 边界清晰：不要在同一 PR 里重构 `ref_count_`、`ResolveForWrite()`、`SleeveFile::Copy()` 或 payload-level CoW；这些留给 Phase 3。
+- 审核并收紧 `PathResolver::ResolveForWrite()` 的 CoW 触发条件：
+  - album membership 写入不触发 File CoW。
+  - duplicate/payload sharing 才允许 detach。
+- 修正 `SleeveFile::Copy()` 或直接收口为显式 duplicate API：
+  - 新副本必须拥有独立 `file_id`。
+  - 新副本必须拥有独立 edit history / pipeline。
+- 补齐 duplicate 语义测试：
+  - duplicate 后两个 File 修改互不影响。
+  - album link 后在任一 album 修改仍共享同一 File。
+- 保持 Phase 3 边界清晰：不要在同一 PR 里同时做 Root 虚拟视图、DB-first 缩略图分页或 object cache LRU；这些留给 Phase 4。
 
-交接给 Phase 2 的关键假设：
+交接给 Phase 3/4 的关键假设：
 
 - 旧项目不支持打开，版本线从 `0.2.5` 开始。
-- Root 第一版当前仍是 materialized membership；如果 Phase 2 改为虚拟 Root 查询，需要同时迁移列表、搜索、统计和分页，避免 count/list 不一致。
+- Root 当前仍是 materialized membership，这是可接受的过渡实现，不应和 CoW/duplicate 语义改造绑在同一 PR。
 - 当前底层允许多级 folder tree，但 UI 第一阶段仍可以只暴露两级相册结构。
-- 编辑器和 edit history/pipeline 已以 `file_id` 为身份工作；Phase 2 的重点是让 UI 和 query surface 不再把照片身份绑定到 path。
+- 编辑器和 edit history/pipeline 已以 `file_id` 为身份工作；后续 Phase 3 的重点是修正 duplicate/CoW，Phase 4 再处理大库查询与分页。
