@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OMaster - OPPO 哈苏专业预设</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Home Screen -->
+        <div id="home-screen" class="screen active">
+            <header class="app-bar">
+                <h1 class="app-title">OMaster</h1>
+                <button class="icon-btn" id="settings-btn">⚙️</button>
+            </header>
+
+            <div class="search-container">
+                <input type="text" id="search-input" class="search-input" placeholder="搜索预设...">
+            </div>
+
+            <div class="filter-section">
+                <div class="filter-chips">
+                    <button class="chip active" data-filter="all">全部</button>
+                    <button class="chip" data-filter="favorites">❤️ 收藏</button>
+                    <button class="chip" data-filter="hncs">✨ HNCS</button>
+                    <button class="chip" data-filter="findx">📱 Find X</button>
+                    <button class="chip" data-filter="reno">📱 Reno</button>
+                </div>
+
+                <div class="style-section">
+                    <h3 class="section-title">风格</h3>
+                    <div class="style-chips">
+                        <button class="style-chip active" data-style="all">全部</button>
+                        <button class="style-chip" data-style="natural">自然真实</button>
+                        <button class="style-chip" data-style="film">胶片质感</button>
+                        <button class="style-chip" data-style="cinematic">电影感</button>
+                        <button class="style-chip" data-style="portrait">人像优化</button>
+                        <button class="style-chip" data-style="landscape">风景优化</button>
+                        <button class="style-chip" data-style="night">夜景优化</button>
+                    </div>
+                </div>
+
+                <div class="scene-section">
+                    <h3 class="section-title">场景</h3>
+                    <div class="scene-chips">
+                        <button class="scene-chip active" data-scene="all">全部</button>
+                        <button class="scene-chip" data-scene="portrait">人像</button>
+                        <button class="scene-chip" data-scene="landscape">风景</button>
+                        <button class="scene-chip" data-scene="night">夜景</button>
+                        <button class="scene-chip" data-scene="street">街头</button>
+                        <button class="scene-chip" data-scene="food">美食</button>
+                        <button class="scene-chip" data-scene="sunset">日落</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="presets-grid" id="presets-grid">
+                <!-- Preset cards will be dynamically added -->
+            </div>
+        </div>
+
+        <!-- Detail Screen -->
+        <div id="detail-screen" class="screen">
+            <header class="detail-header">
+                <button class="back-btn" id="back-btn">←</button>
+                <div class="header-spacer"></div>
+                <button class="icon-btn" id="detail-fav-btn">🤍</button>
+                <button class="icon-btn" id="detail-share-btn">📤</button>
+            </header>
+
+            <div class="detail-content" id="detail-content">
+                <!-- Detail content will be dynamically added -->
+            </div>
+
+            <div class="apply-btn-container">
+                <button class="apply-btn" id="apply-preset-btn">一键应用到相机</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="glow-effect primary-glow"></div>
+    <div class="glow-effect secondary-glow"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>
