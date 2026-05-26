@@ -1282,6 +1282,7 @@ qt_add_qml_module(alcedo_main
         ui/alcedo_main/qml/ExportQueueState.qml
         ui/alcedo_main/qml/AlbumExportDialog.qml
         ui/alcedo_main/qml/ImageDetailsDialog.qml
+        ui/alcedo_main/qml/SettingDialog.qml
         ui/alcedo_main/qml/WelcomeDialog.qml
         ui/alcedo_main/qml/NikonHeRecoveryDialog.qml
         ui/alcedo_main/qml/ImportProgressRing.qml

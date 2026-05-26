@@ -43,6 +43,26 @@ constexpr auto   kAcceleratorWarningAcknowledgedKey = "gpu/acceleratorWarningAck
 constexpr int    kMaxRecentProjects                 = 12;
 constexpr size_t kAlbumMetadataPageSize             = 1000;
 
+auto FormatCacheSize(size_t bytes) -> QString {
+  if (bytes == 0) {
+    return QStringLiteral("0 KiB");
+  }
+  if (bytes < 1024) {
+    return QStringLiteral("< 1 KiB");
+  }
+
+  static constexpr const char* kUnits[] = {"KiB", "MiB", "GiB", "TiB"};
+  double                       value    = static_cast<double>(bytes) / 1024.0;
+  int                          unit_idx = 0;
+  while (value >= 1024.0 && unit_idx < 3) {
+    value /= 1024.0;
+    ++unit_idx;
+  }
+
+  const int decimals = value >= 10.0 ? 1 : 2;
+  return QStringLiteral("%1 %2").arg(value, 0, 'f', decimals).arg(QLatin1String(kUnits[unit_idx]));
+}
+
 class ThumbnailModelLoadingGuard {
  public:
   explicit ThumbnailModelLoadingGuard(AlbumThumbnailModel& model) : model_(model) {
@@ -1246,13 +1266,13 @@ QString AlbumBackend::ThumbnailDiskCacheStats() const {
   return QStringLiteral(
              "Enabled: %1\n"
              "Entries: %2\n"
-             "Size: %3 bytes\n"
+             "Size: %3\n"
              "Max entries: %4\n"
              "Hits: %5 / Misses: %6\n"
              "Root: %7")
       .arg(stats.enabled ? QStringLiteral("Yes") : QStringLiteral("No"))
       .arg(stats.total_entries)
-      .arg(stats.total_size_bytes)
+      .arg(FormatCacheSize(stats.total_size_bytes))
       .arg(stats.max_entries)
       .arg(stats.hit_count)
       .arg(stats.miss_count)

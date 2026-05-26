@@ -40,7 +40,11 @@ Item {
     readonly property int metadataFontSize: columns >= 8 ? 8 : 10
     property bool _inZoomToCursor: false
     property int _layoutRequestId: 0
+    property int _pendingLayoutRequestId: 0
     property int _zoomRequestId: 0
+    property int _pendingZoomRequestId: 0
+    property real _pendingZoomFocusRatio: 0
+    property real _pendingZoomFocusY: 0
 
     signal imageSelectionChanged(int elementId, int imageId, string fileName, bool selected)
     signal replaceSelection(var items)
@@ -48,17 +52,17 @@ Item {
     signal zoomChanged(int zoomLevel)
 
     onZoomLevelChanged: {
-        zoomChanged(zoomLevel)
-        relayoutAndClamp()
-        updateCacheHint()
+        root.zoomChanged(zoomLevel)
+        root.relayoutAndClamp()
+        root.updateCacheHint()
     }
     onWidthChanged: {
-        relayoutAndClamp()
-        updateCacheHint()
+        root.relayoutAndClamp()
+        root.updateCacheHint()
     }
     onHeightChanged: {
-        clampContentY()
-        updateCacheHint()
+        root.clampContentY()
+        root.updateCacheHint()
     }
 
     function modelCount() {
@@ -115,15 +119,17 @@ Item {
         if (_inZoomToCursor) {
             return
         }
-        const requestId = ++_layoutRequestId
-        Qt.callLater(function() {
-            if (requestId !== _layoutRequestId || _inZoomToCursor) {
-                return
-            }
-            grid.forceLayout()
-            clampContentY()
-            updateCacheHint()
-        })
+        _pendingLayoutRequestId = ++_layoutRequestId
+        relayoutAndClampTimer.restart()
+    }
+
+    function finishRelayoutAndClamp() {
+        if (_pendingLayoutRequestId !== _layoutRequestId || _inZoomToCursor) {
+            return
+        }
+        grid.forceLayout()
+        root.clampContentY()
+        root.updateCacheHint()
     }
 
     function setZoomLevelAt(nextZoomLevel, focusViewportY) {
@@ -139,20 +145,24 @@ Item {
         const focusRatio = (oldContentY - oldOriginY + focusY) / oldHeight
         _inZoomToCursor = true
         ++_layoutRequestId
-        const zoomRequestId = ++_zoomRequestId
+        _pendingZoomRequestId = ++_zoomRequestId
+        _pendingZoomFocusRatio = focusRatio
+        _pendingZoomFocusY = focusY
         zoomLevel = clamped
-        Qt.callLater(function() {
-            if (zoomRequestId !== _zoomRequestId) {
-                return
-            }
-            grid.forceLayout()
-            const newOriginY = grid.originY
-            const newHeight = Math.max(1, layoutContentHeight())
-            const targetY = newOriginY + focusRatio * newHeight - focusY
-            grid.contentY = clampYForHeight(newHeight, targetY, newOriginY)
-            _inZoomToCursor = false
-            updateCacheHint()
-        })
+        zoomToCursorTimer.restart()
+    }
+
+    function finishZoomToCursor() {
+        if (_pendingZoomRequestId !== _zoomRequestId) {
+            return
+        }
+        grid.forceLayout()
+        const newOriginY = grid.originY
+        const newHeight = Math.max(1, layoutContentHeight())
+        const targetY = newOriginY + _pendingZoomFocusRatio * newHeight - _pendingZoomFocusY
+        grid.contentY = clampYForHeight(newHeight, targetY, newOriginY)
+        _inZoomToCursor = false
+        root.updateCacheHint()
     }
 
     function updateCacheHint() {
@@ -180,9 +190,30 @@ Item {
         target: albumBackend.thumbnailModel
         function onLoadingChanged() {
             if (!albumBackend.thumbnailModel.loading) {
-                Qt.callLater(root.maybeLoadMoreThumbnails)
+                loadMoreThumbnailTimer.restart()
             }
         }
+    }
+
+    Timer {
+        id: relayoutAndClampTimer
+        interval: 0
+        repeat: false
+        onTriggered: root.finishRelayoutAndClamp()
+    }
+
+    Timer {
+        id: zoomToCursorTimer
+        interval: 0
+        repeat: false
+        onTriggered: root.finishZoomToCursor()
+    }
+
+    Timer {
+        id: loadMoreThumbnailTimer
+        interval: 0
+        repeat: false
+        onTriggered: root.maybeLoadMoreThumbnails()
     }
 
     function keyForElement(elementId) {

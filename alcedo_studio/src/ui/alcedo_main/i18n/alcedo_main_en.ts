@@ -1673,6 +1673,163 @@ Original source files on disk will be kept.</source>
     </message>
 </context>
 <context>
+    <name>SettingDialog</name>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="65"/>
+        <source>Select Thumbnail Cache Folder</source>
+        <translation>Select Thumbnail Cache Folder</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="110"/>
+        <source>Unavailable</source>
+        <translation>Unavailable</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="120"/>
+        <source>%1 / %2</source>
+        <translation>%1 / %2</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="144"/>
+        <source>Settings applied</source>
+        <translation>Settings applied</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="225"/>
+        <source>Setting</source>
+        <translation>Setting</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="239"/>
+        <location filename="../qml/SettingDialog.qml" line="317"/>
+        <location filename="../qml/SettingDialog.qml" line="366"/>
+        <source>Language</source>
+        <translation>Language</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="240"/>
+        <location filename="../qml/SettingDialog.qml" line="319"/>
+        <source>Theme and color</source>
+        <translation>Theme and color</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="241"/>
+        <location filename="../qml/SettingDialog.qml" line="320"/>
+        <source>Cache</source>
+        <translation>Cache</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="355"/>
+        <source>Application language</source>
+        <translation>Application language</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="404"/>
+        <source>Workspace appearance</source>
+        <translation>Workspace appearance</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="415"/>
+        <source>Theme</source>
+        <translation>Theme</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="453"/>
+        <source>Current cache</source>
+        <translation>Current cache</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="466"/>
+        <source>Entries</source>
+        <translation>Entries</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="475"/>
+        <source>Size</source>
+        <translation>Size</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="484"/>
+        <source>Hits / misses</source>
+        <translation>Hits / misses</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="498"/>
+        <source>Storage</source>
+        <translation>Storage</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="512"/>
+        <source>Cache directory</source>
+        <translation>Cache directory</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="581"/>
+        <source>Limits</source>
+        <translation>Limits</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="592"/>
+        <source>Disk cache</source>
+        <translation>Disk cache</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="600"/>
+        <source>Enabled</source>
+        <translation>Enabled</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="600"/>
+        <source>Disabled</source>
+        <translation>Disabled</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="612"/>
+        <source>Max entries</source>
+        <translation>Max entries</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="635"/>
+        <source>JPEG quality</source>
+        <translation>JPEG quality</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="666"/>
+        <source>Maintenance</source>
+        <translation>Maintenance</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="678"/>
+        <source>Clear current project</source>
+        <translation>Clear current project</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="684"/>
+        <source>Current project cache cleared</source>
+        <translation>Current project cache cleared</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="691"/>
+        <source>Clear all cache</source>
+        <translation>Clear all cache</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="696"/>
+        <source>All thumbnail cache cleared</source>
+        <translation>All thumbnail cache cleared</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="702"/>
+        <source>Refresh</source>
+        <translation>Refresh</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="733"/>
+        <source>Done</source>
+        <translation>Done</translation>
+    </message>
+</context>
+<context>
     <name>WelcomeDialog</name>
     <message>
         <location filename="../qml/WelcomeDialog.qml" line="177"/>
@@ -1854,12 +2011,12 @@ Original source files on disk will be kept.</source>
     <message>
         <location filename="../app_theme.cpp" line="940"/>
         <source>Alcedo</source>
-        <translation type="unfinished"></translation>
+        <translation>Alcedo</translation>
     </message>
     <message>
         <location filename="../app_theme.cpp" line="941"/>
         <source>Classic</source>
-        <translation type="unfinished"></translation>
+        <translation>Classic</translation>
     </message>
 </context>
 </TS>

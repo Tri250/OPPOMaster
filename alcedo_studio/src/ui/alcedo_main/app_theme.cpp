@@ -316,7 +316,7 @@ void AppTheme::RegisterFonts() {
   families.data =
       RegisterFontResource(QStringLiteral(":/fonts/main_IBM.ttf"), QStringLiteral("IBM Plex Sans"));
   const QString registered_headline_zh =
-      RegisterFontResource(QStringLiteral(":/fonts/main_HanaMinA.ttf"), QString());
+      RegisterFontResource(QStringLiteral(":/fonts/header_dingliesongtypeface.ttf"), QString());
   if (!registered_headline_zh.isEmpty()) {
     families.ui_headline_zh = registered_headline_zh;
   }

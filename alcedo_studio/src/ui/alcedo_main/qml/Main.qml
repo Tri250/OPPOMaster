@@ -52,7 +52,6 @@ ApplicationWindow {
     readonly property color colOverlay: appTheme.overlayColor
     readonly property string dataFontFamily: appTheme.dataFontFamily
     readonly property string headlineFontFamily: appTheme.headlineFontFamily
-    readonly property real settingsFieldLabelWidth: 84
     readonly property int controlRadius: 10
     readonly property color colButtonPrimary: "#457B9D"
     readonly property color colButtonSecondary: "#3A3F44"
@@ -132,8 +131,6 @@ ApplicationWindow {
     readonly property int selectedCount: selectionState.selectedCount
     readonly property int exportQueueCount: exportQueueState.exportQueueCount
     readonly property var languageOptions: languageManager.availableLanguages
-    property int pendingThemeIndex: appTheme.currentThemeIndex
-    property string pendingLanguageCode: languageManager.currentLanguageCode
     property var pendingDeleteTargets: []
     property var pendingDetailsTarget: ({})
     property var pendingRatingTarget: ({})
@@ -179,30 +176,8 @@ ApplicationWindow {
         return 0
     }
 
-    function themeModelIndexForTheme(themeIndex) {
-        const themes = appTheme.availableThemes
-        for (let i = 0; i < themes.length; ++i) {
-            if (themes[i].index === themeIndex) {
-                return i
-            }
-        }
-        return 0
-    }
-
     function openSettingsDialog() {
-        root.pendingThemeIndex = appTheme.currentThemeIndex
-        root.pendingLanguageCode = languageManager.currentLanguageCode
         settingsDialog.open()
-    }
-
-    function saveSettingsAndClose() {
-        if (appTheme.currentThemeIndex !== root.pendingThemeIndex) {
-            appTheme.currentThemeIndex = root.pendingThemeIndex
-        }
-        if (languageManager.currentLanguageCode !== root.pendingLanguageCode) {
-            languageManager.setLanguage(root.pendingLanguageCode)
-        }
-        settingsDialog.close()
     }
 
     function dismissWelcomeForProjectLaunch() {
@@ -460,15 +435,6 @@ ApplicationWindow {
         }
     }
 
-    FolderDialog {
-        id: thumbnailCacheRootDialog
-        title: qsTr("Select Thumbnail Cache Folder")
-        onAccepted: {
-            albumBackend.SetThumbnailDiskCacheRoot(selectedFolder.toString())
-            root.showSnackbar(qsTr("Thumbnail cache folder updated"))
-        }
-    }
-
     AlbumExportDialog {
         id: exportDialog
         blurSource: mainContent
@@ -498,136 +464,26 @@ ApplicationWindow {
         }
     }
 
-    Popup {
+    SettingDialog {
         id: settingsDialog
-        modal: true
-        focus: true
-        closePolicy: Popup.CloseOnEscape
-        width: Math.min(root.width - 36, 520)
-        height: settingsDialogContent.implicitHeight + 36
-        x: Math.round((root.width - width) / 2)
-        y: Math.round((root.height - height) / 2)
-
-        Overlay.modal: Item {
-            anchors.fill: parent
-
-            MultiEffect {
-                anchors.fill: parent
-                source: mainContent
-                blurEnabled: true
-                blur: 0.6
-                blurMax: 64
-                saturation: -0.2
-            }
-
-            Rectangle {
-                anchors.fill: parent
-                color: root.colOverlay
-            }
-
-            MouseArea { anchors.fill: parent; hoverEnabled: true }
-        }
-
-        background: Rectangle {
-            radius: 14
-            color: root.colBgPanel
-            border.width: 0
-        }
-
-        contentItem: ColumnLayout {
-            id: settingsDialogContent
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.top: parent.top
-            anchors.margins: 18
-            spacing: 12
-
-            Label {
-                text: qsTr("Settings")
-                font.family: root.headlineFontFamily
-                font.pixelSize: 24
-                font.weight: 700
-                color: root.colText
-            }
-
-            Label {
-                Layout.fillWidth: true
-                wrapMode: Text.WordWrap
-                text: qsTr("Choose theme and language, then save to apply changes.")
-                color: root.colTextMuted
-                font.pixelSize: 12
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 10
-                Label {
-                    Layout.preferredWidth: root.settingsFieldLabelWidth
-                    text: qsTr("Theme")
-                    color: root.colText
-                    font.pixelSize: 13
-                    font.weight: 600
-                }
-                ComboBox {
-                    Layout.fillWidth: true
-                    model: appTheme.availableThemes
-                    textRole: "label"
-                    currentIndex: root.themeModelIndexForTheme(root.pendingThemeIndex)
-                    onActivated: function(index) {
-                        const item = model[index]
-                        if (item) {
-                            root.pendingThemeIndex = item.index
-                        }
-                    }
-                }
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 10
-                Label {
-                    Layout.preferredWidth: root.settingsFieldLabelWidth
-                    text: qsTr("Language")
-                    color: root.colText
-                    font.pixelSize: 13
-                    font.weight: 600
-                }
-                ComboBox {
-                    Layout.fillWidth: true
-                    model: root.languageOptions
-                    textRole: "label"
-                    currentIndex: root.languageIndexForCode(root.pendingLanguageCode)
-                    onActivated: function(index) {
-                        const item = model[index]
-                        if (item) {
-                            root.pendingLanguageCode = item.code
-                        }
-                    }
-                }
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 10
-
-                Item { Layout.fillWidth: true }
-
-                Button {
-                    id: settingsCloseButton
-                    text: qsTr("Close")
-                    Material.background: root.colDanger
-                    Material.foreground: root.colText
-                    onClicked: settingsDialog.close()
-                }
-
-                Button {
-                    id: settingsSaveButton
-                    text: qsTr("Save")
-                    Material.background: root.colButtonPrimary
-                    Material.foreground: root.colText
-                    onClicked: root.saveSettingsAndClose()
-                }
-            }
+        z: 30
+        blurSource: mainContent
+        cornerRadius: root.windowCornerRadius
+        languageOptions: root.languageOptions
+        primaryAccent: root.colButtonPrimary
+        secondaryAccent: root.colAccentSecondary
+        textColor: root.colText
+        mutedTextColor: root.colTextMuted
+        panelColor: root.colBgPanel
+        canvasColor: root.colBgCanvas
+        overlayColor: root.colOverlay
+        hoverColor: root.colHover
+        dividerColor: root.colDivider
+        dangerColor: root.colDanger
+        panelBorderColor: root.withAlpha(root.colText, 0.08)
+        headlineFontFamily: root.headlineFontFamily
+        onMessageRequested: function(message) {
+            root.showSnackbar(message)
         }
     }
 
@@ -1021,96 +877,6 @@ ApplicationWindow {
                     flat: true
                     Material.foreground: root.colText
                     onClicked: root.openSettingsDialog()
-                }
-
-                Button {
-                    id: testMenuButton
-                    text: qsTr("Test")
-                    flat: true
-                    Material.foreground: root.colAccentSecondary
-                    onClicked: testMenu.open()
-
-                    Menu {
-                        id: testMenu
-                        x: 0
-                        y: testMenuButton.height + 4
-
-                        MenuItem {
-                            text: qsTr("Cache Stats")
-                            enabled: root.backendInteractive
-                            onTriggered: {
-                                const stats = albumBackend.thumbnailDiskCacheStats
-                                console.log("Cache Stats:\n" + stats)
-                                root.showSnackbar(stats.split("\n")[0] + " | " + stats.split("\n")[1])
-                            }
-                        }
-
-                        MenuSeparator { }
-
-                        MenuItem {
-                            text: albumBackend.thumbnailDiskCacheEnabled
-                                  ? qsTr("Disable Disk Cache")
-                                  : qsTr("Enable Disk Cache")
-                            onTriggered: albumBackend.SetThumbnailDiskCacheEnabled(
-                                !albumBackend.thumbnailDiskCacheEnabled)
-                        }
-
-                        MenuSeparator { }
-
-                        MenuItem {
-                            text: qsTr("Set Cache Folder...")
-                            onTriggered: thumbnailCacheRootDialog.open()
-                        }
-
-                        MenuItem {
-                            text: qsTr("Set Max Entries...")
-                            onTriggered: {
-                                const current = albumBackend.thumbnailDiskCacheMaxEntries
-                                const val = albumBackend.PromptForInt(
-                                    qsTr("Max Cache Entries"),
-                                    qsTr("Current: %1").arg(current),
-                                    current, 1, 100000)
-                                if (val !== current) {
-                                    albumBackend.SetThumbnailDiskCacheMaxEntries(val)
-                                    root.showSnackbar(qsTr("Cache max entries set to %1").arg(val))
-                                }
-                            }
-                        }
-
-                        MenuItem {
-                            text: qsTr("Set JPEG Quality...")
-                            onTriggered: {
-                                const current = albumBackend.thumbnailDiskCacheJpegQuality
-                                const val = albumBackend.PromptForInt(
-                                    qsTr("JPEG Quality (1-100)"),
-                                    qsTr("Current: %1").arg(current),
-                                    current, 1, 100)
-                                if (val !== current) {
-                                    albumBackend.SetThumbnailDiskCacheJpegQuality(val)
-                                    root.showSnackbar(qsTr("JPEG quality set to %1").arg(val))
-                                }
-                            }
-                        }
-
-                        MenuSeparator { }
-
-                        MenuItem {
-                            text: qsTr("Clear Current Project Cache")
-                            enabled: root.backendInteractive
-                            onTriggered: {
-                                albumBackend.ClearProjectThumbnailDiskCache()
-                                root.showSnackbar(qsTr("Current project cache cleared"))
-                            }
-                        }
-
-                        MenuItem {
-                            text: qsTr("Clear All Cache")
-                            onTriggered: {
-                                albumBackend.ClearAllThumbnailDiskCache()
-                                root.showSnackbar(qsTr("All thumbnail cache cleared"))
-                            }
-                        }
-                    }
                 }
 
                 Item { Layout.fillWidth: true }
