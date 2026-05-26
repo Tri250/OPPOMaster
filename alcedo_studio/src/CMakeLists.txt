@@ -889,7 +889,7 @@ def_library(ProjectService
         app/project_package_service.cpp
         ui/alcedo_main/album_backend/path_utils.cpp
     PUBLIC_DEPS FSService StorageService ImagePoolService AlbumBrowseService
-                StrConv JSON xxHash
+                StrConv JSON xxHash uuid_v4
     PRIVATE_DEPS
         UiLocalization
         Qt6::Core

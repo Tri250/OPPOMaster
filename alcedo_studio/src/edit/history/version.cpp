@@ -38,6 +38,25 @@ auto MaxTransactionId(const std::vector<EditTransaction>& transactions) -> tx_id
   }
   return max_id;
 }
+
+auto MerkleRoot(std::vector<Hash128> hashes) -> Hash128 {
+  if (hashes.empty()) {
+    return Hash128{};
+  }
+  while (hashes.size() > 1) {
+    std::vector<Hash128> next_level;
+    next_level.reserve((hashes.size() + 1) / 2);
+    for (size_t i = 0; i < hashes.size(); i += 2) {
+      if (i + 1 < hashes.size()) {
+        next_level.push_back(Hash128::Blend(hashes[i], hashes[i + 1]));
+      } else {
+        next_level.push_back(hashes[i]);
+      }
+    }
+    hashes = std::move(next_level);
+  }
+  return hashes[0];
+}
 }  // namespace
 
 Version::Version() {
@@ -45,6 +64,7 @@ Version::Version() {
   last_modified_time_ = added_time_;
   creation_nonce_     = NewCreationNonce();
   CalculateVersionID();
+  ComputeVersionHash();
 }
 
 Version::Version(sl_element_id_t bound_image) : bound_image_(bound_image) {
@@ -52,6 +72,7 @@ Version::Version(sl_element_id_t bound_image) : bound_image_(bound_image) {
   last_modified_time_ = added_time_;
   creation_nonce_     = NewCreationNonce();
   CalculateVersionID();
+  ComputeVersionHash();
 }
 
 Version::Version(nlohmann::json& j) { FromJSON(j); }
@@ -75,6 +96,20 @@ auto Version::Empty(sl_element_id_t bound_image, std::string display_name,
   version.display_name_        = std::move(display_name);
   version.CalculateVersionID();
   return version;
+}
+
+void Version::ComputeVersionHash() {
+  if (transactions_.empty()) {
+    version_hash_ = Hash128{};
+    return;
+  }
+  std::vector<Hash128> leaves;
+  leaves.reserve(transactions_.size() + 1);
+  for (const auto& tx : transactions_) {
+    leaves.push_back(tx.GetTransactionHash());
+  }
+  leaves.push_back(Hash128::Compute(&cursor_, sizeof(cursor_)));
+  version_hash_ = MerkleRoot(std::move(leaves));
 }
 
 void Version::CalculateVersionID() {
@@ -111,6 +146,9 @@ auto Version::CloneForImage(sl_element_id_t bound_image) const -> Version {
 }
 
 void Version::AppendEditTransaction(EditTransaction&& edit_transaction) {
+  if (!edit_transaction.HasTransactionHash()) {
+    edit_transaction.GenerateTransactionHash();
+  }
   transactions_.push_back(std::move(edit_transaction));
   cursor_            = transactions_.size();
   transaction_count_ = cursor_;
@@ -118,6 +156,7 @@ void Version::AppendEditTransaction(EditTransaction&& edit_transaction) {
     last_transaction_ = transactions_.back();
   }
   SetLastModifiedTime();
+  ComputeVersionHash();
 }
 
 auto Version::RemoveLastEditTransaction() -> EditTransaction {
@@ -131,6 +170,7 @@ auto Version::RemoveLastEditTransaction() -> EditTransaction {
   last_transaction_ =
       cursor_ > 0 ? std::optional<EditTransaction>(transactions_[cursor_ - 1]) : std::nullopt;
   SetLastModifiedTime();
+  ComputeVersionHash();
   return last;
 }
 
@@ -160,11 +200,17 @@ void Version::UpdateFromWorkingVersion(const WorkingVersion& working_version,
                                        const nlohmann::json& head_pipeline_params) {
   materialized_params_ = head_pipeline_params;
   transactions_        = working_version.GetAllEditTransactions();
+  for (auto& tx : transactions_) {
+    if (!tx.HasTransactionHash()) {
+      tx.GenerateTransactionHash();
+    }
+  }
   cursor_              = working_version.GetCursor();
   transaction_count_   = cursor_;
   last_transaction_ =
       cursor_ > 0 ? std::optional<EditTransaction>(transactions_[cursor_ - 1]) : std::nullopt;
   SetLastModifiedTime();
+  ComputeVersionHash();
 }
 
 auto Version::ToJSON() const -> nlohmann::json {
@@ -179,6 +225,7 @@ auto Version::ToJSON() const -> nlohmann::json {
   j["transaction_count"]   = transaction_count_;
   j["display_name"]        = display_name_;
   j["cursor"]              = cursor_;
+  j["version_hash"]        = version_hash_.ToString();
   j["transactions"]        = nlohmann::json::array();
   for (const auto& tx : transactions_) {
     j["transactions"].push_back(tx.ToJSON());
@@ -238,6 +285,11 @@ void Version::FromJSON(const nlohmann::json& j) {
     last_transaction_ =
         cursor_ > 0 ? std::optional<EditTransaction>(transactions_[cursor_ - 1]) : std::nullopt;
   }
+
+  if (j.contains("version_hash") && j.at("version_hash").is_string()) {
+    version_hash_ = Hash128::FromString(j.at("version_hash").get<std::string>());
+  }
+  ComputeVersionHash();
 }
 
 WorkingVersion::WorkingVersion(sl_element_id_t bound_image, version_id_t version_id,
@@ -263,6 +315,7 @@ void WorkingVersion::AppendEditTransaction(EditTransaction&& edit_transaction) {
                         transactions_.end());
   }
   edit_transaction.SetTransactionID(tx_id_generator_.GenerateID());
+  edit_transaction.GenerateTransactionHash();
   transactions_.push_back(std::move(edit_transaction));
   cursor_ = transactions_.size();
 }

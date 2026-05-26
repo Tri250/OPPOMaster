@@ -46,6 +46,13 @@ class Version {
   std::string                    display_name_{};
   std::vector<EditTransaction>   transactions_{};
   size_t                         cursor_ = 0;
+  /**
+   * @brief Merkle tree root hash over ordered transaction hashes and cursor.
+   *        Changes whenever any transaction is added, removed, or cursor moves.
+   */
+  Hash128                        version_hash_{};
+
+  void ComputeVersionHash();
 
  public:
   Version();
@@ -87,6 +94,7 @@ class Version {
     SetLastModifiedTime();
   }
   auto GetCursor() const -> size_t { return cursor_; }
+  auto GetVersionHash() const -> Hash128 { return version_hash_; }
 
   void AppendEditTransaction(EditTransaction&& edit_transaction);
   auto RemoveLastEditTransaction() -> EditTransaction;

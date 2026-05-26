@@ -293,7 +293,8 @@ auto EditTransaction::ToJSON() const -> nlohmann::json {
   j["after_params"]   = after_params_;
   j["before_enabled"] = before_enabled_;
   j["after_enabled"]  = after_enabled_;
-  j["created_time"]   = created_time_;
+  j["created_time"]      = created_time_;
+  j["transaction_hash"]  = GetTransactionHash().ToString();
 
   return j;
 }
@@ -313,6 +314,11 @@ void EditTransaction::FromJSON(const nlohmann::json& j) {
   }
   if (j.contains("last_operator_params")) {
     before_params_ = j["last_operator_params"];
+  }
+  if (j.contains("transaction_hash") && j.at("transaction_hash").is_string()) {
+    transaction_hash_ = Hash128::FromString(j.at("transaction_hash").get<std::string>());
+  } else {
+    GenerateTransactionHash();
   }
 }
 

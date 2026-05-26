@@ -517,6 +517,36 @@ if(WIN32)
   endif()
 endif()
 
+add_executable(VersionHashTest edit/history/version_hash_test.cpp)
+target_include_directories(VersionHashTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(VersionHashTest EditHistory GTest::gtest_main)
+gtest_discover_tests(VersionHashTest TEST_PREFIX "VersionHashTest."
+  PROPERTIES LABELS "ci_core_flow")
+
+add_executable(ProjectServiceTest app/project_service_test.cpp)
+target_include_directories(ProjectServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(ProjectServiceTest ProjectService GTest::gtest_main)
+gtest_discover_tests(ProjectServiceTest TEST_PREFIX "ProjectServiceTest."
+  PROPERTIES LABELS "ci_core_flow")
+
+if(WIN32)
+  target_link_libraries(ProjectServiceTest)
+  if(TARGET alcedo_lensfun)
+    add_custom_command(TARGET ProjectServiceTest POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "$<TARGET_FILE:alcedo_lensfun>"
+              "$<TARGET_FILE_DIR:ProjectServiceTest>/lensfun.dll"
+      VERBATIM)
+  endif()
+  if(EXISTS "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/libduckdb-windows/duckdb.dll")
+    add_custom_command(TARGET ProjectServiceTest POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/libduckdb-windows/duckdb.dll"
+              "$<TARGET_FILE_DIR:ProjectServiceTest>/duckdb.dll"
+      VERBATIM)
+  endif()
+endif()
+
 add_executable(ThumbnailServiceTest app/thumbnail_service_test.cpp)
 target_include_directories(ThumbnailServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
 target_link_libraries(ThumbnailServiceTest ThumbnailService ProjectService ImportService GTest::gtest_main)

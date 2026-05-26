@@ -104,7 +104,17 @@
       "Bash(Get-ChildItem -Path \"D:\\\\Projects\\\\pu-erh_lab\" -Depth 0)",
       "Bash(Select-Object Name)",
       "PowerShell(cmd /c \"scripts\\\\msvc_env.cmd --build --preset win_debug --parallel 4\" 2>&1 | Select-Object -Last 100)",
-      "PowerShell(cmd /c \"scripts\\\\msvc_env.cmd --build --preset win_debug --parallel 4\" 2>&1 | Select-Object -Last 10)"
+      "PowerShell(cmd /c \"scripts\\\\msvc_env.cmd --build --preset win_debug --parallel 4\" 2>&1 | Select-Object -Last 10)",
+      "Bash(Select-Object -Last 30)",
+      "PowerShell(cmd /c \"cd /d D:\\\\Projects\\\\pu-erh_lab && call scripts\\\\msvc_env.cmd --preset win_debug -DCMAKE_PREFIX_PATH=D:/Qt/6.9.3/msvc2022_64/lib/cmake 2>&1\" | Select-Object -Last 40)",
+      "PowerShell(cmd /c \"cd /d D:\\\\Projects\\\\pu-erh_lab && call scripts\\\\msvc_env.cmd --build --preset win_debug --parallel 4 --target VersionHashTest 2>&1\" | Select-Object -Last 30)",
+      "PowerShell(cmd /c \"cd /d D:\\\\Projects\\\\pu-erh_lab && call scripts\\\\msvc_env.cmd --build --preset win_debug --parallel 4 --target ProjectServiceTest 2>&1\" | Select-Object -Last 30)",
+      "PowerShell(cmd /c \"cd /d D:\\\\Projects\\\\pu-erh_lab\\\\build\\\\debug\\\\alcedo_studio\\\\tests && VersionHashTest.exe 2>&1\")",
+      "PowerShell(& \"D:\\\\Projects\\\\pu-erh_lab\\\\build\\\\debug\\\\alcedo_studio\\\\tests\\\\VersionHashTest.exe\" 2>&1)",
+      "PowerShell(cmd /c \"cd /d D:\\\\Projects\\\\pu-erh_lab && call scripts\\\\msvc_env.cmd --build --preset win_debug --parallel 4 --target VersionHashTest 2>&1\" | Select-Object -Last 10)",
+      "PowerShell(& \"D:\\\\Projects\\\\pu-erh_lab\\\\build\\\\debug\\\\alcedo_studio\\\\tests\\\\ProjectServiceTest.exe\" 2>&1)",
+      "PowerShell(cmd /c \"cd /d D:\\\\Projects\\\\pu-erh_lab && call scripts\\\\msvc_env.cmd --build --preset win_debug --parallel 4 --target EditHistoryMgmtServiceTest 2>&1\" | Select-Object -Last 8)",
+      "PowerShell(& \"D:\\\\Projects\\\\pu-erh_lab\\\\build\\\\debug\\\\alcedo_studio\\\\tests\\\\EditHistoryMgmtServiceTest.exe\" 2>&1)"
     ]
   }
 }
