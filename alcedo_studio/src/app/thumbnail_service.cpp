@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
+#include <filesystem>
 #include <format>
 #include <iterator>
 #include <memory>
@@ -16,8 +17,11 @@
 #include <unordered_map>
 #include <vector>
 
+#include "app/history_mgmt_service.hpp"
 #include "app/pipeline_service.hpp"
 #include "app/render_service.hpp"
+#include "app/thumbnail_disk_cache_service.hpp"
+#include "concurrency/thread_pool.hpp"
 #include "json.hpp"
 #include "renderer/pipeline_task.hpp"
 
@@ -93,11 +97,15 @@ struct ThumbnailService::State {
     ThumbnailCacheKey       key_{};
   };
 
-  std::shared_ptr<SleeveServiceImpl>         sleeve_service_     = nullptr;
-  std::shared_ptr<ImagePoolService>          image_pool_service_ = nullptr;
-  std::shared_ptr<PipelineMgmtService>       pipeline_service_   = nullptr;
+  std::shared_ptr<SleeveServiceImpl>          sleeve_service_      = nullptr;
+  std::shared_ptr<ImagePoolService>           image_pool_service_  = nullptr;
+  std::shared_ptr<PipelineMgmtService>        pipeline_service_    = nullptr;
+  std::shared_ptr<EditHistoryMgmtService>     history_service_     = nullptr;
+  std::string                                 project_uuid_;
+  std::unique_ptr<ThumbnailDiskCacheService>  disk_cache_service_;
+  ThreadPool                                  disk_read_thread_pool_;
 
-  std::mutex                                 cache_lock_;
+  std::mutex                                  cache_lock_;
 
   // LRU keyed by composite {element_id, resolution_tier}.
   LRUCache<ThumbnailCacheKey, ThumbnailCacheKey> thumbnail_cache_;
@@ -115,12 +123,26 @@ struct ThumbnailService::State {
 
   State(std::shared_ptr<SleeveServiceImpl> sleeve_service,
         std::shared_ptr<ImagePoolService> image_pool_service,
-        std::shared_ptr<PipelineMgmtService> pipeline_service)
+        std::shared_ptr<PipelineMgmtService> pipeline_service,
+        std::shared_ptr<EditHistoryMgmtService> history_service,
+        std::string project_uuid,
+        std::filesystem::path thumbnail_cache_root)
       : sleeve_service_(std::move(sleeve_service)),
         image_pool_service_(std::move(image_pool_service)),
         pipeline_service_(std::move(pipeline_service)),
+        history_service_(std::move(history_service)),
+        project_uuid_(std::move(project_uuid)),
+        disk_read_thread_pool_(2),
         thumbnail_cache_(default_cache_size_) {
     pipeline_scheduler_ = RenderService::GetThumbnailOrExportScheduler();
+    if (history_service_ && !project_uuid_.empty()) {
+      if (thumbnail_cache_root.empty()) {
+        disk_cache_service_ = std::make_unique<ThumbnailDiskCacheService>();
+      } else {
+        disk_cache_service_ = std::make_unique<ThumbnailDiskCacheService>(thumbnail_cache_root);
+      }
+      disk_cache_service_->Initialize(project_uuid_);
+    }
   }
 
   // Get or create a generation token for the given request key.
@@ -139,14 +161,52 @@ struct ThumbnailService::State {
     auto token = GetOrCreateGenerationToken(key);
     token->fetch_add(1);
   }
+
+  auto ReadCurrentVersionHash(sl_element_id_t id) -> std::string {
+    if (sleeve_service_) {
+      try {
+        auto hash = sleeve_service_->Read<std::string>(
+            [id](FileSystem& fs) -> std::string {
+              auto element = fs.Get(id);
+              auto file    = std::dynamic_pointer_cast<SleeveFile>(element);
+              if (!file || !file->GetEditHistory()) {
+                return {};
+              }
+              return file->GetEditHistory()->GetActiveVersionHash().ToString();
+            });
+        if (!hash.empty()) {
+          return hash;
+        }
+      } catch (...) {
+      }
+    }
+
+    if (history_service_) {
+      try {
+        auto history_guard = history_service_->LoadHistory(id);
+        if (history_guard && history_guard->history_) {
+          return history_guard->history_->GetActiveVersionHash().ToString();
+        }
+      } catch (...) {
+      }
+    }
+
+    return {};
+  }
 };
 
-ThumbnailService::ThumbnailService(std::shared_ptr<SleeveServiceImpl>   sleeve_service,
-                                   std::shared_ptr<ImagePoolService>    image_pool_service,
-                                   std::shared_ptr<PipelineMgmtService> pipeline_service)
+ThumbnailService::ThumbnailService(std::shared_ptr<SleeveServiceImpl>    sleeve_service,
+                                   std::shared_ptr<ImagePoolService>     image_pool_service,
+                                   std::shared_ptr<PipelineMgmtService>  pipeline_service,
+                                   std::shared_ptr<EditHistoryMgmtService> history_service,
+                                   const std::string&                    project_uuid,
+                                   const std::filesystem::path&          thumbnail_cache_root)
     : state_(std::make_shared<State>(std::move(sleeve_service),
                                      std::move(image_pool_service),
-                                     std::move(pipeline_service))) {}
+                                     std::move(pipeline_service),
+                                     std::move(history_service),
+                                     project_uuid,
+                                     thumbnail_cache_root)) {}
 
 void ThumbnailService::GetThumbnail(sl_element_id_t id, image_id_t image_id,
                                     ThumbnailCallback callback, bool pin_if_found,
@@ -199,6 +259,19 @@ void ThumbnailService::GetThumbnailDetailed(sl_element_id_t id, image_id_t image
     return;
   }
 
+  std::optional<ThumbnailDiskCacheKey> disk_key;
+  if (st->disk_cache_service_ && st->history_service_ && !st->project_uuid_.empty()) {
+    ThumbnailDiskCacheKey key;
+    key.project_uuid         = st->project_uuid_;
+    key.element_id           = id;
+    key.resolution           = resolution;
+    key.edit_version_hash    = st->ReadCurrentVersionHash(id);
+    key.cache_schema_version = 1;
+    if (!key.edit_version_hash.empty()) {
+      disk_key = std::move(key);
+    }
+  }
+
   std::shared_ptr<std::atomic<uint64_t>> gen_token;
   uint64_t                               expected_gen = 0;
   {
@@ -224,6 +297,8 @@ void ThumbnailService::GetThumbnailDetailed(sl_element_id_t id, image_id_t image
     expected_gen = gen_token->load();
   }
 
+  auto schedule_pipeline_render = [st, id, image_id, cache_key, resolution, gen_token,
+                                   expected_gen]() {
   struct ThumbnailTaskContext {
     std::shared_ptr<PipelineGuard> pipeline{};
     std::optional<nlohmann::json>  pre_render_color_temp_params{};
@@ -391,6 +466,24 @@ void ThumbnailService::GetThumbnailDetailed(sl_element_id_t id, image_id_t image
         auto evicted = st->thumbnail_cache_.RecordAccess_WithEvict(cache_key, cache_key);
         HandleEvict(*st, evicted);
         st->thumbnail_cache_data_[cache_key] = guard;
+
+        // Enqueue write to disk cache asynchronously.
+        if (st->disk_cache_service_ && st->history_service_) {
+          try {
+            ThumbnailDiskCacheKey disk_key;
+            disk_key.project_uuid         = st->project_uuid_;
+            disk_key.element_id           = id;
+            disk_key.resolution           = cache_key.resolution;
+            disk_key.edit_version_hash    = st->ReadCurrentVersionHash(id);
+            disk_key.cache_schema_version = 1;
+            if (!disk_key.edit_version_hash.empty()) {
+              std::shared_ptr<ImageBuffer> disk_cache_buffer(guard,
+                                                             guard->thumbnail_buffer_.get());
+              st->disk_cache_service_->EnqueueWrite(disk_key, std::move(disk_cache_buffer));
+            }
+          } catch (...) {
+          }
+        }
       } else {
         st->thumbnail_cache_.RemoveRecord(cache_key);
         st->thumbnail_cache_data_.erase(cache_key);
@@ -460,6 +553,63 @@ void ThumbnailService::GetThumbnailDetailed(sl_element_id_t id, image_id_t image
             id),
         task_context->pipeline, true);
   }
+  };
+
+  if (disk_key.has_value() && st->disk_cache_service_) {
+    const auto disk_key_value = disk_key.value();
+    auto*      disk_cache     = st->disk_cache_service_.get();
+    st->disk_read_thread_pool_.Submit(
+        [st, id, cache_key, disk_key_value, disk_cache, gen_token, expected_gen,
+         schedule_pipeline_render]() {
+          if (gen_token && gen_token->load() != expected_gen) {
+            return;
+          }
+
+          auto disk_buffer = disk_cache->Read(disk_key_value);
+          if (gen_token && gen_token->load() != expected_gen) {
+            return;
+          }
+
+          if (!disk_buffer || !disk_buffer->cpu_data_valid_) {
+            schedule_pipeline_render();
+            return;
+          }
+
+          std::shared_ptr<ThumbnailGuard>      disk_guard;
+          std::vector<State::PendingCallback> callbacks;
+          {
+            std::unique_lock lock(st->cache_lock_);
+            if (gen_token && gen_token->load() != expected_gen) {
+              return;
+            }
+            auto pending_it = st->pending_.find(cache_key);
+            if (pending_it == st->pending_.end()) {
+              return;
+            }
+            callbacks = std::move(pending_it->second);
+            st->pending_.erase(pending_it);
+
+            disk_guard = std::make_shared<ThumbnailGuard>();
+            disk_guard->thumbnail_buffer_ = std::move(disk_buffer);
+            disk_guard->pin_count_        = 1;
+            auto evicted = st->thumbnail_cache_.RecordAccess_WithEvict(cache_key, cache_key);
+            HandleEvict(*st, evicted);
+            st->thumbnail_cache_data_[cache_key] = disk_guard;
+          }
+
+          for (const auto& pending_cb : callbacks) {
+            DispatchThumbnailResultCallback(
+                pending_cb.callback_, pending_cb.dispatcher_,
+                ThumbnailRequestResult{.guard = disk_guard,
+                                       .status = ThumbnailRequestStatus::kReady,
+                                       .message = {},
+                                       .key = cache_key});
+          }
+        });
+    return;
+  }
+
+  schedule_pipeline_render();
 }
 
 void ThumbnailService::CancelPending(const ThumbnailCacheKey& key) {
@@ -567,15 +717,21 @@ void ThumbnailService::InvalidateThumbnail(sl_element_id_t sleeve_element_id) {
     return;
   }
 
-  std::unique_lock lock(st->cache_lock_);
+  {
+    std::unique_lock lock(st->cache_lock_);
 
-  // Invalidate all resolution tiers for this element.
-  for (auto res : kAllThumbnailResolutions) {
-    ThumbnailCacheKey key{sleeve_element_id, res};
-    st->IncrementGenerationTokenLocked(key);
-    st->pending_.erase(key);
-    st->thumbnail_cache_.RemoveRecord(key);
-    st->thumbnail_cache_data_.erase(key);
+    // Invalidate all resolution tiers for this element.
+    for (auto res : kAllThumbnailResolutions) {
+      ThumbnailCacheKey key{sleeve_element_id, res};
+      st->IncrementGenerationTokenLocked(key);
+      st->pending_.erase(key);
+      st->thumbnail_cache_.RemoveRecord(key);
+      st->thumbnail_cache_data_.erase(key);
+    }
+  }
+
+  if (st->disk_cache_service_ && !st->project_uuid_.empty()) {
+    st->disk_cache_service_->Invalidate(st->project_uuid_, sleeve_element_id);
   }
 }
 
@@ -625,5 +781,105 @@ void ThumbnailService::HandleEvict(State& st, std::optional<ThumbnailCacheKey> e
       }
     }
   }
+}
+
+// ── Phase 4: Disk cache configuration & operations ────────────────────────
+
+void ThumbnailService::SetDiskCacheEnabled(bool enabled) {
+  if (state_ && state_->disk_cache_service_) {
+    state_->disk_cache_service_->SetEnabled(enabled);
+  }
+}
+
+bool ThumbnailService::IsDiskCacheEnabled() const {
+  if (state_ && state_->disk_cache_service_) {
+    return state_->disk_cache_service_->IsEnabled();
+  }
+  return false;
+}
+
+void ThumbnailService::SetDiskCacheRoot(const std::filesystem::path& cache_root) {
+  if (state_ && state_->disk_cache_service_) {
+    state_->disk_cache_service_->SetCacheRoot(cache_root);
+  }
+}
+
+std::filesystem::path ThumbnailService::GetDiskCacheRoot() const {
+  if (state_ && state_->disk_cache_service_) {
+    return state_->disk_cache_service_->GetCacheRoot();
+  }
+  return {};
+}
+
+void ThumbnailService::SetDiskCacheMaxEntries(size_t max_entries) {
+  if (state_ && state_->disk_cache_service_) {
+    state_->disk_cache_service_->SetMaxEntries(max_entries);
+  }
+}
+
+size_t ThumbnailService::GetDiskCacheMaxEntries() const {
+  if (state_ && state_->disk_cache_service_) {
+    return state_->disk_cache_service_->GetMaxEntries();
+  }
+  return 0;
+}
+
+void ThumbnailService::SetDiskCacheJpegQuality(int quality) {
+  if (state_ && state_->disk_cache_service_) {
+    state_->disk_cache_service_->SetJpegQuality(quality);
+  }
+}
+
+int ThumbnailService::GetDiskCacheJpegQuality() const {
+  if (state_ && state_->disk_cache_service_) {
+    return state_->disk_cache_service_->GetJpegQuality();
+  }
+  return 85;
+}
+
+void ThumbnailService::SetDiskCacheWebPQuality(int quality) {
+  if (state_ && state_->disk_cache_service_) {
+    state_->disk_cache_service_->SetWebPQuality(quality);
+  }
+}
+
+int ThumbnailService::GetDiskCacheWebPQuality() const {
+  if (state_ && state_->disk_cache_service_) {
+    return state_->disk_cache_service_->GetWebPQuality();
+  }
+  return 80;
+}
+
+void ThumbnailService::ClearAllDiskCache() {
+  if (state_ && state_->disk_cache_service_) {
+    state_->disk_cache_service_->ClearAll();
+  }
+}
+
+void ThumbnailService::ClearProjectDiskCache() {
+  if (state_ && state_->disk_cache_service_ && !state_->project_uuid_.empty()) {
+    state_->disk_cache_service_->ClearProject(state_->project_uuid_);
+  }
+}
+
+void ThumbnailService::FlushDiskCacheMetadata() {
+  if (state_ && state_->disk_cache_service_) {
+    state_->disk_cache_service_->FlushMetadata();
+  }
+}
+
+auto ThumbnailService::GetDiskCacheStats() const -> DiskCacheStats {
+  DiskCacheStats s;
+  if (state_ && state_->disk_cache_service_) {
+    auto raw = state_->disk_cache_service_->GetStats();
+    s.total_entries    = raw.total_entries;
+    s.total_size_bytes = raw.total_size_bytes;
+    s.hit_count        = raw.hit_count;
+    s.miss_count       = raw.miss_count;
+    s.max_entries      = raw.max_entries;
+    s.enabled          = raw.enabled;
+    s.cache_root_path  = raw.cache_root_path;
+  }
+  return s;
 }
 };  // namespace alcedo

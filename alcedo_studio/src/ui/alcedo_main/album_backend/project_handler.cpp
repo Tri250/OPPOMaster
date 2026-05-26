@@ -135,7 +135,7 @@ bool ProjectHandler::InitializeServices(const std::filesystem::path& dbPath,
       result->history_   = std::make_shared<EditHistoryMgmtService>(result->project_->GetStorageService());
       result->thumbnail_ = std::make_shared<ThumbnailService>(
           result->project_->GetSleeveService(), result->project_->GetImagePoolService(),
-          result->pipeline_);
+          result->pipeline_, result->history_, result->project_->GetProjectUUID());
       result->import_ = std::make_unique<ImportServiceImpl>(
           result->project_->GetSleeveService(), result->project_->GetImagePoolService());
       result->export_ = std::make_shared<ExportService>(result->project_->GetSleeveService(),
@@ -223,6 +223,7 @@ bool ProjectHandler::InitializeServices(const std::filesystem::path& dbPath,
                                           ? (!ph.project_package_path_.empty() ? ph.project_package_path_
                                                                                : ph.meta_path_)
                                           : result->recent_project_path_);
+          self->ApplyThumbnailDiskCacheSettingsToService();
           emit self->ProjectChanged();
           emit self->projectChanged();
           ph.SetProjectLoadingState(false, {});
@@ -242,6 +243,15 @@ bool ProjectHandler::PersistCurrentProjectState() {
   try {
     if (pipeline_service_) {
       pipeline_service_->Sync();
+    }
+    if (history_service_) {
+      history_service_->Sync();
+    }
+    if (thumbnail_service_) {
+      auto stats = thumbnail_service_->GetDiskCacheStats();
+      if (stats.enabled) {
+        thumbnail_service_->FlushDiskCacheMetadata();
+      }
     }
     if (project_) {
       project_->GetSleeveService()->Sync();

@@ -5,6 +5,7 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -12,41 +13,14 @@
 #include "app/image_pool_service.hpp"
 #include "app/pipeline_service.hpp"
 #include "app/sleeve_service.hpp"
+#include "app/thumbnail_types.hpp"
 #include "image/image_buffer.hpp"
 #include "type/type.hpp"
 
 namespace alcedo {
-
-// Resolution tiers for thumbnail requests. Values are the max-edge pixel size.
-// These are fixed tiers to simplify cache management and memory alignment.
-enum class ThumbnailResolution : uint32_t {
-  k256  = 256,
-  k512  = 512,
-  k1024 = 1024,
-  k2048 = 2048,
-};
-
-// Composite cache key: element + resolution tier.
-// Different resolutions of the same element are independent cache entries.
-struct ThumbnailCacheKey {
-  sl_element_id_t    element_id     = 0;
-  ThumbnailResolution resolution     = ThumbnailResolution::k1024;
-
-  bool operator==(const ThumbnailCacheKey& other) const = default;
-};
-
+class EditHistoryMgmtService;
+class ThumbnailDiskCacheService;
 }  // namespace alcedo
-
-// std::hash specialization for ThumbnailCacheKey
-template <>
-struct std::hash<alcedo::ThumbnailCacheKey> {
-  size_t operator()(const alcedo::ThumbnailCacheKey& key) const noexcept {
-    // Combine element_id (32-bit via macro sl_element_id_t) and resolution (32-bit).
-    const auto h1 = std::hash<std::uint32_t>{}(key.element_id);
-    const auto h2 = std::hash<std::uint32_t>{}(static_cast<std::uint32_t>(key.resolution));
-    return h1 ^ (h2 + 0x9e3779b9 + (h1 << 6) + (h1 >> 2));
-  }
-};
 
 namespace alcedo {
 
@@ -92,9 +66,12 @@ class ThumbnailService {
 
  public:
   ThumbnailService() = delete;
-  ThumbnailService(std::shared_ptr<SleeveServiceImpl>   sleeve_service,
-                   std::shared_ptr<ImagePoolService>    image_pool_service,
-                   std::shared_ptr<PipelineMgmtService> pipeline_service);
+  ThumbnailService(std::shared_ptr<SleeveServiceImpl>     sleeve_service,
+                   std::shared_ptr<ImagePoolService>      image_pool_service,
+                   std::shared_ptr<PipelineMgmtService>   pipeline_service,
+                   std::shared_ptr<EditHistoryMgmtService> history_service = nullptr,
+                   const std::string&                     project_uuid = {},
+                   const std::filesystem::path&           thumbnail_cache_root = {});
   ~ThumbnailService() = default;
 
   // Request a thumbnail for the given element/image pair.
@@ -135,5 +112,32 @@ class ThumbnailService {
   // Useful when zoom level changes: growing avoids eviction churn,
   // shrinking reduces wasted memory.
   void ResizeCache(uint32_t desired_capacity);
+
+  // ── Phase 4: Disk cache configuration & operations ──────────────────
+  void SetDiskCacheEnabled(bool enabled);
+  bool IsDiskCacheEnabled() const;
+  void SetDiskCacheRoot(const std::filesystem::path& cache_root);
+  std::filesystem::path GetDiskCacheRoot() const;
+  void SetDiskCacheMaxEntries(size_t max_entries);
+  size_t GetDiskCacheMaxEntries() const;
+  void SetDiskCacheJpegQuality(int quality);
+  int  GetDiskCacheJpegQuality() const;
+  void SetDiskCacheWebPQuality(int quality);
+  int  GetDiskCacheWebPQuality() const;
+
+  void ClearAllDiskCache();
+  void ClearProjectDiskCache();
+  void FlushDiskCacheMetadata();
+
+  struct DiskCacheStats {
+    size_t total_entries   = 0;
+    size_t total_size_bytes = 0;
+    size_t hit_count        = 0;
+    size_t miss_count       = 0;
+    size_t max_entries      = 0;
+    bool   enabled          = true;
+    std::string cache_root_path;
+  };
+  DiskCacheStats GetDiskCacheStats() const;
 };
 };  // namespace alcedo

@@ -460,6 +460,15 @@ ApplicationWindow {
         }
     }
 
+    FolderDialog {
+        id: thumbnailCacheRootDialog
+        title: qsTr("Select Thumbnail Cache Folder")
+        onAccepted: {
+            albumBackend.SetThumbnailDiskCacheRoot(selectedFolder.toString())
+            root.showSnackbar(qsTr("Thumbnail cache folder updated"))
+        }
+    }
+
     AlbumExportDialog {
         id: exportDialog
         blurSource: mainContent
@@ -1012,6 +1021,96 @@ ApplicationWindow {
                     flat: true
                     Material.foreground: root.colText
                     onClicked: root.openSettingsDialog()
+                }
+
+                Button {
+                    id: testMenuButton
+                    text: qsTr("Test")
+                    flat: true
+                    Material.foreground: root.colAccentSecondary
+                    onClicked: testMenu.open()
+
+                    Menu {
+                        id: testMenu
+                        x: 0
+                        y: testMenuButton.height + 4
+
+                        MenuItem {
+                            text: qsTr("Cache Stats")
+                            enabled: root.backendInteractive
+                            onTriggered: {
+                                const stats = albumBackend.thumbnailDiskCacheStats
+                                console.log("Cache Stats:\n" + stats)
+                                root.showSnackbar(stats.split("\n")[0] + " | " + stats.split("\n")[1])
+                            }
+                        }
+
+                        MenuSeparator { }
+
+                        MenuItem {
+                            text: albumBackend.thumbnailDiskCacheEnabled
+                                  ? qsTr("Disable Disk Cache")
+                                  : qsTr("Enable Disk Cache")
+                            onTriggered: albumBackend.SetThumbnailDiskCacheEnabled(
+                                !albumBackend.thumbnailDiskCacheEnabled)
+                        }
+
+                        MenuSeparator { }
+
+                        MenuItem {
+                            text: qsTr("Set Cache Folder...")
+                            onTriggered: thumbnailCacheRootDialog.open()
+                        }
+
+                        MenuItem {
+                            text: qsTr("Set Max Entries...")
+                            onTriggered: {
+                                const current = albumBackend.thumbnailDiskCacheMaxEntries
+                                const val = albumBackend.PromptForInt(
+                                    qsTr("Max Cache Entries"),
+                                    qsTr("Current: %1").arg(current),
+                                    current, 1, 100000)
+                                if (val !== current) {
+                                    albumBackend.SetThumbnailDiskCacheMaxEntries(val)
+                                    root.showSnackbar(qsTr("Cache max entries set to %1").arg(val))
+                                }
+                            }
+                        }
+
+                        MenuItem {
+                            text: qsTr("Set JPEG Quality...")
+                            onTriggered: {
+                                const current = albumBackend.thumbnailDiskCacheJpegQuality
+                                const val = albumBackend.PromptForInt(
+                                    qsTr("JPEG Quality (1-100)"),
+                                    qsTr("Current: %1").arg(current),
+                                    current, 1, 100)
+                                if (val !== current) {
+                                    albumBackend.SetThumbnailDiskCacheJpegQuality(val)
+                                    root.showSnackbar(qsTr("JPEG quality set to %1").arg(val))
+                                }
+                            }
+                        }
+
+                        MenuSeparator { }
+
+                        MenuItem {
+                            text: qsTr("Clear Current Project Cache")
+                            enabled: root.backendInteractive
+                            onTriggered: {
+                                albumBackend.ClearProjectThumbnailDiskCache()
+                                root.showSnackbar(qsTr("Current project cache cleared"))
+                            }
+                        }
+
+                        MenuItem {
+                            text: qsTr("Clear All Cache")
+                            onTriggered: {
+                                albumBackend.ClearAllThumbnailDiskCache()
+                                root.showSnackbar(qsTr("All thumbnail cache cleared"))
+                            }
+                        }
+                    }
                 }
 
                 Item { Layout.fillWidth: true }

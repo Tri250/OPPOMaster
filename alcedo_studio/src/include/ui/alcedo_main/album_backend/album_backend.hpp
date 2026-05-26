@@ -95,6 +95,11 @@ class AlbumBackend final : public QObject {
   Q_PROPERTY(uint editorElementId READ EditorElementId NOTIFY EditorStateChanged)
   Q_PROPERTY(QString editorTitle READ EditorTitle NOTIFY EditorStateChanged)
   Q_PROPERTY(QString editorStatus READ EditorStatus NOTIFY EditorStateChanged)
+  Q_PROPERTY(bool thumbnailDiskCacheEnabled READ ThumbnailDiskCacheEnabled NOTIFY ThumbnailDiskCacheStateChanged)
+  Q_PROPERTY(QString thumbnailDiskCacheRoot READ ThumbnailDiskCacheRoot NOTIFY ThumbnailDiskCacheStateChanged)
+  Q_PROPERTY(int thumbnailDiskCacheMaxEntries READ ThumbnailDiskCacheMaxEntries NOTIFY ThumbnailDiskCacheStateChanged)
+  Q_PROPERTY(int thumbnailDiskCacheJpegQuality READ ThumbnailDiskCacheJpegQuality NOTIFY ThumbnailDiskCacheStateChanged)
+  Q_PROPERTY(QString thumbnailDiskCacheStats READ ThumbnailDiskCacheStats NOTIFY ThumbnailDiskCacheStateChanged)
   Q_PROPERTY(QString editorPreviewUrl READ EditorPreviewUrl NOTIFY EditorPreviewChanged)
   Q_PROPERTY(QVariantList editorLutOptions READ EditorLutOptions NOTIFY EditorStateChanged)
   Q_PROPERTY(int editorLutIndex READ EditorLutIndex NOTIFY EditorStateChanged)
@@ -174,6 +179,11 @@ class AlbumBackend final : public QObject {
   uint           EditorElementId() const { return static_cast<uint>(editor_.editor_element_id()); }
   QString        EditorTitle() const { return editor_.editor_title(); }
   QString        EditorStatus() const { return editor_.editor_status(); }
+  bool    ThumbnailDiskCacheEnabled() const;
+  QString ThumbnailDiskCacheRoot() const;
+  int     ThumbnailDiskCacheMaxEntries() const;
+  int     ThumbnailDiskCacheJpegQuality() const;
+  QString ThumbnailDiskCacheStats() const;
   const QString& EditorPreviewUrl() const { return editor_.editor_preview_url(); }
   QVariantList   EditorLutOptions() const { return editor_.editor_lut_options(); }
   int            EditorLutIndex() const { return editor_.editor_lut_index(); }
@@ -246,6 +256,16 @@ class AlbumBackend final : public QObject {
   Q_INVOKABLE void ToggleStatsFilter(const QString& category, const QString& label);
   Q_INVOKABLE void ClearStatsFilter();
 
+  // ── Phase 4: Thumbnail disk cache control ───────────────────────────
+  Q_INVOKABLE void SetThumbnailDiskCacheEnabled(bool enabled);
+  Q_INVOKABLE void SetThumbnailDiskCacheRoot(const QString& rootPath);
+  Q_INVOKABLE void SetThumbnailDiskCacheMaxEntries(int maxEntries);
+  Q_INVOKABLE void SetThumbnailDiskCacheJpegQuality(int quality);
+  Q_INVOKABLE void ClearAllThumbnailDiskCache();
+  Q_INVOKABLE void ClearProjectThumbnailDiskCache();
+  Q_INVOKABLE int  PromptForInt(const QString& title, const QString& label,
+                                int defaultValue, int minValue, int maxValue);
+
  signals:
   void ThumbnailsChanged();
   void thumbnailsChanged();
@@ -273,6 +293,7 @@ class AlbumBackend final : public QObject {
   void FolderSelectionChanged();
   void folderSelectionChanged();
   void StatsFilterChanged();
+  void ThumbnailDiskCacheStateChanged();
 
  private:
   friend class ProjectHandler;
@@ -334,6 +355,16 @@ class AlbumBackend final : public QObject {
   i18n::LocalizedText          task_status_text_{};
   int                          task_progress_       = 0;
   bool                         task_cancel_visible_ = false;
+
+  // ── Phase 4: Thumbnail disk cache settings ──────────────────────────
+  void LoadThumbnailDiskCacheSettings();
+  void SaveThumbnailDiskCacheSettings();
+  void ApplyThumbnailDiskCacheSettingsToService();
+
+  bool   thumbnail_disk_cache_enabled_     = true;
+  QString thumbnail_disk_cache_root_;
+  int    thumbnail_disk_cache_max_entries_ = 10000;
+  int    thumbnail_disk_cache_jpeg_quality_ = 85;
 };
 
 }  // namespace alcedo::ui

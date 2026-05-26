@@ -558,6 +558,7 @@ endif()
 add_executable(ThumbnailDiskCacheServiceTest app/thumbnail_disk_cache_service_test.cpp)
 target_include_directories(ThumbnailDiskCacheServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
 target_link_libraries(ThumbnailDiskCacheServiceTest ThumbnailDiskCacheService GTest::gtest_main)
+gtest_discover_tests(ThumbnailDiskCacheServiceTest TEST_PREFIX "ThumbnailDiskCacheServiceTest.")
 
 add_executable(ExportServiceTest app/export_service_test.cpp)
 target_include_directories(ExportServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
@@ -830,6 +831,7 @@ alcedo_assign_test_category(app ALCEDO_BUILD_APP_TESTS alcedo_tests_app
   PipelineServiceTest
   EditHistoryMgmtServiceTest
   ThumbnailServiceTest
+  ThumbnailDiskCacheServiceTest
   ExportServiceTest
 )
 

@@ -914,12 +914,12 @@ def_library(ImportService
 
 def_library(ThumbnailService
     SOURCES app/thumbnail_service.cpp
-    PUBLIC_DEPS EditPipeline ThreadPool StrConv ImagePoolService PipelineMgmtService
+    PUBLIC_DEPS EditPipeline ThreadPool StrConv ImagePoolService PipelineMgmtService ThumbnailDiskCacheService EditHistoryMgmtService
 )
 
 def_library(ThumbnailDiskCacheService
     SOURCES app/thumbnail_disk_cache_service.cpp
-    PUBLIC_DEPS ThumbnailService JSON xxHash opencv_imgcodecs
+    PUBLIC_DEPS ImageBuffer JSON xxHash opencv_imgcodecs OpenImageIO::OpenImageIO
 )
 
 def_library(ExportService
