@@ -16,7 +16,7 @@
 #include "app/project_package_backend.hpp"
 #include "app/project_package_service.hpp"
 #include "utils/string/convert.hpp"
-#include "uuid_v4.h"
+#include "uuid.h"
 
 namespace alcedo {
 namespace {
@@ -60,6 +60,14 @@ auto IsSupportedProjectVersion(std::string_view version) -> bool {
          ParseSemVer(project_pack::kMinSupportedProjectFileVersion, &min_supported) &&
          ParseSemVer(project_pack::kMaxSupportedProjectFileVersion, &max_supported) &&
          parsed >= min_supported && parsed <= max_supported;
+}
+
+auto GenerateProjectUUID() -> std::string {
+  std::random_device random_device;
+  std::seed_seq      seed{random_device(), random_device(), random_device(), random_device()};
+  std::mt19937       generator(seed);
+  uuids::uuid_random_generator uuid_gen(generator);
+  return uuids::to_string(uuid_gen());
 }
 
 // Collects lightweight diagnostic summary of the project database:
@@ -141,8 +149,7 @@ ProjectService::ProjectService(const std::filesystem::path& db_path,
     browse_service_  = std::make_shared<AlbumBrowseService>(sleeve_service_, filter_service_);
     package_service_ = std::make_shared<ProjectPackageService>();
 
-    UUIDv4::UUIDGenerator<std::mt19937_64> uuid_gen;
-    project_uuid_ = uuid_gen.getUUID().str();
+    project_uuid_ = GenerateProjectUUID();
   };
 
   switch (open_mode) {
@@ -226,8 +233,7 @@ void ProjectService::LoadProject(const std::filesystem::path& meta_path) {
   if (metadata.contains("project_uuid") && metadata.at("project_uuid").is_string()) {
     project_uuid_ = metadata.at("project_uuid").get<std::string>();
   } else {
-    UUIDv4::UUIDGenerator<std::mt19937_64> uuid_gen;
-    project_uuid_ = uuid_gen.getUUID().str();
+    project_uuid_ = GenerateProjectUUID();
   }
 
   if (!metadata.contains("db_path")) {
