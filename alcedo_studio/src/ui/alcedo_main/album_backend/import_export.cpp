@@ -541,15 +541,26 @@ void ImportExportHandler::AddImportedEntries(const ImportLogSnapshot& snapshot) 
 
 auto ImportExportHandler::CollectExportTargets(const QVariantList& targetEntries) const
     -> std::vector<ExportTarget> {
-  const QVariantList& source =
-      targetEntries.empty() ? backend_.view_state_.visible_thumbnails_ : targetEntries;
   std::vector<ExportTarget> targets;
-  targets.reserve(static_cast<size_t>(source.size()));
 
   std::unordered_set<uint64_t> dedupe;
-  dedupe.reserve(static_cast<size_t>(source.size()) * 2 + 1);
+  if (targetEntries.empty()) {
+    const auto& source = backend_.thumbnail_model_.items();
+    targets.reserve(source.size());
+    dedupe.reserve(source.size() * 2 + 1);
 
-  for (const QVariant& entry : source) {
+    for (const AlbumItem& item : source) {
+      if (item.element_id == 0 || item.image_id == 0) continue;
+      if (!dedupe.insert(ExportTargetKey(item.element_id, item.image_id)).second) continue;
+      targets.emplace_back(item.element_id, item.image_id);
+    }
+    return targets;
+  }
+
+  targets.reserve(static_cast<size_t>(targetEntries.size()));
+  dedupe.reserve(static_cast<size_t>(targetEntries.size()) * 2 + 1);
+
+  for (const QVariant& entry : targetEntries) {
     const auto map       = entry.toMap();
     const auto elementId = static_cast<sl_element_id_t>(map.value("elementId").toUInt());
     const auto imageId   = static_cast<image_id_t>(map.value("imageId").toUInt());

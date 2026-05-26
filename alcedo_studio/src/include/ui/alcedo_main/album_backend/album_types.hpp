@@ -6,7 +6,6 @@
 
 #include <QDate>
 #include <QString>
-#include <QVariantList>
 #include <cstddef>
 #include <filesystem>
 #include <string>
@@ -71,7 +70,6 @@ struct ExistingFolderEntry {
 /// UI-only display cache state. No filesystem or DB ownership.
 struct AlbumViewState {
   std::vector<AlbumItem> all_images_{};
-  QVariantList           visible_thumbnails_{};
   size_t                 total_count_ = 0;
 };
 

@@ -403,18 +403,8 @@ void ThumbnailManager::UpdateThumbnailState(sl_element_id_t elementId, const QSt
   item->thumb_missing_source  = missingSource;
   item->thumb_error_text      = errorText;
 
-  for (qsizetype i = 0; i < backend_.view_state_.visible_thumbnails_.size(); ++i) {
-    QVariantMap row = backend_.view_state_.visible_thumbnails_.at(i).toMap();
-    if (static_cast<sl_element_id_t>(row.value("elementId").toUInt()) != elementId) {
-      continue;
-    }
-    row.insert("thumbUrl", dataUrl);
-    row.insert("thumbLoading", loading);
-    row.insert("thumbMissingSource", missingSource);
-    row.insert("thumbErrorText", errorText);
-    backend_.view_state_.visible_thumbnails_[i] = row;
-    break;
-  }
+  backend_.thumbnail_model_.updateThumbnailState(elementId, dataUrl, loading, missingSource,
+                                                  errorText);
 
   emit backend_.ThumbnailUpdated(static_cast<uint>(elementId), dataUrl, loading, missingSource,
                                  errorText);

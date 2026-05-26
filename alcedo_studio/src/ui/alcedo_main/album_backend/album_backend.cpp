@@ -43,6 +43,21 @@ constexpr auto   kAcceleratorWarningAcknowledgedKey = "gpu/acceleratorWarningAck
 constexpr int    kMaxRecentProjects                 = 12;
 constexpr size_t kAlbumMetadataPageSize             = 1000;
 
+class ThumbnailModelLoadingGuard {
+ public:
+  explicit ThumbnailModelLoadingGuard(AlbumThumbnailModel& model) : model_(model) {
+    model_.setLoading(true);
+  }
+
+  ~ThumbnailModelLoadingGuard() { model_.setLoading(false); }
+
+  ThumbnailModelLoadingGuard(const ThumbnailModelLoadingGuard&)            = delete;
+  ThumbnailModelLoadingGuard& operator=(const ThumbnailModelLoadingGuard&) = delete;
+
+ private:
+  AlbumThumbnailModel& model_;
+};
+
 [[maybe_unused]] constexpr const char* kAcceleratorTranslationStrings[] = {
     QT_TRANSLATE_NOOP("Alcedo", "CPU"),
     QT_TRANSLATE_NOOP("Alcedo", "Auto"),
@@ -229,7 +244,17 @@ int AlbumBackend::TotalCount() const {
 }
 
 bool AlbumBackend::HasMoreThumbnails() const {
-  return view_state_.all_images_.size() < view_state_.total_count_;
+  return thumbnail_model_.hasMore();
+}
+
+QVariantList AlbumBackend::Thumbnails() const {
+  QVariantList rows;
+  rows.reserve(static_cast<qsizetype>(thumbnail_model_.items().size()));
+  int index = 0;
+  for (const AlbumItem& image : thumbnail_model_.items()) {
+    rows.push_back(stats_.MakeThumbMap(image, index++));
+  }
+  return rows;
 }
 
 // ── Q_INVOKABLE: Folder delegation ──────────────────────────────────────────
@@ -595,7 +620,12 @@ void AlbumBackend::SetThumbnailCacheHint(uint visibleCells, uint maxEdge) {
   }
 }
 
-bool AlbumBackend::LoadMoreThumbnails() { return stats_.LoadMoreThumbnailView(); }
+bool AlbumBackend::LoadMoreThumbnails() {
+  if (thumbnail_model_.loading() || !thumbnail_model_.hasMore()) {
+    return false;
+  }
+  return stats_.LoadMoreThumbnailView();
+}
 
 // ── Q_INVOKABLE: Project I/O ────────────────────────────────────────────────
 
@@ -825,7 +855,7 @@ void AlbumBackend::RefreshTranslations() {
   if (!folder_ctrl_.folder_entries().empty()) {
     folder_ctrl_.RebuildFolderView();
   }
-  if (!view_state_.all_images_.empty()) {
+  if (!thumbnail_model_.items().empty()) {
     stats_.RebuildThumbnailView();
   }
   stats_.RefreshStats();
@@ -980,14 +1010,17 @@ void AlbumBackend::ReloadCurrentFolder() {
 }
 
 bool AlbumBackend::LoadThumbnailWindow(const std::optional<std::wstring>& filterWhere, bool reset) {
+  if (thumbnail_model_.loading()) {
+    return false;
+  }
+  ThumbnailModelLoadingGuard loading_guard(thumbnail_model_);
+
   if (reset) {
     thumb_.ReleaseVisibleThumbnailPins();
 
     view_state_.all_images_.clear();
-    view_state_.visible_thumbnails_.clear();
     view_state_.total_count_ = 0;
-    emit ThumbnailsChanged();
-    emit thumbnailsChanged();
+    thumbnail_model_.resetModel({}, 0);
     emit CountsChanged();
   }
 
@@ -1012,14 +1045,15 @@ bool AlbumBackend::LoadThumbnailWindow(const std::optional<std::wstring>& filter
     view_state_.total_count_ = browse->CountFilesInFolderById(folder_id, filterWhere);
   }
 
-  const size_t offset = view_state_.all_images_.size();
-  if (offset >= view_state_.total_count_) {
+  const size_t oldSize = view_state_.all_images_.size();
+  if (oldSize >= view_state_.total_count_) {
+    thumbnail_model_.setHasMore(false);
     emit CountsChanged();
     return false;
   }
 
   const auto files =
-      browse->ListFilesInFolderById(folder_id, offset, kAlbumMetadataPageSize, filterWhere);
+      browse->ListFilesInFolderById(folder_id, oldSize, kAlbumMetadataPageSize, filterWhere);
   for (const auto& file : files) {
     const auto file_path =
         file.file_path_.empty() ? folder_path / file.file_name_ : file.file_path_;
@@ -1029,16 +1063,23 @@ bool AlbumBackend::LoadThumbnailWindow(const std::optional<std::wstring>& filter
         file.file_name_, file_path);
   }
 
-  QVariantList next;
-  next.reserve(static_cast<qsizetype>(view_state_.all_images_.size()));
-  int index = 0;
-  for (const AlbumItem& image : view_state_.all_images_) {
-    next.push_back(stats_.MakeThumbMap(image, index++));
+  const size_t newSize = view_state_.all_images_.size();
+  std::vector<AlbumItem> newBatch;
+  if (newSize > oldSize) {
+    newBatch.reserve(newSize - oldSize);
+    for (size_t i = oldSize; i < newSize; ++i) {
+      newBatch.push_back(view_state_.all_images_[i]);
+    }
   }
 
-  view_state_.visible_thumbnails_ = std::move(next);
-  emit ThumbnailsChanged();
-  emit thumbnailsChanged();
+  if (oldSize == 0) {
+    thumbnail_model_.resetModel(view_state_.all_images_, view_state_.total_count_);
+  } else if (!newBatch.empty()) {
+    thumbnail_model_.appendPage(newBatch);
+  } else {
+    thumbnail_model_.setHasMore(thumbnail_model_.items().size() < view_state_.total_count_);
+  }
+
   emit CountsChanged();
   return !files.empty();
 }
@@ -1111,19 +1152,20 @@ void AlbumBackend::AddOrUpdateAlbumItem(sl_element_id_t elementId, image_id_t im
 }
 
 auto AlbumBackend::FindAlbumItem(sl_element_id_t elementId) -> AlbumItem* {
+  const int row = thumbnail_model_.rowByElementId(elementId);
+  if (row < 0) return nullptr;
+  // The model owns the items; we need non-const access for mutation.
+  // all_images_ is kept in sync, so search there for mutable access.
   for (auto& item : view_state_.all_images_) {
-    if (item.element_id == elementId) {
-      return &item;
-    }
+    if (item.element_id == elementId) return &item;
   }
   return nullptr;
 }
 
 auto AlbumBackend::FindAlbumItem(sl_element_id_t elementId) const -> const AlbumItem* {
-  for (const auto& item : view_state_.all_images_) {
-    if (item.element_id == elementId) {
-      return &item;
-    }
+  const auto& items = thumbnail_model_.items();
+  for (const auto& item : items) {
+    if (item.element_id == elementId) return &item;
   }
   return nullptr;
 }

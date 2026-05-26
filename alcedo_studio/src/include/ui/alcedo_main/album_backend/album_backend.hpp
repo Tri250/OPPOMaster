@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "edit/pipeline/pipeline_accelerator.hpp"
+#include "ui/alcedo_main/album_backend/album_thumbnail_model.hpp"
 #include "ui/alcedo_main/album_backend/album_types.hpp"
 #include "ui/alcedo_main/album_backend/editor_controller.hpp"
 #include "ui/alcedo_main/album_backend/folder_controller.hpp"
@@ -32,6 +33,7 @@ namespace alcedo::ui {
 class AlbumBackend final : public QObject {
   Q_OBJECT
   Q_PROPERTY(QVariantList thumbnails READ Thumbnails NOTIFY ThumbnailsChanged)
+  Q_PROPERTY(QObject* thumbnailModel READ ThumbnailModel CONSTANT)
   Q_PROPERTY(QVariantList folders READ Folders NOTIFY FoldersChanged)
   Q_PROPERTY(uint currentFolderId READ CurrentFolderId NOTIFY FolderSelectionChanged)
   Q_PROPERTY(QString currentFolderPath READ CurrentFolderPath NOTIFY FolderSelectionChanged)
@@ -112,11 +114,12 @@ class AlbumBackend final : public QObject {
   ~AlbumBackend() override;
 
   // ── Q_PROPERTY getters ──────────────────────────────────────────────
-  QVariantList Thumbnails() const { return view_state_.visible_thumbnails_; }
+  QVariantList Thumbnails() const;
+  QObject* ThumbnailModel() { return &thumbnail_model_; }
   QVariantList Folders() const { return folder_ctrl_.folders(); }
   uint CurrentFolderId() const { return static_cast<uint>(folder_ctrl_.current_folder_id()); }
   const QString& CurrentFolderPath() const { return folder_ctrl_.current_folder_path_text(); }
-  int     ShownCount() const { return static_cast<int>(view_state_.visible_thumbnails_.size()); }
+  int     ShownCount() const { return thumbnail_model_.count(); }
   int     TotalCount() const;
   bool    HasMoreThumbnails() const;
   QString FilterInfo() const;
@@ -313,6 +316,7 @@ class AlbumBackend final : public QObject {
   ImportExportHandler          import_export_;
   NikonHeRecoveryController    nikon_he_recovery_;
   EditorController             editor_;
+  AlbumThumbnailModel          thumbnail_model_{};
 
   // ── Shared data (accessed by helpers via friend) ────────────────────
   AlbumViewState               view_state_{};
