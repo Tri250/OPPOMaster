@@ -917,6 +917,11 @@ def_library(ThumbnailService
     PUBLIC_DEPS EditPipeline ThreadPool StrConv ImagePoolService PipelineMgmtService
 )
 
+def_library(ThumbnailDiskCacheService
+    SOURCES app/thumbnail_disk_cache_service.cpp
+    PUBLIC_DEPS ThumbnailService JSON xxHash opencv_imgcodecs
+)
+
 def_library(ExportService
     SOURCES app/export_service.cpp
     PUBLIC_DEPS ImageWriter ImageLoader ImagePoolService PipelineMgmtService PipelineScheduler ThreadPool

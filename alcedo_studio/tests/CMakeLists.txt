@@ -555,6 +555,10 @@ if(WIN32)
   target_link_libraries(ThumbnailServiceTest)
 endif()
 
+add_executable(ThumbnailDiskCacheServiceTest app/thumbnail_disk_cache_service_test.cpp)
+target_include_directories(ThumbnailDiskCacheServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(ThumbnailDiskCacheServiceTest ThumbnailDiskCacheService GTest::gtest_main)
+
 add_executable(ExportServiceTest app/export_service_test.cpp)
 target_include_directories(ExportServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
 target_link_libraries(ExportServiceTest ExportService ProjectService ImportService GTest::gtest_main ImageWriter ${ALCEDO_TEST_OPENCV_MIN_DEPS})

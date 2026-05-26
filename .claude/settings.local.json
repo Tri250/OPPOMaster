@@ -114,7 +114,15 @@
       "PowerShell(cmd /c \"cd /d D:\\\\Projects\\\\pu-erh_lab && call scripts\\\\msvc_env.cmd --build --preset win_debug --parallel 4 --target VersionHashTest 2>&1\" | Select-Object -Last 10)",
       "PowerShell(& \"D:\\\\Projects\\\\pu-erh_lab\\\\build\\\\debug\\\\alcedo_studio\\\\tests\\\\ProjectServiceTest.exe\" 2>&1)",
       "PowerShell(cmd /c \"cd /d D:\\\\Projects\\\\pu-erh_lab && call scripts\\\\msvc_env.cmd --build --preset win_debug --parallel 4 --target EditHistoryMgmtServiceTest 2>&1\" | Select-Object -Last 8)",
-      "PowerShell(& \"D:\\\\Projects\\\\pu-erh_lab\\\\build\\\\debug\\\\alcedo_studio\\\\tests\\\\EditHistoryMgmtServiceTest.exe\" 2>&1)"
+      "PowerShell(& \"D:\\\\Projects\\\\pu-erh_lab\\\\build\\\\debug\\\\alcedo_studio\\\\tests\\\\EditHistoryMgmtServiceTest.exe\" 2>&1)",
+      "PowerShell(cmd /c scripts\\\\msvc_env.cmd --build --preset win_debug --parallel 4 --target ThumbnailDiskCacheService 2>&1 | Select-Object -Last 40)",
+      "PowerShell(cmd /c scripts\\\\msvc_env.cmd --build --preset win_debug --parallel 4 --target ThumbnailDiskCacheServiceTest 2>&1 | Select-Object -Last 20)",
+      "PowerShell($env:PATH = \"D:\\\\Projects\\\\pu-erh_lab\\\\alcedo_studio\\\\build\\\\debug\\\\bin;\" + $env:PATH; & \"D:\\\\Projects\\\\pu-erh_lab\\\\alcedo_studio\\\\build\\\\debug\\\\alcedo_studio\\\\tests\\\\ThumbnailDiskCacheServiceTest.exe\" 2>&1)",
+      "PowerShell(& \"D:\\\\Projects\\\\pu-erh_lab\\\\build\\\\debug\\\\alcedo_studio\\\\tests\\\\ThumbnailDiskCacheServiceTest.exe\" 2>&1)",
+      "PowerShell(cmd /c scripts\\\\msvc_env.cmd --build --preset win_debug --parallel 4 --target ThumbnailDiskCacheServiceTest 2>&1 | Select-Object -Last 10)",
+      "PowerShell(& \"D:\\\\Projects\\\\pu-erh_lab\\\\build\\\\debug\\\\alcedo_studio\\\\tests\\\\ThumbnailDiskCacheServiceTest.exe\" --gtest_print_time=0 2>&1)",
+      "PowerShell(& \"D:\\\\Projects\\\\pu-erh_lab\\\\build\\\\debug\\\\alcedo_studio\\\\tests\\\\ThumbnailDiskCacheServiceTest.exe\" --gtest_filter=\"ConstructAndInitialize:LookupMissReturnsFalse:ReadNonexistentReturnsNull:EmptyImageNotCached:ShutdownWithoutInitializeIsSafe:DoubleInitializeIsSafe\" 2>&1)",
+      "PowerShell(cmd /c scripts\\\\msvc_env.cmd --build --preset win_debug --parallel 4 --target ThumbnailDiskCacheServiceTest 2>&1 | Select-Object -Last 5)"
     ]
   }
 }
