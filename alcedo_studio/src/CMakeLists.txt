@@ -889,7 +889,7 @@ def_library(ProjectService
         app/project_package_service.cpp
         ui/alcedo_main/album_backend/path_utils.cpp
     PUBLIC_DEPS FSService StorageService ImagePoolService AlbumBrowseService
-                StrConv JSON xxHash
+                StrConv JSON xxHash stduuid
     PRIVATE_DEPS
         UiLocalization
         Qt6::Core
@@ -914,7 +914,12 @@ def_library(ImportService
 
 def_library(ThumbnailService
     SOURCES app/thumbnail_service.cpp
-    PUBLIC_DEPS EditPipeline ThreadPool StrConv ImagePoolService PipelineMgmtService
+    PUBLIC_DEPS EditPipeline ThreadPool StrConv ImagePoolService PipelineMgmtService ThumbnailDiskCacheService EditHistoryMgmtService
+)
+
+def_library(ThumbnailDiskCacheService
+    SOURCES app/thumbnail_disk_cache_service.cpp
+    PUBLIC_DEPS ImageBuffer JSON xxHash opencv_imgcodecs OpenImageIO::OpenImageIO
 )
 
 def_library(ExportService
@@ -1277,6 +1282,7 @@ qt_add_qml_module(alcedo_main
         ui/alcedo_main/qml/ExportQueueState.qml
         ui/alcedo_main/qml/AlbumExportDialog.qml
         ui/alcedo_main/qml/ImageDetailsDialog.qml
+        ui/alcedo_main/qml/SettingDialog.qml
         ui/alcedo_main/qml/WelcomeDialog.qml
         ui/alcedo_main/qml/NikonHeRecoveryDialog.qml
         ui/alcedo_main/qml/ImportProgressRing.qml

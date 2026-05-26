@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iostream>
 #include <optional>
+#include <random>
 #include <stdexcept>
 
 #include <json.hpp>
@@ -15,6 +16,7 @@
 #include "app/project_package_backend.hpp"
 #include "app/project_package_service.hpp"
 #include "utils/string/convert.hpp"
+#include "uuid.h"
 
 namespace alcedo {
 namespace {
@@ -58,6 +60,14 @@ auto IsSupportedProjectVersion(std::string_view version) -> bool {
          ParseSemVer(project_pack::kMinSupportedProjectFileVersion, &min_supported) &&
          ParseSemVer(project_pack::kMaxSupportedProjectFileVersion, &max_supported) &&
          parsed >= min_supported && parsed <= max_supported;
+}
+
+auto GenerateProjectUUID() -> std::string {
+  std::random_device random_device;
+  std::seed_seq      seed{random_device(), random_device(), random_device(), random_device()};
+  std::mt19937       generator(seed);
+  uuids::uuid_random_generator uuid_gen(generator);
+  return uuids::to_string(uuid_gen());
 }
 
 // Collects lightweight diagnostic summary of the project database:
@@ -138,6 +148,8 @@ ProjectService::ProjectService(const std::filesystem::path& db_path,
     filter_service_  = std::make_shared<SleeveFilterService>(storage_service_);
     browse_service_  = std::make_shared<AlbumBrowseService>(sleeve_service_, filter_service_);
     package_service_ = std::make_shared<ProjectPackageService>();
+
+    project_uuid_ = GenerateProjectUUID();
   };
 
   switch (open_mode) {
@@ -182,6 +194,7 @@ void ProjectService::SaveProject(const std::filesystem::path& meta_path) {
   nlohmann::json metadata;
   metadata["db_path"]             = conv::ToBytes(db_path_.wstring());
   metadata["meta_path"]           = conv::ToBytes(meta_path_.wstring());
+  metadata["project_uuid"]        = project_uuid_;
   metadata["project_file_version"] = std::string(project_pack::kProjectFileVersion);
   metadata["project_file_min_supported_version"] =
       std::string(project_pack::kMinSupportedProjectFileVersion);
@@ -215,6 +228,12 @@ void ProjectService::LoadProject(const std::filesystem::path& meta_path) {
   if (!project_pack::ProjectVersionIsSupported(
           metadata.at("project_file_version").get<std::string>())) {
     throw std::runtime_error("Project metadata version is not supported");
+  }
+
+  if (metadata.contains("project_uuid") && metadata.at("project_uuid").is_string()) {
+    project_uuid_ = metadata.at("project_uuid").get<std::string>();
+  } else {
+    project_uuid_ = GenerateProjectUUID();
   }
 
   if (!metadata.contains("db_path")) {

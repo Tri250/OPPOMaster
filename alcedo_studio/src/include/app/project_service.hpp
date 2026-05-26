@@ -6,6 +6,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <string>
 
 #include "app/album_browse_service.hpp"
 #include "app/sleeve_service.hpp"
@@ -49,12 +50,14 @@ class ProjectService {
 
   auto GetDBPath() const -> const std::filesystem::path& { return db_path_; }
   auto GetMetaPath() const -> const std::filesystem::path& { return meta_path_; }
+  auto GetProjectUUID() const -> const std::string& { return project_uuid_; }
 
  private:
   void                                  RecreateSleeveService(sl_element_id_t start_id);
 
   std::filesystem::path                 db_path_;
   std::filesystem::path                 meta_path_;
+  std::string                           project_uuid_;
   std::shared_ptr<StorageService>       storage_service_;
   std::shared_ptr<SleeveServiceImpl>    sleeve_service_;
   // TODO: Add ImagePoolService and store its start_id into the metadata

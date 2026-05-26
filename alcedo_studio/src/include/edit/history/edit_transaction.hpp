@@ -35,6 +35,7 @@ class EditTransaction {
   bool                          before_enabled_ = false;
   bool                          after_enabled_  = true;
   std::time_t                   created_time_   = 0;
+  std::optional<Hash128>         transaction_hash_{};
 
  public:
   EditTransaction(TransactionType type, OperatorType operator_type, PipelineStageName stage_name,
@@ -66,7 +67,7 @@ class EditTransaction {
 
   EditTransaction(const nlohmann::json& j) { FromJSON(j); }
 
-  auto SetTransactionID(tx_id_t id) { tx_id_ = id; }
+  void SetTransactionID(tx_id_t id) { tx_id_ = id; }
 
   auto GetTransactionID() const -> tx_id_t { return tx_id_; }
 
@@ -87,6 +88,11 @@ class EditTransaction {
 
   auto GetTxOpStageName() const -> PipelineStageName { return stage_name_; }
   auto GetTxOperatorType() const -> OperatorType { return operator_type_; }
+  auto HasTransactionHash() const -> bool { return transaction_hash_.has_value(); }
+  auto GetTransactionHash() const -> Hash128 {
+    return transaction_hash_.value_or(ComputeTransactionHash());
+  }
+  void GenerateTransactionHash() { transaction_hash_ = ComputeTransactionHash(); }
 
   void SetLastOperatorParams(const nlohmann::json& params) {
     before_params_   = params;
@@ -104,22 +110,26 @@ class EditTransaction {
                            before_params_, after_enabled_, before_enabled_);
   }
 
-  auto Hash() const -> Hash128 {
+  auto Hash() const -> Hash128 { return GetTransactionHash(); }
+
+ private:
+  auto ComputeTransactionHash() const -> Hash128 {
     std::string before_params_str = before_params_.dump();
     std::string after_params_str  = after_params_.dump();
     Hash128     result =
         Hash128::Blend(Hash128::Blend(Hash128::Compute(&type_, sizeof(type_)),
                                       Hash128::Compute(&operator_type_, sizeof(operator_type_))),
                        Hash128::Blend(Hash128::Compute(&stage_name_, sizeof(stage_name_)),
-                                      Hash128::Compute(&after_params_str,
+                                      Hash128::Compute(after_params_str.data(),
                                                        after_params_str.size())));
     result = Hash128::Blend(result,
-                            Hash128::Compute(&before_params_str, before_params_str.size()));
+                            Hash128::Compute(before_params_str.data(), before_params_str.size()));
     result = Hash128::Blend(result, Hash128::Compute(&before_enabled_, sizeof(before_enabled_)));
     result = Hash128::Blend(result, Hash128::Compute(&after_enabled_, sizeof(after_enabled_)));
     return result;
   }
 
+ public:
   static auto TransactionTypeToString(TransactionType type) -> const char*;
   static auto OperatorTypeToString(OperatorType type) -> const char*;
   static auto StageNameToString(PipelineStageName stage) -> const char*;

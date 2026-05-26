@@ -96,6 +96,11 @@ auto EditHistory::GetActiveVersion() -> Version& {
   return GetVersion(active_version_id_);
 }
 
+auto EditHistory::GetActiveVersionHash() -> Hash128 {
+  EnsureDefaultVersion();
+  return GetVersion(active_version_id_).GetVersionHash();
+}
+
 auto EditHistory::CloneForFile(sl_element_id_t bound_image) const -> std::shared_ptr<EditHistory> {
   auto clone                     = std::make_shared<EditHistory>(bound_image);
   clone->import_pipeline_params_ = import_pipeline_params_;

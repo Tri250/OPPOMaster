@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "app/import_service.hpp"
+#include "app/history_mgmt_service.hpp"
 #include "app/pipeline_service.hpp"
 #include "app/project_service.hpp"
 #include "app/sleeve_service.hpp"
@@ -930,13 +931,14 @@ TEST_F(ThumbnailServiceTests, MetalGeometryPipelineThumbnailStillRenders) {
   ASSERT_TRUE(buffer->cpu_data_valid_);
   const cv::Mat& mat = buffer->GetCPUData();
   ASSERT_FALSE(mat.empty());
-  EXPECT_EQ(mat.type(), CV_32FC4);
+  EXPECT_EQ(mat.type(), CV_8UC4);
   EXPECT_LE(std::max(mat.cols, mat.rows), 1024);
 #endif
 }
 
 TEST_F(ThumbnailServiceTests, ThumbnailRenderUsesInjectedRawMetadataForDng) {
-  const auto raw_path = std::filesystem::path(TEST_IMG_PATH) / "raw" / "bad_dng" / "bad.dng.DNG";
+  const auto raw_path =
+      std::filesystem::path(TEST_IMG_PATH) / "raw" / "bad_dng" / "bad_color_dng.dng";
   if (!std::filesystem::exists(raw_path)) {
     GTEST_SKIP() << "Sample DNG file is missing: " << raw_path.string();
   }
@@ -1012,6 +1014,95 @@ TEST_F(ThumbnailServiceTests, ThumbnailRenderUsesInjectedRawMetadataForDng) {
 
   const uint64_t direct_hash = HashImageBufferCpuBytes(*direct_result);
   EXPECT_EQ(thumbnail_hash, direct_hash);
+}
+
+TEST_F(ThumbnailServiceTests, DiskCacheHitServesAfterPipelineIsRemoved) {
+  const auto raw_path =
+      std::filesystem::path(TEST_IMG_PATH) / "raw" / "bad_dng" / "bad_color_dng.dng";
+  if (!std::filesystem::exists(raw_path)) {
+    GTEST_SKIP() << "Sample RAW file is missing: " << raw_path.string();
+  }
+
+  const auto cache_root =
+      std::filesystem::temp_directory_path() /
+      ("thumbnail_disk_cache_e2e_" + std::to_string(
+                                      std::chrono::steady_clock::now()
+                                          .time_since_epoch()
+                                          .count()));
+  std::error_code cleanup_ec;
+  std::filesystem::remove_all(cache_root, cleanup_ec);
+
+  ProjectService    project(db_path_, meta_path_);
+  auto              fs_service = project.GetSleeveService();
+  auto              img_pool   = project.GetImagePoolService();
+  ImportServiceImpl import_service(fs_service, img_pool);
+
+  std::shared_ptr<ImportJob> import_job = std::make_shared<ImportJob>();
+  std::promise<ImportResult> final_result;
+  auto                       final_result_future = final_result.get_future();
+  import_job->on_finished_ = [&final_result](const ImportResult& result) {
+    final_result.set_value(result);
+  };
+
+  import_job = import_service.ImportToFolder({raw_path}, L"", {}, import_job);
+  ASSERT_NE(import_job, nullptr);
+  ASSERT_EQ(final_result_future.wait_for(60s), std::future_status::ready);
+
+  const auto import_result = final_result_future.get();
+  ASSERT_EQ(import_result.imported_, 1u);
+  ASSERT_EQ(import_result.failed_, 0u);
+  ASSERT_NE(import_job->import_log_, nullptr);
+
+  const auto snapshot = import_job->import_log_->Snapshot();
+  ASSERT_EQ(snapshot.created_.size(), 1u);
+
+  import_service.SyncImports(snapshot, L"");
+  project.GetSleeveService()->Sync();
+  project.GetImagePoolService()->SyncWithStorage();
+  project.SaveProject(meta_path_);
+
+  const auto element_id = snapshot.created_.front().element_id_;
+  const auto image_id   = snapshot.created_.front().image_id_;
+
+  uint64_t first_hash = 0;
+  {
+    auto pipeline_service = std::make_shared<PipelineMgmtService>(project.GetStorageService());
+    auto history_service  = std::make_shared<EditHistoryMgmtService>(project.GetStorageService());
+    ThumbnailService thumbnail_service(project.GetSleeveService(), img_pool, pipeline_service,
+                                       history_service, project.GetProjectUUID(), cache_root);
+
+    auto guard = GetThumbnailBlocking(thumbnail_service, element_id, image_id, true,
+                                      ThumbnailResolution::k256);
+    ASSERT_NE(guard, nullptr);
+    ASSERT_NE(guard->thumbnail_buffer_, nullptr);
+    first_hash = HashImageBufferCpuBytes(*guard->thumbnail_buffer_);
+    EXPECT_NE(first_hash, 0u);
+    thumbnail_service.ReleaseThumbnail(ThumbnailCacheKey{element_id, ThumbnailResolution::k256});
+  }
+
+  auto deleting_pipeline_service = std::make_shared<PipelineMgmtService>(project.GetStorageService());
+  deleting_pipeline_service->DeletePipeline(element_id);
+  deleting_pipeline_service->Sync();
+
+  {
+    auto pipeline_service = std::make_shared<PipelineMgmtService>(project.GetStorageService());
+    auto history_service  = std::make_shared<EditHistoryMgmtService>(project.GetStorageService());
+    ThumbnailService thumbnail_service(project.GetSleeveService(), img_pool, pipeline_service,
+                                       history_service, project.GetProjectUUID(), cache_root);
+
+    auto guard = GetThumbnailBlocking(thumbnail_service, element_id, image_id, true,
+                                      ThumbnailResolution::k256);
+    ASSERT_NE(guard, nullptr);
+    ASSERT_NE(guard->thumbnail_buffer_, nullptr);
+    auto* buffer = guard->thumbnail_buffer_.get();
+    ASSERT_TRUE(buffer->cpu_data_valid_);
+    const auto& mat = buffer->GetCPUData();
+    ASSERT_FALSE(mat.empty());
+    EXPECT_EQ(mat.type(), CV_8UC4);
+    EXPECT_NE(HashMatBytes(mat), 0u);
+  }
+
+  std::filesystem::remove_all(cache_root, cleanup_ec);
 }
 
 TEST_F(ThumbnailServiceTests, DISABLED_PipelineRestoredFromDBGeneratesCorrectThumbnail) {

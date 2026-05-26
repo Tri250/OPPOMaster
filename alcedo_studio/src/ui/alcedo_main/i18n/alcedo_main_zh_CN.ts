@@ -2733,6 +2733,163 @@ Original source files on disk will be kept.</source>
     </message>
 </context>
 <context>
+    <name>SettingDialog</name>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="65"/>
+        <source>Select Thumbnail Cache Folder</source>
+        <translation>选择缩略图缓存文件夹</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="110"/>
+        <source>Unavailable</source>
+        <translation>不可用</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="120"/>
+        <source>%1 / %2</source>
+        <translation>%1 / %2</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="144"/>
+        <source>Settings applied</source>
+        <translation>设置已应用</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="225"/>
+        <source>Setting</source>
+        <translation>设置</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="239"/>
+        <location filename="../qml/SettingDialog.qml" line="317"/>
+        <location filename="../qml/SettingDialog.qml" line="366"/>
+        <source>Language</source>
+        <translation>语言</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="240"/>
+        <location filename="../qml/SettingDialog.qml" line="319"/>
+        <source>Theme and color</source>
+        <translation>主题与颜色</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="241"/>
+        <location filename="../qml/SettingDialog.qml" line="320"/>
+        <source>Cache</source>
+        <translation>缓存</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="355"/>
+        <source>Application language</source>
+        <translation>应用语言</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="404"/>
+        <source>Workspace appearance</source>
+        <translation>工作区外观</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="415"/>
+        <source>Theme</source>
+        <translation>主题</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="453"/>
+        <source>Current cache</source>
+        <translation>当前缓存</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="466"/>
+        <source>Entries</source>
+        <translation>条目数</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="475"/>
+        <source>Size</source>
+        <translation>大小</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="484"/>
+        <source>Hits / misses</source>
+        <translation>命中 / 未命中</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="498"/>
+        <source>Storage</source>
+        <translation>存储</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="512"/>
+        <source>Cache directory</source>
+        <translation>缓存目录</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="581"/>
+        <source>Limits</source>
+        <translation>限制</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="592"/>
+        <source>Disk cache</source>
+        <translation>磁盘缓存</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="600"/>
+        <source>Enabled</source>
+        <translation>已启用</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="600"/>
+        <source>Disabled</source>
+        <translation>已禁用</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="612"/>
+        <source>Max entries</source>
+        <translation>最大条目数</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="635"/>
+        <source>JPEG quality</source>
+        <translation>JPEG 质量</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="666"/>
+        <source>Maintenance</source>
+        <translation>维护</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="678"/>
+        <source>Clear current project</source>
+        <translation>清除当前项目缓存</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="684"/>
+        <source>Current project cache cleared</source>
+        <translation>当前项目缓存已清除</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="691"/>
+        <source>Clear all cache</source>
+        <translation>清除全部缓存</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="696"/>
+        <source>All thumbnail cache cleared</source>
+        <translation>全部缩略图缓存已清除</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="702"/>
+        <source>Refresh</source>
+        <translation>刷新</translation>
+    </message>
+    <message>
+        <location filename="../qml/SettingDialog.qml" line="733"/>
+        <source>Done</source>
+        <translation>完成</translation>
+    </message>
+</context>
+<context>
     <name>WelcomeDialog</name>
     <message>
         <location filename="../qml/WelcomeDialog.qml" line="177"/>
@@ -2911,12 +3068,12 @@ Original source files on disk will be kept.</source>
     <message>
         <location filename="../app_theme.cpp" line="940"/>
         <source>Alcedo</source>
-        <translation type="unfinished"></translation>
+        <translation>Alcedo</translation>
     </message>
     <message>
         <location filename="../app_theme.cpp" line="941"/>
         <source>Classic</source>
-        <translation type="unfinished"></translation>
+        <translation>经典</translation>
     </message>
 </context>
 </TS>

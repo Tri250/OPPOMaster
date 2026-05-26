@@ -43,6 +43,26 @@ constexpr auto   kAcceleratorWarningAcknowledgedKey = "gpu/acceleratorWarningAck
 constexpr int    kMaxRecentProjects                 = 12;
 constexpr size_t kAlbumMetadataPageSize             = 1000;
 
+auto FormatCacheSize(size_t bytes) -> QString {
+  if (bytes == 0) {
+    return QStringLiteral("0 KiB");
+  }
+  if (bytes < 1024) {
+    return QStringLiteral("< 1 KiB");
+  }
+
+  static constexpr const char* kUnits[] = {"KiB", "MiB", "GiB", "TiB"};
+  double                       value    = static_cast<double>(bytes) / 1024.0;
+  int                          unit_idx = 0;
+  while (value >= 1024.0 && unit_idx < 3) {
+    value /= 1024.0;
+    ++unit_idx;
+  }
+
+  const int decimals = value >= 10.0 ? 1 : 2;
+  return QStringLiteral("%1 %2").arg(value, 0, 'f', decimals).arg(QLatin1String(kUnits[unit_idx]));
+}
+
 class ThumbnailModelLoadingGuard {
  public:
   explicit ThumbnailModelLoadingGuard(AlbumThumbnailModel& model) : model_(model) {
@@ -201,6 +221,7 @@ AlbumBackend::AlbumBackend(QObject* parent)
       nikon_he_recovery_(*this),
       editor_(*this) {
   LoadRecentProjectsFromSettings();
+  LoadThumbnailDiskCacheSettings();
   QObject::connect(&i18n::TranslationNotifier::Instance(),
                    &i18n::TranslationNotifier::LanguageChanged, this,
                    &AlbumBackend::RefreshTranslations);
@@ -1168,6 +1189,163 @@ auto AlbumBackend::FindAlbumItem(sl_element_id_t elementId) const -> const Album
     if (item.element_id == elementId) return &item;
   }
   return nullptr;
+}
+
+// ── Phase 4: Thumbnail disk cache settings ─────────────────────────────────
+
+void AlbumBackend::LoadThumbnailDiskCacheSettings() {
+  QSettings settings;
+  thumbnail_disk_cache_enabled_ =
+      settings.value(QStringLiteral("thumbnailCache/enabled"), true).toBool();
+  thumbnail_disk_cache_root_ =
+      settings.value(QStringLiteral("thumbnailCache/rootPath"), QString{}).toString();
+  thumbnail_disk_cache_max_entries_ =
+      settings.value(QStringLiteral("thumbnailCache/maxEntries"), 10000).toInt();
+  thumbnail_disk_cache_jpeg_quality_ =
+      settings.value(QStringLiteral("thumbnailCache/jpegQuality"), 85).toInt();
+}
+
+void AlbumBackend::SaveThumbnailDiskCacheSettings() {
+  QSettings settings;
+  settings.setValue(QStringLiteral("thumbnailCache/enabled"), thumbnail_disk_cache_enabled_);
+  settings.setValue(QStringLiteral("thumbnailCache/rootPath"), thumbnail_disk_cache_root_);
+  settings.setValue(QStringLiteral("thumbnailCache/maxEntries"), thumbnail_disk_cache_max_entries_);
+  settings.setValue(QStringLiteral("thumbnailCache/jpegQuality"), thumbnail_disk_cache_jpeg_quality_);
+}
+
+void AlbumBackend::ApplyThumbnailDiskCacheSettingsToService() {
+  auto thumb_svc = project_handler_.thumbnail_service();
+  if (!thumb_svc) return;
+
+  thumb_svc->SetDiskCacheEnabled(thumbnail_disk_cache_enabled_);
+  if (!thumbnail_disk_cache_root_.isEmpty()) {
+    thumb_svc->SetDiskCacheRoot(
+        std::filesystem::path(thumbnail_disk_cache_root_.toStdWString()));
+  }
+  thumb_svc->SetDiskCacheMaxEntries(static_cast<size_t>(thumbnail_disk_cache_max_entries_));
+  thumb_svc->SetDiskCacheJpegQuality(thumbnail_disk_cache_jpeg_quality_);
+}
+
+bool AlbumBackend::ThumbnailDiskCacheEnabled() const {
+  return thumbnail_disk_cache_enabled_;
+}
+
+QString AlbumBackend::ThumbnailDiskCacheRoot() const {
+  auto thumb_svc = project_handler_.thumbnail_service();
+  if (thumb_svc) {
+    const auto root = thumb_svc->GetDiskCacheRoot();
+    if (!root.empty()) {
+      return QString::fromStdWString(root.wstring());
+    }
+  }
+  return thumbnail_disk_cache_root_;
+}
+
+int AlbumBackend::ThumbnailDiskCacheMaxEntries() const {
+  auto thumb_svc = project_handler_.thumbnail_service();
+  if (thumb_svc) {
+    return static_cast<int>(thumb_svc->GetDiskCacheMaxEntries());
+  }
+  return thumbnail_disk_cache_max_entries_;
+}
+
+int AlbumBackend::ThumbnailDiskCacheJpegQuality() const {
+  auto thumb_svc = project_handler_.thumbnail_service();
+  if (thumb_svc) {
+    return thumb_svc->GetDiskCacheJpegQuality();
+  }
+  return thumbnail_disk_cache_jpeg_quality_;
+}
+
+QString AlbumBackend::ThumbnailDiskCacheStats() const {
+  auto thumb_svc = project_handler_.thumbnail_service();
+  if (!thumb_svc) {
+    return QStringLiteral("No thumbnail service.");
+  }
+  const auto stats = thumb_svc->GetDiskCacheStats();
+  return QStringLiteral(
+             "Enabled: %1\n"
+             "Entries: %2\n"
+             "Size: %3\n"
+             "Max entries: %4\n"
+             "Hits: %5 / Misses: %6\n"
+             "Root: %7")
+      .arg(stats.enabled ? QStringLiteral("Yes") : QStringLiteral("No"))
+      .arg(stats.total_entries)
+      .arg(FormatCacheSize(stats.total_size_bytes))
+      .arg(stats.max_entries)
+      .arg(stats.hit_count)
+      .arg(stats.miss_count)
+      .arg(QString::fromStdString(stats.cache_root_path));
+}
+
+void AlbumBackend::SetThumbnailDiskCacheEnabled(bool enabled) {
+  thumbnail_disk_cache_enabled_ = enabled;
+  SaveThumbnailDiskCacheSettings();
+  auto thumb_svc = project_handler_.thumbnail_service();
+  if (thumb_svc) {
+    thumb_svc->SetDiskCacheEnabled(enabled);
+  }
+  emit ThumbnailDiskCacheStateChanged();
+}
+
+void AlbumBackend::SetThumbnailDiskCacheRoot(const QString& rootPath) {
+  const auto root_path_opt = InputToPath(rootPath);
+  const QString normalized_root =
+      root_path_opt.has_value() ? PathToQString(root_path_opt.value().lexically_normal()) : rootPath;
+  thumbnail_disk_cache_root_ = normalized_root;
+  SaveThumbnailDiskCacheSettings();
+  auto thumb_svc = project_handler_.thumbnail_service();
+  if (thumb_svc && !thumbnail_disk_cache_root_.isEmpty()) {
+    thumb_svc->SetDiskCacheRoot(std::filesystem::path(thumbnail_disk_cache_root_.toStdWString()));
+  }
+  emit ThumbnailDiskCacheStateChanged();
+}
+
+void AlbumBackend::SetThumbnailDiskCacheMaxEntries(int maxEntries) {
+  thumbnail_disk_cache_max_entries_ = std::max(1, maxEntries);
+  SaveThumbnailDiskCacheSettings();
+  auto thumb_svc = project_handler_.thumbnail_service();
+  if (thumb_svc) {
+    thumb_svc->SetDiskCacheMaxEntries(static_cast<size_t>(thumbnail_disk_cache_max_entries_));
+  }
+  emit ThumbnailDiskCacheStateChanged();
+}
+
+void AlbumBackend::SetThumbnailDiskCacheJpegQuality(int quality) {
+  thumbnail_disk_cache_jpeg_quality_ = std::clamp(quality, 1, 100);
+  SaveThumbnailDiskCacheSettings();
+  auto thumb_svc = project_handler_.thumbnail_service();
+  if (thumb_svc) {
+    thumb_svc->SetDiskCacheJpegQuality(thumbnail_disk_cache_jpeg_quality_);
+  }
+  emit ThumbnailDiskCacheStateChanged();
+}
+
+void AlbumBackend::ClearAllThumbnailDiskCache() {
+  auto thumb_svc = project_handler_.thumbnail_service();
+  if (thumb_svc) {
+    thumb_svc->ClearAllDiskCache();
+  }
+  emit ThumbnailDiskCacheStateChanged();
+  SetServiceMessageForCurrentProject(PL_TEXT("All thumbnail disk cache cleared."));
+}
+
+void AlbumBackend::ClearProjectThumbnailDiskCache() {
+  auto thumb_svc = project_handler_.thumbnail_service();
+  if (thumb_svc) {
+    thumb_svc->ClearProjectDiskCache();
+  }
+  emit ThumbnailDiskCacheStateChanged();
+  SetServiceMessageForCurrentProject(PL_TEXT("Current project thumbnail disk cache cleared."));
+}
+
+int AlbumBackend::PromptForInt(const QString& title, const QString& label,
+                               int defaultValue, int minValue, int maxValue) {
+  bool accepted = false;
+  int  value    = QInputDialog::getInt(nullptr, title, label, defaultValue, minValue, maxValue, 1,
+                                      &accepted);
+  return accepted ? value : defaultValue;
 }
 
 }  // namespace alcedo::ui
