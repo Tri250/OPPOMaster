@@ -165,15 +165,32 @@ auto MatRgba32fToQImageCopy(const cv::Mat& rgba32fOrU8) -> QImage {
     return {};
   }
 
-  cv::Mat rgba8;
-  if (rgba32fOrU8.type() == CV_32FC4) {
-    rgba32fOrU8.convertTo(rgba8, CV_8UC4, 255.0);
-  } else if (rgba32fOrU8.type() == CV_8UC4) {
-    rgba8 = rgba32fOrU8;
+  cv::Mat src8;
+  if (rgba32fOrU8.depth() == CV_8U) {
+    src8 = rgba32fOrU8;
+  } else if (rgba32fOrU8.depth() == CV_32F) {
+    rgba32fOrU8.convertTo(src8, CV_MAKETYPE(CV_8U, rgba32fOrU8.channels()), 255.0);
   } else {
-    cv::Mat tmp;
-    rgba32fOrU8.convertTo(tmp, CV_8UC4);
-    rgba8 = tmp;
+    rgba32fOrU8.convertTo(src8, CV_MAKETYPE(CV_8U, rgba32fOrU8.channels()));
+  }
+
+  cv::Mat rgba8;
+  switch (src8.channels()) {
+    case 1:
+      cv::cvtColor(src8, rgba8, cv::COLOR_GRAY2RGBA);
+      break;
+    case 3:
+      if (rgba32fOrU8.depth() == CV_32F) {
+        cv::cvtColor(src8, rgba8, cv::COLOR_RGB2RGBA);
+      } else {
+        cv::cvtColor(src8, rgba8, cv::COLOR_BGR2RGBA);
+      }
+      break;
+    case 4:
+      rgba8 = src8;
+      break;
+    default:
+      return {};
   }
 
   if (!rgba8.isContinuous()) {

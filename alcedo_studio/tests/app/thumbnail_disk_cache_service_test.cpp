@@ -131,6 +131,34 @@ TEST_F(ThumbnailDiskCacheServiceTest, WriteAndRead) {
   service2.Shutdown();
 }
 
+TEST_F(ThumbnailDiskCacheServiceTest, Rgba8InputKeepsChannelOrder) {
+  ThumbnailDiskCacheService service(temp_dir_);
+  service.Initialize("rgba8-project");
+
+  cv::Mat original(64, 64, CV_8UC4, cv::Scalar(255, 16, 8, 255));
+  cv::Mat expected_bgr(64, 64, CV_8UC3, cv::Scalar(8, 16, 255));
+  ImageBuffer buffer(std::move(original));
+
+  auto key = MakeTestKey("rgba8-project", 1, ThumbnailResolution::k256, "rgba8_hash");
+  service.EnqueueWrite(key, std::move(buffer));
+
+  ASSERT_TRUE(WaitForEntryCount(service, 1, std::chrono::seconds(2)));
+
+  auto read_buffer = service.Read(key);
+  ASSERT_NE(read_buffer, nullptr);
+  ASSERT_TRUE(read_buffer->cpu_data_valid_);
+
+  const auto& decoded = read_buffer->GetCPUData();
+  ASSERT_EQ(decoded.rows, expected_bgr.rows);
+  ASSERT_EQ(decoded.cols, expected_bgr.cols);
+  ASSERT_EQ(decoded.type(), CV_8UC3);
+
+  double psnr = cv::PSNR(expected_bgr, decoded);
+  EXPECT_GT(psnr, 30.0);
+
+  service.Shutdown();
+}
+
 TEST_F(ThumbnailDiskCacheServiceTest, LookupMissReturnsFalse) {
   ThumbnailDiskCacheService service(temp_dir_);
   service.Initialize("test-project-uuid");

@@ -103,11 +103,7 @@ cv::Mat PrepareForOiioEncoding(const cv::Mat& src) {
   cv::Mat rgb;
   const int channels = src.channels();
   if (channels == 4) {
-    if (src.depth() == CV_32F) {
-      cv::cvtColor(src, rgb, cv::COLOR_RGBA2RGB);
-    } else {
-      cv::cvtColor(src, rgb, cv::COLOR_BGRA2RGB);
-    }
+    cv::cvtColor(src, rgb, cv::COLOR_RGBA2RGB);
   } else if (channels == 3) {
     if (src.depth() == CV_32F) {
       rgb = src;
@@ -130,6 +126,17 @@ cv::Mat PrepareForOiioEncoding(const cv::Mat& src) {
   }
 
   return rgb8.isContinuous() ? rgb8 : rgb8.clone();
+}
+
+cv::Mat PrepareForOpenCvEncoding(const cv::Mat& src) {
+  cv::Mat rgb8 = PrepareForOiioEncoding(src);
+  if (rgb8.empty() || rgb8.type() != CV_8UC3) {
+    return {};
+  }
+
+  cv::Mat bgr8;
+  cv::cvtColor(rgb8, bgr8, cv::COLOR_RGB2BGR);
+  return bgr8.isContinuous() ? bgr8 : bgr8.clone();
 }
 
 bool WriteWithOpenImageIO(const std::filesystem::path& file_path,
@@ -673,8 +680,12 @@ void ThumbnailDiskCacheService::WriterThreadLoop() {
         continue;
       }
       params.clear();
+      cv::Mat bgr8 = PrepareForOpenCvEncoding(mat);
+      if (bgr8.empty()) {
+        continue;
+      }
       try {
-        write_ok = cv::imencode(FormatFileExtension(ThumbnailCacheFormat::kBmp), mat, encoded,
+        write_ok = cv::imencode(FormatFileExtension(ThumbnailCacheFormat::kBmp), bgr8, encoded,
                                 params);
       } catch (const cv::Exception&) {
         write_ok = false;

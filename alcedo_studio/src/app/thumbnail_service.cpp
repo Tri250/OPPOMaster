@@ -65,6 +65,59 @@ auto IsRenderableThumbnailResult(const ImageBuffer& result_buffer) -> bool {
   return result_buffer.buffer_valid_ || result_buffer.cpu_data_valid_ || result_buffer.gpu_data_valid_;
 }
 
+auto ConvertThumbnailMatToRgba8(const cv::Mat& src) -> cv::Mat {
+  if (src.empty()) {
+    return {};
+  }
+
+  const int channels = src.channels();
+  if (channels != 1 && channels != 3 && channels != 4) {
+    return {};
+  }
+
+  cv::Mat src8;
+  if (src.depth() == CV_8U) {
+    src8 = src;
+  } else if (src.depth() == CV_32F) {
+    src.convertTo(src8, CV_MAKETYPE(CV_8U, channels), 255.0);
+  } else {
+    src.convertTo(src8, CV_MAKETYPE(CV_8U, channels));
+  }
+
+  cv::Mat rgba8;
+  switch (channels) {
+    case 1:
+      cv::cvtColor(src8, rgba8, cv::COLOR_GRAY2RGBA);
+      break;
+    case 3:
+      cv::cvtColor(src8, rgba8, src.depth() == CV_32F ? cv::COLOR_RGB2RGBA
+                                                       : cv::COLOR_BGR2RGBA);
+      break;
+    case 4:
+      rgba8 = src8;
+      break;
+    default:
+      return {};
+  }
+
+  return rgba8.isContinuous() ? rgba8 : rgba8.clone();
+}
+
+auto MakeDisplayCacheThumbnailBuffer(ImageBuffer& source) -> std::unique_ptr<ImageBuffer> {
+  if (!source.cpu_data_valid_) {
+    if (!source.gpu_data_valid_) {
+      return nullptr;
+    }
+    source.SyncToCPU();
+  }
+
+  cv::Mat rgba8 = ConvertThumbnailMatToRgba8(source.GetCPUData());
+  if (rgba8.empty() || rgba8.type() != CV_8UC4) {
+    return nullptr;
+  }
+  return std::make_unique<ImageBuffer>(std::move(rgba8));
+}
+
 auto ReadColorTempOperatorParams(const std::shared_ptr<PipelineGuard>& pipeline)
     -> std::optional<nlohmann::json> {
   if (!pipeline || !pipeline->pipeline_) {
@@ -441,6 +494,14 @@ void ThumbnailService::GetThumbnailDetailed(sl_element_id_t id, image_id_t image
 
     std::shared_ptr<ThumbnailGuard>      guard;
     std::vector<State::PendingCallback> callbacks;
+    std::unique_ptr<ImageBuffer>         display_buffer;
+    try {
+      if (IsRenderableThumbnailResult(result_buffer)) {
+        display_buffer = MakeDisplayCacheThumbnailBuffer(result_buffer);
+      }
+    } catch (...) {
+      display_buffer.reset();
+    }
 
     {
       std::unique_lock lock(st->cache_lock_);
@@ -457,10 +518,9 @@ void ThumbnailService::GetThumbnailDetailed(sl_element_id_t id, image_id_t image
         st->pending_.erase(pending_it);
       }
 
-      const bool valid_result = IsRenderableThumbnailResult(result_buffer);
-      if (request_active && valid_result) {
+      if (request_active && display_buffer) {
         guard                   = std::make_shared<ThumbnailGuard>();
-        guard->thumbnail_buffer_ = std::make_unique<ImageBuffer>(std::move(result_buffer));
+        guard->thumbnail_buffer_ = std::move(display_buffer);
         guard->pin_count_        = 1;
 
         auto evicted = st->thumbnail_cache_.RecordAccess_WithEvict(cache_key, cache_key);
@@ -575,6 +635,12 @@ void ThumbnailService::GetThumbnailDetailed(sl_element_id_t id, image_id_t image
             return;
           }
 
+          auto display_buffer = MakeDisplayCacheThumbnailBuffer(*disk_buffer);
+          if (!display_buffer) {
+            schedule_pipeline_render();
+            return;
+          }
+
           std::shared_ptr<ThumbnailGuard>      disk_guard;
           std::vector<State::PendingCallback> callbacks;
           {
@@ -590,7 +656,7 @@ void ThumbnailService::GetThumbnailDetailed(sl_element_id_t id, image_id_t image
             st->pending_.erase(pending_it);
 
             disk_guard = std::make_shared<ThumbnailGuard>();
-            disk_guard->thumbnail_buffer_ = std::move(disk_buffer);
+            disk_guard->thumbnail_buffer_ = std::move(display_buffer);
             disk_guard->pin_count_        = 1;
             auto evicted = st->thumbnail_cache_.RecordAccess_WithEvict(cache_key, cache_key);
             HandleEvict(*st, evicted);

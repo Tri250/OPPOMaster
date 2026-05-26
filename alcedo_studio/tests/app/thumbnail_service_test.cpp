@@ -931,7 +931,7 @@ TEST_F(ThumbnailServiceTests, MetalGeometryPipelineThumbnailStillRenders) {
   ASSERT_TRUE(buffer->cpu_data_valid_);
   const cv::Mat& mat = buffer->GetCPUData();
   ASSERT_FALSE(mat.empty());
-  EXPECT_EQ(mat.type(), CV_32FC4);
+  EXPECT_EQ(mat.type(), CV_8UC4);
   EXPECT_LE(std::max(mat.cols, mat.rows), 1024);
 #endif
 }
@@ -1098,7 +1098,7 @@ TEST_F(ThumbnailServiceTests, DiskCacheHitServesAfterPipelineIsRemoved) {
     ASSERT_TRUE(buffer->cpu_data_valid_);
     const auto& mat = buffer->GetCPUData();
     ASSERT_FALSE(mat.empty());
-    EXPECT_EQ(mat.type(), CV_8UC3);
+    EXPECT_EQ(mat.type(), CV_8UC4);
     EXPECT_NE(HashMatBytes(mat), 0u);
   }
 
