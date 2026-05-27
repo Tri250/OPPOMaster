@@ -69,7 +69,11 @@ fun OMasterApp(
                 DetailScreen(
                     preset = it,
                     onBack = { navController.popBackStack() },
-                    onFavoriteToggle = { viewModel.toggleFavorite(it) }
+                    onFavoriteToggle = { viewModel.toggleFavorite(it) },
+                    onApplyPreset = { appliedPreset ->
+                        // 模拟应用预设的功能
+                        Timber.d("应用预设: ${appliedPreset.name}")
+                    }
                 )
             }
         }

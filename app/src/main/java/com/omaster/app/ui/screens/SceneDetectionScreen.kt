@@ -91,8 +91,9 @@ fun SceneDetectionScreen(
                 onClick = {
                     scope.launch {
                         isDetecting = true
-                        detectedScene = aiService.detectScene(selectedImage)
-                        recommendedPresets = aiService.getRecommendedPresets(detectedScene!!, allPresets)
+                        val scene = aiService.detectScene(selectedImage)
+                        detectedScene = scene
+                        recommendedPresets = aiService.getRecommendedPresets(scene, allPresets)
                         isDetecting = false
                     }
                 },
