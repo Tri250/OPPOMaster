@@ -2,7 +2,6 @@ package com.omaster.app.ui.components
 
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -26,7 +25,9 @@ fun FilterChips(
         FilterType.FAVORITES to "收藏",
         FilterType.HNCS to "HNCS",
         FilterType.FIND_X to "Find X",
-        FilterType.RENO to "Reno"
+        FilterType.RENO to "Reno",
+        FilterType.CUSTOM to "自定义",
+        FilterType.RECENT to "最近使用"
     )
 
     Row(

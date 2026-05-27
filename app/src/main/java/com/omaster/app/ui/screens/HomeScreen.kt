@@ -4,7 +4,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -23,14 +25,18 @@ import com.omaster.app.viewmodel.MainViewModel
 fun HomeScreen(
     onPresetClick: (Preset) -> Unit,
     onSettingsClick: () -> Unit,
+    onCreatePresetClick: () -> Unit,
+    onSceneDetectionClick: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: MainViewModel = hiltViewModel()
 ) {
     val presets by viewModel.presets.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val filterType by viewModel.filterType.collectAsStateWithLifecycle()
+    val selectedTags by viewModel.selectedTags.collectAsStateWithLifecycle()
+    val allTags = viewModel.getAllTags()
 
-    val filteredPresets = remember(presets, searchQuery, filterType) {
+    val filteredPresets = remember(presets, searchQuery, filterType, selectedTags) {
         presets.filter { preset ->
             val matchesQuery = searchQuery.isEmpty() ||
                     preset.name.contains(searchQuery, ignoreCase = true)
@@ -40,8 +46,12 @@ fun HomeScreen(
                 FilterType.HNCS -> preset.cameraParams?.hasselblad_hncs == true
                 FilterType.FIND_X -> preset.deviceModel?.contains("Find X", ignoreCase = true) == true
                 FilterType.RENO -> preset.deviceModel?.contains("Reno", ignoreCase = true) == true
+                FilterType.CUSTOM -> preset.isCustom
+                FilterType.RECENT -> preset.usageCount > 0
             }
-            matchesQuery && matchesFilter
+            val matchesTags = selectedTags.isEmpty() || 
+                    selectedTags.any { tag -> preset.tags.contains(tag) }
+            matchesQuery && matchesFilter && matchesTags
         }
     }
 
@@ -60,6 +70,13 @@ fun HomeScreen(
                     containerColor = MaterialTheme.colorScheme.background
                 ),
                 actions = {
+                    IconButton(onClick = onSceneDetectionClick) {
+                        Icon(
+                            imageVector = Icons.Default.SmartToy,
+                            contentDescription = "场景检测",
+                            tint = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
                     IconButton(onClick = onSettingsClick) {
                         Icon(
                             imageVector = Icons.Default.Settings,
@@ -69,6 +86,14 @@ fun HomeScreen(
                     }
                 }
             )
+        },
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = onCreatePresetClick,
+                containerColor = AccentPrimary
+            ) {
+                Icon(Icons.Default.Add, contentDescription = "创建预设", tint = DeepSpace)
+            }
         }
     ) { paddingValues ->
         LazyColumn(
@@ -91,10 +116,36 @@ fun HomeScreen(
                     onFilterSelected = { viewModel.onFilterTypeChanged(it) }
                 )
             }
+            
+            if (allTags.isNotEmpty()) {
+                item {
+                    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                        Text(
+                            "标签筛选",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            allTags.forEach { tag ->
+                                FilterChip(
+                                    selected = selectedTags.contains(tag),
+                                    onClick = { viewModel.toggleTag(tag) },
+                                    label = { Text(tag) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            
             if (filteredPresets.isEmpty()) {
                 item {
                     EmptyState(
-                        message = if (searchQuery.isNotEmpty() || filterType != FilterType.ALL)
+                        message = if (searchQuery.isNotEmpty() || filterType != FilterType.ALL || selectedTags.isNotEmpty())
                             "没有找到匹配的预设" else "暂无预设",
                         modifier = Modifier.fillParentMaxWidth()
                     )

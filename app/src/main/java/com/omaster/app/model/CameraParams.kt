@@ -1,10 +1,13 @@
 package com.omaster.app.model
 
+import kotlinx.serialization.Serializable
+
 sealed interface ValidationResult {
     object Valid : ValidationResult
     data class Invalid(val errors: List<String>) : ValidationResult
 }
 
+@Serializable
 data class CameraParams(
     val mode: String = "master",
     val filter: String = "",
