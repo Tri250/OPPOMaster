@@ -16,7 +16,11 @@ class PresetTest {
             shutter = "1/250",
             ev = "+0.3",
             wb = "5600K",
-            hasselblad_hncs = true
+            hasselblad_hncs = true,
+            contrast = 1.1f,
+            saturation = 1.0f,
+            vignette = 0.1f,
+            sceneTags = listOf("landscape", "portrait")
         )
 
         val sections = listOf(
@@ -32,7 +36,12 @@ class PresetTest {
             cameraParams = cameraParams,
             deviceModel = "Find X8 Pro",
             source = "omaster_cloud",
-            isFavorite = false
+            isFavorite = false,
+            createdAt = 1234567890L,
+            updatedAt = 1234567890L,
+            usageCount = 100,
+            rating = 4.5f,
+            author = "OPPO"
         )
 
         assertEquals("1", preset.id)
@@ -40,6 +49,9 @@ class PresetTest {
         assertEquals("Find X8 Pro", preset.deviceModel)
         assertEquals("omaster_cloud", preset.source)
         assertFalse(preset.isFavorite)
+        assertEquals(100, preset.usageCount)
+        assertEquals(4.5f, preset.rating)
+        assertEquals("OPPO", preset.author)
     }
 
     @Test
@@ -56,10 +68,16 @@ class PresetTest {
                 shutter = "1/100",
                 ev = "0",
                 wb = "auto",
-                hasselblad_hncs = true
+                hasselblad_hncs = true,
+                contrast = 1.1f,
+                saturation = 1.2f,
+                vignette = 0.1f,
+                sceneTags = listOf("portrait")
             ),
             deviceModel = "",
-            source = ""
+            source = "",
+            rating = 4.5f,
+            author = "TestAuthor"
         )
 
         val presetWithoutHncs = Preset(
@@ -74,13 +92,85 @@ class PresetTest {
                 shutter = "1/100",
                 ev = "0",
                 wb = "auto",
-                hasselblad_hncs = false
+                hasselblad_hncs = false,
+                contrast = 1.0f,
+                saturation = 1.0f,
+                vignette = 0.0f,
+                sceneTags = emptyList()
             ),
             deviceModel = "",
-            source = ""
+            source = "",
+            rating = 0f,
+            author = ""
         )
 
         assertTrue(presetWithHncs.cameraParams?.hasselblad_hncs ?: false)
         assertFalse(presetWithoutHncs.cameraParams?.hasselblad_hncs ?: true)
+        assertEquals(4.5f, presetWithHncs.rating)
+        assertEquals("TestAuthor", presetWithHncs.author)
+    }
+
+    @Test
+    fun `preset scene tags should be correctly parsed`() {
+        val presetWithTags = Preset(
+            id = "3",
+            name = "Landscape Test",
+            coverPath = "landscape",
+            sections = emptyList(),
+            cameraParams = CameraParams(
+                mode = "master",
+                filter = "",
+                iso = 100,
+                shutter = "1/100",
+                ev = "0",
+                wb = "auto",
+                hasselblad_hncs = false,
+                sceneTags = listOf("landscape", "sunset", "golden_hour")
+            ),
+            deviceModel = "Find X8 Pro",
+            source = "omaster_community",
+            rating = 4.8f,
+            author = "Community"
+        )
+
+        assertEquals(3, presetWithTags.cameraParams?.sceneTags?.size)
+        assertTrue(presetWithTags.cameraParams?.sceneTags?.contains("landscape") == true)
+        assertTrue(presetWithTags.cameraParams?.sceneTags?.contains("sunset") == true)
+        assertEquals("omaster_community", presetWithTags.source)
+    }
+
+    @Test
+    fun `preset camera params should have correct defaults`() {
+        val presetWithDefaults = Preset(
+            id = "4",
+            name = "Default Test",
+            coverPath = "default",
+            sections = emptyList(),
+            cameraParams = null,
+            deviceModel = "Test Device",
+            source = "test"
+        )
+
+        assertNull(presetWithDefaults.cameraParams)
+    }
+
+    @Test
+    fun `preset favorite and usage tracking`() {
+        val favoritePreset = Preset(
+            id = "5",
+            name = "Favorite Test",
+            coverPath = "favorite",
+            sections = emptyList(),
+            cameraParams = CameraParams(),
+            deviceModel = "Test",
+            source = "test",
+            isFavorite = true,
+            usageCount = 500,
+            rating = 4.9f
+        )
+
+        assertTrue(favoritePreset.isFavorite)
+        assertEquals(500, favoritePreset.usageCount)
+        assertTrue(favoritePreset.rating > 4.0f)
     }
 }
