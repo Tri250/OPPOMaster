@@ -1,19 +1,31 @@
 package com.omaster.app.ui.screens
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.omaster.app.data.ThemeMode
 import com.omaster.app.ui.theme.*
 import com.omaster.app.viewmodel.MainViewModel
+import android.app.Activity
+import android.content.Intent
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import com.omaster.app.util.PresetExportUtil
 
 @Composable
 fun SettingsScreen(
@@ -21,10 +33,29 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
     viewModel: MainViewModel = hiltViewModel()
 ) {
+    val context = LocalContext.current
     val currentThemeMode by viewModel.themeMode.collectAsStateWithLifecycle()
     val fluidCloudEnabled by viewModel.fluidCloudEnabled.collectAsStateWithLifecycle()
     val overlayEnabled by viewModel.overlayEnabled.collectAsStateWithLifecycle()
+    val presets by viewModel.presets.collectAsStateWithLifecycle()
+    
     var showThemeDialog by remember { mutableStateOf(false) }
+    var showAboutDialog by remember { mutableStateOf(false) }
+    
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            result.data?.data?.let { uri ->
+                val presets = PresetExportUtil.importPresets(context, uri)
+                presets?.forEach { preset ->
+                    androidx.lifecycle.lifecycleScope.launch {
+                        viewModel.importPreset(preset)
+                    }
+                }
+            }
+        }
+    }
 
     Scaffold(
         modifier = modifier,
@@ -56,6 +87,7 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
+                .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -120,6 +152,91 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(24.dp))
 
             Text(
+                text = "数据管理",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                onClick = {
+                    androidx.lifecycle.lifecycleScope.launch {
+                        val intent = PresetExportUtil.exportAllPresets(context, presets)
+                        if (intent != null) {
+                            context.startActivity(Intent.createChooser(intent, "导出所有预设"))
+                        }
+                    }
+                }
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "导出所有预设",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "将所有预设导出为备份文件",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Default.Cloud,
+                        contentDescription = null,
+                        tint = AccentPrimary
+                    )
+                }
+            }
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                onClick = {
+                    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                        type = "application/json"
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                    }
+                    filePickerLauncher.launch(intent)
+                }
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "导入预设",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "从文件导入预设",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Default.FileDownload,
+                        contentDescription = null,
+                        tint = AccentPrimary
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
                 text = "关于",
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -127,7 +244,8 @@ fun SettingsScreen(
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(12.dp),
+                onClick = { showAboutDialog = true }
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp)
@@ -149,6 +267,12 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Made with ❤️ by 带娃的小陈工",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }
@@ -162,6 +286,32 @@ fun SettingsScreen(
                 showThemeDialog = false
             },
             onDismiss = { showThemeDialog = false }
+        )
+    }
+
+    if (showAboutDialog) {
+        AlertDialog(
+            onDismissRequest = { showAboutDialog = false },
+            title = { Text("关于 OMaster") },
+            text = {
+                Column {
+                    Text("OMaster 是一款专业的 OPPO 哈苏影像系统参数管理应用。")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("支持:")
+                    Text("• 专业的摄影预设管理")
+                    Text("• 场景智能推荐")
+                    Text("• 自定义预设创建")
+                    Text("• 云端同步与备份")
+                    Text("• 多种分享方式")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("© 2024 OMaster Team", style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAboutDialog = false }) {
+                    Text("确定")
+                }
+            }
         )
     }
 }

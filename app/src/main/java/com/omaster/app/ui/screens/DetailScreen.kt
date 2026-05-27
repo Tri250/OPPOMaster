@@ -1,5 +1,6 @@
 package com.omaster.app.ui.screens
 
+import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -13,8 +14,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -22,11 +22,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.omaster.app.model.Preset
 import com.omaster.app.ui.theme.*
+import com.omaster.app.util.PresetExportUtil
 import kotlinx.coroutines.launch
 
 @Composable
@@ -39,9 +41,111 @@ fun DetailScreen(
     onApplyPreset: (Preset) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var showShareDialog by remember { mutableStateOf(false) }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("删除预设") },
+            text = { Text("确定要删除此预设吗？此操作无法撤销。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteDialog = false
+                        onDeletePreset()
+                    }
+                ) {
+                    Text("删除", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    if (showShareDialog) {
+        AlertDialog(
+            onDismissRequest = { showShareDialog = false },
+            title = { Text("分享预设") },
+            text = { Text("选择分享方式") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showShareDialog = false
+                        scope.launch {
+                            val intent = PresetExportUtil.exportPreset(context, preset)
+                            if (intent != null) {
+                                context.startActivity(Intent.createChooser(intent, "分享预设"))
+                            }
+                        }
+                    }
+                ) {
+                    Text("分享预设文件")
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(
+                        onClick = {
+                            showShareDialog = false
+                            scope.launch {
+                                val shareText = buildString {
+                                    appendLine("📷 OMaster 摄影预设分享")
+                                    appendLine()
+                                    appendLine("🎨 预设名称: ${preset.name}")
+                                    preset.deviceModel?.takeIf { it.isNotEmpty() }?.let {
+                                        appendLine("📱 适配机型: $it")
+                                    }
+                                    preset.cameraParams?.let { params ->
+                                        appendLine()
+                                        appendLine("⚙️ 相机参数:")
+                                        appendLine("  • ISO: ${params.iso}")
+                                        appendLine("  • 快门: ${params.shutter}")
+                                        appendLine("  • 曝光补偿: ${params.ev}")
+                                        appendLine("  • 白平衡: ${params.wb}")
+                                        if (params.filter.isNotEmpty()) {
+                                            appendLine("  • 滤镜: ${params.filter}")
+                                        }
+                                        if (params.hasselblad_hncs) {
+                                            appendLine("  • HNCS: ✓")
+                                        }
+                                    }
+                                    preset.sections.forEach { section ->
+                                        appendLine()
+                                        appendLine("📝 ${section.title}:")
+                                        appendLine("   ${section.content}")
+                                    }
+                                    appendLine()
+                                    appendLine("——")
+                                    appendLine("来自 OMaster - OPPO 哈苏影像系统级参数中枢")
+                                }
+                                val sendIntent = Intent().apply {
+                                    action = Intent.ACTION_SEND
+                                    putExtra(Intent.EXTRA_TEXT, shareText)
+                                    type = "text/plain"
+                                }
+                                context.startActivity(Intent.createChooser(sendIntent, "分享预设信息"))
+                            }
+                        }
+                    ) {
+                        Text("分享为文本")
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    TextButton(onClick = { showShareDialog = false }) {
+                        Text("取消")
+                    }
+                }
+            }
+        )
+    }
+
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -75,7 +179,7 @@ fun DetailScreen(
                                 tint = MaterialTheme.colorScheme.onBackground
                             )
                         }
-                        IconButton(onClick = onDeletePreset) {
+                        IconButton(onClick = { showDeleteDialog = true }) {
                             Icon(
                                 imageVector = Icons.Default.Delete,
                                 contentDescription = "删除",
@@ -83,7 +187,7 @@ fun DetailScreen(
                             )
                         }
                     }
-                    IconButton(onClick = { /* TODO: 导出/分享 */ }) {
+                    IconButton(onClick = { showShareDialog = true }) {
                         Icon(
                             imageVector = Icons.Default.IosShare,
                             contentDescription = "分享/导出",
