@@ -6,6 +6,8 @@ import com.google.gson.annotations.SerializedName
 import com.omaster.app.model.Preset
 import com.omaster.app.model.Section
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -58,9 +60,14 @@ class CloudPresetService(private val context: Context) {
 
     private val gson = Gson()
 
+    private val cacheMutex = Mutex()
+
     private val cacheDir: File by lazy {
         File(context.cacheDir, "presets").apply { mkdirs() }
     }
+
+    private var cachedPresets: List<Preset>? = null
+    private var lastCacheTime: Long = 0
 
     suspend fun loadOppoPresets(): List<Preset> {
         return loadPresetsFromUrl(OPPO_PRESETS_URL)
@@ -79,35 +86,83 @@ class CloudPresetService(private val context: Context) {
     }
 
     private suspend fun loadPresetsFromUrl(url: String): List<Preset> {
-        return withContext(Dispatchers.IO) {
+        if (!isValidUrl(url)) {
+            Timber.w("Invalid preset URL: $url")
+            return emptyList()
+        }
+
+        return cacheMutex.withLock {
             try {
+                if (cachedPresets != null && System.currentTimeMillis() - lastCacheTime < CACHE_DURATION_MS) {
+                    Timber.d("Returning cached presets")
+                    return@withLock cachedPresets!!
+                }
+
                 val cacheFile = File(cacheDir, url.hashCode().toString())
-                
+
                 if (cacheFile.exists() && isCacheValid(cacheFile)) {
                     Timber.d("Loading presets from cache: $url")
                     val cachedContent = cacheFile.readText()
-                    return@withContext parsePresets(cachedContent)
+                    val presets = parsePresets(cachedContent)
+                    cachedPresets = presets
+                    lastCacheTime = System.currentTimeMillis()
+                    return@withLock presets
                 }
 
                 Timber.d("Loading presets from network: $url")
                 val request = Request.Builder().url(url).build()
-                
+
                 httpClient.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) {
                         Timber.e("Failed to fetch presets: ${response.code}")
-                        return@withContext emptyList()
+                        return@withLock cachedPresets ?: emptyList()
                     }
 
-                    val content = response.body?.string() ?: return@withContext emptyList()
-                    
-                    cacheFile.writeText(content)
-                    return@withContext parsePresets(content)
+                    val content = response.body?.string() ?: return@withLock cachedPresets ?: emptyList()
+
+                    try {
+                        cacheFile.writeText(content)
+                    } catch (e: Exception) {
+                        Timber.w("Failed to write cache file: ${e.message}")
+                    }
+
+                    val presets = parsePresets(content)
+                    cachedPresets = presets
+                    lastCacheTime = System.currentTimeMillis()
+                    return@withLock presets
                 }
             } catch (e: Exception) {
                 Timber.e(e, "Failed to load presets from $url")
-                emptyList()
+                return@withLock cachedPresets ?: emptyList()
             }
         }
+    }
+
+    private fun isValidUrl(url: String): Boolean {
+        if (url.isBlank()) {
+            Timber.w("URL is blank")
+            return false
+        }
+
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            Timber.w("URL does not start with http:// or https://: $url")
+            return false
+        }
+
+        val invalidChars = listOf("<", ">", "\"", "'", " ", "\n", "\r")
+        for (char in invalidChars) {
+            if (url.contains(char)) {
+                Timber.w("URL contains invalid character '$char': $url")
+                return false
+            }
+        }
+
+        if (!url.contains(".")) {
+            Timber.w("URL does not appear to be a valid domain: $url")
+            return false
+        }
+
+        return true
     }
 
     private fun parsePresets(content: String): List<Preset> {
@@ -191,12 +246,23 @@ class CloudPresetService(private val context: Context) {
     }
 
     fun clearCache() {
-        cacheDir.listFiles()?.forEach { it.delete() }
-        Timber.d("Preset cache cleared")
+        cacheMutex.tryLock()?.let {
+            try {
+                cacheDir.listFiles()?.forEach { it.delete() }
+                cachedPresets = null
+                lastCacheTime = 0
+                Timber.d("Preset cache cleared")
+            } finally {
+                cacheMutex.unlock()
+            }
+        }
     }
 
     suspend fun refreshPresets(): List<Preset> {
-        clearCache()
+        cacheMutex.withLock {
+            cachedPresets = null
+            lastCacheTime = 0
+        }
         return loadAllPresets()
     }
 
