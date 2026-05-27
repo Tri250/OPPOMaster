@@ -63,7 +63,8 @@ OMaster/
 │   │       │   │   ├── SceneRecognitionEngine.kt     # AI 场景识别
 │   │       │   │   ├── ColorExtractionEngine.kt      # 色调反向解析
 │   │       │   │   ├── RealtimePreviewRenderer.kt    # GPU 实时预览
-│   │       │   │   └── CameraParameterInjector.kt    # 相机参数注入
+│   │       │   │   ├── CameraParameterInjector.kt    # 相机参数注入
+│   │       │   │   └── CloudPresetService.kt         # 社区预设服务
 │   │       │   ├── ui/
 │   │       │   │   ├── components/       # 可复用 UI 组件
 │   │       │   │   ├── screens/          # 页面组件
@@ -224,23 +225,48 @@ data class CameraParams(
 - ✅ **Room 数据库**: 本地数据持久化
 - ✅ **完整主题系统**: 深色/浅色/跟随系统
 - ✅ **搜索筛选**: 多维度筛选功能
+- ✅ **社区预设同步**: 支持 OPPO/Realme 社区预设库
+
+### 🌐 社区预设支持
+
+OMaster 现已支持从社区预设库自动加载大师预设：
+
+| 预设库 | 来源 | 数量 | 类型 |
+|-------|------|------|------|
+| OPPO 大师预设 | OMaster-Community | 10+ | 德味、富士胶片、理光绿/蓝等 |
+| Realme GR预设 | OMaster-Community | 2+ | 理光正片、理光负片 |
+
+**预设示例**:
+- 德味预设 - 经典德系胶片质感
+- 富士胶片 - 复古胶片风格
+- 理光绿 - 清新自然绿色调
+- 理光蓝 - 通透冷色调
+- 高对比黑白 - 艺术黑白效果
+- 童话 - 梦幻柔光效果
+- 蓝调时刻 - 夜景蓝调风格
+
+**加载机制**:
+- 首次启动自动下载
+- 24小时本地缓存
+- 支持手动刷新
 
 ### 🔧 技术亮点
 - **性能优化**: AI 推理 <100ms，实时预览 60fps
 - **隐私安全**: 端侧 AI 处理，数据不上传云端
 - **降级方案**: 非 ColorOS 16 设备自动降级
 - **模块化设计**: 各功能独立，易于维护和扩展
+- **智能缓存**: 云端预设本地缓存，减少网络请求
 
 ### 📋 集成文档
 - [FLUID_CLOUD_INTEGRATION.md](FLUID_CLOUD_INTEGRATION.md) - 流体云集成指南
 - [ONE_TAP_FLASH_NOTE_INTEGRATION.md](ONE_TAP_FLASH_NOTE_INTEGRATION.md) - 一键闪记集成指南
 
 ### 🚧 下一步开发
-- [ ] 添加云端预设同步功能
 - [ ] 完善视频预设支持
 - [ ] 添加更多 AI 模型
 - [ ] 实现参数导出功能（CSV/JSON）
 - [ ] 添加用户评分和评论系统
+- [ ] 支持自定义预设上传分享
 
 ## 📄 许可证
 
@@ -254,6 +280,7 @@ data class CameraParams(
 - OMaster 社区贡献者
 - MediaPipe / TensorFlow Lite 团队
 - OpenCV 社区
+- OMaster-Community 预设库
 
 ---
 

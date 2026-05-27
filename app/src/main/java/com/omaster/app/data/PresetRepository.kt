@@ -1,10 +1,12 @@
 package com.omaster.app.data
 
+import android.content.Context
 import com.omaster.app.model.CameraParams
 import com.omaster.app.model.Preset
 import com.omaster.app.model.Section
 import com.omaster.app.model.entities.PresetEntity
 import com.omaster.app.network.PresetApi
+import com.omaster.app.service.CloudPresetService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -17,8 +19,11 @@ import javax.inject.Singleton
 class PresetRepository @Inject constructor(
     private val preferencesDataStore: PreferencesDataStore,
     private val presetApi: PresetApi,
-    private val presetDao: PresetDao
+    private val presetDao: PresetDao,
+    private val context: Context
 ) {
+    private val cloudPresetService by lazy { CloudPresetService(context) }
+    
     private val samplePresets = listOf(
         Preset(
             id = "1",
@@ -199,20 +204,7 @@ class PresetRepository @Inject constructor(
     val presets: Flow<List<Preset>> = presetDao.getAllPresets()
         .map { entities ->
             entities.map { entity ->
-                Preset(
-                    id = entity.id,
-                    name = entity.name,
-                    coverPath = entity.coverPath,
-                    cameraParams = entity.cameraParams,
-                    deviceModel = entity.deviceModel,
-                    source = entity.source,
-                    isFavorite = entity.isFavorite,
-                    createdAt = entity.createdAt,
-                    updatedAt = entity.updatedAt,
-                    usageCount = entity.usageCount,
-                    rating = entity.rating,
-                    author = entity.author
-                )
+                entity.toPreset()
             }.ifEmpty {
                 samplePresets
             }
@@ -220,22 +212,7 @@ class PresetRepository @Inject constructor(
 
     val favoritePresets: Flow<List<Preset>> = presetDao.getFavoritePresets()
         .map { entities ->
-            entities.map { entity ->
-                Preset(
-                    id = entity.id,
-                    name = entity.name,
-                    coverPath = entity.coverPath,
-                    cameraParams = entity.cameraParams,
-                    deviceModel = entity.deviceModel,
-                    source = entity.source,
-                    isFavorite = entity.isFavorite,
-                    createdAt = entity.createdAt,
-                    updatedAt = entity.updatedAt,
-                    usageCount = entity.usageCount,
-                    rating = entity.rating,
-                    author = entity.author
-                )
-            }
+            entities.map { it.toPreset() }
         }
 
     suspend fun initializeDatabase() = withContext(Dispatchers.IO) {
@@ -262,20 +239,7 @@ class PresetRepository @Inject constructor(
     suspend fun getPresetById(id: String): Preset? = withContext(Dispatchers.IO) {
         val entity = presetDao.getPresetById(id)
         if (entity != null) {
-            Preset(
-                id = entity.id,
-                name = entity.name,
-                coverPath = entity.coverPath,
-                cameraParams = entity.cameraParams,
-                deviceModel = entity.deviceModel,
-                source = entity.source,
-                isFavorite = entity.isFavorite,
-                createdAt = entity.createdAt,
-                updatedAt = entity.updatedAt,
-                usageCount = entity.usageCount,
-                rating = entity.rating,
-                author = entity.author
-            )
+            entity.toPreset()
         } else {
             samplePresets.find { it.id == id }
         }
@@ -305,7 +269,77 @@ class PresetRepository @Inject constructor(
         }
     }
 
+    suspend fun loadCommunityPresets(): List<Preset> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val presets = cloudPresetService.loadAllPresets()
+                Timber.d("成功加载 ${presets.size} 个社区预设")
+                presets.forEach { preset ->
+                    val existing = presetDao.getPresetById(preset.id)
+                    if (existing == null) {
+                        presetDao.insertPreset(preset.toEntity())
+                    }
+                }
+                presets
+            } catch (e: Exception) {
+                Timber.e(e, "加载社区预设失败")
+                emptyList()
+            }
+        }
+    }
+
+    suspend fun loadOppoCommunityPresets(): List<Preset> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val presets = cloudPresetService.loadOppoPresets()
+                Timber.d("成功加载 ${presets.size} 个OPPO社区预设")
+                presets
+            } catch (e: Exception) {
+                Timber.e(e, "加载OPPO社区预设失败")
+                emptyList()
+            }
+        }
+    }
+
+    suspend fun loadRealmeCommunityPresets(): List<Preset> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val presets = cloudPresetService.loadRealmePresets()
+                Timber.d("成功加载 ${presets.size} 个Realme社区预设")
+                presets
+            } catch (e: Exception) {
+                Timber.e(e, "加载Realme社区预设失败")
+                emptyList()
+            }
+        }
+    }
+
+    suspend fun refreshCommunityPresets(): List<Preset> {
+        return withContext(Dispatchers.IO) {
+            cloudPresetService.refreshPresets()
+        }
+    }
+
+    fun clearCommunityCache() {
+        cloudPresetService.clearCache()
+    }
+
     private fun Preset.toEntity(): PresetEntity = PresetEntity(
+        id = id,
+        name = name,
+        coverPath = coverPath,
+        cameraParams = cameraParams,
+        deviceModel = deviceModel,
+        source = source,
+        isFavorite = isFavorite,
+        createdAt = createdAt,
+        updatedAt = updatedAt,
+        usageCount = usageCount,
+        rating = rating,
+        author = author
+    )
+
+    private fun PresetEntity.toPreset(): Preset = Preset(
         id = id,
         name = name,
         coverPath = coverPath,
