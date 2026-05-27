@@ -50,18 +50,44 @@ export const SCENE_TYPES: SceneType[] = [
 const OPPO_PRESETS_URL = 'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/oppo.json';
 const REALME_PRESETS_URL = 'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/realme.json';
 
+// 预设主题对应的图片关键词
+const presetThemeImages: Record<string, string> = {
+  '德味预设': 'architecture',
+  '富士胶片': 'film,portrait',
+  '胶片感': 'vintage,portrait',
+  '童话': 'fantasy,fairytale',
+  '高对比黑白': 'monochrome,street',
+  '理光绿': 'nature,forest',
+  '理光蓝': 'sky,ocean',
+  '蓝调时刻': 'night,bluehour,city',
+  '梦幻黑柔': 'portrait,dreamy',
+  '富士NC': 'film,portrait',
+  '哈苏红': 'portrait,red',
+  '徕卡M10': 'street,documentary',
+  '哈苏自然色彩': 'landscape,nature',
+  '哈苏蓝调': 'landscape,blue',
+  '复古胶片': 'vintage,film',
+  '理光正片': 'street,vibrant',
+  '理光负片': 'street,negative',
+};
+
 // 处理封面路径
-const getFullCoverPath = (path: string, source: 'oppo' | 'realme'): string => {
-  console.log(`[Preset] Processing cover path: ${path} for source: ${source}`);
+const getFullCoverPath = (path: string, presetName: string, source: 'oppo' | 'realme'): string => {
+  console.log(`[Preset] Processing cover path: ${path} for: ${presetName}`);
   
+  // 直接URL的情况
   if (path.startsWith('http')) {
-    console.log(`[Preset] Using direct URL: ${path}`);
     return path;
   }
   
-  const fullPath = `https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/${path}`;
-  console.log(`[Preset] Converted to: ${fullPath}`);
-  return fullPath;
+  // 获取主题关键词
+  const themeKeyword = presetThemeImages[presetName] || 'nature,landscape';
+  
+  // 使用专门的相机预设图片服务
+  const imageUrl = `https://loremflickr.com/600/400/${encodeURIComponent(themeKeyword)}?lock=${encodeURIComponent(presetName)}`;
+  
+  console.log(`[Preset] Generated image URL: ${imageUrl}`);
+  return imageUrl;
 };
 
 // 转换云端预设到应用预设
@@ -94,10 +120,20 @@ const convertCloudPresetToPreset = (cloudPreset: CloudPreset, index: number, sou
     return value === '开' ? 0.2 : 0;
   };
 
+  // 确定机型显示
+  const getDeviceModel = () => {
+    if (source === 'oppo') {
+      return 'OPPO Find X 系列';
+    } else if (source === 'realme') {
+      return 'Realme GT 系列';
+    }
+    return '通用';
+  };
+
   const preset = {
     id: `${source}-${cloudPreset.name.replace(/\s+/g, '-')}-${index}`,
     name: cloudPreset.name,
-    coverPath: getFullCoverPath(cloudPreset.coverPath, source),
+    coverPath: getFullCoverPath(cloudPreset.coverPath, cloudPreset.name, source),
     sections: sections,
     cameraParams: {
       mode: 'master',
@@ -114,7 +150,7 @@ const convertCloudPresetToPreset = (cloudPreset: CloudPreset, index: number, sou
       videoLut: '',
       sceneTags: cloudPreset.tags
     },
-    deviceModel: source === 'oppo' ? 'OPPO Find X' : 'Realme GR',
+    deviceModel: getDeviceModel(),
     source: source,
     isFavorite: false,
     createdAt: Date.now(),
@@ -173,7 +209,7 @@ export const samplePresets: Preset[] = [
   {
     id: 'sample-1',
     name: '德味预设',
-    coverPath: 'https://cdn.fky.ltd/dw_01.webp',
+    coverPath: 'https://loremflickr.com/600/400/architecture,street?lock=德味预设',
     sections: [
       { title: '色彩调校', content: 'filter: 明艳 100%\nsoft_light: 无\ntone_curve: -35\nsaturation: 0\nwarm_cool: -5\ncyan_magenta: 4\nsharpness: 10\nvignette: 开' }
     ],
@@ -192,7 +228,7 @@ export const samplePresets: Preset[] = [
       videoLut: '',
       sceneTags: ['Auto']
     },
-    deviceModel: 'OPPO Find X',
+    deviceModel: 'OPPO Find X 系列',
     source: 'oppo',
     isFavorite: false,
     createdAt: Date.now(),
