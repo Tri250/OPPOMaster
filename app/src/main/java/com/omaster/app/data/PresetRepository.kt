@@ -3,9 +3,12 @@ package com.omaster.app.data
 import com.omaster.app.model.CameraParams
 import com.omaster.app.model.Preset
 import com.omaster.app.model.Section
+import com.omaster.app.model.entities.PresetEntity
 import com.omaster.app.network.PresetApi
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -13,7 +16,8 @@ import javax.inject.Singleton
 @Singleton
 class PresetRepository @Inject constructor(
     private val preferencesDataStore: PreferencesDataStore,
-    private val presetApi: PresetApi
+    private val presetApi: PresetApi,
+    private val presetDao: PresetDao
 ) {
     private val samplePresets = listOf(
         Preset(
@@ -31,10 +35,19 @@ class PresetRepository @Inject constructor(
                 shutter = "1/250",
                 ev = "+0.3",
                 wb = "5600K",
-                hasselblad_hncs = true
+                hasselblad_hncs = true,
+                contrast = 1.1f,
+                saturation = 1.0f,
+                vignette = 0.1f,
+                sceneTags = listOf("landscape", "portrait")
             ),
             deviceModel = "Find X8 Pro",
-            source = "omaster_cloud"
+            source = "omaster_cloud",
+            createdAt = System.currentTimeMillis(),
+            updatedAt = System.currentTimeMillis(),
+            usageCount = 0,
+            rating = 4.5f,
+            author = "OPPO"
         ),
         Preset(
             id = "2",
@@ -51,10 +64,19 @@ class PresetRepository @Inject constructor(
                 shutter = "1/30",
                 ev = "-0.7",
                 wb = "4200K",
-                hasselblad_hncs = false
+                hasselblad_hncs = false,
+                contrast = 1.3f,
+                saturation = 1.2f,
+                vignette = 0.3f,
+                sceneTags = listOf("night", "city")
             ),
             deviceModel = "Find X8 Ultra",
-            source = "omaster_cloud"
+            source = "omaster_cloud",
+            createdAt = System.currentTimeMillis(),
+            updatedAt = System.currentTimeMillis(),
+            usageCount = 0,
+            rating = 4.8f,
+            author = "OPPO"
         ),
         Preset(
             id = "3",
@@ -71,10 +93,19 @@ class PresetRepository @Inject constructor(
                 shutter = "1/500",
                 ev = "0",
                 wb = "5200K",
-                hasselblad_hncs = true
+                hasselblad_hncs = true,
+                contrast = 1.0f,
+                saturation = 1.1f,
+                vignette = 0.0f,
+                sceneTags = listOf("landscape", "nature")
             ),
             deviceModel = "Reno 12 Pro",
-            source = "omaster_cloud"
+            source = "omaster_cloud",
+            createdAt = System.currentTimeMillis(),
+            updatedAt = System.currentTimeMillis(),
+            usageCount = 0,
+            rating = 4.3f,
+            author = "OPPO"
         ),
         Preset(
             id = "4",
@@ -91,10 +122,19 @@ class PresetRepository @Inject constructor(
                 shutter = "1/200",
                 ev = "+0.7",
                 wb = "6000K",
-                hasselblad_hncs = true
+                hasselblad_hncs = true,
+                contrast = 1.2f,
+                saturation = 1.3f,
+                vignette = 0.2f,
+                sceneTags = listOf("sunset", "landscape")
             ),
             deviceModel = "Find X7 Ultra",
-            source = "omaster_cloud"
+            source = "omaster_cloud",
+            createdAt = System.currentTimeMillis(),
+            updatedAt = System.currentTimeMillis(),
+            usageCount = 0,
+            rating = 4.9f,
+            author = "OPPO"
         ),
         Preset(
             id = "5",
@@ -111,10 +151,19 @@ class PresetRepository @Inject constructor(
                 shutter = "1/1000",
                 ev = "0",
                 wb = "自动",
-                hasselblad_hncs = false
+                hasselblad_hncs = false,
+                contrast = 1.4f,
+                saturation = 0.0f,
+                vignette = 0.4f,
+                sceneTags = listOf("street", "blackwhite")
             ),
             deviceModel = "Find X8",
-            source = "omaster_cloud"
+            source = "omaster_cloud",
+            createdAt = System.currentTimeMillis(),
+            updatedAt = System.currentTimeMillis(),
+            usageCount = 0,
+            rating = 4.6f,
+            author = "OPPO"
         ),
         Preset(
             id = "6",
@@ -131,26 +180,113 @@ class PresetRepository @Inject constructor(
                 shutter = "1/320",
                 ev = "+0.3",
                 wb = "5800K",
-                hasselblad_hncs = true
+                hasselblad_hncs = true,
+                contrast = 0.9f,
+                saturation = 1.2f,
+                vignette = 0.15f,
+                sceneTags = listOf("portrait", "flower")
             ),
             deviceModel = "Reno 12",
-            source = "omaster_cloud"
+            source = "omaster_cloud",
+            createdAt = System.currentTimeMillis(),
+            updatedAt = System.currentTimeMillis(),
+            usageCount = 0,
+            rating = 4.7f,
+            author = "OPPO"
         )
     )
 
-    val presets: Flow<List<Preset>> = preferencesDataStore.favoritePresets
-        .map { favoriteIds ->
-            samplePresets.map { preset ->
-                preset.copy(isFavorite = favoriteIds.contains(preset.id))
+    val presets: Flow<List<Preset>> = presetDao.getAllPresets()
+        .map { entities ->
+            entities.map { entity ->
+                Preset(
+                    id = entity.id,
+                    name = entity.name,
+                    coverPath = entity.coverPath,
+                    cameraParams = entity.cameraParams,
+                    deviceModel = entity.deviceModel,
+                    source = entity.source,
+                    isFavorite = entity.isFavorite,
+                    createdAt = entity.createdAt,
+                    updatedAt = entity.updatedAt,
+                    usageCount = entity.usageCount,
+                    rating = entity.rating,
+                    author = entity.author
+                )
+            }.ifEmpty {
+                samplePresets
             }
         }
 
-    suspend fun toggleFavorite(presetId: String) {
-        preferencesDataStore.toggleFavorite(presetId)
+    val favoritePresets: Flow<List<Preset>> = presetDao.getFavoritePresets()
+        .map { entities ->
+            entities.map { entity ->
+                Preset(
+                    id = entity.id,
+                    name = entity.name,
+                    coverPath = entity.coverPath,
+                    cameraParams = entity.cameraParams,
+                    deviceModel = entity.deviceModel,
+                    source = entity.source,
+                    isFavorite = entity.isFavorite,
+                    createdAt = entity.createdAt,
+                    updatedAt = entity.updatedAt,
+                    usageCount = entity.usageCount,
+                    rating = entity.rating,
+                    author = entity.author
+                )
+            }
+        }
+
+    suspend fun initializeDatabase() = withContext(Dispatchers.IO) {
+        samplePresets.forEach { preset ->
+            val existing = presetDao.getPresetById(preset.id)
+            if (existing == null) {
+                presetDao.insertPreset(preset.toEntity())
+            }
+        }
     }
 
-    fun getPresetById(id: String): Preset? {
-        return samplePresets.find { it.id == id }
+    suspend fun toggleFavorite(presetId: String) = withContext(Dispatchers.IO) {
+        val preset = presetDao.getPresetById(presetId) ?: return@withContext
+        presetDao.updatePreset(
+            preset.copy(
+                isFavorite = !preset.isFavorite,
+                updatedAt = System.currentTimeMillis()
+            )
+        )
+    }
+
+    fun getAllPresets(): List<Preset> = samplePresets
+
+    suspend fun getPresetById(id: String): Preset? = withContext(Dispatchers.IO) {
+        val entity = presetDao.getPresetById(id)
+        if (entity != null) {
+            Preset(
+                id = entity.id,
+                name = entity.name,
+                coverPath = entity.coverPath,
+                cameraParams = entity.cameraParams,
+                deviceModel = entity.deviceModel,
+                source = entity.source,
+                isFavorite = entity.isFavorite,
+                createdAt = entity.createdAt,
+                updatedAt = entity.updatedAt,
+                usageCount = entity.usageCount,
+                rating = entity.rating,
+                author = entity.author
+            )
+        } else {
+            samplePresets.find { it.id == id }
+        }
+    }
+
+    suspend fun incrementUsageCount(presetId: String) = withContext(Dispatchers.IO) {
+        presetDao.incrementUsageCount(presetId)
+    }
+
+    suspend fun insertPreset(preset: Preset) = withContext(Dispatchers.IO) {
+        presetDao.insertPreset(preset.toEntity())
     }
 
     suspend fun fetchPresetsFromNetwork(): List<Preset>? {
@@ -168,4 +304,19 @@ class PresetRepository @Inject constructor(
             null
         }
     }
+
+    private fun Preset.toEntity(): PresetEntity = PresetEntity(
+        id = id,
+        name = name,
+        coverPath = coverPath,
+        cameraParams = cameraParams,
+        deviceModel = deviceModel,
+        source = source,
+        isFavorite = isFavorite,
+        createdAt = createdAt,
+        updatedAt = updatedAt,
+        usageCount = usageCount,
+        rating = rating,
+        author = author
+    )
 }
