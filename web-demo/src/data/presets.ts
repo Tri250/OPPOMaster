@@ -1,241 +1,132 @@
-import type { Preset, SceneType } from '../types';
+import type { Preset, CloudPreset, CloudPresetResponse } from '../types';
 
-export const PRESETS: Preset[] = [
-  {
-    id: '1',
-    name: '哈苏 X2D | 慵懒午后的佛罗伦萨',
-    coverPath: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=800&q=80',
-    sections: [
-      { title: '光感设置', content: '降低对比度，提高高光保留' },
-      { title: '色彩调校', content: '暖色调偏移，饱和度适中' },
-    ],
+// 官方预设 URLs
+const OPPO_PRESETS_URL = 'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/oppo.json';
+const REALME_PRESETS_URL = 'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/realme.json';
+
+// 处理封面路径
+const getFullCoverPath = (path: string): string => {
+  if (path.startsWith('http')) return path;
+  if (path.startsWith('images/')) {
+    return `https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/${path}`;
+  }
+  return path;
+};
+
+// 转换云端预设到应用预设
+const convertCloudPresetToPreset = (cloudPreset: CloudPreset, index: number, source: string): Preset => {
+  const sections = cloudPreset.sections.map((section) => ({
+    title: section.title.replace('@string/', ''),
+    content: section.items
+      .map((item) => `${item.label.replace('@string/param_', '')}: ${item.value}`)
+      .join('\n')
+  }));
+
+  // 从 sections 中提取参数
+  const paramMap: Record<string, string> = {};
+  cloudPreset.sections.forEach((section) => {
+    section.items.forEach((item) => {
+      const label = item.label.replace('@string/param_', '');
+      paramMap[label] = item.value;
+    });
+  });
+
+  const parseNumber = (value: string | undefined, defaultValue: number): number => {
+    if (!value) return defaultValue;
+    const num = parseFloat(value.replace('+', '').replace('%', ''));
+    return isNaN(num) ? defaultValue : num;
+  };
+
+  const parseVignette = (value: string): number => {
+    return value === '开' ? 0.2 : 0;
+  };
+
+  return {
+    id: `${source}-${cloudPreset.name.replace(/\s+/g, '-')}-${index}`,
+    name: cloudPreset.name,
+    coverPath: getFullCoverPath(cloudPreset.coverPath),
+    sections: sections,
     cameraParams: {
       mode: 'master',
-      filter: '复古',
-      iso: 200,
-      shutter: '1/250',
-      ev: '+0.3',
-      wb: '5600K',
-      hasselblad_hncs: true,
-      contrast: 1.1,
-      saturation: 1.0,
-      sharpness: 1.0,
-      vignette: 0.1,
-      videoLut: '',
-      sceneTags: ['landscape', 'portrait'],
-    },
-    deviceModel: 'Find X8 Pro',
-    source: 'omaster_cloud',
-    isFavorite: false,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    usageCount: 1245,
-    rating: 4.8,
-    author: 'OPPO',
-  },
-  {
-    id: '2',
-    name: '京都夜色 | 霓虹光斑',
-    coverPath: 'https://images.unsplash.com/photo-1493246507139-91e8fad9978e?w=800&q=80',
-    sections: [
-      { title: '夜景优化', content: '高ISO降噪，长曝光' },
-      { title: '色彩强化', content: '霓虹色饱和度提升' },
-    ],
-    cameraParams: {
-      mode: 'master',
-      filter: '夜景',
-      iso: 800,
-      shutter: '1/30',
-      ev: '-0.7',
-      wb: '4200K',
+      filter: paramMap['filter'] || paramMap['soft_light'] || '',
+      iso: 100,
+      shutter: '1/125',
+      ev: paramMap['tone_curve'] || '0',
+      wb: '5500K',
       hasselblad_hncs: false,
-      contrast: 1.3,
-      saturation: 1.2,
-      sharpness: 1.1,
-      vignette: 0.3,
+      contrast: parseNumber(paramMap['tone_curve'], 1.0),
+      saturation: parseNumber(paramMap['saturation'], 1.0),
+      sharpness: parseNumber(paramMap['sharpness'], 1.0),
+      vignette: parseVignette(paramMap['vignette'] || '关'),
       videoLut: '',
-      sceneTags: ['night', 'city'],
+      sceneTags: cloudPreset.tags
     },
-    deviceModel: 'Find X8 Ultra',
-    source: 'omaster_cloud',
-    isFavorite: true,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    usageCount: 2560,
-    rating: 4.9,
-    author: 'OPPO',
-  },
-  {
-    id: '3',
-    name: '北欧森林 | 自然清新',
-    coverPath: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=800&q=80',
-    sections: [
-      { title: '绿色优化', content: '树叶色彩还原' },
-      { title: '动态范围', content: '高对比度保留细节' },
-    ],
-    cameraParams: {
-      mode: 'master',
-      filter: '自然',
-      iso: 100,
-      shutter: '1/500',
-      ev: '0',
-      wb: '5200K',
-      hasselblad_hncs: true,
-      contrast: 1.0,
-      saturation: 1.1,
-      sharpness: 1.0,
-      vignette: 0.0,
-      videoLut: '',
-      sceneTags: ['landscape', 'nature'],
-    },
-    deviceModel: 'Reno 12 Pro',
-    source: 'omaster_cloud',
+    deviceModel: source === 'oppo' ? 'OPPO Find X' : 'Realme GR',
+    source: source,
     isFavorite: false,
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    usageCount: 980,
-    rating: 4.6,
-    author: 'OPPO',
-  },
+    usageCount: 0,
+    rating: 4.5,
+    author: cloudPreset.author,
+    description: cloudPreset.description?.content
+  };
+};
+
+// 加载官方预设数据
+export const loadCloudPresets = async (): Promise<Preset[]> => {
+  try {
+    const [oppoResponse, realmeResponse] = await Promise.all([
+      fetch(OPPO_PRESETS_URL),
+      fetch(REALME_PRESETS_URL)
+    ]);
+
+    const oppoData: CloudPresetResponse = await oppoResponse.json();
+    const realmeData: CloudPresetResponse = await realmeResponse.json();
+
+    const oppoPresets = oppoData.presets.map((preset, index) =>
+      convertCloudPresetToPreset(preset, index, 'oppo'));
+    const realmePresets = realmeData.presets.map((preset, index) =>
+      convertCloudPresetToPreset(preset, index, 'realme'));
+
+    return [...oppoPresets, ...realmePresets];
+  } catch (error) {
+    console.error('Failed to load cloud presets:', error);
+    return [];
+  }
+};
+
+// 示例预设数据（备用）
+export const samplePresets: Preset[] = [
   {
-    id: '4',
-    name: '海边日落 | 温暖橙调',
-    coverPath: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800&q=80',
+    id: 'sample-1',
+    name: '德味预设',
+    coverPath: 'https://cdn.fky.ltd/dw_01.webp',
     sections: [
-      { title: '金色时刻', content: '暖色调强化' },
-      { title: '天空细节', content: '渐变层次保留' },
+      { title: '色彩调校', content: 'filter: 明艳 100%\nsoft_light: 无\ntone_curve: -35\nsaturation: 0\nwarm_cool: -5\ncyan_magenta: 4\nsharpness: 10\nvignette: 开' }
     ],
     cameraParams: {
       mode: 'master',
-      filter: '暖调',
+      filter: '明艳 100%',
       iso: 100,
-      shutter: '1/200',
-      ev: '+0.7',
-      wb: '6000K',
-      hasselblad_hncs: true,
-      contrast: 1.2,
-      saturation: 1.3,
-      sharpness: 1.0,
+      shutter: '1/125',
+      ev: '-35',
+      wb: '5500K',
+      hasselblad_hncs: false,
+      contrast: 0.65,
+      saturation: 1.0,
+      sharpness: 1.1,
       vignette: 0.2,
       videoLut: '',
-      sceneTags: ['sunset', 'landscape'],
+      sceneTags: ['Auto']
     },
-    deviceModel: 'Find X7 Ultra',
-    source: 'omaster_cloud',
+    deviceModel: 'OPPO Find X',
+    source: 'oppo',
     isFavorite: false,
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    usageCount: 3200,
-    rating: 4.9,
-    author: 'OPPO',
-  },
-  {
-    id: '5',
-    name: '城市街头 | 黑白纪实',
-    coverPath: 'https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=800&q=80',
-    sections: [
-      { title: '黑白模式', content: '高对比度黑白' },
-      { title: '颗粒感', content: '胶片颗粒模拟' },
-    ],
-    cameraParams: {
-      mode: 'master',
-      filter: '黑白',
-      iso: 400,
-      shutter: '1/1000',
-      ev: '0',
-      wb: '自动',
-      hasselblad_hncs: false,
-      contrast: 1.4,
-      saturation: 0.0,
-      sharpness: 1.2,
-      vignette: 0.4,
-      videoLut: '',
-      sceneTags: ['street', 'blackwhite'],
-    },
-    deviceModel: 'Find X8',
-    source: 'omaster_cloud',
-    isFavorite: false,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    usageCount: 1870,
-    rating: 4.7,
-    author: 'OPPO',
-  },
-  {
-    id: '6',
-    name: '春日樱花 | 粉调柔焦',
-    coverPath: 'https://images.unsplash.com/photo-1518837695005-2083093ee35b?w=800&q=80',
-    sections: [
-      { title: '粉色优化', content: '樱花色彩还原' },
-      { title: '柔焦效果', content: '轻微虚化处理' },
-    ],
-    cameraParams: {
-      mode: 'master',
-      filter: '人像',
-      iso: 200,
-      shutter: '1/320',
-      ev: '+0.3',
-      wb: '5800K',
-      hasselblad_hncs: true,
-      contrast: 0.9,
-      saturation: 1.2,
-      sharpness: 0.9,
-      vignette: 0.15,
-      videoLut: '',
-      sceneTags: ['portrait', 'flower'],
-    },
-    deviceModel: 'Reno 12',
-    source: 'omaster_cloud',
-    isFavorite: true,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    usageCount: 2100,
-    rating: 4.8,
-    author: 'OPPO',
-  },
-];
-
-export const SCENE_TYPES: SceneType[] = [
-  {
-    id: 'portrait',
-    name: '人像模式',
-    icon: 'User',
-    description: '优化肤色和背景虚化，适合人物拍摄',
-    color: 'from-pink-500 to-rose-500',
-  },
-  {
-    id: 'landscape',
-    name: '风景模式',
-    icon: 'Mountain',
-    description: '增强色彩和清晰度，捕捉广阔视野',
-    color: 'from-blue-500 to-cyan-500',
-  },
-  {
-    id: 'food',
-    name: '美食模式',
-    icon: 'Utensils',
-    description: '提升饱和度和暖色调，让美食更诱人',
-    color: 'from-orange-500 to-amber-500',
-  },
-  {
-    id: 'night',
-    name: '夜景模式',
-    icon: 'Moon',
-    description: '降噪处理，保留暗部细节和色彩',
-    color: 'from-purple-500 to-indigo-500',
-  },
-  {
-    id: 'street',
-    name: '街拍模式',
-    icon: 'Camera',
-    description: '快速捕捉瞬间，高对比度和锐利度',
-    color: 'from-gray-600 to-gray-800',
-  },
-  {
-    id: 'macro',
-    name: '微距模式',
-    icon: 'ZoomIn',
-    description: '细节放大，突出纹理和质感',
-    color: 'from-emerald-500 to-green-600',
-  },
+    usageCount: 0,
+    rating: 4.5,
+    author: '@波子Booz'
+  }
 ];

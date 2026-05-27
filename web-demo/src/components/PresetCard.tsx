@@ -19,6 +19,20 @@ interface PresetCardProps {
 const PresetCard: React.FC<PresetCardProps> = ({ preset, index }) => {
   const toggleFavorite = usePresetStore((state) => state.toggleFavorite);
 
+  // 获取来源标签
+  const getSourceLabel = () => {
+    if (preset.source === 'oppo') return 'OPPO';
+    if (preset.source === 'realme') return 'Realme';
+    return preset.source;
+  };
+
+  // 获取来源标签颜色
+  const getSourceColor = () => {
+    if (preset.source === 'oppo') return 'from-green-500 to-emerald-600';
+    if (preset.source === 'realme') return 'from-orange-500 to-red-600';
+    return 'from-blue-500 to-purple-600';
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -33,8 +47,24 @@ const PresetCard: React.FC<PresetCardProps> = ({ preset, index }) => {
             src={preset.coverPath}
             alt={preset.name}
             className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+            loading="lazy"
+            onError={(e) => {
+              const target = e.target as HTMLImageElement;
+              target.src = `https://picsum.photos/seed/${preset.id}/600/400`;
+            }}
           />
           <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+          
+          {/* 来源标签 */}
+          <div className="absolute top-4 left-4">
+            <span className={cn(
+              'px-3 py-1.5 rounded-xl text-xs font-bold text-white shadow-lg',
+              'bg-gradient-to-r',
+              getSourceColor()
+            )}>
+              {getSourceLabel()}
+            </span>
+          </div>
           
           <button
             onClick={(e) => {

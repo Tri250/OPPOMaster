@@ -1,14 +1,34 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Zap, Camera, Palette, Star, Users, Download } from 'lucide-react';
+import { Zap, Camera, Palette, Star, Users, Download, RefreshCw, Loader2 } from 'lucide-react';
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
 import PresetCard from '../components/PresetCard';
 import { usePresetStore } from '../store/usePresetStore';
 
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+
 const Home = () => {
-  const { presets } = usePresetStore();
+  const { presets, isLoading, error, loadPresets } = usePresetStore();
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  useEffect(() => {
+    loadPresets();
+  }, [loadPresets]);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await loadPresets();
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   const stats = [
-    { number: '1,234', label: '预设总数', icon: Star, color: 'from-yellow-400 to-orange-500' },
+    { number: presets.length.toString(), label: '预设总数', icon: Star, color: 'from-yellow-400 to-orange-500' },
     { number: '56.7K', label: '活跃用户', icon: Users, color: 'from-blue-500 to-purple-600' },
     { number: '2.3M', label: '下载次数', icon: Download, color: 'from-pink-500 to-rose-600' },
   ];
@@ -132,21 +152,45 @@ const Home = () => {
             <h2 className="text-4xl font-bold text-gray-900 mb-2">精选预设</h2>
             <p className="text-gray-600">由专业摄影师打造的高质量预设</p>
           </div>
+          <button
+            onClick={handleRefresh}
+            disabled={isLoading || isRefreshing}
+            className="flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-2xl font-semibold hover:from-blue-700 hover:to-purple-700 transition-all duration-300 disabled:opacity-70 disabled:cursor-not-allowed"
+          >
+            {isLoading || isRefreshing ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <RefreshCw className="w-5 h-5" />
+            )}
+            <span>{isLoading || isRefreshing ? '加载中...' : '刷新'}</span>
+          </button>
         </div>
 
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {presets.map((preset, index) => (
-            <PresetCard key={preset.id} preset={preset} index={index} />
-          ))}
-        </div>
+        {isLoading && !isRefreshing ? (
+          <div className="flex flex-col items-center justify-center py-20">
+            <Loader2 className="w-12 h-12 text-blue-600 animate-spin mb-4" />
+            <p className="text-gray-600 text-lg">正在加载预设...</p>
+          </div>
+        ) : error ? (
+          <div className="text-center py-20">
+            <p className="text-red-600 text-lg mb-4">{error}</p>
+            <button
+              onClick={handleRefresh}
+              className="px-6 py-2 bg-red-500 text-white rounded-xl hover:bg-red-600"
+            >
+              重试
+            </button>
+          </div>
+        ) : (
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {presets.map((preset, index) => (
+              <PresetCard key={preset.id} preset={preset} index={index} />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
 };
-
-// Helper function for tailwind classes
-function cn(...classes: any[]) {
-  return classes.filter(Boolean).join(' ');
-}
 
 export default Home;

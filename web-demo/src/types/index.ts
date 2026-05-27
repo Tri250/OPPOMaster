@@ -1,3 +1,40 @@
+// 官方预设数据类型
+export interface CloudPresetResponse {
+  version: number;
+  name: string;
+  author: string;
+  build: number;
+  presets: CloudPreset[];
+}
+
+export interface CloudPreset {
+  name: string;
+  coverPath: string;
+  galleryImages: string[];
+  author: string;
+  isNew?: boolean;
+  sections: CloudSection[];
+  tags: string[];
+  description?: CloudDescription;
+}
+
+export interface CloudSection {
+  title: string;
+  items: CloudParamItem[];
+}
+
+export interface CloudParamItem {
+  label: string;
+  value: string;
+  span?: number;
+}
+
+export interface CloudDescription {
+  title: string;
+  content: string;
+}
+
+// 现有类型定义
 export interface CameraParams {
   mode: string;
   filter: string;
@@ -39,6 +76,7 @@ export interface Preset {
   usageCount: number;
   rating: number;
   author: string;
+  description?: string;
 }
 
 export interface SceneType {
