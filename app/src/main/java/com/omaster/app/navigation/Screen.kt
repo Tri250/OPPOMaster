@@ -8,4 +8,6 @@ sealed class Screen(val route: String) {
         }
     }
     object Settings : Screen("settings")
+    object Watermark : Screen("watermark")
+    object CameraParams : Screen("camera_params")
 }

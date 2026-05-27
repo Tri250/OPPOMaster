@@ -23,6 +23,8 @@ import com.omaster.app.viewmodel.MainViewModel
 fun HomeScreen(
     onPresetClick: (Preset) -> Unit,
     onSettingsClick: () -> Unit,
+    onWatermarkClick: () -> Unit,
+    onCameraParamsClick: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: MainViewModel = hiltViewModel()
 ) {
@@ -90,6 +92,32 @@ fun HomeScreen(
                     selectedFilter = filterType,
                     onFilterSelected = { viewModel.onFilterTypeChanged(it) }
                 )
+            }
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = onWatermarkClick,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("添加水印")
+                        }
+                        Button(
+                            onClick = onCameraParamsClick,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("相机参数")
+                        }
+                    }
+                }
             }
             if (filteredPresets.isEmpty()) {
                 item {

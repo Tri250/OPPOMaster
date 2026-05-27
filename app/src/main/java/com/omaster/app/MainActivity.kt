@@ -11,9 +11,11 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.omaster.app.navigation.Screen
+import com.omaster.app.ui.screens.CameraParamsScreen
 import com.omaster.app.ui.screens.DetailScreen
 import com.omaster.app.ui.screens.HomeScreen
 import com.omaster.app.ui.screens.SettingsScreen
+import com.omaster.app.ui.screens.WatermarkScreen
 import com.omaster.app.ui.theme.OMasterTheme
 import com.omaster.app.viewmodel.MainViewModel
 import dagger.hilt.android.AndroidEntryPoint
@@ -53,7 +55,9 @@ fun OMasterApp(
                 onPresetClick = { preset ->
                     navController.navigate(Screen.Detail.createRoute(preset.id))
                 },
-                onSettingsClick = { navController.navigate(Screen.Settings.route) }
+                onSettingsClick = { navController.navigate(Screen.Settings.route) },
+                onWatermarkClick = { navController.navigate(Screen.Watermark.route) },
+                onCameraParamsClick = { navController.navigate(Screen.CameraParams.route) }
             )
         }
         composable(
@@ -79,6 +83,16 @@ fun OMasterApp(
         }
         composable(Screen.Settings.route) {
             SettingsScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable(Screen.Watermark.route) {
+            WatermarkScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable(Screen.CameraParams.route) {
+            CameraParamsScreen(
                 onBack = { navController.popBackStack() }
             )
         }

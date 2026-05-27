@@ -1,5 +1,7 @@
 package com.omaster.app.ui.screens
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -26,7 +28,11 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
+import com.omaster.app.image.ImageProcessor
+import com.omaster.app.image.ImageRatio
+import com.omaster.app.image.WatermarkStyle
 import com.omaster.app.model.Preset
 import com.omaster.app.ui.theme.*
 import kotlinx.coroutines.launch
@@ -68,7 +74,28 @@ fun DetailScreen(
                             tint = if (preset.isFavorite) AccentPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    IconButton(onClick = { }) {
+                    IconButton(onClick = {
+                        scope.launch {
+                            val imageProcessor = ImageProcessor(context)
+                            val bitmap = imageProcessor.generatePresetImage(
+                                preset = preset,
+                                ratio = ImageRatio.Square,
+                                style = WatermarkStyle.Simple
+                            )
+                            val file = imageProcessor.saveBitmapToFile(bitmap, "preset_${preset.id}.jpg")
+                            val uri = FileProvider.getUriForFile(
+                                context,
+                                "${context.packageName}.fileprovider",
+                                file
+                            )
+                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                type = "image/jpeg"
+                                putExtra(Intent.EXTRA_STREAM, uri)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            context.startActivity(Intent.createChooser(shareIntent, "分享预设"))
+                        }
+                    }) {
                         Icon(
                             imageVector = Icons.Default.Share,
                             contentDescription = "分享",
