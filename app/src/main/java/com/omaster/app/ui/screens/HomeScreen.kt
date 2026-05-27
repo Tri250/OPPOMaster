@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -29,6 +30,12 @@ fun HomeScreen(
     val presets by viewModel.presets.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val filterType by viewModel.filterType.collectAsStateWithLifecycle()
+    val isLoading by viewModel.isLoadingCommunityPresets.collectAsStateWithLifecycle()
+    val communityLoaded by viewModel.communityPresetsLoaded.collectAsStateWithLifecycle()
+
+    LaunchedEffect(Unit) {
+        viewModel.loadCommunityPresets()
+    }
 
     val filteredPresets = remember(presets, searchQuery, filterType) {
         presets.filter { preset ->
@@ -40,6 +47,7 @@ fun HomeScreen(
                 FilterType.HNCS -> preset.cameraParams?.hasselblad_hncs == true
                 FilterType.FIND_X -> preset.deviceModel?.contains("Find X", ignoreCase = true) == true
                 FilterType.RENO -> preset.deviceModel?.contains("Reno", ignoreCase = true) == true
+                FilterType.COMMUNITY -> preset.source == "omaster_community"
             }
             matchesQuery && matchesFilter
         }
@@ -60,6 +68,21 @@ fun HomeScreen(
                     containerColor = MaterialTheme.colorScheme.background
                 ),
                 actions = {
+                    if (isLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            strokeWidth = 2.dp,
+                            color = AccentPrimary
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+                    IconButton(onClick = { viewModel.refreshCommunityPresets() }) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "刷新预设",
+                            tint = if (isLoading) AccentPrimary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onBackground
+                        )
+                    }
                     IconButton(onClick = onSettingsClick) {
                         Icon(
                             imageVector = Icons.Default.Settings,
@@ -91,7 +114,28 @@ fun HomeScreen(
                     onFilterSelected = { viewModel.onFilterTypeChanged(it) }
                 )
             }
-            if (filteredPresets.isEmpty()) {
+            if (isLoading && !communityLoaded) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(32.dp),
+                        contentAlignment = androidx.compose.ui.Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            CircularProgressIndicator(color = AccentPrimary)
+                            Text(
+                                text = "正在加载社区预设...",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            } else if (filteredPresets.isEmpty()) {
                 item {
                     EmptyState(
                         message = if (searchQuery.isNotEmpty() || filterType != FilterType.ALL)

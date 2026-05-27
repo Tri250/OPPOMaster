@@ -42,8 +42,14 @@ fun PresetCard(
                     .fillMaxWidth()
                     .height(180.dp)
             ) {
+                val imageUrl = if (preset.coverPath.startsWith("http")) {
+                    preset.coverPath
+                } else {
+                    "https://picsum.photos/seed/${preset.coverPath}/600/400"
+                }
+                
                 AsyncImage(
-                    model = "https://picsum.photos/seed/${preset.coverPath}/600/400",
+                    model = imageUrl,
                     contentDescription = preset.name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
@@ -62,21 +68,39 @@ fun PresetCard(
                         )
                 )
 
-                if (preset.cameraParams?.hasselblad_hncs == true) {
-                    Surface(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(12.dp),
-                        color = HasselbladOrange,
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text(
-                            text = "HNCS",
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = DeepSpace,
-                            fontWeight = FontWeight.Bold
-                        )
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (preset.source == "omaster_community") {
+                        Surface(
+                            color = AccentPrimary,
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                text = "社区",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    if (preset.cameraParams?.hasselblad_hncs == true) {
+                        Surface(
+                            color = HasselbladOrange,
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                text = "HNCS",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = DeepSpace,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
 
@@ -107,11 +131,12 @@ fun PresetCard(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                preset.deviceModel?.let { deviceModel ->
-                    if (deviceModel.isNotEmpty()) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    preset.deviceModel?.let { deviceModel ->
+                        if (deviceModel.isNotEmpty() && deviceModel != "Community") {
                             Surface(
                                 color = MaterialTheme.colorScheme.surfaceVariant,
                                 shape = RoundedCornerShape(12.dp)
@@ -121,6 +146,22 @@ fun PresetCard(
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                    
+                    preset.author?.let { author ->
+                        if (author.isNotEmpty() && author != "OPPO") {
+                            Surface(
+                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text(
+                                    text = author,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
                                 )
                             }
                         }

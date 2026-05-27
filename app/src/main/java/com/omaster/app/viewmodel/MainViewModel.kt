@@ -33,6 +33,12 @@ class MainViewModel @Inject constructor(
     private val _selectedPreset = MutableStateFlow<Preset?>(null)
     val selectedPreset: StateFlow<Preset?> = _selectedPreset.asStateFlow()
 
+    private val _isLoadingCommunityPresets = MutableStateFlow(false)
+    val isLoadingCommunityPresets: StateFlow<Boolean> = _isLoadingCommunityPresets.asStateFlow()
+
+    private val _communityPresetsLoaded = MutableStateFlow(false)
+    val communityPresetsLoaded: StateFlow<Boolean> = _communityPresetsLoaded.asStateFlow()
+
     fun onSearchQueryChanged(query: String) {
         _searchQuery.value = query
         Timber.d("Search query changed: $query")
@@ -78,6 +84,41 @@ class MainViewModel @Inject constructor(
             Timber.d("Overlay enabled: $enabled")
         }
     }
+
+    fun loadCommunityPresets() {
+        viewModelScope.launch {
+            if (_communityPresetsLoaded.value) {
+                Timber.d("Community presets already loaded, skipping")
+                return@launch
+            }
+            
+            _isLoadingCommunityPresets.value = true
+            try {
+                val loadedPresets = repository.loadCommunityPresets()
+                _communityPresetsLoaded.value = true
+                Timber.d("Successfully loaded ${loadedPresets.size} community presets")
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to load community presets")
+            } finally {
+                _isLoadingCommunityPresets.value = false
+            }
+        }
+    }
+
+    fun refreshCommunityPresets() {
+        viewModelScope.launch {
+            _isLoadingCommunityPresets.value = true
+            try {
+                repository.clearCommunityCache()
+                val loadedPresets = repository.refreshCommunityPresets()
+                Timber.d("Successfully refreshed ${loadedPresets.size} community presets")
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to refresh community presets")
+            } finally {
+                _isLoadingCommunityPresets.value = false
+            }
+        }
+    }
 }
 
 enum class FilterType {
@@ -85,5 +126,6 @@ enum class FilterType {
     FAVORITES,
     HNCS,
     FIND_X,
-    RENO
+    RENO,
+    COMMUNITY
 }

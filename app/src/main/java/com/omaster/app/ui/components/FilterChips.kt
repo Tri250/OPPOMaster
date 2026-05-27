@@ -24,6 +24,7 @@ fun FilterChips(
     val filters = listOf(
         FilterType.ALL to "全部",
         FilterType.FAVORITES to "收藏",
+        FilterType.COMMUNITY to "社区",
         FilterType.HNCS to "HNCS",
         FilterType.FIND_X to "Find X",
         FilterType.RENO to "Reno"
