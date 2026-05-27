@@ -3,6 +3,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("com.google.dagger.hilt.android")
     id("org.jetbrains.kotlin.kapt")
+    id("com.google.android.libraries.mapsplatform.secrets-gradle-plugin")
 }
 
 android {
@@ -20,6 +21,8 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        buildConfigField("String", "UMENG_APP_KEY", "\"${project.findProperty("UMENG_APP_KEY") ?: ""}\"")
     }
 
     buildTypes {
@@ -43,17 +46,23 @@ android {
     
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.10"
     }
     
-    packagingOptions {
+    packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+}
+
+secrets {
+    propertiesFileName = "secrets.properties"
+    defaultPropertiesFileName = "local.defaults.properties"
 }
 
 dependencies {
@@ -81,6 +90,8 @@ dependencies {
     implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
     
     implementation("androidx.datastore:datastore-preferences:1.0.0")
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    implementation("androidx.datastore:datastore-preferences-security:1.0.0")
     
     implementation("com.jakewharton.timber:timber:5.0.1")
     

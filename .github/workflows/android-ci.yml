@@ -110,6 +110,14 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Inject secrets for local.properties
+        env:
+          UMENG_APP_KEY: ${{ secrets.UMENG_APP_KEY || '' }}
+          GITEE_API_TOKEN: ${{ secrets.GITEE_API_TOKEN || '' }}
+        run: |
+          echo "UMENG_APP_KEY=${UMENG_APP_KEY:-dummy_key_for_ci}" >> local.properties
+          echo "GITEE_API_TOKEN=${GITEE_API_TOKEN:-dummy_token_for_ci}" >> local.properties
+
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug
 
