@@ -1,0 +1,74 @@
+<template>
+  <card-template entry="notification" category="modular">
+    <!-- 简化的流体云胶囊形态 - 仅显示关键信息 -->
+    <compact
+      border-color="#6366F1"
+      update-transform="up"
+      number-fixed-width="true">
+      <leading category="mirror" show-icon-bg="true" small-margin="true">
+        <image level="D8" src="{{ iconPath }}"></image>
+        <text level="C10">{{ title }}</text>
+        <text level="C11">{{ subtitle }}</text>
+      </leading>
+      <trailing category="progress" small-margin="false">
+        <text level="C14">{{ scoreText }}</text>
+      </trailing>
+    </compact>
+
+    <!-- 展开形态 - 完整信息展示 -->
+    <expanded
+      bg-color="{{ bgGradient }}"
+      border-color="{{ borderColor }}"
+      animation-type="colorFlow">
+      <leading category="mirror" show-icon-bg="true">
+        <image level="D8" src="{{ iconPath }}"></image>
+        <text level="C10">{{ title }}</text>
+        <text level="C11">{{ subtitle }}</text>
+      </leading>
+
+      <center category="common">
+        <text level="B1*">{{ title }}</text>
+        <text level="C1">{{ cameraParams.iso }}</text>
+        <text level="C2">{{ cameraParams.shutter }}</text>
+        <text level="C3">{{ cameraParams.ev }}</text>
+        <image level="D1" src="{{ coverImage }}"></image>
+        <button level="E1*">{{ applyText }}</button>
+
+        <div level="G2">
+          <text level="C5">{{ cameraParams.contrast }}</text>
+          <text level="C5">{{ cameraParams.saturation }}</text>
+          <text level="C5">{{ cameraParams.wb }}</text>
+        </div>
+      </center>
+    </expanded>
+
+    <image level="A1*" src="assets/images/logo.png"></image>
+  </card-template>
+</template>
+
+<style>
+</style>
+
+<data>
+{
+  "uiData": {
+    "title": "预设名称",
+    "subtitle": "ISO 100 | 1/125",
+    "scoreText": "4.8",
+    "iconPath": "assets/images/camera_icon.png",
+    "coverImage": "assets/images/cover.png",
+    "bgGradient": "linear-gradient(180deg,#6366F1,#8B5CF6)",
+    "borderColor": "#8B5CF6",
+    "applyText": "应用预设",
+    "cameraParams": {
+      "iso": "ISO: 100",
+      "shutter": "快门: 1/125",
+      "ev": "EV: +0.3",
+      "contrast": "对比度: 1.1",
+      "saturation": "饱和度: 1.0",
+      "wb": "白平衡: 5600K"
+    }
+  },
+  "uiEvent": {}
+}
+</data>

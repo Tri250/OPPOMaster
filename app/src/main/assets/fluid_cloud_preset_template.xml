@@ -1,0 +1,90 @@
+<template>
+  <card-template entry="notification" category="modular">
+    <!-- 流体云胶囊形态 -->
+    <compact
+      border-color="{{ borderColor }}"
+      update-transform="none"
+      number-fixed-width="true">
+      <leading category="mirror" show-icon-bg="false" small-margin="true">
+        <image level="D8" src="{{ iconPath }}"></image>
+        <text level="C10">{{ presetName }}</text>
+        <text level="C11"> {{ isoText }}</text>
+      </leading>
+      <trailing category="multi-texts" small-margin="true">
+        <text level="C14">{{ shutterText }}</text>
+      </trailing>
+    </compact>
+
+    <!-- 流体云展开形态 -->
+    <expanded
+      bg-color="{{ bgColor }}"
+      border-color="{{ borderColor }}"
+      animation-type="colorFlow">
+      <leading category="mirror" show-icon-bg="true">
+        <image level="D8" src="{{ iconPath }}"></image>
+        <text level="C10">{{ presetName }}</text>
+        <text level="C11"> {{ isoText }}</text>
+      </leading>
+
+      <center category="common">
+        <text level="B1*">{{ presetName }}</text>
+        <text level="C1">ISO: {{ isoText }}</text>
+        <text level="C2">快门: {{ shutterText }}</text>
+        <text level="C3">曝光: {{ evText }}</text>
+        <image level="D1" src="{{ coverPath }}"></image>
+        <button level="E1*" if="{{ showApplyBtn }}">{{ applyBtnText }}</button>
+        <button level="E2" if="{{ showDetailBtn }}">{{ detailBtnText }}</button>
+
+        <!-- 参数详情区域 -->
+        <div level="G2" if="{{ showParams }}">
+          <text level="C5">对比度: {{ contrastText }}</text>
+          <text level="C5">饱和度: {{ saturationText }}</text>
+          <text level="C5">白平衡: {{ wbText }}</text>
+          <text level="C5">暗角: {{ vignetteText }}</text>
+        </div>
+      </center>
+
+      <trailing category="multi-texts" if="{{ showTrailing }}">
+        <text level="C14">{{ ratingText }}</text>
+        <text level="C15">{{ usageText }}</text>
+        <text level="C16">{{ deviceText }}</text>
+      </trailing>
+    </expanded>
+
+    <!-- 品牌标识 -->
+    <image level="A1*" src="assets/images/symmetry_logo.png"></image>
+  </card-template>
+</template>
+
+<style>
+</style>
+
+<data>
+{
+  "uiData": {
+    "presetName": "预设名称",
+    "isoText": "100",
+    "shutterText": "1/125",
+    "evText": "0",
+    "contrastText": "1.0",
+    "saturationText": "1.0",
+    "wbText": "5500K",
+    "vignetteText": "0.0",
+    "ratingText": "4.8",
+    "usageText": "1234次使用",
+    "deviceText": "Find X8 Pro",
+    "iconPath": "assets/images/preset_icon.png",
+    "coverPath": "assets/images/preset_cover.png",
+    "bgColor": "linear-gradient(#6366F1,#8B5CF6)",
+    "borderColor": "#8B5CF6",
+    "applyBtnText": "应用",
+    "detailBtnText": "详情",
+    "showApplyBtn": true,
+    "showDetailBtn": true,
+    "showParams": true,
+    "showTrailing": true
+  },
+  "uiEvent": {
+  }
+}
+</data>
