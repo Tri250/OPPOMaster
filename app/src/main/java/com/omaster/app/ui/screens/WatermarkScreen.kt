@@ -1,13 +1,10 @@
 package com.omaster.app.ui.screens
 
 import android.Manifest
-import android.content.ContentResolver
-import android.content.ContentValues
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
-import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -26,11 +23,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.omaster.app.image.ImageProcessor
+import com.omaster.app.image.OutputFormat
 import com.omaster.app.image.WatermarkStyle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.OutputStream
 
 @Composable
 fun WatermarkScreen(
@@ -45,6 +42,8 @@ fun WatermarkScreen(
     var processedBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var selectedStyle by remember { mutableStateOf(WatermarkStyle.Simple) }
     var watermarkText by remember { mutableStateOf("OMaster") }
+    var textSize by remember { mutableStateOf(64f) }
+    var selectedFormat by remember { mutableStateOf(OutputFormat.JPEG) }
 
     val pickImageLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -111,24 +110,51 @@ fun WatermarkScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Text("选择水印风格:")
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("选择水印风格：")
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     listOf(
                         WatermarkStyle.Simple to "简约",
                         WatermarkStyle.Hasselblad to "哈苏",
-                        WatermarkStyle.Brand to "品牌"
+                        WatermarkStyle.OppoBrand to "OPPO",
+                        WatermarkStyle.OneplusBrand to "一加",
+                        WatermarkStyle.RealmeBrand to "realme",
+                        WatermarkStyle.Timestamp to "时间戳",
+                        WatermarkStyle.Location to "位置",
+                        WatermarkStyle.Params to "参数"
                     ).forEach { (style, label) ->
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text(label)
                             RadioButton(
                                 selected = selectedStyle == style,
                                 onClick = { selectedStyle = style }
                             )
+                            Text(label)
                         }
+                    }
+                }
+
+                Text("文字大小：${textSize.toInt()}")
+                Slider(
+                    value = textSize,
+                    onValueChange = { textSize = it },
+                    valueRange = 24f..128f,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Text("选择输出格式：")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(
+                        OutputFormat.JPEG to "JPEG",
+                        OutputFormat.PNG to "PNG"
+                    ).forEach { (format, label) ->
+                        FilterChip(
+                            selected = selectedFormat == format,
+                            onClick = { selectedFormat = format },
+                            label = { Text(label) }
+                        )
                     }
                 }
 
@@ -142,7 +168,8 @@ fun WatermarkScreen(
                             processedBitmap = imageProcessor.addWatermarkToImage(
                                 sourceBitmap = sourceBitmap,
                                 watermarkText = watermarkText,
-                                style = selectedStyle
+                                style = selectedStyle,
+                                textSize = textSize
                             )
                         }
                     },
@@ -164,7 +191,17 @@ fun WatermarkScreen(
                     Button(
                         onClick = {
                             scope.launch {
-                                saveImageToGallery(context, processedBitmap!!)
+                                imageProcessor.saveBitmapToGallery(
+                                    bitmap = processedBitmap!!,
+                                    filename = "watermarked_${System.currentTimeMillis()}.${
+                                        when (selectedFormat) {
+                                            OutputFormat.JPEG -> "jpg"
+                                            OutputFormat.PNG -> "png"
+                                            OutputFormat.TIFF -> "tiff"
+                                        }
+                                    }",
+                                    format = selectedFormat
+                                )
                             }
                         },
                         modifier = Modifier.fillMaxWidth()
@@ -173,30 +210,6 @@ fun WatermarkScreen(
                     }
                 }
             }
-        }
-    }
-}
-
-private suspend fun saveImageToGallery(context: android.content.Context, bitmap: Bitmap) = withContext(Dispatchers.IO) {
-    val contentResolver: ContentResolver = context.contentResolver
-    val contentValues = ContentValues().apply {
-        put(MediaStore.Images.Media.DISPLAY_NAME, "watermarked_${System.currentTimeMillis()}.jpg")
-        put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            put(MediaStore.Images.Media.IS_PENDING, 1)
-        }
-    }
-
-    val uri: Uri? = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
-    uri?.let {
-        val outputStream: OutputStream? = contentResolver.openOutputStream(it)
-        outputStream?.use { os ->
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 100, os)
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            contentValues.clear()
-            contentValues.put(MediaStore.Images.Media.IS_PENDING, 0)
-            contentResolver.update(it, contentValues, null, null)
         }
     }
 }

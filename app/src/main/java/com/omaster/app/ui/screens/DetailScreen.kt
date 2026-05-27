@@ -11,14 +11,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -32,6 +28,7 @@ import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import com.omaster.app.image.ImageProcessor
 import com.omaster.app.image.ImageRatio
+import com.omaster.app.image.OutputFormat
 import com.omaster.app.image.WatermarkStyle
 import com.omaster.app.model.Preset
 import com.omaster.app.ui.theme.*
@@ -48,7 +45,10 @@ fun DetailScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    
+    var selectedRatio by remember { mutableStateOf(ImageRatio.Square) }
+    var selectedStyle by remember { mutableStateOf(WatermarkStyle.Simple) }
+    var showDialog by remember { mutableStateOf(false) }
+
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -74,13 +74,20 @@ fun DetailScreen(
                             tint = if (preset.isFavorite) AccentPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                    IconButton(onClick = { showDialog = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Save,
+                            contentDescription = "生成图片",
+                            tint = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
                     IconButton(onClick = {
                         scope.launch {
                             val imageProcessor = ImageProcessor(context)
                             val bitmap = imageProcessor.generatePresetImage(
                                 preset = preset,
-                                ratio = ImageRatio.Square,
-                                style = WatermarkStyle.Simple
+                                ratio = selectedRatio,
+                                style = selectedStyle
                             )
                             val file = imageProcessor.saveBitmapToFile(bitmap, "preset_${preset.id}.jpg")
                             val uri = FileProvider.getUriForFile(
@@ -245,6 +252,80 @@ fun DetailScreen(
                 }
             }
         }
+    }
+
+    if (showDialog) {
+        AlertDialog(
+            onDismissRequest = { showDialog = false },
+            title = { Text("生成图片") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("选择比例：")
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(
+                            ImageRatio.Square to "1:1",
+                            ImageRatio.Landscape16_9 to "16:9",
+                            ImageRatio.Portrait9_16 to "9:16"
+                        ).forEach { (ratio, label) ->
+                            FilterChip(
+                                selected = selectedRatio == ratio,
+                                onClick = { selectedRatio = ratio },
+                                label = { Text(label) }
+                            )
+                        }
+                    }
+                    Text("选择水印：")
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        listOf(
+                            WatermarkStyle.Simple to "简约",
+                            WatermarkStyle.Hasselblad to "哈苏",
+                            WatermarkStyle.OppoBrand to "OPPO",
+                            WatermarkStyle.OneplusBrand to "一加",
+                            WatermarkStyle.RealmeBrand to "realme"
+                        ).forEach { (style, label) ->
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = selectedStyle == style,
+                                    onClick = { selectedStyle = style }
+                                )
+                                Text(label)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch {
+                        val imageProcessor = ImageProcessor(context)
+                        val bitmap = imageProcessor.generatePresetImage(
+                            preset = preset,
+                            ratio = selectedRatio,
+                            style = selectedStyle
+                        )
+                        imageProcessor.saveBitmapToGallery(
+                            bitmap = bitmap,
+                            filename = "preset_${preset.id}_${System.currentTimeMillis()}.jpg",
+                            format = OutputFormat.JPEG
+                        )
+                        snackbarHostState.showSnackbar("图片已保存到相册")
+                        showDialog = false
+                    }
+                }) {
+                    Text("保存")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDialog = false }) {
+                    Text("取消")
+                }
+            }
+        )
     }
 }
 

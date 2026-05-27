@@ -5,9 +5,10 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.hardware.camera2.CameraAccessException
 import android.hardware.camera2.CameraCharacteristics
-import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CameraMetadata
-import android.os.Build
+import android.hardware.camera2.CaptureRequest
+import android.hardware.camera2.CaptureResult
+import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -40,7 +41,7 @@ class CameraManager(private val context: Context) {
     }
 
     private fun checkCamera2Support() {
-        val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
+        val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as? android.hardware.camera2.CameraManager
         if (cameraManager == null) {
             _isSupported.value = false
             return
@@ -80,6 +81,7 @@ class CameraManager(private val context: Context) {
                 }
 
             val imageAnalysis = ImageAnalysis.Builder()
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
                 .also {
                     it.setAnalyzer(cameraExecutor) { imageProxy ->
@@ -108,9 +110,9 @@ class CameraManager(private val context: Context) {
     }
 
     private fun observeCameraParams() {
-        // Simulating parameter polling for demonstration purposes
-        // In real implementation, you'd observe Camera2 CaptureResults
-        // Here we just emit sample data
+        // Simulating parameter polling for demonstration because CameraCaptureSession.CaptureCallback
+        // integration with CameraX Preview is more complex; this is a placeholder for real implementation
+        // In a real app, you'd use Camera2Interop to set capture callbacks and extract real parameters
         _cameraParams.value = CameraParams(
             iso = 100,
             shutter = "1/125",
