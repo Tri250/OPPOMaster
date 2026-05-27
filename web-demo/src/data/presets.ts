@@ -1,20 +1,73 @@
-import type { Preset, CloudPreset, CloudPresetResponse } from '../types';
+import type { Preset, CloudPreset, CloudPresetResponse, SceneType } from '../types';
+
+// 场景类型
+export const SCENE_TYPES: SceneType[] = [
+  {
+    id: 'portrait',
+    name: '人像',
+    icon: '👤',
+    description: '适合拍摄人物肖像，自然美肤',
+    color: 'from-pink-500 to-rose-600',
+  },
+  {
+    id: 'landscape',
+    name: '风景',
+    icon: '🏔️',
+    description: '增强天空和自然色彩，提升画质',
+    color: 'from-blue-500 to-cyan-600',
+  },
+  {
+    id: 'food',
+    name: '美食',
+    icon: '🍜',
+    description: '增强食物色彩，让美食更诱人',
+    color: 'from-orange-500 to-yellow-600',
+  },
+  {
+    id: 'night',
+    name: '夜景',
+    icon: '🌙',
+    description: '低光环境优化，减少噪点',
+    color: 'from-purple-500 to-indigo-600',
+  },
+  {
+    id: 'street',
+    name: '街拍',
+    icon: '🏙️',
+    description: '城市街头纪实，高对比风格',
+    color: 'from-gray-600 to-gray-800',
+  },
+  {
+    id: 'auto',
+    name: '智能',
+    icon: '🤖',
+    description: 'AI自动识别场景，智能匹配参数',
+    color: 'from-green-500 to-emerald-600',
+  },
+];
 
 // 官方预设 URLs
 const OPPO_PRESETS_URL = 'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/oppo.json';
 const REALME_PRESETS_URL = 'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/realme.json';
 
 // 处理封面路径
-const getFullCoverPath = (path: string): string => {
-  if (path.startsWith('http')) return path;
-  if (path.startsWith('images/')) {
-    return `https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/${path}`;
+const getFullCoverPath = (path: string, source: 'oppo' | 'realme'): string => {
+  console.log(`[Preset] Processing cover path: ${path} for source: ${source}`);
+  
+  if (path.startsWith('http')) {
+    console.log(`[Preset] Using direct URL: ${path}`);
+    return path;
   }
-  return path;
+  
+  const fullPath = `https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/${path}`;
+  console.log(`[Preset] Converted to: ${fullPath}`);
+  return fullPath;
 };
 
 // 转换云端预设到应用预设
-const convertCloudPresetToPreset = (cloudPreset: CloudPreset, index: number, source: string): Preset => {
+const convertCloudPresetToPreset = (cloudPreset: CloudPreset, index: number, source: 'oppo' | 'realme'): Preset => {
+  console.log(`[Preset] Converting: ${cloudPreset.name} (${source})`);
+  
   const sections = cloudPreset.sections.map((section) => ({
     title: section.title.replace('@string/', ''),
     content: section.items
@@ -41,10 +94,10 @@ const convertCloudPresetToPreset = (cloudPreset: CloudPreset, index: number, sou
     return value === '开' ? 0.2 : 0;
   };
 
-  return {
+  const preset = {
     id: `${source}-${cloudPreset.name.replace(/\s+/g, '-')}-${index}`,
     name: cloudPreset.name,
-    coverPath: getFullCoverPath(cloudPreset.coverPath),
+    coverPath: getFullCoverPath(cloudPreset.coverPath, source),
     sections: sections,
     cameraParams: {
       mode: 'master',
@@ -66,33 +119,52 @@ const convertCloudPresetToPreset = (cloudPreset: CloudPreset, index: number, sou
     isFavorite: false,
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    usageCount: 0,
-    rating: 4.5,
+    usageCount: Math.floor(Math.random() * 5000) + 100, // 模拟使用次数
+    rating: 4.0 + Math.random() * 1.0, // 随机评分
     author: cloudPreset.author,
     description: cloudPreset.description?.content
   };
+
+  console.log(`[Preset] Success: ${preset.name}`);
+  return preset;
 };
 
 // 加载官方预设数据
 export const loadCloudPresets = async (): Promise<Preset[]> => {
+  console.log('[Preset] Starting to load cloud presets...');
+  
   try {
+    console.log('[Preset] Fetching OPPO presets from:', OPPO_PRESETS_URL);
     const [oppoResponse, realmeResponse] = await Promise.all([
       fetch(OPPO_PRESETS_URL),
       fetch(REALME_PRESETS_URL)
     ]);
 
+    if (!oppoResponse.ok) {
+      throw new Error(`OPPO API error: ${oppoResponse.status} ${oppoResponse.statusText}`);
+    }
+    if (!realmeResponse.ok) {
+      throw new Error(`Realme API error: ${realmeResponse.status} ${realmeResponse.statusText}`);
+    }
+
     const oppoData: CloudPresetResponse = await oppoResponse.json();
     const realmeData: CloudPresetResponse = await realmeResponse.json();
+
+    console.log('[Preset] OPPO data loaded:', oppoData.presets.length, 'presets');
+    console.log('[Preset] Realme data loaded:', realmeData.presets.length, 'presets');
 
     const oppoPresets = oppoData.presets.map((preset, index) =>
       convertCloudPresetToPreset(preset, index, 'oppo'));
     const realmePresets = realmeData.presets.map((preset, index) =>
       convertCloudPresetToPreset(preset, index, 'realme'));
 
-    return [...oppoPresets, ...realmePresets];
+    const allPresets = [...oppoPresets, ...realmePresets];
+    console.log('[Preset] Total presets loaded:', allPresets.length);
+    
+    return allPresets;
   } catch (error) {
-    console.error('Failed to load cloud presets:', error);
-    return [];
+    console.error('[Preset] Failed to load cloud presets:', error);
+    throw error;
   }
 };
 
@@ -125,7 +197,7 @@ export const samplePresets: Preset[] = [
     isFavorite: false,
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    usageCount: 0,
+    usageCount: 1245,
     rating: 4.5,
     author: '@波子Booz'
   }
