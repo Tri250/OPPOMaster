@@ -26,6 +26,11 @@ class PreferencesDataStore @Inject constructor(
         val OVERLAY_ENABLED = intPreferencesKey("overlay_enabled")
     }
 
+    private fun Preferences.getBoolean(key: Preferences.Key<Int>, defaultValue: Boolean): Boolean {
+        val value = this[key]
+        return if (value == null) defaultValue else value == 1
+    }
+
     val favoritePresets: Flow<Set<String>> = context.dataStore.data
         .map { preferences ->
             preferences[PreferencesKeys.FAVORITE_PRESETS] ?: emptySet()
@@ -38,12 +43,12 @@ class PreferencesDataStore @Inject constructor(
 
     val fluidCloudEnabled: Flow<Boolean> = context.dataStore.data
         .map { preferences ->
-            preferences[PreferencesKeys.FLUID_CLOUD_ENABLED] ?: 1 == 1
+            preferences.getBoolean(PreferencesKeys.FLUID_CLOUD_ENABLED, defaultValue = true)
         }
 
     val overlayEnabled: Flow<Boolean> = context.dataStore.data
         .map { preferences ->
-            preferences[PreferencesKeys.OVERLAY_ENABLED] ?: 0 == 1
+            preferences.getBoolean(PreferencesKeys.OVERLAY_ENABLED, defaultValue = false)
         }
 
     suspend fun toggleFavorite(presetId: String) {
