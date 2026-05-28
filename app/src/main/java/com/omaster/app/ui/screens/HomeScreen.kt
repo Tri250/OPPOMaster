@@ -7,20 +7,25 @@ import android.provider.Settings
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -34,6 +39,9 @@ import com.omaster.app.ui.components.EnhancedFilterChips
 import com.omaster.app.ui.components.EnhancedPresetCard
 import com.omaster.app.ui.components.EnhancedSearchBar
 import com.omaster.app.ui.components.PresetCardSkeleton
+import com.omaster.app.ui.components.SceneFilterChips
+import com.omaster.app.ui.components.SortSelector
+import com.omaster.app.ui.components.StyleFilterChips
 import com.omaster.app.ui.theme.*
 import com.omaster.app.viewmodel.FilterType
 import com.omaster.app.viewmodel.MainViewModel
@@ -63,7 +71,7 @@ fun HomeScreen(
     
     LaunchedEffect(presets) {
         if (presets.isNotEmpty()) {
-            delay(300)
+            kotlinx.coroutines.delay(300)
             isLoading = false
         }
     }
@@ -151,8 +159,6 @@ fun HomeScreen(
         }
     }
     
-    val shouldShowSpecialGuidance = systemBrand == "ColorOS" || systemBrand == "OxygenOS"
-    
     fun canDrawOverlays(): Boolean {
         return Settings.canDrawOverlays(context)
     }
@@ -189,36 +195,10 @@ fun HomeScreen(
     Scaffold(
         modifier = modifier,
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "OMaster",
-                        style = MaterialTheme.typography.displaySmall,
-                        color = AccentPrimary
-                    )
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                ),
-                actions = {
-                    FloatingWindowToggleButton(
-                        isEnabled = isFloatingWindowEnabled,
-                        onToggle = { toggleFloatingWindow() }
-                    )
-                    
-                    IconButton(
-                        onClick = onSettingsClick,
-                        modifier = Modifier.semantics {
-                            contentDescription = "设置"
-                        }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "设置",
-                            tint = MaterialTheme.colorScheme.onBackground
-                        )
-                    }
-                }
+            ColorOS16TopBar(
+                onSettingsClick = onSettingsClick,
+                isFloatingWindowEnabled = isFloatingWindowEnabled,
+                onFloatingWindowToggle = { toggleFloatingWindow() }
             )
         }
     ) { paddingValues ->
@@ -321,28 +301,106 @@ fun HomeScreen(
 }
 
 @Composable
+private fun ColorOS16TopBar(
+    onSettingsClick: () -> Unit,
+    isFloatingWindowEnabled: Boolean,
+    onFloatingWindowToggle: () -> Unit
+) {
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+    
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.background,
+        shadowElevation = if (scrollBehavior.state.overlappedFraction > 0) 4.dp else 0.dp
+    ) {
+        TopAppBar(
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(
+                                Brush.linearGradient(GradientOrange)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CameraAlt,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    
+                    Column {
+                        Text(
+                            text = "OMaster",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = ColorOSOrange
+                        )
+                        Text(
+                            text = "大师模式参数助手",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            },
+            actions = {
+                FloatingWindowToggleButton(
+                    isEnabled = isFloatingWindowEnabled,
+                    onToggle = onFloatingWindowToggle
+                )
+                
+                IconButton(
+                    onClick = onSettingsClick,
+                    modifier = Modifier.semantics {
+                        contentDescription = "设置"
+                    }
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "设置",
+                        tint = MaterialTheme.colorScheme.onBackground
+                    )
+                }
+            },
+            scrollBehavior = scrollBehavior,
+            colors = TopAppBarDefaults.topAppBarColors(
+                containerColor = Color.Transparent
+            )
+        )
+    }
+}
+
+@Composable
 fun AnimatedPresetCard(
     preset: Preset,
     index: Int,
     onClick: () -> Unit,
     onFavoriteToggle: () -> Unit
 ) {
-    val delay = index * 50L
+    val delay = (index * 50L).toInt()
     
     AnimatedVisibility(
         visible = true,
         enter = fadeIn(
             animationSpec = tween(
-                durationMillis = AnimationConfig.STATE_TRANSITION_DURATION,
-                delayMillis = delay.toInt(),
+                durationMillis = AnimationConfig.MEDIUM_TRANSITION_DURATION,
+                delayMillis = delay,
                 easing = AnimationConfig.LinearOutSlowInEasing
             )
         ) + slideInVertically(
-            initialOffsetY = { 20.dp.toPx().toInt() },
+            initialOffsetY = { 30.dp.toPx().toInt() },
             animationSpec = tween(
-                durationMillis = AnimationConfig.STATE_TRANSITION_DURATION,
-                delayMillis = delay.toInt(),
-                easing = AnimationConfig.LinearOutSlowInEasing
+                durationMillis = AnimationConfig.MEDIUM_TRANSITION_DURATION,
+                delayMillis = delay,
+                easing = AnimationConfig.DecelerateEasing
             )
         )
     ) {
@@ -362,6 +420,13 @@ fun EmptyState(
     isSearchEmpty: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    var visible by remember { mutableStateOf(false) }
+    
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(100)
+        visible = true
+    }
+    
     Column(
         modifier = modifier
             .padding(32.dp)
@@ -370,12 +435,15 @@ fun EmptyState(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         AnimatedVisibility(
-            visible = true,
+            visible = visible,
             enter = fadeIn(
-                animationSpec = tween(500)
-            ) + slideInVertically(
-                initialOffsetY = { 20.dp.toPx().toInt() },
-                animationSpec = tween(500, easing = AnimationConfig.LinearOutSlowInEasing)
+                animationSpec = tween(500, easing = AnimationConfig.DecelerateEasing)
+            ) + scaleIn(
+                initialScale = 0.8f,
+                animationSpec = spring(
+                    dampingRatio = 0.7f,
+                    stiffness = 300f
+                )
             )
         ) {
             if (isSearchEmpty) {
@@ -396,9 +464,9 @@ fun EmptyState(
         Spacer(modifier = Modifier.height(16.dp))
         
         AnimatedVisibility(
-            visible = true,
+            visible = visible,
             enter = fadeIn(
-                animationSpec = tween(300, delayMillis = 200)
+                animationSpec = tween(300, delayMillis = 150, easing = AnimationConfig.DecelerateEasing)
             )
         ) {
             Text(
@@ -412,9 +480,9 @@ fun EmptyState(
         Spacer(modifier = Modifier.height(8.dp))
         
         AnimatedVisibility(
-            visible = true,
+            visible = visible,
             enter = fadeIn(
-                animationSpec = tween(300, delayMillis = 300)
+                animationSpec = tween(300, delayMillis = 250, easing = AnimationConfig.DecelerateEasing)
             )
         ) {
             Text(

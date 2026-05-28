@@ -3,6 +3,8 @@ package com.omaster.app.ui.components
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -10,10 +12,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.omaster.app.ui.animation.AnimationConfig
 import com.omaster.app.viewmodel.FilterType
@@ -39,218 +42,98 @@ fun EnhancedFilterChips(
         )
     }
     
-    val selectedIndex = filters.indexOfFirst { it.type == selectedFilter }
-    
     Row(
         modifier = modifier
             .horizontalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        filters.forEachIndexed { index, filterInfo ->
+        filters.forEach { filterInfo ->
             val isSelected = selectedFilter == filterInfo.type
             
-            FilterChipItem(
-                filterInfo = filterInfo,
+            ColorOSFilterChip(
                 selected = isSelected,
                 onClick = { onFilterSelected(filterInfo.type) },
-                index = index,
-                selectedIndex = selectedIndex
+                label = filterInfo.label,
+                icon = filterInfo.icon
             )
         }
     }
 }
 
 @Composable
-private fun FilterChipItem(
-    filterInfo: FilterInfo,
+private fun ColorOSFilterChip(
     selected: Boolean,
     onClick: () -> Unit,
-    index: Int,
-    selectedIndex: Int
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector
 ) {
-    val animatedColor by animateColorAsState(
-        targetValue = if (selected) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            MaterialTheme.colorScheme.surfaceVariant
-        },
-        animationSpec = tween(
-            durationMillis = AnimationConfig.STATE_TRANSITION_DURATION,
-            easing = AnimationConfig.FastOutSlowInEasing
-        ),
-        label = "filterColor_${filterInfo.type}"
-    )
-    
-    val textColor by animateColorAsState(
-        targetValue = if (selected) {
-            MaterialTheme.colorScheme.onPrimaryContainer
-        } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
-        },
-        animationSpec = tween(
-            durationMillis = AnimationConfig.STATE_TRANSITION_DURATION,
-            easing = AnimationConfig.FastOutSlowInEasing
-        ),
-        label = "filterTextColor_${filterInfo.type}"
-    )
-    
-    val iconColor by animateColorAsState(
-        targetValue = if (selected) {
-            MaterialTheme.colorScheme.onPrimaryContainer
-        } else {
-            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-        },
-        animationSpec = tween(
-            durationMillis = AnimationConfig.STATE_TRANSITION_DURATION,
-            easing = AnimationConfig.FastOutSlowInEasing
-        ),
-        label = "filterIconColor_${filterInfo.type}"
-    )
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
     
     val scale by animateFloatAsState(
-        targetValue = if (selected) 1.05f else 1f,
-        animationSpec = tween(
-            durationMillis = AnimationConfig.MICRO_INTERACTION_DURATION,
-            easing = AnimationConfig.FastOutSlowInEasing
+        targetValue = when {
+            isPressed -> 0.92f
+            selected -> 1.02f
+            else -> 1f
+        },
+        animationSpec = spring(
+            dampingRatio = 0.7f,
+            stiffness = 400f
         ),
-        label = "filterScale_${filterInfo.type}"
+        label = "chipScale"
     )
     
-    Box(
-        modifier = Modifier.scale(scale)
-    ) {
-        FilterChip(
-            selected = selected,
-            onClick = onClick,
-            label = {
-                Text(
-                    filterInfo.label,
-                    color = textColor
-                )
-            },
-            leadingIcon = {
-                Icon(
-                    imageVector = filterInfo.icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                    tint = iconColor
-                )
-            },
-            colors = FilterChipDefaults.filterChipColors(
-                selectedContainerColor = animatedColor,
-                unselectedContainerColor = animatedColor,
-                selectedLabelColor = textColor,
-                unselectedLabelColor = textColor,
-                selectedLeadingIconColor = iconColor,
-                unselectedLeadingIconColor = iconColor
-            ),
-            shape = RoundedCornerShape(20.dp),
-            border = null
-        )
-        
-        if (selected) {
-            AnimatedUnderline()
-        }
-    }
-}
-
-@Composable
-private fun AnimatedUnderline() {
-    Box(
+    val animatedContainerColor by animateColorAsState(
+        targetValue = when {
+            selected -> MaterialTheme.colorScheme.primary
+            else -> MaterialTheme.colorScheme.surfaceVariant
+        },
+        animationSpec = tween(
+            durationMillis = AnimationConfig.SMALL_TRANSITION_DURATION,
+            easing = AnimationConfig.DecelerateEasing
+        ),
+        label = "chipContainerColor"
+    )
+    
+    val animatedContentColor by animateColorAsState(
+        targetValue = when {
+            selected -> Color.White
+            else -> MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        animationSpec = tween(
+            durationMillis = AnimationConfig.SMALL_TRANSITION_DURATION,
+            easing = AnimationConfig.DecelerateEasing
+        ),
+        label = "chipContentColor"
+    )
+    
+    Surface(
         modifier = Modifier
-            .fillMaxWidth()
-            .height(2.dp)
-            .align(Alignment.BottomCenter)
-            .clip(RoundedCornerShape(1.dp))
-            .background(MaterialTheme.colorScheme.primary)
-    )
-}
-
-private data class FilterInfo(
-    val type: FilterType,
-    val label: String,
-    val icon: androidx.compose.ui.graphics.vector.ImageVector
-)
-
-@Composable
-fun MultiSelectFilterChips(
-    selectedFilters: Set<FilterType>,
-    onFiltersChanged: (Set<FilterType>) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val allFilters = remember {
-        listOf(
-            FilterType.ALL,
-            FilterType.FAVORITES,
-            FilterType.HNCS,
-            FilterType.FIND_X,
-            FilterType.RENO,
-            FilterType.NEW,
-            FilterType.TRENDING
-        )
-    }
-    
-    Column(modifier = modifier) {
+            .scale(scale)
+            .height(36.dp),
+        shape = RoundedCornerShape(18.dp),
+        color = animatedContainerColor,
+        onClick = onClick,
+        interactionSource = interactionSource
+    ) {
         Row(
-            modifier = Modifier
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            allFilters.forEach { filterType ->
-                val isSelected = selectedFilters.contains(filterType)
-                val animatedColor by animateColorAsState(
-                    targetValue = if (isSelected) {
-                        MaterialTheme.colorScheme.primaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.surfaceVariant
-                    },
-                    animationSpec = tween(
-                        durationMillis = AnimationConfig.STATE_TRANSITION_DURATION,
-                        easing = AnimationConfig.FastOutSlowInEasing
-                    ),
-                    label = "multiSelectColor_${filterType}"
-                )
-                
-                FilterChip(
-                    selected = isSelected,
-                    onClick = {
-                        val newFilters = if (filterType == FilterType.ALL) {
-                            setOf(FilterType.ALL)
-                        } else {
-                            val currentWithoutAll = selectedFilters - FilterType.ALL
-                            if (isSelected) {
-                                currentWithoutAll - filterType
-                            } else {
-                                currentWithoutAll + filterType
-                            }.ifEmpty { setOf(FilterType.ALL) }
-                        }
-                        onFiltersChanged(newFilters)
-                    },
-                    label = { Text(getFilterLabel(filterType)) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = animatedColor,
-                        unselectedContainerColor = animatedColor,
-                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        unselectedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
-                    ),
-                    shape = RoundedCornerShape(20.dp)
-                )
-            }
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = animatedContentColor
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                color = animatedContentColor
+            )
         }
-    }
-}
-
-private fun getFilterLabel(filterType: FilterType): String {
-    return when (filterType) {
-        FilterType.ALL -> "全部"
-        FilterType.FAVORITES -> "收藏"
-        FilterType.HNCS -> "HNCS"
-        FilterType.FIND_X -> "Find X"
-        FilterType.RENO -> "Reno"
-        FilterType.NEW -> "最新"
-        FilterType.TRENDING -> "热门"
     }
 }
 
@@ -282,44 +165,93 @@ fun SceneFilterChips(
         scenes.forEach { sceneInfo ->
             val isSelected = selectedScene == sceneInfo.type
             
-            AssistChip(
+            ColorOSAssistChip(
+                selected = isSelected,
                 onClick = { onSceneSelected(sceneInfo.type) },
-                label = { Text(sceneInfo.label) },
-                leadingIcon = {
-                    Icon(
-                        imageVector = sceneInfo.icon,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = if (isSelected) {
-                        MaterialTheme.colorScheme.primaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.surfaceVariant
-                    },
-                    labelColor = if (isSelected) {
-                        MaterialTheme.colorScheme.onPrimaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    leadingIconColor = if (isSelected) {
-                        MaterialTheme.colorScheme.onPrimaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                    }
-                ),
-                shape = RoundedCornerShape(16.dp)
+                label = sceneInfo.label,
+                icon = sceneInfo.icon
             )
         }
     }
 }
 
-private data class SceneInfo(
-    val type: SceneType,
-    val label: String,
-    val icon: androidx.compose.ui.graphics.vector.ImageVector
-)
+@Composable
+private fun ColorOSAssistChip(
+    selected: Boolean,
+    onClick: () -> Unit,
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    
+    val scale by animateFloatAsState(
+        targetValue = when {
+            isPressed -> 0.95f
+            selected -> 1.02f
+            else -> 1f
+        },
+        animationSpec = spring(
+            dampingRatio = 0.7f,
+            stiffness = 400f
+        ),
+        label = "sceneChipScale"
+    )
+    
+    val animatedColor by animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.secondaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant
+        },
+        animationSpec = tween(
+            durationMillis = AnimationConfig.SMALL_TRANSITION_DURATION,
+            easing = AnimationConfig.DecelerateEasing
+        ),
+        label = "sceneChipColor"
+    )
+    
+    val animatedContentColor by animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.onSecondaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        animationSpec = tween(
+            durationMillis = AnimationConfig.SMALL_TRANSITION_DURATION,
+            easing = AnimationConfig.DecelerateEasing
+        ),
+        label = "sceneChipContentColor"
+    )
+    
+    Surface(
+        modifier = Modifier
+            .scale(scale)
+            .height(32.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = animatedColor,
+        onClick = onClick,
+        interactionSource = interactionSource
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = animatedContentColor
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = animatedContentColor
+            )
+        }
+    }
+}
 
 @Composable
 fun StyleFilterChips(
@@ -349,44 +281,15 @@ fun StyleFilterChips(
         styles.forEach { styleInfo ->
             val isSelected = selectedStyle == styleInfo.type
             
-            AssistChip(
+            ColorOSAssistChip(
+                selected = isSelected,
                 onClick = { onStyleSelected(styleInfo.type) },
-                label = { Text(styleInfo.label) },
-                leadingIcon = {
-                    Icon(
-                        imageVector = styleInfo.icon,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = if (isSelected) {
-                        MaterialTheme.colorScheme.primaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.surfaceVariant
-                    },
-                    labelColor = if (isSelected) {
-                        MaterialTheme.colorScheme.onPrimaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    leadingIconColor = if (isSelected) {
-                        MaterialTheme.colorScheme.onPrimaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                    }
-                ),
-                shape = RoundedCornerShape(16.dp)
+                label = styleInfo.label,
+                icon = styleInfo.icon
             )
         }
     }
 }
-
-private data class StyleInfo(
-    val type: StyleType,
-    val label: String,
-    val icon: androidx.compose.ui.graphics.vector.ImageVector
-)
 
 @Composable
 fun SortSelector(
@@ -422,35 +325,91 @@ fun SortSelector(
             sorts.forEach { sortInfo ->
                 val isSelected = selectedSort == sortInfo.type
                 
-                TextButton(
+                ColorOSSortButton(
+                    selected = isSelected,
                     onClick = { onSortSelected(sortInfo.type) },
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                ) {
-                    Icon(
-                        imageVector = sortInfo.icon,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = if (isSelected) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        }
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = sortInfo.label,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (isSelected) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        }
-                    )
-                }
+                    label = sortInfo.label,
+                    icon = sortInfo.icon
+                )
             }
         }
     }
 }
+
+@Composable
+private fun ColorOSSortButton(
+    selected: Boolean,
+    onClick: () -> Unit,
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    
+    val scale by animateFloatAsState(
+        targetValue = when {
+            isPressed -> 0.95f
+            selected -> 1.05f
+            else -> 1f
+        },
+        animationSpec = spring(
+            dampingRatio = 0.8f,
+            stiffness = 400f
+        ),
+        label = "sortButtonScale"
+    )
+    
+    val animatedColor by animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        animationSpec = tween(
+            durationMillis = AnimationConfig.SMALL_TRANSITION_DURATION,
+            easing = AnimationConfig.DecelerateEasing
+        ),
+        label = "sortButtonColor"
+    )
+    
+    TextButton(
+        onClick = onClick,
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+        modifier = Modifier.scale(scale),
+        interactionSource = interactionSource
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(14.dp),
+            tint = animatedColor
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = animatedColor
+        )
+    }
+}
+
+private data class FilterInfo(
+    val type: FilterType,
+    val label: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector
+)
+
+private data class SceneInfo(
+    val type: SceneType,
+    val label: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector
+)
+
+private data class StyleInfo(
+    val type: StyleType,
+    val label: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector
+)
 
 private data class SortInfo(
     val type: SortType,
