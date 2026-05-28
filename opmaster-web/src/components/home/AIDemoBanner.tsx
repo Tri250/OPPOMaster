@@ -1,8 +1,11 @@
-import { motion } from 'framer-motion';
-import { Sparkles, ArrowRight } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Sparkles, ArrowRight, Play, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { useState } from 'react';
 
 export default function AIDemoBanner() {
+  const [showVideo, setShowVideo] = useState(false);
+
   return (
     <section className="py-20 px-4 sm:px-6 lg:px-8">
       <motion.div
@@ -45,8 +48,12 @@ export default function AIDemoBanner() {
               <span>立即体验</span>
               <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
             </Link>
-            <button className="btn-secondary text-lg px-8 py-4">
-              观看演示视频
+            <button 
+              onClick={() => setShowVideo(true)}
+              className="btn-secondary text-lg px-8 py-4 flex items-center space-x-2"
+            >
+              <Play className="w-5 h-5" />
+              <span>观看演示视频</span>
             </button>
           </div>
 
@@ -72,6 +79,67 @@ export default function AIDemoBanner() {
           </div>
         </div>
       </motion.div>
+
+      {/* Video Modal */}
+      <AnimatePresence>
+        {showVideo && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+            onClick={() => setShowVideo(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-deep-space-light rounded-2xl max-w-4xl w-full overflow-hidden"
+            >
+              {/* Modal Header */}
+              <div className="bg-gradient-to-r from-purple-500 to-pink-500 p-4 flex items-center justify-between">
+                <h3 className="text-xl font-bold text-white">AI场景识别演示</h3>
+                <button
+                  onClick={() => setShowVideo(false)}
+                  className="w-10 h-10 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition-colors"
+                >
+                  <X className="w-6 h-6 text-white" />
+                </button>
+              </div>
+              {/* Video Content */}
+              <div className="p-6">
+                <div className="aspect-video bg-black/50 rounded-xl flex items-center justify-center">
+                  <div className="text-center">
+                    <Play className="w-16 h-16 text-white/50 mx-auto mb-4" />
+                    <p className="text-white/70 mb-4">演示视频正在制作中...</p>
+                    <div className="grid grid-cols-1 gap-4 text-left text-sm text-white/60">
+                      <div className="bg-white/5 p-4 rounded-lg">
+                        <h4 className="font-bold text-white/80 mb-2">🎉 您可以体验：</h4>
+                        <ul className="space-y-1">
+                          <li>• 点击"立即体验"上传自己的照片</li>
+                          <li>• 或选择示例图片体验AI识别</li>
+                          <li>• 查看识别结果和推荐预设</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-6 flex justify-center">
+                  <Link
+                    to="/ai-demo"
+                    onClick={() => setShowVideo(false)}
+                    className="btn-primary flex items-center space-x-2"
+                  >
+                    <Sparkles className="w-5 h-5" />
+                    <span>立即体验AI识别</span>
+                  </Link>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </section>
   );
 }
