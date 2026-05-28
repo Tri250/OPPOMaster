@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Heart, Share2, Star, Camera, Sliders, Download } from 'lucide-react';
+import { ArrowLeft, Heart, Share2, Star, Camera, Sliders, Download, Tag } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { useState } from 'react';
 
@@ -26,6 +26,11 @@ export default function PresetDetailPage() {
       </div>
     );
   }
+
+  const getParamDisplayValue = (value: string | number | undefined): string => {
+    if (value === undefined || value === null) return '-';
+    return String(value);
+  };
 
   return (
     <div className="min-h-screen pt-20 pb-12 px-4 sm:px-6 lg:px-8">
@@ -77,7 +82,7 @@ export default function PresetDetailPage() {
             {/* Main Preview */}
             <div className="relative aspect-[4/3] rounded-2xl overflow-hidden shadow-2xl">
               <img
-                src={`https://picsum.photos/seed/${preset.coverPath}/800/600`}
+                src={preset.coverPath}
                 alt={preset.name}
                 className="w-full h-full object-cover"
                 style={{
@@ -89,11 +94,16 @@ export default function PresetDetailPage() {
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
               
               {/* Badges */}
-              <div className="absolute top-4 left-4 flex items-center space-x-2">
-                {preset.cameraParams?.hasselblad_hncs && (
+              <div className="absolute top-4 left-4 flex items-center space-x-2 flex-wrap gap-2">
+                {preset.cameraParams?.hncs && (
                   <div className="glass-effect px-3 py-1 rounded-full flex items-center space-x-1">
                     <Star className="w-4 h-4 text-hasselblad fill-hasselblad" />
                     <span className="text-sm font-bold text-hasselblad">HNCS</span>
+                  </div>
+                )}
+                {preset.category && (
+                  <div className="glass-effect px-3 py-1 rounded-full">
+                    <span className="text-sm font-medium">{preset.category}</span>
                   </div>
                 )}
                 <div className="glass-effect px-3 py-1 rounded-full">
@@ -101,6 +111,42 @@ export default function PresetDetailPage() {
                 </div>
               </div>
             </div>
+
+            {/* Gallery Images */}
+            {preset.galleryImages && preset.galleryImages.length > 0 && (
+              <div className="grid grid-cols-3 gap-3">
+                {preset.galleryImages.map((img, idx) => (
+                  <motion.div
+                    key={idx}
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: 0.2 + idx * 0.05 }}
+                    className="aspect-square rounded-xl overflow-hidden"
+                  >
+                    <img
+                      src={img}
+                      alt={`${preset.name} sample ${idx + 1}`}
+                      className="w-full h-full object-cover"
+                    />
+                  </motion.div>
+                ))}
+              </div>
+            )}
+
+            {/* Tags */}
+            {preset.tags && preset.tags.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                <Tag className="w-4 h-4 text-white/50" />
+                {preset.tags.map((tag, idx) => (
+                  <span
+                    key={idx}
+                    className="text-xs bg-white/10 px-2 py-1 rounded-full text-white/70"
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
 
             {/* Actions */}
             <div className="flex gap-4">
@@ -133,7 +179,12 @@ export default function PresetDetailPage() {
             {/* Title */}
             <div>
               <h1 className="text-3xl font-bold mb-2">{preset.name}</h1>
-              <p className="text-white/60">适用于 {preset.deviceModel}</p>
+              <p className="text-white/60">
+                适用于 {preset.deviceModel}
+                {preset.author && (
+                  <span className="text-oppo-green ml-2">by {preset.author}</span>
+                )}
+              </p>
             </div>
 
             {/* Camera Parameters */}
@@ -141,18 +192,25 @@ export default function PresetDetailPage() {
               <div className="card p-6">
                 <h2 className="text-lg font-bold mb-4 flex items-center space-x-2">
                   <Sliders className="w-5 h-5 text-hasselblad" />
-                  <span>相机参数</span>
+                  <span>哈苏大师模式参数</span>
                 </h2>
                 
                 <div className="grid grid-cols-2 gap-4">
                   {[
                     { label: '模式', value: preset.cameraParams.mode },
-                    { label: '滤镜', value: preset.cameraParams.filter },
-                    { label: 'ISO', value: preset.cameraParams.iso.toString() },
-                    { label: '快门', value: preset.cameraParams.shutter },
-                    { label: '曝光', value: preset.cameraParams.ev },
-                    { label: '白平衡', value: preset.cameraParams.wb }
-                  ].map((param) => (
+                    { label: '滤镜', value: `${preset.cameraParams.filter} ${preset.cameraParams.filter_intensity}%` },
+                    { label: '柔光', value: preset.cameraParams.soft_light },
+                    { label: '色调曲线', value: preset.cameraParams.tone_curve },
+                    { label: '饱和度', value: `${preset.cameraParams.saturation}%` },
+                    { label: '冷暖调', value: preset.cameraParams.warm_cool },
+                    { label: '青红调', value: preset.cameraParams.cyan_magenta },
+                    { label: '锐度', value: preset.cameraParams.sharpness },
+                    { label: '暗角', value: preset.cameraParams.vignette ? '开启' : '关闭' },
+                    { label: 'ISO', value: getParamDisplayValue(preset.cameraParams.iso) },
+                    { label: '快门', value: getParamDisplayValue(preset.cameraParams.shutter_speed) },
+                    { label: '曝光补偿', value: getParamDisplayValue(preset.cameraParams.exposure_compensation) },
+                    { label: '自定义白平衡', value: getParamDisplayValue(preset.cameraParams.custom_wb ? `${preset.cameraParams.custom_wb}K` : undefined) }
+                  ].filter(p => p.value !== '-').map((param) => (
                     <div key={param.label} className="bg-white/5 rounded-lg p-3">
                       <span className="text-xs text-white/50 block">{param.label}</span>
                       <span className="text-sm font-medium">{param.value}</span>
@@ -164,7 +222,7 @@ export default function PresetDetailPage() {
 
             {/* Adjustment Sliders */}
             <div className="card p-6">
-              <h2 className="text-lg font-bold mb-4">实时调节</h2>
+              <h2 className="text-lg font-bold mb-4">实时预览调节</h2>
               
               <div className="space-y-6">
                 {/* Brightness */}
@@ -227,17 +285,32 @@ export default function PresetDetailPage() {
             </div>
 
             {/* Description */}
-            <div className="card p-6">
-              <h2 className="text-lg font-bold mb-4">使用说明</h2>
-              <div className="space-y-4">
-                {preset.sections.map((section, idx) => (
-                  <div key={idx}>
-                    <h3 className="text-sm font-bold text-hasselblad mb-1">{section.title}</h3>
-                    <p className="text-sm text-white/70">{section.content}</p>
-                  </div>
-                ))}
+            {(preset.sections.length > 0 || preset.description) && (
+              <div className="card p-6">
+                <h2 className="text-lg font-bold mb-4">使用说明</h2>
+                <div className="space-y-4">
+                  {preset.description && (
+                    <div>
+                      <h3 className="text-sm font-bold text-hasselblad mb-1">{preset.description.title}</h3>
+                      <p className="text-sm text-white/70 whitespace-pre-wrap">{preset.description.content}</p>
+                    </div>
+                  )}
+                  {preset.sections.map((section, idx) => (
+                    <div key={idx}>
+                      <h3 className="text-sm font-bold text-hasselblad mb-2">{section.title}</h3>
+                      <div className="space-y-2">
+                        {section.items.map((item, itemIdx) => (
+                          <div key={itemIdx} className="flex justify-between bg-white/5 px-3 py-2 rounded">
+                            <span className="text-sm text-white/60">{item.label}</span>
+                            <span className="text-sm font-medium">{item.value}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
           </motion.div>
         </div>
       </div>

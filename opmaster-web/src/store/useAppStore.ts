@@ -24,7 +24,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectedPreset: null,
   filterType: FilterType.ALL,
   searchQuery: '',
-  favorites: new Set(['2', '6']),
+  favorites: new Set(['fujifilm_film', 'fairy_tale', 'ricoh_blue', 'ricoh_negative']),
   isLoading: false,
   
   setSelectedPreset: (preset) => set({ selectedPreset: preset }),
@@ -66,13 +66,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         filtered = filtered.filter(p => p.isFavorite);
         break;
       case FilterType.HNCS:
-        filtered = filtered.filter(p => p.cameraParams?.hasselblad_hncs);
+        filtered = filtered.filter(p => p.cameraParams?.hncs);
         break;
       case FilterType.NEW:
         filtered = filtered.filter(p => p.isNew);
         break;
       case FilterType.TRENDING:
-        filtered = filtered.filter((_, index) => index < 8); // 简单模拟热门
+        filtered = filtered.filter((_, index) => index < 8);
         break;
       default:
         break;
@@ -84,7 +84,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       filtered = filtered.filter(p => 
         p.name.toLowerCase().includes(query) ||
         p.deviceModel.toLowerCase().includes(query) ||
-        (p.category && p.category.toLowerCase().includes(query))
+        (p.category && p.category.toLowerCase().includes(query)) ||
+        (p.tags && p.tags.some(tag => tag.toLowerCase().includes(query)))
       );
     }
     

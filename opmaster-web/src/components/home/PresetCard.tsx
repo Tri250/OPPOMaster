@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Heart, Star, Sparkles } from 'lucide-react';
+import { Heart, Star, Sparkles, Camera } from 'lucide-react';
 import type { Preset } from '../../data/mockPresets';
 import { useAppStore } from '../../store/useAppStore';
 import { useNavigate } from 'react-router-dom';
@@ -35,7 +35,7 @@ export default function PresetCard({ preset, index }: PresetCardProps) {
       {/* Image */}
       <div className="relative aspect-[3/4] overflow-hidden">
         <img
-          src={`https://picsum.photos/seed/${preset.coverPath}/400/533`}
+          src={preset.coverPath}
           alt={preset.name}
           className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
           loading="lazy"
@@ -46,12 +46,19 @@ export default function PresetCard({ preset, index }: PresetCardProps) {
         
         {/* Top Badges */}
         <div className="absolute top-3 left-3 right-3 flex items-center justify-between">
-          {preset.cameraParams?.hasselblad_hncs && (
-            <div className="glass-effect px-2.5 py-1 rounded-full flex items-center space-x-1.5">
-              <Star className="w-3 h-3 text-hasselblad fill-hasselblad" />
-              <span className="text-xs font-bold text-hasselblad">哈苏</span>
-            </div>
-          )}
+          <div className="flex items-center space-x-2">
+            {preset.cameraParams?.hncs && (
+              <div className="glass-effect px-2.5 py-1 rounded-full flex items-center space-x-1.5">
+                <Star className="w-3 h-3 text-hasselblad fill-hasselblad" />
+                <span className="text-xs font-bold text-hasselblad">哈苏</span>
+              </div>
+            )}
+            {preset.category && (
+              <div className="glass-effect px-2 py-1 rounded-full">
+                <span className="text-xs text-white/90">{preset.category}</span>
+              </div>
+            )}
+          </div>
           {preset.isNew && (
             <div className="bg-gradient-to-r from-oppo-green to-hasselblad px-2.5 py-1 rounded-full flex items-center space-x-1">
               <Sparkles className="w-3 h-3 text-white" />
@@ -85,10 +92,19 @@ export default function PresetCard({ preset, index }: PresetCardProps) {
             {preset.name}
           </h3>
           
+          {preset.author && (
+            <p className="text-xs text-white/60 mb-2">
+              by {preset.author}
+            </p>
+          )}
+          
           <div className="flex items-center justify-between">
-            <span className="text-xs text-white/80 bg-white/10 px-2.5 py-1 rounded-full">
-              {preset.deviceModel}
-            </span>
+            <div className="flex items-center space-x-2">
+              <Camera className="w-3.5 h-3.5 text-white/70" />
+              <span className="text-xs text-white/80 bg-white/10 px-2.5 py-1 rounded-full">
+                {preset.deviceModel}
+              </span>
+            </div>
             
             <button 
               onClick={handleApply}

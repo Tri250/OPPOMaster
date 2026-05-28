@@ -3,13 +3,13 @@ import { Search, Filter, X } from 'lucide-react';
 import { FilterType } from '../../data/mockPresets';
 import { useAppStore } from '../../store/useAppStore';
 import PresetCard from './PresetCard';
-import { useEffect } from 'react';
 
 const filterOptions = [
   { type: FilterType.ALL, label: '全部' },
   { type: FilterType.HNCS, label: '哈苏认证' },
   { type: FilterType.NEW, label: '最新' },
-  { type: FilterType.TRENDING, label: '热门' }
+  { type: FilterType.TRENDING, label: '热门' },
+  { type: FilterType.FAVORITES, label: '收藏' }
 ];
 
 export default function PresetGrid() {
@@ -19,51 +19,9 @@ export default function PresetGrid() {
     searchQuery, 
     setSearchQuery, 
     getFilteredPresets,
-    presets,
-    setPresets,
-    isLoading,
-    setIsLoading
+    isLoading
   } = useAppStore();
   const filteredPresets = getFilteredPresets();
-
-  useEffect(() => {
-    const fetchPresets = async () => {
-      setIsLoading(true);
-      try {
-        const [oppoRes, realmeRes] = await Promise.all([
-          fetch('https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/oppo.json'),
-          fetch('https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/realme.json')
-        ]);
-        
-        const oppoData = await oppoRes.json();
-        const realmeData = await realmeRes.json();
-        
-        const allPresets = [...(oppoData.presets || []), ...(realmeData.presets || [])].map((preset: any, index: number) => ({
-          id: preset.id || `preset-${index}`,
-          name: preset.name || preset.title || '未命名预设',
-          coverPath: preset.coverPath || preset.cover || `preset-${index}`,
-          sections: preset.sections || [],
-          cameraParams: preset.cameraParams || null,
-          deviceModel: preset.deviceModel || preset.device || 'OPPO',
-          source: 'community' as const,
-          isFavorite: false,
-          isNew: preset.isNew || false,
-          category: preset.category || '通用',
-          difficulty: preset.difficulty || '简单'
-        }));
-        
-        setPresets(allPresets);
-      } catch (error) {
-        console.error('Failed to fetch presets:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    
-    if (presets.length === 0) {
-      fetchPresets();
-    }
-  }, [presets.length, setPresets, setIsLoading]);
 
   return (
     <section className="py-16 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
@@ -77,7 +35,7 @@ export default function PresetGrid() {
           精选影像推荐
         </h2>
         <p className="text-base text-white/60 max-w-xl mx-auto">
-          专业摄影师精心调校的影像参数推荐
+          专业摄影师精心调校的影像参数推荐 - 专为哈苏大师模式设计
         </p>
       </motion.div>
 
@@ -90,7 +48,7 @@ export default function PresetGrid() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="搜索影像名称..."
+            placeholder="搜索预设名称、标签或相机型号..."
             className="input pl-12 pr-12"
           />
           {searchQuery && (

@@ -1,30 +1,52 @@
 export type Section = {
   title: string;
-  content: string;
+  items: SectionItem[];
 };
 
-export type CameraParams = {
-  mode: string;
+export type SectionItem = {
+  label: string;
+  value: string;
+  span: number;
+};
+
+// OPPO FindX9spro哈苏大师模式相机参数格式
+export type HasselbladMasterParams = {
+  mode: 'master' | 'pro' | 'auto';
   filter: string;
-  iso: number;
-  shutter: string;
-  ev: string;
-  wb: string;
-  hasselblad_hncs: boolean;
+  filter_intensity: number;
+  soft_light: string;
+  tone_curve: number;
+  saturation: number;
+  warm_cool: number;
+  cyan_magenta: number;
+  sharpness: number;
+  vignette: boolean;
+  custom_wb?: number;
+  exposure_compensation?: string;
+  iso?: number;
+  shutter_speed?: string;
+  hncs?: boolean;
 };
 
 export type Preset = {
   id: string;
   name: string;
   coverPath: string;
+  galleryImages?: string[];
   sections: Section[];
-  cameraParams: CameraParams | null;
+  cameraParams: HasselbladMasterParams | null;
   deviceModel: string;
+  author?: string;
   source: 'omaster_cloud' | 'community';
   isFavorite: boolean;
   isNew?: boolean;
   category?: string;
   difficulty?: string;
+  tags?: string[];
+  description?: {
+    title: string;
+    content: string;
+  };
 };
 
 // 功能展示数据类型
@@ -76,248 +98,546 @@ export const appFeatures: AppFeature[] = [
   { id: 'ci-cd', title: 'CI/CD流程', description: '自动化构建、测试、发布流程，GitHub Actions集成', icon: '🚀', category: 'build', demoAvailable: true },
 ];
 
-// 扩展的预设数据
+// OPPO FindX9spro哈苏大师模式预设
 export const mockPresets: Preset[] = [
+  // OPPO官方预设
   {
-    id: '1',
-    name: '哈苏 X2D | 慵懒午后的佛罗伦萨',
-    coverPath: 'hasselblad_florence_01',
+    id: 'hasselblad_dewei',
+    name: '德味预设',
+    coverPath: 'https://cdn.fky.ltd/dw_01.webp',
+    galleryImages: ['https://cdn.fky.ltd/dw_02.webp', 'https://cdn.fky.ltd/dw_03.webp'],
     sections: [
-      { title: '光感设置', content: '降低对比度，提高高光保留' },
-      { title: '色彩调校', content: '暖色调偏移，饱和度适中' }
+      {
+        title: '色彩调校',
+        items: [
+          { label: '滤镜', value: '明艳 100%', span: 2 },
+          { label: '柔光', value: '无', span: 1 },
+          { label: '色调曲线', value: '-35', span: 1 },
+          { label: '饱和度', value: '0', span: 1 },
+          { label: '冷暖调', value: '-5', span: 1 },
+          { label: '青红调', value: '4', span: 1 },
+          { label: '锐度', value: '10', span: 1 },
+          { label: '暗角', value: '开', span: 2 }
+        ]
+      }
     ],
     cameraParams: {
       mode: 'master',
-      filter: '复古',
-      iso: 200,
-      shutter: '1/250',
-      ev: '+0.3',
-      wb: '5600K',
-      hasselblad_hncs: true
+      filter: '明艳',
+      filter_intensity: 100,
+      soft_light: '无',
+      tone_curve: -35,
+      saturation: 0,
+      warm_cool: -5,
+      cyan_magenta: 4,
+      sharpness: 10,
+      vignette: true,
+      hncs: true
     },
-    deviceModel: 'Find X8 Pro',
-    source: 'omaster_cloud',
-    isFavorite: false,
-    isNew: true,
-    category: '风景',
-    difficulty: '中等'
-  },
-  {
-    id: '2',
-    name: '京都夜色 | 霓虹光斑',
-    coverPath: 'kyoto_night_01',
-    sections: [
-      { title: '夜景优化', content: '高ISO降噪，长曝光' },
-      { title: '色彩强化', content: '霓虹色饱和度提升' }
-    ],
-    cameraParams: {
-      mode: 'master',
-      filter: '夜景',
-      iso: 800,
-      shutter: '1/30',
-      ev: '-0.7',
-      wb: '4200K',
-      hasselblad_hncs: false
-    },
-    deviceModel: 'Find X8 Ultra',
-    source: 'omaster_cloud',
-    isFavorite: true,
-    isNew: false,
-    category: '夜景',
-    difficulty: '进阶'
-  },
-  {
-    id: '3',
-    name: '北欧森林 | 自然清新',
-    coverPath: 'nordic_forest_01',
-    sections: [
-      { title: '绿色优化', content: '树叶色彩还原' },
-      { title: '动态范围', content: '高对比度保留细节' }
-    ],
-    cameraParams: {
-      mode: 'master',
-      filter: '自然',
-      iso: 100,
-      shutter: '1/500',
-      ev: '0',
-      wb: '5200K',
-      hasselblad_hncs: true
-    },
-    deviceModel: 'Reno 12 Pro',
-    source: 'omaster_cloud',
-    isFavorite: false,
-    isNew: true,
-    category: '风景',
-    difficulty: '简单'
-  },
-  {
-    id: '4',
-    name: '海边日落 | 温暖橙调',
-    coverPath: 'sunset_beach_01',
-    sections: [
-      { title: '金色时刻', content: '暖色调强化' },
-      { title: '天空细节', content: '渐变层次保留' }
-    ],
-    cameraParams: {
-      mode: 'master',
-      filter: '暖调',
-      iso: 100,
-      shutter: '1/200',
-      ev: '+0.7',
-      wb: '6000K',
-      hasselblad_hncs: true
-    },
-    deviceModel: 'Find X7 Ultra',
-    source: 'omaster_cloud',
-    isFavorite: false,
-    isNew: false,
-    category: '风景',
-    difficulty: '中等'
-  },
-  {
-    id: '5',
-    name: '城市街头 | 黑白纪实',
-    coverPath: 'city_street_01',
-    sections: [
-      { title: '黑白模式', content: '高对比度黑白' },
-      { title: '颗粒感', content: '胶片颗粒模拟' }
-    ],
-    cameraParams: {
-      mode: 'master',
-      filter: '黑白',
-      iso: 400,
-      shutter: '1/1000',
-      ev: '0',
-      wb: '自动',
-      hasselblad_hncs: false
-    },
-    deviceModel: 'Find X8',
+    deviceModel: 'Find X9spro',
+    author: '@波子Booz',
     source: 'omaster_cloud',
     isFavorite: false,
     isNew: true,
     category: '街拍',
-    difficulty: '进阶'
+    difficulty: '中等',
+    tags: ['德味', '哈苏', '大师模式'],
+    description: {
+      title: '拍摄建议',
+      content: '【环境建议】日间户外或光线充足的室内\n【场景推荐】街拍、建筑、风景、人文\n【拍摄要点】德味风格，影调偏暗，色彩浓郁，适合追求经典德系胶片质感的摄影爱好者'
+    }
   },
   {
-    id: '6',
-    name: '春日樱花 | 粉调柔焦',
-    coverPath: 'sakura_spring_01',
+    id: 'fujifilm_film',
+    name: '富士胶片',
+    coverPath: 'https://picsum.photos/400/600?random=1',
+    galleryImages: [
+      'https://picsum.photos/400/600?random=2',
+      'https://picsum.photos/400/600?random=3'
+    ],
     sections: [
-      { title: '粉色优化', content: '樱花色彩还原' },
-      { title: '柔焦效果', content: '轻微虚化处理' }
+      {
+        title: '色彩调校',
+        items: [
+          { label: '滤镜', value: '复古 100%', span: 2 },
+          { label: '柔光', value: '无', span: 1 },
+          { label: '色调曲线', value: '0', span: 1 },
+          { label: '饱和度', value: '+19', span: 1 },
+          { label: '冷暖调', value: '-5', span: 1 },
+          { label: '青红调', value: '0', span: 1 },
+          { label: '锐度', value: '15', span: 1 },
+          { label: '暗角', value: '开', span: 2 }
+        ]
+      }
     ],
     cameraParams: {
       mode: 'master',
-      filter: '人像',
-      iso: 200,
-      shutter: '1/320',
-      ev: '+0.3',
-      wb: '5800K',
-      hasselblad_hncs: true
+      filter: '复古',
+      filter_intensity: 100,
+      soft_light: '无',
+      tone_curve: 0,
+      saturation: 19,
+      warm_cool: -5,
+      cyan_magenta: 0,
+      sharpness: 15,
+      vignette: true,
+      hncs: true
     },
-    deviceModel: 'Reno 12',
+    deviceModel: 'Find X9spro',
+    author: '@OPPO影像',
+    source: 'omaster_cloud',
+    isFavorite: true,
+    isNew: false,
+    category: '胶片',
+    difficulty: '简单',
+    tags: ['胶片', '富士', '经典'],
+    description: {
+      title: '拍摄建议',
+      content: '【环境建议】日间户外或光线充足的室内\n【场景推荐】街拍、人像、风景、建筑\n【拍摄要点】适合追求经典胶片质感的场景，色彩浓郁复古，建议寻找有光影对比的场景增强层次感'
+    }
+  },
+  {
+    id: 'film_sense',
+    name: '胶片感',
+    coverPath: 'https://picsum.photos/400/600?random=4',
+    galleryImages: [
+      'https://picsum.photos/400/600?random=5',
+      'https://picsum.photos/400/600?random=6'
+    ],
+    sections: [
+      {
+        title: '色彩调校',
+        items: [
+          { label: '滤镜', value: '复古 75%', span: 2 },
+          { label: '柔光', value: '柔美', span: 1 },
+          { label: '色调曲线', value: '-5', span: 1 },
+          { label: '饱和度', value: '+20', span: 1 },
+          { label: '冷暖调', value: '-3', span: 1 },
+          { label: '青红调', value: '+4', span: 1 },
+          { label: '锐度', value: '7', span: 1 },
+          { label: '暗角', value: '开', span: 2 }
+        ]
+      }
+    ],
+    cameraParams: {
+      mode: 'master',
+      filter: '复古',
+      filter_intensity: 75,
+      soft_light: '柔美',
+      tone_curve: -5,
+      saturation: 20,
+      warm_cool: -3,
+      cyan_magenta: 4,
+      sharpness: 7,
+      vignette: true,
+      hncs: true
+    },
+    deviceModel: 'Find X9spro',
+    author: '@OPPO影像',
+    source: 'omaster_cloud',
+    isFavorite: false,
+    isNew: true,
+    category: '人文',
+    difficulty: '简单',
+    tags: ['胶片', '文艺', '人像'],
+    description: {
+      title: '拍摄建议',
+      content: '【环境建议】自然光或柔和人工光源\n【场景推荐】人像写真、静物、咖啡馆、文艺场景\n【拍摄要点】柔光效果营造梦幻氛围，适合拍摄情绪感照片，建议对焦主体保持清晰'
+    }
+  },
+  {
+    id: 'fairy_tale',
+    name: '童话',
+    coverPath: 'https://picsum.photos/400/600?random=7',
+    galleryImages: [
+      'https://picsum.photos/400/600?random=8',
+      'https://picsum.photos/400/600?random=9'
+    ],
+    sections: [
+      {
+        title: '色彩调校',
+        items: [
+          { label: '滤镜', value: '童话 73%', span: 2 },
+          { label: '柔光', value: '梦幻', span: 1 },
+          { label: '色调曲线', value: '-24', span: 1 },
+          { label: '饱和度', value: '+12', span: 1 },
+          { label: '冷暖调', value: '+3', span: 1 },
+          { label: '青红调', value: '+7', span: 1 },
+          { label: '锐度', value: '0', span: 1 },
+          { label: '暗角', value: '开', span: 2 }
+        ]
+      }
+    ],
+    cameraParams: {
+      mode: 'master',
+      filter: '童话',
+      filter_intensity: 73,
+      soft_light: '梦幻',
+      tone_curve: -24,
+      saturation: 12,
+      warm_cool: 3,
+      cyan_magenta: 7,
+      sharpness: 0,
+      vignette: true,
+      hncs: true
+    },
+    deviceModel: 'Find X9spro',
+    author: '@OPPO影像',
     source: 'omaster_cloud',
     isFavorite: true,
     isNew: false,
     category: '人像',
-    difficulty: '简单'
+    difficulty: '中等',
+    tags: ['童话', '梦幻', '儿童'],
+    description: {
+      title: '拍摄建议',
+      content: '【环境建议】清晨、黄昏或阴天散射光\n【场景推荐】儿童摄影、花园、公园、浪漫场景\n【拍摄要点】影调偏暗营造神秘感，梦幻柔光适合营造童话氛围，建议寻找色彩丰富的场景'
+    }
   },
-  // 新增更多预设
   {
-    id: '7',
-    name: '美食探店 | 诱人食欲',
-    coverPath: 'food_dining_01',
+    id: 'high_contrast_bw',
+    name: '高对比黑白',
+    coverPath: 'https://picsum.photos/400/600?random=10',
+    galleryImages: [
+      'https://picsum.photos/400/600?random=11',
+      'https://picsum.photos/400/600?random=12'
+    ],
     sections: [
-      { title: '色彩提升', content: '食物色彩更鲜艳' },
-      { title: '高光处理', content: '保留食物表面光泽' }
+      {
+        title: '色彩调校',
+        items: [
+          { label: '滤镜', value: '黑白 100%', span: 2 },
+          { label: '柔光', value: '柔美', span: 1 },
+          { label: '色调曲线', value: '-61', span: 1 },
+          { label: '饱和度', value: '0', span: 1 },
+          { label: '冷暖调', value: '+100', span: 1 },
+          { label: '青红调', value: '-39', span: 1 },
+          { label: '锐度', value: '0', span: 1 },
+          { label: '暗角', value: '关', span: 2 }
+        ]
+      }
     ],
     cameraParams: {
       mode: 'master',
-      filter: '美食',
-      iso: 160,
-      shutter: '1/125',
-      ev: '+0.5',
-      wb: '5000K',
-      hasselblad_hncs: false
+      filter: '黑白',
+      filter_intensity: 100,
+      soft_light: '柔美',
+      tone_curve: -61,
+      saturation: 0,
+      warm_cool: 100,
+      cyan_magenta: -39,
+      sharpness: 0,
+      vignette: false,
+      hncs: true
     },
-    deviceModel: 'Find X8',
+    deviceModel: 'Find X9spro',
+    author: '@OPPO影像',
     source: 'omaster_cloud',
     isFavorite: false,
     isNew: true,
-    category: '美食',
-    difficulty: '简单'
+    category: '纪实',
+    difficulty: '进阶',
+    tags: ['黑白', '纪实', '街拍'],
+    description: {
+      title: '拍摄建议',
+      content: '【环境建议】强烈光影对比场景，如阳光直射或聚光灯\n【场景推荐】建筑、纪实摄影、街头、艺术人像\n【拍摄要点】利用明暗对比突出主体轮廓，适合几何线条和纹理丰富的场景，注意构图简洁有力'
+    }
   },
   {
-    id: '8',
-    name: '建筑大师 | 线条与光影',
-    coverPath: 'architecture_01',
+    id: 'ricoh_green',
+    name: '理光绿',
+    coverPath: 'https://picsum.photos/400/600?random=13',
+    galleryImages: [
+      'https://picsum.photos/400/600?random=14',
+      'https://picsum.photos/400/600?random=15'
+    ],
     sections: [
-      { title: '几何校正', content: '透视畸变最小化' },
-      { title: '光影对比', content: '明暗层次鲜明' }
+      {
+        title: '色彩调校',
+        items: [
+          { label: '滤镜', value: '清新 100%', span: 2 },
+          { label: '柔光', value: '梦幻', span: 1 },
+          { label: '色调曲线', value: '+39', span: 1 },
+          { label: '饱和度', value: '+12', span: 1 },
+          { label: '冷暖调', value: '-2', span: 1 },
+          { label: '青红调', value: '-9', span: 1 },
+          { label: '锐度', value: '10', span: 1 },
+          { label: '暗角', value: '开', span: 2 }
+        ]
+      }
     ],
     cameraParams: {
       mode: 'master',
-      filter: '专业',
-      iso: 100,
-      shutter: '1/640',
-      ev: '-0.3',
-      wb: '5500K',
-      hasselblad_hncs: true
+      filter: '清新',
+      filter_intensity: 100,
+      soft_light: '梦幻',
+      tone_curve: 39,
+      saturation: 12,
+      warm_cool: -2,
+      cyan_magenta: -9,
+      sharpness: 10,
+      vignette: true,
+      hncs: true
     },
-    deviceModel: 'Find X8 Ultra',
+    deviceModel: 'Find X9spro',
+    author: '@OPPO影像',
     source: 'omaster_cloud',
     isFavorite: false,
     isNew: false,
-    category: '建筑',
-    difficulty: '进阶'
+    category: '风景',
+    difficulty: '简单',
+    tags: ['清新', '绿色', '自然'],
+    description: {
+      title: '拍摄建议',
+      content: '【环境建议】户外自然光，森林、草地、植物丰富的场景\n【场景推荐】植物摄影、森林漫步、春日户外、清新人像\n【拍摄要点】影调偏亮突出清新感，绿色表现自然通透，适合拍摄植物和户外自然场景'
+    }
   },
   {
-    id: '9',
-    name: '胶片模拟 | Kodak Portra',
-    coverPath: 'film_kodak_01',
+    id: 'ricoh_blue',
+    name: '理光蓝',
+    coverPath: 'https://picsum.photos/400/600?random=16',
+    galleryImages: [
+      'https://picsum.photos/400/600?random=17',
+      'https://picsum.photos/400/600?random=18'
+    ],
     sections: [
-      { title: '胶片色彩', content: 'Portra 400色彩模拟' },
-      { title: '颗粒质感', content: '轻微颗粒增加质感' }
+      {
+        title: '色彩调校',
+        items: [
+          { label: '滤镜', value: '通透 100%', span: 2 },
+          { label: '柔光', value: '柔美', span: 1 },
+          { label: '色调曲线', value: '+18', span: 1 },
+          { label: '饱和度', value: '-2', span: 1 },
+          { label: '冷暖调', value: '-8', span: 1 },
+          { label: '青红调', value: '+19', span: 1 },
+          { label: '锐度', value: '11', span: 1 },
+          { label: '暗角', value: '开', span: 2 }
+        ]
+      }
     ],
     cameraParams: {
       mode: 'master',
-      filter: '胶片',
-      iso: 400,
-      shutter: '1/250',
-      ev: '0',
-      wb: '5300K',
-      hasselblad_hncs: false
+      filter: '通透',
+      filter_intensity: 100,
+      soft_light: '柔美',
+      tone_curve: 18,
+      saturation: -2,
+      warm_cool: -8,
+      cyan_magenta: 19,
+      sharpness: 11,
+      vignette: true,
+      hncs: true
     },
-    deviceModel: 'Reno 12 Pro',
+    deviceModel: 'Find X9spro',
+    author: '@OPPO影像',
     source: 'omaster_cloud',
-    isFavorite: false,
+    isFavorite: true,
     isNew: true,
-    category: '胶片',
-    difficulty: '中等'
+    category: '建筑',
+    difficulty: '中等',
+    tags: ['蓝色', '通透', '建筑'],
+    description: {
+      title: '拍摄建议',
+      content: '【环境建议】晴朗天气或蓝天背景\n【场景推荐】海边、城市建筑、天空、冷色调场景\n【拍摄要点】偏冷色调增强蓝色表现力，适合拍摄天空、水面和城市建筑，营造通透冷静的氛围'
+    }
   },
   {
-    id: '10',
-    name: '星空银河 | 长曝光',
-    coverPath: 'starry_night_01',
+    id: 'blue_hour',
+    name: '蓝调时刻',
+    coverPath: 'https://picsum.photos/400/600?random=19',
+    galleryImages: ['https://picsum.photos/400/600?random=20'],
     sections: [
-      { title: '长曝光', content: '捕捉星星移动轨迹' },
-      { title: '噪点控制', content: '高ISO下的降噪处理' }
+      {
+        title: '色彩调校',
+        items: [
+          { label: '滤镜', value: '复古 100%', span: 2 },
+          { label: '柔光', value: '梦幻', span: 1 },
+          { label: '色调曲线', value: '-5', span: 1 },
+          { label: '饱和度', value: '+15', span: 1 },
+          { label: '冷暖调', value: '+47', span: 1 },
+          { label: '青红调', value: '+28', span: 1 },
+          { label: '锐度', value: '12', span: 1 },
+          { label: '暗角', value: '开', span: 2 }
+        ]
+      }
     ],
     cameraParams: {
       mode: 'master',
-      filter: '星空',
-      iso: 3200,
-      shutter: '20s',
-      ev: '0',
-      wb: '4000K',
-      hasselblad_hncs: true
+      filter: '复古',
+      filter_intensity: 100,
+      soft_light: '梦幻',
+      tone_curve: -5,
+      saturation: 15,
+      warm_cool: 47,
+      cyan_magenta: 28,
+      sharpness: 12,
+      vignette: true,
+      iso: 800,
+      shutter_speed: '1/30',
+      exposure_compensation: '-0.7',
+      custom_wb: 4200,
+      hncs: true
     },
-    deviceModel: 'Find X8 Pro',
+    deviceModel: 'Find X9spro',
+    author: '@OPPO影像',
     source: 'omaster_cloud',
     isFavorite: false,
     isNew: false,
     category: '夜景',
-    difficulty: '专家'
+    difficulty: '进阶',
+    tags: ['蓝调', '夜景', '城市'],
+    description: {
+      title: '拍摄建议',
+      content: '【环境建议】日出前或日落后20分钟的蓝调时刻\n【场景推荐】城市夜景、灯光璀璨的场景、水面倒影\n【拍摄要点】冷暖对比强烈，适合拍摄城市灯光和夜景，建议寻找有水面的场景增强倒影效果'
+    }
+  },
+  {
+    id: 'dream_soft',
+    name: '梦幻黑柔',
+    coverPath: 'https://picsum.photos/400/600?random=21',
+    galleryImages: [
+      'https://picsum.photos/400/600?random=22',
+      'https://picsum.photos/400/600?random=23'
+    ],
+    sections: [
+      {
+        title: '色彩调校',
+        items: [
+          { label: '滤镜', value: '标准 0%', span: 2 },
+          { label: '柔光', value: '梦幻', span: 1 },
+          { label: '色调曲线', value: '-25', span: 1 },
+          { label: '饱和度', value: '+11', span: 1 },
+          { label: '冷暖调', value: '+30', span: 1 },
+          { label: '青红调', value: '-9', span: 1 },
+          { label: '锐度', value: '0', span: 1 },
+          { label: '暗角', value: '开', span: 2 }
+        ]
+      }
+    ],
+    cameraParams: {
+      mode: 'master',
+      filter: '标准',
+      filter_intensity: 0,
+      soft_light: '梦幻',
+      tone_curve: -25,
+      saturation: 11,
+      warm_cool: 30,
+      cyan_magenta: -9,
+      sharpness: 0,
+      vignette: true,
+      hncs: true
+    },
+    deviceModel: 'Find X9spro',
+    author: '@OPPO影像',
+    source: 'omaster_cloud',
+    isFavorite: false,
+    isNew: true,
+    category: '人像',
+    difficulty: '专家',
+    tags: ['黑柔', '梦幻', '唯美人像'],
+    description: {
+      title: '拍摄建议',
+      content: '【环境建议】逆光或侧逆光场景\n【场景推荐】人像写真、情绪摄影、艺术场景、柔美人像\n【拍摄要点】黑柔滤镜效果营造梦幻氛围，适合拍摄唯美人像，建议利用逆光创造光晕效果'
+    }
+  },
+  // Realme预设
+  {
+    id: 'ricoh_positive',
+    name: '理光正片',
+    coverPath: 'https://cdn.fky.ltd/zwzp_01.webp',
+    galleryImages: ['https://cdn.fky.ltd/zwzp_02.webp', 'https://cdn.fky.ltd/zwzp_03.webp'],
+    sections: [
+      {
+        title: '色彩调校',
+        items: [
+          { label: '滤镜', value: '正片', span: 2 },
+          { label: '饱和度', value: '+4', span: 1 },
+          { label: '色相', value: '+1', span: 1 },
+          { label: '色调曲线', value: '-1', span: 1 },
+          { label: '对比度', value: '+3', span: 1 },
+          { label: '高光对比度', value: '+2', span: 1 },
+          { label: '阴影对比度', value: '-2', span: 1 },
+          { label: '锐度', value: '-1', span: 1 },
+          { label: '亮度', value: '-1', span: 1 },
+          { label: '清晰度', value: '-1', span: 1 },
+          { label: '颗粒感', value: '+3', span: 1 },
+          { label: '颗粒大小', value: '+2', span: 2 }
+        ]
+      }
+    ],
+    cameraParams: {
+      mode: 'master',
+      filter: '正片',
+      filter_intensity: 100,
+      soft_light: '无',
+      tone_curve: -1,
+      saturation: 4,
+      warm_cool: 0,
+      cyan_magenta: 0,
+      sharpness: -1,
+      vignette: false
+    },
+    deviceModel: 'GT 6',
+    author: '@尼克lin',
+    source: 'community',
+    isFavorite: false,
+    isNew: false,
+    category: '街拍',
+    difficulty: '中等',
+    tags: ['理光', '正片', 'GR'],
+    description: {
+      title: '拍摄建议',
+      content: '【环境建议】日间户外，光线充足的场景\n【场景推荐】街拍、建筑、人文、日常记录\n【拍摄要点】模拟理光GR正片风格，色彩鲜艳对比度高，适合追求胶片质感的拍摄场景'
+    }
+  },
+  {
+    id: 'ricoh_negative',
+    name: '理光负片',
+    coverPath: 'https://cdn.fky.ltd/lgfp_01.webp',
+    galleryImages: ['https://cdn.fky.ltd/lgfp_02.webp', 'https://cdn.fky.ltd/lgfp_03.webp'],
+    sections: [
+      {
+        title: '色彩调校',
+        items: [
+          { label: '滤镜', value: '负片', span: 2 },
+          { label: '饱和度', value: '+3', span: 1 },
+          { label: '色相', value: '+3', span: 1 },
+          { label: '色调曲线', value: '+1', span: 1 },
+          { label: '对比度', value: '+4', span: 1 },
+          { label: '高光对比度', value: '+1', span: 1 },
+          { label: '阴影对比度', value: '-2', span: 1 },
+          { label: '锐度', value: '+1', span: 1 },
+          { label: '亮度', value: '+1', span: 1 },
+          { label: '清晰度', value: '0', span: 1 },
+          { label: '颗粒感', value: '0', span: 1 },
+          { label: '颗粒大小', value: '0', span: 2 }
+        ]
+      }
+    ],
+    cameraParams: {
+      mode: 'master',
+      filter: '负片',
+      filter_intensity: 100,
+      soft_light: '无',
+      tone_curve: 1,
+      saturation: 3,
+      warm_cool: 0,
+      cyan_magenta: 0,
+      sharpness: 1,
+      vignette: false
+    },
+    deviceModel: 'GT 6',
+    author: '@尼克lin',
+    source: 'community',
+    isFavorite: true,
+    isNew: true,
+    category: '人文',
+    difficulty: '简单',
+    tags: ['理光', '负片', 'GR'],
+    description: {
+      title: '拍摄建议',
+      content: '【环境建议】日间户外，光线充足的场景\n【场景推荐】街拍、建筑、人文、日常记录\n【拍摄要点】模拟理光GR负片风格，色彩自然略带胶片感，适合追求真实质感的拍摄场景'
+    }
   }
 ];
 
@@ -331,7 +651,7 @@ export const watermarkTemplates = [
   { id: 'timestamp', name: '时间戳', description: '显示拍摄时间' },
   { id: 'location', name: '地理位置', description: '显示拍摄地点' },
   { id: 'custom', name: '自定义', description: '完全自定义内容' },
-  { id: 'brand-simple', name: '品牌简约', description: 'OMaster标识' },
+  { id: 'brand-simple', name: '品牌简约', description: '小O帮帮标识' },
   { id: 'film-style', name: '胶片风格', description: '复古胶片边框' }
 ];
 
