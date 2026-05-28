@@ -8,8 +8,11 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Typeface
+import android.net.Uri
+import android.os.Build
 import android.os.Environment
-import androidx.compose.foundation.Canvas
+import android.provider.Settings
+import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -17,27 +20,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.SaveAlt
-import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.runtime.livedata.observeAsState
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
@@ -45,7 +36,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
-import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.omaster.app.camera.CameraCompatibilityStatus
 import com.omaster.app.camera.RealTimeCameraParams
@@ -53,8 +43,8 @@ import com.omaster.app.model.Preset
 import com.omaster.app.ui.components.CameraPermissionRequester
 import com.omaster.app.ui.components.ParamComparisonDisplay
 import com.omaster.app.ui.components.RealTimeCameraParamsDisplay
-import com.omaster.app.ui.theme.*
 import com.omaster.app.ui.components.ScreenshotShareDialog
+import com.omaster.app.ui.theme.*
 import com.omaster.app.viewmodel.MainViewModel
 import kotlinx.coroutines.launch
 import java.io.File
@@ -70,7 +60,7 @@ fun DetailScreen(
     onFavoriteToggle: () -> Unit,
     onApplyPreset: (Preset) -> Unit = {},
     modifier: Modifier = Modifier,
-    viewModel: MainViewModel = hiltViewModel()
+    viewModel: MainViewModel = androidx.hilt.navigation.compose.hiltViewModel()
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -84,6 +74,7 @@ fun DetailScreen(
     )
     var showCameraParams by remember { mutableStateOf(false) }
     var showScreenshotDialog by remember { mutableStateOf(false) }
+    var showApplyGuideDialog by remember { mutableStateOf(false) }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -129,6 +120,32 @@ fun DetailScreen(
             putExtra(Intent.EXTRA_SUBJECT, "分享OMaster预设: ${preset.name}")
         }
         context.startActivity(Intent.createChooser(intent, "分享预设"))
+    }
+
+    fun openCameraSettings() {
+        try {
+            val intent = Intent(Settings.ACTION_APPLICATION_SETTINGS)
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            val intent = Intent(Settings.ACTION_SETTINGS)
+            context.startActivity(intent)
+        }
+    }
+
+    fun openSystemCamera() {
+        try {
+            val intent = Intent(Settings.ACTION_CAMERA_SETTINGS)
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            try {
+                val intent = Intent(Settings.ACTION_APPLICATION_SETTINGS)
+                context.startActivity(intent)
+            } catch (e2: Exception) {
+                scope.launch {
+                    snackbarHostState.showSnackbar("无法打开相机设置，请手动设置")
+                }
+            }
+        }
     }
 
     fun saveParameterCard(preset: Preset) {
@@ -210,7 +227,7 @@ fun DetailScreen(
                 
                 val uri = FileProvider.getUriForFile(
                     context,
-                    "${context.packageName}.opmaster.provider",
+                    "${context.packageName}.fileprovider",
                     file
                 )
                 
@@ -227,6 +244,101 @@ fun DetailScreen(
                 snackbarHostState.showSnackbar("保存失败: ${e.message}")
             }
         }
+    }
+
+    if (showApplyGuideDialog) {
+        AlertDialog(
+            onDismissRequest = { showApplyGuideDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Info,
+                    contentDescription = null,
+                    tint = AccentPrimary,
+                    modifier = Modifier.size(32.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "应用影像预设",
+                    style = MaterialTheme.typography.headlineSmall
+                )
+            },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "将预设参数应用到相机需要以下步骤：",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                text = "📱 手动操作方式：",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            
+                            StepItem(number = 1, text = "打开手机相机应用")
+                            StepItem(number = 2, text = "进入专业/手动模式 (M)")
+                            StepItem(number = 3, text = "根据预设参数手动调整")
+                        }
+                    }
+                    
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = AccentPrimary.copy(alpha = 0.1f)
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Tips,
+                                contentDescription = null,
+                                tint = AccentPrimary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Text(
+                                text = "提示：OPPO Find系列支持专业模式参数预设导入",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showApplyGuideDialog = false
+                        openSystemCamera()
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = AccentPrimary
+                    )
+                ) {
+                    Text("打开相机", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showApplyGuideDialog = false }) {
+                    Text("知道了")
+                }
+            }
+        )
     }
 
     Scaffold(
@@ -475,13 +587,7 @@ fun DetailScreen(
                     
                     Button(
                         onClick = {
-                            onApplyPreset(preset)
-                            scope.launch {
-                                snackbarHostState.showSnackbar(
-                                    message = "预设应用成功",
-                                    duration = SnackbarDuration.Short
-                                )
-                            }
+                            showApplyGuideDialog = true
                         },
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.buttonColors(
@@ -489,8 +595,15 @@ fun DetailScreen(
                         ),
                         shape = RoundedCornerShape(12.dp)
                     ) {
+                        Icon(
+                            imageVector = Icons.Default.CameraAlt,
+                            contentDescription = null,
+                            tint = DeepSpace,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "应用预设",
+                            text = "应用影像",
                             style = MaterialTheme.typography.titleLarge,
                             color = DeepSpace,
                             fontWeight = FontWeight.Bold
@@ -502,7 +615,7 @@ fun DetailScreen(
     }
     
     if (showScreenshotDialog) {
-        androidx.compose.material3.AlertDialog(
+        AlertDialog(
             onDismissRequest = { showScreenshotDialog = false },
             title = { },
             text = {
@@ -514,6 +627,33 @@ fun DetailScreen(
             confirmButton = { },
             dismissButton = { },
             modifier = Modifier.fillMaxSize()
+        )
+    }
+}
+
+@Composable
+private fun StepItem(number: Int, text: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Surface(
+            shape = RoundedCornerShape(50),
+            color = AccentPrimary,
+            modifier = Modifier.size(24.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    text = number.toString(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyMedium
         )
     }
 }

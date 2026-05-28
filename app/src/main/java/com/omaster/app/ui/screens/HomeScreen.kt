@@ -1,39 +1,30 @@
 package com.omaster.app.ui.screens
 
-import android.content.Intent
-import android.net.Uri
-import android.os.Build
-import android.provider.Settings
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
-import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.omaster.app.R
-import com.omaster.app.floating.FloatingWindowToggleButton
-import com.omaster.app.floating.PermissionGuidanceDialog
+import coil.compose.AsyncImage
 import com.omaster.app.model.Preset
-import com.omaster.app.ui.animation.AnimationConfig
-import com.omaster.app.ui.components.EnhancedFilterChips
-import com.omaster.app.ui.components.EnhancedPresetCard
-import com.omaster.app.ui.components.EnhancedSearchBar
-import com.omaster.app.ui.components.PresetCardSkeleton
 import com.omaster.app.ui.theme.*
 import com.omaster.app.viewmodel.FilterType
 import com.omaster.app.viewmodel.MainViewModel
@@ -45,28 +36,15 @@ fun HomeScreen(
     modifier: Modifier = Modifier,
     viewModel: MainViewModel = hiltViewModel()
 ) {
-    val context = LocalContext.current
     val presets by viewModel.presets.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val filterType by viewModel.filterType.collectAsStateWithLifecycle()
     
-    var showPermissionDialog by remember { mutableStateOf(false) }
-    var showSpecialGuidance by remember { mutableStateOf(false) }
-    var isFloatingWindowEnabled by remember { mutableStateOf(false) }
-    var isLoading by remember { mutableStateOf(true) }
-    
-    LaunchedEffect(presets) {
-        if (presets.isNotEmpty()) {
-            delay(300)
-            isLoading = false
-        }
-    }
-    
     val filteredPresets = remember(presets, searchQuery, filterType) {
         presets.filter { preset ->
             val matchesQuery = searchQuery.isEmpty() ||
-                    preset.name.contains(searchQuery, ignoreCase = true) ||
-                    preset.deviceModel?.contains(searchQuery, ignoreCase = true) == true
+                preset.name.contains(searchQuery, ignoreCase = true) ||
+                preset.deviceModel?.contains(searchQuery, ignoreCase = true) == true
             val matchesFilter = when (filterType) {
                 FilterType.ALL -> true
                 FilterType.FAVORITES -> preset.isFavorite
@@ -80,294 +58,414 @@ fun HomeScreen(
         }
     }
     
-    val systemBrand = remember {
-        when {
-            Build.MANUFACTURER.lowercase().contains("oppo") ||
-            Build.MANUFACTURER.lowercase().contains("realme") -> "ColorOS"
-            Build.MANUFACTURER.lowercase().contains("oneplus") -> "OxygenOS"
-            Build.MANUFACTURER.lowercase().contains("xiaomi") ||
-            Build.MANUFACTURER.lowercase().contains("redmi") -> "MIUI"
-            Build.MANUFACTURER.lowercase().contains("vivo") -> "OriginOS"
-            else -> "原生Android"
-        }
-    }
-    
-    val specialGuidance = remember(systemBrand) {
-        when {
-            systemBrand == "ColorOS" -> """
-                请按以下步骤解除ColorOS授权限制：
-                
-                1. 点击「去授权」按钮
-                2. 在「权限与隐私」→「自启动管理」中找到OMaster
-                3. 开启「允许自启动」和「允许后台活动」
-                4. 返回后点击「允许」授予悬浮窗权限
-            """.trimIndent()
-            systemBrand == "OxygenOS" -> """
-                请按以下步骤解除OxygenOS授权限制：
-                
-                1. 点击「去授权」按钮
-                2. 在「电池」→「电池优化」中找到OMaster
-                3. 选择「不允许」以防止后台被清理
-                4. 返回后授予悬浮窗权限
-            """.trimIndent()
-            else -> ""
-        }
-    }
-    
-    val shouldShowSpecialGuidance = systemBrand == "ColorOS" || systemBrand == "OxygenOS"
-    
-    fun canDrawOverlays(): Boolean {
-        return Settings.canDrawOverlays(context)
-    }
-    
-    fun toggleFloatingWindow() {
-        if (!canDrawOverlays()) {
-            showPermissionDialog = true
-            return
-        }
-        
-        isFloatingWindowEnabled = !isFloatingWindowEnabled
-        if (isFloatingWindowEnabled) {
-            viewModel.setOverlayEnabled(true)
-        } else {
-            viewModel.setOverlayEnabled(false)
-        }
-    }
-    
-    fun openOverlayPermissionSettings() {
-        try {
-            val intent = Intent(
-                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:${context.packageName}")
-            )
-            context.startActivity(intent)
-        } catch (e: Exception) {
-            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                data = Uri.parse("package:${context.packageName}")
-            }
-            context.startActivity(intent)
-        }
-    }
-    
     Scaffold(
         modifier = modifier,
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "OMaster",
-                        style = MaterialTheme.typography.displaySmall,
-                        color = AccentPrimary
-                    )
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                ),
-                actions = {
-                    FloatingWindowToggleButton(
-                        isEnabled = isFloatingWindowEnabled,
-                        onToggle = { toggleFloatingWindow() }
-                    )
-                    
-                    IconButton(
-                        onClick = onSettingsClick,
-                        modifier = Modifier.semantics {
-                            contentDescription = "设置"
-                        }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "设置",
-                            tint = MaterialTheme.colorScheme.onBackground
-                        )
-                    }
-                }
+            HomeTopBar(
+                onSettingsClick = onSettingsClick,
+                searchQuery = searchQuery,
+                onSearchQueryChange = { viewModel.onSearchQueryChanged(it) },
+                onClearSearch = { viewModel.onSearchQueryChanged("") }
             )
-        }
+        },
+        containerColor = MaterialTheme.colorScheme.background
     ) { paddingValues ->
-        LazyColumn(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues),
-            contentPadding = PaddingValues(vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(paddingValues)
         ) {
-            item {
-                EnhancedSearchBar(
-                    query = searchQuery,
-                    onQueryChange = { viewModel.onSearchQueryChanged(it) },
-                    onClearQuery = { viewModel.onSearchQueryChanged("") }
+            FilterChipsRow(
+                selectedFilter = filterType,
+                onFilterSelected = { viewModel.onFilterTypeChanged(it) }
+            )
+            
+            if (filteredPresets.isEmpty()) {
+                EmptyState(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(32.dp)
+                )
+            } else {
+                PresetGrid(
+                    presets = filteredPresets,
+                    onPresetClick = onPresetClick,
+                    onFavoriteToggle = { viewModel.toggleFavorite(it) },
+                    modifier = Modifier.weight(1f)
                 )
             }
-            item {
-                EnhancedFilterChips(
-                    selectedFilter = filterType,
-                    onFilterSelected = { viewModel.onFilterTypeChanged(it) }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HomeTopBar(
+    onSettingsClick: () -> Unit,
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
+    onClearSearch: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = "OMaster",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "OPPO 哈苏影像专家",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             
-            if (isLoading) {
-                items(3) { index ->
-                    AnimatedVisibility(
-                        visible = true,
-                        enter = fadeIn(
-                            animationSpec = tween(
-                                durationMillis = 200,
-                                delayMillis = index * 50
-                            )
-                        ) + slideInVertically(
-                            initialOffsetY = { 20.dp.toPx().toInt() },
-                            animationSpec = tween(
-                                durationMillis = 200,
-                                delayMillis = index * 50,
-                                easing = AnimationConfig.LinearOutSlowInEasing
-                            )
-                        )
-                    ) {
-                        PresetCardSkeleton(
-                            modifier = Modifier.padding(horizontal = 16.dp)
-                        )
-                    }
-                }
-            } else if (filteredPresets.isEmpty()) {
-                item {
-                    EmptyState(
-                        message = if (searchQuery.isNotEmpty() || filterType != FilterType.ALL)
-                            "没有找到匹配的预设，试试其他关键词" 
-                        else "暂无预设，看看热门推荐",
-                        isSearchEmpty = searchQuery.isEmpty() && filterType == FilterType.ALL,
-                        modifier = Modifier.fillParentMaxWidth()
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                IconButton(
+                    onClick = { },
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.QrCodeScanner,
+                        contentDescription = "扫码",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-            } else {
-                itemsIndexed(filteredPresets, key = { _, preset -> preset.id }) { index, preset ->
-                    AnimatedPresetCard(
-                        preset = preset,
-                        index = index,
-                        onClick = { onPresetClick(preset) },
-                        onFavoriteToggle = { viewModel.toggleFavorite(preset) }
+                
+                IconButton(
+                    onClick = onSettingsClick,
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "设置",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
         }
-    }
-    
-    if (showPermissionDialog) {
-        PermissionGuidanceDialog(
-            systemBrand = systemBrand,
-            specialGuidance = specialGuidance,
-            onDismiss = { showPermissionDialog = false },
-            onAuthorize = {
-                showPermissionDialog = false
-                openOverlayPermissionSettings()
-            }
+        
+        Spacer(modifier = Modifier.height(12.dp))
+        
+        SearchBar(
+            query = searchQuery,
+            onQueryChange = onSearchQueryChange,
+            onClearQuery = onClearSearch,
+            onSearch = { }
         )
     }
 }
 
 @Composable
-fun AnimatedPresetCard(
+private fun SearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onClearQuery: () -> Unit,
+    onSearch: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = "搜索",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(24.dp)
+            )
+            
+            TextField(
+                value = query,
+                onValueChange = onQueryChange,
+                modifier = Modifier.weight(1f),
+                placeholder = {
+                    Text(
+                        text = "搜索影像预设...",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    )
+                },
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent
+                ),
+                singleLine = true
+            )
+            
+            if (query.isNotEmpty()) {
+                IconButton(
+                    onClick = onClearQuery,
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "清除",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FilterChipsRow(
+    selectedFilter: FilterType,
+    onFilterSelected: (FilterType) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        FilterChip(
+            selected = selectedFilter == FilterType.ALL,
+            onClick = { onFilterSelected(FilterType.ALL) },
+            label = { Text("全部") },
+            colors = FilterChipDefaults.filterChipColors(
+                selectedContainerColor = AccentPrimary,
+                selectedLabelColor = Color.White
+            )
+        )
+        
+        FilterChip(
+            selected = selectedFilter == FilterType.HNCS,
+            onClick = { onFilterSelected(FilterType.HNCS) },
+            label = { Text("哈苏 HNCS") },
+            colors = FilterChipDefaults.filterChipColors(
+                selectedContainerColor = HasselbladOrange,
+                selectedLabelColor = DeepSpace
+            )
+        )
+        
+        FilterChip(
+            selected = selectedFilter == FilterType.FAVORITES,
+            onClick = { onFilterSelected(FilterType.FAVORITES) },
+            label = { Text("我的收藏") },
+            leadingIcon = if (selectedFilter == FilterType.FAVORITES) {
+                {
+                    Icon(
+                        imageVector = Icons.Default.Favorite,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            } else null,
+            colors = FilterChipDefaults.filterChipColors(
+                selectedContainerColor = AccentPrimary,
+                selectedLabelColor = Color.White
+            )
+        )
+    }
+}
+
+@Composable
+private fun PresetGrid(
+    presets: List<Preset>,
+    onPresetClick: (Preset) -> Unit,
+    onFavoriteToggle: (Preset) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(2),
+        modifier = modifier.padding(horizontal = 12.dp),
+        contentPadding = PaddingValues(vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        items(presets, key = { it.id }) { preset ->
+            PresetCard(
+                preset = preset,
+                onClick = { onPresetClick(preset) },
+                onFavoriteToggle = { onFavoriteToggle(preset) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun PresetCard(
     preset: Preset,
-    index: Int,
     onClick: () -> Unit,
     onFavoriteToggle: () -> Unit
 ) {
-    val delay = index * 50L
-    
-    AnimatedVisibility(
-        visible = true,
-        enter = fadeIn(
-            animationSpec = tween(
-                durationMillis = AnimationConfig.STATE_TRANSITION_DURATION,
-                delayMillis = delay.toInt(),
-                easing = AnimationConfig.LinearOutSlowInEasing
-            )
-        ) + slideInVertically(
-            initialOffsetY = { 20.dp.toPx().toInt() },
-            animationSpec = tween(
-                durationMillis = AnimationConfig.STATE_TRANSITION_DURATION,
-                delayMillis = delay.toInt(),
-                easing = AnimationConfig.LinearOutSlowInEasing
-            )
-        )
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(0.75f)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        EnhancedPresetCard(
-            preset = preset,
-            onClick = onClick,
-            onFavoriteToggle = onFavoriteToggle,
-            modifier = Modifier.padding(horizontal = 16.dp),
-            isNew = index < 3
-        )
+        Box(modifier = Modifier.fillMaxSize()) {
+            AsyncImage(
+                model = "https://picsum.photos/seed/${preset.coverPath}/400/533",
+                contentDescription = preset.name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+            
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                Color.Transparent,
+                                MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
+                            )
+                        )
+                    )
+            )
+            
+            if (preset.cameraParams?.hasselblad_hncs == true) {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(8.dp),
+                    color = HasselbladOrange,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = "HNCS",
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = DeepSpace,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+            
+            IconButton(
+                onClick = onFavoriteToggle,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(4.dp)
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.3f))
+            ) {
+                Icon(
+                    imageVector = if (preset.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                    contentDescription = if (preset.isFavorite) "取消收藏" else "收藏",
+                    tint = if (preset.isFavorite) AccentPrimary else Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(12.dp)
+            ) {
+                Text(
+                    text = preset.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    fontWeight = FontWeight.SemiBold
+                )
+                
+                Spacer(modifier = Modifier.height(4.dp))
+                
+                preset.deviceModel?.let { device ->
+                    Text(
+                        text = device,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                
+                preset.cameraParams?.let { params ->
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(top = 4.dp)
+                    ) {
+                        if (params.iso > 0) {
+                            Text(
+                                text = "ISO ${params.iso}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        params.wb?.let { wb ->
+                            Text(
+                                text = wb,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
 @Composable
-fun EmptyState(
-    message: String,
-    isSearchEmpty: Boolean = false,
-    modifier: Modifier = Modifier
-) {
+private fun EmptyState(modifier: Modifier = Modifier) {
     Column(
-        modifier = modifier
-            .padding(32.dp)
-            .semantics { contentDescription = message },
+        modifier = modifier,
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        AnimatedVisibility(
-            visible = true,
-            enter = fadeIn(
-                animationSpec = tween(500)
-            ) + slideInVertically(
-                initialOffsetY = { 20.dp.toPx().toInt() },
-                animationSpec = tween(500, easing = AnimationConfig.LinearOutSlowInEasing)
-            )
-        ) {
-            if (isSearchEmpty) {
-                Image(
-                    painter = painterResource(id = R.drawable.empty_presets),
-                    contentDescription = "暂无预设",
-                    modifier = Modifier.size(120.dp)
-                )
-            } else {
-                Image(
-                    painter = painterResource(id = R.drawable.empty_search),
-                    contentDescription = "搜索无结果",
-                    modifier = Modifier.size(120.dp)
-                )
-            }
-        }
+        Icon(
+            imageVector = Icons.Default.PhotoCamera,
+            contentDescription = null,
+            modifier = Modifier.size(80.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+        )
         
         Spacer(modifier = Modifier.height(16.dp))
         
-        AnimatedVisibility(
-            visible = true,
-            enter = fadeIn(
-                animationSpec = tween(300, delayMillis = 200)
-            )
-        ) {
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
-            )
-        }
+        Text(
+            text = "暂无影像推荐",
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         
         Spacer(modifier = Modifier.height(8.dp))
         
-        AnimatedVisibility(
-            visible = true,
-            enter = fadeIn(
-                animationSpec = tween(300, delayMillis = 300)
-            )
-        ) {
-            Text(
-                text = if (isSearchEmpty) "期待更多精彩预设" else "换个关键词试试",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                textAlign = TextAlign.Center
-            )
-        }
+        Text(
+            text = "换个筛选条件试试",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+        )
     }
 }
