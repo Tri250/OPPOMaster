@@ -13,8 +13,8 @@ android {
         applicationId = "com.omaster.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 121
+        versionName = "1.2.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -22,13 +22,29 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            // Note: In production, these should come from environment variables or secrets
+            storeFile = file("release.keystore")
+            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "placeholder"
+            keyAlias = System.getenv("KEY_ALIAS") ?: "omaster"
+            keyPassword = System.getenv("KEY_PASSWORD") ?: "placeholder"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("release")
+        }
+        debug {
+            isMinifyEnabled = false
+            isDebuggable = true
         }
     }
     
@@ -88,6 +104,16 @@ dependencies {
     implementation("com.squareup.retrofit2:converter-gson:2.9.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+    
+    // CameraX
+    val cameraxVersion = "1.3.4"
+    implementation("androidx.camera:camera-core:$cameraxVersion")
+    implementation("androidx.camera:camera-camera2:$cameraxVersion")
+    implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
+    implementation("androidx.camera:camera-view:$cameraxVersion")
+    
+    // WorkManager
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
     
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.mockito:mockito-core:5.11.0")

@@ -15,7 +15,7 @@ class PresetRepository @Inject constructor(
     private val preferencesDataStore: PreferencesDataStore,
     private val presetApi: PresetApi
 ) {
-    private val samplePresets = listOf(
+    private val basePresets = listOf(
         Preset(
             id = "1",
             name = "哈苏 X2D | 慵懒午后的佛罗伦萨",
@@ -138,9 +138,13 @@ class PresetRepository @Inject constructor(
         )
     )
 
+    private val expandedPresets by lazy {
+        PresetDataExpander.expandPresets(basePresets)
+    }
+
     val presets: Flow<List<Preset>> = preferencesDataStore.favoritePresets
         .map { favoriteIds ->
-            samplePresets.map { preset ->
+            expandedPresets.map { preset ->
                 preset.copy(isFavorite = favoriteIds.contains(preset.id))
             }
         }
@@ -150,7 +154,7 @@ class PresetRepository @Inject constructor(
     }
 
     fun getPresetById(id: String): Preset? {
-        return samplePresets.find { it.id == id }
+        return expandedPresets.find { it.id == id }
     }
 
     suspend fun fetchPresetsFromNetwork(): List<Preset>? {

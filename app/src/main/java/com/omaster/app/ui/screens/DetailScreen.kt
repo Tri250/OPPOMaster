@@ -1,5 +1,6 @@
 package com.omaster.app.ui.screens
 
+import android.Manifest
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -12,7 +13,9 @@ import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -26,9 +29,17 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import com.omaster.app.camera.CameraCompatibilityStatus
+import com.omaster.app.camera.RealTimeCameraParams
 import com.omaster.app.model.Preset
+import com.omaster.app.ui.components.CameraPermissionRequester
+import com.omaster.app.ui.components.ParamComparisonDisplay
+import com.omaster.app.ui.components.RealTimeCameraParamsDisplay
 import com.omaster.app.ui.theme.*
+import com.omaster.app.ui.components.ScreenshotShareDialog
+import com.omaster.app.viewmodel.MainViewModel
 import kotlinx.coroutines.launch
 
 @Composable
@@ -37,12 +48,28 @@ fun DetailScreen(
     onBack: () -> Unit,
     onFavoriteToggle: () -> Unit,
     onApplyPreset: (Preset) -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    viewModel: MainViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    
+
+    val cameraStatus by viewModel.cameraStatus.observeAsState(
+        initial = CameraCompatibilityStatus.NotSupported
+    )
+    val cameraParams by viewModel.cameraParams.observeAsState(
+        initial = RealTimeCameraParams()
+    )
+    var showCameraParams by remember { mutableStateOf(false) }
+    var showScreenshotDialog by remember { mutableStateOf(false) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.stopCameraMonitor()
+        }
+    }
+
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -174,6 +201,46 @@ fun DetailScreen(
                     GridParamsGrid(params)
 
                     Spacer(modifier = Modifier.height(24.dp))
+
+                    Button(
+                        onClick = { showCameraParams = !showCameraParams },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            text = if (showCameraParams) "隐藏实时参数" else "查看实时参数",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    if (showCameraParams) {
+                        when (cameraStatus) {
+                            CameraCompatibilityStatus.PermissionRequired -> {
+                                CameraPermissionRequester(
+                                    onPermissionGranted = {
+                                        viewModel.startCameraMonitor()
+                                    },
+                                    onPermissionDenied = {
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar("相机权限被拒绝")
+                                        }
+                                    }
+                                )
+                            }
+                            else -> {
+                                RealTimeCameraParamsDisplay(
+                                    status = cameraStatus,
+                                    params = cameraParams,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                    }
                 }
 
                 if (preset.sections.isNotEmpty()) {
@@ -193,31 +260,61 @@ fun DetailScreen(
                     Spacer(modifier = Modifier.height(24.dp))
                 }
 
-                Button(
-                    onClick = {
-                        onApplyPreset(preset)
-                        scope.launch {
-                            snackbarHostState.showSnackbar(
-                                message = "预设应用成功",
-                                duration = SnackbarDuration.Short
-                            )
-                        }
-                    },
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = AccentPrimary
-                    ),
-                    shape = RoundedCornerShape(12.dp)
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text(
-                        text = "应用预设",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = DeepSpace,
-                        fontWeight = FontWeight.Bold
-                    )
+                    OutlinedButton(
+                        onClick = { showScreenshotDialog = true },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.PhotoCamera, contentDescription = "生成截图")
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("生成截图")
+                    }
+                    
+                    Button(
+                        onClick = {
+                            onApplyPreset(preset)
+                            scope.launch {
+                                snackbarHostState.showSnackbar(
+                                    message = "预设应用成功",
+                                    duration = SnackbarDuration.Short
+                                )
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = AccentPrimary
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            text = "应用预设",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = DeepSpace,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }
+    }
+    
+    if (showScreenshotDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showScreenshotDialog = false },
+            title = { },
+            text = {
+                ScreenshotShareDialog(
+                    preset = preset,
+                    onDismiss = { showScreenshotDialog = false }
+                )
+            },
+            confirmButton = { },
+            dismissButton = { },
+            modifier = Modifier.fillMaxSize()
+        )
     }
 }
 
