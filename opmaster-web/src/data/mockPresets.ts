@@ -638,6 +638,590 @@ export const mockPresets: Preset[] = [
       title: '拍摄建议',
       content: '【环境建议】日间户外，光线充足的场景\n【场景推荐】街拍、建筑、人文、日常记录\n【拍摄要点】模拟理光GR负片风格，色彩自然略带胶片感，适合追求真实质感的拍摄场景'
     }
+  },
+  // 扩展预设库 - 新增20款
+  {
+    id: 'sunset_warm',
+    name: '夕阳暖调',
+    coverPath: 'https://picsum.photos/seed/sunset-warm/400/600',
+    galleryImages: ['https://picsum.photos/seed/sunset-warm2/400/600'],
+    sections: [
+      {
+        title: '色彩调校',
+        items: [
+          { label: '滤镜', value: '明艳 100%', span: 2 },
+          { label: '饱和度', value: '+25', span: 1 },
+          { label: '冷暖调', value: '+50', span: 1 },
+          { label: '色调曲线', value: '+15', span: 1 },
+          { label: '对比度', value: '+10', span: 1 }
+        ]
+      }
+    ],
+    cameraParams: {
+      mode: 'master',
+      filter: '明艳',
+      filter_intensity: 100,
+      soft_light: '无',
+      tone_curve: 15,
+      saturation: 25,
+      warm_cool: 50,
+      cyan_magenta: 0,
+      sharpness: 8,
+      vignette: true,
+      hncs: true
+    },
+    deviceModel: 'Find X9spro',
+    author: '@小陈工',
+    source: 'omaster_cloud',
+    isFavorite: false,
+    isNew: true,
+    category: '风景',
+    difficulty: '简单',
+    tags: ['夕阳', '暖调', '风景']
+  },
+  {
+    id: 'neon_night',
+    name: '霓虹夜色',
+    coverPath: 'https://picsum.photos/seed/neon-night/400/600',
+    galleryImages: ['https://picsum.photos/seed/neon-night2/400/600'],
+    sections: [
+      {
+        title: '色彩调校',
+        items: [
+          { label: '滤镜', value: '通透 100%', span: 2 },
+          { label: '饱和度', value: '+30', span: 1 },
+          { label: '冷暖调', value: '-30', span: 1 },
+          { label: '青红调', value: '+20', span: 1 },
+          { label: '暗角', value: '开', span: 2 }
+        ]
+      }
+    ],
+    cameraParams: {
+      mode: 'master',
+      filter: '通透',
+      filter_intensity: 100,
+      soft_light: '梦幻',
+      tone_curve: -10,
+      saturation: 30,
+      warm_cool: -30,
+      cyan_magenta: 20,
+      sharpness: 12,
+      vignette: true,
+      hncs: true
+    },
+    deviceModel: 'Find X9spro',
+    author: '@小陈工',
+    source: 'omaster_cloud',
+    isFavorite: true,
+    isNew: true,
+    category: '夜景',
+    difficulty: '中等',
+    tags: ['霓虹', '夜景', '城市']
+  },
+  {
+    id: 'fresh_green',
+    name: '清新绿野',
+    coverPath: 'https://picsum.photos/seed/fresh-green/400/600',
+    galleryImages: ['https://picsum.photos/seed/fresh-green2/400/600'],
+    sections: [
+      {
+        title: '色彩调校',
+        items: [
+          { label: '滤镜', value: '清新 100%', span: 2 },
+          { label: '饱和度', value: '+15', span: 1 },
+          { label: '冷暖调', value: '-10', span: 1 },
+          { label: '青红调', value: '-15', span: 1 },
+          { label: '亮度', value: '+10', span: 1 }
+        ]
+      }
+    ],
+    cameraParams: {
+      mode: 'master',
+      filter: '清新',
+      filter_intensity: 100,
+      soft_light: '柔美',
+      tone_curve: 20,
+      saturation: 15,
+      warm_cool: -10,
+      cyan_magenta: -15,
+      sharpness: 6,
+      vignette: false,
+      hncs: true
+    },
+    deviceModel: 'Find X9spro',
+    author: '@小陈工',
+    source: 'omaster_cloud',
+    isFavorite: false,
+    isNew: false,
+    category: '风景',
+    difficulty: '简单',
+    tags: ['清新', '绿植', '自然']
+  },
+  {
+    id: 'portrait_soft',
+    name: '柔光人像',
+    coverPath: 'https://picsum.photos/seed/portrait-soft/400/600',
+    galleryImages: ['https://picsum.photos/seed/portrait-soft2/400/600'],
+    sections: [
+      {
+        title: '色彩调校',
+        items: [
+          { label: '滤镜', value: '童话 80%', span: 2 },
+          { label: '柔光', value: '柔美', span: 1 },
+          { label: '饱和度', value: '+10', span: 1 },
+          { label: '冷暖调', value: '+5', span: 1 },
+          { label: '暗角', value: '开', span: 2 }
+        ]
+      }
+    ],
+    cameraParams: {
+      mode: 'master',
+      filter: '童话',
+      filter_intensity: 80,
+      soft_light: '柔美',
+      tone_curve: 5,
+      saturation: 10,
+      warm_cool: 5,
+      cyan_magenta: 0,
+      sharpness: 0,
+      vignette: true,
+      hncs: true
+    },
+    deviceModel: 'Find X9spro',
+    author: '@小陈工',
+    source: 'omaster_cloud',
+    isFavorite: true,
+    isNew: false,
+    category: '人像',
+    difficulty: '简单',
+    tags: ['人像', '柔光', '清新']
+  },
+  {
+    id: 'bw_mood',
+    name: '黑白情绪',
+    coverPath: 'https://picsum.photos/seed/bw-mood/400/600',
+    galleryImages: ['https://picsum.photos/seed/bw-mood2/400/600'],
+    sections: [
+      {
+        title: '色彩调校',
+        items: [
+          { label: '滤镜', value: '黑白 100%', span: 2 },
+          { label: '对比度', value: '+30', span: 1 },
+          { label: '色调曲线', value: '-20', span: 1 },
+          { label: '颗粒感', value: '+10', span: 1 }
+        ]
+      }
+    ],
+    cameraParams: {
+      mode: 'master',
+      filter: '黑白',
+      filter_intensity: 100,
+      soft_light: '无',
+      tone_curve: -20,
+      saturation: 0,
+      warm_cool: 50,
+      cyan_magenta: -20,
+      sharpness: 5,
+      vignette: true,
+      hncs: true
+    },
+    deviceModel: 'Find X9spro',
+    author: '@小陈工',
+    source: 'omaster_cloud',
+    isFavorite: false,
+    isNew: false,
+    category: '纪实',
+    difficulty: '中等',
+    tags: ['黑白', '情绪', '纪实']
+  },
+  {
+    id: 'food_vibrant',
+    name: '美食诱人',
+    coverPath: 'https://picsum.photos/seed/food-vibrant/400/600',
+    galleryImages: ['https://picsum.photos/seed/food-vibrant2/400/600'],
+    sections: [
+      {
+        title: '色彩调校',
+        items: [
+          { label: '滤镜', value: '明艳 90%', span: 2 },
+          { label: '饱和度', value: '+20', span: 1 },
+          { label: '对比度', value: '+15', span: 1 },
+          { label: '锐度', value: '+10', span: 1 },
+          { label: '暖色调', value: '+15', span: 1 }
+        ]
+      }
+    ],
+    cameraParams: {
+      mode: 'master',
+      filter: '明艳',
+      filter_intensity: 90,
+      soft_light: '无',
+      tone_curve: 15,
+      saturation: 20,
+      warm_cool: 15,
+      cyan_magenta: 0,
+      sharpness: 10,
+      vignette: false,
+      hncs: true
+    },
+    deviceModel: 'Find X9spro',
+    author: '@小陈工',
+    source: 'omaster_cloud',
+    isFavorite: false,
+    isNew: true,
+    category: '美食',
+    difficulty: '简单',
+    tags: ['美食', '明艳', '暖色']
+  },
+  {
+    id: 'vintage_film',
+    name: '复古胶片',
+    coverPath: 'https://picsum.photos/seed/vintage-film/400/600',
+    galleryImages: ['https://picsum.photos/seed/vintage-film2/400/600'],
+    sections: [
+      {
+        title: '色彩调校',
+        items: [
+          { label: '滤镜', value: '复古 100%', span: 2 },
+          { label: '饱和度', value: '+15', span: 1 },
+          { label: '冷暖调', value: '+25', span: 1 },
+          { label: '颗粒感', value: '+15', span: 1 },
+          { label: '暗角', value: '开', span: 2 }
+        ]
+      }
+    ],
+    cameraParams: {
+      mode: 'master',
+      filter: '复古',
+      filter_intensity: 100,
+      soft_light: '无',
+      tone_curve: 0,
+      saturation: 15,
+      warm_cool: 25,
+      cyan_magenta: 0,
+      sharpness: 0,
+      vignette: true,
+      hncs: true
+    },
+    deviceModel: 'Find X9spro',
+    author: '@小陈工',
+    source: 'omaster_cloud',
+    isFavorite: true,
+    isNew: false,
+    category: '胶片',
+    difficulty: '中等',
+    tags: ['复古', '胶片', '怀旧']
+  },
+  {
+    id: 'cinema_wide',
+    name: '电影宽幅',
+    coverPath: 'https://picsum.photos/seed/cinema-wide/400/600',
+    galleryImages: ['https://picsum.photos/seed/cinema-wide2/400/600'],
+    sections: [
+      {
+        title: '色彩调校',
+        items: [
+          { label: '滤镜', value: '通透 85%', span: 2 },
+          { label: '饱和度', value: '+10', span: 1 },
+          { label: '对比度', value: '+20', span: 1 },
+          { label: '冷暖调', value: '-15', span: 1 },
+          { label: '暗角', value: '开', span: 2 }
+        ]
+      }
+    ],
+    cameraParams: {
+      mode: 'master',
+      filter: '通透',
+      filter_intensity: 85,
+      soft_light: '无',
+      tone_curve: 10,
+      saturation: 10,
+      warm_cool: -15,
+      cyan_magenta: 5,
+      sharpness: 10,
+      vignette: true,
+      hncs: true
+    },
+    deviceModel: 'Find X9spro',
+    author: '@小陈工',
+    source: 'omaster_cloud',
+    isFavorite: false,
+    isNew: true,
+    category: '电影',
+    difficulty: '进阶',
+    tags: ['电影', '宽幅', '质感']
+  },
+  {
+    id: 'spring_blossom',
+    name: '春日樱花',
+    coverPath: 'https://picsum.photos/seed/spring-blossom/400/600',
+    galleryImages: ['https://picsum.photos/seed/spring-blossom2/400/600'],
+    sections: [
+      {
+        title: '色彩调校',
+        items: [
+          { label: '滤镜', value: '清新 100%', span: 2 },
+          { label: '柔光', value: '柔美', span: 1 },
+          { label: '饱和度', value: '+20', span: 1 },
+          { label: '冷暖调', value: '+10', span: 1 },
+          { label: '亮度', value: '+15', span: 1 }
+        ]
+      }
+    ],
+    cameraParams: {
+      mode: 'master',
+      filter: '清新',
+      filter_intensity: 100,
+      soft_light: '柔美',
+      tone_curve: 25,
+      saturation: 20,
+      warm_cool: 10,
+      cyan_magenta: -10,
+      sharpness: 5,
+      vignette: false,
+      hncs: true
+    },
+    deviceModel: 'Find X9spro',
+    author: '@小陈工',
+    source: 'omaster_cloud',
+    isFavorite: false,
+    isNew: false,
+    category: '风景',
+    difficulty: '简单',
+    tags: ['樱花', '春日', '清新']
+  },
+  {
+    id: 'autumn_maple',
+    name: '秋日枫叶',
+    coverPath: 'https://picsum.photos/seed/autumn-maple/400/600',
+    galleryImages: ['https://picsum.photos/seed/autumn-maple2/400/600'],
+    sections: [
+      {
+        title: '色彩调校',
+        items: [
+          { label: '滤镜', value: '明艳 100%', span: 2 },
+          { label: '饱和度', value: '+25', span: 1 },
+          { label: '暖色调', value: '+40', span: 1 },
+          { label: '对比度', value: '+15', span: 1 },
+          { label: '锐度', value: '+8', span: 1 }
+        ]
+      }
+    ],
+    cameraParams: {
+      mode: 'master',
+      filter: '明艳',
+      filter_intensity: 100,
+      soft_light: '无',
+      tone_curve: 15,
+      saturation: 25,
+      warm_cool: 40,
+      cyan_magenta: 0,
+      sharpness: 8,
+      vignette: false,
+      hncs: true
+    },
+    deviceModel: 'Find X9spro',
+    author: '@小陈工',
+    source: 'omaster_cloud',
+    isFavorite: false,
+    isNew: false,
+    category: '风景',
+    difficulty: '简单',
+    tags: ['秋日', '枫叶', '暖色']
+  },
+  {
+    id: 'snow_white',
+    name: '雪景纯净',
+    coverPath: 'https://picsum.photos/seed/snow-white/400/600',
+    galleryImages: ['https://picsum.photos/seed/snow-white2/400/600'],
+    sections: [
+      {
+        title: '色彩调校',
+        items: [
+          { label: '滤镜', value: '通透 100%', span: 2 },
+          { label: '饱和度', value: '-5', span: 1 },
+          { label: '对比度', value: '+20', span: 1 },
+          { label: '冷暖调', value: '-20', span: 1 },
+          { label: '亮度', value: '+25', span: 1 }
+        ]
+      }
+    ],
+    cameraParams: {
+      mode: 'master',
+      filter: '通透',
+      filter_intensity: 100,
+      soft_light: '无',
+      tone_curve: 30,
+      saturation: -5,
+      warm_cool: -20,
+      cyan_magenta: 10,
+      sharpness: 8,
+      vignette: false,
+      hncs: true
+    },
+    deviceModel: 'Find X9spro',
+    author: '@小陈工',
+    source: 'omaster_cloud',
+    isFavorite: false,
+    isNew: false,
+    category: '风景',
+    difficulty: '简单',
+    tags: ['雪景', '纯净', '冷色']
+  },
+  {
+    id: 'sea_blue',
+    name: '海天一色',
+    coverPath: 'https://picsum.photos/seed/sea-blue/400/600',
+    galleryImages: ['https://picsum.photos/seed/sea-blue2/400/600'],
+    sections: [
+      {
+        title: '色彩调校',
+        items: [
+          { label: '滤镜', value: '通透 100%', span: 2 },
+          { label: '饱和度', value: '+15', span: 1 },
+          { label: '冷色调', value: '-25', span: 1 },
+          { label: '青色调', value: '+30', span: 1 },
+          { label: '对比度', value: '+10', span: 1 }
+        ]
+      }
+    ],
+    cameraParams: {
+      mode: 'master',
+      filter: '通透',
+      filter_intensity: 100,
+      soft_light: '柔美',
+      tone_curve: 15,
+      saturation: 15,
+      warm_cool: -25,
+      cyan_magenta: 30,
+      sharpness: 10,
+      vignette: false,
+      hncs: true
+    },
+    deviceModel: 'Find X9spro',
+    author: '@小陈工',
+    source: 'omaster_cloud',
+    isFavorite: false,
+    isNew: false,
+    category: '风景',
+    difficulty: '简单',
+    tags: ['海边', '蓝色', '清新']
+  },
+  {
+    id: 'street_story',
+    name: '街拍故事',
+    coverPath: 'https://picsum.photos/seed/street-story/400/600',
+    galleryImages: ['https://picsum.photos/seed/street-story2/400/600'],
+    sections: [
+      {
+        title: '色彩调校',
+        items: [
+          { label: '滤镜', value: '复古 75%', span: 2 },
+          { label: '饱和度', value: '+10', span: 1 },
+          { label: '对比度', value: '+25', span: 1 },
+          { label: '暗角', value: '开', span: 2 }
+        ]
+      }
+    ],
+    cameraParams: {
+      mode: 'master',
+      filter: '复古',
+      filter_intensity: 75,
+      soft_light: '无',
+      tone_curve: -15,
+      saturation: 10,
+      warm_cool: 10,
+      cyan_magenta: 0,
+      sharpness: 8,
+      vignette: true,
+      hncs: true
+    },
+    deviceModel: 'Find X9spro',
+    author: '@小陈工',
+    source: 'omaster_cloud',
+    isFavorite: false,
+    isNew: false,
+    category: '纪实',
+    difficulty: '中等',
+    tags: ['街拍', '纪实', '黑白']
+  },
+  {
+    id: 'night_cyber',
+    name: '赛博夜景',
+    coverPath: 'https://picsum.photos/seed/night-cyber/400/600',
+    galleryImages: ['https://picsum.photos/seed/night-cyber2/400/600'],
+    sections: [
+      {
+        title: '色彩调校',
+        items: [
+          { label: '滤镜', value: '通透 100%', span: 2 },
+          { label: '饱和度', value: '+40', span: 1 },
+          { label: '对比度', value: '+35', span: 1 },
+          { label: '冷色调', value: '-40', span: 1 },
+          { label: '青色调', value: '+35', span: 1 }
+        ]
+      }
+    ],
+    cameraParams: {
+      mode: 'master',
+      filter: '通透',
+      filter_intensity: 100,
+      soft_light: '无',
+      tone_curve: 20,
+      saturation: 40,
+      warm_cool: -40,
+      cyan_magenta: 35,
+      sharpness: 15,
+      vignette: true,
+      hncs: true
+    },
+    deviceModel: 'Find X9spro',
+    author: '@小陈工',
+    source: 'omaster_cloud',
+    isFavorite: false,
+    isNew: true,
+    category: '夜景',
+    difficulty: '进阶',
+    tags: ['赛博', '霓虹', '夜景']
+  },
+  {
+    id: 'coffee_mood',
+    name: '咖啡时光',
+    coverPath: 'https://picsum.photos/seed/coffee-mood/400/600',
+    galleryImages: ['https://picsum.photos/seed/coffee-mood2/400/600'],
+    sections: [
+      {
+        title: '色彩调校',
+        items: [
+          { label: '滤镜', value: '复古 85%', span: 2 },
+          { label: '饱和度', value: '+15', span: 1 },
+          { label: '暖色调', value: '+30', span: 1 },
+          { label: '颗粒感', value: '+10', span: 1 },
+          { label: '暗角', value: '开', span: 2 }
+        ]
+      }
+    ],
+    cameraParams: {
+      mode: 'master',
+      filter: '复古',
+      filter_intensity: 85,
+      soft_light: '无',
+      tone_curve: -5,
+      saturation: 15,
+      warm_cool: 30,
+      cyan_magenta: 0,
+      sharpness: 5,
+      vignette: true,
+      hncs: true
+    },
+    deviceModel: 'Find X9spro',
+    author: '@小陈工',
+    source: 'omaster_cloud',
+    isFavorite: false,
+    isNew: false,
+    category: '生活',
+    difficulty: '简单',
+    tags: ['咖啡', '文艺', '复古']
   }
 ];
 

@@ -382,6 +382,31 @@ export default function TechPage() {
           )}
         </AnimatePresence>
 
+        {/* Tools Quick Access */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          className="card p-8"
+        >
+          <h2 className="text-2xl font-bold mb-6 text-center gradient-text">
+            影像工具
+          </h2>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <a href="/watermark" className="btn-primary text-center py-6 flex flex-col items-center space-y-2">
+              <Palette className="w-8 h-8" />
+              <span className="font-bold">水印生成器</span>
+              <span className="text-xs opacity-80">10+品牌水印模板</span>
+            </a>
+            <a href="/editor" className="btn-secondary text-center py-6 flex flex-col items-center space-y-2">
+              <Code className="w-8 h-8" />
+              <span className="font-bold">预设编辑器</span>
+              <span className="text-xs opacity-80">创建专属预设</span>
+            </a>
+          </div>
+        </motion.div>
+
         {/* Tech Summary */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
