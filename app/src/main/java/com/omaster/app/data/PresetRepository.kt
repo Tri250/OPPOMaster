@@ -1,5 +1,8 @@
 package com.omaster.app.data
 
+import com.omaster.app.data.local.PresetDao
+import com.omaster.app.data.local.toPreset
+import com.omaster.app.data.local.toPresetEntity
 import com.omaster.app.model.CameraParams
 import com.omaster.app.model.Preset
 import com.omaster.app.model.Section
@@ -13,7 +16,8 @@ import javax.inject.Singleton
 @Singleton
 class PresetRepository @Inject constructor(
     private val preferencesDataStore: PreferencesDataStore,
-    private val presetApi: PresetApi
+    private val presetApi: PresetApi,
+    private val presetDao: PresetDao
 ) {
     private val samplePresets = listOf(
         Preset(
@@ -138,19 +142,39 @@ class PresetRepository @Inject constructor(
         )
     )
 
-    val presets: Flow<List<Preset>> = preferencesDataStore.favoritePresets
-        .map { favoriteIds ->
-            samplePresets.map { preset ->
-                preset.copy(isFavorite = favoriteIds.contains(preset.id))
-            }
+    val presets: Flow<List<Preset>> = presetDao.getAllPresets()
+        .map { entities ->
+            entities.map { it.toPreset() }
         }
 
-    suspend fun toggleFavorite(presetId: String) {
-        preferencesDataStore.toggleFavorite(presetId)
+    val favoritePresets: Flow<List<Preset>> = presetDao.getFavoritePresets()
+        .map { entities ->
+            entities.map { it.toPreset() }
+        }
+
+    suspend fun initializeSampleData() {
+        val preset = presetDao.getPresetById("1")
+        if (preset == null) {
+            presetDao.insertPresets(samplePresets.map { it.toPresetEntity() })
+            Timber.d("初始化示例预设数据")
+        }
     }
 
-    fun getPresetById(id: String): Preset? {
-        return samplePresets.find { it.id == id }
+    suspend fun toggleFavorite(presetId: String) {
+        val preset = presetDao.getPresetById(presetId)
+        preset?.let {
+            val newFavoriteStatus = !it.isFavorite
+            presetDao.updateFavoriteStatus(presetId, newFavoriteStatus)
+            Timber.d("更新收藏状态: $presetId -> $newFavoriteStatus")
+        }
+    }
+
+    suspend fun getPresetById(id: String): Preset? {
+        return presetDao.getPresetById(id)?.toPreset()
+    }
+
+    suspend fun updateLastAccessed(presetId: String) {
+        presetDao.updateLastAccessed(presetId, System.currentTimeMillis())
     }
 
     suspend fun fetchPresetsFromNetwork(): List<Preset>? {
@@ -158,6 +182,9 @@ class PresetRepository @Inject constructor(
             val response = presetApi.getPresets()
             if (response.isSuccessful) {
                 Timber.d("成功从网络获取预设")
+                response.body()?.let { presets ->
+                    presetDao.insertPresets(presets.map { it.toPresetEntity() })
+                }
                 response.body()
             } else {
                 Timber.e("网络请求失败: ${response.code()}")
