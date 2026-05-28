@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/capsule_container"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    app:cardCornerRadius="32dp"
+    app:cardElevation="8dp"
+    app:cardBackgroundColor="#1A1A2E">
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="10dp"
+        android:gravity="center_vertical">
+
+        <ImageView
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:src="@android:drawable/ic_menu_camera"
+            android:tint="#D4A574" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginStart="10dp">
+
+            <TextView
+                android:id="@+id/capsule_preset_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="哈苏人像经典"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/capsule_category"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="哈苏预设"
+                android:textColor="#D4A574"
+                android:textSize="11sp" />
+
+        </LinearLayout>
+
+        <ImageView
+            android:id="@+id/capsule_hncs_icon"
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:src="@android:drawable/star_big_on"
+            android:tint="#D4A574"
+            android:layout_marginStart="8dp"
+            android:visibility="visible" />
+
+        <ImageButton
+            android:id="@+id/capsule_close"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:src="@android:drawable/ic_menu_close_clear_cancel"
+            android:tint="#888888"
+            android:background="?android:selectableItemBackgroundBorderless"
+            android:layout_marginStart="8dp"
+            android:contentDescription="关闭" />
+
+    </LinearLayout>
+
+</androidx.cardview.widget.CardView>

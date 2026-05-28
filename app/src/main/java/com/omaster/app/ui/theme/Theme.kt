@@ -16,36 +16,66 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import com.omaster.app.data.ThemeMode
 
-private val DarkColorScheme = darkColorScheme(
-    primary = AccentPrimary,
-    secondary = AccentSecondary,
-    tertiary = HasselbladOrange,
-    background = DeepSpace,
-    surface = DeepSpaceLight,
-    onPrimary = DeepSpace,
-    onSecondary = DeepSpace,
-    onTertiary = DeepSpace,
-    onBackground = TextPrimaryDark,
-    onSurface = TextPrimaryDark
+// ==================== OPPO 2026 深色配色方案 ====================
+private val OppoDarkColorScheme = darkColorScheme(
+    primary = OppoSunriseGold,
+    onPrimary = OppoDeepSpace,
+    primaryContainer = OppoSunriseGoldDark,
+    onPrimaryContainer = OppoTextPrimary,
+    secondary = OceanBlue,
+    onSecondary = Color.White,
+    secondaryContainer = OceanBlueDark,
+    onSecondaryContainer = OppoTextPrimary,
+    tertiary = HasselbladOrangePro,
+    onTertiary = OppoDeepSpace,
+    tertiaryContainer = HasselbladDarkPro,
+    onTertiaryContainer = OppoTextPrimary,
+    background = OppoDeepSpace,
+    onBackground = OppoTextPrimary,
+    surface = OppoCardSurface,
+    onSurface = OppoTextPrimary,
+    surfaceVariant = OppoElevated,
+    onSurfaceVariant = OppoTextSecondary,
+    outline = OppoBorder,
+    outlineVariant = OppoBorderLight,
+    error = ErrorVital,
+    onError = Color.White,
+    errorContainer = ErrorVital.copy(alpha = 0.15f),
+    onErrorContainer = OppoTextPrimary
 )
 
-private val LightColorScheme = lightColorScheme(
-    primary = AccentPrimary,
-    secondary = AccentSecondary,
-    tertiary = HasselbladOrange,
-    background = LightBackground,
-    surface = LightSurface,
-    onPrimary = TextPrimaryLight,
-    onSecondary = TextPrimaryLight,
-    onTertiary = TextPrimaryLight,
-    onBackground = TextPrimaryLight,
-    onSurface = TextPrimaryLight
+// ==================== OPPO 2026 浅色配色方案 ====================
+private val OppoLightColorScheme = lightColorScheme(
+    primary = OppoSunriseGold,
+    onPrimary = Color.White,
+    primaryContainer = OppoSunriseGoldLight,
+    onPrimaryContainer = OppoLightTextPrimary,
+    secondary = OceanBlue,
+    onSecondary = Color.White,
+    secondaryContainer = OceanBlueLight,
+    onSecondaryContainer = OppoLightTextPrimary,
+    tertiary = HasselbladOrangePro,
+    onTertiary = Color.White,
+    tertiaryContainer = HasselbladOrangeVibrant,
+    onTertiaryContainer = OppoLightTextPrimary,
+    background = OppoLightBackground,
+    onBackground = OppoLightTextPrimary,
+    surface = OppoLightSurface,
+    onSurface = OppoLightTextPrimary,
+    surfaceVariant = OppoLightElevated,
+    onSurfaceVariant = OppoLightTextSecondary,
+    outline = OppoLightBorder,
+    outlineVariant = OppoLightBorderLight,
+    error = ErrorVital,
+    onError = Color.White,
+    errorContainer = ErrorVital.copy(alpha = 0.15f),
+    onErrorContainer = OppoLightTextPrimary
 )
 
 @Composable
 fun OMasterTheme(
     themeMode: Int = ThemeMode.SYSTEM.value,
-    dynamicColor: Boolean = true,
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val darkTheme = when (themeMode) {
@@ -59,21 +89,25 @@ fun OMasterTheme(
             val context = LocalContext.current
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
+        darkTheme -> OppoDarkColorScheme
+        else -> OppoLightColorScheme
     }
+    
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
             window.statusBarColor = colorScheme.background.toArgb()
+            window.navigationBarColor = colorScheme.background.toArgb()
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
+            WindowCompat.getInsetsController(window, view).isAppearanceLightNavigationBars = !darkTheme
         }
     }
 
     MaterialTheme(
         colorScheme = colorScheme,
-        typography = Typography,
+        typography = OppoTypography,
+        shapes = OppoShapes,
         content = content
     )
 }
