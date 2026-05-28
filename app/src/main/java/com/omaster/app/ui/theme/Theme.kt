@@ -16,60 +16,60 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import com.omaster.app.data.ThemeMode
 
-// ==================== ColorOS 16 深色配色方案 ====================
-private val DarkColorScheme = darkColorScheme(
-    primary = AccentPrimary,
-    onPrimary = DeepSpace,
-    primaryContainer = AccentPrimaryDark,
-    onPrimaryContainer = TextPrimaryDark,
-    secondary = AccentSecondary,
+// ==================== OPPO 2026 深色配色方案 ====================
+private val OppoDarkColorScheme = darkColorScheme(
+    primary = OppoSunriseGold,
+    onPrimary = OppoDeepSpace,
+    primaryContainer = OppoSunriseGoldDark,
+    onPrimaryContainer = OppoTextPrimary,
+    secondary = OceanBlue,
     onSecondary = Color.White,
-    secondaryContainer = AccentSecondaryDark,
-    onSecondaryContainer = TextPrimaryDark,
-    tertiary = HasselbladOrange,
-    onTertiary = DeepSpace,
-    tertiaryContainer = HasselbladDark,
-    onTertiaryContainer = TextPrimaryDark,
-    background = DeepSpace,
-    onBackground = TextPrimaryDark,
-    surface = DeepSpaceCard,
-    onSurface = TextPrimaryDark,
-    surfaceVariant = DeepSpaceElevated,
-    onSurfaceVariant = TextSecondaryDark,
-    outline = BorderDark,
-    outlineVariant = BorderDark,
-    error = ErrorRed,
+    secondaryContainer = OceanBlueDark,
+    onSecondaryContainer = OppoTextPrimary,
+    tertiary = HasselbladOrangePro,
+    onTertiary = OppoDeepSpace,
+    tertiaryContainer = HasselbladDarkPro,
+    onTertiaryContainer = OppoTextPrimary,
+    background = OppoDeepSpace,
+    onBackground = OppoTextPrimary,
+    surface = OppoCardSurface,
+    onSurface = OppoTextPrimary,
+    surfaceVariant = OppoElevated,
+    onSurfaceVariant = OppoTextSecondary,
+    outline = OppoBorder,
+    outlineVariant = OppoBorderLight,
+    error = ErrorVital,
     onError = Color.White,
-    errorContainer = ErrorRed.copy(alpha = 0.15f),
-    onErrorContainer = TextPrimaryDark
+    errorContainer = ErrorVital.copy(alpha = 0.15f),
+    onErrorContainer = OppoTextPrimary
 )
 
-// ==================== ColorOS 16 浅色配色方案 ====================
-private val LightColorScheme = lightColorScheme(
-    primary = AccentPrimary,
+// ==================== OPPO 2026 浅色配色方案 ====================
+private val OppoLightColorScheme = lightColorScheme(
+    primary = OppoSunriseGold,
     onPrimary = Color.White,
-    primaryContainer = AccentPrimaryLight,
-    onPrimaryContainer = TextPrimaryLight,
-    secondary = AccentSecondary,
+    primaryContainer = OppoSunriseGoldLight,
+    onPrimaryContainer = OppoLightTextPrimary,
+    secondary = OceanBlue,
     onSecondary = Color.White,
-    secondaryContainer = AccentSecondaryLight,
-    onSecondaryContainer = TextPrimaryLight,
-    tertiary = HasselbladOrange,
+    secondaryContainer = OceanBlueLight,
+    onSecondaryContainer = OppoLightTextPrimary,
+    tertiary = HasselbladOrangePro,
     onTertiary = Color.White,
-    tertiaryContainer = GradientHasselblad.first(),
-    onTertiaryContainer = TextPrimaryLight,
-    background = LightBackground,
-    onBackground = TextPrimaryLight,
-    surface = LightSurface,
-    onSurface = TextPrimaryLight,
-    surfaceVariant = LightElevated,
-    onSurfaceVariant = TextSecondaryLight,
-    outline = BorderLight,
-    outlineVariant = BorderLight,
-    error = ErrorRed,
+    tertiaryContainer = HasselbladOrangeVibrant,
+    onTertiaryContainer = OppoLightTextPrimary,
+    background = OppoLightBackground,
+    onBackground = OppoLightTextPrimary,
+    surface = OppoLightSurface,
+    onSurface = OppoLightTextPrimary,
+    surfaceVariant = OppoLightElevated,
+    onSurfaceVariant = OppoLightTextSecondary,
+    outline = OppoLightBorder,
+    outlineVariant = OppoLightBorderLight,
+    error = ErrorVital,
     onError = Color.White,
-    errorContainer = ErrorRed.copy(alpha = 0.15f),
-    onErrorContainer = TextPrimaryLight
+    errorContainer = ErrorVital.copy(alpha = 0.15f),
+    onErrorContainer = OppoLightTextPrimary
 )
 
 @Composable
@@ -89,8 +89,8 @@ fun OMasterTheme(
             val context = LocalContext.current
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
+        darkTheme -> OppoDarkColorScheme
+        else -> OppoLightColorScheme
     }
     
     val view = LocalView.current
@@ -106,8 +106,8 @@ fun OMasterTheme(
 
     MaterialTheme(
         colorScheme = colorScheme,
-        typography = Typography,
-        shapes = ColorOSShapes,
+        typography = OppoTypography,
+        shapes = OppoShapes,
         content = content
     )
 }
