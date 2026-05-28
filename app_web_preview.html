@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OMaster - 专业摄影预设管理</title>
+    <title>OMaster - 大师模式调色参数库</title>
     <style>
         * {
             margin: 0;
@@ -13,59 +13,199 @@
         
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            background: linear-gradient(135deg, #0f0f0f 0%, #1a1a2e 50%, #16213e 100%);
+            background: #000;
             min-height: 100vh;
             color: #fff;
+            padding-bottom: 80px;
         }
         
         .header {
-            background: linear-gradient(90deg, #D4A574 0%, #C4956A 100%);
             padding: 24px;
-            text-align: center;
-            box-shadow: 0 4px 20px rgba(212, 165, 116, 0.3);
+            padding-top: 40px;
         }
         
         .header h1 {
-            font-size: 2.5rem;
+            font-size: 2rem;
             font-weight: 700;
-            color: #000;
-            margin-bottom: 8px;
+            color: #fff;
+            margin-bottom: 20px;
         }
         
-        .header p {
-            color: rgba(0, 0, 0, 0.8);
-            font-size: 1.1rem;
-        }
-        
-        .nav-tabs {
+        .tab-filter {
             display: flex;
-            justify-content: center;
             gap: 8px;
-            margin: 24px 0;
-            flex-wrap: wrap;
         }
         
         .tab {
-            padding: 12px 24px;
-            background: rgba(212, 165, 116, 0.15);
-            border: 2px solid rgba(212, 165, 116, 0.3);
-            border-radius: 30px;
+            padding: 10px 24px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 500;
             cursor: pointer;
             transition: all 0.3s ease;
-            color: #D4A574;
-            font-weight: 500;
+            border: none;
         }
         
-        .tab:hover, .tab.active {
-            background: rgba(212, 165, 116, 0.3);
-            border-color: #D4A574;
-            transform: translateY(-2px);
+        .tab.active {
+            background: #D4A574;
+            color: #000;
+        }
+        
+        .tab.inactive {
+            background: #2a2a2a;
+            color: rgba(255, 255, 255, 0.7);
+        }
+        
+        .tab.inactive:hover {
+            background: #3a3a3a;
         }
         
         .content {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 0 24px;
+            padding: 0 20px;
+        }
+        
+        .preset-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+        
+        .preset-card {
+            background: #1a1a1a;
+            border-radius: 16px;
+            overflow: hidden;
+            position: relative;
+            aspect-ratio: 3/4;
+        }
+        
+        .preset-cover {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        
+        .preset-overlay {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 12px;
+            background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+        }
+        
+        .preset-name {
+            font-size: 0.95rem;
+            font-weight: 500;
+            color: #fff;
+        }
+        
+        .preset-device {
+            font-size: 0.75rem;
+            color: rgba(255, 255, 255, 0.6);
+            margin-top: 2px;
+        }
+        
+        .favorite-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .favorite-btn:hover {
+            background: rgba(212, 165, 116, 0.3);
+            border-color: #D4A574;
+        }
+        
+        .favorite-btn svg {
+            width: 18px;
+            height: 18px;
+            fill: none;
+            stroke: #fff;
+            stroke-width: 2;
+        }
+        
+        .favorite-btn.active svg {
+            fill: #D4A574;
+            stroke: #D4A574;
+        }
+        
+        .new-badge {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: #D4A574;
+            color: #000;
+            padding: 4px 10px;
+            border-radius: 8px;
+            font-size: 0.7rem;
+            font-weight: 600;
+        }
+        
+        .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(26, 26, 26, 0.95);
+            backdrop-filter: blur(20px);
+            display: flex;
+            justify-content: space-around;
+            padding: 10px 0;
+            padding-bottom: calc(10px + env(safe-area-inset-bottom));
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        
+        .nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 8px 24px;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .nav-item.active {
+            background: rgba(212, 165, 116, 0.2);
+        }
+        
+        .nav-item svg {
+            width: 22px;
+            height: 22px;
+            fill: none;
+            stroke: rgba(255, 255, 255, 0.6);
+            stroke-width: 2;
+            transition: all 0.3s ease;
+        }
+        
+        .nav-item.active svg {
+            fill: #D4A574;
+            stroke: #D4A574;
+        }
+        
+        .nav-item span {
+            font-size: 0.7rem;
+            color: rgba(255, 255, 255, 0.6);
+            margin-top: 4px;
+            transition: all 0.3s ease;
+        }
+        
+        .nav-item.active span {
+            color: #D4A574;
+            font-weight: 600;
         }
         
         .section {
@@ -76,578 +216,457 @@
             display: block;
         }
         
-        .card-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 24px;
-            margin-bottom: 32px;
-        }
-        
-        .card {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 20px;
-            overflow: hidden;
+        .discover-card {
+            background: #1a1a1a;
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            cursor: pointer;
             transition: all 0.3s ease;
-            border: 1px solid rgba(255, 255, 255, 0.1);
         }
         
-        .card:hover {
-            transform: translateY(-8px);
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+        .discover-card:hover {
+            background: #252525;
         }
         
-        .card-cover {
-            height: 200px;
-            background: linear-gradient(135deg, #D4A574 0%, #8B5A2B 100%);
+        .discover-icon {
+            width: 56px;
+            height: 56px;
+            border-radius: 16px;
             display: flex;
             align-items: center;
             justify-content: center;
-            position: relative;
+            font-size: 1.5rem;
+            margin-right: 16px;
         }
         
-        .card-cover span {
-            font-size: 4rem;
+        .discover-icon.color {
+            background: linear-gradient(135deg, #FFB6B6 0%, #FFA07A 100%);
         }
         
-        .card-content {
+        .discover-icon.frame {
+            background: linear-gradient(135deg, #87CEEB 0%, #6495ED 100%);
+        }
+        
+        .discover-icon.diary {
+            background: linear-gradient(135deg, #98FB98 0%, #32CD32 100%);
+        }
+        
+        .discover-icon.more {
+            background: #333;
+            opacity: 0.5;
+        }
+        
+        .discover-content {
+            flex: 1;
+        }
+        
+        .discover-title {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #fff;
+            margin-bottom: 4px;
+        }
+        
+        .discover-desc {
+            font-size: 0.85rem;
+            color: rgba(255, 255, 255, 0.6);
+        }
+        
+        .discover-arrow {
+            width: 20px;
+            height: 20px;
+            opacity: 0.5;
+        }
+        
+        .about-section {
             padding: 20px;
         }
         
-        .card-title {
-            font-size: 1.2rem;
-            font-weight: 600;
-            margin-bottom: 8px;
-            color: #fff;
+        .about-header {
+            text-align: center;
+            margin-bottom: 32px;
         }
         
-        .card-desc {
+        .about-logo {
+            font-size: 3rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        
+        .about-logo span {
+            color: #D4A574;
+        }
+        
+        .about-subtitle {
+            font-size: 0.95rem;
             color: rgba(255, 255, 255, 0.6);
-            font-size: 0.9rem;
             margin-bottom: 16px;
         }
         
-        .card-tags {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-        }
-        
-        .tag {
-            padding: 4px 12px;
+        .about-version {
+            display: inline-block;
             background: rgba(212, 165, 116, 0.2);
+            color: #D4A574;
+            padding: 6px 16px;
             border-radius: 12px;
-            font-size: 0.8rem;
-            color: #D4A574;
-        }
-        
-        .feature-section {
-            margin-bottom: 40px;
-        }
-        
-        .feature-title {
-            font-size: 1.8rem;
+            font-size: 0.85rem;
             font-weight: 600;
-            margin-bottom: 24px;
-            color: #D4A574;
         }
         
-        .feature-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
+        .about-card {
+            background: #1a1a1a;
+            border-radius: 16px;
+            padding: 16px 20px;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .about-card:hover {
+            background: #252525;
+        }
+        
+        .about-icon {
+            width: 24px;
+            height: 24px;
+            margin-right: 12px;
+        }
+        
+        .about-icon svg {
+            width: 24px;
+            height: 24px;
+            fill: #D4A574;
+        }
+        
+        .about-text {
+            flex: 1;
+            font-size: 0.95rem;
+            color: #fff;
+        }
+        
+        .about-arrow {
+            width: 16px;
+            height: 16px;
+            opacity: 0.5;
         }
         
         .feature-card {
-            background: rgba(255, 255, 255, 0.05);
+            background: #1a1a1a;
             border-radius: 16px;
-            padding: 24px;
-            text-align: center;
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            margin-bottom: 12px;
         }
         
-        .feature-icon {
-            width: 64px;
-            height: 64px;
-            background: linear-gradient(135deg, #D4A574 0%, #C4956A 100%);
-            border-radius: 16px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 auto 16px;
-            font-size: 2rem;
-        }
-        
-        .feature-name {
-            font-size: 1.1rem;
+        .feature-title {
+            font-size: 0.95rem;
             font-weight: 600;
+            color: #fff;
             margin-bottom: 8px;
         }
         
-        .feature-desc {
-            color: rgba(255, 255, 255, 0.6);
-            font-size: 0.9rem;
+        .feature-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
         }
         
-        .color-walk {
-            background: linear-gradient(135deg, #FF6B6B 0%, #4ECDC4 100%);
-            border-radius: 24px;
-            padding: 40px;
-            text-align: center;
-            margin-bottom: 32px;
-            animation: gradientShift 8s ease infinite;
-            background-size: 200% 200%;
+        .feature-item:last-child {
+            border-bottom: none;
         }
         
-        @keyframes gradientShift {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
+        .feature-item svg {
+            width: 20px;
+            height: 20px;
+            fill: #D4A574;
+            margin-right: 12px;
         }
         
-        .color-walk h3 {
-            font-size: 2rem;
-            margin-bottom: 16px;
+        .feature-item-text {
+            flex: 1;
+            font-size: 0.85rem;
             color: #fff;
         }
         
-        .color-walk p {
-            color: rgba(255, 255, 255, 0.9);
-            margin-bottom: 24px;
-        }
-        
-        .btn-primary {
-            background: #fff;
-            color: #000;
-            border: none;
-            padding: 14px 32px;
-            border-radius: 30px;
-            font-size: 1rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-        }
-        
-        .btn-primary:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
-        }
-        
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 16px;
-            margin-bottom: 32px;
-        }
-        
-        .stat-card {
-            background: rgba(212, 165, 116, 0.15);
-            border-radius: 16px;
-            padding: 24px;
-            text-align: center;
-            border: 1px solid rgba(212, 165, 116, 0.2);
-        }
-        
-        .stat-value {
-            font-size: 2.5rem;
-            font-weight: 700;
-            color: #D4A574;
-            margin-bottom: 8px;
-        }
-        
-        .stat-label {
-            color: rgba(255, 255, 255, 0.7);
-            font-size: 0.9rem;
-        }
-        
-        .footer {
-            background: rgba(0, 0, 0, 0.3);
-            padding: 32px;
-            text-align: center;
-            margin-top: 40px;
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        
-        .footer p {
-            color: rgba(255, 255, 255, 0.5);
-            font-size: 0.9rem;
-        }
-        
-        .badge {
-            background: rgba(212, 165, 116, 0.2);
-            border: 1px solid rgba(212, 165, 116, 0.4);
-            padding: 4px 12px;
-            border-radius: 8px;
+        .feature-item-desc {
             font-size: 0.75rem;
-            color: #D4A574;
-            margin-left: 8px;
+            color: rgba(255, 255, 255, 0.5);
+            margin-top: 2px;
         }
         
-        .tag.custom {
-            background: rgba(78, 205, 196, 0.2);
-            color: #4ECDC4;
+        .settings-icon {
+            position: absolute;
+            top: 24px;
+            right: 24px;
+            cursor: pointer;
         }
         
-        @media (max-width: 768px) {
-            .header h1 {
-                font-size: 1.8rem;
+        .settings-icon svg {
+            width: 24px;
+            height: 24px;
+            stroke: rgba(255, 255, 255, 0.6);
+            stroke-width: 2;
+            fill: none;
+        }
+        
+        .loading-text {
+            text-align: center;
+            padding: 40px;
+            color: rgba(255, 255, 255, 0.5);
+        }
+        
+        @media (min-width: 768px) {
+            .preset-grid {
+                grid-template-columns: repeat(3, 1fr);
             }
-            
-            .card-grid {
-                grid-template-columns: 1fr;
-            }
-            
-            .color-walk {
-                padding: 24px;
+        }
+        
+        @media (min-width: 1024px) {
+            .preset-grid {
+                grid-template-columns: repeat(4, 1fr);
             }
         }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>OMaster</h1>
-        <p>专业摄影预设管理工具</p>
+    <div id="home" class="section active">
+        <div class="header">
+            <h1>OMaster</h1>
+            <div class="tab-filter">
+                <div class="tab active" onclick="showSection('home')">全部 27</div>
+                <div class="tab inactive" onclick="showSection('home')">收藏</div>
+                <div class="tab inactive" onclick="showSection('home')">我的</div>
+            </div>
+        </div>
+        
+        <div class="content">
+            <div class="preset-grid" id="presetGrid">
+                <div class="loading-text">加载中...</div>
+            </div>
+        </div>
     </div>
     
-    <div class="nav-tabs">
-        <div class="tab active" onclick="showSection('presets')">预设库</div>
-        <div class="tab" onclick="showSection('discover')">发现</div>
-        <div class="tab" onclick="showSection('features')">功能特性</div>
-        <div class="tab" onclick="showSection('create')">创建预设</div>
-    </div>
-    
-    <div class="content">
-        <div id="presets" class="section active">
-            <div class="feature-section">
-                <h2 class="feature-title">精选预设库</h2>
-                <div class="stats-grid">
-                    <div class="stat-card">
-                        <div class="stat-value">100+</div>
-                        <div class="stat-label">专业预设</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-value">8</div>
-                        <div class="stat-label">风格分类</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-value">50K+</div>
-                        <div class="stat-label">用户使用</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-value">98%</div>
-                        <div class="stat-label">好评率</div>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="card-grid">
-                <div class="card">
-                    <div class="card-cover"><span>🎨</span></div>
-                    <div class="card-content">
-                        <div class="card-title">哈苏 X2D | 慵懒午后</div>
-                        <div class="card-desc">经典哈苏色彩风格，适合人像和风景</div>
-                        <div class="card-tags">
-                            <span class="tag">胶片</span>
-                            <span class="tag">复古</span>
-                            <span class="tag">HNCS</span>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="card">
-                    <div class="card-cover" style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);"><span>🌃</span></div>
-                    <div class="card-content">
-                        <div class="card-title">京都夜色 | 霓虹光斑</div>
-                        <div class="card-desc">高ISO降噪，长曝光夜景优化</div>
-                        <div class="card-tags">
-                            <span class="tag">夜景</span>
-                            <span class="tag">霓虹</span>
-                            <span class="tag">Find X8</span>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="card">
-                    <div class="card-cover" style="background: linear-gradient(135deg, #2d5a27 0%, #1e3d1a 100%);"><span>🌲</span></div>
-                    <div class="card-content">
-                        <div class="card-title">北欧森林 | 自然清新</div>
-                        <div class="card-desc">绿色优化，动态范围增强</div>
-                        <div class="card-tags">
-                            <span class="tag">风景</span>
-                            <span class="tag">自然</span>
-                            <span class="tag">Reno</span>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="card">
-                    <div class="card-cover" style="background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);"><span>🌅</span></div>
-                    <div class="card-content">
-                        <div class="card-title">海边日落 | 温暖橙调</div>
-                        <div class="card-desc">金色时刻，暖色调强化</div>
-                        <div class="card-tags">
-                            <span class="tag">日落</span>
-                            <span class="tag">暖色</span>
-                            <span class="tag">HNCS</span>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="card">
-                    <div class="card-cover" style="background: linear-gradient(135deg, #4a4a4a 0%, #2a2a2a 100%);"><span>📷</span></div>
-                    <div class="card-content">
-                        <div class="card-title">城市街头 | 黑白纪实</div>
-                        <div class="card-desc">高对比度黑白，胶片颗粒感</div>
-                        <div class="card-tags">
-                            <span class="tag">黑白</span>
-                            <span class="tag">纪实</span>
-                            <span class="tag">街头</span>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="card">
-                    <div class="card-cover" style="background: linear-gradient(135deg, #FFB6C1 0%, #FFC0CB 100%);"><span>🌸</span></div>
-                    <div class="card-content">
-                        <div class="card-title">春日樱花 | 粉调柔焦</div>
-                        <div class="card-desc">粉色优化，轻微虚化处理</div>
-                        <div class="card-tags">
-                            <span class="tag">人像</span>
-                            <span class="tag">粉色</span>
-                            <span class="tag custom">自定义</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
+    <div id="discover" class="section">
+        <div class="header">
+            <h1>发现</h1>
         </div>
         
-        <div id="discover" class="section">
-            <div class="color-walk">
-                <h3>🎲 Color Walk</h3>
-                <p>每日抽卡，发现今日专属配色方案</p>
-                <button class="btn-primary" onclick="drawCard()">抽取今日配色</button>
-                <p id="cardResult" style="margin-top: 20px; font-size: 1.2rem; font-weight: 600;"></p>
+        <div class="content">
+            <div class="discover-card">
+                <div class="discover-icon color">🎨</div>
+                <div class="discover-content">
+                    <div class="discover-title">Color Walk</div>
+                    <div class="discover-desc">每日色彩挑战，用色彩发现城市之美</div>
+                </div>
+                <svg class="discover-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M9 18l6-6-6-6"/>
+                </svg>
             </div>
             
-            <div class="feature-section">
-                <h2 class="feature-title">画框导出</h2>
-                <div class="feature-grid">
-                    <div class="feature-card">
-                        <div class="feature-icon">🏷️</div>
-                        <div class="feature-name">哈苏风格</div>
-                        <div class="feature-desc">经典红标边框，专业质感</div>
-                    </div>
-                    <div class="feature-card">
-                        <div class="feature-icon">📽️</div>
-                        <div class="feature-name">胶片质感</div>
-                        <div class="feature-desc">复古胶片边框，怀旧风格</div>
-                    </div>
-                    <div class="feature-card">
-                        <div class="feature-icon">🖼️</div>
-                        <div class="feature-name">极简风格</div>
-                        <div class="feature-desc">简约白边框，纯净设计</div>
-                    </div>
-                    <div class="feature-card">
-                        <div class="feature-icon">🎨</div>
-                        <div class="feature-name">自定义</div>
-                        <div class="feature-desc">自由设计边框样式</div>
-                    </div>
+            <div class="discover-card">
+                <div class="discover-icon frame">📷</div>
+                <div class="discover-content">
+                    <div class="discover-title">相框出片</div>
+                    <div class="discover-desc">自动读取拍摄信息，一键生成精美相框分享图</div>
                 </div>
+                <svg class="discover-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M9 18l6-6-6-6"/>
+                </svg>
             </div>
             
-            <div class="feature-section">
-                <h2 class="feature-title">拍摄记录</h2>
-                <div class="card">
-                    <div class="card-content">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                            <h3 style="font-size: 1.5rem;">今日打卡</h3>
-                            <span style="background: rgba(212, 165, 116, 0.2); padding: 8px 16px; border-radius: 20px; color: #D4A574; font-weight: 600;">🔥 连续7天</span>
-                        </div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
-                            <div>
-                                <div style="font-size: 2.5rem; font-weight: 700; color: #D4A574;">3</div>
-                                <div style="color: rgba(255,255,255,0.6);">今日拍摄</div>
-                            </div>
-                            <div>
-                                <div style="font-size: 2.5rem; font-weight: 700; color: #4ECDC4;">2</div>
-                                <div style="color: rgba(255,255,255,0.6);">使用预设</div>
-                            </div>
-                        </div>
-                        <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px;">
-                            <span class="tag">哈苏橙调</span>
-                            <span class="tag">复古胶片</span>
-                        </div>
-                        <button class="btn-primary" style="width: 100%;">今日打卡</button>
-                    </div>
+            <div class="discover-card">
+                <div class="discover-icon diary">📅</div>
+                <div class="discover-content">
+                    <div class="discover-title">快门日记</div>
+                    <div class="discover-desc">已连续记录 1 天</div>
                 </div>
-            </div>
-        </div>
-        
-        <div id="features" class="section">
-            <div class="feature-section">
-                <h2 class="feature-title">核心功能</h2>
-                <div class="feature-grid">
-                    <div class="feature-card">
-                        <div class="feature-icon">📚</div>
-                        <div class="feature-name">丰富预设库</div>
-                        <div class="feature-desc">收录多款专业摄影调色预设，涵盖多种风格</div>
-                    </div>
-                    <div class="feature-card">
-                        <div class="feature-icon">❤️</div>
-                        <div class="feature-name">收藏管理</div>
-                        <div class="feature-desc">收藏喜欢的预设，快速访问常用参数</div>
-                    </div>
-                    <div class="feature-card">
-                        <div class="feature-icon">✏️</div>
-                        <div class="feature-name">自定义创建</div>
-                        <div class="feature-desc">创建和编辑属于自己的调色参数</div>
-                    </div>
-                    <div class="feature-card">
-                        <div class="feature-icon">🪟</div>
-                        <div class="feature-name">悬浮窗模式</div>
-                        <div class="feature-desc">拍照时悬浮显示参数，不遮挡取景</div>
-                    </div>
-                    <div class="feature-card">
-                        <div class="feature-icon">🌐</div>
-                        <div class="feature-name">云端同步</div>
-                        <div class="feature-desc">预设云端备份，多设备同步</div>
-                    </div>
-                    <div class="feature-card">
-                        <div class="feature-icon">🤖</div>
-                        <div class="feature-name">AI场景检测</div>
-                        <div class="feature-desc">自动识别场景，推荐最佳预设</div>
-                    </div>
-                </div>
+                <svg class="discover-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M9 18l6-6-6-6"/>
+                </svg>
             </div>
             
-            <div class="feature-section">
-                <h2 class="feature-title">高级参数控制</h2>
-                <div style="background: rgba(255,255,255,0.05); border-radius: 16px; padding: 24px;">
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 16px;">
-                        <div style="text-align: center; padding: 16px; background: rgba(255,255,255,0.05); border-radius: 12px;">
-                            <div style="font-size: 1.5rem; margin-bottom: 8px;">☀️</div>
-                            <div style="color: rgba(255,255,255,0.6); font-size: 0.9rem;">柔光</div>
-                            <div style="color: #D4A574; font-weight: 600;">-100~100</div>
-                        </div>
-                        <div style="text-align: center; padding: 16px; background: rgba(255,255,255,0.05); border-radius: 12px;">
-                            <div style="font-size: 1.5rem; margin-bottom: 8px;">🎚️</div>
-                            <div style="color: rgba(255,255,255,0.6); font-size: 0.9rem;">影调</div>
-                            <div style="color: #D4A574; font-weight: 600;">-100~100</div>
-                        </div>
-                        <div style="text-align: center; padding: 16px; background: rgba(255,255,255,0.05); border-radius: 12px;">
-                            <div style="font-size: 1.5rem; margin-bottom: 8px;">🎨</div>
-                            <div style="color: rgba(255,255,255,0.6); font-size: 0.9rem;">饱和度</div>
-                            <div style="color: #D4A574; font-weight: 600;">-100~100</div>
-                        </div>
-                        <div style="text-align: center; padding: 16px; background: rgba(255,255,255,0.05); border-radius: 12px;">
-                            <div style="font-size: 1.5rem; margin-bottom: 8px;">🌡️</div>
-                            <div style="color: rgba(255,255,255,0.6); font-size: 0.9rem;">冷暖</div>
-                            <div style="color: #D4A574; font-weight: 600;">-100~100</div>
-                        </div>
-                        <div style="text-align: center; padding: 16px; background: rgba(255,255,255,0.05); border-radius: 12px;">
-                            <div style="font-size: 1.5rem; margin-bottom: 8px;">💠</div>
-                            <div style="color: rgba(255,255,255,0.6); font-size: 0.9rem;">青品</div>
-                            <div style="color: #D4A574; font-weight: 600;">-100~100</div>
-                        </div>
-                        <div style="text-align: center; padding: 16px; background: rgba(255,255,255,0.05); border-radius: 12px;">
-                            <div style="font-size: 1.5rem; margin-bottom: 8px;">✨</div>
-                            <div style="color: rgba(255,255,255,0.6); font-size: 0.9rem;">锐度</div>
-                            <div style="color: #D4A574; font-weight: 600;">-100~100</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <div id="create" class="section">
-            <div class="feature-section">
-                <h2 class="feature-title">创建自定义预设</h2>
-                <div class="card">
-                    <div class="card-content">
-                        <div style="display: grid; gap: 16px;">
-                            <div>
-                                <label style="display: block; color: rgba(255,255,255,0.6); margin-bottom: 8px;">预设名称</label>
-                                <input type="text" placeholder="输入预设名称..." style="width: 100%; padding: 12px 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.05); color: #fff; font-size: 1rem;">
-                            </div>
-                            <div>
-                                <label style="display: block; color: rgba(255,255,255,0.6); margin-bottom: 8px;">滤镜风格</label>
-                                <input type="text" placeholder="如：复古、清新、黑白..." style="width: 100%; padding: 12px 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.05); color: #fff; font-size: 1rem;">
-                            </div>
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-                                <div>
-                                    <label style="display: block; color: rgba(255,255,255,0.6); margin-bottom: 8px;">ISO</label>
-                                    <input type="number" placeholder="100" style="width: 100%; padding: 12px 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.05); color: #fff; font-size: 1rem;">
-                                </div>
-                                <div>
-                                    <label style="display: block; color: rgba(255,255,255,0.6); margin-bottom: 8px;">快门</label>
-                                    <input type="text" placeholder="1/125" style="width: 100%; padding: 12px 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.05); color: #fff; font-size: 1rem;">
-                                </div>
-                            </div>
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-                                <div>
-                                    <label style="display: block; color: rgba(255,255,255,0.6); margin-bottom: 8px;">曝光补偿</label>
-                                    <input type="text" placeholder="0" style="width: 100%; padding: 12px 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.05); color: #fff; font-size: 1rem;">
-                                </div>
-                                <div>
-                                    <label style="display: block; color: rgba(255,255,255,0.6); margin-bottom: 8px;">白平衡</label>
-                                    <input type="text" placeholder="5500K" style="width: 100%; padding: 12px 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.05); color: #fff; font-size: 1rem;">
-                                </div>
-                            </div>
-                            <div>
-                                <label style="display: block; color: rgba(255,255,255,0.6); margin-bottom: 16px;">高级参数</label>
-                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px;">
-                                    <div>
-                                        <label style="display: block; color: rgba(255,255,255,0.5); font-size: 0.8rem; margin-bottom: 4px;">柔光</label>
-                                        <input type="range" min="-100" max="100" value="0" style="width: 100%;">
-                                    </div>
-                                    <div>
-                                        <label style="display: block; color: rgba(255,255,255,0.5); font-size: 0.8rem; margin-bottom: 4px;">影调</label>
-                                        <input type="range" min="-100" max="100" value="0" style="width: 100%;">
-                                    </div>
-                                    <div>
-                                        <label style="display: block; color: rgba(255,255,255,0.5); font-size: 0.8rem; margin-bottom: 4px;">饱和度</label>
-                                        <input type="range" min="-100" max="100" value="0" style="width: 100%;">
-                                    </div>
-                                    <div>
-                                        <label style="display: block; color: rgba(255,255,255,0.5); font-size: 0.8rem; margin-bottom: 4px;">冷暖</label>
-                                        <input type="range" min="-100" max="100" value="0" style="width: 100%;">
-                                    </div>
-                                </div>
-                            </div>
-                            <button class="btn-primary" style="width: 100%; margin-top: 16px;">保存预设</button>
-                        </div>
-                    </div>
+            <div class="discover-card" style="opacity: 0.5;">
+                <div class="discover-icon more">⭐</div>
+                <div class="discover-content">
+                    <div class="discover-title">更多玩法开发中...</div>
+                    <div class="discover-desc">敬请期待</div>
                 </div>
             </div>
         </div>
     </div>
     
-    <div class="footer">
-        <p>OMaster - 专业摄影预设管理工具</p>
-        <p style="margin-top: 8px; font-size: 0.8rem;">专为OPPO手机打造的摄影调色助手</p>
+    <div id="about" class="section">
+        <div class="header">
+            <h1>关于</h1>
+            <svg class="settings-icon" viewBox="0 0 24 24">
+                <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+        </div>
+        
+        <div class="about-section">
+            <div class="about-header">
+                <div class="about-logo"><span>O</span>Master</div>
+                <div class="about-subtitle">大师模式调色参数库</div>
+                <div class="about-version">Version 1.5.1</div>
+            </div>
+            
+            <div class="about-card">
+                <div class="about-icon">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM5 5h14v4H5V5zm0 6h14v4H5v-4zm0 6h14v4H5v-4z"/>
+                    </svg>
+                </div>
+                <div class="about-text">订阅管理</div>
+                <svg class="about-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M9 18l6-6-6-6"/>
+                </svg>
+            </div>
+            
+            <div class="feature-card">
+                <div class="feature-title">功能介绍</div>
+                <div class="feature-item">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+                    </svg>
+                    <div>
+                        <div class="feature-item-text">个性化定制</div>
+                        <div class="feature-item-desc">丰富的预设参数，满足各种场景需求</div>
+                    </div>
+                </div>
+                <div class="feature-item">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M20 3h-1V1h-2v2H7V1H5v2H4c-1.1 0-1.99.9-1.99 2L2 19c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H4V8h16v11zM9 10H7v2h2v-2zm4 0h-2v2h2v-2zm4 0h-2v2h2v-2z"/>
+                    </svg>
+                    <div>
+                        <div class="feature-item-text">云端订阅</div>
+                        <div class="feature-item-desc">支持订阅云端预设库，手动更新</div>
+                    </div>
+                </div>
+                <div class="feature-item">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+                    </svg>
+                    <div>
+                        <div class="feature-item-text">持续更新</div>
+                        <div class="feature-item-desc">社区共创预设，内容持续更新</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="about-card">
+                <div class="about-icon">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                    </svg>
+                </div>
+                <div class="about-text">制作信息</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="bottom-nav">
+        <div class="nav-item active" onclick="showSection('home')">
+            <svg viewBox="0 0 24 24">
+                <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>
+            </svg>
+            <span>主页</span>
+        </div>
+        <div class="nav-item" onclick="showSection('discover')">
+            <svg viewBox="0 0 24 24">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+            </svg>
+            <span>发现</span>
+        </div>
+        <div class="nav-item" onclick="showSection('about')">
+            <svg viewBox="0 0 24 24">
+                <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+            </svg>
+            <span>关于</span>
+        </div>
     </div>
     
     <script>
-        function showSection(id) {
-            const sections = document.querySelectorAll('.section');
-            sections.forEach(section => section.classList.remove('active'));
-            document.getElementById(id).classList.add('active');
-            
-            const tabs = document.querySelectorAll('.tab');
-            tabs.forEach(tab => tab.classList.remove('active'));
-            event.target.classList.add('active');
+        const oppoPresetsUrl = 'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/oppo.json';
+        const realmePresetsUrl = 'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/realme.json';
+        
+        let allPresets = [];
+        
+        async function loadPresets() {
+            try {
+                const [oppoResponse, realmeResponse] = await Promise.all([
+                    fetch(oppoPresetsUrl),
+                    fetch(realmePresetsUrl)
+                ]);
+                
+                const oppoData = await oppoResponse.json();
+                const realmeData = await realmeResponse.json();
+                
+                allPresets = [...oppoData.presets, ...realmeData.presets];
+                
+                renderPresets();
+            } catch (error) {
+                console.error('加载预设失败:', error);
+                document.getElementById('presetGrid').innerHTML = '<div class="loading-text">加载失败，请稍后重试</div>';
+            }
         }
         
-        function drawCard() {
-            const colors = ['哈苏橙调', '春日樱粉', '海天一色', '复古胶片', '暗夜极光', '金色日落', '森林翠绿', '城市霓虹'];
-            const cardResult = document.getElementById('cardResult');
-            cardResult.textContent = '抽选中...';
+        function renderPresets() {
+            const grid = document.getElementById('presetGrid');
+            grid.innerHTML = '';
             
-            setTimeout(() => {
-                const randomColor = colors[Math.floor(Math.random() * colors.length)];
-                cardResult.innerHTML = `🎉 获得「<strong>${randomColor}</strong>」预设！`;
-            }, 1500);
+            allPresets.forEach((preset, index) => {
+                const card = document.createElement('div');
+                card.className = 'preset-card';
+                
+                let coverUrl = preset.coverPath;
+                if (!coverUrl.startsWith('http')) {
+                    coverUrl = `https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/${preset.coverPath}`;
+                }
+                
+                card.innerHTML = `
+                    <img class="preset-cover" src="${coverUrl}" alt="${preset.name}" loading="lazy" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 200 267%27%3E%3Crect fill=%27%232a2a2a%27 width=%27200%27 height=%27267%27/%3E%3Ctext fill=%27%23666%27 font-family=%27sans-serif%27 font-size=%2714%27 x=%2750%25%27 y=%2750%25%27 text-anchor=%27middle%27 alignment-baseline=%27middle%27%3E${encodeURIComponent(preset.name)}%3C/text%3E%3C/svg%3E'">
+                    ${preset.isNew ? '<div class="new-badge">NEW</div>' : ''}
+                    <div class="favorite-btn" onclick="toggleFavorite(this)">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                        </svg>
+                    </div>
+                    <div class="preset-overlay">
+                        <div class="preset-name">${preset.name}</div>
+                        <div class="preset-device">${preset.author || 'OMaster'}</div>
+                    </div>
+                `;
+                
+                card.addEventListener('click', () => showPresetDetail(preset));
+                grid.appendChild(card);
+            });
+            
+            document.querySelector('.tab.active').textContent = `全部 ${allPresets.length}`;
         }
+        
+        function toggleFavorite(btn) {
+            btn.classList.toggle('active');
+        }
+        
+        function showPresetDetail(preset) {
+            alert(`预设详情:\n\n名称: ${preset.name}\n作者: ${preset.author || 'OMaster'}\n\n${preset.description?.content || '暂无描述'}`);
+        }
+        
+        function showSection(id) {
+            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+            
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+            document.querySelector(`.nav-item[onclick*="${id}"]`).classList.add('active');
+        }
+        
+        window.onload = loadPresets;
     </script>
 </body>
 </html>
