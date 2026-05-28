@@ -16,36 +16,66 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import com.omaster.app.data.ThemeMode
 
+// ==================== ColorOS 16 深色配色方案 ====================
 private val DarkColorScheme = darkColorScheme(
     primary = AccentPrimary,
-    secondary = AccentSecondary,
-    tertiary = HasselbladOrange,
-    background = DeepSpace,
-    surface = DeepSpaceLight,
     onPrimary = DeepSpace,
-    onSecondary = DeepSpace,
+    primaryContainer = AccentPrimaryDark,
+    onPrimaryContainer = TextPrimaryDark,
+    secondary = AccentSecondary,
+    onSecondary = Color.White,
+    secondaryContainer = AccentSecondaryDark,
+    onSecondaryContainer = TextPrimaryDark,
+    tertiary = HasselbladOrange,
     onTertiary = DeepSpace,
+    tertiaryContainer = HasselbladDark,
+    onTertiaryContainer = TextPrimaryDark,
+    background = DeepSpace,
     onBackground = TextPrimaryDark,
-    onSurface = TextPrimaryDark
+    surface = DeepSpaceCard,
+    onSurface = TextPrimaryDark,
+    surfaceVariant = DeepSpaceElevated,
+    onSurfaceVariant = TextSecondaryDark,
+    outline = BorderDark,
+    outlineVariant = BorderDark,
+    error = ErrorRed,
+    onError = Color.White,
+    errorContainer = ErrorRed.copy(alpha = 0.15f),
+    onErrorContainer = TextPrimaryDark
 )
 
+// ==================== ColorOS 16 浅色配色方案 ====================
 private val LightColorScheme = lightColorScheme(
     primary = AccentPrimary,
+    onPrimary = Color.White,
+    primaryContainer = AccentPrimaryLight,
+    onPrimaryContainer = TextPrimaryLight,
     secondary = AccentSecondary,
+    onSecondary = Color.White,
+    secondaryContainer = AccentSecondaryLight,
+    onSecondaryContainer = TextPrimaryLight,
     tertiary = HasselbladOrange,
+    onTertiary = Color.White,
+    tertiaryContainer = GradientHasselblad.first(),
+    onTertiaryContainer = TextPrimaryLight,
     background = LightBackground,
-    surface = LightSurface,
-    onPrimary = TextPrimaryLight,
-    onSecondary = TextPrimaryLight,
-    onTertiary = TextPrimaryLight,
     onBackground = TextPrimaryLight,
-    onSurface = TextPrimaryLight
+    surface = LightSurface,
+    onSurface = TextPrimaryLight,
+    surfaceVariant = LightElevated,
+    onSurfaceVariant = TextSecondaryLight,
+    outline = BorderLight,
+    outlineVariant = BorderLight,
+    error = ErrorRed,
+    onError = Color.White,
+    errorContainer = ErrorRed.copy(alpha = 0.15f),
+    onErrorContainer = TextPrimaryLight
 )
 
 @Composable
 fun OMasterTheme(
     themeMode: Int = ThemeMode.SYSTEM.value,
-    dynamicColor: Boolean = true,
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val darkTheme = when (themeMode) {
@@ -62,18 +92,22 @@ fun OMasterTheme(
         darkTheme -> DarkColorScheme
         else -> LightColorScheme
     }
+    
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
             window.statusBarColor = colorScheme.background.toArgb()
+            window.navigationBarColor = colorScheme.background.toArgb()
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
+            WindowCompat.getInsetsController(window, view).isAppearanceLightNavigationBars = !darkTheme
         }
     }
 
     MaterialTheme(
         colorScheme = colorScheme,
         typography = Typography,
+        shapes = ColorOSShapes,
         content = content
     )
 }
