@@ -11,7 +11,7 @@ android {
 
     defaultConfig {
         applicationId = "com.omaster.app"
-        minSdk = 26
+        minSdk = 33
         targetSdk = 34
         versionCode = 2
         versionName = "1.2.1"

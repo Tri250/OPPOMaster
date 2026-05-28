@@ -10,19 +10,27 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.omaster.app.data.PreferencesDataStore
 import com.omaster.app.navigation.Screen
 import com.omaster.app.ui.screens.CameraParamsScreen
 import com.omaster.app.ui.screens.DetailScreen
 import com.omaster.app.ui.screens.HomeScreen
+import com.omaster.app.ui.screens.OnboardingScreen
 import com.omaster.app.ui.screens.SettingsScreen
 import com.omaster.app.ui.screens.WatermarkScreen
 import com.omaster.app.ui.theme.OMasterTheme
 import com.omaster.app.viewmodel.MainViewModel
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.launch
 import timber.log.Timber
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+    @Inject
+    lateinit var preferencesDataStore: PreferencesDataStore
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (BuildConfig.DEBUG) {
@@ -31,9 +39,17 @@ class MainActivity : ComponentActivity() {
         setContent {
             val viewModel: MainViewModel = hiltViewModel()
             val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+            val onboardingCompleted by preferencesDataStore.onboardingCompleted.collectAsStateWithLifecycle(initialValue = false)
             
             OMasterTheme(themeMode = themeMode) {
-                OMasterApp()
+                OMasterApp(
+                    onboardingCompleted = onboardingCompleted,
+                    onOnboardingComplete = {
+                        lifecycleScope.launch {
+                            preferencesDataStore.setOnboardingCompleted(true)
+                        }
+                    }
+                )
             }
         }
     }
@@ -41,15 +57,26 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun OMasterApp(
+    onboardingCompleted: Boolean,
+    onOnboardingComplete: () -> Unit,
     modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier
 ) {
     val navController = rememberNavController()
+    val startDestination = if (onboardingCompleted) Screen.Home.route else Screen.Onboarding.route
 
     NavHost(
         navController = navController,
-        startDestination = Screen.Home.route,
+        startDestination = startDestination,
         modifier = modifier
     ) {
+        composable(Screen.Onboarding.route) {
+            OnboardingScreen(onComplete = {
+                onOnboardingComplete()
+                navController.navigate(Screen.Home.route) {
+                    popUpTo(Screen.Onboarding.route) { inclusive = true }
+                }
+            })
+        }
         composable(Screen.Home.route) {
             HomeScreen(
                 onPresetClick = { preset ->

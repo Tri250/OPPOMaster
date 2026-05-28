@@ -1,6 +1,7 @@
 package com.omaster.app.navigation
 
 sealed class Screen(val route: String) {
+    object Onboarding : Screen("onboarding")
     object Home : Screen("home")
     data class Detail(val presetId: String) : Screen("detail/{presetId}") {
         companion object {
