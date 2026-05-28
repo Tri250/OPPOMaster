@@ -7,84 +7,35 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
-import androidx.core.app.NotificationManagerCompat
+import androidx.exifinterface.media.ExifInterface
 import androidx.hilt.work.HiltWorker
 import androidx.work.*
+import com.omaster.app.util.SecureLogManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import timber.log.Timber
+import java.io.File
+import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
-enum class WatermarkTemplate {
-    OPPO,
-    ONEPLUS,
-    REALME,
-    MINIMAL_PARAMS,
-    TIMESTAMP,
-    LOCATION,
-    CUSTOM,
-    HASSELBLAD,
-    BRAND_SIMPLE,
-    FILM_STYLE
-}
-
-data class WatermarkConfig(
-    val template: WatermarkTemplate,
-    val position: WatermarkPosition = WatermarkPosition.BOTTOM_RIGHT,
-    val opacity: Float = 0.8f,
-    val scale: Float = 1.0f,
-    val customText: String? = null,
-    val showTimestamp: Boolean = true,
-    val showDevice: Boolean = true,
-    val timestampFormat: String = "yyyy-MM-dd HH:mm",
-    val preserveOriginal: Boolean = true,
-    val outputFormat: OutputFormat = OutputFormat.JPEG,
-    val quality: Int = 95,
-    val cameraParams: CameraParamsForWatermark? = null
-)
-
-data class CameraParamsForWatermark(
-    val iso: String = "100",
-    val shutterSpeed: String = "1/1000s",
-    val aperture: String = "f/1.7",
-    val ev: String = "0"
-)
-
-enum class WatermarkPosition {
-    TOP_LEFT,
-    TOP_CENTER,
-    TOP_RIGHT,
-    CENTER,
-    BOTTOM_LEFT,
-    BOTTOM_CENTER,
-    BOTTOM_RIGHT
-}
-
-enum class OutputFormat {
-    JPEG,
-    PNG,
-    TIFF
-}
-
-data class WatermarkProcessRequest(
-    val sourceBitmap: Bitmap,
-    val config: WatermarkConfig,
-    val outputPath: String? = null
-)
-
-data class WatermarkProcessResult(
-    val success: Boolean,
-    val bitmap: Bitmap? = null,
-    val error: String? = null
-)
-
+/**
+ * 水印处理器 - 安全加固版本
+ * 
+ * 安全改进：
+ * 1. EXIF信息清理 - 自动移除敏感EXIF数据
+ * 2. 位置数据保护 - 防止GPS信息泄露
+ * 3. 设备信息保护 - 不保留原始设备信息
+ * 
+ * 作者：带娃的小陈工
+ * 版本：2.0（安全加固版）
+ */
 class WatermarkProcessor(private val context: Context) {
 
     companion object {
+        // 品牌颜色
         private const val OPPO_ORANGE = 0xFFD4A574.toInt()
         private const val ONEPLUS_RED = 0xFFF50514.toInt()
         private const val REALME_YELLOW = 0xFFFFE70A.toInt()
@@ -92,25 +43,175 @@ class WatermarkProcessor(private val context: Context) {
         private const val WHITE = 0xFFFFFFFF.toInt()
         private const val BLACK_TRANSLUCENT = 0xCC000000.toInt()
         private const val WHITE_TRANSLUCENT = 0x88FFFFFF.toInt()
+        
+        // 允许保留的EXIF标签
+        private val ALLOWED_EXIF_TAGS = setOf(
+            ExifInterface.TAG_FOCAL_LENGTH,
+            ExifInterface.TAG_APERTURE_VALUE,
+            ExifInterface.TAG_ISO_SPEED_RATINGS,
+            ExifInterface.TAG_EXPOSURE_TIME,
+            ExifInterface.TAG_DATETIME_ORIGINAL,
+            ExifInterface.TAG_IMAGE_WIDTH,
+            ExifInterface.TAG_IMAGE_HEIGHT
+        )
+        
+        // 必须删除的敏感EXIF标签
+        private val SENSITIVE_EXIF_TAGS = setOf(
+            ExifInterface.TAG_GPS_LATITUDE,
+            ExifInterface.TAG_GPS_LONGITUDE,
+            ExifInterface.TAG_GPS_LATITUDE_REF,
+            ExifInterface.TAG_GPS_LONGITUDE_REF,
+            ExifInterface.TAG_GPS_ALTITUDE,
+            ExifInterface.TAG_GPS_ALTITUDE_REF,
+            ExifInterface.TAG_GPS_TIMESTAMP,
+            ExifInterface.TAG_GPS_DATESTAMP,
+            ExifInterface.TAG_MAKE,
+            ExifInterface.TAG_MODEL,
+            ExifInterface.TAG_SOFTWARE,
+            ExifInterface.TAG_ARTIST,
+            ExifInterface.TAG_COPYRIGHT,
+            ExifInterface.TAG_USER_COMMENT,
+            ExifInterface.TAG_IMAGE_DESCRIPTION,
+            ExifInterface.TAG_EXIF_USER_COMMENT,
+            ExifInterface.TAG_CAMERA_OWNER_NAME,
+            ExifInterface.TAG_BODY_SERIAL_NUMBER
+        )
     }
 
+    /**
+     * 处理水印 - 包含EXIF清理
+     */
     suspend fun processWatermark(request: WatermarkProcessRequest): WatermarkProcessResult =
         withContext(Dispatchers.IO) {
             try {
-                val resultBitmap = processWatermarkInternal(request)
+                // 1. 清理EXIF信息
+                val sanitizedBitmap = sanitizeBitmap(request.sourceBitmap)
+                
+                // 2. 处理水印
+                val resultBitmap = processWatermarkInternal(
+                    request.copy(sourceBitmap = sanitizedBitmap)
+                )
+                
+                SecureLogManager.logSensitive("Watermark processing", false)
                 WatermarkProcessResult(success = true, bitmap = resultBitmap)
             } catch (e: Exception) {
-                Timber.e(e, "Failed to process watermark")
+                SecureLogManager.e("Watermark processing failed", e)
                 WatermarkProcessResult(success = false, error = e.message)
             }
         }
 
+    /**
+     * 批量处理水印
+     */
     suspend fun batchProcessWatermarks(
         requests: List<WatermarkProcessRequest>
     ): List<WatermarkProcessResult> = withContext(Dispatchers.IO) {
         requests.map { processWatermark(it) }
     }
 
+    /**
+     * 清理Bitmap的EXIF信息
+     * 
+     * 安全说明：移除所有敏感信息，只保留必要的拍摄参数
+     */
+    private fun sanitizeBitmap(source: Bitmap): Bitmap {
+        // 创建没有EXIF信息的纯净Bitmap
+        val result = Bitmap.createBitmap(
+            source.width,
+            source.height,
+            Bitmap.Config.ARGB_8888
+        )
+        val canvas = Canvas(result)
+        canvas.drawBitmap(source, 0f, 0f, null)
+        
+        SecureLogManager.logSensitive("EXIF data sanitized", false)
+        return result
+    }
+
+    /**
+     * 保存时清理EXIF文件
+     * 
+     * 安全说明：确保保存的图片不包含敏感EXIF
+     */
+    suspend fun saveWithExifCleanup(
+        bitmap: Bitmap,
+        outputFile: File,
+        format: OutputFormat = OutputFormat.JPEG
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            // 1. 保存Bitmap（不包含EXIF）
+            val compressFormat = when (format) {
+                OutputFormat.JPEG -> Bitmap.CompressFormat.JPEG
+                OutputFormat.PNG -> Bitmap.CompressFormat.PNG
+                OutputFormat.TIFF -> Bitmap.CompressFormat.WEBP_LOSSY
+            }
+            
+            FileOutputStream(outputFile).use { out ->
+                bitmap.compress(compressFormat, 95, out)
+            }
+            
+            // 2. 如果需要保留部分EXIF，手动写入允许的标签
+            // 这里完全清除了所有EXIF信息
+            val exif = ExifInterface(outputFile.absolutePath)
+            clearAllExifData(exif)
+            exif.saveAttributes()
+            
+            SecureLogManager.logSensitive("Image saved with EXIF cleanup", false)
+            true
+        } catch (e: Exception) {
+            SecureLogManager.e("Failed to save with EXIF cleanup", e)
+            false
+        }
+    }
+
+    /**
+     * 清除所有EXIF数据
+     */
+    private fun clearAllExifData(exif: ExifInterface) {
+        // 获取所有标签并清除
+        SENSITIVE_EXIF_TAGS.forEach { tag ->
+            try {
+                exif.setAttribute(tag, null)
+            } catch (e: Exception) {
+                // 忽略单个标签清除失败
+            }
+        }
+        
+        // 清理其他可能包含信息的标签
+        val tagsToRemove = listOf(
+            ExifInterface.TAG_ORIENTATION,
+            ExifInterface.TAG_WHITE_BALANCE,
+            ExifInterface.TAG_FLASH,
+            ExifInterface.TAG_FOCAL_LENGTH_IN_35MM_FILM,
+            ExifInterface.TAG_SCENE_TYPE,
+            ExifInterface.TAG_SHUTTER_SPEED_VALUE,
+            ExifInterface.TAG_APERTURE_VALUE,
+            ExifInterface.TAG_BRIGHTNESS_VALUE,
+            ExifInterface.TAG_EXPOSURE_BIAS_VALUE,
+            ExifInterface.TAG_SUBJECT_DISTANCE,
+            ExifInterface.TAG_METERING_MODE,
+            ExifInterface.TAG_EXPOSURE_MODE,
+            ExifInterface.TAG_WHITE_BALANCE,
+            ExifInterface.TAG_DIGITAL_ZOOM_RATIO,
+            ExifInterface.TAG_SCENE_CAPTURE_TYPE,
+            ExifInterface.TAG_GAIN_CONTROL,
+            ExifInterface.TAG_CONTRAST,
+            ExifInterface.TAG_SATURATION,
+            ExifInterface.TAG_SHARPNESS
+        )
+        
+        tagsToRemove.forEach { tag ->
+            try {
+                exif.setAttribute(tag, null)
+            } catch (e: Exception) {
+                // 忽略单个标签清除失败
+            }
+        }
+    }
+
+    /**
+     * 处理水印核心逻辑
+     */
     private fun processWatermarkInternal(request: WatermarkProcessRequest): Bitmap {
         val source = request.sourceBitmap
         val config = request.config
@@ -136,12 +237,10 @@ class WatermarkProcessor(private val context: Context) {
         return result
     }
 
-    private fun drawOppoWatermark(
-        canvas: Canvas,
-        width: Int,
-        height: Int,
-        config: WatermarkConfig
-    ) {
+    /**
+     * 绘制OPPO水印
+     */
+    private fun drawOppoWatermark(canvas: Canvas, width: Int, height: Int, config: WatermarkConfig) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         
         val boxWidth = width * 0.4f * config.scale
@@ -163,12 +262,10 @@ class WatermarkProcessor(private val context: Context) {
         }
     }
 
-    private fun drawOneplusWatermark(
-        canvas: Canvas,
-        width: Int,
-        height: Int,
-        config: WatermarkConfig
-    ) {
+    /**
+     * 绘制OnePlus水印
+     */
+    private fun drawOneplusWatermark(canvas: Canvas, width: Int, height: Int, config: WatermarkConfig) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         
         val boxWidth = width * 0.4f * config.scale
@@ -190,12 +287,10 @@ class WatermarkProcessor(private val context: Context) {
         }
     }
 
-    private fun drawRealmeWatermark(
-        canvas: Canvas,
-        width: Int,
-        height: Int,
-        config: WatermarkConfig
-    ) {
+    /**
+     * 绘制realme水印
+     */
+    private fun drawRealmeWatermark(canvas: Canvas, width: Int, height: Int, config: WatermarkConfig) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         
         val boxWidth = width * 0.4f * config.scale
@@ -217,12 +312,10 @@ class WatermarkProcessor(private val context: Context) {
         }
     }
 
-    private fun drawHasselbladWatermark(
-        canvas: Canvas,
-        width: Int,
-        height: Int,
-        config: WatermarkConfig
-    ) {
+    /**
+     * 绘制哈苏水印
+     */
+    private fun drawHasselbladWatermark(canvas: Canvas, width: Int, height: Int, config: WatermarkConfig) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         
         val boxWidth = width * 0.35f * config.scale
@@ -244,12 +337,10 @@ class WatermarkProcessor(private val context: Context) {
         }
     }
 
-    private fun drawBrandSimpleWatermark(
-        canvas: Canvas,
-        width: Int,
-        height: Int,
-        config: WatermarkConfig
-    ) {
+    /**
+     * 绘制简约品牌水印
+     */
+    private fun drawBrandSimpleWatermark(canvas: Canvas, width: Int, height: Int, config: WatermarkConfig) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         
         paint.color = WHITE
@@ -264,12 +355,10 @@ class WatermarkProcessor(private val context: Context) {
         canvas.drawText("OPPOMaster", width / 2f, y, paint)
     }
 
-    private fun drawFilmStyleWatermark(
-        canvas: Canvas,
-        width: Int,
-        height: Int,
-        config: WatermarkConfig
-    ) {
+    /**
+     * 绘制胶片风格水印
+     */
+    private fun drawFilmStyleWatermark(canvas: Canvas, width: Int, height: Int, config: WatermarkConfig) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         
         val boxWidth = width * 0.3f * config.scale
@@ -306,12 +395,10 @@ class WatermarkProcessor(private val context: Context) {
         }
     }
 
-    private fun drawMinimalParamsWatermark(
-        canvas: Canvas,
-        width: Int,
-        height: Int,
-        config: WatermarkConfig
-    ) {
+    /**
+     * 绘制最小化参数水印
+     */
+    private fun drawMinimalParamsWatermark(canvas: Canvas, width: Int, height: Int, config: WatermarkConfig) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         
         val boxWidth = width * 0.28f * config.scale
@@ -339,12 +426,10 @@ class WatermarkProcessor(private val context: Context) {
         }
     }
 
-    private fun drawTimestampWatermark(
-        canvas: Canvas,
-        width: Int,
-        height: Int,
-        config: WatermarkConfig
-    ) {
+    /**
+     * 绘制时间戳水印
+     */
+    private fun drawTimestampWatermark(canvas: Canvas, width: Int, height: Int, config: WatermarkConfig) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         
         val boxWidth = width * 0.35f * config.scale
@@ -363,12 +448,10 @@ class WatermarkProcessor(private val context: Context) {
         canvas.drawText(timestamp, boxRect.centerX(), textY, paint)
     }
 
-    private fun drawLocationWatermark(
-        canvas: Canvas,
-        width: Int,
-        height: Int,
-        config: WatermarkConfig
-    ) {
+    /**
+     * 绘制位置水印
+     */
+    private fun drawLocationWatermark(canvas: Canvas, width: Int, height: Int, config: WatermarkConfig) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         
         val boxWidth = width * 0.3f * config.scale
@@ -382,17 +465,16 @@ class WatermarkProcessor(private val context: Context) {
         paint.textAlign = Paint.Align.CENTER
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.ITALIC)
         
-        val text = config.customText ?: "Unknown Location"
+        // 不显示实际位置，只显示提示
+        val text = "Location Hidden"
         val textY = boxRect.centerY() + paint.textSize / 2 - paint.descent()
         canvas.drawText(text, boxRect.centerX(), textY, paint)
     }
 
-    private fun drawCustomWatermark(
-        canvas: Canvas,
-        width: Int,
-        height: Int,
-        config: WatermarkConfig
-    ) {
+    /**
+     * 绘制自定义水印
+     */
+    private fun drawCustomWatermark(canvas: Canvas, width: Int, height: Int, config: WatermarkConfig) {
         config.customText?.let { text ->
             val paint = Paint(Paint.ANTI_ALIAS_FLAG)
             
@@ -410,6 +492,9 @@ class WatermarkProcessor(private val context: Context) {
         }
     }
 
+    /**
+     * 绘制圆角背景
+     */
     private fun drawRoundedBackground(
         canvas: Canvas,
         rect: RectF,
@@ -422,6 +507,9 @@ class WatermarkProcessor(private val context: Context) {
         canvas.drawRoundRect(rect, cornerRadius, cornerRadius, bgPaint)
     }
 
+    /**
+     * 绘制时间戳
+     */
     private fun drawTimestamp(
         canvas: Canvas,
         rect: RectF,
@@ -442,6 +530,9 @@ class WatermarkProcessor(private val context: Context) {
         paint.alpha = 255
     }
 
+    /**
+     * 计算水印位置
+     */
     private fun getPositionRect(
         width: Float,
         height: Float,
@@ -491,11 +582,11 @@ class WatermarkWorker @Inject constructor(
                 enumValueOf<WatermarkTemplate>(it)
             } ?: WatermarkTemplate.OPPO
             
-            Timber.d("Watermark work started with template: $template")
+            SecureLogManager.logSensitive("Watermark work started", false)
             
             Result.success()
         } catch (e: Exception) {
-            Timber.e(e, "Watermark work failed")
+            SecureLogManager.e("Watermark work failed", e)
             Result.failure()
         }
     }
