@@ -2,159 +2,248 @@ package com.omaster.app.floating
 
 import android.content.Context
 import android.graphics.PixelFormat
+import android.net.Uri
 import android.os.Build
-import android.view.Gravity
-import android.view.View
-import android.view.WindowManager
+import android.provider.Settings
+import android.view.*
+import android.widget.LinearLayout
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.platform.LocalContext
-import androidx.core.content.getSystemService
-import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.setViewTreeLifecycleOwner
+import androidx.savedstate.SavedStateRegistry
+import androidx.savedstate.SavedStateRegistryController
+import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import com.omaster.app.ui.theme.AccentPrimary
+import com.omaster.app.ui.theme.DeepSpace
+import com.omaster.app.ui.theme.HasselbladOrange
 import timber.log.Timber
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class FloatingWindowManager @Inject constructor(
-    @ApplicationContext private val context: Context,
-    private val permissionHelper: PermissionHelper
-) {
-    private val _isWindowShowing = MutableStateFlow(false)
-    val isWindowShowing: StateFlow<Boolean> = _isWindowShowing.asStateFlow()
-    
-    private val _isExpanded = MutableStateFlow(true)
-    val isExpanded: StateFlow<Boolean> = _isExpanded.asStateFlow()
-    
-    private val _windowOpacity = MutableStateFlow(1f)
-    val windowOpacity: StateFlow<Float> = _windowOpacity.asStateFlow()
-    
-    private val _currentPresetIndex = MutableStateFlow(0)
-    val currentPresetIndex: StateFlow<Int> = _currentPresetIndex.asStateFlow()
-    
+object FloatingWindowManager {
     private var windowManager: WindowManager? = null
-    private var floatingView: View? = null
-    
-    fun isOverlayPermissionGranted(): Boolean {
-        return permissionHelper.canDrawOverlays()
+    private var floatingView: ComposeView? = null
+    private var isShowing = false
+
+    private var currentPresetName: String = "预设参数"
+    private var currentParams: Map<String, String> = emptyMap()
+
+    fun setPresetData(name: String, params: Map<String, String>) {
+        currentPresetName = name
+        currentParams = params
+        if (isShowing) {
+            updateFloatingView()
+        }
     }
-    
-    fun showWindow() {
-        if (!isOverlayPermissionGranted()) {
-            Timber.w("Overlay permission not granted, cannot show window")
+
+    fun showWindow(context: Context) {
+        if (isShowing) return
+
+        if (!canDrawOverlays(context)) {
+            requestOverlayPermission(context)
             return
         }
-        
-        if (_isWindowShowing.value) {
-            Timber.d("Window already showing")
-            return
-        }
-        
+
         try {
             windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-            
-            val layoutParams = WindowManager.LayoutParams().apply {
-                type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                } else {
-                    @Suppress("DEPRECATION")
-                    WindowManager.LayoutParams.TYPE_PHONE
+            floatingView = ComposeView(context).apply {
+                setContent {
+                    FloatingWindowContent(
+                        presetName = currentPresetName,
+                        params = currentParams,
+                        onClose = { hideWindow() },
+                        onCopyParams = { copyParamsToClipboard(context) }
+                    )
                 }
-                
-                format = PixelFormat.TRANSLUCENT
-                flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-                
-                gravity = Gravity.TOP or Gravity.START
-                x = 100
-                y = 300
-                width = WindowManager.LayoutParams.WRAP_CONTENT
-                height = WindowManager.LayoutParams.WRAP_CONTENT
             }
-            
-            _isWindowShowing.value = true
-            Timber.d("Floating window shown successfully")
+
+            val params = getWindowParams()
+            windowManager?.addView(floatingView, params)
+            isShowing = true
+            Timber.d("Floating window shown")
         } catch (e: Exception) {
             Timber.e(e, "Failed to show floating window")
-            _isWindowShowing.value = false
         }
     }
-    
+
     fun hideWindow() {
+        if (!isShowing) return
+
         try {
             floatingView?.let {
                 windowManager?.removeView(it)
             }
             floatingView = null
-            windowManager = null
-            _isWindowShowing.value = false
-            Timber.d("Floating window hidden successfully")
+            isShowing = false
+            Timber.d("Floating window hidden")
         } catch (e: Exception) {
             Timber.e(e, "Failed to hide floating window")
         }
     }
-    
-    fun toggleWindow() {
-        if (_isWindowShowing.value) {
+
+    fun toggleWindow(context: Context) {
+        if (isShowing) {
             hideWindow()
         } else {
-            showWindow()
+            showWindow(context)
         }
     }
-    
-    fun expand() {
-        _isExpanded.value = true
-        Timber.d("Floating window expanded")
+
+    private fun updateFloatingView() {
+        floatingView?.setContent {
+            FloatingWindowContent(
+                presetName = currentPresetName,
+                params = currentParams,
+                onClose = { hideWindow() },
+                onCopyParams = { copyParamsToClipboard(floatingView?.context) }
+            )
+        }
     }
-    
-    fun collapse() {
-        _isExpanded.value = false
-        Timber.d("Floating window collapsed")
+
+    private fun copyParamsToClipboard(context: Context?) {
+        context ?: return
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        val text = currentParams.entries.joinToString("\n") { "${it.key}: ${it.value}" }
+        val clip = android.content.ClipData.newPlainText("参数", text)
+        clipboard.setPrimaryClip(clip)
     }
-    
-    fun toggleExpand() {
-        _isExpanded.value = !_isExpanded.value
-        Timber.d("Floating window toggled to: ${_isExpanded.value}")
-    }
-    
-    fun setOpacity(opacity: Float) {
-        _windowOpacity.value = opacity.coerceIn(0.3f, 1f)
-        Timber.d("Floating window opacity set to: ${_windowOpacity.value}")
-    }
-    
-    fun selectNextPreset(totalPresets: Int) {
-        if (totalPresets == 0) return
-        _currentPresetIndex.value = (_currentPresetIndex.value + 1) % totalPresets
-        Timber.d("Selected next preset: ${_currentPresetIndex.value}")
-    }
-    
-    fun selectPreviousPreset(totalPresets: Int) {
-        if (totalPresets == 0) return
-        _currentPresetIndex.value = if (_currentPresetIndex.value == 0) {
-            totalPresets - 1
+
+    private fun getWindowParams(): WindowManager.LayoutParams {
+        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         } else {
-            _currentPresetIndex.value - 1
+            WindowManager.LayoutParams.TYPE_PHONE
         }
-        Timber.d("Selected previous preset: ${_currentPresetIndex.value}")
-    }
-    
-    fun selectPreset(index: Int, totalPresets: Int) {
-        if (index < 0 || index >= totalPresets) {
-            Timber.w("Invalid preset index: $index, total: $totalPresets")
-            return
+
+        return WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            type,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.END
+            x = 20
+            y = 200
         }
-        _currentPresetIndex.value = index
-        Timber.d("Selected preset at index: $index")
     }
-    
-    fun updatePosition(x: Int, y: Int) {
-        Timber.d("Floating window position updated to: x=$x, y=$y")
+
+    fun canDrawOverlays(context: Context): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            Settings.canDrawOverlays(context)
+        } else {
+            true
+        }
     }
-    
-    fun destroy() {
-        hideWindow()
-        Timber.d("FloatingWindowManager destroyed")
+
+    fun requestOverlayPermission(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+        }
+    }
+}
+
+@Composable
+fun FloatingWindowContent(
+    presetName: String,
+    params: Map<String, String>,
+    onClose: () -> Unit,
+    onCopyParams: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .width(280.dp)
+            .padding(8.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = DeepSpace
+        ),
+        elevation = CardDefaults.cardElevation(8.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = presetName,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
+                )
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "关闭",
+                        tint = HasselbladOrange,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            params.forEach { (key, value) ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = key,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.7f)
+                    )
+                    Text(
+                        text = value,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            Button(
+                onClick = onCopyParams,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = AccentPrimary
+                ),
+                shape = RoundedCornerShape(12.dp),
+                contentPadding = PaddingValues(12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ContentCopy,
+                    contentDescription = null,
+                    tint = DeepSpace,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "一键复制",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = DeepSpace,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
     }
 }
