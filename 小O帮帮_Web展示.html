@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>小O帮帮 - OPPO哈苏影像系统级参数中枢</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        * {
+            font-family: 'Inter', system-ui, sans-serif;
+        }
+        
+        .phone-mockup {
+            width: 375px;
+            height: 812px;
+            background: linear-gradient(135deg, #1e1e2e 0%, #0f0f0f 100%);
+            border-radius: 40px;
+            overflow: hidden;
+            position: relative;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+        
+        .phone-notch {
+            width: 150px;
+            height: 30px;
+            background: #000;
+            border-radius: 0 0 20px 20px;
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 100;
+        }
+        
+        .screen-content {
+            height: 100%;
+            overflow-y: auto;
+            padding-top: 44px;
+        }
+        
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        .accent-color {
+            color: #FF6B35;
+        }
+        
+        .accent-bg {
+            background: #FF6B35;
+        }
+        
+        .hasselblad-orange {
+            color: #D4A574;
+        }
+        
+        .hasselblad-bg {
+            background: #D4A574;
+        }
+        
+        .deep-space {
+            background: #0F0F0F;
+        }
+        
+        .deep-space-light {
+            background: #1e1e2e;
+        }
+        
+        .preset-card {
+            aspect-ratio: 3/4;
+            border-radius: 16px;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        .tab-chip {
+            transition: all 0.2s ease;
+        }
+        
+        .tab-chip:hover {
+            transform: scale(1.05);
+        }
+        
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+        
+        .float-animation {
+            animation: float 3s ease-in-out infinite;
+        }
+        
+        .screen-tab {
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .screen-tab:hover {
+            background: rgba(255, 107, 53, 0.1);
+        }
+        
+        .screen-tab.active {
+            background: rgba(255, 107, 53, 0.2);
+            border-color: #FF6B35;
+        }
+    </style>
+</head>
+<body class="min-h-screen gradient-bg">
+    <!-- 主容器 -->
+    <div class="min-h-screen py-8 px-4">
+        <!-- 顶部标题 -->
+        <div class="text-center mb-8">
+            <h1 class="text-4xl md:text-5xl font-bold text-white mb-4">
+                📸 小O帮帮
+            </h1>
+            <p class="text-xl text-white/80 mb-2">OPPO 哈苏影像系统级参数中枢</p>
+            <p class="text-white/60">版本 2.0.0 - 2026</p>
+        </div>
+
+        <!-- 主要内容区 -->
+        <div class="max-w-6xl mx-auto">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <!-- 屏幕选择区 -->
+                <div class="lg:col-span-1">
+                    <div class="bg-white/10 backdrop-blur-lg rounded-2xl p-6 text-white">
+                        <h2 class="text-xl font-semibold mb-4">APP 界面展示</h2>
+                        <p class="text-white/70 text-sm mb-6">点击切换查看不同页面</p>
+                        
+                        <div class="space-y-2">
+                            <div class="screen-tab active p-4 rounded-xl border-2 border-transparent" onclick="showScreen('home')">
+                                <div class="flex items-center gap-3">
+                                    <span class="text-2xl">🏠</span>
+                                    <div>
+                                        <div class="font-medium">首页 - 精选影像推荐</div>
+                                        <div class="text-white/60 text-xs">预设卡片、分类筛选、搜索</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="screen-tab p-4 rounded-xl border-2 border-transparent" onclick="showScreen('detail')">
+                                <div class="flex items-center gap-3">
+                                    <span class="text-2xl">📱</span>
+                                    <div>
+                                        <div class="font-medium">详情页 - 一键自动填入</div>
+                                        <div class="text-white/60 text-xs">参数展示、悬浮窗、导入导出</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="screen-tab p-4 rounded-xl border-2 border-transparent" onclick="showScreen('settings')">
+                                <div class="flex items-center gap-3">
+                                    <span class="text-2xl">⚙️</span>
+                                    <div>
+                                        <div class="font-medium">设置页 - 关于我</div>
+                                        <div class="text-white/60 text-xs">主题设置、联系信息</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="mt-8 pt-6 border-t border-white/20">
+                            <h3 class="font-medium mb-3">功能亮点</h3>
+                            <div class="space-y-2 text-sm">
+                                <div class="flex items-center gap-2 text-white/80">
+                                    <span class="text-green-400">✓</span>
+                                    原生相机参数一键自动填入
+                                </div>
+                                <div class="flex items-center gap-2 text-white/80">
+                                    <span class="text-green-400">✓</span>
+                                    悬浮窗参数显示
+                                </div>
+                                <div class="flex items-center gap-2 text-white/80">
+                                    <span class="text-green-400">✓</span>
+                                    预设分类与智能筛选
+                                </div>
+                                <div class="flex items-center gap-2 text-white/80">
+                                    <span class="text-green-400">✓</span>
+                                    多格式预设导入导出
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 手机模拟器 -->
+                <div class="lg:col-span-2 flex justify-center">
+                    <div class="phone-mockup float-animation">
+                        <div class="phone-notch"></div>
+                        <div class="screen-content" id="screenContainer">
+                            <!-- 首页内容 -->
+                            <div id="homeScreen">
+                                <!-- 顶部栏 -->
+                                <div class="px-4 pt-3 pb-2" style="background: #0F0F0F;">
+                                    <div class="flex justify-between items-center">
+                                        <div>
+                                            <div class="text-white font-bold text-xl accent-color">小O帮帮</div>
+                                            <div class="text-white/60 text-sm">精选影像推荐</div>
+                                        </div>
+                                        <div class="flex gap-2">
+                                            <div class="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center">
+                                                <span class="text-white">📱</span>
+                                            </div>
+                                            <div class="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center">
+                                                <span class="text-white">⚙️</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- 搜索框 -->
+                                    <div class="mt-4 bg-white/10 rounded-2xl px-4 py-3 flex items-center gap-3">
+                                        <span class="text-white/50">🔍</span>
+                                        <span class="text-white/50 text-sm">搜索预设名称、机型...</span>
+                                    </div>
+                                </div>
+                                
+                                <!-- 分类标签 -->
+                                <div class="px-4 py-3 flex gap-2 overflow-x-auto" style="background: #0F0F0F;">
+                                    <div class="tab-chip accent-bg text-white px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap">全部</div>
+                                    <div class="tab-chip bg-white/10 text-white/80 px-4 py-2 rounded-full text-sm whitespace-nowrap" style="background: #D4A574; color: #0F0F0F;">哈苏</div>
+                                    <div class="tab-chip bg-white/10 text-white/80 px-4 py-2 rounded-full text-sm whitespace-nowrap">人像</div>
+                                    <div class="tab-chip bg-white/10 text-white/80 px-4 py-2 rounded-full text-sm whitespace-nowrap">风景</div>
+                                    <div class="tab-chip bg-white/10 text-white/80 px-4 py-2 rounded-full text-sm whitespace-nowrap">街拍</div>
+                                </div>
+                                
+                                <!-- 筛选标签 -->
+                                <div class="px-4 py-2 flex gap-2" style="background: #0F0F0F;">
+                                    <div class="tab-chip bg-white/10 text-white/80 px-3 py-1.5 rounded-full text-xs whitespace-nowrap">全部</div>
+                                    <div class="tab-chip bg-white/10 text-white/80 px-3 py-1.5 rounded-full text-xs whitespace-nowrap">❤️ 我的收藏</div>
+                                    <div class="tab-chip bg-white/10 text-white/80 px-3 py-1.5 rounded-full text-xs whitespace-nowrap" style="background: #D4A574; color: #0F0F0F;">HNCS</div>
+                                </div>
+                                
+                                <!-- 预设网格 -->
+                                <div class="p-3 grid grid-cols-2 gap-3" style="background: #0F0F0F;">
+                                    <!-- 卡片1 -->
+                                    <div class="preset-card">
+                                        <div class="w-full h-full bg-gradient-to-br from-purple-900/50 to-indigo-900/50 relative">
+                                            <div class="absolute top-2 left-2 bg-yellow-600 text-black text-xs font-bold px-2 py-1 rounded-lg">HNCS</div>
+                                            <div class="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/40 flex items-center justify-center">
+                                                <span class="text-white text-sm">🤍</span>
+                                            </div>
+                                            <div class="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80">
+                                                <div class="text-white font-medium text-sm">哈苏人像经典</div>
+                                                <div class="text-white/60 text-xs mt-1">OPPO Find X7 Pro</div>
+                                                <div class="flex gap-2 mt-2">
+                                                    <span class="text-white/50 text-xs">ISO100</span>
+                                                    <span class="text-white/50 text-xs">5500K</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- 卡片2 -->
+                                    <div class="preset-card">
+                                        <div class="w-full h-full bg-gradient-to-br from-blue-900/50 to-cyan-900/50 relative">
+                                            <div class="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/40 flex items-center justify-center">
+                                                <span class="text-white text-sm">❤️</span>
+                                            </div>
+                                            <div class="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80">
+                                                <div class="text-white font-medium text-sm">自然风光</div>
+                                                <div class="text-white/60 text-xs mt-1">OPPO Find X7 Pro</div>
+                                                <div class="flex gap-2 mt-2">
+                                                    <span class="text-white/50 text-xs">ISO64</span>
+                                                    <span class="text-white/50 text-xs">6500K</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- 卡片3 -->
+                                    <div class="preset-card">
+                                        <div class="w-full h-full bg-gradient-to-br from-orange-900/50 to-red-900/50 relative">
+                                            <div class="absolute top-2 left-2 bg-yellow-600 text-black text-xs font-bold px-2 py-1 rounded-lg">HNCS</div>
+                                            <div class="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/40 flex items-center justify-center">
+                                                <span class="text-white text-sm">🤍</span>
+                                            </div>
+                                            <div class="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80">
+                                                <div class="text-white font-medium text-sm">城市夜景</div>
+                                                <div class="text-white/60 text-xs mt-1">OPPO Find X7 Pro</div>
+                                                <div class="flex gap-2 mt-2">
+                                                    <span class="text-white/50 text-xs">ISO3200</span>
+                                                    <span class="text-white/50 text-xs">4000K</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- 卡片4 -->
+                                    <div class="preset-card">
+                                        <div class="w-full h-full bg-gradient-to-br from-green-900/50 to-emerald-900/50 relative">
+                                            <div class="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/40 flex items-center justify-center">
+                                                <span class="text-white text-sm">🤍</span>
+                                            </div>
+                                            <div class="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80">
+                                                <div class="text-white font-medium text-sm">美食摄影</div>
+                                                <div class="text-white/60 text-xs mt-1">OPPO Find X7 Pro</div>
+                                                <div class="flex gap-2 mt-2">
+                                                    <span class="text-white/50 text-xs">ISO200</span>
+                                                    <span class="text-white/50 text-xs">5000K</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- 详情页内容 -->
+                            <div id="detailScreen" style="display: none;">
+                                <!-- 顶部栏 -->
+                                <div class="flex items-center px-4 py-3 justify-between" style="background: #0F0F0F;">
+                                    <span class="text-white text-2xl">←</span>
+                                    <div class="flex gap-3">
+                                        <span class="text-white text-xl">📋</span>
+                                        <span class="text-white text-xl">❤️</span>
+                                        <span class="text-white text-xl">↗️</span>
+                                    </div>
+                                </div>
+                                
+                                <!-- 封面图 -->
+                                <div class="w-full h-64 bg-gradient-to-br from-purple-900/60 to-indigo-900/60 relative">
+                                    <div class="absolute top-4 right-4 bg-yellow-600 text-black text-sm font-bold px-3 py-1 rounded-xl">HNCS</div>
+                                </div>
+                                
+                                <!-- 内容区 -->
+                                <div class="px-4 py-4" style="background: #0F0F0F;">
+                                    <div class="text-white font-bold text-2xl">哈苏人像经典</div>
+                                    <div class="mt-2 text-white/60">适配：OPPO Find X7 Pro</div>
+                                    
+                                    <div class="mt-6">
+                                        <div class="text-white text-lg font-semibold mb-3">相机参数</div>
+                                        
+                                        <div class="space-y-3">
+                                            <div class="bg-white/10 rounded-xl p-4 flex justify-between">
+                                                <span class="text-white/80">ISO</span>
+                                                <span class="text-white font-bold accent-color">100</span>
+                                            </div>
+                                            <div class="bg-white/10 rounded-xl p-4 flex justify-between">
+                                                <span class="text-white/80">快门</span>
+                                                <span class="text-white font-bold accent-color">1/200s</span>
+                                            </div>
+                                            <div class="bg-white/10 rounded-xl p-4 flex justify-between">
+                                                <span class="text-white/80">曝光补偿</span>
+                                                <span class="text-white font-bold accent-color">+0.3</span>
+                                            </div>
+                                            <div class="bg-white/10 rounded-xl p-4 flex justify-between">
+                                                <span class="text-white/80">白平衡</span>
+                                                <span class="text-white font-bold accent-color">5500K</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="mt-6 space-y-3">
+                                        <div class="flex gap-3">
+                                            <button class="flex-1 accent-bg text-white py-3 rounded-xl font-semibold flex items-center justify-center gap-2">
+                                                <span>✨</span>
+                                                一键自动填入
+                                            </button>
+                                            <button class="flex-1 bg-white/10 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2 border border-white/20">
+                                                <span>📱</span>
+                                                开启悬浮窗
+                                            </button>
+                                        </div>
+                                        <button class="w-full bg-white/10 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2 border border-white/20">
+                                            <span>📥</span>
+                                            导入/导出预设
+                                        </button>
+                                        <button class="w-full bg-white/10 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2 border border-white/20">
+                                            <span>📷</span>
+                                            生成参数截图
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- 设置页内容 -->
+                            <div id="settingsScreen" style="display: none;">
+                                <!-- 顶部栏 -->
+                                <div class="flex items-center px-4 py-3" style="background: #0F0F0F;">
+                                    <span class="text-white text-2xl">←</span>
+                                    <span class="text-white font-semibold text-lg ml-3">设置</span>
+                                </div>
+                                
+                                <div class="px-4 py-3" style="background: #0F0F0F; min-height: 100vh;">
+                                    <div class="text-white/60 text-sm mb-3">外观</div>
+                                    <div class="bg-white/10 rounded-xl p-4 flex justify-between items-center">
+                                        <div>
+                                            <div class="text-white font-medium">主题</div>
+                                            <div class="text-white/50 text-sm">跟随系统</div>
+                                        </div>
+                                        <span class="text-white/40">›</span>
+                                    </div>
+                                    
+                                    <div class="text-white/60 text-sm mt-6 mb-3">关于我</div>
+                                    <div class="bg-white/10 rounded-xl p-4">
+                                        <div class="accent-color font-bold text-xl">小O帮帮</div>
+                                        <div class="text-white/50 text-sm mt-1">版本 1.0.0</div>
+                                        <div class="text-white mt-3">热爱摄影的：小陈工</div>
+                                    </div>
+                                    
+                                    <div class="bg-white/10 rounded-xl p-4 mt-3 text-center">
+                                        <div class="text-white font-medium">联系我：有任何问题或建议</div>
+                                        <div class="mt-3 accent-color underline cursor-pointer text-sm">
+                                            抖音 小红书 搜索 带娃的小陈工
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="text-white/60 text-sm mt-6 mb-3">版权信息</div>
+                                    <div class="bg-white/10 rounded-xl p-4">
+                                        <div class="text-white/70 text-sm">© 2026 小O帮帮. All rights reserved.</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 功能特性区 -->
+            <div class="mt-12">
+                <h2 class="text-2xl font-bold text-white text-center mb-8">🔥 核心功能</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <div class="bg-white/10 backdrop-blur-lg rounded-2xl p-6 text-white">
+                        <div class="text-3xl mb-3">🤖</div>
+                        <h3 class="font-semibold text-lg mb-2">一键自动填入</h3>
+                        <p class="text-white/70 text-sm">基于Android无障碍服务，合法合规自动填入参数到相机</p>
+                    </div>
+                    
+                    <div class="bg-white/10 backdrop-blur-lg rounded-2xl p-6 text-white">
+                        <div class="text-3xl mb-3">📱</div>
+                        <h3 class="font-semibold text-lg mb-2">悬浮窗参数</h3>
+                        <p class="text-white/70 text-sm">悬浮窗展示当前预设参数，支持一键复制，方便快捷</p>
+                    </div>
+                    
+                    <div class="bg-white/10 backdrop-blur-lg rounded-2xl p-6 text-white">
+                        <div class="text-3xl mb-3">🔍</div>
+                        <h3 class="font-semibold text-lg mb-2">分类筛选</h3>
+                        <p class="text-white/70 text-sm">按场景/风格分类，快速找到适合的预设</p>
+                    </div>
+                    
+                    <div class="bg-white/10 backdrop-blur-lg rounded-2xl p-6 text-white">
+                        <div class="text-3xl mb-3">📥</div>
+                        <h3 class="font-semibold text-lg mb-2">多格式导入</h3>
+                        <p class="text-white/70 text-sm">支持LUT、Lightroom、泼辣修图等多种格式</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 底部 -->
+            <div class="text-center mt-12 text-white/60 text-sm">
+                <p>小O帮帮 - 让每个人都能拍出专业照片</p>
+                <p class="mt-2">© 2026 热爱摄影的小陈工</p>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        function showScreen(screenName) {
+            // 隐藏所有屏幕
+            document.getElementById('homeScreen').style.display = 'none';
+            document.getElementById('detailScreen').style.display = 'none';
+            document.getElementById('settingsScreen').style.display = 'none';
+            
+            // 显示选中的屏幕
+            document.getElementById(screenName + 'Screen').style.display = 'block';
+            
+            // 更新标签状态
+            document.querySelectorAll('.screen-tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            event.currentTarget.classList.add('active');
+        }
+        
+        // 点击卡片模拟进入详情页
+        document.addEventListener('click', function(e) {
+            if (e.target.closest('.preset-card') && document.getElementById('homeScreen').style.display !== 'none') {
+                showScreen('detail');
+            }
+        });
+    </script>
+</body>
+</html>
