@@ -37,6 +37,9 @@ import com.omaster.app.ui.components.PresetCardSkeleton
 import com.omaster.app.ui.theme.*
 import com.omaster.app.viewmodel.FilterType
 import com.omaster.app.viewmodel.MainViewModel
+import com.omaster.app.viewmodel.SceneType
+import com.omaster.app.viewmodel.SortType
+import com.omaster.app.viewmodel.StyleType
 
 @Composable
 fun HomeScreen(
@@ -49,6 +52,9 @@ fun HomeScreen(
     val presets by viewModel.presets.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val filterType by viewModel.filterType.collectAsStateWithLifecycle()
+    val sceneType by viewModel.sceneType.collectAsStateWithLifecycle()
+    val styleType by viewModel.styleType.collectAsStateWithLifecycle()
+    val sortType by viewModel.sortType.collectAsStateWithLifecycle()
     
     var showPermissionDialog by remember { mutableStateOf(false) }
     var showSpecialGuidance by remember { mutableStateOf(false) }
@@ -62,11 +68,13 @@ fun HomeScreen(
         }
     }
     
-    val filteredPresets = remember(presets, searchQuery, filterType) {
+    val filteredPresets = remember(presets, searchQuery, filterType, sceneType, styleType, sortType) {
         presets.filter { preset ->
             val matchesQuery = searchQuery.isEmpty() ||
                     preset.name.contains(searchQuery, ignoreCase = true) ||
-                    preset.deviceModel?.contains(searchQuery, ignoreCase = true) == true
+                    preset.deviceModel?.contains(searchQuery, ignoreCase = true) == true ||
+                    preset.sections.any { it.title.contains(searchQuery, ignoreCase = true) }
+            
             val matchesFilter = when (filterType) {
                 FilterType.ALL -> true
                 FilterType.FAVORITES -> preset.isFavorite
@@ -76,7 +84,36 @@ fun HomeScreen(
                 FilterType.NEW -> true
                 FilterType.TRENDING -> true
             }
-            matchesQuery && matchesFilter
+            
+            val matchesScene = when (sceneType) {
+                SceneType.ALL -> true
+                SceneType.PORTRAIT -> preset.name.contains("人像", ignoreCase = true) || preset.sections.any { it.title.contains("人像", ignoreCase = true) }
+                SceneType.LANDSCAPE -> preset.name.contains("风景", ignoreCase = true) || preset.name.contains("风光", ignoreCase = true) || preset.sections.any { it.title.contains("风景", ignoreCase = true) }
+                SceneType.NIGHT -> preset.name.contains("夜景", ignoreCase = true) || preset.sections.any { it.title.contains("夜景", ignoreCase = true) }
+                SceneType.FOOD -> preset.name.contains("美食", ignoreCase = true) || preset.sections.any { it.title.contains("美食", ignoreCase = true) }
+                SceneType.STREET -> preset.name.contains("街拍", ignoreCase = true) || preset.name.contains("街头", ignoreCase = true)
+                SceneType.MACRO -> preset.name.contains("微距", ignoreCase = true) || preset.sections.any { it.title.contains("微距", ignoreCase = true) }
+                SceneType.ARCHITECTURE -> preset.name.contains("建筑", ignoreCase = true) || preset.sections.any { it.title.contains("建筑", ignoreCase = true) }
+            }
+            
+            val matchesStyle = when (styleType) {
+                StyleType.ALL -> true
+                StyleType.FILM -> preset.name.contains("胶片", ignoreCase = true) || preset.sections.any { it.content.contains("胶片", ignoreCase = true) }
+                StyleType.RETRO -> preset.name.contains("复古", ignoreCase = true) || preset.sections.any { it.content.contains("复古", ignoreCase = true) }
+                StyleType.FRESH -> preset.name.contains("清新", ignoreCase = true) || preset.sections.any { it.content.contains("清新", ignoreCase = true) }
+                StyleType.VIBRANT -> preset.name.contains("鲜艳", ignoreCase = true) || preset.sections.any { it.content.contains("鲜艳", ignoreCase = true) }
+                StyleType.BLACK_WHITE -> preset.name.contains("黑白", ignoreCase = true) || preset.sections.any { it.title.contains("黑白", ignoreCase = true) }
+                StyleType.NATURAL -> preset.name.contains("自然", ignoreCase = true) || preset.sections.any { it.content.contains("自然", ignoreCase = true) }
+                StyleType.WARM -> preset.name.contains("暖", ignoreCase = true) || preset.sections.any { it.content.contains("暖", ignoreCase = true) }
+            }
+            
+            matchesQuery && matchesFilter && matchesScene && matchesStyle
+        }.sortedWith { a, b ->
+            when (sortType) {
+                SortType.HOT -> b.sections.size.compareTo(a.sections.size)
+                SortType.FAVORITE -> b.isFavorite.compareTo(a.isFavorite)
+                SortType.NEWEST -> b.id.toIntOrNull()?.compareTo(a.id.toIntOrNull() ?: 0) ?: 0
+            }
         }
     }
     
@@ -190,7 +227,7 @@ fun HomeScreen(
                 .fillMaxSize()
                 .padding(paddingValues),
             contentPadding = PaddingValues(vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
                 EnhancedSearchBar(
@@ -203,6 +240,24 @@ fun HomeScreen(
                 EnhancedFilterChips(
                     selectedFilter = filterType,
                     onFilterSelected = { viewModel.onFilterTypeChanged(it) }
+                )
+            }
+            item {
+                SceneFilterChips(
+                    selectedScene = sceneType,
+                    onSceneSelected = { viewModel.onSceneTypeChanged(it) }
+                )
+            }
+            item {
+                StyleFilterChips(
+                    selectedStyle = styleType,
+                    onStyleSelected = { viewModel.onStyleTypeChanged(it) }
+                )
+            }
+            item {
+                SortSelector(
+                    selectedSort = sortType,
+                    onSortSelected = { viewModel.onSortTypeChanged(it) }
                 )
             }
             

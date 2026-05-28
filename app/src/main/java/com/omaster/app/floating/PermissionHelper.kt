@@ -5,7 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
-import androidx.core.app.ActivityCompat
+import android.view.accessibility.AccessibilityManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import timber.log.Timber
 import javax.inject.Inject
@@ -17,10 +17,25 @@ class PermissionHelper @Inject constructor(
 ) {
     companion object {
         const val REQUEST_CODE_OVERLAY_PERMISSION = 1001
+        const val REQUEST_CODE_ACCESSIBILITY_PERMISSION = 1002
+        private const val ACCESSIBILITY_SERVICE_NAME = "com.omaster.app.service.CameraAutoFillService"
     }
 
     fun canDrawOverlays(): Boolean {
         return Settings.canDrawOverlays(context)
+    }
+
+    fun isAccessibilityServiceEnabled(): Boolean {
+        val accessibilityManager = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager
+        val enabledServices = accessibilityManager.getEnabledAccessibilityServiceList(AccessibilityManager.FEEDBACK_ALL_MASK)
+        
+        return enabledServices.any { service ->
+            service.id.contains(ACCESSIBILITY_SERVICE_NAME)
+        }
+    }
+
+    fun requestAccessibilityPermission(): Intent {
+        return Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
     }
 
     fun requestOverlayPermission(): Intent {
@@ -147,6 +162,7 @@ class PermissionHelper @Inject constructor(
     fun checkAllPermissions(): PermissionStatus {
         return PermissionStatus(
             canDrawOverlays = canDrawOverlays(),
+            accessibilityEnabled = isAccessibilityServiceEnabled(),
             systemBrand = getSystemBrand(),
             shouldShowSpecialGuidance = shouldShowSpecialGuidance()
         )
@@ -155,6 +171,7 @@ class PermissionHelper @Inject constructor(
 
 data class PermissionStatus(
     val canDrawOverlays: Boolean,
+    val accessibilityEnabled: Boolean,
     val systemBrand: String,
     val shouldShowSpecialGuidance: Boolean
 )

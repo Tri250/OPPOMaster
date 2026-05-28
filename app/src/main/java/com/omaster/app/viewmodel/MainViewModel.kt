@@ -35,6 +35,15 @@ class MainViewModel @Inject constructor(
     private val _filterType = MutableStateFlow(FilterType.ALL)
     val filterType: StateFlow<FilterType> = _filterType.asStateFlow()
 
+    private val _sceneType = MutableStateFlow(SceneType.ALL)
+    val sceneType: StateFlow<SceneType> = _sceneType.asStateFlow()
+
+    private val _styleType = MutableStateFlow(StyleType.ALL)
+    val styleType: StateFlow<StyleType> = _styleType.asStateFlow()
+
+    private val _sortType = MutableStateFlow(SortType.HOT)
+    val sortType: StateFlow<SortType> = _sortType.asStateFlow()
+
     private val _selectedPreset = MutableStateFlow<Preset?>(null)
     val selectedPreset: StateFlow<Preset?> = _selectedPreset.asStateFlow()
 
@@ -50,6 +59,21 @@ class MainViewModel @Inject constructor(
     fun onFilterTypeChanged(filterType: FilterType) {
         _filterType.value = filterType
         Timber.d("Filter type changed: $filterType")
+    }
+
+    fun onSceneTypeChanged(sceneType: SceneType) {
+        _sceneType.value = sceneType
+        Timber.d("Scene type changed: $sceneType")
+    }
+
+    fun onStyleTypeChanged(styleType: StyleType) {
+        _styleType.value = styleType
+        Timber.d("Style type changed: $styleType")
+    }
+
+    fun onSortTypeChanged(sortType: SortType) {
+        _sortType.value = sortType
+        Timber.d("Sort type changed: $sortType")
     }
 
     fun toggleFavorite(preset: Preset) {
@@ -113,4 +137,32 @@ enum class FilterType {
     RENO,
     NEW,
     TRENDING
+}
+
+enum class SceneType {
+    ALL,
+    PORTRAIT,
+    LANDSCAPE,
+    NIGHT,
+    FOOD,
+    STREET,
+    MACRO,
+    ARCHITECTURE
+}
+
+enum class StyleType {
+    ALL,
+    FILM,
+    RETRO,
+    FRESH,
+    VIBRANT,
+    BLACK_WHITE,
+    NATURAL,
+    WARM
+}
+
+enum class SortType {
+    HOT,
+    FAVORITE,
+    NEWEST
 }

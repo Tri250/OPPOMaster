@@ -6,7 +6,13 @@ import android.os.Build
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.getSystemService
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -37,13 +43,34 @@ class FloatingWindowManager @Inject constructor(
     private var windowManager: WindowManager? = null
     private var floatingView: View? = null
     
+    private var isAccessibilityMode = false
+
     fun isOverlayPermissionGranted(): Boolean {
         return permissionHelper.canDrawOverlays()
     }
+
+    fun isAccessibilityPermissionGranted(): Boolean {
+        return permissionHelper.isAccessibilityServiceEnabled()
+    }
+
+    private fun getWindowType(): Int {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (isAccessibilityPermissionGranted()) {
+                isAccessibilityMode = true
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+            } else {
+                isAccessibilityMode = false
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
+    }
     
     fun showWindow() {
-        if (!isOverlayPermissionGranted()) {
-            Timber.w("Overlay permission not granted, cannot show window")
+        if (!hasRequiredPermissions()) {
+            Timber.w("Required permissions not granted, cannot show window")
             return
         }
         
@@ -56,16 +83,15 @@ class FloatingWindowManager @Inject constructor(
             windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
             
             val layoutParams = WindowManager.LayoutParams().apply {
-                type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                } else {
-                    @Suppress("DEPRECATION")
-                    WindowManager.LayoutParams.TYPE_PHONE
-                }
-                
+                type = getWindowType()
                 format = PixelFormat.TRANSLUCENT
                 flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                
+                if (isAccessibilityMode) {
+                    flags = flags or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                }
                 
                 gravity = Gravity.TOP or Gravity.START
                 x = 100
@@ -75,11 +101,20 @@ class FloatingWindowManager @Inject constructor(
             }
             
             _isWindowShowing.value = true
-            Timber.d("Floating window shown successfully")
+            Timber.d("Floating window shown successfully in ${if (isAccessibilityMode) "accessibility" else "overlay"} mode")
         } catch (e: Exception) {
             Timber.e(e, "Failed to show floating window")
             _isWindowShowing.value = false
+            
+            if (!isAccessibilityMode && isAccessibilityPermissionGranted()) {
+                isAccessibilityMode = true
+                showWindow()
+            }
         }
+    }
+    
+    private fun hasRequiredPermissions(): Boolean {
+        return isOverlayPermissionGranted() || isAccessibilityPermissionGranted()
     }
     
     fun hideWindow() {
@@ -156,5 +191,9 @@ class FloatingWindowManager @Inject constructor(
     fun destroy() {
         hideWindow()
         Timber.d("FloatingWindowManager destroyed")
+    }
+
+    fun getCurrentMode(): String {
+        return if (isAccessibilityMode) "ACCESSIBILITY" else "OVERLAY"
     }
 }

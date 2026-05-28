@@ -150,6 +150,11 @@ dependencies {
     // DataStore - 安全的数据存储
     implementation("androidx.datastore:datastore-preferences:1.0.0")
 
+    // Room Database with FTS
+    implementation("androidx.room:room-runtime:2.6.1")
+    ksp("androidx.room:room-compiler:2.6.1")
+    implementation("androidx.room:room-ktx:2.6.1")
+
     // Jetpack Security - 加密存储
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
@@ -177,6 +182,9 @@ dependencies {
     // Hilt Worker
     implementation("androidx.hilt:hilt-work:1.2.0")
     kapt("androidx.hilt:hilt-compiler:1.2.0")
+
+    // XXPermissions - 国产系统权限适配库
+    implementation("com.github.getActivity:XXPermissions:18.3")
 
     // Testing
     testImplementation("junit:junit:4.13.2")

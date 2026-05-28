@@ -17,6 +17,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.omaster.app.ui.animation.AnimationConfig
 import com.omaster.app.viewmodel.FilterType
+import com.omaster.app.viewmodel.SceneType
+import com.omaster.app.viewmodel.SortType
+import com.omaster.app.viewmodel.StyleType
 
 @Composable
 fun EnhancedFilterChips(
@@ -250,3 +253,207 @@ private fun getFilterLabel(filterType: FilterType): String {
         FilterType.TRENDING -> "热门"
     }
 }
+
+@Composable
+fun SceneFilterChips(
+    selectedScene: SceneType,
+    onSceneSelected: (SceneType) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val scenes = remember {
+        listOf(
+            SceneInfo(SceneType.ALL, "全部", Icons.Default.Grid3x3),
+            SceneInfo(SceneType.PORTRAIT, "人像", Icons.Default.Person),
+            SceneInfo(SceneType.LANDSCAPE, "风景", Icons.Default.Mountain),
+            SceneInfo(SceneType.NIGHT, "夜景", Icons.Default.Nightlight),
+            SceneInfo(SceneType.FOOD, "美食", Icons.Default.Restaurant),
+            SceneInfo(SceneType.STREET, "街拍", Icons.Default.City),
+            SceneInfo(SceneType.MACRO, "微距", Icons.Default.Search),
+            SceneInfo(SceneType.ARCHITECTURE, "建筑", Icons.Default.Building)
+        )
+    }
+    
+    Row(
+        modifier = modifier
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        scenes.forEach { sceneInfo ->
+            val isSelected = selectedScene == sceneInfo.type
+            
+            AssistChip(
+                onClick = { onSceneSelected(sceneInfo.type) },
+                label = { Text(sceneInfo.label) },
+                leadingIcon = {
+                    Icon(
+                        imageVector = sceneInfo.icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                },
+                colors = AssistChipDefaults.assistChipColors(
+                    containerColor = if (isSelected) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant
+                    },
+                    labelColor = if (isSelected) {
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    leadingIconColor = if (isSelected) {
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    }
+                ),
+                shape = RoundedCornerShape(16.dp)
+            )
+        }
+    }
+}
+
+private data class SceneInfo(
+    val type: SceneType,
+    val label: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector
+)
+
+@Composable
+fun StyleFilterChips(
+    selectedStyle: StyleType,
+    onStyleSelected: (StyleType) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val styles = remember {
+        listOf(
+            StyleInfo(StyleType.ALL, "全部", Icons.Default.Palette),
+            StyleInfo(StyleType.FILM, "胶片", Icons.Default.Photo),
+            StyleInfo(StyleType.RETRO, "复古", Icons.Default.History),
+            StyleInfo(StyleType.FRESH, "清新", Icons.Default.Sprout),
+            StyleInfo(StyleType.VIBRANT, "鲜艳", Icons.Default.BrightnessHigh),
+            StyleInfo(StyleType.BLACK_WHITE, "黑白", Icons.Default.BlackWhite),
+            StyleInfo(StyleType.NATURAL, "自然", Icons.Default.Leaf),
+            StyleInfo(StyleType.WARM, "暖调", Icons.Default.Sunny)
+        )
+    }
+    
+    Row(
+        modifier = modifier
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        styles.forEach { styleInfo ->
+            val isSelected = selectedStyle == styleInfo.type
+            
+            AssistChip(
+                onClick = { onStyleSelected(styleInfo.type) },
+                label = { Text(styleInfo.label) },
+                leadingIcon = {
+                    Icon(
+                        imageVector = styleInfo.icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                },
+                colors = AssistChipDefaults.assistChipColors(
+                    containerColor = if (isSelected) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant
+                    },
+                    labelColor = if (isSelected) {
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    leadingIconColor = if (isSelected) {
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    }
+                ),
+                shape = RoundedCornerShape(16.dp)
+            )
+        }
+    }
+}
+
+private data class StyleInfo(
+    val type: StyleType,
+    val label: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector
+)
+
+@Composable
+fun SortSelector(
+    selectedSort: SortType,
+    onSortSelected: (SortType) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val sorts = remember {
+        listOf(
+            SortInfo(SortType.HOT, "热门", Icons.Default.TrendingUp),
+            SortInfo(SortType.FAVORITE, "收藏", Icons.Default.Favorite),
+            SortInfo(SortType.NEWEST, "最新", Icons.Default.NewReleases)
+        )
+    }
+    
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.End,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "排序:",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(end = 8.dp)
+        )
+        
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            sorts.forEach { sortInfo ->
+                val isSelected = selectedSort == sortInfo.type
+                
+                TextButton(
+                    onClick = { onSortSelected(sortInfo.type) },
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                ) {
+                    Icon(
+                        imageVector = sortInfo.icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = if (isSelected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = sortInfo.label,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isSelected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+private data class SortInfo(
+    val type: SortType,
+    val label: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector
+)
