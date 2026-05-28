@@ -186,6 +186,11 @@ dependencies {
     // XXPermissions - 国产系统权限适配库
     implementation("com.github.getActivity:XXPermissions:18.3")
 
+    // Supabase - 开源后端服务
+    implementation("io.github.jan-tennert.supabase:supabase-kt:2.5.0")
+    implementation("io.github.jan-tennert.supabase:gotrue-kt:2.5.0")
+    implementation("io.github.jan-tennert.supabase:postgrest-kt:2.5.0")
+
     // Testing
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.mockito:mockito-core:5.11.0")

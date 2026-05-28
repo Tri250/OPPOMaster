@@ -13,6 +13,7 @@ import androidx.navigation.navArgument
 import com.omaster.app.navigation.Screen
 import com.omaster.app.ui.screens.DetailScreen
 import com.omaster.app.ui.screens.HomeScreen
+import com.omaster.app.ui.screens.PresetEditorScreen
 import com.omaster.app.ui.screens.SettingsScreen
 import com.omaster.app.ui.theme.OMasterTheme
 import com.omaster.app.viewmodel.MainViewModel
@@ -78,9 +79,26 @@ fun OMasterApp(
             }
         }
         composable(Screen.Settings.route) {
-            SettingsScreen(
-                onBack = { navController.popBackStack() }
-            )
+                SettingsScreen(
+                    onBack = { navController.popBackStack() }
+                )
+            }
+            composable(Screen.PresetEditor.route) {
+                PresetEditorScreen(
+                    onBack = { navController.popBackStack() },
+                    onSave = { navController.popBackStack() }
+                )
+            }
+            composable(
+                route = Screen.PresetEditorEdit("{presetId}").route,
+                arguments = listOf(navArgument("presetId") { type = NavType.StringType })
+            ) { backStackEntry ->
+                val presetId = backStackEntry.arguments?.getString("presetId")
+                PresetEditorScreen(
+                    onBack = { navController.popBackStack() },
+                    onSave = { navController.popBackStack() },
+                    presetId = presetId
+                )
+            }
         }
     }
-}

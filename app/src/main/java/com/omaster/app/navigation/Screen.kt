@@ -8,4 +8,10 @@ sealed class Screen(val route: String) {
         }
     }
     object Settings : Screen("settings")
+    object PresetEditor : Screen("preset_editor")
+    data class PresetEditorEdit(val presetId: String) : Screen("preset_editor/{presetId}") {
+        companion object {
+            fun createRoute(presetId: String): String = "preset_editor/$presetId"
+        }
+    }
 }
