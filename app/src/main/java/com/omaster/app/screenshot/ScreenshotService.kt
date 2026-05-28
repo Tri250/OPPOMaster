@@ -24,7 +24,7 @@ import java.io.File
 class ScreenshotService(private val context: Context) {
 
     companion object {
-        private const val AUTHORITY_SUFFIX = ".opmaster.provider"
+        private const val AUTHORITY_SUFFIX = ".littleohelper.provider"
     }
 
     suspend fun saveScreenshotToGallery(
@@ -37,7 +37,7 @@ class ScreenshotService(private val context: Context) {
                 put(MediaStore.Images.Media.DISPLAY_NAME, "$presetName.jpg")
                 put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/OPPOMaster")
+                    put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/小O帮帮")
                     put(MediaStore.Images.Media.IS_PENDING, 1)
                 }
             }

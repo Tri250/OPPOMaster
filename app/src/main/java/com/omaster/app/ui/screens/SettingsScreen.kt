@@ -133,13 +133,19 @@ fun SettingsScreen(
                     modifier = Modifier.padding(16.dp)
                 ) {
                     Text(
-                        text = "OMaster",
+                        text = "小O帮帮",
                         style = MaterialTheme.typography.headlineSmall,
                         color = AccentPrimary
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = "版本 1.0.0",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "作者：带娃的小陈工",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

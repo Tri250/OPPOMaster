@@ -338,7 +338,7 @@ private fun ColorOS16TopBar(
                     
                     Column {
                         Text(
-                            text = "OMaster",
+                            text = "小O帮帮",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             color = ColorOSOrange

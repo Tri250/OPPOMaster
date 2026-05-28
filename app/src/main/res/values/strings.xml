@@ -1,5 +1,6 @@
 <resources>
-    <string name="app_name">OMaster</string>
+    <string name="app_name">小O帮帮</string>
+    <string name="app_author">带娃的小陈工</string>
     <string name="home_title">调色参数库</string>
     <string name="detail_title">预设详情</string>
     <string name="settings_title">设置</string>
@@ -25,5 +26,5 @@
     <string name="hncs">HNCS 认证</string>
     <string name="preset_applied">预设已应用</string>
     <string name="preset_saved">预设已保存</string>
-    <string name="accessibility_service_desc">OMaster无障碍服务，用于自动填入相机参数。开启后可一键将预设参数填入原生相机，无需手动输入。</string>
+    <string name="accessibility_service_desc">小O帮帮无障碍服务，用于自动填入相机参数。开启后可一键将预设参数填入原生相机，无需手动输入。</string>
 </resources>

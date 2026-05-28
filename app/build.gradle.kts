@@ -104,7 +104,7 @@ dependencyLocking {
 class VerifyDependenciesTask : DefaultTask() {
     @TaskAction
     fun verify() {
-        println("OMaster依赖安全校验：所有依赖已通过安全验证")
+        println("小O帮帮依赖安全校验：所有依赖已通过安全验证")
     }
 }
 
@@ -217,7 +217,7 @@ kapt {
 // 构建完成后执行安全校验
 tasks.register("securityCheck") {
     doLast {
-        println("=== OMaster安全校验报告 ===")
+        println("=== 小O帮帮安全校验报告 ===")
         println("✅ 依赖版本已锁定")
         println("✅ 代码混淆已启用")
         println("✅ 资源压缩已启用")

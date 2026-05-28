@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "OMaster"
+rootProject.name = "LittleOHelper"
 include(":app")

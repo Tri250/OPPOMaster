@@ -59,7 +59,7 @@
         <!-- File Provider for screenshot sharing -->
         <provider
             android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.opmaster.provider"
+            android:authorities="${applicationId}.littleohelper.provider"
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data

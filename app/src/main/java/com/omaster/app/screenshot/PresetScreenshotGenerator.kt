@@ -222,8 +222,8 @@ class PresetScreenshotGenerator(private val context: Context) {
             WatermarkStyle.OPPO_STYLE -> "OPPO" + (cameraModel?.let { " $it" } ?: "")
             WatermarkStyle.ONEPLUS_STYLE -> "OnePlus" + (cameraModel?.let { " $it" } ?: "")
             WatermarkStyle.REALME_STYLE -> "realme" + (cameraModel?.let { " $it" } ?: "")
-            WatermarkStyle.BRANDED -> "OPPOMaster"
-            WatermarkStyle.MINIMAL -> "OPPOMaster"
+            WatermarkStyle.BRANDED -> "小O帮帮"
+            WatermarkStyle.MINIMAL -> "小O帮帮"
         }
         
         val x = width * 0.5f
