@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { Upload, Sparkles, Check, Image as ImageIcon, Loader } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 
 const sampleImages = [
   { id: 1, label: '人像', seed: 'portrait' },
@@ -19,10 +19,27 @@ export default function AIDemoPage() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisComplete, setAnalysisComplete] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleImageSelect = (imageUrl: string) => {
     setSelectedImage(imageUrl);
     setAnalysisComplete(false);
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setSelectedImage(event.target?.result as string);
+        setAnalysisComplete(false);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
   };
 
   const handleAnalyze = () => {
@@ -51,7 +68,7 @@ export default function AIDemoPage() {
             AI智能场景识别
           </h1>
           <p className="text-lg text-white/60 max-w-2xl mx-auto">
-            上传您的照片，体验AI智能识别场景并推荐最佳预设
+            上传您的照片，体验AI智能识别场景并推荐最佳影像参数
           </p>
         </motion.div>
 
@@ -67,12 +84,26 @@ export default function AIDemoPage() {
             <div className="card p-8">
               <h2 className="text-xl font-bold mb-6">上传图片</h2>
               
+              {/* Hidden File Input */}
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileSelect}
+                accept="image/jpeg,image/png,image/jpg"
+                className="hidden"
+              />
+              
               {/* Upload Area */}
-              <div className="border-2 border-dashed border-white/20 rounded-2xl p-12 text-center hover:border-hasselblad transition-colors cursor-pointer group">
+              <motion.div
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={handleUploadClick}
+                className="border-2 border-dashed border-white/20 rounded-2xl p-12 text-center hover:border-hasselblad transition-colors cursor-pointer group"
+              >
                 <Upload className="w-16 h-16 text-white/40 mx-auto mb-4 group-hover:text-hasselblad transition-colors" />
-                <p className="text-white/60 mb-2">拖拽图片到此处，或点击上传</p>
-                <p className="text-sm text-white/40">支持 JPG、PNG 格式，最大 10MB</p>
-              </div>
+                <p className="text-white/60 mb-2">点击上传图片，或拖拽到此处</p>
+                <p className="text-sm text-white/40">支持 JPG、PNG 格式</p>
+              </motion.div>
 
               {/* Sample Images */}
               <div className="mt-6">
@@ -201,7 +232,7 @@ export default function AIDemoPage() {
 
                 {/* Recommended Presets */}
                 <div>
-                  <h3 className="text-sm font-bold text-white/60 mb-3">推荐预设</h3>
+                  <h3 className="text-sm font-bold text-white/60 mb-3">推荐影像参数</h3>
                   <div className="space-y-2">
                     {[1, 2, 3].map((i) => (
                       <motion.div
@@ -213,7 +244,7 @@ export default function AIDemoPage() {
                       >
                         <ImageIcon className="w-8 h-8 text-hasselblad" />
                         <div className="flex-1">
-                          <p className="font-medium text-sm">推荐预设 {i}</p>
+                          <p className="font-medium text-sm">推荐影像参数 {i}</p>
                           <p className="text-xs text-white/40">匹配度 {95 - i * 5}%</p>
                         </div>
                         <button className="btn-primary text-sm px-4 py-2">

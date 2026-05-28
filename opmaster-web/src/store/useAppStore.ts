@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Preset } from '../data/mockPresets';
-import { FilterType, mockPresets, appFeatures, watermarkTemplates, securityFeatures, buildFeatures } from '../data/mockPresets';
+import { FilterType, mockPresets } from '../data/mockPresets';
 
 interface AppState {
   presets: Preset[];
@@ -8,28 +8,15 @@ interface AppState {
   filterType: typeof FilterType[keyof typeof FilterType];
   searchQuery: string;
   favorites: Set<string>;
-  
-  // 新增的展示状态
-  activeFeatureTab: 'core' | 'security' | 'ux' | 'build';
-  selectedWatermarkTemplate: string | null;
-  showFloatingWindowDemo: boolean;
-  showSecurityDemo: boolean;
-  showBuildDemo: boolean;
-  floatingWindowOpacity: number;
+  isLoading: boolean;
   
   setSelectedPreset: (preset: Preset | null) => void;
   setFilterType: (type: typeof FilterType[keyof typeof FilterType]) => void;
   setSearchQuery: (query: string) => void;
+  setPresets: (presets: Preset[]) => void;
   toggleFavorite: (presetId: string) => void;
   getFilteredPresets: () => Preset[];
-  
-  // 新增的方法
-  setActiveFeatureTab: (tab: 'core' | 'security' | 'ux' | 'build') => void;
-  setSelectedWatermarkTemplate: (templateId: string | null) => void;
-  setShowFloatingWindowDemo: (show: boolean) => void;
-  setShowSecurityDemo: (show: boolean) => void;
-  setShowBuildDemo: (show: boolean) => void;
-  setFloatingWindowOpacity: (opacity: number) => void;
+  setIsLoading: (loading: boolean) => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -38,20 +25,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   filterType: FilterType.ALL,
   searchQuery: '',
   favorites: new Set(['2', '6']),
-  
-  // 新增的展示状态
-  activeFeatureTab: 'core',
-  selectedWatermarkTemplate: null,
-  showFloatingWindowDemo: false,
-  showSecurityDemo: false,
-  showBuildDemo: false,
-  floatingWindowOpacity: 85,
+  isLoading: false,
   
   setSelectedPreset: (preset) => set({ selectedPreset: preset }),
   
   setFilterType: (type) => set({ filterType: type }),
   
   setSearchQuery: (query) => set({ searchQuery: query }),
+  
+  setPresets: (presets) => set({ presets }),
+  
+  setIsLoading: (loading) => set({ isLoading: loading }),
   
   toggleFavorite: (presetId) => {
     const { favorites, presets } = get();
@@ -84,17 +68,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       case FilterType.HNCS:
         filtered = filtered.filter(p => p.cameraParams?.hasselblad_hncs);
         break;
-      case FilterType.FIND_X:
-        filtered = filtered.filter(p => p.deviceModel.includes('Find X'));
-        break;
-      case FilterType.RENO:
-        filtered = filtered.filter(p => p.deviceModel.includes('Reno'));
-        break;
       case FilterType.NEW:
         filtered = filtered.filter(p => p.isNew);
         break;
       case FilterType.TRENDING:
-        filtered = filtered.filter((_, index) => index < 5); // 简单模拟热门
+        filtered = filtered.filter((_, index) => index < 8); // 简单模拟热门
         break;
       default:
         break;
@@ -112,12 +90,4 @@ export const useAppStore = create<AppState>((set, get) => ({
     
     return filtered;
   },
-  
-  // 新增的方法
-  setActiveFeatureTab: (tab) => set({ activeFeatureTab: tab }),
-  setSelectedWatermarkTemplate: (templateId) => set({ selectedWatermarkTemplate: templateId }),
-  setShowFloatingWindowDemo: (show) => set({ showFloatingWindowDemo: show }),
-  setShowSecurityDemo: (show) => set({ showSecurityDemo: show }),
-  setShowBuildDemo: (show) => set({ showBuildDemo: show }),
-  setFloatingWindowOpacity: (opacity) => set({ floatingWindowOpacity: opacity }),
 }));

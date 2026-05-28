@@ -5,9 +5,9 @@ import { Link, useLocation } from 'react-router-dom';
 
 const navItems = [
   { path: '/', label: '首页' },
-  { path: '/ai-demo', label: 'AI演示' },
-  { path: '/tech', label: '技术特性' },
-  { path: '/about', label: '关于我们' }
+  { path: '/ai-demo', label: 'AI场景识别' },
+  { path: '/tech', label: '影像参数' },
+  { path: '/about', label: '了解更多' }
 ];
 
 export default function NavigationBar() {
