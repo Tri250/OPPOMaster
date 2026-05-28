@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>小O帮帮 - OPPO哈苏影像系统级参数中枢</title>
+    <title>小O帮帮 - 哈苏影像系统级标定基座</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
@@ -18,92 +18,115 @@
             background: linear-gradient(135deg, #1e1e2e 0%, #0f0f0f 100%);
             border-radius: 40px;
             overflow: hidden;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5),
+                        inset 0 1px 0 rgba(255, 255, 255, 0.1);
             position: relative;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            margin: 0 auto;
         }
         
-        .phone-notch {
-            width: 150px;
-            height: 30px;
-            background: #000;
-            border-radius: 0 0 20px 20px;
+        .phone-screen {
+            width: 100%;
+            height: 100%;
+            padding-top: 55px;
+            padding-bottom: 30px;
+            overflow: hidden;
+        }
+        
+        .notch {
             position: absolute;
             top: 0;
             left: 50%;
             transform: translateX(-50%);
-            z-index: 100;
-        }
-        
-        .screen-content {
-            height: 100%;
-            overflow-y: auto;
-            padding-top: 44px;
+            width: 170px;
+            height: 30px;
+            background: #0f0f0f;
+            border-radius: 0 0 20px 20px;
+            z-index: 10;
         }
         
         .gradient-bg {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        }
-        
-        .accent-color {
-            color: #FF6B35;
-        }
-        
-        .accent-bg {
-            background: #FF6B35;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
         }
         
         .hasselblad-orange {
             color: #D4A574;
         }
         
-        .hasselblad-bg {
-            background: #D4A574;
+        .bg-hasselblad {
+            background-color: #D4A574;
         }
         
-        .deep-space {
-            background: #0F0F0F;
+        .accent-primary {
+            color: #FF6B35;
         }
         
-        .deep-space-light {
-            background: #1e1e2e;
+        .bg-accent {
+            background-color: #FF6B35;
+        }
+        
+        .card-hover {
+            transition: all 0.3s ease;
+        }
+        
+        .card-hover:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+        }
+        
+        .fade-in {
+            animation: fadeIn 0.5s ease-in-out;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .slide-in {
+            animation: slideIn 0.4s ease-out;
+        }
+        
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(-20px); }
+            to { opacity: 1; transform: translateX(0); }
         }
         
         .preset-card {
             aspect-ratio: 3/4;
+            background: linear-gradient(145deg, #2a2a3a, #1f1f2e);
             border-radius: 16px;
             overflow: hidden;
             position: relative;
         }
         
-        .tab-chip {
+        .preset-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, #D4A574, transparent);
+        }
+        
+        .nav-item {
             transition: all 0.2s ease;
         }
         
-        .tab-chip:hover {
-            transform: scale(1.05);
+        .nav-item.active {
+            color: #FF6B35;
         }
         
-        @keyframes float {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-10px); }
-        }
-        
-        .float-animation {
-            animation: float 3s ease-in-out infinite;
-        }
-        
-        .screen-tab {
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-        
-        .screen-tab:hover {
-            background: rgba(255, 107, 53, 0.1);
-        }
-        
-        .screen-tab.active {
-            background: rgba(255, 107, 53, 0.2);
-            border-color: #FF6B35;
+        .nav-item.active::after {
+            content: '';
+            position: absolute;
+            bottom: -4px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 20px;
+            height: 3px;
+            background: #FF6B35;
+            border-radius: 2px;
         }
     </style>
 </head>
@@ -115,7 +138,7 @@
             <h1 class="text-4xl md:text-5xl font-bold text-white mb-4">
                 📸 小O帮帮
             </h1>
-            <p class="text-xl text-white/80 mb-2">OPPO 哈苏影像系统级参数中枢</p>
+            <p class="text-xl text-white/80 mb-2">哈苏影像系统级标定基座</p>
             <p class="text-white/60">版本 2.0.0 - 2026</p>
         </div>
 
@@ -128,353 +151,538 @@
                         <h2 class="text-xl font-semibold mb-4">APP 界面展示</h2>
                         <p class="text-white/70 text-sm mb-6">点击切换查看不同页面</p>
                         
-                        <div class="space-y-2">
-                            <div class="screen-tab active p-4 rounded-xl border-2 border-transparent" onclick="showScreen('home')">
+                        <div class="space-y-3">
+                            <button id="home-btn" class="nav-item w-full text-left px-4 py-3 rounded-xl bg-accent text-white font-medium transition-all hover:bg-opacity-90" onclick="showScreen('home')">
+                                🏠 首页
+                            </button>
+                            <button id="detail-btn" class="nav-item w-full text-left px-4 py-3 rounded-xl bg-white/5 text-white/80 font-medium transition-all hover:bg-white/10" onclick="showScreen('detail')">
+                                📱 详情页
+                            </button>
+                            <button id="settings-btn" class="nav-item w-full text-left px-4 py-3 rounded-xl bg-white/5 text-white/80 font-medium transition-all hover:bg-white/10" onclick="showScreen('settings')">
+                                ⚙️ 设置页
+                            </button>
+                        </div>
+
+                        <div class="mt-8 pt-6 border-t border-white/10">
+                            <h3 class="font-semibold mb-4">功能特性</h3>
+                            <div class="space-y-3">
                                 <div class="flex items-center gap-3">
-                                    <span class="text-2xl">🏠</span>
+                                    <div class="w-8 h-8 rounded-lg bg-accent/20 flex items-center justify-center">
+                                        <span class="text-accent">🤖</span>
+                                    </div>
                                     <div>
-                                        <div class="font-medium">首页 - 精选影像推荐</div>
-                                        <div class="text-white/60 text-xs">预设卡片、分类筛选、搜索</div>
+                                        <p class="text-sm font-medium">一键自动填入</p>
+                                        <p class="text-xs text-white/60">基于无障碍服务</p>
                                     </div>
                                 </div>
-                            </div>
-                            
-                            <div class="screen-tab p-4 rounded-xl border-2 border-transparent" onclick="showScreen('detail')">
                                 <div class="flex items-center gap-3">
-                                    <span class="text-2xl">📱</span>
+                                    <div class="w-8 h-8 rounded-lg bg-accent/20 flex items-center justify-center">
+                                        <span class="text-accent">🪟</span>
+                                    </div>
                                     <div>
-                                        <div class="font-medium">详情页 - 一键自动填入</div>
-                                        <div class="text-white/60 text-xs">参数展示、悬浮窗、导入导出</div>
+                                        <p class="text-sm font-medium">悬浮窗参数</p>
+                                        <p class="text-xs text-white/60">全局显示</p>
                                     </div>
                                 </div>
-                            </div>
-                            
-                            <div class="screen-tab p-4 rounded-xl border-2 border-transparent" onclick="showScreen('settings')">
                                 <div class="flex items-center gap-3">
-                                    <span class="text-2xl">⚙️</span>
+                                    <div class="w-8 h-8 rounded-lg bg-accent/20 flex items-center justify-center">
+                                        <span class="text-accent">🔍</span>
+                                    </div>
                                     <div>
-                                        <div class="font-medium">设置页 - 关于我</div>
-                                        <div class="text-white/60 text-xs">主题设置、联系信息</div>
+                                        <p class="text-sm font-medium">分类筛选</p>
+                                        <p class="text-xs text-white/60">智能搜索</p>
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-3">
+                                    <div class="w-8 h-8 rounded-lg bg-accent/20 flex items-center justify-center">
+                                        <span class="text-accent">📥</span>
+                                    </div>
+                                    <div>
+                                        <p class="text-sm font-medium">多格式导入</p>
+                                        <p class="text-xs text-white/60">LUT/LR预设</p>
                                     </div>
                                 </div>
                             </div>
                         </div>
+                    </div>
+                </div>
+
+                <!-- 手机展示区 -->
+                <div class="lg:col-span-2">
+                    <div class="phone-mockup fade-in">
+                        <div class="notch"></div>
                         
-                        <div class="mt-8 pt-6 border-t border-white/20">
-                            <h3 class="font-medium mb-3">功能亮点</h3>
-                            <div class="space-y-2 text-sm">
-                                <div class="flex items-center gap-2 text-white/80">
-                                    <span class="text-green-400">✓</span>
-                                    原生相机参数一键自动填入
-                                </div>
-                                <div class="flex items-center gap-2 text-white/80">
-                                    <span class="text-green-400">✓</span>
-                                    悬浮窗参数显示
-                                </div>
-                                <div class="flex items-center gap-2 text-white/80">
-                                    <span class="text-green-400">✓</span>
-                                    预设分类与智能筛选
-                                </div>
-                                <div class="flex items-center gap-2 text-white/80">
-                                    <span class="text-green-400">✓</span>
-                                    多格式预设导入导出
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- 手机模拟器 -->
-                <div class="lg:col-span-2 flex justify-center">
-                    <div class="phone-mockup float-animation">
-                        <div class="phone-notch"></div>
-                        <div class="screen-content" id="screenContainer">
-                            <!-- 首页内容 -->
-                            <div id="homeScreen">
-                                <!-- 顶部栏 -->
-                                <div class="px-4 pt-3 pb-2" style="background: #0F0F0F;">
-                                    <div class="flex justify-between items-center">
-                                        <div>
-                                            <div class="text-white font-bold text-xl accent-color">小O帮帮</div>
-                                            <div class="text-white/60 text-sm">精选影像推荐</div>
-                                        </div>
-                                        <div class="flex gap-2">
-                                            <div class="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center">
-                                                <span class="text-white">📱</span>
-                                            </div>
-                                            <div class="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center">
-                                                <span class="text-white">⚙️</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    
-                                    <!-- 搜索框 -->
-                                    <div class="mt-4 bg-white/10 rounded-2xl px-4 py-3 flex items-center gap-3">
-                                        <span class="text-white/50">🔍</span>
-                                        <span class="text-white/50 text-sm">搜索预设名称、机型...</span>
+                        <!-- 首页 -->
+                        <div id="home-screen" class="phone-screen">
+                            <div class="h-full overflow-y-auto px-4 pb-20" style="scrollbar-width: none;">
+                                <!-- 顶部搜索栏 -->
+                                <div class="mb-4">
+                                    <div class="flex items-center gap-2 bg-white/5 rounded-xl px-4 py-2.5">
+                                        <svg class="w-5 h-5 text-white/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                                        </svg>
+                                        <input type="text" placeholder="搜索预设..." class="bg-transparent text-white placeholder-white/40 outline-none flex-1 text-sm">
                                     </div>
                                 </div>
-                                
+
                                 <!-- 分类标签 -->
-                                <div class="px-4 py-3 flex gap-2 overflow-x-auto" style="background: #0F0F0F;">
-                                    <div class="tab-chip accent-bg text-white px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap">全部</div>
-                                    <div class="tab-chip bg-white/10 text-white/80 px-4 py-2 rounded-full text-sm whitespace-nowrap" style="background: #D4A574; color: #0F0F0F;">哈苏</div>
-                                    <div class="tab-chip bg-white/10 text-white/80 px-4 py-2 rounded-full text-sm whitespace-nowrap">人像</div>
-                                    <div class="tab-chip bg-white/10 text-white/80 px-4 py-2 rounded-full text-sm whitespace-nowrap">风景</div>
-                                    <div class="tab-chip bg-white/10 text-white/80 px-4 py-2 rounded-full text-sm whitespace-nowrap">街拍</div>
+                                <div class="flex gap-2 overflow-x-auto mb-4 pb-2" style="scrollbar-width: none;">
+                                    <span class="px-3 py-1.5 rounded-full bg-accent text-white text-xs font-medium whitespace-nowrap">全部</span>
+                                    <span class="px-3 py-1.5 rounded-full bg-white/10 text-white/80 text-xs font-medium whitespace-nowrap">哈苏</span>
+                                    <span class="px-3 py-1.5 rounded-full bg-white/10 text-white/80 text-xs font-medium whitespace-nowrap">人像</span>
+                                    <span class="px-3 py-1.5 rounded-full bg-white/10 text-white/80 text-xs font-medium whitespace-nowrap">风景</span>
+                                    <span class="px-3 py-1.5 rounded-full bg-white/10 text-white/80 text-xs font-medium whitespace-nowrap">街拍</span>
+                                    <span class="px-3 py-1.5 rounded-full bg-white/10 text-white/80 text-xs font-medium whitespace-nowrap">美食</span>
+                                    <span class="px-3 py-1.5 rounded-full bg-white/10 text-white/80 text-xs font-medium whitespace-nowrap">夜景</span>
                                 </div>
-                                
-                                <!-- 筛选标签 -->
-                                <div class="px-4 py-2 flex gap-2" style="background: #0F0F0F;">
-                                    <div class="tab-chip bg-white/10 text-white/80 px-3 py-1.5 rounded-full text-xs whitespace-nowrap">全部</div>
-                                    <div class="tab-chip bg-white/10 text-white/80 px-3 py-1.5 rounded-full text-xs whitespace-nowrap">❤️ 我的收藏</div>
-                                    <div class="tab-chip bg-white/10 text-white/80 px-3 py-1.5 rounded-full text-xs whitespace-nowrap" style="background: #D4A574; color: #0F0F0F;">HNCS</div>
+
+                                <!-- 精选标题 -->
+                                <div class="flex items-center justify-between mb-4">
+                                    <h2 class="text-lg font-semibold text-white">精选影像推荐</h2>
+                                    <span class="text-sm text-accent cursor-pointer">查看全部</span>
                                 </div>
-                                
-                                <!-- 预设网格 -->
-                                <div class="p-3 grid grid-cols-2 gap-3" style="background: #0F0F0F;">
-                                    <!-- 卡片1 -->
-                                    <div class="preset-card">
-                                        <div class="w-full h-full bg-gradient-to-br from-purple-900/50 to-indigo-900/50 relative">
-                                            <div class="absolute top-2 left-2 bg-yellow-600 text-black text-xs font-bold px-2 py-1 rounded-lg">HNCS</div>
-                                            <div class="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/40 flex items-center justify-center">
-                                                <span class="text-white text-sm">🤍</span>
+
+                                <!-- 预设卡片网格 -->
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div class="preset-card card-hover cursor-pointer" onclick="showScreen('detail')">
+                                        <div class="h-3/5 bg-gradient-to-br from-hasselblad-orange/30 to-accent/20 flex items-center justify-center">
+                                            <img src="https://neeko-copilot.bytedance.net/api/text_to_image?prompt=beautiful%20portrait%20photography%20with%20soft%20lighting%20Hasselblad%20style%20professional&image_size=portrait_4_3" alt="哈苏人像" class="w-full h-full object-cover">
+                                        </div>
+                                        <div class="p-3">
+                                            <div class="flex items-center gap-2 mb-1">
+                                                <span class="text-xs px-2 py-0.5 rounded bg-hasselblad/20 hasselblad-orange">HNCS</span>
+                                                <span class="text-xs text-white/50">OPPO Find X7 Pro</span>
                                             </div>
-                                            <div class="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80">
-                                                <div class="text-white font-medium text-sm">哈苏人像经典</div>
-                                                <div class="text-white/60 text-xs mt-1">OPPO Find X7 Pro</div>
-                                                <div class="flex gap-2 mt-2">
-                                                    <span class="text-white/50 text-xs">ISO100</span>
-                                                    <span class="text-white/50 text-xs">5500K</span>
-                                                </div>
+                                            <h3 class="text-white font-medium text-sm">哈苏人像经典</h3>
+                                            <p class="text-white/50 text-xs mt-1">ISO 100 | 1/200s</p>
+                                        </div>
+                                    </div>
+
+                                    <div class="preset-card card-hover cursor-pointer" onclick="showScreen('detail')">
+                                        <div class="h-3/5 bg-gradient-to-br from-green-500/30 to-emerald-600/20 flex items-center justify-center">
+                                            <img src="https://neeko-copilot.bytedance.net/api/text_to_image?prompt=stunning%20natural%20landscape%20photography%20mountains%20and%20sky%20Hasselblad%20style&image_size=portrait_4_3" alt="自然风光" class="w-full h-full object-cover">
+                                        </div>
+                                        <div class="p-3">
+                                            <div class="flex items-center gap-2 mb-1">
+                                                <span class="text-xs px-2 py-0.5 rounded bg-white/10 text-white/70">自然</span>
+                                                <span class="text-xs text-white/50">OPPO Find X7 Pro</span>
+                                            </div>
+                                            <h3 class="text-white font-medium text-sm">自然风光</h3>
+                                            <p class="text-white/50 text-xs mt-1">ISO 64 | 1/500s</p>
+                                        </div>
+                                    </div>
+
+                                    <div class="preset-card card-hover cursor-pointer" onclick="showScreen('detail')">
+                                        <div class="h-3/5 bg-gradient-to-br from-blue-900/50 to-indigo-900/40 flex items-center justify-center">
+                                            <img src="https://neeko-copilot.bytedance.net/api/text_to_image?prompt=urban%20night%20cityscape%20photography%20long%20exposure%20lights%20Hasselblad&image_size=portrait_4_3" alt="城市夜景" class="w-full h-full object-cover">
+                                        </div>
+                                        <div class="p-3">
+                                            <div class="flex items-center gap-2 mb-1">
+                                                <span class="text-xs px-2 py-0.5 rounded bg-white/10 text-white/70">夜景</span>
+                                                <span class="text-xs text-white/50">OPPO Find X7 Ultra</span>
+                                            </div>
+                                            <h3 class="text-white font-medium text-sm">城市夜景</h3>
+                                            <p class="text-white/50 text-xs mt-1">ISO 3200 | 1/30s</p>
+                                        </div>
+                                    </div>
+
+                                    <div class="preset-card card-hover cursor-pointer" onclick="showScreen('detail')">
+                                        <div class="h-3/5 bg-gradient-to-br from-amber-500/30 to-orange-600/20 flex items-center justify-center">
+                                            <img src="https://neeko-copilot.bytedance.net/api/text_to_image?prompt=delicious%20food%20photography%20gourmet%20dish%20professional%20lighting&image_size=portrait_4_3" alt="美食摄影" class="w-full h-full object-cover">
+                                        </div>
+                                        <div class="p-3">
+                                            <div class="flex items-center gap-2 mb-1">
+                                                <span class="text-xs px-2 py-0.5 rounded bg-white/10 text-white/70">美食</span>
+                                                <span class="text-xs text-white/50">OPPO Reno 10 Pro+</span>
+                                            </div>
+                                            <h3 class="text-white font-medium text-sm">美食摄影</h3>
+                                            <p class="text-white/50 text-xs mt-1">ISO 200 | 1/125s</p>
+                                        </div>
+                                    </div>
+
+                                    <div class="preset-card card-hover cursor-pointer" onclick="showScreen('detail')">
+                                        <div class="h-3/5 bg-gradient-to-br from-yellow-600/30 to-orange-500/20 flex items-center justify-center">
+                                            <img src="https://neeko-copilot.bytedance.net/api/text_to_image?prompt=backlight%20portrait%20photography%20sunset%20golden%20hour%20professional&image_size=portrait_4_3" alt="逆光人像" class="w-full h-full object-cover">
+                                        </div>
+                                        <div class="p-3">
+                                            <div class="flex items-center gap-2 mb-1">
+                                                <span class="text-xs px-2 py-0.5 rounded bg-white/10 text-white/70">人像</span>
+                                                <span class="text-xs text-white/50">OPPO Find X6 Pro</span>
+                                            </div>
+                                            <h3 class="text-white font-medium text-sm">逆光人像</h3>
+                                            <p class="text-white/50 text-xs mt-1">ISO 100 | 1/400s</p>
+                                        </div>
+                                    </div>
+
+                                    <div class="preset-card card-hover cursor-pointer" onclick="showScreen('detail')">
+                                        <div class="h-3/5 bg-gradient-to-br from-gray-700/50 to-gray-900/40 flex items-center justify-center">
+                                            <img src="https://neeko-copilot.bytedance.net/api/text_to_image?prompt=street%20photography%20urban%20black%20and%20white%20artistic&image_size=portrait_4_3" alt="街拍达人" class="w-full h-full object-cover">
+                                        </div>
+                                        <div class="p-3">
+                                            <div class="flex items-center gap-2 mb-1">
+                                                <span class="text-xs px-2 py-0.5 rounded bg-white/10 text-white/70">黑白</span>
+                                                <span class="text-xs text-white/50">realme GT5 Pro</span>
+                                            </div>
+                                            <h3 class="text-white font-medium text-sm">街拍达人</h3>
+                                            <p class="text-white/50 text-xs mt-1">ISO 200 | 1/160s</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 我的收藏 -->
+                                <div class="mt-6">
+                                    <div class="flex items-center justify-between mb-4">
+                                        <h2 class="text-lg font-semibold text-white">我的收藏</h2>
+                                        <span class="text-sm text-white/50">3个预设</span>
+                                    </div>
+                                    <div class="grid grid-cols-3 gap-2">
+                                        <div class="aspect-square rounded-xl overflow-hidden bg-gradient-to-br from-hasselblad-orange/30 to-accent/20">
+                                            <img src="https://neeko-copilot.bytedance.net/api/text_to_image?prompt=portrait%20hasselblad%20style%20beautiful&image_size=square" alt="收藏1" class="w-full h-full object-cover">
+                                        </div>
+                                        <div class="aspect-square rounded-xl overflow-hidden bg-gradient-to-br from-green-500/30 to-emerald-600/20">
+                                            <img src="https://neeko-copilot.bytedance.net/api/text_to_image?prompt=landscape%20nature%20beautiful&image_size=square" alt="收藏2" class="w-full h-full object-cover">
+                                        </div>
+                                        <div class="aspect-square rounded-xl overflow-hidden bg-gradient-to-br from-blue-900/50 to-indigo-900/40">
+                                            <img src="https://neeko-copilot.bytedance.net/api/text_to_image?prompt=night%20city%20lights&image_size=square" alt="收藏3" class="w-full h-full object-cover">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 底部导航 -->
+                            <div class="fixed bottom-0 left-0 right-0 bg-black/80 backdrop-blur-lg border-t border-white/5 px-4 py-2">
+                                <div class="flex justify-around">
+                                    <div class="flex flex-col items-center gap-1">
+                                        <div class="w-6 h-6 rounded-full bg-accent flex items-center justify-center">
+                                            <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
+                                            </svg>
+                                        </div>
+                                        <span class="text-xs text-accent">首页</span>
+                                    </div>
+                                    <div class="flex flex-col items-center gap-1">
+                                        <svg class="w-6 h-6 text-white/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                                        </svg>
+                                        <span class="text-xs text-white/50">发现</span>
+                                    </div>
+                                    <div class="flex flex-col items-center gap-1">
+                                        <svg class="w-6 h-6 text-white/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"></path>
+                                        </svg>
+                                        <span class="text-xs text-white/50">收藏</span>
+                                    </div>
+                                    <div class="flex flex-col items-center gap-1">
+                                        <svg class="w-6 h-6 text-white/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                                        </svg>
+                                        <span class="text-xs text-white/50">我的</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 详情页 -->
+                        <div id="detail-screen" class="phone-screen hidden">
+                            <div class="h-full overflow-y-auto pb-24" style="scrollbar-width: none;">
+                                <!-- 顶部图片 -->
+                                <div class="relative">
+                                    <img src="https://neeko-copilot.bytedance.net/api/text_to_image?prompt=beautiful%20portrait%20photography%20Hasselblad%20professional%20soft%20lighting&image_size=portrait_16_9" alt="样张" class="w-full h-48 object-cover">
+                                    <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
+                                    <button class="absolute top-4 left-4 w-10 h-10 rounded-full bg-black/50 backdrop-blur flex items-center justify-center" onclick="showScreen('home')">
+                                        <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                                        </svg>
+                                    </button>
+                                    <div class="absolute bottom-4 left-4 right-4">
+                                        <h1 class="text-xl font-bold text-white">哈苏人像经典</h1>
+                                        <p class="text-white/70 text-sm">OPPO Find X7 Pro</p>
+                                    </div>
+                                </div>
+
+                                <!-- 参数卡片 -->
+                                <div class="px-4 mt-4">
+                                    <div class="bg-white/5 rounded-2xl p-4">
+                                        <h2 class="text-white font-semibold mb-3">拍摄参数</h2>
+                                        <div class="grid grid-cols-3 gap-3">
+                                            <div class="text-center p-3 bg-white/5 rounded-xl">
+                                                <p class="text-white font-bold text-lg">100</p>
+                                                <p class="text-white/50 text-xs">ISO</p>
+                                            </div>
+                                            <div class="text-center p-3 bg-white/5 rounded-xl">
+                                                <p class="text-white font-bold text-lg">1/200s</p>
+                                                <p class="text-white/50 text-xs">快门</p>
+                                            </div>
+                                            <div class="text-center p-3 bg-white/5 rounded-xl">
+                                                <p class="text-white font-bold text-lg">+0.3</p>
+                                                <p class="text-white/50 text-xs">EV</p>
+                                            </div>
+                                            <div class="text-center p-3 bg-white/5 rounded-xl">
+                                                <p class="text-white font-bold text-lg">5500K</p>
+                                                <p class="text-white/50 text-xs">白平衡</p>
+                                            </div>
+                                            <div class="text-center p-3 bg-white/5 rounded-xl">
+                                                <p class="text-white font-bold text-lg">专业</p>
+                                                <p class="text-white/50 text-xs">模式</p>
+                                            </div>
+                                            <div class="text-center p-3 bg-white/5 rounded-xl">
+                                                <p class="text-white font-bold text-lg">HNCS</p>
+                                                <p class="text-white/50 text-xs">滤镜</p>
                                             </div>
                                         </div>
                                     </div>
-                                    
-                                    <!-- 卡片2 -->
-                                    <div class="preset-card">
-                                        <div class="w-full h-full bg-gradient-to-br from-blue-900/50 to-cyan-900/50 relative">
-                                            <div class="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/40 flex items-center justify-center">
-                                                <span class="text-white text-sm">❤️</span>
-                                            </div>
-                                            <div class="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80">
-                                                <div class="text-white font-medium text-sm">自然风光</div>
-                                                <div class="text-white/60 text-xs mt-1">OPPO Find X7 Pro</div>
-                                                <div class="flex gap-2 mt-2">
-                                                    <span class="text-white/50 text-xs">ISO64</span>
-                                                    <span class="text-white/50 text-xs">6500K</span>
-                                                </div>
-                                            </div>
-                                        </div>
+                                </div>
+
+                                <!-- 适用场景 -->
+                                <div class="px-4 mt-4">
+                                    <div class="bg-white/5 rounded-2xl p-4">
+                                        <h2 class="text-white font-semibold mb-2">适用场景</h2>
+                                        <p class="text-white/70 text-sm">适合室内外人像拍摄，呈现自然肤色和柔和背景虚化效果。使用 OPPO Find X7 Pro 拍摄，展现哈苏 HNCS 色彩还原能力。</p>
                                     </div>
-                                    
-                                    <!-- 卡片3 -->
-                                    <div class="preset-card">
-                                        <div class="w-full h-full bg-gradient-to-br from-orange-900/50 to-red-900/50 relative">
-                                            <div class="absolute top-2 left-2 bg-yellow-600 text-black text-xs font-bold px-2 py-1 rounded-lg">HNCS</div>
-                                            <div class="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/40 flex items-center justify-center">
-                                                <span class="text-white text-sm">🤍</span>
-                                            </div>
-                                            <div class="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80">
-                                                <div class="text-white font-medium text-sm">城市夜景</div>
-                                                <div class="text-white/60 text-xs mt-1">OPPO Find X7 Pro</div>
-                                                <div class="flex gap-2 mt-2">
-                                                    <span class="text-white/50 text-xs">ISO3200</span>
-                                                    <span class="text-white/50 text-xs">4000K</span>
-                                                </div>
-                                            </div>
-                                        </div>
+                                </div>
+
+                                <!-- 操作按钮 -->
+                                <div class="px-4 mt-4">
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <button class="bg-accent hover:bg-accent/90 text-white font-semibold py-3.5 rounded-xl transition-all flex items-center justify-center gap-2" onclick="showAutoFillGuide()">
+                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path>
+                                            </svg>
+                                            一键自动填入
+                                        </button>
+                                        <button class="bg-white/10 hover:bg-white/15 text-white font-semibold py-3.5 rounded-xl transition-all flex items-center justify-center gap-2">
+                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"></path>
+                                            </svg>
+                                            开启悬浮窗
+                                        </button>
                                     </div>
-                                    
-                                    <!-- 卡片4 -->
-                                    <div class="preset-card">
-                                        <div class="w-full h-full bg-gradient-to-br from-green-900/50 to-emerald-900/50 relative">
-                                            <div class="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/40 flex items-center justify-center">
-                                                <span class="text-white text-sm">🤍</span>
-                                            </div>
-                                            <div class="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80">
-                                                <div class="text-white font-medium text-sm">美食摄影</div>
-                                                <div class="text-white/60 text-xs mt-1">OPPO Find X7 Pro</div>
-                                                <div class="flex gap-2 mt-2">
-                                                    <span class="text-white/50 text-xs">ISO200</span>
-                                                    <span class="text-white/50 text-xs">5000K</span>
-                                                </div>
-                                            </div>
+                                    <div class="grid grid-cols-2 gap-3 mt-3">
+                                        <button class="bg-white/10 hover:bg-white/15 text-white font-semibold py-3.5 rounded-xl transition-all flex items-center justify-center gap-2">
+                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                                            </svg>
+                                            导入/导出
+                                        </button>
+                                        <button class="bg-white/10 hover:bg-white/15 text-white font-semibold py-3.5 rounded-xl transition-all flex items-center justify-center gap-2">
+                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16s1.5-2 4.5-2.5S12 16 12 16s2.5-1.5 4.5-2.5S20 16 20 16V6a2 2 0 00-2-2h-5.343a1 1 0 01-.894.553l-5.694 2.846a1 1 0 00-.894 1.697V16z"></path>
+                                            </svg>
+                                            参数截图
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- 更多预设推荐 -->
+                                <div class="px-4 mt-6">
+                                    <h2 class="text-white font-semibold mb-3">推荐预设</h2>
+                                    <div class="flex gap-3 overflow-x-auto pb-2" style="scrollbar-width: none;">
+                                        <div class="w-24 flex-shrink-0">
+                                            <img src="https://neeko-copilot.bytedance.net/api/text_to_image?prompt=natural%20landscape&image_size=square" alt="推荐1" class="w-full aspect-square rounded-xl object-cover">
+                                            <p class="text-white/70 text-xs mt-2 text-center">自然风光</p>
+                                        </div>
+                                        <div class="w-24 flex-shrink-0">
+                                            <img src="https://neeko-copilot.bytedance.net/api/text_to_image?prompt=night%20city&image_size=square" alt="推荐2" class="w-full aspect-square rounded-xl object-cover">
+                                            <p class="text-white/70 text-xs mt-2 text-center">城市夜景</p>
+                                        </div>
+                                        <div class="w-24 flex-shrink-0">
+                                            <img src="https://neeko-copilot.bytedance.net/api/text_to_image?prompt=food%20photography&image_size=square" alt="推荐3" class="w-full aspect-square rounded-xl object-cover">
+                                            <p class="text-white/70 text-xs mt-2 text-center">美食摄影</p>
+                                        </div>
+                                        <div class="w-24 flex-shrink-0">
+                                            <img src="https://neeko-copilot.bytedance.net/api/text_to_image?prompt=black%20white%20portrait&image_size=square" alt="推荐4" class="w-full aspect-square rounded-xl object-cover">
+                                            <p class="text-white/70 text-xs mt-2 text-center">黑白肖像</p>
                                         </div>
                                     </div>
                                 </div>
                             </div>
-                            
-                            <!-- 详情页内容 -->
-                            <div id="detailScreen" style="display: none;">
-                                <!-- 顶部栏 -->
-                                <div class="flex items-center px-4 py-3 justify-between" style="background: #0F0F0F;">
-                                    <span class="text-white text-2xl">←</span>
-                                    <div class="flex gap-3">
-                                        <span class="text-white text-xl">📋</span>
-                                        <span class="text-white text-xl">❤️</span>
-                                        <span class="text-white text-xl">↗️</span>
-                                    </div>
+                        </div>
+
+                        <!-- 设置页 -->
+                        <div id="settings-screen" class="phone-screen hidden">
+                            <div class="h-full overflow-y-auto" style="scrollbar-width: none;">
+                                <!-- 顶部 -->
+                                <div class="px-4 pt-4">
+                                    <button class="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center mb-4" onclick="showScreen('home')">
+                                        <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+                                        </svg>
+                                    </button>
+                                    <h1 class="text-xl font-bold text-white">设置</h1>
                                 </div>
-                                
-                                <!-- 封面图 -->
-                                <div class="w-full h-64 bg-gradient-to-br from-purple-900/60 to-indigo-900/60 relative">
-                                    <div class="absolute top-4 right-4 bg-yellow-600 text-black text-sm font-bold px-3 py-1 rounded-xl">HNCS</div>
-                                </div>
-                                
-                                <!-- 内容区 -->
-                                <div class="px-4 py-4" style="background: #0F0F0F;">
-                                    <div class="text-white font-bold text-2xl">哈苏人像经典</div>
-                                    <div class="mt-2 text-white/60">适配：OPPO Find X7 Pro</div>
-                                    
-                                    <div class="mt-6">
-                                        <div class="text-white text-lg font-semibold mb-3">相机参数</div>
-                                        
-                                        <div class="space-y-3">
-                                            <div class="bg-white/10 rounded-xl p-4 flex justify-between">
-                                                <span class="text-white/80">ISO</span>
-                                                <span class="text-white font-bold accent-color">100</span>
-                                            </div>
-                                            <div class="bg-white/10 rounded-xl p-4 flex justify-between">
-                                                <span class="text-white/80">快门</span>
-                                                <span class="text-white font-bold accent-color">1/200s</span>
-                                            </div>
-                                            <div class="bg-white/10 rounded-xl p-4 flex justify-between">
-                                                <span class="text-white/80">曝光补偿</span>
-                                                <span class="text-white font-bold accent-color">+0.3</span>
-                                            </div>
-                                            <div class="bg-white/10 rounded-xl p-4 flex justify-between">
-                                                <span class="text-white/80">白平衡</span>
-                                                <span class="text-white font-bold accent-color">5500K</span>
-                                            </div>
+
+                                <!-- 关于我 -->
+                                <div class="px-4 mt-6">
+                                    <div class="bg-white/5 rounded-2xl p-6 text-center">
+                                        <div class="w-20 h-20 mx-auto mb-4 rounded-full bg-gradient-to-br from-accent to-hasselblad-orange flex items-center justify-center">
+                                            <span class="text-3xl">📸</span>
+                                        </div>
+                                        <h2 class="text-xl font-bold text-white mb-1">小O帮帮</h2>
+                                        <p class="text-white/70 text-sm">哈苏影像系统级标定基座</p>
+                                        <div class="mt-4 pt-4 border-t border-white/10">
+                                            <p class="text-white/70 text-sm mb-2">热爱摄影的：小陈工</p>
+                                            <p class="text-accent text-sm underline cursor-pointer">抖音 小红书 搜索 带娃的小陈工</p>
+                                        </div>
+                                        <div class="mt-4 pt-4 border-t border-white/10">
+                                            <p class="text-white/50 text-xs">版本 2.0.0</p>
+                                            <p class="text-white/50 text-xs">© 2026 小O帮帮</p>
                                         </div>
                                     </div>
-                                    
-                                    <div class="mt-6 space-y-3">
-                                        <div class="flex gap-3">
-                                            <button class="flex-1 accent-bg text-white py-3 rounded-xl font-semibold flex items-center justify-center gap-2">
-                                                <span>✨</span>
-                                                一键自动填入
-                                            </button>
-                                            <button class="flex-1 bg-white/10 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2 border border-white/20">
-                                                <span>📱</span>
-                                                开启悬浮窗
-                                            </button>
+                                </div>
+
+                                <!-- 功能开关 -->
+                                <div class="px-4 mt-4">
+                                    <div class="bg-white/5 rounded-2xl overflow-hidden">
+                                        <div class="flex items-center justify-between px-4 py-3 border-b border-white/5">
+                                            <div class="flex items-center gap-3">
+                                                <div class="w-8 h-8 rounded-lg bg-accent/20 flex items-center justify-center">
+                                                    <svg class="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                                                    </svg>
+                                                </div>
+                                                <span class="text-white">深色模式</span>
+                                            </div>
+                                            <div class="w-10 h-6 rounded-full bg-accent flex items-center justify-end px-1">
+                                                <div class="w-4 h-4 rounded-full bg-white"></div>
+                                            </div>
                                         </div>
-                                        <button class="w-full bg-white/10 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2 border border-white/20">
-                                            <span>📥</span>
-                                            导入/导出预设
-                                        </button>
-                                        <button class="w-full bg-white/10 text-white py-3 rounded-xl font-medium flex items-center justify-center gap-2 border border-white/20">
-                                            <span>📷</span>
-                                            生成参数截图
-                                        </button>
+                                        <div class="flex items-center justify-between px-4 py-3 border-b border-white/5">
+                                            <div class="flex items-center gap-3">
+                                                <div class="w-8 h-8 rounded-lg bg-accent/20 flex items-center justify-center">
+                                                    <svg class="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                                                    </svg>
+                                                </div>
+                                                <span class="text-white">悬浮窗</span>
+                                            </div>
+                                            <div class="w-10 h-6 rounded-full bg-accent flex items-center justify-end px-1">
+                                                <div class="w-4 h-4 rounded-full bg-white"></div>
+                                            </div>
+                                        </div>
+                                        <div class="flex items-center justify-between px-4 py-3 border-b border-white/5">
+                                            <div class="flex items-center gap-3">
+                                                <div class="w-8 h-8 rounded-lg bg-accent/20 flex items-center justify-center">
+                                                    <svg class="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"></path>
+                                                    </svg>
+                                                </div>
+                                                <span class="text-white">自动填入</span>
+                                            </div>
+                                            <div class="w-10 h-6 rounded-full bg-accent flex items-center justify-end px-1">
+                                                <div class="w-4 h-4 rounded-full bg-white"></div>
+                                            </div>
+                                        </div>
+                                        <div class="flex items-center justify-between px-4 py-3">
+                                            <div class="flex items-center gap-3">
+                                                <div class="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center">
+                                                    <svg class="w-4 h-4 text-white/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path>
+                                                    </svg>
+                                                </div>
+                                                <span class="text-white/70">检查更新</span>
+                                            </div>
+                                            <svg class="w-5 h-5 text-white/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                                            </svg>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                            
-                            <!-- 设置页内容 -->
-                            <div id="settingsScreen" style="display: none;">
-                                <!-- 顶部栏 -->
-                                <div class="flex items-center px-4 py-3" style="background: #0F0F0F;">
-                                    <span class="text-white text-2xl">←</span>
-                                    <span class="text-white font-semibold text-lg ml-3">设置</span>
+
+                                <!-- 立即下载 -->
+                                <div class="px-4 mt-4">
+                                    <button class="w-full bg-accent hover:bg-accent/90 text-white font-semibold py-3.5 rounded-xl transition-all flex items-center justify-center gap-2">
+                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                                        </svg>
+                                        立即下载 APK
+                                    </button>
                                 </div>
-                                
-                                <div class="px-4 py-3" style="background: #0F0F0F; min-height: 100vh;">
-                                    <div class="text-white/60 text-sm mb-3">外观</div>
-                                    <div class="bg-white/10 rounded-xl p-4 flex justify-between items-center">
-                                        <div>
-                                            <div class="text-white font-medium">主题</div>
-                                            <div class="text-white/50 text-sm">跟随系统</div>
-                                        </div>
-                                        <span class="text-white/40">›</span>
-                                    </div>
-                                    
-                                    <div class="text-white/60 text-sm mt-6 mb-3">关于我</div>
-                                    <div class="bg-white/10 rounded-xl p-4">
-                                        <div class="accent-color font-bold text-xl">小O帮帮</div>
-                                        <div class="text-white/50 text-sm mt-1">版本 1.0.0</div>
-                                        <div class="text-white mt-3">热爱摄影的：小陈工</div>
-                                    </div>
-                                    
-                                    <div class="bg-white/10 rounded-xl p-4 mt-3 text-center">
-                                        <div class="text-white font-medium">联系我：有任何问题或建议</div>
-                                        <div class="mt-3 accent-color underline cursor-pointer text-sm">
-                                            抖音 小红书 搜索 带娃的小陈工
-                                        </div>
-                                    </div>
-                                    
-                                    <div class="text-white/60 text-sm mt-6 mb-3">版权信息</div>
-                                    <div class="bg-white/10 rounded-xl p-4">
-                                        <div class="text-white/70 text-sm">© 2026 小O帮帮. All rights reserved.</div>
-                                    </div>
+
+                                <!-- 底部 -->
+                                <div class="px-4 mt-8 pb-8">
+                                    <p class="text-center text-white/50 text-xs">
+                                        小O帮帮 - 让每一次拍摄都成为杰作 📸
+                                    </p>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
-            
-            <!-- 功能特性区 -->
-            <div class="mt-12">
-                <h2 class="text-2xl font-bold text-white text-center mb-8">🔥 核心功能</h2>
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <div class="bg-white/10 backdrop-blur-lg rounded-2xl p-6 text-white">
-                        <div class="text-3xl mb-3">🤖</div>
-                        <h3 class="font-semibold text-lg mb-2">一键自动填入</h3>
-                        <p class="text-white/70 text-sm">基于Android无障碍服务，合法合规自动填入参数到相机</p>
+        </div>
+
+        <!-- 一键填入引导弹窗 -->
+        <div id="auto-fill-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 hidden">
+            <div class="bg-gray-900 rounded-2xl w-80 p-6 mx-4 fade-in">
+                <div class="text-center mb-6">
+                    <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-accent/20 flex items-center justify-center">
+                        <svg class="w-8 h-8 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path>
+                        </svg>
                     </div>
-                    
-                    <div class="bg-white/10 backdrop-blur-lg rounded-2xl p-6 text-white">
-                        <div class="text-3xl mb-3">📱</div>
-                        <h3 class="font-semibold text-lg mb-2">悬浮窗参数</h3>
-                        <p class="text-white/70 text-sm">悬浮窗展示当前预设参数，支持一键复制，方便快捷</p>
+                    <h3 class="text-lg font-bold text-white">一键自动填入</h3>
+                    <p class="text-white/70 text-sm mt-2">自动帮您填入相机参数</p>
+                </div>
+
+                <div class="space-y-3 mb-6">
+                    <div class="flex items-center gap-3">
+                        <div class="w-6 h-6 rounded-full bg-accent/20 flex items-center justify-center text-xs text-accent font-bold">1</div>
+                        <span class="text-white/70 text-sm">开启无障碍服务权限</span>
                     </div>
-                    
-                    <div class="bg-white/10 backdrop-blur-lg rounded-2xl p-6 text-white">
-                        <div class="text-3xl mb-3">🔍</div>
-                        <h3 class="font-semibold text-lg mb-2">分类筛选</h3>
-                        <p class="text-white/70 text-sm">按场景/风格分类，快速找到适合的预设</p>
+                    <div class="flex items-center gap-3">
+                        <div class="w-6 h-6 rounded-full bg-accent/20 flex items-center justify-center text-xs text-accent font-bold">2</div>
+                        <span class="text-white/70 text-sm">打开相机并切换到专业模式</span>
                     </div>
-                    
-                    <div class="bg-white/10 backdrop-blur-lg rounded-2xl p-6 text-white">
-                        <div class="text-3xl mb-3">📥</div>
-                        <h3 class="font-semibold text-lg mb-2">多格式导入</h3>
-                        <p class="text-white/70 text-sm">支持LUT、Lightroom、泼辣修图等多种格式</p>
+                    <div class="flex items-center gap-3">
+                        <div class="w-6 h-6 rounded-full bg-accent/20 flex items-center justify-center text-xs text-accent font-bold">3</div>
+                        <span class="text-white/70 text-sm">参数将自动填入相机</span>
                     </div>
                 </div>
-            </div>
-            
-            <!-- 底部 -->
-            <div class="text-center mt-12 text-white/60 text-sm">
-                <p>小O帮帮 - 让每个人都能拍出专业照片</p>
-                <p class="mt-2">© 2026 热爱摄影的小陈工</p>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <button class="bg-white/10 hover:bg-white/15 text-white py-3 rounded-xl transition-all" onclick="closeModal()">
+                        取消
+                    </button>
+                    <button class="bg-accent hover:bg-accent/90 text-white py-3 rounded-xl transition-all">
+                        去开启权限
+                    </button>
+                </div>
             </div>
         </div>
     </div>
-    
+
     <script>
         function showScreen(screenName) {
-            // 隐藏所有屏幕
-            document.getElementById('homeScreen').style.display = 'none';
-            document.getElementById('detailScreen').style.display = 'none';
-            document.getElementById('settingsScreen').style.display = 'none';
-            
-            // 显示选中的屏幕
-            document.getElementById(screenName + 'Screen').style.display = 'block';
-            
-            // 更新标签状态
-            document.querySelectorAll('.screen-tab').forEach(tab => {
-                tab.classList.remove('active');
+            document.querySelectorAll('.phone-screen').forEach(screen => {
+                screen.classList.add('hidden');
             });
-            event.currentTarget.classList.add('active');
+            document.getElementById(screenName + '-screen').classList.remove('hidden');
+            
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.classList.remove('active');
+                item.classList.remove('bg-accent');
+                item.classList.add('bg-white/5');
+                item.classList.add('text-white/80');
+            });
+            document.getElementById(screenName + '-btn').classList.add('active');
+            document.getElementById(screenName + '-btn').classList.remove('bg-white/5');
+            document.getElementById(screenName + '-btn').classList.remove('text-white/80');
+            document.getElementById(screenName + '-btn').classList.add('bg-accent');
+            document.getElementById(screenName + '-btn').classList.add('text-white');
         }
-        
-        // 点击卡片模拟进入详情页
-        document.addEventListener('click', function(e) {
-            if (e.target.closest('.preset-card') && document.getElementById('homeScreen').style.display !== 'none') {
-                showScreen('detail');
+
+        function showAutoFillGuide() {
+            document.getElementById('auto-fill-modal').classList.remove('hidden');
+        }
+
+        function closeModal() {
+            document.getElementById('auto-fill-modal').classList.add('hidden');
+        }
+
+        document.getElementById('auto-fill-modal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeModal();
             }
         });
     </script>
