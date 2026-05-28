@@ -1,60 +1,50 @@
 package com.omaster.app.ui.screens
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Camera
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.omaster.app.model.Preset
 import com.omaster.app.model.SceneType
 import com.omaster.app.service.AiService
 import com.omaster.app.ui.components.PresetCard
-import com.omaster.app.ui.theme.*
+import com.omaster.app.ui.theme.AccentPrimary
+import com.omaster.app.viewmodel.MainViewModel
 import kotlinx.coroutines.launch
 
 @Composable
 fun SceneDetectionScreen(
-    aiService: AiService,
-    allPresets: List<Preset>,
     onBack: () -> Unit,
     onPresetClick: (Preset) -> Unit,
-    onFavoriteToggle: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    viewModel: MainViewModel = hiltViewModel(),
+    aiService: AiService = AiService()
 ) {
-    val scope = rememberCoroutineScope()
-    var isDetecting by remember { mutableStateOf(false) }
+    val presets by viewModel.presets.collectAsStateWithLifecycle()
     var detectedScene by remember { mutableStateOf<SceneType?>(null) }
     var recommendedPresets by remember { mutableStateOf<List<Preset>>(emptyList()) }
-    var selectedImage by remember { mutableStateOf<String?>(null) }
+    var isDetecting by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     Scaffold(
         modifier = modifier,
-        containerColor = DeepSpace,
         topBar = {
             TopAppBar(
                 title = {
                     Text(
-                        text = "AI 场景识别",
+                        text = "场景检测",
                         style = MaterialTheme.typography.headlineSmall,
-                        color = TextPrimary
+                        color = MaterialTheme.colorScheme.onBackground
                     )
                 },
                 navigationIcon = {
@@ -62,12 +52,12 @@ fun SceneDetectionScreen(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "返回",
-                            tint = TextPrimary
+                            tint = MaterialTheme.colorScheme.onBackground
                         )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = DeepSpace
+                    containerColor = MaterialTheme.colorScheme.background
                 )
             )
         }
@@ -76,267 +66,180 @@ fun SceneDetectionScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(16.dp)
         ) {
-            ImageSelectionArea(
-                selectedImage = selectedImage,
-                onSelectImage = { 
-                    selectedImage = "https://picsum.photos/seed/selected_${System.currentTimeMillis()}/800/600"
-                }
-            )
-
-            Button(
-                onClick = {
-                    scope.launch {
-                        isDetecting = true
-                        val scene = aiService.detectScene(selectedImage)
-                        detectedScene = scene
-                        recommendedPresets = aiService.getRecommendedPresets(scene, allPresets)
-                        isDetecting = false
-                    }
-                },
-                enabled = selectedImage != null && !isDetecting,
+            Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = AccentPrimary
-                ),
-                shape = RoundedCornerShape(12.dp)
+                shape = MaterialTheme.shapes.large
             ) {
-                if (isDetecting) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        color = DeepSpace,
-                        strokeWidth = 2.dp
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "正在识别场景...",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = DeepSpace
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Default.AutoFixHigh,
-                        contentDescription = "识别",
-                        tint = DeepSpace
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (selectedImage == null) "请先选择图片" else "开始AI场景识别",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = DeepSpace,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-
-            detectedScene?.let { scene ->
-                SceneResultCard(scene = scene)
-            }
-
-            if (recommendedPresets.isNotEmpty()) {
-                Text(
-                    text = "为您推荐的哈苏大师预设",
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = TextPrimary,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    items(recommendedPresets) { preset ->
-                        PresetCard(
-                            preset = preset,
-                            onClick = { onPresetClick(preset) },
-                            onFavoriteToggle = { onFavoriteToggle(preset.id) }
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun ImageSelectionArea(
-    selectedImage: String?,
-    onSelectImage: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(250.dp)
-            .clickable(onClick = onSelectImage),
-        colors = CardDefaults.cardColors(
-            containerColor = DeepSpaceLight
-        ),
-        shape = RoundedCornerShape(16.dp)
-    ) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            if (selectedImage != null) {
-                AsyncImage(
-                    model = selectedImage,
-                    contentDescription = "已选图片",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.Transparent,
-                                    DeepSpace.copy(alpha = 0.8f)
-                                ),
-                                startY = 150f
-                            )
-                        )
-                )
-                Icon(
-                    imageVector = Icons.Default.ChangeCircle,
-                    contentDescription = "更换图片",
-                    tint = TextPrimary,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .align(Alignment.BottomEnd)
-                        .padding(16.dp)
-                )
-            } else {
                 Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Icon(
-                        imageVector = Icons.Default.AddPhotoAlternate,
-                        contentDescription = "选择图片",
-                        tint = TextSecondary,
-                        modifier = Modifier.size(64.dp)
+                        imageVector = Icons.Default.Camera,
+                        contentDescription = "场景检测",
+                        modifier = Modifier.size(64.dp),
+                        tint = AccentPrimary
                     )
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
                     Text(
-                        text = "点击选择拍摄的样张",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = TextSecondary,
-                        textAlign = TextAlign.Center
+                        text = "AI 场景检测",
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = MaterialTheme.colorScheme.onBackground
                     )
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    Text(
+                        text = "自动识别场景并推荐最佳预设",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    
+                    Spacer(modifier = Modifier.height(24.dp))
+                    
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        IconLabel(Icons.Default.Camera, "拍照")
-                        IconLabel(Icons.Default.Image, "相册")
+                        Button(
+                            onClick = {
+                                isDetecting = true
+                                scope.launch {
+                                    detectedScene = aiService.detectScene()
+                                    recommendedPresets = aiService.getRecommendedPresets(
+                                        detectedScene ?: SceneType.UNKNOWN,
+                                        presets
+                                    )
+                                    isDetecting = false
+                                }
+                            },
+                            enabled = !isDetecting,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = AccentPrimary
+                            ),
+                            shape = MaterialTheme.shapes.medium
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Camera,
+                                contentDescription = "拍照检测",
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (isDetecting) "检测中..." else "拍照检测",
+                                color = androidx.compose.ui.graphics.Color.Black
+                            )
+                        }
+                        
+                        Button(
+                            onClick = {
+                                isDetecting = true
+                                scope.launch {
+                                    detectedScene = aiService.detectScene()
+                                    recommendedPresets = aiService.getRecommendedPresets(
+                                        detectedScene ?: SceneType.UNKNOWN,
+                                        presets
+                                    )
+                                    isDetecting = false
+                                }
+                            },
+                            enabled = !isDetecting,
+                            shape = MaterialTheme.shapes.medium
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Image,
+                                contentDescription = "从相册选择",
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("相册选择")
+                        }
+                    }
+                }
+            }
+
+            if (isDetecting) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(48.dp),
+                        color = AccentPrimary
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "正在分析场景...",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else if (detectedScene != null) {
+                Spacer(modifier = Modifier.height(24.dp))
+                
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.medium
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            color = AccentPrimary,
+                            shape = MaterialTheme.shapes.small,
+                            modifier = Modifier.padding(8.dp)
+                        ) {
+                            Text(
+                                text = detectedScene?.displayName ?: "",
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                style = MaterialTheme.typography.titleMedium,
+                                color = androidx.compose.ui.graphics.Color.Black
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column {
+                            Text(
+                                text = "检测到场景",
+                                style = MaterialTheme.typography.titleLarge,
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                            Text(
+                                text = detectedScene?.description ?: "",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
+                    text = "推荐预设",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    contentPadding = PaddingValues(vertical = 16.dp)
+                ) {
+                    items(recommendedPresets, key = { it.id }) { preset ->
+                        PresetCard(
+                            preset = preset,
+                            onClick = { onPresetClick(preset) },
+                            onFavoriteToggle = { viewModel.toggleFavorite(preset) }
+                        )
                     }
                 }
             }
         }
-    }
-}
-
-@Composable
-fun IconLabel(icon: ImageVector, label: String) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = label,
-            tint = AccentPrimary,
-            modifier = Modifier.size(32.dp)
-        )
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = TextSecondary
-        )
-    }
-}
-
-@Composable
-fun SceneResultCard(scene: SceneType, modifier: Modifier = Modifier) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = DeepSpaceLight
-        ),
-        shape = RoundedCornerShape(16.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(56.dp)
-                    .clip(CircleShape)
-                    .background(AccentPrimary.copy(alpha = 0.2f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = getSceneIcon(scene),
-                    contentDescription = scene.displayName,
-                    tint = AccentPrimary,
-                    modifier = Modifier.size(32.dp)
-                )
-            }
-            
-            Column {
-                Text(
-                    text = "识别结果",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = TextSecondary
-                )
-                Text(
-                    text = scene.displayName,
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = TextPrimary,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = scene.description,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary
-                )
-            }
-            
-            Spacer(modifier = Modifier.weight(1f))
-            
-            Surface(
-                color = AccentPrimary.copy(alpha = 0.2f),
-                shape = CircleShape
-            ) {
-                Icon(
-                    imageVector = Icons.Default.CheckCircle,
-                    contentDescription = "已识别",
-                    tint = AccentPrimary,
-                    modifier = Modifier.padding(12.dp)
-                )
-            }
-        }
-    }
-}
-
-fun getSceneIcon(scene: SceneType): ImageVector {
-    return when (scene) {
-        SceneType.LANDSCAPE -> Icons.Default.Landscape
-        SceneType.PORTRAIT -> Icons.Default.Person
-        SceneType.NIGHT -> Icons.Default.Nightlight
-        SceneType.SUNSET -> Icons.Default.WbSunny
-        SceneType.FOOD -> Icons.Default.Restaurant
-        SceneType.STREET -> Icons.Default.Commute
-        SceneType.NATURE -> Icons.Default.Eco
-        SceneType.ARCHITECTURE -> Icons.Default.Apartment
-        SceneType.MACRO -> Icons.Default.CenterFocusStrong
-        SceneType.UNKNOWN -> Icons.Default.Help
     }
 }

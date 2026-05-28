@@ -8,4 +8,5 @@ sealed class Screen(val route: String) {
         }
     }
     object Settings : Screen("settings")
+    object SceneDetection : Screen("scene_detection")
 }

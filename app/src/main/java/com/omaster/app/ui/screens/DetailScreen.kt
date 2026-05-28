@@ -233,6 +233,38 @@ fun GridParamsGrid(params: com.omaster.app.model.CameraParams) {
         if (params.filter.isNotEmpty()) {
             ParamItem("滤镜", params.filter)
         }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        Text(
+            text = "高级参数",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        
+        Spacer(modifier = Modifier.height(12.dp))
+        
+        if (params.softLight != 0) {
+            ParamItem("柔光", "${params.softLight > 0 ? "+" : ""}${params.softLight}")
+        }
+        if (params.tone != 0) {
+            ParamItem("影调", "${params.tone > 0 ? "+" : ""}${params.tone}")
+        }
+        if (params.saturation != 0) {
+            ParamItem("饱和度", "${params.saturation > 0 ? "+" : ""}${params.saturation}")
+        }
+        if (params.warmth != 0) {
+            ParamItem("冷暖", "${params.warmth > 0 ? "+" : ""}${params.warmth}")
+        }
+        if (params.cyanMagenta != 0) {
+            ParamItem("青品", "${params.cyanMagenta > 0 ? "+" : ""}${params.cyanMagenta}")
+        }
+        if (params.sharpness != 0) {
+            ParamItem("锐度", "${params.sharpness > 0 ? "+" : ""}${params.sharpness}")
+        }
+        if (params.vignetting != 0) {
+            ParamItem("暗角", "${params.vignetting > 0 ? "+" : ""}${params.vignetting}")
+        }
     }
 }
 

@@ -31,7 +31,14 @@ class PresetRepository @Inject constructor(
                 shutter = "1/250",
                 ev = "+0.3",
                 wb = "5600K",
-                hasselblad_hncs = true
+                hasselblad_hncs = true,
+                softLight = 30,
+                tone = 20,
+                saturation = 15,
+                warmth = 25,
+                cyanMagenta = -10,
+                sharpness = 10,
+                vignetting = 5
             ),
             deviceModel = "Find X8 Pro",
             source = "omaster_cloud"
@@ -51,7 +58,14 @@ class PresetRepository @Inject constructor(
                 shutter = "1/30",
                 ev = "-0.7",
                 wb = "4200K",
-                hasselblad_hncs = false
+                hasselblad_hncs = false,
+                softLight = 10,
+                tone = -15,
+                saturation = 25,
+                warmth = -30,
+                cyanMagenta = 20,
+                sharpness = -10,
+                vignetting = 30
             ),
             deviceModel = "Find X8 Ultra",
             source = "omaster_cloud"
@@ -71,7 +85,14 @@ class PresetRepository @Inject constructor(
                 shutter = "1/500",
                 ev = "0",
                 wb = "5200K",
-                hasselblad_hncs = true
+                hasselblad_hncs = true,
+                softLight = -10,
+                tone = 10,
+                saturation = 5,
+                warmth = -5,
+                cyanMagenta = -5,
+                sharpness = 20,
+                vignetting = -10
             ),
             deviceModel = "Reno 12 Pro",
             source = "omaster_cloud"
@@ -91,7 +112,14 @@ class PresetRepository @Inject constructor(
                 shutter = "1/200",
                 ev = "+0.7",
                 wb = "6000K",
-                hasselblad_hncs = true
+                hasselblad_hncs = true,
+                softLight = 20,
+                tone = 15,
+                saturation = 20,
+                warmth = 35,
+                cyanMagenta = -15,
+                sharpness = 5,
+                vignetting = 15
             ),
             deviceModel = "Find X7 Ultra",
             source = "omaster_cloud"
@@ -111,7 +139,14 @@ class PresetRepository @Inject constructor(
                 shutter = "1/1000",
                 ev = "0",
                 wb = "自动",
-                hasselblad_hncs = false
+                hasselblad_hncs = false,
+                softLight = -20,
+                tone = 30,
+                saturation = -100,
+                warmth = 0,
+                cyanMagenta = 0,
+                sharpness = 40,
+                vignetting = 25
             ),
             deviceModel = "Find X8",
             source = "omaster_cloud"
@@ -131,7 +166,14 @@ class PresetRepository @Inject constructor(
                 shutter = "1/320",
                 ev = "+0.3",
                 wb = "5800K",
-                hasselblad_hncs = true
+                hasselblad_hncs = true,
+                softLight = 40,
+                tone = 5,
+                saturation = 10,
+                warmth = 15,
+                cyanMagenta = 5,
+                sharpness = -5,
+                vignetting = 10
             ),
             deviceModel = "Reno 12",
             source = "omaster_cloud"

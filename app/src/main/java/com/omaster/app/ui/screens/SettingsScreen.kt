@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -12,19 +13,25 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.omaster.app.data.ThemeMode
+import com.omaster.app.service.CloudSyncService
 import com.omaster.app.ui.theme.*
 import com.omaster.app.viewmodel.MainViewModel
+import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
-    viewModel: MainViewModel = hiltViewModel()
+    viewModel: MainViewModel = hiltViewModel(),
+    cloudSyncService: CloudSyncService? = null
 ) {
     val currentThemeMode by viewModel.themeMode.collectAsStateWithLifecycle()
     val fluidCloudEnabled by viewModel.fluidCloudEnabled.collectAsStateWithLifecycle()
     val overlayEnabled by viewModel.overlayEnabled.collectAsStateWithLifecycle()
     var showThemeDialog by remember { mutableStateOf(false) }
+    var isSyncing by remember { mutableStateOf(false) }
+    var syncStatus by remember { mutableStateOf<String>("") }
+    val scope = rememberCoroutineScope()
 
     Scaffold(
         modifier = modifier,
@@ -116,6 +123,73 @@ fun SettingsScreen(
                 checked = overlayEnabled,
                 onCheckedChange = { viewModel.setOverlayEnabled(it) }
             )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = "云端同步",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "同步预设",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = syncStatus.ifEmpty { "点击刷新获取最新预设" },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    IconButton(
+                        onClick = {
+                            isSyncing = true
+                            scope.launch {
+                                cloudSyncService?.let { service ->
+                                    val result = service.syncPresets()
+                                    syncStatus = when (result) {
+                                        is CloudSyncService.SyncResult.Success -> 
+                                            "同步成功: ${result.updatedCount} 个预设"
+                                        CloudSyncService.SyncResult.NoChanges -> 
+                                            "已是最新版本"
+                                        is CloudSyncService.SyncResult.Error -> 
+                                            "同步失败: ${result.message}"
+                                    }
+                                }
+                                isSyncing = false
+                            }
+                        },
+                        enabled = !isSyncing
+                    ) {
+                        if (isSyncing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                color = AccentPrimary
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "同步",
+                                tint = AccentPrimary
+                            )
+                        }
+                    }
+                }
+            }
 
             Spacer(modifier = Modifier.height(24.dp))
 

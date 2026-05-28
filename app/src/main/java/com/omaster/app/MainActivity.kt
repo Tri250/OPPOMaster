@@ -13,6 +13,7 @@ import androidx.navigation.navArgument
 import com.omaster.app.navigation.Screen
 import com.omaster.app.ui.screens.DetailScreen
 import com.omaster.app.ui.screens.HomeScreen
+import com.omaster.app.ui.screens.SceneDetectionScreen
 import com.omaster.app.ui.screens.SettingsScreen
 import com.omaster.app.ui.theme.OMasterTheme
 import com.omaster.app.viewmodel.MainViewModel
@@ -53,7 +54,8 @@ fun OMasterApp(
                 onPresetClick = { preset ->
                     navController.navigate(Screen.Detail.createRoute(preset.id))
                 },
-                onSettingsClick = { navController.navigate(Screen.Settings.route) }
+                onSettingsClick = { navController.navigate(Screen.Settings.route) },
+                onSceneDetectionClick = { navController.navigate(Screen.SceneDetection.route) }
             )
         }
         composable(
@@ -76,11 +78,19 @@ fun OMasterApp(
                     }
                 )
             }
-        }
-        composable(Screen.Settings.route) {
-            SettingsScreen(
-                onBack = { navController.popBackStack() }
-            )
+    composable(Screen.Settings.route) {
+                SettingsScreen(
+                    onBack = { navController.popBackStack() }
+                )
+            }
+            composable(Screen.SceneDetection.route) {
+                SceneDetectionScreen(
+                    onBack = { navController.popBackStack() },
+                    onPresetClick = { preset ->
+                        navController.navigate(Screen.Detail.createRoute(preset.id))
+                    }
+                )
+            }
         }
     }
 }
