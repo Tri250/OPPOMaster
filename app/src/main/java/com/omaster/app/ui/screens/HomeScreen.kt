@@ -5,16 +5,18 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
@@ -27,9 +29,11 @@ import com.omaster.app.R
 import com.omaster.app.floating.FloatingWindowToggleButton
 import com.omaster.app.floating.PermissionGuidanceDialog
 import com.omaster.app.model.Preset
+import com.omaster.app.ui.animation.AnimationConfig
 import com.omaster.app.ui.components.EnhancedFilterChips
 import com.omaster.app.ui.components.EnhancedPresetCard
 import com.omaster.app.ui.components.EnhancedSearchBar
+import com.omaster.app.ui.components.PresetCardSkeleton
 import com.omaster.app.ui.theme.*
 import com.omaster.app.viewmodel.FilterType
 import com.omaster.app.viewmodel.MainViewModel
@@ -49,6 +53,14 @@ fun HomeScreen(
     var showPermissionDialog by remember { mutableStateOf(false) }
     var showSpecialGuidance by remember { mutableStateOf(false) }
     var isFloatingWindowEnabled by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(true) }
+    
+    LaunchedEffect(presets) {
+        if (presets.isNotEmpty()) {
+            delay(300)
+            isLoading = false
+        }
+    }
     
     val filteredPresets = remember(presets, searchQuery, filterType) {
         presets.filter { preset ->
@@ -193,7 +205,31 @@ fun HomeScreen(
                     onFilterSelected = { viewModel.onFilterTypeChanged(it) }
                 )
             }
-            if (filteredPresets.isEmpty()) {
+            
+            if (isLoading) {
+                items(3) { index ->
+                    AnimatedVisibility(
+                        visible = true,
+                        enter = fadeIn(
+                            animationSpec = tween(
+                                durationMillis = 200,
+                                delayMillis = index * 50
+                            )
+                        ) + slideInVertically(
+                            initialOffsetY = { 20.dp.toPx().toInt() },
+                            animationSpec = tween(
+                                durationMillis = 200,
+                                delayMillis = index * 50,
+                                easing = AnimationConfig.LinearOutSlowInEasing
+                            )
+                        )
+                    ) {
+                        PresetCardSkeleton(
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+                    }
+                }
+            } else if (filteredPresets.isEmpty()) {
                 item {
                     EmptyState(
                         message = if (searchQuery.isNotEmpty() || filterType != FilterType.ALL)
@@ -204,12 +240,12 @@ fun HomeScreen(
                     )
                 }
             } else {
-                items(filteredPresets, key = { it.id }) { preset ->
-                    EnhancedPresetCard(
+                itemsIndexed(filteredPresets, key = { _, preset -> preset.id }) { index, preset ->
+                    AnimatedPresetCard(
                         preset = preset,
+                        index = index,
                         onClick = { onPresetClick(preset) },
-                        onFavoriteToggle = { viewModel.toggleFavorite(preset) },
-                        modifier = Modifier.padding(horizontal = 16.dp)
+                        onFavoriteToggle = { viewModel.toggleFavorite(preset) }
                     )
                 }
             }
@@ -230,6 +266,42 @@ fun HomeScreen(
 }
 
 @Composable
+fun AnimatedPresetCard(
+    preset: Preset,
+    index: Int,
+    onClick: () -> Unit,
+    onFavoriteToggle: () -> Unit
+) {
+    val delay = index * 50L
+    
+    AnimatedVisibility(
+        visible = true,
+        enter = fadeIn(
+            animationSpec = tween(
+                durationMillis = AnimationConfig.STATE_TRANSITION_DURATION,
+                delayMillis = delay.toInt(),
+                easing = AnimationConfig.LinearOutSlowInEasing
+            )
+        ) + slideInVertically(
+            initialOffsetY = { 20.dp.toPx().toInt() },
+            animationSpec = tween(
+                durationMillis = AnimationConfig.STATE_TRANSITION_DURATION,
+                delayMillis = delay.toInt(),
+                easing = AnimationConfig.LinearOutSlowInEasing
+            )
+        )
+    ) {
+        EnhancedPresetCard(
+            preset = preset,
+            onClick = onClick,
+            onFavoriteToggle = onFavoriteToggle,
+            modifier = Modifier.padding(horizontal = 16.dp),
+            isNew = index < 3
+        )
+    }
+}
+
+@Composable
 fun EmptyState(
     message: String,
     isSearchEmpty: Boolean = false,
@@ -242,36 +314,60 @@ fun EmptyState(
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        if (isSearchEmpty) {
-            Image(
-                painter = painterResource(id = R.drawable.empty_presets),
-                contentDescription = "暂无预设",
-                modifier = Modifier.size(120.dp)
+        AnimatedVisibility(
+            visible = true,
+            enter = fadeIn(
+                animationSpec = tween(500)
+            ) + slideInVertically(
+                initialOffsetY = { 20.dp.toPx().toInt() },
+                animationSpec = tween(500, easing = AnimationConfig.LinearOutSlowInEasing)
             )
-        } else {
-            Image(
-                painter = painterResource(id = R.drawable.empty_search),
-                contentDescription = "搜索无结果",
-                modifier = Modifier.size(120.dp)
-            )
+        ) {
+            if (isSearchEmpty) {
+                Image(
+                    painter = painterResource(id = R.drawable.empty_presets),
+                    contentDescription = "暂无预设",
+                    modifier = Modifier.size(120.dp)
+                )
+            } else {
+                Image(
+                    painter = painterResource(id = R.drawable.empty_search),
+                    contentDescription = "搜索无结果",
+                    modifier = Modifier.size(120.dp)
+                )
+            }
         }
         
         Spacer(modifier = Modifier.height(16.dp))
         
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center
-        )
+        AnimatedVisibility(
+            visible = true,
+            enter = fadeIn(
+                animationSpec = tween(300, delayMillis = 200)
+            )
+        ) {
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+        }
         
         Spacer(modifier = Modifier.height(8.dp))
         
-        Text(
-            text = if (isSearchEmpty) "期待更多精彩预设" else "换个关键词试试",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-            textAlign = TextAlign.Center
-        )
+        AnimatedVisibility(
+            visible = true,
+            enter = fadeIn(
+                animationSpec = tween(300, delayMillis = 300)
+            )
+        ) {
+            Text(
+                text = if (isSearchEmpty) "期待更多精彩预设" else "换个关键词试试",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                textAlign = TextAlign.Center
+            )
+        }
     }
 }

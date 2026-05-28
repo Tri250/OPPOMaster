@@ -1,6 +1,7 @@
 package com.omaster.app.ui.components
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -10,7 +11,11 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.omaster.app.ui.animation.AnimationConfig
 import com.omaster.app.viewmodel.FilterType
 
 @Composable
@@ -31,17 +36,23 @@ fun EnhancedFilterChips(
         )
     }
     
+    val selectedIndex = filters.indexOfFirst { it.type == selectedFilter }
+    
     Row(
         modifier = modifier
             .horizontalScroll(rememberScrollState())
             .padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        filters.forEach { filterInfo ->
+        filters.forEachIndexed { index, filterInfo ->
+            val isSelected = selectedFilter == filterInfo.type
+            
             FilterChipItem(
                 filterInfo = filterInfo,
-                selected = selectedFilter == filterInfo.type,
-                onClick = { onFilterSelected(filterInfo.type) }
+                selected = isSelected,
+                onClick = { onFilterSelected(filterInfo.type) },
+                index = index,
+                selectedIndex = selectedIndex
             )
         }
     }
@@ -51,7 +62,9 @@ fun EnhancedFilterChips(
 private fun FilterChipItem(
     filterInfo: FilterInfo,
     selected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    index: Int,
+    selectedIndex: Int
 ) {
     val animatedColor by animateColorAsState(
         targetValue = if (selected) {
@@ -59,26 +72,95 @@ private fun FilterChipItem(
         } else {
             MaterialTheme.colorScheme.surfaceVariant
         },
-        label = "filterColor"
+        animationSpec = tween(
+            durationMillis = AnimationConfig.STATE_TRANSITION_DURATION,
+            easing = AnimationConfig.FastOutSlowInEasing
+        ),
+        label = "filterColor_${filterInfo.type}"
     )
     
-    FilterChip(
-        selected = selected,
-        onClick = onClick,
-        label = { Text(filterInfo.label) },
-        leadingIcon = {
-            Icon(
-                imageVector = filterInfo.icon,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp)
-            )
+    val textColor by animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.onPrimaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
         },
-        colors = FilterChipDefaults.filterChipColors(
-            selectedContainerColor = animatedColor,
-            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimaryContainer
+        animationSpec = tween(
+            durationMillis = AnimationConfig.STATE_TRANSITION_DURATION,
+            easing = AnimationConfig.FastOutSlowInEasing
         ),
-        shape = RoundedCornerShape(20.dp)
+        label = "filterTextColor_${filterInfo.type}"
+    )
+    
+    val iconColor by animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.onPrimaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+        },
+        animationSpec = tween(
+            durationMillis = AnimationConfig.STATE_TRANSITION_DURATION,
+            easing = AnimationConfig.FastOutSlowInEasing
+        ),
+        label = "filterIconColor_${filterInfo.type}"
+    )
+    
+    val scale by animateFloatAsState(
+        targetValue = if (selected) 1.05f else 1f,
+        animationSpec = tween(
+            durationMillis = AnimationConfig.MICRO_INTERACTION_DURATION,
+            easing = AnimationConfig.FastOutSlowInEasing
+        ),
+        label = "filterScale_${filterInfo.type}"
+    )
+    
+    Box(
+        modifier = Modifier.scale(scale)
+    ) {
+        FilterChip(
+            selected = selected,
+            onClick = onClick,
+            label = {
+                Text(
+                    filterInfo.label,
+                    color = textColor
+                )
+            },
+            leadingIcon = {
+                Icon(
+                    imageVector = filterInfo.icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = iconColor
+                )
+            },
+            colors = FilterChipDefaults.filterChipColors(
+                selectedContainerColor = animatedColor,
+                unselectedContainerColor = animatedColor,
+                selectedLabelColor = textColor,
+                unselectedLabelColor = textColor,
+                selectedLeadingIconColor = iconColor,
+                unselectedLeadingIconColor = iconColor
+            ),
+            shape = RoundedCornerShape(20.dp),
+            border = null
+        )
+        
+        if (selected) {
+            AnimatedUnderline()
+        }
+    }
+}
+
+@Composable
+private fun AnimatedUnderline() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(2.dp)
+            .align(Alignment.BottomCenter)
+            .clip(RoundedCornerShape(1.dp))
+            .background(MaterialTheme.colorScheme.primary)
     )
 }
 
@@ -115,6 +197,18 @@ fun MultiSelectFilterChips(
         ) {
             allFilters.forEach { filterType ->
                 val isSelected = selectedFilters.contains(filterType)
+                val animatedColor by animateColorAsState(
+                    targetValue = if (isSelected) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant
+                    },
+                    animationSpec = tween(
+                        durationMillis = AnimationConfig.STATE_TRANSITION_DURATION,
+                        easing = AnimationConfig.FastOutSlowInEasing
+                    ),
+                    label = "multiSelectColor_${filterType}"
+                )
                 
                 FilterChip(
                     selected = isSelected,
@@ -133,9 +227,12 @@ fun MultiSelectFilterChips(
                     },
                     label = { Text(getFilterLabel(filterType)) },
                     colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
+                        selectedContainerColor = animatedColor,
+                        unselectedContainerColor = animatedColor,
+                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        unselectedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    ),
+                    shape = RoundedCornerShape(20.dp)
                 )
             }
         }

@@ -1,8 +1,9 @@
 package com.omaster.app.ui.components
 
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -14,7 +15,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -26,6 +29,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.omaster.app.model.Preset
+import com.omaster.app.ui.animation.AnimationConfig
 import com.omaster.app.ui.theme.*
 
 @OptIn(ExperimentalComposeUiApi::class, ExperimentalFoundationApi::class)
@@ -35,16 +39,37 @@ fun EnhancedPresetCard(
     onClick: () -> Unit,
     onFavoriteToggle: () -> Unit,
     modifier: Modifier = Modifier,
-    showPreview: Boolean = true
+    showPreview: Boolean = true,
+    isNew: Boolean = false
 ) {
     val hapticFeedback = LocalHapticFeedback.current
     var isPressed by remember { mutableStateOf(false) }
     var showQuickMenu by remember { mutableStateOf(false) }
     
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.97f else 1f,
+        animationSpec = tween(
+            durationMillis = AnimationConfig.MICRO_INTERACTION_DURATION,
+            easing = AnimationConfig.FastOutSlowInEasing
+        ),
+        label = "cardScale"
+    )
+    
+    val alpha by animateFloatAsState(
+        targetValue = if (isPressed) 0.9f else 1f,
+        animationSpec = tween(
+            durationMillis = AnimationConfig.MICRO_INTERACTION_DURATION,
+            easing = AnimationConfig.FastOutSlowInEasing
+        ),
+        label = "cardAlpha"
+    )
+    
     Card(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
+            .scale(scale)
+            .alpha(alpha)
             .combinedClickable(
                 onClick = {
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -53,6 +78,9 @@ fun EnhancedPresetCard(
                 onLongClick = {
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     showQuickMenu = true
+                },
+                onChange = { pressed ->
+                    isPressed = pressed
                 },
                 onClickLabel = "查看预设详情",
                 onLongClickLabel = "打开快捷菜单"
@@ -141,30 +169,13 @@ fun EnhancedPresetCard(
                         }
                     }
                     
-                    IconButton(
-                        onClick = {
-                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onFavoriteToggle()
-                        },
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(8.dp)
-                            .semantics {
-                                if (preset.isFavorite) {
-                                    onClick(label = "取消收藏") { onFavoriteToggle() }
-                                } else {
-                                    onClick(label = "添加收藏") { onFavoriteToggle() }
-                                }
-                            }
-                    ) {
-                        Icon(
-                            imageVector = if (preset.isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
-                            contentDescription = if (preset.isFavorite) "取消收藏" else "收藏",
-                            tint = if (preset.isFavorite) AccentPrimary else Color.White
+                    if (isNew) {
+                        BreathingNewTag(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(12.dp)
                         )
-                    }
-                    
-                    if (preset.source == "community") {
+                    } else if (preset.source == "community") {
                         Surface(
                             modifier = Modifier
                                 .align(Alignment.TopStart)
@@ -181,6 +192,17 @@ fun EnhancedPresetCard(
                             )
                         }
                     }
+                    
+                    FavoriteButton(
+                        isFavorite = preset.isFavorite,
+                        onToggle = {
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onFavoriteToggle()
+                        },
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(8.dp)
+                    )
                 }
                 
                 Column(
@@ -254,95 +276,203 @@ fun EnhancedPresetCard(
                 }
             }
             
-            DropdownMenu(
-                expanded = showQuickMenu,
-                onDismissRequest = { showQuickMenu = false }
+            AnimatedVisibility(
+                visible = showQuickMenu,
+                enter = scaleIn(
+                    animationSpec = spring(
+                        dampingRatio = 0.8f,
+                        stiffness = 500f
+                    )
+                ),
+                exit = scaleOut(
+                    animationSpec = spring(
+                        dampingRatio = 0.8f,
+                        stiffness = 500f
+                    )
+                )
             ) {
-                DropdownMenuItem(
-                    text = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = if (preset.isFavorite) Icons.Default.Favorite else Icons.Outlined.FavoriteBorder,
-                                contentDescription = null,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text(if (preset.isFavorite) "取消收藏" else "快速收藏")
+                DropdownMenu(
+                    expanded = showQuickMenu,
+                    onDismissRequest = { showQuickMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = if (preset.isFavorite) Icons.Default.Favorite else Icons.Outlined.FavoriteBorder,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(if (preset.isFavorite) "取消收藏" else "快速收藏")
+                            }
+                        },
+                        onClick = {
+                            showQuickMenu = false
+                            onFavoriteToggle()
+                        },
+                        modifier = Modifier.semantics {
+                            contentDescription = if (preset.isFavorite) "快速取消收藏" else "快速收藏"
                         }
-                    },
-                    onClick = {
-                        showQuickMenu = false
-                        onFavoriteToggle()
-                    },
-                    modifier = Modifier.semantics {
-                        contentDescription = if (preset.isFavorite) "快速取消收藏" else "快速收藏"
-                    }
-                )
-                
-                DropdownMenuItem(
-                    text = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Share,
-                                contentDescription = null,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text("分享预设")
-                        }
-                    },
-                    onClick = {
-                        showQuickMenu = false
-                    },
-                    modifier = Modifier.semantics {
-                        contentDescription = "分享预设"
-                    }
-                )
-                
-                DropdownMenuItem(
-                    text = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Visibility,
-                                contentDescription = null,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text("查看参数")
-                        }
-                    },
-                    onClick = {
-                        showQuickMenu = false
-                        onClick()
-                    },
-                    modifier = Modifier.semantics {
-                        contentDescription = "查看详细参数"
-                    }
-                )
-                
-                if (preset.source == "official") {
-                    HorizontalDivider()
+                    )
                     
                     DropdownMenuItem(
                         text = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
-                                    imageVector = Icons.Default.NewReleases,
+                                    imageVector = Icons.Default.Share,
                                     contentDescription = null,
-                                    modifier = Modifier.size(20.dp),
-                                    tint = AccentPrimary
+                                    modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(12.dp))
-                                Text("官方认证", color = AccentPrimary)
+                                Text("分享预设")
                             }
                         },
                         onClick = {
                             showQuickMenu = false
                         },
-                        enabled = false
+                        modifier = Modifier.semantics {
+                            contentDescription = "分享预设"
+                        }
                     )
+                    
+                    DropdownMenuItem(
+                        text = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Visibility,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text("查看参数")
+                            }
+                        },
+                        onClick = {
+                            showQuickMenu = false
+                            onClick()
+                        },
+                        modifier = Modifier.semantics {
+                            contentDescription = "查看详细参数"
+                        }
+                    )
+                    
+                    if (preset.source == "official") {
+                        HorizontalDivider()
+                        
+                        DropdownMenuItem(
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.NewReleases,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp),
+                                        tint = AccentPrimary
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Text("官方认证", color = AccentPrimary)
+                                }
+                            },
+                            onClick = {
+                                showQuickMenu = false
+                            },
+                            enabled = false
+                        )
+                    }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun FavoriteButton(
+    isFavorite: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var isAnimating by remember { mutableStateOf(false) }
+    
+    val scale by animateFloatAsState(
+        targetValue = if (isAnimating) 1.3f else 1f,
+        animationSpec = spring(
+            dampingRatio = 0.6f,
+            stiffness = 500f
+        ),
+        label = "favoriteScale"
+    )
+    
+    IconButton(
+        onClick = {
+            isAnimating = true
+            onToggle()
+            kotlinx.coroutines.delay(200) {
+                isAnimating = false
+            }
+        },
+        modifier = modifier
+            .scale(scale)
+            .semantics {
+                if (isFavorite) {
+                    onClick(label = "取消收藏") { onToggle() }
+                } else {
+                    onClick(label = "添加收藏") { onToggle() }
+                }
+            }
+    ) {
+        Icon(
+            imageVector = if (isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+            contentDescription = if (isFavorite) "取消收藏" else "收藏",
+            tint = if (isFavorite) AccentPrimary else Color.White
+        )
+    }
+}
+
+@Composable
+private fun BreathingNewTag(
+    modifier: Modifier = Modifier
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "newTag")
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.6f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(
+                durationMillis = AnimationConfig.NEW_TAG_BREATHING_DURATION,
+                easing = CubicBezierEasing(0.5f, 0.0f, 0.5f, 1.0f)
+            ),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "newTagAlpha"
+    )
+    
+    Surface(
+        modifier = modifier.alpha(alpha),
+        color = AccentPrimary,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.NewReleases,
+                contentDescription = null,
+                modifier = Modifier.size(12.dp),
+                tint = Color.White
+            )
+            Text(
+                text = "NEW",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.White,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+private suspend fun delay(timeMillis: Long, block: () -> Unit) {
+    kotlinx.coroutines.delay(timeMillis)
+    block()
 }
