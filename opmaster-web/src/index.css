@@ -8,7 +8,7 @@
   }
   
   body {
-    @apply bg-deep-space text-white font-sans;
+    @apply bg-deep-space text-text-primary font-sans;
   }
 
   ::-webkit-scrollbar {
@@ -16,7 +16,7 @@
   }
 
   ::-webkit-scrollbar-track {
-    @apply bg-deep-space-light;
+    @apply bg-card-surface;
   }
 
   ::-webkit-scrollbar-thumb {
@@ -33,56 +33,52 @@
     @apply bg-white/5 backdrop-blur-md border border-white/10;
   }
 
+  .glass-effect-light {
+    @apply bg-white/10 backdrop-blur-lg border border-white/20;
+  }
+
+  .gradient-text-oppo {
+    @apply bg-gradient-to-r from-oppo-sunrise-gold-light via-oppo-sunrise-gold to-hasselblad bg-clip-text text-transparent;
+  }
+
   .gradient-text {
     @apply bg-gradient-to-r from-white via-hasselblad to-white bg-clip-text text-transparent;
   }
 
   .btn-primary {
-    @apply px-6 py-3 bg-hasselblad text-deep-space font-semibold rounded-xl 
-           hover:bg-hasselblad/90 transition-all duration-300
-           hover:shadow-lg hover:shadow-hasselblad/20 hover:-translate-y-0.5;
+    @apply px-6 py-3 bg-oppo-sunrise-gold text-deep-space font-semibold rounded-xl 
+           hover:bg-oppo-sunrise-gold-light transition-all duration-300
+           hover:shadow-oppo-hover hover:-translate-y-0.5;
   }
 
   .btn-secondary {
-    @apply px-6 py-3 bg-white/10 text-white font-medium rounded-xl
-           border border-white/20 hover:bg-white/20 transition-all duration-300;
+    @apply px-6 py-3 bg-white/10 text-text-primary font-medium rounded-xl
+           border border-oppo-border-light hover:bg-white/20 transition-all duration-300;
   }
 
   .card {
-    @apply bg-deep-space-light rounded-2xl overflow-hidden
-           border border-white/10 hover:border-hasselblad/30
-           transition-all duration-300 hover:shadow-xl hover:shadow-hasselblad/10;
+    @apply bg-card-surface rounded-2xl overflow-hidden
+           border border-oppo-border hover:border-hasselblad/30
+           transition-all duration-300 hover:shadow-oppo hover:-translate-y-1;
   }
 
   .input {
-    @apply w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl
-           text-white placeholder-white/50 focus:outline-none focus:border-hasselblad
+    @apply w-full px-4 py-3 bg-white/5 border border-oppo-border rounded-xl
+           text-text-primary placeholder-text-tertiary focus:outline-none focus:border-hasselblad
            transition-all duration-300;
   }
 }
 
-@keyframes float {
-  0%, 100% {
-    transform: translateY(0px);
-  }
-  50% {
-    transform: translateY(-20px);
-  }
+.oppo-gradient {
+  background: linear-gradient(135deg, #FFB347 0%, #D4A574 100%);
 }
 
-@keyframes pulse-glow {
-  0%, 100% {
-    box-shadow: 0 0 20px rgba(212, 165, 116, 0.3);
-  }
-  50% {
-    box-shadow: 0 0 40px rgba(212, 165, 116, 0.6);
-  }
+.oppo-gradient-bg {
+  background: linear-gradient(180deg, rgba(255, 179, 71, 0.05) 0%, transparent 100%);
 }
 
-.animate-float {
-  animation: float 6s ease-in-out infinite;
-}
-
-.animate-pulse-glow {
-  animation: pulse-glow 2s ease-in-out infinite;
+.gradient-border {
+  border: 1px solid transparent;
+  background: linear-gradient(#0D0D0D, #0D0D0D) padding-box,
+              linear-gradient(135deg, #FFB347 0%, #D4A574 100%) border-box;
 }
