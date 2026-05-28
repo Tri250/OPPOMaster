@@ -18,6 +18,9 @@ val OppoShapes = Shapes(
     extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(28.dp)
 )
 
+// ColorOS 16 别名
+val ColorOSShapes = OppoShapes
+
 // ==================== OPPO 2026 年轻UI字体系统 ====================
 // 基于OPPO Sans字体风格 - 现代、清晰、年轻活力
 val OppoTypography = Typography(

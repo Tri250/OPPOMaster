@@ -11,8 +11,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.omaster.app.navigation.Screen
+import com.omaster.app.ui.screens.ColorOSHomeScreen
 import com.omaster.app.ui.screens.DetailScreen
-import com.omaster.app.ui.screens.HomeScreen
 import com.omaster.app.ui.screens.SettingsScreen
 import com.omaster.app.ui.theme.OMasterTheme
 import com.omaster.app.viewmodel.MainViewModel
@@ -49,7 +49,7 @@ fun OMasterApp(
         modifier = modifier
     ) {
         composable(Screen.Home.route) {
-            HomeScreen(
+            ColorOSHomeScreen(
                 onPresetClick = { preset ->
                     navController.navigate(Screen.Detail.createRoute(preset.id))
                 },
