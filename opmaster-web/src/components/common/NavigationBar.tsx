@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Camera, Menu, X } from 'lucide-react';
+import { Camera, Menu, X, Download } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 
@@ -7,12 +7,16 @@ const navItems = [
   { path: '/', label: '首页' },
   { path: '/ai-demo', label: 'AI场景识别' },
   { path: '/tech', label: '影像参数' },
-  { path: '/about', label: '了解更多' }
+  { path: '/about', label: '关于我' }
 ];
 
 export default function NavigationBar() {
   const [isOpen, setIsOpen] = useState(false);
   const location = useLocation();
+
+  const handleDownload = () => {
+    alert('下载功能即将上线，敬请期待！');
+  };
 
   return (
     <motion.nav
@@ -27,7 +31,7 @@ export default function NavigationBar() {
             <div className="w-10 h-10 bg-hasselblad rounded-xl flex items-center justify-center">
               <Camera className="w-6 h-6 text-deep-space" />
             </div>
-            <span className="text-xl font-bold gradient-text">OMaster</span>
+            <span className="text-xl font-bold gradient-text">小O帮帮</span>
           </Link>
 
           {/* Desktop Navigation */}
@@ -45,7 +49,10 @@ export default function NavigationBar() {
                 {item.label}
               </Link>
             ))}
-            <button className="btn-primary text-sm">立即下载</button>
+            <button onClick={handleDownload} className="btn-primary text-sm flex items-center gap-2">
+              <Download className="w-4 h-4" />
+              立即下载
+            </button>
           </div>
 
           {/* Mobile menu button */}
@@ -80,7 +87,10 @@ export default function NavigationBar() {
                 {item.label}
               </Link>
             ))}
-            <button className="btn-primary w-full text-center mt-4">立即下载</button>
+            <button onClick={handleDownload} className="btn-primary w-full text-center mt-4 flex items-center justify-center gap-2">
+              <Download className="w-4 h-4" />
+              立即下载
+            </button>
           </div>
         </motion.div>
       )}

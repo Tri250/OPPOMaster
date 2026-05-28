@@ -32,7 +32,7 @@ export default function HeroSection() {
           transition={{ delay: 0.3 }}
           className="text-5xl md:text-7xl font-bold mb-6"
         >
-          <span className="gradient-text">OPPOMaster</span>
+          <span className="gradient-text">小O帮帮</span>
         </motion.h1>
 
         {/* Subtitle */}

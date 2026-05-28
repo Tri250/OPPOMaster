@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { Upload, Sparkles, Check, Image as ImageIcon, Loader } from 'lucide-react';
-import { useState, useRef } from 'react';
+import { useState, useRef, useCallback } from 'react';
 
 const sampleImages = [
   { id: 1, label: '人像', seed: 'portrait' },
@@ -19,6 +19,7 @@ export default function AIDemoPage() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisComplete, setAnalysisComplete] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleImageSelect = (imageUrl: string) => {
@@ -26,7 +27,7 @@ export default function AIDemoPage() {
     setAnalysisComplete(false);
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
@@ -36,13 +37,37 @@ export default function AIDemoPage() {
       };
       reader.readAsDataURL(file);
     }
-  };
+  }, []);
 
-  const handleUploadClick = () => {
+  const handleUploadClick = useCallback(() => {
     fileInputRef.current?.click();
-  };
+  }, []);
 
-  const handleAnalyze = () => {
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setSelectedImage(event.target?.result as string);
+        setAnalysisComplete(false);
+      };
+      reader.readAsDataURL(file);
+    }
+  }, []);
+
+  const handleAnalyze = useCallback(() => {
     if (!selectedImage) return;
     
     setIsAnalyzing(true);
@@ -50,7 +75,7 @@ export default function AIDemoPage() {
       setIsAnalyzing(false);
       setAnalysisComplete(true);
     }, 2000);
-  };
+  }, [selectedImage]);
 
   return (
     <div className="min-h-screen pt-20 pb-12 px-4 sm:px-6 lg:px-8">
@@ -98,9 +123,18 @@ export default function AIDemoPage() {
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={handleUploadClick}
-                className="border-2 border-dashed border-white/20 rounded-2xl p-12 text-center hover:border-hasselblad transition-colors cursor-pointer group"
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                className={`border-2 border-dashed rounded-2xl p-12 text-center transition-all cursor-pointer group ${
+                  isDragOver 
+                    ? 'border-hasselblad bg-hasselblad/10' 
+                    : 'border-white/20 hover:border-hasselblad hover:bg-hasselblad/5'
+                }`}
               >
-                <Upload className="w-16 h-16 text-white/40 mx-auto mb-4 group-hover:text-hasselblad transition-colors" />
+                <Upload className={`w-16 h-16 mx-auto mb-4 transition-colors ${
+                  isDragOver ? 'text-hasselblad' : 'text-white/40 group-hover:text-hasselblad'
+                }`} />
                 <p className="text-white/60 mb-2">点击上传图片，或拖拽到此处</p>
                 <p className="text-sm text-white/40">支持 JPG、PNG 格式</p>
               </motion.div>
