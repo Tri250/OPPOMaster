@@ -16,7 +16,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class MainViewModel @Inject constructor(
-    private val repository: PresetRepository,
+    val repository: PresetRepository,
     private val preferencesDataStore: PreferencesDataStore
 ) : ViewModel() {
     val presets = repository.presets

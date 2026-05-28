@@ -5,7 +5,9 @@ import com.omaster.app.model.Preset
 import com.omaster.app.model.Section
 import com.omaster.app.network.PresetApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.MutableStateFlow
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -180,19 +182,40 @@ class PresetRepository @Inject constructor(
         )
     )
 
-    val presets: Flow<List<Preset>> = preferencesDataStore.favoritePresets
-        .map { favoriteIds ->
-            samplePresets.map { preset ->
-                preset.copy(isFavorite = favoriteIds.contains(preset.id))
-            }
+    private val customPresets = mutableStateFlow<List<Preset>>(emptyList())
+
+    val presets: Flow<List<Preset>> = combine(
+        preferencesDataStore.favoritePresets,
+        customPresets
+    ) { favoriteIds, custom ->
+        val allPresets = samplePresets + custom
+        allPresets.map { preset ->
+            preset.copy(isFavorite = favoriteIds.contains(preset.id))
         }
+    }
 
     suspend fun toggleFavorite(presetId: String) {
         preferencesDataStore.toggleFavorite(presetId)
     }
 
     fun getPresetById(id: String): Preset? {
-        return samplePresets.find { it.id == id }
+        return samplePresets.find { it.id == id } ?: customPresets.value.find { it.id == id }
+    }
+
+    suspend fun savePreset(preset: Preset) {
+        val currentList = customPresets.value.toMutableList()
+        val existingIndex = currentList.indexOfFirst { it.id == preset.id }
+        if (existingIndex >= 0) {
+            currentList[existingIndex] = preset
+        } else {
+            currentList.add(preset)
+        }
+        customPresets.value = currentList
+    }
+
+    suspend fun deletePreset(presetId: String) {
+        customPresets.value = customPresets.value.filterNot { it.id == presetId }
+        preferencesDataStore.toggleFavorite(presetId)
     }
 
     suspend fun fetchPresetsFromNetwork(): List<Preset>? {
@@ -208,6 +231,20 @@ class PresetRepository @Inject constructor(
         } catch (e: Exception) {
             Timber.e(e, "获取预设时发生错误")
             null
+        }
+    }
+
+    companion object {
+        @Volatile
+        private var instance: PresetRepository? = null
+        
+        fun getInstance(context: Context): PresetRepository {
+            return instance ?: synchronized(this) {
+                instance ?: PresetRepository(
+                    PreferencesDataStore(context),
+                    PresetApi()
+                ).also { instance = it }
+            }
         }
     }
 }

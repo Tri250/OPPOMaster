@@ -25,6 +25,7 @@ fun HomeScreen(
     onPresetClick: (Preset) -> Unit,
     onSettingsClick: () -> Unit,
     onSceneDetectionClick: () -> Unit,
+    onCreatePresetClick: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: MainViewModel = hiltViewModel()
 ) {
@@ -78,6 +79,18 @@ fun HomeScreen(
                     }
                 }
             )
+        },
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = onCreatePresetClick,
+                containerColor = AccentPrimary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "创建预设"
+                )
+            }
         }
     ) { paddingValues ->
         LazyColumn(
