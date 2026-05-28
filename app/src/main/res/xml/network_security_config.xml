@@ -12,12 +12,13 @@
 
     <!-- 仅当用户主动配置自定义更新源时，允许HTTP连接 -->
     <!-- 必须明确告知用户安全风险 -->
-    <domain-config cleartextTrafficPermitted="true">
-        <!-- 自定义更新源域名配置 -->
-        <!-- 用户必须手动确认后才能启用HTTP源 -->
+    <!-- 安全加固：默认禁用所有HTTP连接，包括localhost -->
+    <!-- <domain-config cleartextTrafficPermitted="true">
+        自定义更新源域名配置
+        用户必须手动确认后才能启用HTTP源
         <domain includeSubdomains="true">localhost</domain>
         <domain includeSubdomains="true">10.0.2.2</domain>
-    </domain-config>
+    </domain-config> -->
 
     <!-- 证书钉扎配置（可选增强安全性） -->
     <!-- 如需启用，请替换为实际的证书哈希 -->

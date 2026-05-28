@@ -17,7 +17,7 @@
 
     <application
         android:name=".OMasterApplication"
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
@@ -43,6 +43,20 @@
             android:name=".service.FluidCloudService"
             android:enabled="true"
             android:exported="false" />
+
+        <!-- OMaster无障碍服务 - 安全加固版本 -->
+        <service
+            android:name=".accessibility.AutoFillAccessibilityService"
+            android:enabled="true"
+            android:exported="false"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
 
         <!-- File Provider for screenshot sharing -->
         <provider
