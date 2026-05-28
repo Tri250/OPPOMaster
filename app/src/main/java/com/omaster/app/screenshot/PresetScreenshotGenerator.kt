@@ -6,7 +6,8 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
-import androidx.core.content.FileProvider
+import android.graphics.drawable.Drawable
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -20,23 +21,31 @@ data class PresetScreenshotData(
     val ev: String,
     val whiteBalance: String,
     val filter: String? = null,
-    val watermarkStyle: WatermarkStyle = WatermarkStyle.HASSELBLAD
+    val watermarkStyle: WatermarkStyle = WatermarkStyle.HASSELBLAD,
+    val cameraModel: String? = null,
+    val lensInfo: String? = null
 )
 
 enum class WatermarkStyle {
     MINIMAL,
     HASSELBLAD,
-    BRANDED
+    BRANDED,
+    OPPO_STYLE,
+    ONEPLUS_STYLE,
+    REALME_STYLE
 }
 
 enum class ScreenshotAspectRatio(
     val ratio: Float,
     val width: Int,
-    val height: Int
+    val height: Int,
+    val displayName: String
 ) {
-    SQUARE(1f, 1080, 1080),
-    WIDE_16_9(16f / 9f, 1080, 1920),
-    TALL_9_16(9f / 16f, 1920, 1080)
+    SQUARE(1f, 1080, 1080, "1:1"),
+    WIDE_16_9(16f / 9f, 1920, 1080, "16:9"),
+    TALL_9_16(9f / 16f, 1080, 1920, "9:16"),
+    WIDE_4_3(4f / 3f, 1280, 960, "4:3"),
+    TALL_3_4(3f / 4f, 960, 1280, "3:4")
 }
 
 class PresetScreenshotGenerator(private val context: Context) {
@@ -45,6 +54,9 @@ class PresetScreenshotGenerator(private val context: Context) {
         private const val HASSLEBROWN = 0xFFD4A574.toInt()
         private const val DEEP_SPACE = 0xFF121212.toInt()
         private const val WHITE = 0xFFFFFFFF.toInt()
+        private const val OPPO_ORANGE = 0xFFD4A574.toInt()
+        private const val ONEPLUS_RED = 0xFFF50514.toInt()
+        private const val REALME_YELLOW = 0xFFFFE70A.toInt()
     }
 
     suspend fun generateScreenshot(
@@ -61,7 +73,7 @@ class PresetScreenshotGenerator(private val context: Context) {
         drawCoverImage(canvas, data.coverImage, width, height)
         drawPresetName(canvas, data.presetName, width, height)
         drawCameraParams(canvas, data, width, height)
-        drawWatermark(canvas, data.watermarkStyle, width, height)
+        drawWatermark(canvas, data.watermarkStyle, width, height, data.cameraModel)
 
         saveBitmapToFile(bitmap, data.presetName)
     }
@@ -78,10 +90,11 @@ class PresetScreenshotGenerator(private val context: Context) {
             WatermarkStyle.MINIMAL -> {
                 paint.color = WHITE
             }
-            WatermarkStyle.HASSELBLAD -> {
-                paint.color = DEEP_SPACE
-            }
-            WatermarkStyle.BRANDED -> {
+            WatermarkStyle.HASSELBLAD,
+            WatermarkStyle.BRANDED,
+            WatermarkStyle.OPPO_STYLE,
+            WatermarkStyle.ONEPLUS_STYLE,
+            WatermarkStyle.REALME_STYLE -> {
                 paint.color = DEEP_SPACE
             }
         }
@@ -99,11 +112,10 @@ class PresetScreenshotGenerator(private val context: Context) {
             val scaledBitmap = Bitmap.createScaledBitmap(image, width, height, true)
             canvas.drawBitmap(scaledBitmap, 0f, 0f, null)
             
-            // Add overlay gradient
             val gradientPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-            gradientPaint.setARGB(200, 18, 18, 18)
+            gradientPaint.setARGB(180, 18, 18, 18)
             canvas.drawRect(
-                0f, height * 0.4f, width.toFloat(), height.toFloat(),
+                0f, height * 0.5f, width.toFloat(), height.toFloat(),
                 gradientPaint
             )
         }
@@ -117,12 +129,12 @@ class PresetScreenshotGenerator(private val context: Context) {
     ) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = WHITE
-            textSize = 64f
+            textSize = (height * 0.06f).coerceAtMost(72f)
             typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
             textAlign = Paint.Align.CENTER
         }
         
-        val y = height * 0.55f
+        val y = height * 0.58f
         canvas.drawText(presetName, width / 2f, y, paint)
     }
 
@@ -132,10 +144,10 @@ class PresetScreenshotGenerator(private val context: Context) {
         width: Int,
         height: Int
     ) {
-        val startY = height * 0.65f
-        val paramSpacing = 100f
+        val startY = height * 0.68f
+        val paramSpacing = (height * 0.07f).coerceAtMost(60f)
         
-        val params = listOf(
+        val params = mutableListOf(
             "ISO" to data.iso.toString(),
             "快门" to data.shutterSpeed,
             "EV" to data.ev,
@@ -144,6 +156,10 @@ class PresetScreenshotGenerator(private val context: Context) {
         
         data.filter?.let {
             params.add("滤镜" to it)
+        }
+        
+        data.lensInfo?.let {
+            params.add("镜头" to it)
         }
         
         params.forEachIndexed { index, (label, value) ->
@@ -159,10 +175,9 @@ class PresetScreenshotGenerator(private val context: Context) {
         width: Int,
         y: Float
     ) {
-        // Label
         val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = 0xFFAAAAAA.toInt()
-            textSize = 36f
+            textSize = 32f
             typeface = Typeface.DEFAULT
         }
         
@@ -170,15 +185,14 @@ class PresetScreenshotGenerator(private val context: Context) {
         val labelX = width * 0.2f
         canvas.drawText(label, labelX, y, labelPaint)
         
-        // Value
         val valuePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = HASSLEBROWN
-            textSize = 42f
+            textSize = 38f
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            textAlign = Paint.Align.RIGHT
         }
         
         val valueX = width * 0.8f
-        valuePaint.textAlign = Paint.Align.RIGHT
         canvas.drawText(value, valueX, y, valuePaint)
     }
 
@@ -186,27 +200,34 @@ class PresetScreenshotGenerator(private val context: Context) {
         canvas: Canvas,
         style: WatermarkStyle,
         width: Int,
-        height: Int
+        height: Int,
+        cameraModel: String?
     ) {
         val watermarkPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = when (style) {
                 WatermarkStyle.HASSELBLAD -> HASSLEBROWN
+                WatermarkStyle.OPPO_STYLE -> OPPO_ORANGE
+                WatermarkStyle.ONEPLUS_STYLE -> ONEPLUS_RED
+                WatermarkStyle.REALME_STYLE -> REALME_YELLOW
                 WatermarkStyle.BRANDED -> HASSLEBROWN
                 WatermarkStyle.MINIMAL -> 0xFF666666.toInt()
             }
-            textSize = 36f
+            textSize = 32f
             typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
+            textAlign = Paint.Align.CENTER
         }
         
         val watermarkText = when (style) {
             WatermarkStyle.HASSELBLAD -> "HASSELBLAD x OPPO"
+            WatermarkStyle.OPPO_STYLE -> "OPPO" + (cameraModel?.let { " $it" } ?: "")
+            WatermarkStyle.ONEPLUS_STYLE -> "OnePlus" + (cameraModel?.let { " $it" } ?: "")
+            WatermarkStyle.REALME_STYLE -> "realme" + (cameraModel?.let { " $it" } ?: "")
             WatermarkStyle.BRANDED -> "OPPOMaster"
             WatermarkStyle.MINIMAL -> "OPPOMaster"
         }
         
         val x = width * 0.5f
-        val y = height * 0.9f
-        watermarkPaint.textAlign = Paint.Align.CENTER
+        val y = height * 0.92f
         canvas.drawText(watermarkText, x, y, watermarkPaint)
     }
 
@@ -219,5 +240,12 @@ class PresetScreenshotGenerator(private val context: Context) {
         }
         
         return file
+    }
+
+    suspend fun generateMultipleScreenshots(
+        dataList: List<PresetScreenshotData>,
+        aspectRatio: ScreenshotAspectRatio
+    ): List<File> = withContext(Dispatchers.IO) {
+        dataList.map { generateScreenshot(it, aspectRatio) }
     }
 }

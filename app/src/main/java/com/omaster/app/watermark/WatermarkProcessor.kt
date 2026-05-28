@@ -7,24 +7,15 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.asAndroidBitmap
-import androidx.compose.ui.unit.IntSize
 import androidx.core.app.NotificationManagerCompat
 import androidx.hilt.work.HiltWorker
-import androidx.work.CoroutineWorker
-import androidx.work.ExistingWorkPolicy
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.OutOfQuotaPolicy
-import androidx.work.WorkManager
-import androidx.work.WorkerParameters
+import androidx.work.*
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.util.*
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
@@ -35,7 +26,10 @@ enum class WatermarkTemplate {
     MINIMAL_PARAMS,
     TIMESTAMP,
     LOCATION,
-    CUSTOM
+    CUSTOM,
+    HASSELBLAD,
+    BRAND_SIMPLE,
+    FILM_STYLE
 }
 
 data class WatermarkConfig(
@@ -49,7 +43,15 @@ data class WatermarkConfig(
     val timestampFormat: String = "yyyy-MM-dd HH:mm",
     val preserveOriginal: Boolean = true,
     val outputFormat: OutputFormat = OutputFormat.JPEG,
-    val quality: Int = 95
+    val quality: Int = 95,
+    val cameraParams: CameraParamsForWatermark? = null
+)
+
+data class CameraParamsForWatermark(
+    val iso: String = "100",
+    val shutterSpeed: String = "1/1000s",
+    val aperture: String = "f/1.7",
+    val ev: String = "0"
 )
 
 enum class WatermarkPosition {
@@ -86,8 +88,10 @@ class WatermarkProcessor(private val context: Context) {
         private const val OPPO_ORANGE = 0xFFD4A574.toInt()
         private const val ONEPLUS_RED = 0xFFF50514.toInt()
         private const val REALME_YELLOW = 0xFFFFE70A.toInt()
+        private const val HASSELBLAD_GOLD = 0xFFC9A962.toInt()
         private const val WHITE = 0xFFFFFFFF.toInt()
         private const val BLACK_TRANSLUCENT = 0xCC000000.toInt()
+        private const val WHITE_TRANSLUCENT = 0x88FFFFFF.toInt()
     }
 
     suspend fun processWatermark(request: WatermarkProcessRequest): WatermarkProcessResult =
@@ -100,6 +104,12 @@ class WatermarkProcessor(private val context: Context) {
                 WatermarkProcessResult(success = false, error = e.message)
             }
         }
+
+    suspend fun batchProcessWatermarks(
+        requests: List<WatermarkProcessRequest>
+    ): List<WatermarkProcessResult> = withContext(Dispatchers.IO) {
+        requests.map { processWatermark(it) }
+    }
 
     private fun processWatermarkInternal(request: WatermarkProcessRequest): Bitmap {
         val source = request.sourceBitmap
@@ -118,6 +128,9 @@ class WatermarkProcessor(private val context: Context) {
             WatermarkTemplate.TIMESTAMP -> drawTimestampWatermark(canvas, width, height, config)
             WatermarkTemplate.LOCATION -> drawLocationWatermark(canvas, width, height, config)
             WatermarkTemplate.CUSTOM -> drawCustomWatermark(canvas, width, height, config)
+            WatermarkTemplate.HASSELBLAD -> drawHasselbladWatermark(canvas, width, height, config)
+            WatermarkTemplate.BRAND_SIMPLE -> drawBrandSimpleWatermark(canvas, width, height, config)
+            WatermarkTemplate.FILM_STYLE -> drawFilmStyleWatermark(canvas, width, height, config)
         }
 
         return result
@@ -130,10 +143,24 @@ class WatermarkProcessor(private val context: Context) {
         config: WatermarkConfig
     ) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        val scale = config.scale
         
-        drawTextWatermark(
-            canvas, width, height, config, paint, "OPPO", OPPO_ORANGE)
+        val boxWidth = width * 0.4f * config.scale
+        val boxHeight = height * 0.15f * config.scale
+        val boxRect = getPositionRect(width.toFloat(), height.toFloat(), boxWidth, boxHeight, config.position)
+        
+        drawRoundedBackground(canvas, boxRect, config.opacity)
+        
+        paint.color = OPPO_ORANGE
+        paint.textSize = boxHeight * 0.5f
+        paint.typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
+        paint.textAlign = Paint.Align.CENTER
+        
+        val textY = boxRect.centerY() + paint.textSize / 2 - paint.descent()
+        canvas.drawText("OPPO", boxRect.centerX(), textY, paint)
+
+        if (config.showTimestamp) {
+            drawTimestamp(canvas, boxRect, paint, config.timestampFormat)
+        }
     }
 
     private fun drawOneplusWatermark(
@@ -143,7 +170,24 @@ class WatermarkProcessor(private val context: Context) {
         config: WatermarkConfig
     ) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        drawTextWatermark(canvas, width, height, config, paint, "OnePlus", ONEPLUS_RED)
+        
+        val boxWidth = width * 0.4f * config.scale
+        val boxHeight = height * 0.15f * config.scale
+        val boxRect = getPositionRect(width.toFloat(), height.toFloat(), boxWidth, boxHeight, config.position)
+        
+        drawRoundedBackground(canvas, boxRect, config.opacity)
+        
+        paint.color = ONEPLUS_RED
+        paint.textSize = boxHeight * 0.5f
+        paint.typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
+        paint.textAlign = Paint.Align.CENTER
+        
+        val textY = boxRect.centerY() + paint.textSize / 2 - paint.descent()
+        canvas.drawText("OnePlus", boxRect.centerX(), textY, paint)
+
+        if (config.showTimestamp) {
+            drawTimestamp(canvas, boxRect, paint, config.timestampFormat)
+        }
     }
 
     private fun drawRealmeWatermark(
@@ -153,7 +197,113 @@ class WatermarkProcessor(private val context: Context) {
         config: WatermarkConfig
     ) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        drawTextWatermark(canvas, width, height, config, paint, "realme", REALME_YELLOW)
+        
+        val boxWidth = width * 0.4f * config.scale
+        val boxHeight = height * 0.15f * config.scale
+        val boxRect = getPositionRect(width.toFloat(), height.toFloat(), boxWidth, boxHeight, config.position)
+        
+        drawRoundedBackground(canvas, boxRect, config.opacity)
+        
+        paint.color = REALME_YELLOW
+        paint.textSize = boxHeight * 0.5f
+        paint.typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
+        paint.textAlign = Paint.Align.CENTER
+        
+        val textY = boxRect.centerY() + paint.textSize / 2 - paint.descent()
+        canvas.drawText("realme", boxRect.centerX(), textY, paint)
+
+        if (config.showTimestamp) {
+            drawTimestamp(canvas, boxRect, paint, config.timestampFormat)
+        }
+    }
+
+    private fun drawHasselbladWatermark(
+        canvas: Canvas,
+        width: Int,
+        height: Int,
+        config: WatermarkConfig
+    ) {
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        
+        val boxWidth = width * 0.35f * config.scale
+        val boxHeight = height * 0.12f * config.scale
+        val boxRect = getPositionRect(width.toFloat(), height.toFloat(), boxWidth, boxHeight, config.position)
+        
+        drawRoundedBackground(canvas, boxRect, config.opacity)
+        
+        paint.color = HASSELBLAD_GOLD
+        paint.textSize = boxHeight * 0.45f
+        paint.typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+        paint.textAlign = Paint.Align.CENTER
+        
+        val textY = boxRect.centerY() + paint.textSize / 2 - paint.descent()
+        canvas.drawText("HASSELBLAD", boxRect.centerX(), textY, paint)
+
+        if (config.showTimestamp) {
+            drawTimestamp(canvas, boxRect, paint, config.timestampFormat)
+        }
+    }
+
+    private fun drawBrandSimpleWatermark(
+        canvas: Canvas,
+        width: Int,
+        height: Int,
+        config: WatermarkConfig
+    ) {
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        
+        paint.color = WHITE
+        paint.alpha = (255 * config.opacity).toInt()
+        paint.textSize = height * 0.04f * config.scale
+        paint.textAlign = Paint.Align.CENTER
+        paint.typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
+        
+        val margin = width * 0.05f
+        val y = height - margin
+        
+        canvas.drawText("OPPOMaster", width / 2f, y, paint)
+    }
+
+    private fun drawFilmStyleWatermark(
+        canvas: Canvas,
+        width: Int,
+        height: Int,
+        config: WatermarkConfig
+    ) {
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        
+        val boxWidth = width * 0.3f * config.scale
+        val boxHeight = height * 0.18f * config.scale
+        val boxRect = getPositionRect(width.toFloat(), height.toFloat(), boxWidth, boxHeight, config.position)
+        
+        drawRoundedBackground(canvas, boxRect, config.opacity, cornerRadius = 8f)
+        
+        paint.color = 0xFFE0E0E0.toInt()
+        paint.textSize = boxHeight * 0.22f
+        paint.typeface = Typeface.MONOSPACE
+        paint.textAlign = Paint.Align.LEFT
+        
+        val params = config.cameraParams ?: CameraParamsForWatermark()
+        
+        val paramsList = listOf(
+            "ISO ${params.iso}",
+            params.aperture,
+            params.shutterSpeed,
+            "EV ${params.ev}"
+        )
+        
+        paramsList.forEachIndexed { index, param ->
+            val y = boxRect.top + boxHeight * 0.2f + index * boxHeight * 0.18f
+            canvas.drawText(param, boxRect.left + 12f, y, paint)
+        }
+
+        if (config.showTimestamp) {
+            paint.textSize = boxHeight * 0.18f
+            paint.typeface = Typeface.DEFAULT
+            val dateFormat = SimpleDateFormat(config.timestampFormat, Locale.getDefault())
+            val timestamp = dateFormat.format(Date())
+            canvas.drawText(timestamp, boxRect.left + 12f, boxRect.bottom - 8f, paint)
+        }
     }
 
     private fun drawMinimalParamsWatermark(
@@ -163,7 +313,30 @@ class WatermarkProcessor(private val context: Context) {
         config: WatermarkConfig
     ) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        drawParamsWatermark(canvas, width, height, config, paint)
+        
+        val boxWidth = width * 0.28f * config.scale
+        val boxHeight = height * 0.16f * config.scale
+        val boxRect = getPositionRect(width.toFloat(), height.toFloat(), boxWidth, boxHeight, config.position)
+        
+        drawRoundedBackground(canvas, boxRect, config.opacity, cornerRadius = 10f)
+        
+        paint.color = WHITE
+        paint.textSize = boxHeight * 0.22f
+        paint.typeface = Typeface.MONOSPACE
+        paint.textAlign = Paint.Align.LEFT
+        
+        val params = config.cameraParams ?: CameraParamsForWatermark()
+        
+        val paramsList = listOf(
+            params.shutterSpeed,
+            params.aperture,
+            "ISO ${params.iso}"
+        )
+        
+        paramsList.forEachIndexed { index, param ->
+            val y = boxRect.top + boxHeight * 0.25f + index * boxHeight * 0.22f
+            canvas.drawText(param, boxRect.left + 10f, y, paint)
+        }
     }
 
     private fun drawTimestampWatermark(
@@ -173,7 +346,21 @@ class WatermarkProcessor(private val context: Context) {
         config: WatermarkConfig
     ) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        drawTimestampWatermarkInternal(canvas, width, height, config, paint)
+        
+        val boxWidth = width * 0.35f * config.scale
+        val boxHeight = height * 0.08f * config.scale
+        val boxRect = getPositionRect(width.toFloat(), height.toFloat(), boxWidth, boxHeight, config.position)
+        
+        drawRoundedBackground(canvas, boxRect, config.opacity, cornerRadius = 6f)
+        
+        val dateFormat = SimpleDateFormat(config.timestampFormat, Locale.getDefault())
+        val timestamp = dateFormat.format(Date())
+        
+        paint.color = WHITE
+        paint.textSize = boxHeight * 0.55f
+        paint.textAlign = Paint.Align.CENTER
+        val textY = boxRect.centerY() + paint.textSize / 2 - paint.descent()
+        canvas.drawText(timestamp, boxRect.centerX(), textY, paint)
     }
 
     private fun drawLocationWatermark(
@@ -183,7 +370,21 @@ class WatermarkProcessor(private val context: Context) {
         config: WatermarkConfig
     ) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        drawSimpleWatermark(canvas, width, height, config, paint)
+        
+        val boxWidth = width * 0.3f * config.scale
+        val boxHeight = height * 0.1f * config.scale
+        val boxRect = getPositionRect(width.toFloat(), height.toFloat(), boxWidth, boxHeight, config.position)
+        
+        drawRoundedBackground(canvas, boxRect, config.opacity)
+        
+        paint.color = WHITE
+        paint.textSize = boxHeight * 0.45f
+        paint.textAlign = Paint.Align.CENTER
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.ITALIC)
+        
+        val text = config.customText ?: "Unknown Location"
+        val textY = boxRect.centerY() + paint.textSize / 2 - paint.descent()
+        canvas.drawText(text, boxRect.centerX(), textY, paint)
     }
 
     private fun drawCustomWatermark(
@@ -194,121 +395,31 @@ class WatermarkProcessor(private val context: Context) {
     ) {
         config.customText?.let { text ->
             val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-            drawTextWatermark(canvas, width, height, config, paint, text, WHITE)
+            
+            val boxWidth = width * 0.35f * config.scale
+            val boxHeight = height * 0.1f * config.scale
+            val boxRect = getPositionRect(width.toFloat(), height.toFloat(), boxWidth, boxHeight, config.position)
+            
+            drawRoundedBackground(canvas, boxRect, config.opacity)
+            
+            paint.color = WHITE
+            paint.textSize = boxHeight * 0.5f
+            paint.textAlign = Paint.Align.CENTER
+            val textY = boxRect.centerY() + paint.textSize / 2 - paint.descent()
+            canvas.drawText(text, boxRect.centerX(), textY, paint)
         }
     }
 
-    private fun drawTextWatermark(
+    private fun drawRoundedBackground(
         canvas: Canvas,
-        width: Int,
-        height: Int,
-        config: WatermarkConfig,
-        paint: Paint,
-        text: String,
-        color: Int
-    ) {
-        // Draw background
-        val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-        bgPaint.color = BLACK_TRANSLUCENT
-        bgPaint.alpha = (255 * config.opacity).toInt()
-
-        val boxWidth = width * 0.4f
-        val boxHeight = height * 0.15f
-        val boxRect = getPositionRect(
-            width.toFloat(),
-            height.toFloat(),
-            boxWidth,
-            boxHeight,
-            config.position
-        )
-        canvas.drawRoundRect(boxRect, 16f, 16f, bgPaint)
-
-        // Draw text
-        paint.color = color
-        paint.textSize = boxHeight * 0.5f
-        paint.typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
-        paint.textAlign = Paint.Align.CENTER
-        
-        val textY = boxRect.centerY() + paint.textSize / 2 - paint.descent()
-        canvas.drawText(text, boxRect.centerX(), textY, paint)
-
-        if (config.showTimestamp) {
-            drawTimestamp(canvas, boxRect, paint, config.timestampFormat)
-        }
-    }
-
-    private fun drawParamsWatermark(
-        canvas: Canvas,
-        width: Int,
-        height: Int,
-        config: WatermarkConfig,
-        paint: Paint
+        rect: RectF,
+        opacity: Float,
+        cornerRadius: Float = 12f
     ) {
         val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
         bgPaint.color = BLACK_TRANSLUCENT
-        bgPaint.alpha = (255 * config.opacity).toInt()
-        
-        val boxWidth = width * 0.3f
-        val boxHeight = height * 0.2f
-        val boxRect = getPositionRect(
-            width.toFloat(), height.toFloat(), boxWidth, boxHeight, config.position)
-        canvas.drawRoundRect(boxRect, 12f, 12f, bgPaint)
-        
-        paint.color = WHITE
-        paint.textSize = boxHeight * 0.25f
-        paint.typeface = Typeface.MONOSPACE
-        
-        // Example params - in real app, these would come from actual camera params
-        val params = listOf("ISO 100", "f/1.7", "1/200s", "EV 0")
-        
-        params.forEachIndexed { index, param ->
-            val y = boxRect.top + boxHeight * 0.2f + index * boxHeight * 0.2f
-            canvas.drawText(param, boxRect.left + 16f, y, paint)
-        }
-    }
-
-    private fun drawTimestampWatermarkInternal(
-        canvas: Canvas,
-        width: Int,
-        height: Int,
-        config: WatermarkConfig,
-        paint: Paint
-    ) {
-        val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-        bgPaint.color = BLACK_TRANSLUCENT
-        bgPaint.alpha = (255 * config.opacity).toInt()
-        
-        val boxWidth = width * 0.35f
-        val boxHeight = height * 0.1f
-        val boxRect = getPositionRect(
-            width.toFloat(), height.toFloat(), boxWidth, boxHeight, config.position)
-        canvas.drawRoundRect(boxRect, 8f, 8f, bgPaint)
-        
-        val dateFormat = SimpleDateFormat(config.timestampFormat, Locale.getDefault())
-        val timestamp = dateFormat.format(Date())
-        
-        paint.color = WHITE
-        paint.textSize = boxHeight * 0.5f
-        paint.textAlign = Paint.Align.CENTER
-        val textY = boxRect.centerY() + paint.textSize / 2 - paint.descent()
-        canvas.drawText(timestamp, boxRect.centerX(), textY, paint)
-    }
-
-    private fun drawSimpleWatermark(
-        canvas: Canvas,
-        width: Int,
-        height: Int,
-        config: WatermarkConfig,
-        paint: Paint
-    ) {
-        paint.color = WHITE
-        paint.alpha = (255 * config.opacity).toInt()
-        paint.textSize = height * 0.05f
-        paint.textAlign = Paint.Align.CENTER
-        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.ITALIC)
-        val text = "Shot on OPPO"
-        val y = height * 0.9f
-        canvas.drawText(text, width / 2f, y, paint)
+        bgPaint.alpha = (255 * opacity).toInt()
+        canvas.drawRoundRect(rect, cornerRadius, cornerRadius, bgPaint)
     }
 
     private fun drawTimestamp(
@@ -320,11 +431,15 @@ class WatermarkProcessor(private val context: Context) {
         val dateFormat = SimpleDateFormat(format, Locale.getDefault())
         val timestamp = dateFormat.format(Date())
         
-        paint.textSize *= 0.6f
+        val originalSize = paint.textSize
+        paint.textSize *= 0.55f
         paint.alpha = 200
         paint.typeface = Typeface.DEFAULT
-        val y = rect.bottom - 8f
+        val y = rect.bottom - 6f
         canvas.drawText(timestamp, rect.centerX(), y, paint)
+        
+        paint.textSize = originalSize
+        paint.alpha = 255
     }
 
     private fun getPositionRect(
@@ -334,7 +449,7 @@ class WatermarkProcessor(private val context: Context) {
         boxHeight: Float,
         position: WatermarkPosition
     ): RectF {
-        val margin = width * 0.02f
+        val margin = width * 0.03f
         
         val left = when (position) {
             WatermarkPosition.TOP_LEFT,
@@ -370,8 +485,14 @@ class WatermarkWorker @Inject constructor(
 
     override suspend fun doWork(): Result {
         return try {
-            // Process watermarks using WorkManager
-            Timber.d("Watermark work started")
+            val inputData = inputData
+            val bitmapPath = inputData.getString("bitmapPath")
+            val template = inputData.getString("template")?.let {
+                enumValueOf<WatermarkTemplate>(it)
+            } ?: WatermarkTemplate.OPPO
+            
+            Timber.d("Watermark work started with template: $template")
+            
             Result.success()
         } catch (e: Exception) {
             Timber.e(e, "Watermark work failed")
@@ -380,20 +501,41 @@ class WatermarkWorker @Inject constructor(
     }
 
     companion object {
-        fun enqueueWork(context: Context, presets: List<String>) {
+        fun enqueueWork(context: Context, bitmapPath: String, template: WatermarkTemplate) {
+            val data = workDataOf(
+                "bitmapPath" to bitmapPath,
+                "template" to template.name
+            )
+            
             val request = OneTimeWorkRequestBuilder<WatermarkWorker>()
+                .setInputData(data)
                 .setBackoffCriteria(
-                    androidx.work.BackoffPolicy.EXPONENTIAL,
+                    BackoffPolicy.EXPONENTIAL,
                     30,
                     TimeUnit.SECONDS
                 )
                 .build()
 
             WorkManager.getInstance(context).enqueueUniqueWork(
-                "watermark_work",
+                "watermark_work_${System.currentTimeMillis()}",
                 ExistingWorkPolicy.REPLACE,
                 request
             )
+        }
+
+        fun enqueueBatchWork(context: Context, requests: List<WatermarkProcessRequest>) {
+            val workRequests = requests.mapIndexed { index, request ->
+                val data = workDataOf(
+                    "bitmapPath" to "batch_$index",
+                    "template" to request.config.template.name
+                )
+                
+                OneTimeWorkRequestBuilder<WatermarkWorker>()
+                    .setInputData(data)
+                    .build()
+            }
+
+            WorkManager.getInstance(context).enqueue(workRequests)
         }
     }
 }

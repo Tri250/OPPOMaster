@@ -3,10 +3,9 @@ package com.omaster.app.camera
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
-import android.hardware.camera2.CameraCharacteristics
-import android.hardware.camera2.CameraManager
-import android.hardware.camera2.CameraMetadata
+import android.hardware.camera2.*
 import android.os.Build
+import android.util.Range
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
@@ -27,23 +26,27 @@ class Camera2ParamProvider(private val context: Context) : CameraParamProvider {
 
     private val cameraManager by lazy { context.getSystemService(Context.CAMERA_SERVICE) as CameraManager }
     
-    private val scope = CoroutineScope(Dispatchers.Main + Job())
+    private val scope = CoroutineScope(Dispatchers.IO + Job())
     private var monitorJob: Job? = null
+    private var cameraDevice: CameraDevice? = null
+    private var captureRequest: CaptureRequest? = null
+    private var captureSession: CameraCaptureSession? = null
 
     private var currentLensType = "wide"
+    private var currentCameraId: String? = null
 
     override fun startMonitor() {
         if (!checkCameraSupport()) {
-            _status.value = CameraCompatibilityStatus.NotSupported
+            _status.postValue(CameraCompatibilityStatus.NotSupported)
             return
         }
 
         if (!checkPermissions()) {
-            _status.value = CameraCompatibilityStatus.PermissionRequired
+            _status.postValue(CameraCompatibilityStatus.PermissionRequired)
             return
         }
 
-        _status.value = CameraCompatibilityStatus.Available
+        _status.postValue(CameraCompatibilityStatus.Available)
 
         monitorJob = scope.launch {
             while (true) {
@@ -52,7 +55,7 @@ class Camera2ParamProvider(private val context: Context) : CameraParamProvider {
                 } catch (e: Exception) {
                     Timber.e(e, "Error updating camera params")
                 }
-                delay(300) // Update every 300ms
+                delay(300)
             }
         }
     }
@@ -64,11 +67,14 @@ class Camera2ParamProvider(private val context: Context) : CameraParamProvider {
 
     override fun switchCamera(lensType: String) {
         currentLensType = lensType
+        currentCameraId = null
         updateCameraParams()
     }
 
     override fun release() {
         stopMonitor()
+        captureSession?.close()
+        cameraDevice?.close()
     }
 
     private fun checkCameraSupport(): Boolean {
@@ -94,13 +100,19 @@ class Camera2ParamProvider(private val context: Context) : CameraParamProvider {
     private fun updateCameraParams() {
         try {
             val cameraId = findCameraIdForLensType() ?: return
+            
             val characteristics = cameraManager.getCameraCharacteristics(cameraId)
             
+            val iso = readIso(characteristics)
+            val shutterSpeed = readShutterSpeed(characteristics)
+            val ev = readExposureValue(characteristics)
+            val whiteBalance = readWhiteBalance(characteristics)
+
             val newParams = RealTimeCameraParams(
-                iso = readIso(characteristics),
-                shutterSpeed = readShutterSpeed(characteristics),
-                ev = "0",
-                whiteBalance = readWhiteBalance(characteristics),
+                iso = iso,
+                shutterSpeed = shutterSpeed,
+                ev = ev,
+                whiteBalance = whiteBalance,
                 lensType = currentLensType
             )
             
@@ -112,22 +124,52 @@ class Camera2ParamProvider(private val context: Context) : CameraParamProvider {
     }
 
     private fun findCameraIdForLensType(): String? {
-        val lensFacing = when (currentLensType)
+        if (currentCameraId != null) {
+            return currentCameraId
+        }
+
         val cameraIdList = cameraManager.cameraIdList
         
-        val desiredFacing = when (lensFacing) {
-            "wide" -> CameraMetadata.LENS_FACING_BACK
-            "ultra" -> CameraMetadata.LENS_FACING_BACK
-            "tele" -> CameraMetadata.LENS_FACING_BACK
+        val desiredFacing = when (currentLensType) {
             "front" -> CameraMetadata.LENS_FACING_FRONT
             else -> CameraMetadata.LENS_FACING_BACK
         }
 
-        return cameraIdList.firstOrNull { id ->
+        var foundId: String? = null
+        
+        cameraIdList.forEach { id ->
             val characteristics = cameraManager.getCameraCharacteristics(id)
             val facing = characteristics.get(CameraCharacteristics.LENS_FACING)
-            facing == desiredFacing
+            
+            if (facing == desiredFacing) {
+                val focalLength = characteristics.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
+                
+                if (focalLength != null && focalLength.isNotEmpty()) {
+                    val fl = focalLength[0]
+                    when (currentLensType) {
+                        "wide" -> {
+                            if (fl < 2.0f) foundId = id
+                        }
+                        "ultra" -> {
+                            if (fl < 1.5f) foundId = id
+                        }
+                        "tele" -> {
+                            if (fl >= 3.0f) foundId = id
+                        }
+                        "front" -> {
+                            foundId = id
+                        }
+                    }
+                }
+                
+                if (foundId == null && currentLensType == "wide") {
+                    foundId = id
+                }
+            }
         }
+
+        currentCameraId = foundId
+        return foundId
     }
 
     private fun readIso(characteristics: CameraCharacteristics): Int {
@@ -153,10 +195,24 @@ class Camera2ParamProvider(private val context: Context) : CameraParamProvider {
         }
     }
 
+    private fun readExposureValue(characteristics: CameraCharacteristics): String {
+        return try {
+            val evRange = characteristics.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE)
+            evRange?.lower?.toString() ?: "0"
+        } catch (e: Exception) {
+            "0"
+        }
+    }
+
     private fun formatShutterSpeed(nanos: Long): String {
         return if (nanos >= 1000000L) {
             val seconds = nanos.toDouble() / 1000000000.0
-            String.format("%.1fs", seconds)
+            if (seconds >= 1.0) {
+                String.format("%.1fs", seconds)
+            } else {
+                val fraction = 1.0 / seconds
+                "1/${Math.round(fraction)}s"
+            }
         } else {
             val fraction = 1000000000.0 / nanos.toDouble()
             "1/${Math.round(fraction)}s"
@@ -169,12 +225,17 @@ class Camera2ParamProvider(private val context: Context) : CameraParamProvider {
                 CameraCharacteristics.CONTROL_AWB_AVAILABLE_MODES
             )
             when {
-                availableModes?.contains(CameraMetadata.CONTROL_AWB_MODE_DAYLIGHT) == true -> "daylight"
-                availableModes?.contains(CameraMetadata.CONTROL_AWB_MODE_AUTO) == true -> "auto"
-                else -> "auto"
+                availableModes?.contains(CameraMetadata.CONTROL_AWB_MODE_DAYLIGHT) == true -> "Daylight"
+                availableModes?.contains(CameraMetadata.CONTROL_AWB_MODE_CLOUDY_DAYLIGHT) == true -> "Cloudy"
+                availableModes?.contains(CameraMetadata.CONTROL_AWB_MODE_TWILIGHT) == true -> "Twilight"
+                availableModes?.contains(CameraMetadata.CONTROL_AWB_MODE_INCANDESCENT) == true -> "Incandescent"
+                availableModes?.contains(CameraMetadata.CONTROL_AWB_MODE_FLUORESCENT) == true -> "Fluorescent"
+                availableModes?.contains(CameraMetadata.CONTROL_AWB_MODE_WARM_FLUORESCENT) == true -> "Warm Fluorescent"
+                availableModes?.contains(CameraMetadata.CONTROL_AWB_MODE_AUTO) == true -> "Auto"
+                else -> "Auto"
             }
         } catch (e: Exception) {
-            "auto"
+            "Auto"
         }
     }
 }
