@@ -1,7 +1,6 @@
 package com.omaster.app.navigation
 
 sealed class Screen(val route: String) {
-    object Onboarding : Screen("onboarding")
     object Home : Screen("home")
     data class Detail(val presetId: String) : Screen("detail/{presetId}") {
         companion object {
@@ -9,6 +8,4 @@ sealed class Screen(val route: String) {
         }
     }
     object Settings : Screen("settings")
-    object Watermark : Screen("watermark")
-    object CameraParams : Screen("camera_params")
 }

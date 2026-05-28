@@ -11,10 +11,10 @@ android {
 
     defaultConfig {
         applicationId = "com.omaster.app"
-        minSdk = 33
+        minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.2.1"
+        versionCode = 1
+        versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -88,16 +88,6 @@ dependencies {
     implementation("com.squareup.retrofit2:converter-gson:2.9.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
-    
-    // CameraX dependencies
-    val cameraxVersion = "1.3.4"
-    implementation("androidx.camera:camera-core:${cameraxVersion}")
-    implementation("androidx.camera:camera-camera2:${cameraxVersion}")
-    implementation("androidx.camera:camera-lifecycle:${cameraxVersion}")
-    implementation("androidx.camera:camera-view:${cameraxVersion}")
-    
-    // WorkManager for background tasks
-    implementation("androidx.work:work-runtime-ktx:2.9.0")
     
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.mockito:mockito-core:5.11.0")

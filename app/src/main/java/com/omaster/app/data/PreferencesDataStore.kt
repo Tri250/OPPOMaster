@@ -24,12 +24,6 @@ class PreferencesDataStore @Inject constructor(
         val THEME_MODE = intPreferencesKey("theme_mode")
         val FLUID_CLOUD_ENABLED = intPreferencesKey("fluid_cloud_enabled")
         val OVERLAY_ENABLED = intPreferencesKey("overlay_enabled")
-        val ONBOARDING_COMPLETED = intPreferencesKey("onboarding_completed")
-    }
-
-    private fun Preferences.getBoolean(key: Preferences.Key<Int>, defaultValue: Boolean): Boolean {
-        val value = this[key]
-        return if (value == null) defaultValue else value == 1
     }
 
     val favoritePresets: Flow<Set<String>> = context.dataStore.data
@@ -44,24 +38,13 @@ class PreferencesDataStore @Inject constructor(
 
     val fluidCloudEnabled: Flow<Boolean> = context.dataStore.data
         .map { preferences ->
-            preferences.getBoolean(PreferencesKeys.FLUID_CLOUD_ENABLED, defaultValue = true)
+            preferences[PreferencesKeys.FLUID_CLOUD_ENABLED] ?: 1 == 1
         }
 
     val overlayEnabled: Flow<Boolean> = context.dataStore.data
         .map { preferences ->
-            preferences.getBoolean(PreferencesKeys.OVERLAY_ENABLED, defaultValue = false)
+            preferences[PreferencesKeys.OVERLAY_ENABLED] ?: 0 == 1
         }
-
-    val onboardingCompleted: Flow<Boolean> = context.dataStore.data
-        .map { preferences ->
-            preferences.getBoolean(PreferencesKeys.ONBOARDING_COMPLETED, defaultValue = false)
-        }
-
-    suspend fun setOnboardingCompleted(completed: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferencesKeys.ONBOARDING_COMPLETED] = if (completed) 1 else 0
-        }
-    }
 
     suspend fun toggleFavorite(presetId: String) {
         context.dataStore.edit { preferences ->
