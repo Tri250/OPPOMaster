@@ -1,7 +1,9 @@
 package com.omaster.app.ui.components
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -26,7 +28,7 @@ import coil.compose.AsyncImage
 import com.omaster.app.model.Preset
 import com.omaster.app.ui.theme.*
 
-@OptIn(ExperimentalComposeUiApi::class)
+@OptIn(ExperimentalComposeUiApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun EnhancedPresetCard(
     preset: Preset,
@@ -37,17 +39,23 @@ fun EnhancedPresetCard(
 ) {
     val hapticFeedback = LocalHapticFeedback.current
     var isPressed by remember { mutableStateOf(false) }
+    var showQuickMenu by remember { mutableStateOf(false) }
     
     Card(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .clickable(
+            .combinedClickable(
                 onClick = {
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     onClick()
                 },
-                onClickLabel = "查看预设详情"
+                onLongClick = {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                    showQuickMenu = true
+                },
+                onClickLabel = "查看预设详情",
+                onLongClickLabel = "打开快捷菜单"
             )
             .semantics {
                 contentDescription = "预设：${preset.name}，适合${preset.deviceModel}设备"
@@ -61,185 +69,277 @@ fun EnhancedPresetCard(
             containerColor = MaterialTheme.colorScheme.surface
         )
     ) {
-        Column {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(180.dp)
-            ) {
-                if (showPreview) {
-                    AsyncImage(
-                        model = "https://picsum.photos/seed/${preset.coverPath}/600/400",
-                        contentDescription = "${preset.name}预览图",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                    
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    colors = listOf(
-                                        Color.Transparent,
-                                        Color.Black.copy(alpha = 0.7f)
+        Box {
+            Column {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp)
+                ) {
+                    if (showPreview) {
+                        AsyncImage(
+                            model = "https://picsum.photos/seed/${preset.coverPath}/600/400",
+                            contentDescription = "${preset.name}预览图",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color.Transparent,
+                                            Color.Black.copy(alpha = 0.7f)
+                                        )
                                     )
                                 )
-                            )
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Photo,
-                            contentDescription = null,
-                            modifier = Modifier.size(64.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
                         )
-                    }
-                }
-                
-                if (preset.cameraParams?.hasselblad_hncs == true) {
-                    Surface(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(12.dp),
-                        color = HasselbladOrange,
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Star,
+                                imageVector = Icons.Default.Photo,
                                 contentDescription = null,
-                                modifier = Modifier.size(12.dp),
-                                tint = DeepSpace
+                                modifier = Modifier.size(64.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
                             )
+                        }
+                    }
+                    
+                    if (preset.cameraParams?.hasselblad_hncs == true) {
+                        Surface(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(12.dp),
+                            color = HasselbladOrange,
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Star,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(12.dp),
+                                    tint = DeepSpace
+                                )
+                                Text(
+                                    text = "HNCS",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = DeepSpace,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                    
+                    IconButton(
+                        onClick = {
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onFavoriteToggle()
+                        },
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(8.dp)
+                            .semantics {
+                                if (preset.isFavorite) {
+                                    onClick(label = "取消收藏") { onFavoriteToggle() }
+                                } else {
+                                    onClick(label = "添加收藏") { onFavoriteToggle() }
+                                }
+                            }
+                    ) {
+                        Icon(
+                            imageVector = if (preset.isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                            contentDescription = if (preset.isFavorite) "取消收藏" else "收藏",
+                            tint = if (preset.isFavorite) AccentPrimary else Color.White
+                        )
+                    }
+                    
+                    if (preset.source == "community") {
+                        Surface(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(12.dp),
+                            color = AccentSecondary,
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
                             Text(
-                                text = "HNCS",
+                                text = "社区",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                 style = MaterialTheme.typography.labelSmall,
-                                color = DeepSpace,
+                                color = Color.White,
                                 fontWeight = FontWeight.Bold
                             )
                         }
                     }
                 }
                 
-                IconButton(
-                    onClick = {
-                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onFavoriteToggle()
-                    },
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(8.dp)
-                        .semantics {
-                            if (preset.isFavorite) {
-                                onClick(label = "取消收藏") { onFavoriteToggle() }
-                            } else {
-                                onClick(label = "添加收藏") { onFavoriteToggle() }
+                Column(
+                    modifier = Modifier.padding(16.dp)
+                ) {
+                    Text(
+                        text = preset.name,
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        preset.deviceModel?.let { deviceModel ->
+                            if (deviceModel.isNotEmpty()) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Text(
+                                        text = deviceModel,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
                         }
-                ) {
-                    Icon(
-                        imageVector = if (preset.isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
-                        contentDescription = if (preset.isFavorite) "取消收藏" else "收藏",
-                        tint = if (preset.isFavorite) AccentPrimary else Color.White
-                    )
-                }
-                
-                if (preset.source == "community") {
-                    Surface(
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(12.dp),
-                        color = AccentSecondary,
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
+                        
+                        preset.cameraParams?.let { params ->
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (params.iso > 0) {
+                                    Text(
+                                        text = "ISO ${params.iso}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                params.wb?.let { wb ->
+                                    Text(
+                                        text = wb,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    
+                    preset.sections.firstOrNull()?.let { section ->
+                        Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "社区",
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold
+                            text = section.content,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
             }
             
-            Column(
-                modifier = Modifier.padding(16.dp)
+            DropdownMenu(
+                expanded = showQuickMenu,
+                onDismissRequest = { showQuickMenu = false }
             ) {
-                Text(
-                    text = preset.name,
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    fontWeight = FontWeight.SemiBold
+                DropdownMenuItem(
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = if (preset.isFavorite) Icons.Default.Favorite else Icons.Outlined.FavoriteBorder,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(if (preset.isFavorite) "取消收藏" else "快速收藏")
+                        }
+                    },
+                    onClick = {
+                        showQuickMenu = false
+                        onFavoriteToggle()
+                    },
+                    modifier = Modifier.semantics {
+                        contentDescription = if (preset.isFavorite) "快速取消收藏" else "快速收藏"
+                    }
                 )
                 
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    preset.deviceModel?.let { deviceModel ->
-                        if (deviceModel.isNotEmpty()) {
-                            Surface(
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Text(
-                                    text = deviceModel,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                DropdownMenuItem(
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text("分享预设")
                         }
+                    },
+                    onClick = {
+                        showQuickMenu = false
+                    },
+                    modifier = Modifier.semantics {
+                        contentDescription = "分享预设"
                     }
+                )
+                
+                DropdownMenuItem(
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Visibility,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text("查看参数")
+                        }
+                    },
+                    onClick = {
+                        showQuickMenu = false
+                        onClick()
+                    },
+                    modifier = Modifier.semantics {
+                        contentDescription = "查看详细参数"
+                    }
+                )
+                
+                if (preset.source == "official") {
+                    HorizontalDivider()
                     
-                    preset.cameraParams?.let { params ->
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            if (params.iso > 0) {
-                                Text(
-                                    text = "ISO ${params.iso}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    DropdownMenuItem(
+                        text = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.NewReleases,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp),
+                                    tint = AccentPrimary
                                 )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text("官方认证", color = AccentPrimary)
                             }
-                            params.wb?.let { wb ->
-                                Text(
-                                    text = wb,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                }
-                
-                preset.sections.firstOrNull()?.let { section ->
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = section.content,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        },
+                        onClick = {
+                            showQuickMenu = false
+                        },
+                        enabled = false
                     )
                 }
             }
