@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Share
@@ -39,6 +40,7 @@ import com.omaster.app.ui.components.ParamComparisonDisplay
 import com.omaster.app.ui.components.RealTimeCameraParamsDisplay
 import com.omaster.app.ui.theme.*
 import com.omaster.app.ui.components.ScreenshotShareDialog
+import com.omaster.app.utils.PresetUtils
 import com.omaster.app.viewmodel.MainViewModel
 import kotlinx.coroutines.launch
 
@@ -95,7 +97,24 @@ fun DetailScreen(
                             tint = if (preset.isFavorite) AccentPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    IconButton(onClick = { }) {
+                    IconButton(onClick = {
+                        PresetUtils.copyPresetParamsToClipboard(context, preset)
+                        scope.launch {
+                            snackbarHostState.showSnackbar(
+                                message = "参数已复制到剪贴板",
+                                duration = SnackbarDuration.Short
+                            )
+                        }
+                    }) {
+                        Icon(
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = "复制参数",
+                            tint = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
+                    IconButton(onClick = {
+                        PresetUtils.sharePreset(context, preset)
+                    }) {
                         Icon(
                             imageVector = Icons.Default.Share,
                             contentDescription = "分享",

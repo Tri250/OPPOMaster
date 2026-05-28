@@ -1,15 +1,17 @@
 package com.omaster.app.ui.screens
 
+import androidx.compose.animation.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -19,12 +21,16 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.omaster.app.R
 import com.omaster.app.model.Preset
+import com.omaster.app.service.FloatingWindowService
 import com.omaster.app.ui.components.EnhancedFilterChips
 import com.omaster.app.ui.components.EnhancedPresetCard
 import com.omaster.app.ui.components.EnhancedSearchBar
 import com.omaster.app.ui.theme.*
+import com.omaster.app.utils.OverlayPermissionHelper
 import com.omaster.app.viewmodel.FilterType
 import com.omaster.app.viewmodel.MainViewModel
+import kotlinx.coroutines.launch
+import timber.log.Timber
 
 @Composable
 fun HomeScreen(
@@ -36,12 +42,16 @@ fun HomeScreen(
     val presets by viewModel.presets.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val filterType by viewModel.filterType.collectAsStateWithLifecycle()
-
+    val overlayEnabled by viewModel.overlayEnabled.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    
     val filteredPresets = remember(presets, searchQuery, filterType) {
         presets.filter { preset ->
             val matchesQuery = searchQuery.isEmpty() ||
                     preset.name.contains(searchQuery, ignoreCase = true) ||
-                    preset.deviceModel?.contains(searchQuery, ignoreCase = true) == true
+                    preset.deviceModel?.contains(searchQuery, ignoreCase = true) == true ||
+                    preset.cameraParams?.filter?.contains(searchQuery, ignoreCase = true) == true
             val matchesFilter = when (filterType) {
                 FilterType.ALL -> true
                 FilterType.FAVORITES -> preset.isFavorite
@@ -54,7 +64,37 @@ fun HomeScreen(
             matchesQuery && matchesFilter
         }
     }
-
+    
+    fun toggleOverlayWithPermission() {
+        if (OverlayPermissionHelper.canDrawOverlays(context)) {
+            viewModel.setOverlayEnabled(!overlayEnabled)
+            if (!overlayEnabled) {
+                FloatingWindowService.updatePresets(presets)
+                FloatingWindowService.showOverlay(context)
+            } else {
+                FloatingWindowService.hideOverlay(context)
+            }
+        } else {
+            OverlayPermissionHelper.requestOverlayPermission(
+                context = context,
+                onGranted = {
+                    viewModel.setOverlayEnabled(true)
+                    FloatingWindowService.updatePresets(presets)
+                    FloatingWindowService.showOverlay(context)
+                },
+                onDenied = {
+                    Timber.tag("OMaster").d("Overlay permission denied")
+                }
+            )
+        }
+    }
+    
+    LaunchedEffect(presets) {
+        if (overlayEnabled) {
+            FloatingWindowService.updatePresets(presets)
+        }
+    }
+    
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -70,6 +110,18 @@ fun HomeScreen(
                     containerColor = MaterialTheme.colorScheme.background
                 ),
                 actions = {
+                    IconButton(
+                        onClick = { toggleOverlayWithPermission() },
+                        modifier = Modifier.semantics {
+                            contentDescription = if (overlayEnabled) "关闭悬浮窗" else "开启悬浮窗"
+                        }
+                    ) {
+                        Icon(
+                            imageVector = if (overlayEnabled) Icons.Default.Layers else Icons.Default.LayersClear,
+                            contentDescription = if (overlayEnabled) "悬浮窗已开启" else "悬浮窗已关闭",
+                            tint = if (overlayEnabled) AccentPrimary else MaterialTheme.colorScheme.onBackground
+                        )
+                    }
                     IconButton(
                         onClick = onSettingsClick,
                         modifier = Modifier.semantics {
@@ -120,7 +172,10 @@ fun HomeScreen(
                 items(filteredPresets, key = { it.id }) { preset ->
                     EnhancedPresetCard(
                         preset = preset,
-                        onClick = { onPresetClick(preset) },
+                        onClick = { 
+                            FloatingWindowService.setCurrentPreset(preset)
+                            onPresetClick(preset) 
+                        },
                         onFavoriteToggle = { viewModel.toggleFavorite(preset) },
                         modifier = Modifier.padding(horizontal = 16.dp)
                     )

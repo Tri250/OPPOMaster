@@ -11,8 +11,8 @@
     <string name="enable_fluid_cloud">启用流体云胶囊</string>
     <string name="enable_fluid_cloud_desc">在系统侧边栏显示当前选中的预设</string>
     <string name="overlay">悬浮窗</string>
-    <string name="enable_overlay">启用悬浮窗（降级方案）</string>
-    <string name="enable_overlay_desc">仅适用于不支持流体云的旧系统</string>
+    <string name="enable_overlay">启用悬浮窗</string>
+    <string name="enable_overlay_desc">悬浮窗已开启/关闭</string>
     <string name="about">关于</string>
     <string name="version">版本</string>
     <string name="camera_params">相机参数</string>
@@ -25,4 +25,10 @@
     <string name="hncs">HNCS 认证</string>
     <string name="preset_applied">预设已应用</string>
     <string name="preset_saved">预设已保存</string>
+    
+    <!-- Shortcut strings -->
+    <string name="shortcut_floating_window_short">悬浮窗</string>
+    <string name="shortcut_floating_window_long">开启悬浮窗</string>
+    <string name="shortcut_favorites_short">收藏</string>
+    <string name="shortcut_favorites_long">我的收藏</string>
 </resources>

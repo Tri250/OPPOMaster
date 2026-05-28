@@ -1,11 +1,17 @@
 package com.omaster.app
 
 import android.app.Application
+import com.omaster.app.data.PreferencesDataStore
 import dagger.hilt.android.HiltAndroidApp
 import timber.log.Timber
+import javax.inject.Inject
 
 @HiltAndroidApp
 class OMasterApplication : Application() {
+    
+    @Inject
+    lateinit var dataStore: PreferencesDataStore
+    
     override fun onCreate() {
         super.onCreate()
         if (BuildConfig.DEBUG) {

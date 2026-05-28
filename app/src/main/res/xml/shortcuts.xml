@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="floating_window"
+        android:enabled="true"
+        android:icon="@drawable/ic_launcher_foreground"
+        android:shortcutShortLabel="@string/shortcut_floating_window_short"
+        android:shortcutLongLabel="@string/shortcut_floating_window_long">
+        <intent
+            android:action="com.omaster.app.SHOW_OVERLAY"
+            android:targetPackage="com.omaster.app"
+            android:targetClass="com.omaster.app.service.FloatingWindowService" />
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+    
+    <shortcut
+        android:shortcutId="favorites"
+        android:enabled="true"
+        android:icon="@drawable/ic_launcher_foreground"
+        android:shortcutShortLabel="@string/shortcut_favorites_short"
+        android:shortcutLongLabel="@string/shortcut_favorites_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.omaster.app"
+            android:targetClass="com.omaster.app.MainActivity"
+            android:data="omaster://presets?filter=favorites" />
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+</shortcuts>

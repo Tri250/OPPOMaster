@@ -8,12 +8,16 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.omaster.app.data.ThemeMode
+import com.omaster.app.service.FloatingWindowService
 import com.omaster.app.ui.theme.*
+import com.omaster.app.utils.OverlayPermissionHelper
 import com.omaster.app.viewmodel.MainViewModel
+import timber.log.Timber
 
 @Composable
 fun SettingsScreen(
@@ -24,8 +28,31 @@ fun SettingsScreen(
     val currentThemeMode by viewModel.themeMode.collectAsStateWithLifecycle()
     val fluidCloudEnabled by viewModel.fluidCloudEnabled.collectAsStateWithLifecycle()
     val overlayEnabled by viewModel.overlayEnabled.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     var showThemeDialog by remember { mutableStateOf(false) }
-
+    
+    fun toggleOverlayWithPermission() {
+        if (OverlayPermissionHelper.canDrawOverlays(context)) {
+            viewModel.setOverlayEnabled(!overlayEnabled)
+            if (!overlayEnabled) {
+                FloatingWindowService.showOverlay(context)
+            } else {
+                FloatingWindowService.hideOverlay(context)
+            }
+        } else {
+            OverlayPermissionHelper.requestOverlayPermission(
+                context = context,
+                onGranted = {
+                    viewModel.setOverlayEnabled(true)
+                    FloatingWindowService.showOverlay(context)
+                },
+                onDenied = {
+                    Timber.tag("OMaster").d("Overlay permission denied")
+                }
+            )
+        }
+    }
+    
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -111,10 +138,10 @@ fun SettingsScreen(
             )
 
             SettingsItem(
-                title = "悬浮窗（降级方案）",
-                description = "仅适用于不支持流体云的旧系统",
+                title = "悬浮窗",
+                description = if (overlayEnabled) "悬浮窗已开启，点击可关闭" else "悬浮窗已关闭，点击可开启",
                 checked = overlayEnabled,
-                onCheckedChange = { viewModel.setOverlayEnabled(it) }
+                onCheckedChange = { toggleOverlayWithPermission() }
             )
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -139,7 +166,7 @@ fun SettingsScreen(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "版本 1.0.0",
+                        text = "版本 1.5.0",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
