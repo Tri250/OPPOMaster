@@ -28,6 +28,7 @@ class MainViewModel @Inject constructor(
     val themeMode = preferencesDataStore.themeMode
     val fluidCloudEnabled = preferencesDataStore.fluidCloudEnabled
     val overlayEnabled = preferencesDataStore.overlayEnabled
+    val analyticsEnabled = preferencesDataStore.analyticsEnabled
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -85,6 +86,20 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch {
             preferencesDataStore.setOverlayEnabled(enabled)
             Timber.d("Overlay enabled: $enabled")
+        }
+    }
+
+    fun setAnalyticsEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            preferencesDataStore.setAnalyticsEnabled(enabled)
+            Timber.d("Analytics enabled: $enabled")
+        }
+    }
+
+    fun clearAllUserData() {
+        viewModelScope.launch {
+            preferencesDataStore.clearAllUserData()
+            Timber.d("Cleared all user data")
         }
     }
 

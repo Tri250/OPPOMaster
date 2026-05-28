@@ -16,12 +16,8 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
-import android.widget.FrameLayout
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,21 +27,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.ComposeView
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.Lifecycle
@@ -58,15 +47,12 @@ import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.omaster.app.MainActivity
 import com.omaster.app.R
-import com.omaster.app.data.PreferencesDataStore
 import com.omaster.app.model.Preset
 import com.omaster.app.ui.theme.AccentPrimary
 import com.omaster.app.ui.theme.HasselbladOrange
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.first
 import timber.log.Timber
 import kotlin.math.abs
-import kotlin.math.roundToInt
 
 class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner {
     
@@ -88,7 +74,7 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
     private var lastX: Float = 0f
     private var lastY: Float = 0f
     private var isDragging: Boolean = false
-    private var is吸附Enabled: Boolean = true
+    private var isSnapToEdgeEnabled: Boolean = true
     
     private var expandedLayoutParams: WindowManager.LayoutParams? = null
     private var collapsedLayoutParams: WindowManager.LayoutParams? = null
@@ -105,8 +91,8 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
         private const val ACTION_CLOSE = "com.omaster.app.CLOSE"
         
         private const val DRAG_THRESHOLD = 10f
-        private const val ADSORPTION_MARGIN = 16
-        private const val ADSORPTION_ANIMATION_DURATION = 300L
+        private const val SNAP_MARGIN = 16
+        private const val SNAP_ANIMATION_DURATION = 300L
         
         private var instance: FloatingWindowService? = null
         
@@ -237,19 +223,7 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
         lifecycleRegistry.currentState = Lifecycle.State.STARTED
         lifecycleRegistry.currentState = Lifecycle.State.RESUMED
         
-        serviceScope.launch {
-            try {
-                val dataStore = (application as? com.omaster.app.OMasterApplication)?.dataStore
-                if (dataStore != null) {
-                    val enabled = dataStore.overlayEnabled.first()
-                    if (enabled) {
-                        showFloatingWindow()
-                    }
-                }
-            } catch (e: Exception) {
-                Timber.e(e, "Failed to load overlay preference")
-            }
-        }
+        Timber.d("FloatingWindowService created")
     }
     
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -276,6 +250,7 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
         hideFloatingWindow()
         serviceScope.cancel()
         super.onDestroy()
+        Timber.d("FloatingWindowService destroyed")
     }
     
     private fun createNotificationChannel() {
@@ -287,6 +262,8 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
             ).apply {
                 description = "提供悬浮窗快捷控制功能"
                 setShowBadge(false)
+                enableVibration(false)
+                setSound(null, null)
             }
             val notificationManager = getSystemService(NotificationManager::class.java)
             notificationManager.createNotificationChannel(channel)
@@ -334,11 +311,12 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
         
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("OMaster 悬浮窗已开启")
-            .setContentText("点击查看快捷操作")
+            .setContentText(currentPreset?.name ?: "点击打开 OMaster")
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(mainPendingIntent)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOnlyAlertOnce(true)
             .addAction(R.drawable.ic_launcher_foreground, "收起", collapsePendingIntent)
             .addAction(R.drawable.ic_launcher_foreground, "上一个", prevPendingIntent)
             .addAction(R.drawable.ic_launcher_foreground, "下一个", nextPendingIntent)
@@ -346,44 +324,45 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
             .build()
     }
     
-    @SuppressLint("ClickableViewAccessibility", "InflateParams")
+    @SuppressLint("ClickableViewAccessibility")
     private fun showFloatingWindow() {
         if (floatingView != null || expandedView != null) return
         
         val layoutFlag = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         
+        // 展开窗口参数
         expandedLayoutParams = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             layoutFlag,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or 
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.END
-            x = ADSORPTION_MARGIN
+            x = SNAP_MARGIN
             y = 200
         }
         
         try {
             expandedView = createExpandedFloatingView()
             val density = resources.displayMetrics.density
-            val widthPx = (280 * density).toInt()
-            val heightPx = (360 * density).toInt()
-            expandedLayoutParams?.width = widthPx
-            expandedLayoutParams?.height = heightPx
+            expandedLayoutParams?.width = (280 * density).toInt()
+            expandedLayoutParams?.height = (360 * density).toInt()
             windowManager?.addView(expandedView, expandedLayoutParams)
             
             collapsedLayoutParams = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 layoutFlag,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or 
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT
             ).apply {
                 gravity = Gravity.TOP or Gravity.END
-                x = ADSORPTION_MARGIN
+                x = SNAP_MARGIN
                 y = 200
             }
             floatingView = createCollapsedFloatingView()
@@ -408,7 +387,7 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                     lastX = event.rawX
                     lastY = event.rawY
                     isDragging = false
-                    true
+                    false
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = abs(event.rawX - lastX)
@@ -429,38 +408,38 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                         lastX = event.rawX
                         lastY = event.rawY
                     }
-                    true
+                    isDragging
                 }
                 MotionEvent.ACTION_UP -> {
-                    if (isDragging && is吸附Enabled) {
-                        adsorbToEdge(view)
+                    if (isDragging && isSnapToEdgeEnabled) {
+                        snapToEdge(view)
                     }
-                    true
+                    false
                 }
                 else -> false
             }
         }
     }
     
-    private fun adsorbToEdge(view: View) {
+    private fun snapToEdge(view: View) {
         val params = view.layoutParams as WindowManager.LayoutParams
         val screenWidth = resources.displayMetrics.widthPixels
         
         val targetX = if (params.x < screenWidth / 2) {
-            ADSORPTION_MARGIN
+            SNAP_MARGIN
         } else {
-            screenWidth - ADSORPTION_MARGIN - (if (isExpanded) params.width else 56)
+            screenWidth - SNAP_MARGIN - (56 * resources.displayMetrics.density).toInt()
         }
         
         val animator = ValueAnimator.ofInt(params.x, targetX)
-        animator.duration = ADSORPTION_ANIMATION_DURATION
-        animator.interpolator = OvershootInterpolator(1.2f)
+        animator.duration = SNAP_ANIMATION_DURATION
+        animator.interpolator = android.view.animation.OvershootInterpolator(1.2f)
         animator.addUpdateListener { animation ->
             params.x = animation.animatedValue as Int
             try {
                 windowManager?.updateViewLayout(view, params)
             } catch (e: Exception) {
-                Timber.e(e, "Failed to update view layout during adsorption")
+                Timber.e(e, "Failed to update view layout during snap")
             }
         }
         animator.start()
@@ -490,7 +469,6 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
         }
     }
     
-    @SuppressLint("ClickableViewAccessibility")
     private fun createCollapsedFloatingView(): View {
         val composeView = ComposeView(this).apply {
             setViewTreeLifecycleOwner(this@FloatingWindowService)
@@ -509,17 +487,6 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                     onDoubleTap = {
                         hideFloatingWindow()
                         stopSelf()
-                    },
-                    onFavoriteToggle = { preset ->
-                        serviceScope.launch {
-                            try {
-                                val app = application as? com.omaster.app.OMasterApplication
-                                app?.dataStore?.toggleFavorite(preset.id)
-                                updateFloatingWindowContent()
-                            } catch (e: Exception) {
-                                Timber.e(e, "Failed to toggle favorite")
-                            }
-                        }
                     }
                 )
             }
@@ -528,7 +495,6 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
         return composeView
     }
     
-    @SuppressLint("ClickableViewAccessibility")
     private fun createExpandedFloatingView(): View {
         val composeView = ComposeView(this).apply {
             setViewTreeLifecycleOwner(this@FloatingWindowService)
@@ -549,17 +515,6 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                     onNext = { nextPreset() },
                     onPrev = { prevPreset() },
                     onCategoryChange = { setCategory(it) },
-                    onFavoriteToggle = { preset ->
-                        serviceScope.launch {
-                            try {
-                                val app = application as? com.omaster.app.OMasterApplication
-                                app?.dataStore?.toggleFavorite(preset.id)
-                                updateFloatingWindowContent()
-                            } catch (e: Exception) {
-                                Timber.e(e, "Failed to toggle favorite")
-                            }
-                        }
-                    },
                     onAlphaChange = { setAlpha(it) },
                     onClose = {
                         hideFloatingWindow()
@@ -585,17 +540,6 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                     onDoubleTap = {
                         hideFloatingWindow()
                         stopSelf()
-                    },
-                    onFavoriteToggle = { preset ->
-                        serviceScope.launch {
-                            try {
-                                val app = application as? com.omaster.app.OMasterApplication
-                                app?.dataStore?.toggleFavorite(preset.id)
-                                updateFloatingWindowContent()
-                            } catch (e: Exception) {
-                                Timber.e(e, "Failed to toggle favorite")
-                            }
-                        }
                     }
                 )
             }
@@ -615,17 +559,6 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
                     onNext = { nextPreset() },
                     onPrev = { prevPreset() },
                     onCategoryChange = { setCategory(it) },
-                    onFavoriteToggle = { preset ->
-                        serviceScope.launch {
-                            try {
-                                val app = application as? com.omaster.app.OMasterApplication
-                                app?.dataStore?.toggleFavorite(preset.id)
-                                updateFloatingWindowContent()
-                            } catch (e: Exception) {
-                                Timber.e(e, "Failed to toggle favorite")
-                            }
-                        }
-                    },
                     onAlphaChange = { setAlpha(it) },
                     onClose = {
                         hideFloatingWindow()
@@ -640,12 +573,8 @@ class FloatingWindowService : Service(), LifecycleOwner, SavedStateRegistryOwner
         
         floatingView?.visibility = if (isExpanded) View.GONE else View.VISIBLE
         expandedView?.visibility = if (isExpanded) View.VISIBLE else View.GONE
-    }
-    
-    private fun updateNotification() {
-        val notification = createNotification()
-        val notificationManager = getSystemService(NotificationManager::class.java)
-        notificationManager.notify(NOTIFICATION_ID, notification)
+        
+        updateNotification()
     }
 }
 
@@ -654,21 +583,12 @@ fun CollapsedFloatingContent(
     currentPreset: Preset?,
     isExpanded: Boolean,
     onExpand: () -> Unit,
-    onDoubleTap: () -> Unit,
-    onFavoriteToggle: (Preset) -> Unit
+    onDoubleTap: () -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
-    val scale by animateFloatAsState(
-        targetValue = if (isExpanded) 0f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-        label = "scale"
-    )
     
     Box(
         modifier = Modifier
-            .graphicsLayer {
-                alpha = 1f - scale
-            }
             .size(56.dp)
             .clip(CircleShape)
             .background(AccentPrimary)
@@ -683,22 +603,16 @@ fun CollapsedFloatingContent(
                         onDoubleTap()
                     }
                 )
-            }
-            .semantics { contentDescription = "OMaster 悬浮窗，点击展开" },
+            },
         contentAlignment = Alignment.Center
     ) {
         if (currentPreset != null) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Text(
-                    text = currentPreset.cameraParams?.filter?.take(2) ?: "预设",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold
-                )
-            }
+            Text(
+                text = currentPreset.cameraParams?.filter?.take(2) ?: "预设",
+                style = MaterialTheme.typography.labelLarge,
+                color = Color.White,
+                fontWeight = FontWeight.Bold
+            )
         } else {
             Icon(
                 imageVector = Icons.Default.Star,
@@ -721,7 +635,6 @@ fun ExpandedFloatingContent(
     onNext: () -> Unit,
     onPrev: () -> Unit,
     onCategoryChange: (String) -> Unit,
-    onFavoriteToggle: (Preset) -> Unit,
     onAlphaChange: (Float) -> Unit,
     onClose: () -> Unit
 ) {
@@ -731,17 +644,10 @@ fun ExpandedFloatingContent(
     var offsetX by remember { mutableFloatStateOf(0f) }
     var showAlphaSlider by remember { mutableStateOf(false) }
     
-    val animatedAlpha by animateFloatAsState(
-        targetValue = 1f,
-        animationSpec = tween(200),
-        label = "alpha"
-    )
-    
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .fillMaxHeight()
-            .graphicsLayer { alpha = animatedAlpha }
             .pointerInput(Unit) {
                 detectHorizontalDragGestures(
                     onDragEnd = {
@@ -862,19 +768,6 @@ fun ExpandedFloatingContent(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
-                        
-                        IconButton(
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onFavoriteToggle(currentPreset)
-                            }
-                        ) {
-                            Icon(
-                                imageVector = if (currentPreset.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                contentDescription = if (currentPreset.isFavorite) "取消收藏" else "收藏",
-                                tint = if (currentPreset.isFavorite) AccentPrimary else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
                     }
                     
                     currentPreset.cameraParams?.let { params ->
@@ -946,9 +839,7 @@ fun ExpandedFloatingContent(
                             onPrev()
                         },
                         enabled = currentIndex > 0,
-                        modifier = Modifier
-                            .size(48.dp)
-                            .semantics { contentDescription = "上一个预设" }
+                        modifier = Modifier.size(48.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.ChevronLeft,
@@ -969,9 +860,7 @@ fun ExpandedFloatingContent(
                             onNext()
                         },
                         enabled = currentIndex < presetList.size - 1,
-                        modifier = Modifier
-                            .size(48.dp)
-                            .semantics { contentDescription = "下一个预设" }
+                        modifier = Modifier.size(48.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.ChevronRight,

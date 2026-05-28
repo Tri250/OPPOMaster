@@ -24,6 +24,7 @@ class PreferencesDataStore @Inject constructor(
         val THEME_MODE = intPreferencesKey("theme_mode")
         val FLUID_CLOUD_ENABLED = intPreferencesKey("fluid_cloud_enabled")
         val OVERLAY_ENABLED = intPreferencesKey("overlay_enabled")
+        val ANALYTICS_ENABLED = intPreferencesKey("analytics_enabled")
     }
 
     private fun Preferences.getBoolean(key: Preferences.Key<Int>, defaultValue: Boolean): Boolean {
@@ -49,6 +50,11 @@ class PreferencesDataStore @Inject constructor(
     val overlayEnabled: Flow<Boolean> = context.dataStore.data
         .map { preferences ->
             preferences.getBoolean(PreferencesKeys.OVERLAY_ENABLED, defaultValue = false)
+        }
+
+    val analyticsEnabled: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences.getBoolean(PreferencesKeys.ANALYTICS_ENABLED, defaultValue = false)
         }
 
     suspend fun toggleFavorite(presetId: String) {
@@ -78,6 +84,22 @@ class PreferencesDataStore @Inject constructor(
     suspend fun setOverlayEnabled(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.OVERLAY_ENABLED] = if (enabled) 1 else 0
+        }
+    }
+
+    suspend fun setAnalyticsEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.ANALYTICS_ENABLED] = if (enabled) 1 else 0
+        }
+    }
+
+    suspend fun clearAllUserData() {
+        context.dataStore.edit { preferences ->
+            preferences.remove(PreferencesKeys.FAVORITE_PRESETS)
+            preferences.remove(PreferencesKeys.FLUID_CLOUD_ENABLED)
+            preferences.remove(PreferencesKeys.OVERLAY_ENABLED)
+            preferences.remove(PreferencesKeys.ANALYTICS_ENABLED)
+            // 保留主题设置，不重置主题
         }
     }
 }
