@@ -5,9 +5,7 @@ import {
   Trash2, 
   RefreshCw, 
   Check, 
-  AlertCircle,
   Clock,
-  Settings,
   ExternalLink,
   Bell,
   BellOff
@@ -15,7 +13,6 @@ import {
 import { useState } from 'react';
 import { useSubscriptionStore } from '../store/useSyncStore';
 import { ColorOSSwitch } from '../components/common/ColorOSComponents';
-import { Button } from '../components/common/ColorOSComponents';
 
 export default function SubscriptionPage() {
   const [showAddModal, setShowAddModal] = useState(false);
@@ -193,10 +190,9 @@ export default function SubscriptionPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <ColorOSSwitch
-                      checked={sub.enabled}
-                      onChange={() => toggleEnabled(sub.id)}
-                      size="small"
-                    />
+                    checked={sub.enabled}
+                    onChange={() => toggleEnabled(sub.id)}
+                  />
                     <button
                       onClick={() => syncSubscription(sub.id)}
                       className="p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors"

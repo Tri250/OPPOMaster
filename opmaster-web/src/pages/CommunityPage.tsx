@@ -8,7 +8,6 @@ import {
   TrendingUp,
   Heart,
   MessageSquare,
-  Share2,
   Award,
   Target,
   Zap,
@@ -20,13 +19,9 @@ import {
   Filter,
   Grid3x3,
   List,
-  Search,
-  Bookmark,
-  TrendingDown
+  Search
 } from 'lucide-react';
-import { useState, useEffect } from 'react';
-import { useSubscriptionStore } from '../store/useSyncStore';
-import { ColorOSSwitch } from '../components/common/ColorOSComponents';
+import { useState } from 'react';
 
 interface Contribution {
   id: string;
@@ -61,8 +56,6 @@ export default function CommunityPage() {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [showSubmitModal, setShowSubmitModal] = useState(false);
-  
-  const { subscriptions } = useSubscriptionStore();
   
   const [stats] = useState<CommunityStats>({
     totalContributors: 12847,
@@ -579,7 +572,7 @@ export default function CommunityPage() {
               { rank: 1, name: '摄影达人小王', presets: 128, likes: 8923, avatar: 'wang' },
               { rank: 2, name: '城市摄影师', presets: 95, likes: 6789, avatar: 'li' },
               { rank: 3, name: '风光摄影师李华', presets: 87, likes: 5432, avatar: 'hua' }
-            ].map((user, index) => (
+            ].map((user, _index) => (
               <div
                 key={user.rank}
                 className="flex items-center gap-3 p-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"

@@ -5,7 +5,6 @@ import { useAppStore } from '../../store/useAppStore';
 import { useNavigate } from 'react-router-dom';
 
 const easeOppoEnter = [0.05, 0.7, 0.1, 1.0] as [number, number, number, number];
-const easeOppoBounce = [0.175, 0.885, 0.32, 1.275] as [number, number, number, number];
 
 interface PresetCardProps {
   preset: Preset;
@@ -15,7 +14,7 @@ interface PresetCardProps {
 export default function PresetCard({ preset, index }: PresetCardProps) {
   const { toggleFavorite, setSelectedPreset, favorites } = useAppStore();
   const navigate = useNavigate();
-  const isFavorite = favorites.includes(preset.id);
+  const isFavorite = favorites.has(preset.id);
 
   const handleClick = () => {
     setSelectedPreset(preset);
