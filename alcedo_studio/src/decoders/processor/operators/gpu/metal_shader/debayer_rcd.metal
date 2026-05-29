@@ -408,7 +408,9 @@ kernel void rcd_merge_rgba(device const float* r [[buffer(0)]],
     return;
   }
 
-  const uint plane_index = gid.y * params.plane_stride + gid.x;
+  const uint in_x        = gid.x + 4u;
+  const uint in_y        = gid.y + 4u;
+  const uint plane_index = in_y * params.plane_stride + in_x;
   const uint rgba_index  = gid.y * params.rgba_stride + gid.x;
   out_rgba[rgba_index]   = float4(r[plane_index], g[plane_index], b[plane_index], 1.0f);
 }
