@@ -38,6 +38,13 @@ import com.omaster.app.viewmodel.MainViewModel
 fun ColorOSHomeScreen(
     onPresetClick: (Preset) -> Unit,
     onSettingsClick: () -> Unit,
+    onSceneDetectionClick: () -> Unit = {},
+    onFilterLibraryClick: () -> Unit = {},
+    onNativeCameraClick: () -> Unit = {},
+    onPresetEditorClick: () -> Unit = {},
+    onLutManagerClick: () -> Unit = {},
+    onTestVerificationClick: () -> Unit = {},
+    onWatermarkClick: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: MainViewModel = hiltViewModel()
 ) {
@@ -134,6 +141,19 @@ fun ColorOSHomeScreen(
                 )
             }
             
+            // 功能入口卡片
+            item {
+                ColorOSFeatureGrid(
+                    onSceneDetectionClick = onSceneDetectionClick,
+                    onFilterLibraryClick = onFilterLibraryClick,
+                    onNativeCameraClick = onNativeCameraClick,
+                    onPresetEditorClick = onPresetEditorClick,
+                    onLutManagerClick = onLutManagerClick,
+                    onWatermarkClick = onWatermarkClick,
+                    onTestVerificationClick = onTestVerificationClick
+                )
+            }
+            
             // 筛选栏
             item {
                 ColorOSFilterBar(
@@ -214,7 +234,7 @@ private fun ColorOSTopBar(
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 Text(
-                    text = "OMaster",
+                    text = "小O帮帮",
                     style = MaterialTheme.typography.displaySmall,
                     color = MaterialTheme.colorScheme.onBackground,
                     fontWeight = FontWeight.Bold
@@ -276,6 +296,119 @@ private fun ColorOSTopBar(
             Spacer(modifier = Modifier.width(8.dp))
         }
     )
+}
+
+// ==================== ColorOS 16 功能入口网格 ====================
+@Composable
+private fun ColorOSFeatureGrid(
+    onSceneDetectionClick: () -> Unit,
+    onFilterLibraryClick: () -> Unit,
+    onNativeCameraClick: () -> Unit,
+    onPresetEditorClick: () -> Unit,
+    onLutManagerClick: () -> Unit,
+    onWatermarkClick: () -> Unit,
+    onTestVerificationClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        shape = ColorOSShapes.large,
+        tonalElevation = 2.dp
+    ) {
+        Column(modifier = Modifier.padding(8.dp)) {
+            Text(
+                text = "快捷功能",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)
+            )
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceAround
+            ) {
+                FeatureButton(
+                    icon = Icons.Default.AutoAwesome,
+                    label = "AI识别",
+                    onClick = onSceneDetectionClick
+                )
+                FeatureButton(
+                    icon = Icons.Default.FilterAlt,
+                    label = "预设库",
+                    onClick = onFilterLibraryClick
+                )
+                FeatureButton(
+                    icon = Icons.Default.CameraAlt,
+                    label = "相机参数",
+                    onClick = onNativeCameraClick
+                )
+                FeatureButton(
+                    icon = Icons.Default.Edit,
+                    label = "编辑器",
+                    onClick = onPresetEditorClick
+                )
+            }
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceAround
+            ) {
+                FeatureButton(
+                    icon = Icons.Default.Storage,
+                    label = "预设管理",
+                    onClick = onLutManagerClick
+                )
+                FeatureButton(
+                    icon = Icons.Default.WaterDrop,
+                    label = "水印",
+                    onClick = onWatermarkClick
+                )
+                FeatureButton(
+                    icon = Icons.Default.VerifiedUser,
+                    label = "测试",
+                    onClick = onTestVerificationClick
+                )
+                Spacer(modifier = Modifier.width(56.dp))
+            }
+        }
+    }
+}
+
+// ==================== 功能按钮 ====================
+@Composable
+private fun FeatureButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .clickable(onClick = onClick)
+            .padding(8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Surface(
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+            color = AccentPrimary.copy(alpha = 0.1f),
+            modifier = Modifier.size(48.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = label,
+                    tint = AccentPrimary,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
 }
 
 // ==================== ColorOS 16 动画卡片 ====================

@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,13 +27,17 @@ import com.omaster.app.viewmodel.MainViewModel
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
+    onNativeCameraClick: () -> Unit = {},
+    onFloatingWindowClick: () -> Unit = {},
+    onPresetEditorClick: () -> Unit = {},
+    onLutManagerClick: () -> Unit = {},
+    onTestVerificationClick: () -> Unit = {},
+    onWatermarkClick: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: MainViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
     val currentThemeMode by viewModel.themeMode.collectAsStateWithLifecycle()
-    val fluidCloudEnabled by viewModel.fluidCloudEnabled.collectAsStateWithLifecycle()
-    val overlayEnabled by viewModel.overlayEnabled.collectAsStateWithLifecycle()
     var showThemeDialog by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -41,7 +46,7 @@ fun SettingsScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "设置",
+                        text = "我的",
                         style = MaterialTheme.typography.headlineSmall,
                         color = MaterialTheme.colorScheme.onBackground
                     )
@@ -69,6 +74,63 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            Text(
+                text = "功能入口",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column {
+                    SettingItem(
+                        icon = Icons.Filled.CameraAlt,
+                        title = "原生相机参数",
+                        description = "一键自动填入相机参数",
+                        onClick = onNativeCameraClick
+                    )
+                    Divider()
+                    SettingItem(
+                        icon = Icons.Filled.Layers,
+                        title = "智能悬浮窗",
+                        description = "多类型悬浮窗兼容方案",
+                        onClick = onFloatingWindowClick
+                    )
+                    Divider()
+                    SettingItem(
+                        icon = Icons.Filled.Edit,
+                        title = "预设编辑器",
+                        description = "创建和编辑专属预设",
+                        onClick = onPresetEditorClick
+                    )
+                    Divider()
+                    SettingItem(
+                        icon = Icons.Filled.Storage,
+                        title = "预设管理",
+                        description = "多格式导入导出",
+                        onClick = onLutManagerClick
+                    )
+                    Divider()
+                    SettingItem(
+                        icon = Icons.Filled.WaterDrop,
+                        title = "水印工具",
+                        description = "自定义水印模板",
+                        onClick = onWatermarkClick
+                    )
+                    Divider()
+                    SettingItem(
+                        icon = Icons.Filled.VerifiedUser,
+                        title = "测试验证中心",
+                        description = "功能测试与验收标准",
+                        onClick = onTestVerificationClick
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
             Text(
                 text = "外观",
                 style = MaterialTheme.typography.titleMedium,
@@ -104,6 +166,11 @@ fun SettingsScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = "更多",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 
@@ -205,6 +272,58 @@ fun SettingsScreen(
                 showThemeDialog = false
             },
             onDismiss = { showThemeDialog = false }
+        )
+    }
+}
+
+@Composable
+fun SettingItem(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    description: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = title,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 12.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Icon(
+            imageVector = Icons.Default.ChevronRight,
+            contentDescription = "更多",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
