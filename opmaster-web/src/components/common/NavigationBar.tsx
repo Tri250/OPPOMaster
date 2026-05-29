@@ -22,6 +22,7 @@ const featureNavItems = [
   { path: '/scene-detection', label: '场景识别', icon: <Sparkles className="w-4 h-4" /> },
   { path: '/lut-manager', label: 'LUT滤镜', icon: <Sparkles className="w-4 h-4" /> },
   { path: '/cloud-sync', label: '云同步', icon: <Sparkles className="w-4 h-4" /> },
+  { path: '/test-verification', label: '测试验证', icon: <Sparkles className="w-4 h-4" /> },
   { path: '/settings', label: '设置', icon: <Sparkles className="w-4 h-4" /> },
 ]
 

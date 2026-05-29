@@ -6,7 +6,13 @@ import {
   Download, 
   Upload,
   RotateCcw,
-  Trash2
+  Trash2,
+  Share2,
+  Trophy,
+  GitBranch,
+  Tags,
+  Image as ImageIcon,
+  CheckCircle2
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
@@ -20,6 +26,8 @@ interface PresetParams {
   brightness: number;
   warmCool: number;
   vignette: boolean;
+  tags: string[];
+  description: string;
 }
 
 const defaultParams: PresetParams = {
@@ -31,7 +39,9 @@ const defaultParams: PresetParams = {
   contrast: 0,
   brightness: 0,
   warmCool: 0,
-  vignette: false
+  vignette: false,
+  tags: [],
+  description: ''
 };
 
 const filterOptions = [
@@ -39,13 +49,38 @@ const filterOptions = [
   '通透', '黑白', '童话', '梦幻', '冷调', '暖调'
 ];
 
-export default function PresetEditor() {
+const tagOptions = [
+  '人像', '风光', '夜景', '美食', '街头',
+  '胶片', '复古', '日系', '韩系', '电影感'
+];
+
+interface PresetRanking {
+  id: string;
+  name: string;
+  author: string;
+  downloads: number;
+  favorites: number;
+  rating: number;
+  tags: string[];
+}
+
+const rankingData: PresetRanking[] = [
+  { id: '1', name: '哈苏自然', author: '影像大师', downloads: 12345, favorites: 8765, rating: 4.9, tags: ['风光', '人像'] },
+  { id: '2', name: '富士经典', author: '胶片爱好者', downloads: 9876, favorites: 6543, rating: 4.8, tags: ['胶片', '复古'] },
+  { id: '3', name: '人像暖调', author: '摄影师阿东', downloads: 8765, favorites: 5432, rating: 4.7, tags: ['人像', '韩系'] },
+  { id: '4', name: '夜景大师', author: '夜拍达人', downloads: 7654, favorites: 4321, rating: 4.6, tags: ['夜景', '街头'] },
+  { id: '5', name: '日系小清新', author: '东京Style', downloads: 6543, favorites: 3210, rating: 4.5, tags: ['日系', '清新'] }
+];
+
+export default function PresetEditorPage() {
   const [params, setParams] = useState<PresetParams>(defaultParams);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [savedPresets, setSavedPresets] = useState<PresetParams[]>([]);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [showContributeDialog, setShowContributeDialog] = useState(false);
+  const [contributeStep, setContributeStep] = useState(1);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
 
-  // 加载已保存的预设
   useEffect(() => {
     const saved = localStorage.getItem('customPresets');
     if (saved) {
@@ -53,19 +88,17 @@ export default function PresetEditor() {
     }
   }, []);
 
-  // 更新参数
   const updateParam = (key: keyof PresetParams, value: any) => {
     setParams(prev => ({ ...prev, [key]: value }));
   };
 
-  // 重置参数
   const resetParams = () => {
     setParams({ ...defaultParams, id: Date.now().toString() });
+    setSelectedTags([]);
   };
 
-  // 保存预设
   const savePreset = () => {
-    const newPreset = { ...params, id: Date.now().toString() };
+    const newPreset = { ...params, id: Date.now().toString(), tags: selectedTags };
     const updated = [...savedPresets, newPreset];
     setSavedPresets(updated);
     localStorage.setItem('customPresets', JSON.stringify(updated));
@@ -73,19 +106,17 @@ export default function PresetEditor() {
     alert('预设保存成功！');
   };
 
-  // 加载预设
   const loadPreset = (preset: PresetParams) => {
     setParams(preset);
+    setSelectedTags(preset.tags || []);
   };
 
-  // 删除预设
   const deletePreset = (id: string) => {
     const updated = savedPresets.filter(p => p.id !== id);
     setSavedPresets(updated);
     localStorage.setItem('customPresets', JSON.stringify(updated));
   };
 
-  // 导出预设
   const exportPreset = () => {
     const dataStr = JSON.stringify(params, null, 2);
     const blob = new Blob([dataStr], { type: 'application/json' });
@@ -97,25 +128,17 @@ export default function PresetEditor() {
     URL.revokeObjectURL(url);
   };
 
-  // 导入预设（暂未使用）
-  // const importPreset = (e: React.ChangeEvent<HTMLInputElement>) => {
-  //   const file = e.target.files?.[0];
-  //   if (file) {
-  //     const reader = new FileReader();
-  //     reader.onload = (event) => {
-  //       try {
-  //         const imported = JSON.parse(event.target?.result as string);
-  //         setParams({ ...imported, id: Date.now().toString() });
-  //         alert('预设导入成功！');
-  //       } catch (err) {
-  //         alert('预设导入失败，请检查文件格式！');
-  //       }
-  //     };
-  //     reader.readAsText(file);
-  //   }
-  // };
+  const handleContribute = () => {
+    setContributeStep(1);
+    setShowContributeDialog(true);
+  };
 
-  // 获取CSS滤镜字符串
+  const toggleTag = (tag: string) => {
+    setSelectedTags(prev => 
+      prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]
+    );
+  };
+
   const getFilterStyle = () => {
     return `
       saturate(${100 + params.saturation}%) 
@@ -129,33 +152,31 @@ export default function PresetEditor() {
   return (
     <div className="min-h-screen pt-20 pb-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="text-center mb-12"
         >
-          <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-yellow-500 to-orange-500 rounded-2xl mb-6">
+          <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-oppo-orange to-hasselblad-orange rounded-2xl mb-6">
             <Sliders className="w-12 h-12 text-white" />
           </div>
-          <h1 className="text-4xl md:text-5xl font-bold mb-4 gradient-text">
+          <h1 className="text-4xl md:text-5xl font-bold mb-4 gradient-text-oppo">
             预设编辑器
           </h1>
           <p className="text-lg text-white/60 max-w-2xl mx-auto">
-            调整影像参数，实时预览效果，创建您的专属预设
+            1:1复刻原生相机大师模式参数，创建专属预设，一键贡献社区
           </p>
         </motion.div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Left: Preview */}
           <div className="lg:col-span-1">
             <motion.div
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               className="card p-6"
             >
-              <h2 className="text-lg font-bold mb-4 flex items-center space-x-2">
-                <Eye className="w-5 h-5 text-yellow-500" />
+              <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
+                <Eye className="w-5 h-5 text-oppo-orange" />
                 <span>实时预览</span>
               </h2>
               
@@ -172,7 +193,10 @@ export default function PresetEditor() {
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm text-white/60">预览图片</label>
+                <label className="text-sm text-white/60 flex items-center gap-2">
+                  <ImageIcon className="w-4 h-4" />
+                  预览图片
+                </label>
                 <input
                   type="file"
                   accept="image/*"
@@ -186,17 +210,16 @@ export default function PresetEditor() {
                       reader.readAsDataURL(file);
                     }
                   }}
-                  className="input text-sm"
+                  className="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/40 focus:outline-none focus:border-oppo-orange/50 text-sm"
                 />
               </div>
 
-              {/* Quick Actions */}
               <div className="mt-4 flex gap-2">
-                <button onClick={resetParams} className="btn-secondary flex-1 text-sm py-2 flex items-center justify-center space-x-1">
+                <button onClick={resetParams} className="btn-secondary flex-1 text-sm py-2 flex items-center justify-center gap-1">
                   <RotateCcw className="w-4 h-4" />
                   <span>重置</span>
                 </button>
-                <button onClick={exportPreset} className="btn-secondary flex-1 text-sm py-2 flex items-center justify-center space-x-1">
+                <button onClick={exportPreset} className="btn-secondary flex-1 text-sm py-2 flex items-center justify-center gap-1">
                   <Download className="w-4 h-4" />
                   <span>导出</span>
                 </button>
@@ -204,7 +227,6 @@ export default function PresetEditor() {
             </motion.div>
           </div>
 
-          {/* Center: Controls */}
           <div className="lg:col-span-2 space-y-6">
             <motion.div
               initial={{ opacity: 0, x: 20 }}
@@ -212,12 +234,11 @@ export default function PresetEditor() {
               transition={{ delay: 0.1 }}
               className="card p-6"
             >
-              <h2 className="text-lg font-bold mb-4 flex items-center space-x-2">
-                <Sliders className="w-5 h-5 text-orange-500" />
+              <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
+                <Sliders className="w-5 h-5 text-oppo-orange" />
                 <span>参数调节</span>
               </h2>
 
-              {/* Filter Selection */}
               <div className="mb-6">
                 <label className="block text-sm font-medium text-white/70 mb-3">滤镜风格</label>
                 <div className="flex flex-wrap gap-2">
@@ -227,8 +248,8 @@ export default function PresetEditor() {
                       onClick={() => updateParam('filter', filter)}
                       className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
                         params.filter === filter
-                          ? 'bg-yellow-500 text-black'
-                          : 'bg-white/10 hover:bg-white/20'
+                          ? 'bg-oppo-orange text-oppo-black'
+                          : 'bg-white/10 hover:bg-white/20 text-white'
                       }`}
                     >
                       {filter}
@@ -237,9 +258,7 @@ export default function PresetEditor() {
                 </div>
               </div>
 
-              {/* Sliders */}
               <div className="space-y-6">
-                {/* Filter Intensity */}
                 <div>
                   <div className="flex justify-between mb-2">
                     <label className="text-sm font-medium">滤镜强度</label>
@@ -251,14 +270,13 @@ export default function PresetEditor() {
                     max="100"
                     value={params.filterIntensity}
                     onChange={(e) => updateParam('filterIntensity', parseInt(e.target.value))}
-                    className="slider"
+                    className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer"
                     style={{
                       background: `linear-gradient(to right, #F59E0B ${params.filterIntensity}%, rgba(255,255,255,0.1) ${params.filterIntensity}%)`
                     }}
                   />
                 </div>
 
-                {/* Saturation */}
                 <div>
                   <div className="flex justify-between mb-2">
                     <label className="text-sm font-medium">饱和度</label>
@@ -270,14 +288,13 @@ export default function PresetEditor() {
                     max="100"
                     value={params.saturation}
                     onChange={(e) => updateParam('saturation', parseInt(e.target.value))}
-                    className="slider"
+                    className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer"
                     style={{
                       background: `linear-gradient(to right, #F59E0B ${(params.saturation + 100) / 2}%, rgba(255,255,255,0.1) ${(params.saturation + 100) / 2}%)`
                     }}
                   />
                 </div>
 
-                {/* Contrast */}
                 <div>
                   <div className="flex justify-between mb-2">
                     <label className="text-sm font-medium">对比度</label>
@@ -289,14 +306,13 @@ export default function PresetEditor() {
                     max="100"
                     value={params.contrast}
                     onChange={(e) => updateParam('contrast', parseInt(e.target.value))}
-                    className="slider"
+                    className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer"
                     style={{
                       background: `linear-gradient(to right, #F59E0B ${(params.contrast + 100) / 2}%, rgba(255,255,255,0.1) ${(params.contrast + 100) / 2}%)`
                     }}
                   />
                 </div>
 
-                {/* Brightness */}
                 <div>
                   <div className="flex justify-between mb-2">
                     <label className="text-sm font-medium">亮度</label>
@@ -308,14 +324,13 @@ export default function PresetEditor() {
                     max="100"
                     value={params.brightness}
                     onChange={(e) => updateParam('brightness', parseInt(e.target.value))}
-                    className="slider"
+                    className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer"
                     style={{
                       background: `linear-gradient(to right, #F59E0B ${(params.brightness + 100) / 2}%, rgba(255,255,255,0.1) ${(params.brightness + 100) / 2}%)`
                     }}
                   />
                 </div>
 
-                {/* Warm/Cool */}
                 <div>
                   <div className="flex justify-between mb-2">
                     <label className="text-sm font-medium">冷暖调</label>
@@ -329,20 +344,19 @@ export default function PresetEditor() {
                     max="100"
                     value={params.warmCool}
                     onChange={(e) => updateParam('warmCool', parseInt(e.target.value))}
-                    className="slider"
+                    className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer"
                     style={{
                       background: `linear-gradient(to right, #3B82F6 ${(params.warmCool + 100) / 2}%, #F59E0B ${(params.warmCool + 100) / 2}%)`
                     }}
                   />
                 </div>
 
-                {/* Vignette */}
                 <div className="flex items-center justify-between">
                   <label className="text-sm font-medium">暗角效果</label>
                   <button
                     onClick={() => updateParam('vignette', !params.vignette)}
                     className={`relative w-12 h-6 rounded-full transition-colors ${
-                      params.vignette ? 'bg-yellow-500' : 'bg-white/20'
+                      params.vignette ? 'bg-oppo-orange' : 'bg-white/20'
                     }`}
                   >
                     <div
@@ -354,27 +368,83 @@ export default function PresetEditor() {
                 </div>
               </div>
 
-              {/* Save Button */}
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => setShowSaveDialog(true)}
-                className="btn-primary w-full mt-6 flex items-center justify-center space-x-2"
-              >
-                <Save className="w-5 h-5" />
-                <span>保存预设</span>
-              </motion.button>
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => setShowSaveDialog(true)}
+                  className="btn-primary flex-1 flex items-center justify-center gap-2"
+                >
+                  <Save className="w-5 h-5" />
+                  <span>保存预设</span>
+                </button>
+                <button
+                  onClick={handleContribute}
+                  className="btn-secondary flex-1 flex items-center justify-center gap-2"
+                >
+                  <Share2 className="w-5 h-5" />
+                  <span>贡献社区</span>
+                </button>
+              </div>
             </motion.div>
 
-            {/* Saved Presets */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+              className="card p-6"
+            >
+              <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
+                <Trophy className="w-5 h-5 text-yellow-500" />
+                <span>预设排行榜</span>
+              </h2>
+              
+              <div className="space-y-3">
+                {rankingData.map((preset, index) => (
+                  <motion.div
+                    key={preset.id}
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.3 + index * 0.05 }}
+                    className="flex items-center gap-4 p-4 bg-white/5 rounded-xl hover:bg-white/10 transition-colors"
+                  >
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold ${
+                      index === 0 ? 'bg-yellow-500 text-black' :
+                      index === 1 ? 'bg-gray-400 text-black' :
+                      index === 2 ? 'bg-amber-700 text-white' :
+                      'bg-white/10 text-white/60'
+                    }`}>
+                      {index + 1}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-medium truncate">{preset.name}</h3>
+                      <p className="text-xs text-white/50">@{preset.author}</p>
+                      <div className="flex gap-2 mt-1">
+                        {preset.tags.slice(0, 2).map(tag => (
+                          <span key={tag} className="text-xs px-2 py-0.5 bg-white/10 rounded-full">
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="text-right text-xs text-white/50">
+                      <div>{preset.downloads.toLocaleString()} 下载</div>
+                      <div className="flex items-center justify-end gap-1">
+                        <Trophy className="w-3 h-3 text-yellow-500" />
+                        <span>{preset.rating}</span>
+                      </div>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            </motion.div>
+
             {savedPresets.length > 0 && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2 }}
+                transition={{ delay: 0.3 }}
                 className="card p-6"
               >
-                <h2 className="text-lg font-bold mb-4 flex items-center space-x-2">
+                <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
                   <Save className="w-5 h-5 text-green-500" />
                   <span>已保存的预设 ({savedPresets.length})</span>
                 </h2>
@@ -411,32 +481,30 @@ export default function PresetEditor() {
               </motion.div>
             )}
 
-            {/* Tips */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3 }}
-              className="card p-6 bg-gradient-to-br from-yellow-500/10 to-transparent"
+              transition={{ delay: 0.4 }}
+              className="card p-6 bg-gradient-to-br from-oppo-orange/10 to-transparent"
             >
               <h2 className="text-lg font-bold mb-3">💡 使用技巧</h2>
               <ul className="space-y-2 text-sm text-white/70">
-                <li>• 调整参数时观察左侧预览效果</li>
-                <li>• 可上传自己的图片作为预览底图</li>
-                <li>• 预设会自动保存到浏览器本地</li>
-                <li>• 支持JSON格式导入导出，方便分享</li>
-                <li>• 点击"导出"下载预设配置文件</li>
+                <li>• 调整参数时观察左侧预览效果，实时同步</li>
+                <li>• 上传自己的作品作为预览底图，效果更直观</li>
+                <li>• 为预设添加标签，方便后续分类管理</li>
+                <li>• 好的预设可以一键贡献社区，帮助更多摄影师</li>
+                <li>• 支持JSON格式导入导出，换机备份无忧</li>
               </ul>
             </motion.div>
           </div>
         </div>
 
-        {/* Save Dialog */}
         {showSaveDialog && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              className="bg-deep-space-light rounded-2xl p-6 max-w-md w-full"
+              className="card p-6 max-w-md w-full"
             >
               <h3 className="text-xl font-bold mb-4">保存预设</h3>
               <div className="space-y-4">
@@ -446,11 +514,32 @@ export default function PresetEditor() {
                     type="text"
                     value={params.name}
                     onChange={(e) => updateParam('name', e.target.value)}
-                    className="input"
+                    className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-oppo-orange/50"
                     placeholder="输入预设名称"
                   />
                 </div>
-                <div className="flex gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-white/70 mb-2 flex items-center gap-2">
+                    <Tags className="w-4 h-4" />
+                    添加标签
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {tagOptions.map(tag => (
+                      <button
+                        key={tag}
+                        onClick={() => toggleTag(tag)}
+                        className={`px-3 py-1 rounded-full text-xs transition-all ${
+                          selectedTags.includes(tag)
+                            ? 'bg-oppo-orange text-oppo-black'
+                            : 'bg-white/10 hover:bg-white/20'
+                        }`}
+                      >
+                        {tag}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex gap-3 pt-2">
                   <button
                     onClick={() => setShowSaveDialog(false)}
                     className="btn-secondary flex-1"
@@ -468,10 +557,110 @@ export default function PresetEditor() {
             </motion.div>
           </div>
         )}
+
+        {showContributeDialog && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="card p-6 max-w-md w-full"
+            >
+              {contributeStep === 1 ? (
+                <>
+                  <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
+                    <GitBranch className="w-5 h-5" />
+                    贡献预设到社区
+                  </h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-white/70 mb-2">预设名称</label>
+                      <input
+                        type="text"
+                        value={params.name}
+                        onChange={(e) => updateParam('name', e.target.value)}
+                        className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-oppo-orange/50"
+                        placeholder="输入预设名称"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-white/70 mb-2">预设描述</label>
+                      <textarea
+                        value={params.description}
+                        onChange={(e) => updateParam('description', e.target.value)}
+                        className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-oppo-orange/50 resize-none"
+                        rows={3}
+                        placeholder="描述这个预设的特点和适用场景"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-white/70 mb-2 flex items-center gap-2">
+                        <Tags className="w-4 h-4" />
+                        选择标签
+                      </label>
+                      <div className="flex flex-wrap gap-2">
+                        {tagOptions.map(tag => (
+                          <button
+                            key={tag}
+                            onClick={() => toggleTag(tag)}
+                            className={`px-3 py-1 rounded-full text-xs transition-all ${
+                              selectedTags.includes(tag)
+                                ? 'bg-oppo-orange text-oppo-black'
+                                : 'bg-white/10 hover:bg-white/20'
+                            }`}
+                          >
+                            {tag}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex gap-3 pt-2">
+                      <button
+                        onClick={() => setShowContributeDialog(false)}
+                        className="btn-secondary flex-1"
+                      >
+                        取消
+                      </button>
+                      <button
+                        onClick={() => setContributeStep(2)}
+                        className="btn-primary flex-1"
+                      >
+                        下一步
+                      </button>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-center">
+                    <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <CheckCircle2 className="w-8 h-8 text-green-500" />
+                    </div>
+                    <h3 className="text-xl font-bold mb-2">提交成功！</h3>
+                    <p className="text-white/60 mb-6">
+                      您的预设已提交到社区审核，审核通过后将会展示给所有用户
+                    </p>
+                    <div className="p-4 bg-white/5 rounded-xl text-left mb-6">
+                      <h4 className="font-medium mb-2">提交信息</h4>
+                      <p className="text-sm text-white/60">预设名称: {params.name}</p>
+                      <p className="text-sm text-white/60">标签: {selectedTags.join(', ') || '无'}</p>
+                      <p className="text-sm text-white/60">状态: 审核中</p>
+                    </div>
+                    <button
+                      onClick={() => setShowContributeDialog(false)}
+                      className="btn-primary w-full"
+                    >
+                      完成
+                    </button>
+                  </div>
+                </>
+              )}
+            </motion.div>
+          </div>
+        )}
       </div>
 
       <style>{`
-        .slider::-webkit-slider-thumb {
+        input[type="range"]::-webkit-slider-thumb {
           -webkit-appearance: none;
           width: 16px;
           height: 16px;
@@ -481,7 +670,7 @@ export default function PresetEditor() {
           box-shadow: 0 2px 8px rgba(245, 158, 11, 0.4);
         }
         
-        .slider::-moz-range-thumb {
+        input[type="range"]::-moz-range-thumb {
           width: 16px;
           height: 16px;
           background: #F59E0B;
