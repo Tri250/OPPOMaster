@@ -141,13 +141,13 @@ export default function WatermarkGenerator() {
           animate={{ opacity: 1, y: 0 }}
           className="text-center mb-12"
         >
-          <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-oppo-green to-cyan-500 rounded-2xl mb-6">
-            <Palette className="w-12 h-12 text-white" />
+          <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-success to-info rounded-2xl mb-6">
+            <Palette className="w-12 h-12 text-oppo-black" />
           </div>
-          <h1 className="text-4xl md:text-5xl font-bold mb-4 gradient-text">
+          <h1 className="text-4xl md:text-5xl font-bold mb-4 gradient-text-oppo">
             水印生成器
           </h1>
-          <p className="text-lg text-white/60 max-w-2xl mx-auto">
+          <p className="text-lg text-text-secondary max-w-2xl mx-auto">
             为您的照片添加专业水印 - 支持10+品牌风格
           </p>
         </motion.div>
@@ -161,9 +161,9 @@ export default function WatermarkGenerator() {
             className="space-y-6"
           >
             {/* Upload Area */}
-            <div className="card p-6">
+            <div className="card-oppo p-6">
               <h2 className="text-lg font-bold mb-4 flex items-center space-x-2">
-                <Camera className="w-5 h-5 text-oppo-green" />
+                <Camera className="w-5 h-5 text-success" />
                 <span>上传图片</span>
               </h2>
               
@@ -182,18 +182,18 @@ export default function WatermarkGenerator() {
                 onDrop={handleDrop}
                 className={`border-2 border-dashed rounded-xl p-8 text-center transition-all cursor-pointer ${
                   isDragOver 
-                    ? 'border-oppo-green bg-oppo-green/10' 
-                    : 'border-white/20 hover:border-oppo-green hover:bg-oppo-green/5'
+                    ? 'border-success bg-success/10' 
+                    : 'border-white/20 hover:border-success hover:bg-success/5'
                 }`}
               >
-                <Camera className="w-12 h-12 mx-auto mb-3 text-white/40" />
-                <p className="text-white/60">点击上传或拖拽图片</p>
-                <p className="text-xs text-white/40 mt-1">支持 JPG、PNG、WebP 格式</p>
+                <Camera className="w-12 h-12 mx-auto mb-3 text-text-tertiary" />
+                <p className="text-text-secondary">点击上传或拖拽图片</p>
+                <p className="text-xs text-text-tertiary mt-1">支持 JPG、PNG、WebP 格式</p>
               </div>
             </div>
 
             {/* Preview Canvas */}
-            <div className="card p-6">
+            <div className="card-oppo p-6">
               <h2 className="text-lg font-bold mb-4">预览效果</h2>
               <div className="relative bg-black/20 rounded-xl overflow-hidden">
                 {selectedImage ? (
@@ -203,7 +203,7 @@ export default function WatermarkGenerator() {
                   />
                 ) : (
                   <div className="aspect-video flex items-center justify-center">
-                    <p className="text-white/40">上传图片以预览水印效果</p>
+                    <p className="text-text-tertiary">上传图片以预览水印效果</p>
                   </div>
                 )}
               </div>

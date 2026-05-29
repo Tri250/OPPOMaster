@@ -69,10 +69,10 @@ export default function FloatingWindowPage() {
   }
 
   return (
-    <div className="min-h-screen bg-deep-space text-white">
-      <header className="sticky top-0 z-40 bg-deep-space/90 backdrop-blur-xl border-b border-white/5">
+    <div className="min-h-screen bg-oppo-black text-text-primary">
+      <header className="sticky top-0 z-40 bg-oppo-black/90 backdrop-blur-xl border-b border-white/5">
         <div className="max-w-4xl mx-auto px-4 h-14 flex items-center justify-between">
-          <h1 className="text-lg font-semibold">悬浮窗</h1>
+          <h1 className="text-h3 font-semibold">悬浮窗</h1>
           <div className="flex items-center gap-2">
             <button className="btn-primary text-sm py-2 px-4 touch-feedback">
               保存布局
@@ -102,10 +102,10 @@ export default function FloatingWindowPage() {
                 key={filter.id}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => addWindow(filter.id)}
-                className="p-3 bg-white/5 rounded-oppo hover:bg-white/10 transition-colors duration-200 touch-feedback flex flex-col items-center gap-2"
+                className="p-3 bg-white/5 rounded-xl hover:bg-white/10 transition-colors duration-200 touch-feedback flex flex-col items-center gap-2"
               >
                 <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${filter.color}`} />
-                <span className="text-xs">{filter.name}</span>
+                <span className="text-xs text-text-secondary">{filter.name}</span>
               </motion.button>
             ))}
           </div>
@@ -118,13 +118,13 @@ export default function FloatingWindowPage() {
               <motion.div
                 key={window.id}
                 layout
-                className={`p-4 bg-white/5 rounded-oppo transition-all duration-200 ${
-                  selectedWindow === window.id ? 'ring-2 ring-oppo-sunrise-gold' : ''
+                className={`p-4 bg-white/5 rounded-xl transition-all duration-200 ${
+                  selectedWindow === window.id ? 'ring-2 ring-oppo-orange' : ''
                 }`}
                 onClick={() => setSelectedWindow(window.id)}
               >
                 <div className="flex items-center justify-between mb-3">
-                  <span className="font-medium">{window.name}</span>
+                  <span className="font-medium text-text-primary">{window.name}</span>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={(e) => { e.stopPropagation(); toggleWindowVisibility(window.id) }}
@@ -136,7 +136,7 @@ export default function FloatingWindowPage() {
                     <button
                       onClick={(e) => { e.stopPropagation(); toggleWindowLock(window.id) }}
                       className={`p-2 rounded-full transition-colors duration-200 touch-feedback ${
-                        window.isLocked ? 'bg-oppo-sunrise-gold/20 text-oppo-sunrise-gold' : 'bg-white/10 hover:bg-white/20'
+                        window.isLocked ? 'bg-oppo-orange/20 text-oppo-orange' : 'bg-white/10 hover:bg-white/20'
                       }`}
                       aria-label={window.isLocked ? '解锁' : '锁定'}
                     >
@@ -144,7 +144,7 @@ export default function FloatingWindowPage() {
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); removeWindow(window.id) }}
-                      className="p-2 rounded-full bg-error-vital/20 hover:bg-error-vital/30 text-error-vital transition-colors duration-200 touch-feedback"
+                      className="p-2 rounded-full bg-error/20 hover:bg-error/30 text-error transition-colors duration-200 touch-feedback"
                       aria-label="删除"
                     >
                       <Trash2 className="w-4 h-4" />
