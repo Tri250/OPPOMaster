@@ -23,6 +23,8 @@ const XiaoOHelpPage = lazy(() => import('./pages/XiaoOHelpPage'))
 const NativeCameraPage = lazy(() => import('./pages/NativeCameraPage'))
 const PresetEcosystemPage = lazy(() => import('./pages/PresetEcosystemPage'))
 const TestVerificationPage = lazy(() => import('./pages/TestVerificationPage'))
+const SubscriptionPage = lazy(() => import('./pages/SubscriptionPage'))
+const CommunityPage = lazy(() => import('./pages/CommunityPage'))
 
 function Loading() {
   return (
@@ -62,6 +64,8 @@ function App() {
           <Route path="/native-camera" element={<NativeCameraPage />} />
           <Route path="/preset-ecosystem" element={<PresetEcosystemPage />} />
           <Route path="/test-verification" element={<TestVerificationPage />} />
+          <Route path="/subscription" element={<SubscriptionPage />} />
+          <Route path="/community" element={<CommunityPage />} />
         </Routes>
       </Suspense>
     </Router>
