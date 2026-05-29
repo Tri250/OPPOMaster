@@ -10,19 +10,21 @@ import kotlin.math.min
 class AiService {
     
     suspend fun detectScene(imageUri: String? = null): SceneType {
-        delay(400)
+        delay(350)
         
         val sceneWeights = mutableMapOf<SceneType, Double>()
         
         SceneType.values().filter { it != SceneType.UNKNOWN }.forEach { scene ->
             var weight = 0.0
-            scene.keywords.forEach { keyword ->
-                weight += when {
-                    keyword.length <= 2 -> 0.3
-                    keyword.length <= 4 -> 0.5
-                    keyword.length <= 6 -> 0.7
-                    else -> 1.0
+            scene.keywords.forEachIndexed { index, keyword ->
+                val baseWeight = when {
+                    keyword.length <= 2 -> 0.4
+                    keyword.length <= 4 -> 0.6
+                    keyword.length <= 6 -> 0.8
+                    else -> 1.2
                 }
+                val positionBonus = (scene.keywords.size - index) * 0.1
+                weight += baseWeight + positionBonus
             }
             sceneWeights[scene] = weight
         }
@@ -42,7 +44,7 @@ class AiService {
     }
     
     suspend fun detectSceneAdvanced(imageUri: String): SceneDetectionResult {
-        delay(500)
+        delay(380)
         
         val topScenes = mutableListOf<SceneMatch>()
         
@@ -65,19 +67,21 @@ class AiService {
     }
     
     private fun calculateSceneConfidence(scene: SceneType): Double {
-        var baseConfidence = 50.0
+        var baseConfidence = 55.0
         
         scene.keywords.forEachIndexed { index, keyword ->
-            val positionBonus = (scene.keywords.size - index) * 2.0
-            val lengthBonus = min(keyword.length * 1.5, 10.0)
-            baseConfidence += positionBonus + lengthBonus
+            val positionBonus = (scene.keywords.size - index) * 2.5
+            val lengthBonus = min(keyword.length * 2.0, 12.0)
+            val completenessBonus = if (keyword.length >= 4) 3.0 else 1.0
+            baseConfidence += positionBonus + lengthBonus + completenessBonus
         }
         
-        return min(baseConfidence, 98.0)
+        val maxConfidence = min(baseConfidence, 98.0)
+        return maxConfidence
     }
     
     suspend fun getRecommendedPresets(scene: SceneType, allPresets: List<Preset>): List<Preset> {
-        delay(300)
+        delay(280)
         
         if (scene == SceneType.UNKNOWN) {
             return allPresets.take(5)
@@ -87,20 +91,20 @@ class AiService {
         
         val scoredPresets = allPresets.map { preset ->
             var score = 0
-            sceneKeywords.forEach { keyword ->
+            sceneKeywords.forEachIndexed { index, keyword ->
                 if (preset.name.contains(keyword, ignoreCase = true)) {
-                    score += 10
+                    score += (12 - index).coerceAtLeast(5)
                 }
                 preset.sections.forEach { section ->
                     if (section.title.contains(keyword, ignoreCase = true) ||
                         section.content.contains(keyword, ignoreCase = true)) {
-                        score += 5
+                        score += (8 - index).coerceAtLeast(3)
                     }
                 }
                 preset.cameraParams?.let { params ->
                     val paramsString = params.toString()
                     if (paramsString.contains(keyword, ignoreCase = true)) {
-                        score += 3
+                        score += (5 - index).coerceAtLeast(2)
                     }
                 }
             }
@@ -113,14 +117,14 @@ class AiService {
             .map { it.first }
         
         return if (sortedPresets.isNotEmpty()) {
-            sortedPresets
+            sortedPresets.take(10)
         } else {
             allPresets.take(5)
         }
     }
     
     suspend fun fineTuneImage(imageUri: String, preset: Preset?): AiAdjustmentParams {
-        delay(1500)
+        delay(1200)
         
         val baseParams = preset?.cameraParams
         
@@ -138,7 +142,7 @@ class AiService {
     }
     
     suspend fun analyzeImage(imageUri: String): ImageAnalysisResult {
-        delay(800)
+        delay(600)
         
         return ImageAnalysisResult(
             brightness = (Math.random() * 100).toInt(),
@@ -155,19 +159,19 @@ class AiService {
     private fun generateSuggestions(): List<String> {
         val suggestions = mutableListOf<String>()
         
-        if (Math.random() > 0.5) {
+        if (Math.random() > 0.4) {
             suggestions.add("建议提升饱和度，增强色彩表现")
         }
-        if (Math.random() > 0.5) {
+        if (Math.random() > 0.4) {
             suggestions.add("适当增加对比度，提高画面层次感")
         }
-        if (Math.random() > 0.5) {
+        if (Math.random() > 0.4) {
             suggestions.add("可尝试降低高光，保留更多细节")
         }
-        if (Math.random() > 0.5) {
+        if (Math.random() > 0.4) {
             suggestions.add("建议提升清晰度，增强画面锐度")
         }
-        if (Math.random() > 0.3) {
+        if (Math.random() > 0.25) {
             suggestions.add("可根据喜好调整色温")
         }
         
