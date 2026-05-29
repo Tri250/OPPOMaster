@@ -43,6 +43,7 @@ enum class Kernel : uint32_t {
 };
 
 constexpr uint32_t kRowAlignmentBytes = 256;
+constexpr uint32_t kRcdOutputCropRadius = 4;
 
 auto AlignRowBytes(size_t row_bytes) -> size_t {
   return ((row_bytes + kRowAlignmentBytes - 1) / kRowAlignmentBytes) * kRowAlignmentBytes;
@@ -111,18 +112,23 @@ void Bayer2x2ToRGB_RCD(MetalImage& image, const BayerPattern2x2& pattern) {
     throw std::runtime_error("Metal Debayer RCD: expected R32FLOAT Bayer input.");
   }
 
-  const uint32_t width  = image.Width();
-  const uint32_t height = image.Height();
-  if (width == 0 || height == 0) {
+  const uint32_t in_width  = image.Width();
+  const uint32_t in_height = image.Height();
+  if (in_width == 0 || in_height == 0) {
     return;
   }
+  if (in_width <= 2 * kRcdOutputCropRadius || in_height <= 2 * kRcdOutputCropRadius) {
+    throw std::runtime_error("Metal Debayer RCD: image too small for RCD radius.");
+  }
+  const uint32_t out_width  = in_width - 2 * kRcdOutputCropRadius;
+  const uint32_t out_height = in_height - 2 * kRcdOutputCropRadius;
 
-  const auto plane_row_bytes = AlignRowBytes(static_cast<size_t>(width) * sizeof(float));
-  const auto plane_size      = plane_row_bytes * height;
+  const auto plane_row_bytes = AlignRowBytes(static_cast<size_t>(in_width) * sizeof(float));
+  const auto plane_size      = plane_row_bytes * in_height;
   const auto plane_stride    = static_cast<uint32_t>(plane_row_bytes / sizeof(float));
 
-  const auto rgba_row_bytes = AlignRowBytes(static_cast<size_t>(width) * sizeof(float) * 4U);
-  const auto rgba_size      = rgba_row_bytes * height;
+  const auto rgba_row_bytes = AlignRowBytes(static_cast<size_t>(out_width) * sizeof(float) * 4U);
+  const auto rgba_size      = rgba_row_bytes * out_height;
   const auto rgba_stride    = static_cast<uint32_t>(rgba_row_bytes / (sizeof(float) * 4U));
 
   auto raw_buffer  = MakeSharedBuffer(plane_size);
@@ -134,7 +140,7 @@ void Bayer2x2ToRGB_RCD(MetalImage& image, const BayerPattern2x2& pattern) {
   auto rgba_buffer = MakeSharedBuffer(rgba_size);
 
   MetalImage output =
-      MetalImage::Create2D(width, height, PixelFormat::RGBA32FLOAT, true, true, false);
+      MetalImage::Create2D(out_width, out_height, PixelFormat::RGBA32FLOAT, true, true, false);
 
   auto* queue = MetalContext::Instance().Queue();
   if (queue == nullptr) {
@@ -148,14 +154,15 @@ void Bayer2x2ToRGB_RCD(MetalImage& image, const BayerPattern2x2& pattern) {
 
   {
     auto blit = NS::RetainPtr(command_buffer->blitCommandEncoder());
-    blit->copyFromTexture(image.Texture(), 0, 0, MTL::Origin{0, 0, 0}, MTL::Size{width, height, 1},
-                          raw_buffer.get(), 0, plane_row_bytes, plane_size);
+    blit->copyFromTexture(image.Texture(), 0, 0, MTL::Origin{0, 0, 0},
+                          MTL::Size{in_width, in_height, 1}, raw_buffer.get(), 0,
+                          plane_row_bytes, plane_size);
     blit->endEncoding();
   }
 
   const SinglePlaneParams plane_params{
-      .width  = width,
-      .height = height,
+      .width  = in_width,
+      .height = in_height,
       .stride = plane_stride,
       .rgb_fc = {static_cast<uint32_t>(pattern.rgb_fc[0]),
                  static_cast<uint32_t>(pattern.rgb_fc[1]),
@@ -163,8 +170,8 @@ void Bayer2x2ToRGB_RCD(MetalImage& image, const BayerPattern2x2& pattern) {
                  static_cast<uint32_t>(pattern.rgb_fc[3])},
   };
   const MergeParams merge_params{
-      .width       = width,
-      .height      = height,
+      .width       = out_width,
+      .height      = out_height,
       .plane_stride = plane_stride,
       .rgba_stride = rgba_stride,
   };
@@ -179,7 +186,7 @@ void Bayer2x2ToRGB_RCD(MetalImage& image, const BayerPattern2x2& pattern) {
     compute->setBuffer(b_buffer.get(), 0, 3);
     compute->setBuffer(vh_buffer.get(), 0, 4);
     compute->setBytes(&plane_params, sizeof(plane_params), 5);
-    DispatchThreads(compute.get(), pipeline.get(), width, height);
+    DispatchThreads(compute.get(), pipeline.get(), in_width, in_height);
     compute->endEncoding();
   }
 
@@ -191,7 +198,7 @@ void Bayer2x2ToRGB_RCD(MetalImage& image, const BayerPattern2x2& pattern) {
     compute->setBuffer(vh_buffer.get(), 0, 1);
     compute->setBuffer(g_buffer.get(), 0, 2);
     compute->setBytes(&plane_params, sizeof(plane_params), 3);
-    DispatchThreads(compute.get(), pipeline.get(), width, height);
+    DispatchThreads(compute.get(), pipeline.get(), in_width, in_height);
     compute->endEncoding();
   }
 
@@ -202,7 +209,7 @@ void Bayer2x2ToRGB_RCD(MetalImage& image, const BayerPattern2x2& pattern) {
     compute->setBuffer(raw_buffer.get(), 0, 0);
     compute->setBuffer(pq_buffer.get(), 0, 1);
     compute->setBytes(&plane_params, sizeof(plane_params), 2);
-    DispatchThreads(compute.get(), pipeline.get(), width, height);
+    DispatchThreads(compute.get(), pipeline.get(), in_width, in_height);
     compute->endEncoding();
   }
 
@@ -215,7 +222,7 @@ void Bayer2x2ToRGB_RCD(MetalImage& image, const BayerPattern2x2& pattern) {
     compute->setBuffer(r_buffer.get(), 0, 2);
     compute->setBuffer(b_buffer.get(), 0, 3);
     compute->setBytes(&plane_params, sizeof(plane_params), 4);
-    DispatchThreads(compute.get(), pipeline.get(), width, height);
+    DispatchThreads(compute.get(), pipeline.get(), in_width, in_height);
     compute->endEncoding();
   }
 
@@ -228,7 +235,7 @@ void Bayer2x2ToRGB_RCD(MetalImage& image, const BayerPattern2x2& pattern) {
     compute->setBuffer(r_buffer.get(), 0, 2);
     compute->setBuffer(b_buffer.get(), 0, 3);
     compute->setBytes(&plane_params, sizeof(plane_params), 4);
-    DispatchThreads(compute.get(), pipeline.get(), width, height);
+    DispatchThreads(compute.get(), pipeline.get(), in_width, in_height);
     compute->endEncoding();
   }
 
@@ -241,14 +248,15 @@ void Bayer2x2ToRGB_RCD(MetalImage& image, const BayerPattern2x2& pattern) {
     compute->setBuffer(b_buffer.get(), 0, 2);
     compute->setBuffer(rgba_buffer.get(), 0, 3);
     compute->setBytes(&merge_params, sizeof(merge_params), 4);
-    DispatchThreads(compute.get(), pipeline.get(), width, height);
+    DispatchThreads(compute.get(), pipeline.get(), out_width, out_height);
     compute->endEncoding();
   }
 
   {
     auto blit = NS::RetainPtr(command_buffer->blitCommandEncoder());
-    blit->copyFromBuffer(rgba_buffer.get(), 0, rgba_row_bytes, rgba_size, MTL::Size{width, height, 1},
-                         output.Texture(), 0, 0, MTL::Origin{0, 0, 0});
+    blit->copyFromBuffer(rgba_buffer.get(), 0, rgba_row_bytes, rgba_size,
+                         MTL::Size{out_width, out_height, 1}, output.Texture(), 0, 0,
+                         MTL::Origin{0, 0, 0});
     blit->endEncoding();
   }
 

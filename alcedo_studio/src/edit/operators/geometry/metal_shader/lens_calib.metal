@@ -53,6 +53,8 @@ struct LensCalibGpuParams {
   float camera_crop_factor;
   float nominal_focal_mm;
   float real_focal_mm;
+  float lens_center_x;
+  float lens_center_y;
 
   int   source_projection;
   int   target_projection;
