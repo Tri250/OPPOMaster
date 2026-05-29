@@ -1195,20 +1195,26 @@ void AlbumBackend::AddOrUpdateAlbumItem(sl_element_id_t elementId, image_id_t im
 }
 
 auto AlbumBackend::FindAlbumItem(sl_element_id_t elementId) -> AlbumItem* {
-  const int row = thumbnail_model_.rowByElementId(elementId);
-  if (row < 0) return nullptr;
-  // The model owns the items; we need non-const access for mutation.
-  // all_images_ is kept in sync, so search there for mutable access.
   for (auto& item : view_state_.all_images_) {
-    if (item.element_id == elementId) return &item;
+    if (item.element_id == elementId) {
+      return &item;
+    }
   }
   return nullptr;
 }
 
 auto AlbumBackend::FindAlbumItem(sl_element_id_t elementId) const -> const AlbumItem* {
-  const auto& items = thumbnail_model_.items();
-  for (const auto& item : items) {
-    if (item.element_id == elementId) return &item;
+  for (const auto& item : view_state_.all_images_) {
+    if (item.element_id == elementId) {
+      return &item;
+    }
+  }
+
+  const auto& visible_items = thumbnail_model_.items();
+  for (const auto& item : visible_items) {
+    if (item.element_id == elementId) {
+      return &item;
+    }
   }
   return nullptr;
 }

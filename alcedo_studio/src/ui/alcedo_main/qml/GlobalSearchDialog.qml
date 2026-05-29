@@ -25,6 +25,7 @@ Dialog {
     property bool searchHasMore: false
     property bool searchHasPrevious: false
     property bool searchLoading: false
+    property bool previewSyncForcePending: false
     property Item blurSource: null
     property real cornerRadius: 0
 
@@ -125,6 +126,24 @@ Dialog {
         previewThumbs = next
     }
 
+    function refreshVisiblePreviewDelegates(force) {
+        if (!resultList || !resultList.visible || !resultList.contentItem) {
+            return
+        }
+        const children = resultList.contentItem.children
+        for (let i = 0; i < children.length; ++i) {
+            const child = children[i]
+            if (child && typeof child.syncPreviewThumbnailLifetime === "function") {
+                child.syncPreviewThumbnailLifetime(force === true)
+            }
+        }
+    }
+
+    function scheduleVisiblePreviewSync(force) {
+        previewSyncForcePending = previewSyncForcePending || force === true
+        previewSyncTimer.restart()
+    }
+
     function readPreviewResponse(response, mode) {
         const rows = response && response.rows ? response.rows : []
         lastWindowDropCount = 0
@@ -163,6 +182,7 @@ Dialog {
         searchTotal = response && response.total !== undefined ? Number(response.total) : results.length
         searchHasPrevious = resultWindowStart > 0
         searchHasMore = searchOffset < searchTotal
+        scheduleVisiblePreviewSync(true)
     }
 
     function resultCountText() {
@@ -303,6 +323,17 @@ Dialog {
         interval: 140
         repeat: false
         onTriggered: dialog.refreshPreview()
+    }
+
+    Timer {
+        id: previewSyncTimer
+        interval: 0
+        repeat: false
+        onTriggered: {
+            const force = dialog.previewSyncForcePending
+            dialog.previewSyncForcePending = false
+            dialog.refreshVisiblePreviewDelegates(force)
+        }
     }
 
     Overlay.modal: Item {
@@ -557,16 +588,19 @@ Dialog {
                         spacing: 0
                         model: dialog.results
                         cacheBuffer: 0
+                        reuseItems: false
 
                         ScrollIndicator.vertical: ScrollIndicator {}
 
                         onContentYChanged: {
+                            dialog.scheduleVisiblePreviewSync(false)
                             if (dialog.searchHasMore
                                     && contentY + height >= contentHeight - 160) {
                                 dialog.loadMorePreview()
                             }
                         }
                         onMovementEnded: {
+                            dialog.scheduleVisiblePreviewSync(false)
                             if (dialog.searchHasPrevious
                                     && contentY <= originY + 120) {
                                 dialog.loadPreviousPreview()
@@ -576,6 +610,7 @@ Dialog {
                                 dialog.loadMorePreview()
                             }
                         }
+                        onCountChanged: dialog.scheduleVisiblePreviewSync(true)
 
                         header: Item {
                             width: resultList.width
@@ -702,6 +737,13 @@ Dialog {
         onInitialThumbMissingSourceChanged: liveThumbMissingSource = initialThumbMissingSource
         onInitialThumbErrorTextChanged: liveThumbErrorText = initialThumbErrorText
 
+        function applyInitialPreviewState() {
+            liveThumbUrl = initialThumbUrl
+            liveThumbLoading = initialThumbLoading
+            liveThumbMissingSource = initialThumbMissingSource
+            liveThumbErrorText = initialThumbErrorText
+        }
+
         function releasePreviewThumbnail() {
             if (dialog.searchController && pinnedElementId !== 0 && pinnedImageId !== 0) {
                 dialog.searchController.SetSearchPreviewThumbnailVisible(pinnedElementId,
@@ -713,13 +755,29 @@ Dialog {
             pinnedMaxEdge = 0
         }
 
-        function bindPreviewThumbnailLifetime() {
+        function syncPreviewThumbnailLifetime(force) {
+            bindPreviewThumbnailLifetime(force === true)
+        }
+
+        function bindPreviewThumbnailLifetime(force) {
             if (!dynamicPreviewThumbnail) {
                 releasePreviewThumbnail()
                 return
             }
+            if (!force && pinnedElementId === elementId && pinnedImageId === imageId
+                    && pinnedMaxEdge === previewMaxEdge) {
+                return
+            }
+
             if (pinnedElementId === elementId && pinnedImageId === imageId
                     && pinnedMaxEdge === previewMaxEdge) {
+                applyInitialPreviewState()
+                if (dialog.searchController && pinnedElementId !== 0 && pinnedImageId !== 0
+                        && !thumbReady) {
+                    dialog.searchController.SetSearchPreviewThumbnailVisible(pinnedElementId,
+                                                                             pinnedImageId, true,
+                                                                             pinnedMaxEdge)
+                }
                 return
             }
 
@@ -727,22 +785,20 @@ Dialog {
             pinnedElementId = elementId
             pinnedImageId = imageId
             pinnedMaxEdge = previewMaxEdge
-            liveThumbUrl = initialThumbUrl
-            liveThumbLoading = initialThumbLoading
-            liveThumbMissingSource = initialThumbMissingSource
-            liveThumbErrorText = initialThumbErrorText
-            if (dialog.searchController && pinnedElementId !== 0 && pinnedImageId !== 0) {
+            applyInitialPreviewState()
+            if (dialog.searchController && pinnedElementId !== 0 && pinnedImageId !== 0
+                    && !thumbReady) {
                 dialog.searchController.SetSearchPreviewThumbnailVisible(pinnedElementId,
                                                                          pinnedImageId, true,
                                                                          pinnedMaxEdge)
             }
         }
 
-        Component.onCompleted: bindPreviewThumbnailLifetime()
-        onElementIdChanged: bindPreviewThumbnailLifetime()
-        onImageIdChanged: bindPreviewThumbnailLifetime()
-        onDynamicPreviewThumbnailChanged: bindPreviewThumbnailLifetime()
-        onPreviewMaxEdgeChanged: bindPreviewThumbnailLifetime()
+        Component.onCompleted: bindPreviewThumbnailLifetime(false)
+        onElementIdChanged: bindPreviewThumbnailLifetime(false)
+        onImageIdChanged: bindPreviewThumbnailLifetime(false)
+        onDynamicPreviewThumbnailChanged: bindPreviewThumbnailLifetime(false)
+        onPreviewMaxEdgeChanged: bindPreviewThumbnailLifetime(false)
         Component.onDestruction: releasePreviewThumbnail()
 
         height: rowHeight

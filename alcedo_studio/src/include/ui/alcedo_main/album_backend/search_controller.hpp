@@ -46,6 +46,8 @@ class SearchController final : public QObject {
   void SearchStateChanged();
   void SearchPreviewThumbnailUpdated(uint elementId, const QString& dataUrl, bool loading,
                                      bool missingSource, const QString& errorText);
+  void searchPreviewThumbnailUpdated(uint elementId, const QString& dataUrl, bool loading,
+                                     bool missingSource, const QString& errorText);
 
  private:
   void RequestSearchPreviewThumbnail(uint elementId, uint imageId, uint maxEdge = 192);
@@ -55,6 +57,7 @@ class SearchController final : public QObject {
   std::optional<std::wstring> active_search_filter_where_{};
   std::uint64_t search_preview_generation_       = 0;
   std::uint64_t search_preview_request_sequence_ = 0;
+  std::unordered_map<ThumbnailCacheKey, image_id_t> search_preview_visible_thumbnails_{};
   std::unordered_map<ThumbnailCacheKey, std::uint64_t> search_preview_thumbnail_requests_{};
 };
 

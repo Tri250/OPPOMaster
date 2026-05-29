@@ -281,10 +281,8 @@ void SearchController::SetSearchPreviewThumbnailVisible(uint elementId, uint ima
   const ThumbnailCacheKey key{static_cast<sl_element_id_t>(elementId),
                               SearchPreviewThumbnailResolution(maxEdge)};
   if (!visible) {
-    const auto erased = search_preview_thumbnail_requests_.erase(key);
-    if (erased == 0) {
-      return;
-    }
+    search_preview_visible_thumbnails_.erase(key);
+    search_preview_thumbnail_requests_.erase(key);
 
     auto thumb_svc = backend_.project_handler_.thumbnail_service();
     if (!thumb_svc) {
@@ -297,6 +295,7 @@ void SearchController::SetSearchPreviewThumbnailVisible(uint elementId, uint ima
     return;
   }
 
+  search_preview_visible_thumbnails_[key] = static_cast<image_id_t>(imageId);
   RequestSearchPreviewThumbnail(elementId, imageId, maxEdge);
 }
 
@@ -313,10 +312,18 @@ void SearchController::RequestSearchPreviewThumbnail(uint elementId, uint imageI
   const auto              resolution = SearchPreviewThumbnailResolution(maxEdge);
   const ThumbnailCacheKey key{static_cast<sl_element_id_t>(elementId), resolution};
   const auto              request_generation = search_preview_generation_;
+  const auto              expected_image_id  = static_cast<image_id_t>(imageId);
+
+  const auto visible_it = search_preview_visible_thumbnails_.find(key);
+  if (visible_it == search_preview_visible_thumbnails_.end() || visible_it->second != expected_image_id) {
+    return;
+  }
 
   if (const auto* item = backend_.FindAlbumItem(static_cast<sl_element_id_t>(elementId));
       item != nullptr && !item->thumb_data_url.isEmpty()) {
     emit SearchPreviewThumbnailUpdated(elementId, item->thumb_data_url, false,
+                                       item->thumb_missing_source, item->thumb_error_text);
+    emit searchPreviewThumbnailUpdated(elementId, item->thumb_data_url, false,
                                        item->thumb_missing_source, item->thumb_error_text);
     return;
   }
@@ -328,6 +335,7 @@ void SearchController::RequestSearchPreviewThumbnail(uint elementId, uint imageI
   search_preview_thumbnail_requests_.emplace(key, request_id);
 
   emit SearchPreviewThumbnailUpdated(elementId, QString{}, true, false, QString{});
+  emit searchPreviewThumbnailUpdated(elementId, QString{}, true, false, QString{});
 
   CallbackDispatcher dispatcher = [](std::function<void()> fn) {
     auto* app = QCoreApplication::instance();
@@ -342,7 +350,7 @@ void SearchController::RequestSearchPreviewThumbnail(uint elementId, uint imageI
   try {
     thumb_svc->GetThumbnailDetailed(
         static_cast<sl_element_id_t>(elementId), static_cast<image_id_t>(imageId),
-        [self, service = thumb_svc, elementId, maxEdge, key,
+        [self, service = thumb_svc, elementId, imageId, maxEdge, key,
          request_generation, request_id](ThumbnailRequestResult result) {
           auto release_thumbnail = [&]() {
             if (service) {
@@ -358,11 +366,20 @@ void SearchController::RequestSearchPreviewThumbnail(uint elementId, uint imageI
             return;
           }
           if (self->search_preview_generation_ != request_generation) {
+            release_thumbnail();
             return;
           }
           const auto request_it = self->search_preview_thumbnail_requests_.find(key);
           if (request_it == self->search_preview_thumbnail_requests_.end() ||
               request_it->second != request_id) {
+            release_thumbnail();
+            return;
+          }
+          const auto visible_it = self->search_preview_visible_thumbnails_.find(key);
+          if (visible_it == self->search_preview_visible_thumbnails_.end() ||
+              visible_it->second != static_cast<image_id_t>(imageId)) {
+            self->search_preview_thumbnail_requests_.erase(key);
+            release_thumbnail();
             return;
           }
           if (result.status != ThumbnailRequestStatus::kReady || !result.guard ||
@@ -372,11 +389,16 @@ void SearchController::RequestSearchPreviewThumbnail(uint elementId, uint imageI
                 elementId, QString{}, false, false,
                 result.message.empty() ? QObject::tr("Thumbnail render returned no image.")
                                        : QString::fromUtf8(result.message));
+            emit self->searchPreviewThumbnailUpdated(
+                elementId, QString{}, false, false,
+                result.message.empty() ? QObject::tr("Thumbnail render returned no image.")
+                                       : QString::fromUtf8(result.message));
             release_thumbnail();
             return;
           }
 
-          std::thread([self, service, elementId, maxEdge, key, request_generation, request_id,
+          std::thread([self, service, elementId, imageId, maxEdge, key, request_generation,
+                       request_id,
                        guard = std::move(result.guard)]() mutable {
             QString data_url;
             QString error_text;
@@ -403,7 +425,7 @@ void SearchController::RequestSearchPreviewThumbnail(uint elementId, uint imageI
             if (self) {
               QMetaObject::invokeMethod(
                   self,
-                  [self, service, elementId, key, request_generation, request_id, data_url,
+                  [self, service, elementId, imageId, key, request_generation, request_id, data_url,
                    error_text]() {
                     if (!self) {
                       if (service) {
@@ -415,22 +437,42 @@ void SearchController::RequestSearchPreviewThumbnail(uint elementId, uint imageI
                       return;
                     }
                     if (self->search_preview_generation_ != request_generation) {
+                      if (service) {
+                        try {
+                          service->ReleaseThumbnail(key);
+                        } catch (...) {
+                        }
+                      }
                       return;
                     }
                     const auto request_it = self->search_preview_thumbnail_requests_.find(key);
                     if (request_it == self->search_preview_thumbnail_requests_.end() ||
                         request_it->second != request_id) {
+                      if (service) {
+                        try {
+                          service->ReleaseThumbnail(key);
+                        } catch (...) {
+                        }
+                      }
+                      return;
+                    }
+                    const auto visible_it = self->search_preview_visible_thumbnails_.find(key);
+                    if (visible_it == self->search_preview_visible_thumbnails_.end() ||
+                        visible_it->second != static_cast<image_id_t>(imageId)) {
+                      self->search_preview_thumbnail_requests_.erase(key);
+                      if (service) {
+                        try {
+                          service->ReleaseThumbnail(key);
+                        } catch (...) {
+                        }
+                      }
                       return;
                     }
                     self->search_preview_thumbnail_requests_.erase(key);
                     emit self->SearchPreviewThumbnailUpdated(elementId, data_url, false, false,
                                                              error_text);
-                    if (service) {
-                      try {
-                        service->ReleaseThumbnail(key);
-                      } catch (...) {
-                      }
-                    }
+                    emit self->searchPreviewThumbnailUpdated(elementId, data_url, false, false,
+                                                             error_text);
                   },
                   Qt::QueuedConnection);
             } else if (service) {
@@ -446,24 +488,36 @@ void SearchController::RequestSearchPreviewThumbnail(uint elementId, uint imageI
     search_preview_thumbnail_requests_.erase(key);
     emit SearchPreviewThumbnailUpdated(elementId, QString{}, false, false,
                                        CurrentExceptionText("Unknown thumbnail request error."));
+    emit searchPreviewThumbnailUpdated(elementId, QString{}, false, false,
+                                       CurrentExceptionText("Unknown thumbnail request error."));
   }
 }
 
 void SearchController::CancelSearchPreviewThumbnails() {
   ++search_preview_generation_;
-  if (search_preview_thumbnail_requests_.empty()) {
+  if (search_preview_thumbnail_requests_.empty() && search_preview_visible_thumbnails_.empty()) {
     return;
   }
 
-  auto       thumb_svc = backend_.project_handler_.thumbnail_service();
-  const auto requests  = search_preview_thumbnail_requests_;
+  std::unordered_map<ThumbnailCacheKey, bool> keys_to_release;
+  for (const auto& [key, image_id] : search_preview_visible_thumbnails_) {
+    (void)image_id;
+    keys_to_release.emplace(key, true);
+  }
+  for (const auto& [key, request_id] : search_preview_thumbnail_requests_) {
+    (void)request_id;
+    keys_to_release.emplace(key, true);
+  }
+
+  auto thumb_svc = backend_.project_handler_.thumbnail_service();
+  search_preview_visible_thumbnails_.clear();
   search_preview_thumbnail_requests_.clear();
   if (!thumb_svc) {
     return;
   }
 
-  for (const auto& [key, request_id] : requests) {
-    (void)request_id;
+  for (const auto& [key, present] : keys_to_release) {
+    (void)present;
     try {
       thumb_svc->ReleaseThumbnail(key);
     } catch (...) {
