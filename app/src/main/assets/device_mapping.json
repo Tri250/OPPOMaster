@@ -1,0 +1,109 @@
+{
+  "version": "2026.05.29",
+  "appName": "小O帮帮",
+  "supportedBrands": [
+    {
+      "brand": "OPPO",
+      "models": ["Find X系列", "Reno系列"],
+      "packageName": "com.oppo.camera",
+      "status": "supported",
+      "params": ["iso", "shutter", "ev", "wb", "focus", "contrast", "saturation", "sharpness", "vignette"]
+    },
+    {
+      "brand": "OnePlus",
+      "models": ["一加12", "一加11", "一加Ace系列"],
+      "packageName": "com.oneplus.camera",
+      "status": "supported",
+      "params": ["iso", "shutter", "ev", "wb", "focus", "contrast", "saturation"]
+    },
+    {
+      "brand": "realme",
+      "models": ["真我GT系列", "真我数字系列"],
+      "packageName": "com.realme.camera",
+      "status": "supported",
+      "params": ["iso", "shutter", "ev", "wb", "focus", "contrast", "saturation"]
+    },
+    {
+      "brand": "小米/红米",
+      "models": ["小米14", "小米13", "红米K系列"],
+      "packageName": "com.android.camera",
+      "status": "supported",
+      "params": ["iso", "shutter", "ev", "wb", "focus", "contrast", "saturation", "sharpness", "exposure"]
+    },
+    {
+      "brand": "vivo",
+      "models": ["X系列", "S系列"],
+      "packageName": "com.vivo.camera",
+      "status": "supported",
+      "params": ["iso", "shutter", "ev", "wb", "focus", "contrast", "saturation", "sharpness"]
+    },
+    {
+      "brand": "iQOO",
+      "models": ["iQOO 12", "iQOO 11", "iQOO Neo系列"],
+      "packageName": "com.iqoo.camera",
+      "status": "supported",
+      "params": ["iso", "shutter", "ev", "wb", "focus", "contrast", "saturation"]
+    },
+    {
+      "brand": "华为",
+      "models": ["Mate系列", "P系列"],
+      "packageName": "com.huawei.camera",
+      "status": "supported",
+      "params": ["iso", "shutter", "ev", "wb", "focus", "contrast", "saturation", "sharpness"]
+    },
+    {
+      "brand": "荣耀",
+      "models": ["荣耀Magic系列", "荣耀数字系列"],
+      "packageName": "com.hihonor.camera",
+      "status": "supported",
+      "params": ["iso", "shutter", "ev", "wb", "focus", "contrast", "saturation", "sharpness"]
+    },
+    {
+      "brand": "魅族",
+      "models": ["魅族20", "魅族18", "魅族17"],
+      "packageName": "com.meizu.camera",
+      "status": "beta",
+      "params": ["iso", "shutter", "ev", "wb", "focus", "contrast", "saturation"]
+    },
+    {
+      "brand": "中兴/努比亚",
+      "models": ["中兴Axon", "努比亚Z系列"],
+      "packageName": "com.zte.camera",
+      "status": "beta",
+      "params": ["iso", "shutter", "ev", "wb", "focus", "contrast", "saturation"]
+    },
+    {
+      "brand": "联想/摩托罗拉",
+      "models": ["拯救者", "Motorola Edge"],
+      "packageName": "com.lenovo.camera",
+      "status": "beta",
+      "params": ["iso", "shutter", "ev", "wb", "focus", "contrast", "saturation"]
+    },
+    {
+      "brand": "三星",
+      "models": ["Galaxy S系列", "Galaxy Z系列"],
+      "packageName": "com.samsung.android.camera",
+      "status": "beta",
+      "params": ["iso", "shutter", "ev", "wb", "focus", "contrast", "saturation", "sharpness"]
+    },
+    {
+      "brand": "TCL/海信",
+      "models": ["TCL 20", "海信金刚"],
+      "packageName": "com.tcl.camera",
+      "status": "experimental",
+      "params": ["iso", "shutter", "ev", "wb", "focus"]
+    },
+    {
+      "brand": "酷派/锤子",
+      "models": ["酷派Cool", "坚果Pro"],
+      "packageName": "com.coolpad.camera",
+      "status": "experimental",
+      "params": ["iso", "shutter", "ev", "wb", "focus"]
+    }
+  ],
+  "updateUrl": "https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/mapping/device_mapping.json",
+  "supportContact": {
+    "douyin": "带娃的小陈工",
+    "xiaohongshu": "带娃的小陈工"
+  }
+}

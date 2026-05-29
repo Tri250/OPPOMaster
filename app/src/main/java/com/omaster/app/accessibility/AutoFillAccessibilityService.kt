@@ -21,10 +21,23 @@ class AutoFillAccessibilityService : AccessibilityService() {
             "com.oppo.camera",
             "com.oneplus.camera",
             "com.realme.camera",
-            "com.xiaomi.camera",
+            "com.android.camera",
+            "com.miui.camera",
             "com.vivo.camera",
+            "com.iqoo.camera",
             "com.huawei.camera",
-            "com.samsung.android.camera"
+            "com.huawei.systemcamera",
+            "com.hihonor.camera",
+            "com.meizu.camera",
+            "com.zte.camera",
+            "com.nubia.camera",
+            "com.lenovo.camera",
+            "com.motorola.camera",
+            "com.samsung.android.camera",
+            "com.tcl.camera",
+            "com.hisense.camera",
+            "com.coolpad.camera",
+            "com.smartisan.camera"
         )
         
         private var pendingParams: CameraParams? = null
@@ -165,10 +178,18 @@ class AutoFillAccessibilityService : AccessibilityService() {
             packageName.contains("oppo") -> DeviceType.OPPO
             packageName.contains("oneplus") -> DeviceType.ONEPLUS
             packageName.contains("realme") -> DeviceType.REALME
-            packageName.contains("xiaomi") -> DeviceType.XIAOMI
-            packageName.contains("vivo") -> DeviceType.VIVO
-            packageName.contains("huawei") -> DeviceType.HUAWEI
+            packageName.contains("android.camera") || packageName.contains("miui.camera") -> DeviceType.XIAOMI
+            packageName.contains("vivo") && !packageName.contains("iqoo") -> DeviceType.VIVO
+            packageName.contains("iqoo") -> DeviceType.IQOO
+            packageName.contains("huawei.systemcamera") -> DeviceType.HUAWEI_SYSTEM
+            packageName.contains("huawei") && !packageName.contains("honor") -> DeviceType.HUAWEI
+            packageName.contains("honor") || packageName.contains("hihonor") -> DeviceType.HONOR
+            packageName.contains("meizu") -> DeviceType.MEIZU
+            packageName.contains("zte") || packageName.contains("nubia") -> DeviceType.ZTE
+            packageName.contains("lenovo") || packageName.contains("motorola") -> DeviceType.LENOVO
             packageName.contains("samsung") -> DeviceType.SAMSUNG
+            packageName.contains("tcl") || packageName.contains("hisense") -> DeviceType.OTHER
+            packageName.contains("coolpad") || packageName.contains("smartisan") -> DeviceType.OTHER
             else -> DeviceType.GENERIC
         }
     }
@@ -190,7 +211,7 @@ class AutoFillAccessibilityService : AccessibilityService() {
 }
 
 enum class DeviceType {
-    OPPO, ONEPLUS, REALME, XIAOMI, VIVO, HUAWEI, SAMSUNG, GENERIC
+    OPPO, ONEPLUS, REALME, XIAOMI, VIVO, IQOO, HUAWEI, HUAWEI_SYSTEM, HONOR, MEIZU, ZTE, LENOVO, SAMSUNG, OTHER, GENERIC
 }
 
 data class CameraParams(
