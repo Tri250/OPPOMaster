@@ -7,40 +7,42 @@ export default {
   theme: {
     extend: {
       colors: {
-        // 主色与强调色 - 符合测试用例要求
-        'accent-primary': '#FF6B35',
-        'accent-secondary': '#E55C2E',
-        'accent-tertiary': '#CC5529',
-        
-        // 哈苏色彩
+        // OPPO品牌核心色彩 - 严格遵循规范
+        'oppo-orange': '#FF6B35',
+        'oppo-orange-dark': '#E55A2B',
+        'oppo-orange-light': '#FFB399',
         'hasselblad-orange': '#D4A574',
-        'hasselblad': '#D4A574',
-        'hasselblad-pro': '#E5A84A',
+        'hasselblad-gold': '#D4A574',
+        'oppo-black': '#0F0F0F',
+        'oppo-white': '#FFFFFF',
         
-        // OPPO绿
-        'oppo-green': '#2DB47A',
-        'oppo-green-light': '#68D391',
-        
-        // 辅助色彩
-        'ocean-blue': '#3B82F6',
-        'sakura-pink': '#EC4899',
-        'aurora-purple': '#8B5CF6',
+        // 中性灰系列 - 信息层级
+        'neutral-50': '#F5F5F5',
+        'neutral-100': '#E5E5E5',
+        'neutral-200': '#D4D4D4',
+        'neutral-300': '#A3A3A3',
+        'neutral-400': '#737373',
+        'neutral-500': '#525252',
+        'neutral-600': '#404040',
+        'neutral-700': '#262626',
+        'neutral-800': '#1A1A1A',
+        'neutral-900': '#0F0F0F',
         
         // 功能色彩
-        'success-vital': '#22C55E',
-        'warning-vital': '#F59E0B',
-        'error-vital': '#EF4444',
-        'info-vital': '#3B82F6',
+        'success': '#22C55E',
+        'warning': '#F59E0B',
+        'error': '#EF4444',
+        'info': '#3B82F6',
         
         // 深色主题 - ColorOS 16 规范
-        'deep-space': '#0F0F0F',
-        'card-surface': '#1A1A1A',
-        'card-pressed': '#222222',
-        'elevated': '#1C1C1E',
+        'bg-primary': '#0F0F0F',
+        'bg-secondary': '#1A1A1A',
+        'bg-tertiary': '#222222',
+        'bg-elevated': '#1C1C1E',
         
         // 浅色主题
-        'light-bg': '#FFFFFF',
-        'light-surface': '#F5F5F5',
+        'bg-light-primary': '#FFFFFF',
+        'bg-light-secondary': '#F5F5F5',
         
         // 文字颜色 - 深色模式
         'text-primary': '#FFFFFF',
@@ -48,30 +50,50 @@ export default {
         'text-tertiary': '#737373',
         
         // 文字颜色 - 浅色模式
+        'text-light-primary': '#1A1A1A',
+        'text-light-secondary': '#666666',
+        'text-light-tertiary': '#999999',
+        
+        // 边框 - 深色模式
+        'border-default': '#2A2A2A',
+        'border-light': '#404040',
+        
+        // 边框 - 浅色模式
+        'border-light-default': '#E0E0E0',
+        
+        // 旧有别名保持兼容
+        'accent-primary': '#FF6B35',
+        'accent-secondary': '#E55C2E',
+        'accent-tertiary': '#CC5529',
+        'hasselblad': '#D4A574',
+        'hasselblad-pro': '#E5A84A',
+        'oppo-green': '#2DB47A',
+        'deep-space': '#0F0F0F',
+        'card-surface': '#1A1A1A',
+        'card-pressed': '#222222',
+        'elevated': '#1C1C1E',
+        'light-bg': '#FFFFFF',
+        'light-surface': '#F5F5F5',
         'light-text-primary': '#1A1A1A',
         'light-text-secondary': '#666666',
         'light-text-tertiary': '#999999',
-        
-        // 边框 - 深色模式
         'oppo-border': '#2A2A2A',
         'oppo-border-light': '#404040',
-        
-        // 边框 - 浅色模式
         'light-border': '#E0E0E0',
+        'oppo-sunrise-gold': '#FF6B35',
       },
       fontFamily: {
-        'sans': ['OPPO Sans', 'Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+        'sans': ['OPPO Sans 3.0', 'OPPO Sans', 'Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
       },
       fontSize: {
-        // 根据测试用例要求的字体大小规范
-        'xs': ['0.75rem', { lineHeight: '1.4', fontWeight: '300' }],    // 12sp - 辅助文字
-        'sm': ['0.875rem', { lineHeight: '1.4', fontWeight: '400' }],   // 14sp - 辅助文字
-        'base': ['1rem', { lineHeight: '1.5', fontWeight: '400' }],     // 16sp - 正文描述
-        'lg': ['1.125rem', { lineHeight: '1.4', fontWeight: '500' }],   // 18sp - 卡片标题
-        'xl': ['1.25rem', { lineHeight: '1.4', fontWeight: '600' }],    // 20sp - 三级页面标题
-        '2xl': ['1.5rem', { lineHeight: '1.3', fontWeight: '600' }],    // 24sp - 二级页面标题
-        '3xl': ['1.75rem', { lineHeight: '1.2', fontWeight: '700' }],   // 28sp - 页面大标题
-        '4xl': ['2rem', { lineHeight: '1.2', fontWeight: '700' }],      // 32sp - 首页大标题
+        // OPPO Sans 3.0 字体层级系统 - 严格遵循规范
+        'h1': ['1.5rem', { lineHeight: '2rem', fontWeight: '700', letterSpacing: '0em' }],      // 24sp - 页面大标题
+        'h2': ['1.25rem', { lineHeight: '1.75rem', fontWeight: '700', letterSpacing: '0em' }],  // 20sp - 导航栏标题
+        'h3': ['1.125rem', { lineHeight: '1.5rem', fontWeight: '600', letterSpacing: '0em' }],  // 18sp - 卡片标题
+        'body1': ['1rem', { lineHeight: '1.375rem', fontWeight: '400', letterSpacing: '0.01em' }],  // 16sp - 正文
+        'body2': ['0.875rem', { lineHeight: '1.25rem', fontWeight: '400', letterSpacing: '0.01em' }], // 14sp - 辅助文字
+        'caption': ['0.75rem', { lineHeight: '1rem', fontWeight: '400', letterSpacing: '0.02em' }],  // 12sp - 标签
+        'number': ['1.125rem', { lineHeight: '1.5rem', fontWeight: '600', letterSpacing: '0em' }],  // 18sp - 参数数值
       },
       fontWeight: {
         'light': '300',
@@ -81,7 +103,7 @@ export default {
         'bold': '700',
       },
       spacing: {
-        // ColorOS 16 规范间距 - 符合测试用例要求
+        // 8dp网格系统 - ColorOS 16规范
         '1': '4px',
         '2': '8px',
         '3': '12px',
@@ -93,10 +115,19 @@ export default {
         '9': '36px',
         '10': '40px',
         '12': '48px',
+        '14': '56px',
         '16': '64px',
+        '18': '72px',
+        '20': '80px',
+        '24': '96px',
       },
       borderRadius: {
-        // ColorOS 16 规范圆角 - 符合测试用例要求
+        // ColorOS 16 规范圆角
+        'xs': '8px',
+        'sm': '12px',
+        'md': '16px',
+        'lg': '20px',
+        'xl': '24px',
         'oppo': '16px',
         'oppo-lg': '20px',
         'oppo-md': '16px',
@@ -104,19 +135,28 @@ export default {
         'oppo-xs': '8px',
       },
       boxShadow: {
-        // ColorOS 16 规范阴影
-        'oppo': '0 4px 8px rgba(0, 0, 0, 0.2)',
-        'oppo-hover': '0 6px 12px rgba(0, 0, 0, 0.3)',
-        'oppo-card': '0 4px 8px rgba(0, 0, 0, 0.2)',
+        // OPPO软阴影系统
+        'oppo-elevation-1': '0 2px 8px rgba(0, 0, 0, 0.1)',
+        'oppo-elevation-2': '0 4px 16px rgba(0, 0, 0, 0.15)',
+        'oppo-elevation-3': '0 8px 24px rgba(0, 0, 0, 0.2)',
+        'oppo': '0 4px 8px rgba(0, 0, 0, 0.1)',
+        'oppo-hover': '0 6px 20px rgba(0, 0, 0, 0.2)',
+        'oppo-card': '0 4px 16px rgba(0, 0, 0, 0.15)',
       },
       animation: {
+        // ColorOS 16 动效
         'float': 'float 6s ease-in-out infinite',
         'pulse-glow': 'pulse-glow 2s ease-in-out infinite',
         'breathing': 'breathing 1.8s ease-in-out infinite',
-        'fade-in': 'fadeIn 300ms ease-out forwards',
-        'slide-in': 'slideIn 300ms ease-out forwards',
-        'scale-in': 'scaleIn 200ms ease-in-out forwards',
-        'stagger-in': 'staggerIn 300ms ease-out forwards',
+        'fade-in': 'fadeIn 300ms ease-out-cubic forwards',
+        'slide-in-right': 'slideInRight 300ms ease-out-cubic forwards',
+        'slide-out-left': 'slideOutLeft 300ms ease-in-cubic forwards',
+        'scale-in': 'scaleIn 200ms ease-in-out-cubic forwards',
+        'modal-in': 'modalIn 250ms ease-out-cubic forwards',
+        'modal-out': 'modalOut 200ms ease-in-cubic forwards',
+        'stagger-in': 'staggerIn 300ms ease-out-cubic forwards',
+        'bounce-scale': 'bounceScale 300ms ease-out-bounce forwards',
+        'shimmer': 'shimmer 1.5s ease-in-out infinite',
       },
       keyframes: {
         float: {
@@ -135,17 +175,38 @@ export default {
           '0%': { opacity: '0', transform: 'translateY(20px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },
         },
-        slideIn: {
-          '0%': { opacity: '0', transform: 'translateX(20px)' },
+        slideInRight: {
+          '0%': { opacity: '0', transform: 'translateX(32px)' },
           '100%': { opacity: '1', transform: 'translateX(0)' },
+        },
+        slideOutLeft: {
+          '0%': { opacity: '1', transform: 'translateX(0)' },
+          '100%': { opacity: '0', transform: 'translateX(32px)' },
         },
         scaleIn: {
           '0%': { opacity: '0', transform: 'scale(0.98)' },
           '100%': { opacity: '1', transform: 'scale(1)' },
         },
+        modalIn: {
+          '0%': { opacity: '0', transform: 'translateY(100%) scale(0.9)' },
+          '100%': { opacity: '1', transform: 'translateY(0) scale(1)' },
+        },
+        modalOut: {
+          '0%': { opacity: '1', transform: 'translateY(0) scale(1)' },
+          '100%': { opacity: '0', transform: 'translateY(100%) scale(0.9)' },
+        },
         staggerIn: {
           '0%': { opacity: '0', transform: 'translateY(10px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+        bounceScale: {
+          '0%': { transform: 'scale(1)' },
+          '50%': { transform: 'scale(1.2)' },
+          '100%': { transform: 'scale(1)' },
+        },
+        shimmer: {
+          '0%': { backgroundPosition: '200% 0' },
+          '100%': { backgroundPosition: '-200% 0' },
         },
       },
       transitionDuration: {
@@ -158,9 +219,10 @@ export default {
         'oppo-enter': 'cubic-bezier(0.05, 0.7, 0.1, 1.0)',
         'oppo-exit': 'cubic-bezier(0.3, 0.0, 0.8, 0.15)',
         'oppo-bounce': 'cubic-bezier(0.175, 0.885, 0.32, 1.275)',
-        'ease-out': 'cubic-bezier(0.0, 0.0, 0.2, 1)',
-        'ease-in': 'cubic-bezier(0.4, 0.0, 1, 1)',
-        'ease-in-out': 'cubic-bezier(0.4, 0.0, 0.2, 1)',
+        'ease-out-cubic': 'cubic-bezier(0.22, 0.61, 0.36, 1)',
+        'ease-in-cubic': 'cubic-bezier(0.55, 0.06, 0.68, 0.19)',
+        'ease-in-out-cubic': 'cubic-bezier(0.65, 0, 0.35, 1)',
+        'ease-out-bounce': 'cubic-bezier(0.175, 0.885, 0.32, 1.275)',
       },
     },
   },
