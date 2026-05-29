@@ -53,19 +53,19 @@ export default function FilterLibraryPage() {
         <div className="orb-oppo orb-2 w-56 h-56 bottom-1/4 -right-28 animate-float" style={{ animationDelay: '2s' }} />
       </div>
 
-      <div className="relative max-w-7xl mx-auto px-4 py-8">
+      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 py-6 md:py-8">
         <motion.div
           initial="initial"
           animate="animate"
           variants={ColorOSAnimations.fadeIn}
         >
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-aurora-purple to-ocean-blue flex items-center justify-center">
-              <Filter className="w-6 h-6 text-white" />
+          <div className="flex items-center gap-3 mb-5 md:mb-6">
+            <div className="w-11 h-11 md:w-12 md:h-12 rounded-2xl bg-gradient-to-br from-aurora-purple to-ocean-blue flex items-center justify-center">
+              <Filter className="w-5 md:w-6 h-5 md:h-6 text-white" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-white">滤镜库</h1>
-              <p className="text-text-tertiary text-sm">专业调色，触手可及</p>
+              <h1 className="text-xl md:text-2xl font-bold text-white">滤镜库</h1>
+              <p className="text-text-tertiary text-xs md:text-sm">专业调色，触手可及</p>
             </div>
           </div>
 
@@ -73,16 +73,16 @@ export default function FilterLibraryPage() {
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="mb-6"
+            className="mb-5 md:mb-6"
           >
             <div className="relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-text-tertiary" />
+              <Search className="absolute left-3 md:left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-text-tertiary" />
               <input
                 type="text"
                 placeholder="搜索滤镜..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-12 pr-4 py-3 bg-white/5 border border-white/10 rounded-2xl text-white placeholder-text-tertiary focus:outline-none focus:border-oppo-sunrise-gold/50 transition-all"
+                className="w-full pl-10 md:pl-12 pr-4 py-3 bg-white/5 border border-white/10 rounded-2xl text-white placeholder-text-tertiary focus:outline-none focus:border-oppo-sunrise-gold/50 transition-all text-sm md:text-base"
               />
             </div>
           </motion.div>
@@ -91,7 +91,7 @@ export default function FilterLibraryPage() {
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
-            className="flex flex-wrap gap-2 mb-6"
+            className="flex flex-wrap gap-1.5 md:gap-2 mb-5 md:mb-6"
           >
             {categories.map((cat) => (
               <ColorOSChip
@@ -107,14 +107,14 @@ export default function FilterLibraryPage() {
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3 }}
-            className="flex items-center justify-between mb-6"
+            className="flex items-center justify-between mb-5 md:mb-6"
           >
             <div className="flex items-center gap-2">
-              <span className="text-text-secondary text-sm">排序:</span>
+              <span className="text-text-secondary text-xs md:text-sm">排序:</span>
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as any)}
-                className="bg-white/5 border border-white/10 rounded-lg text-white text-sm px-3 py-2 focus:outline-none focus:border-oppo-sunrise-gold/50"
+                className="bg-white/5 border border-white/10 rounded-lg text-white text-xs md:text-sm px-2.5 md:px-3 py-2 min-h-[44px] focus:outline-none focus:border-oppo-sunrise-gold/50"
               >
                 <option value="popular">最热门</option>
                 <option value="newest">最新</option>
@@ -122,10 +122,10 @@ export default function FilterLibraryPage() {
               </select>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <button
                 onClick={() => setViewMode('grid')}
-                className={`p-2 rounded-lg transition-colors ${
+                className={`p-2 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center ${
                   viewMode === 'grid' ? 'bg-oppo-sunrise-gold text-deep-space' : 'bg-white/5 text-text-secondary hover:bg-white/10'
                 }`}
               >
@@ -133,7 +133,7 @@ export default function FilterLibraryPage() {
               </button>
               <button
                 onClick={() => setViewMode('list')}
-                className={`p-2 rounded-lg transition-colors ${
+                className={`p-2 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center ${
                   viewMode === 'list' ? 'bg-oppo-sunrise-gold text-deep-space' : 'bg-white/5 text-text-secondary hover:bg-white/10'
                 }`}
               >
@@ -148,7 +148,7 @@ export default function FilterLibraryPage() {
             animate="animate"
           >
             {viewMode === 'grid' ? (
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4">
                 {sortedFilters.map((filter, i) => (
                   <motion.div
                     key={filter.id}
@@ -162,7 +162,7 @@ export default function FilterLibraryPage() {
                 ))}
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-2.5 md:space-y-3">
                 {sortedFilters.map((filter, i) => (
                   <motion.div
                     key={filter.id}
@@ -211,26 +211,26 @@ function FilterGridCard({ filter }: { filter: any }) {
           )}
         </div>
 
-        <button className="absolute top-2 right-2 z-10 w-7 h-7 rounded-full bg-black/30 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-          <Heart className={`w-4 h-4 ${filter.isFavorite ? 'fill-sakura-pink text-sakura-pink' : 'text-white'}`} />
+        <button className="absolute top-2 right-2 z-10 w-9 h-9 rounded-full bg-black/30 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity min-h-[36px] min-w-[36px]">
+          <Heart className={`w-4.5 h-4.5 ${filter.isFavorite ? 'fill-sakura-pink text-sakura-pink' : 'text-white'}`} />
         </button>
 
         <div className="absolute inset-0 flex items-center justify-center">
-          <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center">
-            <div className="w-6 h-6 rounded-full border-2 border-oppo-sunrise-gold/50" />
+          <div className="w-11 h-11 md:w-12 md:h-12 rounded-full bg-white/10 flex items-center justify-center">
+            <div className="w-5.5 h-5.5 md:w-6 md:h-6 rounded-full border-2 border-oppo-sunrise-gold/50" />
           </div>
         </div>
 
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
       </div>
 
-      <div className="p-4">
-        <h3 className="text-white font-medium mb-1 truncate">{filter.name}</h3>
-        <p className="text-text-tertiary text-sm truncate mb-2">@{filter.author}</p>
+      <div className="p-3 md:p-4">
+        <h3 className="text-white font-medium mb-1 truncate text-sm md:text-base">{filter.name}</h3>
+        <p className="text-text-tertiary text-xs md:text-sm truncate mb-2">@{filter.author}</p>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1">
-            <Star className="w-4 h-4 fill-oppo-sunrise-gold text-oppo-sunrise-gold" />
-            <span className="text-white text-sm font-medium">{filter.rating}</span>
+            <Star className="w-3.5 h-3.5 md:w-4 md:h-4 fill-oppo-sunrise-gold text-oppo-sunrise-gold" />
+            <span className="text-white text-xs md:text-sm font-medium">{filter.rating}</span>
           </div>
           <span className="text-text-tertiary text-xs">{filter.usage.toLocaleString()}</span>
         </div>

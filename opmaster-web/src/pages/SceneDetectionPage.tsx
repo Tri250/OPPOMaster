@@ -81,23 +81,23 @@ export default function SceneDetectionPage() {
         <div className="orb-oppo orb-3 w-72 h-72 bottom-1/4 right-0 animate-float" style={{ animationDelay: '3s' }} />
       </div>
 
-      <div className="relative max-w-4xl mx-auto px-4 py-8">
+      <div className="relative max-w-4xl mx-auto px-4 sm:px-6 py-6 md:py-8">
         <motion.div
           initial="initial"
           animate="animate"
           variants={ColorOSAnimations.fadeIn}
         >
-          <div className="flex items-center gap-3 mb-8">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-oppo-sunrise-gold to-hasselblad-pro flex items-center justify-center">
-              <Scan className="w-6 h-6 text-deep-space" />
+          <div className="flex items-center gap-3 mb-6 md:mb-8">
+            <div className="w-11 h-11 md:w-12 md:h-12 rounded-2xl bg-gradient-to-br from-oppo-sunrise-gold to-hasselblad-pro flex items-center justify-center">
+              <Scan className="w-5 md:w-6 h-5 md:h-6 text-deep-space" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-white">AI 场景识别</h1>
-              <p className="text-text-tertiary text-sm">智能识别场景，推荐最佳预设</p>
+              <h1 className="text-xl md:text-2xl font-bold text-white">AI 场景识别</h1>
+              <p className="text-text-tertiary text-xs md:text-sm">智能识别场景，推荐最佳预设</p>
             </div>
           </div>
 
-          <div className="grid lg:grid-cols-5 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 md:gap-6">
             <motion.div 
               className="lg:col-span-3"
               initial={{ opacity: 0, x: -20 }}
@@ -120,18 +120,18 @@ export default function SceneDetectionPage() {
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-deep-space/80 via-transparent to-transparent" />
                     
-                    <div className="absolute top-4 right-4 flex gap-2">
+                    <div className="absolute top-3 md:top-4 right-3 md:right-4 flex gap-2">
                       <motion.button
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                         onClick={() => handleSelectImage(imageSource || 'gallery')}
-                        className="w-10 h-10 rounded-xl bg-black/50 backdrop-blur-sm flex items-center justify-center text-white"
+                        className="w-11 h-11 md:w-10 md:h-10 rounded-xl bg-black/50 backdrop-blur-sm flex items-center justify-center text-white min-h-[44px] min-w-[44px]"
                       >
                         <ImagePlus className="w-5 h-5" />
                       </motion.button>
                     </div>
 
-                    <div className="absolute bottom-4 left-4 right-4 flex gap-2">
+                    <div className="absolute bottom-3 md:bottom-4 left-3 md:left-4 right-3 md:right-4 flex gap-2 flex-wrap">
                       <ColorOSChip 
                         icon={<Camera className="w-4 h-4" />}
                         label="拍照" 
@@ -147,36 +147,36 @@ export default function SceneDetectionPage() {
                     </div>
                   </div>
                 ) : (
-                  <div className="w-full h-full flex flex-col items-center justify-center gap-6 p-8">
-                    <div className="w-24 h-24 rounded-full bg-gradient-to-br from-oppo-sunrise-gold/20 to-ocean-blue/20 flex items-center justify-center">
-                      <Upload className="w-12 h-12 text-oppo-sunrise-gold" />
+                  <div className="w-full h-full flex flex-col items-center justify-center gap-4 md:gap-6 p-4 md:p-8">
+                    <div className="w-20 h-20 md:w-24 md:h-24 rounded-full bg-gradient-to-br from-oppo-sunrise-gold/20 to-ocean-blue/20 flex items-center justify-center">
+                      <Upload className="w-10 h-10 md:w-12 md:h-12 text-oppo-sunrise-gold" />
                     </div>
                     <div className="text-center">
-                      <p className="text-white font-medium text-lg">点击选择拍摄的样张</p>
-                      <p className="text-text-tertiary text-sm mt-2">AI 将自动识别场景并推荐预设</p>
+                      <p className="text-white font-medium text-base md:text-lg">点击选择拍摄的样张</p>
+                      <p className="text-text-tertiary text-xs md:text-sm mt-1 md:mt-2">AI 将自动识别场景并推荐预设</p>
                     </div>
-                    <div className="flex gap-6 mt-4">
+                    <div className="flex gap-4 md:gap-6 mt-4">
                       <motion.button
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                         onClick={() => handleSelectImage('camera')}
-                        className="flex flex-col items-center gap-2"
+                        className="flex flex-col items-center gap-2 min-h-[80px] min-w-[80px] p-2"
                       >
-                        <div className="w-14 h-14 rounded-2xl bg-oppo-sunrise-gold/20 flex items-center justify-center">
-                          <Camera className="w-7 h-7 text-oppo-sunrise-gold" />
+                        <div className="w-13 h-13 md:w-14 md:h-14 rounded-2xl bg-oppo-sunrise-gold/20 flex items-center justify-center">
+                          <Camera className="w-6 h-6 md:w-7 md:h-7 text-oppo-sunrise-gold" />
                         </div>
-                        <span className="text-text-secondary text-sm">拍照</span>
+                        <span className="text-text-secondary text-xs md:text-sm">拍照</span>
                       </motion.button>
                       <motion.button
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                         onClick={() => handleSelectImage('gallery')}
-                        className="flex flex-col items-center gap-2"
+                        className="flex flex-col items-center gap-2 min-h-[80px] min-w-[80px] p-2"
                       >
-                        <div className="w-14 h-14 rounded-2xl bg-ocean-blue/20 flex items-center justify-center">
-                          <Image className="w-7 h-7 text-ocean-blue" />
+                        <div className="w-13 h-13 md:w-14 md:h-14 rounded-2xl bg-ocean-blue/20 flex items-center justify-center">
+                          <Image className="w-6 h-6 md:w-7 md:h-7 text-ocean-blue" />
                         </div>
-                        <span className="text-text-secondary text-sm">相册</span>
+                        <span className="text-text-secondary text-xs md:text-sm">相册</span>
                       </motion.button>
                     </div>
                   </div>
@@ -311,14 +311,14 @@ export default function SceneDetectionPage() {
                 className="mt-6"
               >
                 <ColorOSSectionHeader title="支持的场景" subtitle="可识别 9 种场景类型" />
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-3 sm:grid-cols-3 gap-2 sm:gap-3">
                   {sceneTypes.map((scene) => (
                     <div
                       key={scene.id}
-                      className={`p-3 rounded-xl text-center transition-all ${
+                      className={`p-2.5 md:p-3 rounded-xl text-center transition-all min-h-[70px] flex flex-col items-center justify-center ${
                         detectedScene?.id === scene.id
                           ? 'bg-oppo-sunrise-gold/20 border border-oppo-sunrise-gold/50'
-                          : 'bg-white/5'
+                          : 'bg-white/5 hover:bg-white/10'
                       }`}
                     >
                       <div className={`${scene.color} flex justify-center mb-1`}>

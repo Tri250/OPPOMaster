@@ -98,8 +98,8 @@ export default function AppShowcase() {
               </button>
             </div>
 
-            <button className="md:hidden" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
-              {mobileMenuOpen ? <X /> : <Menu />}
+            <button className="md:hidden p-2 rounded-xl hover:bg-white/10 transition-colors min-h-[48px] min-w-[48px] flex items-center justify-center" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
+              {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
             </button>
           </div>
         </div>
@@ -109,38 +109,40 @@ export default function AppShowcase() {
         <motion.div
           initial={{ opacity: 0, x: 300 }}
           animate={{ opacity: 1, x: 0 }}
-          className="fixed inset-0 z-40 bg-deep-space/95 backdrop-blur-xl md:hidden pt-20"
+          exit={{ opacity: 0, x: 300 }}
+          className="fixed inset-0 z-40 bg-deep-space/95 backdrop-blur-xl md:hidden pt-24"
         >
-          <div className="flex flex-col items-center space-y-6 p-8">
-            <Link to="/" className="text-xl font-medium text-oppo-sunrise-gold">首页</Link>
-            <Link to="/filter-library" className="text-xl font-medium text-text-secondary">滤镜库</Link>
-            <Link to="/master-params" className="text-xl font-medium text-text-secondary">大师参数</Link>
-            <Link to="/floating-window" className="text-xl font-medium text-text-secondary">悬浮窗</Link>
-            <Link to="/settings" className="text-xl font-medium text-text-secondary">设置</Link>
-            <button className="btn-primary w-full mt-8">立即下载</button>
+          <div className="flex flex-col items-center space-y-5 p-8">
+            <Link to="/" onClick={() => setMobileMenuOpen(false)} className="text-xl font-medium text-oppo-sunrise-gold min-h-[48px] flex items-center">首页</Link>
+            <Link to="/filter-library" onClick={() => setMobileMenuOpen(false)} className="text-xl font-medium text-text-secondary min-h-[48px] flex items-center">滤镜库</Link>
+            <Link to="/master-params" onClick={() => setMobileMenuOpen(false)} className="text-xl font-medium text-text-secondary min-h-[48px] flex items-center">大师参数</Link>
+            <Link to="/floating-window" onClick={() => setMobileMenuOpen(false)} className="text-xl font-medium text-text-secondary min-h-[48px] flex items-center">悬浮窗</Link>
+            <Link to="/scene-detection" onClick={() => setMobileMenuOpen(false)} className="text-xl font-medium text-text-secondary min-h-[48px] flex items-center">AI场景识别</Link>
+            <Link to="/settings" onClick={() => setMobileMenuOpen(false)} className="text-xl font-medium text-text-secondary min-h-[48px] flex items-center">设置</Link>
+            <button className="btn-primary w-full mt-6 min-h-[48px]">立即下载</button>
           </div>
         </motion.div>
       )}
 
-      <section className="relative pt-32 pb-20 px-4">
+      <section className="relative pt-28 md:pt-32 pb-16 md:pb-20 px-4 sm:px-6">
         <div className="max-w-7xl mx-auto">
-          <div className="grid lg:grid-cols-2 gap-12 items-center">
+          <div className="grid lg:grid-cols-2 gap-8 md:gap-12 items-center">
             <motion.div
               initial="hidden"
               animate="animate"
               variants={ColorOSAnimations.fadeIn}
-              className="space-y-8"
+              className="space-y-6 md:space-y-8"
             >
               <motion.div variants={ColorOSAnimations.fadeIn}>
-                <div className="inline-flex items-center space-x-2 bg-gradient-to-r from-oppo-sunrise-gold/20 to-hasselblad-pro/20 border border-oppo-sunrise-gold/30 rounded-full px-4 py-2 mb-6">
-                  <span className="w-2 h-2 bg-oppo-green rounded-full animate-pulse" />
-                  <span className="text-sm text-text-secondary">ColorOS 16 专业摄影增强</span>
+                <div className="inline-flex items-center space-x-2 bg-gradient-to-r from-oppo-sunrise-gold/20 to-hasselblad-pro/20 border border-oppo-sunrise-gold/30 rounded-full px-3 md:px-4 py-1.5 md:py-2 mb-4 md:mb-6">
+                  <span className="w-1.5 md:w-2 h-1.5 md:h-2 bg-oppo-green rounded-full animate-pulse" />
+                  <span className="text-xs md:text-sm text-text-secondary">ColorOS 16 专业摄影增强</span>
                 </div>
               </motion.div>
 
               <motion.h1
                 variants={ColorOSAnimations.fadeIn}
-                className="text-5xl md:text-7xl font-bold leading-tight"
+                className="text-4xl sm:text-5xl md:text-7xl font-bold leading-tight"
               >
                 <span className="gradient-text-oppo">哈苏影像</span>
                 <br />
@@ -149,7 +151,7 @@ export default function AppShowcase() {
 
               <motion.p
                 variants={ColorOSAnimations.fadeIn}
-                className="text-xl text-text-secondary max-w-lg"
+                className="text-base md:text-xl text-text-secondary max-w-lg"
               >
                 专为OPPO/一加设计的专业调色工具。
                 系统级悬浮窗，实时预览滤镜效果，
@@ -158,13 +160,13 @@ export default function AppShowcase() {
 
               <motion.div
                 variants={ColorOSAnimations.fadeIn}
-                className="flex flex-col sm:flex-row gap-4"
+                className="flex flex-col sm:flex-row gap-3 md:gap-4"
               >
-                <button className="btn-primary text-lg px-8 py-4 flex items-center justify-center space-x-2 animate-pulse-glow">
+                <button className="btn-primary text-base md:text-lg px-6 md:px-8 py-3.5 md:py-4 min-h-[48px] flex items-center justify-center space-x-2 animate-pulse-glow">
                   <Download className="w-5 h-5" />
                   <span>免费下载</span>
                 </button>
-                <Link to="/filter-library" className="btn-secondary text-lg px-8 py-4 flex items-center justify-center space-x-2">
+                <Link to="/filter-library" className="btn-secondary text-base md:text-lg px-6 md:px-8 py-3.5 md:py-4 min-h-[48px] flex items-center justify-center space-x-2">
                   <span>体验滤镜库</span>
                   <ChevronRight className="w-5 h-5" />
                 </Link>
@@ -283,7 +285,7 @@ export default function AppShowcase() {
             </p>
           </motion.div>
 
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
             {p0Features.map((feature, i) => (
               <motion.div
                 key={feature.title}
@@ -294,12 +296,12 @@ export default function AppShowcase() {
                 whileHover={{ y: -4, scale: 1.02 }}
                 className="card-oppo group cursor-pointer"
               >
-                <Link to={feature.path}>
-                  <div className="w-14 h-14 rounded-2xl bg-white/5 flex items-center justify-center mb-6 group-hover:bg-oppo-sunrise-gold/10 transition-colors">
-                    <feature.icon className={`w-7 h-7 ${feature.color}`} />
+                <Link to={feature.path} className="block">
+                  <div className="w-12 md:w-14 h-12 md:h-14 rounded-2xl bg-white/5 flex items-center justify-center mb-4 md:mb-6 group-hover:bg-oppo-sunrise-gold/10 transition-colors">
+                    <feature.icon className={`w-6 md:w-7 h-6 md:h-7 ${feature.color}`} />
                   </div>
-                  <h3 className="text-xl font-semibold mb-3">{feature.title}</h3>
-                  <p className="text-text-secondary">{feature.description}</p>
+                  <h3 className="text-lg md:text-xl font-semibold mb-2 md:mb-3">{feature.title}</h3>
+                  <p className="text-sm md:text-base text-text-secondary">{feature.description}</p>
                 </Link>
               </motion.div>
             ))}
