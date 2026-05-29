@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { Camera, Download, Palette, Type, Move, CheckCircle2, X } from 'lucide-react';
+import { Camera, Download, Palette, Move, CheckCircle2, X } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 
 type WatermarkPosition = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center';
@@ -249,7 +249,7 @@ export default function WatermarkGenerator() {
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
             transition={{ type: 'spring', stiffness: 200, damping: 15 }}
-            className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-success to-info rounded-2xl mb-6 shadow-lg"
+            className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-oppo-green to-oppo-blue rounded-2xl mb-6 shadow-lg"
           >
             <Palette className="w-12 h-12 text-oppo-black" />
           </motion.div>
@@ -268,9 +268,9 @@ export default function WatermarkGenerator() {
             transition={{ delay: 0.2 }}
             className="space-y-6"
           >
-            <div className="card-oppo p-6">
-              <h2 className="text-lg font-bold mb-4 flex items-center space-x-2">
-                <Camera className="w-5 h-5 text-success" />
+            <div className="card-elevated p-6">
+              <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
+                <Camera className="w-5 h-5 text-oppo-green" />
                 <span>上传图片</span>
               </h2>
               
@@ -310,16 +310,16 @@ export default function WatermarkGenerator() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.3 }}
-              className="card-oppo p-6"
+              className="card-elevated p-6"
             >
-              <h2 className="text-lg font-bold mb-4 flex items-center space-x-2">
+              <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
                 <Move className="w-5 h-5 text-oppo-orange" />
                 <span>预览效果</span>
                 <span className="text-xs text-text-tertiary ml-auto">支持拖拽定位</span>
               </h2>
               <div 
                 ref={canvasContainerRef}
-                className="relative bg-black/20 rounded-xl overflow-hidden"
+                className="relative bg-bg-secondary rounded-xl overflow-hidden"
               >
                 {selectedImage ? (
                   <motion.div
@@ -389,9 +389,9 @@ export default function WatermarkGenerator() {
             transition={{ delay: 0.3 }}
             className="space-y-6"
           >
-            <div className="card p-6">
-              <h2 className="text-lg font-bold mb-4 flex items-center space-x-2">
-                <Palette className="w-5 h-5 text-hasselblad" />
+            <div className="card-elevated p-6">
+              <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
+                <Palette className="w-5 h-5 text-hasselblad-orange" />
                 <span>选择水印模板</span>
               </h2>
               
@@ -472,15 +472,15 @@ export default function WatermarkGenerator() {
               </motion.button>
             </motion.div>
 
-            <div className="card p-6">
-              <h2 className="text-lg font-bold mb-4 flex items-center space-x-2">
-                <Type className="w-5 h-5 text-oppo-green" />
-                <span>自定义参数</span>
+            <div className="card-elevated p-6">
+              <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
+                <Move className="w-5 h-5 text-oppo-green" />
+                <span>水印位置</span>
               </h2>
               
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-white/70 mb-2">
+                  <label className="block text-sm font-medium text-text-secondary mb-2">
                     设备名称
                   </label>
                   <motion.input
@@ -489,12 +489,12 @@ export default function WatermarkGenerator() {
                     onChange={(e) => setDeviceName(e.target.value)}
                     placeholder="例如：Find X9spro"
                     whileFocus={{ scale: 1.02 }}
-                    className="input"
+                    className="w-full px-4 py-3 bg-bg-tertiary border border-border-default rounded-xl text-text-primary placeholder-text-tertiary focus:outline-none focus:border-oppo-orange focus:ring-2 focus:ring-oppo-orange/20"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-white/70 mb-2">
+                  <label className="block text-sm font-medium text-text-secondary mb-2">
                     镜头参数
                   </label>
                   <motion.input
@@ -503,12 +503,12 @@ export default function WatermarkGenerator() {
                     onChange={(e) => setLensInfo(e.target.value)}
                     placeholder="例如：24mm f/1.8"
                     whileFocus={{ scale: 1.02 }}
-                    className="input"
+                    className="w-full px-4 py-3 bg-bg-tertiary border border-border-default rounded-xl text-text-primary placeholder-text-tertiary focus:outline-none focus:border-oppo-orange focus:ring-2 focus:ring-oppo-orange/20"
                   />
                 </div>
 
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-white/70">显示水印</span>
+                  <span className="text-sm font-medium text-text-secondary">显示水印</span>
                   <motion.button
                     whileTap={{ scale: 0.95 }}
                     onClick={() => {
@@ -529,7 +529,7 @@ export default function WatermarkGenerator() {
               </div>
             </div>
 
-            <div className="card p-6">
+            <div className="card-elevated p-6">
               <h2 className="text-lg font-bold mb-4">快速预设</h2>
               <div className="grid grid-cols-2 gap-3">
                 <motion.button
@@ -591,13 +591,13 @@ export default function WatermarkGenerator() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.5 }}
-              className="card p-6 bg-gradient-to-br from-oppo-green/10 to-transparent"
+              className="card-elevated p-6 bg-gradient-to-br from-oppo-green/10 to-transparent"
             >
-              <h2 className="text-lg font-bold mb-3 flex items-center space-x-2">
+              <h2 className="text-lg font-bold mb-3 flex items-center gap-2">
                 <span className="text-2xl">💡</span>
                 <span>使用提示</span>
               </h2>
-              <ul className="space-y-2 text-sm text-white/70">
+              <ul className="space-y-2 text-sm text-text-secondary">
                 <li className="flex items-start gap-2">
                   <CheckCircle2 className="w-4 h-4 text-oppo-green mt-0.5 flex-shrink-0" />
                   <span>支持拖拽或点击上传图片</span>

@@ -364,7 +364,7 @@ export default function PresetEditorPage() {
           <h1 className="text-4xl md:text-5xl font-bold mb-4 gradient-text-oppo">
             预设编辑器
           </h1>
-          <p className="text-lg text-white/60 max-w-2xl mx-auto">
+          <p className="text-lg text-text-secondary max-w-2xl mx-auto">
             1:1复刻原生相机大师模式参数，创建专属预设，一键贡献社区
           </p>
         </motion.div>
@@ -375,7 +375,7 @@ export default function PresetEditorPage() {
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.1 }}
-              className="card p-6"
+              className="card-elevated p-6"
             >
               <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
                 <Eye className="w-5 h-5 text-oppo-orange" />
@@ -386,8 +386,8 @@ export default function PresetEditorPage() {
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
-                className={`relative aspect-[3/4] rounded-xl overflow-hidden bg-black/20 mb-4 transition-all duration-300 ${
-                  isDragging ? 'ring-2 ring-oppo-orange ring-offset-2 ring-offset-transparent scale-105' : ''
+                className={`relative aspect-[3/4] rounded-xl overflow-hidden bg-bg-secondary mb-4 transition-all duration-300 ${
+                  isDragging ? 'ring-2 ring-oppo-orange ring-offset-2 ring-offset-bg-primary scale-105' : ''
                 }`}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
@@ -413,7 +413,7 @@ export default function PresetEditorPage() {
               </motion.div>
 
               <div className="space-y-2">
-                <label className="text-sm text-white/60 flex items-center gap-2">
+                <label className="text-sm text-text-tertiary flex items-center gap-2">
                   <ImageIcon className="w-4 h-4" />
                   预览图片
                 </label>
@@ -432,7 +432,7 @@ export default function PresetEditorPage() {
                       reader.readAsDataURL(file);
                     }
                   }}
-                  className="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/40 focus:outline-none focus:border-oppo-orange/50 text-sm file:mr-4 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-sm file:bg-oppo-orange file:text-oppo-black file:cursor-pointer hover:file:bg-oppo-orange/80 transition-colors"
+                  className="w-full px-4 py-2 bg-bg-tertiary border border-border-default rounded-lg text-text-primary placeholder-text-tertiary focus:outline-none focus:border-oppo-orange focus:ring-2 focus:ring-oppo-orange/20 text-sm file:mr-4 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-sm file:bg-oppo-orange file:text-oppo-black file:cursor-pointer hover:file:bg-oppo-orange/80 transition-colors"
                 />
               </div>
 
@@ -469,7 +469,7 @@ export default function PresetEditorPage() {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.2 }}
-              className="card p-6"
+              className="card-elevated p-6"
             >
               <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
                 <Sliders className="w-5 h-5 text-oppo-orange" />
@@ -477,7 +477,7 @@ export default function PresetEditorPage() {
               </h2>
 
               <div className="mb-6">
-                <label className="block text-sm font-medium text-white/70 mb-3">滤镜风格</label>
+                <label className="block text-sm font-medium text-text-secondary mb-3">滤镜风格</label>
                 <div className="flex flex-wrap gap-2">
                   {filterOptions.map((filter, index) => (
                     <motion.button
@@ -494,7 +494,7 @@ export default function PresetEditorPage() {
                       className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
                         params.filter === filter
                           ? 'bg-oppo-orange text-oppo-black shadow-lg shadow-oppo-orange/30'
-                          : 'bg-white/10 hover:bg-white/20 text-white'
+                          : 'bg-white/10 hover:bg-white/20 text-text-primary'
                       }`}
                     >
                       {filter}
@@ -517,12 +517,12 @@ export default function PresetEditorPage() {
                     transition={{ delay: 0.1 }}
                   >
                     <div className="flex justify-between mb-2">
-                      <label className="text-sm font-medium">{label}</label>
+                      <label className="text-sm font-medium text-text-secondary">{label}</label>
                       <motion.span
                         key={params[key]}
                         initial={{ scale: 1.2, color: '#F59E0B' }}
                         animate={{ scale: 1, color: 'rgba(255,255,255,0.6)' }}
-                        className="text-sm text-white/60"
+                        className="text-sm text-text-tertiary"
                       >
                         {params[key] > 0 ? '+' : ''}{params[key]}{suffix}
                       </motion.span>
@@ -547,7 +547,7 @@ export default function PresetEditorPage() {
                   transition={{ delay: 0.1 }}
                 >
                   <div className="flex justify-between mb-2">
-                    <label className="text-sm font-medium">冷暖调</label>
+                    <label className="text-sm font-medium text-text-secondary">冷暖调</label>
                     <motion.span
                       key={params.warmCool}
                       initial={{ scale: 1.2 }}
@@ -579,7 +579,7 @@ export default function PresetEditorPage() {
                   transition={{ delay: 0.2 }}
                   className="flex items-center justify-between"
                 >
-                  <label className="text-sm font-medium">暗角效果</label>
+                  <label className="text-sm font-medium text-text-secondary">暗角效果</label>
                   <motion.button
                     whileTap={{ scale: 0.95 }}
                     onClick={() => {
@@ -630,7 +630,7 @@ export default function PresetEditorPage() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.3 }}
-              className="card p-6"
+              className="card-elevated p-6"
             >
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-bold flex items-center gap-2">
@@ -664,7 +664,7 @@ export default function PresetEditorPage() {
                     </motion.div>
                     <div className="flex-1 min-w-0">
                       <h3 className="font-medium truncate">{preset.name}</h3>
-                      <p className="text-xs text-white/50">@{preset.author}</p>
+                      <p className="text-xs text-text-tertiary">@{preset.author}</p>
                       <div className="flex gap-2 mt-1">
                         {preset.tags.slice(0, 2).map(tag => (
                           <span key={tag} className="text-xs px-2 py-0.5 bg-white/10 rounded-full">
@@ -673,7 +673,7 @@ export default function PresetEditorPage() {
                         ))}
                       </div>
                     </div>
-                    <div className="text-right text-xs text-white/50">
+                    <div className="text-right text-xs text-text-tertiary">
                       <div>{preset.downloads.toLocaleString()} 下载</div>
                       <div className="flex items-center justify-end gap-1">
                         <Trophy className="w-3 h-3 text-yellow-500" />
@@ -690,7 +690,7 @@ export default function PresetEditorPage() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.4 }}
-                className="card p-6"
+                className="card-elevated p-6"
               >
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-lg font-bold flex items-center gap-2">
@@ -740,7 +740,7 @@ export default function PresetEditorPage() {
                     >
                       <div className="flex-1">
                         <h3 className="font-medium text-sm">{preset.name}</h3>
-                        <p className="text-xs text-white/50">
+                        <p className="text-xs text-text-tertiary">
                           {preset.filter} | 饱和{preset.saturation} | 对比{preset.contrast}
                         </p>
                       </div>
@@ -792,13 +792,13 @@ export default function PresetEditorPage() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.5 }}
-              className="card p-6 bg-gradient-to-br from-oppo-orange/10 to-transparent"
+              className="card-elevated p-6 bg-gradient-to-br from-oppo-orange/10 to-transparent"
             >
               <h2 className="text-lg font-bold mb-3 flex items-center gap-2">
                 <span className="text-2xl">💡</span>
                 <span>使用技巧</span>
               </h2>
-              <ul className="space-y-2 text-sm text-white/70">
+              <ul className="space-y-2 text-sm text-text-secondary">
                 <li className="flex items-start gap-2">
                   <CheckCircle2 className="w-4 h-4 text-oppo-orange mt-0.5 flex-shrink-0" />
                   <span>调整参数时观察左侧预览效果，实时同步</span>
@@ -841,22 +841,22 @@ export default function PresetEditorPage() {
               exit={{ scale: 0.9, opacity: 0 }}
               transition={{ type: 'spring', stiffness: 300, damping: 25 }}
               onClick={(e) => e.stopPropagation()}
-              className="card p-6 max-w-md w-full"
+              className="card-elevated p-6 max-w-md w-full"
             >
               <h3 className="text-xl font-bold mb-4">保存预设</h3>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-white/70 mb-2">预设名称</label>
+                  <label className="block text-sm font-medium text-text-secondary mb-2">预设名称</label>
                   <input
                     type="text"
                     value={params.name}
                     onChange={(e) => updateParam('name', e.target.value)}
-                    className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-oppo-orange/50"
+                    className="w-full px-4 py-3 bg-bg-tertiary border border-border-default rounded-xl text-text-primary placeholder-text-tertiary focus:outline-none focus:border-oppo-orange/50"
                     placeholder="输入预设名称"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-white/70 mb-2 flex items-center gap-2">
+                  <label className="block text-sm font-medium text-text-secondary mb-2 flex items-center gap-2">
                     <Tags className="w-4 h-4" />
                     添加标签
                   </label>
@@ -917,17 +917,17 @@ export default function PresetEditorPage() {
               exit={{ scale: 0.9, opacity: 0 }}
               transition={{ type: 'spring', stiffness: 300, damping: 25 }}
               onClick={(e) => e.stopPropagation()}
-              className="card p-6 max-w-md w-full"
+              className="card-elevated p-6 max-w-md w-full"
             >
               <h3 className="text-xl font-bold mb-4">重命名预设</h3>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-white/70 mb-2">新名称</label>
+                  <label className="block text-sm font-medium text-text-secondary mb-2">新名称</label>
                   <input
                     type="text"
                     value={newPresetName}
                     onChange={(e) => setNewPresetName(e.target.value)}
-                    className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-oppo-orange/50"
+                    className="w-full px-4 py-3 bg-bg-tertiary border border-border-default rounded-xl text-text-primary placeholder-text-tertiary focus:outline-none focus:border-oppo-orange/50"
                     placeholder="输入新名称"
                   />
                 </div>
@@ -971,7 +971,7 @@ export default function PresetEditorPage() {
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
               transition={{ type: 'spring', stiffness: 300, damping: 25 }}
               onClick={(e) => e.stopPropagation()}
-              className="card p-6 max-w-sm w-full"
+              className="card-elevated p-6 max-w-sm w-full"
             >
               <h3 className="text-xl font-bold mb-4">排序方式</h3>
               <div className="space-y-2">
@@ -1027,11 +1027,11 @@ export default function PresetEditorPage() {
               exit={{ scale: 0.9, opacity: 0 }}
               transition={{ type: 'spring', stiffness: 300, damping: 25 }}
               onClick={(e) => e.stopPropagation()}
-              className="card p-6 max-w-md w-full"
+              className="card-elevated p-6 max-w-md w-full"
             >
               <h3 className="text-xl font-bold mb-4">导入预设</h3>
               <div className="space-y-4">
-                <div className="border-2 border-dashed border-white/20 rounded-xl p-8 text-center hover:border-oppo-orange/50 transition-colors">
+                <div className="border-2 border-dashed border-border-default rounded-xl p-8 text-center hover:border-oppo-orange/50 transition-colors">
                   <input
                     type="file"
                     accept=".json"
@@ -1043,9 +1043,9 @@ export default function PresetEditorPage() {
                     id="import-file"
                   />
                   <label htmlFor="import-file" className="cursor-pointer">
-                    <Upload className="w-12 h-12 mx-auto mb-3 text-white/50" />
-                    <p className="text-white/70">点击选择JSON文件</p>
-                    <p className="text-xs text-white/50 mt-1">支持批量导入预设</p>
+                    <Upload className="w-12 h-12 mx-auto mb-3 text-text-tertiary" />
+                    <p className="text-text-secondary">点击选择JSON文件</p>
+                    <p className="text-xs text-text-tertiary mt-1">支持批量导入预设</p>
                   </label>
                 </div>
                 <motion.button
@@ -1078,7 +1078,7 @@ export default function PresetEditorPage() {
               exit={{ scale: 0.9, opacity: 0 }}
               transition={{ type: 'spring', stiffness: 300, damping: 25 }}
               onClick={(e) => e.stopPropagation()}
-              className="card p-6 max-w-md w-full"
+              className="card-elevated p-6 max-w-md w-full"
             >
               {contributeStep === 1 ? (
                 <>
@@ -1088,27 +1088,27 @@ export default function PresetEditorPage() {
                   </h3>
                   <div className="space-y-4">
                     <div>
-                      <label className="block text-sm font-medium text-white/70 mb-2">预设名称</label>
+                      <label className="block text-sm font-medium text-text-secondary mb-2">预设名称</label>
                       <input
                         type="text"
                         value={params.name}
                         onChange={(e) => updateParam('name', e.target.value)}
-                        className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-oppo-orange/50"
+                        className="w-full px-4 py-3 bg-bg-tertiary border border-border-default rounded-xl text-text-primary placeholder-text-tertiary focus:outline-none focus:border-oppo-orange/50"
                         placeholder="输入预设名称"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-white/70 mb-2">预设描述</label>
+                      <label className="block text-sm font-medium text-text-secondary mb-2">预设描述</label>
                       <textarea
                         value={params.description}
                         onChange={(e) => updateParam('description', e.target.value)}
-                        className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-oppo-orange/50 resize-none"
+                        className="w-full px-4 py-3 bg-bg-tertiary border border-border-default rounded-xl text-text-primary placeholder-text-tertiary focus:outline-none focus:border-oppo-orange/50 resize-none"
                         rows={3}
                         placeholder="描述这个预设的特点和适用场景"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-white/70 mb-2 flex items-center gap-2">
+                      <label className="block text-sm font-medium text-text-secondary mb-2 flex items-center gap-2">
                         <Tags className="w-4 h-4" />
                         选择标签
                       </label>
@@ -1161,14 +1161,14 @@ export default function PresetEditorPage() {
                       <CheckCircle2 className="w-8 h-8 text-green-500" />
                     </motion.div>
                     <h3 className="text-xl font-bold mb-2">提交成功！</h3>
-                    <p className="text-white/60 mb-6">
+                    <p className="text-text-tertiary mb-6">
                       您的预设已提交到社区审核，审核通过后将会展示给所有用户
                     </p>
                     <div className="p-4 bg-white/5 rounded-xl text-left mb-6">
                       <h4 className="font-medium mb-2">提交信息</h4>
-                      <p className="text-sm text-white/60">预设名称: {params.name}</p>
-                      <p className="text-sm text-white/60">标签: {selectedTags.join(', ') || '无'}</p>
-                      <p className="text-sm text-white/60">状态: 审核中</p>
+                      <p className="text-sm text-text-tertiary">预设名称: {params.name}</p>
+                      <p className="text-sm text-text-tertiary">标签: {selectedTags.join(', ') || '无'}</p>
+                      <p className="text-sm text-text-tertiary">状态: 审核中</p>
                     </div>
                     <motion.button
                       whileHover={{ scale: 1.02 }}
