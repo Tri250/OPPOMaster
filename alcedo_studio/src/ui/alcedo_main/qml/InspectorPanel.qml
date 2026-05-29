@@ -130,7 +130,7 @@ ScrollView {
 
             Item {
                 Layout.fillWidth: true
-                visible: albumBackend.activeSearchQuery.length > 0
+                visible: albumBackend.searchController.activeSearchQuery.length > 0
                 implicitHeight: searchFilterCard.implicitHeight
 
                 ColumnLayout {
@@ -186,7 +186,7 @@ ScrollView {
 
                                 Label {
                                     Layout.fillWidth: true
-                                    text: albumBackend.activeSearchQuery
+                                    text: albumBackend.searchController.activeSearchQuery
                                     color: root.mutedTextColor
                                     font.family: appTheme.dataFontFamily
                                     font.pixelSize: 11
@@ -202,7 +202,7 @@ ScrollView {
                                 text: "\u00d7"
                                 font.pixelSize: 18
                                 font.weight: 400
-                                onClicked: albumBackend.ClearFuzzySearch()
+                                onClicked: albumBackend.searchController.ClearFuzzySearch()
                                 background: Rectangle {
                                     radius: 6
                                     color: clearSearchButton.down

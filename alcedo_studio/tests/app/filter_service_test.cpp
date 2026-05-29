@@ -356,6 +356,64 @@ TEST_F(FilterServiceTests, FuzzySearchMatchesMetadataFilenamePathAndDatesWithWid
   expect_only(L"Nikon 2025", city_id);
 }
 
+TEST_F(FilterServiceTests, FuzzySearchMatchesSeparatorFoldedPhotoTerms) {
+  ProjectService project(db_path_, meta_path_);
+  const auto     target_id = CreateSyntheticFile(
+      project,
+      SyntheticFileSpec{.file_name_    = L"DSC_01523-X-T5.RAF",
+                        .image_path_   = std::filesystem::path{L"D:/archive/fuji/DSC_01523-X-T5.RAF"},
+                        .make_         = "FUJIFILM",
+                        .camera_model_ = "FUJIFILM X-T5",
+                        .lens_         = "XF 23mm F/1.4 R LM WR",
+                        .lens_make_    = "FUJIFILM",
+                        .date_time_    = "2026-05-29 11:22:33",
+                        .rating_       = 5,
+                        .iso_          = 125,
+                        .aperture_     = 1.4f,
+                        .focal_        = 23.0f});
+  const auto     decoy_id = CreateSyntheticFile(
+      project,
+      SyntheticFileSpec{.file_name_    = L"DSC_01524-X-T5.RAF",
+                        .image_path_   = std::filesystem::path{L"D:/archive/fuji/DSC_01524-X-T5.RAF"},
+                        .make_         = "FUJIFILM",
+                        .camera_model_ = "FUJIFILM X-T5",
+                        .lens_         = "XF 35mm F/2 R WR",
+                        .lens_make_    = "FUJIFILM",
+                        .date_time_    = "2026-05-30 11:22:33",
+                        .rating_       = 3,
+                        .iso_          = 200,
+                        .aperture_     = 2.0f,
+                        .focal_        = 35.0f});
+  ASSERT_NE(target_id, 0u);
+  ASSERT_NE(decoy_id, 0u);
+
+  SleeveFilterService filter_service(project.GetStorageService());
+
+  const auto          expect_only_target = [&](const std::wstring& query) {
+    const auto rows = filter_service.SearchFolder(0, query, 0, 10);
+    ASSERT_EQ(rows.size(), 1u) << conv::ToBytes(query);
+    EXPECT_EQ(rows.front().file_id_, target_id);
+    EXPECT_EQ(filter_service.CountSearchResults(0, query), 1u);
+  };
+
+  expect_only_target(L"DSC_01523-X-T5");
+  expect_only_target(L"xt5 23mmf14");
+  expect_only_target(L"xf23mmf14rlmwr");
+}
+
+TEST_F(FilterServiceTests, FuzzySearchMatchesRealImportedRawFilenameWithoutSeparators) {
+  ProjectService project(db_path_, meta_path_);
+  const uint32_t imported = LoadBatchToRoot(project);
+  ASSERT_GT(imported, 0u);
+
+  SleeveFilterService filter_service(project.GetStorageService());
+  const auto          rows = filter_service.SearchFolder(0, L"_DSC2296ARW", 0, 10);
+
+  ASSERT_EQ(rows.size(), 1u);
+  EXPECT_EQ(rows.front().file_name_, "_DSC2296.ARW");
+  EXPECT_EQ(filter_service.CountSearchResults(0, L"_DSC2296ARW"), 1u);
+}
+
 TEST_F(FilterServiceTests, FuzzySearchEscapesSqlLikeWildcardsAndQuotesInWideInput) {
   ProjectService project(db_path_, meta_path_);
   const auto     literal_id = CreateSyntheticFile(
@@ -386,7 +444,7 @@ TEST_F(FilterServiceTests, FuzzySearchEscapesSqlLikeWildcardsAndQuotesInWideInpu
   };
 
   expect_only_literal(L"100%_");
-  expect_only_literal(L"%_");
+  expect_only_literal(L"100%_\u62A5\u4EF7");
   expect_only_literal(L"\u62A5\u4EF7'\u9EC4\u5C71");
 }
 

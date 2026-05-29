@@ -48,6 +48,7 @@ constexpr auto   kAcceleratorBackendKey             = "gpu/acceleratorBackend";
 constexpr auto   kAcceleratorWarningAcknowledgedKey = "gpu/acceleratorWarningAcknowledged";
 constexpr int    kMaxRecentProjects                 = 12;
 constexpr size_t kAlbumMetadataPageSize             = 1000;
+constexpr size_t kSearchMetadataPageSize            = 120;
 
 auto FormatCacheSize(size_t bytes) -> QString {
   if (bytes == 0) {
@@ -186,32 +187,6 @@ auto IsHdrExportEotf(const ColorUtils::EOTF eotf) -> bool {
   return eotf == ColorUtils::EOTF::ST2084 || eotf == ColorUtils::EOTF::HLG;
 }
 
-auto CurrentExceptionText(const char* fallback) -> QString {
-  try {
-    throw;
-  } catch (const std::exception& e) {
-    return QString::fromUtf8(e.what());
-  } catch (...) {
-    return QString::fromUtf8(fallback);
-  }
-}
-
-auto SearchCategoryLabel(const std::string& category) -> QString {
-  if (category == "camera") {
-    return Tr("Camera");
-  }
-  if (category == "date") {
-    return Tr("Date");
-  }
-  if (category == "lens") {
-    return Tr("Lens");
-  }
-  if (category == "rating") {
-    return Tr("Rating");
-  }
-  return Tr("Metadata");
-}
-
 auto NormalizeRecentProjectPath(const std::filesystem::path& projectPath) -> QString {
   if (projectPath.empty()) {
     return {};
@@ -249,6 +224,7 @@ AlbumBackend::AlbumBackend(QObject* parent)
       folder_ctrl_(*this),
       image_ctrl_(*this),
       stats_(*this),
+      search_(*this),
       import_export_(*this),
       nikon_he_recovery_(*this),
       editor_(*this) {
@@ -266,6 +242,7 @@ AlbumBackend::AlbumBackend(QObject* parent)
 
 AlbumBackend::~AlbumBackend() {
   try {
+    search_.CancelSearchPreviewThumbnails();
     thumb_.ReleaseVisibleThumbnailPins();
     editor_.FinalizeEditorSession(true);
     auto job = import_export_.current_import_job();
@@ -367,340 +344,6 @@ void AlbumBackend::ClearStatsFilter() {
   stats_.ClearFilters();
   stats_.RebuildThumbnailView();
   emit StatsFilterChanged();
-}
-
-auto AlbumBackend::SearchRecommendations(int limit) -> QVariantList {
-  QVariantList rows;
-  if (limit <= 0) {
-    return rows;
-  }
-
-  auto proj = project_handler_.project();
-  if (!proj) {
-    return rows;
-  }
-  auto filter_service = proj->GetSleeveFilterService();
-  if (!filter_service) {
-    return rows;
-  }
-  const auto folder_id = folder_ctrl_.CurrentFolderElementId();
-  if (!folder_id.has_value()) {
-    return rows;
-  }
-
-  try {
-    const auto suggestions =
-        filter_service->BuildSearchSuggestions(folder_id.value(), static_cast<size_t>(limit));
-    rows.reserve(static_cast<qsizetype>(suggestions.size()));
-    for (const auto& suggestion : suggestions) {
-      rows.push_back(QVariantMap{{"category", QString::fromUtf8(suggestion.category_.c_str())},
-                                 {"categoryLabel", SearchCategoryLabel(suggestion.category_)},
-                                 {"label", QString::fromUtf8(suggestion.label_.c_str())},
-                                 {"query", QString::fromUtf8(suggestion.query_.c_str())},
-                                 {"count", suggestion.count_}});
-    }
-  } catch (...) {
-  }
-  return rows;
-}
-
-auto AlbumBackend::SearchPreview(const QString& query, int limit) -> QVariantList {
-  QVariantList  rows;
-  const QString trimmed = query.trimmed();
-  if (trimmed.isEmpty() || limit <= 0) {
-    return rows;
-  }
-
-  auto proj = project_handler_.project();
-  if (!proj) {
-    return rows;
-  }
-  auto filter_service = proj->GetSleeveFilterService();
-  if (!filter_service) {
-    return rows;
-  }
-  const auto folder_id = folder_ctrl_.CurrentFolderElementId();
-  if (!folder_id.has_value()) {
-    return rows;
-  }
-
-  try {
-    const auto matches = filter_service->SearchFolder(folder_id.value(), trimmed.toStdWString(), 0,
-                                                      static_cast<size_t>(limit));
-    rows.reserve(static_cast<qsizetype>(matches.size()));
-    for (const auto& match : matches) {
-      QVariantMap row{{"elementId", static_cast<uint>(match.file_id_)},
-                      {"fileId", static_cast<uint>(match.file_id_)},
-                      {"imageId", static_cast<uint>(match.image_id_)},
-                      {"fileName", QString::fromUtf8(match.file_name_.c_str())},
-                      {"cameraModel", PL_TEXT("Unknown").Render()},
-                      {"lens", QString{}},
-                      {"captureDate", QStringLiteral("--")},
-                      {"rating", 0},
-                      {"thumbUrl", QString{}},
-                      {"thumbLoading", false},
-                      {"thumbMissingSource", false},
-                      {"thumbErrorText", QString{}}};
-
-      if (const auto* item = FindAlbumItem(match.file_id_); item != nullptr) {
-        row["thumbUrl"]           = item->thumb_data_url;
-        row["thumbLoading"]       = item->thumb_loading;
-        row["thumbMissingSource"] = item->thumb_missing_source;
-        row["thumbErrorText"]     = item->thumb_error_text;
-      }
-
-      try {
-        proj->GetImagePoolService()->Read<void>(
-            match.image_id_, [&row](std::shared_ptr<Image> image) {
-              if (!image) {
-                return;
-              }
-              if (!image->image_name_.empty()) {
-                row["fileName"] = album_util::WStringToQString(image->image_name_);
-              }
-              const auto& exif = image->exif_display_;
-              if (!exif.model_.empty()) {
-                row["cameraModel"] = QString::fromUtf8(exif.model_.c_str());
-              }
-              row["lens"]              = QString::fromUtf8(exif.lens_.c_str());
-              const QDate capture_date = album_util::DateFromExifString(exif.date_time_str_);
-              if (capture_date.isValid()) {
-                row["captureDate"] = capture_date.toString(QStringLiteral("yyyy-MM-dd"));
-              }
-              row["rating"] = exif.rating_;
-            });
-      } catch (...) {
-      }
-
-      rows.push_back(std::move(row));
-    }
-  } catch (...) {
-  }
-  return rows;
-}
-
-void AlbumBackend::ApplyFuzzySearch(const QString& query) {
-  const QString trimmed = query.trimmed();
-  if (trimmed.isEmpty()) {
-    ClearFuzzySearch();
-    return;
-  }
-
-  auto proj = project_handler_.project();
-  if (!proj) {
-    return;
-  }
-  auto filter_service = proj->GetSleeveFilterService();
-  if (!filter_service) {
-    return;
-  }
-
-  auto where = filter_service->BuildFuzzySearchWhere(trimmed.toStdWString());
-  if (!where.has_value()) {
-    ClearFuzzySearch();
-    return;
-  }
-
-  active_search_query_        = trimmed;
-  active_search_filter_where_ = std::move(where);
-  stats_.ClearFilters();
-  stats_.RebuildThumbnailView();
-  stats_.RefreshStats();
-  emit StatsFilterChanged();
-  emit SearchStateChanged();
-}
-
-void AlbumBackend::ApplyExactSearch(uint elementId) {
-  if (elementId == 0) {
-    return;
-  }
-
-  auto proj = project_handler_.project();
-  if (!proj) {
-    return;
-  }
-  auto filter_service = proj->GetSleeveFilterService();
-  if (!filter_service) {
-    return;
-  }
-
-  active_search_query_ =
-      PL_TEXT("Image %1", QString::number(static_cast<qulonglong>(elementId))).Render();
-  active_search_filter_where_ =
-      filter_service->BuildExactFileWhere(static_cast<sl_element_id_t>(elementId));
-  stats_.ClearFilters();
-  stats_.RebuildThumbnailView();
-  stats_.RefreshStats();
-  emit StatsFilterChanged();
-  emit SearchStateChanged();
-}
-
-void AlbumBackend::ClearFuzzySearch() {
-  if (active_search_query_.isEmpty() && !active_search_filter_where_.has_value()) {
-    return;
-  }
-  ClearSearchState(true);
-  stats_.RebuildThumbnailView();
-  stats_.RefreshStats();
-}
-
-void AlbumBackend::RequestSearchPreviewThumbnail(uint elementId, uint imageId, uint maxEdge) {
-  if (elementId == 0 || imageId == 0) {
-    return;
-  }
-
-  auto thumb_svc = project_handler_.thumbnail_service();
-  if (!thumb_svc) {
-    return;
-  }
-
-  const auto              resolution = maxEdge <= 256   ? ThumbnailResolution::k256
-                                       : maxEdge <= 512 ? ThumbnailResolution::k512
-                                                        : ThumbnailResolution::k1024;
-  const ThumbnailCacheKey key{static_cast<sl_element_id_t>(elementId), resolution};
-  const auto              request_generation = search_preview_generation_;
-
-  if (const auto* item = FindAlbumItem(static_cast<sl_element_id_t>(elementId));
-      item != nullptr && !item->thumb_data_url.isEmpty()) {
-    emit SearchPreviewThumbnailUpdated(elementId, item->thumb_data_url, false,
-                                       item->thumb_missing_source, item->thumb_error_text);
-    return;
-  }
-
-  if (!search_preview_thumbnail_keys_.insert(key).second) {
-    return;
-  }
-
-  emit               SearchPreviewThumbnailUpdated(elementId, QString{}, true, false, QString{});
-
-  CallbackDispatcher dispatcher = [](std::function<void()> fn) {
-    auto* app = QCoreApplication::instance();
-    if (!app) {
-      fn();
-      return;
-    }
-    QMetaObject::invokeMethod(app, std::move(fn), Qt::QueuedConnection);
-  };
-
-  QPointer<AlbumBackend> self(this);
-  try {
-    thumb_svc->GetThumbnailDetailed(
-        static_cast<sl_element_id_t>(elementId), static_cast<image_id_t>(imageId),
-        [self, service = thumb_svc, elementId, maxEdge, key,
-         request_generation](ThumbnailRequestResult result) {
-          auto release_thumbnail = [&]() {
-            if (service) {
-              try {
-                service->ReleaseThumbnail(key);
-              } catch (...) {
-              }
-            }
-          };
-
-          if (!self) {
-            release_thumbnail();
-            return;
-          }
-          if (self->search_preview_generation_ != request_generation) {
-            return;
-          }
-          if (result.status != ThumbnailRequestStatus::kReady || !result.guard ||
-              !result.guard->thumbnail_buffer_) {
-            self->search_preview_thumbnail_keys_.erase(key);
-            emit self->SearchPreviewThumbnailUpdated(
-                elementId, QString{}, false, false,
-                result.message.empty() ? QObject::tr("Thumbnail render returned no image.")
-                                       : QString::fromUtf8(result.message));
-            release_thumbnail();
-            return;
-          }
-
-          std::thread([self, service, elementId, maxEdge, key, request_generation,
-                       guard = std::move(result.guard)]() mutable {
-            QString data_url;
-            QString error_text;
-            try {
-              auto* buffer = guard->thumbnail_buffer_.get();
-              if (buffer && !buffer->cpu_data_valid_ && buffer->gpu_data_valid_) {
-                buffer->SyncToCPU();
-              }
-              if (buffer && buffer->cpu_data_valid_) {
-                QImage image = album_util::MatRgba32fToQImageCopy(buffer->GetCPUData());
-                if (!image.isNull()) {
-                  const int edge = static_cast<int>(std::max<uint>(1, maxEdge));
-                  data_url       = album_util::DataUrlFromImage(
-                      image.scaled(edge, edge, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-                }
-              }
-              if (data_url.isEmpty()) {
-                error_text = QObject::tr("Thumbnail conversion produced no image.");
-              }
-            } catch (...) {
-              error_text = CurrentExceptionText("Unknown thumbnail conversion error.");
-            }
-
-            if (self) {
-              QMetaObject::invokeMethod(
-                  self,
-                  [self, service, elementId, key, request_generation, data_url, error_text]() {
-                    if (!self) {
-                      if (service) {
-                        try {
-                          service->ReleaseThumbnail(key);
-                        } catch (...) {
-                        }
-                      }
-                      return;
-                    }
-                    if (self->search_preview_generation_ != request_generation) {
-                      return;
-                    }
-                    emit self->SearchPreviewThumbnailUpdated(elementId, data_url, false, false,
-                                                             error_text);
-                    if (data_url.isEmpty() && service) {
-                      self->search_preview_thumbnail_keys_.erase(key);
-                      try {
-                        service->ReleaseThumbnail(key);
-                      } catch (...) {
-                      }
-                    }
-                  },
-                  Qt::QueuedConnection);
-            } else if (service) {
-              try {
-                service->ReleaseThumbnail(key);
-              } catch (...) {
-              }
-            }
-          }).detach();
-        },
-        true, dispatcher, resolution);
-  } catch (...) {
-    search_preview_thumbnail_keys_.erase(key);
-    emit SearchPreviewThumbnailUpdated(elementId, QString{}, false, false,
-                                       CurrentExceptionText("Unknown thumbnail request error."));
-  }
-}
-
-void AlbumBackend::CancelSearchPreviewThumbnails() {
-  ++search_preview_generation_;
-  if (search_preview_thumbnail_keys_.empty()) {
-    return;
-  }
-
-  auto       thumb_svc = project_handler_.thumbnail_service();
-  const auto keys      = search_preview_thumbnail_keys_;
-  search_preview_thumbnail_keys_.clear();
-  if (!thumb_svc) {
-    return;
-  }
-
-  for (const auto& key : keys) {
-    try {
-      thumb_svc->ReleaseThumbnail(key);
-    } catch (...) {
-    }
-  }
 }
 
 // ── Q_INVOKABLE: Import / export delegation ─────────────────────────────────
@@ -1438,8 +1081,10 @@ bool AlbumBackend::LoadThumbnailWindow(const std::optional<std::wstring>& filter
     return false;
   }
 
-  const auto files = browse->ListFilesInFolderById(folder_id, oldSize, kAlbumMetadataPageSize,
-                                                   effective_filter_where);
+  const auto page_size = search_.HasActiveSearchFilter() ? kSearchMetadataPageSize
+                                                         : kAlbumMetadataPageSize;
+  const auto files =
+      browse->ListFilesInFolderById(folder_id, oldSize, page_size, effective_filter_where);
   for (const auto& file : files) {
     const auto file_path =
         file.file_path_.empty() ? folder_path / file.file_name_ : file.file_path_;
@@ -1472,21 +1117,14 @@ bool AlbumBackend::LoadThumbnailWindow(const std::optional<std::wstring>& filter
 
 auto AlbumBackend::EffectiveFilterWhere(const std::optional<std::wstring>& filterWhere) const
     -> std::optional<std::wstring> {
-  if (!active_search_filter_where_.has_value() || active_search_filter_where_->empty()) {
+  const auto& active_search_filter_where = search_.ActiveSearchFilterWhere();
+  if (!active_search_filter_where.has_value() || active_search_filter_where->empty()) {
     return filterWhere;
   }
   if (!filterWhere.has_value() || filterWhere->empty()) {
-    return active_search_filter_where_;
+    return active_search_filter_where;
   }
-  return L"(" + *filterWhere + L") AND (" + *active_search_filter_where_ + L")";
-}
-
-void AlbumBackend::ClearSearchState(bool emitSignal) {
-  active_search_query_.clear();
-  active_search_filter_where_.reset();
-  if (emitSignal) {
-    emit SearchStateChanged();
-  }
+  return L"(" + *filterWhere + L") AND (" + *active_search_filter_where + L")";
 }
 
 void AlbumBackend::AddOrUpdateAlbumItem(sl_element_id_t elementId, image_id_t imageId,

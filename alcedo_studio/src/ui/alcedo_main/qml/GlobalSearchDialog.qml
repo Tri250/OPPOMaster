@@ -9,11 +9,22 @@ Dialog {
     font.family: appTheme.uiFontFamily
 
     property var backend
+    readonly property var searchController: backend ? backend.searchController : null
     property var theme
     property var recommendations: []
     property var results: []
     property var previewThumbs: ({})
     property string lastQuery: ""
+    property int resultPageSize: 24
+    property int resultWindowCapacity: 48
+    property int resultWindowStart: 0
+    property int lastWindowDropCount: 0
+    property int lastWindowPrependCount: 0
+    property int searchOffset: 0
+    property int searchTotal: 0
+    property bool searchHasMore: false
+    property bool searchHasPrevious: false
+    property bool searchLoading: false
     property Item blurSource: null
     property real cornerRadius: 0
 
@@ -58,11 +69,12 @@ Dialog {
 
     function resetPreviewState() {
         previewTimer.stop()
-        thumbnailTimer.stop()
-        if (backend) {
-            backend.CancelSearchPreviewThumbnails()
+        if (searchController) {
+            searchController.CancelSearchPreviewThumbnails()
         }
         previewThumbs = ({})
+        lastWindowDropCount = 0
+        lastWindowPrependCount = 0
     }
 
     function openFromCollection() {
@@ -70,77 +82,211 @@ Dialog {
         lastQuery = ""
         searchField.text = ""
         results = []
-        recommendations = backend ? backend.SearchRecommendations(12) : []
+        resultWindowStart = 0
+        lastWindowDropCount = 0
+        searchOffset = 0
+        searchTotal = 0
+        searchHasMore = false
+        searchHasPrevious = false
+        searchLoading = false
+        recommendations = searchController ? searchController.SearchRecommendations(12) : []
         open()
         Qt.callLater(function() { searchField.forceActiveFocus() })
     }
 
+    function visibleResultContains(elementId) {
+        const target = Number(elementId)
+        for (let i = 0; i < results.length; ++i) {
+            const row = results[i]
+            if (row && Number(row.elementId) === target) {
+                return true
+            }
+        }
+        return false
+    }
+
+    function prunePreviewThumbs() {
+        const visibleKeys = ({})
+        for (let i = 0; i < results.length; ++i) {
+            const row = results[i]
+            if (row && Number(row.elementId) > 0) {
+                visibleKeys[String(Number(row.elementId))] = true
+            }
+        }
+
+        const next = ({})
+        const keys = Object.keys(previewThumbs)
+        for (let i = 0; i < keys.length; ++i) {
+            const key = keys[i]
+            if (visibleKeys[key] === true) {
+                next[key] = previewThumbs[key]
+            }
+        }
+        previewThumbs = next
+    }
+
+    function readPreviewResponse(response, mode) {
+        const rows = response && response.rows ? response.rows : []
+        lastWindowDropCount = 0
+        lastWindowPrependCount = 0
+        if (mode === "replace") {
+            if (rows.length > resultWindowCapacity) {
+                const dropCount = rows.length - resultWindowCapacity
+                results = rows.slice(dropCount)
+                resultWindowStart = (response && response.offset !== undefined
+                                     ? Number(response.offset) : 0) + dropCount
+                lastWindowDropCount = dropCount
+            } else {
+                results = rows
+                resultWindowStart = response && response.offset !== undefined ? Number(response.offset) : 0
+            }
+        } else if (mode === "append") {
+            let nextRows = results.concat(rows)
+            if (nextRows.length > resultWindowCapacity) {
+                const dropCount = nextRows.length - resultWindowCapacity
+                nextRows = nextRows.slice(dropCount)
+                resultWindowStart += dropCount
+                lastWindowDropCount = dropCount
+            }
+            results = nextRows
+        } else if (mode === "prepend") {
+            let nextRows = rows.concat(results)
+            resultWindowStart = response && response.offset !== undefined ? Number(response.offset) : 0
+            lastWindowPrependCount = rows.length
+            if (nextRows.length > resultWindowCapacity) {
+                nextRows = nextRows.slice(0, resultWindowCapacity)
+            }
+            results = nextRows
+        }
+        prunePreviewThumbs()
+        searchOffset = resultWindowStart + results.length
+        searchTotal = response && response.total !== undefined ? Number(response.total) : results.length
+        searchHasPrevious = resultWindowStart > 0
+        searchHasMore = searchOffset < searchTotal
+    }
+
+    function resultCountText() {
+        if (searchTotal <= 0) {
+            return qsTr("%1 matches").arg(results.length)
+        }
+        if (results.length === 0) {
+            return qsTr("0 of %1 matches").arg(searchTotal)
+        }
+        const first = resultWindowStart + 1
+        const last = resultWindowStart + results.length
+        return qsTr("%1-%2 of %3 matches").arg(first).arg(last).arg(searchTotal)
+    }
+
     function refreshPreview() {
-        if (!backend) {
+        if (!searchController) {
             return
         }
         const query = searchField.text.trim()
         lastQuery = query
-        backend.CancelSearchPreviewThumbnails()
+        searchController.CancelSearchPreviewThumbnails()
         previewThumbs = ({})
+        resultWindowStart = 0
+        lastWindowDropCount = 0
+        lastWindowPrependCount = 0
+        searchOffset = 0
+        searchTotal = 0
+        searchHasMore = false
+        searchHasPrevious = false
         if (query.length === 0) {
             results = []
-            recommendations = backend.SearchRecommendations(12)
+            recommendations = searchController.SearchRecommendations(12)
             return
         }
-        results = backend.SearchPreview(query, 24)
-        thumbnailTimer.restart()
+        searchLoading = true
+        const response = searchController.SearchPreview(query, 0, resultPageSize)
+        readPreviewResponse(response, "replace")
+        searchLoading = false
     }
 
-    function requestPreviewThumbnails() {
-        if (!backend) {
+    function loadMorePreview() {
+        if (!searchController || searchLoading || !searchHasMore) {
             return
         }
         const query = searchField.text.trim()
         if (query.length === 0 || query !== lastQuery) {
             return
         }
-        for (let i = 0; i < results.length; ++i) {
-            const row = results[i]
-            if (row && Number(row.elementId) > 0 && Number(row.imageId) > 0) {
-                backend.RequestSearchPreviewThumbnail(Number(row.elementId),
-                                                      Number(row.imageId), 256)
-            }
+        searchLoading = true
+        const response = searchController.SearchPreview(query, searchOffset, resultPageSize)
+        readPreviewResponse(response, "append")
+        if (lastWindowDropCount > 0) {
+            const droppedHeight = lastWindowDropCount * 82
+            Qt.callLater(function() {
+                resultList.contentY = Math.max(0, resultList.contentY - droppedHeight)
+                dialog.searchLoading = false
+            })
+            return
         }
+        searchLoading = false
+    }
+
+    function loadPreviousPreview() {
+        if (!searchController || searchLoading || !searchHasPrevious) {
+            return
+        }
+        const query = searchField.text.trim()
+        if (query.length === 0 || query !== lastQuery) {
+            return
+        }
+        const nextOffset = Math.max(0, resultWindowStart - resultPageSize)
+        const nextLimit = resultWindowStart - nextOffset
+        if (nextLimit <= 0) {
+            return
+        }
+        searchLoading = true
+        const response = searchController.SearchPreview(query, nextOffset, nextLimit)
+        readPreviewResponse(response, "prepend")
+        if (lastWindowPrependCount > 0) {
+            const prependedHeight = lastWindowPrependCount * 82
+            Qt.callLater(function() {
+                resultList.contentY = resultList.contentY + prependedHeight
+                dialog.searchLoading = false
+            })
+            return
+        }
+        searchLoading = false
     }
 
     function applyBroadSearch() {
         if (!backend) {
             return
         }
-        backend.ApplyFuzzySearch(searchField.text)
+        searchController.ApplyFuzzySearch(searchField.text)
         close()
     }
 
     function applyRecommendation(row) {
-        if (!backend || !row) {
+        if (!searchController || !row) {
             return
         }
-        backend.ApplyFuzzySearch(row.query ? String(row.query) : String(row.label))
+        searchController.ApplyFuzzySearch(row.query ? String(row.query) : String(row.label))
         close()
     }
 
     function applyExact(row) {
-        if (!backend || !row) {
+        if (!searchController || !row) {
             return
         }
-        backend.ApplyExactSearch(Number(row.elementId))
+        searchController.ApplyExactSearch(Number(row.elementId))
         close()
     }
 
-    onOpened: recommendations = backend ? backend.SearchRecommendations(12) : []
+    onOpened: recommendations = searchController ? searchController.SearchRecommendations(12) : []
     onClosed: resetPreviewState()
 
     Connections {
-        target: backend
+        target: searchController
         ignoreUnknownSignals: true
 
         function onSearchPreviewThumbnailUpdated(elementId, dataUrl, loading, missingSource, errorText) {
+            if (!dialog.visibleResultContains(elementId)) {
+                return
+            }
             const next = Object.assign({}, dialog.previewThumbs)
             next[String(Number(elementId))] = {
                 url: dataUrl ? String(dataUrl) : "",
@@ -157,13 +303,6 @@ Dialog {
         interval: 140
         repeat: false
         onTriggered: dialog.refreshPreview()
-    }
-
-    Timer {
-        id: thumbnailTimer
-        interval: 420
-        repeat: false
-        onTriggered: dialog.requestPreviewThumbnails()
     }
 
     Overlay.modal: Item {
@@ -350,7 +489,7 @@ Dialog {
 
                         Label {
                             visible: searchField.text.trim().length > 0
-                            text: qsTr("%1 matches").arg(dialog.results.length)
+                            text: dialog.resultCountText()
                             color: dialog.withAlpha(dialog.textColor, 0.42)
                             font.family: dialog.dataFontFamily
                             font.pixelSize: 12
@@ -362,9 +501,10 @@ Dialog {
                         }
 
                         Label {
-                            visible: backend !== null && backend !== undefined
-                                     && backend.activeSearchQuery.length > 0
-                            text: qsTr("Active: %1").arg(backend ? backend.activeSearchQuery : "")
+                            visible: dialog.searchController !== null && dialog.searchController !== undefined
+                                     && dialog.searchController.activeSearchQuery.length > 0
+                            text: qsTr("Active: %1").arg(dialog.searchController
+                                                        ? dialog.searchController.activeSearchQuery : "")
                             color: dialog.withAlpha(dialog.textColor, 0.46)
                             font.pixelSize: 12
                             elide: Text.ElideRight
@@ -416,14 +556,48 @@ Dialog {
                         clip: true
                         spacing: 0
                         model: dialog.results
+                        cacheBuffer: 0
 
                         ScrollIndicator.vertical: ScrollIndicator {}
+
+                        onContentYChanged: {
+                            if (dialog.searchHasMore
+                                    && contentY + height >= contentHeight - 160) {
+                                dialog.loadMorePreview()
+                            }
+                        }
+                        onMovementEnded: {
+                            if (dialog.searchHasPrevious
+                                    && contentY <= originY + 120) {
+                                dialog.loadPreviousPreview()
+                            }
+                            if (dialog.searchHasMore
+                                    && contentY + height >= contentHeight - 160) {
+                                dialog.loadMorePreview()
+                            }
+                        }
+
+                        header: Item {
+                            width: resultList.width
+                            height: dialog.searchHasPrevious ? 54 : 10
+
+                            Button {
+                                anchors.centerIn: parent
+                                visible: dialog.searchHasPrevious
+                                enabled: !dialog.searchLoading
+                                text: dialog.searchLoading ? qsTr("Loading...") : qsTr("Load previous")
+                                onClicked: dialog.loadPreviousPreview()
+                            }
+                        }
 
                         delegate: SearchRow {
                             required property var modelData
 
                             width: resultList.width
                             elementId: Number(modelData.elementId)
+                            imageId: Number(modelData.imageId)
+                            dynamicPreviewThumbnail: true
+                            previewMaxEdge: 256
                             title: modelData.fileName ? String(modelData.fileName) : qsTr("(unnamed)")
                             subtitle: qsTr("%1  |  %2").arg(modelData.cameraModel).arg(modelData.captureDate)
                             detailText: Number(modelData.rating) > 0
@@ -462,6 +636,19 @@ Dialog {
                             color: dialog.withAlpha(dialog.textColor, 0.48)
                             font.pixelSize: 13
                         }
+
+                        footer: Item {
+                            width: resultList.width
+                            height: dialog.searchHasMore ? 54 : 10
+
+                            Button {
+                                anchors.centerIn: parent
+                                visible: dialog.searchHasMore
+                                enabled: !dialog.searchLoading
+                                text: dialog.searchLoading ? qsTr("Loading...") : qsTr("Load more")
+                                onClicked: dialog.loadMorePreview()
+                            }
+                        }
                     }
                 }
 
@@ -487,6 +674,9 @@ Dialog {
         property int thumbnailHeight: 48
         property int iconSize: 21
         property int elementId: 0
+        property int imageId: 0
+        property bool dynamicPreviewThumbnail: false
+        property int previewMaxEdge: 256
         property string initialThumbUrl: ""
         property bool initialThumbLoading: false
         property bool initialThumbMissingSource: false
@@ -495,6 +685,9 @@ Dialog {
         property bool liveThumbLoading: initialThumbLoading
         property bool liveThumbMissingSource: initialThumbMissingSource
         property string liveThumbErrorText: initialThumbErrorText
+        property int pinnedElementId: 0
+        property int pinnedImageId: 0
+        property int pinnedMaxEdge: 0
         readonly property bool thumbReady: liveThumbUrl.length > 0
         readonly property bool thumbProblem: !thumbReady && !liveThumbLoading
                                              && (liveThumbMissingSource || liveThumbErrorText.length > 0)
@@ -509,6 +702,49 @@ Dialog {
         onInitialThumbMissingSourceChanged: liveThumbMissingSource = initialThumbMissingSource
         onInitialThumbErrorTextChanged: liveThumbErrorText = initialThumbErrorText
 
+        function releasePreviewThumbnail() {
+            if (dialog.searchController && pinnedElementId !== 0 && pinnedImageId !== 0) {
+                dialog.searchController.SetSearchPreviewThumbnailVisible(pinnedElementId,
+                                                                         pinnedImageId, false,
+                                                                         pinnedMaxEdge)
+            }
+            pinnedElementId = 0
+            pinnedImageId = 0
+            pinnedMaxEdge = 0
+        }
+
+        function bindPreviewThumbnailLifetime() {
+            if (!dynamicPreviewThumbnail) {
+                releasePreviewThumbnail()
+                return
+            }
+            if (pinnedElementId === elementId && pinnedImageId === imageId
+                    && pinnedMaxEdge === previewMaxEdge) {
+                return
+            }
+
+            releasePreviewThumbnail()
+            pinnedElementId = elementId
+            pinnedImageId = imageId
+            pinnedMaxEdge = previewMaxEdge
+            liveThumbUrl = initialThumbUrl
+            liveThumbLoading = initialThumbLoading
+            liveThumbMissingSource = initialThumbMissingSource
+            liveThumbErrorText = initialThumbErrorText
+            if (dialog.searchController && pinnedElementId !== 0 && pinnedImageId !== 0) {
+                dialog.searchController.SetSearchPreviewThumbnailVisible(pinnedElementId,
+                                                                         pinnedImageId, true,
+                                                                         pinnedMaxEdge)
+            }
+        }
+
+        Component.onCompleted: bindPreviewThumbnailLifetime()
+        onElementIdChanged: bindPreviewThumbnailLifetime()
+        onImageIdChanged: bindPreviewThumbnailLifetime()
+        onDynamicPreviewThumbnailChanged: bindPreviewThumbnailLifetime()
+        onPreviewMaxEdgeChanged: bindPreviewThumbnailLifetime()
+        Component.onDestruction: releasePreviewThumbnail()
+
         height: rowHeight
         radius: 9
         color: rowMouse.pressed
@@ -516,7 +752,7 @@ Dialog {
                : (rowMouse.containsMouse ? dialog.hoverColor : "transparent")
 
         Connections {
-            target: dialog.backend
+            target: dialog.searchController
             ignoreUnknownSignals: true
 
             function onSearchPreviewThumbnailUpdated(updatedElementId, dataUrl, loading, missingSource, errorText) {

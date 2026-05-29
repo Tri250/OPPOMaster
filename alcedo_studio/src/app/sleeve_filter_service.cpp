@@ -33,8 +33,8 @@ auto SqlLikeEscape(const std::wstring& value) -> std::wstring {
   std::wstring out;
   out.reserve(value.size() + 4);
   for (const auto ch : value) {
-    if (ch == L'\\' || ch == L'%' || ch == L'_') {
-      out.push_back(L'\\');
+    if (ch == L'~' || ch == L'%' || ch == L'_') {
+      out.push_back(L'~');
     }
     out.push_back(ch);
     if (ch == L'\'') {
@@ -44,12 +44,117 @@ auto SqlLikeEscape(const std::wstring& value) -> std::wstring {
   return out;
 }
 
+auto SqlStringEscape(const std::wstring& value) -> std::wstring {
+  std::wstring out;
+  out.reserve(value.size());
+  for (const auto ch : value) {
+    out.push_back(ch);
+    if (ch == L'\'') {
+      out.push_back(L'\'');
+    }
+  }
+  return out;
+}
+
 auto LikeClause(const std::wstring& expr, const std::wstring& token) -> std::wstring {
-  const auto escaped = SqlLikeEscape(token);
+  const auto escaped = SqlStringEscape(token);
   const auto value   = std::format(L"COALESCE({}, '')", expr);
-  const auto pattern = std::format(L"'%{}%'", escaped);
-  return std::format(L"(({} LIKE {} ESCAPE '\\') OR (LOWER({}) LIKE LOWER({}) ESCAPE '\\'))", value,
-                     pattern, value, pattern);
+  const auto needle  = std::format(L"'{}'", escaped);
+  return std::format(L"(contains({}, {}) OR contains(LOWER({}), LOWER({})))", value, needle, value,
+                     needle);
+}
+
+auto StripSearchSeparators(std::wstring value) -> std::wstring {
+  std::wstring out;
+  out.reserve(value.size());
+  for (const auto ch : value) {
+    switch (ch) {
+      case L' ':
+      case L'\t':
+      case L'\n':
+      case L'\r':
+      case L'_':
+      case L'-':
+      case L'.':
+      case L'/':
+      case L'\\':
+      case L':':
+      case L';':
+      case L',':
+      case L'\'':
+      case L'"':
+      case L'(':
+      case L')':
+      case L'[':
+      case L']':
+      case L'{':
+      case L'}':
+      case L'%':
+      case L'*':
+      case L'?':
+      case L'!':
+      case L'@':
+      case L'#':
+      case L'$':
+      case L'&':
+      case L'+':
+      case L'=':
+      case L'|':
+      case L'`':
+      case L'~':
+        break;
+      default:
+        out.push_back(static_cast<wchar_t>(std::towlower(ch)));
+        break;
+    }
+  }
+  return out;
+}
+
+auto FoldSqlSearchSeparators(std::wstring expr) -> std::wstring {
+  static constexpr std::wstring_view kSeparators[] = {
+      L" ", L"\t", L"\n", L"\r", L"_", L"-", L".", L"/", L"\\", L":",
+      L";", L",",  L"'",  L"\"", L"(", L")", L"[", L"]", L"{", L"}",
+      L"%", L"*",  L"?",  L"!",  L"@", L"#", L"$", L"&", L"+", L"=",
+      L"|", L"`",  L"~",
+  };
+
+  std::wstring folded = std::format(L"LOWER(COALESCE({}, ''))", expr);
+  for (const auto separator : kSeparators) {
+    folded =
+        std::format(L"REPLACE({}, '{}', '')", folded, SqlStringEscape(std::wstring(separator)));
+  }
+  return folded;
+}
+
+auto SearchDocumentExpr() -> std::wstring {
+  return L"CONCAT_WS(' ', "
+         L"COALESCE(e.element_name, ''), "
+         L"COALESCE(i.file_name, ''), "
+         L"COALESCE(i.image_path, ''), "
+         L"COALESCE(json_extract_string(i.metadata, '$.Make'), ''), "
+         L"COALESCE(json_extract_string(i.metadata, '$.Model'), ''), "
+         L"COALESCE(json_extract_string(i.metadata, '$.Lens'), ''), "
+         L"COALESCE(json_extract_string(i.metadata, '$.LensMake'), ''), "
+         L"COALESCE(json_extract_string(i.metadata, '$.DateTimeString'), ''), "
+         L"COALESCE(CAST(i.metadata AS VARCHAR), ''))";
+}
+
+auto FoldedDocumentClause(const std::wstring& token) -> std::optional<std::wstring> {
+  if (token.find(L'%') != std::wstring::npos || token.find(L'*') != std::wstring::npos ||
+      token.find(L'?') != std::wstring::npos || token.find(L'\'') != std::wstring::npos ||
+      token.find(L'"') != std::wstring::npos) {
+    return std::nullopt;
+  }
+
+  const auto folded_token = StripSearchSeparators(token);
+  if (folded_token.size() < 2 || folded_token.size() < token.size() / 2) {
+    return std::nullopt;
+  }
+
+  const auto folded_doc = FoldSqlSearchSeparators(SearchDocumentExpr());
+  const auto pattern    = std::format(L"'%{}%'", SqlLikeEscape(folded_token));
+  return std::format(L"({} LIKE {} ESCAPE '~')", folded_doc, pattern);
 }
 
 auto SplitTokens(const std::wstring& query) -> std::vector<std::wstring> {
@@ -215,6 +320,18 @@ auto TokenSearchClause(const std::wstring& token) -> std::wstring {
   auto date_clauses = DateMatchClauses(token);
   clauses.insert(clauses.end(), date_clauses.begin(), date_clauses.end());
 
+  if (auto folded_clause = FoldedDocumentClause(token); folded_clause.has_value()) {
+    clauses.push_back(*folded_clause);
+  }
+
+  return L"(" + JoinWith(clauses, L" OR ") + L")";
+}
+
+auto SearchDocumentClause(const std::wstring& query) -> std::wstring {
+  std::vector<std::wstring> clauses{LikeClause(SearchDocumentExpr(), query)};
+  if (auto folded_clause = FoldedDocumentClause(query); folded_clause.has_value()) {
+    clauses.push_back(*folded_clause);
+  }
   return L"(" + JoinWith(clauses, L" OR ") + L")";
 }
 
@@ -340,7 +457,7 @@ auto SleeveFilterService::BuildFuzzySearchWhere(const std::wstring& query) const
 
   std::wstring where = L"(" + JoinWith(token_clauses, L" AND ") + L")";
   if (tokens.size() > 1) {
-    where = L"(" + where + L" OR " + TokenSearchClause(trimmed) + L")";
+    where = L"(" + where + L" OR " + SearchDocumentClause(trimmed) + L")";
   }
   return where;
 }
