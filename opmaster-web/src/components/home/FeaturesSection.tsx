@@ -1,23 +1,15 @@
 import { motion } from 'framer-motion';
-import { useAppStore } from '../../store/useAppStore';
 import { appFeatures, watermarkTemplates, securityFeatures, buildFeatures } from '../../data/mockPresets';
-import { Smartphone, ShieldCheck, Sparkles, Code2, ChevronRight, Eye, Palette, Lock, Zap, Layers, ArrowUpRight } from 'lucide-react';
+import { Smartphone, ShieldCheck, Sparkles, Code2, ChevronRight, Lock } from 'lucide-react';
+import { useState } from 'react';
 
 export default function FeaturesSection() {
-  const { 
-    activeFeatureTab, 
-    setActiveFeatureTab, 
-    selectedWatermarkTemplate, 
-    setSelectedWatermarkTemplate,
-    showFloatingWindowDemo,
-    setShowFloatingWindowDemo,
-    floatingWindowOpacity,
-    setFloatingWindowOpacity,
-    showSecurityDemo,
-    setShowSecurityDemo,
-    showBuildDemo,
-    setShowBuildDemo
-  } = useAppStore();
+  const [activeFeatureTab, setActiveFeatureTab] = useState('core');
+  const [selectedWatermarkTemplate, setSelectedWatermarkTemplate] = useState<string | null>(null);
+  const [showFloatingWindowDemo, setShowFloatingWindowDemo] = useState(false);
+  const [floatingWindowOpacity, setFloatingWindowOpacity] = useState(80);
+  const [showSecurityDemo, setShowSecurityDemo] = useState(false);
+  const [showBuildDemo, setShowBuildDemo] = useState(false);
 
   const tabs = [
     { id: 'core', label: '核心功能', icon: Smartphone },
@@ -69,10 +61,10 @@ export default function FeaturesSection() {
           className="flex justify-center mb-12"
         >
           <div className="glass-effect rounded-2xl p-2 flex gap-2">
-            {tabs.map((tab, idx) => (
+            {tabs.map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveFeatureTab(tab.id as any)}
+                onClick={() => setActiveFeatureTab(tab.id)}
                 className={`px-6 py-3 rounded-xl transition-all flex items-center gap-2 ${
                   activeFeatureTab === tab.id
                     ? 'bg-gradient-to-r from-hasselblad to-hasselblad/60 text-deep-space font-medium'
@@ -94,14 +86,13 @@ export default function FeaturesSection() {
           viewport={{ once: true }}
           className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
         >
-          {filteredFeatures.map((feature, idx) => (
+          {filteredFeatures.map((feature) => (
             <motion.div
               key={feature.id}
               variants={itemVariants}
               whileHover={{ y: -8, scale: 1.02 }}
               className="glass-effect rounded-3xl p-6 border border-white/5 hover:border-hasselblad/30 transition-all cursor-pointer"
               onClick={() => {
-                // 根据功能类型触发对应的演示
                 if (feature.id === 'floating-window') setShowFloatingWindowDemo(!showFloatingWindowDemo);
                 if (feature.id.startsWith('encrypted') || feature.id.startsWith('https')) setShowSecurityDemo(!showSecurityDemo);
                 if (feature.id.startsWith('dependency') || feature.id.startsWith('code')) setShowBuildDemo(!showBuildDemo);
@@ -147,13 +138,12 @@ export default function FeaturesSection() {
               <span className="text-hasselblad">10种</span>水印模板
             </h3>
             <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-              {watermarkTemplates.map((template, idx) => (
+              {watermarkTemplates.map((template) => (
                 <motion.div
                   key={template.id}
                   initial={{ opacity: 0, y: 20 }}
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true }}
-                  transition={{ delay: idx * 0.1 }}
                   whileHover={{ scale: 1.05 }}
                   onClick={() => setSelectedWatermarkTemplate(template.id === selectedWatermarkTemplate ? null : template.id)}
                   className={`glass-effect rounded-2xl p-4 cursor-pointer transition-all ${
@@ -195,7 +185,6 @@ function FloatingWindowDemo({ opacity, onOpacityChange }: { opacity: number; onO
       </div>
       <div className="grid md:grid-cols-2 gap-8">
         <div className="relative bg-deep-space/50 rounded-2xl p-6 min-h-[300px] border border-white/10">
-          {/* Mock Floating Window */}
           <motion.div
             className="absolute right-4 top-4 bg-deep-space border border-hasselblad/30 rounded-2xl p-4 shadow-2xl"
             style={{ opacity: opacity / 100 }}
@@ -269,12 +258,12 @@ function SecurityDemo() {
         <h4 className="text-xl font-bold">安全隐私特性</h4>
       </div>
       <div className="grid md:grid-cols-2 gap-6">
-        {securityFeatures.map((group, idx) => (
-          <div key={idx} className="bg-deep-space/30 rounded-xl p-4 border border-white/5">
+        {securityFeatures.map((group) => (
+          <div key={group.title} className="bg-deep-space/30 rounded-xl p-4 border border-white/5">
             <h5 className="font-bold text-white/80 mb-3">{group.title}</h5>
             <ul className="space-y-2">
-              {group.items.map((item, itemIdx) => (
-                <li key={itemIdx} className="flex items-center gap-2 text-sm text-white/60">
+              {group.items.map((item) => (
+                <li key={item} className="flex items-center gap-2 text-sm text-white/60">
                   <div className="w-1.5 h-1.5 bg-blue-400/60 rounded-full" />
                   {item}
                 </li>
@@ -299,12 +288,12 @@ function BuildDemo() {
         <h4 className="text-xl font-bold">构建与发布</h4>
       </div>
       <div className="grid md:grid-cols-3 gap-6">
-        {buildFeatures.map((group, idx) => (
-          <div key={idx} className="bg-deep-space/30 rounded-xl p-4 border border-white/5">
+        {buildFeatures.map((group) => (
+          <div key={group.title} className="bg-deep-space/30 rounded-xl p-4 border border-white/5">
             <h5 className="font-bold text-white/80 mb-3">{group.title}</h5>
             <ul className="space-y-2">
-              {group.items.map((item, itemIdx) => (
-                <li key={itemIdx} className="flex items-center gap-2 text-sm text-white/60">
+              {group.items.map((item) => (
+                <li key={item} className="flex items-center gap-2 text-sm text-white/60">
                   <div className="w-1.5 h-1.5 bg-green-400/60 rounded-full" />
                   {item}
                 </li>
@@ -319,8 +308,8 @@ function BuildDemo() {
           { label: 'Gradle', value: '8.7' },
           { label: 'Android', value: '14' },
           { label: '打包', value: 'Release' }
-        ].map((stat, idx) => (
-          <div key={idx} className="bg-deep-space/30 rounded-xl p-3 text-center border border-white/5">
+        ].map((stat) => (
+          <div key={stat.label} className="bg-deep-space/30 rounded-xl p-3 text-center border border-white/5">
             <div className="text-green-400 font-mono font-bold">{stat.value}</div>
             <div className="text-xs text-white/40">{stat.label}</div>
           </div>

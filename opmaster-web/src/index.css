@@ -5,14 +5,18 @@
 @layer base {
   html {
     scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
   
   body {
-    @apply bg-deep-space text-white font-sans;
+    @apply bg-deep-space text-text-primary font-sans;
+    font-family: 'Inter', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
   }
 
   ::-webkit-scrollbar {
-    width: 8px;
+    width: 6px;
+    height: 6px;
   }
 
   ::-webkit-scrollbar-track {
@@ -20,42 +24,56 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    @apply bg-oppo-sunrise-gold/60 rounded-full;
+    @apply bg-oppo-sunrise-gold/50 rounded-full;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-oppo-sunrise-gold;
+    @apply bg-oppo-sunrise-gold/70;
   }
 }
 
 @layer components {
   .glass-effect {
-    @apply bg-white/5 backdrop-blur-md border border-white/10;
+    @apply bg-glass-white backdrop-blur-xl border border-white/10;
+  }
+  
+  .glass-effect-strong {
+    @apply bg-glass-white-strong backdrop-blur-2xl border border-white/15;
   }
 
   .gradient-text {
-    @apply bg-gradient-to-r from-white via-oppo-sunrise-gold to-white bg-clip-text text-transparent;
+    @apply bg-gradient-to-r from-text-primary via-oppo-sunrise-gold to-text-primary bg-clip-text text-transparent;
   }
   
   .gradient-text-oppo {
-    @apply bg-gradient-to-r from-oppo-sunrise-gold to-hasselblad-pro bg-clip-text text-transparent;
+    @apply bg-gradient-to-r from-oppo-sunrise-gold via-hasselblad-pro to-oppo-sunrise-gold bg-clip-text text-transparent;
+  }
+  
+  .gradient-text-gold {
+    @apply bg-gradient-to-r from-oppo-sunrise-gold-light via-oppo-sunrise-gold to-hasselblad-dark bg-clip-text text-transparent;
   }
 
   .btn-primary {
-    @apply px-6 py-3 bg-oppo-sunrise-gold text-deep-space font-semibold rounded-oppo-md
-           hover:bg-oppo-sunrise-gold/90 transition-all duration-300
-           hover:shadow-oppo-hover hover:-translate-y-0.5;
+    @apply px-6 py-3 bg-gradient-to-r from-oppo-sunrise-gold to-hasselblad-pro text-deep-space font-semibold rounded-oppo-md
+           hover:from-oppo-sunrise-gold-light hover:to-oppo-sunrise-gold transition-all duration-300
+           hover:shadow-oppo-hover hover:-translate-y-0.5 active:translate-y-0;
   }
 
   .btn-secondary {
-    @apply px-6 py-3 bg-white/10 text-white font-medium rounded-oppo-md
-           border border-white/20 hover:bg-white/20 transition-all duration-300;
+    @apply px-6 py-3 bg-glass-white text-text-primary font-medium rounded-oppo-md
+           border border-white/15 hover:bg-white/15 hover:border-white/25 transition-all duration-300;
+  }
+
+  .btn-outline {
+    @apply px-6 py-3 bg-transparent text-oppo-sunrise-gold font-medium rounded-oppo-md
+           border-2 border-oppo-sunrise-gold/50 hover:bg-oppo-sunrise-gold/10 hover:border-oppo-sunrise-gold
+           transition-all duration-300;
   }
 
   .card-oppo {
     @apply bg-card-surface rounded-oppo-lg overflow-hidden
            border border-oppo-border/50 hover:border-oppo-sunrise-gold/30
-           transition-all duration-300 hover:shadow-oppo;
+           transition-all duration-300 hover:shadow-card-hover;
   }
   
   .card-elevated {
@@ -63,23 +81,32 @@
            border border-oppo-border/30 hover:border-oppo-sunrise-gold/20
            transition-all duration-300;
   }
+  
+  .card-glass {
+    @apply glass-effect rounded-oppo-lg overflow-hidden
+           hover:border-oppo-sunrise-gold/30 transition-all duration-300;
+  }
 
   .input-oppo {
-    @apply w-full px-4 py-3 bg-white/5 border border-white/10 rounded-oppo-sm
-           text-white placeholder-white/50 focus:outline-none focus:border-oppo-sunrise-gold
-           transition-all duration-300;
+    @apply w-full px-4 py-3 bg-glass-white border border-white/10 rounded-oppo-md
+           text-text-primary placeholder-text-tertiary focus:outline-none focus:border-oppo-sunrise-gold/50
+           focus:ring-1 focus:ring-oppo-sunrise-gold/30 transition-all duration-300;
   }
   
   .tag-oppo {
-    @apply px-3 py-1.5 bg-white/10 rounded-full text-sm font-medium;
+    @apply px-3 py-1.5 bg-glass-white rounded-full text-sm font-medium;
   }
   
   .tag-hasselblad {
-    @apply px-3 py-1.5 bg-hasselblad-pro text-deep-space rounded-full text-sm font-bold shadow-lg;
+    @apply px-3 py-1.5 bg-gradient-to-r from-hasselblad-pro to-oppo-sunrise-gold text-deep-space rounded-full text-sm font-bold shadow-lg shadow-hasselblad/20;
   }
   
   .tag-new {
-    @apply px-3 py-1.5 bg-oppo-sunrise-gold text-deep-space rounded-full text-sm font-bold animate-breathing;
+    @apply px-3 py-1.5 bg-gradient-to-r from-oppo-green to-oppo-green-light text-white rounded-full text-sm font-bold animate-breathing;
+  }
+
+  .text-gradient-gold {
+    @apply bg-gradient-to-r from-oppo-sunrise-gold-light via-oppo-sunrise-gold to-hasselblad-dark bg-clip-text text-transparent;
   }
 }
 
@@ -112,8 +139,117 @@
   }
 }
 
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes ripple {
+  0% {
+    transform: scale(0);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(4);
+    opacity: 0;
+  }
+}
+
+@keyframes glow-pulse {
+  0%, 100% {
+    opacity: 0.4;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.1);
+  }
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-left {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes bounce-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  70% {
+    transform: scale(0.9);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes float-gentle {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-15px) rotate(2deg);
+  }
+}
+
 .animate-float {
   animation: float 6s ease-in-out infinite;
+}
+
+.animate-float-slow {
+  animation: float 8s ease-in-out infinite;
+}
+
+.animate-float-fast {
+  animation: float 4s ease-in-out infinite;
 }
 
 .animate-pulse-glow {
@@ -124,14 +260,51 @@
   animation: breathing 1.8s ease-in-out infinite;
 }
 
+.animate-shimmer {
+  animation: shimmer 2s linear infinite;
+  background-size: 200% 100%;
+}
+
+.animate-ripple {
+  animation: ripple 0.6s ease-out forwards;
+}
+
+.animate-glow-pulse {
+  animation: glow-pulse 3s ease-in-out infinite;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.6s ease-out forwards;
+}
+
+.animate-slide-left {
+  animation: slide-left 0.6s ease-out forwards;
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.5s ease-out forwards;
+}
+
+.animate-scale-in {
+  animation: scale-in 0.4s ease-out forwards;
+}
+
+.animate-bounce-in {
+  animation: bounce-in 0.6s ease-out forwards;
+}
+
+.animate-float-gentle {
+  animation: float-gentle 6s ease-in-out infinite;
+}
+
 /* ColorOS 16 风格渐变遮罩 */
 .gradient-overlay {
   background: linear-gradient(
     to bottom,
     transparent 0%,
-    transparent 50%,
-    rgba(0, 0, 0, 0.1) 70%,
-    rgba(0, 0, 0, 0.6) 100%
+    transparent 40%,
+    rgba(0, 0, 0, 0.2) 60%,
+    rgba(0, 0, 0, 0.8) 100%
   );
 }
 
@@ -139,8 +312,8 @@
 .orb-oppo {
   position: absolute;
   border-radius: 50%;
-  filter: blur(80px);
-  opacity: 0.15;
+  filter: blur(100px);
+  opacity: 0.12;
   pointer-events: none;
 }
 
@@ -154,4 +327,57 @@
 
 .orb-3 {
   background: linear-gradient(135deg, #8B5CF6, #A78BFA);
+}
+
+.orb-4 {
+  background: linear-gradient(135deg, #2DB47A, #68D391);
+}
+
+/* 玻璃态背景 */
+.glass-gradient {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.1) 0%,
+    rgba(255, 255, 255, 0.05) 50%,
+    rgba(255, 179, 71, 0.05) 100%
+  );
+}
+
+/* 卡片悬浮效果 */
+.card-hover-lift {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.card-hover-lift:hover {
+  transform: translateY(-8px);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+}
+
+/* 文本截断 */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* 焦点样式 */
+.focus-visible-ring {
+  outline: none;
+}
+
+.focus-visible-ring:focus-visible {
+  box-shadow: 0 0 0 3px rgba(255, 179, 71, 0.3);
+}
+
+/* 平滑过渡 */
+.smooth-transition {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }

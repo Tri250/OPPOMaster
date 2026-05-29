@@ -10,6 +10,8 @@ const navItems = [
   { path: '/about', label: '关于我' }
 ];
 
+const MotionLink = motion(Link);
+
 export default function NavigationBar() {
   const [isOpen, setIsOpen] = useState(false);
   const location = useLocation();
@@ -22,43 +24,53 @@ export default function NavigationBar() {
     <motion.nav
       initial={{ y: -100 }}
       animate={{ y: 0 }}
-      className="fixed top-0 left-0 right-0 z-50 glass-effect"
+      className="fixed top-0 left-0 right-0 z-50 bg-deep-space/80 backdrop-blur-xl border-b border-white/5"
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
+        <div className="flex items-center justify-between h-16 md:h-20">
           {/* Logo */}
-          <Link to="/" className="flex items-center space-x-2">
-            <div className="w-10 h-10 bg-hasselblad rounded-xl flex items-center justify-center">
-              <Camera className="w-6 h-6 text-deep-space" />
-            </div>
-            <span className="text-xl font-bold gradient-text">小O帮帮</span>
+          <Link to="/" className="flex items-center space-x-3">
+            <motion.div
+              whileHover={{ scale: 1.05 }}
+              className="w-10 h-10 md:w-12 md:h-12 rounded-oppo-sm bg-gradient-to-br from-oppo-sunrise-gold via-hasselblad-pro to-hasselblad-dark flex items-center justify-center shadow-lg shadow-oppo-sunrise-gold/20"
+            >
+              <Camera className="w-6 h-6 md:w-7 md:h-7 text-deep-space" />
+            </motion.div>
+            <span className="text-xl md:text-2xl font-bold gradient-text-oppo">小O帮帮</span>
           </Link>
 
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center space-x-8">
             {navItems.map((item) => (
-              <Link
+              <MotionLink
                 key={item.path}
                 to={item.path}
-                className={`text-sm font-medium transition-colors ${
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className={`text-sm md:text-base font-medium transition-colors ${
                   location.pathname === item.path
-                    ? 'text-hasselblad'
-                    : 'text-white/70 hover:text-white'
+                    ? 'text-oppo-sunrise-gold'
+                    : 'text-text-secondary hover:text-text-primary'
                 }`}
               >
                 {item.label}
-              </Link>
+              </MotionLink>
             ))}
-            <button onClick={handleDownload} className="btn-primary text-sm flex items-center gap-2">
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={handleDownload} 
+              className="btn-primary flex items-center gap-2"
+            >
               <Download className="w-4 h-4" />
               立即下载
-            </button>
+            </motion.button>
           </div>
 
           {/* Mobile menu button */}
           <button
             onClick={() => setIsOpen(!isOpen)}
-            className="md:hidden p-2 text-white"
+            className="md:hidden p-2 text-text-primary"
           >
             {isOpen ? <X size={24} /> : <Menu size={24} />}
           </button>
@@ -68,29 +80,42 @@ export default function NavigationBar() {
       {/* Mobile Navigation */}
       {isOpen && (
         <motion.div
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: 'auto' }}
-          className="md:hidden glass-effect border-t border-white/10"
+          initial={{ opacity: 0, x: 300 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: 300 }}
+          transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+          className="md:hidden fixed inset-0 z-40 bg-deep-space/95 backdrop-blur-xl pt-20"
         >
-          <div className="px-4 py-4 space-y-3">
-            {navItems.map((item) => (
-              <Link
+          <div className="flex flex-col items-center space-y-6 p-8">
+            {navItems.map((item, i) => (
+              <MotionLink
                 key={item.path}
                 to={item.path}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.1 }}
                 onClick={() => setIsOpen(false)}
-                className={`block text-base font-medium ${
+                className={`text-xl font-medium ${
                   location.pathname === item.path
-                    ? 'text-hasselblad'
-                    : 'text-white/70'
+                    ? 'text-oppo-sunrise-gold'
+                    : 'text-text-secondary hover:text-text-primary'
                 }`}
               >
                 {item.label}
-              </Link>
+              </MotionLink>
             ))}
-            <button onClick={handleDownload} className="btn-primary w-full text-center mt-4 flex items-center justify-center gap-2">
-              <Download className="w-4 h-4" />
+            <motion.button
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.4 }}
+              onClick={() => {
+                handleDownload();
+                setIsOpen(false);
+              }}
+              className="btn-primary w-full mt-8"
+            >
               立即下载
-            </button>
+            </motion.button>
           </div>
         </motion.div>
       )}
