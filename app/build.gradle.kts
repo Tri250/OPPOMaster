@@ -13,8 +13,8 @@ android {
         applicationId = "com.omaster.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 121
-        versionName = "1.2.1"
+        versionCode = 1
+        versionName = "0.1.0-alpha"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
