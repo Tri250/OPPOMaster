@@ -95,8 +95,53 @@ export default function PresetDetailPage() {
   // 一键应用到相机
   const applyToCamera = useCallback(() => {
     if (!preset) return
-    showToast(`已应用 "${preset.name}" 预设`, 'success')
-    // 这里可以跳转到相机页面或应用参数逻辑
+    
+    // 尝试打开系统相机应用
+    const cameraUrls = [
+      'cameras://',           // iOS相机
+      'oppo.camera://',      // OPPO相机
+      'oneplus.camera://',   // OnePlus相机
+      'realme.camera://',   // realme相机
+      'intent://camera#Intent;scheme=camera;package=com.oppo.camera;end', // Android OPPO
+      'intent://#Intent;scheme=camera;package=com.oneplus.camera;end',    // Android OnePlus
+      'intent://#Intent;scheme=camera;package=com.oplus.camera;end',      // Android ColorOS
+    ]
+    
+    // 尝试打开相机
+    let cameraOpened = false
+    for (const url of cameraUrls) {
+      try {
+        window.location.href = url
+        cameraOpened = true
+        break
+      } catch (e) {
+        console.log('无法打开:', url)
+      }
+    }
+    
+    // 如果无法打开相机，复制参数到剪贴板
+    if (!cameraOpened && preset.cameraParams) {
+      const params = preset.cameraParams
+      const paramText = Object.entries(params)
+        .filter(([_, v]) => v !== undefined && v !== null && v !== '')
+        .map(([k, v]) => `${paramLabels[k] || k}: ${typeof v === 'boolean' ? (v ? '开启' : '关闭') : v}`)
+        .join('\n')
+      
+      const fullText = `【${preset.name}】\n${preset.deviceModel}\n\n${paramText}`
+      
+      navigator.clipboard.writeText(fullText).then(() => {
+        showToast('参数已复制，请在相机大师模式中粘贴', 'success')
+      }).catch(() => {
+        showToast(`已选择 "${preset.name}" 预设`, 'success')
+      })
+    } else {
+      showToast(`已应用 "${preset.name}" 预设参数`, 'success')
+    }
+    
+    // 提供触觉反馈（如果支持）
+    if ('vibrate' in navigator) {
+      navigator.vibrate(10)
+    }
   }, [preset, showToast])
 
   if (!preset) {

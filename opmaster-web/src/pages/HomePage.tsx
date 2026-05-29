@@ -7,6 +7,7 @@ import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/useAppStore';
 import PresetCard from '../components/home/PresetCard';
+import FluidCloudCapsule from '../components/common/FluidCloudCapsule';
 
 const easeOppoEnter = [0.05, 0.7, 0.1, 1.0] as [number, number, number, number];
 const easeOppoBounce = [0.175, 0.885, 0.32, 1.275] as [number, number, number, number];
@@ -704,6 +705,9 @@ export default function HomePage() {
           )}
         </AnimatePresence>
       </main>
+
+      {/* 流体云胶囊快捷入口 */}
+      <FluidCloudCapsule />
 
       {/* 隐藏滚动条 */}
       <style>{`

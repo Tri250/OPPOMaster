@@ -1,8 +1,9 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { Search, Grid, List, Heart, Star, Clock, TrendingUp, Camera, Filter, ChevronRight, ArrowLeft } from 'lucide-react'
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { ColorOSFilterCard, ColorOSChip } from '../components/common/ColorOSComponents'
+import { useDebounce } from '../hooks/useCustomHooks'
 
 interface Preset {
   id: number
@@ -61,6 +62,7 @@ const easeOppoEnter = [0.05, 0.7, 0.1, 1.0] as [number, number, number, number]
 
 export default function FilterLibraryPage() {
   const [searchQuery, setSearchQuery] = useState('')
+  const debouncedSearchQuery = useDebounce(searchQuery, 300)
   const [activeCategory, setActiveCategory] = useState('全部')
   const [activeModel, setActiveModel] = useState<string | null>(null)
   const [sortBy, setSortBy] = useState('popularity')
@@ -69,26 +71,28 @@ export default function FilterLibraryPage() {
   const [selectedFilters, setSelectedFilters] = useState<number[]>([])
   const [showFilters, setShowFilters] = useState(false)
 
-  const filteredPresets = presets.filter(p => {
-    const matchesSearch = searchQuery === '' || 
-      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.author.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.scene.toLowerCase().includes(searchQuery.toLowerCase())
-    
-    const matchesCategory = activeCategory === '全部' || 
-      p.category === activeCategory || 
-      p.scene === activeCategory
-    
-    const matchesModel = !activeModel || p.compatibleModels.includes(activeModel)
-    
-    return matchesSearch && matchesCategory && matchesModel
-  }).sort((a, b) => {
-    if (sortBy === 'popularity') return b.popularity - a.popularity
-    if (sortBy === 'favorites') return b.favorites - a.favorites
-    if (sortBy === 'newest') return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    return 0
-  })
+  const filteredPresets = useMemo(() => {
+    return presets.filter(p => {
+      const matchesSearch = debouncedSearchQuery === '' || 
+        p.name.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
+        p.author.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
+        p.category.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
+        p.scene.toLowerCase().includes(debouncedSearchQuery.toLowerCase())
+      
+      const matchesCategory = activeCategory === '全部' || 
+        p.category === activeCategory || 
+        p.scene === activeCategory
+      
+      const matchesModel = !activeModel || p.compatibleModels.includes(activeModel)
+      
+      return matchesSearch && matchesCategory && matchesModel
+    }).sort((a, b) => {
+      if (sortBy === 'popularity') return b.popularity - a.popularity
+      if (sortBy === 'favorites') return b.favorites - a.favorites
+      if (sortBy === 'newest') return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      return 0
+    })
+  }, [debouncedSearchQuery, activeCategory, activeModel, sortBy])
 
   const toggleFavorite = (id: number) => {
     setFavorites(prev => 
@@ -317,41 +321,104 @@ export default function FilterLibraryPage() {
             </p>
           </motion.div>
 
+          {/* 空状态提示 */}
+          {filteredPresets.length === 0 && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="text-center py-16"
+            >
+              <div className="text-6xl mb-4">🔍</div>
+              <h3 className="text-xl font-bold mb-2 text-white">未找到匹配的预设</h3>
+              <p className="text-white/60 mb-6">换个关键词试试，或者调整筛选条件</p>
+              <button
+                onClick={() => {
+                  setSearchQuery('')
+                  setActiveCategory('全部')
+                  setActiveModel(null)
+                }}
+                className="btn-primary px-6 py-3"
+              >
+                清除筛选
+              </button>
+            </motion.div>
+          )}
+
           {/* 预设网格/列表 */}
           {viewMode === 'grid' ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-              {filteredPresets.map((preset, i) => (
-                <motion.div
-                  key={preset.id}
-                  initial={{ opacity: 0, scale: 0.9, y: 20 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  transition={{ delay: i * 0.05, duration: 0.4, ease: easeOppoEnter }}
-                >
-                  <ColorOSFilterCard
-                    name={preset.name}
-                    author={preset.author}
-                    category={preset.category}
-                    isNew={preset.isNew}
-                    isHasselblad={preset.isHasselblad}
-                    isFavorited={favorites.includes(preset.id)}
-                    isSelected={selectedFilters.includes(preset.id)}
-                    onClick={() => toggleSelect(preset.id)}
-                    onFavorite={() => toggleFavorite(preset.id)}
-                  />
-                  <div className="mt-3 flex items-center justify-between text-caption text-text-tertiary">
-                    <div className="flex items-center gap-3">
-                      <div className="flex items-center gap-1">
-                        <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />
-                        <span>{preset.popularity}</span>
+            <div 
+              className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4"
+              style={{ minHeight: Math.min(filteredPresets.length * 250, 800) }}
+            >
+              {filteredPresets.length > 20 ? (
+                <>
+                  {filteredPresets.slice(0, 20).map((preset, i) => (
+                    <motion.div
+                      key={preset.id}
+                      initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      transition={{ delay: Math.min(i * 0.05, 0.5), duration: 0.4, ease: easeOppoEnter }}
+                    >
+                      <ColorOSFilterCard
+                        name={preset.name}
+                        author={preset.author}
+                        category={preset.category}
+                        isNew={preset.isNew}
+                        isHasselblad={preset.isHasselblad}
+                        isFavorited={favorites.includes(preset.id)}
+                        isSelected={selectedFilters.includes(preset.id)}
+                        onClick={() => toggleSelect(preset.id)}
+                        onFavorite={() => toggleFavorite(preset.id)}
+                      />
+                      <div className="mt-3 flex items-center justify-between text-caption text-text-tertiary">
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-1">
+                            <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />
+                            <span>{preset.popularity}</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Heart className="w-3.5 h-3.5 text-oppo-pink fill-oppo-pink" />
+                            <span>{preset.favorites}</span>
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <Heart className="w-3.5 h-3.5 text-oppo-pink fill-oppo-pink" />
-                        <span>{preset.favorites}</span>
+                    </motion.div>
+                  ))}
+                </>
+              ) : (
+                filteredPresets.map((preset, i) => (
+                  <motion.div
+                    key={preset.id}
+                    initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    transition={{ delay: i * 0.05, duration: 0.4, ease: easeOppoEnter }}
+                  >
+                    <ColorOSFilterCard
+                      name={preset.name}
+                      author={preset.author}
+                      category={preset.category}
+                      isNew={preset.isNew}
+                      isHasselblad={preset.isHasselblad}
+                      isFavorited={favorites.includes(preset.id)}
+                      isSelected={selectedFilters.includes(preset.id)}
+                      onClick={() => toggleSelect(preset.id)}
+                      onFavorite={() => toggleFavorite(preset.id)}
+                    />
+                    <div className="mt-3 flex items-center justify-between text-caption text-text-tertiary">
+                      <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-1">
+                          <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500" />
+                          <span>{preset.popularity}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Heart className="w-3.5 h-3.5 text-oppo-pink fill-oppo-pink" />
+                          <span>{preset.favorites}</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </motion.div>
-              ))}
+                  </motion.div>
+                ))
+              )}
             </div>
           ) : (
             <div className="space-y-3">

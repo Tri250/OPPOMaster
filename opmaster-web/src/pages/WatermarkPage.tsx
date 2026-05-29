@@ -516,13 +516,17 @@ export default function WatermarkPage() {
     setIsExporting(true);
     setExportProgress({ current: 0, total: batchImages.length, status: 'exporting' });
 
+    let successCount = 0;
+    let errorCount = 0;
+
     for (let i = 0; i < batchImages.length; i++) {
       try {
         const tempCanvas = document.createElement('canvas');
         await renderWatermark(batchImages[i].src, tempCanvas);
         
         const link = document.createElement('a');
-        link.download = `watermarked_${i + 1}_${Date.now()}.png`;
+        const timestamp = Date.now();
+        link.download = `watermarked_${String(i + 1).padStart(3, '0')}_${timestamp}.png`;
         link.href = tempCanvas.toDataURL('image/png', 1.0);
         link.click();
 
@@ -530,11 +534,13 @@ export default function WatermarkPage() {
           idx === i ? { ...img, processed: true } : img
         ));
 
+        successCount++;
         setExportProgress(prev => ({ ...prev, current: i + 1 }));
         
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 300));
         
       } catch (error) {
+        errorCount++;
         setBatchImages(prev => prev.map((img, idx) => 
           idx === i ? { ...img, error: true } : img
         ));
@@ -543,7 +549,12 @@ export default function WatermarkPage() {
 
     setExportProgress(prev => ({ ...prev, status: 'completed' }));
     setIsExporting(false);
-    showNotification(`已导出 ${batchImages.length} 张图片`, 'success');
+    
+    if (errorCount === 0) {
+      showNotification(`已成功导出 ${successCount} 张图片（水印位置：${watermarkPosition}）`, 'success');
+    } else {
+      showNotification(`导出完成：${successCount} 张成功，${errorCount} 张失败`, 'error');
+    }
     
     setTimeout(() => {
       setExportProgress({ current: 0, total: 0, status: 'idle' });
@@ -759,6 +770,33 @@ export default function WatermarkPage() {
                   ))}
                 </div>
 
+                {/* 批量导出进度条 */}
+                {isExporting && exportProgress.status === 'exporting' && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mt-4 p-4 bg-bg-secondary rounded-2xl"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium">正在导出...</span>
+                      <span className="text-sm text-oppo-orange font-bold">
+                        {exportProgress.current} / {exportProgress.total}
+                      </span>
+                    </div>
+                    <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+                      <motion.div
+                        className="h-full bg-gradient-to-r from-oppo-orange to-hasselblad-orange"
+                        initial={{ width: '0%' }}
+                        animate={{ width: `${(exportProgress.current / exportProgress.total) * 100}%` }}
+                        transition={{ duration: 0.3, ease: 'easeOut' }}
+                      />
+                    </div>
+                    <p className="text-xs text-white/50 mt-2 text-center">
+                      请勿关闭页面，图片将逐一下载
+                    </p>
+                  </motion.div>
+                )}
+
                 <div className="mt-4 flex gap-3">
                   <ColorOSButton
                     variant="primary"
@@ -766,12 +804,14 @@ export default function WatermarkPage() {
                     loading={isExporting}
                     className="flex-1"
                     icon={<Download className="w-5 h-5" />}
+                    disabled={batchImages.length === 0}
                   >
-                    {isExporting ? '导出中...' : '批量导出'}
+                    {isExporting ? '导出中...' : `批量导出 ${batchImages.length > 0 ? `(${batchImages.length})` : ''}`}
                   </ColorOSButton>
                   <ColorOSButton
                     variant="secondary"
                     onClick={() => setBatchImages([])}
+                    disabled={isExporting}
                   >
                     清除
                   </ColorOSButton>
