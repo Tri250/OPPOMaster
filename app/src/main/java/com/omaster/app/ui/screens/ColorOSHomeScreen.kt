@@ -206,7 +206,7 @@ private fun HeroSection() {
                 Spacer(modifier = Modifier.height(16.dp))
                 
                 Text(
-                    text = "OPPO Master",
+                    text = "小O帮帮",
                     style = MaterialTheme.typography.displayMedium,
                     color = TextPrimary,
                     fontWeight = FontWeight.Bold
@@ -230,7 +230,7 @@ private fun QuickActionsSection() {
         Triple(Icons.Default.AutoMode, "AI 场景识别", OppoOrange),
         Triple(Icons.Default.Palette, "影像推荐", OppoGreen),
         Triple(Icons.Default.Camera, "参数设置", OceanBlue),
-        Triple(Icons.Default.Info, "关于", OppoSunriseGold)
+        Triple(Icons.Default.Info, "关于我", OppoSunriseGold)
     )
     
     Row(
@@ -285,7 +285,7 @@ private fun ColorOSTopBar(
     CenterAlignedTopAppBar(
         title = {
             Text(
-                text = "OPPO Master",
+                text = "小O帮帮",
                 style = MaterialTheme.typography.headlineSmall,
                 color = TextPrimary,
                 fontWeight = FontWeight.Bold

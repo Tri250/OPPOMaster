@@ -69,7 +69,7 @@ export default function AIDemoPage() {
           animate={{ opacity: 1, y: 0 }}
           className="text-center mb-10"
         >
-          <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-oppo-orange to-hasselblad rounded-2xl mb-6">
+          <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-oppo-orange to-hasselblad rounded-2xl mb-6 animate-breathing">
             <Sparkles className="w-12 h-12 text-deep-space" />
           </div>
           <h1 className="text-4xl md:text-5xl font-bold mb-4">
@@ -78,7 +78,7 @@ export default function AIDemoPage() {
             </span>
           </h1>
           <p className="text-lg text-text-secondary max-w-2xl mx-auto">
-            上传您的照片，体验AI智能识别场景并推荐最佳预设
+            上传您的照片，体验AI智能分析场景并推荐最佳预设
           </p>
         </motion.div>
 
@@ -227,7 +227,7 @@ export default function AIDemoPage() {
                       key={result.label}
                       initial={{ opacity: 0, x: -20 }}
                       animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: idx * 0.2 }}
+                      transition={{ delay: idx * 0.1 }}
                       className="space-y-2"
                     >
                       <div className="flex items-center justify-between text-sm">
@@ -242,7 +242,7 @@ export default function AIDemoPage() {
                         <motion.div
                           initial={{ width: 0 }}
                           animate={{ width: `${result.confidence * 100}%` }}
-                          transition={{ delay: 0.3 + idx * 0.2, duration: 0.6 }}
+                          transition={{ delay: 0.3 + idx * 0.1, duration: 0.6 }}
                           className={`h-full bg-gradient-to-r ${result.color} rounded-full`}
                         />
                       </div>

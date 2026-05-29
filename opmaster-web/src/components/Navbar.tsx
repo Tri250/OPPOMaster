@@ -20,7 +20,7 @@ export default function Navbar() {
               <Camera className="w-6 h-6 text-deep-space" />
             </div>
             <span className="text-lg font-bold text-text-primary">
-              OPPOMaster
+              小O帮帮
             </span>
           </Link>
 

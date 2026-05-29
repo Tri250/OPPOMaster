@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">OMaster</string>
+    <string name="app_name">小O帮帮</string>
     <string name="home_title">调色参数库</string>
     <string name="detail_title">预设详情</string>
     <string name="settings_title">设置</string>
@@ -13,7 +13,7 @@
     <string name="overlay">悬浮窗</string>
     <string name="enable_overlay">启用悬浮窗（降级方案）</string>
     <string name="enable_overlay_desc">仅适用于不支持流体云的旧系统</string>
-    <string name="about">关于</string>
+    <string name="about">关于我</string>
     <string name="version">版本</string>
     <string name="camera_params">相机参数</string>
     <string name="iso">ISO</string>

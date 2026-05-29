@@ -31,7 +31,7 @@ export default function OppoHero() {
           className="text-5xl md:text-6xl font-bold mb-4 tracking-tight"
         >
           <span className="bg-gradient-to-r from-white via-oppo-orange to-hasselblad bg-clip-text text-transparent">
-            OPPOMaster
+            小O帮帮
           </span>
         </motion.h1>
 
