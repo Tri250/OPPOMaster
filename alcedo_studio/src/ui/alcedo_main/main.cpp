@@ -105,7 +105,7 @@ class OpenClGlSharingBootstrap {
     alcedo::OpenClInitializationOptions options;
     options.gl_context        = hglrc;
     options.gl_device_context = hdc;
-    initialized_ = alcedo::TryPrepareOpenClRuntime(options);
+    initialized_ = alcedo::TryInitializeOpenClRuntime(options);
     context_->doneCurrent();
 
     if (!initialized_) {

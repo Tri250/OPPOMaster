@@ -30,6 +30,9 @@
 #include "app/project_package_service.hpp"
 #include "edit/operators/utils/color_utils.hpp"
 #include "image/image.hpp"
+#ifdef HAVE_OPENCL
+#include "opencl/opencl_runtime.hpp"
+#endif
 #include "ui/alcedo_main/album_backend/path_utils.hpp"
 #include "utils/cuda/cuda_driver_requirements.hpp"
 
@@ -103,6 +106,10 @@ class ThumbnailModelLoadingGuard {
     QT_TRANSLATE_NOOP("Alcedo", "Failed to switch accelerator backend: %1"),
     QT_TRANSLATE_NOOP("Alcedo", "Failed to switch accelerator backend."),
     QT_TRANSLATE_NOOP("Alcedo", "Using %1 acceleration."),
+    QT_TRANSLATE_NOOP("Alcedo", "Preparing OpenCL acceleration..."),
+    QT_TRANSLATE_NOOP("Alcedo", "Compiling OpenCL kernels. This happens every launch."),
+    QT_TRANSLATE_NOOP("Alcedo", "OpenCL acceleration is ready."),
+    QT_TRANSLATE_NOOP("Alcedo", "OpenCL preparation failed: %1"),
 };
 
 auto AcceleratorPreferenceKey(AcceleratorBackendPreference preference) -> QString {
@@ -353,6 +360,64 @@ void AlbumBackend::StartImport(const QStringList& fileUrlsOrPaths) {
 }
 void AlbumBackend::CancelImport() { import_export_.CancelImport(); }
 
+void AlbumBackend::SetAcceleratorPreparationState(bool preparing,
+                                                  const i18n::LocalizedText& status) {
+  accelerator_preparing_               = preparing;
+  accelerator_preparation_status_text_ = status;
+  emit AcceleratorPreparationStateChanged();
+}
+
+void AlbumBackend::StartOpenClPreparationIfNeeded() {
+  if (accelerator_prepare_started_ || accelerator_preparing_ ||
+      accelerator_preference_ != AcceleratorBackendPreference::OpenCL) {
+    return;
+  }
+
+  accelerator_prepare_started_ = true;
+
+#ifdef HAVE_OPENCL
+  SetAcceleratorPreparationState(true, PL_TEXT("Compiling OpenCL kernels. This happens every launch."));
+  QPointer<AlbumBackend> self(this);
+  std::thread([self]() {
+    QString error_text;
+    try {
+      WarmUpOpenClRuntime();
+    } catch (const std::exception& error) {
+      error_text = QString::fromUtf8(error.what());
+    } catch (...) {
+      error_text = QStringLiteral("Unknown OpenCL preparation error.");
+    }
+
+    if (!self) {
+      return;
+    }
+    QMetaObject::invokeMethod(
+        self,
+        [self, error_text]() {
+          if (!self) {
+            return;
+          }
+          if (error_text.isEmpty()) {
+            self->SetAcceleratorPreparationState(false, PL_TEXT("OpenCL acceleration is ready."));
+            self->SetServiceMessageForCurrentProject(PL_TEXT("OpenCL acceleration is ready."));
+            return;
+          }
+
+          self->accelerator_prepare_started_ = false;
+          self->SetAcceleratorPreparationState(
+              false, PL_TEXT("OpenCL preparation failed: %1", error_text));
+          self->SetServiceMessageForCurrentProject(
+              PL_TEXT("OpenCL preparation failed: %1", error_text));
+        },
+        Qt::QueuedConnection);
+  }).detach();
+#else
+  SetAcceleratorPreparationState(false, {});
+#endif
+}
+
+void AlbumBackend::StartAcceleratorPreparation() { StartOpenClPreparationIfNeeded(); }
+
 void AlbumBackend::InitializeAcceleratorSettings() {
   const QString stored_key = QSettings{}.value(QLatin1String(kAcceleratorBackendKey)).toString();
   const auto    stored_preference = AcceleratorPreferenceFromKey(stored_key);
@@ -495,6 +560,7 @@ bool AlbumBackend::SetAcceleratorBackend(const QString& backendKey) {
     accelerator_backend_key_ = normalized_key;
     QSettings{}.setValue(QLatin1String(kAcceleratorBackendKey), accelerator_backend_key_);
     ApplyAcceleratorPreferenceToServices();
+    StartOpenClPreparationIfNeeded();
   } catch (const std::exception& e) {
     SetServiceMessageForCurrentProject(
         PL_TEXT("Failed to switch accelerator backend: %1", QString::fromUtf8(e.what())));

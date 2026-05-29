@@ -66,6 +66,7 @@ class OpenClProgramLibrary {
   void        RegisterProgram(OpenClProgramDescriptor descriptor);
 
   void        WarmUpRequiredPrograms();
+  void        WarmUpAllPrograms();
 
   auto        GetProgram(std::string_view name) -> cl_program;
 

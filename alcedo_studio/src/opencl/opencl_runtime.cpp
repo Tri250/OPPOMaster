@@ -12,18 +12,34 @@
 namespace alcedo {
 
 void PrepareOpenClRuntime(const OpenClInitializationOptions& options) {
+  InitializeOpenClRuntime(options);
+  WarmUpOpenClRuntime();
+}
+
+void InitializeOpenClRuntime(const OpenClInitializationOptions& options) {
   RegisterOpenClBackendPrograms();
   OpenClContext::Instance().Initialize(options);
-  OpenClProgramLibrary::Instance().WarmUpRequiredPrograms();
+}
+
+auto TryInitializeOpenClRuntime(const OpenClInitializationOptions& options) -> bool {
+  try {
+    InitializeOpenClRuntime(options);
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+
+void WarmUpOpenClRuntime() {
+  OpenClProgramLibrary::Instance().WarmUpAllPrograms();
 }
 
 auto TryPrepareOpenClRuntime(const OpenClInitializationOptions& options) -> bool {
   try {
-    RegisterOpenClBackendPrograms();
-    if (!OpenClContext::Instance().TryInitialize(options)) {
+    if (!TryInitializeOpenClRuntime(options)) {
       return false;
     }
-    OpenClProgramLibrary::Instance().WarmUpRequiredPrograms();
+    WarmUpOpenClRuntime();
     return true;
   } catch (...) {
     return false;
