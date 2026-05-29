@@ -1,7 +1,7 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Camera, Sparkles, Star, Download, TrendingUp, Heart, X, Menu, 
-  Palette, Layers, Zap, ChevronRight, CloudSync, Globe, Users, Settings
+  Palette, Layers, Zap, ChevronRight, CloudSync, Globe, Users, Settings, Sliders
 } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -12,8 +12,7 @@ const easeOppoEnter = [0.05, 0.7, 0.1, 1.0] as [number, number, number, number];
 const easeOppoBounce = [0.175, 0.885, 0.32, 1.275] as [number, number, number, number];
 
 // ============================================
-// ColorOS 16 快捷入口配置 - 专家级设计
-// ============================================
+// ==================== ColorOS 16 快捷入口配置 - 专家级设计 ====================
 const quickActions = [
   { 
     id: 'ai', 
@@ -32,20 +31,20 @@ const quickActions = [
     desc: '大师参数'
   },
   { 
-    id: 'community', 
-    icon: Users, 
-    label: '社区', 
-    path: '/community', 
+    id: 'editor', 
+    icon: Sliders, 
+    label: '编辑器', 
+    path: '/editor', 
     color: 'from-oppo-green to-oppo-blue',
-    desc: '分享交流'
+    desc: '自定义预设'
   },
   { 
-    id: 'sync', 
-    icon: CloudSync, 
-    label: '云同步', 
-    path: '/cloud-sync', 
+    id: 'watermark', 
+    icon: Palette, 
+    label: '水印', 
+    path: '/watermark', 
     color: 'from-oppo-purple to-oppo-pink',
-    desc: '数据备份'
+    desc: '专业水印'
   }
 ];
 
@@ -239,6 +238,8 @@ export default function HomePage() {
                 {[
                   { name: '首页', path: '/', icon: Camera },
                   { name: '预设库', path: '/filter-library', icon: Palette },
+                  { name: '预设编辑器', path: '/editor', icon: Sliders },
+                  { name: '水印生成器', path: '/watermark', icon: Palette },
                   { name: 'AI场景识别', path: '/ai-demo', icon: Sparkles },
                   { name: '社区', path: '/community', icon: Users },
                   { name: '云同步', path: '/cloud-sync', icon: CloudSync },
