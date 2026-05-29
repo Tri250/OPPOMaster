@@ -27,9 +27,14 @@ Item {
     readonly property var zoomResolutionEdges: [2048, 1024, 1024, 512, 512, 256, 256, 256]
     readonly property int zoomLevelCount: zoomColumns.length
     property int zoomLevel: 4  // default: 6 columns
+    property bool zoomAdjusting: false
+    property bool _zoomReady: false
+    property int committedZoomLevel: Math.max(0, Math.min(zoomLevelCount - 1, zoomLevel))
+    property bool thumbnailBindingSuspended: false
+    property var _deferredThumbnailReleases: ({})
 
     readonly property int columns: zoomColumns[Math.min(zoomLevel, zoomLevelCount - 1)]
-    readonly property int desiredMaxEdge: zoomResolutionEdges[Math.min(zoomLevel, zoomLevelCount - 1)]
+    readonly property int desiredMaxEdge: zoomResolutionEdges[Math.min(committedZoomLevel, zoomLevelCount - 1)]
     readonly property bool compactText: columns >= 8
     readonly property bool hideMetadata: columns >= 8
     readonly property bool hideAllText: columns >= 14
@@ -39,22 +44,56 @@ Item {
     readonly property int titleFontSize: columns >= 11 ? 9 : (columns >= 8 ? 10 : 12)
     readonly property int metadataFontSize: columns >= 8 ? 8 : 10
     property bool _inZoomToCursor: false
+    property bool _zoomLayoutAnimating: false
+    property var _zoomLayoutSnapshot: ({})
+    property int _layoutZoomLevel: Math.max(0, Math.min(zoomLevelCount - 1, zoomLevel))
     property int _layoutRequestId: 0
     property int _pendingLayoutRequestId: 0
     property int _zoomRequestId: 0
     property int _pendingZoomRequestId: 0
     property real _pendingZoomFocusRatio: 0
     property real _pendingZoomFocusY: 0
+    property int _pendingZoomTargetLevel: Math.max(0, Math.min(zoomLevelCount - 1, zoomLevel))
+    readonly property int zoomSettleDelay: 90
+    readonly property int thumbnailResumeDelay: 150
+    readonly property int delegateReflowDuration: 280
+    readonly property real delegateReflowTravelDamping: 0.32
+    readonly property real delegateReflowMaxTravel: 44
 
     signal imageSelectionChanged(int elementId, int imageId, string fileName, bool selected)
     signal replaceSelection(var items)
     signal contextMenuRequested(var item, real sceneX, real sceneY)
     signal zoomChanged(int zoomLevel)
 
-    onZoomLevelChanged: {
-        root.zoomChanged(zoomLevel)
+    Component.onCompleted: {
+        committedZoomLevel = root.clampedZoomLevel(zoomLevel)
+        _zoomReady = true
         root.relayoutAndClamp()
         root.updateCacheHint()
+    }
+
+    onZoomLevelChanged: {
+        const clamped = root.clampedZoomLevel(zoomLevel)
+        if (!_zoomReady) {
+            committedZoomLevel = clamped
+            return
+        }
+        root.zoomChanged(clamped)
+        root.beginThumbnailBindingSuspension()
+        if (!_inZoomToCursor) {
+            root.prepareZoomLayoutTransition(clamped, grid.height * 0.5)
+        }
+        if (zoomAdjusting) {
+            zoomCommitTimer.stop()
+            return
+        }
+        zoomCommitTimer.restart()
+    }
+    onZoomAdjustingChanged: {
+        if (!_zoomReady || zoomAdjusting || !thumbnailBindingSuspended) {
+            return
+        }
+        root.finishZoomCommit()
     }
     onWidthChanged: {
         root.relayoutAndClamp()
@@ -67,6 +106,133 @@ Item {
 
     function modelCount() {
         return albumBackend.thumbnailModel.count
+    }
+
+    function clampedZoomLevel(nextZoomLevel) {
+        return Math.max(0, Math.min(zoomLevelCount - 1, nextZoomLevel))
+    }
+
+    function visualColumnsForZoomLevel(level) {
+        return zoomColumns[root.clampedZoomLevel(level)]
+    }
+
+    function cardInsetForColumns(columnCount) {
+        return columnCount >= 11 ? 4 : (columnCount >= 8 ? 6 : 8)
+    }
+
+    function delegateGapForColumns(columnCount) {
+        return columnCount >= 11 ? 4 : (columnCount >= 8 ? 6 : 12)
+    }
+
+    function textAreaHeightForColumns(columnCount) {
+        if (columnCount >= 14) {
+            return 0
+        }
+        return columnCount >= 8 ? 18 : 42
+    }
+
+    function metricsForZoomLevel(level) {
+        const visualCols = root.visualColumnsForZoomLevel(level)
+        const inset = root.cardInsetForColumns(visualCols)
+        const gap = root.delegateGapForColumns(visualCols)
+        const textHeight = root.textAreaHeightForColumns(visualCols)
+        const cellW = Math.max(72, Math.floor(grid.width / visualCols))
+        const cellH = Math.max(64, Math.round((cellW - inset * 2) * 2 / 3
+                                              + textHeight
+                                              + inset * 2
+                                              + gap))
+        return {
+            visualCols: visualCols,
+            cols: Math.max(1, Math.floor(grid.width / cellW)),
+            cellW: cellW,
+            cellH: cellH,
+            delegateGap: gap
+        }
+    }
+
+    function contentHeightForMetrics(metrics) {
+        if (!metrics || metrics.cellH <= 0) {
+            return 0
+        }
+        return Math.ceil(modelCount() / Math.max(1, metrics.cols)) * metrics.cellH
+    }
+
+    function clampedUnitScale(rawScale) {
+        return Math.max(0.94, Math.min(1.06, rawScale))
+    }
+
+    function softenedReflowDelta(delta) {
+        const sign = delta < 0 ? -1 : 1
+        const softened = Math.abs(delta) * delegateReflowTravelDamping
+        return sign * Math.min(delegateReflowMaxTravel, softened)
+    }
+
+    function thumbnailBindingKey(elementId, imageId, maxEdge) {
+        return String(Number(elementId)) + ":" + String(Number(imageId)) + ":" + String(Number(maxEdge))
+    }
+
+    function beginThumbnailBindingSuspension() {
+        resumeThumbnailBindingTimer.stop()
+        if (thumbnailBindingSuspended) {
+            return
+        }
+        thumbnailBindingSuspended = true
+        _deferredThumbnailReleases = ({})
+    }
+
+    function deferThumbnailRelease(elementId, imageId, maxEdge) {
+        if (elementId === 0 || imageId === 0) {
+            return
+        }
+        const pending = Object.assign({}, _deferredThumbnailReleases)
+        pending[thumbnailBindingKey(elementId, imageId, maxEdge)] = {
+            elementId: Number(elementId),
+            imageId: Number(imageId),
+            maxEdge: Number(maxEdge)
+        }
+        _deferredThumbnailReleases = pending
+    }
+
+    function syncVisibleThumbnailBindings() {
+        if (!grid.contentItem) {
+            return
+        }
+        const children = grid.contentItem.children
+        for (let i = 0; i < children.length; ++i) {
+            const child = children[i]
+            if (child && child.visible !== false && child.syncThumbnailBinding) {
+                child.syncThumbnailBinding()
+            }
+        }
+    }
+
+    function flushDeferredThumbnailReleases() {
+        const pending = _deferredThumbnailReleases
+        _deferredThumbnailReleases = ({})
+        for (const key in pending) {
+            const release = pending[key]
+            albumBackend.SetThumbnailVisible(release.elementId, release.imageId, false,
+                                             release.maxEdge)
+        }
+    }
+
+    function finishZoomCommit() {
+        if (!_zoomReady) {
+            return
+        }
+        committedZoomLevel = root.clampedZoomLevel(zoomLevel)
+        grid.forceLayout()
+        root.clampContentY()
+        resumeThumbnailBindingTimer.restart()
+    }
+
+    function resumeThumbnailBindings() {
+        thumbnailBindingSuspended = false
+        root.syncVisibleThumbnailBindings()
+        root.flushDeferredThumbnailReleases()
+        root.clampContentY()
+        root.updateCacheHint()
+        loadMoreThumbnailTimer.restart()
     }
 
     function effectiveColumnCount() {
@@ -128,6 +294,7 @@ Item {
             return
         }
         grid.forceLayout()
+        _layoutZoomLevel = root.clampedZoomLevel(zoomLevel)
         root.clampContentY()
         root.updateCacheHint()
     }
@@ -138,17 +305,43 @@ Item {
             return
         }
 
+        root.prepareZoomLayoutTransition(clamped, focusViewportY)
+        zoomLevel = clamped
+    }
+
+    function prepareZoomLayoutTransition(targetZoomLevel, focusViewportY) {
+        const target = root.clampedZoomLevel(targetZoomLevel)
+        const oldLevel = root.clampedZoomLevel(_layoutZoomLevel)
+        const oldMetrics = root.metricsForZoomLevel(oldLevel)
+        if (grid.width <= 0 || grid.height <= 0 || oldMetrics.cellW <= 0 || oldMetrics.cellH <= 0) {
+            root.relayoutAndClamp()
+            return
+        }
+
+        root.finishActiveZoomLayoutAnimations()
         const oldOriginY = grid.originY
-        const oldHeight = Math.max(1, layoutContentHeight())
+        const oldHeight = Math.max(1, root.contentHeightForMetrics(oldMetrics))
         const oldContentY = clampYForHeight(oldHeight, grid.contentY, oldOriginY)
         const focusY = Math.max(0, Math.min(grid.height, focusViewportY))
         const focusRatio = (oldContentY - oldOriginY + focusY) / oldHeight
+
+        _zoomLayoutSnapshot = {
+            cols: oldMetrics.cols,
+            cellW: oldMetrics.cellW,
+            cellH: oldMetrics.cellH,
+            delegateGap: oldMetrics.delegateGap,
+            originY: oldOriginY,
+            contentX: grid.contentX,
+            contentY: oldContentY,
+            viewportH: grid.height
+        }
         _inZoomToCursor = true
+        _zoomLayoutAnimating = true
         ++_layoutRequestId
         _pendingZoomRequestId = ++_zoomRequestId
         _pendingZoomFocusRatio = focusRatio
         _pendingZoomFocusY = focusY
-        zoomLevel = clamped
+        _pendingZoomTargetLevel = target
         zoomToCursorTimer.restart()
     }
 
@@ -162,10 +355,107 @@ Item {
         const targetY = newOriginY + _pendingZoomFocusRatio * newHeight - _pendingZoomFocusY
         grid.contentY = clampYForHeight(newHeight, targetY, newOriginY)
         _inZoomToCursor = false
+        _layoutZoomLevel = _pendingZoomTargetLevel
+        zoomLayoutApplyTimer.restart()
         root.updateCacheHint()
     }
 
+    function applyZoomLayoutAnimation() {
+        const snap = _zoomLayoutSnapshot
+        if (!snap || !snap.cols || snap.cols <= 0 || snap.cellW <= 0 || snap.cellH <= 0) {
+            _zoomLayoutAnimating = false
+            return
+        }
+        const newCols = root.effectiveColumnCount()
+        const newCellW = grid.cellWidth
+        const newCellH = grid.cellHeight
+        const newOriginY = grid.originY
+        const newContentX = grid.contentX
+        const newContentY = grid.contentY
+        if (newCellW <= 0 || newCellH <= 0) {
+            _zoomLayoutAnimating = false
+            return
+        }
+        const children = grid.contentItem.children
+        let animCount = 0
+        for (let i = 0; i < children.length; i++) {
+            const child = children[i]
+            if (!child || child.index === undefined || !child.startZoomLayoutAnim) {
+                continue
+            }
+            const idx = child.index
+            const oldCol = idx % snap.cols
+            const oldRow = Math.floor(idx / snap.cols)
+            const oldX = oldCol * snap.cellW
+            const oldY = oldRow * snap.cellH + snap.originY
+            const newCol = idx % newCols
+            const newRow = Math.floor(idx / newCols)
+            const newX = newCol * newCellW
+            const newY = newRow * newCellH + newOriginY
+            const oldViewportX = oldX - snap.contentX
+            const oldViewportY = oldY - snap.contentY
+            const newViewportX = newX - newContentX
+            const newViewportY = newY - newContentY
+            const dx = oldViewportX - newViewportX
+            const dy = oldViewportY - newViewportY
+            const oldBottom = oldViewportY + snap.cellH
+            const newBottom = newViewportY + newCellH
+            const wasNearViewport = oldBottom >= -snap.cellH
+                    && oldViewportY <= snap.viewportH + snap.cellH
+            const isNearViewport = newBottom >= -newCellH
+                    && newViewportY <= grid.height + newCellH
+            if (!wasNearViewport && !isNearViewport) {
+                continue
+            }
+
+            const oldDelegateW = Math.max(1, snap.cellW - snap.delegateGap)
+            const oldDelegateH = Math.max(1, snap.cellH - snap.delegateGap)
+            const newDelegateW = Math.max(1, newCellW - root.delegateGap)
+            const newDelegateH = Math.max(1, newCellH - root.delegateGap)
+            const travel = Math.sqrt(dx * dx + dy * dy)
+            const largeTravel = travel > Math.max(96, newCellH * 0.82)
+            const easedDx = largeTravel ? 0 : root.softenedReflowDelta(dx)
+            const easedDy = largeTravel ? root.softenedReflowDelta(dy) * 0.25
+                                        : root.softenedReflowDelta(dy)
+            const rawScale = wasNearViewport
+                    ? Math.sqrt((oldDelegateW / newDelegateW) * (oldDelegateH / newDelegateH))
+                    : 0.985
+            const scale = root.clampedUnitScale(1.0 + (rawScale - 1.0) * 0.34)
+            const startOpacity = wasNearViewport ? (largeTravel ? 0.56 : 1.0) : 0.0
+            if (Math.abs(easedDx) > 0.25 || Math.abs(easedDy) > 0.25
+                    || Math.abs(scale - 1.0) > 0.01
+                    || startOpacity < 1.0) {
+                child.startZoomLayoutAnim(easedDx, easedDy, scale, scale, startOpacity)
+                animCount++
+            }
+        }
+        _zoomLayoutSnapshot = ({})
+        if (animCount > 0) {
+            zoomLayoutAnimDoneTimer.restart()
+        } else {
+            _zoomLayoutAnimating = false
+        }
+    }
+
+    function finishActiveZoomLayoutAnimations() {
+        zoomLayoutAnimDoneTimer.stop()
+        if (!grid.contentItem) {
+            _zoomLayoutAnimating = false
+            return
+        }
+        const children = grid.contentItem.children
+        for (let i = 0; i < children.length; i++) {
+            if (children[i] && children[i].finishZoomLayoutAnim) {
+                children[i].finishZoomLayoutAnim()
+            }
+        }
+        _zoomLayoutAnimating = false
+    }
+
     function updateCacheHint() {
+        if (thumbnailBindingSuspended) {
+            return
+        }
         if (grid.width <= 0 || grid.cellWidth <= 0 || grid.cellHeight <= 0) {
             return
         }
@@ -175,7 +465,8 @@ Item {
     }
 
     function maybeLoadMoreThumbnails() {
-        if (!albumBackend.thumbnailModel.hasMore
+        if (thumbnailBindingSuspended
+                || !albumBackend.thumbnailModel.hasMore
                 || albumBackend.thumbnailModel.loading
                 || grid.cellHeight <= 0) {
             return
@@ -210,10 +501,38 @@ Item {
     }
 
     Timer {
+        id: zoomLayoutApplyTimer
+        interval: 0
+        repeat: false
+        onTriggered: root.applyZoomLayoutAnimation()
+    }
+
+    Timer {
+        id: zoomCommitTimer
+        interval: root.zoomSettleDelay
+        repeat: false
+        onTriggered: root.finishZoomCommit()
+    }
+
+    Timer {
+        id: resumeThumbnailBindingTimer
+        interval: root.thumbnailResumeDelay
+        repeat: false
+        onTriggered: root.resumeThumbnailBindings()
+    }
+
+    Timer {
         id: loadMoreThumbnailTimer
         interval: 0
         repeat: false
         onTriggered: root.maybeLoadMoreThumbnails()
+    }
+
+    Timer {
+        id: zoomLayoutAnimDoneTimer
+        interval: 650
+        repeat: false
+        onTriggered: root.finishActiveZoomLayoutAnimations()
     }
 
     function keyForElement(elementId) {
@@ -325,7 +644,16 @@ Item {
         }
 
         function bindThumbnailLifetime(force) {
-            if (!force && pinnedElementId === elementId && pinnedImageId === imageId
+            liveThumbUrl = thumbUrl
+            liveThumbLoading = thumbLoading
+            liveThumbMissingSource = thumbMissingSource
+            liveThumbErrorText = thumbErrorText
+
+            if (root.thumbnailBindingSuspended && !force) {
+                return
+            }
+
+            if (pinnedElementId === elementId && pinnedImageId === imageId
                     && pinnedMaxEdge === root.desiredMaxEdge) {
                 return
             }
@@ -334,10 +662,6 @@ Item {
                     && pinnedMaxEdge !== root.desiredMaxEdge) {
                 const oldMaxEdge = pinnedMaxEdge
                 pinnedMaxEdge = root.desiredMaxEdge
-                liveThumbUrl = thumbUrl
-                liveThumbLoading = thumbLoading
-                liveThumbMissingSource = thumbMissingSource
-                liveThumbErrorText = thumbErrorText
                 if (pinnedElementId !== 0 && pinnedImageId !== 0) {
                     albumBackend.SetThumbnailVisible(pinnedElementId, pinnedImageId, true,
                                                      pinnedMaxEdge)
@@ -360,15 +684,33 @@ Item {
             }
         }
 
+        function syncThumbnailBinding() {
+            bindThumbnailLifetime(true)
+        }
+
+        function releaseThumbnailBinding() {
+            if (root.thumbnailBindingSuspended) {
+                root.deferThumbnailRelease(pinnedElementId, pinnedImageId,
+                                           pinnedMaxEdge > 0 ? pinnedMaxEdge : root.desiredMaxEdge)
+                pinnedElementId = 0
+                pinnedImageId = 0
+                pinnedMaxEdge = 0
+                return
+            }
+            releasePinnedThumbnail()
+        }
+
         Component.onCompleted: bindThumbnailLifetime(false)
         onElementIdChanged: bindThumbnailLifetime(false)
         onImageIdChanged: bindThumbnailLifetime(false)
-        Component.onDestruction: releasePinnedThumbnail()
+        Component.onDestruction: releaseThumbnailBinding()
 
         Connections {
             target: root
             function onDesiredMaxEdgeChanged() {
-                cardDelegate.bindThumbnailLifetime(true)
+                if (!root.thumbnailBindingSuspended) {
+                    cardDelegate.syncThumbnailBinding()
+                }
             }
         }
 
@@ -384,6 +726,93 @@ Item {
             border.color: root.cardAccent
         Behavior on color { ColorAnimation { duration: 120 } }
             Behavior on border.width { NumberAnimation { duration: 150 } }
+            Behavior on x {
+                enabled: !root._zoomLayoutAnimating
+                SpringAnimation { spring: 2.5; damping: 0.42; epsilon: 0.25 }
+            }
+            Behavior on y {
+                enabled: !root._zoomLayoutAnimating
+                SpringAnimation { spring: 2.5; damping: 0.42; epsilon: 0.25 }
+            }
+            opacity: zoomOpacity
+
+            transform: [
+                Scale {
+                    id: zoomScale
+                    origin.x: cardDelegate.width * 0.5
+                    origin.y: cardDelegate.height * 0.5
+                    xScale: cardDelegate.zoomScaleX
+                    yScale: cardDelegate.zoomScaleY
+                },
+                Translate {
+                    id: zoomTranslate
+                    x: cardDelegate.zoomTranslateX
+                    y: cardDelegate.zoomTranslateY
+                }
+            ]
+            property real zoomTranslateX: 0
+            property real zoomTranslateY: 0
+            property real zoomScaleX: 1
+            property real zoomScaleY: 1
+            property real zoomOpacity: 1
+
+            ParallelAnimation {
+                id: zoomLayoutAnim
+                NumberAnimation {
+                    target: cardDelegate
+                    property: "zoomTranslateX"
+                    to: 0
+                    duration: root.delegateReflowDuration
+                    easing.type: Easing.OutQuint
+                }
+                NumberAnimation {
+                    target: cardDelegate
+                    property: "zoomTranslateY"
+                    to: 0
+                    duration: root.delegateReflowDuration
+                    easing.type: Easing.OutQuint
+                }
+                NumberAnimation {
+                    target: cardDelegate
+                    property: "zoomScaleX"
+                    to: 1
+                    duration: root.delegateReflowDuration
+                    easing.type: Easing.OutQuint
+                }
+                NumberAnimation {
+                    target: cardDelegate
+                    property: "zoomScaleY"
+                    to: 1
+                    duration: root.delegateReflowDuration
+                    easing.type: Easing.OutQuint
+                }
+                NumberAnimation {
+                    target: cardDelegate
+                    property: "zoomOpacity"
+                    to: 1
+                    duration: Math.round(root.delegateReflowDuration * 0.72)
+                    easing.type: Easing.OutCubic
+                }
+            }
+
+            function startZoomLayoutAnim(fromX, fromY, fromScaleX, fromScaleY, fromOpacity) {
+                zoomLayoutAnim.stop()
+                zoomTranslateX = fromX
+                zoomTranslateY = fromY
+                zoomScaleX = fromScaleX
+                zoomScaleY = fromScaleY
+                zoomOpacity = fromOpacity
+                zoomLayoutAnim.restart()
+            }
+
+            function finishZoomLayoutAnim() {
+                zoomLayoutAnim.stop()
+                zoomTranslateX = 0
+                zoomTranslateY = 0
+                zoomScaleX = 1
+                zoomScaleY = 1
+                zoomOpacity = 1
+            }
 
         Connections {
             target: albumBackend

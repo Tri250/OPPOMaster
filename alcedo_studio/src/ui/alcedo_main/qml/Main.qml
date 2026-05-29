@@ -1762,6 +1762,7 @@ ApplicationWindow {
         id: gridComp
         ThumbnailGridView {
             zoomLevel: root.gridZoomLevel
+            zoomAdjusting: zoomSlider.pressed
             onZoomLevelChanged: root.gridZoomLevel = zoomLevel
             selectedImagesById: root.selectedImagesById
             exportQueueById: root.exportQueueById
