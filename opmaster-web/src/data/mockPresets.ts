@@ -148,13 +148,13 @@ export const mockPresets: Preset[] = [
     }
   },
   {
-    id: 'fujifilm_film',
-    name: '富士胶片',
-    coverPath: 'https://picsum.photos/400/600?random=1',
-    galleryImages: [
-      'https://picsum.photos/400/600?random=2',
-      'https://picsum.photos/400/600?random=3'
-    ],
+      id: 'fujifilm_film',
+      name: '富士胶片',
+      coverPath: 'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/fsjp_01.webp',
+      galleryImages: [
+        'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/fsjp_02.webp',
+        'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/fsjp_03.webp'
+      ],
     sections: [
       {
         title: '色彩调校',
@@ -197,13 +197,13 @@ export const mockPresets: Preset[] = [
     }
   },
   {
-    id: 'film_sense',
-    name: '胶片感',
-    coverPath: 'https://picsum.photos/400/600?random=4',
-    galleryImages: [
-      'https://picsum.photos/400/600?random=5',
-      'https://picsum.photos/400/600?random=6'
-    ],
+      id: 'film_sense',
+      name: '胶片感',
+      coverPath: 'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/jpg_01.webp',
+      galleryImages: [
+        'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/jpg_02.webp',
+        'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/jpg_03.webp'
+      ],
     sections: [
       {
         title: '色彩调校',
@@ -246,13 +246,13 @@ export const mockPresets: Preset[] = [
     }
   },
   {
-    id: 'fairy_tale',
-    name: '童话',
-    coverPath: 'https://picsum.photos/400/600?random=7',
-    galleryImages: [
-      'https://picsum.photos/400/600?random=8',
-      'https://picsum.photos/400/600?random=9'
-    ],
+      id: 'fairy_tale',
+      name: '童话',
+      coverPath: 'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/th_01.webp',
+      galleryImages: [
+        'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/th_02.webp',
+        'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/th_03.webp'
+      ],
     sections: [
       {
         title: '色彩调校',
@@ -295,13 +295,13 @@ export const mockPresets: Preset[] = [
     }
   },
   {
-    id: 'high_contrast_bw',
-    name: '高对比黑白',
-    coverPath: 'https://picsum.photos/400/600?random=10',
-    galleryImages: [
-      'https://picsum.photos/400/600?random=11',
-      'https://picsum.photos/400/600?random=12'
-    ],
+      id: 'high_contrast_bw',
+      name: '高对比黑白',
+      coverPath: 'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/gdbhb_01.webp',
+      galleryImages: [
+        'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/gdbhb_02.webp',
+        'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/gdbhb_03.webp'
+      ],
     sections: [
       {
         title: '色彩调校',
@@ -344,13 +344,13 @@ export const mockPresets: Preset[] = [
     }
   },
   {
-    id: 'ricoh_green',
-    name: '理光绿',
-    coverPath: 'https://picsum.photos/400/600?random=13',
-    galleryImages: [
-      'https://picsum.photos/400/600?random=14',
-      'https://picsum.photos/400/600?random=15'
-    ],
+      id: 'ricoh_green',
+      name: '理光绿',
+      coverPath: 'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/lgl_01.webp',
+      galleryImages: [
+        'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/lgl_02.webp',
+        'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/lgl_03.webp'
+      ],
     sections: [
       {
         title: '色彩调校',
@@ -393,13 +393,13 @@ export const mockPresets: Preset[] = [
     }
   },
   {
-    id: 'ricoh_blue',
-    name: '理光蓝',
-    coverPath: 'https://picsum.photos/400/600?random=16',
-    galleryImages: [
-      'https://picsum.photos/400/600?random=17',
-      'https://picsum.photos/400/600?random=18'
-    ],
+      id: 'ricoh_blue',
+      name: '理光蓝',
+      coverPath: 'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/lglan_01.webp',
+      galleryImages: [
+        'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/lglan_02.webp',
+        'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/lglan_03.webp'
+      ],
     sections: [
       {
         title: '色彩调校',
@@ -442,10 +442,10 @@ export const mockPresets: Preset[] = [
     }
   },
   {
-    id: 'blue_hour',
-    name: '蓝调时刻',
-    coverPath: 'https://picsum.photos/400/600?random=19',
-    galleryImages: ['https://picsum.photos/400/600?random=20'],
+      id: 'blue_hour',
+      name: '蓝调时刻',
+      coverPath: 'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/ldsk_01.webp',
+      galleryImages: ['https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/ldsk_02.webp'],
     sections: [
       {
         title: '色彩调校',
@@ -492,13 +492,13 @@ export const mockPresets: Preset[] = [
     }
   },
   {
-    id: 'dream_soft',
-    name: '梦幻黑柔',
-    coverPath: 'https://picsum.photos/400/600?random=21',
-    galleryImages: [
-      'https://picsum.photos/400/600?random=22',
-      'https://picsum.photos/400/600?random=23'
-    ],
+      id: 'dream_soft',
+      name: '梦幻黑柔',
+      coverPath: 'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/mhhr_01.webp',
+      galleryImages: [
+        'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/mhhr_02.webp',
+        'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/mhhr_03.webp'
+      ],
     sections: [
       {
         title: '色彩调校',
