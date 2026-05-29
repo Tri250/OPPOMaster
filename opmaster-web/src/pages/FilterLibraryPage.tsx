@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { Search, Filter, Grid, List, Heart, Clock, Star, ChevronRight } from 'lucide-react'
+import { Search, Grid, List, Heart } from 'lucide-react'
 import { useState } from 'react'
 import { ColorOSFilterCard } from '../components/common/ColorOSComponents'
 

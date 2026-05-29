@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { Cloud, CloudOff, RefreshCw, Check, AlertCircle, Smartphone, Download, Upload } from 'lucide-react'
+import { Cloud, RefreshCw, Check, AlertCircle, Smartphone } from 'lucide-react'
 import { useState } from 'react'
 import { ColorOSSwitch } from '../components/common/ColorOSComponents'
 

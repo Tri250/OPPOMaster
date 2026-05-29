@@ -1,5 +1,5 @@
-import { motion, AnimatePresence } from 'framer-motion'
-import { Layers, Eye, EyeOff, Move, GripVertical, Trash2, Plus, Minus } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { Layers, Eye, EyeOff, GripVertical, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { ColorOSSlider } from '../components/common/ColorOSComponents'
 

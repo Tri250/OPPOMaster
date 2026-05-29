@@ -1,14 +1,12 @@
 import { motion } from 'framer-motion'
 import { 
-  Camera, Sparkles, Layers, Palette, Zap, Heart, 
-  Star, ChevronRight, Download, Eye, ScrollText, Filter, 
-  Cloud, ScanText, X, Menu, Clock, Check, Image, Sliders, FileText
+  Camera, Layers, Zap, 
+  Star, ChevronRight, Download, ScrollText, Filter, 
+  Cloud, Image, Sliders, FileText
 } from 'lucide-react'
-import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
 export default function XiaoOHelpPage() {
-  const [selectedCategory, setSelectedCategory] = useState<number | null>(null)
 
   const categories = [
     { 
@@ -95,7 +93,7 @@ export default function XiaoOHelpPage() {
                 <Camera className="w-7 h-7 text-deep-space" />
               </div>
               <div>
-                <h2 className="text-xl font-bold gradient-text-oppo">OPPO Master</h2>
+                <h2 className="text-xl font-bold gradient-text-oppo">小O帮帮</h2>
                 <p className="text-text-secondary text-sm">哈苏影像系统级标定基座</p>
               </div>
             </div>
@@ -183,7 +181,7 @@ export default function XiaoOHelpPage() {
           className="card-oppo p-6 text-center"
         >
           <h2 className="text-xl font-bold mb-2">准备好开始了吗？</h2>
-          <p className="text-text-secondary mb-6">立即下载 OPPO Master，让你的照片更专业</p>
+          <p className="text-text-secondary mb-6">立即下载 小O帮帮，让你的照片更专业</p>
           <button className="btn-primary flex items-center justify-center gap-2 mx-auto touch-feedback" aria-label="免费下载应用">
             <Download className="w-5 h-5" />
             <span>免费下载</span>

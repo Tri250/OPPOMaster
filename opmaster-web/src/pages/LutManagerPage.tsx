@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { Upload, Download, Trash2, File, FolderOpen, Grid, List, Search, ChevronRight, Check } from 'lucide-react'
+import { Upload, File, FolderOpen, Grid, List, Search, Check } from 'lucide-react'
 import { useState } from 'react'
 
 interface LutFile {
@@ -33,14 +33,6 @@ export default function LutManagerPage() {
     setSelectedFiles(prev =>
       prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id]
     )
-  }
-
-  const selectAll = () => {
-    if (selectedFiles.length === filteredFiles.length) {
-      setSelectedFiles([])
-    } else {
-      setSelectedFiles(filteredFiles.map(f => f.id))
-    }
   }
 
   const deleteSelected = () => {

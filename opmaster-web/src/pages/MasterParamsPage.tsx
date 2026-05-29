@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { ScrollText, Star, Heart, Download, Share2, Check, ChevronRight } from 'lucide-react'
+import { ScrollText, Star, Heart, Download, Share2, Check } from 'lucide-react'
 import { useState } from 'react'
 
 const masterPresets = [
