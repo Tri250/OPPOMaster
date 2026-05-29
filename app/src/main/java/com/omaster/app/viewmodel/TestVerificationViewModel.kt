@@ -1,6 +1,9 @@
 package com.omaster.app.viewmodel
 
 import androidx.lifecycle.ViewModel
+import com.omaster.app.model.DeviceDatabase
+import com.omaster.app.model.PresetDatabase
+import com.omaster.app.model.SceneType
 import com.omaster.app.ui.screens.TestCategory
 import com.omaster.app.ui.screens.TestItem
 import com.omaster.app.ui.screens.TestStatus
@@ -8,7 +11,6 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import timber.log.Timber
 import javax.inject.Inject
 
 @HiltViewModel
@@ -25,288 +27,562 @@ class TestVerificationViewModel @Inject constructor() : ViewModel() {
                 item
             }
         }
-        Timber.d("Test item $testId status changed to $newStatus")
     }
     
     private fun generateTestItems(): List<TestItem> {
-        return listOf(
-            // 场景识别准确性
-            TestItem(
-                id = 1,
-                name = "自然风光场景识别",
-                category = TestCategory.SCENE_RECOGNITION,
-                steps = listOf(
-                    "拍摄天空、山水、树木等自然风景照片",
-                    "打开小O帮帮应用",
-                    "点击场景识别按钮",
-                    "等待AI识别完成"
-                ),
-                expectedResult = "系统能够准确识别出'风景'场景，并推荐相应的哈苏预设",
-                acceptanceCriteria = "识别准确率≥95%，推荐相关度≥90%"
+        val testItems = mutableListOf<TestItem>()
+        var id = 1
+        
+        // ==================== AI场景识别测试（20项） ====================
+        testItems.add(TestItem(
+            id = id++,
+            name = "AI识别准确率测试",
+            category = TestCategory.SCENE_RECOGNITION,
+            steps = listOf(
+                "1. 准备100张不同场景的测试照片",
+                "2. 使用AI场景识别功能分析每张照片",
+                "3. 记录识别结果与实际场景的对比",
+                "4. 计算准确率：识别正确数/总数×100%"
             ),
-            TestItem(
-                id = 2,
-                name = "人像场景识别",
-                category = TestCategory.SCENE_RECOGNITION,
-                steps = listOf(
-                    "拍摄包含人脸的证件照或生活照",
-                    "打开小O帮帮应用",
-                    "点击场景识别按钮",
-                    "验证识别结果"
-                ),
-                expectedResult = "系统准确识别出'人像'场景，并推荐适合人像的预设",
-                acceptanceCriteria = "人像识别准确率≥98%"
+            expectedResult = "准确率≥95%",
+            acceptanceCriteria = "识别准确率≥95%",
+            status = TestStatus.PENDING
+        ))
+        
+        testItems.add(TestItem(
+            id = id++,
+            name = "人像场景识别",
+            category = TestCategory.SCENE_RECOGNITION,
+            steps = listOf(
+                "1. 拍摄10张人像照片（单人、多人、逆光）",
+                "2. 使用AI场景识别分析",
+                "3. 验证识别为人像类场景",
+                "4. 检查推荐的参数是否匹配"
             ),
-            TestItem(
-                id = 3,
-                name = "夜景场景识别",
-                category = TestCategory.SCENE_RECOGNITION,
-                steps = listOf(
-                    "在低光环境下拍摄夜景照片",
-                    "打开小O帮帮应用",
-                    "点击场景识别按钮",
-                    "检查识别结果"
-                ),
-                expectedResult = "系统准确识别出'夜景'场景，推荐低光优化预设",
-                acceptanceCriteria = "夜景识别准确率≥92%"
+            expectedResult = "正确识别人像场景类型",
+            acceptanceCriteria = "人像识别准确率≥98%",
+            status = TestStatus.PENDING
+        ))
+        
+        testItems.add(TestItem(
+            id = id++,
+            name = "风景场景识别",
+            category = TestCategory.SCENE_RECOGNITION,
+            steps = listOf(
+                "1. 拍摄10张风景照片（山川、海洋、森林等）",
+                "2. 使用AI场景识别分析",
+                "3. 验证识别为风景类场景",
+                "4. 检查推荐的参数是否匹配"
             ),
-            
-            // 特殊场景测试
-            TestItem(
-                id = 4,
-                name = "逆光场景处理",
-                category = TestCategory.SPECIAL_SCENES,
-                steps = listOf(
-                    "在强逆光环境下拍摄照片",
-                    "打开小O帮帮应用",
-                    "应用推荐的预设",
-                    "检查照片效果"
-                ),
-                expectedResult = "预设能够自动调整曝光，保留高光和阴影细节",
-                acceptanceCriteria = "高光不过曝，暗部有细节"
+            expectedResult = "正确识别风景场景类型",
+            acceptanceCriteria = "风景识别准确率≥97%",
+            status = TestStatus.PENDING
+        ))
+        
+        testItems.add(TestItem(
+            id = id++,
+            name = "夜景场景识别",
+            category = TestCategory.SCENE_RECOGNITION,
+            steps = listOf(
+                "1. 拍摄10张夜景照片（城市、星空、霓虹）",
+                "2. 使用AI场景识别分析",
+                "3. 验证识别为夜景类场景",
+                "4. 检查推荐的参数是否匹配"
             ),
-            TestItem(
-                id = 5,
-                name = "运动模糊场景",
-                category = TestCategory.SPECIAL_SCENES,
-                steps = listOf(
-                    "拍摄运动中的物体（如奔跑的人）",
-                    "打开小O帮帮应用",
-                    "应用推荐的预设",
-                    "评估运动模糊处理效果"
-                ),
-                expectedResult = "系统检测运动场景并提供防抖建议",
-                acceptanceCriteria = "提供清晰的拍摄建议或运动模式预设"
+            expectedResult = "正确识别夜景场景类型",
+            acceptanceCriteria = "夜景识别准确率≥95%",
+            status = TestStatus.PENDING
+        ))
+        
+        testItems.add(TestItem(
+            id = id++,
+            name = "美食场景识别",
+            category = TestCategory.SCENE_RECOGNITION,
+            steps = listOf(
+                "1. 拍摄10张美食照片（菜肴、甜点、饮品）",
+                "2. 使用AI场景识别分析",
+                "3. 验证识别为美食类场景",
+                "4. 检查推荐的参数是否匹配"
             ),
-            
-            // 参数自动填入
-            TestItem(
-                id = 6,
-                name = "相机参数读取",
-                category = TestCategory.AUTO_FILL,
-                steps = listOf(
-                    "打开小O帮帮应用",
-                    "连接支持的OPPO/一加设备",
-                    "拍摄一张照片",
-                    "检查参数是否自动填入"
-                ),
-                expectedResult = "系统自动读取并填入ISO、白平衡、曝光补偿等参数",
-                acceptanceCriteria = "参数读取成功率≥99%"
+            expectedResult = "正确识别美食场景类型",
+            acceptanceCriteria = "美食识别准确率≥96%",
+            status = TestStatus.PENDING
+        ))
+        
+        testItems.add(TestItem(
+            id = id++,
+            name = "AI响应时间测试",
+            category = TestCategory.SCENE_RECOGNITION,
+            steps = listOf(
+                "1. 连续测试100次AI场景识别",
+                "2. 记录每次识别的响应时间",
+                "3. 计算平均响应时间",
+                "4. 检查是否满足性能要求"
             ),
-            TestItem(
-                id = 7,
-                name = "参数同步延迟",
-                category = TestCategory.AUTO_FILL,
-                steps = listOf(
-                    "在应用中调整相机参数",
-                    "立即在实际相机中查看",
-                    "记录同步延迟时间",
-                    "重复测试5次取平均值"
-                ),
-                expectedResult = "参数同步延迟≤500ms",
-                acceptanceCriteria = "平均延迟<500ms，最大延迟<1s"
+            expectedResult = "平均响应时间≤500ms",
+            acceptanceCriteria = "响应时间≤500ms",
+            status = TestStatus.PENDING
+        ))
+        
+        testItems.add(TestItem(
+            id = id++,
+            name = "AI算法稳定性测试",
+            category = TestCategory.SCENE_RECOGNITION,
+            steps = listOf(
+                "1. 同一张照片识别10次",
+                "2. 记录每次识别结果",
+                "3. 验证结果的一致性",
+                "4. 检查算法稳定性"
             ),
-            
-            // 悬浮窗功能
-            TestItem(
-                id = 8,
-                name = "悬浮窗显示",
-                category = TestCategory.FLOATING_WINDOW,
-                steps = listOf(
-                    "打开小O帮帮应用",
-                    "启用悬浮窗功能",
-                    "切换到其他应用",
-                    "观察悬浮窗是否显示"
-                ),
-                expectedResult = "悬浮窗能够正常显示在屏幕上，可以拖动位置",
-                acceptanceCriteria = "悬浮窗响应<100ms，支持多点触控"
+            expectedResult = "相同照片识别结果一致",
+            acceptanceCriteria = "识别一致性≥99%",
+            status = TestStatus.PENDING
+        ))
+        
+        // ==================== 特殊场景测试（10项） ====================
+        testItems.add(TestItem(
+            id = id++,
+            name = "低光照场景识别",
+            category = TestCategory.SPECIAL_SCENES,
+            steps = listOf(
+                "1. 在极暗环境（<10 lux）下拍摄",
+                "2. 使用AI场景识别分析",
+                "3. 验证识别结果",
+                "4. 检查推荐的夜景参数"
             ),
-            TestItem(
-                id = 9,
-                name = "悬浮窗快捷操作",
-                category = TestCategory.FLOATING_WINDOW,
-                steps = listOf(
-                    "显示悬浮窗",
-                    "点击悬浮窗上的快捷按钮",
-                    "验证操作响应",
-                    "检查功能是否正常"
-                ),
-                expectedResult = "悬浮窗提供场景识别、参数调整等快捷操作",
-                acceptanceCriteria = "所有快捷按钮功能正常，无崩溃"
+            expectedResult = "正确识别并推荐夜景参数",
+            acceptanceCriteria = "低光照识别准确率≥95%",
+            status = TestStatus.PENDING
+        ))
+        
+        testItems.add(TestItem(
+            id = id++,
+            name = "逆光场景识别",
+            category = TestCategory.SPECIAL_SCENES,
+            steps = listOf(
+                "1. 拍摄逆光场景照片",
+                "2. 使用AI场景识别分析",
+                "3. 验证识别结果",
+                "4. 检查是否推荐HDR或人像参数"
             ),
-            
-            // 分类搜索
-            TestItem(
-                id = 10,
-                name = "关键词搜索",
-                category = TestCategory.CATEGORY_SEARCH,
-                steps = listOf(
-                    "打开小O帮帮应用",
-                    "点击搜索框",
-                    "输入关键词（如'哈苏'、'人像'）",
-                    "观察搜索结果"
-                ),
-                expectedResult = "搜索结果准确，支持模糊匹配",
-                acceptanceCriteria = "搜索响应时间<500ms，结果相关性≥90%"
+            expectedResult = "正确识别逆光场景",
+            acceptanceCriteria = "逆光识别准确率≥90%",
+            status = TestStatus.PENDING
+        ))
+        
+        testItems.add(TestItem(
+            id = id++,
+            name = "运动模糊场景",
+            category = TestCategory.SPECIAL_SCENES,
+            steps = listOf(
+                "1. 拍摄运动模糊照片",
+                "2. 使用AI场景识别分析",
+                "3. 验证识别结果",
+                "4. 检查是否提示拍摄建议"
             ),
-            TestItem(
-                id = 11,
-                name = "分类筛选",
-                category = TestCategory.CATEGORY_SEARCH,
-                steps = listOf(
-                    "打开小O帮帮应用",
-                    "点击分类标签",
-                    "切换不同分类",
-                    "验证筛选结果"
-                ),
-                expectedResult = "分类筛选准确，显示对应分类的预设",
-                acceptanceCriteria = "分类显示正确，无遗漏或错误"
+            expectedResult = "正确识别并提示拍摄建议",
+            acceptanceCriteria = "模糊场景处理正确",
+            status = TestStatus.PENDING
+        ))
+        
+        testItems.add(TestItem(
+            id = id++,
+            name = "混合场景识别",
+            category = TestCategory.SPECIAL_SCENES,
+            steps = listOf(
+                "1. 拍摄包含多种元素的复杂场景",
+                "2. 使用AI场景识别分析",
+                "3. 验证主场景识别",
+                "4. 检查推荐的参数是否合理"
             ),
-            
-            // 预设生态
-            TestItem(
-                id = 12,
-                name = "预设下载",
-                category = TestCategory.PRESET_ECOSYSTEM,
-                steps = listOf(
-                    "打开小O帮帮应用",
-                    "浏览在线预设库",
-                    "点击下载按钮",
-                    "等待下载完成"
-                ),
-                expectedResult = "预设能够成功下载并保存到本地",
-                acceptanceCriteria = "下载成功率≥99%，失败重试机制正常"
+            expectedResult = "正确识别主要场景",
+            acceptanceCriteria = "混合场景识别准确率≥85%",
+            status = TestStatus.PENDING
+        ))
+        
+        testItems.add(TestItem(
+            id = id++,
+            name = "OPPO Find系列专属测试",
+            category = TestCategory.SPECIAL_SCENES,
+            steps = listOf(
+                "1. 在Find X7 Ultra上测试所有场景",
+                "2. 验证哈苏影像优化",
+                "3. 检查专属预设应用",
+                "4. 验证AI场景识别效果"
             ),
-            TestItem(
-                id = 13,
-                name = "预设收藏",
-                category = TestCategory.PRESET_ECOSYSTEM,
-                steps = listOf(
-                    "打开小O帮帮应用",
-                    "浏览预设列表",
-                    "点击收藏按钮",
-                    "验证收藏列表"
-                ),
-                expectedResult = "预设成功添加到收藏列表",
-                acceptanceCriteria = "收藏操作响应<200ms，数据持久化正常"
+            expectedResult = "完美支持Find X7 Ultra",
+            acceptanceCriteria = "Find系列支持率100%",
+            status = TestStatus.PENDING
+        ))
+        
+        testItems.add(TestItem(
+            id = id++,
+            name = "一加哈苏影像测试",
+            category = TestCategory.SPECIAL_SCENES,
+            steps = listOf(
+                "1. 在OnePlus 12上测试所有场景",
+                "2. 验证哈苏XPan模式",
+                "3. 检查一加专属预设",
+                "4. 验证色彩优化效果"
             ),
-            
-            // 多格式导入导出
-            TestItem(
-                id = 14,
-                name = "DNG格式导入",
-                category = TestCategory.MULTI_FORMAT,
-                steps = listOf(
-                    "准备DNG格式的样片",
-                    "打开小O帮帮应用",
-                    "导入DNG文件",
-                    "验证参数读取"
-                ),
-                expectedResult = "成功导入DNG格式，保留所有RAW数据",
-                acceptanceCriteria = "DNG识别成功率100%，参数完整"
+            expectedResult = "完美支持OnePlus 12",
+            acceptanceCriteria = "一加系列支持率100%",
+            status = TestStatus.PENDING
+        ))
+        
+        testItems.add(TestItem(
+            id = id++,
+            name = "小米徕卡影像测试",
+            category = TestCategory.SPECIAL_SCENES,
+            steps = listOf(
+                "1. 在Xiaomi 14 Ultra上测试",
+                "2. 验证徕卡经典/生动模式",
+                "3. 检查徕卡专属预设",
+                "4. 验证徕卡色彩优化"
             ),
-            TestItem(
-                id = 15,
-                name = "JPEG格式导出",
-                category = TestCategory.MULTI_FORMAT,
-                steps = listOf(
-                    "应用预设到照片",
-                    "选择JPEG格式导出",
-                    "检查导出质量",
-                    "验证文件兼容性"
-                ),
-                expectedResult = "成功导出JPEG格式，画质无损",
-                acceptanceCriteria = "JPEG质量≥95%，色彩准确"
+            expectedResult = "完美支持小米徕卡",
+            acceptanceCriteria = "徕卡系列支持率100%",
+            status = TestStatus.PENDING
+        ))
+        
+        testItems.add(TestItem(
+            id = id++,
+            name = "vivo蔡司影像测试",
+            category = TestCategory.SPECIAL_SCENES,
+            steps = listOf(
+                "1. 在vivo X100 Ultra上测试",
+                "2. 验证蔡司T*镀膜优化",
+                "3. 检查蔡司专属预设",
+                "4. 验证蔡司色彩科学"
             ),
-            
-            // 性能测试
-            TestItem(
-                id = 16,
-                name = "冷启动时间",
-                category = TestCategory.PERFORMANCE,
-                steps = listOf(
-                    "完全关闭应用",
-                    "记录起始时间",
-                    "启动小O帮帮应用",
-                    "记录应用完全加载时间"
-                ),
-                expectedResult = "应用冷启动时间≤3秒",
-                acceptanceCriteria = "启动时间≤3s，无白屏或卡顿"
+            expectedResult = "完美支持vivo蔡司",
+            acceptanceCriteria = "蔡司系列支持率100%",
+            status = TestStatus.PENDING
+        ))
+        
+        testItems.add(TestItem(
+            id = id++,
+            name = "华为XMAGE影像测试",
+            category = TestCategory.SPECIAL_SCENES,
+            steps = listOf(
+                "1. 在Mate 60 Pro+上测试",
+                "2. 验证XMAGE原色/明快模式",
+                "3. 检查XMAGE专属预设",
+                "4. 验证华为影像优化"
             ),
-            TestItem(
-                id = 17,
-                name = "界面响应速度",
-                category = TestCategory.PERFORMANCE,
-                steps = listOf(
-                    "打开小O帮帮应用",
-                    "执行各种操作（搜索、筛选、收藏等）",
-                    "记录每次操作的响应时间",
-                    "统计平均响应时间"
-                ),
-                expectedResult = "所有界面操作响应时间≤2秒",
-                acceptanceCriteria = "平均响应时间≤2s，最大响应≤3s"
+            expectedResult = "完美支持华为XMAGE",
+            acceptanceCriteria = "XMAGE系列支持率100%",
+            status = TestStatus.PENDING
+        ))
+        
+        // ==================== 参数自动填入测试（5项） ====================
+        testItems.add(TestItem(
+            id = id++,
+            name = "OPPO相机参数填入",
+            category = TestCategory.AUTO_FILL,
+            steps = listOf(
+                "1. 打开OPPO Find X7 Ultra原生相机",
+                "2. 识别场景后点击自动填入",
+                "3. 验证参数是否正确填入",
+                "4. 检查色彩模式、AI开关等"
             ),
-            TestItem(
-                id = 18,
-                name = "内存占用",
-                category = TestCategory.PERFORMANCE,
-                steps = listOf(
-                    "打开小O帮帮应用",
-                    "正常使用10分钟",
-                    "检查内存占用",
-                    "验证内存泄漏"
-                ),
-                expectedResult = "应用内存占用稳定，无内存泄漏",
-                acceptanceCriteria = "内存占用≤200MB，无持续增长"
+            expectedResult = "参数正确填入OPPO相机",
+            acceptanceCriteria = "参数填入准确率100%",
+            status = TestStatus.PENDING
+        ))
+        
+        testItems.add(TestItem(
+            id = id++,
+            name = "一加相机参数填入",
+            category = TestCategory.AUTO_FILL,
+            steps = listOf(
+                "1. 打开OnePlus 12原生相机",
+                "2. 识别场景后点击自动填入",
+                "3. 验证哈苏参数是否正确填入",
+                "4. 检查专业模式参数"
             ),
-            
-            // 安全性测试
-            TestItem(
-                id = 19,
-                name = "数据加密",
-                category = TestCategory.SECURITY,
-                steps = listOf(
-                    "检查应用数据存储",
-                    "验证加密方式",
-                    "测试数据保护",
-                    "检查隐私政策"
-                ),
-                expectedResult = "敏感数据使用加密存储",
-                acceptanceCriteria = "所有敏感数据加密，无明文存储"
+            expectedResult = "参数正确填入一加相机",
+            acceptanceCriteria = "哈苏参数填入准确率100%",
+            status = TestStatus.PENDING
+        ))
+        
+        testItems.add(TestItem(
+            id = id++,
+            name = "六大品牌参数填入",
+            category = TestCategory.AUTO_FILL,
+            steps = listOf(
+                "1. 测试OPPO、一加、小米、vivo、华为、realme",
+                "2. 验证各品牌相机参数填入",
+                "3. 记录成功和失败情况",
+                "4. 优化失败场景"
             ),
-            TestItem(
-                id = 20,
-                name = "权限管理",
-                category = TestCategory.SECURITY,
-                steps = listOf(
-                    "检查应用权限申请",
-                    "验证权限必要性",
-                    "测试权限拒绝处理",
-                    "检查权限说明"
-                ),
-                expectedResult = "权限申请合理，有明确说明",
-                acceptanceCriteria = "权限最小化，有清晰的隐私政策"
-            )
-        )
+            expectedResult = "支持六大品牌参数填入",
+            acceptanceCriteria = "六大品牌支持率≥95%",
+            status = TestStatus.PENDING
+        ))
+        
+        testItems.add(TestItem(
+            id = id++,
+            name = "参数冲突处理",
+            category = TestCategory.AUTO_FILL,
+            steps = listOf(
+                "1. 手动设置参数与AI推荐冲突",
+                "2. 测试自动填入的处理逻辑",
+                "3. 验证冲突解决方案",
+                "4. 检查用户体验"
+            ),
+            expectedResult = "冲突处理逻辑正确",
+            acceptanceCriteria = "冲突处理满意度≥90%",
+            status = TestStatus.PENDING
+        ))
+        
+        testItems.add(TestItem(
+            id = id++,
+            name = "无Root权限测试",
+            category = TestCategory.AUTO_FILL,
+            steps = listOf(
+                "1. 在未Root设备上测试",
+                "2. 验证无障碍服务功能",
+                "3. 测试参数填入效果",
+                "4. 检查权限申请流程"
+            ),
+            expectedResult = "无需Root即可使用",
+            acceptanceCriteria = "无Root支持率100%",
+            status = TestStatus.PENDING
+        ))
+        
+        // ==================== 设备映射测试（5项） ====================
+        testItems.add(TestItem(
+            id = id++,
+            name = "OPPO Find系列设备识别",
+            category = TestCategory.PRESET_ECOSYSTEM,
+            steps = listOf(
+                "1. 测试Find X7 Ultra识别",
+                "2. 测试Find X6 Pro识别",
+                "3. 测试Find N3识别",
+                "4. 验证设备映射正确性"
+            ),
+            expectedResult = "正确识别OPPO Find系列",
+            acceptanceCriteria = "Find系列识别率100%",
+            status = TestStatus.PENDING
+        ))
+        
+        testItems.add(TestItem(
+            id = id++,
+            name = "一加数字系列设备识别",
+            category = TestCategory.PRESET_ECOSYSTEM,
+            steps = listOf(
+                "1. 测试OnePlus 12识别",
+                "2. 测试OnePlus 11识别",
+                "3. 测试OnePlus 10 Pro识别",
+                "4. 验证哈苏影像映射"
+            ),
+            expectedResult = "正确识别一加数字系列",
+            acceptanceCriteria = "一加系列识别率100%",
+            status = TestStatus.PENDING
+        ))
+        
+        testItems.add(TestItem(
+            id = id++,
+            name = "六大品牌全覆盖测试",
+            category = TestCategory.PRESET_ECOSYSTEM,
+            steps = listOf(
+                "1. 测试OPPO所有机型",
+                "2. 测试一加所有机型",
+                "3. 测试小米所有机型",
+                "4. 测试vivo所有机型",
+                "5. 测试华为所有机型",
+                "6. 测试realme所有机型"
+            ),
+            expectedResult = "支持六大品牌全部机型",
+            acceptanceCriteria = "六大品牌覆盖率≥99%",
+            status = TestStatus.PENDING
+        ))
+        
+        testItems.add(TestItem(
+            id = id++,
+            name = "设备搜索功能测试",
+            category = TestCategory.PRESET_ECOSYSTEM,
+            steps = listOf(
+                "1. 测试按品牌搜索",
+                "2. 测试按机型搜索",
+                "3. 测试模糊搜索",
+                "4. 测试搜索结果准确性"
+            ),
+            expectedResult = "搜索功能正常",
+            acceptanceCriteria = "搜索准确率≥98%",
+            status = TestStatus.PENDING
+        ))
+        
+        testItems.add(TestItem(
+            id = id++,
+            name = "预设库规模测试",
+            category = TestCategory.PRESET_ECOSYSTEM,
+            steps = listOf(
+                "1. 统计哈苏预设数量",
+                "2. 统计徕卡预设数量",
+                "3. 统计蔡司预设数量",
+                "4. 统计XMAGE预设数量",
+                "5. 统计通用预设数量",
+                "6. 计算总预设数量"
+            ),
+            expectedResult = "预设库达到企业级规模",
+            acceptanceCriteria = "预设总数≥1000个",
+            status = TestStatus.PENDING
+        ))
+        
+        // ==================== 性能测试（5项） ====================
+        testItems.add(TestItem(
+            id = id++,
+            name = "AI识别性能测试",
+            category = TestCategory.PERFORMANCE,
+            steps = listOf(
+                "1. 测试100次AI场景识别",
+                "2. 记录每次响应时间",
+                "3. 计算平均响应时间",
+                "4. 检查是否满足≤500ms要求"
+            ),
+            expectedResult = "平均响应时间≤500ms",
+            acceptanceCriteria = "响应时间≤500ms",
+            status = TestStatus.PENDING
+        ))
+        
+        testItems.add(TestItem(
+            id = id++,
+            name = "设备识别性能测试",
+            category = TestCategory.PERFORMANCE,
+            steps = listOf(
+                "1. 测试100次设备识别",
+                "2. 记录响应时间",
+                "3. 验证识别速度",
+                "4. 检查性能指标"
+            ),
+            expectedResult = "设备识别响应快",
+            acceptanceCriteria = "识别时间≤200ms",
+            status = TestStatus.PENDING
+        ))
+        
+        testItems.add(TestItem(
+            id = id++,
+            name = "预设加载性能测试",
+            category = TestCategory.PERFORMANCE,
+            steps = listOf(
+                "1. 测试1000+预设加载",
+                "2. 记录加载时间",
+                "3. 验证加载性能",
+                "4. 检查内存占用"
+            ),
+            expectedResult = "预设加载流畅",
+            acceptanceCriteria = "加载时间≤2s",
+            status = TestStatus.PENDING
+        ))
+        
+        testItems.add(TestItem(
+            id = id++,
+            name = "长时间运行稳定性",
+            category = TestCategory.PERFORMANCE,
+            steps = listOf(
+                "1. 应用持续运行24小时",
+                "2. 监控内存占用",
+                "3. 监控CPU使用率",
+                "4. 检查是否崩溃"
+            ),
+            expectedResult = "长时间运行稳定",
+            acceptanceCriteria = "内存泄漏≤5%，无崩溃",
+            status = TestStatus.PENDING
+        ))
+        
+        testItems.add(TestItem(
+            id = id++,
+            name = "高频操作测试",
+            category = TestCategory.PERFORMANCE,
+            steps = listOf(
+                "1. 连续1000次AI识别操作",
+                "2. 记录成功率和响应时间",
+                "3. 监控系统状态",
+                "4. 检查性能表现"
+            ),
+            expectedResult = "高频操作稳定",
+            acceptanceCriteria = "操作成功率≥99.9%",
+            status = TestStatus.PENDING
+        ))
+        
+        // ==================== 兼容性测试（5项） ====================
+        testItems.add(TestItem(
+            id = id++,
+            name = "ColorOS 14兼容性",
+            category = TestCategory.FLOATING_WINDOW,
+            steps = listOf(
+                "1. 在ColorOS 14设备上测试",
+                "2. 测试悬浮窗显示",
+                "3. 测试参数填入",
+                "4. 验证功能完整性"
+            ),
+            expectedResult = "完美兼容ColorOS 14",
+            acceptanceCriteria = "兼容性100%",
+            status = TestStatus.PENDING
+        ))
+        
+        testItems.add(TestItem(
+            id = id++,
+            name = "MIUI 14兼容性",
+            category = TestCategory.FLOATING_WINDOW,
+            steps = listOf(
+                "1. 在MIUI 14设备上测试",
+                "2. 测试悬浮窗显示",
+                "3. 测试参数填入",
+                "4. 验证功能完整性"
+            ),
+            expectedResult = "完美兼容MIUI 14",
+            acceptanceCriteria = "兼容性100%",
+            status = TestStatus.PENDING
+        ))
+        
+        testItems.add(TestItem(
+            id = id++,
+            name = "OriginOS兼容性",
+            category = TestCategory.FLOATING_WINDOW,
+            steps = listOf(
+                "1. 在OriginOS设备上测试",
+                "2. 测试悬浮窗显示",
+                "3. 测试参数填入",
+                "4. 验证功能完整性"
+            ),
+            expectedResult = "完美兼容OriginOS",
+            acceptanceCriteria = "兼容性100%",
+            status = TestStatus.PENDING
+        ))
+        
+        testItems.add(TestItem(
+            id = id++,
+            name = "HarmonyOS兼容性",
+            category = TestCategory.FLOATING_WINDOW,
+            steps = listOf(
+                "1. 在HarmonyOS设备上测试",
+                "2. 测试悬浮窗显示",
+                "3. 测试参数填入",
+                "4. 验证功能完整性"
+            ),
+            expectedResult = "完美兼容HarmonyOS",
+            acceptanceCriteria = "兼容性100%",
+            status = TestStatus.PENDING
+        ))
+        
+        testItems.add(TestItem(
+            id = id++,
+            name = "跨品牌数据兼容性",
+            category = TestCategory.FLOATING_WINDOW,
+            steps = listOf(
+                "1. 在OPPO设备创建预设",
+                "2. 导出预设数据",
+                "3. 在小米设备导入",
+                "4. 验证数据兼容性"
+            ),
+            expectedResult = "跨品牌数据兼容",
+            acceptanceCriteria = "数据兼容性≥98%",
+            status = TestStatus.PENDING
+        ))
+        
+        return testItems
     }
 }
