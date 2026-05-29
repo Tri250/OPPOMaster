@@ -10,6 +10,7 @@
 #include <memory>
 #include <string>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "app/import_service.hpp"
@@ -21,8 +22,30 @@
 #include "sleeve/sleeve_filter/filter_combo.hpp"
 #include "type/supported_file_type.hpp"
 #include "utils/clock/time_provider.hpp"
+#include "utils/string/convert.hpp"
 
 namespace alcedo {
+namespace {
+auto U8(const char8_t* text) -> std::string {
+  const auto* bytes = reinterpret_cast<const char*>(text);
+  return std::string(bytes);
+}
+
+struct SyntheticFileSpec {
+  file_name_t           file_name_{};
+  std::filesystem::path image_path_{};
+  std::string           make_{};
+  std::string           camera_model_{};
+  std::string           lens_{};
+  std::string           lens_make_{};
+  std::string           date_time_ = "2025-01-02 03:04:05";
+  int                   rating_    = 0;
+  uint64_t              iso_       = 200;
+  float                 aperture_  = 5.6f;
+  float                 focal_     = 50.0f;
+};
+}  // namespace
+
 class FilterServiceTests : public ::testing::Test {
  protected:
   std::filesystem::path db_path_;
@@ -96,27 +119,40 @@ class FilterServiceTests : public ::testing::Test {
 
   static auto CreateSyntheticFile(ProjectService& project, const file_name_t& file_name,
                                   const std::string& camera_model) -> sl_element_id_t {
+    return CreateSyntheticFile(project,
+                               SyntheticFileSpec{.file_name_    = file_name,
+                                                 .image_path_   = std::filesystem::path{file_name},
+                                                 .camera_model_ = camera_model,
+                                                 .lens_         = "Synthetic 50mm"});
+  }
+
+  static auto CreateSyntheticFile(ProjectService& project, const SyntheticFileSpec& spec)
+      -> sl_element_id_t {
     auto image_pool          = project.GetImagePoolService();
     auto image               = image_pool->CreateAndReturnPinnedEmpty();
     auto image_id            = image.Get()->image_id_;
-    image.Get()->image_name_ = file_name;
-    image.Get()->image_path_ = std::filesystem::path{file_name};
+    image.Get()->image_name_ = spec.file_name_;
+    image.Get()->image_path_ =
+        spec.image_path_.empty() ? std::filesystem::path{spec.file_name_} : spec.image_path_;
     image.Get()->image_type_ = ImageType::DNG;
 
     ExifDisplayMetaData metadata;
-    metadata.model_         = camera_model;
-    metadata.lens_          = "Synthetic 50mm";
-    metadata.date_time_str_ = "2025-01-02 03:04:05";
-    metadata.aperture_      = 5.6f;
-    metadata.iso_           = 200;
-    metadata.focal_         = 50.0f;
+    metadata.make_          = spec.make_;
+    metadata.model_         = spec.camera_model_;
+    metadata.lens_          = spec.lens_;
+    metadata.lens_make_     = spec.lens_make_;
+    metadata.date_time_str_ = spec.date_time_;
+    metadata.aperture_      = spec.aperture_;
+    metadata.iso_           = spec.iso_;
+    metadata.focal_         = spec.focal_;
+    metadata.rating_        = spec.rating_;
     image.Get()->SetExifDisplayMetaData(std::move(metadata));
     image_pool->SyncWithStorage();
 
     auto sleeve = project.GetSleeveService();
     auto file   = sleeve->Write<std::shared_ptr<SleeveFile>>(
-        [file_name, image_id](FileSystem& fs) -> std::shared_ptr<SleeveFile> {
-          auto created       = fs.CreateFileInLibrary(file_name);
+        [&spec, image_id](FileSystem& fs) -> std::shared_ptr<SleeveFile> {
+          auto created       = fs.CreateFileInLibrary(spec.file_name_);
           created->image_id_ = image_id;
           return created;
         });
@@ -263,6 +299,153 @@ TEST_F(FilterServiceTests, AlbumScopeFilterUsesMembershipOnly) {
   auto other_album_result = filter_service.ApplyFilterOn(filter_id, other_album.first->element_id_);
   ASSERT_TRUE(other_album_result.has_value());
   EXPECT_TRUE(other_album_result->empty());
+}
+
+TEST_F(FilterServiceTests, FuzzySearchMatchesMetadataFilenamePathAndDatesWithWideInput) {
+  ProjectService project(db_path_, meta_path_);
+  const auto     huangshan_id = CreateSyntheticFile(
+      project, SyntheticFileSpec{
+                       .file_name_    = L"\u9EC4\u5C71\u65E5\u51FA_20260529.RAF",
+                       .image_path_   = std::filesystem::path{L"D:/\u7167\u7247\u5E93/\u5B89\u5FBD/"
+                                                        L"\u9EC4\u5C71\u65E5\u51FA_20260529.RAF"},
+                       .make_         = U8(u8"\u5BCC\u58EB"),
+                       .camera_model_ = U8(u8"\u5BCC\u58EB X-T5"),
+                       .lens_         = U8(u8"\u9F99\u955C 23mm"),
+                       .lens_make_    = U8(u8"\u4E2D\u56FD\u955C\u5934\u5382"),
+                       .date_time_    = "2026-05-29 08:09:10",
+                       .rating_       = 4,
+                       .iso_          = 400,
+                       .aperture_     = 2.8f,
+                       .focal_        = 23.0f});
+  const auto city_id = CreateSyntheticFile(
+      project,
+      SyntheticFileSpec{
+          .file_name_    = L"city_walk.dng",
+          .image_path_   = std::filesystem::path{L"D:/photos/city/\u591C\u666F/city_walk.dng"},
+          .make_         = "Nikon",
+          .camera_model_ = "Nikon Z8",
+          .lens_         = "NIKKOR Z 35mm",
+          .date_time_    = "2025-12-01 20:00:00",
+          .rating_       = 2,
+          .iso_          = 800,
+          .aperture_     = 1.8f,
+          .focal_        = 35.0f});
+  ASSERT_NE(huangshan_id, 0u);
+  ASSERT_NE(city_id, 0u);
+
+  SleeveFilterService filter_service(project.GetStorageService());
+
+  const auto          expect_only = [&](const std::wstring& query, sl_element_id_t expected_id) {
+    const auto rows = filter_service.SearchFolder(0, query, 0, 10);
+    ASSERT_EQ(rows.size(), 1u) << conv::ToBytes(query);
+    EXPECT_EQ(rows.front().file_id_, expected_id);
+    EXPECT_EQ(filter_service.CountSearchResults(0, query), 1u);
+  };
+
+  expect_only(L"\u5BCC\u58EB", huangshan_id);
+  expect_only(L"\u9EC4\u5C71", huangshan_id);
+  expect_only(L"\u5B89\u5FBD", huangshan_id);
+  expect_only(L"\u9F99\u955C", huangshan_id);
+  expect_only(L"\u5BCC\u58EB \u9EC4\u5C71", huangshan_id);
+  expect_only(L"2026-05-29", huangshan_id);
+  expect_only(L"20260529", huangshan_id);
+  expect_only(L"2026/05", huangshan_id);
+  expect_only(L"2026\u5E745\u670829\u65E5", huangshan_id);
+  expect_only(L"2026", huangshan_id);
+  expect_only(L"\u591C\u666F", city_id);
+  expect_only(L"Nikon 2025", city_id);
+}
+
+TEST_F(FilterServiceTests, FuzzySearchMatchesSeparatorFoldedPhotoTerms) {
+  ProjectService project(db_path_, meta_path_);
+  const auto     target_id = CreateSyntheticFile(
+      project,
+      SyntheticFileSpec{.file_name_    = L"DSC_01523-X-T5.RAF",
+                        .image_path_   = std::filesystem::path{L"D:/archive/fuji/DSC_01523-X-T5.RAF"},
+                        .make_         = "FUJIFILM",
+                        .camera_model_ = "FUJIFILM X-T5",
+                        .lens_         = "XF 23mm F/1.4 R LM WR",
+                        .lens_make_    = "FUJIFILM",
+                        .date_time_    = "2026-05-29 11:22:33",
+                        .rating_       = 5,
+                        .iso_          = 125,
+                        .aperture_     = 1.4f,
+                        .focal_        = 23.0f});
+  const auto     decoy_id = CreateSyntheticFile(
+      project,
+      SyntheticFileSpec{.file_name_    = L"DSC_01524-X-T5.RAF",
+                        .image_path_   = std::filesystem::path{L"D:/archive/fuji/DSC_01524-X-T5.RAF"},
+                        .make_         = "FUJIFILM",
+                        .camera_model_ = "FUJIFILM X-T5",
+                        .lens_         = "XF 35mm F/2 R WR",
+                        .lens_make_    = "FUJIFILM",
+                        .date_time_    = "2026-05-30 11:22:33",
+                        .rating_       = 3,
+                        .iso_          = 200,
+                        .aperture_     = 2.0f,
+                        .focal_        = 35.0f});
+  ASSERT_NE(target_id, 0u);
+  ASSERT_NE(decoy_id, 0u);
+
+  SleeveFilterService filter_service(project.GetStorageService());
+
+  const auto          expect_only_target = [&](const std::wstring& query) {
+    const auto rows = filter_service.SearchFolder(0, query, 0, 10);
+    ASSERT_EQ(rows.size(), 1u) << conv::ToBytes(query);
+    EXPECT_EQ(rows.front().file_id_, target_id);
+    EXPECT_EQ(filter_service.CountSearchResults(0, query), 1u);
+  };
+
+  expect_only_target(L"DSC_01523-X-T5");
+  expect_only_target(L"xt5 23mmf14");
+  expect_only_target(L"xf23mmf14rlmwr");
+}
+
+TEST_F(FilterServiceTests, FuzzySearchMatchesRealImportedRawFilenameWithoutSeparators) {
+  ProjectService project(db_path_, meta_path_);
+  const uint32_t imported = LoadBatchToRoot(project);
+  ASSERT_GT(imported, 0u);
+
+  SleeveFilterService filter_service(project.GetStorageService());
+  const auto          rows = filter_service.SearchFolder(0, L"_DSC2296ARW", 0, 10);
+
+  ASSERT_EQ(rows.size(), 1u);
+  EXPECT_EQ(rows.front().file_name_, "_DSC2296.ARW");
+  EXPECT_EQ(filter_service.CountSearchResults(0, L"_DSC2296ARW"), 1u);
+}
+
+TEST_F(FilterServiceTests, FuzzySearchEscapesSqlLikeWildcardsAndQuotesInWideInput) {
+  ProjectService project(db_path_, meta_path_);
+  const auto     literal_id = CreateSyntheticFile(
+      project, SyntheticFileSpec{
+                       .file_name_    = L"100%_\u62A5\u4EF7'\u9EC4\u5C71'.dng",
+                       .image_path_   = std::filesystem::path{L"D:/\u7167\u7247\u5E93/\u62A5\u4EF7/"
+                                                        L"100%_\u62A5\u4EF7'\u9EC4\u5C71'.dng"},
+                       .camera_model_ = U8(u8"\u62A5\u4EF7\u673A"),
+                       .lens_         = U8(u8"\u62A5\u4EF7\u955C\u5934"),
+                       .date_time_    = "2026-06-01 10:00:00"});
+  const auto wildcard_decoy_id = CreateSyntheticFile(
+      project,
+      SyntheticFileSpec{.file_name_  = L"1000A\u62A5\u4EF7\u9EC4\u5C71.dng",
+                        .image_path_ = std::filesystem::path{L"D:/\u7167\u7247\u5E93/\u62A5\u4EF7/"
+                                                             L"1000A\u62A5\u4EF7\u9EC4\u5C71.dng"},
+                        .camera_model_ = U8(u8"\u62A5\u4EF7\u673A"),
+                        .lens_         = U8(u8"\u62A5\u4EF7\u955C\u5934"),
+                        .date_time_    = "2026-06-02 10:00:00"});
+  ASSERT_NE(literal_id, 0u);
+  ASSERT_NE(wildcard_decoy_id, 0u);
+
+  SleeveFilterService filter_service(project.GetStorageService());
+
+  const auto          expect_only_literal = [&](const std::wstring& query) {
+    const auto rows = filter_service.SearchFolder(0, query, 0, 10);
+    ASSERT_EQ(rows.size(), 1u);
+    EXPECT_EQ(rows.front().file_id_, literal_id);
+  };
+
+  expect_only_literal(L"100%_");
+  expect_only_literal(L"100%_\u62A5\u4EF7");
+  expect_only_literal(L"\u62A5\u4EF7'\u9EC4\u5C71");
 }
 
 TEST_F(FilterServiceTests, FolderIndexTest_FileExtension) {
@@ -568,12 +751,12 @@ TEST_F(FilterServiceTests, FilterCacheInvalidationAfterLink) {
   FilterNode root{FilterNode::Type::Condition, {}, {}, std::move(cond), std::nullopt};
   const auto filter_id     = filter_service.CreateFilterCombo(root);
 
-  // Apply filter on the empty album — should return empty.
+  // Apply filter on the empty album - should return empty.
   auto       result_before = filter_service.ApplyFilterOn(filter_id, album_id);
   ASSERT_TRUE(result_before.has_value());
   EXPECT_TRUE(result_before->empty());
 
-  // Link file to album, invalidate, then re-apply — should now find the file.
+  // Link file to album, invalidate, then re-apply - should now find the file.
   ASSERT_TRUE(sleeve_service->LinkFileToFolder(file_id, album_id).success_);
   filter_service.InvalidateResultCache(album_id);
 
@@ -605,12 +788,12 @@ TEST_F(FilterServiceTests, FilterCacheInvalidationAfterUnlink) {
   FilterNode root{FilterNode::Type::Condition, {}, {}, std::move(cond), std::nullopt};
   const auto filter_id     = filter_service.CreateFilterCombo(root);
 
-  // Apply filter on the album — should find the file.
+  // Apply filter on the album - should find the file.
   auto       result_before = filter_service.ApplyFilterOn(filter_id, album_id);
   ASSERT_TRUE(result_before.has_value());
   ASSERT_EQ(result_before->size(), 1u);
 
-  // Unlink file from album, invalidate, then re-apply — should be empty.
+  // Unlink file from album, invalidate, then re-apply - should be empty.
   ASSERT_TRUE(sleeve_service->DeleteFileFromFolder(file_id, album_id).success_);
   filter_service.InvalidateResultCache(album_id);
 
@@ -638,12 +821,12 @@ TEST_F(FilterServiceTests, FilterCacheInvalidationAfterDeleteEverywhere) {
   FilterNode root{FilterNode::Type::Condition, {}, {}, std::move(cond), std::nullopt};
   const auto filter_id     = filter_service.CreateFilterCombo(root);
 
-  // Apply filter on Root — should find the file.
+  // Apply filter on Root - should find the file.
   auto       result_before = filter_service.ApplyFilterOn(filter_id, root_folder->element_id_);
   ASSERT_TRUE(result_before.has_value());
   ASSERT_EQ(result_before->size(), 1u);
 
-  // Delete everywhere, invalidate entire cache, re-apply — should be empty.
+  // Delete everywhere, invalidate entire cache, re-apply - should be empty.
   ASSERT_TRUE(sleeve_service->DeleteFileEverywhere(file_id).success_);
   filter_service.InvalidateResultCache();
 
@@ -699,12 +882,12 @@ TEST_F(FilterServiceTests, AutoInvalidationOnLink) {
   FilterNode root{FilterNode::Type::Condition, {}, {}, std::move(cond), std::nullopt};
   const auto filter_id     = filter_service->CreateFilterCombo(root);
 
-  // Apply filter on the empty album — should return empty.
+  // Apply filter on the empty album - should return empty.
   auto       result_before = filter_service->ApplyFilterOn(filter_id, album_id);
   ASSERT_TRUE(result_before.has_value());
   EXPECT_TRUE(result_before->empty());
 
-  // Link via AlbumBrowseService — this MUST auto-invalidate the filter cache.
+  // Link via AlbumBrowseService - this MUST auto-invalidate the filter cache.
   const auto link_result = browse_service->LinkFilesToFolder({file_id}, album_id);
   EXPECT_EQ(link_result.deleted_files_.size(), 1u);
 

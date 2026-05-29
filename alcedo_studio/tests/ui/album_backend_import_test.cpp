@@ -10,8 +10,10 @@
 /// edge-case inputs.  All tests run headlessly via QCoreApplication.
 
 #include "ui/album_backend_test_fixture.hpp"
+#include "ui/alcedo_main/album_backend/search_controller.hpp"
 
 #include <QSignalSpy>
+#include <chrono>
 #include <filesystem>
 
 namespace alcedo::ui::test {
@@ -52,6 +54,24 @@ void WaitForImportFinished(AlbumBackend& backend, int timeoutMs = 30000) {
   // Drain remaining queued events (FinishImport is posted via
   // Qt::QueuedConnection).
   ProcessEvents(500);
+}
+
+auto WaitForSearchPreviewThumbnail(QSignalSpy& spy, uint element_id, int timeout_ms)
+    -> QVariantList {
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+  while (std::chrono::steady_clock::now() < deadline) {
+    while (!spy.isEmpty()) {
+      const QVariantList args = spy.takeFirst();
+      if (args.size() < 5 || args[0].toUInt() != element_id) {
+        continue;
+      }
+      if (!args[2].toBool()) {
+        return args;
+      }
+    }
+    spy.wait(200);
+  }
+  return {};
 }
 
 // ── Single RAW import ──────────────────────────────────────────────────────
@@ -173,6 +193,75 @@ TEST_F(ImportTests, Import_MixedRawAndJpeg_NoCrash) {
   EXPECT_FALSE(backend.ImportRunning());
   // At least the RAW files should succeed (if JPEGs fail, that's OK —
   // the critical thing is no crash).
+}
+
+TEST_F(ImportTests, SearchPreview_ReturnsPagedResultsAndTotalCount) {
+  AlbumBackend backend;
+  ASSERT_TRUE(CreateTestProject(backend));
+  auto* search = qobject_cast<SearchController*>(backend.SearchControllerObject());
+  ASSERT_NE(search, nullptr);
+
+  auto images = CollectRawTestImages("batch", 8);
+  ASSERT_GE(images.size(), 6u) << "Need several RAW fixtures in raw/batch/";
+
+  backend.StartImport(PathsToQStringList(images));
+  WaitForImportFinished(backend, 60000);
+  ASSERT_FALSE(backend.ImportRunning());
+  ASSERT_GE(backend.ImportCompleted(), 6);
+
+  const QVariantMap first_page = search->SearchPreview("_DSC", 0, 3);
+  const auto        first_rows = first_page.value("rows").toList();
+  ASSERT_EQ(first_rows.size(), 3);
+  EXPECT_GE(first_page.value("total").toInt(), backend.ImportCompleted());
+  EXPECT_TRUE(first_page.value("hasMore").toBool());
+
+  const QVariantMap second_page = search->SearchPreview("_DSC", 3, 3);
+  const auto        second_rows = second_page.value("rows").toList();
+  ASSERT_EQ(second_rows.size(), 3);
+  EXPECT_EQ(second_page.value("offset").toInt(), 3);
+
+  const auto first_first_id =
+      first_rows.front().toMap().value("elementId").toUInt();
+  const auto second_first_id =
+      second_rows.front().toMap().value("elementId").toUInt();
+  EXPECT_NE(first_first_id, second_first_id);
+}
+
+TEST_F(ImportTests, SearchPreviewThumbnail_LoadsForPagedVisibleResult) {
+  AlbumBackend backend;
+  ASSERT_TRUE(CreateTestProject(backend));
+  auto* search = qobject_cast<SearchController*>(backend.SearchControllerObject());
+  ASSERT_NE(search, nullptr);
+
+  auto images = CollectRawTestImages("batch", 8);
+  ASSERT_GE(images.size(), 6u) << "Need several RAW fixtures in raw/batch/";
+
+  backend.StartImport(PathsToQStringList(images));
+  WaitForImportFinished(backend, 60000);
+  ASSERT_FALSE(backend.ImportRunning());
+
+  const QVariantMap second_page = search->SearchPreview("_DSC", 3, 3);
+  const auto        second_rows = second_page.value("rows").toList();
+  ASSERT_FALSE(second_rows.empty());
+
+  const QVariantMap row = second_rows.front().toMap();
+  const auto        element_id = row.value("elementId").toUInt();
+  const auto        image_id   = row.value("imageId").toUInt();
+  ASSERT_NE(element_id, 0u);
+  ASSERT_NE(image_id, 0u);
+
+  QSignalSpy thumb_spy(search, &SearchController::SearchPreviewThumbnailUpdated);
+  search->SetSearchPreviewThumbnailVisible(element_id, image_id, true, 256);
+
+  const QVariantList final_update = WaitForSearchPreviewThumbnail(thumb_spy, element_id, 30000);
+  ASSERT_FALSE(final_update.empty())
+      << "Timed out waiting for a paged search preview thumbnail to finish loading.";
+  EXPECT_FALSE(final_update[1].toString().isEmpty());
+  EXPECT_FALSE(final_update[2].toBool());
+  EXPECT_FALSE(final_update[3].toBool());
+  EXPECT_TRUE(final_update[4].toString().isEmpty());
+
+  search->SetSearchPreviewThumbnailVisible(element_id, image_id, false, 256);
 }
 
 // ── Empty file list — no crash, sensible feedback ──────────────────────────

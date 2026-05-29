@@ -2065,6 +2065,14 @@ Alcedo 将改用 %1。</translation>
     </message>
 </context>
 <context>
+    <name>GlobalSearchDialog</name>
+    <message>
+        <location filename="../qml/GlobalSearchDialog.qml" line="330"/>
+        <source>Suggestion</source>
+        <translation>建议</translation>
+    </message>
+</context>
+<context>
     <name>ImageDetailsDialog</name>
     <message>
         <location filename="../qml/ImageDetailsDialog.qml" line="346"/>

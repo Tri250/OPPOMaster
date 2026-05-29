@@ -70,7 +70,16 @@ void StatsEngine::RefreshStats() {
       return;
     }
 
-    const auto stats   = filter_service->BuildFolderStats(folder_id.value());
+    const auto& active_search_filter_where = backend_.search_.ActiveSearchFilterWhere();
+    const auto stats = filter_service->BuildFolderStats(
+        folder_id.value(), active_search_filter_where.has_value()
+                               ? std::optional<FilterNode>{FilterNode{
+                                     .type_      = FilterNode::Type::RawSQL,
+                                     .op_        = FilterOp::AND,
+                                     .children_  = {},
+                                     .condition_ = std::nullopt,
+                                     .raw_sql_   = active_search_filter_where}}
+                               : std::nullopt);
     total_photo_count_ = stats.total_photo_count_;
     date_stats_        = ToStatsRows(stats.date_stats_);
     camera_stats_      = ToStatsRows(stats.camera_stats_);

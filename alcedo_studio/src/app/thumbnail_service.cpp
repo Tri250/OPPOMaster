@@ -289,7 +289,7 @@ void ThumbnailService::GetThumbnailDetailed(sl_element_id_t id, image_id_t image
   std::shared_ptr<ThumbnailGuard> guard;
   {
     std::unique_lock lock(st->cache_lock_);
-    if (st->thumbnail_cache_.Contains(cache_key)) {
+    if (st->thumbnail_cache_.AccessElement(cache_key).has_value()) {
       auto guard_it = st->thumbnail_cache_data_.find(cache_key);
       if (guard_it != st->thumbnail_cache_data_.end() && guard_it->second) {
         guard = guard_it->second;
@@ -521,7 +521,7 @@ void ThumbnailService::GetThumbnailDetailed(sl_element_id_t id, image_id_t image
       if (request_active && display_buffer) {
         guard                   = std::make_shared<ThumbnailGuard>();
         guard->thumbnail_buffer_ = std::move(display_buffer);
-        guard->pin_count_        = 1;
+        guard->pin_count_        = static_cast<int>(std::max<size_t>(1, callbacks.size()));
 
         auto evicted = st->thumbnail_cache_.RecordAccess_WithEvict(cache_key, cache_key);
         HandleEvict(*st, evicted);
@@ -657,7 +657,7 @@ void ThumbnailService::GetThumbnailDetailed(sl_element_id_t id, image_id_t image
 
             disk_guard = std::make_shared<ThumbnailGuard>();
             disk_guard->thumbnail_buffer_ = std::move(display_buffer);
-            disk_guard->pin_count_        = 1;
+            disk_guard->pin_count_        = static_cast<int>(std::max<size_t>(1, callbacks.size()));
             auto evicted = st->thumbnail_cache_.RecordAccess_WithEvict(cache_key, cache_key);
             HandleEvict(*st, evicted);
             st->thumbnail_cache_data_[cache_key] = disk_guard;

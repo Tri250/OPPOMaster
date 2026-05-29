@@ -127,7 +127,8 @@
       "PowerShell(D:\\\\Projects\\\\pu-erh_lab\\\\build\\\\debug\\\\alcedo_studio\\\\tests\\\\ThumbnailDiskCacheServiceTest.exe --gtest_print_time=0 2>&1)",
       "PowerShell(cmd /c scripts\\\\msvc_env.cmd --build --preset win_debug --parallel 4 --target ThumbnailService 2>&1)",
       "PowerShell(cmd /c scripts\\\\msvc_env.cmd --build --preset win_debug --parallel 4 --target ThumbnailServiceTest 2>&1)",
-      "Bash(git diff *)"
+      "Bash(git diff *)",
+      "PowerShell(Get-Content *)"
     ]
   }
 }

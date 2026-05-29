@@ -1034,6 +1034,7 @@ ApplicationWindow {
                 theme: root
                 backendInteractive: root.backendInteractive
                 onImportRequested: importDialog.open()
+                onSearchRequested: globalSearchDialog.openFromCollection()
             }
 
             ColumnLayout {
@@ -1446,6 +1447,14 @@ ApplicationWindow {
             }
         }
 
+        GlobalSearchDialog {
+            id: globalSearchDialog
+            backend: albumBackend
+            theme: root
+            blurSource: mainContent
+            cornerRadius: root.windowCornerRadius
+        }
+
     }
 
     }
@@ -1753,6 +1762,7 @@ ApplicationWindow {
         id: gridComp
         ThumbnailGridView {
             zoomLevel: root.gridZoomLevel
+            zoomAdjusting: zoomSlider.pressed
             onZoomLevelChanged: root.gridZoomLevel = zoomLevel
             selectedImagesById: root.selectedImagesById
             exportQueueById: root.exportQueueById

@@ -4,21 +4,27 @@
 
 #include "ui/alcedo_main/album_backend/album_backend.hpp"
 
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QImage>
 #include <QInputDialog>
 #include <QLineEdit>
+#include <QMetaObject>
+#include <QPointer>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QTimer>
 #include <QUrl>
 #include <algorithm>
+#include <exception>
 #include <limits>
 #include <optional>
 #include <string>
+#include <thread>
 
 #include "app/album_browse_service.hpp"
 #include "app/project_package_service.hpp"
@@ -42,6 +48,7 @@ constexpr auto   kAcceleratorBackendKey             = "gpu/acceleratorBackend";
 constexpr auto   kAcceleratorWarningAcknowledgedKey = "gpu/acceleratorWarningAcknowledged";
 constexpr int    kMaxRecentProjects                 = 12;
 constexpr size_t kAlbumMetadataPageSize             = 1000;
+constexpr size_t kSearchMetadataPageSize            = 120;
 
 auto FormatCacheSize(size_t bytes) -> QString {
   if (bytes == 0) {
@@ -217,6 +224,7 @@ AlbumBackend::AlbumBackend(QObject* parent)
       folder_ctrl_(*this),
       image_ctrl_(*this),
       stats_(*this),
+      search_(*this),
       import_export_(*this),
       nikon_he_recovery_(*this),
       editor_(*this) {
@@ -234,6 +242,7 @@ AlbumBackend::AlbumBackend(QObject* parent)
 
 AlbumBackend::~AlbumBackend() {
   try {
+    search_.CancelSearchPreviewThumbnails();
     thumb_.ReleaseVisibleThumbnailPins();
     editor_.FinalizeEditorSession(true);
     auto job = import_export_.current_import_job();
@@ -264,9 +273,7 @@ int AlbumBackend::TotalCount() const {
       std::min<size_t>(view_state_.total_count_, std::numeric_limits<int>::max()));
 }
 
-bool AlbumBackend::HasMoreThumbnails() const {
-  return thumbnail_model_.hasMore();
-}
+bool         AlbumBackend::HasMoreThumbnails() const { return thumbnail_model_.hasMore(); }
 
 QVariantList AlbumBackend::Thumbnails() const {
   QVariantList rows;
@@ -1035,6 +1042,7 @@ bool AlbumBackend::LoadThumbnailWindow(const std::optional<std::wstring>& filter
     return false;
   }
   ThumbnailModelLoadingGuard loading_guard(thumbnail_model_);
+  const auto                 effective_filter_where = EffectiveFilterWhere(filterWhere);
 
   if (reset) {
     thumb_.ReleaseVisibleThumbnailPins();
@@ -1063,7 +1071,7 @@ bool AlbumBackend::LoadThumbnailWindow(const std::optional<std::wstring>& filter
   const auto folder_id   = folder_id_opt.value();
   const auto folder_path = folder_ctrl_.CurrentFolderFsPath();
   if (reset || view_state_.total_count_ == 0) {
-    view_state_.total_count_ = browse->CountFilesInFolderById(folder_id, filterWhere);
+    view_state_.total_count_ = browse->CountFilesInFolderById(folder_id, effective_filter_where);
   }
 
   const size_t oldSize = view_state_.all_images_.size();
@@ -1073,8 +1081,10 @@ bool AlbumBackend::LoadThumbnailWindow(const std::optional<std::wstring>& filter
     return false;
   }
 
+  const auto page_size = search_.HasActiveSearchFilter() ? kSearchMetadataPageSize
+                                                         : kAlbumMetadataPageSize;
   const auto files =
-      browse->ListFilesInFolderById(folder_id, oldSize, kAlbumMetadataPageSize, filterWhere);
+      browse->ListFilesInFolderById(folder_id, oldSize, page_size, effective_filter_where);
   for (const auto& file : files) {
     const auto file_path =
         file.file_path_.empty() ? folder_path / file.file_name_ : file.file_path_;
@@ -1084,7 +1094,7 @@ bool AlbumBackend::LoadThumbnailWindow(const std::optional<std::wstring>& filter
         file.file_name_, file_path);
   }
 
-  const size_t newSize = view_state_.all_images_.size();
+  const size_t           newSize = view_state_.all_images_.size();
   std::vector<AlbumItem> newBatch;
   if (newSize > oldSize) {
     newBatch.reserve(newSize - oldSize);
@@ -1103,6 +1113,18 @@ bool AlbumBackend::LoadThumbnailWindow(const std::optional<std::wstring>& filter
 
   emit CountsChanged();
   return !files.empty();
+}
+
+auto AlbumBackend::EffectiveFilterWhere(const std::optional<std::wstring>& filterWhere) const
+    -> std::optional<std::wstring> {
+  const auto& active_search_filter_where = search_.ActiveSearchFilterWhere();
+  if (!active_search_filter_where.has_value() || active_search_filter_where->empty()) {
+    return filterWhere;
+  }
+  if (!filterWhere.has_value() || filterWhere->empty()) {
+    return active_search_filter_where;
+  }
+  return L"(" + *filterWhere + L") AND (" + *active_search_filter_where + L")";
 }
 
 void AlbumBackend::AddOrUpdateAlbumItem(sl_element_id_t elementId, image_id_t imageId,
@@ -1173,20 +1195,26 @@ void AlbumBackend::AddOrUpdateAlbumItem(sl_element_id_t elementId, image_id_t im
 }
 
 auto AlbumBackend::FindAlbumItem(sl_element_id_t elementId) -> AlbumItem* {
-  const int row = thumbnail_model_.rowByElementId(elementId);
-  if (row < 0) return nullptr;
-  // The model owns the items; we need non-const access for mutation.
-  // all_images_ is kept in sync, so search there for mutable access.
   for (auto& item : view_state_.all_images_) {
-    if (item.element_id == elementId) return &item;
+    if (item.element_id == elementId) {
+      return &item;
+    }
   }
   return nullptr;
 }
 
 auto AlbumBackend::FindAlbumItem(sl_element_id_t elementId) const -> const AlbumItem* {
-  const auto& items = thumbnail_model_.items();
-  for (const auto& item : items) {
-    if (item.element_id == elementId) return &item;
+  for (const auto& item : view_state_.all_images_) {
+    if (item.element_id == elementId) {
+      return &item;
+    }
+  }
+
+  const auto& visible_items = thumbnail_model_.items();
+  for (const auto& item : visible_items) {
+    if (item.element_id == elementId) {
+      return &item;
+    }
   }
   return nullptr;
 }

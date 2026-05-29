@@ -322,8 +322,10 @@ void FolderController::SelectFolder(uint folderUiId) {
 
   ApplyFolderSelection(folderUiId, true);
   backend_.stats_.ClearFilters();
+  backend_.search_.ClearSearchState(false);
   backend_.ReloadCurrentFolder();
   emit backend_.StatsFilterChanged();
+  emit backend_.search_.SearchStateChanged();
 }
 
 void FolderController::CreateFolder(const QString& folderName) {

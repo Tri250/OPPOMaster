@@ -741,6 +741,36 @@ def_ui_test(AlbumBackendThumbnailTest album_backend_thumbnail_test.cpp)
 def_ui_test(AlbumBackendI18nTest album_backend_i18n_test.cpp)
 def_ui_test(AlbumBackendCiWorkflowTest album_backend_ci_workflow_test.cpp "ci_raw_flow")
 
+add_executable(GlobalSearchDialogQmlTest
+    ui/global_search_dialog_qml_test.cpp
+    ui/widget_test_main.cpp
+    ui/editor_dialog_stub.cpp
+    ${ALCEDO_SRC_DIR}/ui/alcedo_main/app_theme.cpp
+    ${ALCEDO_SRC_DIR}/include/ui/alcedo_main/app_theme.hpp
+    ${ALCEDO_SRC_DIR}/config/resource.qrc
+)
+target_include_directories(GlobalSearchDialogQmlTest
+    PUBLIC ${ALCEDO_INCLUDE_DIR}
+    PRIVATE ${ALCEDO_TEST_DIR}
+)
+target_link_libraries(GlobalSearchDialogQmlTest
+    PRIVATE
+        AlbumBackendLib
+        GTest::gtest
+        Qt6::Core
+        Qt6::Test
+        Qt6::Qml
+        Qt6::Quick
+        Qt6::QuickControls2
+        Qt6::QuickEffects
+        Qt6::Svg
+        Qt6::Widgets
+)
+target_compile_definitions(GlobalSearchDialogQmlTest
+    PRIVATE ALCEDO_TEST_SRC_DIR="${ALCEDO_SRC_DIR}"
+)
+gtest_discover_tests(GlobalSearchDialogQmlTest TEST_PREFIX "GlobalSearchDialogQmlTest.")
+
 add_executable(LanguageManagerTest
     ui/language_manager_test.cpp
     ui/ui_test_main.cpp
@@ -821,6 +851,7 @@ alcedo_assign_test_category(ui ALCEDO_BUILD_UI_TESTS alcedo_tests_ui
   AlbumBackendImageDetailsTest
   AlbumBackendThumbnailTest
   AlbumBackendI18nTest
+  GlobalSearchDialogQmlTest
   LanguageManagerTest
 )
 
