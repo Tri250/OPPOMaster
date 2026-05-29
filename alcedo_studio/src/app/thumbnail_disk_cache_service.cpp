@@ -391,12 +391,7 @@ std::unique_ptr<ImageBuffer> ThumbnailDiskCacheService::Read(const ThumbnailDisk
     }
   }
 
-  cv::Mat decoded = cv::imdecode(file_data, cv::IMREAD_COLOR);
-  if (!decoded.empty()) {
-    return std::make_unique<ImageBuffer>(std::move(decoded));
-  }
-
-  decoded = ReadWithOpenImageIO(file_path);
+  cv::Mat decoded = ReadWithOpenImageIO(file_path);
   if (!decoded.empty()) {
     return std::make_unique<ImageBuffer>(std::move(decoded));
   }
