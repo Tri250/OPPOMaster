@@ -1,13 +1,19 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Camera, Sparkles, Star, Download, Search, TrendingUp, Heart, X, Menu, 
-  Palette, Layers, Upload, Zap, Image as ImageIcon, Settings, Image as PhotoIcon, 
-  Edit3, Sliders 
+  Palette, Layers, Zap, Settings, Edit3, Sliders 
 } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/useAppStore';
 import PresetCard from '../components/home/PresetCard';
+
+const easeOppoEnter: [number, number, number, number] = [0.05, 0.7, 0.1, 1.0];
+
+// ColorOS 16 标准快捷入口配置
+const handleDownload = () => {
+  alert('小O帮帮 APP 下载页面即将上线！\n\n我们正在努力开发中，敬请期待！')
+}
 
 // ColorOS 16 标准快捷入口配置
 const quickActions = [
@@ -47,7 +53,7 @@ const featureCards = [
     id: 'watermark', 
     title: '专业水印', 
     desc: '品牌水印一键添加', 
-    icon: PhotoIcon, 
+    icon: Edit3, 
     color: 'from-success to-info',
     path: '/watermark'
   },
@@ -112,7 +118,7 @@ export default function HomePage() {
       <nav className="fixed top-0 left-0 right-0 z-50 h-14 glass-navigation border-b border-white/5">
         <div className="max-w-7xl mx-auto px-4 h-full">
           <div className="flex items-center justify-between h-full">
-            <Link to="/" className="flex items-center gap-3 touch-feedback" aria-label="OPPO Master">
+            <Link to="/" className="flex items-center gap-3 touch-feedback" aria-label="小O帮帮">
               <motion.div
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
@@ -120,7 +126,7 @@ export default function HomePage() {
               >
                 <Camera className="w-5 h-5 text-oppo-black" />
               </motion.div>
-              <span className="text-h2 font-bold gradient-text-oppo hidden sm:block">OPPO Master</span>
+              <span className="text-h2 font-bold gradient-text-oppo hidden sm:block">小O帮帮</span>
             </Link>
 
             {/* Desktop Navigation */}
@@ -177,7 +183,7 @@ export default function HomePage() {
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            transition={{ duration: 0.3, ease: 'easeOutCubic' }}
+            transition={{ duration: 0.3, ease: easeOppoEnter }}
             className="fixed inset-0 z-40 bg-oppo-black/98 backdrop-blur-2xl md:hidden"
           >
             <div className="pt-20 px-6 pb-24">
@@ -221,7 +227,7 @@ export default function HomePage() {
                 transition={{ delay: 0.5 }}
                 className="mt-8"
               >
-                <button className="btn-primary-large w-full" onClick={() => setMobileMenuOpen(false)}>
+                <button className="btn-primary-large w-full" onClick={() => { setMobileMenuOpen(false); handleDownload(); }}>
                   立即下载
                 </button>
               </motion.div>
@@ -238,7 +244,7 @@ export default function HomePage() {
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, ease: 'easeOutCubic' }}
+              transition={{ duration: 0.6, ease: easeOppoEnter }}
               className="text-center mb-8"
             >
               {/* ColorOS 16 风格标签 */}
@@ -262,7 +268,7 @@ export default function HomePage() {
                 transition={{ delay: 0.3, duration: 0.5 }}
                 className="text-3xl sm:text-4xl md:text-5xl font-bold mb-4 leading-tight"
               >
-                <span className="gradient-text-oppo">OPPO Master</span>
+                <span className="gradient-text-oppo">小O帮帮</span>
               </motion.h1>
               
               {/* 副标题 */}
@@ -318,7 +324,7 @@ export default function HomePage() {
                   key={photo.id}
                   initial={{ opacity: 0, scale: 0.8, y: 20 }}
                   animate={{ opacity: 1, scale: 1, y: 0 }}
-                  transition={{ delay: 0.7 + index * 0.08, duration: 0.4, ease: 'easeOutCubic' }}
+                  transition={{ delay: 0.7 + index * 0.08, duration: 0.4, ease: easeOppoEnter }}
                   whileHover={{ scale: 1.05, y: -2 }}
                   className="aspect-square rounded-2xl overflow-hidden relative group cursor-pointer"
                 >
@@ -347,7 +353,7 @@ export default function HomePage() {
                   key={action.id}
                   initial={{ opacity: 0, scale: 0.8, y: 20 }}
                   animate={{ opacity: 1, scale: 1, y: 0 }}
-                  transition={{ delay: 0.9 + index * 0.08, duration: 0.4, ease: 'easeOutCubic' }}
+                  transition={{ delay: 0.9 + index * 0.08, duration: 0.4, ease: easeOppoEnter }}
                   whileHover={{ scale: 1.03, y: -4 }}
                   whileTap={{ scale: 0.97 }}
                   onClick={() => navigate(action.path)}
@@ -544,9 +550,9 @@ export default function HomePage() {
             >
               <h2 className="text-h1 font-bold mb-4">准备好开始了吗？</h2>
               <p className="text-body1 text-text-secondary mb-8">
-                立即下载 OPPO Master，让您的哈苏影像系统发挥全部潜能
+                立即下载 小O帮帮，让您的哈苏影像系统发挥全部潜能
               </p>
-              <button className="btn-primary-large inline-flex items-center gap-2">
+              <button className="btn-primary-large inline-flex items-center gap-2" onClick={handleDownload}>
                 <Download className="w-5 h-5" />
                 <span>免费下载</span>
               </button>
@@ -563,7 +569,7 @@ export default function HomePage() {
             { icon: Sparkles, label: '滤镜', path: '/filter-library', active: false },
             { icon: Edit3, label: '水印', path: '/watermark', active: false },
             { icon: Heart, label: '我的', path: '/settings', active: false },
-          ].map((item, index) => (
+          ].map((item) => (
             <Link
               key={item.path}
               to={item.path}

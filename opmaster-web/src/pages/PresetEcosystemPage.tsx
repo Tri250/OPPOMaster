@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { Palette, Upload, Download, Star, Heart, ChevronRight } from 'lucide-react'
+import { Palette, Download, Star, ChevronRight } from 'lucide-react'
 import { useState } from 'react'
 
 const communityPresets = [

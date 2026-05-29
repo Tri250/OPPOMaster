@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { ScanText, Camera, Upload, Copy, Check } from 'lucide-react'
+import { ScanText, Upload, Copy, Check } from 'lucide-react'
 import { useState } from 'react'
 
 export default function OcrDemoPage() {

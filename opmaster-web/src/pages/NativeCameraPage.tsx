@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { Smartphone, Camera, Copy, Check } from 'lucide-react'
+import { Copy, Check } from 'lucide-react'
 import { useState } from 'react'
 
 const cameraBrands = [

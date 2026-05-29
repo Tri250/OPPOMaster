@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion'
-import { ReactNode, useState, HTMLAttributes } from 'react'
-import { ChevronRight, Check, Loader2, X, Maximize2, Minimize2, Eye, EyeOff, Move } from 'lucide-react'
+import type { ReactNode } from 'react'
+import { ChevronRight, Check, Loader2, X, Eye, EyeOff, Move } from 'lucide-react'
 
 export const ColorOSAnimations = {
   fadeIn: {
@@ -36,25 +36,25 @@ export const ColorOSAnimations = {
   }
 }
 
-const easeStandard = [0.2, 0.0, 0.0, 1.0]
-const easeDecelerate = [0.0, 0.0, 0.2, 1.0]
-const easeAccelerate = [0.4, 0.0, 1.0, 0.0]
-const easeOppoEnter = [0.05, 0.7, 0.1, 1.0]
-const easeOppoExit = [0.3, 0.0, 0.8, 0.15]
-const easeOppoBounce = [0.175, 0.885, 0.32, 1.275]
+const easeStandard: [number, number, number, number] = [0.2, 0.0, 0.0, 1.0]
+const easeDecelerate: [number, number, number, number] = [0.0, 0.0, 0.2, 1.0]
+const easeAccelerate: [number, number, number, number] = [0.4, 0.0, 1.0, 0.0]
+const easeOppoEnter: [number, number, number, number] = [0.05, 0.7, 0.1, 1.0]
+const easeOppoExit: [number, number, number, number] = [0.3, 0.0, 0.8, 0.15]
+const easeOppoBounce: [number, number, number, number] = [0.175, 0.885, 0.32, 1.275]
 
-interface ColorOSCardProps extends HTMLAttributes<HTMLDivElement> {
+interface ColorOSCardProps {
   variant?: 'default' | 'elevated' | 'glass' | 'gradient'
   interactive?: boolean
   children: ReactNode
+  className?: string
 }
 
 export function ColorOSCard({ 
   variant = 'default', 
   interactive = false, 
   children, 
-  className = '',
-  ...props 
+  className = ''
 }: ColorOSCardProps) {
   const baseStyles = 'rounded-oppo overflow-hidden transition-all duration-200'
   
@@ -75,7 +75,6 @@ export function ColorOSCard({
       whileHover={interactive ? { scale: 1.02 } : undefined}
       whileTap={{ scale: 0.98 }}
       transition={{ duration: 0.2, ease: easeOppoBounce }}
-      {...props}
     >
       {children}
     </motion.div>
@@ -550,8 +549,6 @@ interface ColorOSFilterCardProps {
 export function ColorOSFilterCard({
   name,
   author,
-  category,
-  isFavorited = false,
   isSelected = false,
   isNew = false,
   isHasselblad = false,
@@ -614,7 +611,6 @@ export function ColorOSFloatingWindow({
   filterName,
   intensity,
   isVisible,
-  isLocked,
   onToggleVisible,
   onToggleLock
 }: ColorOSFloatingWindowProps) {

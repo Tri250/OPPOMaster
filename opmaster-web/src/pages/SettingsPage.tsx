@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion'
 import { 
-  Moon, Sun, Bell, Wifi, Bluetooth, Palette, 
+  Moon, Sun, Palette, 
   Globe, Shield, HelpCircle, Info, ChevronRight,
   Download, Trash2, RefreshCw, Smartphone, Monitor
 } from 'lucide-react'
@@ -13,7 +13,7 @@ export default function SettingsPage() {
   const [soundEffects, setSoundEffects] = useState(true)
   const [hapticFeedback, setHapticFeedback] = useState(true)
   const [autoSync, setAutoSync] = useState(false)
-  const [language, setLanguage] = useState('简体中文')
+  const [language] = useState('简体中文')
 
   const themes = [
     { id: 'dark', label: '深色模式', icon: Moon },
@@ -194,7 +194,7 @@ export default function SettingsPage() {
             />
             <ColorOSListItem
               icon={<Info className="w-5 h-5 text-text-secondary" />}
-              title="关于 OPPO Master"
+              title="关于 小O帮帮"
               trailing={<ChevronRight className="w-4 h-4 text-text-tertiary" />}
               onClick={() => {}}
             />
@@ -207,7 +207,7 @@ export default function SettingsPage() {
           transition={{ delay: 0.4 }}
           className="pt-6 pb-12 text-center"
         >
-          <p className="text-text-tertiary text-sm mb-2">OPPO Master v1.0.0</p>
+          <p className="text-text-tertiary text-sm mb-2">小O帮帮 v1.0.0</p>
           <p className="text-text-tertiary text-xs">Made with ❤️ for ColorOS 16</p>
         </motion.div>
       </main>

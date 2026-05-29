@@ -4,6 +4,8 @@ import type { Preset } from '../../data/mockPresets';
 import { useAppStore } from '../../store/useAppStore';
 import { useNavigate } from 'react-router-dom';
 
+const easeOppoEnter: [number, number, number, number] = [0.05, 0.7, 0.1, 1.0];
+
 interface PresetCardProps {
   preset: Preset;
   index: number;
@@ -27,7 +29,7 @@ export default function PresetCard({ preset, index }: PresetCardProps) {
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.05, ease: 'ease-out-cubic', duration: 0.4 }}
+      transition={{ delay: index * 0.05, ease: easeOppoEnter, duration: 0.4 }}
       whileHover={{ y: -4, scale: 1.02 }}
       whileTap={{ scale: 0.98 }}
       className={`preset-card ${preset.cameraParams?.hncs ? 'card-hncs' : 'card-oppo-interactive'} cursor-pointer group overflow-hidden`}

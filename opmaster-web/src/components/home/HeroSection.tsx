@@ -2,6 +2,8 @@ import { motion } from 'framer-motion';
 import { Camera, Sparkles, Star, Smartphone, Download } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
+const easeOppoEnter: [number, number, number, number] = [0.05, 0.7, 0.1, 1.0];
+
 export default function HeroSection() {
   return (
     <section className="relative min-h-[80vh] flex items-center justify-center overflow-hidden pt-16">
@@ -30,17 +32,17 @@ export default function HeroSection() {
         <motion.h1
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3, duration: 0.5, ease: 'ease-out-cubic' }}
+          transition={{ delay: 0.3, duration: 0.5, ease: easeOppoEnter }}
           className="text-4xl md:text-6xl font-bold mb-6"
         >
-          <span className="gradient-text-oppo">OPPO Master</span>
+          <span className="gradient-text-oppo">小O帮帮</span>
         </motion.h1>
 
         {/* Subtitle */}
         <motion.p
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5, duration: 0.5, ease: 'ease-out-cubic' }}
+          transition={{ delay: 0.5, duration: 0.5, ease: easeOppoEnter }}
           className="text-lg md:text-xl text-text-secondary mb-8 max-w-3xl mx-auto"
         >
           哈苏影像系统级参数中枢
@@ -50,7 +52,7 @@ export default function HeroSection() {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.7, duration: 0.5, ease: 'ease-out-cubic' }}
+          transition={{ delay: 0.7, duration: 0.5, ease: easeOppoEnter }}
           className="flex flex-wrap justify-center gap-3 mb-12"
         >
           {[
@@ -62,7 +64,7 @@ export default function HeroSection() {
               key={feature.label}
               initial={{ opacity: 0, scale: 0.8 }}
               animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: 0.8 + idx * 0.08, ease: 'ease-out-cubic' }}
+              transition={{ delay: 0.8 + idx * 0.08, ease: easeOppoEnter }}
               whileHover={{ scale: 1.05, y: -2 }}
               className="glass-effect px-5 py-2.5 rounded-full flex items-center space-x-2 backdrop-blur-md border border-white/10 shadow-oppo-elevation-1"
             >
@@ -76,7 +78,7 @@ export default function HeroSection() {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 1.0, duration: 0.5, ease: 'ease-out-cubic' }}
+          transition={{ delay: 1.0, duration: 0.5, ease: easeOppoEnter }}
           className="flex flex-col sm:flex-row items-center justify-center gap-4"
         >
           <button className="btn-primary-large flex items-center gap-2 animate-pulse-glow">

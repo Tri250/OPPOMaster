@@ -3,6 +3,8 @@ import { Camera, Sparkles, Layers, Palette, Zap, Download, X, Menu, Upload, Filt
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
+const easeOppoEnter: [number, number, number, number] = [0.05, 0.7, 0.1, 1.0]
+
 export default function AppShowcase() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const navigate = useNavigate()
@@ -130,7 +132,7 @@ export default function AppShowcase() {
           initial={{ opacity: 0, x: 300 }}
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: 300 }}
-          transition={{ duration: 0.3, ease: 'ease-out-cubic' }}
+          transition={{ duration: 0.3, ease: easeOppoEnter }}
           className="fixed inset-0 z-40 bg-oppo-black/95 backdrop-blur-xl md:hidden pt-20"
           role="dialog"
           aria-label="移动端菜单"
@@ -156,13 +158,13 @@ export default function AppShowcase() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, ease: 'ease-out-cubic' }}
+            transition={{ duration: 0.5, ease: easeOppoEnter }}
             className="text-center mb-12"
           >
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ delay: 0.1, duration: 0.5, ease: 'ease-out-cubic' }}
+              transition={{ delay: 0.1, duration: 0.5, ease: easeOppoEnter }}
               className="inline-flex items-center space-x-2 bg-gradient-to-r from-oppo-orange/20 to-hasselblad-orange/20 border border-oppo-orange/30 rounded-full px-3 py-1.5 mb-6 shadow-oppo-elevation-1"
             >
               <span className="w-1.5 h-1.5 bg-success rounded-full animate-pulse" />
@@ -172,7 +174,7 @@ export default function AppShowcase() {
             <motion.h1
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2, duration: 0.5, ease: 'ease-out-cubic' }}
+              transition={{ delay: 0.2, duration: 0.5, ease: easeOppoEnter }}
               className="text-4xl sm:text-5xl font-bold leading-tight mb-4"
             >
               <span className="gradient-text-oppo">影像参数</span>
@@ -181,7 +183,7 @@ export default function AppShowcase() {
             <motion.p
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ delay: 0.3, duration: 0.5, ease: 'ease-out-cubic' }}
+              transition={{ delay: 0.3, duration: 0.5, ease: easeOppoEnter }}
               className="text-body1 md:text-lg text-text-secondary mb-8"
             >
               核心功能展示 - 点击卡片查看详情
@@ -195,8 +197,8 @@ export default function AppShowcase() {
                   key={card.id}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.4 + index * 0.1, duration: 0.5, ease: 'ease-out-cubic' }}
-                  whileHover={{ y: -4, transition: { duration: 0.2, ease: 'ease-out-cubic' } }}
+                  transition={{ delay: 0.4 + index * 0.1, duration: 0.5, ease: easeOppoEnter }}
+                  whileHover={{ y: -4, transition: { duration: 0.2, ease: easeOppoEnter } }}
                   whileTap={{ scale: 0.98 }}
                   className="card-oppo-interactive"
                   onClick={() => navigate(card.path)}
@@ -236,7 +238,7 @@ export default function AppShowcase() {
           <motion.section
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ delay: 1.0, duration: 0.5, ease: 'ease-out-cubic' }}
+            transition={{ delay: 1.0, duration: 0.5, ease: easeOppoEnter }}
           >
             <div className="mb-6">
               <h2 className="text-h2 font-semibold text-text-primary mb-1">
@@ -253,8 +255,8 @@ export default function AppShowcase() {
                   key={card.id}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 1.1 + index * 0.1, duration: 0.5, ease: 'ease-out-cubic' }}
-                  whileHover={{ y: -4, transition: { duration: 0.2, ease: 'ease-out-cubic' } }}
+                  transition={{ delay: 1.1 + index * 0.1, duration: 0.5, ease: easeOppoEnter }}
+                  whileHover={{ y: -4, transition: { duration: 0.2, ease: easeOppoEnter } }}
                   whileTap={{ scale: 0.98 }}
                   onClick={() => navigate(card.path)}
                   className="card-oppo-interactive"
@@ -279,7 +281,7 @@ export default function AppShowcase() {
           <motion.section
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ delay: 1.3, duration: 0.5, ease: 'ease-out-cubic' }}
+            transition={{ delay: 1.3, duration: 0.5, ease: easeOppoEnter }}
             className="mt-16"
           >
             <div className="card-oppo p-6 md:p-8 text-center relative overflow-hidden shadow-oppo-elevation-1">

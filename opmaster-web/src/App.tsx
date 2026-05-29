@@ -2,8 +2,6 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import { lazy, Suspense } from 'react'
 import './index.css'
 
-import AppShowcase from './pages/AppShowcase'
-
 const HomePage = lazy(() => import('./pages/HomePage'))
 const AIDemoPage = lazy(() => import('./pages/AIDemoPage'))
 const TechPage = lazy(() => import('./pages/TechPage'))

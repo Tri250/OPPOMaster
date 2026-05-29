@@ -6,6 +6,8 @@ import {
 import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 
+const easeOppoEnter: [number, number, number, number] = [0.05, 0.7, 0.1, 1.0]
+
 const mainNavItems = [
   { path: '/', label: '首页' },
   { path: '/filter-library', label: '滤镜库' },
@@ -36,7 +38,7 @@ export default function NavigationBar() {
     <motion.nav
       initial={{ y: -100 }}
       animate={{ y: 0 }}
-      transition={{ duration: 0.3, ease: 'ease-out-cubic' }}
+      transition={{ duration: 0.3, ease: easeOppoEnter }}
       className="nav-bar"
       role="navigation"
       aria-label="主导航"
@@ -48,7 +50,7 @@ export default function NavigationBar() {
             <div className="w-10 h-10 rounded-md bg-gradient-to-br from-oppo-orange to-hasselblad-orange flex items-center justify-center shadow-oppo-elevation-1">
               <Camera className="w-5 h-5 text-oppo-black" />
             </div>
-            <span className="text-h2 font-bold gradient-text-oppo">OPPO Master</span>
+            <span className="text-h2 font-bold gradient-text-oppo">小O帮帮</span>
           </Link>
 
           {/* Desktop Navigation */}
@@ -89,7 +91,7 @@ export default function NavigationBar() {
                   initial={{ opacity: 0, y: 10, scale: 0.95 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                  transition={{ duration: 0.2, ease: 'ease-out-cubic' }}
+                  transition={{ duration: 0.2, ease: easeOppoEnter }}
                   className="absolute top-full right-0 mt-2 w-48 bg-bg-secondary rounded-md border border-border-default shadow-oppo-elevation-2 overflow-hidden z-50"
                   role="menu"
                 >
@@ -142,7 +144,7 @@ export default function NavigationBar() {
           initial={{ opacity: 0, height: 0 }}
           animate={{ opacity: 1, height: 'auto' }}
           exit={{ opacity: 0, height: 0 }}
-          transition={{ duration: 0.3, ease: 'ease-out-cubic' }}
+          transition={{ duration: 0.3, ease: easeOppoEnter }}
           className="md:hidden bg-bg-secondary border-t border-border-default"
           role="menu"
         >
