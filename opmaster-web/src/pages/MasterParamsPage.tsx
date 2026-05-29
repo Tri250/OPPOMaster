@@ -1,206 +1,216 @@
-import { motion, AnimatePresence } from 'framer-motion'
-import { ScrollText, Heart, Star, Download, Upload, Filter, ChevronRight, Check, Zap, TrendingUp } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { ScrollText, Star, Heart, Download, Share2, Check, ChevronRight } from 'lucide-react'
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
-import { ColorOSCard, ColorOSButton, ColorOSChip, ColorOSAnimations } from '../components/common/ColorOSComponents'
-
-const categories = [
-  { id: 'all', name: '全部', count: 48 },
-  { id: 'portrait', name: '人像', count: 15 },
-  { id: 'landscape', name: '风光', count: 12 },
-  { id: 'night', name: '夜景', count: 10 },
-  { id: 'film', name: '胶片', count: 8 },
-  { id: 'custom', name: '自定义', count: 3 },
-]
 
 const masterPresets = [
-  { id: 1, name: '城市夜景大师', author: '摄影阿东', category: 'night', isHNCS: true, isNew: true, isFavorite: true, rating: 4.9, downloads: 56789, params: { iso: 400, shutter: '1/250', aperture: 'f/1.8', wb: 5200 } },
-  { id: 2, name: '人像柔光', author: '光影猎人', category: 'portrait', isHNCS: true, isNew: false, isFavorite: false, rating: 4.8, downloads: 45678, params: { iso: 200, shutter: '1/500', aperture: 'f/1.4', wb: 5600 } },
-  { id: 3, name: '风光HDR', author: '山水之间', category: 'landscape', isHNCS: false, isNew: true, isFavorite: true, rating: 4.7, downloads: 34567, params: { iso: 100, shutter: '1/60', aperture: 'f/8', wb: 5000 } },
-  { id: 4, name: '富士胶片', author: '色彩实验室', category: 'film', isHNCS: true, isNew: false, isFavorite: true, rating: 4.9, downloads: 23456, params: { iso: 200, shutter: '1/250', aperture: 'f/2.8', wb: 5400 } },
-  { id: 5, name: '美食鲜艳', author: '美食家', category: 'portrait', isHNCS: false, isNew: true, isFavorite: false, rating: 4.6, downloads: 12345, params: { iso: 400, shutter: '1/125', aperture: 'f/2.0', wb: 4800 } },
-  { id: 6, name: '街拍黑白', author: '街头摄影师', category: 'film', isHNCS: true, isNew: false, isFavorite: true, rating: 4.8, downloads: 9876, params: { iso: 800, shutter: '1/500', aperture: 'f/2.8', wb: 5600 } },
+  { 
+    id: 1, 
+    name: '城市夜景大师', 
+    author: '摄影阿东',
+    rating: 4.9,
+    downloads: 12853,
+    isHNCS: true,
+    isNew: true,
+    category: '夜景',
+    description: '专为城市夜景设计的专业参数，保留暗部细节，增强灯光层次感',
+    params: { brightness: 0.8, contrast: 1.2, saturation: 1.1, shadows: -20, highlights: 15 }
+  },
+  { 
+    id: 2, 
+    name: '人像柔光', 
+    author: '光影猎人',
+    rating: 4.8,
+    downloads: 8921,
+    isHNCS: true,
+    isNew: false,
+    category: '人像',
+    description: '优化人像肤色，增加柔和光效，让皮肤更加通透自然',
+    params: { brightness: 0.5, contrast: 0.9, saturation: 1.05, shadows: 10, highlights: -5 }
+  },
+  { 
+    id: 3, 
+    name: '风光HDR', 
+    author: '山水之间',
+    rating: 4.7,
+    downloads: 6543,
+    isHNCS: false,
+    isNew: true,
+    category: '风光',
+    description: '高动态范围优化，增强天空和地面的细节表现',
+    params: { brightness: 0.3, contrast: 1.3, saturation: 1.15, shadows: 15, highlights: -10 }
+  },
+  { 
+    id: 4, 
+    name: '富士胶片', 
+    author: '色彩实验室',
+    rating: 4.9,
+    downloads: 15632,
+    isHNCS: true,
+    isNew: false,
+    category: '胶片',
+    description: '模拟经典富士胶片色彩，浓郁而不失真',
+    params: { brightness: 0.2, contrast: 1.1, saturation: 1.2, shadows: -10, highlights: 5 }
+  },
+  { 
+    id: 5, 
+    name: '美食鲜艳', 
+    author: '美食博主',
+    rating: 4.6,
+    downloads: 4521,
+    isHNCS: false,
+    isNew: true,
+    category: '美食',
+    description: '增强食物的色彩饱和度，让美食更加诱人',
+    params: { brightness: 0.4, contrast: 1.15, saturation: 1.3, shadows: 5, highlights: 0 }
+  },
+  { 
+    id: 6, 
+    name: '黑白电影', 
+    author: '电影感',
+    rating: 4.8,
+    downloads: 7892,
+    isHNCS: true,
+    isNew: false,
+    category: '胶片',
+    description: '经典黑白电影质感，高对比度，强氛围感',
+    params: { brightness: 0.1, contrast: 1.4, saturation: 0, shadows: -15, highlights: 20 }
+  }
 ]
 
+const categories = ['全部', '人像', '风光', '夜景', '美食', '胶片']
+
 export default function MasterParamsPage() {
-  const [activeCategory, setActiveCategory] = useState('all')
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
-  const [sortBy, setSortBy] = useState<'popular' | 'newest' | 'rating'>('popular')
+  const [activeCategory, setActiveCategory] = useState('全部')
+  const [favorites, setFavorites] = useState<number[]>([1, 4])
+  const [appliedParams, setAppliedParams] = useState<number[]>([])
 
-  const filteredPresets = masterPresets.filter(p => 
-    activeCategory === 'all' || p.category === activeCategory
-  )
+  const filteredPresets = activeCategory === '全部' 
+    ? masterPresets 
+    : masterPresets.filter(p => p.category === activeCategory)
 
-  const sortedPresets = [...filteredPresets].sort((a, b) => {
-    switch (sortBy) {
-      case 'popular': return b.downloads - a.downloads
-      case 'newest': return b.isNew ? 1 : -1
-      case 'rating': return b.rating - a.rating
-      default: return 0
-    }
-  })
+  const toggleFavorite = (id: number) => {
+    setFavorites(prev => 
+      prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id]
+    )
+  }
+
+  const applyParam = (id: number) => {
+    setAppliedParams(prev => 
+      prev.includes(id) ? prev : [...prev, id]
+    )
+    setTimeout(() => {
+      setAppliedParams(prev => prev.filter(p => p !== id))
+    }, 2000)
+  }
 
   return (
-    <div className="min-h-screen bg-deep-space pb-20">
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="orb-oppo orb-1 w-72 h-72 top-1/4 -left-36 animate-float" />
-        <div className="orb-oppo orb-2 w-56 h-56 bottom-1/4 -right-28 animate-float" style={{ animationDelay: '2s' }} />
-      </div>
+    <div className="min-h-screen bg-deep-space text-white">
+      <header className="sticky top-0 z-40 bg-deep-space/90 backdrop-blur-xl border-b border-white/5">
+        <div className="max-w-4xl mx-auto px-4 h-14 flex items-center">
+          <h1 className="text-lg font-semibold">大师参数库</h1>
+        </div>
+      </header>
 
-      <div className="relative max-w-7xl mx-auto px-4 py-8">
-        <motion.div
-          initial="initial"
-          animate="animate"
-          variants={ColorOSAnimations.fadeIn}
-        >
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-hasselblad-pro to-oppo-sunrise-gold flex items-center justify-center">
-              <ScrollText className="w-6 h-6 text-deep-space" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-white">大师参数库</h1>
-              <p className="text-text-tertiary text-sm">专业摄影师的智慧结晶</p>
-            </div>
-          </div>
+      <main className="max-w-4xl mx-auto px-4 py-4 space-y-6">
+        <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide">
+          {categories.map((cat) => (
+            <button
+              key={cat}
+              onClick={() => setActiveCategory(cat)}
+              className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all duration-200 touch-feedback ${
+                activeCategory === cat
+                  ? 'bg-oppo-sunrise-gold text-deep-space'
+                  : 'bg-white/10 text-text-secondary hover:bg-white/20 hover:text-white'
+              }`}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
 
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-            className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8"
-          >
-            <StatCard icon={Zap} title="HNCS认证" value="24" subtitle="哈苏自然色彩" />
-            <StatCard icon={TrendingUp} title="总下载" value="234.5K" subtitle="热门预设" />
-            <StatCard icon={Star} title="平均分" value="4.8" subtitle="用户评分" />
-            <StatCard icon={Heart} title="收藏" value="12.3K" subtitle="用户喜爱" />
-          </motion.div>
+        <div className="space-y-4">
+          {filteredPresets.map((preset, i) => (
+            <motion.div
+              key={preset.id}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.05 }}
+              className="card-oppo overflow-hidden"
+            >
+              <div className="p-4">
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <h3 className="text-lg font-semibold">{preset.name}</h3>
+                      {preset.isHNCS && (
+                        <span className="px-2 py-0.5 bg-hasselblad-pro text-deep-space text-xs font-bold rounded-full">HNCS</span>
+                      )}
+                      {preset.isNew && (
+                        <span className="px-2 py-0.5 bg-oppo-green text-deep-space text-xs font-bold rounded-full">NEW</span>
+                      )}
+                    </div>
+                    <p className="text-text-tertiary text-sm">@{preset.author}</p>
+                  </div>
+                  <button
+                    onClick={() => toggleFavorite(preset.id)}
+                    className="p-2 rounded-full hover:bg-white/10 transition-colors duration-200 touch-feedback"
+                    aria-label={favorites.includes(preset.id) ? '取消收藏' : '收藏'}
+                  >
+                    <Heart className={`w-5 h-5 ${favorites.includes(preset.id) ? 'fill-sakura-pink text-sakura-pink' : 'text-text-tertiary'}`} />
+                  </button>
+                </div>
 
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className="flex flex-wrap gap-2 mb-6"
-          >
-            {categories.map((cat) => (
-              <ColorOSChip
-                key={cat.id}
-                label={`${cat.name} (${cat.count})`}
-                selected={activeCategory === cat.id}
-                onClick={() => setActiveCategory(cat.id)}
-              />
-            ))}
-          </motion.div>
+                <p className="text-text-secondary text-sm mb-4">{preset.description}</p>
 
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
-            className="flex items-center justify-between mb-6"
-          >
-            <div className="flex items-center gap-2">
-              <span className="text-text-secondary text-sm">排序:</span>
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as any)}
-                className="bg-white/5 border border-white/10 rounded-lg text-white text-sm px-3 py-2 focus:outline-none focus:border-oppo-sunrise-gold/50"
-              >
-                <option value="popular">下载最多</option>
-                <option value="newest">最新</option>
-                <option value="rating">评分最高</option>
-              </select>
-            </div>
+                <div className="flex items-center gap-4 mb-4 text-sm text-text-tertiary">
+                  <div className="flex items-center gap-1">
+                    <Star className="w-4 h-4 fill-oppo-sunrise-gold text-oppo-sunrise-gold" />
+                    <span>{preset.rating}</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Download className="w-4 h-4" />
+                    <span>{preset.downloads.toLocaleString()}</span>
+                  </div>
+                  <span className="px-2 py-0.5 bg-white/10 rounded-full text-xs">{preset.category}</span>
+                </div>
 
-            <ColorOSButton variant="secondary" size="sm" icon={<Upload className="w-4 h-4" />}>
-              导入
-            </ColorOSButton>
-          </motion.div>
+                <div className="grid grid-cols-5 gap-2 mb-4">
+                  {Object.entries(preset.params).map(([key, value]) => (
+                    <div key={key} className="text-center p-2 bg-white/5 rounded-oppo">
+                      <p className="text-text-tertiary text-xs capitalize">{key}</p>
+                      <p className="text-white font-medium text-sm">{value}</p>
+                    </div>
+                  ))}
+                </div>
 
-          <motion.div
-            variants={ColorOSAnimations.stagger}
-            initial="initial"
-            animate="animate"
-          >
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {sortedPresets.map((preset, i) => (
-                <motion.div
-                  key={preset.id}
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: i * 0.05 }}
-                  whileHover={{ y: -4, scale: 1.02 }}
-                >
-                  <MasterParamCard preset={preset} />
-                </motion.div>
-              ))}
-            </div>
-          </motion.div>
-        </motion.div>
-      </div>
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => applyParam(preset.id)}
+                    className={`flex-1 btn-primary text-sm py-2.5 flex items-center justify-center gap-2 touch-feedback ${
+                      appliedParams.includes(preset.id) ? 'bg-oppo-green' : ''
+                    }`}
+                  >
+                    {appliedParams.includes(preset.id) ? (
+                      <>
+                        <Check className="w-4 h-4" />
+                        已应用
+                      </>
+                    ) : (
+                      <>
+                        <ScrollText className="w-4 h-4" />
+                        一键应用
+                      </>
+                    )}
+                  </button>
+                  <button className="btn-secondary text-sm py-2.5 px-4 touch-feedback">
+                    <Share2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      </main>
     </div>
-  )
-}
-
-function StatCard({ icon: Icon, title, value, subtitle }: { icon: any; title: string; value: string; subtitle: string }) {
-  return (
-    <ColorOSCard variant="default" className="p-5">
-      <div className="flex items-center gap-3 mb-3">
-        <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center">
-          <Icon className="w-5 h-5 text-oppo-sunrise-gold" />
-        </div>
-        <p className="text-text-secondary text-sm">{title}</p>
-      </div>
-      <p className="text-2xl font-bold text-white mb-1">{value}</p>
-      <p className="text-text-tertiary text-sm">{subtitle}</p>
-    </ColorOSCard>
-  )
-}
-
-function MasterParamCard({ preset }: { preset: any }) {
-  return (
-    <ColorOSCard variant="default" className="overflow-hidden group cursor-pointer">
-      <div className="aspect-[4/3] bg-gradient-to-br from-oppo-sunrise-gold/30 to-ocean-blue/30 relative">
-        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCA0MCA0MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4wNSI+PHBhdGggZD0iTTIwIDIwLjVWMjB2LjV6TTIwLjUgMjBoLS41LjV6TTIwIDIwaC0uNS41em0tLjUtLjVoLjUtLjV6TTE5LjUgMjBoLjUtLjV6TTIwIDE5LjVWMjB2LS41ek0yMC41IDE5LjVoLS41LjV6Ii8+PC9nPjwvZz48L3N2Zz4=')]" />
-        
-        <div className="absolute top-3 left-3 flex gap-1.5 z-10">
-          {preset.isNew && <span className="px-2 py-0.5 bg-oppo-green text-deep-space text-xs font-bold rounded-full">NEW</span>}
-          {preset.isHNCS && <span className="px-2 py-0.5 bg-hasselblad-pro text-deep-space text-xs font-bold rounded-full">HNCS</span>}
-        </div>
-
-        <div className="absolute top-3 right-3 flex gap-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button className="w-8 h-8 rounded-full bg-black/30 backdrop-blur-sm flex items-center justify-center">
-            <Heart className={`w-4 h-4 ${preset.isFavorite ? 'fill-sakura-pink text-sakura-pink' : 'text-white'}`} />
-          </button>
-          <button className="w-8 h-8 rounded-full bg-black/30 backdrop-blur-sm flex items-center justify-center">
-            <Download className="w-4 h-4 text-white" />
-          </button>
-        </div>
-
-        <div className="absolute bottom-3 left-3 right-3 z-10">
-          <div className="flex flex-wrap gap-2">
-            {Object.entries(preset.params).map(([key, value]) => (
-              <span key={key} className="px-2 py-1 bg-black/30 backdrop-blur-sm rounded-lg text-white text-xs font-mono">
-                {key.toUpperCase()}: {value}
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="p-5">
-        <h3 className="text-white font-semibold mb-1">{preset.name}</h3>
-        <p className="text-text-tertiary text-sm mb-3">@{preset.author}</p>
-        
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Star className="w-4 h-4 fill-oppo-sunrise-gold text-oppo-sunrise-gold" />
-            <span className="text-white font-medium">{preset.rating}</span>
-            <span className="text-text-tertiary text-sm">· {preset.downloads.toLocaleString()}</span>
-          </div>
-          <ColorOSButton variant="primary" size="sm" icon={<Check className="w-4 h-4" />}>
-            应用
-          </ColorOSButton>
-        </div>
-      </div>
-    </ColorOSCard>
   )
 }

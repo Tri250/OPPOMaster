@@ -38,15 +38,18 @@ export default function NavigationBar() {
     <motion.nav
       initial={{ y: -100 }}
       animate={{ y: 0 }}
-      className="fixed top-0 left-0 right-0 z-50 bg-deep-space/80 backdrop-blur-xl border-b border-white/5"
+      transition={{ duration: 0.3, ease: [0.05, 0.7, 0.1, 1.0] }}
+      className="fixed top-0 left-0 right-0 z-50 h-14 bg-deep-space/90 backdrop-blur-xl border-b border-white/5"
+      role="navigation"
+      aria-label="主导航"
     >
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
-          <Link to="/" className="flex items-center space-x-2">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-oppo-sunrise-gold to-hasselblad-pro flex items-center justify-center">
-              <Camera className="w-6 h-6 text-deep-space" />
+      <div className="max-w-7xl mx-auto px-4 h-full">
+        <div className="flex items-center justify-between h-full">
+          <Link to="/" className="flex items-center space-x-3 touch-feedback" aria-label="返回首页">
+            <div className="w-10 h-10 rounded-oppo bg-gradient-to-br from-oppo-sunrise-gold to-hasselblad-pro flex items-center justify-center">
+              <Camera className="w-5 h-5 text-deep-space" />
             </div>
-            <span className="text-xl font-bold gradient-text-oppo">OPPO Master</span>
+            <span className="text-lg font-bold gradient-text-oppo">OPPO Master</span>
           </Link>
 
           <div className="hidden md:flex items-center space-x-6">
@@ -54,7 +57,7 @@ export default function NavigationBar() {
               <Link
                 key={item.path}
                 to={item.path}
-                className={`text-sm font-medium transition-colors ${
+                className={`text-sm font-medium transition-colors duration-200 touch-feedback ${
                   location.pathname === item.path
                     ? 'text-oppo-sunrise-gold'
                     : 'text-text-secondary hover:text-white'
@@ -67,15 +70,17 @@ export default function NavigationBar() {
             <div className="relative">
               <button
                 onClick={() => setShowFeatures(!showFeatures)}
-                className={`flex items-center gap-1 text-sm font-medium transition-colors ${
+                className={`flex items-center gap-1 text-sm font-medium transition-colors duration-200 touch-feedback ${
                   featureNavItems.some(item => location.pathname === item.path)
                     ? 'text-oppo-sunrise-gold'
                     : 'text-text-secondary hover:text-white'
                 }`}
+                aria-expanded={showFeatures}
+                aria-haspopup="true"
               >
                 <Sparkles className="w-4 h-4" />
                 功能
-                <ChevronRight className={`w-3 h-3 transition-transform ${showFeatures ? 'rotate-90' : ''}`} />
+                <ChevronRight className={`w-3 h-3 transition-transform duration-200 ${showFeatures ? 'rotate-90' : ''}`} />
               </button>
 
               {showFeatures && (
@@ -83,18 +88,21 @@ export default function NavigationBar() {
                   initial={{ opacity: 0, y: 10, scale: 0.95 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                  className="absolute top-full right-0 mt-2 w-48 bg-card-surface rounded-2xl border border-white/10 shadow-xl overflow-hidden"
+                  transition={{ duration: 0.2 }}
+                  className="absolute top-full right-0 mt-2 w-48 bg-card-surface rounded-oppo border border-oppo-border shadow-oppo overflow-hidden"
+                  role="menu"
                 >
                   {featureNavItems.map((item) => (
                     <Link
                       key={item.path}
                       to={item.path}
                       onClick={() => setShowFeatures(false)}
-                      className={`flex items-center gap-3 px-4 py-3 text-sm transition-colors ${
+                      className={`flex items-center gap-3 px-4 py-3 text-sm transition-colors duration-200 touch-feedback ${
                         location.pathname === item.path
                           ? 'bg-oppo-sunrise-gold/10 text-oppo-sunrise-gold'
                           : 'text-text-secondary hover:bg-white/5 hover:text-white'
                       }`}
+                      role="menuitem"
                     >
                       {item.icon}
                       {item.label}
@@ -104,7 +112,7 @@ export default function NavigationBar() {
               )}
             </div>
 
-            <button onClick={handleDownload} className="btn-primary text-sm flex items-center gap-2">
+            <button onClick={handleDownload} className="btn-primary text-sm flex items-center gap-2 touch-feedback" aria-label="下载应用">
               <Download className="w-4 h-4" />
               立即下载
             </button>
@@ -112,7 +120,9 @@ export default function NavigationBar() {
 
           <button
             onClick={() => setIsOpen(!isOpen)}
-            className="md:hidden p-2 text-white"
+            className="md:hidden p-2 text-white touch-feedback min-h-[44px] min-w-[44px] flex items-center justify-center rounded-oppo hover:bg-white/10 transition-colors duration-200"
+            aria-expanded={isOpen}
+            aria-label={isOpen ? '关闭菜单' : '打开菜单'}
           >
             {isOpen ? <X size={24} /> : <Menu size={24} />}
           </button>
@@ -123,7 +133,10 @@ export default function NavigationBar() {
         <motion.div
           initial={{ opacity: 0, height: 0 }}
           animate={{ opacity: 1, height: 'auto' }}
-          className="md:hidden bg-card-surface border-t border-white/10"
+          exit={{ opacity: 0, height: 0 }}
+          transition={{ duration: 0.3 }}
+          className="md:hidden bg-card-surface border-t border-oppo-border"
+          role="menu"
         >
           <div className="px-4 py-4 space-y-2">
             <p className="text-text-tertiary text-xs uppercase font-medium px-2 mb-2">主要导航</p>
@@ -132,11 +145,12 @@ export default function NavigationBar() {
                 key={item.path}
                 to={item.path}
                 onClick={() => setIsOpen(false)}
-                className={`block px-3 py-2 rounded-lg text-base font-medium ${
+                className={`block px-3 py-3 rounded-oppo text-base font-medium touch-feedback transition-colors duration-200 ${
                   location.pathname === item.path
                     ? 'bg-oppo-sunrise-gold/10 text-oppo-sunrise-gold'
-                    : 'text-text-secondary hover:bg-white/5'
+                    : 'text-text-secondary hover:bg-white/5 hover:text-white'
                 }`}
+                role="menuitem"
               >
                 {item.label}
               </Link>
@@ -148,11 +162,12 @@ export default function NavigationBar() {
                 key={item.path}
                 to={item.path}
                 onClick={() => setIsOpen(false)}
-                className={`flex items-center gap-3 px-3 py-2 rounded-lg text-base font-medium ${
+                className={`flex items-center gap-3 px-3 py-3 rounded-oppo text-base font-medium touch-feedback transition-colors duration-200 ${
                   location.pathname === item.path
                     ? 'bg-oppo-sunrise-gold/10 text-oppo-sunrise-gold'
-                    : 'text-text-secondary hover:bg-white/5'
+                    : 'text-text-secondary hover:bg-white/5 hover:text-white'
                 }`}
+                role="menuitem"
               >
                 {item.icon}
                 {item.label}
@@ -162,6 +177,7 @@ export default function NavigationBar() {
             <button 
               onClick={handleDownload} 
               className="btn-primary w-full text-center mt-4 flex items-center justify-center gap-2"
+              aria-label="下载应用"
             >
               <Download className="w-4 h-4" />
               立即下载

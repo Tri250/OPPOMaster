@@ -8,29 +8,39 @@
   }
   
   body {
-    @apply bg-deep-space text-white font-sans;
+    @apply bg-deep-space text-white font-sans antialiased;
   }
 
   ::-webkit-scrollbar {
-    width: 8px;
+    width: 6px;
+    height: 6px;
   }
 
   ::-webkit-scrollbar-track {
-    @apply bg-card-surface;
+    @apply bg-deep-space;
   }
 
   ::-webkit-scrollbar-thumb {
-    @apply bg-oppo-sunrise-gold/60 rounded-full;
+    @apply bg-oppo-border rounded-full;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-oppo-sunrise-gold;
+    @apply bg-oppo-border-light;
+  }
+
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html, body {
+    @apply min-h-screen;
+    overscroll-behavior: none;
   }
 }
 
 @layer components {
   .glass-effect {
-    @apply bg-white/5 backdrop-blur-md border border-white/10;
+    @apply bg-white/5 backdrop-blur-xl border border-white/10;
   }
 
   .gradient-text {
@@ -42,32 +52,33 @@
   }
 
   .btn-primary {
-    @apply px-6 py-3 bg-oppo-sunrise-gold text-deep-space font-semibold rounded-oppo-md
-           hover:bg-oppo-sunrise-gold/90 transition-all duration-300
-           hover:shadow-oppo-hover hover:-translate-y-0.5;
+    @apply px-6 py-3 bg-oppo-sunrise-gold text-deep-space font-semibold rounded-oppo
+           transition-all duration-200 ease-out
+           hover:bg-oppo-sunrise-gold/90 hover:shadow-oppo-hover hover:-translate-y-0.5
+           active:scale-[0.98] active:shadow-oppo;
   }
 
   .btn-secondary {
-    @apply px-6 py-3 bg-white/10 text-white font-medium rounded-oppo-md
-           border border-white/20 hover:bg-white/20 transition-all duration-300;
+    @apply px-6 py-3 bg-white/10 text-white font-medium rounded-oppo
+           border border-white/20 transition-all duration-200 ease-out
+           hover:bg-white/20 active:scale-[0.98];
   }
 
   .card-oppo {
-    @apply bg-card-surface rounded-oppo-lg overflow-hidden
-           border border-oppo-border/50 hover:border-oppo-sunrise-gold/30
-           transition-all duration-300 hover:shadow-oppo;
+    @apply bg-card-surface rounded-oppo overflow-hidden
+           border border-oppo-border transition-all duration-200 ease-out
+           hover:border-oppo-sunrise-gold/30;
   }
   
   .card-elevated {
-    @apply bg-elevated rounded-oppo-lg overflow-hidden
-           border border-oppo-border/30 hover:border-oppo-sunrise-gold/20
-           transition-all duration-300;
+    @apply bg-elevated rounded-oppo overflow-hidden
+           border border-oppo-border/30 transition-all duration-200 ease-out;
   }
 
   .input-oppo {
-    @apply w-full px-4 py-3 bg-white/5 border border-white/10 rounded-oppo-sm
-           text-white placeholder-white/50 focus:outline-none focus:border-oppo-sunrise-gold
-           transition-all duration-300;
+    @apply w-full px-4 py-3 bg-white/5 border border-oppo-border rounded-oppo-sm
+           text-white placeholder-text-tertiary transition-all duration-200
+           focus:outline-none focus:border-oppo-sunrise-gold/50;
   }
   
   .tag-oppo {
@@ -80,6 +91,26 @@
   
   .tag-new {
     @apply px-3 py-1.5 bg-oppo-sunrise-gold text-deep-space rounded-full text-sm font-bold animate-breathing;
+  }
+
+  /* 导航栏 */
+  .nav-bar {
+    @apply fixed top-0 left-0 right-0 z-50 h-14 bg-deep-space/90 backdrop-blur-xl border-b border-white/5;
+  }
+
+  /* 页面容器 */
+  .page-container {
+    @apply px-4 py-6 max-w-7xl mx-auto;
+  }
+
+  /* 底部安全区 */
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 24px);
+  }
+
+  /* 点击效果 */
+  .touch-feedback {
+    @apply transition-transform duration-150 active:scale-[0.98];
   }
 }
 
@@ -112,6 +143,15 @@
   }
 }
 
+@keyframes skeleton-loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
 .animate-float {
   animation: float 6s ease-in-out infinite;
 }
@@ -124,7 +164,13 @@
   animation: breathing 1.8s ease-in-out infinite;
 }
 
-/* ColorOS 16 风格渐变遮罩 */
+.animate-skeleton {
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+  background-size: 200% 100%;
+  animation: skeleton-loading 1.5s ease-in-out infinite;
+}
+
+/* 背景光效 */
 .gradient-overlay {
   background: linear-gradient(
     to bottom,
@@ -135,7 +181,6 @@
   );
 }
 
-/* 背景光效 */
 .orb-oppo {
   position: absolute;
   border-radius: 50%;
@@ -154,4 +199,55 @@
 
 .orb-3 {
   background: linear-gradient(135deg, #8B5CF6, #A78BFA);
+}
+
+/* 响应式适配 */
+@media (max-width: 360px) {
+  html {
+    font-size: 14px;
+  }
+}
+
+@media (min-width: 481px) {
+  html {
+    font-size: 16px;
+  }
+}
+
+/* 深色模式 (默认) */
+:root {
+  color-scheme: dark;
+}
+
+/* 浅色模式 */
+[data-theme="light"] {
+  color-scheme: light;
+}
+
+[data-theme="light"] body {
+  @apply bg-light-bg text-light-text-primary;
+}
+
+[data-theme="light"] .card-oppo {
+  @apply bg-light-surface border-light-border;
+}
+
+[data-theme="light"] .nav-bar {
+  @apply bg-light-bg/90 border-light-border/50;
+}
+
+/* 无障碍 - 焦点样式 */
+:focus-visible {
+  @apply outline-2 outline-offset-2 outline-oppo-sunrise-gold;
+}
+
+/* 减少动画 (尊重用户偏好) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

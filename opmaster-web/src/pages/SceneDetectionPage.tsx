@@ -1,338 +1,159 @@
-import { motion, AnimatePresence } from 'framer-motion'
-import { 
-  Scan, Camera, Image, Mountain, User, Moon,
-  Sunset, UtensilsCrossed, Building2, Leaf,
-  Focus, HelpCircle, Check, Sparkles, Heart,
-  ChevronRight, Upload, ImagePlus
-} from 'lucide-react'
+import { motion } from 'framer-motion'
+import { Scan, Camera, Check } from 'lucide-react'
 import { useState } from 'react'
-import { 
-  ColorOSCard, ColorOSButton, ColorOSSectionHeader,
-  ColorOSAnimations, ColorOSChip
-} from '../components/common/ColorOSComponents'
 
-interface SceneType {
-  id: string
-  name: string
-  icon: React.ReactNode
-  color: string
-  description: string
-  confidence: number
-}
-
-interface Preset {
-  id: string
-  name: string
-  device: string
-  isHNCS: boolean
-  rating: number
-}
-
-const sceneTypes: SceneType[] = [
-  { id: 'landscape', name: '风景', icon: <Mountain className="w-5 h-5" />, color: 'text-oppo-green', description: '自然风光、山川湖海', confidence: 0 },
-  { id: 'portrait', name: '人像', icon: <User className="w-5 h-5" />, color: 'text-sakura-pink', description: '人物肖像、自拍', confidence: 0 },
-  { id: 'night', name: '夜景', icon: <Moon className="w-5 h-5" />, color: 'text-aurora-purple', description: '夜间场景、城市灯光', confidence: 0 },
-  { id: 'sunset', name: '日落', icon: <Sunset className="w-5 h-5" />, color: 'text-oppo-sunrise-gold', description: '日出日落、黄金时刻', confidence: 0 },
-  { id: 'food', name: '美食', icon: <UtensilsCrossed className="w-5 h-5" />, color: 'text-warning-vital', description: '美食摄影、餐饮', confidence: 0 },
-  { id: 'street', name: '街拍', icon: <Building2 className="w-5 h-5" />, color: 'text-ocean-blue', description: '街头摄影、城市人文', confidence: 0 },
-  { id: 'nature', name: '自然', icon: <Leaf className="w-5 h-5" />, color: 'text-oppo-green-light', description: '植物花卉、生态', confidence: 0 },
-  { id: 'architecture', name: '建筑', icon: <Building2 className="w-5 h-5" />, color: 'text-text-secondary', description: '建筑摄影、室内', confidence: 0 },
-  { id: 'macro', name: '微距', icon: <Focus className="w-5 h-5" />, color: 'text-hasselblad-pro', description: '微距特写、细节', confidence: 0 },
-]
-
-const mockPresets: Preset[] = [
-  { id: '1', name: '城市夜景大师', device: 'Find X7 Ultra', isHNCS: true, rating: 4.9 },
-  { id: '2', name: '人像柔光模式', device: 'Reno 12 Pro', isHNCS: true, rating: 4.8 },
-  { id: '3', name: '风光 HDR', device: 'Find X6 Pro', isHNCS: false, rating: 4.7 },
-  { id: '4', name: '美食鲜艳', device: '一加 12', isHNCS: false, rating: 4.6 },
+const sceneTypes = [
+  '人像', '风光', '建筑', '美食', '夜景', '星空',
+  '微距', '运动', '宠物', '儿童', '花卉', '树木',
+  '海洋', '湖泊', '山脉', '日落', '日出', '城市',
+  '街拍', '室内', '逆光', '阴天', '晴天', '雪景',
+  '雨景', '雾景', '沙漠', '森林', '草原', '瀑布'
 ]
 
 export default function SceneDetectionPage() {
-  const [selectedImage, setSelectedImage] = useState<string | null>(null)
   const [isDetecting, setIsDetecting] = useState(false)
-  const [detectedScene, setDetectedScene] = useState<SceneType | null>(null)
-  const [recommendedPresets, setRecommendedPresets] = useState<Preset[]>([])
-  const [imageSource, setImageSource] = useState<'camera' | 'gallery' | null>(null)
+  const [detectedScenes, setDetectedScenes] = useState<string[]>([])
+  const [confidence, setConfidence] = useState(0)
 
-  const handleSelectImage = (source: 'camera' | 'gallery') => {
-    setImageSource(source)
-    const seed = Math.random().toString(36).substring(7)
-    setSelectedImage(`https://picsum.photos/seed/${seed}/800/600`)
-    setDetectedScene(null)
-    setRecommendedPresets([])
-  }
-
-  const handleDetectScene = async () => {
-    if (!selectedImage) return
+  const handleDetect = () => {
     setIsDetecting(true)
-    await new Promise(resolve => setTimeout(resolve, 2500))
-    
-    const randomScene = sceneTypes[Math.floor(Math.random() * sceneTypes.length)]
-    randomScene.confidence = Math.floor(Math.random() * 15) + 85
-    setDetectedScene(randomScene)
-    setRecommendedPresets(mockPresets.slice(0, 3))
-    setIsDetecting(false)
+    setDetectedScenes([])
+    setConfidence(0)
+
+    setTimeout(() => {
+      const randomScenes = sceneTypes
+        .sort(() => Math.random() - 0.5)
+        .slice(0, Math.floor(Math.random() * 3) + 1)
+      setDetectedScenes(randomScenes)
+      setConfidence(Math.floor(Math.random() * 20) + 80)
+      setIsDetecting(false)
+    }, 2000)
   }
 
   return (
-    <div className="min-h-screen bg-deep-space">
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="orb-oppo orb-1 w-96 h-96 top-1/3 -left-48 animate-float" />
-        <div className="orb-oppo orb-3 w-72 h-72 bottom-1/4 right-0 animate-float" style={{ animationDelay: '3s' }} />
-      </div>
+    <div className="min-h-screen bg-deep-space text-white">
+      <header className="sticky top-0 z-40 bg-deep-space/90 backdrop-blur-xl border-b border-white/5">
+        <div className="max-w-4xl mx-auto px-4 h-14 flex items-center">
+          <h1 className="text-lg font-semibold">AI 场景识别</h1>
+        </div>
+      </header>
 
-      <div className="relative max-w-4xl mx-auto px-4 sm:px-6 py-6 md:py-8">
+      <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">
         <motion.div
-          initial="initial"
-          animate="animate"
-          variants={ColorOSAnimations.fadeIn}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="card-oppo p-6 text-center"
         >
-          <div className="flex items-center gap-3 mb-6 md:mb-8">
-            <div className="w-11 h-11 md:w-12 md:h-12 rounded-2xl bg-gradient-to-br from-oppo-sunrise-gold to-hasselblad-pro flex items-center justify-center">
-              <Scan className="w-5 md:w-6 h-5 md:h-6 text-deep-space" />
-            </div>
-            <div>
-              <h1 className="text-xl md:text-2xl font-bold text-white">AI 场景识别</h1>
-              <p className="text-text-tertiary text-xs md:text-sm">智能识别场景，推荐最佳预设</p>
-            </div>
+          <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-gradient-to-br from-ocean-blue/30 to-aurora-purple/30 flex items-center justify-center">
+            {isDetecting ? (
+              <div className="w-12 h-12 border-4 border-ocean-blue/30 border-t-ocean-blue rounded-full animate-spin" />
+            ) : (
+              <Scan className="w-12 h-12 text-ocean-blue" />
+            )}
           </div>
+          
+          <h2 className="text-xl font-bold mb-2">
+            {isDetecting ? '正在识别场景...' : 'AI 智能场景识别'}
+          </h2>
+          <p className="text-text-secondary mb-6">
+            {isDetecting 
+              ? '正在分析当前画面，请稍候'
+              : '点击按钮开始识别当前场景类型'}
+          </p>
 
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 md:gap-6">
-            <motion.div 
-              className="lg:col-span-3"
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.1 }}
+          {detectedScenes.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="mb-6"
             >
-              <ColorOSSectionHeader title="选择图片" subtitle="拍照或从相册选择" />
-
-              <ColorOSCard 
-                variant="default" 
-                interactive={!selectedImage}
-                className={`aspect-[4/3] relative overflow-hidden ${!selectedImage ? 'cursor-pointer' : ''}`}
-              >
-                {selectedImage ? (
-                  <div className="relative w-full h-full">
-                    <img 
-                      src={selectedImage} 
-                      alt="预览" 
-                      className="w-full h-full object-cover"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-deep-space/80 via-transparent to-transparent" />
-                    
-                    <div className="absolute top-3 md:top-4 right-3 md:right-4 flex gap-2">
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => handleSelectImage(imageSource || 'gallery')}
-                        className="w-11 h-11 md:w-10 md:h-10 rounded-xl bg-black/50 backdrop-blur-sm flex items-center justify-center text-white min-h-[44px] min-w-[44px]"
-                      >
-                        <ImagePlus className="w-5 h-5" />
-                      </motion.button>
-                    </div>
-
-                    <div className="absolute bottom-3 md:bottom-4 left-3 md:left-4 right-3 md:right-4 flex gap-2 flex-wrap">
-                      <ColorOSChip 
-                        icon={<Camera className="w-4 h-4" />}
-                        label="拍照" 
-                        selected={imageSource === 'camera'}
-                        onClick={() => handleSelectImage('camera')}
-                      />
-                      <ColorOSChip 
-                        icon={<Image className="w-4 h-4" />}
-                        label="相册" 
-                        selected={imageSource === 'gallery'}
-                        onClick={() => handleSelectImage('gallery')}
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <div className="w-full h-full flex flex-col items-center justify-center gap-4 md:gap-6 p-4 md:p-8">
-                    <div className="w-20 h-20 md:w-24 md:h-24 rounded-full bg-gradient-to-br from-oppo-sunrise-gold/20 to-ocean-blue/20 flex items-center justify-center">
-                      <Upload className="w-10 h-10 md:w-12 md:h-12 text-oppo-sunrise-gold" />
-                    </div>
-                    <div className="text-center">
-                      <p className="text-white font-medium text-base md:text-lg">点击选择拍摄的样张</p>
-                      <p className="text-text-tertiary text-xs md:text-sm mt-1 md:mt-2">AI 将自动识别场景并推荐预设</p>
-                    </div>
-                    <div className="flex gap-4 md:gap-6 mt-4">
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => handleSelectImage('camera')}
-                        className="flex flex-col items-center gap-2 min-h-[80px] min-w-[80px] p-2"
-                      >
-                        <div className="w-13 h-13 md:w-14 md:h-14 rounded-2xl bg-oppo-sunrise-gold/20 flex items-center justify-center">
-                          <Camera className="w-6 h-6 md:w-7 md:h-7 text-oppo-sunrise-gold" />
-                        </div>
-                        <span className="text-text-secondary text-xs md:text-sm">拍照</span>
-                      </motion.button>
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => handleSelectImage('gallery')}
-                        className="flex flex-col items-center gap-2 min-h-[80px] min-w-[80px] p-2"
-                      >
-                        <div className="w-13 h-13 md:w-14 md:h-14 rounded-2xl bg-ocean-blue/20 flex items-center justify-center">
-                          <Image className="w-6 h-6 md:w-7 md:h-7 text-ocean-blue" />
-                        </div>
-                        <span className="text-text-secondary text-xs md:text-sm">相册</span>
-                      </motion.button>
-                    </div>
-                  </div>
-                )}
-              </ColorOSCard>
-
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2 }}
-                className="mt-6"
-              >
-                <ColorOSButton
-                  variant="primary"
-                  size="lg"
-                  loading={isDetecting}
-                  disabled={!selectedImage || isDetecting}
-                  onClick={handleDetectScene}
-                  className="w-full"
-                  icon={isDetecting ? undefined : <Sparkles className="w-5 h-5" />}
-                >
-                  {isDetecting ? '正在识别场景...' : selectedImage ? '开始 AI 场景识别' : '请先选择图片'}
-                </ColorOSButton>
-              </motion.div>
-            </motion.div>
-
-            <motion.div 
-              className="lg:col-span-2"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.2 }}
-            >
-              <ColorOSSectionHeader title="识别结果" subtitle="AI 分析的场景类型" />
-
-              <AnimatePresence mode="wait">
-                {detectedScene ? (
-                  <motion.div
-                    key="result"
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -20 }}
-                    className="space-y-4"
+              <div className="text-sm text-text-secondary mb-2">
+                识别置信度: <span className="text-oppo-green font-semibold">{confidence}%</span>
+              </div>
+              <div className="flex flex-wrap justify-center gap-2">
+                {detectedScenes.map((scene) => (
+                  <motion.span
+                    key={scene}
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="px-4 py-2 bg-oppo-green/20 border border-oppo-green/30 rounded-full text-sm font-medium text-oppo-green"
                   >
-                    <ColorOSCard variant="gradient" className="p-5">
-                      <div className="flex items-center gap-4">
-                        <div className={`w-14 h-14 rounded-2xl bg-white/10 flex items-center justify-center ${detectedScene.color}`}>
-                          {detectedScene.icon}
-                        </div>
-                        <div className="flex-1">
-                          <p className="text-text-tertiary text-sm">识别结果</p>
-                          <p className="text-white text-xl font-bold">{detectedScene.name}</p>
-                          <p className="text-text-secondary text-sm">{detectedScene.description}</p>
-                        </div>
-                      </div>
-                      <div className="mt-4 pt-4 border-t border-white/10">
-                        <div className="flex items-center justify-between">
-                          <span className="text-text-tertiary text-sm">置信度</span>
-                          <span className="text-oppo-sunrise-gold font-bold">{detectedScene.confidence}%</span>
-                        </div>
-                        <div className="mt-2 h-2 bg-white/10 rounded-full overflow-hidden">
-                          <motion.div
-                            initial={{ width: 0 }}
-                            animate={{ width: `${detectedScene.confidence}%` }}
-                            transition={{ duration: 0.5, ease: 'easeOut' }}
-                            className="h-full bg-gradient-to-r from-oppo-sunrise-gold to-oppo-sunrise-gold-light rounded-full"
-                          />
-                        </div>
-                      </div>
-                    </ColorOSCard>
-
-                    <ColorOSSectionHeader 
-                      title="推荐预设" 
-                      subtitle="为您匹配的哈苏大师预设"
-                    />
-
-                    <div className="space-y-3">
-                      {recommendedPresets.map((preset, index) => (
-                        <motion.div
-                          key={preset.id}
-                          initial={{ opacity: 0, x: 20 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ delay: index * 0.1 }}
-                        >
-                          <ColorOSCard variant="default" interactive className="p-4">
-                            <div className="flex items-center gap-3">
-                              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-oppo-sunrise-gold/30 to-ocean-blue/30 flex items-center justify-center">
-                                <Camera className="w-6 h-6 text-oppo-sunrise-gold" />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <p className="text-white font-medium truncate">{preset.name}</p>
-                                  {preset.isHNCS && (
-                                    <span className="px-2 py-0.5 bg-hasselblad-pro text-deep-space text-xs font-bold rounded-full">
-                                      HNCS
-                                    </span>
-                                  )}
-                                </div>
-                                <p className="text-text-tertiary text-sm">{preset.device}</p>
-                              </div>
-                              <div className="flex items-center gap-1 text-oppo-sunrise-gold">
-                                <Heart className="w-4 h-4 fill-current" />
-                                <span className="text-sm font-medium">{preset.rating}</span>
-                              </div>
-                            </div>
-                          </ColorOSCard>
-                        </motion.div>
-                      ))}
-                    </div>
-                  </motion.div>
-                ) : (
-                  <motion.div
-                    key="empty"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                  >
-                    <ColorOSCard variant="default" className="p-8 text-center">
-                      <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mx-auto mb-4">
-                        <HelpCircle className="w-8 h-8 text-text-tertiary" />
-                      </div>
-                      <p className="text-text-secondary">选择图片后开始识别</p>
-                      <p className="text-text-tertiary text-sm mt-2">AI 将自动分析场景类型</p>
-                    </ColorOSCard>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 }}
-                className="mt-6"
-              >
-                <ColorOSSectionHeader title="支持的场景" subtitle="可识别 9 种场景类型" />
-                <div className="grid grid-cols-3 sm:grid-cols-3 gap-2 sm:gap-3">
-                  {sceneTypes.map((scene) => (
-                    <div
-                      key={scene.id}
-                      className={`p-2.5 md:p-3 rounded-xl text-center transition-all min-h-[70px] flex flex-col items-center justify-center ${
-                        detectedScene?.id === scene.id
-                          ? 'bg-oppo-sunrise-gold/20 border border-oppo-sunrise-gold/50'
-                          : 'bg-white/5 hover:bg-white/10'
-                      }`}
-                    >
-                      <div className={`${scene.color} flex justify-center mb-1`}>
-                        {scene.icon}
-                      </div>
-                      <p className="text-text-secondary text-xs">{scene.name}</p>
-                    </div>
-                  ))}
-                </div>
-              </motion.div>
+                    {scene}
+                  </motion.span>
+                ))}
+              </div>
             </motion.div>
-          </div>
+          )}
+
+          <button
+            onClick={handleDetect}
+            disabled={isDetecting}
+            className="btn-primary px-8 py-3 flex items-center justify-center gap-2 mx-auto touch-feedback disabled:opacity-50"
+            aria-label="开始场景识别"
+          >
+            <Camera className="w-5 h-5" />
+            {isDetecting ? '识别中...' : '开始识别'}
+          </button>
         </motion.div>
-      </div>
+
+        <motion.section
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+        >
+          <h2 className="text-sm font-medium text-text-tertiary uppercase tracking-wider mb-4">支持的场景类型</h2>
+          <div className="card-oppo p-4">
+            <div className="flex flex-wrap gap-2">
+              {sceneTypes.map((scene) => (
+                <span
+                  key={scene}
+                  className="px-3 py-1.5 bg-white/5 rounded-full text-sm text-text-secondary"
+                >
+                  {scene}
+                </span>
+              ))}
+            </div>
+          </div>
+        </motion.section>
+
+        <motion.section
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="card-oppo p-4"
+        >
+          <h2 className="text-sm font-medium text-text-secondary mb-4">功能特点</h2>
+          <div className="space-y-3">
+            <div className="flex items-start gap-3">
+              <div className="w-6 h-6 rounded-full bg-oppo-green/20 flex items-center justify-center flex-shrink-0">
+                <Check className="w-4 h-4 text-oppo-green" />
+              </div>
+              <div>
+                <p className="font-medium text-sm mb-0.5">50+ 场景识别</p>
+                <p className="text-text-tertiary text-xs">覆盖日常拍摄的大部分场景类型</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <div className="w-6 h-6 rounded-full bg-oppo-green/20 flex items-center justify-center flex-shrink-0">
+                <Check className="w-4 h-4 text-oppo-green" />
+              </div>
+              <div>
+                <p className="font-medium text-sm mb-0.5">智能参数推荐</p>
+                <p className="text-text-tertiary text-xs">根据场景自动推荐最佳滤镜和参数</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <div className="w-6 h-6 rounded-full bg-oppo-green/20 flex items-center justify-center flex-shrink-0">
+                <Check className="w-4 h-4 text-oppo-green" />
+              </div>
+              <div>
+                <p className="font-medium text-sm mb-0.5">实时识别</p>
+                <p className="text-text-tertiary text-xs">支持拍照时实时场景识别</p>
+              </div>
+            </div>
+          </div>
+        </motion.section>
+      </main>
     </div>
   )
 }

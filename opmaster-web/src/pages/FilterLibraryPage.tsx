@@ -1,278 +1,200 @@
-import { motion, AnimatePresence } from 'framer-motion'
-import { Filter, Heart, Search, Star, Grid, List, SortAsc, ChevronRight } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { Search, Filter, Grid, List, Heart, Clock, Star, ChevronRight } from 'lucide-react'
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
-import { ColorOSCard, ColorOSButton, ColorOSChip, ColorOSAnimations } from '../components/common/ColorOSComponents'
+import { ColorOSFilterCard } from '../components/common/ColorOSComponents'
 
 const categories = [
-  { id: 'all', name: '全部', count: 48 },
-  { id: 'portrait', name: '人像', count: 12 },
-  { id: 'landscape', name: '风光', count: 15 },
-  { id: 'food', name: '美食', count: 8 },
-  { id: 'night', name: '夜景', count: 7 },
-  { id: 'film', name: '胶片', count: 6 },
+  { name: '全部', count: 48 },
+  { name: '人像', count: 12 },
+  { name: '风光', count: 15 },
+  { name: '美食', count: 8 },
+  { name: '夜景', count: 7 },
+  { name: '胶片', count: 6 }
 ]
 
 const filters = [
-  { id: 1, name: '富士胶片', author: '色彩实验室', category: 'film', isHNCS: true, isNew: true, isFavorite: true, rating: 4.9, usage: 12345 },
-  { id: 2, name: '徕卡经典', author: '光影猎人', category: 'portrait', isHNCS: true, isNew: false, isFavorite: false, rating: 4.8, usage: 9876 },
-  { id: 3, name: '哈苏自然', author: '山水之间', category: 'landscape', isHNCS: true, isNew: true, isFavorite: true, rating: 4.7, usage: 8765 },
-  { id: 4, name: '赛博朋克', author: '未来视觉', category: 'night', isHNCS: false, isNew: false, isFavorite: false, rating: 4.6, usage: 7654 },
-  { id: 5, name: '人像暖色', author: '人像大师', category: 'portrait', isHNCS: false, isNew: true, isFavorite: true, rating: 4.8, usage: 6543 },
-  { id: 6, name: '风光HDR', author: '风光摄影', category: 'landscape', isHNCS: true, isNew: false, isFavorite: true, rating: 4.7, usage: 5432 },
-  { id: 7, name: '夜景大师', author: '夜行者', category: 'night', isHNCS: true, isNew: true, isFavorite: false, rating: 4.9, usage: 4321 },
-  { id: 8, name: '美食鲜艳', author: '美食家', category: 'food', isHNCS: false, isNew: false, isFavorite: false, rating: 4.5, usage: 3210 },
+  { id: 1, name: '富士胶片', author: '影像大师', isNew: true, isHNCS: true },
+  { id: 2, name: '徕卡经典', author: '光影猎人', isNew: false, isHNCS: true },
+  { id: 3, name: '哈苏自然', author: '色彩玩家', isNew: true, isHNCS: true },
+  { id: 4, name: '赛博朋克', author: '未来派', isNew: false, isHNCS: false },
+  { id: 5, name: '人像暖色', author: '摄影师阿东', isNew: true, isHNCS: false },
+  { id: 6, name: '风光HDR', author: '山水之间', isNew: false, isHNCS: true },
+  { id: 7, name: '夜景大师', author: '夜拍达人', isNew: true, isHNCS: true },
+  { id: 8, name: '美食鲜艳', author: '美食博主', isNew: false, isHNCS: false },
+  { id: 9, name: '复古胶片', author: '怀旧玩家', isNew: false, isHNCS: false },
+  { id: 10, name: '小清新', author: '少女心', isNew: true, isHNCS: false },
+  { id: 11, name: '黑白电影', author: '电影感', isNew: false, isHNCS: true },
+  { id: 12, name: '日系', author: '东京Style', isNew: true, isHNCS: false }
 ]
 
 export default function FilterLibraryPage() {
-  const [activeCategory, setActiveCategory] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
+  const [activeCategory, setActiveCategory] = useState('全部')
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
-  const [sortBy, setSortBy] = useState<'popular' | 'newest' | 'rating'>('popular')
+  const [favorites, setFavorites] = useState<number[]>([2, 4, 6, 8])
+  const [selectedFilters, setSelectedFilters] = useState<number[]>([])
 
-  const filteredFilters = filters.filter(filter => {
-    const matchesCategory = activeCategory === 'all' || filter.category === activeCategory
-    const matchesSearch = filter.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                          filter.author.toLowerCase().includes(searchQuery.toLowerCase())
-    return matchesCategory && matchesSearch
+  const filteredFilters = filters.filter(f => {
+    const matchesSearch = f.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         f.author.toLowerCase().includes(searchQuery.toLowerCase())
+    return matchesSearch
   })
 
-  const sortedFilters = [...filteredFilters].sort((a, b) => {
-    switch (sortBy) {
-      case 'popular': return b.usage - a.usage
-      case 'newest': return b.isNew ? 1 : -1
-      case 'rating': return b.rating - a.rating
-      default: return 0
-    }
-  })
+  const toggleFavorite = (id: number) => {
+    setFavorites(prev => 
+      prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id]
+    )
+  }
+
+  const toggleSelect = (id: number) => {
+    setSelectedFilters(prev =>
+      prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id]
+    )
+  }
 
   return (
-    <div className="min-h-screen bg-deep-space pb-20">
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="orb-oppo orb-1 w-72 h-72 top-1/4 -left-36 animate-float" />
-        <div className="orb-oppo orb-2 w-56 h-56 bottom-1/4 -right-28 animate-float" style={{ animationDelay: '2s' }} />
-      </div>
-
-      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 py-6 md:py-8">
-        <motion.div
-          initial="initial"
-          animate="animate"
-          variants={ColorOSAnimations.fadeIn}
-        >
-          <div className="flex items-center gap-3 mb-5 md:mb-6">
-            <div className="w-11 h-11 md:w-12 md:h-12 rounded-2xl bg-gradient-to-br from-aurora-purple to-ocean-blue flex items-center justify-center">
-              <Filter className="w-5 md:w-6 h-5 md:h-6 text-white" />
-            </div>
-            <div>
-              <h1 className="text-xl md:text-2xl font-bold text-white">滤镜库</h1>
-              <p className="text-text-tertiary text-xs md:text-sm">专业调色，触手可及</p>
-            </div>
-          </div>
-
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-            className="mb-5 md:mb-6"
-          >
-            <div className="relative">
-              <Search className="absolute left-3 md:left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-text-tertiary" />
-              <input
-                type="text"
-                placeholder="搜索滤镜..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 md:pl-12 pr-4 py-3 bg-white/5 border border-white/10 rounded-2xl text-white placeholder-text-tertiary focus:outline-none focus:border-oppo-sunrise-gold/50 transition-all text-sm md:text-base"
-              />
-            </div>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className="flex flex-wrap gap-1.5 md:gap-2 mb-5 md:mb-6"
-          >
-            {categories.map((cat) => (
-              <ColorOSChip
-                key={cat.id}
-                label={`${cat.name} (${cat.count})`}
-                selected={activeCategory === cat.id}
-                onClick={() => setActiveCategory(cat.id)}
-              />
-            ))}
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
-            className="flex items-center justify-between mb-5 md:mb-6"
-          >
-            <div className="flex items-center gap-2">
-              <span className="text-text-secondary text-xs md:text-sm">排序:</span>
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as any)}
-                className="bg-white/5 border border-white/10 rounded-lg text-white text-xs md:text-sm px-2.5 md:px-3 py-2 min-h-[44px] focus:outline-none focus:border-oppo-sunrise-gold/50"
-              >
-                <option value="popular">最热门</option>
-                <option value="newest">最新</option>
-                <option value="rating">评分最高</option>
-              </select>
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => setViewMode('grid')}
-                className={`p-2 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center ${
-                  viewMode === 'grid' ? 'bg-oppo-sunrise-gold text-deep-space' : 'bg-white/5 text-text-secondary hover:bg-white/10'
-                }`}
-              >
-                <Grid className="w-5 h-5" />
-              </button>
-              <button
-                onClick={() => setViewMode('list')}
-                className={`p-2 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center ${
-                  viewMode === 'list' ? 'bg-oppo-sunrise-gold text-deep-space' : 'bg-white/5 text-text-secondary hover:bg-white/10'
-                }`}
-              >
-                <List className="w-5 h-5" />
-              </button>
-            </div>
-          </motion.div>
-
-          <motion.div
-            variants={ColorOSAnimations.stagger}
-            initial="initial"
-            animate="animate"
-          >
-            {viewMode === 'grid' ? (
-              <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4">
-                {sortedFilters.map((filter, i) => (
-                  <motion.div
-                    key={filter.id}
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: i * 0.05 }}
-                    whileHover={{ y: -4, scale: 1.02 }}
-                  >
-                    <FilterGridCard filter={filter} />
-                  </motion.div>
-                ))}
-              </div>
-            ) : (
-              <div className="space-y-2.5 md:space-y-3">
-                {sortedFilters.map((filter, i) => (
-                  <motion.div
-                    key={filter.id}
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: i * 0.05 }}
-                  >
-                    <FilterListCard filter={filter} />
-                  </motion.div>
-                ))}
-              </div>
-            )}
-          </motion.div>
-
-          {sortedFilters.length === 0 && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="text-center py-16"
+    <div className="min-h-screen bg-deep-space text-white">
+      <header className="sticky top-0 z-40 bg-deep-space/90 backdrop-blur-xl border-b border-white/5">
+        <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
+          <h1 className="text-lg font-semibold">滤镜库</h1>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setViewMode('grid')}
+              className={`p-2 rounded-oppo transition-colors duration-200 touch-feedback ${
+                viewMode === 'grid' ? 'bg-oppo-sunrise-gold/20 text-oppo-sunrise-gold' : 'text-text-tertiary hover:text-white'
+              }`}
+              aria-label="网格视图"
             >
-              <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mx-auto mb-4">
-                <Filter className="w-8 h-8 text-text-tertiary" />
-              </div>
-              <p className="text-text-secondary">未找到匹配的滤镜</p>
-              <p className="text-text-tertiary text-sm mt-1">尝试更换关键词或分类</p>
-            </motion.div>
-          )}
-        </motion.div>
-      </div>
+              <Grid className="w-5 h-5" />
+            </button>
+            <button
+              onClick={() => setViewMode('list')}
+              className={`p-2 rounded-oppo transition-colors duration-200 touch-feedback ${
+                viewMode === 'list' ? 'bg-oppo-sunrise-gold/20 text-oppo-sunrise-gold' : 'text-text-tertiary hover:text-white'
+              }`}
+              aria-label="列表视图"
+            >
+              <List className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-6xl mx-auto px-4 py-4 space-y-4">
+        <div className="relative">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-text-tertiary" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="搜索滤镜或作者..."
+            className="w-full pl-12 pr-4 py-3 bg-white/5 border border-white/10 rounded-oppo text-white placeholder-text-tertiary focus:outline-none focus:border-oppo-sunrise-gold/50 transition-colors duration-200"
+            aria-label="搜索滤镜"
+          />
+        </div>
+
+        <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide">
+          {categories.map((cat) => (
+            <button
+              key={cat.name}
+              onClick={() => setActiveCategory(cat.name)}
+              className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all duration-200 touch-feedback ${
+                activeCategory === cat.name
+                  ? 'bg-oppo-sunrise-gold text-deep-space'
+                  : 'bg-white/10 text-text-secondary hover:bg-white/20 hover:text-white'
+              }`}
+            >
+              {cat.name} ({cat.count})
+            </button>
+          ))}
+        </div>
+
+        {selectedFilters.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="card-oppo p-4 flex items-center justify-between"
+          >
+            <span className="text-sm text-text-secondary">
+              已选择 {selectedFilters.length} 个滤镜
+            </span>
+            <div className="flex gap-2">
+              <button className="btn-primary text-sm py-2 touch-feedback">批量应用</button>
+              <button 
+                onClick={() => setSelectedFilters([])}
+                className="btn-secondary text-sm py-2 touch-feedback"
+              >
+                取消
+              </button>
+            </div>
+          </motion.div>
+        )}
+
+        {viewMode === 'grid' ? (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            {filteredFilters.map((filter, i) => (
+              <motion.div
+                key={filter.id}
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: i * 0.05 }}
+              >
+                <ColorOSFilterCard
+                  name={filter.name}
+                  author={filter.author}
+                  isNew={filter.isNew}
+                  isHasselblad={filter.isHNCS}
+                  isFavorited={favorites.includes(filter.id)}
+                  isSelected={selectedFilters.includes(filter.id)}
+                  onClick={() => toggleSelect(filter.id)}
+                />
+              </motion.div>
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {filteredFilters.map((filter, i) => (
+              <motion.div
+                key={filter.id}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: i * 0.05 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => toggleSelect(filter.id)}
+                className={`card-oppo p-4 flex items-center gap-4 cursor-pointer touch-feedback ${
+                  selectedFilters.includes(filter.id) ? 'border-oppo-green' : ''
+                }`}
+              >
+                <div className="w-16 h-16 rounded-oppo bg-gradient-to-br from-oppo-sunrise-gold/30 to-ocean-blue/30 flex-shrink-0 flex items-center justify-center">
+                  <div className="w-6 h-6 rounded-full border-2 border-oppo-sunrise-gold/50" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <p className="font-medium truncate">{filter.name}</p>
+                    {filter.isNew && (
+                      <span className="px-2 py-0.5 bg-oppo-green text-deep-space text-xs font-bold rounded-full">NEW</span>
+                    )}
+                    {filter.isHNCS && (
+                      <span className="px-2 py-0.5 bg-hasselblad-pro text-deep-space text-xs font-bold rounded-full">HNCS</span>
+                    )}
+                  </div>
+                  <p className="text-text-tertiary text-sm">@{filter.author}</p>
+                </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    toggleFavorite(filter.id)
+                  }}
+                  className="p-2 rounded-full hover:bg-white/10 transition-colors duration-200 touch-feedback"
+                  aria-label={favorites.includes(filter.id) ? '取消收藏' : '收藏'}
+                >
+                  <Heart className={`w-5 h-5 ${favorites.includes(filter.id) ? 'fill-sakura-pink text-sakura-pink' : 'text-text-tertiary'}`} />
+                </button>
+              </motion.div>
+            ))}
+          </div>
+        )}
+      </main>
     </div>
-  )
-}
-
-function FilterGridCard({ filter }: { filter: any }) {
-  return (
-    <ColorOSCard variant="default" className="overflow-hidden group cursor-pointer">
-      <div className="aspect-square bg-gradient-to-br from-oppo-sunrise-gold/30 to-ocean-blue/30 relative">
-        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCA0MCA0MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4wNSI+PHBhdGggZD0iTTIwIDIwLjVWMjB2LjV6TTIwLjUgMjBoLS41LjV6TTIwIDIwaC0uNS41em0tLjUtLjVoLjUtLjV6TTE5LjUgMjBoLjUtLjV6TTIwIDE5LjVWMjB2LS41ek0yMC41IDE5LjVoLS41LjV6Ii8+PC9nPjwvZz48L3N2Zz4=')]" />
-        
-        <div className="absolute top-2 left-2 flex gap-1.5 z-10">
-          {filter.isNew && (
-            <span className="px-2 py-0.5 bg-oppo-green text-deep-space text-xs font-bold rounded-full">NEW</span>
-          )}
-          {filter.isHNCS && (
-            <span className="px-2 py-0.5 bg-hasselblad-pro text-deep-space text-xs font-bold rounded-full">HNCS</span>
-          )}
-        </div>
-
-        <button className="absolute top-2 right-2 z-10 w-9 h-9 rounded-full bg-black/30 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity min-h-[36px] min-w-[36px]">
-          <Heart className={`w-4.5 h-4.5 ${filter.isFavorite ? 'fill-sakura-pink text-sakura-pink' : 'text-white'}`} />
-        </button>
-
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="w-11 h-11 md:w-12 md:h-12 rounded-full bg-white/10 flex items-center justify-center">
-            <div className="w-5.5 h-5.5 md:w-6 md:h-6 rounded-full border-2 border-oppo-sunrise-gold/50" />
-          </div>
-        </div>
-
-        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-      </div>
-
-      <div className="p-3 md:p-4">
-        <h3 className="text-white font-medium mb-1 truncate text-sm md:text-base">{filter.name}</h3>
-        <p className="text-text-tertiary text-xs md:text-sm truncate mb-2">@{filter.author}</p>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1">
-            <Star className="w-3.5 h-3.5 md:w-4 md:h-4 fill-oppo-sunrise-gold text-oppo-sunrise-gold" />
-            <span className="text-white text-xs md:text-sm font-medium">{filter.rating}</span>
-          </div>
-          <span className="text-text-tertiary text-xs">{filter.usage.toLocaleString()}</span>
-        </div>
-      </div>
-    </ColorOSCard>
-  )
-}
-
-function FilterListCard({ filter }: { filter: any }) {
-  return (
-    <ColorOSCard variant="default" className="p-4 flex items-center gap-4">
-      <div className="w-20 h-20 rounded-xl bg-gradient-to-br from-oppo-sunrise-gold/30 to-ocean-blue/30 flex-shrink-0 relative overflow-hidden">
-        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCA0MCA0MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4wNSI+PHBhdGggZD0iTTIwIDIwLjVWMjB2LjV6TTIwLjUgMjBoLS41LjV6TTIwIDIwaC0uNS41em0tLjUtLjVoLjUtLjV6TTE5LjUgMjBoLjUtLjV6TTIwIDE5LjVWMjB2LS41ek0yMC41IDE5LjVoLS41LjV6Ii8+PC9nPjwvZz48L3N2Zz4=')]" />
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center">
-            <div className="w-4 h-4 rounded-full border border-oppo-sunrise-gold/50" />
-          </div>
-        </div>
-      </div>
-
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-1">
-          <h3 className="text-white font-medium truncate">{filter.name}</h3>
-          {filter.isNew && <span className="px-1.5 py-0.5 bg-oppo-green text-deep-space text-[10px] font-bold rounded-full">NEW</span>}
-          {filter.isHNCS && <span className="px-1.5 py-0.5 bg-hasselblad-pro text-deep-space text-[10px] font-bold rounded-full">HNCS</span>}
-        </div>
-        <p className="text-text-tertiary text-sm truncate mb-2">@{filter.author}</p>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1">
-            <Star className="w-4 h-4 fill-oppo-sunrise-gold text-oppo-sunrise-gold" />
-            <span className="text-white text-sm">{filter.rating}</span>
-          </div>
-          <span className="text-text-tertiary text-sm">{filter.usage.toLocaleString()} 使用</span>
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <button className="p-2 rounded-lg text-text-secondary hover:text-white hover:bg-white/5 transition-colors">
-          <Heart className={`w-5 h-5 ${filter.isFavorite ? 'fill-sakura-pink text-sakura-pink' : ''}`} />
-        </button>
-        <ChevronRight className="w-5 h-5 text-text-tertiary" />
-      </div>
-    </ColorOSCard>
   )
 }

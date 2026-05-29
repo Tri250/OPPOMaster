@@ -36,44 +36,84 @@ export default {
         'error-vital': '#EF4444',
         'info-vital': '#3B82F6',
         
-        // 深色主题
-        'deep-space': '#0D0D0D',
-        'card-surface': '#141414',
+        // 深色主题 - ColorOS 16 规范
+        'deep-space': '#0F0F0F',
+        'card-surface': '#1A1A1A',
         'elevated': '#1C1C1E',
         
         // 浅色主题
-        'light-bg': '#F8F8F8',
-        'light-surface': '#FFFFFF',
+        'light-bg': '#FFFFFF',
+        'light-surface': '#F5F5F5',
         
-        // 文字颜色
-        'text-primary': '#F5F5F5',
-        'text-secondary': '#A3A3A3',
+        // 文字颜色 - 深色模式
+        'text-primary': '#FFFFFF',
+        'text-secondary': '#B3B3B3',
         'text-tertiary': '#737373',
-        'light-text-primary': '#1A1A1A',
-        'light-text-secondary': '#6B6B6B',
         
-        // 边框
-        'oppo-border': '#272727',
+        // 文字颜色 - 浅色模式
+        'light-text-primary': '#1A1A1A',
+        'light-text-secondary': '#666666',
+        'light-text-tertiary': '#999999',
+        
+        // 边框 - 深色模式
+        'oppo-border': '#2A2A2A',
         'oppo-border-light': '#404040',
-        'light-border': '#E5E5E5',
+        
+        // 边框 - 浅色模式
+        'light-border': '#E0E0E0',
       },
       fontFamily: {
-        'sans': ['Inter', 'system-ui', 'sans-serif'],
+        'sans': ['OPPO Sans', 'Inter', 'system-ui', 'sans-serif'],
+      },
+      fontSize: {
+        // 根据 ColorOS 16 规范调整字体大小
+        'xs': ['0.75rem', { lineHeight: '1.2' }],      // 12sp
+        'sm': ['0.875rem', { lineHeight: '1.3' }],     // 14sp
+        'base': ['1rem', { lineHeight: '1.4' }],       // 16sp
+        'lg': ['1.125rem', { lineHeight: '1.4' }],     // 18sp
+        'xl': ['1.25rem', { lineHeight: '1.4' }],      // 20sp
+        '2xl': ['1.5rem', { lineHeight: '1.3' }],      // 24sp
+        '3xl': ['1.75rem', { lineHeight: '1.2' }],     // 28sp - 主标题
+        '4xl': ['2rem', { lineHeight: '1.2' }],        // 32sp
+        '5xl': ['3rem', { lineHeight: '1.1' }],        // 48sp
+        '6xl': ['3.75rem', { lineHeight: '1' }],       // 60sp
+        '7xl': ['4.5rem', { lineHeight: '1' }],        // 72sp
+      },
+      spacing: {
+        // ColorOS 16 规范间距
+        '1': '4px',
+        '2': '8px',
+        '3': '12px',
+        '4': '16px',
+        '5': '20px',
+        '6': '24px',
+        '8': '32px',
+        '10': '40px',
+        '12': '48px',
+        '16': '64px',
+        '20': '80px',
+        '24': '96px',
       },
       borderRadius: {
-        'oppo': '28px',
-        'oppo-lg': '24px',
-        'oppo-md': '20px',
-        'oppo-sm': '16px',
+        // ColorOS 16 规范圆角 - 统一使用 16dp
+        'oppo': '16px',
+        'oppo-lg': '20px',
+        'oppo-md': '16px',
+        'oppo-sm': '12px',
       },
       boxShadow: {
-        'oppo': '0 4px 24px rgba(255, 179, 71, 0.15)',
-        'oppo-hover': '0 8px 32px rgba(255, 179, 71, 0.25)',
+        // ColorOS 16 规范阴影
+        'oppo': '0 4px 8px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(42, 42, 42, 0.8)',
+        'oppo-hover': '0 8px 12px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 179, 71, 0.3)',
+        'oppo-card': '0 4px 8px rgba(0, 0, 0, 0.2)',
       },
       animation: {
         'float': 'float 6s ease-in-out infinite',
         'pulse-glow': 'pulse-glow 2s ease-in-out infinite',
         'breathing': 'breathing 1.8s ease-in-out infinite',
+        'fade-in': 'fadeIn 500ms ease-out forwards',
+        'slide-in': 'slideIn 300ms ease-out forwards',
+        'scale-in': 'scaleIn 200ms ease-in-out forwards',
       },
       keyframes: {
         float: {
@@ -88,6 +128,29 @@ export default {
           '0%, 100%': { opacity: '0.7', transform: 'scale(1)' },
           '50%': { opacity: '1', transform: 'scale(1.05)' },
         },
+        fadeIn: {
+          '0%': { opacity: '0' },
+          '100%': { opacity: '1' },
+        },
+        slideIn: {
+          '0%': { opacity: '0', transform: 'translateX(20px)' },
+          '100%': { opacity: '1', transform: 'translateX(0)' },
+        },
+        scaleIn: {
+          '0%': { opacity: '0', transform: 'scale(0.98)' },
+          '100%': { opacity: '1', transform: 'scale(1)' },
+        },
+      },
+      transitionDuration: {
+        'fast': '150ms',
+        'normal': '200ms',
+        'slow': '300ms',
+        'slower': '500ms',
+      },
+      transitionTimingFunction: {
+        'oppo-enter': 'cubic-bezier(0.05, 0.7, 0.1, 1.0)',
+        'oppo-exit': 'cubic-bezier(0.3, 0.0, 0.8, 0.15)',
+        'oppo-bounce': 'cubic-bezier(0.175, 0.885, 0.32, 1.275)',
       },
     },
   },
