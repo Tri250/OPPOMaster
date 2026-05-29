@@ -31,10 +31,10 @@ export default function SceneDetectionPage() {
   }
 
   return (
-    <div className="min-h-screen bg-deep-space text-white">
-      <header className="sticky top-0 z-40 bg-deep-space/90 backdrop-blur-xl border-b border-white/5">
+    <div className="min-h-screen bg-oppo-black text-text-primary">
+      <header className="sticky top-0 z-40 bg-oppo-black/90 backdrop-blur-xl border-b border-white/5">
         <div className="max-w-4xl mx-auto px-4 h-14 flex items-center">
-          <h1 className="text-lg font-semibold">AI 场景识别</h1>
+          <h1 className="text-h3 font-semibold">AI 场景识别</h1>
         </div>
       </header>
 
@@ -44,11 +44,11 @@ export default function SceneDetectionPage() {
           animate={{ opacity: 1, y: 0 }}
           className="card-oppo p-6 text-center"
         >
-          <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-gradient-to-br from-ocean-blue/30 to-aurora-purple/30 flex items-center justify-center">
+          <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-gradient-to-br from-info/30 to-neutral-600/30 flex items-center justify-center">
             {isDetecting ? (
-              <div className="w-12 h-12 border-4 border-ocean-blue/30 border-t-ocean-blue rounded-full animate-spin" />
+              <div className="w-12 h-12 border-4 border-info/30 border-t-info rounded-full animate-spin" />
             ) : (
-              <Scan className="w-12 h-12 text-ocean-blue" />
+              <Scan className="w-12 h-12 text-info" />
             )}
           </div>
           
@@ -68,7 +68,7 @@ export default function SceneDetectionPage() {
               className="mb-6"
             >
               <div className="text-sm text-text-secondary mb-2">
-                识别置信度: <span className="text-oppo-green font-semibold">{confidence}%</span>
+                识别置信度: <span className="text-success font-semibold">{confidence}%</span>
               </div>
               <div className="flex flex-wrap justify-center gap-2">
                 {detectedScenes.map((scene) => (
@@ -76,7 +76,7 @@ export default function SceneDetectionPage() {
                     key={scene}
                     initial={{ opacity: 0, scale: 0.8 }}
                     animate={{ opacity: 1, scale: 1 }}
-                    className="px-4 py-2 bg-oppo-green/20 border border-oppo-green/30 rounded-full text-sm font-medium text-oppo-green"
+                    className="px-4 py-2 bg-success/20 border border-success/30 rounded-full text-sm font-medium text-success"
                   >
                     {scene}
                   </motion.span>
