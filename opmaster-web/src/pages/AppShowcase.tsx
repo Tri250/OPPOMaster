@@ -1,10 +1,14 @@
 import { motion } from 'framer-motion'
-import { Camera, Sparkles, Smartphone, Layers, Palette, Zap, Heart, Star, ArrowRight, Download, Menu, X, ChevronRight, Check } from 'lucide-react'
+import { 
+  Camera, Sparkles, Smartphone, Layers, Palette, Zap, 
+  Heart, Star, ArrowRight, Download, Menu, X, ChevronRight, 
+  Check, Wand2, Scan, Filter, Cloud, ScanText, Settings
+} from 'lucide-react'
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 
 export default function AppShowcase() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [activeSection, setActiveSection] = useState(0)
 
   const features = [
     { icon: Layers, title: '哈苏认证预设', desc: '专业摄影师精心调校，官方认证品质', color: 'text-oppo-sunrise-gold' },
@@ -13,6 +17,15 @@ export default function AppShowcase() {
     { icon: Palette, title: '可视化调节', desc: '直观的参数面板，所见即所得', color: 'text-sakura-pink' },
     { icon: Zap, title: '极速应用', desc: '毫秒级响应，瞬间优化照片', color: 'text-oppo-green' },
     { icon: Camera, title: '全设备支持', desc: '覆盖全系列OPPO/一加机型', color: 'text-hasselblad-pro' },
+  ]
+
+  const functionModules = [
+    { path: '/ai-finetune', icon: Wand2, title: 'AI 样张微调', desc: '智能优化照片参数', color: 'from-aurora-purple to-ocean-blue' },
+    { path: '/scene-detection', icon: Scan, title: 'AI 场景识别', desc: '自动识别并推荐预设', color: 'from-oppo-sunrise-gold to-hasselblad-pro' },
+    { path: '/floating-window', icon: Layers, title: '悬浮窗演示', desc: '系统级实时预览', color: 'from-ocean-blue to-aurora-purple' },
+    { path: '/lut-manager', icon: Filter, title: 'LUT 滤镜管理', desc: '导入和管理滤镜', color: 'from-hasselblad-pro to-oppo-sunrise-gold' },
+    { path: '/cloud-sync', icon: Cloud, title: '云同步功能', desc: '备份和同步数据', color: 'from-ocean-blue to-sakura-pink' },
+    { path: '/ocr-demo', icon: ScanText, title: 'OCR 参数识别', desc: '从照片提取参数', color: 'from-oppo-green to-ocean-blue' },
   ]
 
   const presets = [
@@ -24,61 +37,41 @@ export default function AppShowcase() {
     { name: '自然风光', device: '一加 12', isHNCS: true, isNew: false },
   ]
 
-  const screenshots = [
-    { title: '首页探索', desc: '发现精选预设' },
-    { title: '参数面板', desc: '专业级调节' },
-    { title: '悬浮窗', desc: '实时预览' },
-  ]
-
   const sectionVariants = {
     hidden: { opacity: 0, y: 60 },
     visible: (i: number) => ({
       opacity: 1,
       y: 0,
-      transition: {
-        delay: i * 0.1,
-        duration: 0.6,
-        ease: 'easeOut',
-      },
+      transition: { delay: i * 0.1, duration: 0.6, ease: 'easeOut' },
     }),
   }
 
   return (
     <div className="min-h-screen bg-deep-space text-white overflow-x-hidden">
-      {/* 背景光效 */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="orb-oppo orb-1 w-96 h-96 top-1/4 -left-48 animate-float" />
         <div className="orb-oppo orb-2 w-80 h-80 top-1/2 -right-40 animate-float" style={{ animationDelay: '2s' }} />
         <div className="orb-oppo orb-3 w-72 h-72 bottom-1/4 left-1/3 animate-float" style={{ animationDelay: '4s' }} />
       </div>
 
-      {/* 导航栏 */}
       <nav className="fixed top-0 left-0 right-0 z-50 bg-deep-space/80 backdrop-blur-xl border-b border-white/5">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
-            <div className="flex items-center space-x-3">
+            <Link to="/" className="flex items-center space-x-3">
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-oppo-sunrise-gold to-hasselblad-pro flex items-center justify-center">
                 <Camera className="w-6 h-6 text-deep-space" />
               </div>
               <span className="text-xl font-bold gradient-text-oppo">OMaster</span>
-            </div>
+            </Link>
 
-            <div className="hidden md:flex items-center space-x-8">
-              {['首页', '功能', '预设', '下载'].map((item, i) => (
-                <button
-                  key={item}
-                  onClick={() => setActiveSection(i)}
-                  className={`text-sm font-medium transition-colors ${
-                    activeSection === i ? 'text-oppo-sunrise-gold' : 'text-text-secondary hover:text-white'
-                  }`}
-                >
-                  {item}
-                </button>
-              ))}
+            <div className="hidden md:flex items-center space-x-6">
+              <Link to="/" className="text-sm font-medium text-oppo-sunrise-gold">首页</Link>
+              <Link to="/app" className="text-sm font-medium text-text-secondary hover:text-white">预设库</Link>
+              <Link to="/settings" className="text-sm font-medium text-text-secondary hover:text-white">设置</Link>
+              <Link to="/about" className="text-sm font-medium text-text-secondary hover:text-white">关于</Link>
             </div>
 
             <div className="hidden md:flex items-center space-x-4">
-              <button className="btn-secondary">登录</button>
               <button className="btn-primary flex items-center space-x-2">
                 <Download className="w-4 h-4" />
                 <span>立即下载</span>
@@ -92,7 +85,6 @@ export default function AppShowcase() {
         </div>
       </nav>
 
-      {/* 移动端菜单 */}
       {mobileMenuOpen && (
         <motion.div
           initial={{ opacity: 0, x: 300 }}
@@ -100,25 +92,19 @@ export default function AppShowcase() {
           className="fixed inset-0 z-40 bg-deep-space/95 backdrop-blur-xl md:hidden pt-20"
         >
           <div className="flex flex-col items-center space-y-6 p-8">
-            {['首页', '功能', '预设', '下载'].map((item) => (
-              <button key={item} className="text-xl font-medium text-text-secondary hover:text-white">
-                {item}
-              </button>
-            ))}
+            <Link to="/" className="text-xl font-medium text-oppo-sunrise-gold">首页</Link>
+            <Link to="/app" className="text-xl font-medium text-text-secondary">预设库</Link>
+            <Link to="/settings" className="text-xl font-medium text-text-secondary">设置</Link>
+            <Link to="/about" className="text-xl font-medium text-text-secondary">关于</Link>
             <button className="btn-primary w-full mt-8">立即下载</button>
           </div>
         </motion.div>
       )}
 
-      {/* Hero 区域 */}
       <section className="relative pt-32 pb-20 px-4">
         <div className="max-w-7xl mx-auto">
           <div className="grid lg:grid-cols-2 gap-12 items-center">
-            <motion.div
-              initial="hidden"
-              animate="visible"
-              className="space-y-8"
-            >
+            <motion.div initial="hidden" animate="visible" className="space-y-8">
               <motion.div custom={0} variants={sectionVariants}>
                 <div className="inline-flex items-center space-x-2 bg-white/5 border border-white/10 rounded-full px-4 py-2 mb-6">
                   <span className="w-2 h-2 bg-oppo-sunrise-gold rounded-full animate-pulse" />
@@ -126,44 +112,28 @@ export default function AppShowcase() {
                 </div>
               </motion.div>
 
-              <motion.h1
-                custom={1}
-                variants={sectionVariants}
-                className="text-5xl md:text-7xl font-bold leading-tight"
-              >
+              <motion.h1 custom={1} variants={sectionVariants} className="text-5xl md:text-7xl font-bold leading-tight">
                 <span className="gradient-text-oppo">哈苏影像</span>
                 <br />
                 <span className="text-white">触手可及</span>
               </motion.h1>
 
-              <motion.p
-                custom={2}
-                variants={sectionVariants}
-                className="text-xl text-text-secondary max-w-lg"
-              >
+              <motion.p custom={2} variants={sectionVariants} className="text-xl text-text-secondary max-w-lg">
                 专为 OPPO 哈苏影像系统打造的专业调色参数库。AI 智能推荐，系统级悬浮窗，让每一次按下快门都充满惊喜。
               </motion.p>
 
-              <motion.div
-                custom={3}
-                variants={sectionVariants}
-                className="flex flex-col sm:flex-row gap-4"
-              >
+              <motion.div custom={3} variants={sectionVariants} className="flex flex-col sm:flex-row gap-4">
                 <button className="btn-primary text-lg px-8 py-4 flex items-center justify-center space-x-2 animate-pulse-glow">
                   <Download className="w-5 h-5" />
                   <span>免费下载</span>
                 </button>
-                <button className="btn-secondary text-lg px-8 py-4 flex items-center justify-center space-x-2">
-                  <span>查看演示</span>
+                <Link to="/app" className="btn-secondary text-lg px-8 py-4 flex items-center justify-center space-x-2">
+                  <span>浏览预设</span>
                   <ArrowRight className="w-5 h-5" />
-                </button>
+                </Link>
               </motion.div>
 
-              <motion.div
-                custom={4}
-                variants={sectionVariants}
-                className="flex items-center space-x-6 pt-4"
-              >
+              <motion.div custom={4} variants={sectionVariants} className="flex items-center space-x-6 pt-4">
                 <div className="flex -space-x-3">
                   {[1, 2, 3, 4].map((i) => (
                     <div key={i} className="w-10 h-10 rounded-full border-2 border-deep-space bg-gradient-to-br from-oppo-sunrise-gold/50 to-ocean-blue/50" />
@@ -175,7 +145,6 @@ export default function AppShowcase() {
               </motion.div>
             </motion.div>
 
-            {/* 手机预览图 */}
             <motion.div
               initial={{ opacity: 0, scale: 0.8, rotate: -5 }}
               animate={{ opacity: 1, scale: 1, rotate: 0 }}
@@ -183,10 +152,8 @@ export default function AppShowcase() {
               className="relative flex justify-center"
             >
               <div className="relative">
-                {/* 手机外框 */}
                 <div className="w-72 md:w-80 h-[580px] md:h-[640px] bg-gradient-to-b from-gray-800 to-gray-900 rounded-[3rem] p-3 shadow-2xl shadow-oppo-sunrise-gold/10">
                   <div className="w-full h-full bg-card-surface rounded-[2.5rem] overflow-hidden relative">
-                    {/* 手机状态栏 */}
                     <div className="absolute top-0 left-0 right-0 h-8 bg-deep-space flex items-center justify-between px-6 z-10">
                       <span className="text-xs text-text-secondary">9:41</span>
                       <div className="flex items-center space-x-1">
@@ -196,9 +163,7 @@ export default function AppShowcase() {
                       </div>
                     </div>
 
-                    {/* 手机内容 */}
                     <div className="pt-12 h-full bg-gradient-to-b from-deep-space to-card-surface">
-                      {/* 模拟App界面 */}
                       <div className="px-4 space-y-4">
                         <div className="flex items-center justify-between">
                           <div>
@@ -212,13 +177,11 @@ export default function AppShowcase() {
                           </div>
                         </div>
 
-                        {/* 搜索框 */}
                         <div className="bg-white/5 rounded-2xl px-4 py-3 flex items-center space-x-3">
                           <div className="w-5 h-5 rounded-full border-2 border-text-tertiary" />
                           <span className="text-text-tertiary text-sm">搜索预设、场景...</span>
                         </div>
 
-                        {/* 预设卡片 */}
                         <div className="space-y-3 mt-4">
                           {presets.slice(0, 3).map((preset, i) => (
                             <motion.div
@@ -247,7 +210,6 @@ export default function AppShowcase() {
                   </div>
                 </div>
 
-                {/* 装饰光效 */}
                 <div className="absolute -top-4 -right-4 w-24 h-24 bg-oppo-sunrise-gold/20 rounded-full blur-2xl" />
                 <div className="absolute -bottom-8 -left-8 w-32 h-32 bg-ocean-blue/20 rounded-full blur-2xl" />
               </div>
@@ -256,7 +218,6 @@ export default function AppShowcase() {
         </div>
       </section>
 
-      {/* 功能特性 */}
       <section className="py-20 px-4 relative">
         <div className="max-w-7xl mx-auto">
           <motion.div
@@ -291,8 +252,53 @@ export default function AppShowcase() {
         </div>
       </section>
 
-      {/* 预设展示 */}
       <section className="py-20 px-4 bg-gradient-to-b from-transparent via-card-surface/50 to-transparent">
+        <div className="max-w-7xl mx-auto">
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            className="text-center mb-16"
+          >
+            <p className="text-oppo-sunrise-gold font-medium mb-2">功能模块</p>
+            <h2 className="text-3xl md:text-5xl font-bold">探索全部功能</h2>
+            <p className="text-text-secondary mt-4 max-w-2xl mx-auto">
+              从 AI 智能优化到云同步，全方位提升您的摄影体验
+            </p>
+          </motion.div>
+
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {functionModules.map((module, i) => (
+              <motion.div
+                key={module.path}
+                initial={{ opacity: 0, y: 30 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: i * 0.1 }}
+              >
+                <Link to={module.path}>
+                  <motion.div
+                    whileHover={{ y: -4, scale: 1.02 }}
+                    className="card-oppo p-6 group cursor-pointer h-full"
+                  >
+                    <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${module.color} flex items-center justify-center mb-6 opacity-80 group-hover:opacity-100 transition-opacity`}>
+                      <module.icon className="w-7 h-7 text-white" />
+                    </div>
+                    <h3 className="text-xl font-semibold mb-2 group-hover:text-oppo-sunrise-gold transition-colors">{module.title}</h3>
+                    <p className="text-text-secondary">{module.desc}</p>
+                    <div className="mt-4 flex items-center text-oppo-sunrise-gold text-sm font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+                      <span>立即体验</span>
+                      <ChevronRight className="w-4 h-4 ml-1" />
+                    </div>
+                  </motion.div>
+                </Link>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="py-20 px-4">
         <div className="max-w-7xl mx-auto">
           <motion.div
             initial={{ opacity: 0, y: 30 }}
@@ -354,56 +360,14 @@ export default function AppShowcase() {
             viewport={{ once: true }}
             className="text-center mt-12"
           >
-            <button className="btn-secondary">
+            <Link to="/app" className="btn-secondary inline-flex items-center">
               查看全部预设
               <ChevronRight className="w-4 h-4 ml-2" />
-            </button>
+            </Link>
           </motion.div>
         </div>
       </section>
 
-      {/* 界面截图 */}
-      <section className="py-20 px-4">
-        <div className="max-w-7xl mx-auto">
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="text-center mb-16"
-          >
-            <p className="text-oppo-sunrise-gold font-medium mb-2">用户界面</p>
-            <h2 className="text-3xl md:text-5xl font-bold">简约而不简单</h2>
-          </motion.div>
-
-          <div className="grid md:grid-cols-3 gap-8">
-            {screenshots.map((screen, i) => (
-              <motion.div
-                key={screen.title}
-                initial={{ opacity: 0, y: 30 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: i * 0.15 }}
-                className="text-center"
-              >
-                <div className="card-elevated p-4 mb-6">
-                  <div className="aspect-[9/16] rounded-2xl bg-gradient-to-b from-deep-space to-card-surface flex items-center justify-center">
-                    <div className="text-center">
-                      <div className="w-16 h-16 rounded-2xl bg-oppo-sunrise-gold/10 mx-auto mb-4 flex items-center justify-center">
-                        <Smartphone className="w-8 h-8 text-oppo-sunrise-gold" />
-                      </div>
-                      <p className="text-text-tertiary text-sm">{screen.title}</p>
-                    </div>
-                  </div>
-                </div>
-                <h3 className="text-xl font-semibold mb-2">{screen.title}</h3>
-                <p className="text-text-secondary">{screen.desc}</p>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* CTA 区域 */}
       <section className="py-24 px-4">
         <div className="max-w-4xl mx-auto">
           <motion.div
@@ -447,7 +411,6 @@ export default function AppShowcase() {
         </div>
       </section>
 
-      {/* 页脚 */}
       <footer className="py-12 px-4 border-t border-white/5">
         <div className="max-w-7xl mx-auto">
           <div className="grid md:grid-cols-4 gap-8 mb-12">
@@ -466,26 +429,26 @@ export default function AppShowcase() {
             <div>
               <h4 className="font-semibold mb-4">产品</h4>
               <ul className="space-y-3 text-text-secondary">
-                <li><a href="#" className="hover:text-white transition-colors">功能介绍</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">预设库</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">更新日志</a></li>
+                <li><Link to="/app" className="hover:text-white transition-colors">预设库</Link></li>
+                <li><Link to="/tech" className="hover:text-white transition-colors">技术介绍</Link></li>
+                <li><Link to="/about" className="hover:text-white transition-colors">关于我们</Link></li>
               </ul>
             </div>
 
             <div>
-              <h4 className="font-semibold mb-4">支持</h4>
+              <h4 className="font-semibold mb-4">功能</h4>
               <ul className="space-y-3 text-text-secondary">
-                <li><a href="#" className="hover:text-white transition-colors">帮助中心</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">联系我们</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">隐私政策</a></li>
+                <li><Link to="/ai-finetune" className="hover:text-white transition-colors">AI 微调</Link></li>
+                <li><Link to="/scene-detection" className="hover:text-white transition-colors">场景识别</Link></li>
+                <li><Link to="/settings" className="hover:text-white transition-colors">设置</Link></li>
               </ul>
             </div>
           </div>
 
           <div className="pt-8 border-t border-white/5 flex flex-col md:flex-row items-center justify-between text-text-tertiary text-sm">
-            <p>© 2024 OMaster. All rights reserved.</p>
+            <p>© 2026 OMaster. All rights reserved.</p>
             <div className="flex items-center space-x-6 mt-4 md:mt-0">
-              <span>Made with ❤️ for ColorOS</span>
+              <span>Made with ❤️ for ColorOS 16</span>
             </div>
           </div>
         </div>

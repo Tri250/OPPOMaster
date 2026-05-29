@@ -2,7 +2,6 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import { lazy, Suspense } from 'react'
 import './index.css'
 
-// 导入新的App展示页面
 import AppShowcase from './pages/AppShowcase'
 
 const HomePage = lazy(() => import('./pages/HomePage'))
@@ -12,6 +11,14 @@ const AboutPage = lazy(() => import('./pages/AboutPage'))
 const PresetDetailPage = lazy(() => import('./pages/PresetDetailPage'))
 const WatermarkPage = lazy(() => import('./pages/WatermarkPage'))
 const PresetEditorPage = lazy(() => import('./pages/PresetEditorPage'))
+
+const SettingsPage = lazy(() => import('./pages/SettingsPage'))
+const AiFineTunePage = lazy(() => import('./pages/AiFineTunePage'))
+const SceneDetectionPage = lazy(() => import('./pages/SceneDetectionPage'))
+const FloatingWindowPage = lazy(() => import('./pages/FloatingWindowPage'))
+const LutManagerPage = lazy(() => import('./pages/LutManagerPage'))
+const CloudSyncPage = lazy(() => import('./pages/CloudSyncPage'))
+const OcrDemoPage = lazy(() => import('./pages/OcrDemoPage'))
 
 function Loading() {
   return (
@@ -29,7 +36,6 @@ function App() {
     <Router>
       <Suspense fallback={<Loading />}>
         <Routes>
-          {/* 将新的App展示页面设为首页 */}
           <Route path="/" element={<AppShowcase />} />
           <Route path="/app" element={<HomePage />} />
           <Route path="/ai-demo" element={<AIDemoPage />} />
@@ -38,6 +44,14 @@ function App() {
           <Route path="/preset/:id" element={<PresetDetailPage />} />
           <Route path="/watermark" element={<WatermarkPage />} />
           <Route path="/editor" element={<PresetEditorPage />} />
+          
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/ai-finetune" element={<AiFineTunePage />} />
+          <Route path="/scene-detection" element={<SceneDetectionPage />} />
+          <Route path="/floating-window" element={<FloatingWindowPage />} />
+          <Route path="/lut-manager" element={<LutManagerPage />} />
+          <Route path="/cloud-sync" element={<CloudSyncPage />} />
+          <Route path="/ocr-demo" element={<OcrDemoPage />} />
         </Routes>
       </Suspense>
     </Router>
