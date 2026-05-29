@@ -23,6 +23,8 @@ import PresetEcosystemPage from './pages/PresetEcosystemPage'
 import TestVerificationPage from './pages/TestVerificationPage'
 import SubscriptionPage from './pages/SubscriptionPage'
 import CommunityPage from './pages/CommunityPage'
+import NewFilterLibraryPage from './pages/NewFilterLibraryPage'
+import NewPresetEditorPage from './pages/NewPresetEditorPage'
 
 function App() {
   return (
@@ -52,6 +54,8 @@ function App() {
         <Route path="/test-verification" element={<TestVerificationPage />} />
         <Route path="/subscription" element={<SubscriptionPage />} />
         <Route path="/community" element={<CommunityPage />} />
+        <Route path="/presets" element={<NewFilterLibraryPage />} />
+        <Route path="/preset-editor" element={<NewPresetEditorPage />} />
       </Routes>
     </Router>
   )

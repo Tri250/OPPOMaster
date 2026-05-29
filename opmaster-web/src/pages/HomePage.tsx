@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
-import { Camera, Sparkles, Zap, Star } from 'lucide-react';
+import { Camera, Sparkles, Zap, Star, Search, Edit3 } from 'lucide-react';
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import SidebarNav from '../components/common/SidebarNav';
 import TopNavBar from '../components/common/TopNavBar';
 import BottomTabNav from '../components/common/BottomTabNav';
@@ -88,11 +89,34 @@ export default function HomePage() {
                 让你的OPPO手机发挥全部摄影潜力
               </motion.p>
 
-              {/* 统计数据 */}
+              {/* 快速操作 */}
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.6, duration: 0.5 }}
+                className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4 mb-8"
+              >
+                <Link
+                  to="/presets"
+                  className="w-full sm:w-auto bg-gradient-to-r from-oppo-orange to-hasselblad-orange text-oppo-black font-semibold px-8 py-3.5 rounded-2xl flex items-center justify-center gap-2 hover:opacity-90 transition-opacity shadow-lg shadow-oppo-orange/25"
+                >
+                  <Search className="w-5 h-5" />
+                  浏览预设库
+                </Link>
+                <Link
+                  to="/preset-editor"
+                  className="w-full sm:w-auto glass-effect text-white font-semibold px-8 py-3.5 rounded-2xl flex items-center justify-center gap-2 hover:bg-white/15 transition-all"
+                >
+                  <Edit3 className="w-5 h-5" />
+                  创建预设
+                </Link>
+              </motion.div>
+
+              {/* 统计数据 */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.7, duration: 0.5 }}
                 className="flex items-center justify-center lg:justify-start gap-8"
               >
                 <div className="text-center">
