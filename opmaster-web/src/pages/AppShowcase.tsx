@@ -207,8 +207,8 @@ export default function AppShowcase() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.4 + index * 0.1, duration: 0.5, ease: 'easeOut' }}
-                  whileHover={{ y: -4, transition: { duration: 0.2 } }
-                  whileTap={{ scale: 0.98 }
+                  whileHover={{ y: -4, transition: { duration: 0.2 } }}
+                  whileTap={{ scale: 0.98 }}
                   className="card-oppo-interactive"
                   onClick={() => navigate(card.path)}
                 >
