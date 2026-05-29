@@ -12,11 +12,15 @@ const mainNavItems = [
   { path: '/', label: '首页' },
   { path: '/filter-library', label: '滤镜库' },
   { path: '/master-params', label: '大师参数' },
+  { path: '/subscription', label: '订阅管理' },
+  { path: '/community', label: '社区' },
   { path: '/tech', label: '技术' },
   { path: '/about', label: '关于' }
 ]
 
 const featureNavItems = [
+  { path: '/subscription', label: '订阅管理', icon: <Sparkles className="w-4 h-4" /> },
+  { path: '/community', label: '社区', icon: <Sparkles className="w-4 h-4" /> },
   { path: '/floating-window', label: '悬浮窗', icon: <Sparkles className="w-4 h-4" /> },
   { path: '/ai-finetune', label: 'AI微调', icon: <Sparkles className="w-4 h-4" /> },
   { path: '/scene-detection', label: '场景识别', icon: <Sparkles className="w-4 h-4" /> },
