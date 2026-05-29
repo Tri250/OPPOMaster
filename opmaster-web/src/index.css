@@ -5,19 +5,22 @@
 @layer base {
   html {
     scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
   
   body {
-    @apply bg-oppo-black text-text-primary font-sans antialiased;
+    @apply bg-bg-primary text-text-primary font-sans;
   }
 
+  /* ColorOS 16 滚动条 - 旗舰级设计 */
   ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 8px;
+    height: 8px;
   }
 
   ::-webkit-scrollbar-track {
-    @apply bg-oppo-black;
+    @apply bg-bg-primary;
   }
 
   ::-webkit-scrollbar-thumb {
@@ -28,6 +31,7 @@
     @apply bg-border-light;
   }
 
+  /* 移除点击高亮 */
   * {
     -webkit-tap-highlight-color: transparent;
   }
@@ -36,19 +40,36 @@
     @apply min-h-screen;
     overscroll-behavior: none;
   }
+
+  /* 选择文本样式 */
+  ::selection {
+    @apply bg-oppo-orange/30 text-text-primary;
+  }
 }
 
 @layer components {
-  /* ColorOS 16 毛玻璃效果 - 官方规范 */
+  /* ============================================
+     ColorOS 16 毛玻璃系统 - 旗舰级质感
+     ============================================ */
   .glass-effect {
-    @apply bg-white/5 backdrop-blur-xl border border-white/10;
+    @apply bg-bg-glass backdrop-blur-2xl border border-white/8;
+  }
+
+  .glass-effect-light {
+    @apply bg-white/3 backdrop-blur-xl border border-white/6;
   }
 
   .glass-navigation {
-    @apply bg-oppo-black/85 backdrop-blur-xl border-b border-white/5;
+    @apply bg-bg-primary/85 backdrop-blur-2xl border-b border-white/5;
   }
 
-  /* 渐变文字效果 */
+  .glass-elevated {
+    @apply bg-bg-elevated/85 backdrop-blur-xl border border-white/10 shadow-oppo-elevation-2;
+  }
+
+  /* ============================================
+     ColorOS 16 渐变文字系统
+     ============================================ */
   .gradient-text {
     @apply bg-gradient-to-r from-white via-oppo-orange to-white bg-clip-text text-transparent;
   }
@@ -57,56 +78,100 @@
     @apply bg-gradient-to-r from-oppo-orange to-hasselblad-orange bg-clip-text text-transparent;
   }
 
-  /* OPPO主按钮 - 官方标准 */
+  .gradient-text-glow {
+    @apply bg-gradient-to-r from-oppo-orange via-hasselblad-orange to-oppo-orange bg-clip-text text-transparent animate-pulse-glow;
+  }
+
+  /* ============================================
+     ColorOS 16 按钮系统 - 专家级设计
+     ============================================ */
   .btn-primary {
-    @apply px-6 py-3.5 bg-oppo-orange text-oppo-black font-bold rounded-xl
-           hover:bg-oppo-orange-dark hover:shadow-oppo-elevation-2 hover:-translate-y-0.5
-           active:bg-oppo-orange-dark active:scale-[0.98];
+    @apply px-6 py-3.5 bg-gradient-to-r from-oppo-orange to-hasselblad-orange text-oppo-black font-bold rounded-2xl
+           hover:shadow-oppo-glow-orange hover:scale-[1.02] hover:-translate-y-0.5
+           active:scale-[0.98] transition-all duration-200 ease-out-elastic;
   }
 
   .btn-primary-large {
-    @apply px-8 py-4 bg-oppo-orange text-oppo-black font-bold rounded-xl text-body1
-           hover:bg-oppo-orange-dark hover:shadow-oppo-elevation-2
-           active:scale-[0.98];
+    @apply px-8 py-4 bg-gradient-to-r from-oppo-orange to-hasselblad-orange text-oppo-black font-bold rounded-2xl text-body1
+           hover:shadow-oppo-glow-orange hover:scale-[1.02]
+           active:scale-[0.98] transition-all duration-200 ease-out-elastic;
   }
 
-  /* OPPO次要按钮 - 官方标准 */
+  .btn-primary-outline {
+    @apply px-6 py-3.5 bg-transparent text-oppo-orange font-bold rounded-2xl
+           border border-oppo-orange/50 hover:border-oppo-orange hover:bg-oppo-orange/10
+           hover:shadow-oppo-elevation-2
+           active:scale-[0.98] transition-all duration-200;
+  }
+
   .btn-secondary {
-    @apply px-6 py-3 bg-transparent text-oppo-orange font-medium rounded-xl
-           border border-oppo-orange hover:bg-oppo-orange/10
-           active:scale-[0.98];
+    @apply px-6 py-3.5 bg-bg-secondary text-text-primary font-semibold rounded-2xl
+           border border-border-default hover:bg-bg-tertiary hover:border-border-light hover:shadow-oppo-elevation-1
+           active:scale-[0.98] transition-all duration-200;
   }
 
-  /* OPPO图标按钮 - 官方标准 */
+  .btn-ghost {
+    @apply px-4 py-2.5 bg-transparent text-text-secondary font-medium rounded-xl
+           hover:bg-white/8 hover:text-text-primary
+           active:scale-[0.98] transition-all duration-200;
+  }
+
   .btn-icon {
-    @apply p-3 flex items-center justify-center rounded-sm
-           text-text-tertiary hover:text-text-primary
-           hover:bg-white/10
-           active:scale-[0.98];
+    @apply p-3 flex items-center justify-center rounded-2xl
+           text-text-tertiary hover:text-text-primary hover:bg-white/8
+           active:scale-[0.96] transition-all duration-200;
   }
 
-  /* OPPO标签按钮 - 官方标准 */
+  .btn-icon-primary {
+    @apply p-3 flex items-center justify-center rounded-2xl
+           bg-oppo-orange text-oppo-black
+           hover:shadow-oppo-glow-orange hover:scale-[1.05]
+           active:scale-[0.96] transition-all duration-200;
+  }
+
+  /* ============================================
+     ColorOS 16 标签系统
+     ============================================ */
   .btn-tag {
     @apply px-4 py-2 bg-transparent text-text-secondary font-medium rounded-full text-body2
-           hover:bg-white/10
-           active:scale-[0.98];
+           hover:bg-white/8 hover:text-text-primary
+           active:scale-[0.98] transition-all duration-200;
   }
 
   .btn-tag-active {
-    @apply px-4 py-2 bg-oppo-orange text-oppo-black font-medium rounded-full text-body2
-           active:scale-[0.98];
+    @apply px-4 py-2 bg-oppo-orange text-oppo-black font-bold rounded-full text-body2
+           shadow-oppo-elevation-1 active:scale-[0.98] transition-all duration-200;
   }
 
-  /* OPPO卡片 - 旗舰级质感 */
+  .tag-oppo {
+    @apply px-3 py-1.5 bg-white/8 rounded-full text-body2 font-medium;
+  }
+  
+  .tag-hncs {
+    @apply px-3 py-1.5 bg-gradient-to-r from-hasselblad-orange to-hasselblad-gold text-oppo-black rounded-full text-body2 font-bold shadow-oppo-elevation-1;
+  }
+  
+  .tag-new {
+    @apply px-3 py-1.5 bg-gradient-to-r from-oppo-orange to-hasselblad-orange text-oppo-black rounded-full text-body2 font-bold animate-breathing shadow-oppo-elevation-1;
+  }
+
+  .tag-featured {
+    @apply px-3 py-1.5 bg-gradient-to-r from-oppo-green to-oppo-blue text-white rounded-full text-body2 font-bold shadow-oppo-elevation-1;
+  }
+
+  /* ============================================
+     ColorOS 16 卡片系统 - 旗舰级设计
+     ============================================ */
   .card-oppo {
-    @apply bg-bg-secondary rounded-md overflow-hidden
+    @apply bg-bg-secondary rounded-2xl overflow-hidden
            border border-border-default shadow-oppo-elevation-1;
   }
   
   .card-oppo-interactive {
     @apply card-oppo hover:border-oppo-orange/30 cursor-pointer
-           hover:shadow-oppo-elevation-2 hover:-translate-y-0.5
-           active:bg-bg-tertiary;
+           hover:shadow-oppo-elevation-3 hover:-translate-y-1
+           active:scale-[0.99] active:bg-bg-tertiary
+           transition-all duration-200 ease-out-elastic;
   }
   
   .card-hncs {
@@ -114,186 +179,196 @@
   }
   
   .card-elevated {
-    @apply bg-bg-elevated rounded-md overflow-hidden
-           border border-border-default/30 shadow-oppo-elevation-2;
+    @apply bg-bg-elevated rounded-2xl overflow-hidden
+           border border-white/10 shadow-oppo-elevation-3;
   }
 
-  /* OPPO输入框 - 官方标准 */
+  .card-glass {
+    @apply glass-effect rounded-2xl overflow-hidden shadow-oppo-elevation-2;
+  }
+
+  /* ============================================
+     ColorOS 16 输入框系统
+     ============================================ */
   .input-oppo {
-    @apply w-full px-4 py-3 bg-white/5 border border-border-default rounded-sm
+    @apply w-full px-4 py-3.5 bg-bg-secondary border border-border-default rounded-2xl
            text-text-primary placeholder-text-tertiary transition-all duration-200
-           focus:outline-none focus:border-oppo-orange/50 focus:ring-2 focus:ring-oppo-orange/20;
-  }
-  
-  /* OPPO标签样式 */
-  .tag-oppo {
-    @apply px-3 py-1.5 bg-white/10 rounded-full text-body2 font-medium;
-  }
-  
-  .tag-hncs {
-    @apply px-3 py-1.5 bg-hasselblad-orange text-oppo-black rounded-full text-body2 font-bold shadow-oppo-elevation-1;
-  }
-  
-  .tag-new {
-    @apply px-3 py-1.5 bg-oppo-orange text-oppo-black rounded-full text-body2 font-bold animate-breathing;
+           focus:outline-none focus:border-oppo-orange focus:ring-2 focus:ring-oppo-orange/20 focus:bg-bg-tertiary;
   }
 
-  /* 导航栏 - ColorOS 16风格 */
+  .input-oppo-search {
+    @apply w-full pl-12 pr-4 py-3 bg-bg-secondary border border-border-default rounded-2xl
+           text-text-primary placeholder-text-tertiary transition-all duration-200
+           focus:outline-none focus:border-oppo-orange focus:ring-2 focus:ring-oppo-orange/20 focus:bg-bg-tertiary;
+  }
+
+  /* ============================================
+     ColorOS 16 导航系统
+     ============================================ */
   .nav-bar {
     @apply fixed top-0 left-0 right-0 z-50 h-14 glass-navigation;
   }
 
-  /* 页面容器 - 8dp网格系统 */
+  .bottom-nav-bar {
+    @apply fixed bottom-0 left-0 right-0 z-50 h-16 glass-navigation border-t border-white/5 safe-area-bottom;
+  }
+
+  /* ============================================
+     ColorOS 16 页面容器 - 8dp网格系统
+     ============================================ */
   .page-container {
     @apply px-4 py-6 max-w-7xl mx-auto;
   }
 
-  /* 底部安全区 */
+  .section-padding {
+    @apply px-4 py-12 sm:py-16;
+  }
+
+  /* ============================================
+     ColorOS 16 安全区域
+     ============================================ */
   .safe-area-bottom {
     padding-bottom: env(safe-area-inset-bottom, 24px);
   }
 
-  /* 点击反馈效果 */
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top, 0);
+  }
+
+  /* ============================================
+     ColorOS 16 点击反馈
+     ============================================ */
   .touch-feedback {
-    @apply transition-transform duration-200 active:scale-[0.98];
+    @apply transition-transform duration-200 ease-out-elastic active:scale-[0.98];
+  }
+
+  .touch-feedback-strong {
+    @apply transition-transform duration-200 ease-out-elastic active:scale-[0.96];
   }
   
-  /* 链接样式 */
+  /* ============================================
+     ColorOS 16 链接样式
+     ============================================ */
   .link-oppo {
     @apply text-oppo-orange underline underline-offset-2 transition-all duration-200
-           hover:text-oppo-orange-dark hover:no-underline
+           hover:text-oppo-orange-dark hover:no-underline hover:scale-[1.02]
            active:text-oppo-orange-dark;
   }
 
-  /* 预设卡片尺寸 */
-  .preset-card {
-    @apply w-[168px] h-[224px];
+  /* ============================================
+     ColorOS 16 分隔线系统
+     ============================================ */
+  .divider-oppo {
+    @apply h-px bg-border-default;
   }
 
-  /* 参数卡片尺寸 */
-  .param-card {
-    @apply w-20 h-20;
+  /* ============================================
+     ColorOS 16 徽章系统
+     ============================================ */
+  .badge-oppo {
+    @apply inline-flex items-center justify-center min-w-[20px] h-5 px-1.5
+           bg-oppo-orange text-oppo-black text-micro font-bold rounded-full;
+  }
+
+  /* ============================================
+     ColorOS 16 进度条系统
+     ============================================ */
+  .progress-oppo {
+    @apply h-2 bg-bg-tertiary rounded-full overflow-hidden;
+  }
+
+  .progress-oppo-bar {
+    @apply h-full bg-gradient-to-r from-oppo-orange to-hasselblad-orange rounded-full transition-all duration-500;
   }
 }
 
-/* ColorOS 16 动效 */
-@keyframes float {
-  0%, 100% {
-    transform: translateY(0px);
-  }
-  50% {
-    transform: translateY(-20px);
-  }
+/* ============================================
+   ColorOS 16 背景光效系统 - 专家级
+   ============================================ */
+.orb-oppo {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(100px);
+  opacity: 0.12;
+  pointer-events: none;
 }
 
-@keyframes pulse-glow {
-  0%, 100% {
-    box-shadow: 0 0 20px rgba(255, 107, 53, 0.3);
-  }
-  50% {
-    box-shadow: 0 0 40px rgba(255, 107, 53, 0.6);
-  }
+.orb-orange {
+  background: linear-gradient(135deg, #FF6B35, #D4A574);
 }
 
-@keyframes breathing {
-  0%, 100% {
-    opacity: 0.7;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.05);
-  }
+.orb-blue {
+  background: linear-gradient(135deg, #3B82F6, #60A5FA);
 }
 
-@keyframes skeleton-loading {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
+.orb-purple {
+  background: linear-gradient(135deg, #8B5CF6, #A78BFA);
 }
 
-@keyframes ripple {
-  0% {
-    transform: scale(0);
-    opacity: 0.2;
-  }
-  100% {
-    transform: scale(2);
-    opacity: 0;
-  }
+.orb-green {
+  background: linear-gradient(135deg, #2DB47A, #86EFAC);
 }
 
-.animate-float {
-  animation: float 6s ease-in-out infinite;
-}
-
-.animate-pulse-glow {
-  animation: pulse-glow 2s ease-in-out infinite;
-}
-
-.animate-breathing {
-  animation: breathing 1.8s ease-in-out infinite;
-}
-
-.animate-skeleton {
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
-  background-size: 200% 100%;
-  animation: skeleton-loading 1.5s ease-in-out infinite;
-}
-
-/* 背景光效 */
 .gradient-overlay {
   background: linear-gradient(
     to bottom,
     transparent 0%,
     transparent 50%,
-    rgba(0, 0, 0, 0.1) 70%,
-    rgba(0, 0, 0, 0.6) 100%
+    rgba(0, 0, 0, 0.15) 75%,
+    rgba(0, 0, 0, 0.7) 100%
   );
 }
 
-.orb-oppo {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(80px);
-  opacity: 0.15;
-  pointer-events: none;
+.gradient-overlay-subtle {
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    transparent 70%,
+    rgba(0, 0, 0, 0.4) 100%
+  );
 }
 
-.orb-1 {
-  background: linear-gradient(135deg, #FF6B35, #D4A574);
+/* ============================================
+   ColorOS 16 骨架屏加载
+   ============================================ */
+.animate-skeleton {
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 2s ease-in-out infinite;
 }
 
-.orb-2 {
-  background: linear-gradient(135deg, #3B82F6, #60A5FA);
+.skeleton-card {
+  @apply bg-bg-secondary rounded-2xl animate-skeleton;
 }
 
-.orb-3 {
-  background: linear-gradient(135deg, #8B5CF6, #A78BFA);
-}
-
-/* 响应式适配 - 移动端优化 */
-@media (max-width: 360px) {
+/* ============================================
+   ColorOS 16 响系统
+   ============================================ */
+@media (max-width: 480px) {
   html {
     font-size: 14px;
   }
 }
 
-@media (min-width: 481px) {
+@media (min-width: 481px) and (max-width: 768px) {
+  html {
+    font-size: 15px;
+  }
+}
+
+@media (min-width: 769px) {
   html {
     font-size: 16px;
   }
 }
 
-/* 深色模式 (默认) */
+/* ============================================
+   ColorOS 16 主题系统
+   ============================================ */
 :root {
   color-scheme: dark;
 }
 
-/* 浅色模式 */
 [data-theme="light"] {
   color-scheme: light;
 }
@@ -310,12 +385,20 @@
   @apply bg-bg-light-primary/85 border-border-light-default/50;
 }
 
-/* 无障碍 - 焦点样式 */
-:focus-visible {
-  @apply outline-2 outline-offset-2 outline-oppo-orange;
+[data-theme="light"] .glass-effect {
+  @apply bg-white/60 backdrop-blur-xl border-black/8;
 }
 
-/* 减少动画 (尊重用户偏好) */
+/* ============================================
+   ColorOS 16 无障碍系统
+   ============================================ */
+:focus-visible {
+  @apply outline-2 outline-offset-3 outline-oppo-orange rounded-2xl;
+}
+
+/* ============================================
+   ColorOS 16 尊重用户偏好 - 减少动画
+   ============================================ */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -323,5 +406,14 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* ============================================
+   ColorOS 16 打印样式
+   ============================================ */
+@media print {
+  body {
+    @apply bg-white text-black !important;
   }
 }
