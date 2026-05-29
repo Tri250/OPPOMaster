@@ -1,32 +1,54 @@
 package com.omaster.app.data
 
+import android.content.Context
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import com.omaster.app.model.CameraParams
 import com.omaster.app.model.Preset
 import com.omaster.app.model.Section
 import com.omaster.app.network.PresetApi
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.withContext
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class PresetRepository @Inject constructor(
-    private val presetApi: PresetApi
+    private val context: Context,
+    private val presetApi: PresetApi,
+    private val preferencesDataStore: PreferencesDataStore
 ) {
     private var cachedPresets: List<Preset> = emptyList()
+    private val _favorites = MutableStateFlow<Set<String>>(emptySet())
+    val favorites: StateFlow<Set<String>> = _favorites.asStateFlow()
+    
+    init {
+        loadFavorites()
+    }
+    
+    suspend fun loadPresets(): List<Preset> = withContext(Dispatchers.IO) {
+        try {
+            val jsonString = context.assets.open("presets.json").bufferedReader().use { it.readText() }
+            val type = object : TypeToken<List<Preset>>() {}.type
+            val presets = Gson().fromJson<List<Preset>>(jsonString, type)
+            cachedPresets = presets
+            presets
+        } catch (e: Exception) {
+            Timber.e(e, "Error loading presets from assets")
+            getSamplePresets()
+        }
+    }
     
     fun getPresets(): Flow<Result<List<Preset>>> = flow {
         try {
-            val response = presetApi.getAllPresets()
-            if (response.isSuccessful) {
-                val presets = response.body() ?: emptyList()
-                cachedPresets = presets
-                emit(Result.success(presets))
-            } else {
-                Timber.e("Failed to fetch presets: ${response.code()}")
-                emit(Result.success(getSamplePresets()))
-            }
+            val presets = loadPresets()
+            emit(Result.success(presets))
         } catch (e: Exception) {
             Timber.e(e, "Error fetching presets")
             emit(Result.success(getSamplePresets()))
@@ -452,5 +474,40 @@ class PresetRepository @Inject constructor(
                 )
             )
         )
+    }
+    
+    fun toggleFavorite(presetId: String) {
+        val currentFavorites = _favorites.value.toMutableSet()
+        if (currentFavorites.contains(presetId)) {
+            currentFavorites.remove(presetId)
+        } else {
+            currentFavorites.add(presetId)
+        }
+        _favorites.value = currentFavorites
+        saveFavorites(currentFavorites)
+    }
+    
+    fun isFavorite(presetId: String): Boolean {
+        return _favorites.value.contains(presetId)
+    }
+    
+    private fun loadFavorites() {
+        _favorites.value = preferencesDataStore.getFavorites()
+    }
+    
+    private fun saveFavorites(favorites: Set<String>) {
+        preferencesDataStore.saveFavorites(favorites)
+    }
+    
+    fun getFavoritePresets(): Flow<Result<List<Preset>>> = flow {
+        try {
+            val presets = loadPresets()
+            val favoriteIds = _favorites.value
+            val favoritePresets = presets.filter { it.id in favoriteIds }
+            emit(Result.success(favoritePresets))
+        } catch (e: Exception) {
+            Timber.e(e, "Error loading favorite presets")
+            emit(Result.success(emptyList()))
+        }
     }
 }

@@ -51,6 +51,20 @@ class PreferencesDataStore @Inject constructor(
             preferences.getBoolean(PreferencesKeys.OVERLAY_ENABLED, defaultValue = false)
         }
 
+    fun getFavorites(): Set<String> {
+        // Synchronous method - for initialization
+        return emptySet()
+    }
+    
+    fun saveFavorites(favorites: Set<String>) {
+        // Asynchronous save
+        kotlinx.coroutines.GlobalScope.launch {
+            context.dataStore.edit { preferences ->
+                preferences[PreferencesKeys.FAVORITE_PRESETS] = favorites
+            }
+        }
+    }
+    
     suspend fun toggleFavorite(presetId: String) {
         context.dataStore.edit { preferences ->
             val currentFavorites = preferences[PreferencesKeys.FAVORITE_PRESETS]?.toMutableSet() ?: mutableSet()

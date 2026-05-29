@@ -1,0 +1,452 @@
+[
+  {
+    "id": "hasselblad-natural",
+    "name": "哈苏自然色彩",
+    "coverPath": "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=600&h=600&fit=crop",
+    "sections": [
+      {
+        "title": "适用场景",
+        "content": "风景摄影、城市建筑、人像写真"
+      },
+      {
+        "title": "特点",
+        "content": "还原真实色彩，适合专业摄影后期"
+      }
+    ],
+    "cameraParams": {
+      "mode": "master",
+      "filter": "HNCS Natural",
+      "iso": 100,
+      "shutter": "1/200",
+      "ev": "0",
+      "wb": "5500K",
+      "focal_length": "24mm",
+      "aperture": "f/1.8",
+      "hdr": false,
+      "night_mode": false,
+      "portrait_mode": false,
+      "ai_optimization": true,
+      "hasselblad_hncs": true,
+      "hasselblad_natural_color": true,
+      "hasselblad_master_style": "Natural",
+      "color_profile": "Natural",
+      "sharpness": 50,
+      "contrast": 48,
+      "saturation": 45
+    },
+    "deviceModel": "OPPO Find X8 Ultra",
+    "source": "official",
+    "isFavorite": false,
+    "isNew": false,
+    "isFeatured": true,
+    "isPremium": false,
+    "downloadCount": 12568,
+    "rating": 4.8,
+    "tags": ["哈苏", "风景", "自然色彩", "HNCS"]
+  },
+  {
+    "id": "vivid-cinema",
+    "name": "鲜艳电影感",
+    "coverPath": "https://images.unsplash.com/photo-1478760329615-ab8171e9589b?w=600&h=600&fit=crop",
+    "sections": [
+      {
+        "title": "适用场景",
+        "content": "城市夜景、街拍、创意摄影"
+      },
+      {
+        "title": "特点",
+        "content": "高对比度、高饱和度，电影般的视觉效果"
+      }
+    ],
+    "cameraParams": {
+      "mode": "master",
+      "filter": "Vivid Cinema",
+      "iso": 400,
+      "shutter": "1/125",
+      "ev": "-0.3",
+      "wb": "4800K",
+      "focal_length": "35mm",
+      "aperture": "f/2.0",
+      "hdr": true,
+      "night_mode": false,
+      "portrait_mode": false,
+      "ai_optimization": true,
+      "hasselblad_hncs": false,
+      "hasselblad_natural_color": false,
+      "hasselblad_master_style": "Vivid",
+      "color_profile": "Vivid",
+      "sharpness": 60,
+      "contrast": 65,
+      "saturation": 68
+    },
+    "deviceModel": "OPPO Find X7 Ultra",
+    "source": "official",
+    "isFavorite": false,
+    "isNew": true,
+    "isFeatured": true,
+    "isPremium": false,
+    "downloadCount": 8952,
+    "rating": 4.7,
+    "tags": ["电影感", "街拍", "夜景", "鲜艳"]
+  },
+  {
+    "id": "portrait-glow",
+    "name": "人像柔光",
+    "coverPath": "https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?w=600&h=600&fit=crop",
+    "sections": [
+      {
+        "title": "适用场景",
+        "content": "人像摄影、自拍、合影"
+      },
+      {
+        "title": "特点",
+        "content": "柔化皮肤，自然美颜效果"
+      }
+    ],
+    "cameraParams": {
+      "mode": "portrait",
+      "filter": "Portrait Glow",
+      "iso": 200,
+      "shutter": "1/160",
+      "ev": "0.3",
+      "wb": "5200K",
+      "focal_length": "50mm",
+      "aperture": "f/1.6",
+      "hdr": false,
+      "night_mode": false,
+      "portrait_mode": true,
+      "ai_optimization": true,
+      "hasselblad_hncs": false,
+      "hasselblad_natural_color": true,
+      "hasselblad_master_style": "Portrait",
+      "color_profile": "Natural",
+      "sharpness": 40,
+      "contrast": 45,
+      "saturation": 52
+    },
+    "deviceModel": "OPPO Find X8 Pro",
+    "source": "community",
+    "isFavorite": false,
+    "isNew": true,
+    "isFeatured": true,
+    "isPremium": false,
+    "downloadCount": 15623,
+    "rating": 4.9,
+    "tags": ["人像", "自拍", "美颜", "柔光"]
+  },
+  {
+    "id": "night-city",
+    "name": "城市夜景",
+    "coverPath": "https://images.unsplash.com/photo-1519501025264-65ca48099e7e?w=600&h=600&fit=crop",
+    "sections": [
+      {
+        "title": "适用场景",
+        "content": "城市夜景、灯光摄影、霓虹"
+      },
+      {
+        "title": "特点",
+        "content": "降噪优化，保留细节，减少高光溢出"
+      }
+    ],
+    "cameraParams": {
+      "mode": "night",
+      "filter": "Night City",
+      "iso": 3200,
+      "shutter": "1/30",
+      "ev": "-0.7",
+      "wb": "4200K",
+      "focal_length": "24mm",
+      "aperture": "f/1.8",
+      "hdr": true,
+      "night_mode": true,
+      "portrait_mode": false,
+      "ai_optimization": true,
+      "hasselblad_hncs": false,
+      "hasselblad_natural_color": true,
+      "hasselblad_master_style": "Night",
+      "color_profile": "Natural",
+      "sharpness": 55,
+      "contrast": 55,
+      "saturation": 50
+    },
+    "deviceModel": "OPPO Find X8 Ultra",
+    "source": "official",
+    "isFavorite": false,
+    "isNew": false,
+    "isFeatured": true,
+    "isPremium": false,
+    "downloadCount": 21356,
+    "rating": 4.9,
+    "tags": ["夜景", "城市", "灯光", "降噪"]
+  },
+  {
+    "id": "food-delicious",
+    "name": "美食摄影",
+    "coverPath": "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=600&h=600&fit=crop",
+    "sections": [
+      {
+        "title": "适用场景",
+        "content": "美食摄影、咖啡、甜点"
+      },
+      {
+        "title": "特点",
+        "content": "增强食欲色彩，提升质感"
+      }
+    ],
+    "cameraParams": {
+      "mode": "master",
+      "filter": "Food Delicious",
+      "iso": 200,
+      "shutter": "1/125",
+      "ev": "0.5",
+      "wb": "5600K",
+      "focal_length": "50mm",
+      "aperture": "f/1.8",
+      "hdr": false,
+      "night_mode": false,
+      "portrait_mode": false,
+      "ai_optimization": true,
+      "hasselblad_hncs": false,
+      "hasselblad_natural_color": true,
+      "hasselblad_master_style": "Food",
+      "color_profile": "Vivid",
+      "sharpness": 55,
+      "contrast": 50,
+      "saturation": 62
+    },
+    "deviceModel": "OPPO Find X7",
+    "source": "community",
+    "isFavorite": false,
+    "isNew": true,
+    "isFeatured": false,
+    "isPremium": false,
+    "downloadCount": 7845,
+    "rating": 4.6,
+    "tags": ["美食", "咖啡", "甜点", "食欲"]
+  },
+  {
+    "id": "film-analog",
+    "name": "胶片模拟",
+    "coverPath": "https://images.unsplash.com/photo-1452587925148-ce544e77e70d?w=600&h=600&fit=crop",
+    "sections": [
+      {
+        "title": "适用场景",
+        "content": "怀旧摄影、人文街拍、复古风格"
+      },
+      {
+        "title": "特点",
+        "content": "模拟经典胶片色彩，颗粒质感"
+      }
+    ],
+    "cameraParams": {
+      "mode": "master",
+      "filter": "Film Analog",
+      "iso": 400,
+      "shutter": "1/125",
+      "ev": "0",
+      "wb": "5200K",
+      "focal_length": "35mm",
+      "aperture": "f/2.0",
+      "hdr": false,
+      "night_mode": false,
+      "portrait_mode": false,
+      "ai_optimization": false,
+      "hasselblad_hncs": false,
+      "hasselblad_natural_color": false,
+      "hasselblad_master_style": "Film",
+      "color_profile": "Film",
+      "sharpness": 45,
+      "contrast": 55,
+      "saturation": 48
+    },
+    "deviceModel": "OnePlus 12",
+    "source": "community",
+    "isFavorite": false,
+    "isNew": false,
+    "isFeatured": true,
+    "isPremium": false,
+    "downloadCount": 9214,
+    "rating": 4.7,
+    "tags": ["胶片", "复古", "人文", "街拍"]
+  },
+  {
+    "id": "sunset-golden",
+    "name": "日落黄金",
+    "coverPath": "https://images.unsplash.com/photo-1472214103451-9374bd1c798e?w=600&h=600&fit=crop",
+    "sections": [
+      {
+        "title": "适用场景",
+        "content": "日落、日出、黄金时刻摄影"
+      },
+      {
+        "title": "特点",
+        "content": "增强暖色调，突出金色光线"
+      }
+    ],
+    "cameraParams": {
+      "mode": "master",
+      "filter": "Sunset Golden",
+      "iso": 100,
+      "shutter": "1/250",
+      "ev": "-0.3",
+      "wb": "6000K",
+      "focal_length": "24mm",
+      "aperture": "f/2.2",
+      "hdr": true,
+      "night_mode": false,
+      "portrait_mode": false,
+      "ai_optimization": true,
+      "hasselblad_hncs": false,
+      "hasselblad_natural_color": false,
+      "hasselblad_master_style": "Landscape",
+      "color_profile": "Warm",
+      "sharpness": 52,
+      "contrast": 58,
+      "saturation": 65
+    },
+    "deviceModel": "OPPO Find X8 Ultra",
+    "source": "official",
+    "isFavorite": false,
+    "isNew": false,
+    "isFeatured": true,
+    "isPremium": false,
+    "downloadCount": 11234,
+    "rating": 4.8,
+    "tags": ["日落", "日出", "黄金时刻", "暖色调"]
+  },
+  {
+    "id": "black-white",
+    "name": "黑白经典",
+    "coverPath": "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?w=600&h=600&fit=crop",
+    "sections": [
+      {
+        "title": "适用场景",
+        "content": "黑白摄影、艺术创作、人文纪实"
+      },
+      {
+        "title": "特点",
+        "content": "高对比度黑白，丰富的灰色层次"
+      }
+    ],
+    "cameraParams": {
+      "mode": "master",
+      "filter": "B&W Classic",
+      "iso": 200,
+      "shutter": "1/200",
+      "ev": "0",
+      "wb": "5500K",
+      "focal_length": "35mm",
+      "aperture": "f/2.0",
+      "hdr": false,
+      "night_mode": false,
+      "portrait_mode": false,
+      "ai_optimization": false,
+      "hasselblad_hncs": false,
+      "hasselblad_natural_color": false,
+      "hasselblad_master_style": "Monochrome",
+      "color_profile": "Monochrome",
+      "sharpness": 58,
+      "contrast": 65,
+      "saturation": 0
+    },
+    "deviceModel": "OPPO Find X7 Ultra",
+    "source": "official",
+    "isFavorite": false,
+    "isNew": false,
+    "isFeatured": false,
+    "isPremium": false,
+    "downloadCount": 6789,
+    "rating": 4.6,
+    "tags": ["黑白", "经典", "纪实", "艺术"]
+  },
+  {
+    "id": "green-nature",
+    "name": "清新自然",
+    "coverPath": "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=600&h=600&fit=crop",
+    "sections": [
+      {
+        "title": "适用场景",
+        "content": "自然风光、森林、绿植、生态摄影"
+      },
+      {
+        "title": "特点",
+        "content": "提升绿色表现，还原自然生机"
+      }
+    ],
+    "cameraParams": {
+      "mode": "master",
+      "filter": "Green Nature",
+      "iso": 100,
+      "shutter": "1/250",
+      "ev": "0.2",
+      "wb": "5400K",
+      "focal_length": "24mm",
+      "aperture": "f/2.2",
+      "hdr": true,
+      "night_mode": false,
+      "portrait_mode": false,
+      "ai_optimization": true,
+      "hasselblad_hncs": false,
+      "hasselblad_natural_color": true,
+      "hasselblad_master_style": "Landscape",
+      "color_profile": "Natural",
+      "sharpness": 52,
+      "contrast": 48,
+      "saturation": 55
+    },
+    "deviceModel": "OPPO Find X8",
+    "source": "community",
+    "isFavorite": false,
+    "isNew": true,
+    "isFeatured": true,
+    "isPremium": false,
+    "downloadCount": 8567,
+    "rating": 4.7,
+    "tags": ["自然", "风景", "绿色", "清新"]
+  },
+  {
+    "id": "blue-marine",
+    "name": "海洋蓝调",
+    "coverPath": "https://images.unsplash.com/photo-1505118380757-91f5f5632de0?w=600&h=600&fit=crop",
+    "sections": [
+      {
+        "title": "适用场景",
+        "content": "海洋摄影、海滩、泳池、蓝天"
+      },
+      {
+        "title": "特点",
+        "content": "增强蓝色饱和度，营造清凉感"
+      }
+    ],
+    "cameraParams": {
+      "mode": "master",
+      "filter": "Blue Marine",
+      "iso": 100,
+      "shutter": "1/500",
+      "ev": "0",
+      "wb": "5800K",
+      "focal_length": "24mm",
+      "aperture": "f/2.0",
+      "hdr": true,
+      "night_mode": false,
+      "portrait_mode": false,
+      "ai_optimization": true,
+      "hasselblad_hncs": false,
+      "hasselblad_natural_color": false,
+      "hasselblad_master_style": "Landscape",
+      "color_profile": "Cool",
+      "sharpness": 50,
+      "contrast": 52,
+      "saturation": 58
+    },
+    "deviceModel": "OPPO Find X7",
+    "source": "community",
+    "isFavorite": false,
+    "isNew": false,
+    "isFeatured": false,
+    "isPremium": false,
+    "downloadCount": 6123,
+    "rating": 4.5,
+    "tags": ["海洋", "蓝色", "海滩", "夏天"]
+  }
+]
