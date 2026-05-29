@@ -8,7 +8,7 @@
   }
   
   body {
-    @apply bg-deep-space text-white font-sans antialiased;
+    @apply bg-deep-space text-text-primary font-sans antialiased;
   }
 
   ::-webkit-scrollbar {
@@ -44,30 +44,34 @@
   }
 
   .gradient-text {
-    @apply bg-gradient-to-r from-white via-oppo-sunrise-gold to-white bg-clip-text text-transparent;
+    @apply bg-gradient-to-r from-white via-accent-primary to-white bg-clip-text text-transparent;
   }
   
   .gradient-text-oppo {
-    @apply bg-gradient-to-r from-oppo-sunrise-gold to-hasselblad-pro bg-clip-text text-transparent;
+    @apply bg-gradient-to-r from-accent-primary to-hasselblad-orange bg-clip-text text-transparent;
   }
 
   .btn-primary {
-    @apply px-6 py-3 bg-oppo-sunrise-gold text-deep-space font-semibold rounded-oppo
+    @apply px-6 py-3 bg-accent-primary text-deep-space font-semibold rounded-oppo
            transition-all duration-200 ease-out
-           hover:bg-oppo-sunrise-gold/90 hover:shadow-oppo-hover hover:-translate-y-0.5
-           active:scale-[0.98] active:shadow-oppo;
+           hover:bg-accent-secondary hover:shadow-oppo-hover hover:-translate-y-0.5
+           active:scale-[0.98] active:bg-accent-tertiary;
   }
 
   .btn-secondary {
-    @apply px-6 py-3 bg-white/10 text-white font-medium rounded-oppo
+    @apply px-6 py-3 bg-white/10 text-text-primary font-medium rounded-oppo
            border border-white/20 transition-all duration-200 ease-out
            hover:bg-white/20 active:scale-[0.98];
   }
 
   .card-oppo {
     @apply bg-card-surface rounded-oppo overflow-hidden
-           border border-oppo-border transition-all duration-200 ease-out
-           hover:border-oppo-sunrise-gold/30;
+           border border-oppo-border transition-all duration-200 ease-out;
+  }
+  
+  .card-oppo-interactive {
+    @apply card-oppo hover:border-accent-primary/30 cursor-pointer
+           hover:shadow-oppo-hover active:bg-card-pressed active:scale-[0.98];
   }
   
   .card-elevated {
@@ -77,8 +81,8 @@
 
   .input-oppo {
     @apply w-full px-4 py-3 bg-white/5 border border-oppo-border rounded-oppo-sm
-           text-white placeholder-text-tertiary transition-all duration-200
-           focus:outline-none focus:border-oppo-sunrise-gold/50;
+           text-text-primary placeholder-text-tertiary transition-all duration-200
+           focus:outline-none focus:border-accent-primary/50;
   }
   
   .tag-oppo {
@@ -86,11 +90,11 @@
   }
   
   .tag-hasselblad {
-    @apply px-3 py-1.5 bg-hasselblad-pro text-deep-space rounded-full text-sm font-bold shadow-lg;
+    @apply px-3 py-1.5 bg-hasselblad-orange text-deep-space rounded-full text-sm font-bold shadow-lg;
   }
   
   .tag-new {
-    @apply px-3 py-1.5 bg-oppo-sunrise-gold text-deep-space rounded-full text-sm font-bold animate-breathing;
+    @apply px-3 py-1.5 bg-accent-primary text-deep-space rounded-full text-sm font-bold animate-breathing;
   }
 
   /* 导航栏 */
@@ -110,7 +114,14 @@
 
   /* 点击效果 */
   .touch-feedback {
-    @apply transition-transform duration-150 active:scale-[0.98];
+    @apply transition-transform duration-200 active:scale-[0.98];
+  }
+  
+  /* 链接样式 */
+  .link-oppo {
+    @apply text-accent-primary underline underline-offset-2 transition-all duration-200
+           hover:text-accent-secondary hover:no-underline
+           active:text-accent-tertiary;
   }
 }
 
@@ -125,10 +136,10 @@
 
 @keyframes pulse-glow {
   0%, 100% {
-    box-shadow: 0 0 20px rgba(255, 179, 71, 0.3);
+    box-shadow: 0 0 20px rgba(255, 107, 53, 0.3);
   }
   50% {
-    box-shadow: 0 0 40px rgba(255, 179, 71, 0.6);
+    box-shadow: 0 0 40px rgba(255, 107, 53, 0.6);
   }
 }
 
@@ -190,7 +201,7 @@
 }
 
 .orb-1 {
-  background: linear-gradient(135deg, #FFB347, #FFD89A);
+  background: linear-gradient(135deg, #FF6B35, #D4A574);
 }
 
 .orb-2 {
@@ -238,7 +249,7 @@
 
 /* 无障碍 - 焦点样式 */
 :focus-visible {
-  @apply outline-2 outline-offset-2 outline-oppo-sunrise-gold;
+  @apply outline-2 outline-offset-2 outline-accent-primary;
 }
 
 /* 减少动画 (尊重用户偏好) */
