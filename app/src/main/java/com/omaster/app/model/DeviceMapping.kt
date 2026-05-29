@@ -22,7 +22,36 @@ data class DeviceMapping(
 object DeviceDatabase {
     
     private val devices = listOf(
-        // ==================== OPPO Find系列（哈苏影像） ====================
+        // ==================== OPPO Find系列 2026年最新（哈苏影像） ====================
+        DeviceMapping(
+            brand = "OPPO",
+            series = "Find",
+            model = "Find X8 Ultra",
+            cameraType = CameraType.HASSELBLAD,
+            recommendedParams = CameraParams(
+                hasselblad_hncs = true,
+                master_hdr = "智能",
+                ai_scene = true,
+                hdr = true
+            ),
+            supportedFeatures = listOf("哈苏人像4.0", "AI场景识别", "RAW格式", "10亿色", "超光影潜望长焦"),
+            releaseYear = 2026,
+            flagship = true
+        ),
+        DeviceMapping(
+            brand = "OPPO",
+            series = "Find",
+            model = "Find X8 Pro",
+            cameraType = CameraType.HASSELBLAD,
+            recommendedParams = CameraParams(
+                hasselblad_hncs = true,
+                master_hdr = "智能",
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("哈苏人像", "AI场景识别", "专业模式", "夜景模式"),
+            releaseYear = 2026,
+            flagship = true
+        ),
         DeviceMapping(
             brand = "OPPO",
             series = "Find",
@@ -82,6 +111,20 @@ object DeviceDatabase {
         DeviceMapping(
             brand = "OPPO",
             series = "Find",
+            model = "Find N4",
+            cameraType = CameraType.HASSELBLAD,
+            recommendedParams = CameraParams(
+                hasselblad_hncs = true,
+                ai_scene = true,
+                master_hdr = "智能"
+            ),
+            supportedFeatures = listOf("哈苏人像", "折叠屏旗舰", "多角度悬停", "AI场景识别"),
+            releaseYear = 2026,
+            flagship = true
+        ),
+        DeviceMapping(
+            brand = "OPPO",
+            series = "Find",
             model = "Find N3",
             cameraType = CameraType.HASSELBLAD,
             recommendedParams = CameraParams(
@@ -131,7 +174,57 @@ object DeviceDatabase {
             flagship = true
         ),
         
-        // ==================== OPPO Reno系列 ====================
+        // ==================== OPPO Reno系列 2026年最新 ====================
+        DeviceMapping(
+            brand = "OPPO",
+            series = "Reno",
+            model = "Reno14 Pro",
+            cameraType = CameraType.HASSELBLAD,
+            recommendedParams = CameraParams(
+                hasselblad_hncs = true,
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("AI人像专家", "AI场景识别", "专业模式", "超光影人像"),
+            releaseYear = 2026,
+            flagship = false
+        ),
+        DeviceMapping(
+            brand = "OPPO",
+            series = "Reno",
+            model = "Reno14",
+            cameraType = CameraType.HASSELBLAD,
+            recommendedParams = CameraParams(
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("AI人像专家", "AI场景识别"),
+            releaseYear = 2026,
+            flagship = false
+        ),
+        DeviceMapping(
+            brand = "OPPO",
+            series = "Reno",
+            model = "Reno13 Pro",
+            cameraType = CameraType.HASSELBLAD,
+            recommendedParams = CameraParams(
+                hasselblad_hncs = true,
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("AI人像专家", "AI场景识别", "专业模式"),
+            releaseYear = 2025,
+            flagship = false
+        ),
+        DeviceMapping(
+            brand = "OPPO",
+            series = "Reno",
+            model = "Reno13",
+            cameraType = CameraType.HASSELBLAD,
+            recommendedParams = CameraParams(
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("AI人像专家", "AI场景识别"),
+            releaseYear = 2025,
+            flagship = false
+        ),
         DeviceMapping(
             brand = "OPPO",
             series = "Reno",
@@ -218,7 +311,31 @@ object DeviceDatabase {
             flagship = false
         ),
         
-        // ==================== OPPO K系列 ====================
+        // ==================== OPPO K系列 2026年最新 ====================
+        DeviceMapping(
+            brand = "OPPO",
+            series = "K",
+            model = "K13 Pro",
+            cameraType = CameraType.STANDARD,
+            recommendedParams = CameraParams(
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("AI场景识别", "夜景模式", "专业模式"),
+            releaseYear = 2026,
+            flagship = false
+        ),
+        DeviceMapping(
+            brand = "OPPO",
+            series = "K",
+            model = "K13",
+            cameraType = CameraType.STANDARD,
+            recommendedParams = CameraParams(
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("AI场景识别", "夜景模式"),
+            releaseYear = 2026,
+            flagship = false
+        ),
         DeviceMapping(
             brand = "OPPO",
             series = "K",
@@ -269,7 +386,51 @@ object DeviceDatabase {
             flagship = false
         ),
         
-        // ==================== 一加系列（哈苏影像） ====================
+        // ==================== 一加系列 2026年最新（哈苏影像） ====================
+        DeviceMapping(
+            brand = "一加",
+            series = "数字旗舰",
+            model = "OnePlus 14",
+            cameraType = CameraType.HASSELBLAD,
+            recommendedParams = CameraParams(
+                hasselblad_hncs = true,
+                master_hdr = "智能",
+                ai_scene = true,
+                hdr = true
+            ),
+            supportedFeatures = listOf("哈苏影像4.0", "潜望长焦", "AI场景识别", "专业模式", "大师影调"),
+            releaseYear = 2026,
+            flagship = true
+        ),
+        DeviceMapping(
+            brand = "一加",
+            series = "数字旗舰",
+            model = "OnePlus 14 Pro",
+            cameraType = CameraType.HASSELBLAD,
+            recommendedParams = CameraParams(
+                hasselblad_hncs = true,
+                master_hdr = "智能",
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("哈苏影像", "AI场景识别", "专业模式"),
+            releaseYear = 2026,
+            flagship = true
+        ),
+        DeviceMapping(
+            brand = "一加",
+            series = "数字旗舰",
+            model = "OnePlus 13",
+            cameraType = CameraType.HASSELBLAD,
+            recommendedParams = CameraParams(
+                hasselblad_hncs = true,
+                master_hdr = "智能",
+                ai_scene = true,
+                hdr = true
+            ),
+            supportedFeatures = listOf("哈苏影像", "潜望长焦", "AI场景识别", "专业模式"),
+            releaseYear = 2025,
+            flagship = true
+        ),
         DeviceMapping(
             brand = "一加",
             series = "数字旗舰",
@@ -353,6 +514,44 @@ object DeviceDatabase {
         DeviceMapping(
             brand = "一加",
             series = "Ace",
+            model = "OnePlus Ace 5 Pro",
+            cameraType = CameraType.HASSELBLAD,
+            recommendedParams = CameraParams(
+                hasselblad_hncs = true,
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("旗舰影像", "AI场景识别", "夜景模式", "专业模式"),
+            releaseYear = 2026,
+            flagship = false
+        ),
+        DeviceMapping(
+            brand = "一加",
+            series = "Ace",
+            model = "OnePlus Ace 5",
+            cameraType = CameraType.HASSELBLAD,
+            recommendedParams = CameraParams(
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("旗舰影像", "AI场景识别", "夜景模式"),
+            releaseYear = 2026,
+            flagship = false
+        ),
+        DeviceMapping(
+            brand = "一加",
+            series = "Ace",
+            model = "OnePlus Ace 3 Pro",
+            cameraType = CameraType.HASSELBLAD,
+            recommendedParams = CameraParams(
+                hasselblad_hncs = true,
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("旗舰影像", "AI场景识别", "夜景模式"),
+            releaseYear = 2025,
+            flagship = false
+        ),
+        DeviceMapping(
+            brand = "一加",
+            series = "Ace",
             model = "OnePlus Ace 3",
             cameraType = CameraType.HASSELBLAD,
             recommendedParams = CameraParams(
@@ -390,6 +589,18 @@ object DeviceDatabase {
         DeviceMapping(
             brand = "一加",
             series = "Nord",
+            model = "OnePlus Nord 4",
+            cameraType = CameraType.STANDARD,
+            recommendedParams = CameraParams(
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("AI场景识别", "夜景模式", "专业模式"),
+            releaseYear = 2026,
+            flagship = false
+        ),
+        DeviceMapping(
+            brand = "一加",
+            series = "Nord",
             model = "OnePlus Nord 3",
             cameraType = CameraType.STANDARD,
             recommendedParams = CameraParams(
@@ -400,7 +611,33 @@ object DeviceDatabase {
             flagship = false
         ),
         
-        // ==================== realme系列 ====================
+        // ==================== realme系列 2026年最新 ====================
+        DeviceMapping(
+            brand = "realme",
+            series = "GT",
+            model = "realme GT7 Pro",
+            cameraType = CameraType.STANDARD,
+            recommendedParams = CameraParams(
+                ai_scene = true,
+                hdr = true
+            ),
+            supportedFeatures = listOf("IMX890大底", "AI场景识别", "夜景模式", "专业模式"),
+            releaseYear = 2026,
+            flagship = false
+        ),
+        DeviceMapping(
+            brand = "realme",
+            series = "GT",
+            model = "realme GT6",
+            cameraType = CameraType.STANDARD,
+            recommendedParams = CameraParams(
+                ai_scene = true,
+                hdr = true
+            ),
+            supportedFeatures = listOf("IMX890大底", "AI场景识别", "夜景模式"),
+            releaseYear = 2025,
+            flagship = false
+        ),
         DeviceMapping(
             brand = "realme",
             series = "GT",
@@ -429,6 +666,18 @@ object DeviceDatabase {
         DeviceMapping(
             brand = "realme",
             series = "GT",
+            model = "realme GT Neo6",
+            cameraType = CameraType.STANDARD,
+            recommendedParams = CameraParams(
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("AI场景识别", "夜景模式"),
+            releaseYear = 2025,
+            flagship = false
+        ),
+        DeviceMapping(
+            brand = "realme",
+            series = "GT",
             model = "realme GT Neo5",
             cameraType = CameraType.STANDARD,
             recommendedParams = CameraParams(
@@ -436,6 +685,30 @@ object DeviceDatabase {
             ),
             supportedFeatures = listOf("AI场景优化", "超级夜景"),
             releaseYear = 2023,
+            flagship = false
+        ),
+        DeviceMapping(
+            brand = "realme",
+            series = "数字",
+            model = "realme 14 Pro+",
+            cameraType = CameraType.STANDARD,
+            recommendedParams = CameraParams(
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("旗舰长焦", "AI月亮模式", "街拍模式", "AI场景识别"),
+            releaseYear = 2026,
+            flagship = false
+        ),
+        DeviceMapping(
+            brand = "realme",
+            series = "数字",
+            model = "realme 13 Pro+",
+            cameraType = CameraType.STANDARD,
+            recommendedParams = CameraParams(
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("旗舰长焦", "AI月亮模式", "街拍模式"),
+            releaseYear = 2025,
             flagship = false
         ),
         DeviceMapping(
@@ -475,10 +748,90 @@ object DeviceDatabase {
             flagship = false
         ),
         
-        // ==================== 小米系列（徕卡影像） ====================
+        // ==================== 小米系列 2026年最新（徕卡影像） ====================
         DeviceMapping(
             brand = "小米",
             series = "数字旗舰",
+            model = "Xiaomi 16 Ultra",
+            cameraType = CameraType.LEICA,
+            recommendedParams = CameraParams(
+                master_hdr = "智能",
+                ai_scene = true,
+                hdr = true
+            ),
+            supportedFeatures = listOf("徕卡光学", "1英寸可变光圈", "AI场景识别", "专业模式", "徕卡滤镜"),
+            releaseYear = 2026,
+            flagship = true
+        ),
+        DeviceMapping(
+            brand = "小米",
+            series = "数字旗舰",
+            model = "Xiaomi 16 Pro",
+            cameraType = CameraType.LEICA,
+            recommendedParams = CameraParams(
+                master_hdr = "智能",
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("徕卡Summilux镜头", "AI场景识别", "专业模式"),
+            releaseYear = 2026,
+            flagship = true
+        ),
+        DeviceMapping(
+            brand = "小米",
+            series = "数字旗舰",
+            model = "Xiaomi 16",
+            cameraType = CameraType.LEICA,
+            recommendedParams = CameraParams(
+                master_hdr = "开启",
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("徕卡光学", "AI场景识别", "专业模式"),
+            releaseYear = 2026,
+            flagship = true
+        ),
+        DeviceMapping(
+            brand = "小米",
+            series = "数字旗舰",
+            model = "Xiaomi 15 Ultra",
+            cameraType = CameraType.LEICA,
+            recommendedParams = CameraParams(
+                master_hdr = "智能",
+                ai_scene = true,
+                hdr = true
+            ),
+            supportedFeatures = listOf("徕卡光学", "2亿像素长焦", "AI场景识别", "专业模式"),
+            releaseYear = 2025,
+            flagship = true
+        ),
+        DeviceMapping(
+            brand = "小米",
+            series = "数字旗舰",
+            model = "Xiaomi 15 Pro",
+            cameraType = CameraType.LEICA,
+            recommendedParams = CameraParams(
+                master_hdr = "智能",
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("徕卡Summilux镜头", "AI场景识别"),
+            releaseYear = 2025,
+            flagship = true
+        ),
+        DeviceMapping(
+            brand = "小米",
+            series = "数字旗舰",
+            model = "Xiaomi 15",
+            cameraType = CameraType.LEICA,
+            recommendedParams = CameraParams(
+                master_hdr = "开启",
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("徕卡光学", "AI场景识别", "徕卡滤镜"),
+            releaseYear = 2025,
+            flagship = true
+        ),
+        DeviceMapping(
+            brand = "小米",
+            series = "Ultra",
             model = "Xiaomi 14 Ultra",
             cameraType = CameraType.LEICA,
             recommendedParams = CameraParams(
@@ -559,6 +912,30 @@ object DeviceDatabase {
         DeviceMapping(
             brand = "小米",
             series = "Redmi K",
+            model = "Redmi K80 Pro",
+            cameraType = CameraType.LEICA,
+            recommendedParams = CameraParams(
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("光影猎人800", "AI场景识别", "夜景模式", "专业模式"),
+            releaseYear = 2026,
+            flagship = false
+        ),
+        DeviceMapping(
+            brand = "小米",
+            series = "Redmi K",
+            model = "Redmi K80",
+            cameraType = CameraType.LEICA,
+            recommendedParams = CameraParams(
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("AI场景识别", "夜景模式"),
+            releaseYear = 2026,
+            flagship = false
+        ),
+        DeviceMapping(
+            brand = "小米",
+            series = "Redmi K",
             model = "Redmi K70 Pro",
             cameraType = CameraType.LEICA,
             recommendedParams = CameraParams(
@@ -583,6 +960,18 @@ object DeviceDatabase {
         DeviceMapping(
             brand = "小米",
             series = "Redmi Note",
+            model = "Redmi Note 14 Pro+",
+            cameraType = CameraType.STANDARD,
+            recommendedParams = CameraParams(
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("2亿像素", "AI场景识别", "Smart-ISO Pro"),
+            releaseYear = 2026,
+            flagship = false
+        ),
+        DeviceMapping(
+            brand = "小米",
+            series = "Redmi Note",
             model = "Redmi Note 13 Pro+",
             cameraType = CameraType.STANDARD,
             recommendedParams = CameraParams(
@@ -593,7 +982,45 @@ object DeviceDatabase {
             flagship = false
         ),
         
-        // ==================== vivo系列（蔡司影像） ====================
+        // ==================== vivo系列 2026年最新（蔡司影像） ====================
+        DeviceMapping(
+            brand = "vivo",
+            series = "X",
+            model = "vivo X200 Ultra",
+            cameraType = CameraType.ZEISS,
+            recommendedParams = CameraParams(
+                ai_scene = true,
+                hdr = true
+            ),
+            supportedFeatures = listOf("蔡司光学", "2亿像素长焦", "AI场景识别", "人文街拍", "T*镀膜"),
+            releaseYear = 2026,
+            flagship = true
+        ),
+        DeviceMapping(
+            brand = "vivo",
+            series = "X",
+            model = "vivo X200 Pro",
+            cameraType = CameraType.ZEISS,
+            recommendedParams = CameraParams(
+                ai_scene = true,
+                hdr = true
+            ),
+            supportedFeatures = listOf("蔡司APO长焦", "1英寸主摄", "T*镀膜"),
+            releaseYear = 2026,
+            flagship = true
+        ),
+        DeviceMapping(
+            brand = "vivo",
+            series = "X",
+            model = "vivo X200",
+            cameraType = CameraType.ZEISS,
+            recommendedParams = CameraParams(
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("蔡司光学", "AI场景识别", "专业人像"),
+            releaseYear = 2026,
+            flagship = true
+        ),
         DeviceMapping(
             brand = "vivo",
             series = "X",
@@ -660,6 +1087,54 @@ object DeviceDatabase {
         DeviceMapping(
             brand = "vivo",
             series = "S",
+            model = "vivo S20 Pro",
+            cameraType = CameraType.ZEISS,
+            recommendedParams = CameraParams(
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("影棚级人像", "AI场景识别", "柔光人像", "专业模式"),
+            releaseYear = 2026,
+            flagship = false
+        ),
+        DeviceMapping(
+            brand = "vivo",
+            series = "S",
+            model = "vivo S20",
+            cameraType = CameraType.ZEISS,
+            recommendedParams = CameraParams(
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("AI场景识别", "人像模式", "柔光补光"),
+            releaseYear = 2026,
+            flagship = false
+        ),
+        DeviceMapping(
+            brand = "vivo",
+            series = "S",
+            model = "vivo S19 Pro",
+            cameraType = CameraType.ZEISS,
+            recommendedParams = CameraParams(
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("影棚级人像", "AI场景识别", "柔光人像"),
+            releaseYear = 2025,
+            flagship = false
+        ),
+        DeviceMapping(
+            brand = "vivo",
+            series = "S",
+            model = "vivo S19",
+            cameraType = CameraType.ZEISS,
+            recommendedParams = CameraParams(
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("AI场景识别", "人像模式", "柔光补光"),
+            releaseYear = 2025,
+            flagship = false
+        ),
+        DeviceMapping(
+            brand = "vivo",
+            series = "S",
             model = "vivo S18 Pro",
             cameraType = CameraType.ZEISS,
             recommendedParams = CameraParams(
@@ -682,7 +1157,81 @@ object DeviceDatabase {
             flagship = false
         ),
         
-        // ==================== 华为系列（XMAGE影像） ====================
+        // ==================== 华为系列 2026年最新（XMAGE影像） ====================
+        DeviceMapping(
+            brand = "华为",
+            series = "Mate",
+            model = "Mate 80 Pro+",
+            cameraType = CameraType.XMAGE,
+            recommendedParams = CameraParams(
+                ai_scene = true,
+                hdr = true
+            ),
+            supportedFeatures = listOf("XMAGE影像", "超光变主摄", "AI场景识别", "专业模式", "超微距长焦"),
+            releaseYear = 2026,
+            flagship = true
+        ),
+        DeviceMapping(
+            brand = "华为",
+            series = "Mate",
+            model = "Mate 80 Pro",
+            cameraType = CameraType.XMAGE,
+            recommendedParams = CameraParams(
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("XMAGE影像", "长焦微距", "AI场景识别", "夜景模式"),
+            releaseYear = 2026,
+            flagship = true
+        ),
+        DeviceMapping(
+            brand = "华为",
+            series = "Mate",
+            model = "Mate 80",
+            cameraType = CameraType.XMAGE,
+            recommendedParams = CameraParams(
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("XMAGE影像", "AI场景识别", "超光变主摄"),
+            releaseYear = 2026,
+            flagship = true
+        ),
+        DeviceMapping(
+            brand = "华为",
+            series = "Mate",
+            model = "Mate 70 Pro+",
+            cameraType = CameraType.XMAGE,
+            recommendedParams = CameraParams(
+                ai_scene = true,
+                hdr = true
+            ),
+            supportedFeatures = listOf("XMAGE影像", "可变光圈", "AI场景识别", "专业模式"),
+            releaseYear = 2025,
+            flagship = true
+        ),
+        DeviceMapping(
+            brand = "华为",
+            series = "Mate",
+            model = "Mate 70 Pro",
+            cameraType = CameraType.XMAGE,
+            recommendedParams = CameraParams(
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("XMAGE影像", "长焦微距", "AI场景识别"),
+            releaseYear = 2025,
+            flagship = true
+        ),
+        DeviceMapping(
+            brand = "华为",
+            series = "Mate",
+            model = "Mate 70",
+            cameraType = CameraType.XMAGE,
+            recommendedParams = CameraParams(
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("XMAGE影像", "AI场景识别", "超光变主摄"),
+            releaseYear = 2025,
+            flagship = true
+        ),
         DeviceMapping(
             brand = "华为",
             series = "Mate",
@@ -723,6 +1272,68 @@ object DeviceDatabase {
         DeviceMapping(
             brand = "华为",
             series = "P",
+            model = "Pura 80 Ultra",
+            cameraType = CameraType.XMAGE,
+            recommendedParams = CameraParams(
+                ai_scene = true,
+                hdr = true
+            ),
+            supportedFeatures = listOf("XMAGE超聚光", "AI场景识别", "超高速抓拍", "专业模式"),
+            releaseYear = 2026,
+            flagship = true
+        ),
+        DeviceMapping(
+            brand = "华为",
+            series = "P",
+            model = "Pura 80 Pro+",
+            cameraType = CameraType.XMAGE,
+            recommendedParams = CameraParams(
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("XMAGE超聚光", "AI场景识别", "超聚光长焦"),
+            releaseYear = 2026,
+            flagship = true
+        ),
+        DeviceMapping(
+            brand = "华为",
+            series = "P",
+            model = "Pura 80 Pro",
+            cameraType = CameraType.XMAGE,
+            recommendedParams = CameraParams(
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("XMAGE超聚光", "AI场景识别", "长焦微距"),
+            releaseYear = 2026,
+            flagship = true
+        ),
+        DeviceMapping(
+            brand = "华为",
+            series = "P",
+            model = "P70 Pro+",
+            cameraType = CameraType.XMAGE,
+            recommendedParams = CameraParams(
+                ai_scene = true,
+                master_hdr = "智能"
+            ),
+            supportedFeatures = listOf("XMAGE超聚光", "超动态主摄", "AI场景识别"),
+            releaseYear = 2025,
+            flagship = true
+        ),
+        DeviceMapping(
+            brand = "华为",
+            series = "P",
+            model = "P70 Pro",
+            cameraType = CameraType.XMAGE,
+            recommendedParams = CameraParams(
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("XMAGE超聚光", "长焦微距", "AI场景识别"),
+            releaseYear = 2025,
+            flagship = true
+        ),
+        DeviceMapping(
+            brand = "华为",
+            series = "P",
             model = "P60 Pro",
             cameraType = CameraType.XMAGE,
             recommendedParams = CameraParams(
@@ -745,6 +1356,54 @@ object DeviceDatabase {
             supportedFeatures = listOf("XMAGE艺术版", "超光变镜头", "夜景模式"),
             releaseYear = 2023,
             flagship = true
+        ),
+        DeviceMapping(
+            brand = "华为",
+            series = "nova",
+            model = "nova 14 Pro",
+            cameraType = CameraType.XMAGE,
+            recommendedParams = CameraParams(
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("XD Portrait人像", "AI场景识别", "物理可变光圈"),
+            releaseYear = 2026,
+            flagship = false
+        ),
+        DeviceMapping(
+            brand = "华为",
+            series = "nova",
+            model = "nova 14",
+            cameraType = CameraType.XMAGE,
+            recommendedParams = CameraParams(
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("AI场景识别", "人像模式", "夜景模式"),
+            releaseYear = 2026,
+            flagship = false
+        ),
+        DeviceMapping(
+            brand = "华为",
+            series = "nova",
+            model = "nova 13 Pro",
+            cameraType = CameraType.XMAGE,
+            recommendedParams = CameraParams(
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("XD Portrait人像", "AI场景识别", "物理可变光圈"),
+            releaseYear = 2025,
+            flagship = false
+        ),
+        DeviceMapping(
+            brand = "华为",
+            series = "nova",
+            model = "nova 13",
+            cameraType = CameraType.XMAGE,
+            recommendedParams = CameraParams(
+                ai_scene = true
+            ),
+            supportedFeatures = listOf("AI场景识别", "人像模式"),
+            releaseYear = 2025,
+            flagship = false
         ),
         DeviceMapping(
             brand = "华为",
@@ -786,6 +1445,10 @@ object DeviceDatabase {
         return devices.filter { it.flagship }
     }
     
+    fun get2026Devices(): List<DeviceMapping> {
+        return devices.filter { it.releaseYear == 2026 }
+    }
+    
     fun findDevice(modelName: String): DeviceMapping? {
         return devices.find { 
             it.model.contains(modelName, ignoreCase = true) ||
@@ -811,4 +1474,6 @@ object DeviceDatabase {
             devices.count { it.cameraType == type }
         }
     }
+    
+    fun get2026DeviceCount(): Int = devices.count { it.releaseYear == 2026 }
 }

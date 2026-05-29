@@ -6,7 +6,7 @@ enum class SceneType(
     val keywords: List<String>,
     val recommendedParams: CameraParams?
 ) {
-    // ==================== 人像类（15种） ====================
+    // ==================== 人像类（18种） ====================
     PORTRAIT("人像", "适合人物摄影", 
         listOf("人像", "自拍", "合影", "写真", "肖像", "大头照", "证件照"),
         CameraParams(hasselblad_hncs = true, master_hdr = "智能")),
@@ -35,6 +35,14 @@ enum class SceneType(
         listOf("低调", "深沉", "质感", "电影感"),
         CameraParams(brightness = -10, contrast = 20, saturation = 5)),
     
+    PORTRAIT_SOFT("柔美人像", "柔和过渡人像",
+        listOf("柔美", "奶油肌", "通透"),
+        CameraParams(brightness = 12, saturation = 5, clarity = 3)),
+    
+    PORTRAIT_DRAMATIC("戏剧人像", "强烈对比人像",
+        listOf("戏剧", "强烈", "对比", "张力"),
+        CameraParams(contrast = 25, saturation = 8, brightness = -3)),
+    
     GROUP_PHOTO("合影", "多人合影",
         listOf("合影", "团体", "集体照", "聚会"),
         CameraParams(hdr = true, ai_scene = true)),
@@ -55,7 +63,23 @@ enum class SceneType(
         listOf("宠物", "猫", "狗", "小动物"),
         CameraParams(ai_scene = true, saturation = 10)),
     
-    // ==================== 风景类（15种） ====================
+    SELFIE("自拍", "自拍摄影",
+        listOf("自拍", "前置", "美颜", "大头照"),
+        CameraParams(ai_scene = true, brightness = 10, clarity = 5)),
+    
+    COSPLAY("Cosplay", "角色扮演摄影",
+        listOf("Cosplay", "cos", "角色扮演", "二次元"),
+        CameraParams(saturation = 15, contrast = 12, clarity = 10)),
+    
+    FASHION("时尚人像", "时尚杂志风格",
+        listOf("时尚", "杂志", "大片", "Fashion"),
+        CameraParams(contrast = 18, saturation = 10, clarity = 12)),
+    
+    SPORTS_PORTRAIT("运动人像", "运动中的人物",
+        listOf("运动人像", "动态", "跑步", "健身"),
+        CameraParams(ai_scene = true, shutter_speed = "1/500")),
+    
+    // ==================== 风景类（18种） ====================
     LANDSCAPE("风景", "户外风景摄影",
         listOf("风景", "山川", "自然", " scenery"),
         CameraParams(hdr = true, ai_scene = true)),
@@ -116,7 +140,23 @@ enum class SceneType(
         listOf("云海", "云雾", "仙境", "山间云雾"),
         CameraParams(contrast = 10, brightness = 8, clarity = 12)),
     
-    // ==================== 城市建筑类（10种） ====================
+    BEACH("海滩", "海滨摄影",
+        listOf("海滩", "海边", "沙滩", "椰树"),
+        CameraParams(saturation = 18, brightness = 8, hdr = true)),
+    
+    RIVER("河流", "河流摄影",
+        listOf("河", "河流", "溪水", "江水"),
+        CameraParams(saturation = 12, clarity = 12, brightness = 5)),
+    
+    GLACIER("冰川", "冰川摄影",
+        listOf("冰川", "冰山", "极地", "蓝冰"),
+        CameraParams(saturation = 5, contrast = 15, brightness = 8)),
+    
+    CANYON("峡谷", "峡谷摄影",
+        listOf("峡谷", "丹霞", "地貌", "奇观"),
+        CameraParams(contrast = 18, warmth = 8, clarity = 12)),
+    
+    // ==================== 城市建筑类（12种） ====================
     ARCHITECTURE("建筑", "建筑摄影",
         listOf("建筑", "楼房", "大厦", "现代建筑"),
         CameraParams(contrast = 15, clarity = 12, ai_scene = true)),
@@ -157,7 +197,15 @@ enum class SceneType(
         listOf("酒店", "民宿", "客房", "旅馆"),
         CameraParams(brightness = 10, saturation = 5, contrast = 5)),
     
-    // ==================== 美食类（8种） ====================
+    BRIDGE("桥梁", "桥梁摄影",
+        listOf("桥", "桥梁", "跨海大桥", "悬索桥"),
+        CameraParams(contrast = 15, clarity = 12, hdr = true)),
+    
+    TOWER("塔楼", "塔式建筑",
+        listOf("塔", "塔楼", "电视塔", "地标"),
+        CameraParams(contrast = 12, clarity = 15, saturation = 8)),
+    
+    // ==================== 美食类（10种） ====================
     FOOD("美食", "美食摄影",
         listOf("美食", "菜肴", "料理", " food"),
         CameraParams(saturation = 18, brightness = 5, ai_scene = true)),
@@ -190,7 +238,15 @@ enum class SceneType(
         listOf("蔬菜", "水果", "沙拉", "健康"),
         CameraParams(saturation = 25, clarity = 12, brightness = 8)),
     
-    // ==================== 自然生态类（8种） ====================
+    HOTPOT("火锅", "火锅摄影",
+        listOf("火锅", "川锅", "麻辣", "涮肉"),
+        CameraParams(saturation = 18, warmth = 15, brightness = 5)),
+    
+    BAKING("烘焙", "烘焙甜点",
+        listOf("烘焙", "面包", "饼干", "马卡龙"),
+        CameraParams(warmth = 12, saturation = 15, brightness = 8)),
+    
+    // ==================== 自然生态类（10种） ====================
     NATURE("自然", "自然生态",
         listOf("自然", "生态", "户外", " nature"),
         CameraParams(saturation = 12, ai_scene = true, hdr = true)),
@@ -223,7 +279,15 @@ enum class SceneType(
         listOf("动物园", "动物", "狮子", "老虎"),
         CameraParams(contrast = 10, saturation = 12, ai_scene = true)),
     
-    // ==================== 创意类（10种） ====================
+    GARDEN("园林", "园林景观",
+        listOf("园林", "庭院", "苏州园林", "古典"),
+        CameraParams(saturation = 12, warmth = 5, clarity = 10)),
+    
+    FARM("农场", "农业摄影",
+        listOf("农场", "农田", "麦田", "稻田"),
+        CameraParams(saturation = 15, warmth = 8, contrast = 10)),
+    
+    // ==================== 创意类（12种） ====================
     MACRO("微距", "微距摄影",
         listOf("微距", "特写", "细节", " macro"),
         CameraParams(macro = true, clarity = 20, contrast = 12)),
@@ -264,7 +328,11 @@ enum class SceneType(
         listOf("80s", "复古", "迪斯科", "年代"),
         CameraParams(saturation = 20, contrast = 12, warmth = 15)),
     
-    // ==================== 其他类（9种） ====================
+    DREAM("梦幻", "梦幻效果",
+        listOf("梦幻", "梦境", "童话", "Magic"),
+        CameraParams(saturation = 15, brightness = 10, clarity = 8)),
+    
+    // ==================== 其他类（10种） ====================
     DOCUMENTARY("纪实", "纪实摄影",
         listOf("纪实", "记录", " Documentary"),
         CameraParams(contrast = 10, saturation = 5, clarity = 8)),
@@ -296,6 +364,10 @@ enum class SceneType(
     XRAY("X光", "X光透视",
         listOf("X光", "透视", "Medical"),
         CameraParams(contrast = 25, saturation = 0, brightness = 5)),
+    
+    AERIAL("航拍", "无人机航拍",
+        listOf("航拍", "无人机", "上帝视角", "鸟瞰"),
+        CameraParams(contrast = 12, saturation = 10, clarity = 8)),
     
     UNKNOWN("智能识别", "AI自动识别",
         listOf("未知", "自动", "智能"),
