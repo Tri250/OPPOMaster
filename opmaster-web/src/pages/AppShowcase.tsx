@@ -22,12 +22,12 @@ export default function AppShowcase() {
   ]
 
   const showcasePresets = [
-    { name: '德味预设', device: 'Find X7 Ultra', isHNCS: true, isNew: true, icon: Moon, id: 'hasselblad_dewei' },
-    { name: '富士胶片', device: 'Reno 12 Pro', isHNCS: true, isNew: false, icon: Users, id: 'fujifilm_film' },
-    { name: '胶片感', device: 'Find X6 Pro', isHNCS: false, isNew: true, icon: Mountain, id: 'film_sense' },
-    { name: '童话', device: 'Reno 11', isHNCS: false, isNew: false, icon: Coffee, id: 'fairy_tale' },
-    { name: '高对比黑白', device: 'Find X7', isHNCS: true, isNew: false, icon: Wind, id: 'high_contrast_bw' },
-    { name: '富士NC', device: '一加 12', isHNCS: true, isNew: true, icon: Sun, id: 'fujifilm_nc' },
+    { name: '德味预设', device: 'OPPO Find X7 Ultra', isHNCS: true, isNew: true, icon: Moon, id: 'hasselblad_dewei' },
+    { name: '富士胶片', device: 'OPPO Find X7 Ultra', isHNCS: true, isNew: false, icon: Users, id: 'fujifilm_film' },
+    { name: '胶片感', device: 'OPPO Find X7 Ultra', isHNCS: false, isNew: true, icon: Mountain, id: 'film_sense' },
+    { name: '童话', device: 'OPPO Find X7 Ultra', isHNCS: false, isNew: false, icon: Coffee, id: 'fairy_tale' },
+    { name: '高对比黑白', device: 'OPPO Find X7 Ultra', isHNCS: true, isNew: false, icon: Wind, id: 'high_contrast_bw' },
+    { name: '富士NC', device: 'OPPO Find X7 Ultra', isHNCS: true, isNew: true, icon: Sun, id: 'fujifilm_nc' },
   ]
 
   const handlePresetClick = (preset: any) => {

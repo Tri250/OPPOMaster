@@ -97,7 +97,7 @@ export const appFeatures: AppFeature[] = [
   { id: 'ci-cd', title: 'CI/CD流程', description: '自动化构建、测试、发布流程，GitHub Actions集成', icon: '🚀', category: 'build', demoAvailable: true },
 ];
 
-// OPPO FindX9spro哈苏大师模式预设
+// OPPO Find X7 Ultra 哈苏大师模式预设
 export const mockPresets: Preset[] = [
   // OPPO官方预设 - 更新自JSON数据
   {
@@ -132,7 +132,7 @@ export const mockPresets: Preset[] = [
       vignette: true,
       hncs: true
     },
-    deviceModel: 'Find X9spro',
+    deviceModel: 'OPPO Find X7 Ultra',
     author: '@波子Booz',
     source: 'omaster_cloud',
     isFavorite: false,
@@ -180,7 +180,7 @@ export const mockPresets: Preset[] = [
       vignette: true,
       hncs: true
     },
-    deviceModel: 'Find X9spro',
+    deviceModel: 'OPPO Find X7 Ultra',
     author: '@OPPO影像',
     source: 'omaster_cloud',
     isFavorite: true,
@@ -228,7 +228,7 @@ export const mockPresets: Preset[] = [
       vignette: true,
       hncs: true
     },
-    deviceModel: 'Find X9spro',
+    deviceModel: 'OPPO Find X7 Ultra',
     author: '@OPPO影像',
     source: 'omaster_cloud',
     isFavorite: false,
@@ -276,7 +276,7 @@ export const mockPresets: Preset[] = [
       vignette: true,
       hncs: true
     },
-    deviceModel: 'Find X9spro',
+    deviceModel: 'OPPO Find X7 Ultra',
     author: '@OPPO影像',
     source: 'omaster_cloud',
     isFavorite: true,
@@ -324,7 +324,7 @@ export const mockPresets: Preset[] = [
       vignette: false,
       hncs: true
     },
-    deviceModel: 'Find X9spro',
+    deviceModel: 'OPPO Find X7 Ultra',
     author: '@OPPO影像',
     source: 'omaster_cloud',
     isFavorite: false,
@@ -373,7 +373,7 @@ export const mockPresets: Preset[] = [
       vignette: true,
       hncs: true
     },
-    deviceModel: 'Find X9spro',
+    deviceModel: 'OPPO Find X7 Ultra',
     author: '@OPPO影像',
     source: 'omaster_cloud',
     isFavorite: false,
@@ -422,7 +422,7 @@ export const mockPresets: Preset[] = [
       vignette: true,
       hncs: true
     },
-    deviceModel: 'Find X9spro',
+    deviceModel: 'OPPO Find X7 Ultra',
     author: '@OPPO影像',
     source: 'omaster_cloud',
     isFavorite: true,
@@ -472,7 +472,7 @@ export const mockPresets: Preset[] = [
       custom_wb: 4200,
       hncs: true
     },
-    deviceModel: 'Find X9spro',
+    deviceModel: 'OPPO Find X7 Ultra',
     author: '@OPPO影像',
     source: 'omaster_cloud',
     isFavorite: false,
@@ -521,7 +521,7 @@ export const mockPresets: Preset[] = [
       vignette: true,
       hncs: true
     },
-    deviceModel: 'Find X9spro',
+    deviceModel: 'OPPO Find X7 Ultra',
     author: '@OPPO影像',
     source: 'omaster_cloud',
     isFavorite: false,
@@ -570,7 +570,7 @@ export const mockPresets: Preset[] = [
       vignette: true,
       hncs: true
     },
-    deviceModel: 'Find X9spro',
+    deviceModel: 'OPPO Find X7 Ultra',
     author: '@OPPO影像',
     source: 'omaster_cloud',
     isFavorite: true,
@@ -713,7 +713,7 @@ export const mockPresets: Preset[] = [
       vignette: true,
       hncs: true
     },
-    deviceModel: 'Find X9spro',
+    deviceModel: 'OPPO Find X7 Ultra',
     author: '@小陈工',
     source: 'omaster_cloud',
     isFavorite: false,
@@ -752,7 +752,7 @@ export const mockPresets: Preset[] = [
       vignette: true,
       hncs: true
     },
-    deviceModel: 'Find X9spro',
+    deviceModel: 'OPPO Find X7 Ultra',
     author: '@小陈工',
     source: 'omaster_cloud',
     isFavorite: true,
@@ -791,7 +791,7 @@ export const mockPresets: Preset[] = [
       vignette: false,
       hncs: true
     },
-    deviceModel: 'Find X9spro',
+    deviceModel: 'OPPO Find X7 Ultra',
     author: '@小陈工',
     source: 'omaster_cloud',
     isFavorite: false,
@@ -830,7 +830,7 @@ export const mockPresets: Preset[] = [
       vignette: true,
       hncs: true
     },
-    deviceModel: 'Find X9spro',
+    deviceModel: 'OPPO Find X7 Ultra',
     author: '@小陈工',
     source: 'omaster_cloud',
     isFavorite: true,
@@ -868,7 +868,7 @@ export const mockPresets: Preset[] = [
       vignette: true,
       hncs: true
     },
-    deviceModel: 'Find X9spro',
+    deviceModel: 'OPPO Find X7 Ultra',
     author: '@小陈工',
     source: 'omaster_cloud',
     isFavorite: false,
@@ -907,7 +907,7 @@ export const mockPresets: Preset[] = [
       vignette: false,
       hncs: true
     },
-    deviceModel: 'Find X9spro',
+    deviceModel: 'OPPO Find X7 Ultra',
     author: '@小陈工',
     source: 'omaster_cloud',
     isFavorite: false,
@@ -946,7 +946,7 @@ export const mockPresets: Preset[] = [
       vignette: true,
       hncs: true
     },
-    deviceModel: 'Find X9spro',
+    deviceModel: 'OPPO Find X7 Ultra',
     author: '@小陈工',
     source: 'omaster_cloud',
     isFavorite: true,
@@ -985,7 +985,7 @@ export const mockPresets: Preset[] = [
       vignette: true,
       hncs: true
     },
-    deviceModel: 'Find X9spro',
+    deviceModel: 'OPPO Find X7 Ultra',
     author: '@小陈工',
     source: 'omaster_cloud',
     isFavorite: false,
@@ -1024,7 +1024,7 @@ export const mockPresets: Preset[] = [
       vignette: false,
       hncs: true
     },
-    deviceModel: 'Find X9spro',
+    deviceModel: 'OPPO Find X7 Ultra',
     author: '@小陈工',
     source: 'omaster_cloud',
     isFavorite: false,
@@ -1063,7 +1063,7 @@ export const mockPresets: Preset[] = [
       vignette: false,
       hncs: true
     },
-    deviceModel: 'Find X9spro',
+    deviceModel: 'OPPO Find X7 Ultra',
     author: '@小陈工',
     source: 'omaster_cloud',
     isFavorite: false,
@@ -1102,7 +1102,7 @@ export const mockPresets: Preset[] = [
       vignette: false,
       hncs: true
     },
-    deviceModel: 'Find X9spro',
+    deviceModel: 'OPPO Find X7 Ultra',
     author: '@小陈工',
     source: 'omaster_cloud',
     isFavorite: false,
@@ -1141,7 +1141,7 @@ export const mockPresets: Preset[] = [
       vignette: false,
       hncs: true
     },
-    deviceModel: 'Find X9spro',
+    deviceModel: 'OPPO Find X7 Ultra',
     author: '@小陈工',
     source: 'omaster_cloud',
     isFavorite: false,
@@ -1179,7 +1179,7 @@ export const mockPresets: Preset[] = [
       vignette: true,
       hncs: true
     },
-    deviceModel: 'Find X9spro',
+    deviceModel: 'OPPO Find X7 Ultra',
     author: '@小陈工',
     source: 'omaster_cloud',
     isFavorite: false,
@@ -1218,7 +1218,7 @@ export const mockPresets: Preset[] = [
       vignette: true,
       hncs: true
     },
-    deviceModel: 'Find X9spro',
+    deviceModel: 'OPPO Find X7 Ultra',
     author: '@小陈工',
     source: 'omaster_cloud',
     isFavorite: false,
@@ -1257,7 +1257,7 @@ export const mockPresets: Preset[] = [
       vignette: true,
       hncs: true
     },
-    deviceModel: 'Find X9spro',
+    deviceModel: 'OPPO Find X7 Ultra',
     author: '@小陈工',
     source: 'omaster_cloud',
     isFavorite: false,

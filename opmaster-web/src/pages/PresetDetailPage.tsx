@@ -284,29 +284,14 @@ export default function PresetDetailPage() {
             </div>
 
             {/* Description */}
-            {(preset.sections.length > 0 || preset.description) && (
+            {preset.description && (
               <div className="card p-6">
                 <h2 className="text-lg font-bold mb-4">使用说明</h2>
                 <div className="space-y-4">
-                  {preset.description && (
-                    <div>
-                      <h3 className="text-sm font-bold text-hasselblad mb-1">{preset.description.title}</h3>
-                      <p className="text-sm text-white/70 whitespace-pre-wrap">{preset.description.content}</p>
-                    </div>
-                  )}
-                  {preset.sections.map((section, idx) => (
-                    <div key={idx}>
-                      <h3 className="text-sm font-bold text-hasselblad mb-2">{section.title}</h3>
-                      <div className="space-y-2">
-                        {section.items.map((item, itemIdx) => (
-                          <div key={itemIdx} className="flex justify-between bg-white/5 px-3 py-2 rounded">
-                            <span className="text-sm text-white/60">{item.label}</span>
-                            <span className="text-sm font-medium">{item.value}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
+                  <div>
+                    <h3 className="text-sm font-bold text-hasselblad mb-1">{preset.description.title}</h3>
+                    <p className="text-sm text-white/70 whitespace-pre-wrap">{preset.description.content}</p>
+                  </div>
                 </div>
               </div>
             )}
