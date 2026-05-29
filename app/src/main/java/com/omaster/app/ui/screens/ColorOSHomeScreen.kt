@@ -12,15 +12,18 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -125,6 +128,11 @@ fun ColorOSHomeScreen(
             contentPadding = PaddingValues(top = 4.dp, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
+            // Hero区域 - ColorOS 16风格
+            item {
+                ColorOSHeroSection()
+            }
+            
             // 搜索栏
             item {
                 ColorOSSearchBar(
@@ -376,4 +384,192 @@ private fun ColorOSPermissionDialog(
         shape = ColorOSShapes.large,
         tonalElevation = 4.dp
     )
+}
+
+// ==================== ColorOS 16 Hero区域 ====================
+@Composable
+private fun ColorOSHeroSection() {
+    val infiniteTransition = rememberInfiniteTransition(label = "hero")
+    
+    // 装饰光效动画
+    val orb1Offset by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 20f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(3000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "orb1"
+    )
+    
+    val orb2Offset by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = -15f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(4000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "orb2"
+    )
+    
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        shape = ColorOSShapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = OppoCardSurface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            OppoBorder.copy(alpha = 0.3f)
+        )
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(24.dp)
+        ) {
+            // 装饰光效
+            Box(
+                modifier = Modifier
+                    .size(200.dp)
+                    .offset(
+                        x = (-80).dp + orb1Offset.dp,
+                        y = (-40).dp + orb1Offset.dp
+                    )
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                AccentPrimary.copy(alpha = 0.2f),
+                                Color.Transparent
+                            )
+                        ),
+                        shape = androidx.compose.foundation.shape.CircleShape
+                    )
+            )
+            
+            Box(
+                modifier = Modifier
+                    .size(150.dp)
+                    .offset(
+                        x = (180).dp + orb2Offset.dp,
+                        y = (80).dp + orb2Offset.dp
+                    )
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                OceanBlue.copy(alpha = 0.15f),
+                                Color.Transparent
+                            )
+                        ),
+                        shape = androidx.compose.foundation.shape.CircleShape
+                    )
+            )
+            
+            // 内容
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.Start
+            ) {
+                // 标签
+                Surface(
+                    color = AccentPrimary.copy(alpha = 0.1f),
+                    shape = ColorOSShapes.pill,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .background(AccentPrimary, shape = androidx.compose.foundation.shape.CircleShape)
+                        )
+                        Text(
+                            text = "全新 ColorOS 16 深度优化",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = OppoTextSecondary
+                        )
+                    }
+                }
+                
+                // 标题
+                Text(
+                    text = "哈苏影像",
+                    style = MaterialTheme.typography.displayMedium,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
+                
+                Text(
+                    text = "触手可及",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = Color.White,
+                    fontWeight = FontWeight.ExtraBold,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+                
+                // 描述
+                Text(
+                    text = "专为 OPPO 哈苏影像系统打造的专业调色参数库。AI 智能推荐，系统级悬浮窗，让每一次按下快门都充满惊喜。",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = OppoTextSecondary,
+                    modifier = Modifier.padding(bottom = 20.dp)
+                )
+                
+                // 按钮行
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Button(
+                        onClick = { /* TODO */ },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = AccentPrimary
+                        ),
+                        shape = ColorOSShapes.pill,
+                        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Download,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "免费下载",
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    
+                    OutlinedButton(
+                        onClick = { /* TODO */ },
+                        shape = ColorOSShapes.pill,
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = Color.White
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            Color.White.copy(alpha = 0.2f)
+                        ),
+                        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+                    ) {
+                        Text(
+                            text = "查看演示",
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Icon(
+                            imageVector = Icons.Default.ArrowForward,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
 }

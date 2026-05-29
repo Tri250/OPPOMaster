@@ -1,8 +1,12 @@
 import { motion } from 'framer-motion'
 import { Camera, Sparkles, Smartphone, Layers, Palette, Zap, Heart, Star, ArrowRight, Download, Menu, X, ChevronRight, Check, Sun, Moon, Wind, Mountain, Coffee, Users } from 'lucide-react'
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useAppStore } from '../store/useAppStore'
 
 export default function AppShowcase() {
+  const navigate = useNavigate()
+  const { setSelectedPreset } = useAppStore()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [activeSection, setActiveSection] = useState(0)
   const [currentScreenshot, setCurrentScreenshot] = useState(0)
@@ -16,14 +20,39 @@ export default function AppShowcase() {
     { icon: Camera, title: '全设备支持', desc: '覆盖全系列OPPO/一加机型', color: 'text-hasselblad-pro', bgColor: 'bg-hasselblad/10' },
   ]
 
-  const presets = [
-    { name: '城市夜景', device: 'Find X7 Ultra', isHNCS: true, isNew: true, icon: Moon },
-    { name: '人像大师', device: 'Reno 12 Pro', isHNCS: true, isNew: false, icon: Users },
-    { name: '风光摄影', device: 'Find X6 Pro', isHNCS: false, isNew: true, icon: Mountain },
-    { name: '美食探店', device: 'Reno 11', isHNCS: false, isNew: false, icon: Coffee },
-    { name: '街头抓拍', device: 'Find X7', isHNCS: true, isNew: false, icon: Wind },
-    { name: '自然风光', device: '一加 12', isHNCS: true, isNew: false, icon: Sun },
+  const showcasePresets = [
+    { name: '城市夜景', device: 'Find X7 Ultra', isHNCS: true, isNew: true, icon: Moon, id: 'city-night' },
+    { name: '人像大师', device: 'Reno 12 Pro', isHNCS: true, isNew: false, icon: Users, id: 'portrait-pro' },
+    { name: '风光摄影', device: 'Find X6 Pro', isHNCS: false, isNew: true, icon: Mountain, id: 'landscape' },
+    { name: '美食探店', device: 'Reno 11', isHNCS: false, isNew: false, icon: Coffee, id: 'food' },
+    { name: '街头抓拍', device: 'Find X7', isHNCS: true, isNew: false, icon: Wind, id: 'street' },
+    { name: '自然风光', device: '一加 12', isHNCS: true, isNew: false, icon: Sun, id: 'nature' },
   ]
+
+  const handlePresetClick = (preset: any) => {
+    // 找到匹配的预设数据
+    const fullPreset = showcasePresets.find(p => p.id === preset.id)
+    if (fullPreset) {
+      // 创建一个临时预设对象
+      const tempPreset = {
+        id: preset.id,
+        name: preset.name,
+        deviceModel: preset.device,
+        coverPath: '',
+        isFavorite: false,
+        isNew: preset.isNew,
+        author: '专业摄影师',
+        cameraParams: {
+          hncs: preset.isHNCS,
+          iso: 200,
+          wb: 'auto'
+        },
+        category: preset.isHNCS ? '哈苏认证' : '精选'
+      }
+      setSelectedPreset(tempPreset as any)
+      navigate(`/preset/${preset.id}`)
+    }
+  }
 
   const screenshots = [
     { title: '首页探索', desc: '发现精选预设', gradient: 'from-oppo-sunrise-gold/20 to-hasselblad/20' },
@@ -264,7 +293,7 @@ export default function AppShowcase() {
 
                         {/* 预设卡片 */}
                         <div className="space-y-3 mt-4">
-                          {presets.slice(0, 3).map((preset, i) => (
+                          {showcasePresets.slice(0, 3).map((preset, i) => (
                             <motion.div
                               key={preset.name}
                               initial={{ opacity: 0, x: 20 }}
@@ -381,7 +410,7 @@ export default function AppShowcase() {
           </motion.div>
 
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {presets.map((preset, i) => (
+            {showcasePresets.map((preset, i) => (
               <motion.div
                 key={preset.name}
                 initial={{ opacity: 0, scale: 0.9 }}
@@ -389,6 +418,7 @@ export default function AppShowcase() {
                 viewport={{ once: true }}
                 transition={{ delay: i * 0.1 }}
                 whileHover={{ y: -4 }}
+                onClick={() => handlePresetClick(preset)}
                 className="card-oppo overflow-hidden group cursor-pointer"
               >
                 <div className="relative h-48 bg-gradient-to-br from-oppo-sunrise-gold/15 to-ocean-blue/15 group-hover:from-oppo-sunrise-gold/25 group-hover:to-ocean-blue/25 transition-all duration-500">
