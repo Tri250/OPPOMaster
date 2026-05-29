@@ -59,6 +59,8 @@ class AlbumBackend final : public QObject {
   Q_PROPERTY(QVariantList acceleratorOptions READ AcceleratorOptions NOTIFY AcceleratorStateChanged)
   Q_PROPERTY(QString acceleratorBackend READ AcceleratorBackend NOTIFY AcceleratorStateChanged)
   Q_PROPERTY(QString acceleratorWarning READ AcceleratorWarning NOTIFY AcceleratorStateChanged)
+  Q_PROPERTY(bool acceleratorPreparing READ AcceleratorPreparing NOTIFY AcceleratorPreparationStateChanged)
+  Q_PROPERTY(QString acceleratorPreparationStatus READ AcceleratorPreparationStatus NOTIFY AcceleratorPreparationStateChanged)
   Q_PROPERTY(bool projectLoading READ ProjectLoading NOTIFY ProjectLoadStateChanged)
   Q_PROPERTY(
       QString projectLoadingMessage READ ProjectLoadingMessage NOTIFY ProjectLoadStateChanged)
@@ -149,6 +151,8 @@ class AlbumBackend final : public QObject {
   QString        AcceleratorWarning() const {
     return IsAcceleratorWarningAcknowledged() ? QString{} : accelerator_warning_text_.Render();
   }
+  bool    AcceleratorPreparing() const { return accelerator_preparing_; }
+  QString AcceleratorPreparationStatus() const { return accelerator_preparation_status_text_.Render(); }
   bool    ProjectLoading() const { return project_handler_.project_loading(); }
   QString ProjectLoadingMessage() const { return project_handler_.project_loading_message(); }
   QString TaskStatus() const { return task_status_text_.Render(); }
@@ -217,6 +221,7 @@ class AlbumBackend final : public QObject {
   Q_INVOKABLE bool        PromptAndLoadProject();
   Q_INVOKABLE bool        PromptAndCreateProject();
   Q_INVOKABLE bool        SetAcceleratorBackend(const QString& backendKey);
+  Q_INVOKABLE void        StartAcceleratorPreparation();
   Q_INVOKABLE void        AcknowledgeAcceleratorWarning();
   Q_INVOKABLE bool        LoadProject(const QString& metaFileUrlOrPath);
   Q_INVOKABLE bool        CreateProjectInFolder(const QString& folderUrlOrPath);
@@ -282,6 +287,7 @@ class AlbumBackend final : public QObject {
   void ServiceStateChanged();
   void RecentProjectsChanged();
   void AcceleratorStateChanged();
+  void AcceleratorPreparationStateChanged();
   void TaskStateChanged();
   void ImportStateChanged();
   void importStateChanged();
@@ -316,6 +322,8 @@ class AlbumBackend final : public QObject {
   void SetTaskState(const i18n::LocalizedText& status, int progress, bool cancelVisible);
   void RefreshTranslations();
   void InitializeAcceleratorSettings();
+  void StartOpenClPreparationIfNeeded();
+  void SetAcceleratorPreparationState(bool preparing, const i18n::LocalizedText& status);
   void RebuildAcceleratorOptions();
   void ApplyAcceleratorPreferenceToServices();
   bool IsAcceleratorWarningAcknowledged() const;
@@ -357,6 +365,9 @@ class AlbumBackend final : public QObject {
   QString                      accelerator_warning_id_{};
   QVariantList                 accelerator_options_{};
   i18n::LocalizedText          accelerator_warning_text_{};
+  i18n::LocalizedText          accelerator_preparation_status_text_{};
+  bool                         accelerator_preparing_      = false;
+  bool                         accelerator_prepare_started_ = false;
   bool                         cuda_backend_available_   = false;
   bool                         opencl_backend_available_ = false;
   bool                         metal_backend_available_  = false;

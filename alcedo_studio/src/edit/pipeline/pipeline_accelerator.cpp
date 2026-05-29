@@ -39,7 +39,7 @@ auto IsCudaRuntimeAvailable() -> bool {
 
 auto TryOpenClRuntime() -> bool {
 #ifdef HAVE_OPENCL
-  return TryPrepareOpenClRuntime();
+  return TryInitializeOpenClRuntime();
 #else
   return false;
 #endif
@@ -47,7 +47,7 @@ auto TryOpenClRuntime() -> bool {
 
 void PrepareExplicitOpenClRuntime() {
 #ifdef HAVE_OPENCL
-  PrepareOpenClRuntime();
+  InitializeOpenClRuntime();
 #else
   throw std::runtime_error("OpenCL accelerator backend is not compiled.");
 #endif

@@ -124,7 +124,9 @@ ApplicationWindow {
     property bool gridMode: true
     readonly property int defaultGridZoomLevel: 4
     property int gridZoomLevel: defaultGridZoomLevel  // 0..7, maps to column counts 2/3/4/5/6/8/11/14
-    readonly property bool backendInteractive: albumBackend.serviceReady && !albumBackend.projectLoading
+    readonly property bool backendInteractive: albumBackend.serviceReady
+                                               && !albumBackend.projectLoading
+                                               && !albumBackend.acceleratorPreparing
     readonly property var selectedImagesById: selectionState.selectedImagesById
     readonly property var exportQueueById: exportQueueState.exportQueueById
     readonly property var exportPreviewRows: exportQueueState.exportPreviewRows
@@ -139,7 +141,12 @@ ApplicationWindow {
     property bool importSessionObserved: false
     property bool exportSessionObserved: false
     property int lastObservedExportCompleted: 0
+    property bool projectLaunchPending: false
     property bool welcomeDismissedForLaunch: false
+    readonly property bool projectLoadingOverlayVisible: root.projectLaunchPending || albumBackend.projectLoading
+    readonly property bool projectLaunchBusy: root.projectLoadingOverlayVisible || root.pendingProjectLaunchAction !== null
+    property var pendingProjectLaunchAction: null
+    property bool restoreWelcomeOnProjectLaunchFailure: false
     property var imageDetailsData: ({
         title: "",
         subtitle: "",
@@ -147,7 +154,36 @@ ApplicationWindow {
     })
 
     onWelcomeDismissedForLaunchChanged: updateWelcomeDialogVisibility()
-    Component.onCompleted: updateWelcomeDialogVisibility()
+    Component.onCompleted: {
+        updateWelcomeDialogVisibility()
+        acceleratorPreparationStartTimer.start()
+    }
+
+    Timer {
+        id: acceleratorPreparationStartTimer
+        interval: 16
+        repeat: false
+        onTriggered: albumBackend.StartAcceleratorPreparation()
+    }
+
+    Timer {
+        id: projectLaunchTimer
+        interval: 16
+        repeat: false
+        onTriggered: {
+            const loadAction = root.pendingProjectLaunchAction
+            root.pendingProjectLaunchAction = null
+            const started = loadAction ? loadAction() : false
+            if (!started && !albumBackend.projectLoading) {
+                root.projectLaunchPending = false
+                if (root.restoreWelcomeOnProjectLaunchFailure) {
+                    root.welcomeDismissedForLaunch = false
+                }
+                root.updateWelcomeDialogVisibility()
+            }
+            root.restoreWelcomeOnProjectLaunchFailure = false
+        }
+    }
 
     function showSnackbar(messageText) {
         if (!messageText || String(messageText).trim().length === 0) {
@@ -182,6 +218,27 @@ ApplicationWindow {
 
     function dismissWelcomeForProjectLaunch() {
         root.welcomeDismissedForLaunch = true
+    }
+
+    function beginProjectLaunch(loadAction) {
+        if (albumBackend.acceleratorPreparing) {
+            return
+        }
+        root.restoreWelcomeOnProjectLaunchFailure = !albumBackend.serviceReady
+        root.pendingProjectLaunchAction = loadAction
+        root.dismissWelcomeForProjectLaunch()
+        root.updateWelcomeDialogVisibility()
+        if (!welcomeDialog.opened && !welcomeDialog.visible) {
+            root.startPendingProjectLaunch()
+        }
+    }
+
+    function startPendingProjectLaunch() {
+        if (!root.pendingProjectLaunchAction) {
+            return
+        }
+        root.projectLaunchPending = true
+        projectLaunchTimer.restart()
     }
 
     function updateWelcomeDialogVisibility() {
@@ -675,6 +732,7 @@ ApplicationWindow {
         target: albumBackend
         ignoreUnknownSignals: true
         function onProjectChanged() {
+            root.projectLaunchPending = false
             root.welcomeDismissedForLaunch = false
             root.updateWelcomeDialogVisibility()
             selectionState.clearSelectedImages()
@@ -704,6 +762,7 @@ ApplicationWindow {
             root.updateWelcomeDialogVisibility()
         }
         function onProjectLoadStateChanged() {
+            root.projectLaunchPending = false
             if (!albumBackend.projectLoading) {
                 root.welcomeDismissedForLaunch = false
             }
@@ -853,13 +912,17 @@ ApplicationWindow {
 
                         MenuItem {
                             text: qsTr("Load Project")
-                            enabled: !albumBackend.projectLoading
-                            onTriggered: albumBackend.PromptAndLoadProject()
+                            enabled: !root.projectLaunchBusy && !albumBackend.acceleratorPreparing
+                            onTriggered: root.beginProjectLaunch(function() {
+                                return albumBackend.PromptAndLoadProject()
+                            })
                         }
                         MenuItem {
                             text: qsTr("Create Project")
-                            enabled: !albumBackend.projectLoading
-                            onTriggered: albumBackend.PromptAndCreateProject()
+                            enabled: !root.projectLaunchBusy && !albumBackend.acceleratorPreparing
+                            onTriggered: root.beginProjectLaunch(function() {
+                                return albumBackend.PromptAndCreateProject()
+                            })
                         }
                         MenuSeparator {
                         }
@@ -1281,7 +1344,9 @@ ApplicationWindow {
                                 text: qsTr("Load Project")
                                 Material.background: root.colButtonPrimary
                                 Material.foreground: root.colText
-                                onClicked: albumBackend.PromptAndLoadProject()
+                                onClicked: root.beginProjectLaunch(function() {
+                                    return albumBackend.PromptAndLoadProject()
+                                })
                             }
                         }
                     }
@@ -1603,20 +1668,14 @@ ApplicationWindow {
         overlayColor: root.colOverlay
         baseColor: root.colBgCanvas
         onLoadRequested: {
-            root.dismissWelcomeForProjectLaunch()
-            root.updateWelcomeDialogVisibility()
-            if (!albumBackend.PromptAndLoadProject()) {
-                root.welcomeDismissedForLaunch = false
-                root.updateWelcomeDialogVisibility()
-            }
+            root.beginProjectLaunch(function() {
+                return albumBackend.PromptAndLoadProject()
+            })
         }
         onCreateRequested: function(projectName, storageLocation) {
-            root.dismissWelcomeForProjectLaunch()
-            root.updateWelcomeDialogVisibility()
-            if (!albumBackend.CreateProjectInFolderNamed(storageLocation, projectName)) {
-                root.welcomeDismissedForLaunch = false
-                root.updateWelcomeDialogVisibility()
-            }
+            root.beginProjectLaunch(function() {
+                return albumBackend.CreateProjectInFolderNamed(storageLocation, projectName)
+            })
         }
         onExitRequested: Qt.quit()
         onLanguageRequested: function(languageCode) {
@@ -1629,11 +1688,190 @@ ApplicationWindow {
         }
         onAcceleratorWarningAcknowledged: albumBackend.AcknowledgeAcceleratorWarning()
         onRecentProjectRequested: function(projectPath) {
-            root.dismissWelcomeForProjectLaunch()
-            root.updateWelcomeDialogVisibility()
-            if (!albumBackend.LoadProject(projectPath)) {
-                root.welcomeDismissedForLaunch = false
-                root.updateWelcomeDialogVisibility()
+            root.beginProjectLaunch(function() {
+                return albumBackend.LoadProject(projectPath)
+            })
+        }
+        onClosed: root.startPendingProjectLaunch()
+    }
+
+    // ── Accelerator preparation overlay ───────────────────────────────
+    Item {
+        id: acceleratorPreparationOverlay
+        parent: Overlay.overlay
+        anchors.fill: parent
+        visible: albumBackend.acceleratorPreparing
+        z: 70
+
+        ShaderEffectSource {
+            id: acceleratorPreparationSnapshot
+            width: mainContent.width
+            height: mainContent.height
+            sourceItem: mainContent
+            sourceRect: Qt.rect(0, 0, mainContent.width, mainContent.height)
+            textureSize: Qt.size(Math.max(1, mainContent.width), Math.max(1, mainContent.height))
+            live: true
+            recursive: false
+            hideSource: false
+            visible: false
+        }
+
+        MultiEffect {
+            x: mainContent.x
+            y: mainContent.y
+            width: mainContent.width
+            height: mainContent.height
+            source: acceleratorPreparationSnapshot
+            blurEnabled: true
+            blur: 0.6
+            blurMax: 64
+            saturation: -0.2
+            autoPaddingEnabled: false
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            color: root.colOverlay
+        }
+
+        MouseArea { anchors.fill: parent; hoverEnabled: true }
+
+        Rectangle {
+            anchors.centerIn: parent
+            width: Math.min(parent.width - 36, 420)
+            height: acceleratorPreparationContent.implicitHeight + 36
+            radius: 14
+            color: root.colBgDeep
+            border.width: 0
+
+            ColumnLayout {
+                id: acceleratorPreparationContent
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: 20
+                spacing: 16
+
+                Label {
+                    text: qsTr("Preparing OpenCL")
+                    font.family: root.headlineFontFamily
+                    font.pixelSize: 21
+                    font.weight: 700
+                    color: root.colText
+                    Layout.alignment: Qt.AlignHCenter
+                }
+
+                ImportProgressRing {
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.preferredWidth: 160
+                    Layout.preferredHeight: 160
+                    ringWidth: 14
+                    trackColor: root.colHover
+                    fillColor: root.colAccentPrimary
+                    indeterminate: true
+                    running: albumBackend.acceleratorPreparing
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    horizontalAlignment: Text.AlignHCenter
+                    text: albumBackend.acceleratorPreparationStatus.length > 0
+                          ? albumBackend.acceleratorPreparationStatus
+                          : qsTr("Compiling kernels...")
+                    color: root.colTextMuted
+                    font.pixelSize: 12
+                }
+            }
+        }
+    }
+
+    // ── Project loading overlay ────────────────────────────────────────
+    Item {
+        id: projectLoadingOverlay
+        anchors.fill: parent
+        visible: root.projectLoadingOverlayVisible
+        z: 45
+
+        ShaderEffectSource {
+            id: projectLoadingSnapshot
+            width: mainContent.width
+            height: mainContent.height
+            sourceItem: mainContent
+            sourceRect: Qt.rect(0, 0, mainContent.width, mainContent.height)
+            textureSize: Qt.size(Math.max(1, mainContent.width), Math.max(1, mainContent.height))
+            live: true
+            recursive: false
+            hideSource: false
+            visible: false
+        }
+
+        MultiEffect {
+            x: mainContent.x
+            y: mainContent.y
+            width: mainContent.width
+            height: mainContent.height
+            source: projectLoadingSnapshot
+            blurEnabled: true
+            blur: 0.6
+            blurMax: 64
+            saturation: -0.2
+            autoPaddingEnabled: false
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            color: root.colOverlay
+        }
+
+        MouseArea { anchors.fill: parent; hoverEnabled: true }
+
+        Rectangle {
+            anchors.centerIn: parent
+            width: Math.min(parent.width - 36, 420)
+            height: projectLoadingContent.implicitHeight + 36
+            radius: 14
+            color: root.colBgDeep
+            border.width: 0
+
+            ColumnLayout {
+                id: projectLoadingContent
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: 20
+                spacing: 16
+
+                Label {
+                    text: qsTr("Loading Project")
+                    font.family: root.headlineFontFamily
+                    font.pixelSize: 21
+                    font.weight: 700
+                    color: root.colText
+                    Layout.alignment: Qt.AlignHCenter
+                }
+
+                ImportProgressRing {
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.preferredWidth: 160
+                    Layout.preferredHeight: 160
+                    ringWidth: 14
+                    trackColor: root.colHover
+                    fillColor: root.colAccentPrimary
+                    indeterminate: true
+                    running: root.projectLoadingOverlayVisible
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    horizontalAlignment: Text.AlignHCenter
+                    text: albumBackend.projectLoadingMessage.length > 0
+                          ? albumBackend.projectLoadingMessage
+                          : qsTr("Preparing library...")
+                    color: root.colTextMuted
+                    font.pixelSize: 12
+                }
             }
         }
     }

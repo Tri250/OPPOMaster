@@ -241,6 +241,13 @@ void OpenClProgramLibrary::WarmUpRequiredPrograms() {
   }
 }
 
+void OpenClProgramLibrary::WarmUpAllPrograms() {
+  const auto program_names = RegisteredProgramNames();
+  for (const auto& program_name : program_names) {
+    (void)GetProgram(program_name);
+  }
+}
+
 auto OpenClProgramLibrary::GetProgram(std::string_view name) -> cl_program {
   auto                         slot = GetProgramSlot(std::string(name));
 
