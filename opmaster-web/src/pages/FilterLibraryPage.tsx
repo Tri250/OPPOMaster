@@ -53,15 +53,15 @@ export default function FilterLibraryPage() {
   }
 
   return (
-    <div className="min-h-screen bg-deep-space text-white">
-      <header className="sticky top-0 z-40 bg-deep-space/90 backdrop-blur-xl border-b border-white/5">
+    <div className="min-h-screen bg-oppo-black text-text-primary">
+      <header className="sticky top-0 z-40 bg-oppo-black/90 backdrop-blur-xl border-b border-white/5">
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
-          <h1 className="text-lg font-semibold">滤镜库</h1>
+          <h1 className="text-h3 font-semibold">滤镜库</h1>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setViewMode('grid')}
-              className={`p-2 rounded-oppo transition-colors duration-200 touch-feedback ${
-                viewMode === 'grid' ? 'bg-oppo-sunrise-gold/20 text-oppo-sunrise-gold' : 'text-text-tertiary hover:text-white'
+              className={`p-2 rounded-lg transition-colors duration-200 touch-feedback ${
+                viewMode === 'grid' ? 'bg-oppo-orange/20 text-oppo-orange' : 'text-text-tertiary hover:text-text-primary'
               }`}
               aria-label="网格视图"
             >
@@ -69,8 +69,8 @@ export default function FilterLibraryPage() {
             </button>
             <button
               onClick={() => setViewMode('list')}
-              className={`p-2 rounded-oppo transition-colors duration-200 touch-feedback ${
-                viewMode === 'list' ? 'bg-oppo-sunrise-gold/20 text-oppo-sunrise-gold' : 'text-text-tertiary hover:text-white'
+              className={`p-2 rounded-lg transition-colors duration-200 touch-feedback ${
+                viewMode === 'list' ? 'bg-oppo-orange/20 text-oppo-orange' : 'text-text-tertiary hover:text-text-primary'
               }`}
               aria-label="列表视图"
             >
@@ -88,7 +88,7 @@ export default function FilterLibraryPage() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="搜索滤镜或作者..."
-            className="w-full pl-12 pr-4 py-3 bg-white/5 border border-white/10 rounded-oppo text-white placeholder-text-tertiary focus:outline-none focus:border-oppo-sunrise-gold/50 transition-colors duration-200"
+            className="w-full pl-12 pr-4 py-3 bg-white/5 border border-white/10 rounded-xl text-text-primary placeholder-text-tertiary focus:outline-none focus:border-oppo-orange/50 transition-colors duration-200"
             aria-label="搜索滤镜"
           />
         </div>
@@ -100,8 +100,8 @@ export default function FilterLibraryPage() {
               onClick={() => setActiveCategory(cat.name)}
               className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all duration-200 touch-feedback ${
                 activeCategory === cat.name
-                  ? 'bg-oppo-sunrise-gold text-deep-space'
-                  : 'bg-white/10 text-text-secondary hover:bg-white/20 hover:text-white'
+                  ? 'bg-oppo-orange text-oppo-black'
+                  : 'bg-white/10 text-text-secondary hover:bg-white/20 hover:text-text-primary'
               }`}
             >
               {cat.name} ({cat.count})
