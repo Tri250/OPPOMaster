@@ -5,12 +5,13 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,6 +22,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -29,6 +31,10 @@ import coil.compose.AsyncImage
 import com.omaster.app.model.Preset
 import com.omaster.app.ui.theme.*
 import com.omaster.app.ui.animation.*
+import android.widget.Toast
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 
 enum class FilterStyle(val displayName: String, val color: Color) {
     STANDARD("标准", Color(0xFF8E8E93)),
@@ -61,6 +67,15 @@ data class RankedPreset(
     val filterStyle: FilterStyle
 )
 
+enum class SortField {
+    NAME, CREATED_AT
+}
+
+enum class SortOrder {
+    ASCENDING, DESCENDING
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PresetEditorScreen(
     onBack: () -> Unit,
@@ -76,7 +91,15 @@ fun PresetEditorScreen(
     var presetName by remember { mutableStateOf("") }
     var showSaveDialog by remember { mutableStateOf(false) }
     var showContributeDialog by remember { mutableStateOf(false) }
-
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var showSortDialog by remember { mutableStateOf(false) }
+    var showImportDialog by remember { mutableStateOf(false) }
+    var editingPreset by remember { mutableStateOf<SavedPreset?>(null) }
+    var newPresetName by remember { mutableStateOf("") }
+    var sortField by remember { mutableStateOf(SortField.CREATED_AT) }
+    var sortOrder by remember { mutableStateOf(SortOrder.DESCENDING) }
+    var snackbarMessage by remember { mutableStateOf<String?>(null) }
+    
     val savedPresets = remember {
         mutableStateListOf(
             SavedPreset("1", "我的复古预设", FilterStyle.VINTAGE, System.currentTimeMillis() - 86400000),
@@ -105,51 +128,101 @@ fun PresetEditorScreen(
         )
     }
 
-    Scaffold(
-        modifier = modifier,
-        topBar = {
-            PresetEditorTopBar(
-                onBack = onBack,
-                presetName = presetName,
-                onPresetNameChange = { presetName = it }
-            )
-        },
-        containerColor = MaterialTheme.colorScheme.background
-    ) { paddingValues ->
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
-            PreviewPanel(
-                filterStyle = selectedFilterStyle,
-                filterIntensity = filterIntensity,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-            )
+    val sortedPresets = remember(savedPresets, sortField, sortOrder) {
+        savedPresets.sortedWith(
+            when (sortField) {
+                SortField.NAME -> if (sortOrder == SortOrder.ASCENDING) 
+                    compareBy { it.name } 
+                else 
+                    compareByDescending { it.name }
+                SortField.CREATED_AT -> if (sortOrder == SortOrder.ASCENDING) 
+                    compareBy { it.createdAt } 
+                else 
+                    compareByDescending { it.createdAt }
+            }
+        )
+    }
 
-            ParameterPanel(
-                selectedFilterStyle = selectedFilterStyle,
-                onFilterStyleSelected = { selectedFilterStyle = it },
-                filterIntensity = filterIntensity,
-                onFilterIntensityChange = { filterIntensity = it },
-                saturation = saturation,
-                onSaturationChange = { saturation = it },
-                contrast = contrast,
-                onContrastChange = { contrast = it },
-                brightness = brightness,
-                onBrightnessChange = { brightness = it },
-                colorTemperature = colorTemperature,
-                onColorTemperatureChange = { colorTemperature = it },
-                vignetteEnabled = vignetteEnabled,
-                onVignetteToggle = { vignetteEnabled = it },
-                onSavePreset = { showSaveDialog = true },
-                onContribute = { showContributeDialog = true },
+    fun showSnackbar(message: String) {
+        snackbarMessage = message
+    }
+
+    LaunchedEffect(snackbarMessage) {
+        if (snackbarMessage != null) {
+            kotlinx.coroutines.delay(3000)
+            snackbarMessage = null
+        }
+    }
+
+    Box(modifier = modifier.fillMaxSize()) {
+        Scaffold(
+            topBar = {
+                PresetEditorTopBar(
+                    onBack = onBack,
+                    presetName = presetName,
+                    onPresetNameChange = { presetName = it }
+                )
+            },
+            containerColor = MaterialTheme.colorScheme.background
+        ) { paddingValues ->
+            Column(
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-            )
+                    .fillMaxSize()
+                    .padding(paddingValues)
+            ) {
+                PreviewPanel(
+                    filterStyle = selectedFilterStyle,
+                    filterIntensity = filterIntensity,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                )
+
+                ParameterPanel(
+                    selectedFilterStyle = selectedFilterStyle,
+                    onFilterStyleSelected = { selectedFilterStyle = it },
+                    filterIntensity = filterIntensity,
+                    onFilterIntensityChange = { filterIntensity = it },
+                    saturation = saturation,
+                    onSaturationChange = { saturation = it },
+                    contrast = contrast,
+                    onContrastChange = { contrast = it },
+                    brightness = brightness,
+                    onBrightnessChange = { brightness = it },
+                    colorTemperature = colorTemperature,
+                    onColorTemperatureChange = { colorTemperature = it },
+                    vignetteEnabled = vignetteEnabled,
+                    onVignetteToggle = { vignetteEnabled = it },
+                    onSavePreset = { showSaveDialog = true },
+                    onContribute = { showContributeDialog = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1.5f)
+                )
+            }
+        }
+
+        AnimatedVisibility(
+            visible = snackbarMessage != null,
+            enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
+            exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 100.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = AccentPrimary.copy(alpha = 0.95f),
+                shadowElevation = 8.dp
+            ) {
+                Text(
+                    text = snackbarMessage ?: "",
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                    color = OppoDeepSpace,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
         }
     }
 
@@ -169,6 +242,9 @@ fun PresetEditorScreen(
                         )
                     )
                     showSaveDialog = false
+                    showSnackbar("预设保存成功")
+                } else {
+                    showSnackbar("请输入预设名称")
                 }
             },
             onDismiss = { showSaveDialog = false }
@@ -181,6 +257,68 @@ fun PresetEditorScreen(
             onDismiss = { showContributeDialog = false }
         )
     }
+
+    if (showRenameDialog && editingPreset != null) {
+        RenamePresetDialog(
+            currentName = editingPreset!!.name,
+            newName = newPresetName,
+            onNewNameChange = { newPresetName = it },
+            onConfirm = {
+                if (newPresetName.isNotBlank()) {
+                    val index = savedPresets.indexOfFirst { it.id == editingPreset!!.id }
+                    if (index != -1) {
+                        savedPresets[index] = editingPreset!!.copy(name = newPresetName)
+                        showSnackbar("预设已重命名")
+                    }
+                    showRenameDialog = false
+                    editingPreset = null
+                    newPresetName = ""
+                } else {
+                    showSnackbar("请输入有效的名称")
+                }
+            },
+            onDismiss = {
+                showRenameDialog = false
+                editingPreset = null
+                newPresetName = ""
+            }
+        )
+    }
+
+    if (showSortDialog) {
+        SortPresetDialog(
+            currentSortField = sortField,
+            currentSortOrder = sortOrder,
+            onSortChange = { field, order ->
+                sortField = field
+                sortOrder = order
+                showSnackbar("排序已更新")
+            },
+            onDismiss = { showSortDialog = false }
+        )
+    }
+
+    if (showImportDialog) {
+        ImportPresetDialog(
+            onImport = { jsonContent ->
+                try {
+                    val imported = parsePresetsFromJson(jsonContent)
+                    savedPresets.addAll(imported.mapIndexed { index, preset ->
+                        preset.copy(id = (System.currentTimeMillis() + index).toString())
+                    })
+                    showSnackbar("成功导入 ${imported.size} 个预设")
+                } catch (e: Exception) {
+                    showSnackbar("导入失败：${e.message}")
+                }
+                showImportDialog = false
+            },
+            onDismiss = { showImportDialog = false }
+        )
+    }
+}
+
+private fun parsePresetsFromJson(json: String): List<SavedPreset> {
+    return emptyList()
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -243,8 +381,7 @@ fun PreviewPanel(
     var isClicked by remember { mutableStateOf(false) }
 
     Column(
-        modifier = modifier
-            .padding(12.dp),
+        modifier = modifier.padding(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Card(
@@ -255,7 +392,7 @@ fun PreviewPanel(
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
             ),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
         ) {
             Box(
                 modifier = Modifier
@@ -528,7 +665,7 @@ fun FilterStyleChips(
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            FilterStyle.values().take(4).forEach { style ->
+            FilterStyle.entries.take(4).forEach { style ->
                 FilterStyleChip(
                     style = style,
                     selected = selectedStyle == style,
@@ -540,7 +677,7 @@ fun FilterStyleChips(
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            FilterStyle.values().drop(4).take(4).forEach { style ->
+            FilterStyle.entries.drop(4).take(4).forEach { style ->
                 FilterStyleChip(
                     style = style,
                     selected = selectedStyle == style,
@@ -552,7 +689,7 @@ fun FilterStyleChips(
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            FilterStyle.values().drop(8).forEach { style ->
+            FilterStyle.entries.drop(8).forEach { style ->
                 FilterStyleChip(
                     style = style,
                     selected = selectedStyle == style,
@@ -900,6 +1037,230 @@ fun SavePresetDialog(
                 shape = RoundedCornerShape(8.dp)
             ) {
                 Text("保存")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(20.dp)
+    )
+}
+
+@Composable
+fun RenamePresetDialog(
+    currentName: String,
+    newName: String,
+    onNewNameChange: (String) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "重命名预设",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column {
+                Text(
+                    text = "当前名称: $currentName",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = newName,
+                    onValueChange = onNewNameChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("新名称") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = AccentPrimary,
+                        cursorColor = AccentPrimary
+                    )
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                enabled = newName.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = AccentPrimary,
+                    contentColor = OppoDeepSpace
+                ),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text("确定")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(20.dp)
+    )
+}
+
+@Composable
+fun SortPresetDialog(
+    currentSortField: SortField,
+    currentSortOrder: SortOrder,
+    onSortChange: (SortField, SortOrder) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "排序方式",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SortOptionItem(
+                    label = "按名称排序",
+                    isSelected = currentSortField == SortField.NAME,
+                    sortOrder = if (currentSortField == SortField.NAME) currentSortOrder else null,
+                    onClick = {
+                        if (currentSortField == SortField.NAME) {
+                            onSortChange(SortField.NAME, 
+                                if (currentSortOrder == SortOrder.ASCENDING) SortOrder.DESCENDING else SortOrder.ASCENDING
+                            )
+                        } else {
+                            onSortChange(SortField.NAME, SortOrder.ASCENDING)
+                        }
+                        onDismiss()
+                    }
+                )
+                SortOptionItem(
+                    label = "按时间排序",
+                    isSelected = currentSortField == SortField.CREATED_AT,
+                    sortOrder = if (currentSortField == SortField.CREATED_AT) currentSortOrder else null,
+                    onClick = {
+                        if (currentSortField == SortField.CREATED_AT) {
+                            onSortChange(SortField.CREATED_AT,
+                                if (currentSortOrder == SortOrder.ASCENDING) SortOrder.DESCENDING else SortOrder.ASCENDING
+                            )
+                        } else {
+                            onSortChange(SortField.CREATED_AT, SortOrder.DESCENDING)
+                        }
+                        onDismiss()
+                    }
+                )
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("关闭")
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(20.dp)
+    )
+}
+
+@Composable
+fun SortOptionItem(
+    label: String,
+    isSelected: Boolean,
+    sortOrder: SortOrder?,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        color = if (isSelected) AccentPrimary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant,
+        border = if (isSelected) BorderStroke(1.dp, AccentPrimary.copy(alpha = 0.3f)) else null
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (isSelected) AccentPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
+            )
+            if (isSelected && sortOrder != null) {
+                Icon(
+                    imageVector = if (sortOrder == SortOrder.ASCENDING) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
+                    contentDescription = null,
+                    tint = AccentPrimary
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun ImportPresetDialog(
+    onImport: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var importText by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "导入预设",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column {
+                Text(
+                    text = "粘贴JSON格式的预设数据",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = importText,
+                    onValueChange = { importText = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(150.dp),
+                    placeholder = { Text("在此粘贴JSON数据...") },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = AccentPrimary,
+                        cursorColor = AccentPrimary
+                    )
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onImport(importText) },
+                enabled = importText.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = AccentPrimary,
+                    contentColor = OppoDeepSpace
+                ),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text("导入")
             }
         },
         dismissButton = {
