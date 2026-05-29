@@ -10,66 +10,67 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import com.omaster.app.data.ThemeMode
 
-// ==================== OPPO 2026 深色配色方案 ====================
+// ==================== OPPO Master V2.0 深色配色方案 ====================
 private val OppoDarkColorScheme = darkColorScheme(
-    primary = OppoSunriseGold,
-    onPrimary = OppoDeepSpace,
-    primaryContainer = OppoSunriseGoldDark,
-    onPrimaryContainer = OppoTextPrimary,
-    secondary = OceanBlue,
-    onSecondary = Color.White,
-    secondaryContainer = OceanBlueDark,
-    onSecondaryContainer = OppoTextPrimary,
-    tertiary = HasselbladOrangePro,
-    onTertiary = OppoDeepSpace,
-    tertiaryContainer = HasselbladDarkPro,
-    onTertiaryContainer = OppoTextPrimary,
-    background = OppoDeepSpace,
-    onBackground = OppoTextPrimary,
-    surface = OppoCardSurface,
-    onSurface = OppoTextPrimary,
-    surfaceVariant = OppoElevated,
-    onSurfaceVariant = OppoTextSecondary,
-    outline = OppoBorder,
-    outlineVariant = OppoBorderLight,
-    error = ErrorVital,
-    onError = Color.White,
-    errorContainer = ErrorVital.copy(alpha = 0.15f),
-    onErrorContainer = OppoTextPrimary
+    primary = OppoOrange,
+    onPrimary = OppoBlack,
+    primaryContainer = OppoOrangeDark,
+    onPrimaryContainer = TextPrimary,
+    secondary = Info,
+    onSecondary = OppoWhite,
+    secondaryContainer = Neutral700,
+    onSecondaryContainer = TextPrimary,
+    tertiary = HasselbladOrange,
+    onTertiary = OppoBlack,
+    tertiaryContainer = Neutral700,
+    onTertiaryContainer = TextPrimary,
+    background = BgPrimary,
+    onBackground = TextPrimary,
+    surface = BgSecondary,
+    onSurface = TextPrimary,
+    surfaceVariant = BgElevated,
+    onSurfaceVariant = TextSecondary,
+    outline = BorderDefault,
+    outlineVariant = BorderLight,
+    error = Error,
+    onError = OppoWhite,
+    errorContainer = Error.copy(alpha = 0.15f),
+    onErrorContainer = TextPrimary
 )
 
-// ==================== OPPO 2026 浅色配色方案 ====================
+// ==================== OPPO Master V2.0 浅色配色方案 ====================
 private val OppoLightColorScheme = lightColorScheme(
-    primary = OppoSunriseGold,
-    onPrimary = Color.White,
-    primaryContainer = OppoSunriseGoldLight,
-    onPrimaryContainer = OppoLightTextPrimary,
-    secondary = OceanBlue,
-    onSecondary = Color.White,
-    secondaryContainer = OceanBlueLight,
-    onSecondaryContainer = OppoLightTextPrimary,
-    tertiary = HasselbladOrangePro,
-    onTertiary = Color.White,
-    tertiaryContainer = HasselbladOrangeVibrant,
-    onTertiaryContainer = OppoLightTextPrimary,
-    background = OppoLightBackground,
-    onBackground = OppoLightTextPrimary,
-    surface = OppoLightSurface,
-    onSurface = OppoLightTextPrimary,
-    surfaceVariant = OppoLightElevated,
-    onSurfaceVariant = OppoLightTextSecondary,
-    outline = OppoLightBorder,
-    outlineVariant = OppoLightBorderLight,
-    error = ErrorVital,
-    onError = Color.White,
-    errorContainer = ErrorVital.copy(alpha = 0.15f),
-    onErrorContainer = OppoLightTextPrimary
+    primary = OppoOrange,
+    onPrimary = OppoWhite,
+    primaryContainer = OppoOrangeLight,
+    onPrimaryContainer = TextLightPrimary,
+    secondary = Info,
+    onSecondary = OppoWhite,
+    secondaryContainer = Neutral100,
+    onSecondaryContainer = TextLightPrimary,
+    tertiary = HasselbladOrange,
+    onTertiary = OppoWhite,
+    tertiaryContainer = Neutral100,
+    onTertiaryContainer = TextLightPrimary,
+    background = BgLightPrimary,
+    onBackground = TextLightPrimary,
+    surface = BgLightSecondary,
+    onSurface = TextLightPrimary,
+    surfaceVariant = Neutral50,
+    onSurfaceVariant = TextLightSecondary,
+    outline = BorderLightDefault,
+    outlineVariant = Neutral200,
+    error = Error,
+    onError = OppoWhite,
+    errorContainer = Error.copy(alpha = 0.15f),
+    onErrorContainer = TextLightPrimary
 )
 
 @Composable
