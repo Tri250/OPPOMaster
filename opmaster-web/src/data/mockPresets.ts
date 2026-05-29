@@ -11,7 +11,6 @@ export type SectionItem = {
 
 // OPPO FindX9spro哈苏大师模式相机参数格式
 export type HasselbladMasterParams = {
-  mode: 'master' | 'pro' | 'auto';
   filter: string;
   filter_intensity: number;
   soft_light: string;
@@ -122,7 +121,6 @@ export const mockPresets: Preset[] = [
       }
     ],
     cameraParams: {
-      mode: 'master',
       filter: '明艳',
       filter_intensity: 100,
       soft_light: '无',
@@ -171,7 +169,6 @@ export const mockPresets: Preset[] = [
       }
     ],
     cameraParams: {
-      mode: 'master',
       filter: '复古',
       filter_intensity: 100,
       soft_light: '无',
@@ -220,7 +217,6 @@ export const mockPresets: Preset[] = [
       }
     ],
     cameraParams: {
-      mode: 'master',
       filter: '复古',
       filter_intensity: 75,
       soft_light: '柔美',
@@ -269,7 +265,6 @@ export const mockPresets: Preset[] = [
       }
     ],
     cameraParams: {
-      mode: 'master',
       filter: '童话',
       filter_intensity: 73,
       soft_light: '梦幻',
@@ -318,7 +313,6 @@ export const mockPresets: Preset[] = [
       }
     ],
     cameraParams: {
-      mode: 'master',
       filter: '黑白',
       filter_intensity: 100,
       soft_light: '柔美',
@@ -367,7 +361,7 @@ export const mockPresets: Preset[] = [
       }
     ],
     cameraParams: {
-      mode: 'master',
+
       filter: '清新',
       filter_intensity: 100,
       soft_light: '梦幻',
@@ -416,7 +410,7 @@ export const mockPresets: Preset[] = [
       }
     ],
     cameraParams: {
-      mode: 'master',
+
       filter: '通透',
       filter_intensity: 100,
       soft_light: '柔美',
@@ -462,7 +456,7 @@ export const mockPresets: Preset[] = [
       }
     ],
     cameraParams: {
-      mode: 'master',
+
       filter: '复古',
       filter_intensity: 100,
       soft_light: '梦幻',
@@ -515,7 +509,7 @@ export const mockPresets: Preset[] = [
       }
     ],
     cameraParams: {
-      mode: 'master',
+
       filter: '标准',
       filter_intensity: 0,
       soft_light: '梦幻',
@@ -564,7 +558,7 @@ export const mockPresets: Preset[] = [
       }
     ],
     cameraParams: {
-      mode: 'master',
+
       filter: '复古',
       filter_intensity: 60,
       soft_light: '无',
@@ -615,7 +609,7 @@ export const mockPresets: Preset[] = [
       }
     ],
     cameraParams: {
-      mode: 'master',
+
       filter: '正片',
       filter_intensity: 100,
       soft_light: '无',
@@ -664,7 +658,7 @@ export const mockPresets: Preset[] = [
       }
     ],
     cameraParams: {
-      mode: 'master',
+
       filter: '负片',
       filter_intensity: 100,
       soft_light: '无',
@@ -707,7 +701,7 @@ export const mockPresets: Preset[] = [
       }
     ],
     cameraParams: {
-      mode: 'master',
+
       filter: '明艳',
       filter_intensity: 100,
       soft_light: '无',
@@ -746,7 +740,7 @@ export const mockPresets: Preset[] = [
       }
     ],
     cameraParams: {
-      mode: 'master',
+
       filter: '通透',
       filter_intensity: 100,
       soft_light: '梦幻',
@@ -785,7 +779,7 @@ export const mockPresets: Preset[] = [
       }
     ],
     cameraParams: {
-      mode: 'master',
+
       filter: '清新',
       filter_intensity: 100,
       soft_light: '柔美',
@@ -824,7 +818,7 @@ export const mockPresets: Preset[] = [
       }
     ],
     cameraParams: {
-      mode: 'master',
+
       filter: '童话',
       filter_intensity: 80,
       soft_light: '柔美',
@@ -862,7 +856,7 @@ export const mockPresets: Preset[] = [
       }
     ],
     cameraParams: {
-      mode: 'master',
+
       filter: '黑白',
       filter_intensity: 100,
       soft_light: '无',
@@ -901,7 +895,7 @@ export const mockPresets: Preset[] = [
       }
     ],
     cameraParams: {
-      mode: 'master',
+
       filter: '明艳',
       filter_intensity: 90,
       soft_light: '无',
@@ -940,7 +934,7 @@ export const mockPresets: Preset[] = [
       }
     ],
     cameraParams: {
-      mode: 'master',
+
       filter: '复古',
       filter_intensity: 100,
       soft_light: '无',
@@ -979,7 +973,7 @@ export const mockPresets: Preset[] = [
       }
     ],
     cameraParams: {
-      mode: 'master',
+
       filter: '通透',
       filter_intensity: 85,
       soft_light: '无',
@@ -1018,7 +1012,7 @@ export const mockPresets: Preset[] = [
       }
     ],
     cameraParams: {
-      mode: 'master',
+
       filter: '清新',
       filter_intensity: 100,
       soft_light: '柔美',
@@ -1057,7 +1051,7 @@ export const mockPresets: Preset[] = [
       }
     ],
     cameraParams: {
-      mode: 'master',
+
       filter: '明艳',
       filter_intensity: 100,
       soft_light: '无',
@@ -1096,7 +1090,7 @@ export const mockPresets: Preset[] = [
       }
     ],
     cameraParams: {
-      mode: 'master',
+
       filter: '通透',
       filter_intensity: 100,
       soft_light: '无',
@@ -1135,7 +1129,7 @@ export const mockPresets: Preset[] = [
       }
     ],
     cameraParams: {
-      mode: 'master',
+
       filter: '通透',
       filter_intensity: 100,
       soft_light: '柔美',
@@ -1173,7 +1167,7 @@ export const mockPresets: Preset[] = [
       }
     ],
     cameraParams: {
-      mode: 'master',
+
       filter: '复古',
       filter_intensity: 75,
       soft_light: '无',
@@ -1212,7 +1206,7 @@ export const mockPresets: Preset[] = [
       }
     ],
     cameraParams: {
-      mode: 'master',
+
       filter: '通透',
       filter_intensity: 100,
       soft_light: '无',
@@ -1251,7 +1245,7 @@ export const mockPresets: Preset[] = [
       }
     ],
     cameraParams: {
-      mode: 'master',
+
       filter: '复古',
       filter_intensity: 85,
       soft_light: '无',

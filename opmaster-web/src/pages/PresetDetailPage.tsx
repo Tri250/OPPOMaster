@@ -197,7 +197,6 @@ export default function PresetDetailPage() {
                 
                 <div className="grid grid-cols-2 gap-4">
                   {[
-                    { label: '模式', value: preset.cameraParams.mode },
                     { label: '滤镜', value: `${preset.cameraParams.filter} ${preset.cameraParams.filter_intensity}%` },
                     { label: '柔光', value: preset.cameraParams.soft_light },
                     { label: '色调曲线', value: preset.cameraParams.tone_curve },

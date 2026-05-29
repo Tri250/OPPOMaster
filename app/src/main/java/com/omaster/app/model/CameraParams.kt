@@ -6,7 +6,6 @@ sealed interface ValidationResult {
 }
 
 data class CameraParams(
-    val mode: String = "master",
     val filter: String = "",
     val iso: Int = 64,
     val shutter: String = "1/200",

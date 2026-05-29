@@ -3,6 +3,7 @@ import { Camera, Sparkles, Smartphone, Layers, Palette, Zap, Heart, Star, ArrowR
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppStore } from '../store/useAppStore'
+import { mockPresets } from '../data/mockPresets'
 
 export default function AppShowcase() {
   const navigate = useNavigate()
@@ -31,25 +32,9 @@ export default function AppShowcase() {
 
   const handlePresetClick = (preset: any) => {
     // 找到匹配的预设数据
-    const fullPreset = showcasePresets.find(p => p.id === preset.id)
+    const fullPreset = mockPresets.find(p => p.id === preset.id)
     if (fullPreset) {
-      // 创建一个临时预设对象
-      const tempPreset = {
-        id: preset.id,
-        name: preset.name,
-        deviceModel: preset.device,
-        coverPath: '',
-        isFavorite: false,
-        isNew: preset.isNew,
-        author: '专业摄影师',
-        cameraParams: {
-          hncs: preset.isHNCS,
-          iso: 200,
-          wb: 'auto'
-        },
-        category: preset.isHNCS ? '哈苏认证' : '精选'
-      }
-      setSelectedPreset(tempPreset as any)
+      setSelectedPreset(fullPreset)
       navigate(`/preset/${preset.id}`)
     }
   }
