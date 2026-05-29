@@ -40,6 +40,7 @@ export type Preset = {
   source: 'omaster_cloud' | 'community';
   isFavorite: boolean;
   isNew?: boolean;
+  isFeatured?: boolean;
   category?: string;
   difficulty?: string;
   tags?: string[];

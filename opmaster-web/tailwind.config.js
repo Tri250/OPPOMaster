@@ -7,7 +7,7 @@ export default {
   theme: {
     extend: {
       colors: {
-        // ============ OPPO品牌核心色彩 - ColorOS 16 规范 ============
+        // OPPO品牌核心色彩 - ColorOS 16 规范
         'oppo-orange': '#FF6B35',
         'oppo-orange-dark': '#E55A2B',
         'oppo-orange-light': '#FFB399',
@@ -15,6 +15,7 @@ export default {
         'oppo-blue': '#3B82F6',
         'oppo-purple': '#8B5CF6',
         'oppo-pink': '#EC4899',
+        'oppo-black': '#0F0F0F',
         
         // 哈苏专业色彩
         'hasselblad-orange': '#D4A574',
@@ -95,6 +96,44 @@ export default {
         'ocean-blue': '#3B82F6',
         'rose-gold': '#EC4899',
         'pure-green': '#2DB47A',
+        
+        // 半透明白色
+        'white/3': 'rgba(255, 255, 255, 0.03)',
+        'white/5': 'rgba(255, 255, 255, 0.05)',
+        'white/6': 'rgba(255, 255, 255, 0.06)',
+        'white/8': 'rgba(255, 255, 255, 0.08)',
+        'white/10': 'rgba(255, 255, 255, 0.1)',
+        'white/15': 'rgba(255, 255, 255, 0.15)',
+        'white/20': 'rgba(255, 255, 255, 0.2)',
+        'white/30': 'rgba(255, 255, 255, 0.3)',
+        'white/40': 'rgba(255, 255, 255, 0.4)',
+        'white/50': 'rgba(255, 255, 255, 0.5)',
+        'white/60': 'rgba(255, 255, 255, 0.6)',
+        'white/70': 'rgba(255, 255, 255, 0.7)',
+        'white/80': 'rgba(255, 255, 255, 0.8)',
+        'white/85': 'rgba(255, 255, 255, 0.85)',
+        'white/90': 'rgba(255, 255, 255, 0.9)',
+        'white/95': 'rgba(255, 255, 255, 0.95)',
+        
+        // 半透明背景色
+        'bg-primary/85': 'rgba(15, 15, 15, 0.85)',
+        'bg-elevated/85': 'rgba(28, 28, 30, 0.85)',
+        
+        // 半透明黑色
+        'black/5': 'rgba(0, 0, 0, 0.05)',
+        'black/8': 'rgba(0, 0, 0, 0.08)',
+        'black/10': 'rgba(0, 0, 0, 0.1)',
+        'black/20': 'rgba(0, 0, 0, 0.2)',
+        'black/30': 'rgba(0, 0, 0, 0.3)',
+        'black/40': 'rgba(0, 0, 0, 0.4)',
+        'black/50': 'rgba(0, 0, 0, 0.5)',
+        'black/60': 'rgba(0, 0, 0, 0.6)',
+        
+        // 半透明边框
+        'border-light-default/50': 'rgba(224, 224, 224, 0.5)',
+        'border-oppo-orange/50': 'rgba(255, 107, 53, 0.5)',
+        'border-oppo-orange/30': 'rgba(255, 107, 53, 0.3)',
+        'border-hasselblad-orange/30': 'rgba(212, 165, 116, 0.3)',
       },
       fontFamily: {
         'sans': ['OPPO Sans 3.0', 'OPPO Sans', 'Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],

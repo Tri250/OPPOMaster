@@ -3,19 +3,13 @@ import {
   Maximize2, 
   Minimize2, 
   Smartphone, 
-  Settings, 
-  Eye, 
-  EyeOff,
   ChevronLeft,
   ChevronRight,
-  Play,
-  Pause,
   Layers,
   Palette,
   Sun,
   Moon,
-  Monitor,
-  Tablet
+  Monitor
 } from 'lucide-react';
 import { useState } from 'react';
 import { ColorOSSwitch } from '../components/common/ColorOSComponents';

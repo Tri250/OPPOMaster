@@ -88,13 +88,13 @@
   .btn-primary {
     @apply px-6 py-3.5 bg-gradient-to-r from-oppo-orange to-hasselblad-orange text-oppo-black font-bold rounded-2xl
            hover:shadow-oppo-glow-orange hover:scale-[1.02] hover:-translate-y-0.5
-           active:scale-[0.98] transition-all duration-200 ease-out-elastic;
+           active:scale-[0.98] transition-all duration-200 ease-oppo-bounce;
   }
 
   .btn-primary-large {
     @apply px-8 py-4 bg-gradient-to-r from-oppo-orange to-hasselblad-orange text-oppo-black font-bold rounded-2xl text-body1
            hover:shadow-oppo-glow-orange hover:scale-[1.02]
-           active:scale-[0.98] transition-all duration-200 ease-out-elastic;
+           active:scale-[0.98] transition-all duration-200 ease-oppo-bounce;
   }
 
   .btn-primary-outline {
@@ -171,7 +171,7 @@
     @apply card-oppo hover:border-oppo-orange/30 cursor-pointer
            hover:shadow-oppo-elevation-3 hover:-translate-y-1
            active:scale-[0.99] active:bg-bg-tertiary
-           transition-all duration-200 ease-out-elastic;
+           transition-all duration-200 ease-oppo-bounce;
   }
   
   .card-hncs {
@@ -239,11 +239,11 @@
      ColorOS 16 点击反馈
      ============================================ */
   .touch-feedback {
-    @apply transition-transform duration-200 ease-out-elastic active:scale-[0.98];
+    @apply transition-transform duration-200 ease-oppo-bounce active:scale-[0.98];
   }
 
   .touch-feedback-strong {
-    @apply transition-transform duration-200 ease-out-elastic active:scale-[0.96];
+    @apply transition-transform duration-200 ease-oppo-bounce active:scale-[0.96];
   }
   
   /* ============================================
@@ -393,7 +393,8 @@
    ColorOS 16 无障碍系统
    ============================================ */
 :focus-visible {
-  @apply outline-2 outline-offset-3 outline-oppo-orange rounded-2xl;
+  @apply outline-2 outline-oppo-orange rounded-2xl;
+  outline-offset: 12px;
 }
 
 /* ============================================

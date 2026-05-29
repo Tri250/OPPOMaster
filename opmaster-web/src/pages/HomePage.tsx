@@ -1,8 +1,7 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Camera, Sparkles, Star, Download, Search, TrendingUp, Heart, X, Menu, 
-  Palette, Layers, Zap, Settings, Edit3, Sliders, Share2, Award, ChevronRight,
-  CheckCircle, CloudSync, Globe, Users
+  Camera, Sparkles, Star, Download, TrendingUp, Heart, X, Menu, 
+  Palette, Layers, Zap, ChevronRight, CloudSync, Globe, Users, Settings
 } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -110,7 +109,6 @@ const samplePhotos = [
 
 export default function HomePage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('all');
   const navigate = useNavigate();
   const { getFilteredPresets } = useAppStore();

@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { Clock, X, Search } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 

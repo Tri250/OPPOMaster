@@ -20,6 +20,7 @@ interface SubscriptionState {
   subscriptions: SubscriptionSource[];
   activeSubscription: string | null;
   isChecking: boolean;
+  isSyncing: boolean;
   lastUpdate: string | null;
   updateAvailable: boolean;
   
@@ -123,6 +124,7 @@ export const useSubscriptionStore = create<SubscriptionState>()(
       ],
       activeSubscription: 'official',
       isChecking: false,
+      isSyncing: false,
       lastUpdate: null,
       updateAvailable: false,
       
@@ -217,7 +219,7 @@ export const useSubscriptionStore = create<SubscriptionState>()(
 
 export const useCloudSyncStore = create<CloudSyncState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       syncHistory: [
         {
           id: '1',
