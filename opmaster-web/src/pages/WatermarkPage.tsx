@@ -26,7 +26,7 @@ import {
 interface WatermarkTemplate {
   id: string;
   name: string;
-  brand: 'hasselblad' | 'oppo' | 'oneplus' | 'realme' | 'xiaomi' | 'samsung' | 'apple' | 'minimal' | 'film' | 'polaroid' | 'leica' | 'canon' | '2026-cyberpunk' | '2026-nature' | '2026-tech' | '2026-minimalist' | '2026-retro-future' | '2026-ocean' | '2026-aurora' | '2026-vintage' | '2026-neon' | '2026-classic' | '2026-elegant' | '2026-dynamic' | '2026-zen' | '2026-urban' | '2026-forest' | '2026-sky' | '2026-fire' | '2026-stone' | '2026-rainbow';
+  brand: 'hasselblad' | 'oppo' | 'oneplus' | 'realme' | 'xiaomi' | 'samsung' | 'apple' | 'minimal' | 'film' | 'polaroid' | 'leica' | 'canon' | '2026-cyberpunk' | '2026-nature' | '2026-tech' | '2026-minimalist' | '2026-retro-future' | '2026-ocean' | '2026-aurora' | '2026-vintage' | '2026-neon' | '2026-classic' | '2026-elegant' | '2026-dynamic' | '2026-zen' | '2026-urban' | '2026-forest' | '2026-sky' | '2026-fire' | '2026-stone' | '2026-rainbow' | '2026-oppo-find' | '2026-oneplus-13' | '2026-realme-gt' | '2026-xiaomi-15' | '2026-vivo-x200' | '2026-iqoo-13' | '2026-honor-magic' | '2026-hasselblad-pro' | '2026-hasselblad-natural' | '2026-hasselblad-classic' | '2026-hasselblad-film' | '2026-hasselblad-portrait' | '2026-hasselblad-landscape' | '2026-hasselblad-night' | '2026-hasselblad-street' | '2026-hasselblad-macro' | '2026-hasselblad-monochrome' | '2026-hasselblad-vintage';
   color: string;
   bgColor: string;
   secondaryColor: string;
@@ -379,6 +379,210 @@ const watermarkTemplates: WatermarkTemplate[] = [
     fontFamily: 'system-ui, -apple-system, sans-serif',
     fontSize: { title: 18, subtitle: 13, date: 11 },
     logo: '🌈'
+  },
+  // ==========================================
+  // 2026年国内手机品牌水印模板
+  // ==========================================
+  {
+    id: '2026-oppo-find',
+    name: 'OPPO Find X9 Ultra 2026',
+    brand: '2026-oppo-find',
+    color: '#00D7A0',
+    secondaryColor: '#00B888',
+    bgColor: 'rgba(0, 215, 160, 0.1)',
+    fontFamily: 'system-ui, -apple-system, sans-serif',
+    fontSize: { title: 19, subtitle: 14, date: 11 },
+    logo: 'OPPO'
+  },
+  {
+    id: '2026-oneplus-13',
+    name: 'OnePlus 13 Pro 2026',
+    brand: '2026-oneplus-13',
+    color: '#FF3333',
+    secondaryColor: '#E62E2E',
+    bgColor: 'rgba(255, 51, 51, 0.1)',
+    fontFamily: 'system-ui, -apple-system, sans-serif',
+    fontSize: { title: 18, subtitle: 13, date: 11 },
+    logo: '1+'
+  },
+  {
+    id: '2026-realme-gt',
+    name: 'realme GT7 Pro 2026',
+    brand: '2026-realme-gt',
+    color: '#FFC107',
+    secondaryColor: '#E6AC06',
+    bgColor: 'rgba(255, 193, 7, 0.1)',
+    fontFamily: 'system-ui, -apple-system, sans-serif',
+    fontSize: { title: 18, subtitle: 13, date: 11 },
+    logo: 'RM'
+  },
+  {
+    id: '2026-xiaomi-15',
+    name: 'Xiaomi 15 Ultra 2026',
+    brand: '2026-xiaomi-15',
+    color: '#FF6900',
+    secondaryColor: '#E65E00',
+    bgColor: 'rgba(255, 105, 0, 0.1)',
+    fontFamily: 'system-ui, -apple-system, sans-serif',
+    fontSize: { title: 18, subtitle: 13, date: 11 },
+    logo: 'MI'
+  },
+  {
+    id: '2026-vivo-x200',
+    name: 'vivo X200 Pro 2026',
+    brand: '2026-vivo-x200',
+    color: '#4169E1',
+    secondaryColor: '#3658C6',
+    bgColor: 'rgba(65, 105, 225, 0.1)',
+    fontFamily: 'system-ui, -apple-system, sans-serif',
+    fontSize: { title: 18, subtitle: 13, date: 11 },
+    logo: 'vivo'
+  },
+  {
+    id: '2026-iqoo-13',
+    name: 'iQOO 13 Pro 2026',
+    brand: '2026-iqoo-13',
+    color: '#0066FF',
+    secondaryColor: '#0055CC',
+    bgColor: 'rgba(0, 102, 255, 0.1)',
+    fontFamily: 'system-ui, -apple-system, sans-serif',
+    fontSize: { title: 18, subtitle: 13, date: 11 },
+    logo: 'iQOO'
+  },
+  {
+    id: '2026-honor-magic',
+    name: 'Honor Magic 7 Pro 2026',
+    brand: '2026-honor-magic',
+    color: '#00B894',
+    secondaryColor: '#009C7F',
+    bgColor: 'rgba(0, 184, 148, 0.1)',
+    fontFamily: 'system-ui, -apple-system, sans-serif',
+    fontSize: { title: 18, subtitle: 13, date: 11 },
+    logo: 'Honor'
+  },
+  // ==========================================
+  // 2026年哈苏水印模板
+  // ==========================================
+  {
+    id: '2026-hasselblad-pro',
+    name: '哈苏专业 2026',
+    brand: '2026-hasselblad-pro',
+    color: '#D4A574',
+    secondaryColor: '#C49664',
+    bgColor: 'rgba(212, 165, 116, 0.12)',
+    fontFamily: 'Georgia, serif',
+    fontSize: { title: 19, subtitle: 14, date: 12 },
+    logo: 'H'
+  },
+  {
+    id: '2026-hasselblad-natural',
+    name: '哈苏自然 2026',
+    brand: '2026-hasselblad-natural',
+    color: '#AED581',
+    secondaryColor: '#9CCC65',
+    bgColor: 'rgba(174, 213, 129, 0.1)',
+    fontFamily: 'Georgia, serif',
+    fontSize: { title: 18, subtitle: 13, date: 11 },
+    logo: 'HNCS'
+  },
+  {
+    id: '2026-hasselblad-classic',
+    name: '哈苏经典 2026',
+    brand: '2026-hasselblad-classic',
+    color: '#8D6E63',
+    secondaryColor: '#795548',
+    bgColor: 'rgba(141, 110, 99, 0.1)',
+    fontFamily: 'Georgia, serif',
+    fontSize: { title: 18, subtitle: 13, date: 11 },
+    logo: 'H'
+  },
+  {
+    id: '2026-hasselblad-film',
+    name: '哈苏胶片 2026',
+    brand: '2026-hasselblad-film',
+    color: '#FFE0B2',
+    secondaryColor: '#FFCC80',
+    bgColor: 'rgba(255, 224, 178, 0.1)',
+    fontFamily: 'Georgia, serif',
+    fontSize: { title: 17, subtitle: 12, date: 10 },
+    logo: 'FILM'
+  },
+  {
+    id: '2026-hasselblad-portrait',
+    name: '哈苏人像 2026',
+    brand: '2026-hasselblad-portrait',
+    color: '#FFAB91',
+    secondaryColor: '#FF8A65',
+    bgColor: 'rgba(255, 171, 145, 0.1)',
+    fontFamily: 'Georgia, serif',
+    fontSize: { title: 18, subtitle: 13, date: 11 },
+    logo: 'PORTRAIT'
+  },
+  {
+    id: '2026-hasselblad-landscape',
+    name: '哈苏风光 2026',
+    brand: '2026-hasselblad-landscape',
+    color: '#81D4FA',
+    secondaryColor: '#4FC3F7',
+    bgColor: 'rgba(129, 212, 250, 0.1)',
+    fontFamily: 'Georgia, serif',
+    fontSize: { title: 18, subtitle: 13, date: 11 },
+    logo: 'LANDSCAPE'
+  },
+  {
+    id: '2026-hasselblad-night',
+    name: '哈苏夜景 2026',
+    brand: '2026-hasselblad-night',
+    color: '#CE93D8',
+    secondaryColor: '#BA68C8',
+    bgColor: 'rgba(206, 147, 216, 0.1)',
+    fontFamily: 'Georgia, serif',
+    fontSize: { title: 18, subtitle: 13, date: 11 },
+    logo: 'NIGHT'
+  },
+  {
+    id: '2026-hasselblad-street',
+    name: '哈苏街拍 2026',
+    brand: '2026-hasselblad-street',
+    color: '#FFCC80',
+    secondaryColor: '#FFB74D',
+    bgColor: 'rgba(255, 204, 128, 0.1)',
+    fontFamily: 'Georgia, serif',
+    fontSize: { title: 17, subtitle: 12, date: 11 },
+    logo: 'STREET'
+  },
+  {
+    id: '2026-hasselblad-macro',
+    name: '哈苏微距 2026',
+    brand: '2026-hasselblad-macro',
+    color: '#A5D6A7',
+    secondaryColor: '#81C784',
+    bgColor: 'rgba(165, 214, 167, 0.1)',
+    fontFamily: 'Georgia, serif',
+    fontSize: { title: 17, subtitle: 12, date: 10 },
+    logo: 'MACRO'
+  },
+  {
+    id: '2026-hasselblad-monochrome',
+    name: '哈苏黑白 2026',
+    brand: '2026-hasselblad-monochrome',
+    color: '#E0E0E0',
+    secondaryColor: '#BDBDBD',
+    bgColor: 'rgba(224, 224, 224, 0.08)',
+    fontFamily: 'Georgia, serif',
+    fontSize: { title: 18, subtitle: 13, date: 11 },
+    logo: 'BW'
+  },
+  {
+    id: '2026-hasselblad-vintage',
+    name: '哈苏复古 2026',
+    brand: '2026-hasselblad-vintage',
+    color: '#D7CCC8',
+    secondaryColor: '#BCAAA4',
+    bgColor: 'rgba(215, 204, 200, 0.08)',
+    fontFamily: 'Georgia, serif',
+    fontSize: { title: 17, subtitle: 12, date: 10 },
+    logo: 'VINTAGE'
   }
 ];
 
