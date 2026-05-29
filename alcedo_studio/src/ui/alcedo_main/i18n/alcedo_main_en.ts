@@ -1166,6 +1166,14 @@ Alcedo will use %1 instead.</translation>
     </message>
 </context>
 <context>
+    <name>GlobalSearchDialog</name>
+    <message>
+        <location filename="../qml/GlobalSearchDialog.qml" line="330"/>
+        <source>Suggestion</source>
+        <translation>Suggestion</translation>
+    </message>
+</context>
+<context>
     <name>ImageDetailsDialog</name>
     <message>
         <location filename="../qml/ImageDetailsDialog.qml" line="346"/>

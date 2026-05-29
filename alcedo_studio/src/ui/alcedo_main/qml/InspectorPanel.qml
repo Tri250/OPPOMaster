@@ -8,6 +8,10 @@ ScrollView {
     readonly property color textColor: appTheme.textColor
     readonly property color mutedTextColor: appTheme.textMutedColor
 
+    function withAlpha(color, alpha) {
+        return Qt.rgba(color.r, color.g, color.b, alpha)
+    }
+
     Component.onCompleted: {
         contentItem.interactive = false
     }
@@ -72,6 +76,7 @@ ScrollView {
                     font.weight: 400
                     Layout.topMargin: -6
                 }
+
             }
         }
 
@@ -121,6 +126,102 @@ ScrollView {
                 selectedLabel: albumBackend.statsFilterLens
                 displayMode: "dots"
                 onBarClicked: function(label) { albumBackend.ToggleStatsFilter("lens", label) }
+            }
+
+            Item {
+                Layout.fillWidth: true
+                visible: albumBackend.activeSearchQuery.length > 0
+                implicitHeight: searchFilterCard.implicitHeight
+
+                ColumnLayout {
+                    id: searchFilterCard
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    spacing: 8
+
+                    Label {
+                        text: qsTr("SEARCH FILTER")
+                        color: root.mutedTextColor
+                        font.pixelSize: 10
+                        font.weight: 700
+                        font.letterSpacing: 1.6
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 58
+                        radius: 6
+                        color: root.withAlpha(appTheme.bgBaseColor, 0.62)
+                        border.width: 1
+                        border.color: root.withAlpha(appTheme.glassStrokeColor, 0.36)
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 12
+                            anchors.rightMargin: 8
+                            spacing: 10
+
+                            Rectangle {
+                                Layout.preferredWidth: 9
+                                Layout.preferredHeight: 9
+                                radius: 4.5
+                                color: appTheme.toneGold
+                                Layout.alignment: Qt.AlignVCenter
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+                                Layout.alignment: Qt.AlignVCenter
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Filtered by search")
+                                    color: root.withAlpha(root.textColor, 0.86)
+                                    font.family: appTheme.uiFontFamily
+                                    font.pixelSize: 12
+                                    font.weight: 700
+                                    elide: Text.ElideRight
+                                }
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: albumBackend.activeSearchQuery
+                                    color: root.mutedTextColor
+                                    font.family: appTheme.dataFontFamily
+                                    font.pixelSize: 11
+                                    font.weight: 500
+                                    elide: Text.ElideRight
+                                }
+                            }
+
+                            ToolButton {
+                                id: clearSearchButton
+                                Layout.preferredWidth: 28
+                                Layout.preferredHeight: 28
+                                text: "\u00d7"
+                                font.pixelSize: 18
+                                font.weight: 400
+                                onClicked: albumBackend.ClearFuzzySearch()
+                                background: Rectangle {
+                                    radius: 6
+                                    color: clearSearchButton.down
+                                           ? root.withAlpha(appTheme.textColor, 0.10)
+                                           : (clearSearchButton.hovered
+                                              ? root.withAlpha(appTheme.hoverColor, 0.86)
+                                              : "transparent")
+                                }
+                                contentItem: Text {
+                                    text: clearSearchButton.text
+                                    color: root.withAlpha(root.textColor, 0.76)
+                                    font: clearSearchButton.font
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }

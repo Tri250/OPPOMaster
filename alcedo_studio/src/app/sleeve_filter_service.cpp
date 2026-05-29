@@ -210,19 +210,10 @@ auto TokenSearchClause(const std::wstring& token) -> std::wstring {
       LikeClause(L"CAST(json_extract(i.metadata, '$.ISO') AS VARCHAR)", token),
       LikeClause(L"CAST(json_extract(i.metadata, '$.FocalLength') AS VARCHAR)", token),
       LikeClause(L"CAST(json_extract(i.metadata, '$.Aperture') AS VARCHAR)", token),
-      LikeClause(L"CAST(json_extract(i.metadata, '$.Rating') AS VARCHAR)", token),
   };
 
   auto date_clauses = DateMatchClauses(token);
   clauses.insert(clauses.end(), date_clauses.begin(), date_clauses.end());
-
-  const auto digits = DigitsOnly(token);
-  if (digits.size() == 1) {
-    const int rating = digits[0] - L'0';
-    if (rating >= 0 && rating <= 5) {
-      clauses.push_back(std::format(L"(json_extract(i.metadata, '$.Rating')::INT = {})", rating));
-    }
-  }
 
   return L"(" + JoinWith(clauses, L" OR ") + L")";
 }
@@ -417,7 +408,6 @@ auto SleeveFilterService::BuildSearchSuggestions(sl_element_id_t parent_id, size
   AppendSuggestionRows(out, stats.camera_stats_, "camera", limit);
   AppendSuggestionRows(out, stats.date_stats_, "date", limit);
   AppendSuggestionRows(out, stats.lens_stats_, "lens", limit);
-  AppendSuggestionRows(out, stats.rating_stats_, "rating", limit);
   return out;
 }
 

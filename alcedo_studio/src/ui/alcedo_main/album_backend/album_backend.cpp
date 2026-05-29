@@ -442,6 +442,13 @@ auto AlbumBackend::SearchPreview(const QString& query, int limit) -> QVariantLis
                       {"thumbMissingSource", false},
                       {"thumbErrorText", QString{}}};
 
+      if (const auto* item = FindAlbumItem(match.file_id_); item != nullptr) {
+        row["thumbUrl"]           = item->thumb_data_url;
+        row["thumbLoading"]       = item->thumb_loading;
+        row["thumbMissingSource"] = item->thumb_missing_source;
+        row["thumbErrorText"]     = item->thumb_error_text;
+      }
+
       try {
         proj->GetImagePoolService()->Read<void>(
             match.image_id_, [&row](std::shared_ptr<Image> image) {
@@ -552,7 +559,18 @@ void AlbumBackend::RequestSearchPreviewThumbnail(uint elementId, uint imageId, u
                                                         : ThumbnailResolution::k1024;
   const ThumbnailCacheKey key{static_cast<sl_element_id_t>(elementId), resolution};
   const auto              request_generation = search_preview_generation_;
-  search_preview_thumbnail_keys_.insert(key);
+
+  if (const auto* item = FindAlbumItem(static_cast<sl_element_id_t>(elementId));
+      item != nullptr && !item->thumb_data_url.isEmpty()) {
+    emit SearchPreviewThumbnailUpdated(elementId, item->thumb_data_url, false,
+                                       item->thumb_missing_source, item->thumb_error_text);
+    return;
+  }
+
+  if (!search_preview_thumbnail_keys_.insert(key).second) {
+    return;
+  }
+
   emit               SearchPreviewThumbnailUpdated(elementId, QString{}, true, false, QString{});
 
   CallbackDispatcher dispatcher = [](std::function<void()> fn) {
@@ -584,7 +602,6 @@ void AlbumBackend::RequestSearchPreviewThumbnail(uint elementId, uint imageId, u
             return;
           }
           if (self->search_preview_generation_ != request_generation) {
-            release_thumbnail();
             return;
           }
           if (result.status != ThumbnailRequestStatus::kReady || !result.guard ||
@@ -636,18 +653,12 @@ void AlbumBackend::RequestSearchPreviewThumbnail(uint elementId, uint imageId, u
                       return;
                     }
                     if (self->search_preview_generation_ != request_generation) {
-                      if (service) {
-                        try {
-                          service->ReleaseThumbnail(key);
-                        } catch (...) {
-                        }
-                      }
                       return;
                     }
-                    self->search_preview_thumbnail_keys_.erase(key);
                     emit self->SearchPreviewThumbnailUpdated(elementId, data_url, false, false,
                                                              error_text);
-                    if (service) {
+                    if (data_url.isEmpty() && service) {
+                      self->search_preview_thumbnail_keys_.erase(key);
                       try {
                         service->ReleaseThumbnail(key);
                       } catch (...) {
@@ -663,7 +674,7 @@ void AlbumBackend::RequestSearchPreviewThumbnail(uint elementId, uint imageId, u
             }
           }).detach();
         },
-        false, dispatcher, resolution);
+        true, dispatcher, resolution);
   } catch (...) {
     search_preview_thumbnail_keys_.erase(key);
     emit SearchPreviewThumbnailUpdated(elementId, QString{}, false, false,

@@ -1451,6 +1451,8 @@ ApplicationWindow {
             id: globalSearchDialog
             backend: albumBackend
             theme: root
+            blurSource: mainContent
+            cornerRadius: root.windowCornerRadius
         }
 
     }
