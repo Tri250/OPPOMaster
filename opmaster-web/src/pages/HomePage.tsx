@@ -1,15 +1,13 @@
-import HeroSection from '../components/home/HeroSection';
-import FeaturesSection from '../components/home/FeaturesSection';
-import PresetGrid from '../components/home/PresetGrid';
-import AIDemoBanner from '../components/home/AIDemoBanner';
+import OppoHero from '../components/home/OppoHero';
+import OppoQuickActions from '../components/home/OppoQuickActions';
+import OppoFeaturedPresets from '../components/home/OppoFeaturedPresets';
 
 export default function HomePage() {
   return (
     <div className="min-h-screen">
-      <HeroSection />
-      <FeaturesSection />
-      <PresetGrid />
-      <AIDemoBanner />
+      <OppoHero />
+      <OppoQuickActions />
+      <OppoFeaturedPresets />
     </div>
   );
 }
