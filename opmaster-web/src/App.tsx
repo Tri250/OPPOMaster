@@ -41,7 +41,7 @@ function App() {
     <Router>
       <Suspense fallback={<Loading />}>
         <Routes>
-          <Route path="/" element={<AppShowcase />} />
+          <Route path="/" element={<HomePage />} />
           <Route path="/p0-overview" element={<P0Overview />} />
           <Route path="/app" element={<HomePage />} />
           <Route path="/ai-demo" element={<AIDemoPage />} />
