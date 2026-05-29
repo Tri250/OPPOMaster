@@ -43,6 +43,19 @@
             android:name=".service.FluidCloudService"
             android:enabled="true"
             android:exported="false" />
+        
+        <!-- 无障碍服务 - 参数自动填充 -->
+        <service
+            android:name=".accessibility.AutoFillAccessibilityService"
+            android:exported="false"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
 
         <!-- File Provider for screenshot sharing -->
         <provider

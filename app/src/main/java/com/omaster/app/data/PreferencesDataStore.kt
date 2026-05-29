@@ -24,6 +24,7 @@ class PreferencesDataStore @Inject constructor(
         val THEME_MODE = intPreferencesKey("theme_mode")
         val FLUID_CLOUD_ENABLED = intPreferencesKey("fluid_cloud_enabled")
         val OVERLAY_ENABLED = intPreferencesKey("overlay_enabled")
+        val ACCESSIBILITY_CONSENT_SHOWN = intPreferencesKey("accessibility_consent_shown")
     }
 
     private fun Preferences.getBoolean(key: Preferences.Key<Int>, defaultValue: Boolean): Boolean {
@@ -79,6 +80,16 @@ class PreferencesDataStore @Inject constructor(
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.OVERLAY_ENABLED] = if (enabled) 1 else 0
         }
+    }
+    
+    fun hasShownAccessibilityConsent(context: Context): Boolean {
+        val prefs = context.getSharedPreferences("omaster_prefs", Context.MODE_PRIVATE)
+        return prefs.getBoolean("accessibility_consent_shown", false)
+    }
+    
+    fun setAccessibilityConsentShown(context: Context, shown: Boolean) {
+        val prefs = context.getSharedPreferences("omaster_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("accessibility_consent_shown", shown).apply()
     }
 }
 

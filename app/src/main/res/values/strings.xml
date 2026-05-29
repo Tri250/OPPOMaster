@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">小O帮帮</string>
     <string name="home_title">调色参数库</string>
@@ -25,4 +26,22 @@
     <string name="hncs">HNCS 认证</string>
     <string name="preset_applied">预设已应用</string>
     <string name="preset_saved">预设已保存</string>
+    
+    <!-- 无障碍服务相关 -->
+    <string name="accessibility_service_description">小O帮帮需要无障碍权限来帮助您自动填充相机参数。\n\n功能说明：\n• 仅在您点击\"应用预设\"按钮时激活\n• 自动填充ISO、快门速度、曝光补偿、白平衡等参数\n• 支持OPPO、一加、realme、小米、vivo、华为、三星等品牌相机\n• 所有操作均在本地完成，不采集任何个人信息\n\n隐私保护：\n• 不读取或上传您的照片\n• 不访问您的个人数据\n• 可随时在系统设置中关闭此服务</string>
+    <string name="accessibility_permission_title">无障碍权限说明</string>
+    <string name="accessibility_permission_confirm">确认授权</string>
+    <string name="accessibility_permission_cancel">取消</string>
+    <string name="accessibility_permission_never_show">不再提示</string>
+    
+    <!-- 参数填充相关 -->
+    <string name="auto_fill_running">正在填充参数...</string>
+    <string name="auto_fill_complete">参数填充完成</string>
+    <string name="auto_fill_failed">参数填充失败</string>
+    <string name="auto_fill_fallback_clipboard">已复制到剪贴板，请手动粘贴</string>
+    
+    <!-- 合规相关 -->
+    <string name="privacy_policy">隐私政策</string>
+    <string name="privacy_policy_url">https://example.com/privacy</string>
+    <string name="user_agreement">用户协议</string>
 </resources>

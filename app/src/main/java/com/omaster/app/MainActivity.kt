@@ -39,7 +39,8 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun OMasterApp(
-    modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier
+    modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier,
+    onRequestAccessibilityPermission: (() -> Unit)? = null
 ) {
     val navController = rememberNavController()
 
@@ -71,8 +72,21 @@ fun OMasterApp(
                     onBack = { navController.popBackStack() },
                     onFavoriteToggle = { viewModel.toggleFavorite(it) },
                     onApplyPreset = { appliedPreset ->
-                        // 模拟应用预设的功能
-                        Timber.d("应用预设: ${appliedPreset.name}")
+                        val params = com.omaster.app.accessibility.CameraParams(
+                            iso = appliedPreset.cameraParams?.iso,
+                            shutter = appliedPreset.cameraParams?.shutter,
+                            ev = appliedPreset.cameraParams?.ev,
+                            wb = appliedPreset.cameraParams?.wb
+                        )
+                        
+                        if (AutoFillAccessibilityService.isServiceEnabled(it)) {
+                            AutoFillAccessibilityService.setPendingParams(params) {
+                                Timber.d("Params ready to be filled")
+                            }
+                            AutoFillAccessibilityService.confirmAutoFill()
+                        } else {
+                            onRequestAccessibilityPermission?.invoke()
+                        }
                     }
                 )
             }
