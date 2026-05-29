@@ -78,7 +78,7 @@ export default function SubscriptionPage() {
     <div className="min-h-screen bg-bg-primary text-text-primary pb-20">
       {/* 顶部导航 */}
       <header className="sticky top-0 z-40 bg-bg-primary/90 backdrop-blur-xl border-b border-border-default">
-        <div className="max-w-4xl mx-auto px-4 h-14 flex items-center justify-between">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Rss className="w-5 h-5 text-oppo-orange" />
             <h1 className="text-lg font-semibold">订阅管理</h1>
@@ -103,14 +103,14 @@ export default function SubscriptionPage() {
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6 space-y-6">
         {/* 更新状态卡片 */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="card-oppo p-6"
+          className="card-oppo p-4 sm:p-6"
         >
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
             <div className="flex items-center gap-3">
               <div className={`w-3 h-3 rounded-full ${updateAvailable ? 'bg-oppo-orange animate-pulse' : 'bg-oppo-green'}`} />
               <span className="text-sm">
@@ -125,14 +125,14 @@ export default function SubscriptionPage() {
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="flex items-center gap-3 p-3 rounded-lg bg-oppo-orange/10 border border-oppo-orange/30"
+              className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-lg bg-oppo-orange/10 border border-oppo-orange/30"
             >
-              <Bell className="w-5 h-5 text-oppo-orange" />
+              <Bell className="w-5 h-5 text-oppo-orange flex-shrink-0" />
               <div className="flex-1">
                 <p className="text-sm font-medium">发现新预设</p>
                 <p className="text-xs text-text-secondary">订阅源已更新</p>
               </div>
-              <button className="btn-primary text-sm py-2 px-4">
+              <button className="btn-primary text-sm py-2 px-4 w-full sm:w-auto">
                 立即更新
               </button>
             </motion.div>
@@ -157,14 +157,14 @@ export default function SubscriptionPage() {
                 transition={{ delay: 0.1 + index * 0.05 }}
                 className={`card-oppo p-4 ${activeSubscription === sub.id ? 'ring-2 ring-oppo-orange/50' : ''}`}
               >
-                <div className="flex items-start gap-4">
+                <div className="flex flex-col sm:flex-row sm:items-start gap-4">
                   <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
                     sub.enabled ? 'bg-oppo-orange/20' : 'bg-bg-tertiary'
-                  }`}>
+                  } flex-shrink-0`}>
                     <Rss className={`w-6 h-6 ${sub.enabled ? 'text-oppo-orange' : 'text-text-tertiary'}`} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <h3 className="font-medium text-base">{sub.name}</h3>
                       {sub.autoUpdate && (
                         <span className="px-2 py-0.5 text-xs rounded-full bg-oppo-green/20 text-oppo-green">
@@ -180,7 +180,7 @@ export default function SubscriptionPage() {
                     <p className="text-xs text-text-tertiary mt-1 truncate">
                       {sub.url}
                     </p>
-                    <div className="flex items-center gap-4 mt-2 text-xs text-text-secondary">
+                    <div className="flex flex-wrap items-center gap-3 sm:gap-4 mt-2 text-xs text-text-secondary">
                       <span>v{sub.version}</span>
                       <span className="flex items-center gap-1">
                         <Clock className="w-3 h-3" />
@@ -189,7 +189,7 @@ export default function SubscriptionPage() {
                       <span>检查: {formatLastCheck(sub.lastCheck)}</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center justify-end gap-2 mt-3 sm:mt-0">
                     <ColorOSSwitch
                     checked={sub.enabled}
                     onChange={() => toggleEnabled(sub.id)}
@@ -214,8 +214,8 @@ export default function SubscriptionPage() {
                 
                 {/* 高级设置 */}
                 <div className="mt-4 pt-4 border-t border-border-default">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 sm:gap-4">
                       <button
                         onClick={() => toggleAutoUpdate(sub.id)}
                         className={`flex items-center gap-2 text-xs px-3 py-1.5 rounded-full transition-colors ${
@@ -239,7 +239,7 @@ export default function SubscriptionPage() {
                         设为默认
                       </button>
                     </div>
-                    <button className="flex items-center gap-1 text-xs text-oppo-blue hover:underline">
+                    <button className="flex items-center gap-1 text-xs text-oppo-blue hover:underline self-start sm:self-auto">
                       详细设置
                       <ExternalLink className="w-3 h-3" />
                     </button>
@@ -259,7 +259,7 @@ export default function SubscriptionPage() {
           <h2 className="text-sm font-medium text-text-tertiary uppercase tracking-wider mb-4">
             订阅统计
           </h2>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="card-oppo p-4 text-center">
               <p className="text-2xl font-bold text-oppo-orange">{subscriptions.length}</p>
               <p className="text-xs text-text-secondary mt-1">订阅源</p>
