@@ -26,7 +26,7 @@ import {
 interface WatermarkTemplate {
   id: string;
   name: string;
-  brand: 'hasselblad' | 'oppo' | 'oneplus' | 'realme' | 'xiaomi' | 'samsung' | 'apple' | 'minimal' | 'film' | 'polaroid' | 'leica' | 'canon';
+  brand: 'hasselblad' | 'oppo' | 'oneplus' | 'realme' | 'xiaomi' | 'samsung' | 'apple' | 'minimal' | 'film' | 'polaroid' | 'leica' | 'canon' | '2026-cyberpunk' | '2026-nature' | '2026-tech' | '2026-minimalist' | '2026-retro-future' | '2026-ocean' | '2026-aurora' | '2026-vintage' | '2026-neon' | '2026-classic' | '2026-elegant' | '2026-dynamic' | '2026-zen' | '2026-urban' | '2026-forest' | '2026-sky' | '2026-fire' | '2026-stone' | '2026-rainbow';
   color: string;
   bgColor: string;
   secondaryColor: string;
@@ -167,6 +167,218 @@ const watermarkTemplates: WatermarkTemplate[] = [
     fontFamily: 'system-ui, -apple-system, sans-serif',
     fontSize: { title: 18, subtitle: 13, date: 11 },
     logo: 'C'
+  },
+  // ==========================================
+  // 2026 年水印模板
+  // ==========================================
+  {
+    id: '2026-cyberpunk',
+    name: '赛博朋克 2026',
+    brand: '2026-cyberpunk',
+    color: '#00FFFF',
+    secondaryColor: '#FF00FF',
+    bgColor: 'rgba(0, 255, 255, 0.1)',
+    fontFamily: 'monospace',
+    fontSize: { title: 19, subtitle: 14, date: 12 },
+    logo: '2026'
+  },
+  {
+    id: '2026-nature',
+    name: '自然生态 2026',
+    brand: '2026-nature',
+    color: '#2ECC71',
+    secondaryColor: '#27AE60',
+    bgColor: 'rgba(46, 204, 113, 0.08)',
+    fontFamily: 'Georgia, serif',
+    fontSize: { title: 17, subtitle: 13, date: 11 },
+    logo: '🌿'
+  },
+  {
+    id: '2026-tech',
+    name: '科技未来 2026',
+    brand: '2026-tech',
+    color: '#3498DB',
+    secondaryColor: '#2980B9',
+    bgColor: 'rgba(52, 152, 219, 0.08)',
+    fontFamily: 'system-ui, -apple-system, sans-serif',
+    fontSize: { title: 18, subtitle: 13, date: 11 },
+    logo: '⚡'
+  },
+  {
+    id: '2026-minimalist',
+    name: '极简主义 2026',
+    brand: '2026-minimalist',
+    color: '#ECF0F1',
+    secondaryColor: '#BDC3C7',
+    bgColor: 'rgba(236, 240, 241, 0.05)',
+    fontFamily: 'system-ui, -apple-system, sans-serif',
+    fontSize: { title: 15, subtitle: 11, date: 10 },
+    logo: '▢'
+  },
+  {
+    id: '2026-retro-future',
+    name: '复古未来 2026',
+    brand: '2026-retro-future',
+    color: '#FF6B35',
+    secondaryColor: '#F39C12',
+    bgColor: 'rgba(255, 107, 53, 0.08)',
+    fontFamily: 'Georgia, serif',
+    fontSize: { title: 18, subtitle: 13, date: 11 },
+    logo: '🚀'
+  },
+  {
+    id: '2026-ocean',
+    name: '海洋之心 2026',
+    brand: '2026-ocean',
+    color: '#1ABC9C',
+    secondaryColor: '#16A085',
+    bgColor: 'rgba(26, 188, 156, 0.08)',
+    fontFamily: 'system-ui, -apple-system, sans-serif',
+    fontSize: { title: 17, subtitle: 12, date: 11 },
+    logo: '🌊'
+  },
+  {
+    id: '2026-aurora',
+    name: '极光 2026',
+    brand: '2026-aurora',
+    color: '#9B59B6',
+    secondaryColor: '#8E44AD',
+    bgColor: 'rgba(155, 89, 182, 0.08)',
+    fontFamily: 'system-ui, -apple-system, sans-serif',
+    fontSize: { title: 18, subtitle: 13, date: 11 },
+    logo: '✨'
+  },
+  {
+    id: '2026-vintage',
+    name: '复古风情 2026',
+    brand: '2026-vintage',
+    color: '#E67E22',
+    secondaryColor: '#D35400',
+    bgColor: 'rgba(230, 126, 34, 0.08)',
+    fontFamily: 'Georgia, serif',
+    fontSize: { title: 17, subtitle: 12, date: 10 },
+    logo: '📷'
+  },
+  {
+    id: '2026-neon',
+    name: '霓虹炫彩 2026',
+    brand: '2026-neon',
+    color: '#E74C3C',
+    secondaryColor: '#C0392B',
+    bgColor: 'rgba(231, 76, 60, 0.1)',
+    fontFamily: 'monospace',
+    fontSize: { title: 18, subtitle: 13, date: 11 },
+    logo: '🎆'
+  },
+  {
+    id: '2026-classic',
+    name: '经典永恒 2026',
+    brand: '2026-classic',
+    color: '#F1C40F',
+    secondaryColor: '#F39C12',
+    bgColor: 'rgba(241, 196, 15, 0.08)',
+    fontFamily: 'Georgia, serif',
+    fontSize: { title: 18, subtitle: 13, date: 11 },
+    logo: '🏆'
+  },
+  {
+    id: '2026-elegant',
+    name: '优雅气质 2026',
+    brand: '2026-elegant',
+    color: '#D4AF37',
+    secondaryColor: '#C5A028',
+    bgColor: 'rgba(212, 175, 55, 0.08)',
+    fontFamily: 'Georgia, serif',
+    fontSize: { title: 17, subtitle: 12, date: 11 },
+    logo: '🎀'
+  },
+  {
+    id: '2026-dynamic',
+    name: '动感活力 2026',
+    brand: '2026-dynamic',
+    color: '#E74C3C',
+    secondaryColor: '#C0392B',
+    bgColor: 'rgba(231, 76, 60, 0.08)',
+    fontFamily: 'system-ui, -apple-system, sans-serif',
+    fontSize: { title: 18, subtitle: 13, date: 11 },
+    logo: '🎯'
+  },
+  {
+    id: '2026-zen',
+    name: '禅意生活 2026',
+    brand: '2026-zen',
+    color: '#95A5A6',
+    secondaryColor: '#7F8C8D',
+    bgColor: 'rgba(149, 165, 166, 0.06)',
+    fontFamily: 'system-ui, -apple-system, sans-serif',
+    fontSize: { title: 16, subtitle: 12, date: 10 },
+    logo: '☯'
+  },
+  {
+    id: '2026-urban',
+    name: '都市现代 2026',
+    brand: '2026-urban',
+    color: '#7F8C8D',
+    secondaryColor: '#95A5A6',
+    bgColor: 'rgba(127, 140, 141, 0.07)',
+    fontFamily: 'system-ui, -apple-system, sans-serif',
+    fontSize: { title: 17, subtitle: 12, date: 11 },
+    logo: '🏙️'
+  },
+  {
+    id: '2026-forest',
+    name: '森林秘境 2026',
+    brand: '2026-forest',
+    color: '#27AE60',
+    secondaryColor: '#1E8449',
+    bgColor: 'rgba(39, 174, 96, 0.08)',
+    fontFamily: 'Georgia, serif',
+    fontSize: { title: 17, subtitle: 12, date: 10 },
+    logo: '🌲'
+  },
+  {
+    id: '2026-sky',
+    name: '云端漫步 2026',
+    brand: '2026-sky',
+    color: '#5DADE2',
+    secondaryColor: '#3498DB',
+    bgColor: 'rgba(93, 173, 226, 0.08)',
+    fontFamily: 'system-ui, -apple-system, sans-serif',
+    fontSize: { title: 17, subtitle: 12, date: 11 },
+    logo: '☁️'
+  },
+  {
+    id: '2026-fire',
+    name: '烈焰激情 2026',
+    brand: '2026-fire',
+    color: '#E74C3C',
+    secondaryColor: '#C0392B',
+    bgColor: 'rgba(231, 76, 60, 0.1)',
+    fontFamily: 'system-ui, -apple-system, sans-serif',
+    fontSize: { title: 18, subtitle: 13, date: 11 },
+    logo: '🔥'
+  },
+  {
+    id: '2026-stone',
+    name: '石材质感 2026',
+    brand: '2026-stone',
+    color: '#BDC3C7',
+    secondaryColor: '#95A5A6',
+    bgColor: 'rgba(189, 195, 199, 0.06)',
+    fontFamily: 'system-ui, -apple-system, sans-serif',
+    fontSize: { title: 16, subtitle: 12, date: 10 },
+    logo: '⬜'
+  },
+  {
+    id: '2026-rainbow',
+    name: '彩虹梦想 2026',
+    brand: '2026-rainbow',
+    color: '#E74C3C',
+    secondaryColor: '#F1C40F',
+    bgColor: 'rgba(231, 76, 60, 0.08)',
+    fontFamily: 'system-ui, -apple-system, sans-serif',
+    fontSize: { title: 18, subtitle: 13, date: 11 },
+    logo: '🌈'
   }
 ];
 
