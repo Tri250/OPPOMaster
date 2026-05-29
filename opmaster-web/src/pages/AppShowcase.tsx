@@ -112,12 +112,9 @@ export default function AppShowcase() {
               <Link to="/settings" className="text-sm font-medium text-text-secondary hover:text-text-primary transition-colors duration-200 touch-feedback">设置</Link>
             </div>
 
-            <button
-              className="hidden md:flex items-center space-x-2">
-              <button className="btn-primary text-base px-6 py-3 flex items-center space-x-2 touch-feedback" aria-label="下载应用">
-                <Download className="w-5 h-5" />
-                <span>立即下载</span>
-              </button>
+            <button className="hidden md:flex items-center space-x-2 btn-primary text-base px-6 py-3 touch-feedback" aria-label="下载应用">
+              <Download className="w-5 h-5" />
+              <span>立即下载</span>
             </button>
 
             <button
@@ -269,8 +266,8 @@ export default function AppShowcase() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 1.1 + index * 0.1, duration: 0.5 }}
-                  whileHover={{ y: -4, transition: { duration: 0.2 } }
-                  whileTap={{ scale: 0.98 }
+                  whileHover={{ y: -4, transition: { duration: 0.2 } }}
+                  whileTap={{ scale: 0.98 }}
                   onClick={() => navigate(card.path)}
                   className="card-oppo-interactive"
                 >
