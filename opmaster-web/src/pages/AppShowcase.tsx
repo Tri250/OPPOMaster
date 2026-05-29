@@ -295,7 +295,7 @@ export default function AppShowcase() {
                   <div className="p-6">
                     <h3 className="text-lg md:text-xl font-semibold mb-2">{realPreset?.name || preset.name}</h3>
                     <div className="flex items-center justify-between">
-                      <span className="tag-oppo">{realPreset?.deviceModel || ''}</span>
+                      <span className="tag-oppo">OPPO Find X7 Ultra</span>
                       <div className="flex items-center space-x-1 text-text-tertiary">
                         <Star className="w-4 h-4 fill-oppo-sunrise-gold text-oppo-sunrise-gold" />
                         <span className="text-sm">4.9</span>
