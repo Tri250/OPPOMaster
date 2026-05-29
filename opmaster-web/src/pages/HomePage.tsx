@@ -1,8 +1,8 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Camera, Sparkles, Star, Download, Search, TrendingUp, Heart, X, Menu, 
-  Palette, Layers, Upload, Zap, Image as ImageIcon, Settings, Photo, 
-  Magic, ColorPalette, Edit3, Sliders 
+  Palette, Layers, Upload, Zap, Image as ImageIcon, Settings, Image as PhotoIcon, 
+  Edit3, Sliders 
 } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -11,7 +11,7 @@ import PresetCard from '../components/home/PresetCard';
 
 // ColorOS 16 标准快捷入口配置
 const quickActions = [
-  { id: 'ai', icon: Magic, label: 'AI场景', path: '/ai-demo', color: 'from-oppo-orange to-hasselblad-orange', desc: '智能识别' },
+  { id: 'ai', icon: Sparkles, label: 'AI场景', path: '/ai-demo', color: 'from-oppo-orange to-hasselblad-orange', desc: '智能识别' },
   { id: 'preset', icon: Palette, label: '预设', path: '/filter-library', color: 'from-info to-neutral-600', desc: '滤镜库' },
   { id: 'watermark', icon: Edit3, label: '水印', path: '/watermark', color: 'from-success to-info', desc: '水印工具' },
   { id: 'editor', icon: Sliders, label: '编辑', path: '/preset-editor', color: 'from-warning to-error', desc: '参数调节' },
@@ -47,7 +47,7 @@ const featureCards = [
     id: 'watermark', 
     title: '专业水印', 
     desc: '品牌水印一键添加', 
-    icon: Photo, 
+    icon: PhotoIcon, 
     color: 'from-success to-info',
     path: '/watermark'
   },

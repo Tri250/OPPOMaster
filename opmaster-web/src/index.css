@@ -60,57 +60,53 @@
   /* OPPO主按钮 - 官方标准 */
   .btn-primary {
     @apply px-6 py-3.5 bg-oppo-orange text-oppo-black font-bold rounded-xl
-           transition-all duration-200 ease-out-cubic
            hover:bg-oppo-orange-dark hover:shadow-oppo-elevation-2 hover:-translate-y-0.5
-           active:scale-[0.98] active:bg-oppo-orange-dark;
+           active:bg-oppo-orange-dark active:scale-[0.98];
   }
 
   .btn-primary-large {
     @apply px-8 py-4 bg-oppo-orange text-oppo-black font-bold rounded-xl text-body1
-           transition-all duration-200 ease-out-cubic
            hover:bg-oppo-orange-dark hover:shadow-oppo-elevation-2
-           active:scale-[0.98] active:bg-oppo-orange-dark;
+           active:scale-[0.98];
   }
 
   /* OPPO次要按钮 - 官方标准 */
   .btn-secondary {
     @apply px-6 py-3 bg-transparent text-oppo-orange font-medium rounded-xl
-           border border-oppo-orange transition-all duration-200 ease-out-cubic
-           hover:bg-oppo-orange/10 active:scale-[0.98];
+           border border-oppo-orange hover:bg-oppo-orange/10
+           active:scale-[0.98];
   }
 
   /* OPPO图标按钮 - 官方标准 */
   .btn-icon {
     @apply p-3 flex items-center justify-center rounded-sm
            text-text-tertiary hover:text-text-primary
-           transition-all duration-200 ease-out-cubic
-           hover:bg-white/10 active:scale-[0.98];
+           hover:bg-white/10
+           active:scale-[0.98];
   }
 
   /* OPPO标签按钮 - 官方标准 */
   .btn-tag {
     @apply px-4 py-2 bg-transparent text-text-secondary font-medium rounded-full text-body2
-           transition-all duration-200 ease-out-cubic
-           hover:bg-white/10 active:scale-[0.98];
+           hover:bg-white/10
+           active:scale-[0.98];
   }
 
   .btn-tag-active {
     @apply px-4 py-2 bg-oppo-orange text-oppo-black font-medium rounded-full text-body2
-           transition-all duration-200 ease-out-cubic
            active:scale-[0.98];
   }
 
   /* OPPO卡片 - 旗舰级质感 */
   .card-oppo {
     @apply bg-bg-secondary rounded-md overflow-hidden
-           border border-border-default shadow-oppo-elevation-1
-           transition-all duration-200 ease-out-cubic;
+           border border-border-default shadow-oppo-elevation-1;
   }
   
   .card-oppo-interactive {
     @apply card-oppo hover:border-oppo-orange/30 cursor-pointer
            hover:shadow-oppo-elevation-2 hover:-translate-y-0.5
-           active:bg-bg-tertiary active:scale-[0.98];
+           active:bg-bg-tertiary;
   }
   
   .card-hncs {
@@ -159,7 +155,7 @@
 
   /* 点击反馈效果 */
   .touch-feedback {
-    @apply transition-transform duration-200 ease-out-cubic active:scale-[0.98];
+    @apply transition-transform duration-200 active:scale-[0.98];
   }
   
   /* 链接样式 */
@@ -329,4 +325,3 @@
     transition-duration: 0.01ms !important;
   }
 }
-
