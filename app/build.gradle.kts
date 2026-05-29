@@ -217,3 +217,10 @@ tasks.register("securityCheck") {
 tasks.named("assembleRelease") {
     dependsOn("securityCheck")
 }
+
+// 打印版本名称任务（用于 CI/CD）
+tasks.register("printVersionName") {
+    doLast {
+        println(android.defaultConfig.versionName)
+    }
+}
