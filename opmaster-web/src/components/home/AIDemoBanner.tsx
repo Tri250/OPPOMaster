@@ -7,16 +7,16 @@ export default function AIDemoBanner() {
   const [showVideo, setShowVideo] = useState(false);
 
   return (
-    <section className="py-20 px-4 sm:px-6 lg:px-8">
+    <section className="py-20 px-4 sm:px-6 lg:px-8 relative z-10">
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         whileInView={{ opacity: 1, scale: 1 }}
         viewport={{ once: true }}
-        className="max-w-7xl mx-auto relative overflow-hidden rounded-3xl"
+        className="max-w-7xl mx-auto relative overflow-hidden rounded-3xl card-oppo"
       >
         {/* Background */}
-        <div className="absolute inset-0 bg-gradient-to-br from-purple-900/50 via-deep-space to-pink-900/50" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_50%,rgba(139,92,246,0.3)_0%,transparent_50%)]" />
+        <div className="absolute inset-0 bg-gradient-to-br from-info/20 via-oppo-black to-neutral-700/20" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_50%,rgba(59,130,246,0.2)_0%,transparent_50%)]" />
         
         {/* Content */}
         <div className="relative z-10 px-8 py-16 md:px-16 md:py-20 text-center">
@@ -24,18 +24,18 @@ export default function AIDemoBanner() {
             initial={{ scale: 0 }}
             whileInView={{ scale: 1 }}
             viewport={{ once: true }}
-            className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-purple-500 to-pink-500 rounded-2xl mb-8 shadow-2xl shadow-purple-500/30"
+            className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-info to-neutral-700 rounded-2xl mb-8 shadow-oppo-elevation-2"
           >
-            <Sparkles className="w-12 h-12 text-white" />
+            <Sparkles className="w-12 h-12 text-oppo-black" />
           </motion.div>
 
           <h2 className="text-4xl md:text-6xl font-bold mb-6">
-            <span className="bg-gradient-to-r from-purple-400 via-pink-400 to-purple-400 bg-clip-text text-transparent">
+            <span className="gradient-text-oppo">
               AI智能场景识别
             </span>
           </h2>
 
-          <p className="text-xl text-white/70 mb-8 max-w-2xl mx-auto">
+          <p className="text-xl text-text-secondary mb-8 max-w-2xl mx-auto">
             上传您的照片，AI将自动识别场景类型，智能推荐最匹配的预设参数，
             让每一张照片都能呈现最佳效果
           </p>
@@ -72,8 +72,8 @@ export default function AIDemoBanner() {
                 transition={{ delay: 0.3 + idx * 0.1 }}
                 className="text-center"
               >
-                <h3 className="text-lg font-bold mb-2 text-white">{point.title}</h3>
-                <p className="text-sm text-white/60">{point.desc}</p>
+                <h3 className="text-lg font-bold mb-2 text-text-primary">{point.title}</h3>
+                <p className="text-sm text-text-tertiary">{point.desc}</p>
               </motion.div>
             ))}
           </div>
@@ -95,27 +95,27 @@ export default function AIDemoBanner() {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-deep-space-light rounded-2xl max-w-4xl w-full overflow-hidden"
+              className="bg-bg-secondary rounded-2xl max-w-4xl w-full overflow-hidden shadow-oppo-elevation-2"
             >
               {/* Modal Header */}
-              <div className="bg-gradient-to-r from-purple-500 to-pink-500 p-4 flex items-center justify-between">
-                <h3 className="text-xl font-bold text-white">AI场景识别演示</h3>
+              <div className="bg-gradient-to-r from-info to-neutral-700 p-4 flex items-center justify-between">
+                <h3 className="text-xl font-bold text-oppo-black">AI场景识别演示</h3>
                 <button
                   onClick={() => setShowVideo(false)}
                   className="w-10 h-10 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition-colors"
                 >
-                  <X className="w-6 h-6 text-white" />
+                  <X className="w-6 h-6 text-oppo-black" />
                 </button>
               </div>
               {/* Video Content */}
               <div className="p-6">
-                <div className="aspect-video bg-black/50 rounded-xl flex items-center justify-center">
+                <div className="aspect-video bg-bg-tertiary rounded-xl flex items-center justify-center">
                   <div className="text-center">
-                    <Play className="w-16 h-16 text-white/50 mx-auto mb-4" />
-                    <p className="text-white/70 mb-4">演示视频正在制作中...</p>
-                    <div className="grid grid-cols-1 gap-4 text-left text-sm text-white/60">
+                    <Play className="w-16 h-16 text-text-tertiary mx-auto mb-4" />
+                    <p className="text-text-secondary mb-4">演示视频正在制作中...</p>
+                    <div className="grid grid-cols-1 gap-4 text-left text-sm text-text-tertiary">
                       <div className="bg-white/5 p-4 rounded-lg">
-                        <h4 className="font-bold text-white/80 mb-2">🎉 您可以体验：</h4>
+                        <h4 className="font-bold text-text-secondary mb-2">🎉 您可以体验：</h4>
                         <ul className="space-y-1">
                           <li>• 点击"立即体验"上传自己的照片</li>
                           <li>• 或选择示例图片体验AI识别</li>

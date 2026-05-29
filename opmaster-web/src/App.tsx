@@ -27,9 +27,9 @@ const PresetEcosystemPage = lazy(() => import('./pages/PresetEcosystemPage'))
 
 function Loading() {
   return (
-    <div className="min-h-screen bg-deep-space flex items-center justify-center">
+    <div className="min-h-screen bg-oppo-black flex items-center justify-center">
       <div className="text-center">
-        <div className="w-16 h-16 border-4 border-oppo-sunrise-gold/30 border-t-oppo-sunrise-gold rounded-full animate-spin mx-auto mb-4" />
+        <div className="w-16 h-16 border-4 border-oppo-orange/30 border-t-oppo-orange rounded-full animate-spin mx-auto mb-4" />
         <p className="text-text-secondary">加载中...</p>
       </div>
     </div>
