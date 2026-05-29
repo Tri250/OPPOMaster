@@ -13,5 +13,10 @@ data class Preset(
     val cameraParams: CameraParams? = null,
     val deviceModel: String = "",
     val source: String = "omaster_cloud",
-    val isFavorite: Boolean = false
+    val isFavorite: Boolean = false,
+    val author: String = "",
+    val isNew: Boolean = false,
+    val tags: List<String> = emptyList(),
+    val description: String = "",
+    val galleryImages: List<String> = emptyList()
 )

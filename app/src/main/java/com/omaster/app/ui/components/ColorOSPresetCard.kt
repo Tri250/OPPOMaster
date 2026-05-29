@@ -114,7 +114,7 @@ fun ColorOSPresetCard(
             ) {
                 if (showPreview) {
                     AsyncImage(
-                        model = "https://picsum.photos/seed/${preset.coverPath}/600/400",
+                        model = preset.coverPath,
                         contentDescription = "${preset.name}预览图",
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
@@ -200,6 +200,17 @@ fun ColorOSPresetCard(
                     overflow = TextOverflow.Ellipsis,
                     fontWeight = FontWeight.SemiBold
                 )
+                
+                Spacer(modifier = Modifier.height(6.dp))
+                
+                // 作者信息
+                if (preset.author.isNotEmpty()) {
+                    Text(
+                        text = preset.author,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 
                 Spacer(modifier = Modifier.height(12.dp))
                 
