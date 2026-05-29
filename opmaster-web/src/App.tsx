@@ -1,73 +1,58 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
-import { lazy, Suspense } from 'react'
 import './index.css'
-
-const HomePage = lazy(() => import('./pages/HomePage'))
-const AIDemoPage = lazy(() => import('./pages/AIDemoPage'))
-const TechPage = lazy(() => import('./pages/TechPage'))
-const AboutPage = lazy(() => import('./pages/AboutPage'))
-const PresetDetailPage = lazy(() => import('./pages/PresetDetailPage'))
-const WatermarkPage = lazy(() => import('./pages/WatermarkPage'))
-const PresetEditorPage = lazy(() => import('./pages/PresetEditorPage'))
-const SettingsPage = lazy(() => import('./pages/SettingsPage'))
-const AiFineTunePage = lazy(() => import('./pages/AiFineTunePage'))
-const SceneDetectionPage = lazy(() => import('./pages/SceneDetectionPage'))
-const FloatingWindowPage = lazy(() => import('./pages/FloatingWindowPage'))
-const LutManagerPage = lazy(() => import('./pages/LutManagerPage'))
-const CloudSyncPage = lazy(() => import('./pages/CloudSyncPage'))
-const OcrDemoPage = lazy(() => import('./pages/OcrDemoPage'))
-const FilterLibraryPage = lazy(() => import('./pages/FilterLibraryPage'))
-const MasterParamsPage = lazy(() => import('./pages/MasterParamsPage'))
-const P0Overview = lazy(() => import('./pages/P0Overview'))
-const XiaoOHelpPage = lazy(() => import('./pages/XiaoOHelpPage'))
-const NativeCameraPage = lazy(() => import('./pages/NativeCameraPage'))
-const PresetEcosystemPage = lazy(() => import('./pages/PresetEcosystemPage'))
-const TestVerificationPage = lazy(() => import('./pages/TestVerificationPage'))
-const SubscriptionPage = lazy(() => import('./pages/SubscriptionPage'))
-const CommunityPage = lazy(() => import('./pages/CommunityPage'))
-
-function Loading() {
-  return (
-    <div className="min-h-screen bg-oppo-black flex items-center justify-center">
-      <div className="text-center">
-        <div className="w-16 h-16 border-4 border-oppo-orange/30 border-t-oppo-orange rounded-full animate-spin mx-auto mb-4" />
-        <p className="text-text-secondary">加载中...</p>
-      </div>
-    </div>
-  )
-}
+import HomePage from './pages/HomePage'
+import AIDemoPage from './pages/AIDemoPage'
+import TechPage from './pages/TechPage'
+import AboutPage from './pages/AboutPage'
+import PresetDetailPage from './pages/PresetDetailPage'
+import WatermarkPage from './pages/WatermarkPage'
+import PresetEditorPage from './pages/PresetEditorPage'
+import SettingsPage from './pages/SettingsPage'
+import AiFineTunePage from './pages/AiFineTunePage'
+import SceneDetectionPage from './pages/SceneDetectionPage'
+import FloatingWindowPage from './pages/FloatingWindowPage'
+import LutManagerPage from './pages/LutManagerPage'
+import CloudSyncPage from './pages/CloudSyncPage'
+import OcrDemoPage from './pages/OcrDemoPage'
+import FilterLibraryPage from './pages/FilterLibraryPage'
+import MasterParamsPage from './pages/MasterParamsPage'
+import P0Overview from './pages/P0Overview'
+import XiaoOHelpPage from './pages/XiaoOHelpPage'
+import NativeCameraPage from './pages/NativeCameraPage'
+import PresetEcosystemPage from './pages/PresetEcosystemPage'
+import TestVerificationPage from './pages/TestVerificationPage'
+import SubscriptionPage from './pages/SubscriptionPage'
+import CommunityPage from './pages/CommunityPage'
 
 function App() {
   return (
     <Router>
-      <Suspense fallback={<Loading />}>
-        <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/p0-overview" element={<P0Overview />} />
-          <Route path="/app" element={<HomePage />} />
-          <Route path="/ai-demo" element={<AIDemoPage />} />
-          <Route path="/tech" element={<TechPage />} />
-          <Route path="/about" element={<AboutPage />} />
-          <Route path="/preset/:id" element={<PresetDetailPage />} />
-          <Route path="/watermark" element={<WatermarkPage />} />
-          <Route path="/editor" element={<PresetEditorPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/ai-finetune" element={<AiFineTunePage />} />
-          <Route path="/scene-detection" element={<SceneDetectionPage />} />
-          <Route path="/floating-window" element={<FloatingWindowPage />} />
-          <Route path="/lut-manager" element={<LutManagerPage />} />
-          <Route path="/cloud-sync" element={<CloudSyncPage />} />
-          <Route path="/ocr-demo" element={<OcrDemoPage />} />
-          <Route path="/filter-library" element={<FilterLibraryPage />} />
-          <Route path="/master-params" element={<MasterParamsPage />} />
-          <Route path="/xiao-o-help" element={<XiaoOHelpPage />} />
-          <Route path="/native-camera" element={<NativeCameraPage />} />
-          <Route path="/preset-ecosystem" element={<PresetEcosystemPage />} />
-          <Route path="/test-verification" element={<TestVerificationPage />} />
-          <Route path="/subscription" element={<SubscriptionPage />} />
-          <Route path="/community" element={<CommunityPage />} />
-        </Routes>
-      </Suspense>
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/p0-overview" element={<P0Overview />} />
+        <Route path="/app" element={<HomePage />} />
+        <Route path="/ai-demo" element={<AIDemoPage />} />
+        <Route path="/tech" element={<TechPage />} />
+        <Route path="/about" element={<AboutPage />} />
+        <Route path="/preset/:id" element={<PresetDetailPage />} />
+        <Route path="/watermark" element={<WatermarkPage />} />
+        <Route path="/editor" element={<PresetEditorPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/ai-finetune" element={<AiFineTunePage />} />
+        <Route path="/scene-detection" element={<SceneDetectionPage />} />
+        <Route path="/floating-window" element={<FloatingWindowPage />} />
+        <Route path="/lut-manager" element={<LutManagerPage />} />
+        <Route path="/cloud-sync" element={<CloudSyncPage />} />
+        <Route path="/ocr-demo" element={<OcrDemoPage />} />
+        <Route path="/filter-library" element={<FilterLibraryPage />} />
+        <Route path="/master-params" element={<MasterParamsPage />} />
+        <Route path="/xiao-o-help" element={<XiaoOHelpPage />} />
+        <Route path="/native-camera" element={<NativeCameraPage />} />
+        <Route path="/preset-ecosystem" element={<PresetEcosystemPage />} />
+        <Route path="/test-verification" element={<TestVerificationPage />} />
+        <Route path="/subscription" element={<SubscriptionPage />} />
+        <Route path="/community" element={<CommunityPage />} />
+      </Routes>
     </Router>
   )
 }
