@@ -1,14 +1,3 @@
-*.iml
-.gradle
-/local.properties
-/.idea/
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
-local.properties
-
 # Android
 *.apk
 *.ap_
@@ -27,8 +16,8 @@ captures/
 .externalNativeBuild
 .cxx/
 local.properties
-*.swp
-*~.nib
+*.iml
+.idea/
 *.pbxuser
 !default.pbxuser
 *.mode1v3
@@ -54,11 +43,37 @@ dist/
 .opmaster-web/
 *.local
 
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+*.swp
+*~.nib
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Build
+app/build/
+release/
+
 # Misc
 *.swp
 *~
-.DS_Store
 Thumbs.db
 
-# Trae
+# Trae (已在之前删除)
 .trae/
