@@ -12,9 +12,9 @@ interface PresetCardProps {
 }
 
 export default function PresetCard({ preset, index }: PresetCardProps) {
-  const { toggleFavorite, setSelectedPreset, favorites } = useAppStore();
+  const { toggleFavorite, setSelectedPreset, isFavorite: checkFavorite } = useAppStore();
   const navigate = useNavigate();
-  const isFavorite = favorites.has(preset.id);
+  const isFavorite = checkFavorite(preset.id);
 
   const handleClick = () => {
     setSelectedPreset(preset);
