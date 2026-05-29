@@ -1,36 +1,49 @@
-import { motion, HTMLMotionProps } from 'framer-motion'
-import { ReactNode, useState } from 'react'
-import { ChevronRight, Check, Loader2 } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { ReactNode, useState, HTMLAttributes } from 'react'
+import { ChevronRight, Check, Loader2, X, Maximize2, Minimize2, Eye, EyeOff, Move } from 'lucide-react'
 
 export const ColorOSAnimations = {
   fadeIn: {
     initial: { opacity: 0, y: 20 },
     animate: { opacity: 1, y: 0 },
     exit: { opacity: 0, y: -20 },
-    transition: { duration: 0.3, ease: [0.4, 0, 0.2, 1] }
+    transition: { duration: 0.3, ease: [0.05, 0.7, 0.1, 1.0] }
   },
   slideIn: {
     initial: { opacity: 0, x: 20 },
     animate: { opacity: 1, x: 0 },
     exit: { opacity: 0, x: -20 },
-    transition: { duration: 0.3, ease: [0.4, 0, 0.2, 1] }
+    transition: { duration: 0.3, ease: [0.05, 0.7, 0.1, 1.0] }
   },
   scaleIn: {
-    initial: { opacity: 0, scale: 0.95 },
+    initial: { opacity: 0, scale: 0.8 },
     animate: { opacity: 1, scale: 1 },
-    exit: { opacity: 0, scale: 0.95 },
-    transition: { duration: 0.2, ease: [0.4, 0, 0.2, 1] }
+    exit: { opacity: 0, scale: 0.8 },
+    transition: { duration: 0.25, ease: [0.175, 0.885, 0.32, 1.275] }
+  },
+  slideUp: {
+    initial: { opacity: 0, y: '100%' },
+    animate: { opacity: 1, y: 0 },
+    exit: { opacity: 0, y: '100%' },
+    transition: { duration: 0.3, ease: [0.05, 0.7, 0.1, 1.0] }
   },
   stagger: {
     animate: {
       transition: {
-        staggerChildren: 0.08
+        staggerChildren: 0.05
       }
     }
   }
 }
 
-interface ColorOSCardProps extends HTMLMotionProps<"div"> {
+const easeStandard = [0.2, 0.0, 0.0, 1.0]
+const easeDecelerate = [0.0, 0.0, 0.0, 1.0]
+const easeAccelerate = [0.3, 0.0, 1.0, 0.0]
+const easeOppoEnter = [0.05, 0.7, 0.1, 1.0]
+const easeOppoExit = [0.3, 0.0, 0.8, 0.15]
+const easeOppoBounce = [0.175, 0.885, 0.32, 1.275]
+
+interface ColorOSCardProps extends HTMLAttributes<HTMLDivElement> {
   variant?: 'default' | 'elevated' | 'glass' | 'gradient'
   interactive?: boolean
   children: ReactNode
@@ -43,22 +56,24 @@ export function ColorOSCard({
   className = '',
   ...props 
 }: ColorOSCardProps) {
-  const baseStyles = 'rounded-oppo-md overflow-hidden transition-all duration-300'
+  const baseStyles = 'rounded-[16px] overflow-hidden transition-all duration-200'
   
   const variants = {
-    default: 'bg-card-surface border border-oppo-border/50',
-    elevated: 'bg-elevated border border-oppo-border/30 shadow-lg',
-    glass: 'bg-white/5 backdrop-blur-xl border border-white/10',
-    gradient: 'bg-gradient-to-br from-card-surface to-elevated border border-oppo-border/30'
+    default: 'bg-card-surface border border-white/10',
+    elevated: 'bg-elevated border border-white/8 shadow-lg',
+    glass: 'bg-black/50 backdrop-blur-2xl border border-white/15',
+    gradient: 'bg-gradient-to-br from-card-surface to-elevated border border-white/10'
   }
   
   const interactiveStyles = interactive 
-    ? 'hover:border-oppo-sunrise-gold/30 hover:shadow-oppo cursor-pointer hover:-translate-y-1' 
+    ? 'hover:border-oppo-sunrise-gold/30 hover:shadow-[0_0_20px_rgba(0,200,83,0.15),inset_0_0_8px_rgba(255,255,255,0.05)] cursor-pointer hover:-translate-y-1 active:scale-[0.98]' 
     : ''
   
   return (
     <motion.div
       className={`${baseStyles} ${variants[variant]} ${interactiveStyles} ${className}`}
+      whileHover={interactive ? { scale: 1.03 } : undefined}
+      transition={{ duration: 0.15, ease: easeOppoBounce }}
       {...props}
     >
       {children}
@@ -68,7 +83,7 @@ export function ColorOSCard({
 
 interface ColorOSButtonProps {
   variant?: 'primary' | 'secondary' | 'ghost' | 'danger'
-  size?: 'sm' | 'md' | 'lg'
+  size?: 'sm' | 'md' | 'lg' | 'xl'
   loading?: boolean
   icon?: ReactNode
   children: ReactNode
@@ -87,27 +102,29 @@ export function ColorOSButton({
   className = '',
   disabled = false
 }: ColorOSButtonProps) {
-  const baseStyles = 'inline-flex items-center justify-center font-semibold transition-all duration-300 rounded-oppo-sm disabled:opacity-50 disabled:cursor-not-allowed'
+  const baseStyles = 'inline-flex items-center justify-center font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed'
   
   const sizes = {
-    sm: 'px-4 py-2 text-sm gap-1.5',
-    md: 'px-6 py-3 text-base gap-2',
-    lg: 'px-8 py-4 text-lg gap-2.5'
+    sm: 'px-4 py-2 text-sm gap-1.5 rounded-[20px] h-10',
+    md: 'px-6 py-3 text-base gap-2 rounded-[24px] h-12',
+    lg: 'px-8 py-4 text-lg gap-2.5 rounded-[28px] h-14',
+    xl: 'px-10 py-5 text-xl gap-3 rounded-[32px] h-16'
   }
   
   const variants = {
-    primary: 'bg-oppo-sunrise-gold text-deep-space hover:bg-oppo-sunrise-gold/90 hover:shadow-oppo hover:-translate-y-0.5 active:translate-y-0',
-    secondary: 'bg-white/10 text-white border border-white/20 hover:bg-white/20 hover:border-white/30',
-    ghost: 'bg-transparent text-text-secondary hover:text-white hover:bg-white/5',
-    danger: 'bg-error-vital text-white hover:bg-error-vital/90'
+    primary: 'bg-oppo-sunrise-gold text-deep-space hover:bg-oppo-sunrise-gold/90 hover:shadow-[0_4px_16px_rgba(255,179,71,0.3)] active:scale-[0.96]',
+    secondary: 'bg-white/10 text-white border border-white/20 hover:bg-white/20 hover:border-white/30 active:scale-[0.96]',
+    ghost: 'bg-transparent text-text-secondary hover:text-white hover:bg-white/5 active:scale-[0.96]',
+    danger: 'bg-error-vital text-white hover:bg-error-vital/90 active:scale-[0.96]'
   }
   
   return (
     <motion.button
-      whileTap={{ scale: 0.98 }}
       onClick={onClick}
       disabled={disabled || loading}
       className={`${baseStyles} ${sizes[size]} ${variants[variant]} ${className}`}
+      whileHover={!disabled && !loading ? { y: -2 } : undefined}
+      whileTap={!disabled && !loading ? { scale: 0.96 } : undefined}
     >
       {loading ? (
         <Loader2 className="w-5 h-5 animate-spin" />
@@ -137,8 +154,8 @@ export function ColorOSSwitch({ checked, onChange, label, description }: ColorOS
       </div>
       <motion.button
         onClick={() => onChange(!checked)}
-        className={`w-12 h-7 rounded-full p-1 transition-colors duration-300 ${
-          checked ? 'bg-oppo-sunrise-gold' : 'bg-white/20'
+        className={`w-12 h-7 rounded-full p-1 transition-colors duration-200 ${
+          checked ? 'bg-oppo-green' : 'bg-white/20'
         }`}
         whileTap={{ scale: 0.95 }}
       >
@@ -186,7 +203,7 @@ export function ColorOSSlider({
           className="absolute left-0 top-0 h-full bg-gradient-to-r from-oppo-sunrise-gold to-oppo-sunrise-gold-light rounded-full"
           initial={false}
           animate={{ width: `${percentage}%` }}
-          transition={{ duration: 0.15 }}
+          transition={{ duration: 0.15, ease: easeStandard }}
         />
         <input
           type="range"
@@ -222,13 +239,13 @@ export function ColorOSListItem({
   return (
     <motion.div
       onClick={onClick}
-      className={`flex items-center gap-4 p-4 rounded-oppo-sm transition-all duration-200 ${
+      className={`flex items-center gap-4 p-4 rounded-[16px] transition-all duration-200 ${
         onClick ? 'cursor-pointer hover:bg-white/5 active:bg-white/10' : ''
       }`}
       whileTap={onClick ? { scale: 0.98 } : undefined}
     >
       {icon && (
-        <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center flex-shrink-0">
+        <div className="w-12 h-12 rounded-[16px] bg-white/5 flex items-center justify-center flex-shrink-0">
           {icon}
         </div>
       )}
@@ -274,7 +291,7 @@ export function ColorOSChip({ label, selected = false, onClick, icon }: ColorOSC
       whileTap={{ scale: 0.95 }}
       className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ${
         selected
-          ? 'bg-oppo-sunrise-gold text-deep-space'
+          ? 'bg-oppo-sunrise-gold text-deep-space shadow-md'
           : 'bg-white/10 text-text-secondary hover:bg-white/15 hover:text-white'
       }`}
     >
@@ -307,7 +324,7 @@ export function ColorOSProgressBar({ value, max = 100, label, showPercentage = t
           className="h-full bg-gradient-to-r from-oppo-sunrise-gold to-oppo-sunrise-gold-light rounded-full"
           initial={{ width: 0 }}
           animate={{ width: `${percentage}%` }}
-          transition={{ duration: 0.5, ease: 'easeOut' }}
+          transition={{ duration: 0.5, ease: easeDecelerate }}
         />
       </div>
     </div>
@@ -322,20 +339,21 @@ interface ColorOSTabsProps {
 
 export function ColorOSTabs({ tabs, activeTab, onChange }: ColorOSTabsProps) {
   return (
-    <div className="flex gap-2 p-1 bg-white/5 rounded-oppo-sm">
+    <div className="flex gap-1 p-1 bg-white/5 rounded-[16px]">
       {tabs.map((tab) => (
         <motion.button
           key={tab.id}
           onClick={() => onChange(tab.id)}
-          className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-sm font-medium transition-colors ${
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-[12px] text-sm font-medium transition-colors ${
             activeTab === tab.id
               ? 'text-deep-space'
-              : 'text-text-secondary hover:text-white'
+              : 'text-text-secondary hover:text-white hover:bg-white/5'
           }`}
           animate={{
             backgroundColor: activeTab === tab.id ? '#FFB347' : 'transparent'
           }}
-          transition={{ duration: 0.2 }}
+          transition={{ duration: 0.2, ease: easeStandard }}
+          whileTap={{ scale: 0.96 }}
         >
           {tab.icon}
           {tab.label}
@@ -366,14 +384,14 @@ export function ColorOSRadioGroup({ options, value, onChange, title }: ColorOSRa
         <motion.div
           key={option.value}
           onClick={() => onChange(option.value)}
-          className={`flex items-center gap-4 p-4 rounded-oppo-sm cursor-pointer transition-all ${
+          className={`flex items-center gap-4 p-4 rounded-[16px] cursor-pointer transition-all duration-200 ${
             value === option.value
               ? 'bg-oppo-sunrise-gold/10 border border-oppo-sunrise-gold/30'
               : 'bg-white/5 border border-transparent hover:bg-white/10'
           }`}
           whileTap={{ scale: 0.98 }}
         >
-          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
+          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors duration-200 ${
             value === option.value
               ? 'border-oppo-sunrise-gold bg-oppo-sunrise-gold'
               : 'border-white/30'
@@ -414,23 +432,28 @@ export function ColorOSDialog({ open, onClose, title, children, actions }: Color
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md"
       onClick={onClose}
     >
       <motion.div
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        transition={{ duration: 0.2 }}
-        className="w-full max-w-md bg-card-surface rounded-oppo-md border border-oppo-border/50 overflow-hidden"
+        transition={{ duration: 0.25, ease: easeOppoBounce }}
+        className="w-full max-w-md bg-card-surface rounded-[28px] border border-white/10 overflow-hidden shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="p-6">
-          <h2 className="text-xl font-semibold text-white mb-4">{title}</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold text-white">{title}</h2>
+            <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 transition-colors">
+              <X className="w-4 h-4 text-text-secondary" />
+            </button>
+          </div>
           <div className="text-text-secondary">{children}</div>
         </div>
         {actions && (
-          <div className="flex gap-3 p-4 border-t border-oppo-border/50">
+          <div className="flex gap-3 p-4 border-t border-white/10 bg-black/20">
             {actions}
           </div>
         )}
@@ -444,7 +467,7 @@ export function ColorOSSkeleton() {
     <div className="animate-pulse space-y-4">
       <div className="h-4 bg-white/10 rounded w-3/4" />
       <div className="h-4 bg-white/10 rounded w-1/2" />
-      <div className="h-32 bg-white/10 rounded-oppo-sm" />
+      <div className="h-32 bg-white/10 rounded-[16px]" />
     </div>
   )
 }
@@ -467,10 +490,182 @@ export function ColorOSToast({ message, type = 'info', icon }: ColorOSToastProps
       initial={{ opacity: 0, y: 20, scale: 0.95 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: -20, scale: 0.95 }}
-      className={`flex items-center gap-3 px-4 py-3 rounded-oppo-sm border ${colors[type]}`}
+      className={`flex items-center gap-3 px-4 py-3 rounded-[16px] border ${colors[type]} backdrop-blur-xl`}
     >
       {icon}
       <span className="text-white text-sm font-medium">{message}</span>
     </motion.div>
   )
 }
+
+interface ColorOSBottomSheetProps {
+  open: boolean
+  onClose: () => void
+  title: string
+  children: ReactNode
+}
+
+export function ColorOSBottomSheet({ open, onClose, title, children }: ColorOSBottomSheetProps) {
+  if (!open) return null
+  
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-end justify-center p-4 bg-black/60 backdrop-blur-md"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ opacity: 0, y: '100%' }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: '100%' }}
+        transition={{ duration: 0.3, ease: easeOppoEnter }}
+        className="w-full max-w-lg bg-card-surface rounded-[32px] border border-white/10 overflow-hidden shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="w-12 h-1.5 bg-white/20 rounded-full mx-auto mt-3 mb-2" />
+        <div className="p-6">
+          <h2 className="text-xl font-semibold text-white mb-4">{title}</h2>
+          <div className="text-text-secondary">{children}</div>
+        </div>
+      </motion.div>
+    </motion.div>
+  )
+}
+
+interface ColorOSFilterCardProps {
+  name: string
+  author?: string
+  category?: string
+  isFavorited?: boolean
+  isSelected?: boolean
+  isNew?: boolean
+  isHasselblad?: boolean
+  onClick?: () => void
+}
+
+export function ColorOSFilterCard({
+  name,
+  author,
+  category,
+  isFavorited = false,
+  isSelected = false,
+  isNew = false,
+  isHasselblad = false,
+  onClick
+}: ColorOSFilterCardProps) {
+  return (
+    <motion.div
+      onClick={onClick}
+      whileHover={{ scale: isSelected ? 1.05 : 1.03 }}
+      whileTap={{ scale: 0.97 }}
+      className={`relative overflow-hidden rounded-[12px] cursor-pointer transition-all duration-200 ${
+        isSelected 
+          ? 'border-2 border-oppo-green shadow-lg transform -translate-y-1' 
+          : 'border border-transparent hover:border-white/20'
+      }`}
+    >
+      <div className="aspect-square bg-gradient-to-br from-oppo-sunrise-gold/30 to-ocean-blue/30 flex items-center justify-center relative">
+        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCA0MCA0MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmYiIGZpbGwtb3BhY2l0eT0iMC4wNSI+PHBhdGggZD0iTTIwIDIwLjVWMjB2LjV6TTIwLjUgMjBoLS41LjV6TTIwIDIwaC0uNS41em0tLjUtLjVoLjUtLjV6TTE5LjUgMjBoLjUtLjV6TTIwIDE5LjVWMjB2LS41ek0yMC41IDE5LjVoLS41LjV6Ii8+PC9nPjwvZz48L3N2Zz4=')]" />
+        
+        <div className="absolute top-2 left-2 flex gap-1.5 z-10">
+          {isNew && <span className="px-2 py-1 bg-oppo-green text-deep-space text-xs font-bold rounded-full">NEW</span>}
+          {isHasselblad && <span className="px-2 py-1 bg-hasselblad-pro text-deep-space text-xs font-bold rounded-full">HNCS</span>}
+        </div>
+        
+        {isSelected && (
+          <motion.div
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            className="absolute top-2 right-2 w-6 h-6 rounded-full bg-oppo-green flex items-center justify-center z-10"
+          >
+            <Check className="w-4 h-4 text-deep-space" />
+          </motion.div>
+        )}
+        
+        <div className="w-full h-full flex items-center justify-center">
+          <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center">
+            <div className="w-5 h-5 rounded-full border-2 border-oppo-sunrise-gold/50" />
+          </div>
+        </div>
+      </div>
+      
+      <div className="p-3 bg-card-surface">
+        <p className="text-white font-medium text-sm truncate">{name}</p>
+        {author && <p className="text-text-tertiary text-xs mt-0.5">@{author}</p>}
+      </div>
+    </motion.div>
+  )
+}
+
+interface ColorOSFloatingWindowProps {
+  filterName: string
+  intensity: number
+  isVisible: boolean
+  isLocked: boolean
+  onToggleVisible: () => void
+  onToggleLock: () => void
+}
+
+export function ColorOSFloatingWindow({
+  filterName,
+  intensity,
+  isVisible,
+  isLocked,
+  onToggleVisible,
+  onToggleLock
+}: ColorOSFloatingWindowProps) {
+  if (!isVisible) {
+    return (
+      <motion.button
+        initial={{ opacity: 0, scale: 0.8 }}
+        animate={{ opacity: 1, scale: 1 }}
+        whileHover={{ scale: 1.1 }}
+        whileTap={{ scale: 0.9 }}
+        onClick={onToggleVisible}
+        className="w-12 h-12 rounded-full bg-oppo-sunrise-gold flex items-center justify-center shadow-lg"
+      >
+        <Eye className="w-5 h-5 text-deep-space" />
+      </motion.button>
+    )
+  }
+  
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.8 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className="w-72 p-4 bg-black/85 backdrop-blur-xl border border-white/15 rounded-[16px] shadow-[0_4px_16px_rgba(0,0,0,0.12),0_1px_4px_rgba(0,0,0,0.08)]"
+    >
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-white font-medium text-sm">{filterName}</p>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onToggleLock}
+            className="w-6 h-6 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 transition-colors"
+          >
+            {isLocked ? <Move className="w-3 h-3 text-text-secondary" /> : <Move className="w-3 h-3 text-text-secondary" />}
+          </button>
+          <button
+            onClick={onToggleVisible}
+            className="w-6 h-6 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 transition-colors"
+          >
+            <EyeOff className="w-3 h-3 text-text-secondary" />
+          </button>
+        </div>
+      </div>
+      
+      <div className="space-y-1">
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-text-tertiary">强度</span>
+          <span className="text-white font-medium">{intensity}%</span>
+        </div>
+        <div className="h-1.5 bg-white/20 rounded-full overflow-hidden">
+          <div className="h-full bg-gradient-to-r from-oppo-sunrise-gold to-oppo-sunrise-gold-light rounded-full" style={{ width: `${intensity}%` }} />
+        </div>
+      </div>
+    </motion.div>
+  )
+}
+
+export { easeStandard, easeDecelerate, easeAccelerate, easeOppoEnter, easeOppoExit, easeOppoBounce }

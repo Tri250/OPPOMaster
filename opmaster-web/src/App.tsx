@@ -11,7 +11,6 @@ const AboutPage = lazy(() => import('./pages/AboutPage'))
 const PresetDetailPage = lazy(() => import('./pages/PresetDetailPage'))
 const WatermarkPage = lazy(() => import('./pages/WatermarkPage'))
 const PresetEditorPage = lazy(() => import('./pages/PresetEditorPage'))
-
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const AiFineTunePage = lazy(() => import('./pages/AiFineTunePage'))
 const SceneDetectionPage = lazy(() => import('./pages/SceneDetectionPage'))
@@ -19,6 +18,9 @@ const FloatingWindowPage = lazy(() => import('./pages/FloatingWindowPage'))
 const LutManagerPage = lazy(() => import('./pages/LutManagerPage'))
 const CloudSyncPage = lazy(() => import('./pages/CloudSyncPage'))
 const OcrDemoPage = lazy(() => import('./pages/OcrDemoPage'))
+const FilterLibraryPage = lazy(() => import('./pages/FilterLibraryPage'))
+const MasterParamsPage = lazy(() => import('./pages/MasterParamsPage'))
+const P0Overview = lazy(() => import('./pages/P0Overview'))
 
 function Loading() {
   return (
@@ -37,6 +39,7 @@ function App() {
       <Suspense fallback={<Loading />}>
         <Routes>
           <Route path="/" element={<AppShowcase />} />
+          <Route path="/p0-overview" element={<P0Overview />} />
           <Route path="/app" element={<HomePage />} />
           <Route path="/ai-demo" element={<AIDemoPage />} />
           <Route path="/tech" element={<TechPage />} />
@@ -44,7 +47,6 @@ function App() {
           <Route path="/preset/:id" element={<PresetDetailPage />} />
           <Route path="/watermark" element={<WatermarkPage />} />
           <Route path="/editor" element={<PresetEditorPage />} />
-          
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/ai-finetune" element={<AiFineTunePage />} />
           <Route path="/scene-detection" element={<SceneDetectionPage />} />
@@ -52,10 +54,12 @@ function App() {
           <Route path="/lut-manager" element={<LutManagerPage />} />
           <Route path="/cloud-sync" element={<CloudSyncPage />} />
           <Route path="/ocr-demo" element={<OcrDemoPage />} />
+          <Route path="/filter-library" element={<FilterLibraryPage />} />
+          <Route path="/master-params" element={<MasterParamsPage />} />
         </Routes>
       </Suspense>
     </Router>
   )
 }
 
-export default App;
+export default App
