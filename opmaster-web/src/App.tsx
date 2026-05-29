@@ -21,6 +21,9 @@ const OcrDemoPage = lazy(() => import('./pages/OcrDemoPage'))
 const FilterLibraryPage = lazy(() => import('./pages/FilterLibraryPage'))
 const MasterParamsPage = lazy(() => import('./pages/MasterParamsPage'))
 const P0Overview = lazy(() => import('./pages/P0Overview'))
+const XiaoOHelpPage = lazy(() => import('./pages/XiaoOHelpPage'))
+const NativeCameraPage = lazy(() => import('./pages/NativeCameraPage'))
+const PresetEcosystemPage = lazy(() => import('./pages/PresetEcosystemPage'))
 
 function Loading() {
   return (
@@ -56,6 +59,9 @@ function App() {
           <Route path="/ocr-demo" element={<OcrDemoPage />} />
           <Route path="/filter-library" element={<FilterLibraryPage />} />
           <Route path="/master-params" element={<MasterParamsPage />} />
+          <Route path="/xiao-o-help" element={<XiaoOHelpPage />} />
+          <Route path="/native-camera" element={<NativeCameraPage />} />
+          <Route path="/preset-ecosystem" element={<PresetEcosystemPage />} />
         </Routes>
       </Suspense>
     </Router>

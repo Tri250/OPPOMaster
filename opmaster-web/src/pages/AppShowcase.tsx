@@ -85,6 +85,7 @@ export default function AppShowcase() {
 
             <div className="hidden md:flex items-center space-x-6">
               <Link to="/" className="text-sm font-medium text-oppo-sunrise-gold">首页</Link>
+              <Link to="/xiao-o-help" className="text-sm font-medium text-text-secondary hover:text-white transition-colors">小O帮帮</Link>
               <Link to="/filter-library" className="text-sm font-medium text-text-secondary hover:text-white transition-colors">滤镜库</Link>
               <Link to="/master-params" className="text-sm font-medium text-text-secondary hover:text-white transition-colors">大师参数</Link>
               <Link to="/floating-window" className="text-sm font-medium text-text-secondary hover:text-white transition-colors">悬浮窗</Link>
@@ -114,10 +115,16 @@ export default function AppShowcase() {
         >
           <div className="flex flex-col items-center space-y-5 p-8">
             <Link to="/" onClick={() => setMobileMenuOpen(false)} className="text-xl font-medium text-oppo-sunrise-gold min-h-[48px] flex items-center">首页</Link>
+            <Link to="/xiao-o-help" onClick={() => setMobileMenuOpen(false)} className="text-xl font-medium text-white min-h-[48px] flex items-center">小O帮帮</Link>
             <Link to="/filter-library" onClick={() => setMobileMenuOpen(false)} className="text-xl font-medium text-text-secondary min-h-[48px] flex items-center">滤镜库</Link>
             <Link to="/master-params" onClick={() => setMobileMenuOpen(false)} className="text-xl font-medium text-text-secondary min-h-[48px] flex items-center">大师参数</Link>
             <Link to="/floating-window" onClick={() => setMobileMenuOpen(false)} className="text-xl font-medium text-text-secondary min-h-[48px] flex items-center">悬浮窗</Link>
             <Link to="/scene-detection" onClick={() => setMobileMenuOpen(false)} className="text-xl font-medium text-text-secondary min-h-[48px] flex items-center">AI场景识别</Link>
+            <Link to="/native-camera" onClick={() => setMobileMenuOpen(false)} className="text-xl font-medium text-text-secondary min-h-[48px] flex items-center">原生相机</Link>
+            <Link to="/preset-ecosystem" onClick={() => setMobileMenuOpen(false)} className="text-xl font-medium text-text-secondary min-h-[48px] flex items-center">预设生态</Link>
+            <Link to="/lut-manager" onClick={() => setMobileMenuOpen(false)} className="text-xl font-medium text-text-secondary min-h-[48px] flex items-center">导入导出</Link>
+            <Link to="/watermark" onClick={() => setMobileMenuOpen(false)} className="text-xl font-medium text-text-secondary min-h-[48px] flex items-center">水印生成器</Link>
+            <Link to="/editor" onClick={() => setMobileMenuOpen(false)} className="text-xl font-medium text-text-secondary min-h-[48px] flex items-center">预设编辑器</Link>
             <Link to="/settings" onClick={() => setMobileMenuOpen(false)} className="text-xl font-medium text-text-secondary min-h-[48px] flex items-center">设置</Link>
             <button className="btn-primary w-full mt-6 min-h-[48px]">立即下载</button>
           </div>
