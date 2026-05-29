@@ -100,7 +100,7 @@ export const appFeatures: AppFeature[] = [
 
 // OPPO FindX9spro哈苏大师模式预设
 export const mockPresets: Preset[] = [
-  // OPPO官方预设
+  // OPPO官方预设 - 更新自JSON数据
   {
     id: 'hasselblad_dewei',
     name: '德味预设',
@@ -150,10 +150,10 @@ export const mockPresets: Preset[] = [
   {
     id: 'fujifilm_film',
     name: '富士胶片',
-    coverPath: 'https://picsum.photos/400/600?random=1',
+    coverPath: 'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/fsjp_01.webp',
     galleryImages: [
-      'https://picsum.photos/400/600?random=2',
-      'https://picsum.photos/400/600?random=3'
+      'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/fsjp_02.webp',
+      'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/fsjp_03.webp'
     ],
     sections: [
       {
@@ -199,10 +199,10 @@ export const mockPresets: Preset[] = [
   {
     id: 'film_sense',
     name: '胶片感',
-    coverPath: 'https://picsum.photos/400/600?random=4',
+    coverPath: 'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/jpg_01.webp',
     galleryImages: [
-      'https://picsum.photos/400/600?random=5',
-      'https://picsum.photos/400/600?random=6'
+      'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/jpg_02.webp',
+      'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/jpg_03.webp'
     ],
     sections: [
       {
@@ -248,10 +248,10 @@ export const mockPresets: Preset[] = [
   {
     id: 'fairy_tale',
     name: '童话',
-    coverPath: 'https://picsum.photos/400/600?random=7',
+    coverPath: 'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/th_01.webp',
     galleryImages: [
-      'https://picsum.photos/400/600?random=8',
-      'https://picsum.photos/400/600?random=9'
+      'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/th_02.webp',
+      'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/th_03.webp'
     ],
     sections: [
       {
@@ -297,10 +297,10 @@ export const mockPresets: Preset[] = [
   {
     id: 'high_contrast_bw',
     name: '高对比黑白',
-    coverPath: 'https://picsum.photos/400/600?random=10',
+    coverPath: 'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/gdbhb_01.webp',
     galleryImages: [
-      'https://picsum.photos/400/600?random=11',
-      'https://picsum.photos/400/600?random=12'
+      'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/gdbhb_02.webp',
+      'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/gdbhb_03.webp'
     ],
     sections: [
       {
@@ -346,10 +346,10 @@ export const mockPresets: Preset[] = [
   {
     id: 'ricoh_green',
     name: '理光绿',
-    coverPath: 'https://picsum.photos/400/600?random=13',
+    coverPath: 'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/lgl_01.webp',
     galleryImages: [
-      'https://picsum.photos/400/600?random=14',
-      'https://picsum.photos/400/600?random=15'
+      'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/lgl_02.webp',
+      'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/lgl_03.webp'
     ],
     sections: [
       {
@@ -395,10 +395,10 @@ export const mockPresets: Preset[] = [
   {
     id: 'ricoh_blue',
     name: '理光蓝',
-    coverPath: 'https://picsum.photos/400/600?random=16',
+    coverPath: 'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/lglan_01.webp',
     galleryImages: [
-      'https://picsum.photos/400/600?random=17',
-      'https://picsum.photos/400/600?random=18'
+      'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/lglan_02.webp',
+      'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/lglan_03.webp'
     ],
     sections: [
       {
@@ -444,8 +444,8 @@ export const mockPresets: Preset[] = [
   {
     id: 'blue_hour',
     name: '蓝调时刻',
-    coverPath: 'https://picsum.photos/400/600?random=19',
-    galleryImages: ['https://picsum.photos/400/600?random=20'],
+    coverPath: 'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/ldsk_01.webp',
+    galleryImages: ['https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/ldsk_02.webp'],
     sections: [
       {
         title: '色彩调校',
@@ -494,10 +494,10 @@ export const mockPresets: Preset[] = [
   {
     id: 'dream_soft',
     name: '梦幻黑柔',
-    coverPath: 'https://picsum.photos/400/600?random=21',
+    coverPath: 'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/mhhr_01.webp',
     galleryImages: [
-      'https://picsum.photos/400/600?random=22',
-      'https://picsum.photos/400/600?random=23'
+      'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/mhhr_02.webp',
+      'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/mhhr_03.webp'
     ],
     sections: [
       {
@@ -538,6 +538,55 @@ export const mockPresets: Preset[] = [
     description: {
       title: '拍摄建议',
       content: '【环境建议】逆光或侧逆光场景\n【场景推荐】人像写真、情绪摄影、艺术场景、柔美人像\n【拍摄要点】黑柔滤镜效果营造梦幻氛围，适合拍摄唯美人像，建议利用逆光创造光晕效果'
+    }
+  },
+  {
+    id: 'fujifilm_nc',
+    name: '富士NC',
+    coverPath: 'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/fsnc_01.webp',
+    galleryImages: [
+      'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/fsnc_02.webp',
+      'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/images/fsnc_03.webp'
+    ],
+    sections: [
+      {
+        title: '色彩调校',
+        items: [
+          { label: '滤镜', value: '复古 60%', span: 2 },
+          { label: '柔光', value: '无', span: 1 },
+          { label: '色调曲线', value: '0', span: 1 },
+          { label: '饱和度', value: '+15', span: 1 },
+          { label: '冷暖调', value: '-8', span: 1 },
+          { label: '青红调', value: '0', span: 1 },
+          { label: '锐度', value: '12', span: 1 },
+          { label: '暗角', value: '开', span: 2 }
+        ]
+      }
+    ],
+    cameraParams: {
+      mode: 'master',
+      filter: '复古',
+      filter_intensity: 60,
+      soft_light: '无',
+      tone_curve: 0,
+      saturation: 15,
+      warm_cool: -8,
+      cyan_magenta: 0,
+      sharpness: 12,
+      vignette: true,
+      hncs: true
+    },
+    deviceModel: 'Find X9spro',
+    author: '@OPPO影像',
+    source: 'omaster_cloud',
+    isFavorite: true,
+    isNew: true,
+    category: '胶片',
+    difficulty: '中等',
+    tags: ['富士', 'NC', '经典'],
+    description: {
+      title: '拍摄建议',
+      content: '【环境建议】日间户外或光线充足的室内\n【场景推荐】街拍、人像、风景、建筑\n【拍摄要点】富士NC风格，色彩自然，质感出色'
     }
   },
   // Realme预设
