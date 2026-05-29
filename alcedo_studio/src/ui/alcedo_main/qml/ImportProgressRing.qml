@@ -8,6 +8,8 @@ import QtQuick
  *   ringWidth  : stroke thickness in px
  *   trackColor : background ring colour
  *   fillColor  : foreground arc colour
+ *   indeterminate : draw and rotate a waiting arc instead of progress
+ *   running : animate the waiting arc
  */
 Item {
     id: ring
@@ -20,6 +22,8 @@ Item {
     property real ringWidth: 14
     property color trackColor: appTheme.hoverColor
     property color fillColor: appTheme.accentColor
+    property bool indeterminate: false
+    property bool running: visible
 
     // Smoothly animate the arc whenever progress changes
     Behavior on progress {
@@ -35,11 +39,13 @@ Item {
             var ctx = getContext("2d");
             ctx.reset();
 
-            var cx     = width  / 2;
-            var cy     = height / 2;
+            var cx = width / 2;
+            var cy = height / 2;
             var radius = Math.min(cx, cy) - ring.ringWidth / 2 - 2;
             var startAngle = -Math.PI / 2;               // 12 o'clock
-            var endAngle   = startAngle + 2 * Math.PI * Math.min(ring.progress, 1.0);
+            var clampedProgress = Math.min(Math.max(ring.progress, 0.0), 1.0);
+            var sweepProgress = ring.indeterminate ? 0.72 : clampedProgress;
+            var endAngle = startAngle + 2 * Math.PI * sweepProgress;
 
             // ── track (background) ──
             ctx.beginPath();
@@ -50,7 +56,7 @@ Item {
             ctx.stroke();
 
             // ── filled arc ──
-            if (ring.progress > 0.001) {
+            if (ring.indeterminate || clampedProgress > 0.001) {
                 ctx.beginPath();
                 ctx.arc(cx, cy, radius, startAngle, endAngle);
                 ctx.lineWidth = ring.ringWidth;
@@ -60,7 +66,7 @@ Item {
             }
 
             // ── end-cap glow dot ──
-            if (ring.progress > 0.02 && ring.progress < 1.0) {
+            if (!ring.indeterminate && clampedProgress > 0.02 && clampedProgress < 1.0) {
                 var dotX = cx + radius * Math.cos(endAngle);
                 var dotY = cy + radius * Math.sin(endAngle);
                 ctx.beginPath();
@@ -69,10 +75,22 @@ Item {
                 ctx.fill();
             }
         }
+
+        RotationAnimator on rotation {
+            running: ring.running && ring.indeterminate
+            loops: Animation.Infinite
+            from: 0
+            to: 360
+            duration: 1200
+        }
     }
 
     // Repaint whenever progress changes
     onProgressChanged: canvas.requestPaint()
+    onIndeterminateChanged: {
+        canvas.rotation = 0;
+        canvas.requestPaint();
+    }
     Component.onCompleted: canvas.requestPaint()
     onWidthChanged: canvas.requestPaint()
     onHeightChanged: canvas.requestPaint()
