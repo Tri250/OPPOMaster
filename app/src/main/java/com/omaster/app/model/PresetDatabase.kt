@@ -3,824 +3,107 @@ package com.omaster.app.model
 object PresetDatabase {
     
     private val presets = listOf(
-        // ==================== 哈苏影像系列（OPPO/一加） ====================
-        Preset(
-            id = "hasselblad_001",
-            name = "哈苏经典",
-            coverPath = "hasselblad_classic",
-            sections = listOf(
-                Section("风格特点", "复刻哈苏中画幅胶片的经典色调，色彩准确，层次丰富"),
-                Section("适用场景", "人像、风光、建筑、美食等各类场景")
-            ),
-            cameraParams = CameraParams(
-                hasselblad_hncs = true,
-                saturation = 10,
-                contrast = 12,
-                clarity = 8
-            ),
-            deviceModel = "OPPO Find X7 Ultra",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "hasselblad_002",
-            name = "哈苏人像",
-            coverPath = "hasselblad_portrait",
-            sections = listOf(
-                Section("风格特点", "专为哈苏影像优化的人像模式，肤色准确，立体感强"),
-                Section("适用场景", "人像、合影、婚礼、儿童摄影")
-            ),
-            cameraParams = CameraParams(
-                hasselblad_hncs = true,
-                master_hdr = "智能",
-                brightness = 5,
-                saturation = 8,
-                clarity = 6
-            ),
-            deviceModel = "OPPO Find X7 Ultra",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "hasselblad_003",
-            name = "哈苏风光",
-            coverPath = "hasselblad_landscape",
-            sections = listOf(
-                Section("风格特点", "增强风光摄影的色彩和层次，蓝天更蓝，绿植更翠"),
-                Section("适用场景", "自然风光、城市风景、建筑摄影")
-            ),
-            cameraParams = CameraParams(
-                hasselblad_hncs = true,
-                hdr = true,
-                saturation = 15,
-                contrast = 12,
-                clarity = 10
-            ),
-            deviceModel = "OPPO Find X6 Pro",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "hasselblad_004",
-            name = "哈苏夜景",
-            coverPath = "hasselblad_night",
-            sections = listOf(
-                Section("风格特点", "优化暗光环境下的细节和纯净度"),
-                Section("适用场景", "夜景、星空、霓虹灯")
-            ),
-            cameraParams = CameraParams(
-                hasselblad_hncs = true,
-                ai_scene = true,
-                brightness = -5,
-                contrast = 15,
-                saturation = 12
-            ),
-            deviceModel = "OPPO Find X7",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "hasselblad_005",
-            name = "哈苏大师",
-            coverPath = "hasselblad_master",
-            sections = listOf(
-                Section("风格特点", "综合哈苏影像优势，适合各类场景的万能预设"),
-                Section("适用场景", "日常记录、旅行摄影、创作拍摄")
-            ),
-            cameraParams = CameraParams(
-                hasselblad_hncs = true,
-                master_hdr = "智能",
-                ai_scene = true,
-                saturation = 10,
-                contrast = 10,
-                clarity = 8
-            ),
-            deviceModel = "OnePlus 12",
-            source = "omaster_official"
-        ),
-        
-        // ==================== OPPO Find系列专属 ====================
-        Preset(
-            id = "findx7_001",
-            name = "Find X7 杜绝对比",
-            coverPath = "findx7_contrast",
-            sections = listOf(
-                Section("风格特点", "OPPO Find X7 Ultra专属，强劲对比，层次分明"),
-                Section("适用场景", "艺术创作、黑白摄影、戏剧性表达")
-            ),
-            cameraParams = CameraParams(
-                contrast = 20,
-                saturation = 5,
-                clarity = 15,
-                hasselblad_hncs = true
-            ),
-            deviceModel = "OPPO Find X7 Ultra",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "findx7_002",
-            name = "Find X7 哈苏HNCS",
-            coverPath = "findx7_hncs",
-            sections = listOf(
-                Section("风格特点", "充分发挥哈苏自然色彩解决方案的优势"),
-                Section("适用场景", "专业摄影、商业拍摄、色彩还原")
-            ),
-            cameraParams = CameraParams(
-                hasselblad_hncs = true,
-                master_hdr = "智能",
-                saturation = 12,
-                contrast = 8,
-                clarity = 6
-            ),
-            deviceModel = "OPPO Find X7 Ultra",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "findx6_001",
-            name = "Find X6 夜间人像",
-            coverPath = "findx6_night_portrait",
-            sections = listOf(
-                Section("风格特点", "Find X6系列专属夜间人像优化，肤色自然"),
-                Section("适用场景", "夜景人像、晚会、演唱会")
-            ),
-            cameraParams = CameraParams(
-                hasselblad_hncs = true,
-                ai_scene = true,
-                brightness = 3,
-                saturation = 8,
-                clarity = 5
-            ),
-            deviceModel = "OPPO Find X6 Pro",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "reno_001",
-            name = "Reno人像专家",
-            coverPath = "reno_portrait",
-            sections = listOf(
-                Section("风格特点", "Reno系列专属人像优化，美颜自然不失真"),
-                Section("适用场景", "人像自拍、写真、合照")
-            ),
-            cameraParams = CameraParams(
-                hasselblad_hncs = true,
-                brightness = 8,
-                saturation = 10,
-                clarity = 5
-            ),
-            deviceModel = "OPPO Reno12 Pro",
-            source = "omaster_official"
-        ),
-        
-        // ==================== 一加哈苏系列 ====================
-        Preset(
-            id = "oneplus_001",
-            name = "一加哈苏XPan",
-            coverPath = "oneplus_xpan",
-            sections = listOf(
-                Section("风格特点", "复刻一加与哈苏合作的XPan模式电影感"),
-                Section("适用场景", "街头摄影、风光、人文纪实")
-            ),
-            cameraParams = CameraParams(
-                hasselblad_hncs = true,
-                contrast = 15,
-                saturation = 8,
-                warmth = 5,
-                clarity = 10
-            ),
-            deviceModel = "OnePlus 12",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "oneplus_002",
-            name = "一加影像大师",
-            coverPath = "oneplus_master",
-            sections = listOf(
-                Section("风格特点", "综合一加12系列的影像优势"),
-                Section("适用场景", "日常摄影、旅行记录")
-            ),
-            cameraParams = CameraParams(
-                hasselblad_hncs = true,
-                master_hdr = "智能",
-                ai_scene = true,
-                saturation = 10,
-                contrast = 10,
-                clarity = 8
-            ),
-            deviceModel = "OnePlus 12",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "oneplus_003",
-            name = "一加人像影调",
-            coverPath = "oneplus_portrait_tone",
-            sections = listOf(
-                Section("风格特点", "一加系列专属人像影调，立体感强"),
-                Section("适用场景", "人像、合影、婚礼")
-            ),
-            cameraParams = CameraParams(
-                hasselblad_hncs = true,
-                brightness = 5,
-                saturation = 12,
-                contrast = 8,
-                clarity = 6
-            ),
-            deviceModel = "OnePlus 11",
-            source = "omaster_official"
-        ),
-        
-        // ==================== 徕卡影像系列（小米） ====================
-        Preset(
-            id = "leica_001",
-            name = "徕卡经典",
-            coverPath = "leica_classic",
-            sections = listOf(
-                Section("风格特点", "复刻徕卡M系列经典色调，浓郁德味"),
-                Section("适用场景", "人文纪实、街头摄影、黑白创作")
-            ),
-            cameraParams = CameraParams(
-                saturation = 8,
-                contrast = 15,
-                clarity = 10,
-                warmth = 8
-            ),
-            deviceModel = "Xiaomi 14 Ultra",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "leica_002",
-            name = "徕卡生动",
-            coverPath = "leica_vivid",
-            sections = listOf(
-                Section("风格特点", "徕卡生动模式，增强色彩表现力"),
-                Section("适用场景", "风光、美食、色彩丰富的场景")
-            ),
-            cameraParams = CameraParams(
-                master_hdr = "智能",
-                saturation = 18,
-                contrast = 12,
-                clarity = 10
-            ),
-            deviceModel = "Xiaomi 14 Pro",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "leica_003",
-            name = "徕卡黑白",
-            coverPath = "leica_bw",
-            sections = listOf(
-                Section("风格特点", "纯正徕卡黑白影调，灰阶丰富"),
-                Section("适用场景", "人像、建筑、纪实摄影")
-            ),
-            cameraParams = CameraParams(
-                blackWhite = true,
-                contrast = 18,
-                clarity = 12
-            ),
-            deviceModel = "Xiaomi 14 Ultra",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "leica_004",
-            name = "徕卡自然",
-            coverPath = "leica_natural",
-            sections = listOf(
-                Section("风格特点", "徕卡自然模式，色彩准确还原"),
-                Section("适用场景", "产品摄影、商业拍摄")
-            ),
-            cameraParams = CameraParams(
-                saturation = 5,
-                contrast = 8,
-                clarity = 6
-            ),
-            deviceModel = "Xiaomi 14",
-            source = "omaster_official"
-        ),
-        
-        // ==================== 蔡司影像系列（vivo） ====================
-        Preset(
-            id = "zeiss_001",
-            name = "蔡司经典",
-            coverPath = "zeiss_classic",
-            sections = listOf(
-                Section("风格特点", "蔡司T*镀膜特有的清透画质"),
-                Section("适用场景", "风光、人像、建筑")
-            ),
-            cameraParams = CameraParams(
-                saturation = 12,
-                contrast = 10,
-                clarity = 10
-            ),
-            deviceModel = "vivo X100 Ultra",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "zeiss_002",
-            name = "蔡司Biotar",
-            coverPath = "zeiss_biotar",
-            sections = listOf(
-                Section("风格特点", "复刻蔡司Biotar镜头特有的旋转散景"),
-                Section("适用场景", "人像、创意摄影")
-            ),
-            cameraParams = CameraParams(
-                saturation = 10,
-                contrast = 12,
-                clarity = 5,
-                vignette = 15
-            ),
-            deviceModel = "vivo X100 Pro",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "zeiss_003",
-            name = "蔡司Planar",
-            coverPath = "zeiss_planar",
-            sections = listOf(
-                Section("风格特点", "蔡司Planar镜头的锐利中心"),
-                Section("适用场景", "产品摄影、人像特写")
-            ),
-            cameraParams = CameraParams(
-                contrast = 15,
-                clarity = 15,
-                saturation = 8
-            ),
-            deviceModel = "vivo X100",
-            source = "omaster_official"
-        ),
-        
-        // ==================== XMAGE影像系列（华为） ====================
-        Preset(
-            id = "xm_001",
-            name = "XMAGE原色",
-            coverPath = "xm_original",
-            sections = listOf(
-                Section("风格特点", "华为XMAGE原色引擎，色彩精准"),
-                Section("适用场景", "风光、人像、美食")
-            ),
-            cameraParams = CameraParams(
-                ai_scene = true,
-                saturation = 12,
-                contrast = 10,
-                clarity = 8
-            ),
-            deviceModel = "Mate 60 Pro+",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "xm_002",
-            name = "XMAGE明快",
-            coverPath = "xm_vivid",
-            sections = listOf(
-                Section("风格特点", "华为XMAGE明快模式，色彩鲜活"),
-                Section("适用场景", "风光、美食、旅行")
-            ),
-            cameraParams = CameraParams(
-                ai_scene = true,
-                master_hdr = "智能",
-                saturation = 18,
-                contrast = 12,
-                clarity = 10
-            ),
-            deviceModel = "P60 Pro",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "xm_003",
-            name = "XMAGE质感",
-            coverPath = "xm_texture",
-            sections = listOf(
-                Section("风格特点", "华为XMAGE质感模式，层次丰富"),
-                Section("适用场景", "人文、建筑、纪实")
-            ),
-            cameraParams = CameraParams(
-                ai_scene = true,
-                contrast = 18,
-                clarity = 12,
-                saturation = 8
-            ),
-            deviceModel = "Mate 60 Pro",
-            source = "omaster_official"
-        ),
-        
-        // ==================== 通用预设 ====================
-        Preset(
-            id = "general_001",
-            name = "清新自然",
-            coverPath = "fresh_natural",
-            sections = listOf(
-                Section("风格特点", "小清新风格，适合日常生活记录"),
-                Section("适用场景", "日常、美食、风光、旅行")
-            ),
-            cameraParams = CameraParams(
-                brightness = 8,
-                saturation = 12,
-                contrast = 5,
-                warmth = 5
-            ),
-            deviceModel = "",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "general_002",
-            name = "胶片质感",
-            coverPath = "film_texture",
-            sections = listOf(
-                Section("风格特点", "复刻经典胶片色调，有颗粒感"),
-                Section("适用场景", "人像、街头、纪实")
-            ),
-            cameraParams = CameraParams(
-                saturation = 5,
-                contrast = 12,
-                warmth = 10,
-                grain = true
-            ),
-            deviceModel = "",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "general_003",
-            name = "电影感",
-            coverPath = "cinematic",
-            sections = listOf(
-                Section("风格特点", "好莱坞电影色调，宽幅比例"),
-                Section("适用场景", "创意摄影、短视频")
-            ),
-            cameraParams = CameraParams(
-                contrast = 18,
-                saturation = 8,
-                brightness = -3,
-                clarity = 10
-            ),
-            deviceModel = "",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "general_004",
-            name = "美食专家",
-            coverPath = "food_expert",
-            sections = listOf(
-                Section("风格特点", "增强食物的色彩和食欲感"),
-                Section("适用场景", "美食摄影、餐厅拍摄")
-            ),
-            cameraParams = CameraParams(
-                saturation = 20,
-                warmth = 8,
-                brightness = 5,
-                clarity = 10
-            ),
-            deviceModel = "",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "general_005",
-            name = "夜景大师",
-            coverPath = "night_master",
-            sections = listOf(
-                Section("风格特点", "增强夜间摄影的纯净度和细节"),
-                Section("适用场景", "夜景、星空、霓虹灯")
-            ),
-            cameraParams = CameraParams(
-                brightness = -8,
-                contrast = 18,
-                saturation = 15,
-                clarity = 12
-            ),
-            deviceModel = "",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "general_006",
-            name = "复古怀旧",
-            coverPath = "retro_vintage",
-            sections = listOf(
-                Section("风格特点", "80年代复古色调，暖黄滤镜"),
-                Section("适用场景", "人像、风景、创意摄影")
-            ),
-            cameraParams = CameraParams(
-                saturation = 15,
-                warmth = 20,
-                contrast = 10,
-                vignette = 15
-            ),
-            deviceModel = "",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "general_007",
-            name = "黑白经典",
-            coverPath = "bw_classic",
-            sections = listOf(
-                Section("风格特点", "纯正黑白摄影，高对比"),
-                Section("适用场景", "人像、建筑、纪实")
-            ),
-            cameraParams = CameraParams(
-                blackWhite = true,
-                contrast = 20,
-                clarity = 10
-            ),
-            deviceModel = "",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "general_008",
-            name = "赛博朋克",
-            coverPath = "cyberpunk",
-            sections = listOf(
-                Section("风格特点", "科技感霓虹色调，高饱和"),
-                Section("适用场景", "创意摄影、夜景")
-            ),
-            cameraParams = CameraParams(
-                saturation = 25,
-                contrast = 20,
-                hue = 15,
-                brightness = -5
-            ),
-            deviceModel = "",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "general_009",
-            name = "极简主义",
-            coverPath = "minimal",
-            sections = listOf(
-                Section("风格特点", "简约冷淡风格，低饱和"),
-                Section("适用场景", "建筑、产品、空间摄影")
-            ),
-            cameraParams = CameraParams(
-                saturation = 3,
-                contrast = 8,
-                brightness = 10,
-                clarity = 5
-            ),
-            deviceModel = "",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "general_010",
-            name = "日系治愈",
-            coverPath = "japanese",
-            sections = listOf(
-                Section("风格特点", "日系治愈系风格，柔和光线"),
-                Section("适用场景", "人像、生活记录、静物")
-            ),
-            cameraParams = CameraParams(
-                brightness = 12,
-                saturation = 8,
-                contrast = -3,
-                warmth = 5
-            ),
-            deviceModel = "",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "general_011",
-            name = "韩系奶油",
-            coverPath = "korean_cream",
-            sections = listOf(
-                Section("风格特点", "韩系奶油肌色调，柔和通透"),
-                Section("适用场景", "人像自拍、合照")
-            ),
-            cameraParams = CameraParams(
-                brightness = 15,
-                saturation = 5,
-                contrast = -5,
-                clarity = -3
-            ),
-            deviceModel = "",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "general_012",
-            name = "油画质感",
-            coverPath = "oil_painting",
-            sections = listOf(
-                Section("风格特点", "模拟油画质感，柔和过渡"),
-                Section("适用场景", "人像、风景、艺术创作")
-            ),
-            cameraParams = CameraParams(
-                saturation = 8,
-                contrast = 5,
-                clarity = 15,
-                brightness = 3
-            ),
-            deviceModel = "",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "general_013",
-            name = "蓝调忧郁",
-            coverPath = "blue_mood",
-            sections = listOf(
-                Section("风格特点", "蓝色调忧郁氛围"),
-                Section("适用场景", "人像、风景、情绪表达")
-            ),
-            cameraParams = CameraParams(
-                saturation = 5,
-                contrast = 12,
-                warmth = -15,
-                tint = 5
-            ),
-            deviceModel = "",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "general_014",
-            name = "暖阳午后",
-            coverPath = "warm_sun",
-            sections = listOf(
-                Section("风格特点", "午后阳光的温暖色调"),
-                Section("适用场景", "人像、生活、美食")
-            ),
-            cameraParams = CameraParams(
-                saturation = 15,
-                warmth = 18,
-                brightness = 8,
-                contrast = 5
-            ),
-            deviceModel = "",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "general_015",
-            name = "少女粉",
-            coverPath = "girl_pink",
-            sections = listOf(
-                Section("风格特点", "少女感粉色系滤镜"),
-                Section("适用场景", "人像、自拍、美食")
-            ),
-            cameraParams = CameraParams(
-                saturation = 10,
-                warmth = 10,
-                tint = 8,
-                brightness = 5
-            ),
-            deviceModel = "",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "general_016",
-            name = "商务专业",
-            coverPath = "business_pro",
-            sections = listOf(
-                Section("风格特点", "专业商务风格，色彩准确"),
-                Section("适用场景", "产品摄影、文档扫描")
-            ),
-            cameraParams = CameraParams(
-                saturation = 0,
-                contrast = 15,
-                clarity = 15
-            ),
-            deviceModel = "",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "general_017",
-            name = "夕阳剪影",
-            coverPath = "sunset_silhouette",
-            sections = listOf(
-                Section("风格特点", "夕阳剪影效果，强烈对比"),
-                Section("适用场景", "人像、风景")
-            ),
-            cameraParams = CameraParams(
-                brightness = -10,
-                contrast = 25,
-                saturation = 18,
-                warmth = 20
-            ),
-            deviceModel = "",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "general_018",
-            name = "雾霾灰",
-            coverPath = "haze_gray",
-            sections = listOf(
-                Section("风格特点", "高级灰调，雾霾感"),
-                Section("适用场景", "人像、建筑、时尚")
-            ),
-            cameraParams = CameraParams(
-                saturation = -10,
-                contrast = 5,
-                brightness = 8,
-                clarity = 3
-            ),
-            deviceModel = "",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "general_019",
-            name = "糖果甜心",
-            coverPath = "candy_sweet",
-            sections = listOf(
-                Section("风格特点", "糖果色系甜美滤镜"),
-                Section("适用场景", "人像、自拍、美食")
-            ),
-            cameraParams = CameraParams(
-                saturation = 20,
-                brightness = 10,
-                contrast = 5,
-                warmth = 5
-            ),
-            deviceModel = "",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "general_020",
-            name = "冬日暖阳",
-            coverPath = "winter_warm",
-            sections = listOf(
-                Section("风格特点", "冬日阳光的温暖质感"),
-                Section("适用场景", "人像、风景、雪景")
-            ),
-            cameraParams = CameraParams(
-                saturation = 12,
-                warmth = 15,
-                brightness = 10,
-                contrast = 3
-            ),
-            deviceModel = "",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "general_021",
-            name = "莫兰迪色",
-            coverPath = "morandi",
-            sections = listOf(
-                Section("风格特点", "莫兰迪色系高级灰调"),
-                Section("适用场景", "人像、产品、空间")
-            ),
-            cameraParams = CameraParams(
-                saturation = -15,
-                contrast = 5,
-                brightness = 5,
-                warmth = 3
-            ),
-            deviceModel = "",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "general_022",
-            name = "港风复古",
-            coverPath = "hongkong_retro",
-            sections = listOf(
-                Section("风格特点", "90年代港风色调"),
-                Section("适用场景", "人像、街头、纪实")
-            ),
-            cameraParams = CameraParams(
-                saturation = 8,
-                contrast = 15,
-                warmth = 12,
-                clarity = 8
-            ),
-            deviceModel = "",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "general_023",
-            name = "法式浪漫",
-            coverPath = "french_romantic",
-            sections = listOf(
-                Section("风格特点", "法式浪漫色调，优雅复古"),
-                Section("适用场景", "人像、旅行、美食")
-            ),
-            cameraParams = CameraParams(
-                saturation = 10,
-                warmth = 12,
-                brightness = 5,
-                contrast = 5
-            ),
-            deviceModel = "",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "general_024",
-            name = "北欧冷淡",
-            coverPath = "nordic_cool",
-            sections = listOf(
-                Section("风格特点", "北欧冷淡风格，高级灰"),
-                Section("适用场景", "建筑、空间、产品")
-            ),
-            cameraParams = CameraParams(
-                saturation = -20,
-                contrast = 8,
-                brightness = 8,
-                clarity = 5
-            ),
-            deviceModel = "",
-            source = "omaster_official"
-        ),
-        Preset(
-            id = "general_025",
-            name = "自然风光",
-            coverPath = "natural_landscape",
-            sections = listOf(
-                Section("风格特点", "增强自然风光的色彩和层次"),
-                Section("适用场景", "风光、风景、旅行")
-            ),
-            cameraParams = CameraParams(
-                hdr = true,
-                saturation = 15,
-                contrast = 12,
-                clarity = 10
-            ),
-            deviceModel = "",
-            source = "omaster_official"
-        )
+        // ==================== OPPO Find X8 Ultra 哈苏大师模式（2026年5月最新） ====================
+        Preset(id = "findx8u_hasselblad_001", name = "Find X8 Ultra 哈苏人像大师", coverPath = "findx8u_hasselblad_portrait_master", sections = listOf(Section("风格特点", "Find X8 Ultra专属哈苏人像模式，肤色还原精准，立体感强"), Section("适用场景", "人像写真、婚礼摄影、合影留念")), cameraParams = CameraParams(hasselblad_hncs = true, master_hdr = "智能", brightness = 5, saturation = 8, clarity = 6), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_002", name = "Find X8 Ultra 柔光人像", coverPath = "findx8u_hasselblad_soft_portrait", sections = listOf(Section("风格特点", "柔和光线人像，皮肤细腻通透"), Section("适用场景", "女性人像、儿童摄影")), cameraParams = CameraParams(hasselblad_hncs = true, brightness = 10, saturation = 5, contrast = 3, clarity = -2), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_003", name = "Find X8 Ultra 质感人像", coverPath = "findx8u_hasselblad_texture_portrait", sections = listOf(Section("风格特点", "强调皮肤质感，保留细节"), Section("适用场景", "男士写真、时尚摄影")), cameraParams = CameraParams(hasselblad_hncs = true, contrast = 12, clarity = 15, saturation = 6), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_004", name = "Find X8 Ultra 电影人像", coverPath = "findx8u_hasselblad_cinema_portrait", sections = listOf(Section("风格特点", "电影感人像，浅景深高对比"), Section("适用场景", "创意人像、短视频")), cameraParams = CameraParams(hasselblad_hncs = true, contrast = 18, saturation = 8, brightness = -3, clarity = 10), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_005", name = "Find X8 Ultra 复古人像", coverPath = "findx8u_hasselblad_vintage_portrait", sections = listOf(Section("风格特点", "复古胶片色调，暖黄滤镜"), Section("适用场景", "复古写真、怀旧风格")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 12, warmth = 18, contrast = 10, vignette = 15), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_006", name = "Find X8 Ultra 清新人像", coverPath = "findx8u_hasselblad_fresh_portrait", sections = listOf(Section("风格特点", "小清新风格，自然柔和"), Section("适用场景", "日常人像、校园写真")), cameraParams = CameraParams(hasselblad_hncs = true, brightness = 12, saturation = 10, contrast = 3, warmth = 5), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_007", name = "Find X8 Ultra 高级灰人像", coverPath = "findx8u_hasselblad_gray_portrait", sections = listOf(Section("风格特点", "高级灰调，简约高级"), Section("适用场景", "时尚摄影、商业人像")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = -15, contrast = 8, brightness = 5), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_008", name = "Find X8 Ultra 暖色人像", coverPath = "findx8u_hasselblad_warm_portrait", sections = listOf(Section("风格特点", "暖色调人像，温馨亲切"), Section("适用场景", "家庭摄影、亲子照")), cameraParams = CameraParams(hasselblad_hncs = true, warmth = 15, saturation = 12, brightness = 8), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_009", name = "Find X8 Ultra 冷色人像", coverPath = "findx8u_hasselblad_cool_portrait", sections = listOf(Section("风格特点", "冷色调人像，清冷气质"), Section("适用场景", "时尚摄影、个性写真")), cameraParams = CameraParams(hasselblad_hncs = true, warmth = -12, saturation = 8, contrast = 10), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_010", name = "Find X8 Ultra 日系人像", coverPath = "findx8u_hasselblad_japanese_portrait", sections = listOf(Section("风格特点", "日系治愈风格，柔和光线"), Section("适用场景", "日系写真、生活记录")), cameraParams = CameraParams(hasselblad_hncs = true, brightness = 15, saturation = 6, contrast = -3, warmth = 3), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_011", name = "Find X8 Ultra 风光大师", coverPath = "findx8u_hasselblad_landscape_master", sections = listOf(Section("风格特点", "增强风光色彩，蓝天更蓝绿植更翠"), Section("适用场景", "自然风光、城市风景")), cameraParams = CameraParams(hasselblad_hncs = true, hdr = true, saturation = 18, contrast = 15, clarity = 12), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_012", name = "Find X8 Ultra 蓝天白云", coverPath = "findx8u_hasselblad_blue_sky", sections = listOf(Section("风格特点", "增强天空蓝色，白云更立体"), Section("适用场景", "建筑摄影、风景摄影")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 20, contrast = 12, clarity = 10, warmth = -5), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_013", name = "Find X8 Ultra 绿野仙踪", coverPath = "findx8u_hasselblad_green_nature", sections = listOf(Section("风格特点", "增强绿色植物的表现力"), Section("适用场景", "森林、植物、花园")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 22, contrast = 10, hue = 8, clarity = 10), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_014", name = "Find X8 Ultra 夕阳余晖", coverPath = "findx8u_hasselblad_sunset_glow", sections = listOf(Section("风格特点", "增强夕阳金色光芒"), Section("适用场景", "日落、朝霞、晚霞")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 25, warmth = 25, brightness = 8, contrast = 10), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_015", name = "Find X8 Ultra 雪山巍峨", coverPath = "findx8u_hasselblad_snow_mountain", sections = listOf(Section("风格特点", "增强雪山细节和纯净度"), Section("适用场景", "雪山、冰川、高海拔风景")), cameraParams = CameraParams(hasselblad_hncs = true, brightness = 10, contrast = 15, saturation = 5, clarity = 12), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_016", name = "Find X8 Ultra 海洋之蓝", coverPath = "findx8u_hasselblad_ocean_blue", sections = listOf(Section("风格特点", "增强海水蓝色渐变和层次"), Section("适用场景", "海边、沙滩、海岛")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 22, contrast = 12, clarity = 10, tint = 5), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_017", name = "Find X8 Ultra 沙漠驼铃", coverPath = "findx8u_hasselblad_desert", sections = listOf(Section("风格特点", "增强沙漠金色和层次"), Section("适用场景", "沙漠、戈壁、荒漠")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 18, warmth = 20, contrast = 15, clarity = 10), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_018", name = "Find X8 Ultra 城市天际", coverPath = "findx8u_hasselblad_city_skyline", sections = listOf(Section("风格特点", "增强城市建筑线条和细节"), Section("适用场景", "城市建筑、天际线")), cameraParams = CameraParams(hasselblad_hncs = true, contrast = 18, clarity = 15, saturation = 8), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_019", name = "Find X8 Ultra 星空银河", coverPath = "findx8u_hasselblad_star_galaxy", sections = listOf(Section("风格特点", "增强星空细节和纯净度"), Section("适用场景", "星空、银河、流星雨")), cameraParams = CameraParams(hasselblad_hncs = true, brightness = -10, contrast = 20, saturation = 15, clarity = 8), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_020", name = "Find X8 Ultra 雨后彩虹", coverPath = "findx8u_hasselblad_rainbow", sections = listOf(Section("风格特点", "增强彩虹色彩饱和度"), Section("适用场景", "彩虹、晚霞、雨后风景")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 28, contrast = 12, clarity = 10, brightness = 5), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_021", name = "Find X8 Ultra 夜景大师", coverPath = "findx8u_hasselblad_night_master", sections = listOf(Section("风格特点", "增强夜间纯净度和细节"), Section("适用场景", "夜景、霓虹灯、灯光秀")), cameraParams = CameraParams(hasselblad_hncs = true, ai_scene = true, brightness = -5, contrast = 18, saturation = 15, clarity = 10), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_022", name = "Find X8 Ultra 霓虹夜色", coverPath = "findx8u_hasselblad_neon_night", sections = listOf(Section("风格特点", "增强霓虹灯色彩和氛围"), Section("适用场景", "霓虹灯招牌、夜间街道")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 25, contrast = 20, hue = 10, brightness = -3), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_023", name = "Find X8 Ultra 城市光轨", coverPath = "findx8u_hasselblad_light_trail", sections = listOf(Section("风格特点", "增强城市灯光轨迹效果"), Section("适用场景", "车轨、光轨、夜景长曝光")), cameraParams = CameraParams(hasselblad_hncs = true, brightness = -8, contrast = 15, saturation = 12), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_024", name = "Find X8 Ultra 月色皎洁", coverPath = "findx8u_hasselblad_moonlight", sections = listOf(Section("风格特点", "增强月光氛围和纯净度"), Section("适用场景", "月亮、夜景、星空")), cameraParams = CameraParams(hasselblad_hncs = true, brightness = -5, contrast = 15, saturation = 8, warmth = 5), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_025", name = "Find X8 Ultra 暗光人像", coverPath = "findx8u_hasselblad_low_light_portrait", sections = listOf(Section("风格特点", "夜间人像优化，肤色自然"), Section("适用场景", "夜景人像、晚会、演唱会")), cameraParams = CameraParams(hasselblad_hncs = true, ai_scene = true, brightness = 5, saturation = 10, contrast = 8, clarity = 5), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_026", name = "Find X8 Ultra 美食专家", coverPath = "findx8u_hasselblad_food_master", sections = listOf(Section("风格特点", "增强食物色彩和食欲感"), Section("适用场景", "美食摄影、餐厅拍摄")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 22, warmth = 10, brightness = 5, clarity = 12), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_027", name = "Find X8 Ultra 甜点时光", coverPath = "findx8u_hasselblad_dessert", sections = listOf(Section("风格特点", "增强甜点的精致感和色彩"), Section("适用场景", "蛋糕、甜点、下午茶")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 20, warmth = 8, brightness = 8, contrast = 5), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_028", name = "Find X8 Ultra 日式料理", coverPath = "findx8u_hasselblad_japanese_food", sections = listOf(Section("风格特点", "保持日料的自然色泽和新鲜感"), Section("适用场景", "寿司、刺身、日料")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 8, contrast = 10, brightness = 5, clarity = 8), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_029", name = "Find X8 Ultra 中式佳肴", coverPath = "findx8u_hasselblad_chinese_food", sections = listOf(Section("风格特点", "增强中餐的色香味表现"), Section("适用场景", "中餐、火锅、家常菜")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 18, warmth = 12, brightness = 3, clarity = 10), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_030", name = "Find X8 Ultra 咖啡时光", coverPath = "findx8u_hasselblad_coffee", sections = listOf(Section("风格特点", "增强咖啡的香醇氛围感"), Section("适用场景", "咖啡、饮品、下午茶")), cameraParams = CameraParams(hasselblad_hncs = true, warmth = 15, saturation = 12, brightness = 8, contrast = 5), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_031", name = "Find X8 Ultra 黑白经典", coverPath = "findx8u_hasselblad_bw_classic", sections = listOf(Section("风格特点", "纯正黑白摄影，高对比"), Section("适用场景", "人像、建筑、纪实")), cameraParams = CameraParams(hasselblad_hncs = true, blackWhite = true, contrast = 20, clarity = 12), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_032", name = "Find X8 Ultra 赛博朋克", coverPath = "findx8u_hasselblad_cyberpunk", sections = listOf(Section("风格特点", "科技感霓虹色调"), Section("适用场景", "创意摄影、夜景")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 28, contrast = 22, hue = 15, brightness = -5), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_033", name = "Find X8 Ultra 油画质感", coverPath = "findx8u_hasselblad_oil_painting", sections = listOf(Section("风格特点", "模拟油画质感，柔和过渡"), Section("适用场景", "人像、风景、艺术创作")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 10, contrast = 5, clarity = 18, brightness = 5), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_034", name = "Find X8 Ultra 电影色调", coverPath = "findx8u_hasselblad_film_tone", sections = listOf(Section("风格特点", "电影级色调调色"), Section("适用场景", "短视频、创意摄影")), cameraParams = CameraParams(hasselblad_hncs = true, contrast = 18, saturation = 6, brightness = -5, clarity = 10, vignette = 12), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_035", name = "Find X8 Ultra 复古胶片", coverPath = "findx8u_hasselblad_retro_film", sections = listOf(Section("风格特点", "复刻胶片色调，有颗粒感"), Section("适用场景", "人像、街头、纪实")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 8, contrast = 12, warmth = 15, grain = true), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_036", name = "Find X8 Ultra 商业摄影", coverPath = "findx8u_hasselblad_commercial", sections = listOf(Section("风格特点", "商业级色彩还原，精准白平衡"), Section("适用场景", "产品摄影、商业拍摄")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 5, contrast = 12, clarity = 15, brightness = 3), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_037", name = "Find X8 Ultra 产品特写", coverPath = "findx8u_hasselblad_product_closeup", sections = listOf(Section("风格特点", "产品细节优化，高锐度"), Section("适用场景", "电商摄影、产品展示")), cameraParams = CameraParams(hasselblad_hncs = true, contrast = 15, clarity = 20, saturation = 3, brightness = 5), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_038", name = "Find X8 Ultra 证件照", coverPath = "findx8u_hasselblad_id_photo", sections = listOf(Section("风格特点", "证件照优化，白净自然"), Section("适用场景", "证件照、简历照")), cameraParams = CameraParams(hasselblad_hncs = true, brightness = 10, contrast = 8, saturation = -5, clarity = 5), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_039", name = "Find X8 Ultra 文档扫描", coverPath = "findx8u_hasselblad_document_scan", sections = listOf(Section("风格特点", "文档扫描优化，清晰锐利"), Section("适用场景", "文档、白板、名片")), cameraParams = CameraParams(hasselblad_hncs = true, contrast = 20, clarity = 18, saturation = -20, brightness = 8), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        Preset(id = "findx8u_hasselblad_040", name = "Find X8 Ultra 逆光HDR", coverPath = "findx8u_hasselblad_backlight_hdr", sections = listOf(Section("风格特点", "逆光HDR优化，保留高光阴影细节"), Section("适用场景", "逆光摄影、窗边人像")), cameraParams = CameraParams(hasselblad_hncs = true, master_hdr = "智能", brightness = 8, contrast = 10, clarity = 8), deviceModel = "OPPO Find X8 Ultra", source = "omaster_official"),
+        // Find X8 Pro
+        Preset(id = "findx8p_hasselblad_001", name = "Find X8 Pro 哈苏人像", coverPath = "findx8p_hasselblad_portrait", sections = listOf(Section("风格特点", "Find X8 Pro专属哈苏人像模式"), Section("适用场景", "人像摄影、合影留念")), cameraParams = CameraParams(hasselblad_hncs = true, master_hdr = "智能", brightness = 5, saturation = 8, clarity = 6), deviceModel = "OPPO Find X8 Pro", source = "omaster_official"),
+        Preset(id = "findx8p_hasselblad_002", name = "Find X8 Pro 风光摄影", coverPath = "findx8p_hasselblad_landscape", sections = listOf(Section("风格特点", "增强风光色彩和层次"), Section("适用场景", "自然风光、城市风景")), cameraParams = CameraParams(hasselblad_hncs = true, hdr = true, saturation = 15, contrast = 12, clarity = 10), deviceModel = "OPPO Find X8 Pro", source = "omaster_official"),
+        Preset(id = "findx8p_hasselblad_003", name = "Find X8 Pro 夜景模式", coverPath = "findx8p_hasselblad_night", sections = listOf(Section("风格特点", "夜间摄影优化，纯净度高"), Section("适用场景", "夜景、霓虹灯")), cameraParams = CameraParams(hasselblad_hncs = true, ai_scene = true, brightness = -5, contrast = 15, saturation = 12), deviceModel = "OPPO Find X8 Pro", source = "omaster_official"),
+        Preset(id = "findx8p_hasselblad_004", name = "Find X8 Pro 美食专家", coverPath = "findx8p_hasselblad_food", sections = listOf(Section("风格特点", "增强食物色彩和食欲感"), Section("适用场景", "美食摄影、餐厅拍摄")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 20, warmth = 8, brightness = 5, clarity = 10), deviceModel = "OPPO Find X8 Pro", source = "omaster_official"),
+        Preset(id = "findx8p_hasselblad_005", name = "Find X8 Pro 电影色调", coverPath = "findx8p_hasselblad_cinema", sections = listOf(Section("风格特点", "电影级色调，宽幅比例"), Section("适用场景", "短视频、创意摄影")), cameraParams = CameraParams(hasselblad_hncs = true, contrast = 18, saturation = 6, brightness = -3, clarity = 10), deviceModel = "OPPO Find X8 Pro", source = "omaster_official"),
+        Preset(id = "findx8p_hasselblad_006", name = "Find X8 Pro 复古胶片", coverPath = "findx8p_hasselblad_retro", sections = listOf(Section("风格特点", "复古胶片色调，有颗粒感"), Section("适用场景", "人像、街头、纪实")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 6, contrast = 12, warmth = 12, grain = true), deviceModel = "OPPO Find X8 Pro", source = "omaster_official"),
+        Preset(id = "findx8p_hasselblad_007", name = "Find X8 Pro 黑白摄影", coverPath = "findx8p_hasselblad_bw", sections = listOf(Section("风格特点", "纯正黑白影调，灰阶丰富"), Section("适用场景", "人像、建筑、纪实")), cameraParams = CameraParams(hasselblad_hncs = true, blackWhite = true, contrast = 18, clarity = 10), deviceModel = "OPPO Find X8 Pro", source = "omaster_official"),
+        Preset(id = "findx8p_hasselblad_008", name = "Find X8 Pro 专业商务", coverPath = "findx8p_hasselblad_business", sections = listOf(Section("风格特点", "商务风格，色彩准确"), Section("适用场景", "产品摄影、文档")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 0, contrast = 12, clarity = 12), deviceModel = "OPPO Find X8 Pro", source = "omaster_official"),
+        Preset(id = "findx8p_hasselblad_009", name = "Find X8 Pro 清新自然", coverPath = "findx8p_hasselblad_fresh", sections = listOf(Section("风格特点", "小清新风格，自然柔和"), Section("适用场景", "日常记录、旅行")), cameraParams = CameraParams(hasselblad_hncs = true, brightness = 10, saturation = 10, contrast = 3, warmth = 5), deviceModel = "OPPO Find X8 Pro", source = "omaster_official"),
+        Preset(id = "findx8p_hasselblad_010", name = "Find X8 Pro 赛博朋克", coverPath = "findx8p_hasselblad_cyber", sections = listOf(Section("风格特点", "科技感霓虹色调"), Section("适用场景", "创意摄影、夜景")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 25, contrast = 20, hue = 12, brightness = -5), deviceModel = "OPPO Find X8 Pro", source = "omaster_official"),
+        Preset(id = "findx8p_hasselblad_011", name = "Find X8 Pro 日系治愈", coverPath = "findx8p_hasselblad_japanese", sections = listOf(Section("风格特点", "日系治愈风格，柔和光线"), Section("适用场景", "日系写真、生活记录")), cameraParams = CameraParams(hasselblad_hncs = true, brightness = 12, saturation = 6, contrast = -3, warmth = 3), deviceModel = "OPPO Find X8 Pro", source = "omaster_official"),
+        Preset(id = "findx8p_hasselblad_012", name = "Find X8 Pro 韩系奶油", coverPath = "findx8p_hasselblad_korean", sections = listOf(Section("风格特点", "韩系奶油肌色调，柔和通透"), Section("适用场景", "人像自拍、合照")), cameraParams = CameraParams(hasselblad_hncs = true, brightness = 12, saturation = 5, contrast = -3, clarity = -2), deviceModel = "OPPO Find X8 Pro", source = "omaster_official"),
+        Preset(id = "findx8p_hasselblad_013", name = "Find X8 Pro 油画质感", coverPath = "findx8p_hasselblad_oil", sections = listOf(Section("风格特点", "模拟油画质感，柔和过渡"), Section("适用场景", "人像、风景、艺术创作")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 8, contrast = 5, clarity = 15, brightness = 5), deviceModel = "OPPO Find X8 Pro", source = "omaster_official"),
+        Preset(id = "findx8p_hasselblad_014", name = "Find X8 Pro 港风复古", coverPath = "findx8p_hasselblad_hongkong", sections = listOf(Section("风格特点", "90年代港风色调"), Section("适用场景", "人像、街头、纪实")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 10, contrast = 15, warmth = 12, clarity = 8), deviceModel = "OPPO Find X8 Pro", source = "omaster_official"),
+        Preset(id = "findx8p_hasselblad_015", name = "Find X8 Pro 蓝调忧郁", coverPath = "findx8p_hasselblad_blue_mood", sections = listOf(Section("风格特点", "蓝色调忧郁氛围"), Section("适用场景", "人像、风景、情绪表达")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 5, contrast = 12, warmth = -12, tint = 5), deviceModel = "OPPO Find X8 Pro", source = "omaster_official"),
+        Preset(id = "findx8p_hasselblad_016", name = "Find X8 Pro 暖阳午后", coverPath = "findx8p_hasselblad_warm_afternoon", sections = listOf(Section("风格特点", "午后阳光的温暖色调"), Section("适用场景", "人像、生活、美食")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 15, warmth = 15, brightness = 8, contrast = 5), deviceModel = "OPPO Find X8 Pro", source = "omaster_official"),
+        Preset(id = "findx8p_hasselblad_017", name = "Find X8 Pro 少女粉", coverPath = "findx8p_hasselblad_pink", sections = listOf(Section("风格特点", "少女感粉色系滤镜"), Section("适用场景", "人像、自拍、美食")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 10, warmth = 10, tint = 8, brightness = 5), deviceModel = "OPPO Find X8 Pro", source = "omaster_official"),
+        Preset(id = "findx8p_hasselblad_018", name = "Find X8 Pro 莫兰迪色", coverPath = "findx8p_hasselblad_morandi", sections = listOf(Section("风格特点", "莫兰迪色系高级灰调"), Section("适用场景", "人像、产品、空间")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = -12, contrast = 5, brightness = 5, warmth = 3), deviceModel = "OPPO Find X8 Pro", source = "omaster_official"),
+        Preset(id = "findx8p_hasselblad_019", name = "Find X8 Pro 北欧冷淡", coverPath = "findx8p_hasselblad_nordic", sections = listOf(Section("风格特点", "北欧冷淡风格，高级灰"), Section("适用场景", "建筑、空间、产品")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = -18, contrast = 8, brightness = 8, clarity = 5), deviceModel = "OPPO Find X8 Pro", source = "omaster_official"),
+        Preset(id = "findx8p_hasselblad_020", name = "Find X8 Pro 法式浪漫", coverPath = "findx8p_hasselblad_french", sections = listOf(Section("风格特点", "法式浪漫色调，优雅复古"), Section("适用场景", "人像、旅行、美食")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 10, warmth = 10, brightness = 5, contrast = 5), deviceModel = "OPPO Find X8 Pro", source = "omaster_official"),
+        // Find X7 Ultra
+        Preset(id = "findx7u_hasselblad_001", name = "Find X7 Ultra 哈苏大师", coverPath = "findx7u_hasselblad_master", sections = listOf(Section("风格特点", "Find X7 Ultra专属哈苏大师模式"), Section("适用场景", "专业摄影创作")), cameraParams = CameraParams(hasselblad_hncs = true, master_hdr = "智能", ai_scene = true, saturation = 10, contrast = 10, clarity = 8), deviceModel = "OPPO Find X7 Ultra", source = "omaster_official"),
+        Preset(id = "findx7u_hasselblad_002", name = "Find X7 Ultra HNCS原色", coverPath = "findx7u_hasselblad_hncs", sections = listOf(Section("风格特点", "充分发挥哈苏自然色彩解决方案"), Section("适用场景", "专业摄影、商业拍摄")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 12, contrast = 8, clarity = 6), deviceModel = "OPPO Find X7 Ultra", source = "omaster_official"),
+        Preset(id = "findx7u_hasselblad_003", name = "Find X7 Ultra 对比大师", coverPath = "findx7u_hasselblad_contrast", sections = listOf(Section("风格特点", "强劲对比，层次分明"), Section("适用场景", "艺术创作、黑白摄影")), cameraParams = CameraParams(hasselblad_hncs = true, contrast = 22, saturation = 5, clarity = 15), deviceModel = "OPPO Find X7 Ultra", source = "omaster_official"),
+        Preset(id = "findx7u_hasselblad_004", name = "Find X7 Ultra 夜拍专家", coverPath = "findx7u_hasselblad_night_pro", sections = listOf(Section("风格特点", "夜间摄影专家级优化"), Section("适用场景", "夜景、星空、霓虹灯")), cameraParams = CameraParams(hasselblad_hncs = true, ai_scene = true, brightness = -8, contrast = 18, saturation = 15), deviceModel = "OPPO Find X7 Ultra", source = "omaster_official"),
+        Preset(id = "findx7u_hasselblad_005", name = "Find X7 Ultra XPan电影", coverPath = "findx7u_hasselblad_xpan", sections = listOf(Section("风格特点", "XPan模式电影感宽幅"), Section("适用场景", "街头摄影、风光")), cameraParams = CameraParams(hasselblad_hncs = true, contrast = 15, saturation = 8, warmth = 5, clarity = 10), deviceModel = "OPPO Find X7 Ultra", source = "omaster_official"),
+        Preset(id = "findx7u_hasselblad_006", name = "Find X7 Ultra 人像专家", coverPath = "findx7u_hasselblad_portrait_pro", sections = listOf(Section("风格特点", "专业人像摄影优化"), Section("适用场景", "人像写真、婚礼摄影")), cameraParams = CameraParams(hasselblad_hncs = true, master_hdr = "智能", brightness = 5, saturation = 10, clarity = 6), deviceModel = "OPPO Find X7 Ultra", source = "omaster_official"),
+        Preset(id = "findx7u_hasselblad_007", name = "Find X7 Ultra 风光利器", coverPath = "findx7u_hasselblad_landscape_pro", sections = listOf(Section("风格特点", "风光摄影专业优化"), Section("适用场景", "自然风光、城市风景")), cameraParams = CameraParams(hasselblad_hncs = true, hdr = true, saturation = 18, contrast = 12, clarity = 12), deviceModel = "OPPO Find X7 Ultra", source = "omaster_official"),
+        Preset(id = "findx7u_hasselblad_008", name = "Find X7 Ultra 杜绝对比", coverPath = "findx7u_hasselblad_extreme_contrast", sections = listOf(Section("风格特点", "戏剧性表达，高对比"), Section("适用场景", "艺术创作、戏剧性摄影")), cameraParams = CameraParams(hasselblad_hncs = true, contrast = 25, saturation = 3, clarity = 18), deviceModel = "OPPO Find X7 Ultra", source = "omaster_official"),
+        Preset(id = "findx7u_hasselblad_009", name = "Find X7 Ultra 柔焦梦幻", coverPath = "findx7u_hasselblad_soft_dream", sections = listOf(Section("风格特点", "柔焦效果，梦幻氛围"), Section("适用场景", "人像、风光、创意")), cameraParams = CameraParams(hasselblad_hncs = true, brightness = 8, saturation = 5, contrast = -5, clarity = -8), deviceModel = "OPPO Find X7 Ultra", source = "omaster_official"),
+        Preset(id = "findx7u_hasselblad_010", name = "Find X7 Ultra 锐利清晰", coverPath = "findx7u_hasselblad_sharp", sections = listOf(Section("风格特点", "高锐度，细节清晰"), Section("适用场景", "建筑、产品、文档")), cameraParams = CameraParams(hasselblad_hncs = true, contrast = 15, clarity = 20, saturation = 0), deviceModel = "OPPO Find X7 Ultra", source = "omaster_official"),
+        Preset(id = "findx7u_hasselblad_011", name = "Find X7 Ultra 暖色调", coverPath = "findx7u_hasselblad_warm_tone", sections = listOf(Section("风格特点", "暖色系温馨风格"), Section("适用场景", "人像、生活、美食")), cameraParams = CameraParams(hasselblad_hncs = true, warmth = 18, saturation = 15, brightness = 5), deviceModel = "OPPO Find X7 Ultra", source = "omaster_official"),
+        Preset(id = "findx7u_hasselblad_012", name = "Find X7 Ultra 冷色调", coverPath = "findx7u_hasselblad_cool_tone", sections = listOf(Section("风格特点", "冷色系清冷风格"), Section("适用场景", "时尚摄影、个性写真")), cameraParams = CameraParams(hasselblad_hncs = true, warmth = -15, saturation = 10, contrast = 10), deviceModel = "OPPO Find X7 Ultra", source = "omaster_official"),
+        Preset(id = "findx7u_hasselblad_013", name = "Find X7 Ultra 低饱和", coverPath = "findx7u_hasselblad_low_sat", sections = listOf(Section("风格特点", "低饱和高级灰调"), Section("适用场景", "时尚、极简、建筑")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = -20, contrast = 8, brightness = 5), deviceModel = "OPPO Find X7 Ultra", source = "omaster_official"),
+        Preset(id = "findx7u_hasselblad_014", name = "Find X7 Ultra 高饱和", coverPath = "findx7u_hasselblad_high_sat", sections = listOf(Section("风格特点", "高饱和鲜艳色彩"), Section("适用场景", "风光、美食、创意")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 25, contrast = 12, clarity = 10), deviceModel = "OPPO Find X7 Ultra", source = "omaster_official"),
+        Preset(id = "findx7u_hasselblad_015", name = "Find X7 Ultra 复古棕", coverPath = "findx7u_hasselblad_vintage_brown", sections = listOf(Section("风格特点", "复古棕色调，怀旧感"), Section("适用场景", "人像、纪实、风景")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 10, warmth = 20, contrast = 10, vignette = 15), deviceModel = "OPPO Find X7 Ultra", source = "omaster_official"),
+        // Find N4
+        Preset(id = "findn4_hasselblad_001", name = "Find N4 哈苏影像", coverPath = "findn4_hasselblad_hasselblad", sections = listOf(Section("风格特点", "Find N4专属哈苏影像优化"), Section("适用场景", "日常摄影、旅行记录")), cameraParams = CameraParams(hasselblad_hncs = true, master_hdr = "智能", saturation = 10, contrast = 8, clarity = 8), deviceModel = "OPPO Find N4", source = "omaster_official"),
+        Preset(id = "findn4_hasselblad_002", name = "Find N4 悬停摄影", coverPath = "findn4_hasselblad_flex", sections = listOf(Section("风格特点", "折叠屏悬停模式专用"), Section("适用场景", "延时摄影、自拍")), cameraParams = CameraParams(hasselblad_hncs = true, ai_scene = true, brightness = 5, saturation = 8, clarity = 6), deviceModel = "OPPO Find N4", source = "omaster_official"),
+        Preset(id = "findn4_hasselblad_003", name = "Find N4 内外如一", coverPath = "findn4_hasselblad_consistent", sections = listOf(Section("风格特点", "内外屏一致的色彩表现"), Section("适用场景", "日常记录、社交分享")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 10, contrast = 10, clarity = 8), deviceModel = "OPPO Find N4", source = "omaster_official"),
+        Preset(id = "findn4_hasselblad_004", name = "Find N4 大屏预览", coverPath = "findn4_hasselblad_large_preview", sections = listOf(Section("风格特点", "大屏预览专用优化"), Section("适用场景", "人像自拍、视频通话")), cameraParams = CameraParams(hasselblad_hncs = true, brightness = 8, saturation = 6, contrast = 5), deviceModel = "OPPO Find N4", source = "omaster_official"),
+        Preset(id = "findn4_hasselblad_005", name = "Find N4 哈苏人像", coverPath = "findn4_hasselblad_portrait", sections = listOf(Section("风格特点", "哈苏人像模式，肤色准确"), Section("适用场景", "人像摄影、合影")), cameraParams = CameraParams(hasselblad_hncs = true, master_hdr = "智能", brightness = 5, saturation = 8, clarity = 6), deviceModel = "OPPO Find N4", source = "omaster_official"),
+        Preset(id = "findn4_hasselblad_006", name = "Find N4 风光摄影", coverPath = "findn4_hasselblad_landscape", sections = listOf(Section("风格特点", "增强风光色彩层次"), Section("适用场景", "自然风光、城市风景")), cameraParams = CameraParams(hasselblad_hncs = true, hdr = true, saturation = 15, contrast = 12, clarity = 10), deviceModel = "OPPO Find N4", source = "omaster_official"),
+        Preset(id = "findn4_hasselblad_007", name = "Find N4 夜景模式", coverPath = "findn4_hasselblad_night", sections = listOf(Section("风格特点", "夜间摄影优化"), Section("适用场景", "夜景、霓虹灯")), cameraParams = CameraParams(hasselblad_hncs = true, ai_scene = true, brightness = -5, contrast = 15, saturation = 12), deviceModel = "OPPO Find N4", source = "omaster_official"),
+        Preset(id = "findn4_hasselblad_008", name = "Find N4 美食专家", coverPath = "findn4_hasselblad_food", sections = listOf(Section("风格特点", "增强食物色彩食欲感"), Section("适用场景", "美食摄影、餐厅拍摄")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 18, warmth = 8, brightness = 5, clarity = 10), deviceModel = "OPPO Find N4", source = "omaster_official"),
+        Preset(id = "findn4_hasselblad_009", name = "Find N4 复古胶片", coverPath = "findn4_hasselblad_retro", sections = listOf(Section("风格特点", "复古胶片色调"), Section("适用场景", "人像、街头、纪实")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 5, contrast = 10, warmth = 12, grain = true), deviceModel = "OPPO Find N4", source = "omaster_official"),
+        Preset(id = "findn4_hasselblad_010", name = "Find N4 黑白摄影", coverPath = "findn4_hasselblad_bw", sections = listOf(Section("风格特点", "纯正黑白影调"), Section("适用场景", "人像、建筑、纪实")), cameraParams = CameraParams(hasselblad_hncs = true, blackWhite = true, contrast = 18, clarity = 10), deviceModel = "OPPO Find N4", source = "omaster_official"),
+        // Find X6系列
+        Preset(id = "findx6_hasselblad_001", name = "Find X6 夜间人像", coverPath = "findx6_hasselblad_night_portrait", sections = listOf(Section("风格特点", "Find X6系列专属夜间人像优化，肤色自然"), Section("适用场景", "夜景人像、晚会、演唱会")), cameraParams = CameraParams(hasselblad_hncs = true, ai_scene = true, brightness = 3, saturation = 8, clarity = 5), deviceModel = "OPPO Find X6 Pro", source = "omaster_official"),
+        Preset(id = "findx6_hasselblad_002", name = "Find X6 风光大师", coverPath = "findx6_hasselblad_landscape_master", sections = listOf(Section("风格特点", "增强风光色彩层次"), Section("适用场景", "自然风光、城市风景")), cameraParams = CameraParams(hasselblad_hncs = true, hdr = true, saturation = 15, contrast = 12, clarity = 10), deviceModel = "OPPO Find X6", source = "omaster_official"),
+        Preset(id = "findx6_hasselblad_003", name = "Find X6 夜景模式", coverPath = "findx6_hasselblad_night_mode", sections = listOf(Section("风格特点", "夜间摄影优化"), Section("适用场景", "夜景、霓虹灯")), cameraParams = CameraParams(hasselblad_hncs = true, ai_scene = true, brightness = -5, contrast = 15, saturation = 12), deviceModel = "OPPO Find X6", source = "omaster_official"),
+        Preset(id = "findx6_hasselblad_004", name = "Find X6 美食专家", coverPath = "findx6_hasselblad_food_expert", sections = listOf(Section("风格特点", "增强食物色彩食欲感"), Section("适用场景", "美食摄影、餐厅拍摄")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 18, warmth = 8, brightness = 5, clarity = 10), deviceModel = "OPPO Find X6", source = "omaster_official"),
+        Preset(id = "findx6_hasselblad_005", name = "Find X6 哈苏人像", coverPath = "findx6_hasselblad_portrait", sections = listOf(Section("风格特点", "哈苏人像模式，肤色准确"), Section("适用场景", "人像摄影、合影")), cameraParams = CameraParams(hasselblad_hncs = true, master_hdr = "智能", brightness = 5, saturation = 8, clarity = 6), deviceModel = "OPPO Find X6", source = "omaster_official"),
+        // 通用预设（补充）
+        Preset(id = "general_hasselblad_001", name = "哈苏经典", coverPath = "hasselblad_classic", sections = listOf(Section("风格特点", "复刻哈苏中画幅胶片的经典色调，色彩准确，层次丰富"), Section("适用场景", "人像、风光、建筑、美食等各类场景")), cameraParams = CameraParams(hasselblad_hncs = true, saturation = 10, contrast = 12, clarity = 8), deviceModel = "", source = "omaster_official"),
+        Preset(id = "general_hasselblad_002", name = "哈苏人像", coverPath = "hasselblad_portrait", sections = listOf(Section("风格特点", "专为哈苏影像优化的人像模式，肤色准确，立体感强"), Section("适用场景", "人像、合影、婚礼、儿童摄影")), cameraParams = CameraParams(hasselblad_hncs = true, master_hdr = "智能", brightness = 5, saturation = 8, clarity = 6), deviceModel = "", source = "omaster_official"),
+        Preset(id = "general_hasselblad_003", name = "哈苏风光", coverPath = "hasselblad_landscape", sections = listOf(Section("风格特点", "增强风光摄影的色彩和层次，蓝天更蓝，绿植更翠"), Section("适用场景", "自然风光、城市风景、建筑摄影")), cameraParams = CameraParams(hasselblad_hncs = true, hdr = true, saturation = 15, contrast = 12, clarity = 10), deviceModel = "", source = "omaster_official"),
+        Preset(id = "general_hasselblad_004", name = "哈苏夜景", coverPath = "hasselblad_night", sections = listOf(Section("风格特点", "优化暗光环境下的细节和纯净度"), Section("适用场景", "夜景、星空、霓虹灯")), cameraParams = CameraParams(hasselblad_hncs = true, ai_scene = true, brightness = -5, contrast = 15, saturation = 12), deviceModel = "", source = "omaster_official"),
+        Preset(id = "general_hasselblad_005", name = "哈苏大师", coverPath = "hasselblad_master", sections = listOf(Section("风格特点", "综合哈苏影像优势，适合各类场景的万能预设"), Section("适用场景", "日常记录、旅行摄影、创作拍摄")), cameraParams = CameraParams(hasselblad_hncs = true, master_hdr = "智能", ai_scene = true, saturation = 10, contrast = 10, clarity = 8), deviceModel = "", source = "omaster_official")
     )
     
     fun getAllPresets(): List<Preset> = presets
