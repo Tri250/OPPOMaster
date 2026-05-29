@@ -100,14 +100,25 @@ export const useSubscriptionStore = create<SubscriptionState>()(
     (set, get) => ({
       subscriptions: [
         {
-          id: 'official',
-          name: '官方预设库',
-          url: 'https://api.omaster.com/presets/official.json',
+          id: 'oppo',
+          name: 'OPPO预设库',
+          url: 'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/oppo.json',
           version: '2.0.0',
           lastCheck: null,
           updateInterval: 86400000, // 24小时
           enabled: true,
           autoUpdate: true,
+          presets: []
+        },
+        {
+          id: 'realme',
+          name: 'realme预设库',
+          url: 'https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/realme.json',
+          version: '1.0.0',
+          lastCheck: null,
+          updateInterval: 86400000, // 24小时
+          enabled: true,
+          autoUpdate: false,
           presets: []
         },
         {
@@ -122,7 +133,7 @@ export const useSubscriptionStore = create<SubscriptionState>()(
           presets: []
         }
       ],
-      activeSubscription: 'official',
+      activeSubscription: 'oppo',
       isChecking: false,
       isSyncing: false,
       lastUpdate: null,
@@ -160,32 +171,84 @@ export const useSubscriptionStore = create<SubscriptionState>()(
       checkForUpdates: async () => {
         set({ isChecking: true });
         
-        // 模拟检查更新
-        await new Promise((resolve) => setTimeout(resolve, 1500));
-        
-        set((state) => ({
-          isChecking: false,
-          lastUpdate: new Date().toISOString(),
-          updateAvailable: Math.random() > 0.5,
-          subscriptions: state.subscriptions.map((s) => ({
-            ...s,
-            lastCheck: new Date().toISOString()
-          }))
-        }));
+        try {
+          // 检查所有订阅源更新
+          const state = get();
+          const updatedSubscriptions = [...state.subscriptions];
+          let hasUpdates = false;
+          
+          for (let i = 0; i < updatedSubscriptions.length; i++) {
+            const sub = updatedSubscriptions[i];
+            try {
+              const response = await fetch(sub.url);
+              if (response.ok) {
+                const data = await response.json();
+                if (data.version && data.version !== sub.version) {
+                  hasUpdates = true;
+                }
+              }
+            } catch (e) {
+              console.error(`Failed to check updates for ${sub.name}:`, e);
+            }
+            updatedSubscriptions[i] = {
+              ...sub,
+              lastCheck: new Date().toISOString()
+            };
+          }
+          
+          set({
+            isChecking: false,
+            lastUpdate: new Date().toISOString(),
+            updateAvailable: hasUpdates,
+            subscriptions: updatedSubscriptions
+          });
+        } catch (error) {
+          console.error('Failed to check updates:', error);
+          set({ isChecking: false });
+        }
       },
       
       syncSubscription: async (id) => {
         set({ isSyncing: true });
         
-        // 模拟同步
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-        
-        set((state) => ({
-          isSyncing: false,
-          subscriptions: state.subscriptions.map((s) =>
-            s.id === id ? { ...s, lastCheck: new Date().toISOString() } : s
-          )
-        }));
+        try {
+          const state = get();
+          const subscription = state.subscriptions.find((s) => s.id === id);
+          
+          if (subscription) {
+            const response = await fetch(subscription.url);
+            if (response.ok) {
+              const data = await response.json();
+              // 解析预设数据
+              const presets = data.presets || data.data || [];
+              
+              set((state) => ({
+                isSyncing: false,
+                subscriptions: state.subscriptions.map((s) =>
+                  s.id === id 
+                    ? { 
+                        ...s, 
+                        presets: presets, 
+                        lastCheck: new Date().toISOString(),
+                        version: data.version || s.version
+                      } 
+                    : s
+                )
+              }));
+            } else {
+              throw new Error(`Failed to fetch: ${response.status}`);
+            }
+          }
+        } catch (error) {
+          console.error('Failed to sync subscription:', error);
+          set({ isSyncing: false });
+          // 更新检查时间即使失败
+          set((state) => ({
+            subscriptions: state.subscriptions.map((s) =>
+              s.id === id ? { ...s, lastCheck: new Date().toISOString() } : s
+            )
+          }));
+        }
       },
       
       getSubscriptionPresets: (id) => {

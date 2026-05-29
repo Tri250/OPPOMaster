@@ -29,6 +29,7 @@ export default function SubscriptionPage() {
     subscriptions,
     activeSubscription,
     isChecking,
+    isSyncing,
     updateAvailable,
     lastUpdate,
     addSubscription,
@@ -74,26 +75,26 @@ export default function SubscriptionPage() {
   };
 
   return (
-    <div className="min-h-screen bg-deep-space text-white pb-20">
+    <div className="min-h-screen bg-bg-primary text-text-primary pb-20">
       {/* 顶部导航 */}
-      <header className="sticky top-0 z-40 bg-deep-space/90 backdrop-blur-xl border-b border-white/5">
+      <header className="sticky top-0 z-40 bg-bg-primary/90 backdrop-blur-xl border-b border-border-default">
         <div className="max-w-4xl mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Rss className="w-5 h-5 text-oppo-sunrise-gold" />
+            <Rss className="w-5 h-5 text-oppo-orange" />
             <h1 className="text-lg font-semibold">订阅管理</h1>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => checkForUpdates()}
               disabled={isChecking}
-              className="p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors"
+              className="p-2 rounded-full bg-bg-secondary hover:bg-white/10 transition-colors"
               aria-label="检查更新"
             >
               <RefreshCw className={`w-4 h-4 ${isChecking ? 'animate-spin' : ''}`} />
             </button>
             <button
               onClick={() => setShowAddModal(true)}
-              className="p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors"
+              className="p-2 rounded-full bg-bg-secondary hover:bg-white/10 transition-colors"
               aria-label="添加订阅"
             >
               <Plus className="w-4 h-4" />
@@ -111,7 +112,7 @@ export default function SubscriptionPage() {
         >
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
-              <div className={`w-3 h-3 rounded-full ${updateAvailable ? 'bg-oppo-sunrise-gold animate-pulse' : 'bg-oppo-green'}`} />
+              <div className={`w-3 h-3 rounded-full ${updateAvailable ? 'bg-oppo-orange animate-pulse' : 'bg-oppo-green'}`} />
               <span className="text-sm">
                 {isChecking ? '正在检查更新...' : updateAvailable ? '发现新预设' : '已是最新版本'}
               </span>
@@ -124,12 +125,12 @@ export default function SubscriptionPage() {
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="flex items-center gap-3 p-3 rounded-lg bg-oppo-sunrise-gold/10 border border-oppo-sunrise-gold/30"
+              className="flex items-center gap-3 p-3 rounded-lg bg-oppo-orange/10 border border-oppo-orange/30"
             >
-              <Bell className="w-5 h-5 text-oppo-sunrise-gold" />
+              <Bell className="w-5 h-5 text-oppo-orange" />
               <div className="flex-1">
-                <p className="text-sm font-medium">发现 12 个新预设</p>
-                <p className="text-xs text-text-secondary">官方预设库已更新</p>
+                <p className="text-sm font-medium">发现新预设</p>
+                <p className="text-xs text-text-secondary">订阅源已更新</p>
               </div>
               <button className="btn-primary text-sm py-2 px-4">
                 立即更新
@@ -154,13 +155,13 @@ export default function SubscriptionPage() {
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.1 + index * 0.05 }}
-                className={`card-oppo p-4 ${activeSubscription === sub.id ? 'ring-2 ring-oppo-sunrise-gold/50' : ''}`}
+                className={`card-oppo p-4 ${activeSubscription === sub.id ? 'ring-2 ring-oppo-orange/50' : ''}`}
               >
                 <div className="flex items-start gap-4">
                   <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
-                    sub.enabled ? 'bg-oppo-sunrise-gold/20' : 'bg-white/5'
+                    sub.enabled ? 'bg-oppo-orange/20' : 'bg-bg-tertiary'
                   }`}>
-                    <Rss className={`w-6 h-6 ${sub.enabled ? 'text-oppo-sunrise-gold' : 'text-text-tertiary'}`} />
+                    <Rss className={`w-6 h-6 ${sub.enabled ? 'text-oppo-orange' : 'text-text-tertiary'}`} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
@@ -171,7 +172,7 @@ export default function SubscriptionPage() {
                         </span>
                       )}
                       {sub.presets.length > 0 && (
-                        <span className="px-2 py-0.5 text-xs rounded-full bg-ocean-blue/20 text-ocean-blue">
+                        <span className="px-2 py-0.5 text-xs rounded-full bg-oppo-blue/20 text-oppo-blue">
                           {sub.presets.length}个预设
                         </span>
                       )}
@@ -195,23 +196,24 @@ export default function SubscriptionPage() {
                   />
                     <button
                       onClick={() => syncSubscription(sub.id)}
-                      className="p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors"
+                      disabled={isSyncing}
+                      className="p-2 rounded-full bg-bg-tertiary hover:bg-white/10 transition-colors disabled:opacity-50"
                       aria-label="同步"
                     >
-                      <RefreshCw className="w-4 h-4" />
+                      <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
                     </button>
                     <button
                       onClick={() => removeSubscription(sub.id)}
-                      className="p-2 rounded-full bg-error-vital/10 hover:bg-error-vital/20 transition-colors"
+                      className="p-2 rounded-full bg-red-500/10 hover:bg-red-500/20 transition-colors"
                       aria-label="删除"
                     >
-                      <Trash2 className="w-4 h-4 text-error-vital" />
+                      <Trash2 className="w-4 h-4 text-red-500" />
                     </button>
                   </div>
                 </div>
                 
                 {/* 高级设置 */}
-                <div className="mt-4 pt-4 border-t border-white/5">
+                <div className="mt-4 pt-4 border-t border-border-default">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
                       <button
@@ -219,7 +221,7 @@ export default function SubscriptionPage() {
                         className={`flex items-center gap-2 text-xs px-3 py-1.5 rounded-full transition-colors ${
                           sub.autoUpdate 
                             ? 'bg-oppo-green/20 text-oppo-green' 
-                            : 'bg-white/5 text-text-secondary'
+                            : 'bg-bg-tertiary text-text-secondary'
                         }`}
                       >
                         {sub.autoUpdate ? <Bell className="w-3 h-3" /> : <BellOff className="w-3 h-3" />}
@@ -229,15 +231,15 @@ export default function SubscriptionPage() {
                         onClick={() => setActiveSubscription(sub.id)}
                         className={`flex items-center gap-2 text-xs px-3 py-1.5 rounded-full transition-colors ${
                           activeSubscription === sub.id
-                            ? 'bg-ocean-blue/20 text-ocean-blue'
-                            : 'bg-white/5 text-text-secondary'
+                            ? 'bg-oppo-blue/20 text-oppo-blue'
+                            : 'bg-bg-tertiary text-text-secondary'
                         }`}
                       >
                         {activeSubscription === sub.id ? <Check className="w-3 h-3" /> : null}
                         设为默认
                       </button>
                     </div>
-                    <button className="flex items-center gap-1 text-xs text-ocean-blue hover:underline">
+                    <button className="flex items-center gap-1 text-xs text-oppo-blue hover:underline">
                       详细设置
                       <ExternalLink className="w-3 h-3" />
                     </button>
@@ -259,7 +261,7 @@ export default function SubscriptionPage() {
           </h2>
           <div className="grid grid-cols-3 gap-4">
             <div className="card-oppo p-4 text-center">
-              <p className="text-2xl font-bold text-oppo-sunrise-gold">{subscriptions.length}</p>
+              <p className="text-2xl font-bold text-oppo-orange">{subscriptions.length}</p>
               <p className="text-xs text-text-secondary mt-1">订阅源</p>
             </div>
             <div className="card-oppo p-4 text-center">
@@ -269,7 +271,7 @@ export default function SubscriptionPage() {
               <p className="text-xs text-text-secondary mt-1">已启用</p>
             </div>
             <div className="card-oppo p-4 text-center">
-              <p className="text-2xl font-bold text-ocean-blue">
+              <p className="text-2xl font-bold text-oppo-blue">
                 {subscriptions.reduce((acc, s) => acc + s.presets.length, 0)}
               </p>
               <p className="text-xs text-text-secondary mt-1">可用预设</p>
@@ -290,14 +292,14 @@ export default function SubscriptionPage() {
             initial={{ y: '100%' }}
             animate={{ y: 0 }}
             transition={{ type: 'spring', damping: 25 }}
-            className="w-full sm:max-w-md bg-deep-space rounded-t-3xl sm:rounded-2xl p-6"
+            className="w-full sm:max-w-md bg-bg-primary rounded-t-3xl sm:rounded-2xl p-6"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-lg font-semibold">添加订阅源</h2>
               <button
                 onClick={() => setShowAddModal(false)}
-                className="p-2 rounded-full bg-white/5 hover:bg-white/10"
+                className="p-2 rounded-full bg-bg-tertiary hover:bg-white/10"
               >
                 ✕
               </button>
@@ -311,7 +313,7 @@ export default function SubscriptionPage() {
                   value={newSource.name}
                   onChange={(e) => setNewSource({ ...newSource, name: e.target.value })}
                   placeholder="例如：官方预设库"
-                  className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-oppo-sunrise-gold focus:outline-none"
+                  className="w-full px-4 py-3 rounded-xl bg-bg-secondary border border-border-default focus:border-oppo-orange focus:outline-none"
                 />
               </div>
 
@@ -322,7 +324,7 @@ export default function SubscriptionPage() {
                   value={newSource.url}
                   onChange={(e) => setNewSource({ ...newSource, url: e.target.value })}
                   placeholder="https://example.com/presets.json"
-                  className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-oppo-sunrise-gold focus:outline-none"
+                  className="w-full px-4 py-3 rounded-xl bg-bg-secondary border border-border-default focus:border-oppo-orange focus:outline-none"
                 />
               </div>
 
@@ -333,7 +335,7 @@ export default function SubscriptionPage() {
                   value={newSource.version}
                   onChange={(e) => setNewSource({ ...newSource, version: e.target.value })}
                   placeholder="1.0.0"
-                  className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-oppo-sunrise-gold focus:outline-none"
+                  className="w-full px-4 py-3 rounded-xl bg-bg-secondary border border-border-default focus:border-oppo-orange focus:outline-none"
                 />
               </div>
 
@@ -342,7 +344,7 @@ export default function SubscriptionPage() {
                 <select
                   value={newSource.updateInterval}
                   onChange={(e) => setNewSource({ ...newSource, updateInterval: Number(e.target.value) })}
-                  className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-oppo-sunrise-gold focus:outline-none"
+                  className="w-full px-4 py-3 rounded-xl bg-bg-secondary border border-border-default focus:border-oppo-orange focus:outline-none"
                 >
                   <option value={3600000}>1小时</option>
                   <option value={86400000}>24小时</option>
