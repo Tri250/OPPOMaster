@@ -21,6 +21,7 @@ ColumnLayout {
         }
     ]
     signal importRequested()
+    signal searchRequested()
 
     function withAlpha(colorValue, alphaValue) {
         return Qt.rgba(colorValue.r, colorValue.g, colorValue.b, alphaValue)
@@ -208,7 +209,12 @@ ColumnLayout {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: panel.activeUtilityTab = modelData.tabId
+                            onClicked: {
+                                panel.activeUtilityTab = modelData.tabId
+                                if (modelData.tabId === "search") {
+                                    panel.searchRequested()
+                                }
+                            }
                         }
                     }
                 }

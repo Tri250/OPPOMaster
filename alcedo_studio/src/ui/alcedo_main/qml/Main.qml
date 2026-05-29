@@ -1034,6 +1034,7 @@ ApplicationWindow {
                 theme: root
                 backendInteractive: root.backendInteractive
                 onImportRequested: importDialog.open()
+                onSearchRequested: globalSearchDialog.openFromCollection()
             }
 
             ColumnLayout {
@@ -1444,6 +1445,12 @@ ApplicationWindow {
                     }
                 }
             }
+        }
+
+        GlobalSearchDialog {
+            id: globalSearchDialog
+            backend: albumBackend
+            theme: root
         }
 
     }

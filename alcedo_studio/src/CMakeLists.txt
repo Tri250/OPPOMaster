@@ -1288,6 +1288,7 @@ qt_add_qml_module(alcedo_main
         ui/alcedo_main/qml/ImportProgressRing.qml
         ui/alcedo_main/qml/InspectorPanel.qml
         ui/alcedo_main/qml/CollectionsPanel.qml
+        ui/alcedo_main/qml/GlobalSearchDialog.qml
         ui/alcedo_main/qml/StatsCard.qml
         ui/alcedo_main/qml/StarRatingFilter.qml
         ui/alcedo_main/qml/ImageContextMenu.qml

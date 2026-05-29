@@ -9,9 +9,11 @@
 #include <QStringList>
 #include <QVariantList>
 #include <QVariantMap>
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "edit/pipeline/pipeline_accelerator.hpp"
@@ -41,6 +43,7 @@ class AlbumBackend final : public QObject {
   Q_PROPERTY(int totalCount READ TotalCount NOTIFY CountsChanged)
   Q_PROPERTY(bool hasMoreThumbnails READ HasMoreThumbnails NOTIFY CountsChanged)
   Q_PROPERTY(QString filterInfo READ FilterInfo NOTIFY CountsChanged)
+  Q_PROPERTY(QString activeSearchQuery READ ActiveSearchQuery NOTIFY SearchStateChanged)
   Q_PROPERTY(QVariantList dateStats READ DateStats NOTIFY StatsChanged)
   Q_PROPERTY(QVariantList cameraStats READ CameraStats NOTIFY StatsChanged)
   Q_PROPERTY(QVariantList lensStats READ LensStats NOTIFY StatsChanged)
@@ -120,14 +123,15 @@ class AlbumBackend final : public QObject {
 
   // ── Q_PROPERTY getters ──────────────────────────────────────────────
   QVariantList Thumbnails() const;
-  QObject* ThumbnailModel() { return &thumbnail_model_; }
+  QObject*     ThumbnailModel() { return &thumbnail_model_; }
   QVariantList Folders() const { return folder_ctrl_.folders(); }
   uint CurrentFolderId() const { return static_cast<uint>(folder_ctrl_.current_folder_id()); }
   const QString& CurrentFolderPath() const { return folder_ctrl_.current_folder_path_text(); }
-  int     ShownCount() const { return thumbnail_model_.count(); }
-  int     TotalCount() const;
-  bool    HasMoreThumbnails() const;
-  QString FilterInfo() const;
+  int            ShownCount() const { return thumbnail_model_.count(); }
+  int            TotalCount() const;
+  bool           HasMoreThumbnails() const;
+  QString        FilterInfo() const;
+  const QString& ActiveSearchQuery() const { return active_search_query_; }
   QVariantList   DateStats() const { return stats_.date_stats(); }
   QVariantList   CameraStats() const { return stats_.camera_stats(); }
   QVariantList   LensStats() const { return stats_.lens_stats(); }
@@ -229,32 +233,39 @@ class AlbumBackend final : public QObject {
              const QString& outputDirUrlOrPath, const QString& formatName, const QString& hdrExportMode,
              bool resizeEnabled, int maxLengthSide, int quality, int bitDepth, int pngCompressionLevel,
              const QString& tiffCompression, const QVariantList& targetEntries);
-  Q_INVOKABLE void ResetExportState();
-  Q_INVOKABLE bool CanUseHdrExportForTargets(const QVariantList& targetEntries) const;
-  Q_INVOKABLE void BrowseNikonHeConverter();
-  Q_INVOKABLE void StartNikonHeConversion();
-  Q_INVOKABLE void ExitNikonHeRecovery();
-  Q_INVOKABLE void OpenEditor(uint elementId, uint imageId);
-  Q_INVOKABLE void CloseEditor();
-  Q_INVOKABLE void ResetEditorAdjustments();
-  Q_INVOKABLE void RequestEditorFullPreview();
-  Q_INVOKABLE void SetEditorLutIndex(int index);
-  Q_INVOKABLE void SetEditorExposure(double value);
-  Q_INVOKABLE void SetEditorContrast(double value);
-  Q_INVOKABLE void SetEditorSaturation(double value);
-  Q_INVOKABLE void SetEditorTint(double value);
-  Q_INVOKABLE void SetEditorBlacks(double value);
-  Q_INVOKABLE void SetEditorWhites(double value);
-  Q_INVOKABLE void SetEditorShadows(double value);
-  Q_INVOKABLE void SetEditorHighlights(double value);
-  Q_INVOKABLE void SetEditorSharpen(double value);
-  Q_INVOKABLE void SetEditorClarity(double value);
-  Q_INVOKABLE void SetThumbnailVisible(uint elementId, uint imageId, bool visible,
-                                       uint maxEdge = 1024);
-  Q_INVOKABLE void SetThumbnailCacheHint(uint visibleCells, uint maxEdge = 1024);
-  Q_INVOKABLE bool LoadMoreThumbnails();
-  Q_INVOKABLE void ToggleStatsFilter(const QString& category, const QString& label);
-  Q_INVOKABLE void ClearStatsFilter();
+  Q_INVOKABLE void         ResetExportState();
+  Q_INVOKABLE bool         CanUseHdrExportForTargets(const QVariantList& targetEntries) const;
+  Q_INVOKABLE void         BrowseNikonHeConverter();
+  Q_INVOKABLE void         StartNikonHeConversion();
+  Q_INVOKABLE void         ExitNikonHeRecovery();
+  Q_INVOKABLE void         OpenEditor(uint elementId, uint imageId);
+  Q_INVOKABLE void         CloseEditor();
+  Q_INVOKABLE void         ResetEditorAdjustments();
+  Q_INVOKABLE void         RequestEditorFullPreview();
+  Q_INVOKABLE void         SetEditorLutIndex(int index);
+  Q_INVOKABLE void         SetEditorExposure(double value);
+  Q_INVOKABLE void         SetEditorContrast(double value);
+  Q_INVOKABLE void         SetEditorSaturation(double value);
+  Q_INVOKABLE void         SetEditorTint(double value);
+  Q_INVOKABLE void         SetEditorBlacks(double value);
+  Q_INVOKABLE void         SetEditorWhites(double value);
+  Q_INVOKABLE void         SetEditorShadows(double value);
+  Q_INVOKABLE void         SetEditorHighlights(double value);
+  Q_INVOKABLE void         SetEditorSharpen(double value);
+  Q_INVOKABLE void         SetEditorClarity(double value);
+  Q_INVOKABLE void         SetThumbnailVisible(uint elementId, uint imageId, bool visible,
+                                               uint maxEdge = 1024);
+  Q_INVOKABLE void         SetThumbnailCacheHint(uint visibleCells, uint maxEdge = 1024);
+  Q_INVOKABLE bool         LoadMoreThumbnails();
+  Q_INVOKABLE void         ToggleStatsFilter(const QString& category, const QString& label);
+  Q_INVOKABLE void         ClearStatsFilter();
+  Q_INVOKABLE QVariantList SearchRecommendations(int limit = 12);
+  Q_INVOKABLE QVariantList SearchPreview(const QString& query, int limit = 24);
+  Q_INVOKABLE void         ApplyFuzzySearch(const QString& query);
+  Q_INVOKABLE void         ApplyExactSearch(uint elementId);
+  Q_INVOKABLE void         ClearFuzzySearch();
+  Q_INVOKABLE void RequestSearchPreviewThumbnail(uint elementId, uint imageId, uint maxEdge = 192);
+  Q_INVOKABLE void CancelSearchPreviewThumbnails();
 
   // ── Phase 4: Thumbnail disk cache control ───────────────────────────
   Q_INVOKABLE void SetThumbnailDiskCacheEnabled(bool enabled);
@@ -295,6 +306,10 @@ class AlbumBackend final : public QObject {
   void StatsFilterChanged();
   void ThumbnailDiskCacheStateChanged();
 
+  void SearchStateChanged();
+  void SearchPreviewThumbnailUpdated(uint elementId, const QString& dataUrl, bool loading,
+                                     bool missingSource, const QString& errorText);
+
  private:
   friend class ProjectHandler;
   friend class ThumbnailManager;
@@ -322,6 +337,9 @@ class AlbumBackend final : public QObject {
   void ReloadFolderTree(const std::filesystem::path& preferredFolderPath = {});
   void ReloadCurrentFolder();
   bool LoadThumbnailWindow(const std::optional<std::wstring>& filterWhere, bool reset);
+  auto EffectiveFilterWhere(const std::optional<std::wstring>& filterWhere) const
+      -> std::optional<std::wstring>;
+  void ClearSearchState(bool emitSignal = true);
   void AddOrUpdateAlbumItem(sl_element_id_t elementId, image_id_t imageId, sl_element_id_t folderId,
                             const QString& scopeType, const file_name_t& fallbackName,
                             const std::filesystem::path& filePath);
@@ -365,6 +383,10 @@ class AlbumBackend final : public QObject {
   QString thumbnail_disk_cache_root_;
   int    thumbnail_disk_cache_max_entries_ = 10000;
   int    thumbnail_disk_cache_jpeg_quality_ = 85;
+  QString                      active_search_query_{};
+  std::optional<std::wstring>  active_search_filter_where_{};
+  std::uint64_t                search_preview_generation_ = 0;
+  std::unordered_set<ThumbnailCacheKey> search_preview_thumbnail_keys_{};
 };
 
 }  // namespace alcedo::ui
