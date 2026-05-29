@@ -1,17 +1,11 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
-  Maximize2, 
-  Minimize2, 
-  Smartphone, 
   ChevronLeft,
   ChevronRight,
   Layers,
   Palette,
   Sun,
   Moon,
-  Monitor,
-  Eye,
-  EyeOff,
   Move,
   Settings,
   Check,
@@ -20,14 +14,13 @@ import {
   Gauge,
   Smartphone as MobileIcon
 } from 'lucide-react'
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { 
   ColorOSCard, 
   ColorOSButton, 
   ColorOSSwitch,
   ColorOSChip,
   ColorOSSectionHeader,
-  ColorOSListItem,
   easeOppoEnter,
   easeOppoBounce
 } from '../components/common/ColorOSComponents'
@@ -96,9 +89,9 @@ export default function FloatingWindowPage() {
   
   const [isActive, setIsActive] = useState(false)
   const [currentPresetIndex, setCurrentPresetIndex] = useState(0)
-  const [showExpanded, setShowExpanded] = useState(true)
+  const [_showExpanded, _setShowExpanded] = useState(true)
   const [isLocked, setIsLocked] = useState(false)
-  const [interactionTime, setInteractionTime] = useState(0)
+  const [_interactionTime, _setInteractionTime] = useState(0)
   const [testResults, setTestResults] = useState<Record<string, { passed: boolean; value: string }>>({})
   
   const interactionStartRef = useRef(0)
@@ -108,7 +101,7 @@ export default function FloatingWindowPage() {
   // 记录交互时间
   const recordInteraction = useCallback((action: string) => {
     const duration = Date.now() - interactionStartRef.current
-    setInteractionTime(duration)
+    _setInteractionTime(duration)
     
     setTestResults(prev => ({
       ...prev,
@@ -131,13 +124,6 @@ export default function FloatingWindowPage() {
       setTimeout(() => recordInteraction('preset_change'), 0)
       return newIndex
     })
-  }, [recordInteraction])
-
-  // 切换展开状态
-  const toggleExpand = useCallback(() => {
-    interactionStartRef.current = Date.now()
-    setShowExpanded(prev => !prev)
-    setTimeout(() => recordInteraction('toggle_expand'), 0)
   }, [recordInteraction])
 
   // 切换锁定
