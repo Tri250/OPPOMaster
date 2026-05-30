@@ -3,6 +3,7 @@ package com.omaster.app.di
 import android.content.Context
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
+import com.omaster.app.network.DeepSeekApi
 import com.omaster.app.network.PresetApi
 import com.omaster.app.BuildConfig
 import dagger.Module
@@ -15,6 +16,7 @@ import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
+import javax.inject.Named
 import javax.inject.Singleton
 
 @Module
@@ -51,7 +53,7 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideRetrofit(okHttpClient: OkHttpClient, gson: Gson): Retrofit {
-        val baseUrl = "https://api.example.com/" // 替换为实际的 API 地址
+        val baseUrl = "https://api.example.com/"
         return Retrofit.Builder()
             .baseUrl(baseUrl)
             .client(okHttpClient)
@@ -63,5 +65,22 @@ object NetworkModule {
     @Singleton
     fun providePresetApi(retrofit: Retrofit): PresetApi {
         return retrofit.create(PresetApi::class.java)
+    }
+
+    @Provides
+    @Singleton
+    @Named("deepseek")
+    fun provideDeepSeekRetrofit(okHttpClient: OkHttpClient, gson: Gson): Retrofit {
+        return Retrofit.Builder()
+            .baseUrl("https://api.deepseek.com/")
+            .client(okHttpClient)
+            .addConverterFactory(GsonConverterFactory.create(gson))
+            .build()
+    }
+
+    @Provides
+    @Singleton
+    fun provideDeepSeekApi(@Named("deepseek") retrofit: Retrofit): DeepSeekApi {
+        return retrofit.create(DeepSeekApi::class.java)
     }
 }

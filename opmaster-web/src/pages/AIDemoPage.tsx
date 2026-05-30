@@ -1,7 +1,14 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { Upload, Sparkles, Check, Image as ImageIcon, Loader, Camera, Palette, Sun, Moon, XCircle, AlertTriangle, HelpCircle, Blur, Run, MoveRight } from 'lucide-react';
-import { useState, useRef, useCallback, useMemo } from 'react';
+import { Upload, Sparkles, Check, Image as ImageIcon, Loader, Camera, Palette, Sun, Moon, XCircle, AlertTriangle, HelpCircle, Blur, Run, MoveRight, Brain } from 'lucide-react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { mockPresets } from '../data/mockPresets';
+import { 
+  detectSceneWithAI, 
+  fallbackSceneDetection, 
+  imageToBase64,
+  SceneType,
+  type SceneResult as AISceneResult
+} from '../services/deepseek';
 
 const sampleImages = [
   { id: 1, label: '人像', seed: 'portrait' },
@@ -13,9 +20,6 @@ const sampleImages = [
   { id: 7, label: '全黑', seed: 'black' },
   { id: 8, label: '模糊', seed: 'blur' }
 ];
-
-// 场景类型定义，与 Android 端保持一致
-type SceneType = 'LANDSCAPE' | 'PORTRAIT' | 'NIGHT' | 'SUNSET' | 'FOOD' | 'STREET' | 'NATURE' | 'ARCHITECTURE' | 'MACRO' | 'SPORTS' | 'NIGHT_PORTRAIT' | 'BLACK' | 'WHITE' | 'BLURRY' | 'UNKNOWN';
 
 interface SceneResult {
   label: string;
@@ -34,14 +38,12 @@ interface RecommendedPreset {
   isHNCS?: boolean;
 }
 
-// 边界场景检测结果
 interface EdgeCaseResult {
   isEdgeCase: boolean;
   edgeScene?: SceneType;
   message?: string;
 }
 
-// 场景标签映射
 const sceneLabels: Record<SceneType, string> = {
   LANDSCAPE: '风景',
   PORTRAIT: '人像',
@@ -60,7 +62,6 @@ const sceneLabels: Record<SceneType, string> = {
   UNKNOWN: '未知'
 };
 
-// 场景描述
 const sceneDescriptions: Record<SceneType, string> = {
   LANDSCAPE: '适合户外风景、山川湖海',
   PORTRAIT: '适合人物摄影',
@@ -79,26 +80,6 @@ const sceneDescriptions: Record<SceneType, string> = {
   UNKNOWN: '自动识别场景'
 };
 
-// 边界场景消息
-const edgeCaseMessages: Record<SceneType, string> = {
-  BLACK: '光线太暗，无法识别',
-  WHITE: '无法识别场景',
-  BLURRY: '画面模糊，无法识别',
-  UNKNOWN: '',
-  LANDSCAPE: '',
-  PORTRAIT: '',
-  NIGHT: '',
-  SUNSET: '',
-  FOOD: '',
-  STREET: '',
-  NATURE: '',
-  ARCHITECTURE: '',
-  MACRO: '',
-  SPORTS: '',
-  NIGHT_PORTRAIT: ''
-};
-
-// 场景颜色映射
 const sceneColors: Record<SceneType, string> = {
   LANDSCAPE: 'from-green-500 to-emerald-500',
   PORTRAIT: 'from-pink-500 to-rose-500',
@@ -117,7 +98,6 @@ const sceneColors: Record<SceneType, string> = {
   UNKNOWN: 'from-gray-400 to-gray-500'
 };
 
-// 场景关键词
 const sceneKeywords: Record<SceneType, string[]> = {
   LANDSCAPE: ['风景', '自然', '森林', '海边', '风光', '蓝调', '理光绿', '清新'],
   PORTRAIT: ['人像', '柔焦', '童话', '梦幻', '黑柔', '经典'],
@@ -136,7 +116,6 @@ const sceneKeywords: Record<SceneType, string[]> = {
   UNKNOWN: []
 };
 
-// 混合场景优先级
 const mixedScenePriority: Record<SceneType, number> = {
   PORTRAIT: 10,
   NIGHT_PORTRAIT: 9,
@@ -156,244 +135,158 @@ const mixedScenePriority: Record<SceneType, number> = {
 
 export default function AIDemoPage() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisComplete, setAnalysisComplete] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [detectedScenes, setDetectedScenes] = useState<SceneResult[]>([]);
   const [recommendedPresets, setRecommendedPresets] = useState<RecommendedPreset[]>([]);
   const [edgeCaseResult, setEdgeCaseResult] = useState<EdgeCaseResult | null>(null);
+  const [usingDeepSeek, setUsingDeepSeek] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 边界场景检测
-  const checkEdgeCases = useCallback((imageUrl: string): EdgeCaseResult => {
-    if (imageUrl.includes('black') || imageUrl.includes('dark')) {
-      return {
-        isEdgeCase: true,
-        edgeScene: 'BLACK',
-        message: '光线太暗，无法识别'
-      };
+  // DeepSeek AI 场景识别
+  const analyzeWithDeepSeek = useCallback(async (imageUrl: string, file?: File) => {
+    setUsingDeepSeek(true);
+    setIsAnalyzing(true);
+    setAnalysisComplete(false);
+    setEdgeCaseResult(null);
+
+    try {
+      // 调用DeepSeek API
+      const result = await detectSceneWithAI(file || undefined);
+      
+      if (result) {
+        // 识别成功
+        const { sceneType, confidence, isEdgeCase, edgeCaseMessage } = result;
+        
+        if (isEdgeCase) {
+          // 边界场景
+          setEdgeCaseResult({
+            isEdgeCase: true,
+            edgeScene: sceneType,
+            message: edgeCaseMessage
+          });
+          setDetectedScenes([]);
+        } else {
+          // 正常场景
+          const sceneResult: SceneResult = {
+            label: sceneLabels[sceneType],
+            confidence,
+            color: sceneColors[sceneType],
+            type: sceneType,
+            description: sceneDescriptions[sceneType]
+          };
+          setDetectedScenes([sceneResult]);
+          
+          // 获取推荐预设
+          const presets = getRecommendedPresetsFromScene(sceneType);
+          setRecommendedPresets(presets);
+        }
+      } else {
+        // API调用失败，使用回退方案
+        console.log('DeepSeek API调用失败，使用回退方案');
+        const fallback = fallbackSceneDetection(imageUrl);
+        
+        if (['BLACK', 'WHITE', 'BLURRY'].includes(fallback.sceneType)) {
+          setEdgeCaseResult({
+            isEdgeCase: true,
+            edgeScene: fallback.sceneType,
+            message: getEdgeCaseMessage(fallback.sceneType)
+          });
+        } else {
+          setDetectedScenes([{
+            label: sceneLabels[fallback.sceneType],
+            confidence: fallback.confidence,
+            color: sceneColors[fallback.sceneType],
+            type: fallback.sceneType,
+            description: sceneDescriptions[fallback.sceneType]
+          }]);
+          
+          const presets = getRecommendedPresetsFromScene(fallback.sceneType);
+          setRecommendedPresets(presets);
+        }
+      }
+      
+      setAnalysisComplete(true);
+    } catch (error) {
+      console.error('AI分析失败:', error);
+      // 使用回退方案
+      const fallback = fallbackSceneDetection(imageUrl);
+      
+      if (['BLACK', 'WHITE', 'BLURRY'].includes(fallback.sceneType)) {
+        setEdgeCaseResult({
+          isEdgeCase: true,
+          edgeScene: fallback.sceneType,
+          message: getEdgeCaseMessage(fallback.sceneType)
+        });
+      } else {
+        setDetectedScenes([{
+          label: sceneLabels[fallback.sceneType],
+          confidence: fallback.confidence,
+          color: sceneColors[fallback.sceneType],
+          type: fallback.sceneType,
+          description: sceneDescriptions[fallback.sceneType]
+        }]);
+        
+        const presets = getRecommendedPresetsFromScene(fallback.sceneType);
+        setRecommendedPresets(presets);
+      }
+      
+      setAnalysisComplete(true);
+    } finally {
+      setIsAnalyzing(false);
+      setUsingDeepSeek(false);
     }
-    if (imageUrl.includes('white') || imageUrl.includes('bright')) {
-      return {
-        isEdgeCase: true,
-        edgeScene: 'WHITE',
-        message: '无法识别场景'
-      };
-    }
-    if (imageUrl.includes('blur') || imageUrl.includes('blurry')) {
-      return {
-        isEdgeCase: true,
-        edgeScene: 'BLURRY',
-        message: '画面模糊，无法识别'
-      };
-    }
-    return { isEdgeCase: false };
   }, []);
 
-  // 根据图片 URL 模拟场景识别 - 与 Android 端保持一致的逻辑
-  const detectScene = useCallback((imageUrl: string): SceneResult[] => {
-    const edgeCase = checkEdgeCases(imageUrl);
-    if (edgeCase.isEdgeCase && edgeCase.edgeScene) {
-      return [{
-        label: sceneLabels[edgeCase.edgeScene],
-        confidence: 1.0,
-        color: sceneColors[edgeCase.edgeScene],
-        type: edgeCase.edgeScene,
-        description: edgeCase.message
-      }];
+  // 获取边界场景消息
+  const getEdgeCaseMessage = (sceneType: SceneType): string => {
+    switch (sceneType) {
+      case 'BLACK': return '光线太暗，无法识别';
+      case 'WHITE': return '无法识别场景';
+      case 'BLURRY': return '画面模糊，无法识别';
+      default: return '';
     }
+  };
 
-    const detectedScenes: SceneType[] = [];
-    
-    // 基于 URL 关键词的启发式规则
-    if (imageUrl.includes('portrait')) {
-      detectedScenes.push('PORTRAIT');
-    }
-    if (imageUrl.includes('night_portrait')) {
-      detectedScenes.push('NIGHT_PORTRAIT');
-    }
-    if (imageUrl.includes('landscape')) {
-      detectedScenes.push('LANDSCAPE');
-    }
-    if (imageUrl.includes('night')) {
-      detectedScenes.push('NIGHT');
-    }
-    if (imageUrl.includes('food')) {
-      detectedScenes.push('FOOD');
-    }
-    if (imageUrl.includes('sunset')) {
-      detectedScenes.push('SUNSET');
-    }
-    if (imageUrl.includes('nature')) {
-      detectedScenes.push('NATURE');
-    }
-    if (imageUrl.includes('macro')) {
-      detectedScenes.push('MACRO');
-    }
-    if (imageUrl.includes('sports')) {
-      detectedScenes.push('SPORTS');
-    }
-    if (imageUrl.includes('architecture')) {
-      detectedScenes.push('ARCHITECTURE');
-    }
-    if (imageUrl.includes('street')) {
-      detectedScenes.push('STREET');
-    }
-
-    // 处理混合场景
-    if (detectedScenes.length >= 2) {
-      // 按优先级排序
-      const sorted = [...detectedScenes].sort((a, b) => 
-        (mixedScenePriority[b] || 0) - (mixedScenePriority[a] || 0)
-      );
-      const primary = sorted[0];
-      const secondary = sorted[1];
-      
-      return [
-        { 
-          label: sceneLabels[primary], 
-          confidence: 0.95, 
-          color: sceneColors[primary],
-          type: primary,
-          description: sceneDescriptions[primary]
-        },
-        { 
-          label: sceneLabels[secondary], 
-          confidence: 0.75, 
-          color: sceneColors[secondary],
-          type: secondary,
-          description: sceneDescriptions[secondary]
-        }
-      ];
-    }
-
-    // 单个场景或无明确场景
-    if (detectedScenes.length === 1) {
-      return [{
-        label: sceneLabels[detectedScenes[0]],
-        confidence: 0.92,
-        color: sceneColors[detectedScenes[0]],
-        type: detectedScenes[0],
-        description: sceneDescriptions[detectedScenes[0]]
-      }];
-    }
-
-    // 无明确关键词，基于预定义概率的场景识别
-    const scenes = [
-      { type: 'LANDSCAPE' as SceneType, prob: 0.20 },
-      { type: 'PORTRAIT' as SceneType, prob: 0.20 },
-      { type: 'NIGHT' as SceneType, prob: 0.12 },
-      { type: 'FOOD' as SceneType, prob: 0.12 },
-      { type: 'SUNSET' as SceneType, prob: 0.08 },
-      { type: 'NATURE' as SceneType, prob: 0.08 },
-      { type: 'MACRO' as SceneType, prob: 0.08 },
-      { type: 'SPORTS' as SceneType, prob: 0.06 },
-      { type: 'ARCHITECTURE' as SceneType, prob: 0.06 }
-    ];
-    
-    let primaryScene: SceneType = 'UNKNOWN';
-    let primaryConfidence = 0.85;
-    let secondaryScene: SceneType = 'UNKNOWN';
-    let secondaryConfidence = 0.65;
-    
-    const random = Math.random();
-    let cumulative = 0;
-    for (const scene of scenes) {
-      cumulative += scene.prob;
-      if (random <= cumulative) {
-        primaryScene = scene.type;
-        primaryConfidence = 0.75 + Math.random() * 0.2;
-        break;
-      }
-    }
-    
-    // 选择次要场景
-    const remainingScenes = scenes.filter(s => s.type !== primaryScene);
-    cumulative = 0;
-    const remainingProb = remainingScenes.reduce((sum, s) => sum + s.prob, 0);
-    const adjustedRandom = Math.random() * remainingProb;
-    
-    for (const scene of remainingScenes) {
-      cumulative += scene.prob;
-      if (adjustedRandom <= cumulative) {
-        secondaryScene = scene.type;
-        secondaryConfidence = 0.55 + Math.random() * 0.15;
-        break;
-      }
-    }
-    
-    return [
-      { 
-        label: sceneLabels[primaryScene], 
-        confidence: primaryConfidence, 
-        color: sceneColors[primaryScene],
-        type: primaryScene,
-        description: sceneDescriptions[primaryScene]
-      },
-      { 
-        label: sceneLabels[secondaryScene], 
-        confidence: secondaryConfidence, 
-        color: sceneColors[secondaryScene],
-        type: secondaryScene,
-        description: sceneDescriptions[secondaryScene]
-      }
-    ];
-  }, [checkEdgeCases]);
-
-  // 根据场景推荐预设 - 与 Android 端保持一致的逻辑
-  const getRecommendedPresets = useCallback((scene: SceneType): RecommendedPreset[] => {
+  // 根据场景推荐预设
+  const getRecommendedPresetsFromScene = (scene: SceneType): RecommendedPreset[] => {
     const keywords = sceneKeywords[scene] || [];
     
-    // 带评分的匹配算法
     const scoredPresets = mockPresets.map(preset => {
       let score = 0;
       
-      // 名称匹配评分
       score += keywords.reduce((sum, keyword) => {
         return sum + (preset.name.includes(keyword) ? 3 : 0);
       }, 0);
       
-      // 标签匹配评分
       score += keywords.reduce((sum, keyword) => {
         return sum + (preset.tags?.some(tag => tag.includes(keyword)) ? 2 : 0);
       }, 0);
       
-      // 相机参数匹配评分
       if (preset.cameraParams?.filter) {
         score += keywords.some(keyword => preset.cameraParams!.filter.includes(keyword)) ? 1.5 : 0;
       }
       
-      // 特殊场景的相机参数匹配
       if (scene === 'PORTRAIT' || scene === 'NIGHT_PORTRAIT') {
-        if (preset.cameraParams?.portrait_mode) {
-          score += 2;
-        }
+        if (preset.cameraParams?.portrait_mode) score += 2;
       }
       if (scene === 'NIGHT') {
-        if (preset.cameraParams?.night_mode) {
-          score += 2;
-        }
+        if (preset.cameraParams?.night_mode) score += 2;
       }
       if (scene === 'SPORTS') {
-        if (preset.cameraParams?.sports_mode) {
-          score += 2;
-        }
+        if (preset.cameraParams?.sports_mode) score += 2;
       }
       if (scene === 'MACRO') {
-        if (preset.cameraParams?.macro_mode) {
-          score += 2;
-        }
+        if (preset.cameraParams?.macro_mode) score += 2;
       }
       
-      // HNCS 认证加分
-      if (preset.cameraParams?.hncs) {
-        score += 1;
-      }
+      if (preset.cameraParams?.hncs) score += 1;
       
       return { preset, score };
     }).sort((a, b) => b.score - a.score);
     
-    // 提取高评分预设
     const highScorePresets = scoredPresets.filter(item => item.score > 0).map(item => item.preset);
     
     let resultPresets: typeof mockPresets;
@@ -401,15 +294,12 @@ export default function AIDemoPage() {
     if (highScorePresets.length >= 4) {
       resultPresets = highScorePresets.slice(0, 4);
     } else if (highScorePresets.length > 0) {
-      // 补充一些相关场景的预设
       const fallbackPresets = getFallbackPresets(scene, mockPresets.filter(p => !highScorePresets.includes(p)));
       resultPresets = [...highScorePresets, ...fallbackPresets].slice(0, 4);
     } else {
-      // 完全没有匹配，使用场景特定的回退策略
       resultPresets = getFallbackPresets(scene, mockPresets).slice(0, 4);
     }
     
-    // 转换格式
     return resultPresets.map((preset, index) => ({
       id: preset.id,
       name: preset.name,
@@ -418,8 +308,8 @@ export default function AIDemoPage() {
       tags: preset.tags || [],
       isHNCS: preset.cameraParams?.hncs
     }));
-  }, []);
-  
+  };
+
   // 回退预设选择
   const getFallbackPresets = (scene: SceneType, presets: typeof mockPresets): typeof mockPresets => {
     let fallback: typeof mockPresets;
@@ -481,15 +371,17 @@ export default function AIDemoPage() {
 
   const handleImageSelect = useCallback((imageUrl: string) => {
     setSelectedImage(imageUrl);
+    setSelectedFile(null);
     setAnalysisComplete(false);
     setDetectedScenes([]);
     setRecommendedPresets([]);
     setEdgeCaseResult(null);
   }, []);
 
-  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      setSelectedFile(file);
       const reader = new FileReader();
       reader.onload = (event) => {
         setSelectedImage(event.target?.result as string);
@@ -520,7 +412,8 @@ export default function AIDemoPage() {
     e.preventDefault();
     setIsDragOver(false);
     const file = e.dataTransfer.files?.[0];
-    if (file) {
+    if (file && file.type.startsWith('image/')) {
+      setSelectedFile(file);
       const reader = new FileReader();
       reader.onload = (event) => {
         setSelectedImage(event.target?.result as string);
@@ -536,40 +429,19 @@ export default function AIDemoPage() {
   const handleAnalyze = useCallback(() => {
     if (!selectedImage) return;
     
-    setIsAnalyzing(true);
-    setAnalysisComplete(false);
-    setEdgeCaseResult(null);
-    
-    // 模拟分析过程 - 优化性能，更快响应
-    setTimeout(() => {
-      const scenes = detectScene(selectedImage);
-      setDetectedScenes(scenes);
-      
-      // 检查是否是边界场景
-      const edgeCase = checkEdgeCases(selectedImage);
-      if (edgeCase.isEdgeCase) {
-        setEdgeCaseResult(edgeCase);
-        setRecommendedPresets([]);
-      } else if (scenes.length > 0) {
-        // 使用主要场景推荐预设
-        const presets = getRecommendedPresets(scenes[0].type);
-        setRecommendedPresets(presets);
-      }
-      
-      setIsAnalyzing(false);
-      setAnalysisComplete(true);
-    }, 500); // 优化延迟，更快响应
-  }, [selectedImage, detectScene, getRecommendedPresets, checkEdgeCases]);
+    // 使用DeepSeek AI进行分析
+    analyzeWithDeepSeek(selectedImage, selectedFile || undefined);
+  }, [selectedImage, selectedFile, analyzeWithDeepSeek]);
   
   const handleClear = useCallback(() => {
     setSelectedImage(null);
+    setSelectedFile(null);
     setAnalysisComplete(false);
     setDetectedScenes([]);
     setRecommendedPresets([]);
     setEdgeCaseResult(null);
   }, []);
 
-  // 获取场景图标
   const getSceneIcon = (type: SceneType) => {
     switch (type) {
       case 'LANDSCAPE': return <Sun className="w-5 h-5" />;
@@ -606,8 +478,18 @@ export default function AIDemoPage() {
             AI 智能场景识别
           </h1>
           <p className="text-lg text-slate-400 max-w-2xl mx-auto">
-            上传您的照片，体验 AI 智能识别场景并推荐最佳哈苏大师影像预设
+            基于 DeepSeek AI 技术，智能识别场景并推荐最佳哈苏大师影像预设
           </p>
+          {/* DeepSeek 标识 */}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 0.3 }}
+            className="inline-flex items-center gap-2 mt-4 px-4 py-2 bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border border-cyan-500/20 rounded-full"
+          >
+            <Brain className="w-4 h-4 text-cyan-400" />
+            <span className="text-sm text-cyan-400 font-medium">Powered by DeepSeek AI</span>
+          </motion.div>
         </motion.div>
 
         {/* Main Content */}
@@ -733,7 +615,7 @@ export default function AIDemoPage() {
                 {isAnalyzing ? (
                   <>
                     <Loader className="w-5 h-5 animate-spin" />
-                    <span>AI 正在分析中...</span>
+                    <span>{usingDeepSeek ? '正在使用 DeepSeek AI 分析...' : 'AI 正在分析中...'}</span>
                   </>
                 ) : (
                   <>
@@ -815,6 +697,11 @@ export default function AIDemoPage() {
                     <div className="flex items-center gap-2 text-emerald-400">
                       <Check className="w-5 h-5" />
                       <span className="text-sm font-medium">分析完成</span>
+                      {usingDeepSeek && (
+                        <span className="px-2 py-0.5 bg-cyan-500/20 text-cyan-400 text-xs font-bold rounded-full">
+                          DeepSeek
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -865,11 +752,6 @@ export default function AIDemoPage() {
                                   主要
                                 </span>
                               )}
-                              {index === 1 && (
-                                <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 text-xs font-bold rounded-full">
-                                  次要
-                                </span>
-                              )}
                             </div>
                             <span className="text-slate-400">
                               {Math.round(result.confidence * 100)}%
@@ -905,7 +787,6 @@ export default function AIDemoPage() {
                             transition={{ delay: 0.6 + index * 0.1 }}
                             className="flex items-center gap-3 p-3 bg-slate-700/30 rounded-xl hover:bg-slate-700/50 transition-colors cursor-pointer"
                           >
-                            {/* Preset Image */}
                             <div className="w-12 h-12 rounded-lg overflow-hidden bg-gradient-to-br from-amber-500/20 to-orange-500/20 flex-shrink-0">
                               <img
                                 src={preset.coverPath.startsWith('http') 

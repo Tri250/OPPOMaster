@@ -1,12 +1,28 @@
 package com.omaster.app.service
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import android.util.Log
 import com.omaster.app.model.AiAdjustmentParams
 import com.omaster.app.model.Preset
 import com.omaster.app.model.SceneType
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlin.random.Random
 
-class AiService {
+@Singleton
+class AiService @Inject constructor(
+    private val deepSeekService: DeepSeekService
+) {
+    
+    companion object {
+        private const val TAG = "AiService"
+    }
     
     // 场景识别结果数据类 - 增强版
     data class SceneDetectionResult(
@@ -15,13 +31,6 @@ class AiService {
         val confidence: Float = 0.85f,
         val isEdgeCase: Boolean = false,
         val edgeCaseMessage: String? = null
-    )
-    
-    // 边界场景检测结果
-    private data class EdgeCaseCheckResult(
-        val isEdgeCase: Boolean,
-        val edgeScene: SceneType? = null,
-        val message: String? = null
     )
     
     // 混合场景优先级
@@ -38,66 +47,51 @@ class AiService {
         SceneType.SPORTS to 1
     )
     
-    // 场景识别 - 增强版，支持边界场景和混合场景
-    suspend fun detectScene(imageUri: String? = null): SceneDetectionResult {
-        // 缩短延迟，提升性能，符合测试用例要求
-        delay(300)
+    // 场景识别 - 增强版，支持DeepSeek AI
+    suspend fun detectScene(imageUri: String? = null, bitmap: Bitmap? = null): SceneDetectionResult {
+        return try {
+            Log.d(TAG, "开始AI场景识别")
+            
+            // 优先使用DeepSeek API进行真实AI识别
+            if (bitmap != null) {
+                Log.d(TAG, "使用DeepSeek API进行AI识别")
+                val result = deepSeekService.detectScene(bitmap)
+                
+                // 如果识别成功，直接返回
+                if (!result.isEdgeCase && result.primaryScene != SceneType.UNKNOWN) {
+                    Log.d(TAG, "DeepSeek识别成功: ${result.primaryScene}")
+                    return result
+                }
+            }
+            
+            // Fallback: 使用基于URI的启发式识别
+            Log.d(TAG, "使用启发式识别")
+            return detectWithHeuristics(imageUri)
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "场景识别异常: ${e.message}")
+            return detectWithHeuristics(imageUri)
+        }
+    }
+    
+    // 使用启发式规则进行场景识别（作为备选方案）
+    private suspend fun detectWithHeuristics(imageUri: String?): SceneDetectionResult {
+        delay(300) // 模拟处理时间
         
-        // 1. 先检查边界场景
-        val edgeCaseCheck = checkEdgeCases(imageUri)
-        if (edgeCaseCheck.isEdgeCase && edgeCaseCheck.edgeScene != null) {
+        // 检查边界场景
+        val edgeCase = checkEdgeCases(imageUri)
+        if (edgeCase.isEdgeCase && edgeCase.edgeScene != null) {
             return SceneDetectionResult(
-                primaryScene = edgeCaseCheck.edgeScene,
+                primaryScene = edgeCase.edgeScene,
                 confidence = 1.0f,
                 isEdgeCase = true,
-                edgeCaseMessage = edgeCaseCheck.message
+                edgeCaseMessage = edgeCase.message
             )
         }
         
-        // 2. 正常场景识别
-        return detectNormalScene(imageUri)
-    }
-    
-    // 边界场景检测
-    private fun checkEdgeCases(imageUri: String?): EdgeCaseCheckResult {
-        return when {
-            // 检测全黑场景
-            imageUri?.contains("black", ignoreCase = true) == true || 
-            imageUri?.contains("dark", ignoreCase = true) == true -> {
-                EdgeCaseCheckResult(
-                    isEdgeCase = true,
-                    edgeScene = SceneType.BLACK,
-                    message = "光线太暗，无法识别"
-                )
-            }
-            // 检测全白场景
-            imageUri?.contains("white", ignoreCase = true) == true || 
-            imageUri?.contains("bright", ignoreCase = true) == true -> {
-                EdgeCaseCheckResult(
-                    isEdgeCase = true,
-                    edgeScene = SceneType.WHITE,
-                    message = "无法识别场景"
-                )
-            }
-            // 检测模糊场景
-            imageUri?.contains("blur", ignoreCase = true) == true || 
-            imageUri?.contains("blurry", ignoreCase = true) == true -> {
-                EdgeCaseCheckResult(
-                    isEdgeCase = true,
-                    edgeScene = SceneType.BLURRY,
-                    message = "画面模糊，无法识别"
-                )
-            }
-            else -> EdgeCaseCheckResult(isEdgeCase = false)
-        }
-    }
-    
-    // 正常场景识别
-    private fun detectNormalScene(imageUri: String?): SceneDetectionResult {
         // 检测混合场景
         val detectedScenes = mutableListOf<SceneType>()
         
-        // 基于关键词的启发式识别
         imageUri?.let { uri ->
             when {
                 uri.contains("portrait", ignoreCase = true) -> detectedScenes.add(SceneType.PORTRAIT)
@@ -116,14 +110,10 @@ class AiService {
         
         // 处理混合场景
         if (detectedScenes.size >= 2) {
-            // 按优先级排序
             val sorted = detectedScenes.sortedByDescending { mixedScenePriority[it] ?: 0 }
-            val primary = sorted[0]
-            val secondary = sorted.getOrNull(1)
-            
             return SceneDetectionResult(
-                primaryScene = primary,
-                secondaryScene = secondary,
+                primaryScene = sorted[0],
+                secondaryScene = sorted.getOrNull(1),
                 confidence = 0.95f
             )
         }
@@ -136,7 +126,7 @@ class AiService {
             )
         }
         
-        // 无明确关键词，基于概率的场景识别
+        // 基于概率的场景识别
         val random = Random(System.currentTimeMillis())
         val scenes = listOf(
             SceneType.LANDSCAPE to 0.20f,
@@ -155,6 +145,43 @@ class AiService {
             primaryScene = selectedScene,
             confidence = 0.85f
         )
+    }
+    
+    // 边界场景检测
+    private data class EdgeCaseCheckResult(
+        val isEdgeCase: Boolean,
+        val edgeScene: SceneType? = null,
+        val message: String? = null
+    )
+    
+    private fun checkEdgeCases(imageUri: String?): EdgeCaseCheckResult {
+        return when {
+            imageUri?.contains("black", ignoreCase = true) == true || 
+            imageUri?.contains("dark", ignoreCase = true) == true -> {
+                EdgeCaseCheckResult(
+                    isEdgeCase = true,
+                    edgeScene = SceneType.BLACK,
+                    message = "光线太暗，无法识别"
+                )
+            }
+            imageUri?.contains("white", ignoreCase = true) == true || 
+            imageUri?.contains("bright", ignoreCase = true) == true -> {
+                EdgeCaseCheckResult(
+                    isEdgeCase = true,
+                    edgeScene = SceneType.WHITE,
+                    message = "无法识别场景"
+                )
+            }
+            imageUri?.contains("blur", ignoreCase = true) == true || 
+            imageUri?.contains("blurry", ignoreCase = true) == true -> {
+                EdgeCaseCheckResult(
+                    isEdgeCase = true,
+                    edgeScene = SceneType.BLURRY,
+                    message = "画面模糊，无法识别"
+                )
+            }
+            else -> EdgeCaseCheckResult(isEdgeCase = false)
+        }
     }
     
     private fun selectSceneByProbability(
@@ -245,12 +272,10 @@ class AiService {
         val result = when {
             highScorePresets.size >= 4 -> highScorePresets.take(4)
             highScorePresets.isNotEmpty() -> {
-                // 补充一些相关场景的预设
                 val fallbackPresets = getFallbackPresets(scene, allPresets - highScorePresets.toSet())
                 (highScorePresets + fallbackPresets).distinctBy { it.id }.take(4)
             }
             else -> {
-                // 完全没有匹配，使用场景特定的回退策略
                 getFallbackPresets(scene, allPresets).take(4)
             }
         }
