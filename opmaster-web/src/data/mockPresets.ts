@@ -1,3 +1,65 @@
+// 场景分类枚举 - 与Android端同步
+export enum PresetCategory {
+  PORTRAIT = 'PORTRAIT',
+  LANDSCAPE = 'LANDSCAPE',
+  NIGHT = 'NIGHT',
+  FOOD = 'FOOD',
+  STREET = 'STREET',
+  ARCHITECTURE = 'ARCHITECTURE',
+  NATURE = 'NATURE',
+  SUNSET = 'SUNSET',
+  MACRO = 'MACRO',
+  SPORTS = 'SPORTS',
+  NIGHT_PORTRAIT = 'NIGHT_PORTRAIT',
+  VINTAGE = 'VINTAGE',
+  CINEMATIC = 'CINEMATIC',
+  BLACK_WHITE = 'BLACK_WHITE'
+}
+
+export const PresetCategoryLabels: Record<PresetCategory, string> = {
+  [PresetCategory.PORTRAIT]: '人像',
+  [PresetCategory.LANDSCAPE]: '风景',
+  [PresetCategory.NIGHT]: '夜景',
+  [PresetCategory.FOOD]: '美食',
+  [PresetCategory.STREET]: '街拍',
+  [PresetCategory.ARCHITECTURE]: '建筑',
+  [PresetCategory.NATURE]: '自然',
+  [PresetCategory.SUNSET]: '日落',
+  [PresetCategory.MACRO]: '微距',
+  [PresetCategory.SPORTS]: '运动',
+  [PresetCategory.NIGHT_PORTRAIT]: '夜景人像',
+  [PresetCategory.VINTAGE]: '复古',
+  [PresetCategory.CINEMATIC]: '电影感',
+  [PresetCategory.BLACK_WHITE]: '黑白'
+};
+
+const categoryKeywords: Record<PresetCategory, string[]> = {
+  [PresetCategory.PORTRAIT]: ['人像', 'portrait', '肖像', '自拍'],
+  [PresetCategory.LANDSCAPE]: ['风景', 'landscape', '风光', '自然'],
+  [PresetCategory.NIGHT]: ['夜景', 'night', '夜色', '暗光'],
+  [PresetCategory.FOOD]: ['美食', 'food', '食物', '餐饮'],
+  [PresetCategory.STREET]: ['街拍', 'street', '街头', '纪实'],
+  [PresetCategory.ARCHITECTURE]: ['建筑', 'architecture', '空间', '城市'],
+  [PresetCategory.NATURE]: ['自然', 'nature', '植物', '生态'],
+  [PresetCategory.SUNSET]: ['日落', 'sunset', '日出', '暖调'],
+  [PresetCategory.MACRO]: ['微距', 'macro', '特写', '细节'],
+  [PresetCategory.SPORTS]: ['运动', 'sports', '动感', '快速'],
+  [PresetCategory.NIGHT_PORTRAIT]: ['夜景人像', 'night_portrait', '夜晚人像'],
+  [PresetCategory.VINTAGE]: ['复古', 'vintage', '胶片', '经典'],
+  [PresetCategory.CINEMATIC]: ['电影', 'cinematic', '视频'],
+  [PresetCategory.BLACK_WHITE]: ['黑白', 'bw', 'monochrome', '单色']
+};
+
+export const inferCategoryFromName = (name: string): PresetCategory | null => {
+  const normalizedName = name.toLowerCase();
+  for (const [category, keywords] of Object.entries(categoryKeywords)) {
+    if (keywords.some(k => normalizedName.includes(k.toLowerCase()))) {
+      return category as PresetCategory;
+    }
+  }
+  return null;
+};
+
 export type Section = {
   title: string;
   items: SectionItem[];
