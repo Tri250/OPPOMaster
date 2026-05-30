@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.2.4] (f599007..a3575d39) — 2026-04-29 ~ 2026-05-30
+
+### Features
+- **PR-based feature integration**: Starting with this release cycle, new capabilities were primarily landed through pull requests, including editor refactors, OpenCL backend work, collection updates, thumbnail caching, advanced search, loading polish, and database performance improvements. (`8d09af8`, `9babfb0`, `2548cd4`, `d359241`, `81ad481`, `ed9d3b7`, `d4090f3`, `54ab6d1`, `0ee2835`, `a3575d3`)
+- **OpenCL acceleration path**: Added OpenCL image containers, context/program management, RAW processing, point/linear-reference operators, highlight reconstruction, LMT with 3D LUT support, DRT operators, geometry/lens-calibration support, DNG warp rectilinear handling, scope analysis, OpenGL sharing, runtime backend switching, and packaging/source-path resolution for OpenCL shader assets. (`590930a`, `ac9cbb8`, `e57ffbd`, `d9522de`, `03cf061`, `8d897b3`, `1b30204`, `771d45c`, `034cf0b`, `5b17d6d`, `a2acab9`, `21aa488`)
+- **Editor panel refactor**: Split editor state and panel ownership into dedicated tone, RAW decoding, geometry, DRT, color, and versioning components; introduced the render session/coordinator structure; added more ODT options and refreshed advanced-parameter accordion behavior. (`aaa25e0`, `078910c`, `b50bf70`, `1dedfb1`, `7eb3fe1`, `6b391fa`, `7845476`, `b2949ed`, `6415d10`, `f934633`, `2660a11`)
+- **Versioning and project package upgrades**: Reworked edit-history semantics with log-only versioning support, Merkle-tree version hashes, UUID persistence, project file version/checksum validation, database checksum computation, and refactored project package save/load behavior. (`387edbf`, `8bc35ee`, `e9e39ba`, `4d8b67a`, `b43e43b`, `2baaae8`, `ccebd09`)
+- **Album collections and Sleeve services**: Overhauled collection membership, folder listing, pagination, filter-service integration, cache invalidation, import root validation, schema hardening, duplicate/history handling, and batch database add/delete interfaces. (`a54358f`, `0a77e71`, `4dacf2a`, `435141b`, `5964e73`, `4f0136c`, `e370d12`)
+- **Image rating and advanced search**: Added application-wide star ratings, rating filters, album statistics integration, global search with fuzzy and exact modes, improved global-search panel behavior, and thumbnail/grid zoom and layout animation controls. (`d2ce4b7`, `8baf1ba`, `29aefb1`, `4ead40f`, `18bd093`, `f7b2611`)
+- **Thumbnail cache and loading experience**: Introduced `AlbumThumbnailModel`, disk-backed thumbnail caching, resolution-separated thumbnail requests, 8-bit thumbnail storage, improved thumbnail loading/selection behavior, and smoother project/OpenCL loading states. (`1c36515`, `83368da`, `618c5f6`, `553274e`, `43daa9e`, `b30c463`, `26c3d25`, `11c2ade`, `88cd276`)
+
+### UI
+- **Editor and metadata UI polish**: Improved image details dialog i18n and layout, switched data display typography to IBM Plex, moved color-temperature state into the tone panel, and fixed LUT selection reset behavior. (`b2956bb`, `cbb992c`, `55f4d87`, `c3a95f8`)
+- **Website and distribution polish**: Updated website download links and macOS installation scripts, including LUT asset shipping for macOS packages. (`99ba3b8`, `1567f0e`, `3f51efb`)
+
+### Performance
+- **Database and browser performance**: Added batch database mutation APIs and optimized collection/search/thumbnail model paths to reduce UI stalls during large project browsing. (`e370d12`, `26c3d25`, `a3575d3`)
+- **Pipeline and thumbnail lifecycle improvements**: Refactored pipeline frame-sink attachment/lifecycle management, separated thumbnail resolutions, removed redundant image loading, and added targeted unit coverage for sink and cache behavior. (`63258c0`, `d6dd172`, `0d1b2bf`, `19e9b05`)
+
+### Bug Fixes
+- **Metal and RAW processing fixes**: Fixed macOS/OpenCL compile issues, Metal RCD and lens-calibration shader behavior, CUDA RCD margin handling, lensfun correction alignment, and Metal RCD test assertions. (`a5436da`, `1fa062b`, `25ad658`, `107dcbd`, `fc97b01`, `a21d7ac`)
+- **Project and thumbnail stability**: Fixed project loading around checksum mismatches, thumbnail-generation crashes, global-search missing thumbnails, and LUT selection reset discrepancies. (`83a8e50`, `cf659da`, `d0ffe14`, `c3a95f8`)
+- **macOS CI and packaging stability**: Added CI workflow and fixed macOS CI/runtime failures around OpenMP, third-party CMake wiring, test builds, lensfun compile/rpath handling, and local OpenMP runtime behavior. (`2351cea`, `2a76a46`, `7adf31b`, `4e6c1c6`, `a34e826`, `a4349da`, `b57bcbf`, `65c6698`, `977a93a`)
+
+### Miscellaneous
+- **WebGPU path retired**: Removed the experimental WebGPU RAW processing path after evaluating it, and redirected GPU backend work toward OpenCL. (`884cf15`)
+- **Documentation and planning**: Added editor, pipeline frame-sink, and sleeve album-membership refactor plans, plus phase status updates for the collection refactor. (`b57e39f`, `88afee4`, `7ad0363`, `aa9f3db`, `afce1df`)
+- **Packaging scope**: Windows and macOS packages now ship only the curated Kodak, Fuji, and Agfa `.cube` LUTs, excluding `spektrafilm` and other legacy sample LUTs.
+
 ## [0.2.3] (21046ec..fd3f8f2) — 2026-04-08 ~ 2026-04-26
 
 ### Features
@@ -109,6 +138,35 @@
 ---
 
 # 更新日志
+
+## [0.2.4] (f599007..a3575d39) — 2026-04-29 ~ 2026-05-30
+
+### 新功能
+- **以 Pull Request 为主的新功能合并流程**：本轮版本开始，主要功能通过 PR 合并进入主线，包括编辑器重构、OpenCL 后端、集合改造、缩略图缓存、高级搜索、加载体验与数据库性能优化等。(`8d09af8`, `9babfb0`, `2548cd4`, `d359241`, `81ad481`, `ed9d3b7`, `d4090f3`, `54ab6d1`, `0ee2835`, `a3575d3`)
+- **OpenCL 加速路径**：新增 OpenCL 图像容器、上下文/程序库管理、RAW 处理、点运算/线性参考空间算子、高光恢复、带 3D LUT 的 LMT、DRT、几何与镜头校正、DNG warp rectilinear、示波器分析、OpenGL 共享、运行时后端切换，以及 OpenCL shader 的安装与源码路径解析。(`590930a`, `ac9cbb8`, `e57ffbd`, `d9522de`, `03cf061`, `8d897b3`, `1b30204`, `771d45c`, `034cf0b`, `5b17d6d`, `a2acab9`, `21aa488`)
+- **编辑器面板重构**：将编辑器状态与面板职责拆分到色调、RAW 解码、几何、DRT、色彩、版本等专用组件中，引入 render session / coordinator 结构，新增更多 ODT 选项，并调整高级参数折叠面板行为。(`aaa25e0`, `078910c`, `b50bf70`, `1dedfb1`, `7eb3fe1`, `6b391fa`, `7845476`, `b2949ed`, `6415d10`, `f934633`, `2660a11`)
+- **版本管理与项目包升级**：重构编辑历史语义，加入 log-only versioning、Merkle tree 版本哈希、项目 UUID 持久化、项目文件版本/校验和校验、数据库校验和计算，并重构项目包保存/加载逻辑。(`387edbf`, `8bc35ee`, `e9e39ba`, `4d8b67a`, `b43e43b`, `2baaae8`, `ccebd09`)
+- **相册集合与 Sleeve 服务**：重构集合成员关系、文件夹列表、分页、筛选服务集成、缓存失效、导入根目录校验、schema 加固、重复文件/历史管理，以及数据库批量新增/删除接口。(`a54358f`, `0a77e71`, `4dacf2a`, `435141b`, `5964e73`, `4f0136c`, `e370d12`)
+- **图片评分与高级搜索**：新增全应用星级评分、评分筛选、相册统计集成、带模糊/精确模式的全局搜索，改进全局搜索面板，并加入缩略图网格缩放与布局动画控制。(`d2ce4b7`, `8baf1ba`, `29aefb1`, `4ead40f`, `18bd093`, `f7b2611`)
+- **缩略图缓存与加载体验**：新增 `AlbumThumbnailModel`、磁盘缩略图缓存、按分辨率区分的缩略图请求、8-bit 缩略图存储，改进缩略图加载/选择行为，并优化项目与 OpenCL 加载状态。(`1c36515`, `83368da`, `618c5f6`, `553274e`, `43daa9e`, `b30c463`, `26c3d25`, `11c2ade`, `88cd276`)
+
+### 界面
+- **编辑器与元数据界面优化**：改进图片详情对话框的本地化与布局，将数据显示字体切换为 IBM Plex，把色温状态迁移到色调面板，并修复 LUT 选择重置问题。(`b2956bb`, `cbb992c`, `55f4d87`, `c3a95f8`)
+- **网站与发布体验优化**：更新网站下载链接与 macOS 安装脚本，其中包括 macOS 包中随附 LUT 资源。(`99ba3b8`, `1567f0e`, `3f51efb`)
+
+### 性能优化
+- **数据库与浏览性能**：新增数据库批量写入接口，并优化集合、搜索、缩略图模型路径，减少大型项目浏览时的 UI 卡顿。(`e370d12`, `26c3d25`, `a3575d3`)
+- **流水线与缩略图生命周期优化**：重构 pipeline frame sink 的挂载与生命周期管理，区分不同缩略图分辨率，移除重复图像加载，并补充针对 sink 与缓存行为的单元测试。(`63258c0`, `d6dd172`, `0d1b2bf`, `19e9b05`)
+
+### 缺陷修复
+- **Metal 与 RAW 处理修复**：修复 macOS/OpenCL 编译问题、Metal RCD 与镜头校正 shader 行为、CUDA RCD 边界处理、lensfun 校正对齐，以及 Metal RCD 测试断言。(`a5436da`, `1fa062b`, `25ad658`, `107dcbd`, `fc97b01`, `a21d7ac`)
+- **项目与缩略图稳定性**：修复校验和不匹配时的项目加载、缩略图生成崩溃、全局搜索缩略图缺失，以及 LUT 选择重置异常。(`83a8e50`, `cf659da`, `d0ffe14`, `c3a95f8`)
+- **macOS CI 与打包稳定性**：新增 CI workflow，并修复 macOS CI/runtime 中的 OpenMP、third-party CMake、测试编译、lensfun 编译/rpath、本地 OpenMP runtime 等问题。(`2351cea`, `2a76a46`, `7adf31b`, `4e6c1c6`, `a34e826`, `a4349da`, `b57bcbf`, `65c6698`, `977a93a`)
+
+### 其他
+- **WebGPU 路径退场**：在评估后移除实验性 WebGPU RAW 处理路径，并将 GPU 后端工作转向 OpenCL。(`884cf15`)
+- **文档与规划**：新增编辑器、pipeline frame sink、Sleeve 相册成员关系等重构计划，并补充集合重构阶段状态。(`b57e39f`, `88afee4`, `7ad0363`, `aa9f3db`, `afce1df`)
+- **打包范围**：Windows 与 macOS 包现在只随附 Kodak、Fuji、Agfa 三组精选 `.cube` LUT，排除 `spektrafilm` 与其他旧示例 LUT。
 
 ## [0.2.3] (21046ec..fd3f8f2) — 2026-04-08 ~ 2026-04-26
 
