@@ -28,6 +28,12 @@ class MainViewModel @Inject constructor(
     val themeMode = preferencesDataStore.themeMode
     val fluidCloudEnabled = preferencesDataStore.fluidCloudEnabled
     val overlayEnabled = preferencesDataStore.overlayEnabled
+    
+    init {
+        viewModelScope.launch {
+            repository.loadPresets()
+        }
+    }
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()

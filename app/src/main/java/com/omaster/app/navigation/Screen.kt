@@ -34,6 +34,13 @@ sealed class Screen(
         unselectedIcon = Icons.Outlined.Settings
     )
     
+    data object SceneDetection : Screen(
+        route = "scene_detection",
+        title = "AI 场景识别",
+        selectedIcon = Icons.Filled.AutoFixHigh,
+        unselectedIcon = Icons.Outlined.AutoFixHigh
+    )
+    
     data object ImageRecommendation : Screen(
         route = "image_recommendation",
         title = "精选影像推荐",

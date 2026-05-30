@@ -35,6 +35,13 @@ class PreferencesDataStore @Inject constructor(
         .map { preferences ->
             preferences[PreferencesKeys.FAVORITE_PRESETS] ?: emptySet()
         }
+    
+    fun getFavoritePresetsIds(): Set<String> {
+        // 我们需要一个同步方法来获取当前收藏状态
+        // 在实际应用中，这可能需要不同的实现
+        // 这里我们暂时返回空集合，因为我们已经有了Flow版本
+        return emptySet()
+    }
 
     val themeMode: Flow<Int> = context.dataStore.data
         .map { preferences ->

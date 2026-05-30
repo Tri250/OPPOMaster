@@ -5,6 +5,9 @@ import com.omaster.app.model.Preset
 import com.omaster.app.model.Section
 import com.omaster.app.network.PresetApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flow
 import timber.log.Timber
 import javax.inject.Inject
@@ -12,65 +15,54 @@ import javax.inject.Singleton
 
 @Singleton
 class PresetRepository @Inject constructor(
-    private val presetApi: PresetApi
+    private val presetApi: PresetApi,
+    private val preferencesDataStore: PreferencesDataStore
 ) {
-    private var cachedPresets: List<Preset> = emptyList()
+    private val _presets = MutableStateFlow<List<Preset>>(emptyList())
+    val presets: StateFlow<List<Preset>> = _presets.asStateFlow()
     
-    fun getPresets(): Flow<Result<List<Preset>>> = flow {
+    private var cachedPresets: List<Preset> = emptyList()
+    private var favoriteIds: Set<String> = emptySet()
+    
+    init {
+        // 监听收藏状态变化
+        kotlinx.coroutines.GlobalScope.launch {
+            preferencesDataStore.favoritePresets.collect { favorites ->
+                favoriteIds = favorites
+                if (cachedPresets.isNotEmpty()) {
+                    _presets.value = applyFavoriteStates(cachedPresets)
+                }
+            }
+        }
+    }
+    
+    suspend fun loadPresets() {
         try {
             val response = presetApi.getAllPresets()
             if (response.isSuccessful) {
-                val presets = response.body() ?: emptyList()
+                val presets = response.body() ?: getSamplePresets()
                 cachedPresets = presets
-                emit(Result.success(presets))
+                _presets.value = applyFavoriteStates(presets)
             } else {
                 Timber.e("Failed to fetch presets: ${response.code()}")
-                emit(Result.success(getSamplePresets()))
+                cachedPresets = getSamplePresets()
+                _presets.value = applyFavoriteStates(cachedPresets)
             }
         } catch (e: Exception) {
             Timber.e(e, "Error fetching presets")
-            emit(Result.success(getSamplePresets()))
+            cachedPresets = getSamplePresets()
+            _presets.value = applyFavoriteStates(cachedPresets)
         }
     }
     
-    fun getOppoPresets(): Flow<Result<List<Preset>>> = flow {
-        try {
-            val response = presetApi.getOppoPresets()
-            if (response.isSuccessful) {
-                val presets = response.body() ?: emptyList()
-                emit(Result.success(presets))
-            } else {
-                Timber.e("Failed to fetch OPPO presets: ${response.code()}")
-                emit(Result.success(getSamplePresets().filter { 
-                    it.deviceModel?.contains("OPPO", ignoreCase = true) == true 
-                }))
-            }
-        } catch (e: Exception) {
-            Timber.e(e, "Error fetching OPPO presets")
-            emit(Result.success(getSamplePresets().filter { 
-                it.deviceModel?.contains("OPPO", ignoreCase = true) == true 
-            }))
+    private fun applyFavoriteStates(presets: List<Preset>): List<Preset> {
+        return presets.map { preset ->
+            preset.copy(isFavorite = favoriteIds.contains(preset.id))
         }
     }
     
-    fun getRealmePresets(): Flow<Result<List<Preset>>> = flow {
-        try {
-            val response = presetApi.getRealmePresets()
-            if (response.isSuccessful) {
-                val presets = response.body() ?: emptyList()
-                emit(Result.success(presets))
-            } else {
-                Timber.e("Failed to fetch realme presets: ${response.code()}")
-                emit(Result.success(getSamplePresets().filter { 
-                    it.deviceModel?.contains("realme", ignoreCase = true) == true 
-                }))
-            }
-        } catch (e: Exception) {
-            Timber.e(e, "Error fetching realme presets")
-            emit(Result.success(getSamplePresets().filter { 
-                it.deviceModel?.contains("realme", ignoreCase = true) == true 
-            }))
-        }
+    suspend fun toggleFavorite(presetId: String) {
+        preferencesDataStore.toggleFavorite(presetId)
     }
     
     private fun getSamplePresets(): List<Preset> {
@@ -173,6 +165,38 @@ class PresetRepository @Inject constructor(
                     Section(
                         title = "样张说明",
                         content = "使用 OPPO Find X8 Ultra 1英寸双大底夜景模式拍摄"
+                    )
+                )
+            ),
+            Preset(
+                id = "food_special",
+                name = "美食诱人",
+                deviceModel = "OPPO Find X8 Pro",
+                coverPath = "food_delicious",
+                source = "community",
+                cameraParams = CameraParams(
+                    mode = "哈苏大师",
+                    iso = 200,
+                    shutter = "1/125",
+                    ev = "+0.5",
+                    wb = "5200K",
+                    focal_length = "35mm",
+                    aperture = "f/1.9",
+                    ai_optimization = true,
+                    hasselblad_natural_color = true,
+                    color_profile = "Food",
+                    filter = "美食模式",
+                    saturation = 70,
+                    contrast = 55
+                ),
+                sections = listOf(
+                    Section(
+                        title = "适用场景",
+                        content = "专为美食摄影设计，提升色彩饱和度和食欲感"
+                    ),
+                    Section(
+                        title = "样张说明",
+                        content = "使用 OPPO Find X8 Pro 拍摄，色彩鲜艳诱人"
                     )
                 )
             ),

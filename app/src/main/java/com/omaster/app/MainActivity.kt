@@ -10,9 +10,12 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.omaster.app.model.SceneType
 import com.omaster.app.navigation.Screen
+import com.omaster.app.service.AiService
 import com.omaster.app.ui.screens.DetailScreen
 import com.omaster.app.ui.screens.HomeScreen
+import com.omaster.app.ui.screens.SceneDetectionScreen
 import com.omaster.app.ui.screens.SettingsScreen
 import com.omaster.app.ui.theme.OMasterTheme
 import com.omaster.app.viewmodel.MainViewModel
@@ -31,7 +34,9 @@ class MainActivity : ComponentActivity() {
             val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
             
             OMasterTheme(themeMode = themeMode) {
-                OMasterApp()
+                OMasterApp(
+                    viewModel = viewModel
+                )
             }
         }
     }
@@ -39,9 +44,12 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun OMasterApp(
+    viewModel: MainViewModel,
     modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier
 ) {
     val navController = rememberNavController()
+    val aiService = remember { AiService() }
+    val presets by viewModel.presets.collectAsStateWithLifecycle()
 
     NavHost(
         navController = navController,
@@ -53,7 +61,8 @@ fun OMasterApp(
                 onPresetClick = { preset ->
                     navController.navigate(Screen.Detail.createRoute(preset.id))
                 },
-                onSettingsClick = { navController.navigate(Screen.Settings.route) }
+                onSettingsClick = { navController.navigate(Screen.Settings.route) },
+                onSceneDetectionClick = { navController.navigate(Screen.SceneDetection.route) }
             )
         }
         composable(
@@ -61,8 +70,6 @@ fun OMasterApp(
             arguments = listOf(navArgument("preset_id") { type = NavType.StringType })
         ) { backStackEntry ->
             val presetId = backStackEntry.arguments?.getString("preset_id")
-            val viewModel: MainViewModel = hiltViewModel()
-            val presets by viewModel.presets.collectAsStateWithLifecycle()
             val preset = presets.find { it.id == presetId }
 
             preset?.let {
@@ -76,6 +83,17 @@ fun OMasterApp(
                     }
                 )
             }
+        }
+        composable(Screen.SceneDetection.route) {
+            SceneDetectionScreen(
+                aiService = aiService,
+                allPresets = presets,
+                onBack = { navController.popBackStack() },
+                onPresetClick = { preset ->
+                    navController.navigate(Screen.Detail.createRoute(preset.id))
+                },
+                onFavoriteToggle = { viewModel.toggleFavorite(it) }
+            )
         }
         composable(Screen.Settings.route) {
             SettingsScreen(

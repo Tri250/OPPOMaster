@@ -50,6 +50,7 @@ enum class PresetCategory(val displayName: String) {
 fun HomeScreen(
     onPresetClick: (Preset) -> Unit,
     onSettingsClick: () -> Unit,
+    onSceneDetectionClick: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: MainViewModel = hiltViewModel()
 ) {
@@ -74,7 +75,7 @@ fun HomeScreen(
             val matchesFilter = when (filterType) {
                 FilterType.ALL -> true
                 FilterType.FAVORITES -> preset.isFavorite
-                FilterType.HASSELBLAD -> preset.cameraParams?.hasselblad_hncs == true
+                FilterType.HNCS -> preset.cameraParams?.hasselblad_hncs == true
                 FilterType.FIND_X -> preset.deviceModel?.contains("Find X", ignoreCase = true) == true
                 FilterType.RENO -> preset.deviceModel?.contains("Reno", ignoreCase = true) == true
                 else -> true
@@ -206,6 +207,11 @@ fun OppoHomeTopBar(
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    OppoIconButton(
+                        onClick = onSceneDetectionClick,
+                        icon = Icons.Default.AutoFixHigh
+                    )
+
                     OppoIconButton(
                         onClick = { },
                         icon = Icons.Default.QrCodeScanner
@@ -391,7 +397,7 @@ fun FilterChipsRow(
     val filters = listOf(
         FilterType.ALL to "全部",
         FilterType.FAVORITES to "我的收藏",
-        FilterType.HASSELBLAD to "HNCS"
+        FilterType.HNCS to "HNCS"
     )
 
     Row(
