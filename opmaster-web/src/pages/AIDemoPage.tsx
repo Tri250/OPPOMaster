@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { Upload, Sparkles, Check, Image as ImageIcon, Loader, Camera, Palette, Sun, Moon, XCircle } from 'lucide-react';
+import { Upload, Sparkles, Check, Image as ImageIcon, Loader, Camera, Palette, Sun, Moon, XCircle, AlertTriangle, HelpCircle, Blur, Run, MoveRight } from 'lucide-react';
 import { useState, useRef, useCallback, useMemo } from 'react';
 import { mockPresets } from '../data/mockPresets';
 
@@ -7,17 +7,22 @@ const sampleImages = [
   { id: 1, label: '人像', seed: 'portrait' },
   { id: 2, label: '风景', seed: 'landscape' },
   { id: 3, label: '夜景', seed: 'night' },
-  { id: 4, label: '美食', seed: 'food' }
+  { id: 4, label: '美食', seed: 'food' },
+  { id: 5, label: '运动', seed: 'sports' },
+  { id: 6, label: '夜景人像', seed: 'night_portrait' },
+  { id: 7, label: '全黑', seed: 'black' },
+  { id: 8, label: '模糊', seed: 'blur' }
 ];
 
 // 场景类型定义，与 Android 端保持一致
-type SceneType = 'LANDSCAPE' | 'PORTRAIT' | 'NIGHT' | 'SUNSET' | 'FOOD' | 'STREET' | 'NATURE' | 'ARCHITECTURE' | 'MACRO' | 'UNKNOWN';
+type SceneType = 'LANDSCAPE' | 'PORTRAIT' | 'NIGHT' | 'SUNSET' | 'FOOD' | 'STREET' | 'NATURE' | 'ARCHITECTURE' | 'MACRO' | 'SPORTS' | 'NIGHT_PORTRAIT' | 'BLACK' | 'WHITE' | 'BLURRY' | 'UNKNOWN';
 
 interface SceneResult {
   label: string;
   confidence: number;
   color: string;
   type: SceneType;
+  description?: string;
 }
 
 interface RecommendedPreset {
@@ -27,6 +32,13 @@ interface RecommendedPreset {
   matchScore: number;
   tags: string[];
   isHNCS?: boolean;
+}
+
+// 边界场景检测结果
+interface EdgeCaseResult {
+  isEdgeCase: boolean;
+  edgeScene?: SceneType;
+  message?: string;
 }
 
 // 场景标签映射
@@ -40,6 +52,11 @@ const sceneLabels: Record<SceneType, string> = {
   NATURE: '自然',
   ARCHITECTURE: '建筑',
   MACRO: '微距',
+  SPORTS: '运动',
+  NIGHT_PORTRAIT: '夜景人像',
+  BLACK: '全黑场景',
+  WHITE: '全白场景',
+  BLURRY: '模糊场景',
   UNKNOWN: '未知'
 };
 
@@ -54,7 +71,31 @@ const sceneDescriptions: Record<SceneType, string> = {
   NATURE: '适合自然生态、植物',
   ARCHITECTURE: '适合城市建筑、室内空间',
   MACRO: '适合特写、微距摄影',
+  SPORTS: '适合快速移动物体',
+  NIGHT_PORTRAIT: '适合夜晚环境下的人像拍摄',
+  BLACK: '光线太暗，无法识别',
+  WHITE: '无法识别场景',
+  BLURRY: '画面模糊，无法识别',
   UNKNOWN: '自动识别场景'
+};
+
+// 边界场景消息
+const edgeCaseMessages: Record<SceneType, string> = {
+  BLACK: '光线太暗，无法识别',
+  WHITE: '无法识别场景',
+  BLURRY: '画面模糊，无法识别',
+  UNKNOWN: '',
+  LANDSCAPE: '',
+  PORTRAIT: '',
+  NIGHT: '',
+  SUNSET: '',
+  FOOD: '',
+  STREET: '',
+  NATURE: '',
+  ARCHITECTURE: '',
+  MACRO: '',
+  SPORTS: '',
+  NIGHT_PORTRAIT: ''
 };
 
 // 场景颜色映射
@@ -68,6 +109,11 @@ const sceneColors: Record<SceneType, string> = {
   NATURE: 'from-teal-500 to-cyan-500',
   ARCHITECTURE: 'from-blue-500 to-indigo-500',
   MACRO: 'from-violet-500 to-purple-500',
+  SPORTS: 'from-cyan-500 to-blue-500',
+  NIGHT_PORTRAIT: 'from-purple-500 to-pink-500',
+  BLACK: 'from-red-500 to-orange-500',
+  WHITE: 'from-yellow-500 to-amber-500',
+  BLURRY: 'from-orange-500 to-red-500',
   UNKNOWN: 'from-gray-400 to-gray-500'
 };
 
@@ -75,6 +121,7 @@ const sceneColors: Record<SceneType, string> = {
 const sceneKeywords: Record<SceneType, string[]> = {
   LANDSCAPE: ['风景', '自然', '森林', '海边', '风光', '蓝调', '理光绿', '清新'],
   PORTRAIT: ['人像', '柔焦', '童话', '梦幻', '黑柔', '经典'],
+  NIGHT_PORTRAIT: ['人像', '夜景', '柔焦', '黑柔', '夜色'],
   NIGHT: ['夜景', '夜色', '霓虹', '蓝调', '城市夜景', '赛博'],
   SUNSET: ['日落', '橙调', '佛罗伦萨', '金色时刻', '夕阳暖调', '暖调'],
   FOOD: ['美食', '清新', '食欲', '诱人'],
@@ -82,7 +129,29 @@ const sceneKeywords: Record<SceneType, string[]> = {
   NATURE: ['自然', '森林', '清新', '微距', '植物', '生态'],
   ARCHITECTURE: ['建筑', '城市', '纪实', '空间', '结构'],
   MACRO: ['微距', '特写', '细节', '微观'],
+  SPORTS: ['运动', '快速', '动感', '抓拍'],
+  BLACK: [],
+  WHITE: [],
+  BLURRY: [],
   UNKNOWN: []
+};
+
+// 混合场景优先级
+const mixedScenePriority: Record<SceneType, number> = {
+  PORTRAIT: 10,
+  NIGHT_PORTRAIT: 9,
+  FOOD: 8,
+  SUNSET: 7,
+  LANDSCAPE: 6,
+  NATURE: 5,
+  ARCHITECTURE: 4,
+  NIGHT: 3,
+  MACRO: 2,
+  SPORTS: 1,
+  BLACK: 0,
+  WHITE: 0,
+  BLURRY: 0,
+  UNKNOWN: 0
 };
 
 export default function AIDemoPage() {
@@ -92,71 +161,164 @@ export default function AIDemoPage() {
   const [isDragOver, setIsDragOver] = useState(false);
   const [detectedScenes, setDetectedScenes] = useState<SceneResult[]>([]);
   const [recommendedPresets, setRecommendedPresets] = useState<RecommendedPreset[]>([]);
+  const [edgeCaseResult, setEdgeCaseResult] = useState<EdgeCaseResult | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 边界场景检测
+  const checkEdgeCases = useCallback((imageUrl: string): EdgeCaseResult => {
+    if (imageUrl.includes('black') || imageUrl.includes('dark')) {
+      return {
+        isEdgeCase: true,
+        edgeScene: 'BLACK',
+        message: '光线太暗，无法识别'
+      };
+    }
+    if (imageUrl.includes('white') || imageUrl.includes('bright')) {
+      return {
+        isEdgeCase: true,
+        edgeScene: 'WHITE',
+        message: '无法识别场景'
+      };
+    }
+    if (imageUrl.includes('blur') || imageUrl.includes('blurry')) {
+      return {
+        isEdgeCase: true,
+        edgeScene: 'BLURRY',
+        message: '画面模糊，无法识别'
+      };
+    }
+    return { isEdgeCase: false };
+  }, []);
 
   // 根据图片 URL 模拟场景识别 - 与 Android 端保持一致的逻辑
   const detectScene = useCallback((imageUrl: string): SceneResult[] => {
+    const edgeCase = checkEdgeCases(imageUrl);
+    if (edgeCase.isEdgeCase && edgeCase.edgeScene) {
+      return [{
+        label: sceneLabels[edgeCase.edgeScene],
+        confidence: 1.0,
+        color: sceneColors[edgeCase.edgeScene],
+        type: edgeCase.edgeScene,
+        description: edgeCase.message
+      }];
+    }
+
+    const detectedScenes: SceneType[] = [];
+    
+    // 基于 URL 关键词的启发式规则
+    if (imageUrl.includes('portrait')) {
+      detectedScenes.push('PORTRAIT');
+    }
+    if (imageUrl.includes('night_portrait')) {
+      detectedScenes.push('NIGHT_PORTRAIT');
+    }
+    if (imageUrl.includes('landscape')) {
+      detectedScenes.push('LANDSCAPE');
+    }
+    if (imageUrl.includes('night')) {
+      detectedScenes.push('NIGHT');
+    }
+    if (imageUrl.includes('food')) {
+      detectedScenes.push('FOOD');
+    }
+    if (imageUrl.includes('sunset')) {
+      detectedScenes.push('SUNSET');
+    }
+    if (imageUrl.includes('nature')) {
+      detectedScenes.push('NATURE');
+    }
+    if (imageUrl.includes('macro')) {
+      detectedScenes.push('MACRO');
+    }
+    if (imageUrl.includes('sports')) {
+      detectedScenes.push('SPORTS');
+    }
+    if (imageUrl.includes('architecture')) {
+      detectedScenes.push('ARCHITECTURE');
+    }
+    if (imageUrl.includes('street')) {
+      detectedScenes.push('STREET');
+    }
+
+    // 处理混合场景
+    if (detectedScenes.length >= 2) {
+      // 按优先级排序
+      const sorted = [...detectedScenes].sort((a, b) => 
+        (mixedScenePriority[b] || 0) - (mixedScenePriority[a] || 0)
+      );
+      const primary = sorted[0];
+      const secondary = sorted[1];
+      
+      return [
+        { 
+          label: sceneLabels[primary], 
+          confidence: 0.95, 
+          color: sceneColors[primary],
+          type: primary,
+          description: sceneDescriptions[primary]
+        },
+        { 
+          label: sceneLabels[secondary], 
+          confidence: 0.75, 
+          color: sceneColors[secondary],
+          type: secondary,
+          description: sceneDescriptions[secondary]
+        }
+      ];
+    }
+
+    // 单个场景或无明确场景
+    if (detectedScenes.length === 1) {
+      return [{
+        label: sceneLabels[detectedScenes[0]],
+        confidence: 0.92,
+        color: sceneColors[detectedScenes[0]],
+        type: detectedScenes[0],
+        description: sceneDescriptions[detectedScenes[0]]
+      }];
+    }
+
+    // 无明确关键词，基于预定义概率的场景识别
+    const scenes = [
+      { type: 'LANDSCAPE' as SceneType, prob: 0.20 },
+      { type: 'PORTRAIT' as SceneType, prob: 0.20 },
+      { type: 'NIGHT' as SceneType, prob: 0.12 },
+      { type: 'FOOD' as SceneType, prob: 0.12 },
+      { type: 'SUNSET' as SceneType, prob: 0.08 },
+      { type: 'NATURE' as SceneType, prob: 0.08 },
+      { type: 'MACRO' as SceneType, prob: 0.08 },
+      { type: 'SPORTS' as SceneType, prob: 0.06 },
+      { type: 'ARCHITECTURE' as SceneType, prob: 0.06 }
+    ];
+    
     let primaryScene: SceneType = 'UNKNOWN';
     let primaryConfidence = 0.85;
     let secondaryScene: SceneType = 'UNKNOWN';
     let secondaryConfidence = 0.65;
     
-    // 基于 URL 关键词的启发式规则
-    if (imageUrl.includes('portrait')) {
-      primaryScene = 'PORTRAIT';
-      secondaryScene = 'NATURE';
-      primaryConfidence = 0.92;
-      secondaryConfidence = 0.58;
-    } else if (imageUrl.includes('landscape')) {
-      primaryScene = 'LANDSCAPE';
-      secondaryScene = 'NATURE';
-      primaryConfidence = 0.90;
-      secondaryConfidence = 0.62;
-    } else if (imageUrl.includes('night')) {
-      primaryScene = 'NIGHT';
-      secondaryScene = 'ARCHITECTURE';
-      primaryConfidence = 0.88;
-      secondaryConfidence = 0.55;
-    } else if (imageUrl.includes('food')) {
-      primaryScene = 'FOOD';
-      secondaryScene = 'MACRO';
-      primaryConfidence = 0.91;
-      secondaryConfidence = 0.60;
-    } else {
-      // 基于预定义概率的场景识别
-      const scenes = [
-        { type: 'LANDSCAPE' as SceneType, prob: 0.25 },
-        { type: 'PORTRAIT' as SceneType, prob: 0.25 },
-        { type: 'NIGHT' as SceneType, prob: 0.15 },
-        { type: 'FOOD' as SceneType, prob: 0.15 },
-        { type: 'SUNSET' as SceneType, prob: 0.10 },
-        { type: 'NATURE' as SceneType, prob: 0.10 }
-      ];
-      
-      const random = Math.random();
-      let cumulative = 0;
-      for (const scene of scenes) {
-        cumulative += scene.prob;
-        if (random <= cumulative) {
-          primaryScene = scene.type;
-          primaryConfidence = 0.75 + Math.random() * 0.2;
-          break;
-        }
+    const random = Math.random();
+    let cumulative = 0;
+    for (const scene of scenes) {
+      cumulative += scene.prob;
+      if (random <= cumulative) {
+        primaryScene = scene.type;
+        primaryConfidence = 0.75 + Math.random() * 0.2;
+        break;
       }
-      
-      // 选择次要场景
-      const remainingScenes = scenes.filter(s => s.type !== primaryScene);
-      cumulative = 0;
-      const remainingProb = remainingScenes.reduce((sum, s) => sum + s.prob, 0);
-      const adjustedRandom = Math.random() * remainingProb;
-      
-      for (const scene of remainingScenes) {
-        cumulative += scene.prob;
-        if (adjustedRandom <= cumulative) {
-          secondaryScene = scene.type;
-          secondaryConfidence = 0.55 + Math.random() * 0.15;
-          break;
-        }
+    }
+    
+    // 选择次要场景
+    const remainingScenes = scenes.filter(s => s.type !== primaryScene);
+    cumulative = 0;
+    const remainingProb = remainingScenes.reduce((sum, s) => sum + s.prob, 0);
+    const adjustedRandom = Math.random() * remainingProb;
+    
+    for (const scene of remainingScenes) {
+      cumulative += scene.prob;
+      if (adjustedRandom <= cumulative) {
+        secondaryScene = scene.type;
+        secondaryConfidence = 0.55 + Math.random() * 0.15;
+        break;
       }
     }
     
@@ -165,16 +327,18 @@ export default function AIDemoPage() {
         label: sceneLabels[primaryScene], 
         confidence: primaryConfidence, 
         color: sceneColors[primaryScene],
-        type: primaryScene 
+        type: primaryScene,
+        description: sceneDescriptions[primaryScene]
       },
       { 
         label: sceneLabels[secondaryScene], 
         confidence: secondaryConfidence, 
         color: sceneColors[secondaryScene],
-        type: secondaryScene 
+        type: secondaryScene,
+        description: sceneDescriptions[secondaryScene]
       }
     ];
-  }, []);
+  }, [checkEdgeCases]);
 
   // 根据场景推荐预设 - 与 Android 端保持一致的逻辑
   const getRecommendedPresets = useCallback((scene: SceneType): RecommendedPreset[] => {
@@ -200,11 +364,25 @@ export default function AIDemoPage() {
       }
       
       // 特殊场景的相机参数匹配
-      if (scene === 'PORTRAIT' && preset.cameraParams?.portrait_mode) {
-        score += 2;
+      if (scene === 'PORTRAIT' || scene === 'NIGHT_PORTRAIT') {
+        if (preset.cameraParams?.portrait_mode) {
+          score += 2;
+        }
       }
-      if (scene === 'NIGHT' && preset.cameraParams?.night_mode) {
-        score += 2;
+      if (scene === 'NIGHT') {
+        if (preset.cameraParams?.night_mode) {
+          score += 2;
+        }
+      }
+      if (scene === 'SPORTS') {
+        if (preset.cameraParams?.sports_mode) {
+          score += 2;
+        }
+      }
+      if (scene === 'MACRO') {
+        if (preset.cameraParams?.macro_mode) {
+          score += 2;
+        }
       }
       
       // HNCS 认证加分
@@ -254,6 +432,7 @@ export default function AIDemoPage() {
         );
         break;
       case 'PORTRAIT':
+      case 'NIGHT_PORTRAIT':
         fallback = presets.filter(p => 
           p.name.includes('人像') || p.cameraParams?.portrait_mode
         );
@@ -285,7 +464,12 @@ export default function AIDemoPage() {
         break;
       case 'MACRO':
         fallback = presets.filter(p => 
-          p.name.includes('微距')
+          p.name.includes('微距') || p.cameraParams?.macro_mode
+        );
+        break;
+      case 'SPORTS':
+        fallback = presets.filter(p => 
+          p.name.includes('运动') || p.cameraParams?.sports_mode
         );
         break;
       default:
@@ -300,6 +484,7 @@ export default function AIDemoPage() {
     setAnalysisComplete(false);
     setDetectedScenes([]);
     setRecommendedPresets([]);
+    setEdgeCaseResult(null);
   }, []);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -311,6 +496,7 @@ export default function AIDemoPage() {
         setAnalysisComplete(false);
         setDetectedScenes([]);
         setRecommendedPresets([]);
+        setEdgeCaseResult(null);
       };
       reader.readAsDataURL(file);
     }
@@ -341,6 +527,7 @@ export default function AIDemoPage() {
         setAnalysisComplete(false);
         setDetectedScenes([]);
         setRecommendedPresets([]);
+        setEdgeCaseResult(null);
       };
       reader.readAsDataURL(file);
     }
@@ -351,29 +538,57 @@ export default function AIDemoPage() {
     
     setIsAnalyzing(true);
     setAnalysisComplete(false);
+    setEdgeCaseResult(null);
     
-    // 模拟分析过程
+    // 模拟分析过程 - 优化性能，更快响应
     setTimeout(() => {
       const scenes = detectScene(selectedImage);
       setDetectedScenes(scenes);
       
-      // 使用主要场景推荐预设
-      if (scenes.length > 0) {
+      // 检查是否是边界场景
+      const edgeCase = checkEdgeCases(selectedImage);
+      if (edgeCase.isEdgeCase) {
+        setEdgeCaseResult(edgeCase);
+        setRecommendedPresets([]);
+      } else if (scenes.length > 0) {
+        // 使用主要场景推荐预设
         const presets = getRecommendedPresets(scenes[0].type);
         setRecommendedPresets(presets);
       }
       
       setIsAnalyzing(false);
       setAnalysisComplete(true);
-    }, 1600); // 与 Android 端保持类似的延迟
-  }, [selectedImage, detectScene, getRecommendedPresets]);
+    }, 500); // 优化延迟，更快响应
+  }, [selectedImage, detectScene, getRecommendedPresets, checkEdgeCases]);
   
   const handleClear = useCallback(() => {
     setSelectedImage(null);
     setAnalysisComplete(false);
     setDetectedScenes([]);
     setRecommendedPresets([]);
+    setEdgeCaseResult(null);
   }, []);
+
+  // 获取场景图标
+  const getSceneIcon = (type: SceneType) => {
+    switch (type) {
+      case 'LANDSCAPE': return <Sun className="w-5 h-5" />;
+      case 'PORTRAIT': return <Camera className="w-5 h-5" />;
+      case 'NIGHT': return <Moon className="w-5 h-5" />;
+      case 'SUNSET': return <Sun className="w-5 h-5" />;
+      case 'FOOD': return <Palette className="w-5 h-5" />;
+      case 'STREET': return <MoveRight className="w-5 h-5" />;
+      case 'NATURE': return <ImageIcon className="w-5 h-5" />;
+      case 'ARCHITECTURE': return <ImageIcon className="w-5 h-5" />;
+      case 'MACRO': return <ImageIcon className="w-5 h-5" />;
+      case 'SPORTS': return <Run className="w-5 h-5" />;
+      case 'NIGHT_PORTRAIT': return <Camera className="w-5 h-5" />;
+      case 'BLACK': return <AlertTriangle className="w-5 h-5" />;
+      case 'WHITE': return <HelpCircle className="w-5 h-5" />;
+      case 'BLURRY': return <Blur className="w-5 h-5" />;
+      default: return <HelpCircle className="w-5 h-5" />;
+    }
+  };
 
   return (
     <div className="min-h-screen pt-20 pb-12 px-4 sm:px-6 lg:px-8 bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800">
@@ -603,8 +818,31 @@ export default function AIDemoPage() {
                     </div>
                   </div>
 
+                  {/* Edge Case Display */}
+                  {edgeCaseResult?.isEdgeCase && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="p-2 bg-red-500/20 rounded-full">
+                          <AlertTriangle className="w-5 h-5 text-red-400" />
+                        </div>
+                        <div>
+                          <h3 className="font-medium text-red-400">
+                            {edgeCaseResult.edgeScene ? sceneLabels[edgeCaseResult.edgeScene] : '无法识别'}
+                          </h3>
+                          <p className="text-sm text-red-300 mt-1">
+                            {edgeCaseResult.message}
+                          </p>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+
                   {/* Scene Labels */}
-                  {detectedScenes.length > 0 && (
+                  {!edgeCaseResult?.isEdgeCase && detectedScenes.length > 0 && (
                     <div className="space-y-4">
                       {detectedScenes.map((result, index) => (
                         <motion.div
@@ -615,7 +853,24 @@ export default function AIDemoPage() {
                           className="space-y-2"
                         >
                           <div className="flex items-center justify-between">
-                            <span className="font-medium text-slate-200">{result.label}</span>
+                            <div className="flex items-center gap-2">
+                              <div className={`p-1.5 rounded-full bg-gradient-to-r ${result.color}`}>
+                                <span className="text-white">
+                                  {getSceneIcon(result.type)}
+                                </span>
+                              </div>
+                              <span className="font-medium text-slate-200">{result.label}</span>
+                              {index === 0 && (
+                                <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 text-xs font-bold rounded-full">
+                                  主要
+                                </span>
+                              )}
+                              {index === 1 && (
+                                <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 text-xs font-bold rounded-full">
+                                  次要
+                                </span>
+                              )}
+                            </div>
                             <span className="text-slate-400">
                               {Math.round(result.confidence * 100)}%
                             </span>
@@ -628,14 +883,14 @@ export default function AIDemoPage() {
                               className={`h-full bg-gradient-to-r ${result.color} rounded-full`}
                             />
                           </div>
-                          <p className="text-sm text-slate-500">{sceneDescriptions[result.type]}</p>
+                          <p className="text-sm text-slate-500">{result.description}</p>
                         </motion.div>
                       ))}
                     </div>
                   )}
 
                   {/* Recommended Presets */}
-                  {recommendedPresets.length > 0 && (
+                  {!edgeCaseResult?.isEdgeCase && recommendedPresets.length > 0 && (
                     <div>
                       <h3 className="text-sm font-bold text-slate-400 mb-3 flex items-center gap-2">
                         <Palette className="w-4 h-4" />

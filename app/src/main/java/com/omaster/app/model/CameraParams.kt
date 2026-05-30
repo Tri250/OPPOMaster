@@ -17,6 +17,8 @@ data class CameraParams(
     val hdr: Boolean = false,
     val night_mode: Boolean = false,
     val portrait_mode: Boolean = false,
+    val macro_mode: Boolean = false,
+    val sports_mode: Boolean = false,
     val ai_optimization: Boolean = true,
     val hasselblad_hncs: Boolean = false,
     val hasselblad_natural_color: Boolean = true,

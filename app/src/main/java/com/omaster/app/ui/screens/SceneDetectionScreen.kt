@@ -71,9 +71,9 @@ fun SceneDetectionScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     
-    // UI状态
+    // UI状态 - 更新为支持新的识别结果类型
     var isDetecting by remember { mutableStateOf(false) }
-    var detectedScene by remember { mutableStateOf<SceneType?>(null) }
+    var detectionResult by remember { mutableStateOf<AiService.SceneDetectionResult?>(null) }
     var recommendedPresets by remember { mutableStateOf<List<Preset>>(emptyList()) }
     var selectedImage by remember { mutableStateOf<Uri?>(null) }
     var tempCameraUri by remember { mutableStateOf<Uri?>(null) }
@@ -118,7 +118,7 @@ fun SceneDetectionScreen(
     ) { uri: Uri? ->
         uri?.let { 
             selectedImage = it
-            detectedScene = null
+            detectionResult = null
             recommendedPresets = emptyList()
         }
     }
@@ -128,7 +128,7 @@ fun SceneDetectionScreen(
     ) { success ->
         if (success && tempCameraUri != null) {
             selectedImage = tempCameraUri
-            detectedScene = null
+            detectionResult = null
             recommendedPresets = emptyList()
         }
     }
@@ -361,29 +361,32 @@ fun SceneDetectionScreen(
                 selectedImage = selectedImage?.toString(),
                 onSelectImage = { checkStoragePermission() },
                 onReplaceImage = {
-                    detectedScene = null
+                    detectionResult = null
                     recommendedPresets = emptyList()
                     checkStoragePermission()
                 }
             )
 
-            // 识别按钮
+            // 识别按钮 - 优化性能，响应更快
             DetectButton(
                 onClick = {
                     scope.launch {
                         isDetecting = true
                         showSkeleton = true
                         
-                        // 模拟模型加载延迟
-                        delay(1000)
+                        // 使用新的识别API
+                        val result = aiService.detectScene(selectedImage?.toString())
+                        detectionResult = result
                         
-                        val scene = aiService.detectScene(selectedImage?.toString())
-                        detectedScene = scene
+                        // 如果是边界场景，不显示预设
+                        if (!result.isEdgeCase) {
+                            recommendedPresets = aiService.getRecommendedPresets(result, allPresets)
+                        } else {
+                            recommendedPresets = emptyList()
+                        }
                         
-                        // 再延迟一下，让骨架屏展示更自然
+                        // 稍微延迟一下让动画更自然
                         delay(300)
-                        recommendedPresets = aiService.getRecommendedPresets(scene, allPresets)
-                        
                         isDetecting = false
                         showSkeleton = false
                     }
@@ -392,18 +395,22 @@ fun SceneDetectionScreen(
                 isLoading = isDetecting
             )
 
-            // 场景识别结果
+            // 场景识别结果 - 更新为支持新的结果类型
             AnimatedVisibility(
-                visible = detectedScene != null,
+                visible = detectionResult != null,
                 enter = fadeIn() + slideInVertically(initialOffsetY = { 20 }),
                 exit = fadeOut() + slideOutVertically(targetOffsetY = { -20 })
             ) {
-                detectedScene?.let { scene ->
-                    SceneResultCard(scene = scene)
+                detectionResult?.let { result ->
+                    if (result.isEdgeCase) {
+                        EdgeCaseResultCard(result = result)
+                    } else {
+                        SceneResultCard(result = result)
+                    }
                 }
             }
 
-            // 推荐预设列表 - 带骨架屏
+            // 推荐预设列表 - 带骨架屏，仅在非边界场景显示
             AnimatedContent(
                 targetState = showSkeleton to recommendedPresets.isNotEmpty(),
                 label = "presets_animation"
@@ -710,8 +717,9 @@ fun IconLabel(icon: ImageVector, label: String) {
     }
 }
 
+// 边界场景结果卡片
 @Composable
-fun SceneResultCard(scene: SceneType, modifier: Modifier = Modifier) {
+fun EdgeCaseResultCard(result: AiService.SceneDetectionResult, modifier: Modifier = Modifier) {
     Card(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -733,14 +741,19 @@ fun SceneResultCard(scene: SceneType, modifier: Modifier = Modifier) {
                     .clip(CircleShape)
                     .background(
                         Brush.verticalGradient(
-                            colors = GradientHasselbladPro
+                            colors = listOf(OppoWarningRed, OppoWarningRed.copy(alpha = 0.7f))
                         )
                     ),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = getSceneIcon(scene),
-                    contentDescription = scene.displayName,
+                    imageVector = when (result.primaryScene) {
+                        SceneType.BLACK -> Icons.Default.Warning
+                        SceneType.WHITE -> Icons.Default.HelpOutline
+                        SceneType.BLURRY -> Icons.Default.BlurOn
+                        else -> Icons.Default.Error
+                    },
+                    contentDescription = result.primaryScene.displayName,
                     tint = OppoDeepSpace,
                     modifier = Modifier.size(32.dp)
                 )
@@ -748,33 +761,161 @@ fun SceneResultCard(scene: SceneType, modifier: Modifier = Modifier) {
             
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "识别结果",
+                    text = "无法识别",
                     style = MaterialTheme.typography.labelMedium,
                     color = OppoTextTertiary
                 )
                 Text(
-                    text = scene.displayName,
+                    text = result.primaryScene.displayName,
                     style = MaterialTheme.typography.headlineSmall,
                     color = OppoTextPrimary,
                     fontWeight = FontWeight.Bold
                 )
-                Text(
-                    text = scene.description,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = OppoTextSecondary
-                )
+                result.edgeCaseMessage?.let { message ->
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = OppoTextSecondary
+                    )
+                }
             }
             
             Surface(
-                color = OppoVitalGreen.copy(alpha = 0.15f),
+                color = OppoWarningRed.copy(alpha = 0.15f),
                 shape = CircleShape
             ) {
                 Icon(
-                    imageVector = Icons.Default.CheckCircle,
-                    contentDescription = "已识别",
-                    tint = OppoVitalGreen,
+                    imageVector = Icons.Default.Info,
+                    contentDescription = "提示",
+                    tint = OppoWarningRed,
                     modifier = Modifier.padding(12.dp)
                 )
+            }
+        }
+    }
+}
+
+// 正常场景结果卡片 - 更新为支持新的结果类型
+@Composable
+fun SceneResultCard(result: AiService.SceneDetectionResult, modifier: Modifier = Modifier) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = OppoCardSurface
+        ),
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(60.dp)
+                        .clip(CircleShape)
+                        .background(
+                            Brush.verticalGradient(
+                                colors = GradientHasselbladPro
+                            )
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = getSceneIcon(result.primaryScene),
+                        contentDescription = result.primaryScene.displayName,
+                        tint = OppoDeepSpace,
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+                
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "识别结果",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = OppoTextTertiary
+                    )
+                    Text(
+                        text = result.primaryScene.displayName,
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = OppoTextPrimary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = result.primaryScene.description,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = OppoTextSecondary
+                    )
+                }
+                
+                Surface(
+                    color = OppoVitalGreen.copy(alpha = 0.15f),
+                    shape = CircleShape
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = "已识别",
+                        tint = OppoVitalGreen,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
+            }
+            
+            // 显示次要场景（如果有）
+            result.secondaryScene?.let { secondary ->
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = getSceneIcon(secondary),
+                        contentDescription = secondary.displayName,
+                        tint = OppoTextSecondary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        text = "同时检测到: ${secondary.displayName}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = OppoTextSecondary
+                    )
+                }
+            }
+            
+            // 显示置信度
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "置信度: ${(result.confidence * 100).toInt()}%",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = OppoTextTertiary
+                )
+                // 置信度条
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(4.dp)
+                        .clip(CircleShape)
+                        .background(OppoGrey700)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(result.confidence)
+                            .fillMaxHeight()
+                            .background(
+                                Brush.horizontalGradient(
+                                    colors = GradientHasselbladPro
+                                )
+                            )
+                    )
+                }
             }
         }
     }
@@ -881,6 +1022,7 @@ fun SkeletonBox(modifier: Modifier = Modifier) {
     )
 }
 
+// 更新场景图标映射，包含所有新场景
 fun getSceneIcon(scene: SceneType): ImageVector {
     return when (scene) {
         SceneType.LANDSCAPE -> Icons.Default.Landscape
@@ -892,6 +1034,11 @@ fun getSceneIcon(scene: SceneType): ImageVector {
         SceneType.NATURE -> Icons.Default.Eco
         SceneType.ARCHITECTURE -> Icons.Default.Apartment
         SceneType.MACRO -> Icons.Default.CenterFocusStrong
+        SceneType.SPORTS -> Icons.Default.DirectionsRun
+        SceneType.NIGHT_PORTRAIT -> Icons.Default.Person
+        SceneType.BLACK -> Icons.Default.Warning
+        SceneType.WHITE -> Icons.Default.HelpOutline
+        SceneType.BLURRY -> Icons.Default.BlurOn
         SceneType.UNKNOWN -> Icons.Default.Help
     }
 }
