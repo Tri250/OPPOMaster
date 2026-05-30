@@ -218,7 +218,7 @@ struct OpenClFusedParams {
   float    hls_profile_hue_ranges_[OperatorParams::kHlsProfileCount] = {45.0f, 45.0f, 45.0f, 45.0f,
                                                                         45.0f, 45.0f, 45.0f, 45.0f};
   uint32_t saturation_enabled_                                       = 1;
-  float    saturation_offset_                                        = 0.0f;
+  float    saturation_offset_                                        = 1.0f;
   uint32_t tint_enabled_                                             = 1;
   float    tint_offset_                                              = 0.0f;
   uint32_t vibrance_enabled_                                         = 1;

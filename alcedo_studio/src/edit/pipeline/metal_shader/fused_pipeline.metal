@@ -25,7 +25,6 @@ kernel void metal_fused_pipeline_rgba32f(texture2d<float, access::read> src [[te
   px        = GPU_HighlightOpKernel(px, params);
   px        = GPU_ShadowOpKernel(px, params);
   px        = GPU_CurveOpKernel(px, params);
-  px        = GPU_SaturationOpKernel(px, params);
   px        = GPU_VibranceOpKernel(px, params);
   px        = GPU_ColorWheelOpKernel(px, params);
   px        = GPU_HLSOpKernel(px, params);

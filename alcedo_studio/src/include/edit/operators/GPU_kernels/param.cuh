@@ -360,9 +360,9 @@ struct GPUOperatorParams {
   float                hls_profile_hue_ranges_[OperatorParams::kHlsProfileCount] = {
       45.0f, 45.0f, 45.0f, 45.0f, 45.0f, 45.0f, 45.0f, 45.0f};
 
-  // Saturation adjustment parameter
+  // Global OKLCh chroma scale, populated by the legacy Saturation operator input.
   bool                 saturation_enabled_     = true;
-  float                saturation_offset_      = 0.0f;
+  float                saturation_offset_      = 1.0f;
 
   // Tint adjustment parameter
   bool                 tint_enabled_           = true;

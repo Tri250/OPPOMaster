@@ -11,7 +11,6 @@
 #include "basic/shadow_kernel.hpp"
 #include "basic/white_kernel.hpp"
 #include "color/HLS_kernel.hpp"
-#include "color/saturation_kernel.hpp"
 #include "color/tint_kernel.hpp"
 #include "color/vibrance_op.hpp"
 #include "cst/cst_kernel.hpp"

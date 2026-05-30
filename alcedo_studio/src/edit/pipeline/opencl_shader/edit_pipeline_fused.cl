@@ -28,7 +28,6 @@ __kernel void edit_pipeline_fused_rgba32f(__global const float* input,
   px = opencl_shadow_op(px, params);
   px = opencl_curve_op(px, params);
   // 3. Color adjustment operators
-  px = opencl_saturation_op(px, params);
   px = opencl_vibrance_op(px, params);
   px = opencl_color_wheel_op(px, params);
   px = opencl_hls_op(px, params);

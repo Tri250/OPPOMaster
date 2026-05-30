@@ -226,7 +226,7 @@ struct FusedOperatorParams {
       45.0f, 45.0f, 45.0f, 45.0f, 45.0f, 45.0f, 45.0f, 45.0f};
 
   bool  saturation_enabled_     = true;
-  float saturation_offset_      = 0.0f;
+  float saturation_offset_      = 1.0f;
 
   bool  tint_enabled_           = true;
   float tint_offset_            = 0.0f;

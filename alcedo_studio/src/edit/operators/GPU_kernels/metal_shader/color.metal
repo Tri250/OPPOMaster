@@ -129,18 +129,6 @@ static inline float3 metal_hls_fit_ap1_lower_gamut(float3 adjusted_ap1, float3 n
   return neutral_ap1 + (adjusted_ap1 - neutral_ap1) * scale;
 }
 
-static inline float4 GPU_SaturationOpKernel(float4 px, constant MetalFusedParams& params) {
-  if (params.saturation_enabled_ == 0u) {
-    return px;
-  }
-
-  const float luma = 0.2126f * px.x + 0.7152f * px.y + 0.0722f * px.z;
-  px.x             = luma + (px.x - luma) * params.saturation_offset_;
-  px.y             = luma + (px.y - luma) * params.saturation_offset_;
-  px.z             = luma + (px.z - luma) * params.saturation_offset_;
-  return px;
-}
-
 static inline float4 GPU_TintOpKernel(float4 px, constant MetalFusedParams& params) {
   if (params.tint_enabled_ == 0u) {
     return px;
@@ -205,7 +193,7 @@ static inline float4 GPU_ColorWheelOpKernel(float4 px, constant MetalFusedParams
 }
 
 static inline float4 GPU_HLSOpKernel(float4 px, constant MetalFusedParams& params) {
-  if (params.hls_enabled_ == 0u) {
+  if (params.hls_enabled_ == 0u && params.saturation_enabled_ == 0u) {
     return px;
   }
 
@@ -219,58 +207,68 @@ static inline float4 GPU_HLSOpKernel(float4 px, constant MetalFusedParams& param
   }
   const float source_hue = metal_wrap_hue(atan2(source_lab.z, source_lab.y) * (180.0f / kPi));
 
-  int profile_count = params.hls_profile_count_;
-  if (profile_count < 1) {
-    profile_count = 1;
-  }
-  if (profile_count > kMetalHlsProfileCount) {
-    profile_count = kMetalHlsProfileCount;
-  }
-
-  float accum_h = 0.0f;
-  float accum_l = 0.0f;
-  float accum_c = 0.0f;
-  float accum_weight = 0.0f;
-  int   nearest = 0;
-  float nearest_dist = metal_hue_distance(source_hue, metal_wrap_hue(params.hls_profile_hues_[0]));
-
-  for (int i = 0; i < kMetalHlsProfileCount; ++i) {
-    if (i >= profile_count) {
-      continue;
+  float3 curve = float3(0.0f);
+  if (params.hls_enabled_ != 0u) {
+    int profile_count = params.hls_profile_count_;
+    if (profile_count < 1) {
+      profile_count = 1;
+    }
+    if (profile_count > kMetalHlsProfileCount) {
+      profile_count = kMetalHlsProfileCount;
     }
 
-    const float width     = fmax(params.hls_profile_hue_ranges_[i], 1.0f);
-    const float target_h  = metal_wrap_hue(params.hls_profile_hues_[i]);
-    const float hue_dist  = metal_hue_distance(source_hue, target_h);
-    if (hue_dist < nearest_dist) {
-      nearest_dist = hue_dist;
-      nearest      = i;
+    float accum_h = 0.0f;
+    float accum_l = 0.0f;
+    float accum_c = 0.0f;
+    float accum_weight = 0.0f;
+    int   nearest = 0;
+    float nearest_dist = metal_hue_distance(source_hue, metal_wrap_hue(params.hls_profile_hues_[0]));
+
+    for (int i = 0; i < kMetalHlsProfileCount; ++i) {
+      if (i >= profile_count) {
+        continue;
+      }
+
+      const float width     = fmax(params.hls_profile_hue_ranges_[i], 1.0f);
+      const float target_h  = metal_wrap_hue(params.hls_profile_hues_[i]);
+      const float hue_dist  = metal_hue_distance(source_hue, target_h);
+      if (hue_dist < nearest_dist) {
+        nearest_dist = hue_dist;
+        nearest      = i;
+      }
+
+      const float t      = hue_dist / width;
+      const float weight = exp2(-(t * t));
+      accum_h += params.hls_profile_adjustments_[i][0] * weight;
+      accum_l += params.hls_profile_adjustments_[i][1] * weight;
+      accum_c += params.hls_profile_adjustments_[i][2] * weight;
+      accum_weight += weight;
     }
 
-    const float t      = hue_dist / width;
-    const float weight = exp2(-(t * t));
-    accum_h += params.hls_profile_adjustments_[i][0] * weight;
-    accum_l += params.hls_profile_adjustments_[i][1] * weight;
-    accum_c += params.hls_profile_adjustments_[i][2] * weight;
-    accum_weight += weight;
+    curve = float3(params.hls_profile_adjustments_[nearest][0],
+                   params.hls_profile_adjustments_[nearest][1],
+                   params.hls_profile_adjustments_[nearest][2]);
+    if (accum_weight > kEps) {
+      curve = float3(accum_h, accum_l, accum_c) / accum_weight;
+    }
   }
-
-  float3 curve = float3(params.hls_profile_adjustments_[nearest][0],
-                        params.hls_profile_adjustments_[nearest][1],
-                        params.hls_profile_adjustments_[nearest][2]);
-  if (accum_weight > kEps) {
-    curve = float3(accum_h, accum_l, accum_c) / accum_weight;
-  }
-  if (fabs(curve.x) <= kEps && fabs(curve.y) <= kEps && fabs(curve.z) <= kEps) {
+  const float saturation_scale =
+      (params.saturation_enabled_ != 0u) ? fmax(params.saturation_offset_, 0.0f) : 1.0f;
+  if (fabs(curve.x) <= kEps && fabs(curve.y) <= kEps && fabs(curve.z) <= kEps &&
+      fabs(saturation_scale - 1.0f) <= kEps) {
     return px;
   }
 
-  const float chroma_confidence    = metal_smoothstep_range(0.005f, 0.030f, source_chroma);
-  const float shadow_confidence    = metal_smoothstep_range(0.005f, 0.050f, source_lab.x);
-  const float highlight_confidence = 1.0f - metal_smoothstep_range(1.35f, 2.25f, source_lab.x);
-  const float protection =
-      clamp(chroma_confidence * shadow_confidence * highlight_confidence, 0.0f, 1.0f);
-  if (protection <= kEps) {
+  const bool  has_curve = fabs(curve.x) > kEps || fabs(curve.y) > kEps ||
+                          fabs(curve.z) > kEps;
+  float       protection = 0.0f;
+  if (has_curve) {
+    const float chroma_confidence    = metal_smoothstep_range(0.005f, 0.030f, source_chroma);
+    const float shadow_confidence    = metal_smoothstep_range(0.005f, 0.050f, source_lab.x);
+    const float highlight_confidence = 1.0f - metal_smoothstep_range(1.35f, 2.25f, source_lab.x);
+    protection = clamp(chroma_confidence * shadow_confidence * highlight_confidence, 0.0f, 1.0f);
+  }
+  if (protection <= kEps && fabs(saturation_scale - 1.0f) <= kEps) {
     return px;
   }
 
@@ -278,10 +276,14 @@ static inline float4 GPU_HLSOpKernel(float4 px, constant MetalFusedParams& param
   const float adjusted_hue_rad =
       metal_wrap_hue(source_hue + curve.x * kCurveGain * protection) * (kPi / 180.0f);
   const float adjusted_lightness =
-      metal_soft_floor(source_lab.x + curve.y * kCurveGain * 0.5f * protection, 0.0f, 0.02f);
+      (fabs(curve.y) > kEps && protection > kEps)
+          ? metal_soft_floor(source_lab.x + curve.y * kCurveGain * 0.5f * protection, 0.0f,
+                             0.02f)
+          : source_lab.x;
   const float chroma_strength = (curve.z >= 0.0f) ? 4.5f : 3.25f;
   const float adjusted_chroma =
-      source_chroma * exp2(curve.z * kCurveGain * chroma_strength * protection);
+      source_chroma * saturation_scale *
+      exp2(curve.z * kCurveGain * chroma_strength * protection);
 
   const float3 adjusted_lab =
       float3(adjusted_lightness, adjusted_chroma * cos(adjusted_hue_rad),

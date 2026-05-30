@@ -182,7 +182,7 @@ GPU_FUNC float3 hls_oklch_evaluate_hue_curve(float hue, GPUOperatorParams& param
 
 struct GPU_HLSOpKernel : GPUPointOpTag {
   __device__ __forceinline__ void operator()(float4* p, GPUOperatorParams& params) const {
-    if (!params.hls_enabled_) return;
+    if (!params.hls_enabled_ && !params.saturation_enabled_) return;
 
     const float kEps = 1e-6f;
     const float kPi  = 3.14159265358979323846f;
@@ -196,25 +196,36 @@ struct GPU_HLSOpKernel : GPUPointOpTag {
     const float source_hue =
         hls_oklch_wrap_hue(atan2f(source_lab.z, source_lab.y) * (180.0f / kPi));
 
-    int profile_count = params.hls_profile_count_;
-    if (profile_count < 1) {
-      profile_count = 1;
-    }
-    if (profile_count > OperatorParams::kHlsProfileCount) {
-      profile_count = OperatorParams::kHlsProfileCount;
-    }
+    float3 curve = make_float3(0.0f, 0.0f, 0.0f);
+    if (params.hls_enabled_) {
+      int profile_count = params.hls_profile_count_;
+      if (profile_count < 1) {
+        profile_count = 1;
+      }
+      if (profile_count > OperatorParams::kHlsProfileCount) {
+        profile_count = OperatorParams::kHlsProfileCount;
+      }
 
-    const float3 curve = hls_oklch_evaluate_hue_curve(source_hue, params, profile_count);
-    if (fabsf(curve.x) <= kEps && fabsf(curve.y) <= kEps && fabsf(curve.z) <= kEps) {
+      curve = hls_oklch_evaluate_hue_curve(source_hue, params, profile_count);
+    }
+    const float saturation_scale =
+        params.saturation_enabled_ ? fmaxf(params.saturation_offset_, 0.0f) : 1.0f;
+    if (fabsf(curve.x) <= kEps && fabsf(curve.y) <= kEps && fabsf(curve.z) <= kEps &&
+        fabsf(saturation_scale - 1.0f) <= kEps) {
       return;
     }
 
-    const float chroma_confidence    = hls_oklch_smoothstep(0.005f, 0.030f, source_chroma);
-    const float shadow_confidence    = hls_oklch_smoothstep(0.005f, 0.050f, source_lab.x);
-    const float highlight_confidence = 1.0f - hls_oklch_smoothstep(1.35f, 2.25f, source_lab.x);
-    const float protection =
-        fminf(fmaxf(chroma_confidence * shadow_confidence * highlight_confidence, 0.0f), 1.0f);
-    if (protection <= kEps) {
+    const bool  has_curve = fabsf(curve.x) > kEps || fabsf(curve.y) > kEps ||
+                            fabsf(curve.z) > kEps;
+    float       protection = 0.0f;
+    if (has_curve) {
+      const float chroma_confidence    = hls_oklch_smoothstep(0.005f, 0.030f, source_chroma);
+      const float shadow_confidence    = hls_oklch_smoothstep(0.005f, 0.050f, source_lab.x);
+      const float highlight_confidence = 1.0f - hls_oklch_smoothstep(1.35f, 2.25f, source_lab.x);
+      protection =
+          fminf(fmaxf(chroma_confidence * shadow_confidence * highlight_confidence, 0.0f), 1.0f);
+    }
+    if (protection <= kEps && fabsf(saturation_scale - 1.0f) <= kEps) {
       return;
     }
 
@@ -222,11 +233,14 @@ struct GPU_HLSOpKernel : GPUPointOpTag {
     const float adjusted_hue_rad =
         hls_oklch_wrap_hue(source_hue + curve.x * kCurveGain * protection) * (kPi / 180.0f);
     const float adjusted_lightness =
-        hls_oklch_soft_floor(source_lab.x + curve.y * kCurveGain * 0.5f * protection, 0.0f,
-                             0.02f);
+        (fabsf(curve.y) > kEps && protection > kEps)
+            ? hls_oklch_soft_floor(source_lab.x + curve.y * kCurveGain * 0.5f * protection, 0.0f,
+                                   0.02f)
+            : source_lab.x;
     const float chroma_strength = (curve.z >= 0.0f) ? 4.5f : 3.25f;
     const float adjusted_chroma =
-        source_chroma * exp2f(curve.z * kCurveGain * chroma_strength * protection);
+        source_chroma * saturation_scale *
+        exp2f(curve.z * kCurveGain * chroma_strength * protection);
 
     const float3 adjusted_lab =
         make_float3(adjusted_lightness, adjusted_chroma * cosf(adjusted_hue_rad),
@@ -240,17 +254,6 @@ struct GPU_HLSOpKernel : GPUPointOpTag {
     p->x = output_acescc.x;
     p->y = output_acescc.y;
     p->z = output_acescc.z;
-  }
-};
-
-struct GPU_SaturationOpKernel : GPUPointOpTag {
-  __device__ __forceinline__ void operator()(float4* p, GPUOperatorParams& params) const {
-    if (!params.saturation_enabled_) return;
-
-    float luma = 0.2126f * p->x + 0.7152f * p->y + 0.0722f * p->z;
-    p->x       = luma + (p->x - luma) * params.saturation_offset_;
-    p->y       = luma + (p->y - luma) * params.saturation_offset_;
-    p->z       = luma + (p->z - luma) * params.saturation_offset_;
   }
 };
 
