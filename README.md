@@ -58,18 +58,19 @@
 
 ### High-Performance Core
 
-- CUDA-accelerated image processing pipeline with the highest real-time preview resolution running at ***300 FPS*** on modern NVIDIA GPUs with large RAW files (e.g., 45MP). Even the full-resolution 42MP preview generation takes only around **20ms** on a mid-range GPU (RTX 3080 Laptop 8GB).
-- Fine-grained memory management and caching strategies to optimize memory usage especially for large library browsing. The average DRAM usage for browsing a library of **786 42MP RAW** files is around **767MB** while achieving smooth scrolling and instant preview generation.
+- CUDA, Metal, and OpenCL accelerated image processing paths, with the Windows CUDA preview path reaching ***300 FPS*** at the highest real-time preview resolution on modern NVIDIA GPUs with large RAW files (e.g., 45MP). Even full-resolution 42MP preview generation takes only around **20ms** on a mid-range GPU (RTX 3080 Laptop 8GB).
+- Runtime GPU backend selection for supported operators, including OpenCL coverage for RAW processing, point operators, linear reference conversion, highlight reconstruction, DRT/LMT, lens calibration, geometry adjustment, DNG warp, and scope analysis.
+- Fine-grained memory management, resolution-separated thumbnail requests, and disk-backed thumbnail caching to optimize memory usage during large library browsing. The average DRAM usage for browsing a library of **786 42MP RAW** files is around **767MB** while achieving smooth scrolling and instant preview generation.
 - Written in modern C++20 with a focus on code quality, modularity, and maintainability (unfortunately, still largely a WIP).
 
 ### Professional Imaging Pipeline
 
 - 32-bit floating-point processing pipeline.
-- Support **ACES 2.0 Output Rendering**.
-- Film-like highlight transition and sigmoid contrast curve.
-- **CUBE** LUT support for creative color grading.
+- Support **ACES 2.0 Output Rendering** and **OpenDRT** with display color space, EOTF, and peak-luminance controls.
+- Film-like highlight transition, highlight reconstruction, sigmoid contrast curve, and RCD demosaic support for high-quality RAW reconstruction.
+- **CUBE** LUT support for creative color grading, including a curated set of packaged Kodak, Fuji, and Agfa film-emulation LUTs.
 - Support JPEG/TIFF/PNG/EXR output with metadata write-back.
-- Unlimited history stack with Git-like version control and branching.
+- Unlimited history stack with Git-like version control and branching, log-only versioning, stable project UUIDs, Merkle-tree version hashes, and project checksum validation.
 - OpenImageIO/Exiv2-based image output with support for various formats and metadata handling.
 - Planning to support HDR workflow and output in the future.
 
@@ -77,7 +78,8 @@
 
 - A simple but flexible inode-like file system using DuckDB as the storage backend, designed to manage both the original RAW files and the generated metadata (previews, thumbnails, edit history, etc.) in a unified way.
 - Lean project management with a single project file that contains all the metadata and references to the original files, enabling easy project sharing and backup without worrying about missing sidecar files or broken links.
-- Advanced search and filtering capabilities based on EXIF metadata. Planning to support semantic search and AI-assisted tagging in the future.
+- Collection membership, folder pagination, cache invalidation, duplicate/history handling, and batch database mutation paths for smoother large-project operations.
+- Advanced search and filtering capabilities, including EXIF facets, fuzzy/exact global search, thumbnail-backed search results, star ratings, and rating filters. Planning to support semantic search and AI-assisted tagging in the future.
 
 ## System Requirements
 
@@ -128,6 +130,17 @@ cmake --build --preset macos_package
 Roadmap and ongoing milestones:
 
 - [docs/roadmap/roadmap.md](docs/roadmap/roadmap.md)
+
+## Acknowledgements
+
+Alcedo Studio builds on research, open-source implementations, and community data from the wider imaging ecosystem:
+
+- Distributed film-emulation LUTs are from [JanLohse/spectral_film_lut](https://github.com/JanLohse/spectral_film_lut).
+- Some camera color matrices are from [AcademySoftwareFoundation/rawtoaces-data](https://github.com/AcademySoftwareFoundation/rawtoaces-data).
+- The highlight reconstruction algorithm is adapted from RawTherapee's [hilite_recon.cc](https://github.com/RawTherapee/RawTherapee/blob/dev/rtengine/hilite_recon.cc).
+- The RCD demosaic algorithm is from [LuisSR/RCD-Demosaicing](https://github.com/LuisSR/RCD-Demosaicing).
+- OpenDRT is ported from [OpenDRT.dctl](https://github.com/jedypod/open-display-transform/blob/main/display-transforms/opendrt/OpenDRT.dctl).
+- ACES 2.0 support is ported from [aces-aswf/aces-core](https://github.com/aces-aswf/aces-core).
 
 ## License
 
