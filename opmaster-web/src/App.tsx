@@ -10,6 +10,7 @@ const AboutPage = lazy(() => import('./pages/AboutPage'));
 const PresetDetailPage = lazy(() => import('./pages/PresetDetailPage'));
 const WatermarkPage = lazy(() => import('./pages/WatermarkPage'));
 const PresetEditorPage = lazy(() => import('./pages/PresetEditorPage'));
+const DeepSeekChatPage = lazy(() => import('./pages/DeepSeekChatPage'));
 
 function Loading() {
   return (
@@ -36,6 +37,7 @@ function App() {
             <Route path="/preset/:id" element={<PresetDetailPage />} />
             <Route path="/watermark" element={<WatermarkPage />} />
             <Route path="/editor" element={<PresetEditorPage />} />
+            <Route path="/deepseek" element={<DeepSeekChatPage />} />
           </Routes>
         </Suspense>
       </div>

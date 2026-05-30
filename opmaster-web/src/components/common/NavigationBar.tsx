@@ -1,11 +1,12 @@
 import { motion } from 'framer-motion';
-import { Camera, Menu, X, Download } from 'lucide-react';
+import { Camera, Menu, X, Download, Bot } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 
 const navItems = [
   { path: '/', label: '首页' },
   { path: '/ai-demo', label: 'AI场景识别' },
+  { path: '/deepseek', label: 'DeepSeek', icon: Bot, highlight: true },
   { path: '/tech', label: '影像工具' },
   { path: '/about', label: '关于我' }
 ];
@@ -40,12 +41,13 @@ export default function NavigationBar() {
               <Link
                 key={item.path}
                 to={item.path}
-                className={`text-sm font-medium transition-colors ${
+                className={`text-sm font-medium transition-all ${
                   location.pathname === item.path
                     ? 'text-hasselblad'
                     : 'text-white/70 hover:text-white'
-                }`}
+                } ${item.highlight ? 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-blue-500/20 to-purple-500/20 hover:from-blue-500/30 hover:to-purple-500/30 border border-blue-500/30' : ''}`}
               >
+                {item.icon && <item.icon className="w-4 h-4" />}
                 {item.label}
               </Link>
             ))}
@@ -82,8 +84,9 @@ export default function NavigationBar() {
                   location.pathname === item.path
                     ? 'text-hasselblad'
                     : 'text-white/70'
-                }`}
+                } ${item.highlight ? 'flex items-center gap-2 text-blue-400' : ''}`}
               >
+                {item.icon && <item.icon className="w-5 h-5" />}
                 {item.label}
               </Link>
             ))}
