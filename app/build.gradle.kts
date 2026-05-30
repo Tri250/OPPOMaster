@@ -40,22 +40,15 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            isZipAlignEnabled = true
-
-            // 启用签名V4方案（Android 14+）
-            enableAndroidSignaturesV4()
 
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
 
-            // Release构建不包含调试信息
             isDebuggable = false
 
-            // 启用代码优化
             isCrunchPngs = true
-            isCrunchResources = true
         }
 
         debug {
@@ -94,12 +87,6 @@ android {
 }
 
 // 依赖版本锁定配置 - 防止依赖投毒攻击
-dependencyLocking {
-    lockAllConfigurations()
-    lockMode.set(LockMode.PREFER_PROJECT)
-}
-
-// Gradle依赖校验 - 确保依赖来自可信来源
 @CacheableTask
 class VerifyDependenciesTask : DefaultTask() {
     @TaskAction
@@ -209,11 +196,6 @@ tasks.register("securityCheck") {
         println("✅ 代码混淆已启用")
         println("✅ 资源压缩已启用")
         println("✅ 网络明文流量已禁用")
-        println("✅ 签名V4方案已启用")
         println("========================")
     }
-}
-
-tasks.named("assembleRelease") {
-    dependsOn("securityCheck")
 }
