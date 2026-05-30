@@ -15,10 +15,10 @@ const sampleImages = [
   { id: 2, label: '风景', seed: 'landscape' },
   { id: 3, label: '夜景', seed: 'night' },
   { id: 4, label: '美食', seed: 'food' },
-  { id: 5, label: '运动', seed: 'sports' },
-  { id: 6, label: '夜景人像', seed: 'night_portrait' },
-  { id: 7, label: '全黑', seed: 'black' },
-  { id: 8, label: '模糊', seed: 'blur' }
+  { id: 5, label: '建筑', seed: 'architecture' },
+  { id: 6, label: '运动', seed: 'sports' },
+  { id: 7, label: '夜景人像', seed: 'night_portrait' },
+  { id: 8, label: '全黑', seed: 'black' }
 ];
 
 interface SceneResult {
