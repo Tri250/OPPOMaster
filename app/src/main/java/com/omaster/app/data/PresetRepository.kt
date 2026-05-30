@@ -66,17 +66,35 @@ class PresetRepository @Inject constructor(
 
     private suspend fun fetchRemotePresets(): List<Preset> {
         return try {
-            val response = presetApi.getAllPresets()
-            if (response.isSuccessful) {
-                val presets = response.body()
-                if (!presets.isNullOrEmpty()) {
-                    jsonUtil.saveToLocalCache(presets)
-                    Timber.d("Remote presets fetched and cached: ${presets.size}")
-                    return presets
-                }
+            // 先尝试获取 OPPO 预设
+            val oppoResponse = presetApi.getOppoPresets()
+            val oppoPresets = if (oppoResponse.isSuccessful && oppoResponse.body() != null) {
+                jsonUtil.convertRemoteToLocalPresets(oppoResponse.body()!!.presets, "oppo")
             } else {
-                Timber.w("Remote fetch failed with code: ${response.code()}")
+                Timber.w("Failed to fetch OPPO presets")
+                emptyList()
             }
+
+            // 再尝试获取 Realme 预设
+            val realmeResponse = presetApi.getRealmePresets()
+            val realmePresets = if (realmeResponse.isSuccessful && realmeResponse.body() != null) {
+                jsonUtil.convertRemoteToLocalPresets(realmeResponse.body()!!.presets, "realme")
+            } else {
+                Timber.w("Failed to fetch Realme presets")
+                emptyList()
+            }
+
+            // 合并两个来源的预设
+            val allPresets = oppoPresets + realmePresets
+            
+            if (allPresets.isNotEmpty()) {
+                // 保存到本地缓存
+                jsonUtil.saveToLocalCache(allPresets)
+                Timber.d("Remote presets fetched and cached: ${allPresets.size}")
+                return allPresets
+            }
+            
+            // 如果远程没有数据，加载本地数据
             loadLocalPresets()
         } catch (e: Exception) {
             Timber.e(e, "Error fetching remote presets")
@@ -86,7 +104,7 @@ class PresetRepository @Inject constructor(
 
     private suspend fun loadLocalPresets(): List<Preset> {
         return jsonUtil.loadPresets().ifEmpty {
-            Timber.w("No presets found in local storage, using empty list")
+            Timber.w("No presets found in local storage")
             emptyList()
         }
     }

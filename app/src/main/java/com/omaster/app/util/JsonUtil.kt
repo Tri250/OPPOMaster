@@ -3,10 +3,7 @@ package com.omaster.app.util
 import android.content.Context
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
-import com.google.gson.reflect.TypeToken
-import com.omaster.app.model.CameraParams
-import com.omaster.app.model.Preset
-import com.omaster.app.model.Section
+import com.omaster.app.model.*
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -28,20 +25,91 @@ class JsonUtil @Inject constructor(
 
     private val mutex = Mutex()
     private var cachedPresets: List<Preset>? = null
-    private var localCacheFile: File? = null
 
-    private val localCacheDir: File
-        get() = File(context.filesDir, "presets_cache").also {
-            if (!it.exists()) it.mkdirs()
+    // 远程数据到本地数据的转换函数
+    fun convertRemoteToLocalPresets(remotePresets: List<RemotePreset>, source: String): List<Preset> {
+        return remotePresets.mapIndexed { index, remote ->
+            Preset(
+                id = "preset_${index}_${remote.name.hashCode()}",
+                name = remote.name,
+                coverPath = remote.coverPath,
+                deviceModel = if (source == "oppo") "OPPO Find X8" else "Realme GT7",
+                source = source,
+                sections = remote.sections?.map { section ->
+                    Section(
+                        title = section.title,
+                        content = section.items?.joinToString(", ") { "${it.label}: ${it.value}" } ?: ""
+                    )
+                } ?: emptyList(),
+                cameraParams = extractCameraParamsFromRemote(remote),
+                category = detectCategoryFromRemote(remote)
+            )
         }
+    }
 
-    private val localCache: File
-        get() {
-            if (localCacheFile == null) {
-                localCacheFile = File(localCacheDir, "local_presets.json")
+    private fun extractCameraParamsFromRemote(remote: RemotePreset): CameraParams {
+        var params = CameraParams()
+        
+        remote.sections?.forEach { section ->
+            section.items?.forEach { item ->
+                val label = item.label.lowercase()
+                val value = item.value
+                
+                when {
+                    label.contains("iso") -> {
+                        value.toIntOrNull()?.let { params = params.copy(iso = it) }
+                    }
+                    label.contains("快门") -> {
+                        params = params.copy(shutter = value)
+                    }
+                    label.contains("曝光") || label.contains("ev") -> {
+                        params = params.copy(ev = value)
+                    }
+                    label.contains("白平衡") || label.contains("wb") -> {
+                        params = params.copy(wb = value)
+                    }
+                    label.contains("滤镜") -> {
+                        params = params.copy(filter = value)
+                    }
+                    label.contains("饱和度") -> {
+                        value.toIntOrNull()?.let { params = params.copy(saturation = it) }
+                    }
+                    label.contains("对比度") -> {
+                        value.toIntOrNull()?.let { params = params.copy(contrast = it) }
+                    }
+                    label.contains("锐度") -> {
+                        value.toIntOrNull()?.let { params = params.copy(sharpness = it) }
+                    }
+                    label.contains("暗角") -> {
+                        value.toFloatOrNull()?.let { params = params.copy(vignette = it) }
+                    }
+                }
             }
-            return localCacheFile!!
         }
+        
+        return params
+    }
+
+    private fun detectCategoryFromRemote(remote: RemotePreset): PresetCategory? {
+        val name = remote.name.lowercase()
+        val tags = remote.tags?.map { it.lowercase() } ?: emptyList()
+        
+        return when {
+            name.contains("人像") || tags.contains("人像") -> PresetCategory.PORTRAIT
+            name.contains("风景") || name.contains("自然") || tags.contains("风景") -> PresetCategory.LANDSCAPE
+            name.contains("夜景") || tags.contains("夜景") -> PresetCategory.NIGHT
+            name.contains("美食") || tags.contains("美食") -> PresetCategory.FOOD
+            name.contains("街拍") || tags.contains("街拍") -> PresetCategory.STREET
+            name.contains("建筑") || tags.contains("建筑") -> PresetCategory.ARCHITECTURE
+            name.contains("日落") || name.contains("日出") -> PresetCategory.SUNSET
+            name.contains("微距") -> PresetCategory.MACRO
+            name.contains("运动") -> PresetCategory.SPORTS
+            name.contains("胶片") || name.contains("复古") -> PresetCategory.VINTAGE
+            name.contains("黑白") -> PresetCategory.BLACK_WHITE
+            name.contains("电影") || name.contains("cinematic") -> PresetCategory.CINEMATIC
+            else -> null
+        }
+    }
 
     suspend fun loadPresets(): List<Preset> = withContext(Dispatchers.IO) {
         mutex.withLock {
@@ -49,17 +117,22 @@ class JsonUtil @Inject constructor(
         }
 
         try {
-            val presets = loadFromAssets()
-            mutex.withLock {
-                cachedPresets = presets
+            // 先尝试从本地缓存加载
+            if (hasLocalCache()) {
+                val presets = loadFromLocalCache()
+                if (presets.isNotEmpty()) {
+                    mutex.withLock {
+                        cachedPresets = presets
+                    }
+                    return@withContext presets
+                }
             }
-            return@withContext presets
         } catch (e: Exception) {
-            Timber.e(e, "Failed to load presets from assets")
-            return@withContext loadFromLocalCache().ifEmpty {
-                emptyList()
-            }
+            Timber.e(e, "Failed to load presets from cache")
         }
+
+        // 如果缓存失败，从 assets 加载
+        loadFromAssets()
     }
 
     private fun loadFromAssets(): List<Preset> {
@@ -74,9 +147,19 @@ class JsonUtil @Inject constructor(
 
     private fun parsePresetsJson(json: String): List<Preset> {
         return try {
-            val type = object : TypeToken<PresetListContainer>() {}.type
-            val container: PresetListContainer = gson.fromJson(json, type)
-            container.presets.map { it.toPreset() }
+            // 先尝试解析为 PresetList（旧格式）
+            val presetList = gson.fromJson(json, PresetList::class.java)
+            if (presetList.presets.isNotEmpty()) {
+                return presetList.presets
+            }
+            
+            // 如果失败，尝试解析为 RemotePresetResponse（新格式）
+            val remoteResponse = gson.fromJson(json, RemotePresetResponse::class.java)
+            if (remoteResponse.presets.isNotEmpty()) {
+                return convertRemoteToLocalPresets(remoteResponse.presets, "community")
+            }
+            
+            emptyList()
         } catch (e: Exception) {
             Timber.e(e, "Failed to parse presets JSON")
             emptyList()
@@ -86,17 +169,20 @@ class JsonUtil @Inject constructor(
     suspend fun saveToLocalCache(presets: List<Preset>) = withContext(Dispatchers.IO) {
         mutex.withLock {
             try {
-                val container = PresetListContainer(
+                val cacheDir = File(context.filesDir, "presets_cache")
+                if (!cacheDir.exists()) cacheDir.mkdirs()
+                
+                val presetList = PresetList(
                     version = "2.0.0",
-                    lastUpdated = java.text.SimpleDateFormat(
-                        "yyyy-MM-dd",
-                        java.util.Locale.getDefault()
-                    ).format(java.util.Date()),
-                    presets = presets.map { PresetDto.fromPreset(it) }
+                    lastUpdated = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date()),
+                    presets = presets
                 )
-                val json = gson.toJson(container)
-                localCache.writeText(json)
-                Timber.d("Presets saved to local cache")
+                val json = gson.toJson(presetList)
+                
+                val file = File(cacheDir, "local_presets.json")
+                file.writeText(json)
+                
+                Timber.d("Presets saved to local cache: ${presets.size}")
             } catch (e: Exception) {
                 Timber.e(e, "Failed to save presets to local cache")
             }
@@ -105,8 +191,10 @@ class JsonUtil @Inject constructor(
 
     private fun loadFromLocalCache(): List<Preset> {
         return try {
-            if (!localCache.exists()) return emptyList()
-            val json = localCache.readText()
+            val file = File(File(context.filesDir, "presets_cache"), "local_presets.json")
+            if (!file.exists()) return emptyList()
+            
+            val json = file.readText()
             parsePresetsJson(json)
         } catch (e: Exception) {
             Timber.e(e, "Failed to load presets from local cache")
@@ -114,15 +202,23 @@ class JsonUtil @Inject constructor(
         }
     }
 
-    fun hasLocalCache(): Boolean = localCache.exists()
+    fun hasLocalCache(): Boolean {
+        return try {
+            val file = File(File(context.filesDir, "presets_cache"), "local_presets.json")
+            file.exists()
+        } catch (e: Exception) {
+            false
+        }
+    }
 
     fun getCacheVersion(): String? {
         return try {
-            if (!localCache.exists()) return null
-            val json = localCache.readText()
-            val type = object : TypeToken<PresetListContainer>() {}.type
-            val container: PresetListContainer = gson.fromJson(json, type)
-            container.version
+            val file = File(File(context.filesDir, "presets_cache"), "local_presets.json")
+            if (!file.exists()) return null
+            
+            val json = file.readText()
+            val presetList = gson.fromJson(json, PresetList::class.java)
+            presetList.version
         } catch (e: Exception) {
             null
         }
@@ -131,161 +227,12 @@ class JsonUtil @Inject constructor(
     fun clearCache() {
         mutex.withLock {
             cachedPresets = null
-            localCache.delete()
-        }
-    }
-
-    fun clearAllCaches() {
-        clearCache()
-        localCacheDir.deleteRecursively()
-    }
-
-    private data class PresetListContainer(
-        val version: String,
-        val lastUpdated: String,
-        val presets: List<PresetDto>
-    )
-
-    private data class PresetDto(
-        val id: String,
-        val name: String,
-        val deviceModel: String,
-        val coverPath: String,
-        val source: String,
-        val cameraParams: CameraParamsDto?,
-        val sections: List<SectionDto>?
-    ) {
-        fun toPreset(): Preset = Preset(
-            id = id,
-            name = name,
-            coverPath = coverPath,
-            sections = sections?.map { it.toSection() } ?: emptyList(),
-            cameraParams = cameraParams?.toCameraParams(),
-            deviceModel = deviceModel,
-            source = source
-        )
-
-        companion object {
-            fun fromPreset(preset: Preset): PresetDto = PresetDto(
-                id = preset.id,
-                name = preset.name,
-                deviceModel = preset.deviceModel,
-                coverPath = preset.coverPath,
-                source = preset.source,
-                cameraParams = preset.cameraParams?.let { CameraParamsDto.fromCameraParams(it) },
-                sections = preset.sections.map { SectionDto.fromSection(it) }
-            )
-        }
-    }
-
-    private data class CameraParamsDto(
-        val mode: String?,
-        val filter: String?,
-        val iso: Int?,
-        val shutter: String?,
-        val ev: String?,
-        val wb: String?,
-        val focal_length: String?,
-        val aperture: String?,
-        val hdr: Boolean?,
-        val night_mode: Boolean?,
-        val portrait_mode: Boolean?,
-        val macro_mode: Boolean?,
-        val sports_mode: Boolean?,
-        val ai_optimization: Boolean?,
-        val hasselblad_hncs: Boolean?,
-        val hasselblad_natural_color: Boolean?,
-        val hasselblad_master_style: String?,
-        val color_profile: String?,
-        val sharpness: Int?,
-        val contrast: Int?,
-        val saturation: Int?,
-        val master_tonemap: Boolean?,
-        val vignette: Float?,
-        val softness: Int?,
-        val film_simulation: String?,
-        val exposure_compensation: Float?,
-        val shutter_priority: Boolean?,
-        val aperture_priority: Boolean?
-    ) {
-        fun toCameraParams(): CameraParams = CameraParams(
-            mode = mode ?: "哈苏大师",
-            filter = filter ?: "",
-            iso = iso ?: 100,
-            shutter = shutter ?: "1/200",
-            ev = ev ?: "0",
-            wb = wb ?: "5500K",
-            focal_length = focal_length ?: "24mm",
-            aperture = aperture ?: "f/1.8",
-            hdr = hdr ?: false,
-            night_mode = night_mode ?: false,
-            portrait_mode = portrait_mode ?: false,
-            macro_mode = macro_mode ?: false,
-            sports_mode = sports_mode ?: false,
-            ai_optimization = ai_optimization ?: true,
-            hasselblad_hncs = hasselblad_hncs ?: true,
-            hasselblad_natural_color = hasselblad_natural_color ?: true,
-            hasselblad_master_style = hasselblad_master_style ?: "",
-            color_profile = color_profile ?: "Natural",
-            sharpness = sharpness ?: 50,
-            contrast = contrast ?: 50,
-            saturation = saturation ?: 50,
-            master_tonemap = master_tonemap ?: true,
-            vignette = vignette ?: 0.15f,
-            softness = softness ?: 0,
-            film_simulation = com.omaster.app.model.FilmSimulation.entries.find {
-                it.name.equals(film_simulation, ignoreCase = true)
-            } ?: com.omaster.app.model.FilmSimulation.NONE,
-            exposure_compensation = exposure_compensation ?: 0.0f,
-            shutter_priority = shutter_priority ?: false,
-            aperture_priority = aperture_priority ?: false
-        )
-
-        companion object {
-            fun fromCameraParams(params: CameraParams): CameraParamsDto = CameraParamsDto(
-                mode = params.mode,
-                filter = params.filter,
-                iso = params.iso,
-                shutter = params.shutter,
-                ev = params.ev,
-                wb = params.wb,
-                focal_length = params.focal_length,
-                aperture = params.aperture,
-                hdr = params.hdr,
-                night_mode = params.night_mode,
-                portrait_mode = params.portrait_mode,
-                macro_mode = params.macro_mode,
-                sports_mode = params.sports_mode,
-                ai_optimization = params.ai_optimization,
-                hasselblad_hncs = params.hasselblad_hncs,
-                hasselblad_natural_color = params.hasselblad_natural_color,
-                hasselblad_master_style = params.hasselblad_master_style,
-                color_profile = params.color_profile,
-                sharpness = params.sharpness,
-                contrast = params.contrast,
-                saturation = params.saturation,
-                master_tonemap = params.master_tonemap,
-                vignette = params.vignette,
-                softness = params.softness,
-                film_simulation = params.film_simulation.name,
-                exposure_compensation = params.exposure_compensation,
-                shutter_priority = params.shutter_priority,
-                aperture_priority = params.aperture_priority
-            )
-        }
-    }
-
-    private data class SectionDto(
-        val title: String,
-        val content: String
-    ) {
-        fun toSection(): Section = Section(title = title, content = content)
-
-        companion object {
-            fun fromSection(section: Section): SectionDto = SectionDto(
-                title = section.title,
-                content = section.content
-            )
+            try {
+                val file = File(File(context.filesDir, "presets_cache"), "local_presets.json")
+                if (file.exists()) file.delete()
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to clear cache")
+            }
         }
     }
 }

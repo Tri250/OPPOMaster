@@ -24,7 +24,11 @@ playServicesTasks = "18.1.0"
 work = "2.9.0"
 hiltNavigationCompose = "1.2.0"
 hiltWork = "1.2.0"
-kotlinCompilerExtension = "1.5.14"
+junit = "4.13.2"
+mockito = "5.12.0"
+robolectric = "4.13"
+androidxjunit = "1.2.1"
+espresso = "3.6.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -73,12 +77,13 @@ play-services-tasks = { group = "com.google.android.gms", name = "play-services-
 
 androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "work" }
 
-junit = { group = "junit", name = "junit", version = "4.13.2" }
-mockito-core = { group = "org.mockito", name = "mockito-core", version = "5.12.0" }
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+mockito-core = { group = "org.mockito", name = "mockito-core", version.ref = "mockito" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
-robolectric = { group = "org.robolectric", name = "robolectric", version = "4.13" }
-androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version = "1.2.1" }
-androidx-test-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version = "3.6.1" }
+robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
+
+androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxjunit" }
+androidx-test-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espresso" }
 androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
 androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
 androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
@@ -89,35 +94,3 @@ kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlinSerialization" }
 hilt-android = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
 kotlin-kapt = { id = "org.jetbrains.kotlin.kapt", version.ref = "kotlin" }
-
-[bundles]
-compose = [
-    "androidx-compose-ui",
-    "androidx-compose-ui-graphics",
-    "androidx-compose-ui-tooling-preview",
-    "androidx-compose-material3",
-    "androidx-compose-material-icons-extended"
-]
-hilt = [
-    "hilt-android",
-    "hilt-android-compiler",
-    "hilt-navigation-compose",
-    "hilt-work",
-    "hilt-compiler"
-]
-network = [
-    "retrofit",
-    "retrofit-converter-gson",
-    "okhttp",
-    "okhttp-logging-interceptor"
-]
-camerax = [
-    "camerax-core",
-    "camerax-camera2",
-    "camerax-lifecycle",
-    "camerax-view"
-]
-mlkit = [
-    "mlkit-image-labeling",
-    "play-services-tasks"
-]
