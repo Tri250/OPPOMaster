@@ -3,10 +3,10 @@
 @tailwind utilities;
 
 /* ==========================================
-   OPPOMaster V1.5.0 - ColorOS 16 Design System
+   OPPOMaster V2.0 - ColorOS 16 Premium Photography Design System
    ==========================================
-   版本: V2026.1
-   标准: WCAG 2.2 AA级, ColorOS 16 Aqua Design
+   版本: V2026.2
+   标准: ColorOS 16 Aqua Design + OPPO Premium Photography
    ==========================================
 */
 
@@ -21,7 +21,7 @@
   }
   
   body {
-    @apply bg-deep-space text-white font-sans;
+    @apply bg-surface-800 text-surface-0 font-sans antialiased;
   }
 
   /* ==========================================
@@ -34,11 +34,11 @@
   }
 
   ::-webkit-scrollbar-track {
-    @apply bg-deep-space-light;
+    @apply bg-surface-700;
   }
 
   ::-webkit-scrollbar-thumb {
-    @apply bg-hasselblad/60 rounded-full hover:bg-hasselblad/80 transition-colors;
+    @apply bg-surface-500 rounded-full hover:bg-hasselblad/60 transition-colors;
   }
 
   ::-webkit-scrollbar-thumb:hover {
@@ -58,56 +58,12 @@
   }
 
   /* ==========================================
-     Accessibility - Focus Styles
+     Accessibility - Focus Styles (WCAG 2.2 AA)
      ==========================================
   */
   *:focus-visible {
-    outline: 2px solid #D4A574;
+    outline: 2px solid #C9A86C;
     outline-offset: 2px;
-  }
-
-  /* ==========================================
-     Typography - ColorOS 16 Font System
-     ==========================================
-  */
-  .text-display {
-    @apply text-4xl md:text-5xl font-bold leading-tight;
-  }
-  
-  .text-headline {
-    @apply text-2xl md:text-3xl font-semibold leading-snug;
-  }
-  
-  .text-title {
-    @apply text-xl md:text-2xl font-semibold leading-snug;
-  }
-  
-  .text-subtitle {
-    @apply text-lg font-medium leading-normal;
-  }
-  
-  .text-body {
-    @apply text-base font-normal leading-relaxed;
-  }
-  
-  .text-caption {
-    @apply text-sm font-normal leading-relaxed;
-  }
-  
-  .text-label {
-    @apply text-xs font-medium leading-normal;
-  }
-
-  /* ==========================================
-     Layout - ColorOS 16 Grid System
-     ==========================================
-  */
-  .container-os {
-    @apply w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
-  }
-
-  .section-spacing {
-    @apply py-16 md:py-24;
   }
 }
 
@@ -122,11 +78,11 @@
      ==========================================
   */
   .glass-effect {
-    @apply bg-white/5 backdrop-blur-md border border-white/10;
+    @apply bg-white/5 backdrop-blur-xl border border-white/10;
   }
 
   .glass-effect-strong {
-    @apply bg-white/10 backdrop-blur-lg border border-white/15;
+    @apply bg-white/8 backdrop-blur-2xl border border-white/15;
   }
 
   /* ==========================================
@@ -134,11 +90,23 @@
      ==========================================
   */
   .gradient-text {
-    @apply bg-gradient-to-r from-white via-hasselblad to-white bg-clip-text text-transparent;
+    @apply bg-gradient-to-r from-hasselblad via-hasselblad-light to-hasselblad bg-clip-text text-transparent;
   }
 
   .gradient-hasselblad {
-    @apply bg-gradient-to-br from-hasselblad to-amber-700;
+    @apply bg-gradient-to-br from-hasselblad to-hasselblad-dark;
+  }
+
+  .gradient-aqua {
+    @apply bg-gradient-to-br from-aqua-primary to-aqua-primary-light;
+  }
+
+  .gradient-oppo {
+    @apply bg-gradient-to-br from-oppo-coral to-oppo-coral-light;
+  }
+
+  .gradient-deep-space {
+    @apply bg-gradient-to-br from-surface-800 via-surface-700 to-surface-600;
   }
 
   /* ==========================================
@@ -146,29 +114,29 @@
      ==========================================
   */
   .btn-primary {
-    @apply px-6 py-3 bg-hasselblad text-deep-space font-semibold rounded-xl 
-           hover:bg-hasselblad/90 active:bg-hasselblad/80
-           transition-all duration-200 ease-out
-           hover:shadow-lg hover:shadow-hasselblad/20 hover:-translate-y-0.5
-           focus-visible:ring-2 focus-visible:ring-hasselblad focus-visible:ring-offset-2 focus-visible:ring-offset-deep-space;
+    @apply px-6 py-3 bg-hasselblad text-surface-900 font-semibold rounded-radius-md 
+           hover:bg-hasselblad-light active:bg-hasselblad-dark
+           transition-all duration-normal ease-ease-standard
+           hover:shadow-lg hover:shadow-hasselblad/30 hover:-translate-y-0.5
+           focus-visible:ring-2 focus-visible:ring-hasselblad focus-visible:ring-offset-2 focus-visible:ring-offset-surface-800
+           active:translate-y-0 active:shadow-md;
   }
 
   .btn-secondary {
-    @apply px-6 py-3 bg-white/10 text-white font-medium rounded-xl
-           border border-white/20 hover:bg-white/20 active:bg-white/30
-           transition-all duration-200 ease-out
-           focus-visible:ring-2 focus-visible:ring-white/30 focus-visible:ring-offset-2 focus-visible:ring-offset-deep-space;
+    @apply px-6 py-3 bg-transparent text-hasselblad font-semibold rounded-radius-md
+           border-2 border-hasselblad hover:bg-hasselblad/10 active:bg-hasselblad/20
+           transition-all duration-normal ease-ease-standard;
   }
 
   .btn-text {
-    @apply px-4 py-2 text-white/80 font-medium rounded-lg
+    @apply px-4 py-2 text-surface-100 font-medium rounded-radius-md
            hover:bg-white/10 active:bg-white/20
-           transition-all duration-200 ease-out;
+           transition-all duration-fast ease-ease-standard;
   }
 
   .btn-icon {
-    @apply p-3 rounded-xl glass-effect hover:bg-white/10 active:bg-white/20
-           transition-all duration-200 ease-out;
+    @apply p-3 rounded-radius-md glass-effect hover:bg-white/10 active:bg-white/20
+           transition-all duration-normal ease-ease-standard;
   }
 
   .btn-lg {
@@ -184,22 +152,29 @@
      ==========================================
   */
   .card {
-    @apply bg-deep-space-light rounded-2xl overflow-hidden
-           border border-white/10 hover:border-hasselblad/30
-           transition-all duration-300 ease-out
-           hover:shadow-xl hover:shadow-hasselblad/10
-           hover:-translate-y-1;
+    @apply bg-surface-700 rounded-radius-xl overflow-hidden
+           border border-surface-500
+           transition-all duration-slow ease-ease-standard
+           hover:border-hasselblad hover:shadow-card-hover hover:-translate-y-0.5;
+  }
+
+  .card-glass {
+    @apply bg-surface-700/80 backdrop-blur-xl rounded-radius-xl overflow-hidden
+           border border-surface-500/50
+           transition-all duration-slow ease-ease-standard
+           hover:border-hasselblad/50 hover:shadow-card-hover;
+  }
+
+  .card-gallery {
+    @apply bg-surface-700 rounded-radius-lg overflow-hidden
+           border border-surface-500
+           transition-all duration-slow ease-ease-standard
+           hover:border-hasselblad hover:shadow-card-hover;
   }
 
   .card-hover {
-    @apply transition-all duration-300 ease-out
-           hover:border-hasselblad/30 hover:shadow-xl hover:shadow-hasselblad/10
-           hover:-translate-y-1;
-  }
-
-  .card-flat {
-    @apply bg-deep-space-light rounded-2xl overflow-hidden
-           border border-white/10;
+    @apply transition-all duration-slow ease-ease-standard
+           hover:border-hasselblad hover:shadow-card-hover hover:-translate-y-1;
   }
 
   /* ==========================================
@@ -207,18 +182,18 @@
      ==========================================
   */
   .input {
-    @apply w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl
-           text-white placeholder-white/50 focus:outline-none focus:border-hasselblad
-           focus:ring-2 focus:ring-hasselblad/20
-           transition-all duration-200 ease-out;
+    @apply w-full px-4 py-3 bg-surface-700 border border-surface-500 rounded-radius-md
+           text-surface-0 placeholder-surface-200
+           focus:outline-none focus:border-hasselblad focus:ring-2 focus:ring-hasselblad/20
+           transition-all duration-normal ease-ease-standard;
   }
 
   .input-error {
-    @apply border-red-500/50 focus:border-red-500 focus:ring-2 focus:ring-red-500/20;
+    @apply border-oppo-red/50 focus:border-oppo-red focus:ring-2 focus:ring-oppo-red/20;
   }
 
   .input-success {
-    @apply border-green-500/50 focus:border-green-500 focus:ring-2 focus:ring-green-500/20;
+    @apply border-oppo-green/50 focus:border-oppo-green focus:ring-2 focus:ring-oppo-green/20;
   }
 
   /* ==========================================
@@ -226,24 +201,24 @@
      ==========================================
   */
   .tag {
-    @apply px-3 py-1 text-xs font-medium rounded-full
-           bg-white/10 text-white/80 border border-white/10;
+    @apply px-3 py-1 text-caption-xl font-medium rounded-radius-sm
+           bg-surface-600 text-surface-100 border border-surface-500;
   }
 
   .tag-primary {
-    @apply bg-hasselblad/20 text-hasselblad border border-hasselblad/30;
+    @apply bg-hasselblad/20 text-hasselblad border-hasselblad/30;
   }
 
   .tag-success {
-    @apply bg-green-500/20 text-green-400 border border-green-500/30;
+    @apply bg-oppo-green/20 text-oppo-green border-oppo-green/30;
   }
 
   .tag-warning {
-    @apply bg-yellow-500/20 text-yellow-400 border border-yellow-500/30;
+    @apply bg-oppo-yellow/20 text-oppo-yellow border-oppo-yellow/30;
   }
 
   .tag-error {
-    @apply bg-red-500/20 text-red-400 border border-red-500/30;
+    @apply bg-oppo-red/20 text-oppo-red border-oppo-red/30;
   }
 
   /* ==========================================
@@ -252,8 +227,8 @@
   */
   .badge {
     @apply inline-flex items-center justify-center
-           min-w-5 h-5 px-1.5 text-xs font-medium
-           rounded-full bg-hasselblad text-deep-space;
+           min-w-5 h-5 px-1.5 text-caption-lg font-semibold
+           rounded-full bg-hasselblad text-surface-900;
   }
 
   .badge-dot {
@@ -265,7 +240,7 @@
      ==========================================
   */
   .divider {
-    @apply h-px bg-white/10;
+    @apply h-px bg-surface-500;
   }
 
   /* ==========================================
@@ -273,63 +248,66 @@
      ==========================================
   */
   .progress-bar {
-    @apply h-2 bg-white/10 rounded-full overflow-hidden;
+    @apply h-2 bg-surface-500 rounded-radius-full overflow-hidden;
   }
 
   .progress-fill {
-    @apply h-full gradient-hasselblad rounded-full transition-all duration-500 ease-out;
+    @apply h-full gradient-hasselblad rounded-radius-full transition-all duration-slow ease-ease-standard;
   }
 
   /* ==========================================
      Status Colors - ColorOS 16 Status System
      ==========================================
   */
-  .status-success {
-    @apply text-green-400;
-  }
-  
-  .status-warning {
-    @apply text-yellow-400;
-  }
-  
-  .status-error {
-    @apply text-red-400;
-  }
-  
-  .status-info {
-    @apply text-blue-400;
-  }
+  .status-success { @apply text-oppo-green; }
+  .status-warning { @apply text-oppo-yellow; }
+  .status-error { @apply text-oppo-red; }
+  .status-info { @apply text-aqua-primary; }
 
-  .bg-status-success {
-    @apply bg-green-500/20;
-  }
-  
-  .bg-status-warning {
-    @apply bg-yellow-500/20;
-  }
-  
-  .bg-status-error {
-    @apply bg-red-500/20;
-  }
-  
-  .bg-status-info {
-    @apply bg-blue-500/20;
-  }
+  .bg-status-success { @apply bg-oppo-green/20; }
+  .bg-status-warning { @apply bg-oppo-yellow/20; }
+  .bg-status-error { @apply bg-oppo-red/20; }
+  .bg-status-info { @apply bg-aqua-primary/20; }
 
   /* ==========================================
-     Shadows - ColorOS 16 Shadow System
+     Photography Components
      ==========================================
   */
-  .shadow-os-sm {
-    @apply shadow-lg shadow-black/20;
+  .viewfinder {
+    @apply relative aspect-[3/4] rounded-radius-xl border-2 border-hasselblad overflow-hidden;
+    box-shadow: 0 0 30px rgba(201, 168, 108, 0.3), 0 0 60px rgba(201, 168, 108, 0.1);
   }
-  
-  .shadow-os-md {
-    @apply shadow-xl shadow-black/25;
+
+  .viewfinder-overlay {
+    @apply absolute inset-0 pointer-events-none;
+    background: linear-gradient(180deg, rgba(0, 0, 0, 0.3) 0%, transparent 20%, transparent 80%, rgba(0, 0, 0, 0.3) 100%);
   }
-  
-  .shadow-os-lg {
-    @apply shadow-2xl shadow-black/30;
+
+  .param-slider {
+    @apply relative h-1.5 bg-surface-500 rounded-radius-full;
+  }
+
+  .param-slider-track {
+    @apply absolute h-full gradient-hasselblad rounded-radius-full transition-all duration-fast;
+  }
+
+  .param-slider-thumb {
+    @apply absolute w-5 h-5 -mt-2 bg-hasselblad border-3 border-surface-0 rounded-full 
+           cursor-grab transition-transform duration-fast ease-ease-bounce
+           hover:scale-110 active:cursor-grabbing;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+
+  .scene-tag {
+    @apply inline-flex items-center gap-1.5 px-4 py-2 bg-surface-700 text-surface-100 
+           font-medium text-body-md rounded-radius-full border border-surface-500
+           transition-all duration-normal ease-ease-standard
+           hover:border-hasselblad hover:bg-hasselblad/10;
+  }
+
+  .scene-tag.active {
+    @apply bg-gradient-to-r from-hasselblad to-hasselblad-light text-surface-900 border-transparent
+           shadow-md;
   }
 }
 
@@ -342,6 +320,28 @@
    Keyframe Animations
    ==========================================
 */
+@keyframes ripple {
+  0% {
+    transform: scale(0);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(4);
+    opacity: 0;
+  }
+}
+
+@keyframes wave-expand {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
 @keyframes float {
   0%, 100% {
     transform: translateY(0px);
@@ -353,61 +353,10 @@
 
 @keyframes pulse-glow {
   0%, 100% {
-    box-shadow: 0 0 20px rgba(212, 165, 116, 0.3);
+    box-shadow: 0 0 20px rgba(201, 168, 108, 0.3);
   }
   50% {
-    box-shadow: 0 0 40px rgba(212, 165, 116, 0.6);
-  }
-}
-
-@keyframes slide-up {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes slide-down {
-  from {
-    opacity: 0;
-    transform: translateY(-20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes scale-in {
-  from {
-    opacity: 0;
-    transform: scale(0.9);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-@keyframes bounce-soft {
-  0%, 100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-5px);
+    box-shadow: 0 0 40px rgba(201, 168, 108, 0.6);
   }
 }
 
@@ -424,6 +373,14 @@
    Animation Utilities
    ==========================================
 */
+.animate-ripple {
+  animation: ripple 0.6s ease-out;
+}
+
+.animate-wave-expand {
+  animation: wave-expand 1.2s ease-out infinite;
+}
+
 .animate-float {
   animation: float 6s ease-in-out infinite;
 }
@@ -432,24 +389,8 @@
   animation: pulse-glow 2s ease-in-out infinite;
 }
 
-.animate-slide-up {
-  animation: slide-up 0.3s ease-out;
-}
-
-.animate-slide-down {
-  animation: slide-down 0.3s ease-out;
-}
-
-.animate-fade-in {
-  animation: fade-in 0.2s ease-out;
-}
-
-.animate-scale-in {
-  animation: scale-in 0.25s ease-out;
-}
-
-.animate-bounce-soft {
-  animation: bounce-soft 2s ease-in-out infinite;
+.animate-glow-pulse {
+  animation: glow-pulse 2s ease-in-out infinite;
 }
 
 /* ==========================================
@@ -457,7 +398,7 @@
    ==========================================
 */
 .skeleton {
-  @apply bg-white/10 rounded-lg overflow-hidden;
+  @apply bg-surface-600 rounded-radius-lg overflow-hidden;
   background: linear-gradient(90deg, rgba(255,255,255,0.05) 25%, rgba(255,255,255,0.1) 50%, rgba(255,255,255,0.05) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
@@ -540,7 +481,41 @@
   */
   @media (prefers-contrast: high) {
     .glass-effect {
-      @apply bg-deep-space-light border-white/30;
+      @apply bg-surface-900 border-white/30;
     }
+  }
+
+  /* ==========================================
+     Touch Target - Accessibility
+     ==========================================
+  */
+  .touch-target {
+    @apply min-w-[44px] min-h-[44px];
+  }
+
+  /* ==========================================
+     Safe Area - Mobile Devices
+     ==========================================
+  */
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* ==========================================
+     Backdrop Blur - Modern Effects
+     ==========================================
+  */
+  .backdrop-blur-xl {
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+
+  .backdrop-blur-2xl {
+    backdrop-filter: blur(30px);
+    -webkit-backdrop-filter: blur(30px);
   }
 }
