@@ -16,19 +16,20 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import com.omaster.app.data.ThemeMode
 
-// ==================== OPPO 2026 深色配色方案 ====================
+// ==================== OPPO Master V1.5.0 深色配色方案 ====================
+// 基于ColorOS 16 Aqua Design 3.0
 private val OppoDarkColorScheme = darkColorScheme(
-    primary = OppoSunriseGold,
-    onPrimary = OppoDeepSpace,
-    primaryContainer = OppoSunriseGoldDark,
+    primary = OppoCoral,
+    onPrimary = Color.White,
+    primaryContainer = OppoCoralDark,
     onPrimaryContainer = OppoTextPrimary,
     secondary = OceanBlue,
     onSecondary = Color.White,
     secondaryContainer = OceanBlueDark,
     onSecondaryContainer = OppoTextPrimary,
-    tertiary = HasselbladOrangePro,
+    tertiary = HasselbladOrange,
     onTertiary = OppoDeepSpace,
-    tertiaryContainer = HasselbladDarkPro,
+    tertiaryContainer = HasselbladOrangeDark,
     onTertiaryContainer = OppoTextPrimary,
     background = OppoDeepSpace,
     onBackground = OppoTextPrimary,
@@ -44,19 +45,19 @@ private val OppoDarkColorScheme = darkColorScheme(
     onErrorContainer = OppoTextPrimary
 )
 
-// ==================== OPPO 2026 浅色配色方案 ====================
+// ==================== OPPO Master V1.5.0 浅色配色方案 ====================
 private val OppoLightColorScheme = lightColorScheme(
-    primary = OppoSunriseGold,
+    primary = OppoCoral,
     onPrimary = Color.White,
-    primaryContainer = OppoSunriseGoldLight,
+    primaryContainer = OppoCoralLight,
     onPrimaryContainer = OppoLightTextPrimary,
     secondary = OceanBlue,
     onSecondary = Color.White,
     secondaryContainer = OceanBlueLight,
     onSecondaryContainer = OppoLightTextPrimary,
-    tertiary = HasselbladOrangePro,
+    tertiary = HasselbladOrange,
     onTertiary = Color.White,
-    tertiaryContainer = HasselbladOrangeVibrant,
+    tertiaryContainer = HasselbladOrangeLight,
     onTertiaryContainer = OppoLightTextPrimary,
     background = OppoLightBackground,
     onBackground = OppoLightTextPrimary,

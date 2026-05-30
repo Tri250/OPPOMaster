@@ -214,13 +214,13 @@ private fun ColorOSTopBar(
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 Text(
-                    text = "OMaster",
+                    text = "OPPO Master",
                     style = MaterialTheme.typography.displaySmall,
                     color = MaterialTheme.colorScheme.onBackground,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "OPPO 哈苏影像系统级参数中枢",
+                    text = "哈苏影像系统级参数库",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

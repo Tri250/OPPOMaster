@@ -30,7 +30,7 @@ function App() {
         <NavigationBar />
         <Suspense fallback={<Loading />}>
           <Routes>
-            <Route path="/" element={<LandingPage />} />
+            <Route path="/" element={<HomePage />} />
             <Route path="/home" element={<HomePage />} />
             <Route path="/ai-demo" element={<AIDemoPage />} />
             <Route path="/tech" element={<TechPage />} />

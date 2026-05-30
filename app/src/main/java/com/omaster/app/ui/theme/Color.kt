@@ -2,24 +2,24 @@ package com.omaster.app.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// ==================== OPPO 2026 年轻UI色彩系统 ====================
-// 基于ColorOS 16.1 Aquatic Design - 年轻化、活力、科技感
+// ==================== OPPO Master V1.5.0 色彩系统 ====================
+// 基于ColorOS 16 Aqua Design 3.0 官方最终规范
 
-// ========== 品牌主色调 - OPPO 2026 青春活力色系 ==========
-// 日落金进化版 - 更加柔和有活力
-val OppoSunriseGold = Color(0xFFFFB347)
-val OppoSunriseGoldLight = Color(0xFFFFD89A)
-val OppoSunriseGoldDark = Color(0xFFE09420)
+// ========== 品牌主色调 - OPPO Master 官方色系 ==========
+// 主色调 - OPPO珊瑚橙 #FF6B35
+val OppoCoral = Color(0xFFFF6B35)
+val OppoCoralLight = Color(0xFFFF8A5C)
+val OppoCoralDark = Color(0xFFE55A25)
 
-// 哈苏橙 - 优化为更具科技感的版本
-val HasselbladOrangePro = Color(0xFFE5A84A)
-val HasselbladOrangeVibrant = Color(0xFFE8B163)
-val HasselbladDarkPro = Color(0xFF9C6D30)
+// 哈苏橙 - 严格官方色值 #D4A574
+val HasselbladOrange = Color(0xFFD4A574)
+val HasselbladOrangeLight = Color(0xFFE6C09A)
+val HasselbladOrangeDark = Color(0xFFB88B5A)
 
-// OPPO 绿 - 年轻活力
-val OppoVitalGreen = Color(0xFF2DB47A)
-val OppoVitalGreenLight = Color(0xFF68D391)
-val OppoVitalGreenDark = Color(0xFF249D6B)
+// OPPO 绿 - 官方色值 #2DB47A
+val OppoGreen = Color(0xFF2DB47A)
+val OppoGreenLight = Color(0xFF45C08A)
+val OppoGreenDark = Color(0xFF249D6B)
 
 // ========== 辅助色彩系统 - OPPO 2026 年轻风格 ==========
 // 海洋蓝 - 科技感
@@ -43,17 +43,19 @@ val WarningVital = Color(0xFFF59E0B)
 val ErrorVital = Color(0xFFEF4444)
 val InfoVital = Color(0xFF3B82F6)
 
-// ========== 深色主题 - OPPO 2026 深空黑 Pro ==========
-val OppoDeepSpace = Color(0xFF0D0D0D)
-val OppoCardSurface = Color(0xFF141414)
-val OppoElevated = Color(0xFF1C1C1E)
-val OppoGlass = Color(0x990D0D0D)
+// ========== 深色主题 - OPPO Master V1.5.0 ==========
+// 严格遵循ColorOS 16规范
+val OppoDeepSpace = Color(0xFF0F0F0F)
+val OppoDeepSpaceLight = Color(0xFF1A1A1A)
+val OppoCardSurface = Color(0xFF1C1C1E)
+val OppoElevated = Color(0xFF2C2C2E)
+val OppoGlass = Color(0xE61A1A1A)  // 90% 不透明度
 
-// 文字层级
-val OppoTextPrimary = Color(0xFFF5F5F5)
-val OppoTextSecondary = Color(0xFFA3A3A3)
-val OppoTextTertiary = Color(0xFF737373)
-val OppoTextQuaternary = Color(0xFF525252)
+// 文字层级 - 严格ColorOS 16规范
+val OppoTextPrimary = Color(0xFFFFFFFF)  // 主要文字
+val OppoTextSecondary = Color(0xFFB3B3B3) // 次要文字
+val OppoTextTertiary = Color(0xFF737373)  // 辅助文字
+val OppoTextQuaternary = Color(0xFF525252)// 提示文字
 
 // 边框分隔
 val OppoBorder = Color(0xFF272727)
@@ -75,17 +77,17 @@ val OppoLightTextQuaternary = Color(0xFFC4C4C4)
 val OppoLightBorder = Color(0xFFE5E5E5)
 val OppoLightBorderLight = Color(0xFFF0F0F0)
 
-// ========== 渐变色彩 - OPPO 2026 青春活力 ==========
-// 日落金渐变
-val GradientSunriseVital = listOf(
-    Color(0xFFFFD166),
-    Color(0xFFFF9B47)
+// ========== 渐变色彩 - OPPO Master V1.5.0 ==========
+// OPPO珊瑚橙渐变
+val GradientOppoCoral = listOf(
+    OppoCoral,
+    OppoCoralLight
 )
 
 // 哈苏专业渐变
-val GradientHasselbladPro = listOf(
-    Color(0xFFF3C177),
-    Color(0xFFD48D3F)
+val GradientHasselblad = listOf(
+    HasselbladOrangeLight,
+    HasselbladOrange
 )
 
 // 海洋科技渐变
