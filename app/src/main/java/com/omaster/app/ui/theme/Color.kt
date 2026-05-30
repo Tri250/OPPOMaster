@@ -5,16 +5,16 @@ import androidx.compose.ui.graphics.Color
 // ==================== OPPO 2026 年轻UI色彩系统 ====================
 // 基于ColorOS 16.1 Aquatic Design - 年轻化、活力、科技感
 
-// ========== 品牌主色调 - OPPO 2026 青春活力色系 ==========
-// 日落金进化版 - 更加柔和有活力
-val OppoSunriseGold = Color(0xFFFFB347)
-val OppoSunriseGoldLight = Color(0xFFFFD89A)
-val OppoSunriseGoldDark = Color(0xFFE09420)
+// ========== 品牌主色调 - 按照测试用例要求 ==========
+// OPPO品牌主色 #FF6B35
+val OppoPrimary = Color(0xFFFF6B35)
+val OppoPrimaryLight = Color(0xFFFF8F6B)
+val OppoPrimaryDark = Color(0xFFE55A2D)
 
-// 哈苏橙 - 优化为更具科技感的版本
-val HasselbladOrangePro = Color(0xFFE5A84A)
-val HasselbladOrangeVibrant = Color(0xFFE8B163)
-val HasselbladDarkPro = Color(0xFF9C6D30)
+// 哈苏橙 #D4A574 - 一级标题用色
+val HasselbladOrange = Color(0xFFD4A574)
+val HasselbladOrangeLight = Color(0xFFE0B894)
+val HasselbladOrangeDark = Color(0xFFB88A54)
 
 // OPPO 绿 - 年轻活力
 val OppoVitalGreen = Color(0xFF2DB47A)
@@ -43,17 +43,25 @@ val WarningVital = Color(0xFFF59E0B)
 val ErrorVital = Color(0xFFEF4444)
 val InfoVital = Color(0xFF3B82F6)
 
-// ========== 深色主题 - OPPO 2026 深空黑 Pro ==========
-val OppoDeepSpace = Color(0xFF0D0D0D)
-val OppoCardSurface = Color(0xFF141414)
-val OppoElevated = Color(0xFF1C1C1E)
-val OppoGlass = Color(0x990D0D0D)
+// ========== 深色主题 - 按照测试用例要求 ==========
+// 页面背景色 #0F0F0F，卡片背景色 #1A1A1A
+val DeepSpace = Color(0xFF0F0F0F)
+val CardBackground = Color(0xFF1A1A1A)
+val SurfaceElevated = Color(0xFF242424)
+val GlassEffect = Color(0x990F0F0F)
 
-// 文字层级
-val OppoTextPrimary = Color(0xFFF5F5F5)
-val OppoTextSecondary = Color(0xFFA3A3A3)
-val OppoTextTertiary = Color(0xFF737373)
-val OppoTextQuaternary = Color(0xFF525252)
+// OPPO绿 #00C853
+val OppoGreen = Color(0xFF00C853)
+val OppoGreenLight = Color(0xFF33D976)
+
+// 错误红
+val ErrorRed = Color(0xFFFF4444)
+
+// 文字层级 - 按照测试用例要求
+val TextPrimary = Color(0xFFFFFFFF)      // 一级文字 #FFFFFF
+val TextSecondary = Color(0xFFCCCCCC)    // 二级文字 #CCCCCC
+val TextTertiary = Color(0xFF999999)     // 三级文字 #999999
+val TextQuaternary = Color(0xFF666666)
 
 // 边框分隔
 val OppoBorder = Color(0xFF272727)

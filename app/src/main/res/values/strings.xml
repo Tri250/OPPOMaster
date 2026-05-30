@@ -25,4 +25,26 @@
     <string name="hncs">HNCS 认证</string>
     <string name="preset_applied">预设已应用</string>
     <string name="preset_saved">预设已保存</string>
+    
+    <!-- 无障碍服务相关 -->
+    <string name="accessibility_service_description">小O帮帮 - 为您的相机自动填入专业摄影参数，支持OPPO、一加、Realme、小米、华为、vivo六大品牌原生相机</string>
+    <string name="accessibility_not_enabled">请先开启无障碍服务</string>
+    <string name="accessibility_guide">开启无障碍服务后，点击"一键自动填入"即可自动设置相机参数</string>
+    <string name="auto_fill_success">参数已成功填入</string>
+    <string name="auto_fill_failed">参数填入失败，请手动设置</string>
+    <string name="auto_fill_partial">部分参数填入成功</string>
+    <string name="camera_not_detected">未检测到相机应用，请先打开相机</string>
+    <string name="camera_in_background">相机在后台运行，请切换到相机</string>
+    <string name="retry">重试</string>
+    <string name="open_camera">打开相机</string>
+    <string name="open_accessibility_settings">去开启无障碍服务</string>
+    
+    <!-- 品牌相机相关 -->
+    <string name="brand_oppo">OPPO</string>
+    <string name="brand_oneplus">一加</string>
+    <string name="brand_realme">Realme</string>
+    <string name="brand_xiaomi">小米</string>
+    <string name="brand_huawei">华为</string>
+    <string name="brand_vivo">vivo</string>
+    <string name="brand_generic">通用相机</string>
 </resources>
