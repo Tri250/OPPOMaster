@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <sstream>
 #include <stdexcept>
 
@@ -204,6 +205,16 @@ struct FusedOperatorParams {
   float shared_tone_curve_h_[OperatorParams::kSharedToneCurveControlPointCount - 1]      = {};
   float shared_tone_curve_m_[OperatorParams::kSharedToneCurveControlPointCount]          = {};
 
+  bool  hs_local_tone_enabled_ = true;
+  float hs_base_radius_ = 18.0f;
+  int   hs_base_gaussian_tap_count_ = 0;
+  float hs_base_gaussian_weights_[OperatorParams::kDetailMaxGaussianTapCount] = {};
+  float hs_shadow_log_pivot_ = -2.45f;
+  float hs_shadow_log_width_ = 1.35f;
+  float hs_highlight_log_pivot_ = -0.20f;
+  float hs_highlight_log_width_ = 1.15f;
+  std::uint64_t hs_mask_base_cache_key_ = 0;
+
   bool  white_enabled_          = true;
   float white_point_            = 1.0f;
 
@@ -345,6 +356,19 @@ class FusedParamsConverter {
         fused.shared_tone_curve_h_[i] = cpu_params.shared_tone_curve_h_[i];
       }
     }
+    fused.hs_local_tone_enabled_ = cpu_params.hs_local_tone_enabled_;
+    fused.hs_base_radius_ = cpu_params.hs_base_radius_;
+    fused.hs_base_gaussian_tap_count_ =
+        std::clamp(cpu_params.hs_base_gaussian_tap_count_, 0,
+                   OperatorParams::kDetailMaxGaussianTapCount);
+    for (int i = 0; i < OperatorParams::kDetailMaxGaussianTapCount; ++i) {
+      fused.hs_base_gaussian_weights_[i] = cpu_params.hs_base_gaussian_weights_[i];
+    }
+    fused.hs_shadow_log_pivot_ = cpu_params.hs_shadow_log_pivot_;
+    fused.hs_shadow_log_width_ = cpu_params.hs_shadow_log_width_;
+    fused.hs_highlight_log_pivot_ = cpu_params.hs_highlight_log_pivot_;
+    fused.hs_highlight_log_width_ = cpu_params.hs_highlight_log_width_;
+    fused.hs_mask_base_cache_key_ = BuildHsMaskBaseCacheKey(cpu_params);
     fused.white_enabled_          = cpu_params.white_enabled_;
     fused.white_point_            = cpu_params.white_point_;
     fused.black_enabled_          = cpu_params.black_enabled_;
@@ -611,6 +635,59 @@ class FusedParamsConverter {
     open.ts_s1_          = open_cpu.ts_s1_;
 
     return fused;
+  }
+
+ private:
+  static void HashCombine(std::uint64_t& seed, std::uint64_t value) {
+    seed ^= value + 0x9e3779b97f4a7c15ULL + (seed << 6U) + (seed >> 2U);
+  }
+
+  static auto FloatBits(float value) -> std::uint64_t {
+    std::uint32_t bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    return static_cast<std::uint64_t>(bits);
+  }
+
+  static void HashFloatArray(std::uint64_t& seed, const float* values, int count) {
+    for (int i = 0; i < count; ++i) {
+      HashCombine(seed, FloatBits(values[i]));
+    }
+  }
+
+  static auto BuildHsMaskBaseCacheKey(const OperatorParams& params) -> std::uint64_t {
+    std::uint64_t key = 0x48f8d5ed4b4f4b4cULL;
+    HashCombine(key, static_cast<std::uint64_t>(params.to_ws_enabled_));
+    HashCombine(key, static_cast<std::uint64_t>(params.exposure_enabled_));
+    HashCombine(key, FloatBits(params.exposure_offset_));
+    HashCombine(key, static_cast<std::uint64_t>(params.contrast_enabled_));
+    HashCombine(key, FloatBits(params.contrast_scale_));
+    HashCombine(key, static_cast<std::uint64_t>(params.white_enabled_));
+    HashCombine(key, static_cast<std::uint64_t>(params.black_enabled_));
+    HashCombine(key, FloatBits(params.white_point_));
+    HashCombine(key, FloatBits(params.black_point_));
+    HashCombine(key, FloatBits(params.slope_));
+    HashCombine(key, static_cast<std::uint64_t>(params.color_temp_enabled_));
+    HashCombine(key, static_cast<std::uint64_t>(params.color_temp_mode_));
+    HashCombine(key, FloatBits(params.color_temp_resolved_cct_));
+    HashCombine(key, FloatBits(params.color_temp_resolved_tint_));
+    HashFloatArray(key, params.color_temp_resolved_xy_, 2);
+    HashCombine(key, static_cast<std::uint64_t>(params.raw_runtime_valid_));
+    HashCombine(key, static_cast<std::uint64_t>(params.raw_decode_input_space_));
+    HashFloatArray(key, params.raw_cam_mul_, 3);
+    HashFloatArray(key, params.raw_pre_mul_, 3);
+    HashFloatArray(key, params.raw_cam_xyz_, 9);
+    HashCombine(key, static_cast<std::uint64_t>(params.color_temp_matrices_valid_));
+    HashFloatArray(key, params.color_temp_cam_to_ap1_, 9);
+    HashCombine(key, static_cast<std::uint64_t>(params.hs_local_tone_enabled_));
+    HashCombine(key, FloatBits(params.hs_base_radius_));
+    HashCombine(key, static_cast<std::uint64_t>(params.hs_base_gaussian_tap_count_));
+    HashFloatArray(key, params.hs_base_gaussian_weights_,
+                   OperatorParams::kDetailMaxGaussianTapCount);
+    HashCombine(key, FloatBits(params.hs_shadow_log_pivot_));
+    HashCombine(key, FloatBits(params.hs_shadow_log_width_));
+    HashCombine(key, FloatBits(params.hs_highlight_log_pivot_));
+    HashCombine(key, FloatBits(params.hs_highlight_log_width_));
+    return key;
   }
 };
 

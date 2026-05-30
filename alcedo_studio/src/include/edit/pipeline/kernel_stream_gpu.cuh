@@ -49,6 +49,17 @@ class HasCustomDispatch {
   static constexpr bool value = decltype(test<T>(0))::value;
 };
 
+template <typename T>
+class HasReleaseResources {
+  template <typename U>
+  static auto test(int) -> decltype(std::declval<U>().ReleaseResources(), std::true_type());
+  template <typename U>
+  static std::false_type test(...);
+
+ public:
+  static constexpr bool value = decltype(test<T>(0))::value;
+};
+
 template <typename Op>
 __global__ void GenericPointKernel(Op op, float4* __restrict src, float4* __restrict dst, int width,
                                    int height, size_t pitch_elems, GPUOperatorParams params) {
@@ -123,6 +134,18 @@ class GPU_StaticKernelStream {
 
  public:
   GPU_StaticKernelStream(Stages... stages) : stages_(std::move(stages)...) {}
+
+  template <size_t I = 0>
+  inline void ReleaseResources() {
+    if constexpr (I < sizeof...(Stages)) {
+      auto& stage = std::get<I>(stages_);
+      using StageType = std::decay_t<decltype(stage)>;
+      if constexpr (HasReleaseResources<StageType>::value) {
+        stage.ReleaseResources();
+      }
+      ReleaseResources<I + 1>();
+    }
+  }
 
   template <size_t I = 0>
   inline void Dispatch(float4* src, float4* dst, int width, int height, size_t pitch_elems,

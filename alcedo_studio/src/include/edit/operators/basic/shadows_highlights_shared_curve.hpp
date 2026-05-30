@@ -95,8 +95,7 @@ inline auto BuildSharedToneCurve(bool shadows_enabled, float shadows_slider_valu
   float highlight_pull = highlight_control * kHighlightPointRange;
   
   curve.y[3] = std::clamp(1.0f - highlight_pull, 0.85f, 1.3f); 
-  
-  float y2_offset = -highlight_pull * 0.2f;
+  const float y2_offset = -highlight_pull * 0.2f;
   curve.y[2] = std::clamp(kSharedToneHighlightPivot - y2_offset, 0.65f, 1.0f);
   ComputeSharedToneTangents(curve);
 

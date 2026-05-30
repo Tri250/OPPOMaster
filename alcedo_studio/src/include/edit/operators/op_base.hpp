@@ -75,6 +75,8 @@ enum class RawDecodeInputSpace : int {
 };
 
 struct OperatorParams {
+  static constexpr int         kDetailMaxGaussianTapCount = 64;
+
   // Basic adjustment parameters
   bool                         exposure_enabled_         = true;
   float                        exposure_offset_          = 0.0f;
@@ -122,6 +124,18 @@ struct OperatorParams {
   float                        shared_tone_curve_ctrl_pts_y_[kSharedToneCurveControlPointCount] = {};
   float                        shared_tone_curve_h_[kSharedToneCurveControlPointCount - 1] = {};
   float                        shared_tone_curve_m_[kSharedToneCurveControlPointCount] = {};
+
+  // CUDA shadows/highlights local tone parameters. The mask/base cache only depends on the
+  // pre-H/S scene-referred reference and these algorithm parameters, not on slider amounts.
+  bool                         hs_local_tone_enabled_ = true;
+  float                        hs_base_radius_ = 18.0f;
+  int                          hs_base_gaussian_tap_count_ = 0;
+  float                        hs_base_gaussian_weights_[kDetailMaxGaussianTapCount] = {};
+  float                        hs_shadow_log_pivot_ = -2.45f;
+  float                        hs_shadow_log_width_ = 1.35f;
+  float                        hs_highlight_log_pivot_ = -0.20f;
+  float                        hs_highlight_log_width_ = 1.15f;
+  std::uint64_t                hs_mask_base_cache_key_ = 0;
 
   // White and Black point adjustment parameters
   bool                         white_enabled_            = true;
@@ -259,8 +273,6 @@ struct OperatorParams {
   std::vector<cv::Point2f>     curve_ctrl_pts_           = {};
   std::vector<float>           curve_h_                  = {};
   std::vector<float>           curve_m_                  = {};
-
-  static constexpr int         kDetailMaxGaussianTapCount = 64;
 
   // Clarity adjustment parameter
   bool                         clarity_enabled_          = true;

@@ -22,8 +22,7 @@ class CUDA_GPUPipeline final : public GPUPipelineImpl {
     auto exp    = GPU_ExposureOpKernel();
     auto cont   = GPU_ContrastOpKernel();
     auto tone  = GPU_ToneOpKernel();
-    auto high   = GPU_HighlightOpKernel();
-    auto shad   = GPU_ShadowOpKernel();
+    auto hs     = GPU_HighlightShadowLocalToneStage();
     auto curve  = GPU_CurveOpKernel();
 
     auto vib    = GPU_VibranceOpKernel();
@@ -37,8 +36,9 @@ class CUDA_GPUPipeline final : public GPUPipelineImpl {
     auto clar_h  = GPU_ClarityBlurHorizontalKernel();
     auto clar_v  = GPU_ClarityApplyVerticalKernel();
 
-    return GPU_StaticKernelStream(GPU_PointChain(to_ws, exp, cont, tone, high, shad, curve, vib,
-                                                 wheel, hls, lmt, to_out),
+    return GPU_StaticKernelStream(GPU_PointChain(to_ws, exp, cont, tone),
+                                  hs,
+                                  GPU_PointChain(curve, vib, wheel, hls, lmt, to_out),
                                   sharp_h, sharp_v, clar_h, clar_v);
   };
 

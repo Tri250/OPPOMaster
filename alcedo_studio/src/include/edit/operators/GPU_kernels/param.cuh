@@ -338,6 +338,16 @@ struct GPUOperatorParams {
   float                shared_tone_curve_h_[OperatorParams::kSharedToneCurveControlPointCount - 1] = {};
   float                shared_tone_curve_m_[OperatorParams::kSharedToneCurveControlPointCount] = {};
 
+  bool                 hs_local_tone_enabled_ = true;
+  float                hs_base_radius_ = 18.0f;
+  int                  hs_base_gaussian_tap_count_ = 0;
+  float                hs_base_gaussian_weights_[OperatorParams::kDetailMaxGaussianTapCount] = {};
+  float                hs_shadow_log_pivot_ = -2.45f;
+  float                hs_shadow_log_width_ = 1.35f;
+  float                hs_highlight_log_pivot_ = -0.20f;
+  float                hs_highlight_log_width_ = 1.15f;
+  std::uint64_t        hs_mask_base_cache_key_ = 0;
+
   // White and Black point adjustment parameters
   bool                 white_enabled_          = true;
   float                white_point_            = 1.0f;
@@ -516,6 +526,19 @@ class CudaFusedParamUploader {
         gpu_params.shared_tone_curve_h_[i] = fused_params.shared_tone_curve_h_[i];
       }
     }
+    gpu_params.hs_local_tone_enabled_ = fused_params.hs_local_tone_enabled_;
+    gpu_params.hs_base_radius_ = fused_params.hs_base_radius_;
+    gpu_params.hs_base_gaussian_tap_count_ =
+        std::clamp(fused_params.hs_base_gaussian_tap_count_, 0,
+                   OperatorParams::kDetailMaxGaussianTapCount);
+    for (int i = 0; i < OperatorParams::kDetailMaxGaussianTapCount; ++i) {
+      gpu_params.hs_base_gaussian_weights_[i] = fused_params.hs_base_gaussian_weights_[i];
+    }
+    gpu_params.hs_shadow_log_pivot_ = fused_params.hs_shadow_log_pivot_;
+    gpu_params.hs_shadow_log_width_ = fused_params.hs_shadow_log_width_;
+    gpu_params.hs_highlight_log_pivot_ = fused_params.hs_highlight_log_pivot_;
+    gpu_params.hs_highlight_log_width_ = fused_params.hs_highlight_log_width_;
+    gpu_params.hs_mask_base_cache_key_ = fused_params.hs_mask_base_cache_key_;
 
     gpu_params.white_enabled_          = fused_params.white_enabled_;
     gpu_params.white_point_            = fused_params.white_point_;
