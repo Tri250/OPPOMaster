@@ -1,5 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    OMaster 备份规则
+    SIG-SEC-003: 应用完整性配置
+    PERM-SEC-003: 数据提取安全
+-->
 <full-backup-content>
-    <include domain="sharedpref" path="."/>
-    <exclude domain="sharedpref" path="device.xml"/>
+    <!-- 排除敏感数据 -->
+    <exclude domain="sharedpref" path="secure_prefs.xml"/>
+    <exclude domain="sharedpref" path="encrypted_api_key.xml"/>
+    <exclude domain="database" path="secure_database"/>
+    
+    <!-- 排除安全相关的文件 -->
+    <exclude domain="file" path="sensitive_data/"/>
+    
+    <!-- 排除临时文件 -->
+    <exclude domain="cache" path="*"/>
+    <exclude domain="no_backup" path="*"/>
+    
+    <!-- 包含必要的用户数据 -->
+    <include domain="sharedpref" path="presets.xml"/>
+    <include domain="sharedpref" path="settings.xml"/>
+    <include domain="database" path="presets.db"/>
 </full-backup-content>
