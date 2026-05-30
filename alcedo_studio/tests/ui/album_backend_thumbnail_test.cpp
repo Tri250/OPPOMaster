@@ -106,7 +106,52 @@ auto MaxImageEdge(const QImage& image) -> int {
   return std::max(image.width(), image.height());
 }
 
+auto MakeAlbumItem(uint32_t index) -> AlbumItem {
+  AlbumItem item;
+  item.element_id = index + 1;
+  item.file_id    = index + 1;
+  item.image_id   = 1000 + index;
+  item.folder_id  = 1;
+  item.file_name  = QStringLiteral("image_%1.dng").arg(index + 1, 2, 10, QLatin1Char('0'));
+  item.rating     = static_cast<int>(index % 5);
+  return item;
+}
+
+auto MakeAlbumItems(uint32_t firstIndex, uint32_t count) -> std::vector<AlbumItem> {
+  std::vector<AlbumItem> items;
+  items.reserve(count);
+  for (uint32_t i = 0; i < count; ++i) {
+    items.push_back(MakeAlbumItem(firstIndex + i));
+  }
+  return items;
+}
+
 }  // namespace
+
+TEST_F(ThumbnailTests, ThumbnailModelSelectionRangeExtendsAfterPagedAppend) {
+  AlbumThumbnailModel model;
+  model.resetModel(MakeAlbumItems(0, 6), 12);
+
+  EXPECT_EQ(model.count(), 6);
+  EXPECT_EQ(model.totalCountInt(), 12);
+  EXPECT_TRUE(model.hasMore());
+
+  const QVariantList initially_loaded_range = model.getItemsInRange(2, 9);
+  ASSERT_EQ(initially_loaded_range.size(), 4);
+  EXPECT_EQ(initially_loaded_range.front().toMap().value("elementId").toUInt(), 3u);
+  EXPECT_EQ(initially_loaded_range.back().toMap().value("elementId").toUInt(), 6u);
+
+  model.appendPage(MakeAlbumItems(6, 6));
+
+  EXPECT_EQ(model.count(), 12);
+  EXPECT_FALSE(model.hasMore());
+
+  const QVariantList completed_range = model.getItemsInRange(2, 9);
+  ASSERT_EQ(completed_range.size(), 8);
+  EXPECT_EQ(completed_range.front().toMap().value("elementId").toUInt(), 3u);
+  EXPECT_EQ(completed_range.back().toMap().value("elementId").toUInt(), 10u);
+  EXPECT_EQ(model.rowByElementId(10), 9);
+}
 
 TEST_F(ThumbnailTests, MetalThumbnailGridLifecycleWithGeometryOperatorsProducesDataUrl) {
 #ifndef HAVE_METAL

@@ -5,6 +5,7 @@
 #include "ui/alcedo_main/album_backend/album_thumbnail_model.hpp"
 
 #include <QDate>
+#include <algorithm>
 
 namespace alcedo::ui {
 
@@ -121,6 +122,7 @@ void AlbumThumbnailModel::setLoading(bool v) {
 }
 
 void AlbumThumbnailModel::resetModel(const std::vector<AlbumItem>& items, size_t totalCount) {
+  const bool total_count_changed = total_count_ != totalCount;
   beginResetModel();
   rows_ = items;
   total_count_ = totalCount;
@@ -128,6 +130,9 @@ void AlbumThumbnailModel::resetModel(const std::vector<AlbumItem>& items, size_t
   setHasMore(rows_.size() < total_count_);
   endResetModel();
   emit countChanged();
+  if (total_count_changed) {
+    emit totalCountChanged();
+  }
 }
 
 void AlbumThumbnailModel::appendPage(const std::vector<AlbumItem>& newItems) {
@@ -178,7 +183,20 @@ QVariantMap AlbumThumbnailModel::getItemAt(int idx) const {
   };
 }
 
-int AlbumThumbnailModel::rowByElementId(sl_element_id_t elementId) const {
+QVariantList AlbumThumbnailModel::getItemsInRange(int firstIndex, int lastIndex) const {
+  QVariantList result;
+  if (rows_.empty()) return result;
+
+  const int first = std::clamp(std::min(firstIndex, lastIndex), 0, static_cast<int>(rows_.size()) - 1);
+  const int last  = std::clamp(std::max(firstIndex, lastIndex), 0, static_cast<int>(rows_.size()) - 1);
+  result.reserve(last - first + 1);
+  for (int idx = first; idx <= last; ++idx) {
+    result.push_back(getItemAt(idx));
+  }
+  return result;
+}
+
+int AlbumThumbnailModel::rowByElementId(uint elementId) const {
   const auto it = element_id_to_row_.find(elementId);
   return it != element_id_to_row_.end() ? it->second : -1;
 }

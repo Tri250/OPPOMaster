@@ -262,6 +262,7 @@ class AlbumBackend final : public QObject {
                                                uint maxEdge = 1024);
   Q_INVOKABLE void         SetThumbnailCacheHint(uint visibleCells, uint maxEdge = 1024);
   Q_INVOKABLE bool         LoadMoreThumbnails();
+  Q_INVOKABLE bool         LoadThumbnailsThroughIndex(int index);
   Q_INVOKABLE void         ToggleStatsFilter(const QString& category, const QString& label);
   Q_INVOKABLE void         ClearStatsFilter();
 
