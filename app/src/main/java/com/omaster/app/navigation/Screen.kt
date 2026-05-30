@@ -40,4 +40,18 @@ sealed class Screen(
         selectedIcon = Icons.Filled.PhotoCamera,
         unselectedIcon = Icons.Outlined.PhotoCamera
     )
+    
+    data object WebEcosystem : Screen(
+        route = "web_ecosystem",
+        title = "预设生态",
+        selectedIcon = Icons.Filled.Palette,
+        unselectedIcon = Icons.Outlined.Palette
+    )
+    
+    data object WebMyPresets : Screen(
+        route = "web_my_presets",
+        title = "我的预设",
+        selectedIcon = Icons.Filled.Favorite,
+        unselectedIcon = Icons.Outlined.Favorite
+    )
 }

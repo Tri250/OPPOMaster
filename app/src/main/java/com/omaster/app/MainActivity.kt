@@ -131,7 +131,9 @@ fun OMasterApp(
                 onPresetClick = { preset ->
                     navController.navigate(Screen.Detail.createRoute(preset.id))
                 },
-                onSettingsClick = { navController.navigate(Screen.Settings.route) }
+                onSettingsClick = { navController.navigate(Screen.Settings.route) },
+                onWebEcosystemClick = { navController.navigate(Screen.WebEcosystem.route) },
+                onWebMyPresetsClick = { navController.navigate(Screen.WebMyPresets.route) }
             )
         }
         composable(
@@ -158,6 +160,20 @@ fun OMasterApp(
         composable(Screen.Settings.route) {
             SettingsScreen(
                 onBack = { navController.popBackStack() }
+            )
+        }
+        composable(Screen.WebEcosystem.route) {
+            WebViewScreen(
+                navController = navController,
+                title = "预设生态",
+                initialUrl = "file:///android_asset/index.html"
+            )
+        }
+        composable(Screen.WebMyPresets.route) {
+            WebViewScreen(
+                navController = navController,
+                title = "我的预设",
+                initialUrl = "file:///android_asset/index.html#/my-presets"
             )
         }
     }

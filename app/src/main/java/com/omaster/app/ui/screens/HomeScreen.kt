@@ -50,6 +50,8 @@ enum class PresetCategory(val displayName: String) {
 fun HomeScreen(
     onPresetClick: (Preset) -> Unit,
     onSettingsClick: () -> Unit,
+    onWebEcosystemClick: () -> Unit,
+    onWebMyPresetsClick: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: MainViewModel = hiltViewModel()
 ) {
@@ -112,6 +114,12 @@ fun HomeScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
+            // Web 功能入口卡片
+            WebFeatureCards(
+                onWebEcosystemClick = onWebEcosystemClick,
+                onWebMyPresetsClick = onWebMyPresetsClick
+            )
+            
             // 分类标签
             CategoryTabs(
                 selectedCategory = selectedCategory,
@@ -136,6 +144,105 @@ fun HomeScreen(
                     onPresetClick = onPresetClick,
                     onFavoriteToggle = { viewModel.toggleFavorite(it) },
                     modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+// ==================== Web 功能入口卡片 ====================
+@Composable
+fun WebFeatureCards(
+    onWebEcosystemClick: () -> Unit,
+    onWebMyPresetsClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        WebFeatureCard(
+            title = "预设生态",
+            description = "浏览海量预设",
+            icon = Icons.Default.Palette,
+            onClick = onWebEcosystemClick,
+            modifier = Modifier.weight(1f)
+        )
+        WebFeatureCard(
+            title = "我的预设",
+            description = "管理已下载预设",
+            icon = Icons.Default.Favorite,
+            onClick = onWebMyPresetsClick,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+fun WebFeatureCard(
+    title: String,
+    description: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.98f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "web_card_scale"
+    )
+    
+    Card(
+        onClick = onClick,
+        interactionSource = interactionSource,
+        modifier = modifier
+            .aspectRatio(1.6f)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            },
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = title,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(10.dp)
+                )
+            }
+            Column {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp)
                 )
             }
         }
