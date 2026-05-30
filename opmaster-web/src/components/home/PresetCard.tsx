@@ -46,23 +46,23 @@ export default function PresetCard({ preset, index }: PresetCardProps) {
         
         {/* Top Badges */}
         <div className="absolute top-3 left-3 right-3 flex items-center justify-between">
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center gap-2">
             {preset.cameraParams?.hncs && (
-              <div className="glass-effect px-2.5 py-1 rounded-full flex items-center space-x-1.5">
+              <div className="glass-effect px-2.5 py-1 rounded-small flex items-center gap-1.5">
                 <Star className="w-3 h-3 text-hasselblad fill-hasselblad" />
                 <span className="text-xs font-bold text-hasselblad">哈苏</span>
               </div>
             )}
             {preset.category && (
-              <div className="glass-effect px-2 py-1 rounded-full">
-                <span className="text-xs text-white/90">{preset.category}</span>
+              <div className="glass-effect px-2 py-1 rounded-small">
+                <span className="text-xs text-text-primary/90">{preset.category}</span>
               </div>
             )}
           </div>
           {preset.isNew && (
-            <div className="bg-gradient-to-r from-oppo-green to-hasselblad px-2.5 py-1 rounded-full flex items-center space-x-1">
-              <Sparkles className="w-3 h-3 text-white" />
-              <span className="text-xs font-bold text-white">NEW</span>
+            <div className="bg-gradient-to-r from-oppo-green to-oppo-primary px-2.5 py-1 rounded-small flex items-center gap-1">
+              <Sparkles className="w-3 h-3 text-text-primary" />
+              <span className="text-xs font-bold text-text-primary">NEW</span>
             </div>
           )}
         </div>
@@ -75,40 +75,40 @@ export default function PresetCard({ preset, index }: PresetCardProps) {
             e.stopPropagation();
             toggleFavorite(preset.id);
           }}
-          className="absolute top-3 right-3 w-8 h-8 glass-effect rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+          className="absolute top-3 right-3 w-8 h-8 glass-effect rounded-small flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300"
         >
           <Heart
             className={`w-4 h-4 transition-colors ${
               preset.isFavorite
                 ? 'text-red-500 fill-red-500'
-                : 'text-white'
+                : 'text-text-primary'
             }`}
           />
         </motion.button>
         
         {/* Content Overlay */}
         <div className="absolute bottom-0 left-0 right-0 p-4">
-          <h3 className="text-base font-bold mb-1.5 group-hover:text-hasselblad transition-colors line-clamp-2">
+          <h3 className="text-base font-bold mb-1.5 group-hover:text-hasselblad transition-colors line-clamp-2 text-text-primary">
             {preset.name}
           </h3>
           
           {preset.author && (
-            <p className="text-xs text-white/60 mb-2">
+            <p className="text-xs text-text-tertiary mb-2">
               by {preset.author}
             </p>
           )}
           
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <Camera className="w-3.5 h-3.5 text-white/70" />
-              <span className="text-xs text-white/80 bg-white/10 px-2.5 py-1 rounded-full">
+            <div className="flex items-center gap-2">
+              <Camera className="w-3.5 h-3.5 text-text-secondary/70" />
+              <span className="text-xs text-text-secondary/80 bg-white/10 px-2.5 py-1 rounded-small">
                 {preset.deviceModel}
               </span>
             </div>
             
             <button 
               onClick={handleApply}
-              className="bg-hasselblad/90 hover:bg-hasselblad text-deep-space text-xs font-semibold px-3 py-1 rounded-full transition-colors"
+              className="bg-oppo-primary/90 hover:bg-oppo-primary text-text-primary text-xs font-semibold px-3 py-1 rounded-small transition-colors"
             >
               应用
             </button>

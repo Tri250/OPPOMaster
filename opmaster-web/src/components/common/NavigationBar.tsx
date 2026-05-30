@@ -24,14 +24,16 @@ export default function NavigationBar() {
       animate={{ y: 0 }}
       className="fixed top-0 left-0 right-0 z-50 glass-effect"
     >
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="max-w-7xl mx-auto px-page sm:px-page lg:px-page">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
-          <Link to="/" className="flex items-center space-x-2">
-            <div className="w-10 h-10 bg-hasselblad rounded-xl flex items-center justify-center">
-              <Camera className="w-6 h-6 text-deep-space" />
+          <Link to="/" className="flex items-center gap-3">
+            {/* 48x48 dp orange camera logo */}
+            <div className="w-12 h-12 bg-oppo-primary rounded-button flex items-center justify-center">
+              <Camera className="w-7 h-7 text-text-primary" />
             </div>
-            <span className="text-xl font-bold gradient-text">小O帮帮</span>
+            {/* 小O帮帮文字 - 18sp, 600 weight, white */}
+            <span className="text-lg font-semibold text-text-primary">小O帮帮</span>
           </Link>
 
           {/* Desktop Navigation */}
@@ -43,7 +45,7 @@ export default function NavigationBar() {
                 className={`text-sm font-medium transition-colors ${
                   location.pathname === item.path
                     ? 'text-hasselblad'
-                    : 'text-white/70 hover:text-white'
+                    : 'text-text-secondary hover:text-text-primary'
                 }`}
               >
                 {item.label}
@@ -58,7 +60,7 @@ export default function NavigationBar() {
           {/* Mobile menu button */}
           <button
             onClick={() => setIsOpen(!isOpen)}
-            className="md:hidden p-2 text-white"
+            className="md:hidden p-2 text-text-primary"
           >
             {isOpen ? <X size={24} /> : <Menu size={24} />}
           </button>
@@ -72,7 +74,7 @@ export default function NavigationBar() {
           animate={{ opacity: 1, height: 'auto' }}
           className="md:hidden glass-effect border-t border-white/10"
         >
-          <div className="px-4 py-4 space-y-3">
+          <div className="px-page py-4 space-y-3">
             {navItems.map((item) => (
               <Link
                 key={item.path}
@@ -81,7 +83,7 @@ export default function NavigationBar() {
                 className={`block text-base font-medium ${
                   location.pathname === item.path
                     ? 'text-hasselblad'
-                    : 'text-white/70'
+                    : 'text-text-secondary'
                 }`}
               >
                 {item.label}

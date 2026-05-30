@@ -13,10 +13,10 @@ const PresetEditorPage = lazy(() => import('./pages/PresetEditorPage'));
 
 function Loading() {
   return (
-    <div className="min-h-screen bg-deep-space flex items-center justify-center">
+    <div className="min-h-screen bg-page-bg flex items-center justify-center">
       <div className="text-center">
-        <div className="w-16 h-16 border-4 border-hasselblad/30 border-t-hasselblad rounded-full animate-spin mx-auto mb-4" />
-        <p className="text-white/60">加载中...</p>
+        <div className="w-16 h-16 border-4 border-oppo-primary/30 border-t-oppo-primary rounded-full animate-spin mx-auto mb-4" />
+        <p className="text-text-tertiary">加载中...</p>
       </div>
     </div>
   );
@@ -25,7 +25,7 @@ function Loading() {
 function App() {
   return (
     <Router>
-      <div className="min-h-screen bg-deep-space">
+      <div className="min-h-screen bg-page-bg">
         <NavigationBar />
         <Suspense fallback={<Loading />}>
           <Routes>

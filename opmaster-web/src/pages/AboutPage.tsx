@@ -3,7 +3,7 @@ import { Heart, Camera, Sparkles } from 'lucide-react';
 
 export default function AboutPage() {
   return (
-    <div className="min-h-screen pt-20 pb-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen pt-20 pb-12 px-page sm:px-page lg:px-page">
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <motion.div
@@ -11,13 +11,13 @@ export default function AboutPage() {
           animate={{ opacity: 1, y: 0 }}
           className="text-center mb-16"
         >
-          <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-oppo-green to-hasselblad rounded-2xl mb-6">
-            <Camera className="w-12 h-12 text-white" />
+          <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-oppo-green to-oppo-primary rounded-card mb-6">
+            <Camera className="w-12 h-12 text-text-primary" />
           </div>
-          <h1 className="text-4xl md:text-5xl font-bold mb-4 gradient-text">
+          <h1 className="text-4xl md:text-5xl font-bold mb-4 text-hasselblad">
             关于我
           </h1>
-          <p className="text-lg text-white/60 max-w-2xl mx-auto">
+          <p className="text-lg text-text-tertiary max-w-2xl mx-auto">
             热爱摄影的开发者，为摄影爱好者打造专业工具
           </p>
         </motion.div>
@@ -29,11 +29,11 @@ export default function AboutPage() {
           viewport={{ once: true }}
           className="card p-8 mb-12"
         >
-          <h2 className="text-2xl font-bold mb-6 gradient-text flex items-center gap-2">
+          <h2 className="text-2xl font-bold mb-6 text-hasselblad flex items-center gap-2">
             <Sparkles className="w-6 h-6" />
             小O帮帮
           </h2>
-          <div className="space-y-4 text-white/70 leading-relaxed">
+          <div className="space-y-4 text-text-secondary leading-relaxed">
             <p>
               你好！我是「带娃的小陈工」，一名热爱摄影的开发者。小O帮帮诞生于对完美摄影体验的追求。
             </p>
@@ -54,11 +54,11 @@ export default function AboutPage() {
           viewport={{ once: true }}
           className="card p-8 text-center"
         >
-          <h2 className="text-2xl font-bold mb-4 gradient-text flex items-center justify-center gap-2">
+          <h2 className="text-2xl font-bold mb-4 text-hasselblad flex items-center justify-center gap-2">
             <Heart className="w-6 h-6" />
             联系我
           </h2>
-          <p className="text-white/60 mb-6">
+          <p className="text-text-tertiary mb-6">
             有任何问题或建议？抖音、小红书搜索「带娃的小陈工」
           </p>
         </motion.div>
@@ -68,7 +68,7 @@ export default function AboutPage() {
           initial={{ opacity: 0 }}
           whileInView={{ opacity: 1 }}
           viewport={{ once: true }}
-          className="mt-12 text-center text-sm text-white/40"
+          className="mt-12 text-center text-sm text-text-tertiary"
         >
           <p>© 2026 小O帮帮. 为摄影爱好者打造</p>
         </motion.div>

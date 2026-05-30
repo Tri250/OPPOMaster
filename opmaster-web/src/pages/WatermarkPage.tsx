@@ -4,8 +4,8 @@ import { useState, useRef, useEffect } from 'react';
 
 const watermarkTemplates = [
   { id: 'hasselblad', name: '哈苏风格', color: '#D4A574', bgColor: 'rgba(212, 165, 116, 0.1)' },
-  { id: 'oppo', name: 'OPPO风格', color: '#00D7A0', bgColor: 'rgba(0, 215, 160, 0.1)' },
-  { id: 'oneplus', name: 'OnePlus风格', color: '#FF3333', bgColor: 'rgba(255, 51, 51, 0.1)' },
+  { id: 'oppo', name: 'OPPO风格', color: '#FF6B35', bgColor: 'rgba(255, 107, 53, 0.1)' },
+  { id: 'oneplus', name: 'OnePlus风格', color: '#FF3333', bgColor: 'rgba(255, 51, 53, 0.1)' },
   { id: 'realme', name: 'realme风格', color: '#FFC107', bgColor: 'rgba(255, 193, 7, 0.1)' },
   { id: 'minimal', name: '简约参数', color: '#FFFFFF', bgColor: 'rgba(255, 255, 255, 0.05)' },
   { id: 'film', name: '胶片风格', color: '#8B7355', bgColor: 'rgba(139, 115, 85, 0.1)' }
@@ -13,7 +13,7 @@ const watermarkTemplates = [
 
 export default function WatermarkGenerator() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [selectedTemplate, setSelectedTemplate] = useState(watermarkTemplates[0]);
+  const [selectedTemplate, setSelectedTemplate] = useState(watermarkTemplates[1]); // 默认OPPO风格
   const [deviceName, setDeviceName] = useState('Find X9spro');
   const [lensInfo, setLensInfo] = useState('24mm f/1.8');
   const [showWatermark, setShowWatermark] = useState(true);
@@ -133,7 +133,7 @@ export default function WatermarkGenerator() {
   };
 
   return (
-    <div className="min-h-screen pt-20 pb-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen pt-20 pb-12 px-page sm:px-page lg:px-page">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <motion.div
@@ -141,13 +141,13 @@ export default function WatermarkGenerator() {
           animate={{ opacity: 1, y: 0 }}
           className="text-center mb-12"
         >
-          <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-oppo-green to-cyan-500 rounded-2xl mb-6">
-            <Palette className="w-12 h-12 text-white" />
+          <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-oppo-green to-oppo-primary rounded-card mb-6">
+            <Palette className="w-12 h-12 text-text-primary" />
           </div>
-          <h1 className="text-4xl md:text-5xl font-bold mb-4 gradient-text">
+          <h1 className="text-4xl md:text-5xl font-bold mb-4 text-hasselblad">
             水印生成器
           </h1>
-          <p className="text-lg text-white/60 max-w-2xl mx-auto">
+          <p className="text-lg text-text-tertiary max-w-2xl mx-auto">
             为您的照片添加专业水印 - 支持10+品牌风格
           </p>
         </motion.div>
@@ -180,22 +180,22 @@ export default function WatermarkGenerator() {
                 onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
                 onDragLeave={() => setIsDragOver(false)}
                 onDrop={handleDrop}
-                className={`border-2 border-dashed rounded-xl p-8 text-center transition-all cursor-pointer ${
+                className={`border-2 border-dashed rounded-card p-8 text-center transition-all cursor-pointer ${
                   isDragOver 
-                    ? 'border-oppo-green bg-oppo-green/10' 
-                    : 'border-white/20 hover:border-oppo-green hover:bg-oppo-green/5'
+                    ? 'border-oppo-primary bg-oppo-primary/10' 
+                    : 'border-white/20 hover:border-oppo-primary hover:bg-oppo-primary/5'
                 }`}
               >
-                <Camera className="w-12 h-12 mx-auto mb-3 text-white/40" />
-                <p className="text-white/60">点击上传或拖拽图片</p>
-                <p className="text-xs text-white/40 mt-1">支持 JPG、PNG、WebP 格式</p>
+                <Camera className="w-12 h-12 mx-auto mb-3 text-text-tertiary" />
+                <p className="text-text-tertiary">点击上传或拖拽图片</p>
+                <p className="text-xs text-text-tertiary mt-1">支持 JPG、PNG、WebP 格式</p>
               </div>
             </div>
 
             {/* Preview Canvas */}
             <div className="card p-6">
-              <h2 className="text-lg font-bold mb-4">预览效果</h2>
-              <div className="relative bg-black/20 rounded-xl overflow-hidden">
+              <h2 className="text-lg font-bold mb-4 text-text-primary">预览效果</h2>
+              <div className="relative bg-black/20 rounded-card overflow-hidden">
                 {selectedImage ? (
                   <canvas
                     ref={canvasRef}
@@ -203,7 +203,7 @@ export default function WatermarkGenerator() {
                   />
                 ) : (
                   <div className="aspect-video flex items-center justify-center">
-                    <p className="text-white/40">上传图片以预览水印效果</p>
+                    <p className="text-text-tertiary">上传图片以预览水印效果</p>
                   </div>
                 )}
               </div>
@@ -245,19 +245,19 @@ export default function WatermarkGenerator() {
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                     onClick={() => setSelectedTemplate(template)}
-                    className={`p-4 rounded-xl border-2 transition-all ${
+                    className={`p-4 rounded-card border-2 transition-all ${
                       selectedTemplate.id === template.id
-                        ? 'border-oppo-green bg-oppo-green/10'
+                        ? 'border-oppo-primary bg-oppo-primary/10'
                         : 'border-white/10 hover:border-white/30'
                     }`}
                   >
                     <div 
-                      className="w-full h-12 rounded-lg mb-2 flex items-center justify-center text-white font-bold"
+                      className="w-full h-12 rounded-button mb-2 flex items-center justify-center text-text-primary font-bold"
                       style={{ backgroundColor: template.bgColor }}
                     >
                       小O帮帮
                     </div>
-                    <p className="text-sm font-medium">{template.name}</p>
+                    <p className="text-sm font-medium text-text-primary">{template.name}</p>
                   </motion.button>
                 ))}
               </div>
@@ -273,7 +273,7 @@ export default function WatermarkGenerator() {
               <div className="space-y-4">
                 {/* Device Name */}
                 <div>
-                  <label className="block text-sm font-medium text-white/70 mb-2">
+                  <label className="block text-sm font-medium text-text-secondary mb-2">
                     设备名称
                   </label>
                   <input
@@ -287,7 +287,7 @@ export default function WatermarkGenerator() {
 
                 {/* Lens Info */}
                 <div>
-                  <label className="block text-sm font-medium text-white/70 mb-2">
+                  <label className="block text-sm font-medium text-text-secondary mb-2">
                     镜头参数
                   </label>
                   <input
@@ -301,15 +301,15 @@ export default function WatermarkGenerator() {
 
                 {/* Show Watermark Toggle */}
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-white/70">显示水印</span>
+                  <span className="text-sm font-medium text-text-secondary">显示水印</span>
                   <button
                     onClick={() => setShowWatermark(!showWatermark)}
-                    className={`relative w-12 h-6 rounded-full transition-colors ${
+                    className={`relative w-12 h-6 rounded-small transition-colors ${
                       showWatermark ? 'bg-oppo-green' : 'bg-white/20'
                     }`}
                   >
                     <div
-                      className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${
+                      className={`absolute top-1 w-4 h-4 bg-white rounded-small transition-transform ${
                         showWatermark ? 'translate-x-7' : 'translate-x-1'
                       }`}
                     />
@@ -320,13 +320,13 @@ export default function WatermarkGenerator() {
 
             {/* Quick Presets */}
             <div className="card p-6">
-              <h2 className="text-lg font-bold mb-4">快速预设</h2>
+              <h2 className="text-lg font-bold mb-4 text-text-primary">快速预设</h2>
               <div className="grid grid-cols-2 gap-3">
                 <button
                   onClick={() => {
                     setDeviceName('Find X9spro');
                     setLensInfo('24mm f/1.8');
-                    setSelectedTemplate(watermarkTemplates[0]);
+                    setSelectedTemplate(watermarkTemplates[1]);
                   }}
                   className="btn-secondary text-sm py-3"
                 >
@@ -371,7 +371,7 @@ export default function WatermarkGenerator() {
                 <span className="text-2xl">💡</span>
                 <span>使用提示</span>
               </h2>
-              <ul className="space-y-2 text-sm text-white/70">
+              <ul className="space-y-2 text-sm text-text-secondary">
                 <li>• 支持拖拽或点击上传图片</li>
                 <li>• 水印位置固定在右下角</li>
                 <li>• 可自定义设备名称和镜头参数</li>

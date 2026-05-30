@@ -215,7 +215,7 @@ export default function TechPage() {
   const [selectedFeature, setSelectedFeature] = useState<typeof features[0] | null>(null);
 
   return (
-    <div className="min-h-screen pt-20 pb-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen pt-20 pb-12 px-page sm:px-page lg:px-page">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <motion.div
@@ -223,10 +223,10 @@ export default function TechPage() {
           animate={{ opacity: 1, y: 0 }}
           className="text-center mb-16"
         >
-          <h1 className="text-4xl md:text-5xl font-bold mb-4 gradient-text">
+          <h1 className="text-4xl md:text-5xl font-bold mb-4 text-hasselblad">
             影像参数
           </h1>
-          <p className="text-lg text-white/60 max-w-2xl mx-auto">
+          <p className="text-lg text-text-tertiary max-w-2xl mx-auto">
             核心功能展示 - 点击卡片查看详情
           </p>
         </motion.div>
@@ -247,22 +247,22 @@ export default function TechPage() {
               {/* Hover Effect */}
               <div className={`absolute inset-0 bg-gradient-to-br ${feature.color} opacity-0 group-hover:opacity-10 transition-opacity duration-300`} />
               
-              <div className={`relative w-16 h-16 rounded-2xl bg-gradient-to-br ${feature.color} p-4 mb-4 group-hover:scale-110 transition-transform duration-300`}>
-                <feature.icon className="w-full h-full text-white" />
+              <div className={`relative w-16 h-16 rounded-card bg-gradient-to-br ${feature.color} p-4 mb-4 group-hover:scale-110 transition-transform duration-300`}>
+                <feature.icon className="w-full h-full text-text-primary" />
               </div>
               
-              <h3 className="text-xl font-bold mb-2 group-hover:text-hasselblad transition-colors">
+              <h3 className="text-xl font-bold mb-2 group-hover:text-oppo-primary transition-colors">
                 {feature.title}
               </h3>
               
-              <p className="text-white/60 text-sm mb-4">
+              <p className="text-text-tertiary text-sm mb-4">
                 {feature.description}
               </p>
               
               <ul className="space-y-2">
                 {feature.features.map((item, fIdx) => (
-                  <li key={fIdx} className="flex items-center text-sm text-white/50">
-                    <div className="w-1.5 h-1.5 bg-hasselblad rounded-full mr-2" />
+                  <li key={fIdx} className="flex items-center text-sm text-text-tertiary">
+                    <div className="w-1.5 h-1.5 bg-oppo-primary rounded-small mr-2" />
                     {item}
                   </li>
                 ))}
@@ -270,7 +270,7 @@ export default function TechPage() {
 
               {/* Click hint */}
               <div className="absolute bottom-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                <span className="text-xs text-hasselblad">点击查看详情 →</span>
+                <span className="text-xs text-oppo-primary">点击查看详情 →</span>
               </div>
             </motion.div>
           ))}
@@ -291,25 +291,25 @@ export default function TechPage() {
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.9, opacity: 0 }}
                 onClick={(e) => e.stopPropagation()}
-                className="bg-deep-space-light rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto"
+                className="bg-card-bg rounded-card max-w-4xl w-full max-h-[90vh] overflow-y-auto"
               >
                 {/* Modal Header */}
-                <div className={`sticky top-0 bg-gradient-to-r ${selectedFeature.detail.color} p-6 rounded-t-2xl`}>
+                <div className={`sticky top-0 bg-gradient-to-r ${selectedFeature.detail.color} p-6 rounded-t-card`}>
                   <div className="flex items-start justify-between">
-                    <div className="flex items-center space-x-4">
-                      <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center">
-                        <selectedFeature.detail.icon className="w-10 h-10 text-white" />
+                    <div className="flex items-center gap-4">
+                      <div className="w-16 h-16 bg-white/20 rounded-card flex items-center justify-center">
+                        <selectedFeature.detail.icon className="w-10 h-10 text-text-primary" />
                       </div>
                       <div>
-                        <h2 className="text-2xl font-bold text-white">{selectedFeature.detail.title}</h2>
-                        <p className="text-white/80 text-sm mt-1">点击卡片查看功能详情</p>
+                        <h2 className="text-2xl font-bold text-text-primary">{selectedFeature.detail.title}</h2>
+                        <p className="text-text-primary/80 text-sm mt-1">点击卡片查看功能详情</p>
                       </div>
                     </div>
                     <button
                       onClick={() => setSelectedFeature(null)}
-                      className="w-10 h-10 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition-colors"
+                      className="w-10 h-10 bg-white/20 hover:bg-white/30 rounded-small flex items-center justify-center transition-colors"
                     >
-                      <X className="w-6 h-6 text-white" />
+                      <X className="w-6 h-6 text-text-primary" />
                     </button>
                   </div>
                 </div>
@@ -318,8 +318,8 @@ export default function TechPage() {
                 <div className="p-6 space-y-6">
                   {/* Description */}
                   <div>
-                    <h3 className="text-lg font-bold mb-2 gradient-text">功能介绍</h3>
-                    <p className="text-white/70 leading-relaxed">
+                    <h3 className="text-lg font-bold mb-2 text-hasselblad">功能介绍</h3>
+                    <p className="text-text-secondary leading-relaxed">
                       {selectedFeature.detail.description}
                     </p>
                   </div>
@@ -337,10 +337,10 @@ export default function TechPage() {
                           initial={{ opacity: 0, x: -20 }}
                           animate={{ opacity: 1, x: 0 }}
                           transition={{ delay: idx * 0.1 }}
-                          className="flex items-start space-x-2 bg-white/5 p-3 rounded-lg"
+                          className="flex items-start gap-2 bg-white/5 p-3 rounded-button"
                         >
-                          <CheckCircle className="w-5 h-5 text-hasselblad flex-shrink-0 mt-0.5" />
-                          <span className="text-sm text-white/80">{benefit}</span>
+                          <CheckCircle className="w-5 h-5 text-oppo-primary flex-shrink-0 mt-0.5" />
+                          <span className="text-xs text-text-secondary">{benefit}</span>
                         </motion.div>
                       ))}
                     </div>
@@ -356,9 +356,9 @@ export default function TechPage() {
                           initial={{ opacity: 0, scale: 0.9 }}
                           animate={{ opacity: 1, scale: 1 }}
                           transition={{ delay: idx * 0.05 }}
-                          className="bg-white/5 p-3 rounded-lg text-center"
+                          className="bg-white/5 p-3 rounded-button text-center"
                         >
-                          <span className="text-xs text-white/60">{tech}</span>
+                          <span className="text-xs text-text-tertiary">{tech}</span>
                         </motion.div>
                       ))}
                     </div>
@@ -369,7 +369,7 @@ export default function TechPage() {
                     <div className="text-center pt-4">
                       <a
                         href={selectedFeature.detail.actionLink}
-                        className="btn-primary inline-flex items-center space-x-2"
+                        className="btn-primary inline-flex items-center gap-2"
                       >
                         <Download className="w-5 h-5" />
                         <span>{selectedFeature.detail.action}</span>
@@ -389,17 +389,17 @@ export default function TechPage() {
           viewport={{ once: true }}
           className="card p-8"
         >
-          <h2 className="text-2xl font-bold mb-6 text-center gradient-text">
+          <h2 className="text-2xl font-bold mb-6 text-center text-hasselblad">
             影像工具
           </h2>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-            <a href="/watermark" className="btn-primary text-center py-6 flex flex-col items-center space-y-2">
+            <a href="/watermark" className="btn-primary text-center py-6 flex flex-col items-center gap-2">
               <Palette className="w-8 h-8" />
               <span className="font-bold">水印生成器</span>
               <span className="text-xs opacity-80">10+品牌水印模板</span>
             </a>
-            <a href="/editor" className="btn-secondary text-center py-6 flex flex-col items-center space-y-2">
+            <a href="/editor" className="btn-secondary text-center py-6 flex flex-col items-center gap-2">
               <Code className="w-8 h-8" />
               <span className="font-bold">预设编辑器</span>
               <span className="text-xs opacity-80">创建专属预设</span>
@@ -414,7 +414,7 @@ export default function TechPage() {
           viewport={{ once: true }}
           className="card p-8"
         >
-          <h2 className="text-2xl font-bold mb-6 text-center gradient-text">
+          <h2 className="text-2xl font-bold mb-6 text-center text-hasselblad">
             快速操作入口
           </h2>
           
