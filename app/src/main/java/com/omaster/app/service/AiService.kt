@@ -6,7 +6,6 @@ import com.omaster.app.ml.LocalSceneClassifier
 import com.omaster.app.ml.SceneClassification
 import com.omaster.app.model.Preset
 import com.omaster.app.model.SceneType
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext

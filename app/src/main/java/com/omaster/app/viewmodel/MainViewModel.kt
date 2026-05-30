@@ -18,6 +18,16 @@ import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
 
+enum class FilterType {
+    ALL,
+    FAVORITES,
+    HNCS,
+    FIND_X,
+    RENO,
+    NEW,
+    TRENDING
+}
+
 @HiltViewModel
 class MainViewModel @Inject constructor(
     private val repository: PresetRepository,

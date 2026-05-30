@@ -110,7 +110,7 @@ class LocalSceneClassifier @Inject constructor(
     suspend fun classify(bitmap: Bitmap): SceneClassification = withContext(Dispatchers.IO) {
         try {
             val inputImage = InputImage.fromBitmap(bitmap, 0)
-            val labels = awaitImageLabels(inputImage)
+            val labels = awaitImageLabels(labeler.process(inputImage))
 
             if (labels.isEmpty()) {
                 Log.d(TAG, "No labels detected, returning UNKNOWN")

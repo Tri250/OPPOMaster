@@ -220,7 +220,6 @@ export const useAppStore = create<AppState>()(
       partialize: (state) => ({
         favorites: [...state.favorites],
         searchHistory: state.searchHistory,
-        themeMode: state.themeMode,
       }),
     }
   )
