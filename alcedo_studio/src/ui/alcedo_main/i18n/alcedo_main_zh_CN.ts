@@ -1390,8 +1390,8 @@
     </message>
     <message>
         <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="273"/>
-        <source>Per-hue lightness and saturation adjustments.</source>
-        <translation>按色相调整明度与饱和度。</translation>
+        <source>Per-hue lightness and chroma adjustments.</source>
+        <translation>按色相调整明度与彩度。</translation>
     </message>
     <message>
         <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="274"/>
@@ -1405,13 +1405,13 @@
     </message>
     <message>
         <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="276"/>
-        <source>HSL Saturation</source>
-        <translation>HSL 饱和度</translation>
+        <source>Chroma</source>
+        <translation>彩度</translation>
     </message>
     <message>
         <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="277"/>
-        <source>Hue Range</source>
-        <translation>色相范围</translation>
+        <source>Hue Smoothness</source>
+        <translation>色相平滑度</translation>
     </message>
     <message>
         <source>CDL Wheels</source>

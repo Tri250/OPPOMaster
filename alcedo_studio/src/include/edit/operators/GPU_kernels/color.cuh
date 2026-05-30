@@ -138,6 +138,48 @@ GPU_FUNC float3 hls_oklch_fit_ap1_lower_gamut(float3 adjusted_ap1, float3 neutra
                      neutral_ap1.z + (adjusted_ap1.z - neutral_ap1.z) * scale);
 }
 
+GPU_FUNC float3 hls_oklch_evaluate_hue_curve(float hue, GPUOperatorParams& params,
+                                             int profile_count) {
+  constexpr float kEps = 1e-6f;
+  float           sum_h = 0.0f;
+  float           sum_l = 0.0f;
+  float           sum_c = 0.0f;
+  float           sum_weight = 0.0f;
+  int             nearest = 0;
+  float           nearest_dist =
+      hls_oklch_hue_distance(hue, hls_oklch_wrap_hue(params.hls_profile_hues_[0]));
+
+#pragma unroll
+  for (int i = 0; i < OperatorParams::kHlsProfileCount; ++i) {
+    if (i >= profile_count) {
+      continue;
+    }
+
+    const float target_h = hls_oklch_wrap_hue(params.hls_profile_hues_[i]);
+    const float hue_dist = hls_oklch_hue_distance(hue, target_h);
+    if (hue_dist < nearest_dist) {
+      nearest_dist = hue_dist;
+      nearest      = i;
+    }
+
+    const float width  = fmaxf(params.hls_profile_hue_ranges_[i], 1.0f);
+    const float weight = hls_oklch_hue_selection_weight(hue_dist, width);
+    sum_h += params.hls_profile_adjustments_[i][0] * weight;
+    sum_l += params.hls_profile_adjustments_[i][1] * weight;
+    sum_c += params.hls_profile_adjustments_[i][2] * weight;
+    sum_weight += weight;
+  }
+
+  if (sum_weight <= kEps) {
+    return make_float3(params.hls_profile_adjustments_[nearest][0],
+                       params.hls_profile_adjustments_[nearest][1],
+                       params.hls_profile_adjustments_[nearest][2]);
+  }
+
+  const float inv_weight = 1.0f / sum_weight;
+  return make_float3(sum_h * inv_weight, sum_l * inv_weight, sum_c * inv_weight);
+}
+
 struct GPU_HLSOpKernel : GPUPointOpTag {
   __device__ __forceinline__ void operator()(float4* p, GPUOperatorParams& params) const {
     if (!params.hls_enabled_) return;
@@ -153,7 +195,6 @@ struct GPU_HLSOpKernel : GPUPointOpTag {
     }
     const float source_hue =
         hls_oklch_wrap_hue(atan2f(source_lab.z, source_lab.y) * (180.0f / kPi));
-    const float chroma_confidence = hls_oklch_smoothstep(0.005f, 0.030f, source_chroma);
 
     int profile_count = params.hls_profile_count_;
     if (profile_count < 1) {
@@ -163,66 +204,37 @@ struct GPU_HLSOpKernel : GPUPointOpTag {
       profile_count = OperatorParams::kHlsProfileCount;
     }
 
-    float accum_r      = 0.0f;
-    float accum_g      = 0.0f;
-    float accum_b      = 0.0f;
-    float accum_weight = 0.0f;
-
-#pragma unroll
-    for (int i = 0; i < OperatorParams::kHlsProfileCount; ++i) {
-      if (i >= profile_count) {
-        continue;
-      }
-
-      const float adj_h = params.hls_profile_adjustments_[i][0];
-      const float adj_l = params.hls_profile_adjustments_[i][1];
-      const float adj_s = params.hls_profile_adjustments_[i][2];
-      if (fabsf(adj_h) <= kEps && fabsf(adj_l) <= kEps && fabsf(adj_s) <= kEps) {
-        continue;
-      }
-
-      const float hue_range = fmaxf(params.hls_profile_hue_ranges_[i], 1.0f);
-      const float target_h  = hls_oklch_wrap_hue(params.hls_profile_hues_[i]);
-      const float hue_dist  = hls_oklch_hue_distance(source_hue, target_h);
-
-      const float weight = hls_oklch_hue_selection_weight(hue_dist, hue_range) * chroma_confidence;
-      if (weight <= kEps) {
-        continue;
-      }
-
-      const float adjusted_hue_rad =
-          hls_oklch_wrap_hue(source_hue + adj_h) * (kPi / 180.0f);
-      const float adjusted_lightness =
-          hls_oklch_soft_floor(source_lab.x + adj_l * 0.25f, 0.0f, 0.02f);
-      const float chroma_strength = (adj_s >= 0.0f) ? 3.5f : 2.5f;
-      const float adjusted_chroma = source_chroma * exp2f(adj_s * chroma_strength);
-
-      const float3 adjusted_lab =
-          make_float3(adjusted_lightness, adjusted_chroma * cosf(adjusted_hue_rad),
-                      adjusted_chroma * sinf(adjusted_hue_rad));
-      const float3 neutral_lab = make_float3(adjusted_lightness, 0.0f, 0.0f);
-      const float3 neutral_ap1 = hls_oklch_oklab_to_ap1(neutral_lab);
-      const float3 adjusted_ap1 =
-          hls_oklch_fit_ap1_lower_gamut(hls_oklch_oklab_to_ap1(adjusted_lab), neutral_ap1);
-
-      accum_r += adjusted_ap1.x * weight;
-      accum_g += adjusted_ap1.y * weight;
-      accum_b += adjusted_ap1.z * weight;
-      accum_weight += weight;
-    }
-
-    if (accum_weight <= kEps) {
+    const float3 curve = hls_oklch_evaluate_hue_curve(source_hue, params, profile_count);
+    if (fabsf(curve.x) <= kEps && fabsf(curve.y) <= kEps && fabsf(curve.z) <= kEps) {
       return;
     }
 
-    const float inv_weight = 1.0f / accum_weight;
-    const float3 weighted_ap1 =
-        make_float3(accum_r * inv_weight, accum_g * inv_weight, accum_b * inv_weight);
-    const float blend = fminf(accum_weight, 1.0f);
+    const float chroma_confidence    = hls_oklch_smoothstep(0.005f, 0.030f, source_chroma);
+    const float shadow_confidence    = hls_oklch_smoothstep(0.005f, 0.050f, source_lab.x);
+    const float highlight_confidence = 1.0f - hls_oklch_smoothstep(1.35f, 2.25f, source_lab.x);
+    const float protection =
+        fminf(fmaxf(chroma_confidence * shadow_confidence * highlight_confidence, 0.0f), 1.0f);
+    if (protection <= kEps) {
+      return;
+    }
+
+    constexpr float kCurveGain = 2.25f;
+    const float adjusted_hue_rad =
+        hls_oklch_wrap_hue(source_hue + curve.x * kCurveGain * protection) * (kPi / 180.0f);
+    const float adjusted_lightness =
+        hls_oklch_soft_floor(source_lab.x + curve.y * kCurveGain * 0.5f * protection, 0.0f,
+                             0.02f);
+    const float chroma_strength = (curve.z >= 0.0f) ? 4.5f : 3.25f;
+    const float adjusted_chroma =
+        source_chroma * exp2f(curve.z * kCurveGain * chroma_strength * protection);
+
+    const float3 adjusted_lab =
+        make_float3(adjusted_lightness, adjusted_chroma * cosf(adjusted_hue_rad),
+                    adjusted_chroma * sinf(adjusted_hue_rad));
+    const float3 neutral_lab  = make_float3(adjusted_lightness, 0.0f, 0.0f);
+    const float3 neutral_ap1  = hls_oklch_oklab_to_ap1(neutral_lab);
     const float3 output_ap1 =
-        make_float3(source_ap1.x + (weighted_ap1.x - source_ap1.x) * blend,
-                    source_ap1.y + (weighted_ap1.y - source_ap1.y) * blend,
-                    source_ap1.z + (weighted_ap1.z - source_ap1.z) * blend);
+        hls_oklch_fit_ap1_lower_gamut(hls_oklch_oklab_to_ap1(adjusted_lab), neutral_ap1);
     const float3 output_acescc = hls_oklch_ap1_to_acescc(output_ap1);
 
     p->x = output_acescc.x;

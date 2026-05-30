@@ -136,7 +136,7 @@ struct OperatorParams {
   bool                         hls_enabled_              = true;
   float                        target_hls_[3]            = {0.0f, 0.5f, 1.0f};
   float                        hls_adjustment_[3]        = {0.0f, 0.0f, 0.0f};
-  float                        hue_range_                = 15.0f;
+  float                        hue_range_                = 45.0f;
   float                        lightness_range_          = 0.1f;
   float                        saturation_range_         = 0.1f;
   int                          hls_profile_count_        = kHlsProfileCount;
@@ -144,7 +144,7 @@ struct OperatorParams {
       0.0f, 45.0f, 90.0f, 135.0f, 180.0f, 225.0f, 270.0f, 315.0f};
   float                        hls_profile_adjustments_[kHlsProfileCount][3] = {};
   float                        hls_profile_hue_ranges_[kHlsProfileCount] = {
-      15.0f, 15.0f, 15.0f, 15.0f, 15.0f, 15.0f, 15.0f, 15.0f};
+      45.0f, 45.0f, 45.0f, 45.0f, 45.0f, 45.0f, 45.0f, 45.0f};
 
   // Saturation adjustment parameter
   bool                         saturation_enabled_       = true;

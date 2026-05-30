@@ -85,80 +85,76 @@ static inline float4 opencl_color_wheel_op(float4 px, __global const OpenClFused
 static inline float4 opencl_hls_op(float4 px, __global const OpenClFusedParams* params) {
   if (params->hls_enabled_ == 0u) return px;
 
-  const float r = clamp(px.x, 0.0f, 1.0f);
-  const float g = clamp(px.y, 0.0f, 1.0f);
-  const float b = clamp(px.z, 0.0f, 1.0f);
+  const float kEps = 1e-6f;
+  const float kPi  = 3.14159265358979323846f;
+  const float3 source_ap1 = opencl_acescc_to_ap1(px.xyz);
+  const float3 source_lab = opencl_ap1_to_oklab(source_ap1);
+  const float source_chroma = hypot(source_lab.y, source_lab.z);
+  if (source_chroma <= kEps) return px;
 
-  const float max_c = fmax(fmax(r, g), b);
-  const float min_c = fmin(fmin(r, g), b);
-  const float L     = (max_c + min_c) * 0.5f;
-  float H = 0.0f;
-  float S = 0.0f;
-  const float d = max_c - min_c;
-
-  if (d > 1e-6f) {
-    const float denom = fmax(1.0f - fabs(2.0f * L - 1.0f), 1e-6f);
-    S = clamp(d / denom, 0.0f, 1.0f);
-    if (max_c == r) {
-      H = (g - b) / d + (g < b ? 6.0f : 0.0f);
-    } else if (max_c == g) {
-      H = (b - r) / d + 2.0f;
-    } else {
-      H = (r - g) / d + 4.0f;
-    }
-    H *= 60.0f;
-  }
+  const float source_hue = opencl_wrap_hue(atan2(source_lab.z, source_lab.y) * (180.0f / kPi));
 
   int profile_count = params->hls_profile_count_;
   if (profile_count < 1) profile_count = 1;
   if (profile_count > ALCEDO_OPENCL_HLS_PROFILE_COUNT) profile_count = ALCEDO_OPENCL_HLS_PROFILE_COUNT;
 
-  const float h = opencl_wrap_hue(H);
   float accum_h = 0.0f;
   float accum_l = 0.0f;
-  float accum_s = 0.0f;
-  int   has_contribution = 0;
+  float accum_c = 0.0f;
+  float accum_weight = 0.0f;
+  int nearest = 0;
+  float nearest_dist = opencl_hue_distance(source_hue, opencl_wrap_hue(params->hls_profile_hues_[0]));
 
   for (int i = 0; i < ALCEDO_OPENCL_HLS_PROFILE_COUNT; ++i) {
     if (i >= profile_count) continue;
 
-    const float adj_h = params->hls_profile_adjustments_[i][0];
-    const float adj_l = params->hls_profile_adjustments_[i][1];
-    const float adj_s = params->hls_profile_adjustments_[i][2];
-    if (fabs(adj_h) <= 1e-6f && fabs(adj_l) <= 1e-6f && fabs(adj_s) <= 1e-6f) continue;
-
-    const float hue_range = fmax(params->hls_profile_hue_ranges_[i], 1e-6f);
+    const float width     = fmax(params->hls_profile_hue_ranges_[i], 1.0f);
     const float target_h  = opencl_wrap_hue(params->hls_profile_hues_[i]);
-    const float hue_diff  = fabs(h - target_h);
-    const float hue_dist  = fmin(hue_diff, 360.0f - hue_diff);
-    if (hue_dist >= hue_range) continue;
+    const float hue_dist  = opencl_hue_distance(source_hue, target_h);
+    if (hue_dist < nearest_dist) {
+      nearest_dist = hue_dist;
+      nearest = i;
+    }
 
-    const float weight = 1.0f - hue_dist / hue_range;
-    accum_h += adj_h * weight;
-    accum_l += adj_l * weight;
-    accum_s += adj_s * weight;
-    has_contribution = 1;
+    const float t = hue_dist / width;
+    const float weight = exp2(-(t * t));
+    accum_h += params->hls_profile_adjustments_[i][0] * weight;
+    accum_l += params->hls_profile_adjustments_[i][1] * weight;
+    accum_c += params->hls_profile_adjustments_[i][2] * weight;
+    accum_weight += weight;
   }
 
-  if (!has_contribution) return px;
-
-  const float h_adjusted = opencl_wrap_hue(h + accum_h);
-  const float l_adjusted = clamp(L + accum_l, 0.0f, 1.0f);
-  const float s_adjusted = clamp(S + accum_s, 0.0f, 1.0f);
-
-  if (s_adjusted <= 1e-6f) {
-    px.x = l_adjusted;
-    px.y = l_adjusted;
-    px.z = l_adjusted;
-  } else {
-    const float q = (l_adjusted < 0.5f) ? (l_adjusted * (1.0f + s_adjusted))
-                                        : (l_adjusted + s_adjusted - l_adjusted * s_adjusted);
-    const float p = 2.0f * l_adjusted - q;
-
-    px.x = opencl_hue2rgb(p, q, h_adjusted / 360.0f + 1.0f / 3.0f);
-    px.y = opencl_hue2rgb(p, q, h_adjusted / 360.0f);
-    px.z = opencl_hue2rgb(p, q, h_adjusted / 360.0f - 1.0f / 3.0f);
+  float3 curve = (float3)(params->hls_profile_adjustments_[nearest][0],
+                          params->hls_profile_adjustments_[nearest][1],
+                          params->hls_profile_adjustments_[nearest][2]);
+  if (accum_weight > kEps) {
+    curve = (float3)(accum_h, accum_l, accum_c) / accum_weight;
   }
+  if (fabs(curve.x) <= kEps && fabs(curve.y) <= kEps && fabs(curve.z) <= kEps) return px;
+
+  const float chroma_confidence = opencl_smoothstep_range(0.005f, 0.030f, source_chroma);
+  const float shadow_confidence = opencl_smoothstep_range(0.005f, 0.050f, source_lab.x);
+  const float highlight_confidence = 1.0f - opencl_smoothstep_range(1.35f, 2.25f, source_lab.x);
+  const float protection = clamp(chroma_confidence * shadow_confidence * highlight_confidence, 0.0f, 1.0f);
+  if (protection <= kEps) return px;
+
+  const float curve_gain = 2.25f;
+  const float adjusted_hue_rad =
+      opencl_wrap_hue(source_hue + curve.x * curve_gain * protection) * (kPi / 180.0f);
+  const float adjusted_lightness =
+      opencl_soft_floor(source_lab.x + curve.y * curve_gain * 0.5f * protection, 0.0f, 0.02f);
+  const float chroma_strength = (curve.z >= 0.0f) ? 4.5f : 3.25f;
+  const float adjusted_chroma =
+      source_chroma * exp2(curve.z * curve_gain * chroma_strength * protection);
+
+  const float3 adjusted_lab =
+      (float3)(adjusted_lightness, adjusted_chroma * cos(adjusted_hue_rad),
+               adjusted_chroma * sin(adjusted_hue_rad));
+  const float3 neutral_lab = (float3)(adjusted_lightness, 0.0f, 0.0f);
+  const float3 output_ap1 =
+      opencl_fit_ap1_lower_gamut(opencl_oklab_to_ap1(adjusted_lab),
+                                 opencl_oklab_to_ap1(neutral_lab));
+  px.xyz = opencl_ap1_to_acescc(output_ap1);
 
   return px;
 }

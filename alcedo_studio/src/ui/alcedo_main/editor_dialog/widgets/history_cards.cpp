@@ -592,7 +592,7 @@ auto SummarizeColorTemp(const EditTransaction& tx) -> TxCardSummary {
 auto SummarizeHls(const EditTransaction& tx) -> TxCardSummary {
   constexpr std::array<const char*, 8> kHueLabels = {"Red",    "Orange", "Yellow", "Green",
                                                      "Cyan",   "Blue",   "Purple", "Magenta"};
-  constexpr std::array<const char*, 3> kComponentLabels = {"Hue", "Light", "Sat"};
+  constexpr std::array<const char*, 3> kComponentLabels = {"Hue", "Light", "Chroma"};
 
   const auto& params = tx.GetOperatorParams();
   const auto prev = tx.GetLastOperatorParams();
@@ -654,10 +654,10 @@ auto SummarizeHls(const EditTransaction& tx) -> TxCardSummary {
       const QString value = WithUnit(FormatNumber(*next), QStringLiteral("°"));
       const QString detail =
           old.has_value()
-              ? QStringLiteral("%1 Range %2 \u2192 %3")
+              ? QStringLiteral("%1 Smoothness %2 \u2192 %3")
                     .arg(QString::fromLatin1(kHueLabels[i]),
                          WithUnit(FormatNumber(*old), QStringLiteral("°")), value)
-              : QStringLiteral("%1 Range %2").arg(QString::fromLatin1(kHueLabels[i]), value);
+              : QStringLiteral("%1 Smoothness %2").arg(QString::fromLatin1(kHueLabels[i]), value);
       return {value, detail};
     }
   }

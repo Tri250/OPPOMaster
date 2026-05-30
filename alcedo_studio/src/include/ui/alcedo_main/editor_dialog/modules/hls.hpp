@@ -13,10 +13,10 @@ constexpr std::array<float, 8> kCandidateHues        = {0.0f,   45.0f,  90.0f,  
                                                         180.0f, 225.0f, 270.0f, 315.0f};
 constexpr float kFixedTargetLightness  = 0.5f;
 constexpr float kFixedTargetSaturation = 0.5f;
-constexpr float kDefaultHueRange       = 15.0f;
+constexpr float kDefaultHueRange       = 45.0f;
 constexpr float kFixedLightnessRange   = 1.0f;
 constexpr float kFixedSaturationRange  = 1.0f;
-constexpr float kMaxHueShiftDegrees    = 15.0f;
+constexpr float kMaxHueShiftDegrees    = 30.0f;
 constexpr float kAdjUiMin              = -100.0f;
 constexpr float kAdjUiMax              = 100.0f;
 constexpr float kAdjUiToParamScale     = 1000.0f;
