@@ -6,15 +6,18 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.content.Context
 import android.content.Intent
 import android.provider.Settings
+import androidx.annotation.RequiresApi
+import android.os.Build
 import timber.log.Timber
+import java.util.concurrent.atomic.AtomicReference
 
 class AutoFillAccessibilityService : AccessibilityService() {
 
     companion object {
-        private var currentParams: Map<String, String>? = null
+        private val currentParams = AtomicReference<Map<String, String>?>(null)
 
         fun setParams(params: Map<String, String>) {
-            currentParams = params
+            currentParams.set(HashMap(params))
         }
 
         fun isServiceEnabled(context: Context): Boolean {
@@ -27,6 +30,7 @@ class AutoFillAccessibilityService : AccessibilityService() {
 
         fun openAccessibilitySettings(context: Context) {
             val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)
         }
     }
@@ -44,9 +48,9 @@ class AutoFillAccessibilityService : AccessibilityService() {
     }
 
     private fun tryAutoFillParams(rootNode: AccessibilityNodeInfo) {
-        currentParams ?: return
+        val params = currentParams.get() ?: return
 
-        Timber.d("Trying to auto-fill params: $currentParams")
+        Timber.d("Trying to auto-fill params: $params")
 
         val brandCameraMap = mapOf(
             "com.oppo.camera" to OPPOCameraHelper,
@@ -58,7 +62,7 @@ class AutoFillAccessibilityService : AccessibilityService() {
         val packageName = rootNode.packageName?.toString()
         val helper = brandCameraMap.entries.find { packageName?.contains(it.key) == true }?.value
 
-        helper?.autoFillParams(rootNode, currentParams!!)
+        helper?.autoFillParams(rootNode, params)
     }
 
     override fun onInterrupt() {

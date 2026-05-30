@@ -32,8 +32,8 @@ data class CameraParams(
         val errors = mutableListOf<String>()
         
         // ISO 校验 - 2026年OPPO最新范围
-        if (iso < 50 || iso > 102400) {
-            errors.add("ISO 超出范围（应在 50-102400 之间）")
+        if (iso < 50 || iso > 204800) {
+            errors.add("ISO 超出范围（应在 50-204800 之间）")
         }
         
         // 快门格式校验

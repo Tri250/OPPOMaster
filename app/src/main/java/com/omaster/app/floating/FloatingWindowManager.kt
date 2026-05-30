@@ -4,24 +4,23 @@ import android.content.Context
 import android.graphics.PixelFormat
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.view.*
-import android.widget.LinearLayout
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.*
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
@@ -30,70 +29,86 @@ import com.omaster.app.ui.theme.AccentPrimary
 import com.omaster.app.ui.theme.DeepSpace
 import com.omaster.app.ui.theme.HasselbladOrange
 import timber.log.Timber
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 object FloatingWindowManager {
+    private val mainHandler = Handler(Looper.getMainLooper())
     private var windowManager: WindowManager? = null
     private var floatingView: ComposeView? = null
-    private var isShowing = false
+    private val isShowing = AtomicBoolean(false)
 
-    private var currentPresetName: String = "预设参数"
-    private var currentParams: Map<String, String> = emptyMap()
+    private val currentPresetName = AtomicReference<String>("预设参数")
+    private val currentParams = AtomicReference<Map<String, String>>(emptyMap())
 
     fun setPresetData(name: String, params: Map<String, String>) {
-        currentPresetName = name
-        currentParams = params
-        if (isShowing) {
+        currentPresetName.set(name)
+        currentParams.set(HashMap(params))
+        if (isShowing.get()) {
             updateFloatingView()
         }
     }
 
     fun showWindow(context: Context) {
-        if (isShowing) return
+        if (isShowing.get()) {
+            return
+        }
 
         if (!canDrawOverlays(context)) {
             requestOverlayPermission(context)
             return
         }
 
-        try {
-            windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-            floatingView = ComposeView(context).apply {
-                setContent {
-                    FloatingWindowContent(
-                        presetName = currentPresetName,
-                        params = currentParams,
-                        onClose = { hideWindow() },
-                        onCopyParams = { copyParamsToClipboard(context) }
-                    )
+        mainHandler.post {
+            try {
+                if (isShowing.get()) {
+                    return@post
                 }
-            }
 
-            val params = getWindowParams()
-            windowManager?.addView(floatingView, params)
-            isShowing = true
-            Timber.d("Floating window shown")
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to show floating window")
+                windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+                floatingView = ComposeView(context).apply {
+                    setupLifecycle(this)
+                    setContent {
+                        FloatingWindowContent(
+                            presetName = currentPresetName.get(),
+                            params = currentParams.get(),
+                            onClose = { hideWindow() },
+                            onCopyParams = { copyParamsToClipboard(context) }
+                        )
+                    }
+                }
+
+                val params = getWindowParams()
+                windowManager?.addView(floatingView, params)
+                isShowing.set(true)
+                Timber.d("Floating window shown")
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to show floating window")
+                isShowing.set(false)
+            }
         }
     }
 
     fun hideWindow() {
-        if (!isShowing) return
+        if (!isShowing.compareAndSet(true, false)) {
+            return
+        }
 
-        try {
-            floatingView?.let {
-                windowManager?.removeView(it)
+        mainHandler.post {
+            try {
+                floatingView?.let {
+                    windowManager?.removeView(it)
+                }
+                floatingView = null
+                Timber.d("Floating window hidden")
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to hide floating window")
             }
-            floatingView = null
-            isShowing = false
-            Timber.d("Floating window hidden")
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to hide floating window")
         }
     }
 
     fun toggleWindow(context: Context) {
-        if (isShowing) {
+        if (isShowing.get()) {
             hideWindow()
         } else {
             showWindow(context)
@@ -101,20 +116,31 @@ object FloatingWindowManager {
     }
 
     private fun updateFloatingView() {
-        floatingView?.setContent {
-            FloatingWindowContent(
-                presetName = currentPresetName,
-                params = currentParams,
-                onClose = { hideWindow() },
-                onCopyParams = { copyParamsToClipboard(floatingView?.context) }
-            )
+        mainHandler.post {
+            floatingView?.setContent {
+                FloatingWindowContent(
+                    presetName = currentPresetName.get(),
+                    params = currentParams.get(),
+                    onClose = { hideWindow() },
+                    onCopyParams = { copyParamsToClipboard(floatingView?.context) }
+                )
+            }
         }
+    }
+
+    private fun setupLifecycle(composeView: ComposeView) {
+        val lifecycleOwner = FloatingWindowLifecycleOwner()
+        composeView.setViewTreeLifecycleOwner(lifecycleOwner)
+        composeView.setViewTreeSavedStateRegistryOwner(lifecycleOwner)
+        lifecycleOwner.performCreate()
+        lifecycleOwner.performStart()
     }
 
     private fun copyParamsToClipboard(context: Context?) {
         context ?: return
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-        val text = currentParams.entries.joinToString("\n") { "${it.key}: ${it.value}" }
+        val params = currentParams.get()
+        val text = params.entries.joinToString("\n") { "${it.key}: ${it.value}" }
         val clip = android.content.ClipData.newPlainText("参数", text)
         clipboard.setPrimaryClip(clip)
     }
@@ -123,6 +149,7 @@ object FloatingWindowManager {
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         } else {
+            @Suppress("DEPRECATION")
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
@@ -153,6 +180,35 @@ object FloatingWindowManager {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)
         }
+    }
+}
+
+class FloatingWindowLifecycleOwner : LifecycleOwner, SavedStateRegistryOwner {
+    private val lifecycleRegistry = LifecycleRegistry(this)
+    private val savedStateRegistryController = SavedStateRegistryController.create(this)
+
+    init {
+        savedStateRegistryController.performRestore(null)
+    }
+
+    override val lifecycle: Lifecycle = lifecycleRegistry
+    override val savedStateRegistry: SavedStateRegistry = savedStateRegistryController.savedStateRegistry
+
+    fun performCreate() {
+        savedStateRegistryController.performRestore(null)
+        lifecycleRegistry.currentState = Lifecycle.State.CREATED
+    }
+
+    fun performStart() {
+        lifecycleRegistry.currentState = Lifecycle.State.STARTED
+    }
+
+    fun performResume() {
+        lifecycleRegistry.currentState = Lifecycle.State.RESUMED
+    }
+
+    fun performDestroy() {
+        lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
     }
 }
 

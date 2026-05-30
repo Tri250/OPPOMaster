@@ -25,4 +25,5 @@
     <string name="hncs">HNCS 认证</string>
     <string name="preset_applied">预设已应用</string>
     <string name="preset_saved">预设已保存</string>
+    <string name="accessibility_service_description">自动在相机应用中填入预设参数，让拍摄更便捷</string>
 </resources>
