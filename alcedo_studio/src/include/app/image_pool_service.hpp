@@ -5,7 +5,9 @@
 #pragma once
 
 #include <memory>
+#include <span>
 #include <type_traits>
+#include <vector>
 
 #include "image/image.hpp"
 #include "sleeve/storage_service.hpp"
@@ -136,6 +138,7 @@ class ImagePoolService {
   auto CreateAndReturnPinnedEmpty() -> ImagePoolManager::PinnedImageHandle;
 
   void Remove(image_id_t image_id);
+  void RemoveBatch(std::span<const image_id_t> image_ids);
   auto SyncWithStorage() -> ImagePoolSyncStatus;
   auto GetCurrentID() -> image_id_t;
 };

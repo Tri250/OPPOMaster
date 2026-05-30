@@ -12,6 +12,10 @@
 #include "duckdb_types.hpp"
 
 namespace duckorm {
+duckdb_state begin_transaction(duckdb_connection& conn);
+duckdb_state commit_transaction(duckdb_connection& conn);
+duckdb_state rollback_transaction(duckdb_connection& conn);
+
 duckdb_state insert(duckdb_connection& conn, const char* table, const void* obj,
                     std::span<const DuckFieldDesc> fields, size_t field_count);
 

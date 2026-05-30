@@ -5,7 +5,9 @@
 #include "storage/service/sleeve/element/folder_service.hpp"
 
 #include <format>
+#include <sstream>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "type/type.hpp"
@@ -35,6 +37,32 @@ void FolderService::RemoveAllContents(const sl_element_id_t folder_id) { RemoveB
 
 void FolderService::RemoveContentById(const sl_element_id_t content_id) {
   RemoveByClause(std::format("element_id={}", content_id));
+}
+
+void FolderService::RemoveContentByIds(std::span<const sl_element_id_t> content_ids) {
+  if (content_ids.empty()) {
+    return;
+  }
+
+  std::ostringstream                 id_list;
+  std::unordered_set<sl_element_id_t> seen;
+  seen.reserve(content_ids.size() * 2 + 1);
+  bool first = true;
+  for (const auto content_id : content_ids) {
+    if (content_id == 0 || !seen.insert(content_id).second) {
+      continue;
+    }
+    if (!first) {
+      id_list << ",";
+    }
+    id_list << content_id;
+    first = false;
+  }
+
+  if (first) {
+    return;
+  }
+  RemoveByClause(std::format("element_id IN ({})", id_list.str()));
 }
 
 void FolderService::RemoveFolderContent(sl_element_id_t folder_id, sl_element_id_t content_id) {

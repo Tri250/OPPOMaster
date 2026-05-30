@@ -6,6 +6,7 @@
 
 #include <unordered_map>
 #include <utility>
+#include <span>
 #include <vector>
 
 #include "sleeve/sleeve_element/sleeve_folder.hpp"
@@ -32,6 +33,7 @@ class FolderService
 
   void        RemoveAllContents(const sl_element_id_t folder_id);
   void        RemoveContentById(const sl_element_id_t content_id);
+  void        RemoveContentByIds(std::span<const sl_element_id_t> content_ids);
   void        RemoveFolderContent(sl_element_id_t folder_id, sl_element_id_t content_id);
 
   void        UpdateFolderContent(const std::vector<sl_element_id_t>& content,

@@ -114,17 +114,17 @@ auto SleeveServiceImpl::Sync() -> SyncResult {
       result.elements_synced_++;
     }
 
-    // Finally, delete the deleted elements
-    // TODO: This should be done periodically instead of every sync
+    // Finally, delete the deleted elements.
+    // TODO: This should be done periodically instead of every sync.
     for (auto& element : garbage_elements) {
       LogSyncElement("Deleted", element);
       if (element && element->type_ == ElementType::FILE) {
         storage_service_->ForgetLiveEditHistory(element->element_id_);
         storage_service_->ForgetLivePipeline(element->element_id_);
       }
-      element_ctrl.RemoveElement(element);
-      result.elements_synced_++;
     }
+    element_ctrl.RemoveElements(garbage_elements);
+    result.elements_synced_ += static_cast<uint32_t>(garbage_elements.size());
     // Perform garbage collection in the storage
     // The same goes to here, this should be done periodically
     fs_->GarbageCollect();
@@ -220,8 +220,49 @@ auto SleeveServiceImpl::DeleteFileFromFolder(sl_element_id_t file_id,
       [file_id, folder_id](FileSystem& fs) { fs.UnlinkFileFromFolder(file_id, folder_id); });
 }
 
+auto SleeveServiceImpl::DeleteFilesFromFolder(std::span<const sl_element_id_t> file_ids,
+                                              sl_element_id_t                  folder_id)
+    -> std::pair<std::vector<std::shared_ptr<SleeveFile>>, SyncResult> {
+  return Write<std::vector<std::shared_ptr<SleeveFile>>>(
+      [file_ids, folder_id](FileSystem& fs) -> std::vector<std::shared_ptr<SleeveFile>> {
+        std::vector<std::shared_ptr<SleeveFile>> files;
+        files.reserve(file_ids.size());
+
+        const auto removed_ids = fs.UnlinkFilesFromFolder(file_ids, folder_id);
+        files.reserve(removed_ids.size());
+        for (const auto file_id : removed_ids) {
+          auto element = fs.Get(file_id);
+          if (!element || element->type_ != ElementType::FILE) {
+            continue;
+          }
+          files.push_back(std::static_pointer_cast<SleeveFile>(element));
+        }
+        return files;
+      });
+}
+
 auto SleeveServiceImpl::DeleteFileEverywhere(sl_element_id_t file_id) -> SyncResult {
   return Write<void>([file_id](FileSystem& fs) { fs.DeleteFileEverywhere(file_id); });
+}
+
+auto SleeveServiceImpl::DeleteFilesEverywhere(std::span<const sl_element_id_t> file_ids)
+    -> std::pair<std::vector<std::shared_ptr<SleeveFile>>, SyncResult> {
+  return Write<std::vector<std::shared_ptr<SleeveFile>>>(
+      [file_ids](FileSystem& fs) -> std::vector<std::shared_ptr<SleeveFile>> {
+        std::vector<std::shared_ptr<SleeveFile>> files;
+        files.reserve(file_ids.size());
+
+        const auto deleted_ids = fs.DeleteFilesEverywhere(file_ids);
+        files.reserve(deleted_ids.size());
+        for (const auto file_id : deleted_ids) {
+          auto element = fs.Get(file_id);
+          if (!element || element->type_ != ElementType::FILE) {
+            continue;
+          }
+          files.push_back(std::static_pointer_cast<SleeveFile>(element));
+        }
+        return files;
+      });
 }
 
 auto SleeveServiceImpl::DuplicateFileToFolder(sl_element_id_t file_id,

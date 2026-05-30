@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <mutex>
+#include <span>
 #include <string>
 #include <unordered_map>
 
@@ -59,6 +60,7 @@ class EditHistoryMgmtService final {
 
   void SaveHistory(const std::shared_ptr<EditHistoryGuard>& history_guard);
   void DeleteHistory(sl_element_id_t file_id);
+  void DeleteHistories(std::span<const sl_element_id_t> file_ids);
 
   void Sync();
 };

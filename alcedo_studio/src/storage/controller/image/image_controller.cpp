@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <format>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -58,6 +59,10 @@ void ImageController::AddImage(std::shared_ptr<Image> image) { service_.Insert(i
  * @param remove_id
  */
 void ImageController::RemoveImageById(uint32_t remove_id) { service_.RemoveById(remove_id); }
+
+void ImageController::RemoveImagesByIds(std::span<const image_id_t> remove_ids) {
+  service_.RemoveByIds(remove_ids);
+}
 
 /**
  * @brief Remove an image by its type.

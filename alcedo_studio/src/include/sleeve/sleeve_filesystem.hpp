@@ -6,8 +6,10 @@
 
 #include <filesystem>
 #include <memory>
+#include <span>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "path_resolver.hpp"
 #include "sleeve/sleeve_element/sleeve_element.hpp"
@@ -50,9 +52,13 @@ class FileSystem {
   auto CreateFileInLibrary(file_name_t name) -> std::shared_ptr<SleeveFile>;
   void LinkFileToFolder(sl_element_id_t file_id, sl_element_id_t folder_id);
   void UnlinkFileFromFolder(sl_element_id_t file_id, sl_element_id_t folder_id);
+  auto UnlinkFilesFromFolder(std::span<const sl_element_id_t> file_ids,
+                             sl_element_id_t folder_id) -> std::vector<sl_element_id_t>;
   auto DuplicateFileToFolder(sl_element_id_t file_id, sl_element_id_t folder_id)
       -> std::shared_ptr<SleeveFile>;
   void DeleteFileEverywhere(sl_element_id_t file_id);
+  auto DeleteFilesEverywhere(std::span<const sl_element_id_t> file_ids)
+      -> std::vector<sl_element_id_t>;
   void Delete(std::filesystem::path target);
   void Delete(sl_element_id_t target_id);
   auto Get(std::filesystem::path target, bool write) -> std::shared_ptr<SleeveElement>;

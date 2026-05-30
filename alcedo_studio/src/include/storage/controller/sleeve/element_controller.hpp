@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -78,6 +79,7 @@ class ElementController {
 
   void RemoveElement(const sl_element_id_t id);
   void RemoveElement(const std::shared_ptr<SleeveElement> element);
+  void RemoveElements(std::span<const std::shared_ptr<SleeveElement>> elements);
   void UpdateElement(const std::shared_ptr<SleeveElement> element);
   auto GetElementById(const sl_element_id_t id) -> std::shared_ptr<SleeveElement>;
 
@@ -115,11 +117,13 @@ class ElementController {
   auto UpdatePipelineByElementId(const sl_element_id_t                      element_id,
                                  const std::shared_ptr<CPUPipelineExecutor> pipeline) -> void;
   auto RemovePipelineByElementId(const sl_element_id_t element_id) -> void;
+  auto RemovePipelinesByElementIds(std::span<const sl_element_id_t> element_ids) -> void;
 
   auto GetEditHistoryByFileId(const sl_element_id_t file_id) -> std::shared_ptr<EditHistory>;
   auto UpdateEditHistoryByFileId(const sl_element_id_t              file_id,
                                  const std::shared_ptr<EditHistory> history) -> void;
   auto RemoveEditHistoryByFileId(const sl_element_id_t file_id) -> void;
+  auto RemoveEditHistoriesByFileIds(std::span<const sl_element_id_t> file_ids) -> void;
 
   auto GetEditHistoryService() -> std::shared_ptr<EditHistoryService>;
 

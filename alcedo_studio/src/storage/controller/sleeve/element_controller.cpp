@@ -9,7 +9,9 @@
 #include <cstdint>
 #include <format>
 #include <memory>
+#include <span>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "sleeve/sleeve_element/sleeve_element.hpp"
@@ -196,6 +198,48 @@ void ElementController::RemoveElement(const std::shared_ptr<SleeveElement> eleme
   element_service_.RemoveById(element->element_id_);
 }
 
+void ElementController::RemoveElements(
+    std::span<const std::shared_ptr<SleeveElement>> elements) {
+  if (elements.empty()) {
+    return;
+  }
+
+  std::vector<sl_element_id_t> file_ids;
+  std::vector<sl_element_id_t> folder_ids;
+  std::vector<sl_element_id_t> element_ids;
+  file_ids.reserve(elements.size());
+  folder_ids.reserve(elements.size());
+  element_ids.reserve(elements.size());
+
+  std::unordered_set<sl_element_id_t> seen;
+  seen.reserve(elements.size() * 2 + 1);
+  for (const auto& element : elements) {
+    if (!element || !seen.insert(element->element_id_).second) {
+      continue;
+    }
+
+    element_ids.push_back(element->element_id_);
+    if (element->type_ == ElementType::FILE) {
+      file_ids.push_back(element->element_id_);
+    } else if (element->type_ == ElementType::FOLDER) {
+      folder_ids.push_back(element->element_id_);
+    }
+  }
+
+  if (!file_ids.empty()) {
+    history_service_.RemoveByIds(file_ids);
+    pipeline_service_.RemoveByIds(file_ids);
+    file_service_.RemoveByIds(file_ids);
+    folder_service_.RemoveContentByIds(file_ids);
+  }
+  if (!folder_ids.empty()) {
+    folder_service_.RemoveByIds(folder_ids);
+  }
+  if (!element_ids.empty()) {
+    element_service_.RemoveByIds(element_ids);
+  }
+}
+
 /**
  * @brief Update an element in the database.
  *
@@ -368,6 +412,11 @@ auto ElementController::RemovePipelineByElementId(const sl_element_id_t element_
   pipeline_service_.RemoveById(element_id);
 }
 
+auto ElementController::RemovePipelinesByElementIds(
+    std::span<const sl_element_id_t> element_ids) -> void {
+  pipeline_service_.RemoveByIds(element_ids);
+}
+
 auto ElementController::GetEditHistoryByFileId(const sl_element_id_t file_id)
     -> std::shared_ptr<EditHistory> {
   return history_service_.GetEditHistoryByFileId(file_id);
@@ -381,6 +430,11 @@ auto ElementController::UpdateEditHistoryByFileId(const sl_element_id_t         
 
 auto ElementController::RemoveEditHistoryByFileId(const sl_element_id_t file_id) -> void {
   history_service_.RemoveById(file_id);
+}
+
+auto ElementController::RemoveEditHistoriesByFileIds(
+    std::span<const sl_element_id_t> file_ids) -> void {
+  history_service_.RemoveByIds(file_ids);
 }
 
 };  // namespace alcedo

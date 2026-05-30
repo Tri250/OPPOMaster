@@ -6,6 +6,8 @@
 
 #include <cstdint>
 #include <memory>
+#include <span>
+#include <vector>
 
 #include "image/image.hpp"
 #include "storage/image_pool/image_pool_manager.hpp"
@@ -47,6 +49,37 @@ void ImagePoolService::Remove(image_id_t image_id) {
 
 }
 
+void ImagePoolService::RemoveBatch(std::span<const image_id_t> image_ids) {
+  std::unique_lock lock(pool_lock_);
+  if (!pool_manager_) {
+    throw std::runtime_error("[ERROR] ImagePoolService: Pool manager is not initialized.");
+  }
+
+  std::vector<image_id_t> remove_from_storage;
+  remove_from_storage.reserve(image_ids.size());
+
+  for (const auto image_id : image_ids) {
+    if (image_id == 0) {
+      continue;
+    }
+    auto img = pool_manager_->GetImage(image_id);
+    if (img) {
+      img->MarkSyncState(ImageSyncState::DELETED);
+    } else {
+      remove_from_storage.push_back(image_id);
+    }
+  }
+
+  if (!remove_from_storage.empty()) {
+    try {
+      storage_service_->GetImageController().RemoveImagesByIds(remove_from_storage);
+    } catch (std::exception& e) {
+      throw std::runtime_error(std::format(
+          "[ERROR] ImagePoolService: Failed to remove images from storage: {}", e.what()));
+    }
+  }
+}
+
 auto ImagePoolService::SyncWithStorage() -> ImagePoolSyncStatus {
   std::unique_lock        lock(pool_lock_);
   auto&                   img_ctrl = storage_service_->GetImageController();
@@ -75,15 +108,20 @@ auto ImagePoolService::SyncWithStorage() -> ImagePoolSyncStatus {
         continue;
       }
     } else if (img->GetSyncState() == ImageSyncState::DELETED) {
-      try {
-        img_ctrl.RemoveImageById(id);
-        to_remove.push_back(id);
-        status.synced_images_.push_back(id);
-      } catch (std::exception& e) {
-        // TODO: Log the error
+      to_remove.push_back(id);
+    }
+  }
+
+  if (!to_remove.empty()) {
+    try {
+      img_ctrl.RemoveImagesByIds(to_remove);
+      status.synced_images_.insert(status.synced_images_.end(), to_remove.begin(),
+                                   to_remove.end());
+    } catch (std::exception& e) {
+      for (const auto id : to_remove) {
         status.failed_images_.push_back({id, e.what()});
-        continue;
       }
+      to_remove.clear();
     }
   }
 
