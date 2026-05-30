@@ -292,7 +292,7 @@
   }
 
   .param-slider-thumb {
-    @apply absolute w-5 h-5 -mt-2 bg-hasselblad border-3 border-surface-0 rounded-full 
+    @apply absolute w-5 h-5 -mt-2 bg-hasselblad border-[3px] border-surface-0 rounded-full 
            cursor-grab transition-transform duration-fast ease-ease-bounce
            hover:scale-110 active:cursor-grabbing;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
