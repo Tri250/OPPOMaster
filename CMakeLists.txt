@@ -502,6 +502,22 @@ add_compile_definitions(
 
 include(GNUInstallDirs)
 
+function(alcedo_collect_packaged_luts out_var config_dir)
+    set(_lut_dir "${config_dir}/LUTs")
+    set(_packaged_luts "")
+    if(EXISTS "${_lut_dir}")
+        # Ship the curated film-stock LUT set only. This intentionally skips
+        # spektrafilm and the older generic LUT samples in the source tree.
+        file(GLOB _packaged_luts CONFIGURE_DEPENDS
+            "${_lut_dir}/Agfa_*.cube"
+            "${_lut_dir}/Fuji_*.cube"
+            "${_lut_dir}/Kodak_*.cube"
+        )
+        list(SORT _packaged_luts)
+    endif()
+    set(${out_var} ${_packaged_luts} PARENT_SCOPE)
+endfunction()
+
 add_subdirectory(${CMAKE_SOURCE_DIR}/alcedo_studio/src/third_party)
 if(DEFINED ALCEDO_LENSFUN_LIBRARY_DIR AND NOT "${ALCEDO_LENSFUN_LIBRARY_DIR}" STREQUAL "")
     list(APPEND CMAKE_BUILD_RPATH "${ALCEDO_LENSFUN_LIBRARY_DIR}")
@@ -536,8 +552,9 @@ if(TARGET ${ALCEDO_MAIN_BIN})
         install(DIRECTORY "${_config_dir}/icc/" DESTINATION "${_bundle_macos_dest}/config/icc")
         install(DIRECTORY "${_config_dir}/lens_calib/" DESTINATION "${_bundle_macos_dest}/config/lens_calib")
         install(DIRECTORY "${_config_dir}/nikon_lens/" DESTINATION "${_bundle_macos_dest}/config/nikon_lens")
-        if(EXISTS "${_config_dir}/LUTs")
-            install(DIRECTORY "${_config_dir}/LUTs/" DESTINATION "${_bundle_macos_dest}/LUTs")
+        alcedo_collect_packaged_luts(_alcedo_packaged_luts "${_config_dir}")
+        if(_alcedo_packaged_luts)
+            install(FILES ${_alcedo_packaged_luts} DESTINATION "${_bundle_macos_dest}/LUTs")
         endif()
         if(ALCEDO_OPENCL_ENABLED)
             install(DIRECTORY "${CMAKE_SOURCE_DIR}/alcedo_studio/src/decoders/processor/operators/gpu/opencl_shader/"
@@ -639,8 +656,9 @@ if(TARGET ${ALCEDO_MAIN_BIN})
         install(DIRECTORY "${_config_dir}/lens_calib/" DESTINATION "${CMAKE_INSTALL_BINDIR}/config/lens_calib")
         install(DIRECTORY "${_config_dir}/nikon_lens/" DESTINATION "${CMAKE_INSTALL_BINDIR}/config/nikon_lens")
 
-        if(EXISTS "${_config_dir}/LUTs")
-            install(DIRECTORY "${_config_dir}/LUTs/" DESTINATION "${CMAKE_INSTALL_BINDIR}/LUTs")
+        alcedo_collect_packaged_luts(_alcedo_packaged_luts "${_config_dir}")
+        if(_alcedo_packaged_luts)
+            install(FILES ${_alcedo_packaged_luts} DESTINATION "${CMAKE_INSTALL_BINDIR}/LUTs")
         endif()
         if(ALCEDO_OPENCL_ENABLED)
             install(DIRECTORY "${CMAKE_SOURCE_DIR}/alcedo_studio/src/decoders/processor/operators/gpu/opencl_shader/"
