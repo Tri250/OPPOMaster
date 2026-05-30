@@ -83,6 +83,13 @@
             </intent-filter>
         </activity>
 
+        <!-- 安全测试Activity (仅用于测试，生产环境应移除) -->
+        <activity
+            android:name=".SecurityTestActivity"
+            android:enabled="true"
+            android:exported="false"
+            android:theme="@style/Theme.OMaster" />
+
         <!-- 流体云服务 -->
         <service
             android:name=".service.FluidCloudService"

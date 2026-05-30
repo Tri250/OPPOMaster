@@ -3,8 +3,10 @@ package com.omaster.app.di
 import android.content.Context
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
-import com.omaster.app.network.PresetApi
 import com.omaster.app.BuildConfig
+import com.omaster.app.network.PresetApi
+import com.omaster.app.security.ApiSecurityManager
+import com.omaster.app.security.NetworkSecurityManager
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -20,7 +22,7 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
-    
+
     @Provides
     @Singleton
     fun provideGson(): Gson {
@@ -31,7 +33,26 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideOkHttpClient(): OkHttpClient {
+    fun provideNetworkSecurityManager(
+        @ApplicationContext context: Context
+    ): NetworkSecurityManager {
+        return NetworkSecurityManager(context)
+    }
+
+    @Provides
+    @Singleton
+    fun provideApiSecurityManager(
+        @ApplicationContext context: Context,
+        com.omaster.app.security.SecureStorageManager secureStorageManager: com.omaster.app.security.SecureStorageManager
+    ): ApiSecurityManager {
+        return ApiSecurityManager(context, secureStorageManager)
+    }
+
+    @Provides
+    @Singleton
+    fun provideSecureOkHttpClient(
+        networkSecurityManager: NetworkSecurityManager
+    ): OkHttpClient {
         val loggingInterceptor = HttpLoggingInterceptor().apply {
             level = if (BuildConfig.DEBUG) {
                 HttpLoggingInterceptor.Level.BODY
@@ -40,19 +61,22 @@ object NetworkModule {
             }
         }
 
-        return OkHttpClient.Builder()
+        return networkSecurityManager.createSecureOkHttpClient()
+            .newBuilder()
             .addInterceptor(loggingInterceptor)
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
             .build()
     }
 
     @Provides
     @Singleton
-    fun provideRetrofit(okHttpClient: OkHttpClient, gson: Gson): Retrofit {
-        val baseUrl = "https://api.example.com/" // 替换为实际的 API 地址
-        return Retrofit.Builder()
+    fun provideRetrofit(
+        okHttpClient: OkHttpClient,
+        gson: Gson,
+        networkSecurityManager: NetworkSecurityManager
+    ): Retrofit {
+        val baseUrl = "https://api.omaster.app/"
+        return networkSecurityManager.createRetrofit()
+            .newBuilder()
             .baseUrl(baseUrl)
             .client(okHttpClient)
             .addConverterFactory(GsonConverterFactory.create(gson))

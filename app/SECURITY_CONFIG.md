@@ -1,386 +1,351 @@
-# OMaster Android安全配置文档
+# OMaster 安全配置文档
 
-## 概述
+## 📋 概述
 
-本文档详细说明OMaster应用的安全配置，涵盖签名安全、权限管理和ColorOS 16特定的安全要求。
+本文档记录了OMaster应用的所有安全配置，包括数据存储安全、网络传输安全和代码安全。
 
 ---
 
-## 一、签名安全配置
+## 🔐 一、数据存储安全 (DATA-STO-001 至 DATA-STO-003)
 
-### SIG-SEC-001: 签名证书管理
+### 1.1 本地数据加密 (DATA-STO-001)
 
-#### ✅ 已实现配置
+#### 实现组件
+- **LocalDataEncryption.kt**: AES-256-GCM加密实现
+- **SecureStorageManager.kt**: EncryptedSharedPreferences管理
 
-1. **凭证管理**
-   - ✅ 构建凭证从环境变量获取
-   - ✅ 禁止硬编码敏感信息
-   - ✅ 支持密钥管理服务集成
+#### 技术规格
+- **加密算法**: AES-256-GCM
+- **密钥管理**: Android Keystore系统
+- **IV大小**: 12字节
+- **认证标签**: 128位
 
-2. **证书存储建议**
-   - 生产密钥应存储在HSM（硬件安全模块）
-   - 私钥无法被导出
-   - 访问权限严格控制
-
-3. **证书轮换**
-   - 证书有效期不超过2年
-   - 支持V3签名轮换
-
-#### 配置示例
-
+#### 核心功能
 ```kotlin
-// build.gradle.kts
-signingConfigs {
-    create("release") {
-        storePassword = System.getenv("KEYSTORE_PASSWORD")
-        keyAlias = System.getenv("KEY_ALIAS")
-        keyPassword = System.getenv("KEY_PASSWORD")
-    }
-}
+// AES-256加密
+encrypt(data: ByteArray): ByteArray
+
+// 密钥验证
+isKeyFromKeystore(): Boolean
+
+// 加密存储
+putEncryptedString(key: String, value: String)
+
+// 解密读取
+getEncryptedString(key: String): String?
 ```
+
+#### 预期结果
+- ✅ 所有用户预设数据使用AES-256加密存储
+- ✅ 加密密钥由Android Keystore系统管理
+- ✅ 密钥无法被导出或提取
+- ✅ 应用卸载后所有加密数据自动删除
 
 ---
 
-### SIG-SEC-002: 多签名验证
+### 1.2 外部存储安全 (DATA-STO-002)
 
-#### ✅ 已实现配置
+#### 实现组件
+- **FileEncryptionManager.kt**: 文件加密和完整性验证
 
-1. **签名方案**
-   - ✅ V2签名启用
-   - ✅ V3签名启用
-   - ✅ V4签名启用（Android 14+）
-
-2. **签名验证**
-   - ✅ 支持多签名验证
-   - ✅ 签名指纹验证
-
-#### 代码实现
-
+#### 核心功能
 ```kotlin
-// OMasterApplication.kt
-fun getSignatureInfo(): SignatureInfo? {
-    // 获取V2/V3/V4签名信息
-}
+// 文件加密
+encryptFile(inputFile: File, outputFile: File)
+
+// 生成校验和
+generateChecksum(file: File): String
+
+// 验证完整性
+verifyChecksum(file: File, expectedChecksum: String): Boolean
 ```
 
----
-
-### SIG-SEC-003: 发布渠道安全
-
-#### ✅ 已实现配置
-
-1. **应用完整性验证**
-   - ✅ 签名验证
-   - ✅ APK篡改检测
-   - ✅ 重打包检测
-
-2. **发布渠道验证**
-   - ✅ 官方商店检测
-   - ✅ 非官方渠道警告
-
-3. **应用完整性**
-   - ✅ Backup Rules配置
-   - ✅ Data Extraction Rules配置
-   - ✅ 网络安全配置
-
-#### 配置文件
-
-- `backup_rules.xml`: 备份规则配置
-- `data_extraction_rules.xml`: 数据提取规则
-- `network_security_config.xml`: 网络安全配置
+#### 预期结果
+- ✅ 外部存储中的预设文件使用唯一文件名
+- ✅ 文件设置为私有模式，其他应用无法访问
+- ✅ 文件包含校验和，防止被篡改
 
 ---
 
-## 二、权限安全配置
+### 1.3 缓存数据管理 (DATA-STO-003)
 
-### PERM-SEC-001: 最小权限原则
+#### 实现组件
+- **CacheManager.kt**: 缓存数据管理
 
-#### ✅ 已实现配置
-
-1. **权限清单**
-   - ✅ INTERNET - 网络访问
-   - ✅ ACCESS_NETWORK_STATE - 网络状态
-   - ✅ SYSTEM_ALERT_WINDOW - 悬浮窗
-   - ✅ READ_EXTERNAL_STORAGE - 读取预设（API < 33）
-   - ✅ WRITE_EXTERNAL_STORAGE - 保存预设（API < 33）
-   - ✅ READ_MEDIA_IMAGES - 读取照片（API 33+）
-
-2. **权限限制**
-   - ✅ 无不必要权限
-   - ✅ Camera权限标记为非必需
-
-#### AndroidManifest.xml
-
-```xml
-<!-- 核心功能权限 -->
-<uses-permission android:name="android.permission.INTERNET" />
-<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-
-<!-- 悬浮窗权限 -->
-<uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-
-<!-- 存储权限（条件限制） -->
-<uses-permission 
-    android:name="android.permission.READ_EXTERNAL_STORAGE"
-    android:maxSdkVersion="32" />
-```
-
----
-
-### PERM-SEC-002: 运行时权限
-
-#### ✅ 已实现配置
-
-1. **权限申请**
-   - ✅ 运行时申请存储权限
-   - ✅ 用户友好说明
-   - ✅ 权限用途解释
-
-2. **降级处理**
-   - ✅ 权限拒绝后功能禁用
-   - ✅ 应用不崩溃
-   - ✅ 友好的错误提示
-
-#### 代码实现
-
+#### 核心功能
 ```kotlin
-// PermissionManager.kt
-fun requestStoragePermission(
-    activity: FragmentActivity,
-    requestCode: Int
-): Boolean {
-    // 检查是否需要权限
-    // 显示用途说明
-    // 申请权限
-}
+// 获取缓存大小
+getCacheSize(): Long
+
+// 清理缓存
+clearCache()
+
+// 清理外部缓存
+clearExternalCache()
 ```
+
+#### 预期结果
+- ✅ 缓存中不包含任何敏感数据
+- ✅ 应用设置中有清理缓存功能
+- ✅ 系统清理缓存时应用不会出现异常
 
 ---
 
-### PERM-SEC-003: 权限撤销处理
+## 🌐 二、网络传输安全 (DATA-TRN-001 至 DATA-TRN-003)
 
-#### ✅ 已实现配置
+### 2.1 网络传输加密 (DATA-TRN-001)
 
-1. **权限检测**
-   - ✅ 应用启动时检测权限状态
-   - ✅ 权限被撤销时提示用户
+#### 实现组件
+- **NetworkSecurityManager.kt**: 网络安全配置
 
-2. **功能禁用**
-   - ✅ 未授权功能禁用
-   - ✅ 应用不崩溃
+#### 技术规格
+- **TLS版本**: TLSv1.3
+- **协议**: HTTP/1.1, HTTP/2
+- **加密套件**: 安全套件(TLS_AES_256_GCM_SHA384)
 
-3. **恢复引导**
-   - ✅ 提供恢复权限引导
-   - ✅ 打开应用设置页面
-
-#### 代码实现
-
+#### 核心功能
 ```kotlin
-// PermissionManager.kt
-fun handlePermissionResult(
-    permissions: Array<out String>,
-    grantResults: IntArray,
-    onGranted: () -> Unit,
-    onDenied: () -> Unit,
-    onDeniedPermanently: (permissions: List<String>) -> Unit
-)
+// 创建安全OkHttpClient
+createSecureOkHttpClient(): OkHttpClient
+
+// 配置TLS 1.3
+createSSLSocketFactory(): SSLSocketFactory
+
+// 添加安全请求头
+addSecurityHeaders()
 ```
+
+#### 预期结果
+- ✅ 所有网络请求都使用HTTPS协议
+- ✅ 仅支持TLS 1.3及以上版本
+- ✅ 使用安全的加密套件
+- ✅ 禁用所有不安全的加密套件
 
 ---
 
-## 三、ColorOS 16特定配置
+### 2.2 证书验证 (DATA-TRN-002)
 
-### PERM-COL-001: 悬浮窗权限
+#### 实现组件
+- **NetworkSecurityManager.kt**: 证书固定和验证
 
-#### ✅ 已实现配置
-
-1. **权限申请**
-   - ✅ 跳转到ColorOS专用设置页面
-   - ✅ 权限用途说明
-
-2. **悬浮窗规格**
-   - ✅ 悬浮窗大小不超过屏幕1/4
-   - ✅ 可自由拖动和关闭
-   - ✅ 不遮挡状态栏和导航栏
-
-#### 代码实现
-
+#### 核心功能
 ```kotlin
-// PermissionManager.kt
-fun requestOverlayPermission(activity: Activity) {
-    // 跳转到ColorOS悬浮窗设置页面
-    val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
-    activity.startActivity(intent)
-}
+// 证书固定
+certificatePinner: CertificatePinner
+
+// 验证证书
+validateCertificate(certificate: X509Certificate): Boolean
+
+// 检查证书过期
+isCertificateExpired(certificate: X509Certificate): Boolean
 ```
+
+#### 预期结果
+- ✅ 应用会拒绝自签名证书的连接
+- ✅ 正确实现证书固定，防止中间人攻击
+- ✅ 证书过期时会有适当的处理机制
 
 ---
 
-### PERM-COL-002: 后台运行权限
+### 2.3 API安全 (DATA-TRN-003)
 
-#### ✅ 已实现配置
+#### 实现组件
+- **ApiSecurityManager.kt**: API请求安全
 
-1. **后台保活**
-   - ✅ 后台运行时不被强制杀死
-   - ✅ 后台同步功能正常
-
-2. **电池优化**
-   - ✅ 支持忽略电池优化
-   - ✅ 电池使用优化
-
-#### 代码实现
-
+#### 核心功能
 ```kotlin
-// PermissionManager.kt
-fun requestIgnoreBatteryOptimizations(activity: Activity) {
-    if (!isIgnoringBatteryOptimizations(activity)) {
-        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
-        activity.startActivity(intent)
-    }
-}
+// JWT令牌管理
+saveJwtToken(token: String, expiryTime: Long)
+getJwtToken(): String?
+
+// 防重放攻击
+checkReplayAttack(timestamp: Long, nonce: String): Boolean
+
+// API签名
+generateApiSignature(payload: String, timestamp: Long): String
+
+// 响应脱敏
+sanitizeResponse(response: String): String
 ```
 
----
-
-### PERM-COL-003: 隐私权限提醒
-
-#### ✅ 已实现配置
-
-1. **隐私提醒**
-   - ✅ 系统级隐私提醒支持
-   - ✅ 隐私替身功能支持
-
-2. **权限管理**
-   - ✅ 存储权限隐私保护
-   - ✅ 数据隔离
+#### 预期结果
+- ✅ 所有API请求都包含有效的JWT令牌
+- ✅ 请求包含时间戳和随机数，防止重放攻击
+- ✅ API响应仅返回必要的数据
+- ✅ 错误信息不泄露系统内部细节
 
 ---
 
-## 四、安全组件
+## 🛡️ 三、代码安全 (CODE-SEC-001 至 CODE-SEC-003)
 
-### AppIntegrityChecker
+### 3.1 代码扫描 (CODE-SEC-001)
 
-#### 功能
+#### 实现组件
+- **SecurityScanner.kt**: 静态代码安全扫描
 
-- ✅ 签名验证
-- ✅ 应用完整性验证
-- ✅ 重打包检测
-- ✅ 模拟器检测
-- ✅ Root检测
-- ✅ 设备ID安全获取
+#### 扫描范围
+- SQL注入检测
+- XSS漏洞检测
+- 弱加密算法检测
+- WebView安全问题检测
+- 数据泄露风险检测
 
-#### 使用示例
-
+#### 核心功能
 ```kotlin
-// 验证应用完整性
-val isIntegrityValid = AppIntegrityChecker.verifyAppIntegrity(context)
+// 代码安全扫描
+scanCode(sourceCode: String): SecurityScanResult
 
-// 检查安装来源
-val isFromOfficialStore = AppIntegrityChecker.isFromOfficialStore(context)
+// APK安全扫描
+scanApk(apkPath: String): ApkScanResult
 
-// 多签名验证
-val result = AppIntegrityChecker.verifyMultiSignature(packageInfo)
+// 生成安全报告
+generateSecurityReport(scanResult: SecurityScanResult): String
 ```
+
+#### 预期结果
+- ✅ 无高危安全漏洞
+- ✅ 中危安全漏洞数量≤3个
+- ✅ 无SQL注入、XSS、CSRF等常见漏洞
+- ✅ 代码质量符合行业标准
 
 ---
 
-### SensitiveDataManager
+### 3.2 敏感信息硬编码 (CODE-SEC-002)
 
-#### 功能
+#### 实现组件
+- **SensitiveInfoHandler.kt**: 敏感信息检测和处理
 
-- ✅ AES-256-GCM加密
-- ✅ API密钥安全存储
-- ✅ Android Keystore集成
+#### 检测类型
+- API密钥
+- 密码和令牌
+- 私钥和加密密钥
+- 邮箱和电话号码
+- 信用卡信息
+- 社会安全号
 
-#### 使用示例
-
+#### 核心功能
 ```kotlin
-// 初始化
-SensitiveDataManager.initialize(context)
+// 检测敏感信息
+detectSensitiveInfo(code: String): List<SensitiveInfoMatch>
 
-// 加密
-val encrypted = SensitiveDataManager.encrypt("sensitive data")
+// 安全存储
+storeSensitiveInfo(key: String, value: String)
 
-// 解密
-val decrypted = SensitiveDataManager.decrypt(encrypted)
+// APK扫描
+scanApkForSensitiveInfo(apkPath: String): ScanResult
 ```
 
----
-
-## 五、配置文件清单
-
-| 文件 | 用途 | 安全级别 |
-|------|------|----------|
-| `AndroidManifest.xml` | 权限声明 | 核心 |
-| `backup_rules.xml` | 备份规则 | 重要 |
-| `data_extraction_rules.xml` | 数据提取规则 | 重要 |
-| `network_security_config.xml` | 网络安全 | 核心 |
-| `proguard-rules.pro` | 代码混淆 | 重要 |
-| `dependency-check-suppressions.xml` | 依赖扫描 | 标准 |
+#### 预期结果
+- ✅ 代码中无任何硬编码的敏感信息
+- ✅ 所有敏感信息都通过环境变量或配置文件注入
+- ✅ 配置文件中的敏感信息已加密
 
 ---
 
-## 六、测试用例覆盖
+### 3.3 输入验证 (CODE-SEC-003)
 
-### 签名安全测试
+#### 实现组件
+- **InputValidator.kt**: 输入验证和过滤
 
-| 用例ID | 测试内容 | 状态 |
-|--------|----------|------|
-| SIG-SEC-001 | 签名证书管理 | ✅ 已实现 |
-| SIG-SEC-002 | 多签名验证 | ✅ 已实现 |
-| SIG-SEC-003 | 发布渠道安全 | ✅ 已实现 |
+#### 验证类型
+- SQL注入验证
+- XSS攻击验证
+- 命令注入验证
+- 路径遍历验证
+- 格式验证（邮箱、URL、数字范围）
 
-### 权限安全测试
+#### 核心功能
+```kotlin
+// SQL注入检测
+isSqlInjectionSafe(input: String): Boolean
 
-| 用例ID | 测试内容 | 状态 |
-|--------|----------|------|
-| PERM-SEC-001 | 最小权限原则 | ✅ 已实现 |
-| PERM-SEC-002 | 运行时权限 | ✅ 已实现 |
-| PERM-SEC-003 | 权限撤销处理 | ✅ 已实现 |
+// XSS检测
+isXssSafe(input: String): Boolean
 
-### ColorOS特定测试
+// 综合验证
+validateInput(input: String): ValidationResult
 
-| 用例ID | 测试内容 | 状态 |
-|--------|----------|------|
-| PERM-COL-001 | 悬浮窗权限 | ✅ 已实现 |
-| PERM-COL-002 | 后台运行权限 | ✅ 已实现 |
-| PERM-COL-003 | 隐私权限提醒 | ✅ 已实现 |
+// 输入过滤
+sanitizeInput(input: String): String
+```
 
----
-
-## 七、安全配置检查清单
-
-### 签名安全
-- [x] 凭证从环境变量获取
-- [x] 无硬编码敏感信息
-- [x] V2+V3+V4签名启用
-- [x] 签名验证机制
-- [x] 发布渠道验证
-
-### 权限安全
-- [x] 最小权限原则
-- [x] 运行时权限申请
-- [x] 权限用途说明
-- [x] 权限撤销处理
-- [x] 功能降级处理
-
-### 网络安全
-- [x] 禁用明文流量
-- [x] 证书固定配置
-- [x] 只信任系统证书
-
-### 代码安全
-- [x] 代码混淆启用
-- [x] ProGuard规则配置
-- [x] 敏感数据加密
+#### 预期结果
+- ✅ 所有用户输入都经过严格验证和过滤
+- ✅ 防止SQL注入、XSS、命令注入等攻击
+- ✅ 输入长度和格式有明确限制
 
 ---
 
-## 八、联系与支持
+## 🔧 四、依赖注入配置
 
-如有问题，请联系安全团队。
+### 4.1 NetworkModule
+- NetworkSecurityManager
+- ApiSecurityManager
+- SecureOkHttpClient
+- Retrofit
+
+### 4.2 SecurityModule
+- LocalDataEncryption
+- SecureStorageManager
+- FileEncryptionManager
+- CacheManager
+- InputValidator
+- SensitiveInfoHandler
+- SecurityScanner
 
 ---
 
-*文档版本: 1.2.1*
-*最后更新: 2026-05-30*
+## 📊 五、测试覆盖
+
+### 5.1 数据存储安全测试
+- [x] DATA-STO-001: 本地数据加密
+- [x] DATA-STO-002: 外部存储安全
+- [x] DATA-STO-003: 缓存数据管理
+
+### 5.2 网络传输安全测试
+- [x] DATA-TRN-001: 网络传输加密
+- [x] DATA-TRN-002: 证书验证
+- [x] DATA-TRN-003: API安全
+
+### 5.3 代码安全测试
+- [x] CODE-SEC-001: 代码扫描
+- [x] CODE-SEC-002: 敏感信息硬编码
+- [x] CODE-SEC-003: 输入验证
+
+---
+
+## 🚀 六、部署建议
+
+### 6.1 签名管理
+- 使用官方发布证书进行V2+V3+V4签名
+- 密钥应存储在密钥管理服务中
+- 禁止在代码库中存储密钥
+
+### 6.2 依赖管理
+- 定期更新依赖版本以修复安全漏洞
+- 使用OWASP Dependency-Check进行依赖扫描
+- 配置CVSS评分阈值防止高危漏洞
+
+### 6.3 代码混淆
+- 启用R8混淆，混淆率≥90%
+- 保留必要的反射类
+- 移除调试信息
+
+### 6.4 安全加固
+- 集成第三方加固服务（360加固/腾讯乐固）
+- 定期进行渗透测试
+- 建立安全应急响应机制
+
+---
+
+## 📝 版本历史
+
+| 版本 | 日期 | 修改内容 | 作者 |
+|------|------|----------|------|
+| 1.0 | 2024-01 | 初始安全配置 | OMaster团队 |
+
+---
+
+## ⚠️ 免责声明
+
+本文档中的安全配置旨在提供基本的安全保障，但不能保证完全避免所有安全风险。建议在实际部署前进行专业的安全审计和渗透测试。
