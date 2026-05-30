@@ -1,7 +1,7 @@
 package com.omaster.app.di
 
+import com.omaster.app.ml.LocalSceneClassifier
 import com.omaster.app.service.AiService
-import com.omaster.app.service.DeepSeekService
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -14,7 +14,7 @@ object AiServiceModule {
 
     @Provides
     @Singleton
-    fun provideAiService(deepSeekService: DeepSeekService): AiService {
-        return AiService(deepSeekService)
+    fun provideAiService(localSceneClassifier: LocalSceneClassifier): AiService {
+        return AiService(localSceneClassifier)
     }
 }

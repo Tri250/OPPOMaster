@@ -172,6 +172,13 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
     implementation("androidx.camera:camera-view:$cameraxVersion")
 
+    // Google ML Kit - 本地场景识别（零延迟、零成本、隐私保护）
+    implementation("com.google.mlkit:image-labeling:17.0.8")
+    implementation("com.google.mlkit:image-labeling-custom:17.0.0")
+
+    // Play Services Futures - 用于 ML Kit 协程支持
+    implementation("com.google.android.gms:play-services-tasks:18.1.0")
+
     // WorkManager - 后台任务处理
     implementation("androidx.work:work-runtime-ktx:2.9.0")
 
