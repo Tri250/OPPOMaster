@@ -1,6 +1,8 @@
 package com.omaster.app.di
 
 import android.content.Context
+import com.omaster.app.data.PresetRepository
+import com.omaster.app.search.PresetSearchManager
 import com.omaster.app.security.CacheManager
 import com.omaster.app.security.FileEncryptionManager
 import com.omaster.app.security.InputValidator
@@ -76,5 +78,19 @@ object SecurityModule {
         sensitiveInfoHandler: SensitiveInfoHandler
     ): SecurityScanner {
         return SecurityScanner(context, sensitiveInfoHandler)
+    }
+    
+    @Provides
+    @Singleton
+    fun providePresetRepository(): PresetRepository {
+        return PresetRepository()
+    }
+    
+    @Provides
+    @Singleton
+    fun providePresetSearchManager(
+        @ApplicationContext context: Context
+    ): PresetSearchManager {
+        return PresetSearchManager(context)
     }
 }
