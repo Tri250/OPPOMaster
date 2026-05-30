@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import NavigationBar from './components/common/NavigationBar';
 import NetworkError from './components/common/NetworkError';
 import NotFoundPage from './pages/NotFoundPage';
+import FloatingGuidePage from './pages/FloatingGuidePage';
 import './index.css';
 
 const HomePage = lazy(() => import('./pages/HomePage'));
@@ -70,6 +71,7 @@ function App() {
             <Route path="/preset/:id" element={<PresetDetailPage />} />
             <Route path="/watermark" element={<WatermarkPage />} />
             <Route path="/editor" element={<PresetEditorPage />} />
+            <Route path="/floating-guide" element={<FloatingGuidePage />} />
             {/* 404页面 */}
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
