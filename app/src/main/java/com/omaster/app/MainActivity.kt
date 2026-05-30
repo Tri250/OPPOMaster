@@ -10,20 +10,25 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.omaster.app.model.SceneType
 import com.omaster.app.navigation.Screen
 import com.omaster.app.service.AiService
 import com.omaster.app.ui.screens.DetailScreen
 import com.omaster.app.ui.screens.HomeScreen
 import com.omaster.app.ui.screens.SceneDetectionScreen
 import com.omaster.app.ui.screens.SettingsScreen
+import com.omaster.app.ui.screens.ImageRecommendationScreen
 import com.omaster.app.ui.theme.OMasterTheme
 import com.omaster.app.viewmodel.MainViewModel
 import dagger.hilt.android.AndroidEntryPoint
 import timber.log.Timber
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+    @Inject
+    lateinit var aiService: AiService
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (BuildConfig.DEBUG) {
@@ -32,10 +37,11 @@ class MainActivity : ComponentActivity() {
         setContent {
             val viewModel: MainViewModel = hiltViewModel()
             val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
-            
+
             OMasterTheme(themeMode = themeMode) {
                 OMasterApp(
-                    viewModel = viewModel
+                    viewModel = viewModel,
+                    aiService = aiService
                 )
             }
         }
@@ -45,10 +51,10 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun OMasterApp(
     viewModel: MainViewModel,
+    aiService: AiService,
     modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier
 ) {
     val navController = rememberNavController()
-    val aiService = remember { AiService() }
     val presets by viewModel.presets.collectAsStateWithLifecycle()
 
     NavHost(
@@ -78,7 +84,6 @@ fun OMasterApp(
                     onBack = { navController.popBackStack() },
                     onFavoriteToggle = { viewModel.toggleFavorite(it) },
                     onApplyPreset = { appliedPreset ->
-                        // 模拟应用预设的功能
                         Timber.d("应用预设: ${appliedPreset.name}")
                     }
                 )
@@ -93,6 +98,14 @@ fun OMasterApp(
                     navController.navigate(Screen.Detail.createRoute(preset.id))
                 },
                 onFavoriteToggle = { viewModel.toggleFavorite(it) }
+            )
+        }
+        composable(Screen.ImageRecommendation.route) {
+            ImageRecommendationScreen(
+                onBack = { navController.popBackStack() },
+                onPresetClick = { preset ->
+                    navController.navigate(Screen.Detail.createRoute(preset.id))
+                }
             )
         }
         composable(Screen.Settings.route) {

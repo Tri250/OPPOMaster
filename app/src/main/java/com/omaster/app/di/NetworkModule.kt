@@ -1,15 +1,11 @@
 package com.omaster.app.di
 
-import android.content.Context
-import com.google.gson.Gson
-import com.google.gson.GsonBuilder
 import com.omaster.app.network.DeepSeekApi
 import com.omaster.app.network.PresetApi
 import com.omaster.app.BuildConfig
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
-import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -22,14 +18,6 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
-    
-    @Provides
-    @Singleton
-    fun provideGson(): Gson {
-        return GsonBuilder()
-            .setLenient()
-            .create()
-    }
 
     @Provides
     @Singleton
@@ -44,38 +32,38 @@ object NetworkModule {
 
         return OkHttpClient.Builder()
             .addInterceptor(loggingInterceptor)
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
+            .connectTimeout(60, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
             .build()
     }
 
     @Provides
     @Singleton
-    fun provideRetrofit(okHttpClient: OkHttpClient, gson: Gson): Retrofit {
-        val baseUrl = "https://api.example.com/"
+    @Named("base")
+    fun provideBaseRetrofit(okHttpClient: OkHttpClient): Retrofit {
         return Retrofit.Builder()
-            .baseUrl(baseUrl)
+            .baseUrl("https://api.example.com/")
             .client(okHttpClient)
-            .addConverterFactory(GsonConverterFactory.create(gson))
+            .addConverterFactory(GsonConverterFactory.create())
             .build()
-    }
-
-    @Provides
-    @Singleton
-    fun providePresetApi(retrofit: Retrofit): PresetApi {
-        return retrofit.create(PresetApi::class.java)
     }
 
     @Provides
     @Singleton
     @Named("deepseek")
-    fun provideDeepSeekRetrofit(okHttpClient: OkHttpClient, gson: Gson): Retrofit {
+    fun provideDeepSeekRetrofit(okHttpClient: OkHttpClient): Retrofit {
         return Retrofit.Builder()
             .baseUrl("https://api.deepseek.com/")
             .client(okHttpClient)
-            .addConverterFactory(GsonConverterFactory.create(gson))
+            .addConverterFactory(GsonConverterFactory.create())
             .build()
+    }
+
+    @Provides
+    @Singleton
+    fun providePresetApi(@Named("base") retrofit: Retrofit): PresetApi {
+        return retrofit.create(PresetApi::class.java)
     }
 
     @Provides

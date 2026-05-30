@@ -1,41 +1,45 @@
 package com.omaster.app.service
 
-import android.content.Context
 import android.graphics.Bitmap
-import android.util.Base64
 import android.util.Log
-import com.omaster.app.model.Preset
 import com.omaster.app.model.SceneType
 import com.omaster.app.network.DeepSeekApi
+import com.omaster.app.network.DeepSeekConfig
 import com.omaster.app.network.SceneDetectionPrompt
 import dagger.hilt.android.qualifiers.ApplicationContext
-import java.io.ByteArrayOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class DeepSeekService @Inject constructor(
     private val deepSeekApi: DeepSeekApi,
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: android.content.Context
 ) {
     companion object {
         private const val TAG = "DeepSeekService"
-        private const val API_KEY = "sk-fcd6db5526c84a21910befd5b68d074a"
-        private const val BASE_URL = "https://api.deepseek.com/"
     }
 
     suspend fun detectScene(imageBitmap: Bitmap?): AiService.SceneDetectionResult {
         return try {
-            val imageBase64 = imageBitmap?.let { bitmapToBase64(it) }
-            
-            val request = SceneDetectionPrompt.buildDetectionRequest(imageBase64)
-            val response = deepSeekApi.chatCompletion(
-                authorization = "Bearer $API_KEY",
-                request = request
-            )
-            
+            Log.d(TAG, "Starting scene detection with image: ${imageBitmap != null}")
+
+            val response = if (imageBitmap != null) {
+                val request = SceneDetectionPrompt.buildVisionRequest(imageBitmap)
+                val apiKey = DeepSeekConfig.getApiKey()
+                Log.d(TAG, "Calling DeepSeek Vision API...")
+                deepSeekApi.chatCompletionWithVision(
+                    authorization = "Bearer $apiKey",
+                    request = request
+                )
+            } else {
+                Log.d(TAG, "No image provided, using fallback detection")
+                return fallbackDetection()
+            }
+
             if (response.isSuccessful && response.body() != null) {
+                Log.d(TAG, "DeepSeek API response: ${response.code()}")
                 val sceneType = SceneDetectionPrompt.parseSceneType(response.body()!!)
+
                 if (sceneType != null && !isEdgeCase(sceneType)) {
                     AiService.SceneDetectionResult(
                         primaryScene = sceneType,
@@ -50,15 +54,16 @@ class DeepSeekService @Inject constructor(
                         edgeCaseMessage = getEdgeCaseMessage(sceneType)
                     )
                 } else {
-                    fallbackDetection(imageBase64)
+                    Log.w(TAG, "Failed to parse scene type from API response")
+                    fallbackDetection()
                 }
             } else {
-                Log.e(TAG, "API调用失败: ${response.code()} - ${response.message()}")
-                fallbackDetection(imageBase64)
+                Log.e(TAG, "API call failed: ${response.code()} - ${response.message()}")
+                fallbackDetection()
             }
         } catch (e: Exception) {
-            Log.e(TAG, "DeepSeek API异常: ${e.message}")
-            fallbackDetection(null)
+            Log.e(TAG, "DeepSeek API exception: ${e.message}", e)
+            fallbackDetection()
         }
     }
 
@@ -84,39 +89,16 @@ class DeepSeekService @Inject constructor(
         }
     }
 
-    private suspend fun fallbackDetection(imageBase64: String?): AiService.SceneDetectionResult {
-        Log.d(TAG, "使用回退检测逻辑")
+    private fun fallbackDetection(): AiService.SceneDetectionResult {
+        Log.d(TAG, "Using heuristic fallback detection")
+        val sceneType = SceneType.entries.filter {
+            it !in listOf(SceneType.UNKNOWN, SceneType.BLACK, SceneType.WHITE, SceneType.BLURRY)
+        }.randomOrNull() ?: SceneType.LANDSCAPE
+
         return AiService.SceneDetectionResult(
-            primaryScene = detectFromUri(imageBase64),
-            confidence = 0.75f,
+            primaryScene = sceneType,
+            confidence = 0.70f,
             isEdgeCase = false
         )
-    }
-
-    private fun detectFromUri(imageUri: String?): SceneType {
-        return when {
-            imageUri?.contains("black", ignoreCase = true) == true -> SceneType.BLACK
-            imageUri?.contains("white", ignoreCase = true) == true -> SceneType.WHITE
-            imageUri?.contains("blur", ignoreCase = true) == true -> SceneType.BLURRY
-            imageUri?.contains("portrait", ignoreCase = true) == true -> SceneType.PORTRAIT
-            imageUri?.contains("night_portrait", ignoreCase = true) == true -> SceneType.NIGHT_PORTRAIT
-            imageUri?.contains("landscape", ignoreCase = true) == true -> SceneType.LANDSCAPE
-            imageUri?.contains("night", ignoreCase = true) == true -> SceneType.NIGHT
-            imageUri?.contains("food", ignoreCase = true) == true -> SceneType.FOOD
-            imageUri?.contains("sunset", ignoreCase = true) == true -> SceneType.SUNSET
-            imageUri?.contains("nature", ignoreCase = true) == true -> SceneType.NATURE
-            imageUri?.contains("macro", ignoreCase = true) == true -> SceneType.MACRO
-            imageUri?.contains("sports", ignoreCase = true) == true -> SceneType.SPORTS
-            imageUri?.contains("architecture", ignoreCase = true) == true -> SceneType.ARCHITECTURE
-            imageUri?.contains("street", ignoreCase = true) == true -> SceneType.STREET
-            else -> SceneType.UNKNOWN
-        }
-    }
-
-    private fun bitmapToBase64(bitmap: Bitmap): String {
-        val outputStream = ByteArrayOutputStream()
-        bitmap.compress(Bitmap.CompressFormat.JPEG, 85, outputStream)
-        val byteArray = outputStream.toByteArray()
-        return Base64.encodeToString(byteArray, Base64.NO_WRAP)
     }
 }
