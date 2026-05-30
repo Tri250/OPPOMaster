@@ -16,9 +16,17 @@ const sampleImages = [
   { id: 3, label: '夜景', seed: 'night' },
   { id: 4, label: '美食', seed: 'food' },
   { id: 5, label: '建筑', seed: 'architecture' },
-  { id: 6, label: '运动', seed: 'sports' },
-  { id: 7, label: '夜景人像', seed: 'night_portrait' },
-  { id: 8, label: '全黑', seed: 'black' }
+  { id: 6, label: '日落', seed: 'sunset' },
+  { id: 7, label: '运动', seed: 'sports' },
+  { id: 8, label: '夜景人像', seed: 'night_portrait' }
+];
+
+// 复杂场景测试图片
+const complexSampleImages = [
+  { id: 101, label: '人像+风景', seed: 'mixed_people_nature' },
+  { id: 102, label: '低光照', seed: 'low_light' },
+  { id: 103, label: '倾斜建筑', seed: 'tilted_building' },
+  { id: 104, label: '微距', seed: 'macro_flower' }
 ];
 
 interface SceneResult {
@@ -143,14 +151,46 @@ export default function AIDemoPage() {
   const [recommendedPresets, setRecommendedPresets] = useState<RecommendedPreset[]>([]);
   const [edgeCaseResult, setEdgeCaseResult] = useState<EdgeCaseResult | null>(null);
   const [usingDeepSeek, setUsingDeepSeek] = useState(false);
+  const [analysisStartTime, setAnalysisStartTime] = useState<number | null>(null);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [showNetworkError, setShowNetworkError] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 网络状态监听
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      setShowNetworkError(false);
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   // DeepSeek AI 场景识别
   const analyzeWithDeepSeek = useCallback(async (imageUrl: string, file?: File) => {
+    // 检查网络状态
+    if (!navigator.onLine) {
+      setShowNetworkError(true);
+      alert('网络连接中断，请检查网络后重试');
+      return;
+    }
+
     setUsingDeepSeek(true);
     setIsAnalyzing(true);
     setAnalysisComplete(false);
     setEdgeCaseResult(null);
+    setAnalysisStartTime(Date.now());
+
+    const startTime = Date.now();
 
     try {
       // 调用DeepSeek API
@@ -381,6 +421,20 @@ export default function AIDemoPage() {
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      // AI-011: 非图像文件格式校验
+      const validTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'image/gif'];
+      if (!validTypes.includes(file.type)) {
+        alert('不支持的文件格式，请上传JPG、PNG、WebP或GIF格式的图片');
+        return;
+      }
+
+      // AI-012: 超大图像文件检测 (限制10MB)
+      const maxSize = 10 * 1024 * 1024; // 10MB
+      if (file.size > maxSize) {
+        alert('文件过大（超过10MB），请压缩后上传');
+        return;
+      }
+
       setSelectedFile(file);
       const reader = new FileReader();
       reader.onload = (event) => {
@@ -428,9 +482,22 @@ export default function AIDemoPage() {
 
   const handleAnalyze = useCallback(() => {
     if (!selectedImage) return;
-    
+
+    // 检查网络
+    if (!navigator.onLine) {
+      alert('网络连接中断，请检查网络后重试');
+      return;
+    }
+
     // 使用DeepSeek AI进行分析
     analyzeWithDeepSeek(selectedImage, selectedFile || undefined);
+  }, [selectedImage, selectedFile, analyzeWithDeepSeek]);
+
+  const handleRetry = useCallback(() => {
+    if (selectedImage) {
+      setShowNetworkError(false);
+      analyzeWithDeepSeek(selectedImage, selectedFile || undefined);
+    }
   }, [selectedImage, selectedFile, analyzeWithDeepSeek]);
   
   const handleClear = useCallback(() => {
@@ -573,7 +640,7 @@ export default function AIDemoPage() {
 
               {/* Sample Images */}
               <div className="mt-6">
-                <p className="text-sm text-slate-400 mb-3">或选择示例照片</p>
+                <p className="text-sm text-slate-400 mb-3">基础场景测试</p>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   {sampleImages.map((img) => (
                     <motion.button
@@ -584,6 +651,32 @@ export default function AIDemoPage() {
                       className={`relative aspect-square rounded-xl overflow-hidden transition-all ${
                         selectedImage?.includes(img.seed)
                           ? 'ring-2 ring-amber-500 ring-offset-2 ring-offset-slate-900'
+                          : 'hover:ring-2 hover:ring-slate-600'
+                      }`}
+                    >
+                      <img
+                        src={`https://picsum.photos/seed/${img.seed}/200/200`}
+                        alt={img.label}
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent flex items-end p-2">
+                        <span className="text-xs text-white font-medium">{img.label}</span>
+                      </div>
+                    </motion.button>
+                  ))}
+                </div>
+
+                <p className="text-sm text-slate-400 mb-3 mt-6">复杂场景测试（P1级）</p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {complexSampleImages.map((img) => (
+                    <motion.button
+                      key={img.id}
+                      whileHover={{ scale: 1.05, y: -2 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => handleImageSelect(`https://picsum.photos/seed/${img.seed}/400/300`)}
+                      className={`relative aspect-square rounded-xl overflow-hidden transition-all ${
+                        selectedImage?.includes(img.seed)
+                          ? 'ring-2 ring-purple-500 ring-offset-2 ring-offset-slate-900'
                           : 'hover:ring-2 hover:ring-slate-600'
                       }`}
                     >
@@ -726,6 +819,55 @@ export default function AIDemoPage() {
                         </div>
                       </div>
                     </motion.div>
+                  )}
+
+                  {/* Network Error Display */}
+                  {showNetworkError && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="p-4 bg-orange-500/10 border border-orange-500/20 rounded-xl"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="p-2 bg-orange-500/20 rounded-full">
+                          <AlertTriangle className="w-5 h-5 text-orange-400" />
+                        </div>
+                        <div className="flex-1">
+                          <h3 className="font-medium text-orange-400">
+                            网络连接中断
+                          </h3>
+                          <p className="text-sm text-orange-300 mt-1">
+                            请检查网络连接后重试
+                          </p>
+                          <button
+                            onClick={handleRetry}
+                            className="mt-3 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-sm font-medium transition-colors"
+                          >
+                            重新分析
+                          </button>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {/* Analysis Time Display */}
+                  {analysisComplete && analysisStartTime && (
+                    <div className="flex items-center justify-between text-xs text-slate-500">
+                      <span>识别耗时: {Math.round((Date.now() - analysisStartTime) / 1000 * 10) / 10}秒</span>
+                      <span className="flex items-center gap-1">
+                        {isOnline ? (
+                          <>
+                            <span className="w-2 h-2 bg-emerald-400 rounded-full"></span>
+                            在线
+                          </>
+                        ) : (
+                          <>
+                            <span className="w-2 h-2 bg-red-400 rounded-full"></span>
+                            离线
+                          </>
+                        )}
+                      </span>
+                    </div>
                   )}
 
                   {/* Scene Labels */}

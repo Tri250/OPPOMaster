@@ -97,23 +97,36 @@ export default function PresetEditor() {
     URL.revokeObjectURL(url);
   };
 
-  // 导入预设（暂未使用）
-  // const importPreset = (e: React.ChangeEvent<HTMLInputElement>) => {
-  //   const file = e.target.files?.[0];
-  //   if (file) {
-  //     const reader = new FileReader();
-  //     reader.onload = (event) => {
-  //       try {
-  //         const imported = JSON.parse(event.target?.result as string);
-  //         setParams({ ...imported, id: Date.now().toString() });
-  //         alert('预设导入成功！');
-  //       } catch (err) {
-  //         alert('预设导入失败，请检查文件格式！');
-  //       }
-  //     };
-  //     reader.readAsText(file);
-  //   }
-  // };
+  // 导入预设（CAM-011: JSON格式参数导入）
+  const importPreset = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // AI-011: 非图像文件格式校验
+      if (!file.name.endsWith('.json')) {
+        alert('不支持的文件格式，请上传JSON格式的文件');
+        return;
+      }
+
+      // AI-012: 超大图像文件检测
+      const maxSize = 5 * 1024 * 1024; // 5MB
+      if (file.size > maxSize) {
+        alert('文件过大（超过5MB），请检查文件');
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const imported = JSON.parse(event.target?.result as string);
+          setParams({ ...imported, id: Date.now().toString() });
+          alert('预设导入成功！');
+        } catch (err) {
+          alert('预设导入失败，请检查文件格式！');
+        }
+      };
+      reader.readAsText(file);
+    }
+  };
 
   // 获取CSS滤镜字符串
   const getFilterStyle = () => {
@@ -200,6 +213,20 @@ export default function PresetEditor() {
                   <Download className="w-4 h-4" />
                   <span>导出</span>
                 </button>
+              </div>
+
+              {/* Import Button (CAM-011) */}
+              <div className="mt-4">
+                <label className="btn-secondary w-full text-sm py-2 flex items-center justify-center space-x-1 cursor-pointer hover:bg-slate-700/50 transition-colors">
+                  <Upload className="w-4 h-4" />
+                  <span>导入预设</span>
+                  <input
+                    type="file"
+                    accept=".json"
+                    onChange={importPreset}
+                    className="hidden"
+                  />
+                </label>
               </div>
             </motion.div>
           </div>
