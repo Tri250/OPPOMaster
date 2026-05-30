@@ -2,6 +2,8 @@ package com.omaster.app.service
 
 import android.graphics.Bitmap
 import android.util.Log
+import com.omaster.app.camera.ImageAnalyzer
+import com.omaster.app.camera.BrightnessLevel
 import com.omaster.app.ml.LocalSceneClassifier
 import com.omaster.app.ml.SceneClassification
 import com.omaster.app.model.Preset
@@ -11,11 +13,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.random.Random
 
 @Singleton
 class AiService @Inject constructor(
-    private val localSceneClassifier: LocalSceneClassifier
+    private val localSceneClassifier: LocalSceneClassifier,
+    private val imageAnalyzer: ImageAnalyzer // 方案4 P1: 注入 ImageAnalyzer 用于图片质量检查
 ) {
 
     companion object {
@@ -47,6 +49,15 @@ class AiService @Inject constructor(
         return try {
             Log.d(TAG, "开始ML Kit场景识别")
 
+            // 方案4 P1: 在 ML Kit 识别之前先进行图片质量前置检查
+            if (bitmap != null) {
+                val qualityCheckResult = checkImageQuality(bitmap)
+                if (qualityCheckResult != null) {
+                    Log.d(TAG, "图片质量检查发现问题: ${qualityCheckResult.primaryScene}")
+                    return qualityCheckResult
+                }
+            }
+
             // 优先使用 ML Kit 本地进行场景识别
             if (bitmap != null) {
                 Log.d(TAG, "使用 ML Kit 本地识别")
@@ -76,6 +87,58 @@ class AiService @Inject constructor(
         } catch (e: Exception) {
             Log.e(TAG, "场景识别异常: ${e.message}", e)
             return detectWithHeuristics(imageUri)
+        }
+    }
+
+    /**
+     * 方案4 P1: 图片质量前置检查
+     * 在 ML Kit 识别之前先判断图片质量（亮度、模糊度等）
+     * 真实基于像素采样算法，不存在虚构问题
+     */
+    private fun checkImageQuality(bitmap: Bitmap): SceneDetectionResult? {
+        return try {
+            val analysis = imageAnalyzer.analyzeImageForParams(bitmap)
+
+            // 检测过暗场景
+            if (analysis.brightnessLevel == BrightnessLevel.VERY_DARK) {
+                Log.d(TAG, "检测到极暗环境: ${analysis.brightness}")
+                return SceneDetectionResult(
+                    primaryScene = SceneType.BLACK,
+                    confidence = 1.0f,
+                    isEdgeCase = true,
+                    edgeCaseMessage = "光线太暗，请开启闪光灯或在明亮环境拍摄"
+                )
+            }
+
+            // 检测过亮/过曝场景
+            if (analysis.brightnessLevel == BrightnessLevel.VERY_BRIGHT) {
+                Log.d(TAG, "检测到极亮环境: ${analysis.brightness}")
+                return SceneDetectionResult(
+                    primaryScene = SceneType.WHITE,
+                    confidence = 1.0f,
+                    isEdgeCase = true,
+                    edgeCaseMessage = "画面过亮，可能过曝，请降低曝光或避免强光直射"
+                )
+            }
+
+            // 检测模糊场景（基于边缘密度）
+            if (analysis.detailLevel == com.omaster.app.camera.DetailLevel.VERY_LOW ||
+                analysis.contrastLevel == com.omaster.app.camera.ContrastLevel.VERY_LOW) {
+                Log.d(TAG, "检测到可能模糊的画面: 边缘密度=${analysis.edgeDensity}, 对比度=${analysis.contrast}")
+                return SceneDetectionResult(
+                    primaryScene = SceneType.BLURRY,
+                    confidence = 1.0f,
+                    isEdgeCase = true,
+                    edgeCaseMessage = "画面可能模糊，建议稳定手机或对焦后重拍"
+                )
+            }
+
+            // 图片质量检查通过，返回 null 表示可以继续进行 ML Kit 识别
+            Log.d(TAG, "图片质量检查通过，继续 ML Kit 识别")
+            null
+        } catch (e: Exception) {
+            Log.e(TAG, "图片质量检查异常: ${e.message}", e)
+            null
         }
     }
 
@@ -148,41 +211,14 @@ class AiService @Inject constructor(
             )
         }
 
-        // 基于概率的场景识别
-        val random = Random(System.currentTimeMillis())
-        val scenes = listOf(
-            SceneType.LANDSCAPE to 0.20f,
-            SceneType.PORTRAIT to 0.20f,
-            SceneType.NIGHT to 0.12f,
-            SceneType.FOOD to 0.12f,
-            SceneType.SUNSET to 0.08f,
-            SceneType.NATURE to 0.08f,
-            SceneType.MACRO to 0.08f,
-            SceneType.SPORTS to 0.06f,
-            SceneType.ARCHITECTURE to 0.06f
-        )
-
-        val selectedScene = selectSceneByProbability(scenes, random)
+        // 方案1 P0: 当关键词匹配为空时，直接返回 UNKNOWN，不编造场景
+        // 核心原则：宁可返回 UNKNOWN，也绝不随机编造场景
+        Log.w(TAG, "无法从URI中提取有效场景信息，返回UNKNOWN")
         return SceneDetectionResult(
-            primaryScene = selectedScene,
-            confidence = 0.85f
+            primaryScene = SceneType.UNKNOWN,
+            confidence = 0f,
+            isEdgeCase = false
         )
-    }
-
-    private fun selectSceneByProbability(
-        sceneProbabilities: List<Pair<SceneType, Float>>,
-        random: Random
-    ): SceneType {
-        val cumulative = mutableListOf<Pair<SceneType, Float>>()
-        var total = 0f
-
-        sceneProbabilities.forEach { (scene, prob) ->
-            total += prob
-            cumulative.add(scene to total)
-        }
-
-        val value = random.nextFloat() * total
-        return cumulative.firstOrNull { value <= it.second }?.first ?: SceneType.UNKNOWN
     }
 
     suspend fun getRecommendedPresets(

@@ -89,16 +89,17 @@ class DeepSeekService @Inject constructor(
         }
     }
 
+    /**
+     * 方案1 P0: DeepSeek API 失败时返回 UNKNOWN，不随机编造场景
+     * 核心原则：宁可返回 UNKNOWN，也绝不随机编造场景
+     */
     private fun fallbackDetection(): AiService.SceneDetectionResult {
-        Log.d(TAG, "Using heuristic fallback detection")
-        val sceneType = SceneType.entries.filter {
-            it !in listOf(SceneType.UNKNOWN, SceneType.BLACK, SceneType.WHITE, SceneType.BLURRY)
-        }.randomOrNull() ?: SceneType.LANDSCAPE
-
+        Log.w(TAG, "DeepSeek API 不可用，返回 UNKNOWN（不随机编造场景）")
         return AiService.SceneDetectionResult(
-            primaryScene = sceneType,
-            confidence = 0.70f,
-            isEdgeCase = false
+            primaryScene = SceneType.UNKNOWN,
+            confidence = 0f,
+            isEdgeCase = false,
+            edgeCaseMessage = "AI 服务暂时不可用，请稍后重试"
         )
     }
 }

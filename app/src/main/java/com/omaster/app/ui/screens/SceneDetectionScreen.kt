@@ -84,6 +84,7 @@ fun SceneDetectionScreen(
     var showPermissionRationale by remember { mutableStateOf(false) }
     var showPermissionDenied by remember { mutableStateOf(false) }
     var requestedPermissionType by remember { mutableStateOf(PermissionType.NONE) }
+    var showManualSceneSelector by remember { mutableStateOf(false) } // 方案3 P0: 手动选择场景对话框
     
     // 骨架屏加载状态
     var showSkeleton by remember { mutableStateOf(false) }
@@ -411,26 +412,53 @@ fun SceneDetectionScreen(
                 exit = fadeOut() + slideOutVertically(targetOffsetY = { -20 })
             ) {
                 detectionResult?.let { result ->
-                    if (result.isEdgeCase) {
-                        EdgeCaseResultCard(
-                            result = result,
-                            onRetry = {
-                                scope.launch {
-                                    isDetecting = true
-                                    detectionResult = null
-                                    val retryResult = aiService.detectScene(selectedImage?.toString())
-                                    detectionResult = retryResult
-                                    if (!retryResult.isEdgeCase) {
-                                        recommendedPresets = aiService.getRecommendedPresets(retryResult, allPresets)
-                                    } else {
-                                        recommendedPresets = emptyList()
+                    when {
+                        // 方案3 P0: 处理边界场景
+                        result.isEdgeCase -> {
+                            EdgeCaseResultCard(
+                                result = result,
+                                onRetry = {
+                                    scope.launch {
+                                        isDetecting = true
+                                        detectionResult = null
+                                        val retryResult = aiService.detectScene(selectedImage?.toString())
+                                        detectionResult = retryResult
+                                        if (!retryResult.isEdgeCase) {
+                                            recommendedPresets = aiService.getRecommendedPresets(retryResult, allPresets)
+                                        } else {
+                                            recommendedPresets = emptyList()
+                                        }
+                                        isDetecting = false
                                     }
-                                    isDetecting = false
+                                },
+                                onManualSelect = { showManualSceneSelector = true }
+                            )
+                        }
+                        // 方案3 P0: 处理 UNKNOWN 场景
+                        result.primaryScene == SceneType.UNKNOWN -> {
+                            UnknownResultCard(
+                                result = result,
+                                onManualSelect = { showManualSceneSelector = true },
+                                onRetry = {
+                                    scope.launch {
+                                        isDetecting = true
+                                        detectionResult = null
+                                        val retryResult = aiService.detectScene(selectedImage?.toString())
+                                        detectionResult = retryResult
+                                        if (!retryResult.isEdgeCase && retryResult.primaryScene != SceneType.UNKNOWN) {
+                                            recommendedPresets = aiService.getRecommendedPresets(retryResult, allPresets)
+                                        } else {
+                                            recommendedPresets = emptyList()
+                                        }
+                                        isDetecting = false
+                                    }
                                 }
-                            }
-                        )
-                    } else {
-                        SceneResultCard(result = result)
+                            )
+                        }
+                        // 正常场景识别结果
+                        else -> {
+                            SceneResultCard(result = result)
+                        }
                     }
                 }
             }
@@ -481,6 +509,31 @@ fun SceneDetectionScreen(
             
             Spacer(modifier = Modifier.weight(1f))
         }
+    }
+
+    // 方案3 P0: 手动选择场景对话框
+    if (showManualSceneSelector) {
+        ManualSceneSelectorDialog(
+            onDismiss = { showManualSceneSelector = false },
+            onSceneSelected = { selectedScene ->
+                showManualSceneSelector = false
+                scope.launch {
+                    detectionResult = AiService.SceneDetectionResult(
+                        primaryScene = selectedScene,
+                        confidence = 0f,
+                        isEdgeCase = false,
+                        edgeCaseMessage = "手动选择的场景"
+                    )
+                    recommendedPresets = aiService.getRecommendedPresets(
+                        AiService.SceneDetectionResult(
+                            primaryScene = selectedScene,
+                            confidence = 0f
+                        ),
+                        allPresets
+                    )
+                }
+            }
+        )
     }
 }
 
@@ -742,11 +795,155 @@ fun IconLabel(icon: ImageVector, label: String) {
     }
 }
 
-// 边界场景结果卡片
+// 未知场景结果卡片 - 方案3 P0
+@Composable
+fun UnknownResultCard(
+    result: AiService.SceneDetectionResult,
+    onManualSelect: () -> Unit = {},
+    onRetry: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = OppoCardSurface
+        ),
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(60.dp)
+                        .clip(CircleShape)
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(OppoGrey600, OppoGrey700)
+                            )
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Help,
+                        contentDescription = "无法识别",
+                        tint = OppoTextSecondary,
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "AI 无法确定场景类型",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = OppoTextTertiary
+                    )
+                    Text(
+                        text = "请尝试选择更清晰的照片",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = OppoTextPrimary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    result.edgeCaseMessage?.let { message ->
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = OppoTextSecondary
+                        )
+                    }
+                }
+
+                Surface(
+                    color = OppoGrey700.copy(alpha = 0.3f),
+                    shape = CircleShape
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.QuestionMark,
+                        contentDescription = "提示",
+                        tint = OppoTextSecondary,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
+            }
+
+            // 提示文本
+            Text(
+                text = "提示：选择更清晰、光线充足的照片可提高识别准确率",
+                style = MaterialTheme.typography.bodySmall,
+                color = OppoTextSecondary,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        color = OppoGrey800.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    .padding(12.dp)
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onRetry,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = HasselbladOrangePro
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, HasselbladOrangePro.copy(alpha = 0.5f))
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "重试",
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "重新识别",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                }
+
+                Button(
+                    onClick = onManualSelect, // 方案3 P0: 调用手动选择
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = HasselbladOrangePro
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Category,
+                        contentDescription = "手动选择",
+                        tint = OppoDeepSpace,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "手动选择",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = OppoDeepSpace
+                    )
+                }
+            }
+        }
+    }
+}
 @Composable
 fun EdgeCaseResultCard(
     result: AiService.SceneDetectionResult,
     onRetry: () -> Unit = {},
+    onManualSelect: () -> Unit = {}, // 方案3 P0: 手动选择回调
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -852,7 +1049,7 @@ fun EdgeCaseResultCard(
                 }
                 
                 Button(
-                    onClick = { /* 手动选择场景 */ },
+                    onClick = onManualSelect, // 方案3 P0: 调用手动选择回调
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = HasselbladOrangePro
@@ -1122,5 +1319,122 @@ fun getSceneIcon(scene: SceneType): ImageVector {
         SceneType.WHITE -> Icons.Default.HelpOutline
         SceneType.BLURRY -> Icons.Default.BlurOn
         SceneType.UNKNOWN -> Icons.Default.Help
+    }
+}
+
+// 方案3 P0: 手动选择场景对话框组件
+@Composable
+fun ManualSceneSelectorDialog(
+    onDismiss: () -> Unit,
+    onSceneSelected: (SceneType) -> Unit
+) {
+    // 常见场景类型列表（排除边界场景和 UNKNOWN）
+    val commonScenes = listOf(
+        SceneType.PORTRAIT to "人像",
+        SceneType.LANDSCAPE to "风景",
+        SceneType.NIGHT to "夜景",
+        SceneType.FOOD to "美食",
+        SceneType.SUNSET to "日落",
+        SceneType.NATURE to "自然",
+        SceneType.ARCHITECTURE to "建筑",
+        SceneType.STREET to "街头",
+        SceneType.MACRO to "微距",
+        SceneType.SPORTS to "运动",
+        SceneType.NIGHT_PORTRAIT to "夜景人像"
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "手动选择场景类型",
+                style = MaterialTheme.typography.headlineSmall,
+                color = OppoLightTextPrimary,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "请选择照片对应的场景类型：",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = OppoLightTextSecondary
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // 场景选择网格
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    commonScenes.chunked(2).forEach { rowScenes ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            rowScenes.forEach { (scene, name) ->
+                                SceneSelectionChip(
+                                    scene = scene,
+                                    name = name,
+                                    onClick = { onSceneSelected(scene) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            // 如果这行只有一个元素，用空盒子填充
+                            if (rowScenes.size == 1) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消", color = OppoLightTextSecondary)
+            }
+        },
+        containerColor = OppoLightSurface,
+        shape = RoundedCornerShape(24.dp)
+    )
+}
+
+@Composable
+private fun SceneSelectionChip(
+    scene: SceneType,
+    name: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        color = OppoGrey800,
+        contentColor = OppoTextPrimary
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = getSceneIcon(scene),
+                contentDescription = name,
+                tint = HasselbladOrangePro,
+                modifier = Modifier.size(20.dp)
+            )
+            Text(
+                text = name,
+                style = MaterialTheme.typography.bodyMedium,
+                color = OppoTextPrimary
+            )
+        }
     }
 }
