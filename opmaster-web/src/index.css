@@ -8,19 +8,34 @@
   }
   
   body {
-    @apply bg-[#0A0A0F] text-white font-sans;
+    @apply bg-surface-900 text-white font-sans antialiased;
   }
 }
 
 @layer components {
-  .glass-effect {
-    @apply bg-white/5 backdrop-blur-md border border-white/10;
+  /* 玻璃态卡片 - ColorOS 16规范 */
+  .glass-card {
+    @apply bg-surface-700/90 backdrop-blur-lg border border-white/10 rounded-xl shadow-card;
+  }
+  
+  .glass-card-hover {
+    @apply transition-all duration-300 hover:shadow-card-hover hover:-translate-y-1;
   }
 
-  .gradient-text {
-    background: linear-gradient(to right, #ffffff, #C9A86C, #ffffff);
+  /* 渐变文字 */
+  .text-gradient-hasselblad {
+    background: linear-gradient(135deg, #ffffff 0%, #d4a574 50%, #ffffff 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
+  }
+
+  /* 主要按钮 - OPPO风格 */
+  .btn-primary {
+    @apply px-6 py-3 bg-oppo-coral text-white font-medium rounded-lg hover:bg-oppo-coralLight transition-all duration-200 active:scale-95 shadow-glow-coral;
+  }
+  
+  .btn-secondary {
+    @apply px-6 py-3 bg-white/10 text-white font-medium rounded-lg border border-white/20 hover:bg-white/20 transition-all duration-200;
   }
 }
