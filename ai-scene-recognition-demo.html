@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OPPO Master - AI智能场景识别</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0f1419 0%, #0a0f14 50%, #0a0f14 100%);
+            min-height: 100vh;
+        }
+        
+        .gradient-text {
+            background: linear-gradient(135deg, #ffffff 0%, #ffffffb3 50%, #ffffff7a 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .glass-card {
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .hasselblad-gradient {
+            background: linear-gradient(135deg, #9fa8a3 0%, #1f2630 100%);
+        }
+        
+        .scene-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .upload-area {
+            border: 2px dashed rgba(255, 255, 255, 0.2);
+            transition: all 0.3s ease;
+        }
+        
+        .upload-area:hover {
+            border-color: #9fa8a3;
+            background: rgba(159, 168, 163, 0.05);
+        }
+        
+        .upload-area.drag-over {
+            border-color: #9fa8a3;
+            background: rgba(159, 168, 163, 0.1);
+        }
+        
+        .preset-card {
+            transition: all 0.3s ease;
+        }
+        
+        .preset-card:hover {
+            background: rgba(255, 255, 255, 0.1);
+            transform: translateY(-2px);
+        }
+        
+        .animate-spin {
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        .fade-in {
+            animation: fadeIn 0.5s ease-out;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="text-white">
+    <div class="min-h-screen pt-20 pb-12 px-4 sm:px-6 lg:px-8">
+        <div class="max-w-7xl mx-auto">
+            <!-- Header -->
+            <div class="text-center mb-12 fade-in">
+                <div class="inline-flex items-center justify-center w-20 h-20 hasselblad-gradient rounded-2xl mb-6 shadow-lg" style="box-shadow: 0 20px 40px rgba(159, 168, 163, 0.2);">
+                    <svg class="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/>
+                    </svg>
+                </div>
+                <h1 class="text-4xl md:text-5xl font-bold mb-4 gradient-text">
+                    AI智能场景识别
+                </h1>
+                <p class="text-lg text-white/60 max-w-2xl mx-auto">
+                    上传您的照片，体验AI智能识别场景并推荐最佳影像参数，与OPPO手机端功能同步
+                </p>
+            </div>
+
+            <!-- Main Content -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <!-- Upload Section -->
+                <div class="fade-in" style="animation-delay: 0.2s;">
+                    <div class="glass-card rounded-3xl p-8 shadow-xl">
+                        <h2 class="text-xl font-bold mb-6 text-white">上传图片</h2>
+                        
+                        <!-- Upload Area -->
+                        <div id="uploadArea" class="upload-area rounded-2xl p-12 text-center cursor-pointer">
+                            <div class="mx-auto mb-4 w-16 h-16 text-white/40 group-hover:text-[#9fa8a3] transition-colors" id="uploadIcon">
+                                <svg class="w-full h-full" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                                </svg>
+                            </div>
+                            <p class="text-white/60 mb-2">点击上传图片，或拖拽到此处</p>
+                            <p class="text-sm text-white/40">支持 JPG、PNG、WebP 格式</p>
+                        </div>
+                        
+                        <input type="file" id="fileInput" accept="image/jpeg,image/png,image/jpg,image/webp" class="hidden">
+
+                        <!-- Selected Image Preview -->
+                        <div id="imagePreview" class="mt-6 hidden">
+                            <div class="flex items-center justify-between mb-3">
+                                <p class="text-sm text-white/60">已选择图片：</p>
+                                <button id="clearBtn" class="text-sm text-red-400 hover:text-red-300 flex items-center gap-1">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                    </svg>
+                                    清除
+                                </button>
+                            </div>
+                            <div class="relative aspect-video rounded-xl overflow-hidden border border-white/10">
+                                <img id="previewImg" src="" alt="Selected" class="w-full h-full object-cover">
+                                <div id="analyzingOverlay" class="absolute inset-0 bg-black/50 flex items-center justify-center hidden">
+                                    <div class="text-center">
+                                        <svg class="w-12 h-12 text-[#9fa8a3] animate-spin mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                                        </svg>
+                                        <p class="text-white">AI正在分析中...</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Sample Images -->
+                        <div class="mt-6">
+                            <p class="text-sm text-white/60 mb-3">或选择示例图片：</p>
+                            <div class="grid grid-cols-3 sm:grid-cols-5 gap-3" id="sampleImages">
+                            </div>
+                        </div>
+
+                        <!-- Analyze Button -->
+                        <button id="analyzeBtn" disabled class="w-full mt-6 py-4 rounded-xl font-semibold text-lg transition-all flex items-center justify-center gap-2 bg-white/10 text-white/40 cursor-not-allowed">
+                            <span id="analyzeBtnContent">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/>
+                                </svg>
+                                开始AI分析
+                            </span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Results Section -->
+                <div class="fade-in" style="animation-delay: 0.3s;">
+                    <!-- Recognition Results -->
+                    <div id="resultsCard" class="glass-card rounded-3xl p-6 shadow-xl hidden">
+                        <div class="flex items-center justify-between mb-6">
+                            <h2 class="text-xl font-bold text-white">识别结果</h2>
+                            <div class="flex items-center space-x-2 text-green-400">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                                </svg>
+                                <span class="text-sm font-medium">分析完成</span>
+                            </div>
+                        </div>
+
+                        <!-- Scene Info -->
+                        <div id="sceneInfo" class="flex items-start gap-4 p-4 rounded-2xl border mb-6" style="background: linear-gradient(90deg, rgba(159, 168, 163, 0.1) 0%, transparent 100%); border-color: rgba(159, 168, 163, 0.2);">
+                            <div class="scene-icon hasselblad-gradient flex-shrink-0">
+                                <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                </svg>
+                            </div>
+                            <div class="flex-1">
+                                <h3 id="sceneName" class="text-lg font-bold text-white mb-1">风景</h3>
+                                <p id="sceneDesc" class="text-sm text-white/60">适合户外风景、山川湖海</p>
+                            </div>
+                        </div>
+
+                        <!-- AI Parameters -->
+                        <div id="aiParamsSection" class="mt-6">
+                            <h3 class="text-sm font-bold text-white/60 mb-3">AI推荐参数</h3>
+                            <div id="paramsGrid" class="grid grid-cols-3 gap-3">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Recommended Presets -->
+                    <div id="presetsCard" class="glass-card rounded-3xl p-6 shadow-xl mt-6 hidden">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-lg font-bold text-white">推荐预设</h2>
+                            <span id="presetsCount" class="text-sm text-white/50">5 个结果</span>
+                        </div>
+                        
+                        <div id="presetsList" class="space-y-3 max-h-96 overflow-y-auto pr-2">
+                        </div>
+                    </div>
+
+                    <!-- Empty State -->
+                    <div id="emptyState" class="glass-card rounded-3xl p-12 text-center shadow-xl">
+                        <svg class="w-16 h-16 text-white/20 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                        </svg>
+                        <p class="text-white/60">上传图片以开始AI分析</p>
+                        <p class="text-sm text-white/40 mt-2">体验与OPPO手机端同步的AI场景识别</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Features Section -->
+            <div class="mt-12 fade-in" style="animation-delay: 0.8s;">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="glass-card rounded-2xl p-6">
+                        <div class="w-12 h-12 rounded-xl flex items-center justify-center mb-4" style="background: linear-gradient(135deg, rgba(159, 168, 163, 0.2) 0%, rgba(31, 38, 48, 0.2) 100%);">
+                            <svg class="w-6 h-6 text-[#9fa8a3]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/>
+                            </svg>
+                        </div>
+                        <h3 class="text-lg font-bold text-white mb-2">覆盖9种场景</h3>
+                        <p class="text-white/60 text-sm">人像、风景、夜景、美食、街头、微距、日落、建筑、自然</p>
+                    </div>
+                    <div class="glass-card rounded-2xl p-6">
+                        <div class="w-12 h-12 rounded-xl flex items-center justify-center mb-4" style="background: linear-gradient(135deg, rgba(159, 168, 163, 0.2) 0%, rgba(31, 38, 48, 0.2) 100%);">
+                            <svg class="w-6 h-6 text-[#9fa8a3]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>
+                            </svg>
+                        </div>
+                        <h3 class="text-lg font-bold text-white mb-2">智能参数推荐</h3>
+                        <p class="text-white/60 text-sm">根据识别结果，自动推荐最佳影像参数</p>
+                    </div>
+                    <div class="glass-card rounded-2xl p-6">
+                        <div class="w-12 h-12 rounded-xl flex items-center justify-center mb-4" style="background: linear-gradient(135deg, rgba(159, 168, 163, 0.2) 0%, rgba(31, 38, 48, 0.2) 100%);">
+                            <svg class="w-6 h-6 text-[#9fa8a3]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                            </svg>
+                        </div>
+                        <h3 class="text-lg font-bold text-white mb-2">与手机端同步</h3>
+                        <p class="text-white/60 text-sm">与OPPO手机端AI场景识别功能保持一致</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Scene data - synchronized with Android side
+        const SceneType = {
+            LANDSCAPE: 'LANDSCAPE',
+            PORTRAIT: 'PORTRAIT',
+            NIGHT: 'NIGHT',
+            SUNSET: 'SUNSET',
+            FOOD: 'FOOD',
+            STREET: 'STREET',
+            NATURE: 'NATURE',
+            ARCHITECTURE: 'ARCHITECTURE',
+            MACRO: 'MACRO',
+            UNKNOWN: 'UNKNOWN'
+        };
+
+        const SceneDisplayNames = {
+            [SceneType.LANDSCAPE]: '风景',
+            [SceneType.PORTRAIT]: '人像',
+            [SceneType.NIGHT]: '夜景',
+            [SceneType.SUNSET]: '日落',
+            [SceneType.FOOD]: '美食',
+            [SceneType.STREET]: '街头',
+            [SceneType.NATURE]: '自然',
+            [SceneType.ARCHITECTURE]: '建筑',
+            [SceneType.MACRO]: '微距',
+            [SceneType.UNKNOWN]: '未知'
+        };
+
+        const SceneDescriptions = {
+            [SceneType.LANDSCAPE]: '适合户外风景、山川湖海',
+            [SceneType.PORTRAIT]: '适合人物摄影',
+            [SceneType.NIGHT]: '适合夜间城市、星空',
+            [SceneType.SUNSET]: '适合日落、黄金时刻',
+            [SceneType.FOOD]: '适合美食拍摄',
+            [SceneType.STREET]: '适合街头纪实',
+            [SceneType.NATURE]: '适合自然生态、植物',
+            [SceneType.ARCHITECTURE]: '适合城市建筑、室内空间',
+            [SceneType.MACRO]: '适合特写、微距摄影',
+            [SceneType.UNKNOWN]: '自动识别场景'
+        };
+
+        const SceneKeywords = {
+            [SceneType.LANDSCAPE]: ['风景', '自然', '森林', '海边'],
+            [SceneType.PORTRAIT]: ['人像', '樱花', '柔焦'],
+            [SceneType.NIGHT]: ['夜景', '夜色', '霓虹'],
+            [SceneType.SUNSET]: ['日落', '橙调', '佛罗伦萨'],
+            [SceneType.FOOD]: ['美食', '自然', '清新'],
+            [SceneType.STREET]: ['街头', '纪实', '黑白'],
+            [SceneType.NATURE]: ['自然', '森林', '清新'],
+            [SceneType.ARCHITECTURE]: ['建筑', '城市', '纪实'],
+            [SceneType.MACRO]: ['自然', '清新', '特写'],
+            [SceneType.UNKNOWN]: []
+        };
+
+        // Sample images data
+        const sampleImages = [
+            { id: 1, label: '人像', seed: 'portrait', scene: SceneType.PORTRAIT },
+            { id: 2, label: '风景', seed: 'landscape', scene: SceneType.LANDSCAPE },
+            { id: 3, label: '夜景', seed: 'night-city', scene: SceneType.NIGHT },
+            { id: 4, label: '美食', seed: 'food', scene: SceneType.FOOD },
+            { id: 5, label: '街头', seed: 'street', scene: SceneType.STREET },
+            { id: 6, label: '微距', seed: 'macro', scene: SceneType.MACRO },
+            { id: 7, label: '日落', seed: 'sunset', scene: SceneType.SUNSET },
+            { id: 8, label: '建筑', seed: 'architecture', scene: SceneType.ARCHITECTURE },
+            { id: 9, label: '自然', seed: 'nature', scene: SceneType.NATURE }
+        ];
+
+        // Mock presets
+        const mockPresets = [
+            { id: '1', name: '哈苏风光', coverPath: 'https://picsum.photos/seed/preset1/200/200', deviceModel: 'Find X9spro', source: 'omaster_cloud', cameraParams: { hncs: true } },
+            { id: '2', name: '人像柔焦', coverPath: 'https://picsum.photos/seed/preset2/200/200', deviceModel: 'Find X9spro', source: 'omaster_cloud', cameraParams: { hncs: true } },
+            { id: '3', name: '夜景霓虹', coverPath: 'https://picsum.photos/seed/preset3/200/200', deviceModel: 'Find X9spro', source: 'community', cameraParams: { hncs: false } },
+            { id: '4', name: '美食清新', coverPath: 'https://picsum.photos/seed/preset4/200/200', deviceModel: 'Find X9spro', source: 'omaster_cloud', cameraParams: { hncs: true } },
+            { id: '5', name: '街头纪实', coverPath: 'https://picsum.photos/seed/preset5/200/200', deviceModel: 'Find X9spro', source: 'community', cameraParams: { hncs: false } }
+        ];
+
+        // AI Service mock
+        const AiService = {
+            async detectScene(imageUrl) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                const scenes = Object.values(SceneType).filter(s => s !== SceneType.UNKNOWN);
+                // Try to detect from sample scene if available
+                if (imageUrl) {
+                    for (const img of sampleImages) {
+                        if (imageUrl.includes(img.seed)) {
+                            return img.scene;
+                        }
+                    }
+                }
+                return scenes[Math.floor(Math.random() * scenes.length)];
+            },
+            
+            async getRecommendedPresets(scene, allPresets) {
+                await new Promise(resolve => setTimeout(resolve, 50));
+                return allPresets;
+            },
+            
+            async fineTuneImage(imageUrl, preset) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                return {
+                    brightness: preset?.cameraParams?.hncs ? 8 : 5,
+                    contrast: preset?.cameraParams?.hncs ? 5 : 8,
+                    saturation: preset?.cameraParams?.hncs ? 12 : 10,
+                    warmth: preset?.cameraParams?.hncs ? 5 : 0,
+                    tint: 0,
+                    highlights: 0,
+                    shadows: 0,
+                    clarity: preset?.cameraParams?.hncs ? 8 : 5,
+                    vignette: 0,
+                    toDisplayMap() {
+                        return {
+                            '亮度': this.brightness,
+                            '对比度': this.contrast,
+                            '饱和度': this.saturation,
+                            '色温': this.warmth,
+                            '色调': this.tint,
+                            '高光': this.highlights,
+                            '阴影': this.shadows,
+                            '清晰度': this.clarity,
+                            '暗角': this.vignette
+                        };
+                    }
+                };
+            }
+        };
+
+        // DOM elements
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const imagePreview = document.getElementById('imagePreview');
+        const previewImg = document.getElementById('previewImg');
+        const clearBtn = document.getElementById('clearBtn');
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const analyzeBtnContent = document.getElementById('analyzeBtnContent');
+        const analyzingOverlay = document.getElementById('analyzingOverlay');
+        const sampleImagesContainer = document.getElementById('sampleImages');
+        const resultsCard = document.getElementById('resultsCard');
+        const sceneName = document.getElementById('sceneName');
+        const sceneDesc = document.getElementById('sceneDesc');
+        const aiParamsSection = document.getElementById('aiParamsSection');
+        const paramsGrid = document.getElementById('paramsGrid');
+        const presetsCard = document.getElementById('presetsCard');
+        const presetsList = document.getElementById('presetsList');
+        const presetsCount = document.getElementById('presetsCount');
+        const emptyState = document.getElementById('emptyState');
+
+        let selectedImageUrl = null;
+        let isAnalyzing = false;
+        let detectedScene = SceneType.UNKNOWN;
+        let aiParams = null;
+        let recommendedPresets = [];
+
+        // Initialize sample images
+        function initSampleImages() {
+            sampleImagesContainer.innerHTML = sampleImages.map(img => `
+                <button class="relative aspect-square rounded-xl overflow-hidden border-2 transition-all hover:scale-105 border-transparent hover:border-white/20" data-seed="${img.seed}" data-scene="${img.scene}">
+                    <img src="https://picsum.photos/seed/${img.seed}/200/200" alt="${img.label}" class="w-full h-full object-cover">
+                    <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end p-2">
+                        <span class="text-xs text-white font-medium">${img.label}</span>
+                    </div>
+                </button>
+            `).join('');
+
+            // Add click handlers
+            sampleImagesContainer.querySelectorAll('button').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const seed = btn.dataset.seed;
+                    handleImageSelect(`https://picsum.photos/seed/${seed}/400/300`);
+                });
+            });
+        }
+
+        // Image selection handler
+        function handleImageSelect(url) {
+            selectedImageUrl = url;
+            previewImg.src = url;
+            imagePreview.classList.remove('hidden');
+            emptyState.classList.add('hidden');
+            resultsCard.classList.add('hidden');
+            presetsCard.classList.add('hidden');
+            updateAnalyzeButton(true);
+        }
+
+        // Clear handler
+        clearBtn.addEventListener('click', () => {
+            selectedImageUrl = null;
+            previewImg.src = '';
+            imagePreview.classList.add('hidden');
+            emptyState.classList.remove('hidden');
+            resultsCard.classList.add('hidden');
+            presetsCard.classList.add('hidden');
+            updateAnalyzeButton(false);
+        });
+
+        // Upload area click handler
+        uploadArea.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        // File input handler
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files?.[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    handleImageSelect(event.target.result);
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // Drag and drop handlers
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('drag-over');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('drag-over');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('drag-over');
+            const file = e.dataTransfer.files?.[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    handleImageSelect(event.target.result);
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // Update analyze button state
+        function updateAnalyzeButton(enabled) {
+            analyzeBtn.disabled = !enabled || isAnalyzing;
+            if (enabled && !isAnalyzing) {
+                analyzeBtn.className = 'w-full mt-6 py-4 rounded-xl font-semibold text-lg transition-all flex items-center justify-center gap-2 hasselblad-gradient text-white shadow-lg hover:shadow-xl cursor-pointer';
+                analyzeBtnContent.innerHTML = `
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/>
+                    </svg>
+                    开始AI分析
+                `;
+            } else {
+                analyzeBtn.className = 'w-full mt-6 py-4 rounded-xl font-semibold text-lg transition-all flex items-center justify-center gap-2 bg-white/10 text-white/40 cursor-not-allowed';
+            }
+        }
+
+        // Analyze button handler
+        analyzeBtn.addEventListener('click', async () => {
+            if (!selectedImageUrl || isAnalyzing) return;
+            
+            isAnalyzing = true;
+            updateAnalyzeButton(true);
+            analyzingOverlay.classList.remove('hidden');
+            analyzeBtnContent.innerHTML = `
+                <svg class="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+                分析中...
+            `;
+
+            try {
+                // Step 1: Detect scene
+                detectedScene = await AiService.detectScene(selectedImageUrl);
+                
+                // Step 2: Get recommended presets
+                recommendedPresets = await AiService.getRecommendedPresets(detectedScene, mockPresets);
+                
+                // Step 3: Get AI parameters
+                aiParams = await AiService.fineTuneImage(selectedImageUrl, recommendedPresets[0] || null);
+                
+                // Show results with delay for better UX
+                setTimeout(() => {
+                    showResults();
+                }, 800);
+                
+            } catch (error) {
+                console.error('Analysis failed:', error);
+            } finally {
+                isAnalyzing = false;
+                analyzingOverlay.classList.add('hidden');
+                updateAnalyzeButton(true);
+            }
+        });
+
+        // Show results
+        function showResults() {
+            // Update scene info
+            sceneName.textContent = SceneDisplayNames[detectedScene];
+            sceneDesc.textContent = SceneDescriptions[detectedScene];
+            
+            // Update AI parameters
+            if (aiParams?.toDisplayMap) {
+                const params = aiParams.toDisplayMap();
+                paramsGrid.innerHTML = Object.entries(params).slice(0, 9).map(([key, value], index) => `
+                    <div class="bg-white/5 rounded-xl p-3 text-center" style="animation: fadeIn 0.3s ease-out ${index * 0.05}s both;">
+                        <p class="text-xs text-white/50 mb-1">${key}</p>
+                        <p class="text-lg font-bold text-white">${value}</p>
+                    </div>
+                `).join('');
+            }
+            
+            // Update presets
+            presetsCount.textContent = `${recommendedPresets.length} 个结果`;
+            presetsList.innerHTML = recommendedPresets.slice(0, 5).map((preset, index) => `
+                <div class="flex items-center gap-4 p-4 bg-white/5 rounded-xl preset-card" style="animation: fadeIn 0.3s ease-out ${0.6 + index * 0.1}s both;">
+                    <div class="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0">
+                        <img src="${preset.coverPath}" alt="${preset.name}" class="w-full h-full object-cover" onerror="this.src='https://picsum.photos/seed/${preset.id}/200/200'">
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <p class="font-medium text-white truncate">${preset.name}</p>
+                        <p class="text-xs text-white/50 truncate">
+                            ${preset.deviceModel} · ${preset.source === 'omaster_cloud' ? '官方' : '社区'}
+                        </p>
+                    </div>
+                    <div class="flex flex-col items-end gap-1">
+                        ${preset.cameraParams?.hncs ? `
+                            <span class="text-xs px-2 py-0.5 rounded-full" style="background: rgba(159, 168, 163, 0.2); color: #9fa8a3;">
+                                HNCS
+                            </span>
+                        ` : ''}
+                        <button class="px-4 py-1.5 text-white text-sm rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hasselblad-gradient">
+                            应用
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+            
+            // Show results
+            resultsCard.classList.remove('hidden');
+            presetsCard.classList.remove('hidden');
+            emptyState.classList.add('hidden');
+        }
+
+        // Initialize
+        initSampleImages();
+    </script>
+</body>
+</html>
