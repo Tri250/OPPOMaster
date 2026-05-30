@@ -1,5 +1,10 @@
 package com.omaster.app.model
 
+import android.os.Parcelable
+import kotlinx.parcelize.Parcelize
+import kotlinx.serialization.Serializable
+
+@Serializable
 enum class PresetCategory(val displayName: String, val keywords: List<String>) {
     PORTRAIT("人像", listOf("人像", "portrait", "肖像", "自拍")),
     LANDSCAPE("风景", listOf("风景", "landscape", "风光", "自然")),
@@ -52,11 +57,15 @@ enum class PresetCategory(val displayName: String, val keywords: List<String>) {
     }
 }
 
+@Serializable
+@Parcelize
 data class Section(
     val title: String,
     val content: String
-)
+) : Parcelable
 
+@Serializable
+@Parcelize
 data class Preset(
     val id: String,
     val name: String,
@@ -68,7 +77,7 @@ data class Preset(
     val isFavorite: Boolean = false,
     val category: PresetCategory? = null,
     val coverResourceId: Int? = null
-) {
+) : Parcelable {
     fun getEffectiveCategory(): PresetCategory {
         return category
             ?: PresetCategory.fromCameraParams(cameraParams)
@@ -85,3 +94,10 @@ data class Preset(
         return categories.any { matchesCategory(it) }
     }
 }
+
+@Serializable
+data class PresetList(
+    val version: String,
+    val lastUpdated: String,
+    val presets: List<Preset>
+)

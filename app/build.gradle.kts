@@ -1,8 +1,10 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.serialization")
     id("com.google.dagger.hilt.android")
     id("org.jetbrains.kotlin.kapt")
+    id("kotlin-parcelize")
 }
 
 android {
@@ -13,22 +15,19 @@ android {
         applicationId = "com.omaster.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 121
-        versionName = "1.2.1"
+        versionCode = 200
+        versionName = "2.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
         }
 
-        // 启用数据分区存储
         resValue("string", "app_storage_recipients", "")
     }
 
     signingConfigs {
         create("release") {
-            // 生产环境密钥应从环境变量或密钥管理服务获取
-            // 绝对禁止将真实密钥硬编码在代码中
             storeFile = file("release.keystore")
             storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "changeme"
             keyAlias = System.getenv("KEY_ALIAS") ?: "omaster"
@@ -42,7 +41,6 @@ android {
             isShrinkResources = true
             isZipAlignEnabled = true
 
-            // 启用签名V4方案（Android 14+）和V5方案（Android 16+）
             enableAndroidSignaturesV4()
             enableV5Signing = true
 
@@ -51,10 +49,8 @@ android {
                 "proguard-rules.pro"
             )
 
-            // Release构建不包含调试信息
             isDebuggable = false
 
-            // 启用代码优化
             isCrunchPngs = true
             isCrunchResources = true
         }
@@ -94,29 +90,16 @@ android {
     }
 }
 
-// 依赖版本锁定配置 - 防止依赖投毒攻击
 dependencyLocking {
     lockAllConfigurations()
     lockMode.set(LockMode.PREFER_PROJECT)
 }
 
-// Gradle依赖校验 - 确保依赖来自可信来源
-@CacheableTask
-class VerifyDependenciesTask : DefaultTask() {
-    @TaskAction
-    fun verify() {
-        println("OMaster依赖安全校验：所有依赖已通过安全验证")
-    }
-}
-
-// 依赖管理
 dependencies {
-    // Core Android
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.2")
     implementation("androidx.activity:activity-compose:1.9.0")
 
-    // Jetpack Compose
     implementation(platform("androidx.compose:compose-bom:2024.06.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
@@ -124,69 +107,46 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
 
-    // Navigation
     implementation("androidx.navigation:navigation-compose:2.7.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.2")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.2")
 
-    // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
-    // JSON解析 - 使用安全配置的Gson
     implementation("com.google.code.gson:gson:2.11.0") {
-        // 排除潜在的安全风险
         exclude(group = "com.google.errorprone", module = "annotations")
     }
 
-    // Image Loading - Coil (安全图像加载库)
     implementation("io.coil-kt:coil-compose:2.6.0") {
         exclude(group = "org.jetbrains.kotlin", module = "kotlin-parcelize-runtime")
     }
 
-    // Hilt DI
     implementation("com.google.dagger:hilt-android:2.51.1")
     kapt("com.google.dagger:hilt-android-compiler:2.51.1")
     implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
 
-    // DataStore - 安全的数据存储
     implementation("androidx.datastore:datastore-preferences:1.1.1")
-
-    // Jetpack Security - 加密存储
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
-
-    // Logging - Timber (安全的日志库)
     implementation("com.jakewharton.timber:timber:5.0.1")
 
-    // Network - Retrofit + OkHttp
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
     implementation("com.squareup.retrofit2:converter-gson:2.11.0")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0") {
-        // OkHttp 4.12.0已修复已知安全漏洞
-    }
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
 
-    // CameraX (用于读取Camera2参数，非图像采集)
-    val cameraxVersion = "1.4.0-alpha05"
-    implementation("androidx.camera:camera-core:$cameraxVersion")
-    implementation("androidx.camera:camera-camera2:$cameraxVersion")
-    implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
-    implementation("androidx.camera:camera-view:$cameraxVersion")
+    implementation("androidx.camera:camera-core:1.4.0-alpha05")
+    implementation("androidx.camera:camera-camera2:1.4.0-alpha05")
+    implementation("androidx.camera:camera-lifecycle:1.4.0-alpha05")
+    implementation("androidx.camera:camera-view:1.4.0-alpha05")
 
-    // Google ML Kit - 本地场景识别（零延迟、零成本、隐私保护）
     implementation("com.google.mlkit:image-labeling:17.0.8")
-    implementation("com.google.mlkit:image-labeling-custom:17.0.0")
-
-    // Play Services Futures - 用于 ML Kit 协程支持
     implementation("com.google.android.gms:play-services-tasks:18.1.0")
 
-    // WorkManager - 后台任务处理
     implementation("androidx.work:work-runtime-ktx:2.9.0")
 
-    // Hilt Worker
     implementation("androidx.hilt:hilt-work:1.2.0")
     kapt("androidx.hilt:hilt-compiler:1.2.0")
 
-    // Testing
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.mockito:mockito-core:5.12.0")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
@@ -201,27 +161,9 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
 
-// Kapt配置
 kapt {
     correctErrorTypes = true
     arguments {
         arg("dagger.hilt.disableModulesHaveInstallInCheck", "true")
     }
-}
-
-// 构建完成后执行安全校验
-tasks.register("securityCheck") {
-    doLast {
-        println("=== OMaster安全校验报告 ===")
-        println("✅ 依赖版本已锁定")
-        println("✅ 代码混淆已启用")
-        println("✅ 资源压缩已启用")
-        println("✅ 网络明文流量已禁用")
-        println("✅ 签名V4方案已启用")
-        println("========================")
-    }
-}
-
-tasks.named("assembleRelease") {
-    dependsOn("securityCheck")
 }

@@ -1,14 +1,16 @@
 package com.omaster.app.model
 
+import android.os.Parcelable
+import kotlinx.parcelize.Parcelize
+import kotlinx.serialization.Serializable
+
 sealed interface ValidationResult {
     object Valid : ValidationResult
     data class Invalid(val errors: List<String>) : ValidationResult
 }
 
-/**
- * 完整的哈苏大师模式相机参数
- * 基于 ColorOS 16 + 哈苏联名相机的真实参数配置
- */
+@Serializable
+@Parcelize
 data class CameraParams(
     val mode: String = "哈苏大师",
     val filter: String = "",
@@ -24,53 +26,40 @@ data class CameraParams(
     val macro_mode: Boolean = false,
     val sports_mode: Boolean = false,
     val ai_optimization: Boolean = true,
-    
-    // 哈苏 HNCS（哈苏自然色彩解决方案）
     val hasselblad_hncs: Boolean = true,
     val hasselblad_natural_color: Boolean = true,
     val hasselblad_master_style: String = "",
-    
-    // 色彩和图像处理参数
     val color_profile: String = "Natural",
     val sharpness: Int = 50,
     val contrast: Int = 50,
     val saturation: Int = 50,
-    
-    // 哈苏大师专属参数
     val master_tonemap: Boolean = true,
-    val vignette: Float = 0.15f, // 暗角强度 0-1
-    val softness: Int = 0, // 柔焦程度 0-100
+    val vignette: Float = 0.15f,
+    val softness: Int = 0,
     val film_simulation: FilmSimulation = FilmSimulation.NONE,
-    
-    // 高级曝光控制
     val exposure_compensation: Float = 0.0f,
     val shutter_priority: Boolean = false,
     val aperture_priority: Boolean = false
-) {
+) : Parcelable {
     fun validate(): ValidationResult {
         val errors = mutableListOf<String>()
         
-        // ISO 校验 - 2026年OPPO最新范围（Find X8 Ultra）
         if (iso < 50 || iso > 204800) {
             errors.add("ISO 超出范围（应在 50-204800 之间）")
         }
         
-        // 快门格式校验
         if (!isValidShutterSpeed(shutter)) {
             errors.add("快门格式无效")
         }
         
-        // EV 格式校验
         if (!isValidExposureValue(ev)) {
             errors.add("EV 格式无效")
         }
         
-        // 暗角值校验
         if (vignette < 0f || vignette > 1f) {
             errors.add("暗角值超出范围（应在 0-1 之间）")
         }
         
-        // 柔焦值校验
         if (softness < 0 || softness > 100) {
             errors.add("柔焦值超出范围（应在 0-100 之间）")
         }
@@ -101,9 +90,6 @@ data class CameraParams(
     }
     
     companion object {
-        /**
-         * 创建哈苏自然色彩预设
-         */
         fun createHasselbladNatural(): CameraParams {
             return CameraParams(
                 mode = "哈苏大师",
@@ -125,9 +111,6 @@ data class CameraParams(
             )
         }
         
-        /**
-         * 创建哈苏人像预设
-         */
         fun createHasselbladPortrait(): CameraParams {
             return CameraParams(
                 mode = "哈苏大师",
@@ -150,9 +133,6 @@ data class CameraParams(
             )
         }
         
-        /**
-         * 创建哈苏夜景预设
-         */
         fun createHasselbladNight(): CameraParams {
             return CameraParams(
                 mode = "哈苏大师",
@@ -177,9 +157,7 @@ data class CameraParams(
     }
 }
 
-/**
- * 哈苏胶片模拟选项
- */
+@Serializable
 enum class FilmSimulation(val displayName: String) {
     NONE("无"),
     PORTAL("Portal"),
