@@ -8,6 +8,8 @@
 
 #include <cstddef>
 #include <memory>
+#include <span>
+#include <utility>
 #include <vector>
 
 #include "storage/mapper/mapper_interface.hpp"
@@ -21,8 +23,17 @@ class ServiceInterface {
 
  public:
   ServiceInterface(duckdb_connection& conn) : conn_(conn), mapper_(conn) {}
-  void InsertParams(const Mappable& param) { mapper_.Insert(std::move(param)); }
+  void InsertParams(const Mappable& param) { mapper_.Insert(param); }
   void Insert(const InternalType& obj) { mapper_.Insert(Derived::ToParams(obj)); }
+  void InsertBatch(std::span<const InternalType> objects) {
+    std::vector<Mappable> params;
+    params.reserve(objects.size());
+    for (const auto& obj : objects) {
+      params.push_back(Derived::ToParams(obj));
+    }
+    mapper_.InsertBatch(params);
+  }
+  void InsertParamsBatch(std::span<const Mappable> params) { mapper_.InsertBatch(params); }
 
   /**
    * @brief Get the objects by a SQL predicate (WHERE clause)
@@ -62,9 +73,21 @@ class ServiceInterface {
   }
 
   void RemoveById(const ID remove_id) { mapper_.Remove(remove_id); }
+  void RemoveByIds(std::span<const ID> remove_ids) { mapper_.RemoveByIds(remove_ids); }
   void RemoveByClause(const std::string& clause) { mapper_.RemoveByClause(clause); }
   void Update(const InternalType& obj, const ID update_id) {
     mapper_.Update(update_id, Derived::ToParams(obj));
+  }
+  void UpdateBatch(std::span<const std::pair<ID, InternalType>> updates) {
+    std::vector<std::pair<ID, Mappable>> params;
+    params.reserve(updates.size());
+    for (const auto& [id, obj] : updates) {
+      params.emplace_back(id, Derived::ToParams(obj));
+    }
+    mapper_.UpdateBatch(params);
+  }
+  void UpdateParamsBatch(std::span<const std::pair<ID, Mappable>> updates) {
+    mapper_.UpdateBatch(updates);
   }
 };
 }  // namespace alcedo

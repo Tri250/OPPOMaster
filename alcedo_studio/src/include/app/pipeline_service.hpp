@@ -6,6 +6,7 @@
 
 #include <functional>
 #include <memory>
+#include <span>
 #include <unordered_map>
 
 #include "app/image_pool_service.hpp"
@@ -54,6 +55,7 @@ class PipelineMgmtService final {
   auto LoadPipeline(sl_element_id_t id) -> std::shared_ptr<PipelineGuard>;
 
   void DeletePipeline(sl_element_id_t id);
+  void DeletePipelines(std::span<const sl_element_id_t> ids);
 
   void SetAcceleratorBackendPreference(AcceleratorBackendPreference preference);
   [[nodiscard]] auto GetAcceleratorBackendPreference() const -> AcceleratorBackendPreference {

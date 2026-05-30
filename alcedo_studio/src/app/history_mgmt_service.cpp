@@ -8,6 +8,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <string>
 
@@ -221,6 +222,22 @@ void EditHistoryMgmtService::DeleteHistory(sl_element_id_t file_id) {
   storage_service_->ForgetLiveEditHistory(file_id);
   try {
     storage_service_->GetElementController().RemoveEditHistoryByFileId(file_id);
+  } catch (...) {
+  }
+}
+
+void EditHistoryMgmtService::DeleteHistories(std::span<const sl_element_id_t> file_ids) {
+  std::unique_lock<std::mutex> guard(lock_);
+  for (const auto file_id : file_ids) {
+    if (file_id == 0) {
+      continue;
+    }
+    cache_.RemoveRecord(file_id);
+    cached_histories_.erase(file_id);
+    storage_service_->ForgetLiveEditHistory(file_id);
+  }
+  try {
+    storage_service_->GetElementController().RemoveEditHistoriesByFileIds(file_ids);
   } catch (...) {
   }
 }

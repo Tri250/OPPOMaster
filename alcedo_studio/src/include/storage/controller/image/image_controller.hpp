@@ -5,6 +5,7 @@
 #pragma once
 
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -25,6 +26,7 @@ class ImageController {
   void CaptureImagePool(const std::shared_ptr<ImagePoolManager> image_pool);
   void AddImage(const std::shared_ptr<Image> image);
   void RemoveImageById(const image_id_t remove_id);
+  void RemoveImagesByIds(std::span<const image_id_t> remove_ids);
   void RemoveImageByType(const ImageType type);
   void RemoveImageByPath(const std::wstring& path);
 

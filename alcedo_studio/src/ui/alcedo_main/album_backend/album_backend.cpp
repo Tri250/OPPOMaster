@@ -721,6 +721,22 @@ bool AlbumBackend::LoadMoreThumbnails() {
   return stats_.LoadMoreThumbnailView();
 }
 
+bool AlbumBackend::LoadThumbnailsThroughIndex(int index) {
+  if (index < 0 || thumbnail_model_.loading()) {
+    return false;
+  }
+
+  const int target = TotalCount() > 0 ? std::min(index, TotalCount() - 1) : index;
+  bool      loaded_any = false;
+  while (thumbnail_model_.hasMore() && thumbnail_model_.count() <= target) {
+    if (!stats_.LoadMoreThumbnailView()) {
+      break;
+    }
+    loaded_any = true;
+  }
+  return loaded_any;
+}
+
 // ── Q_INVOKABLE: Project I/O ────────────────────────────────────────────────
 
 bool AlbumBackend::PromptAndLoadProject() {

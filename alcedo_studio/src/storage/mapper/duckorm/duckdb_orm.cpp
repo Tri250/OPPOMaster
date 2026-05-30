@@ -12,6 +12,32 @@
 #include <vector>
 
 namespace duckorm {
+namespace {
+duckdb_state run_transaction_control(duckdb_connection& conn, const char* sql) {
+  duckdb_result result;
+  duckdb_state  state = duckdb_query(conn, sql, &result);
+  if (state != DuckDBSuccess) {
+    auto error_message = duckdb_result_error(&result);
+    duckdb_destroy_result(&result);
+    throw std::runtime_error(error_message ? error_message : "DuckDB transaction command failed");
+  }
+  duckdb_destroy_result(&result);
+  return state;
+}
+}  // namespace
+
+duckdb_state begin_transaction(duckdb_connection& conn) {
+  return run_transaction_control(conn, "BEGIN TRANSACTION;");
+}
+
+duckdb_state commit_transaction(duckdb_connection& conn) {
+  return run_transaction_control(conn, "COMMIT;");
+}
+
+duckdb_state rollback_transaction(duckdb_connection& conn) {
+  return run_transaction_control(conn, "ROLLBACK;");
+}
+
 /**
  * @brief Insert an object into a DuckDB table.
  *

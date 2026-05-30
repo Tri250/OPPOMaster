@@ -616,10 +616,13 @@ auto ImageController::DeleteTargets(const std::vector<DeleteTarget>& targets)
     }
   }
 
-  bool image_pool_dirty = false;
+  std::vector<sl_element_id_t> cleanup_element_ids;
+  std::vector<image_id_t>      cleanup_image_ids;
+  cleanup_element_ids.reserve(deleted_ids.size());
+  cleanup_image_ids.reserve(deleted_ids.size());
+
   for (const auto& target : resolved_targets) {
-    if (std::find(deleted_ids.begin(), deleted_ids.end(), target.element_id_) ==
-        deleted_ids.end()) {
+    if (!deleted_id_set.contains(target.element_id_)) {
       continue;
     }
 
@@ -632,35 +635,41 @@ auto ImageController::DeleteTargets(const std::vector<DeleteTarget>& targets)
     } catch (...) {
     }
 
-    if (export_svc) {
-      try {
-        export_svc->RemoveExportTask(target.element_id_);
-      } catch (...) {
-      }
-    }
-    if (pipeline_svc) {
-      try {
-        pipeline_svc->DeletePipeline(target.element_id_);
-      } catch (...) {
-      }
-    }
-    if (history_svc) {
-      try {
-        history_svc->DeleteHistory(target.element_id_);
-      } catch (...) {
-      }
-    }
-    if (image_pool && target.image_id_ != 0) {
-      try {
-        image_pool->Remove(target.image_id_);
-        image_pool_dirty = true;
-      } catch (...) {
-      }
+    cleanup_element_ids.push_back(target.element_id_);
+    if (target.image_id_ != 0) {
+      cleanup_image_ids.push_back(target.image_id_);
     }
   }
 
   bool save_ok = true;
-  if (image_pool_dirty && image_pool) {
+
+  if (!cleanup_element_ids.empty() && export_svc) {
+    try {
+      export_svc->RemoveExportTasks(cleanup_element_ids);
+    } catch (...) {
+    }
+  }
+  if (!cleanup_element_ids.empty() && pipeline_svc) {
+    try {
+      pipeline_svc->DeletePipelines(cleanup_element_ids);
+    } catch (...) {
+    }
+  }
+  if (!cleanup_element_ids.empty() && history_svc) {
+    try {
+      history_svc->DeleteHistories(cleanup_element_ids);
+    } catch (...) {
+    }
+  }
+  if (!cleanup_image_ids.empty() && image_pool) {
+    try {
+      image_pool->RemoveBatch(cleanup_image_ids);
+    } catch (...) {
+      save_ok = false;
+    }
+  }
+
+  if (!cleanup_image_ids.empty() && image_pool) {
     try {
       image_pool->SyncWithStorage();
     } catch (...) {

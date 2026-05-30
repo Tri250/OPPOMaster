@@ -9,7 +9,9 @@
 #include <memory>
 #include <mutex>
 #include <queue>
+#include <span>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "app/sleeve_service.hpp"
@@ -91,6 +93,21 @@ class ExportService {
     std::lock_guard<std::mutex> lock(queue_mutex_);
     export_queue_.remove_if(
         [sleeve_id](const ExportTask& task) { return task.sleeve_id_ == sleeve_id; });
+  };
+  void RemoveExportTasks(std::span<const sl_element_id_t> sleeve_ids) {
+    std::lock_guard<std::mutex> lock(queue_mutex_);
+    std::unordered_set<sl_element_id_t> id_set;
+    id_set.reserve(sleeve_ids.size() * 2 + 1);
+    for (const auto sleeve_id : sleeve_ids) {
+      if (sleeve_id != 0) {
+        id_set.insert(sleeve_id);
+      }
+    }
+    if (id_set.empty()) {
+      return;
+    }
+    export_queue_.remove_if(
+        [&id_set](const ExportTask& task) { return id_set.contains(task.sleeve_id_); });
   };
   void ClearAllExportTasks() {
     std::lock_guard<std::mutex> lock(queue_mutex_);

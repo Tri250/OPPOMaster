@@ -8,6 +8,7 @@
 #include <QHash>
 #include <QString>
 #include <QVariant>
+#include <QVariantList>
 #include <QVariantMap>
 #include <unordered_map>
 #include <vector>
@@ -20,6 +21,7 @@ namespace alcedo::ui {
 class AlbumThumbnailModel : public QAbstractListModel {
   Q_OBJECT
   Q_PROPERTY(int count READ count NOTIFY countChanged)
+  Q_PROPERTY(int totalCount READ totalCountInt NOTIFY totalCountChanged)
   Q_PROPERTY(bool hasMore READ hasMore NOTIFY hasMoreChanged)
   Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
 
@@ -54,6 +56,7 @@ class AlbumThumbnailModel : public QAbstractListModel {
   QHash<int, QByteArray> roleNames() const override;
 
   int count() const { return static_cast<int>(rows_.size()); }
+  int totalCountInt() const { return static_cast<int>(total_count_); }
   bool hasMore() const { return has_more_; }
   bool loading() const { return loading_; }
 
@@ -73,8 +76,11 @@ class AlbumThumbnailModel : public QAbstractListModel {
   /// QML helper: return a QVariantMap for the row at @p index, or empty map.
   Q_INVOKABLE QVariantMap getItemAt(int index) const;
 
+  /// QML helper: return selection payloads for the loaded rows inside an index range.
+  Q_INVOKABLE QVariantList getItemsInRange(int firstIndex, int lastIndex) const;
+
   /// Lookup row index by elementId. Returns -1 if not found.
-  int rowByElementId(sl_element_id_t elementId) const;
+  Q_INVOKABLE int rowByElementId(uint elementId) const;
 
   /// Raw access for AlbumBackend friend classes.
   const std::vector<AlbumItem>& items() const { return rows_; }
@@ -82,6 +88,7 @@ class AlbumThumbnailModel : public QAbstractListModel {
 
  signals:
   void countChanged();
+  void totalCountChanged();
   void hasMoreChanged();
   void loadingChanged();
   void thumbnailUpdated(uint elementId, const QString& dataUrl, bool loading,

@@ -32,6 +32,7 @@ Item {
     property int committedZoomLevel: Math.max(0, Math.min(zoomLevelCount - 1, zoomLevel))
     property bool thumbnailBindingSuspended: false
     property var _deferredThumbnailReleases: ({})
+    property int selectionAnchorIndex: -1
 
     readonly property int columns: zoomColumns[Math.min(zoomLevel, zoomLevelCount - 1)]
     readonly property int desiredMaxEdge: zoomResolutionEdges[Math.min(committedZoomLevel, zoomLevelCount - 1)]
@@ -108,6 +109,10 @@ Item {
         return albumBackend.thumbnailModel.count
     }
 
+    function modelTotalCount() {
+        return Math.max(modelCount(), albumBackend.thumbnailModel.totalCount)
+    }
+
     function clampedZoomLevel(nextZoomLevel) {
         return Math.max(0, Math.min(zoomLevelCount - 1, nextZoomLevel))
     }
@@ -154,7 +159,7 @@ Item {
         if (!metrics || metrics.cellH <= 0) {
             return 0
         }
-        return Math.ceil(modelCount() / Math.max(1, metrics.cols)) * metrics.cellH
+        return Math.ceil(modelTotalCount() / Math.max(1, metrics.cols)) * metrics.cellH
     }
 
     function clampedUnitScale(rawScale) {
@@ -246,12 +251,19 @@ Item {
         if (grid.cellHeight <= 0) {
             return 0
         }
+        return Math.ceil(modelTotalCount() / effectiveColumnCount()) * grid.cellHeight
+    }
+
+    function loadedContentHeight() {
+        if (grid.cellHeight <= 0) {
+            return 0
+        }
         return Math.ceil(modelCount() / effectiveColumnCount()) * grid.cellHeight
     }
 
     function layoutContentHeight() {
         const estimated = estimatedContentHeight()
-        if (estimated > 0 || modelCount() === 0) {
+        if (estimated > 0 || modelTotalCount() === 0) {
             return estimated
         }
         return grid.contentHeight
@@ -472,7 +484,8 @@ Item {
             return
         }
         const threshold = Math.max(grid.cellHeight * 3, grid.height * 0.5)
-        if (grid.contentY >= root.maxContentY() - threshold) {
+        const loadedMaxY = maxContentYForHeight(loadedContentHeight(), grid.originY)
+        if (grid.contentY >= loadedMaxY - threshold) {
             albumBackend.LoadMoreThumbnails()
         }
     }
@@ -571,8 +584,56 @@ Item {
         }
     }
 
+    function selectionItemsForRange(firstIndex, lastIndex) {
+        const rows = albumBackend.thumbnailModel.getItemsInRange(firstIndex, lastIndex)
+        const items = []
+        for (let i = 0; i < rows.length; ++i) {
+            const row = rows[i]
+            if (!row || !row.elementId) {
+                continue
+            }
+            const elementId = Number(row.elementId)
+            if (elementId <= 0) {
+                continue
+            }
+            items.push({
+                elementId: elementId,
+                imageId: Number(row.imageId),
+                fileName: row.fileName ? row.fileName : qsTr("(unnamed)"),
+                rating: Number(row.rating)
+            })
+        }
+        return items
+    }
+
+    function loadedIndexForElement(elementId) {
+        return albumBackend.thumbnailModel.rowByElementId(Number(elementId))
+    }
+
+    function updateSelectionAnchor(index) {
+        if (index >= 0) {
+            selectionAnchorIndex = index
+        }
+    }
+
+    function selectRangeToIndex(index, additive) {
+        if (index < 0) {
+            return
+        }
+        const anchor = selectionAnchorIndex >= 0 ? selectionAnchorIndex : index
+        albumBackend.LoadThumbnailsThroughIndex(Math.max(anchor, index))
+        const rangeItems = selectionItemsForRange(anchor, index)
+        if (additive) {
+            root.replaceSelection(Object.values(selectedImagesById).concat(rangeItems))
+        } else {
+            root.replaceSelection(rangeItems)
+        }
+        updateSelectionAnchor(index)
+    }
+
     GridView {
         id: grid
+        z: 0
         anchors.fill: parent
         model: albumBackend.thumbnailModel
         clip: true
@@ -972,9 +1033,11 @@ Item {
     // ── Interaction overlay ──
     MouseArea {
         id: overlay
+        z: 20
         anchors.fill: parent
         hoverEnabled: true
         acceptedButtons: Qt.LeftButton | Qt.RightButton
+        preventStealing: true
 
         property int hoveredIndex: -1
         property point dragStart: Qt.point(0, 0)
@@ -1006,6 +1069,44 @@ Item {
             return Math.abs(dragCurrentContentTop() - dragStartContentTop())
         }
 
+        function rubberBandIndexBounds() {
+            if (grid.cellWidth <= 0 || grid.cellHeight <= 0) {
+                return { first: -1, last: -1, minCol: 0, maxCol: -1, minRow: 0, maxRow: -1 }
+            }
+
+            const colCount = root.effectiveColumnCount()
+            const totalCount = root.modelTotalCount()
+            if (totalCount <= 0) {
+                return { first: -1, last: -1, minCol: 0, maxCol: -1, minRow: 0, maxRow: -1 }
+            }
+
+            const bLeft = Math.max(0, Math.min(dragStart.x, dragCurrent.x))
+            const bRight = Math.min(grid.width, Math.max(dragStart.x, dragCurrent.x))
+            const bTop = Math.max(0, Math.min(dragStartContentTop(), dragCurrentContentTop()))
+            const bBottom = Math.max(dragStartContentTop(), dragCurrentContentTop())
+            if (bRight < 0 || bLeft > grid.width || bBottom < 0) {
+                return { first: -1, last: -1, minCol: 0, maxCol: -1, minRow: 0, maxRow: -1 }
+            }
+
+            const minCol = Math.max(0, Math.min(colCount - 1, Math.floor(bLeft / grid.cellWidth)))
+            const maxCol = Math.max(0, Math.min(colCount - 1, Math.floor(bRight / grid.cellWidth)))
+            const minRow = Math.max(0, Math.floor(bTop / grid.cellHeight))
+            const maxRow = Math.max(0, Math.floor(bBottom / grid.cellHeight))
+            const first = minRow * colCount + minCol
+            const last = Math.min(totalCount - 1, maxRow * colCount + maxCol)
+            if (first > last) {
+                return { first: -1, last: -1, minCol: 0, maxCol: -1, minRow: 0, maxRow: -1 }
+            }
+            return {
+                first: first,
+                last: last,
+                minCol: minCol,
+                maxCol: maxCol,
+                minRow: minRow,
+                maxRow: maxRow
+            }
+        }
+
         function applyRubberBandSelection() {
             const bandItems = collectRubberBandItems()
             if (dragAdditive) {
@@ -1016,25 +1117,33 @@ Item {
             }
         }
 
+        function beginRubberBandDrag(modifiers) {
+            if (isDragging) {
+                return
+            }
+            isDragging = true
+            dragAdditive = root.hasMultiSelectModifier(modifiers)
+            if (dragAdditive) {
+                preDragSelection = Object.assign({}, root.selectedImagesById)
+            }
+            applyRubberBandSelection()
+        }
+
         function collectRubberBandItems() {
-            const colCount = Math.max(1, Math.floor(grid.width / grid.cellWidth))
-            const totalCount = grid.count
+            const bounds = rubberBandIndexBounds()
+            if (bounds.last < 0) {
+                return []
+            }
 
-            const bLeft   = Math.min(dragStart.x, dragCurrent.x)
-            const bRight  = Math.max(dragStart.x, dragCurrent.x)
-            const bTop    = Math.min(dragStartContentTop(), dragCurrentContentTop())
-            const bBottom = Math.max(dragStartContentTop(), dragCurrentContentTop())
-
-            const minCol = Math.max(0, Math.floor(bLeft / grid.cellWidth))
-            const maxCol = Math.min(colCount - 1, Math.floor(bRight / grid.cellWidth))
-            const minRow = Math.max(0, Math.floor(bTop / grid.cellHeight))
-            const maxRow = Math.floor(bBottom / grid.cellHeight)
+            albumBackend.LoadThumbnailsThroughIndex(bounds.last)
+            const colCount = root.effectiveColumnCount()
+            const loadedCount = root.modelCount()
 
             const items = []
-            for (let row = minRow; row <= maxRow; ++row) {
-                for (let col = minCol; col <= maxCol; ++col) {
+            for (let row = bounds.minRow; row <= bounds.maxRow; ++row) {
+                for (let col = bounds.minCol; col <= bounds.maxCol; ++col) {
                     const idx = row * colCount + col
-                    if (idx >= 0 && idx < totalCount) {
+                    if (idx >= 0 && idx < loadedCount) {
                         const item = root.selectionItemForIndex(idx)
                         if (item) {
                             items.push(item)
@@ -1050,11 +1159,7 @@ Item {
                 const dx = mouse.x - dragStart.x
                 const dy = mouse.y - dragStart.y
                 if (!isDragging && (dx * dx + dy * dy) > 64) {
-                    isDragging = true
-                    dragAdditive = root.hasMultiSelectModifier(mouse.modifiers)
-                    if (dragAdditive) {
-                        preDragSelection = Object.assign({}, root.selectedImagesById)
-                    }
+                    beginRubberBandDrag(mouse.modifiers)
                 }
                 if (isDragging) {
                     dragCurrent = Qt.point(mouse.x, mouse.y)
@@ -1082,6 +1187,7 @@ Item {
             isDragging = false
             dragAdditive = false
             preDragSelection = ({})
+            mouse.accepted = true
         }
 
         onReleased: function(mouse) {
@@ -1094,15 +1200,20 @@ Item {
                 if (idx >= 0) {
                     const item = root.selectionItemForIndex(idx)
                     if (item) {
-                        if (root.hasMultiSelectModifier(mouse.modifiers)) {
+                        if (mouse.modifiers & Qt.ShiftModifier) {
+                            root.selectRangeToIndex(idx, mouse.modifiers & Qt.ControlModifier)
+                        } else if (mouse.modifiers & Qt.ControlModifier) {
                             const next = !root.isImageSelected(item.elementId)
                             root.imageSelectionChanged(item.elementId, item.imageId, item.fileName, next)
+                            root.updateSelectionAnchor(idx)
                         } else {
                             root.replaceSelection([item])
+                            root.updateSelectionAnchor(idx)
                         }
                     }
                 } else {
                     root.replaceSelection([])
+                    root.selectionAnchorIndex = -1
                 }
             }
             isDragging = false
@@ -1143,6 +1254,7 @@ Item {
     // ── Rubber band visual ──
     Rectangle {
         id: rubberBand
+        z: 30
         visible: overlay.isDragging
         x: Math.min(overlay.dragStart.x, overlay.dragCurrent.x)
         y: overlay.rubberBandViewportY()
@@ -1152,6 +1264,5 @@ Item {
         border.width: 1
         border.color: Qt.rgba(appTheme.toneMist.r, appTheme.toneMist.g, appTheme.toneMist.b, 0.50)
         radius: 2
-        z: 10
     }
 }

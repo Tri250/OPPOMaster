@@ -9,7 +9,11 @@
 #include <cstdint>
 #include <format>
 #include <memory>
+#include <sstream>
 #include <span>
+#include <stdexcept>
+#include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "storage/mapper/duckorm/duckdb_orm.hpp"
@@ -28,8 +32,25 @@ class MapperInterface {
    *
    * @param obj
    */
-  void Insert(const Mappable&& obj) {
+  void Insert(const Mappable& obj) {
     duckorm::insert(conn_, Derived::TableName(), &obj, Derived::FieldDesc(), Derived::FieldCount());
+  }
+
+  void InsertBatch(std::span<const Mappable> objects) {
+    if (objects.empty()) {
+      return;
+    }
+    duckorm::begin_transaction(conn_);
+    try {
+      for (const auto& obj : objects) {
+        duckorm::insert(conn_, Derived::TableName(), &obj, Derived::FieldDesc(),
+                        Derived::FieldCount());
+      }
+      duckorm::commit_transaction(conn_);
+    } catch (...) {
+      duckorm::rollback_transaction(conn_);
+      throw;
+    }
   }
 
   /**
@@ -40,6 +61,41 @@ class MapperInterface {
   void Remove(const ID remove_id) {
     std::string remove_clause = std::format(Derived::PrimeKeyClause(), remove_id);
     duckorm::remove(conn_, Derived::TableName(), remove_clause.c_str());
+  }
+
+  void RemoveByIds(std::span<const ID> remove_ids) {
+    if (remove_ids.empty()) {
+      return;
+    }
+
+    std::ostringstream            id_list;
+    std::unordered_set<uint64_t>  seen;
+    const std::string             key_clause = Derived::PrimeKeyClause();
+    const auto                    equals_pos = key_clause.find('=');
+    if (equals_pos == std::string::npos || equals_pos == 0) {
+      throw std::runtime_error("MapperInterface: invalid primary key clause");
+    }
+    const std::string key_column = key_clause.substr(0, equals_pos);
+
+    bool first = true;
+    for (const auto id : remove_ids) {
+      const auto normalized_id = static_cast<uint64_t>(id);
+      if (!seen.insert(normalized_id).second) {
+        continue;
+      }
+      if (!first) {
+        id_list << ",";
+      }
+      id_list << normalized_id;
+      first = false;
+    }
+
+    if (first) {
+      return;
+    }
+
+    duckorm::remove(conn_, Derived::TableName(),
+                    std::format("{} IN ({})", key_column, id_list.str()).c_str());
   }
 
   /**
@@ -82,10 +138,28 @@ class MapperInterface {
    * @param target_id
    * @param updated
    */
-  void Update(const ID target_id, const Mappable&& updated) {
+  void Update(const ID target_id, const Mappable& updated) {
     std::string where_clause = std::format(Derived::PrimeKeyClause(), target_id);
     duckorm::update(conn_, Derived::TableName(), &updated, Derived::FieldDesc(),
                     Derived::FieldCount(), where_clause.c_str());
+  }
+
+  void UpdateBatch(std::span<const std::pair<ID, Mappable>> updates) {
+    if (updates.empty()) {
+      return;
+    }
+    duckorm::begin_transaction(conn_);
+    try {
+      for (const auto& [target_id, updated] : updates) {
+        std::string where_clause = std::format(Derived::PrimeKeyClause(), target_id);
+        duckorm::update(conn_, Derived::TableName(), &updated, Derived::FieldDesc(),
+                        Derived::FieldCount(), where_clause.c_str());
+      }
+      duckorm::commit_transaction(conn_);
+    } catch (...) {
+      duckorm::rollback_transaction(conn_);
+      throw;
+    }
   }
 };
 

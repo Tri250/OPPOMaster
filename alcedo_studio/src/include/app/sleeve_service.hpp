@@ -10,7 +10,9 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <span>
 #include <type_traits>
+#include <vector>
 
 #include "sleeve/sleeve_element/sleeve_file.hpp"
 #include "sleeve/sleeve_element/sleeve_folder.hpp"
@@ -113,7 +115,12 @@ class SleeveServiceImpl final : public SleeveService {
       -> std::pair<std::shared_ptr<SleeveFile>, SyncResult>;
   auto LinkFileToFolder(sl_element_id_t file_id, sl_element_id_t folder_id) -> SyncResult;
   auto DeleteFileFromFolder(sl_element_id_t file_id, sl_element_id_t folder_id) -> SyncResult;
+  auto DeleteFilesFromFolder(std::span<const sl_element_id_t> file_ids,
+                             sl_element_id_t                  folder_id)
+      -> std::pair<std::vector<std::shared_ptr<SleeveFile>>, SyncResult>;
   auto DeleteFileEverywhere(sl_element_id_t file_id) -> SyncResult;
+  auto DeleteFilesEverywhere(std::span<const sl_element_id_t> file_ids)
+      -> std::pair<std::vector<std::shared_ptr<SleeveFile>>, SyncResult>;
   auto DuplicateFileToFolder(sl_element_id_t file_id, sl_element_id_t folder_id)
       -> std::pair<std::shared_ptr<SleeveFile>, SyncResult>;
   auto DeletePath(const std::filesystem::path& target_path) -> SyncResult;

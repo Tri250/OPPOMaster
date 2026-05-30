@@ -22,6 +22,8 @@
 namespace alcedo {
 namespace {
 
+constexpr int kRcdOutputCropRadius = 4;
+
 auto MakeBayerPattern(int rows, int cols) -> cv::Mat {
   cv::Mat bayer(rows, cols, CV_32FC1);
   for (int y = 0; y < rows; ++y) {
@@ -236,21 +238,24 @@ TEST(MetalRawOpsTest, DebayerRcdProducesRGBAAndPreservesCFASamples) {
   image.Download(gpu_result);
 
   ASSERT_EQ(gpu_result.type(), CV_32FC4);
-  ASSERT_EQ(gpu_result.size(), bayer.size());
+  ASSERT_EQ(gpu_result.size(), cv::Size(bayer.cols - 2 * kRcdOutputCropRadius,
+                                         bayer.rows - 2 * kRcdOutputCropRadius));
 
   for (int y = 0; y < gpu_result.rows; ++y) {
-    const float*     raw_row  = bayer.ptr<float>(y);
+    const int        raw_y    = y + kRcdOutputCropRadius;
+    const float*     raw_row  = bayer.ptr<float>(raw_y);
     const cv::Vec4f* rgba_row = gpu_result.ptr<cv::Vec4f>(y);
     for (int x = 0; x < gpu_result.cols; ++x) {
+      const int       raw_x = x + kRcdOutputCropRadius;
       const cv::Vec4f px  = rgba_row[x];
-      const float     raw = raw_row[x];
+      const float     raw = raw_row[raw_x];
 
       EXPECT_GE(px[0], 0.0f);
       EXPECT_GE(px[1], 0.0f);
       EXPECT_GE(px[2], 0.0f);
       EXPECT_NEAR(px[3], 1.0f, 1e-6);
 
-      switch (CFAColorAt(pattern, y, x)) {
+      switch (CFAColorAt(pattern, raw_y, raw_x)) {
         case 0:
           EXPECT_NEAR(px[0], raw, 1e-6);
           break;

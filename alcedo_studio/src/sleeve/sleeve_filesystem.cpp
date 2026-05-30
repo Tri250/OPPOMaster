@@ -12,6 +12,7 @@
 #include <functional>
 #include <memory>
 #include <stdexcept>
+#include <unordered_set>
 
 #include "sleeve/sleeve_element/sleeve_element.hpp"
 #include "sleeve/sleeve_element/sleeve_element_factory.hpp"
@@ -141,6 +142,47 @@ void FileSystem::UnlinkFileFromFolder(sl_element_id_t file_id, sl_element_id_t f
   }
 }
 
+auto FileSystem::UnlinkFilesFromFolder(std::span<const sl_element_id_t> file_ids,
+                                       sl_element_id_t                  folder_id)
+    -> std::vector<sl_element_id_t> {
+  if (folder_id == 0) {
+    throw std::runtime_error("Filesystem: Root file removal must use DeleteFilesEverywhere");
+  }
+
+  auto folder_element = Get(folder_id);
+  if (!folder_element || folder_element->type_ != ElementType::FOLDER ||
+      folder_element->sync_flag_ == SyncFlag::DELETED) {
+    throw std::runtime_error("Filesystem: Specified folder id is not a live folder");
+  }
+
+  auto folder = std::static_pointer_cast<SleeveFolder>(folder_element);
+  storage_handler_.EnsureChildrenLoaded(folder);
+
+  std::vector<sl_element_id_t> removed_ids;
+  removed_ids.reserve(file_ids.size());
+  std::unordered_set<sl_element_id_t> seen;
+  seen.reserve(file_ids.size() * 2 + 1);
+
+  for (const auto file_id : file_ids) {
+    if (file_id == 0 || !seen.insert(file_id).second) {
+      continue;
+    }
+    std::shared_ptr<SleeveElement> file;
+    try {
+      file = Get(file_id);
+    } catch (...) {
+      continue;
+    }
+    if (!file || file->type_ != ElementType::FILE || file->sync_flag_ == SyncFlag::DELETED) {
+      continue;
+    }
+    if (folder->RemoveElementById(file_id)) {
+      removed_ids.push_back(file_id);
+    }
+  }
+  return removed_ids;
+}
+
 auto FileSystem::DuplicateFileToFolder(sl_element_id_t file_id, sl_element_id_t folder_id)
     -> std::shared_ptr<SleeveFile> {
   auto source = Get(file_id);
@@ -213,6 +255,43 @@ void FileSystem::DeleteFileEverywhere(sl_element_id_t file_id) {
   }
 
   file->SetSyncFlag(SyncFlag::DELETED);
+}
+
+auto FileSystem::DeleteFilesEverywhere(std::span<const sl_element_id_t> file_ids)
+    -> std::vector<sl_element_id_t> {
+  std::vector<sl_element_id_t> deleted_ids;
+  deleted_ids.reserve(file_ids.size());
+  std::unordered_set<sl_element_id_t> seen;
+  seen.reserve(file_ids.size() * 2 + 1);
+
+  for (const auto file_id : file_ids) {
+    if (file_id == 0 || !seen.insert(file_id).second) {
+      continue;
+    }
+    std::shared_ptr<SleeveElement> file;
+    try {
+      file = Get(file_id);
+    } catch (...) {
+      continue;
+    }
+    if (!file || file->type_ != ElementType::FILE || file->sync_flag_ == SyncFlag::DELETED) {
+      continue;
+    }
+    for (auto& [_, element] : storage_) {
+      if (!element || element->type_ != ElementType::FOLDER ||
+          element->sync_flag_ == SyncFlag::DELETED) {
+        continue;
+      }
+      auto folder = std::static_pointer_cast<SleeveFolder>(element);
+      if (folder->ChildrenLoaded()) {
+        folder->RemoveElementById(file_id);
+      }
+    }
+    file->SetSyncFlag(SyncFlag::DELETED);
+    deleted_ids.push_back(file_id);
+  }
+
+  return deleted_ids;
 }
 
 auto FileSystem::Get(sl_element_id_t id) -> std::shared_ptr<SleeveElement> {

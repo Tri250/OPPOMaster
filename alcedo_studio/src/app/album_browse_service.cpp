@@ -234,34 +234,35 @@ auto AlbumBrowseService::DeleteFilesByElementIds(const std::vector<sl_element_id
   std::unordered_set<sl_element_id_t> seen;
   seen.reserve(element_ids.size() * 2 + 1);
 
+  std::vector<sl_element_id_t> delete_ids;
+  delete_ids.reserve(element_ids.size());
   for (const auto element_id : element_ids) {
     if (element_id == 0 || !seen.insert(element_id).second) {
       continue;
     }
+    delete_ids.push_back(element_id);
+  }
 
-    try {
-      const auto file = sleeve_service_->Read<std::shared_ptr<SleeveFile>>(
-          [element_id](FileSystem& fs) -> std::shared_ptr<SleeveFile> {
-            const auto element = fs.Get(element_id);
-            if (!element || element->type_ != ElementType::FILE ||
-                element->sync_flag_ == SyncFlag::DELETED) {
-              return nullptr;
-            }
-            return std::dynamic_pointer_cast<SleeveFile>(element);
-          });
-      if (!file || file->image_id_ == 0) {
-        out.failed_element_ids_.push_back(element_id);
-        continue;
+  try {
+    auto [deleted_files, sync] = sleeve_service_->DeleteFilesEverywhere(delete_ids);
+    if (sync.success_) {
+      out.deleted_files_.reserve(deleted_files.size());
+      for (const auto& file : deleted_files) {
+        if (file && file->image_id_ != 0) {
+          out.deleted_files_.push_back(BuildFileView({}, file, 0));
+        }
       }
+    }
+  } catch (...) {
+  }
 
-      auto       view = BuildFileView({}, file, 0);
-      const auto sync = sleeve_service_->DeleteElement(element_id);
-      if (!sync.success_) {
-        out.failed_element_ids_.push_back(element_id);
-        continue;
-      }
-      out.deleted_files_.push_back(std::move(view));
-    } catch (...) {
+  std::unordered_set<sl_element_id_t> deleted_ids;
+  deleted_ids.reserve(out.deleted_files_.size() * 2 + 1);
+  for (const auto& file : out.deleted_files_) {
+    deleted_ids.insert(file.element_id_);
+  }
+  for (const auto element_id : delete_ids) {
+    if (!deleted_ids.contains(element_id)) {
       out.failed_element_ids_.push_back(element_id);
     }
   }
@@ -284,36 +285,37 @@ auto AlbumBrowseService::DeleteFilesInFolderByElementIds(
   std::unordered_set<sl_element_id_t> seen;
   seen.reserve(element_ids.size() * 2 + 1);
 
+  std::vector<sl_element_id_t> delete_ids;
+  delete_ids.reserve(element_ids.size());
   for (const auto element_id : element_ids) {
     if (element_id == 0 || !seen.insert(element_id).second) {
       continue;
     }
+    delete_ids.push_back(element_id);
+  }
 
-    try {
-      const auto file = sleeve_service_->Read<std::shared_ptr<SleeveFile>>(
-          [element_id](FileSystem& fs) -> std::shared_ptr<SleeveFile> {
-            const auto element = fs.Get(element_id);
-            if (!element || element->type_ != ElementType::FILE ||
-                element->sync_flag_ == SyncFlag::DELETED) {
-              return nullptr;
-            }
-            return std::dynamic_pointer_cast<SleeveFile>(element);
-          });
-      if (!file || file->image_id_ == 0) {
-        out.failed_element_ids_.push_back(element_id);
-        continue;
+  try {
+    auto [deleted_files, sync] =
+        folder_id == 0 ? sleeve_service_->DeleteFilesEverywhere(delete_ids)
+                       : sleeve_service_->DeleteFilesFromFolder(delete_ids, folder_id);
+    if (sync.success_) {
+      out.deleted_files_.reserve(deleted_files.size());
+      for (const auto& file : deleted_files) {
+        if (file && file->image_id_ != 0) {
+          out.deleted_files_.push_back(BuildFileView({}, file, folder_id));
+        }
       }
+    }
+  } catch (...) {
+  }
 
-      auto       view = BuildFileView({}, file, folder_id);
-      const auto sync = folder_id == 0
-                            ? sleeve_service_->DeleteFileEverywhere(element_id)
-                            : sleeve_service_->DeleteFileFromFolder(element_id, folder_id);
-      if (!sync.success_) {
-        out.failed_element_ids_.push_back(element_id);
-        continue;
-      }
-      out.deleted_files_.push_back(std::move(view));
-    } catch (...) {
+  std::unordered_set<sl_element_id_t> deleted_ids;
+  deleted_ids.reserve(out.deleted_files_.size() * 2 + 1);
+  for (const auto& file : out.deleted_files_) {
+    deleted_ids.insert(file.element_id_);
+  }
+  for (const auto element_id : delete_ids) {
+    if (!deleted_ids.contains(element_id)) {
       out.failed_element_ids_.push_back(element_id);
     }
   }

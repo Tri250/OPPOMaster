@@ -8,6 +8,7 @@
 #include <memory>
 #include <mutex>
 #include <algorithm>
+#include <span>
 
 #include "edit/pipeline/default_pipeline_params.hpp"
 #include "edit/pipeline/pipeline_cpu.hpp"
@@ -325,6 +326,22 @@ void PipelineMgmtService::DeletePipeline(sl_element_id_t id) {
   storage_service_->ForgetLivePipeline(id);
   try {
     storage_service_->GetElementController().RemovePipelineByElementId(id);
+  } catch (...) {
+  }
+}
+
+void PipelineMgmtService::DeletePipelines(std::span<const sl_element_id_t> ids) {
+  std::unique_lock<std::mutex> guard(lock_);
+  for (const auto id : ids) {
+    if (id == 0) {
+      continue;
+    }
+    pipeline_cache_.RemoveRecord(id);
+    loaded_pipelines_.erase(id);
+    storage_service_->ForgetLivePipeline(id);
+  }
+  try {
+    storage_service_->GetElementController().RemovePipelinesByElementIds(ids);
   } catch (...) {
   }
 }
