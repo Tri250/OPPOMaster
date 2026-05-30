@@ -3,13 +3,16 @@ package com.omaster.app.ui.theme
 import androidx.compose.ui.graphics.Color
 
 // ==================== OPPO 2026 年轻UI色彩系统 ====================
-// 基于ColorOS 16.1 Aquatic Design - 年轻化、活力、科技感
+// 基于ColorOS 16.1 Aquatic Design - 年轻化、活力，科技感
 
 // ========== 品牌主色调 - 按照测试用例要求 ==========
 // OPPO品牌主色 #FF6B35
 val OppoPrimary = Color(0xFFFF6B35)
 val OppoPrimaryLight = Color(0xFFFF8F6B)
 val OppoPrimaryDark = Color(0xFFE55A2D)
+
+// AccentPrimary - 用于保持向后兼容，与OppoPrimary相同
+val AccentPrimary = OppoPrimary
 
 // 哈苏橙 #D4A574 - 一级标题用色
 val HasselbladOrange = Color(0xFFD4A574)
