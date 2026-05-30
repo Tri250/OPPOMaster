@@ -15,6 +15,7 @@ import {
   Download
 } from 'lucide-react';
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 
 const features = [
   {
@@ -142,7 +143,7 @@ const features = [
         '本地全文检索'
       ],
       action: '体验搜索功能',
-      actionLink: '/'
+      actionLink: '/home'
     }
   },
   {
@@ -367,13 +368,13 @@ export default function TechPage() {
                   {/* Action */}
                   {selectedFeature.detail.actionLink && (
                     <div className="text-center pt-4">
-                      <a
-                        href={selectedFeature.detail.actionLink}
+                      <Link
+                        to={selectedFeature.detail.actionLink}
                         className="btn-primary inline-flex items-center space-x-2"
                       >
                         <Download className="w-5 h-5" />
                         <span>{selectedFeature.detail.action}</span>
-                      </a>
+                      </Link>
                     </div>
                   )}
                 </div>
@@ -394,16 +395,16 @@ export default function TechPage() {
           </h2>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-            <a href="/watermark" className="btn-primary text-center py-6 flex flex-col items-center space-y-2">
+            <Link to="/watermark" className="btn-primary text-center py-6 flex flex-col items-center space-y-2">
               <Palette className="w-8 h-8" />
               <span className="font-bold">水印生成器</span>
               <span className="text-xs opacity-80">10+品牌水印模板</span>
-            </a>
-            <a href="/editor" className="btn-secondary text-center py-6 flex flex-col items-center space-y-2">
+            </Link>
+            <Link to="/editor" className="btn-secondary text-center py-6 flex flex-col items-center space-y-2">
               <Code className="w-8 h-8" />
               <span className="font-bold">预设编辑器</span>
               <span className="text-xs opacity-80">创建专属预设</span>
-            </a>
+            </Link>
           </div>
         </motion.div>
 
@@ -419,14 +420,14 @@ export default function TechPage() {
           </h2>
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <a href="/ai-demo" className="btn-primary text-center py-4">
+            <Link to="/ai-demo" className="btn-primary text-center py-4">
               <Cpu className="w-6 h-6 mx-auto mb-2" />
               体验AI场景识别
-            </a>
-            <a href="/" className="btn-secondary text-center py-4">
+            </Link>
+            <Link to="/home" className="btn-secondary text-center py-4">
               <Search className="w-6 h-6 mx-auto mb-2" />
               浏览预设库
-            </a>
+            </Link>
             <button className="btn-secondary text-center py-4">
               <Download className="w-6 h-6 mx-auto mb-2" />
               下载APP
