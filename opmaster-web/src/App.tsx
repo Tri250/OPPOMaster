@@ -3,6 +3,7 @@ import { lazy, Suspense } from 'react';
 import NavigationBar from './components/common/NavigationBar';
 import './index.css';
 
+const LandingPage = lazy(() => import('./pages/LandingPage'));
 const HomePage = lazy(() => import('./pages/HomePage'));
 const AIDemoPage = lazy(() => import('./pages/AIDemoPage'));
 const TechPage = lazy(() => import('./pages/TechPage'));
@@ -29,7 +30,8 @@ function App() {
         <NavigationBar />
         <Suspense fallback={<Loading />}>
           <Routes>
-            <Route path="/" element={<HomePage />} />
+            <Route path="/" element={<LandingPage />} />
+            <Route path="/home" element={<HomePage />} />
             <Route path="/ai-demo" element={<AIDemoPage />} />
             <Route path="/tech" element={<TechPage />} />
             <Route path="/about" element={<AboutPage />} />
