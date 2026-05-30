@@ -69,6 +69,7 @@ export default function HeroSection() {
             {/* 主Logo容器 */}
             <motion.div
               whileHover={{ scale: 1.05, rotate: 2 }}
+              whileTap={{ scale: 0.95 }}
               className="relative w-28 h-28 bg-gradient-to-br from-deep-spaceLight via-surface-700 to-deep-spaceLight rounded-3xl flex items-center justify-center border border-hasselblad/30 shadow-glow-orange"
             >
               <Camera className="w-16 h-16 text-hasselblad" />
@@ -128,7 +129,7 @@ export default function HeroSection() {
             <motion.button
               whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.97 }}
-              className="relative px-8 py-4 bg-gradient-to-r from-oppo-coral to-oppo-coralLight text-white font-medium rounded-lg shadow-glow-coral hover:shadow-glow-coral transition-all overflow-hidden"
+              className="relative px-8 py-4 bg-gradient-to-r from-oppo-coral to-oppo-coralLight text-white font-medium rounded-lg shadow-glow-coral hover:shadow-glow-coral transition-all overflow-hidden ripple"
             >
               <span className="relative flex items-center gap-2 text-display-sm">
                 <Sparkles className="w-5 h-5" />
@@ -141,7 +142,7 @@ export default function HeroSection() {
             <motion.button
               whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.97 }}
-              className="px-8 py-4 bg-white/10 text-white font-medium rounded-lg border border-white/20 hover:bg-white/20 transition-all flex items-center gap-2"
+              className="px-8 py-4 bg-white/10 text-white font-medium rounded-lg border border-white/20 hover:bg-white/20 transition-all flex items-center gap-2 ripple"
             >
               <span className="text-display-sm">了解更多</span>
               <ArrowRight className="w-5 h-5" />

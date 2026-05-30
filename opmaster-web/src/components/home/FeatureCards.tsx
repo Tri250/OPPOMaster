@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Camera, Sparkles, Search, Zap, Upload, Palette, Droplets, PenTool, ArrowRight } from 'lucide-react';
+import { Camera, Sparkles, Search, Zap, Upload, Palette, Droplets, Sparkles as PenTool, ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 interface Feature {
@@ -13,9 +13,9 @@ interface Feature {
 
 const baseFeatures: Feature[] = [
   { id: 1, title: 'AI场景识别', description: '智能识别20+拍摄场景，自动优化参数', icon: Sparkles, href: '/ai-demo', color: 'from-oppo-coral to-oppo-coralLight' },
-  { id: 2, title: '原生相机参数', description: '一键填入哈苏官方认证的最佳参数', icon: Camera, href: '/tech', color: 'from-hasselblad to-hasselblad' },
+  { id: 2, title: '原生相机参数', description: '一键填入哈苏官方认证的最佳参数', icon: Camera, href: '/tech', color: 'from-hasselblad to-hasselblad-light' },
   { id: 3, title: '悬浮窗预览', description: '全局悬浮窗，实时预览滤镜效果', icon: PenTool, href: '/tech', color: 'from-oppo-green to-oppo-greenLight' },
-  { id: 4, title: '预设搜索', description: '智能搜索，快速找到所需滤镜', icon: Search, href: '/home', color: 'from-status-info to-blue-500' },
+  { id: 4, title: '预设搜索', description: '智能搜索，快速找到所需滤镜', icon: Search, href: '/home', color: 'from-status-info to-blue-400' },
 ];
 
 const advancedFeatures: Feature[] = [
@@ -37,19 +37,22 @@ const FeatureCard = ({ feature, index }: FeatureCardProps) => {
         initial={{ opacity: 0, y: 30 }}
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true, margin: '-100px' }}
-        transition={{ duration: 0.6, delay: index * 0.1, type: 'spring', stiffness: 100 }}
-        whileHover={{ y: -6, scale: 1.02 }}
+        transition={{ duration: 0.6, delay: index * 0.1, type: 'spring', stiffness: 120 }}
+        whileHover={{ y: -8, scale: 1.02 }}
         whileTap={{ scale: 0.97 }}
-        className="glass-card glass-card-hover relative overflow-hidden group"
+        className="glass-card glass-card-hover relative overflow-hidden group ripple"
       >
         {/* 渐变光边 */}
-        <div className={`absolute inset-0 bg-gradient-to-br ${feature.color} opacity-0 group-hover:opacity-5 transition-opacity duration-500 pointer-events-none`} />
+        <div className={`absolute inset-0 bg-gradient-to-br ${feature.color} opacity-0 group-hover:opacity-8 transition-opacity duration-500 pointer-events-none`} />
         
         {/* 图标背景 */}
         <div className="p-6">
-          <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${feature.color} flex items-center justify-center mb-4 shadow-lg group-hover:shadow-xl transition-all duration-300`}>
+          <motion.div
+            whileHover={{ scale: 1.05, rotate: 2 }}
+            className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${feature.color} flex items-center justify-center mb-4 shadow-lg group-hover:shadow-xl transition-all duration-300`}
+          >
             <feature.icon className="w-7 h-7 text-white" />
-          </div>
+          </motion.div>
           
           {/* 文字内容 */}
           <h3 className="text-display-sm font-medium text-white mb-2">
@@ -64,8 +67,8 @@ const FeatureCard = ({ feature, index }: FeatureCardProps) => {
             <span className="text-body-md font-medium">了解更多</span>
             <motion.div
               initial={{ x: 0 }}
-              whileHover={{ x: 4 }}
-              transition={{ type: 'spring', stiffness: 300 }}
+              whileHover={{ x: 6 }}
+              transition={{ type: 'spring', stiffness: 400 }}
             >
               <ArrowRight className="w-4 h-4" />
             </motion.div>
@@ -102,7 +105,7 @@ const FeatureSection = ({ title, subtitle, features, showViewAll = true }: Featu
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ delay: 0.1 }}
-            className="text-body-md text-neutral-60"
+            className="text-body-md text-neutral-70"
           >
             {subtitle}
           </motion.p>
