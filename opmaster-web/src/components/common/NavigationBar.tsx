@@ -5,7 +5,8 @@ import { Link, useLocation } from 'react-router-dom';
 
 const navItems = [
   { path: '/', label: '首页' },
-  { path: '/presets', label: '预设库' },
+  { path: '/preset-ecosystem', label: '预设生态' },
+  { path: '/my-presets', label: '我的预设' },
   { path: '/ai-demo', label: 'AI场景识别' },
   { path: '/tech', label: '影像工具' },
   { path: '/about', label: '关于我' }

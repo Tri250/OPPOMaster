@@ -15,6 +15,8 @@ const PresetDetailPage = lazy(() => import('./pages/PresetDetailPage'));
 const WatermarkPage = lazy(() => import('./pages/WatermarkPage'));
 const PresetEditorPage = lazy(() => import('./pages/PresetEditorPage'));
 const PresetLibraryPage = lazy(() => import('./pages/PresetLibraryPage'));
+const PresetEcosystemPage = lazy(() => import('./pages/PresetEcosystemPage'));
+const MyPresetsPage = lazy(() => import('./pages/MyPresetsPage'));
 
 function Loading() {
   return (
@@ -73,6 +75,8 @@ function App() {
             <Route path="/watermark" element={<WatermarkPage />} />
             <Route path="/editor" element={<PresetEditorPage />} />
             <Route path="/presets" element={<PresetLibraryPage />} />
+            <Route path="/preset-ecosystem" element={<PresetEcosystemPage />} />
+            <Route path="/my-presets" element={<MyPresetsPage />} />
             <Route path="/floating-guide" element={<FloatingGuidePage />} />
             {/* 404页面 */}
             <Route path="*" element={<NotFoundPage />} />

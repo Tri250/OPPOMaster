@@ -9,6 +9,31 @@ export type SectionItem = {
   span: number;
 };
 
+export type Comment = {
+  id: string;
+  userId: string;
+  userName: string;
+  userAvatar: string;
+  content: string;
+  rating: number;
+  createdAt: string;
+  likes?: number;
+};
+
+export type DownloadTask = {
+  id: string;
+  preset: Preset;
+  progress: number;
+  status: 'pending' | 'downloading' | 'paused' | 'completed' | 'error';
+  error?: string;
+};
+
+export type PresetCategory = {
+  id: string;
+  name: string;
+  presets: string[];
+};
+
 // OPPO FindX9spro哈苏大师模式相机参数格式
 export type HasselbladMasterParams = {
   mode: 'master' | 'pro' | 'auto';
@@ -49,6 +74,17 @@ export type Preset = {
   };
   style?: string;
   scene?: string;
+  // 新增字段
+  rating?: number;
+  downloadCount?: number;
+  price?: 'free' | number;
+  isDownloaded?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+  originalImage?: string;
+  editedImage?: string;
+  comments?: Comment[];
+  customCategory?: string;
 };
 
 // 筛选条件类型
