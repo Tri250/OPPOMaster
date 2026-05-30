@@ -32,6 +32,8 @@ fun ColorOSSearchBar(
     onQueryChange: (String) -> Unit,
     onClearQuery: () -> Unit,
     onSearch: () -> Unit = {},
+    onVoiceInput: () -> Unit = {},
+    showVoiceButton: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     var isExpanded by remember { mutableStateOf(false) }
@@ -157,15 +159,35 @@ fun ColorOSSearchBar(
                     enter = fadeIn() + scaleIn(),
                     exit = fadeOut() + scaleOut()
                 ) {
-                    IconButton(
-                        onClick = { isExpanded = !isExpanded }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Tune,
-                            contentDescription = "推荐",
-                            tint = AccentPrimary,
-                            modifier = Modifier.size(24.dp)
-                        )
+                        // 语音输入按钮
+                        if (showVoiceButton) {
+                            IconButton(
+                                onClick = onVoiceInput,
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Mic,
+                                    contentDescription = "语音搜索",
+                                    tint = AccentPrimary,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+                        
+                        IconButton(
+                            onClick = { isExpanded = !isExpanded }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Tune,
+                                contentDescription = "推荐",
+                                tint = AccentPrimary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
                     }
                 }
             }

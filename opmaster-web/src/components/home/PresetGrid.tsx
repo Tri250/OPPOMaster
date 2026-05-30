@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Filter, X, ArrowUpDown, Clock, TrendingUp, Star, ChevronRight } from 'lucide-react';
+import { Search, Filter, X, ArrowUpDown, Clock, TrendingUp, Star, ChevronRight, Mic } from 'lucide-react';
 import { FilterType } from '../../data/mockPresets';
 import { useAppStore, type SortType } from '../../store/useAppStore';
 import PresetCard from './PresetCard';
@@ -128,8 +128,40 @@ export default function PresetGrid() {
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onFocus={() => searchHistory.length > 0 && setShowSearchHistory(true)}
                   placeholder="搜索预设名称、标签或相机型号..."
-                  className="input pl-12 pr-12"
+                  className="input pl-12 pr-24"
                 />
+                
+                {/* 语音输入按钮 */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Web Speech API 语音输入
+                    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+                      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+                      const recognition = new SpeechRecognition();
+                      recognition.lang = 'zh-CN';
+                      recognition.continuous = false;
+                      recognition.interimResults = false;
+                      
+                      recognition.onresult = (event: any) => {
+                        const transcript = event.results[0][0].transcript;
+                        setSearchQuery(transcript);
+                      };
+                      
+                      recognition.onerror = (event: any) => {
+                        console.error('Speech recognition error:', event.error);
+                      };
+                      
+                      recognition.start();
+                    } else {
+                      alert('抱歉，您的浏览器不支持语音识别功能');
+                    }
+                  }}
+                  className="absolute right-14 top-1/2 -translate-y-1/2 p-2 text-hasselblad hover:bg-hasselblad/10 rounded-full transition-colors"
+                  aria-label="语音搜索"
+                >
+                  <Mic className="w-5 h-5" />
+                </button>
               </div>
             </form>
             

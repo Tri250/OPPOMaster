@@ -403,7 +403,23 @@ fun SceneDetectionScreen(
             ) {
                 detectionResult?.let { result ->
                     if (result.isEdgeCase) {
-                        EdgeCaseResultCard(result = result)
+                        EdgeCaseResultCard(
+                            result = result,
+                            onRetry = {
+                                scope.launch {
+                                    isDetecting = true
+                                    detectionResult = null
+                                    val retryResult = aiService.detectScene(selectedImage?.toString())
+                                    detectionResult = retryResult
+                                    if (!retryResult.isEdgeCase) {
+                                        recommendedPresets = aiService.getRecommendedPresets(retryResult, allPresets)
+                                    } else {
+                                        recommendedPresets = emptyList()
+                                    }
+                                    isDetecting = false
+                                }
+                            }
+                        )
                     } else {
                         SceneResultCard(result = result)
                     }
@@ -719,7 +735,11 @@ fun IconLabel(icon: ImageVector, label: String) {
 
 // 边界场景结果卡片
 @Composable
-fun EdgeCaseResultCard(result: AiService.SceneDetectionResult, modifier: Modifier = Modifier) {
+fun EdgeCaseResultCard(
+    result: AiService.SceneDetectionResult,
+    onRetry: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
     Card(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -728,68 +748,121 @@ fun EdgeCaseResultCard(result: AiService.SceneDetectionResult, modifier: Modifie
         shape = RoundedCornerShape(20.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(20.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .size(60.dp)
-                    .clip(CircleShape)
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(OppoWarningRed, OppoWarningRed.copy(alpha = 0.7f))
-                        )
-                    ),
-                contentAlignment = Alignment.Center
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = when (result.primaryScene) {
-                        SceneType.BLACK -> Icons.Default.Warning
-                        SceneType.WHITE -> Icons.Default.HelpOutline
-                        SceneType.BLURRY -> Icons.Default.BlurOn
-                        else -> Icons.Default.Error
-                    },
-                    contentDescription = result.primaryScene.displayName,
-                    tint = OppoDeepSpace,
-                    modifier = Modifier.size(32.dp)
-                )
-            }
-            
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "无法识别",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = OppoTextTertiary
-                )
-                Text(
-                    text = result.primaryScene.displayName,
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = OppoTextPrimary,
-                    fontWeight = FontWeight.Bold
-                )
-                result.edgeCaseMessage?.let { message ->
+                Box(
+                    modifier = Modifier
+                        .size(60.dp)
+                        .clip(CircleShape)
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(OppoWarningRed, OppoWarningRed.copy(alpha = 0.7f))
+                            )
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = when (result.primaryScene) {
+                            SceneType.BLACK -> Icons.Default.Warning
+                            SceneType.WHITE -> Icons.Default.HelpOutline
+                            SceneType.BLURRY -> Icons.Default.BlurOn
+                            else -> Icons.Default.Error
+                        },
+                        contentDescription = result.primaryScene.displayName,
+                        tint = OppoDeepSpace,
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+                
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = message,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = OppoTextSecondary
+                        text = "无法识别",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = OppoTextTertiary
+                    )
+                    Text(
+                        text = result.primaryScene.displayName,
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = OppoTextPrimary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    result.edgeCaseMessage?.let { message ->
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = OppoTextSecondary
+                        )
+                    }
+                }
+                
+                Surface(
+                    color = OppoWarningRed.copy(alpha = 0.15f),
+                    shape = CircleShape
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Info,
+                        contentDescription = "提示",
+                        tint = OppoWarningRed,
+                        modifier = Modifier.padding(12.dp)
                     )
                 }
             }
             
-            Surface(
-                color = OppoWarningRed.copy(alpha = 0.15f),
-                shape = CircleShape
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Info,
-                    contentDescription = "提示",
-                    tint = OppoWarningRed,
-                    modifier = Modifier.padding(12.dp)
-                )
+                OutlinedButton(
+                    onClick = onRetry,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = HasselbladOrangePro
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, HasselbladOrangePro.copy(alpha = 0.5f))
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "重试",
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "重新识别",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                }
+                
+                Button(
+                    onClick = { /* 手动选择场景 */ },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = HasselbladOrangePro
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Category,
+                        contentDescription = "手动选择",
+                        tint = OppoDeepSpace,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "手动选择",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = OppoDeepSpace
+                    )
+                }
             }
         }
     }

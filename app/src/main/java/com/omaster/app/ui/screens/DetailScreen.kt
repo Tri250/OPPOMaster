@@ -535,23 +535,92 @@ fun copyAllParamsToClipboard(context: Context, preset: Preset) {
 
 fun sharePreset(context: Context, preset: Preset) {
     val params = preset.cameraParams ?: return
-    val shareText = buildString {
-        appendLine("📷 ${preset.name}")
-        appendLine()
-        appendLine("ISO: ${params.iso}")
-        appendLine("快门: ${params.shutter}")
-        appendLine("曝光补偿: ${params.ev}")
-        appendLine("白平衡: ${params.wb}")
-        if (params.filter.isNotEmpty()) {
-            appendLine("滤镜: ${params.filter}")
-        }
-    }
+    
+    val shareTemplates = listOf(
+        ShareTemplate(
+            name = "详细参数",
+            template = buildShareTextDetailed(preset, params)
+        ),
+        ShareTemplate(
+            name = "简洁分享",
+            template = buildShareTextSimple(preset, params)
+        ),
+        ShareTemplate(
+            name = "摄影笔记",
+            template = buildShareTextPhotography(preset, params)
+        )
+    )
+    
     val intent = Intent(Intent.ACTION_SEND).apply {
         type = "text/plain"
-        putExtra(Intent.EXTRA_TEXT, shareText)
-        putExtra(Intent.EXTRA_SUBJECT, "分享预设：${preset.name}")
+        putExtra(Intent.EXTRA_TEXT, shareTemplates[0].content)
+        putExtra(Intent.EXTRA_SUBJECT, "📷 分享我的摄影预设：${preset.name}")
     }
-    context.startActivity(Intent.createChooser(intent, "分享预设"))
+    context.startActivity(Intent.createChooser(intent, "分享预设到"))
+}
+
+data class ShareTemplate(
+    val name: String,
+    val template: String
+)
+
+private fun buildShareTextDetailed(preset: Preset, params: CameraParams): String {
+    return buildString {
+        appendLine("📷 ${preset.name}")
+        if (preset.deviceModel != null) {
+            appendLine("📱 适用设备：${preset.deviceModel}")
+        }
+        appendLine()
+        appendLine("【相机参数】")
+        appendLine("• ISO: ${params.iso}")
+        appendLine("• 快门速度: ${params.shutter}")
+        appendLine("• 曝光补偿: ${params.ev}")
+        appendLine("• 白平衡: ${params.wb ?: "自动"}")
+        if (!params.filter.isNullOrEmpty()) {
+            appendLine("• 滤镜: ${params.filter}")
+        }
+        appendLine()
+        appendLine("✨ 使用哈苏大师预设，让你的照片更具专业质感！")
+        appendLine()
+        appendLine("——来自 小O帮帮")
+    }
+}
+
+private fun buildShareTextSimple(preset: Preset, params: CameraParams): String {
+    return buildString {
+        appendLine("📷 ${preset.name}")
+        appendLine("ISO ${params.iso} | 快门 ${params.shutter} | EV ${params.ev}")
+        if (!params.filter.isNullOrEmpty()) {
+            append("滤镜: ${params.filter}")
+        }
+        appendLine()
+        appendLine()
+        appendLine("✨ 小O帮帮 · 哈苏大师预设")
+    }
+}
+
+private fun buildShareTextPhotography(preset: Preset, params: CameraParams): String {
+    return buildString {
+        appendLine("📸 今日摄影参数分享")
+        appendLine()
+        appendLine("「${preset.name}」")
+        appendLine()
+        appendLine("这次拍摄使用了专业相机参数：")
+        appendLine("• ISO ${params.iso} - 控制感光度")
+        appendLine("• 快门 ${params.shutter} - 决定曝光时间")
+        appendLine("• 曝光补偿 ${params.ev} - 调整画面明暗")
+        appendLine("• 白平衡 ${params.wb ?: "自动"} - 影响色调冷暖")
+        if (!params.filter.isNullOrEmpty()) {
+            appendLine("• 搭配 ${params.filter} 滤镜效果更佳")
+        }
+        appendLine()
+        if (preset.sections.isNotEmpty()) {
+            val firstSection = preset.sections.first()
+            appendLine("💡 小贴士：${firstSection.content.take(50)}...")
+        }
+        appendLine()
+        appendLine("🎯 用小O帮帮，复制专业摄影师参数！")
+    }
 }
 
 fun exportPreset(context: Context, preset: Preset) {
