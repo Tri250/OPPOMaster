@@ -1,7 +1,6 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { lazy, Suspense, useEffect } from 'react';
+import { lazy, Suspense } from 'react';
 import NavigationBar from './components/common/NavigationBar';
-import { ToastProvider, useToast } from './components/ui/Toast';
 import './index.css';
 
 const LandingPage = lazy(() => import('./pages/LandingPage'));
@@ -24,43 +23,24 @@ function Loading() {
   );
 }
 
-function ToastListener() {
-  const { showToast } = useToast();
-
-  useEffect(() => {
-    const handleToast = (event: any) => {
-      const { type, message, duration } = event.detail;
-      showToast({ type, message, duration });
-    };
-
-    window.addEventListener('toast', handleToast as EventListener);
-    return () => window.removeEventListener('toast', handleToast as EventListener);
-  }, [showToast]);
-
-  return null;
-}
-
 function App() {
   return (
     <Router>
-      <ToastProvider>
-        <ToastListener />
-        <div className="min-h-screen bg-deep-space">
-          <NavigationBar />
-          <Suspense fallback={<Loading />}>
-            <Routes>
-              <Route path="/" element={<LandingPage />} />
-              <Route path="/home" element={<HomePage />} />
-              <Route path="/ai-demo" element={<AIDemoPage />} />
-              <Route path="/tech" element={<TechPage />} />
-              <Route path="/about" element={<AboutPage />} />
-              <Route path="/preset/:id" element={<PresetDetailPage />} />
-              <Route path="/watermark" element={<WatermarkPage />} />
-              <Route path="/editor" element={<PresetEditorPage />} />
-            </Routes>
-          </Suspense>
-        </div>
-      </ToastProvider>
+      <div className="min-h-screen bg-deep-space">
+        <NavigationBar />
+        <Suspense fallback={<Loading />}>
+          <Routes>
+            <Route path="/" element={<LandingPage />} />
+            <Route path="/home" element={<HomePage />} />
+            <Route path="/ai-demo" element={<AIDemoPage />} />
+            <Route path="/tech" element={<TechPage />} />
+            <Route path="/about" element={<AboutPage />} />
+            <Route path="/preset/:id" element={<PresetDetailPage />} />
+            <Route path="/watermark" element={<WatermarkPage />} />
+            <Route path="/editor" element={<PresetEditorPage />} />
+          </Routes>
+        </Suspense>
+      </div>
     </Router>
   );
 }

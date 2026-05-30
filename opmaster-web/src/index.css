@@ -2,346 +2,78 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ==========================================
-   OPPOMaster V2.0 - ColorOS 16 Premium Photography Design System
-   ==========================================
-   版本: V2026.2
-   标准: ColorOS 16 Aqua Design + OPPO Premium Photography
-   ==========================================
-*/
-
-/* ==========================================
-   BASE: Core Design System
-   ==========================================
-*/
-
 @layer base {
   html {
     scroll-behavior: smooth;
   }
   
   body {
-    @apply bg-surface-800 text-surface-0 font-sans antialiased;
+    @apply bg-deep-space text-white font-sans;
   }
 
-  /* ==========================================
-     Scrollbar - ColorOS 16 Style
-     ==========================================
-  */
+  /* Scrollbar */
   ::-webkit-scrollbar {
     width: 8px;
-    height: 8px;
   }
 
   ::-webkit-scrollbar-track {
-    @apply bg-surface-700;
+    @apply bg-deep-space-light;
   }
 
   ::-webkit-scrollbar-thumb {
-    @apply bg-surface-500 rounded-full hover:bg-hasselblad/60 transition-colors;
+    @apply bg-hasselblad/60 rounded-full hover:bg-hasselblad transition-colors;
   }
 
   ::-webkit-scrollbar-thumb:hover {
     @apply bg-hasselblad;
   }
-
-  /* ==========================================
-     Text Selection - Brand Colors
-     ==========================================
-  */
-  ::selection {
-    @apply bg-hasselblad/30 text-hasselblad;
-  }
-
-  ::-moz-selection {
-    @apply bg-hasselblad/30 text-hasselblad;
-  }
-
-  /* ==========================================
-     Accessibility - Focus Styles (WCAG 2.2 AA)
-     ==========================================
-  */
-  *:focus-visible {
-    outline: 2px solid #C9A86C;
-    outline-offset: 2px;
-  }
 }
 
-/* ==========================================
-   COMPONENTS: Reusable UI Components
-   ==========================================
-*/
-
 @layer components {
-  /* ==========================================
-     Glass Effect - ColorOS 16 Aqua Design
-     ==========================================
-  */
   .glass-effect {
-    @apply bg-white/5 backdrop-blur-xl border border-white/10;
+    @apply bg-white/5 backdrop-blur-md border border-white/10;
   }
 
-  .glass-effect-strong {
-    @apply bg-white/8 backdrop-blur-2xl border border-white/15;
-  }
-
-  /* ==========================================
-     Gradient Text
-     ==========================================
-  */
   .gradient-text {
-    @apply bg-gradient-to-r from-hasselblad via-hasselblad-light to-hasselblad bg-clip-text text-transparent;
+    @apply bg-gradient-to-r from-white via-hasselblad to-white bg-clip-text text-transparent;
   }
 
-  .gradient-hasselblad {
-    @apply bg-gradient-to-br from-hasselblad to-hasselblad-dark;
-  }
-
-  .gradient-aqua {
-    @apply bg-gradient-to-br from-aqua-primary to-aqua-primary-light;
-  }
-
-  .gradient-oppo {
-    @apply bg-gradient-to-br from-oppo-coral to-oppo-coral-light;
-  }
-
-  .gradient-deep-space {
-    @apply bg-gradient-to-br from-surface-800 via-surface-700 to-surface-600;
-  }
-
-  /* ==========================================
-     Buttons - ColorOS 16 Button System
-     ==========================================
-  */
   .btn-primary {
-    @apply px-6 py-3 bg-hasselblad text-surface-900 font-semibold rounded-radius-md 
-           hover:bg-hasselblad-light active:bg-hasselblad-dark
-           transition-all duration-normal ease-ease-standard
-           hover:shadow-lg hover:shadow-hasselblad/30 hover:-translate-y-0.5
-           focus-visible:ring-2 focus-visible:ring-hasselblad focus-visible:ring-offset-2 focus-visible:ring-offset-surface-800
-           active:translate-y-0 active:shadow-md;
+    @apply px-6 py-3 bg-hasselblad text-deep-space font-semibold rounded-xl 
+           hover:bg-hasselblad/90 transition-all duration-200
+           hover:shadow-lg hover:shadow-hasselblad/20 hover:-translate-y-0.5;
   }
 
   .btn-secondary {
-    @apply px-6 py-3 bg-transparent text-hasselblad font-semibold rounded-radius-md
-           border-2 border-hasselblad hover:bg-hasselblad/10 active:bg-hasselblad/20
-           transition-all duration-normal ease-ease-standard;
+    @apply px-6 py-3 bg-white/10 text-white font-medium rounded-xl
+           border border-white/20 hover:bg-white/20 transition-all duration-200;
   }
 
-  .btn-text {
-    @apply px-4 py-2 text-surface-100 font-medium rounded-radius-md
-           hover:bg-white/10 active:bg-white/20
-           transition-all duration-fast ease-ease-standard;
-  }
-
-  .btn-icon {
-    @apply p-3 rounded-radius-md glass-effect hover:bg-white/10 active:bg-white/20
-           transition-all duration-normal ease-ease-standard;
-  }
-
-  .btn-lg {
-    @apply px-8 py-4 text-lg;
-  }
-
-  .btn-sm {
-    @apply px-4 py-2 text-sm;
-  }
-
-  /* ==========================================
-     Card - ColorOS 16 Card System
-     ==========================================
-  */
   .card {
-    @apply bg-surface-700 rounded-radius-xl overflow-hidden
-           border border-surface-500
-           transition-all duration-slow ease-ease-standard
-           hover:border-hasselblad hover:shadow-card-hover hover:-translate-y-0.5;
+    @apply bg-deep-space-light rounded-2xl overflow-hidden
+           border border-white/10 hover:border-hasselblad/30
+           transition-all duration-300
+           hover:shadow-xl hover:shadow-hasselblad/10;
   }
 
-  .card-glass {
-    @apply bg-surface-700/80 backdrop-blur-xl rounded-radius-xl overflow-hidden
-           border border-surface-500/50
-           transition-all duration-slow ease-ease-standard
-           hover:border-hasselblad/50 hover:shadow-card-hover;
-  }
-
-  .card-gallery {
-    @apply bg-surface-700 rounded-radius-lg overflow-hidden
-           border border-surface-500
-           transition-all duration-slow ease-ease-standard
-           hover:border-hasselblad hover:shadow-card-hover;
-  }
-
-  .card-hover {
-    @apply transition-all duration-slow ease-ease-standard
-           hover:border-hasselblad hover:shadow-card-hover hover:-translate-y-1;
-  }
-
-  /* ==========================================
-     Input - ColorOS 16 Input System
-     ==========================================
-  */
   .input {
-    @apply w-full px-4 py-3 bg-surface-700 border border-surface-500 rounded-radius-md
-           text-surface-0 placeholder-surface-200
-           focus:outline-none focus:border-hasselblad focus:ring-2 focus:ring-hasselblad/20
-           transition-all duration-normal ease-ease-standard;
+    @apply w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl
+           text-white placeholder-white/50 focus:outline-none focus:border-hasselblad
+           focus:ring-2 focus:ring-hasselblad/20
+           transition-all duration-200;
   }
 
-  .input-error {
-    @apply border-oppo-red/50 focus:border-oppo-red focus:ring-2 focus:ring-oppo-red/20;
-  }
-
-  .input-success {
-    @apply border-oppo-green/50 focus:border-oppo-green focus:ring-2 focus:ring-oppo-green/20;
-  }
-
-  /* ==========================================
-     Tags - ColorOS 16 Tag System
-     ==========================================
-  */
   .tag {
-    @apply px-3 py-1 text-caption-xl font-medium rounded-radius-sm
-           bg-surface-600 text-surface-100 border border-surface-500;
+    @apply px-3 py-1 text-xs font-medium rounded-full
+           bg-white/10 text-white/80 border border-white/10;
   }
 
   .tag-primary {
     @apply bg-hasselblad/20 text-hasselblad border-hasselblad/30;
   }
-
-  .tag-success {
-    @apply bg-oppo-green/20 text-oppo-green border-oppo-green/30;
-  }
-
-  .tag-warning {
-    @apply bg-oppo-yellow/20 text-oppo-yellow border-oppo-yellow/30;
-  }
-
-  .tag-error {
-    @apply bg-oppo-red/20 text-oppo-red border-oppo-red/30;
-  }
-
-  /* ==========================================
-     Badges - ColorOS 16 Badge System
-     ==========================================
-  */
-  .badge {
-    @apply inline-flex items-center justify-center
-           min-w-5 h-5 px-1.5 text-caption-lg font-semibold
-           rounded-full bg-hasselblad text-surface-900;
-  }
-
-  .badge-dot {
-    @apply w-2.5 h-2.5 rounded-full bg-hasselblad;
-  }
-
-  /* ==========================================
-     Dividers - ColorOS 16 Divider System
-     ==========================================
-  */
-  .divider {
-    @apply h-px bg-surface-500;
-  }
-
-  /* ==========================================
-     Progress - ColorOS 16 Progress System
-     ==========================================
-  */
-  .progress-bar {
-    @apply h-2 bg-surface-500 rounded-radius-full overflow-hidden;
-  }
-
-  .progress-fill {
-    @apply h-full gradient-hasselblad rounded-radius-full transition-all duration-slow ease-ease-standard;
-  }
-
-  /* ==========================================
-     Status Colors - ColorOS 16 Status System
-     ==========================================
-  */
-  .status-success { @apply text-oppo-green; }
-  .status-warning { @apply text-oppo-yellow; }
-  .status-error { @apply text-oppo-red; }
-  .status-info { @apply text-aqua-primary; }
-
-  .bg-status-success { @apply bg-oppo-green/20; }
-  .bg-status-warning { @apply bg-oppo-yellow/20; }
-  .bg-status-error { @apply bg-oppo-red/20; }
-  .bg-status-info { @apply bg-aqua-primary/20; }
-
-  /* ==========================================
-     Photography Components
-     ==========================================
-  */
-  .viewfinder {
-    @apply relative aspect-[3/4] rounded-radius-xl border-2 border-hasselblad overflow-hidden;
-    box-shadow: 0 0 30px rgba(201, 168, 108, 0.3), 0 0 60px rgba(201, 168, 108, 0.1);
-  }
-
-  .viewfinder-overlay {
-    @apply absolute inset-0 pointer-events-none;
-    background: linear-gradient(180deg, rgba(0, 0, 0, 0.3) 0%, transparent 20%, transparent 80%, rgba(0, 0, 0, 0.3) 100%);
-  }
-
-  .param-slider {
-    @apply relative h-1.5 bg-surface-500 rounded-radius-full;
-  }
-
-  .param-slider-track {
-    @apply absolute h-full gradient-hasselblad rounded-radius-full transition-all duration-fast;
-  }
-
-  .param-slider-thumb {
-    @apply absolute w-5 h-5 -mt-2 bg-hasselblad border-[3px] border-surface-0 rounded-full 
-           cursor-grab transition-transform duration-fast ease-ease-bounce
-           hover:scale-110 active:cursor-grabbing;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-  }
-
-  .scene-tag {
-    @apply inline-flex items-center gap-1.5 px-4 py-2 bg-surface-700 text-surface-100 
-           font-medium text-body-md rounded-radius-full border border-surface-500
-           transition-all duration-normal ease-ease-standard
-           hover:border-hasselblad hover:bg-hasselblad/10;
-  }
-
-  .scene-tag.active {
-    @apply bg-gradient-to-r from-hasselblad to-hasselblad-light text-surface-900 border-transparent
-           shadow-md;
-  }
 }
 
-/* ==========================================
-   ANIMATIONS: ColorOS 16 Animation System
-   ==========================================
-*/
-
-/* ==========================================
-   Keyframe Animations
-   ==========================================
-*/
-@keyframes ripple {
-  0% {
-    transform: scale(0);
-    opacity: 0.6;
-  }
-  100% {
-    transform: scale(4);
-    opacity: 0;
-  }
-}
-
-@keyframes wave-expand {
-  0% {
-    transform: scale(0.8);
-    opacity: 0.8;
-  }
-  100% {
-    transform: scale(1.5);
-    opacity: 0;
-  }
-}
-
+/* Floating particles */
 @keyframes float {
   0%, 100% {
     transform: translateY(0px);
@@ -353,32 +85,11 @@
 
 @keyframes pulse-glow {
   0%, 100% {
-    box-shadow: 0 0 20px rgba(201, 168, 108, 0.3);
+    box-shadow: 0 0 20px rgba(212, 165, 116, 0.3);
   }
   50% {
-    box-shadow: 0 0 40px rgba(201, 168, 108, 0.6);
+    box-shadow: 0 0 40px rgba(212, 165, 116, 0.6);
   }
-}
-
-@keyframes shimmer {
-  0% {
-    background-position: -200% 0;
-  }
-  100% {
-    background-position: 200% 0;
-  }
-}
-
-/* ==========================================
-   Animation Utilities
-   ==========================================
-*/
-.animate-ripple {
-  animation: ripple 0.6s ease-out;
-}
-
-.animate-wave-expand {
-  animation: wave-expand 1.2s ease-out infinite;
 }
 
 .animate-float {
@@ -387,135 +98,4 @@
 
 .animate-pulse-glow {
   animation: pulse-glow 2s ease-in-out infinite;
-}
-
-.animate-glow-pulse {
-  animation: glow-pulse 2s ease-in-out infinite;
-}
-
-/* ==========================================
-   Skeleton Loading Animation
-   ==========================================
-*/
-.skeleton {
-  @apply bg-surface-600 rounded-radius-lg overflow-hidden;
-  background: linear-gradient(90deg, rgba(255,255,255,0.05) 25%, rgba(255,255,255,0.1) 50%, rgba(255,255,255,0.05) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
-}
-
-/* ==========================================
-   Motion Safe - Respect user preferences
-   ==========================================
-*/
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-}
-
-/* ==========================================
-   UTILITIES: Additional Helper Classes
-   ==========================================
-*/
-
-@layer utilities {
-  /* ==========================================
-     Content Visibility
-     ==========================================
-  */
-  .content-auto {
-    content-visibility: auto;
-  }
-
-  /* ==========================================
-     Aspect Ratios
-     ==========================================
-  */
-  .aspect-photo {
-    aspect-ratio: 4/3;
-  }
-
-  .aspect-portrait {
-    aspect-ratio: 3/4;
-  }
-
-  .aspect-square {
-    aspect-ratio: 1/1;
-  }
-
-  .aspect-video {
-    aspect-ratio: 16/9;
-  }
-
-  /* ==========================================
-     Line Clamp - Text truncation
-     ==========================================
-  */
-  .line-clamp-1 {
-    display: -webkit-box;
-    -webkit-line-clamp: 1;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-
-  .line-clamp-2 {
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-
-  .line-clamp-3 {
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-
-  /* ==========================================
-     High Contrast Mode Support
-     ==========================================
-  */
-  @media (prefers-contrast: high) {
-    .glass-effect {
-      @apply bg-surface-900 border-white/30;
-    }
-  }
-
-  /* ==========================================
-     Touch Target - Accessibility
-     ==========================================
-  */
-  .touch-target {
-    @apply min-w-[44px] min-h-[44px];
-  }
-
-  /* ==========================================
-     Safe Area - Mobile Devices
-     ==========================================
-  */
-  .safe-area-top {
-    padding-top: env(safe-area-inset-top);
-  }
-
-  .safe-area-bottom {
-    padding-bottom: env(safe-area-inset-bottom);
-  }
-
-  /* ==========================================
-     Backdrop Blur - Modern Effects
-     ==========================================
-  */
-  .backdrop-blur-xl {
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-  }
-
-  .backdrop-blur-2xl {
-    backdrop-filter: blur(30px);
-    -webkit-backdrop-filter: blur(30px);
-  }
 }
