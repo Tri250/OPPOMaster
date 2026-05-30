@@ -12,27 +12,20 @@ import retrofit2.http.POST
 object DeepSeekConfig {
     private const val TAG = "DeepSeekConfig"
 
-    private const val API_KEY_ENV_VAR = "DEEPSEEK_API_KEY"
-    private const val API_KEY_BUILD_CONFIG = "sk-fcd6db5526c84a21910befd5b68d074a"
+    // ❗ 警告：DeepSeek API 已被废弃
+    // OMaster 已迁移到 Google ML Kit 本地场景识别，不需要任何云端 API 密钥
+    // 此配置仅作为参考文档保留，用于历史代码兼容性
 
-    fun getApiKey(): String {
-        return try {
-            val envKey = System.getenv(API_KEY_ENV_VAR)
-            if (!envKey.isNullOrEmpty()) {
-                Log.d(TAG, "Using API key from environment variable")
-                envKey
-            } else {
-                Log.d(TAG, "Using default API key from BuildConfig")
-                API_KEY_BUILD_CONFIG
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to read API key from environment: ${e.message}")
-            API_KEY_BUILD_CONFIG
-        }
-    }
-
+    @Deprecated("DeepSeek API 已废弃，使用 ML Kit 本地识别")
     const val BASE_URL = "https://api.deepseek.com/"
+    
+    @Deprecated("DeepSeek API 已废弃，使用 ML Kit 本地识别")
     const val VISION_MODEL = "deepseek-chat"
+
+    @Deprecated("DeepSeek API 已废弃，使用 ML Kit 本地识别")
+    fun getApiKey(): String {
+        throw UnsupportedOperationException("DeepSeek API 已废弃，使用 Google ML Kit 本地场景识别")
+    }
 }
 
 data class DeepSeekRequest(

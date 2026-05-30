@@ -40,7 +40,8 @@ import javax.inject.Singleton
 
 @Singleton
 class Camera2Controller @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val imageAnalyzer: ImageAnalyzer
 ) {
     private var cameraDevice: CameraDevice? = null
     private var captureSession: CameraCaptureSession? = null
@@ -79,6 +80,8 @@ class Camera2Controller @Inject constructor(
     ): Camera? {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         
+        var resultCamera: Camera? = null
+        
         cameraProviderFuture.addListener({
             try {
                 val cameraProvider = cameraProviderFuture.get()
@@ -103,7 +106,7 @@ class Camera2Controller @Inject constructor(
                 val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
                 cameraProvider.unbindAll()
-                val camera = cameraProvider.bindToLifecycle(
+                resultCamera = cameraProvider.bindToLifecycle(
                     lifecycleOwner,
                     cameraSelector,
                     preview,
@@ -112,15 +115,13 @@ class Camera2Controller @Inject constructor(
 
                 _cameraState.value = CameraState.Ready
                 Timber.d("CameraX bound successfully")
-
-                camera
             } catch (e: Exception) {
                 Timber.e(e, "Failed to bind CameraX")
                 _cameraState.value = CameraState.Error(e.message ?: "Camera initialization failed")
             }
         }, cameraExecutor)
 
-        return null
+        return resultCamera
     }
 
     private fun analyzeImage(imageProxy: ImageProxy, onParamsDetected: (CameraParams) -> Unit) {
@@ -131,8 +132,9 @@ class Camera2Controller @Inject constructor(
             
             val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
             if (bitmap != null) {
-                // 检测画面特征，估算参数
-                val estimatedParams = estimateParamsFromImage(bitmap)
+                // 真正的图像分析和参数估算
+                val analysisResult = imageAnalyzer.analyzeImageForParams(bitmap)
+                val estimatedParams = imageAnalyzer.suggestCameraParams(analysisResult)
                 _currentParams.value = estimatedParams
                 onParamsDetected(estimatedParams)
                 bitmap.recycle()
@@ -142,27 +144,6 @@ class Camera2Controller @Inject constructor(
         } finally {
             imageProxy.close()
         }
-    }
-
-    private fun estimateParamsFromImage(bitmap: Bitmap): CameraParams {
-        // 基于图像分析估算相机参数
-        // 这是一个简化版本，实际可以使用更复杂的算法
-        val width = bitmap.width
-        val height = bitmap.height
-        
-        return CameraParams(
-            mode = "哈苏大师",
-            iso = 100,
-            shutter = "1/200",
-            ev = "0",
-            wb = "5500K",
-            focal_length = "24mm",
-            aperture = "f/1.8",
-            ai_optimization = true,
-            hasselblad_hncs = true,
-            hasselblad_natural_color = true,
-            color_profile = "Natural"
-        )
     }
 
     fun setCameraParams(params: CameraParams): Boolean {
@@ -287,7 +268,7 @@ class Camera2Controller @Inject constructor(
 
     fun startBackgroundThread() {
         backgroundThread = HandlerThread("CameraBackground").also { it.start() }
-        backgroundHandler = Handler(backgroundThread!!.looper)
+        backgroundHandler = Handler(backgroundThread!!.lo)
     }
 
     fun stopBackgroundThread() {

@@ -50,6 +50,7 @@ import com.omaster.app.model.SceneType
 import com.omaster.app.service.AiService
 import com.omaster.app.ui.components.PresetCard
 import com.omaster.app.ui.theme.*
+import com.omaster.app.util.BitmapUtils
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
@@ -374,8 +375,16 @@ fun SceneDetectionScreen(
                         isDetecting = true
                         showSkeleton = true
                         
+                        // 使用 BitmapUtils 解码 Uri 为 Bitmap
+                        val bitmap = selectedImage?.let { uri ->
+                            BitmapUtils.decodeUriToBitmap(context, uri, maxDimension = 1024)
+                        }
+                        
                         // 使用新的识别API
-                        val result = aiService.detectScene(selectedImage?.toString())
+                        val result = aiService.detectScene(
+                            imageUri = selectedImage?.toString(),
+                            bitmap = bitmap
+                        )
                         detectionResult = result
                         
                         // 如果是边界场景，不显示预设
