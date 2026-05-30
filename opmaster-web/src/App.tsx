@@ -26,6 +26,7 @@ function App() {
   return (
     <Router>
       <div className="min-h-screen bg-page-bg">
+        {/* 固定顶部导航栏，高度64dp */}
         <NavigationBar />
         <Suspense fallback={<Loading />}>
           <Routes>

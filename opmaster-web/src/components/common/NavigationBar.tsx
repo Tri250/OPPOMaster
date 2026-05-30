@@ -24,15 +24,16 @@ export default function NavigationBar() {
       animate={{ y: 0 }}
       className="fixed top-0 left-0 right-0 z-50 glass-effect"
     >
+      {/* 导航栏高度64dp */}
       <div className="max-w-7xl mx-auto px-page sm:px-page lg:px-page">
         <div className="flex items-center justify-between h-16">
-          {/* Logo */}
+          {/* Logo - 48x48dp橙色相机图标 + "小O帮帮"文字 */}
           <Link to="/" className="flex items-center gap-3">
-            {/* 48x48 dp orange camera logo */}
+            {/* 48x48dp橙色相机logo - 圆角12dp */}
             <div className="w-12 h-12 bg-oppo-primary rounded-button flex items-center justify-center">
               <Camera className="w-7 h-7 text-text-primary" />
             </div>
-            {/* 小O帮帮文字 - 18sp, 600 weight, white */}
+            {/* 小O帮帮文字 - 18sp, 600字重, 白色, 与图标水平间距12dp */}
             <span className="text-lg font-semibold text-text-primary">小O帮帮</span>
           </Link>
 
