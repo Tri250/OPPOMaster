@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion'
-import { Scan, Camera, Check } from 'lucide-react'
-import { useState } from 'react'
+import { Scan, Camera, Check, Upload } from 'lucide-react'
+import { useState, useRef } from 'react'
 
 const sceneTypes = [
   '人像', '风光', '建筑', '美食', '夜景', '星空',
@@ -14,11 +14,24 @@ export default function SceneDetectionPage() {
   const [isDetecting, setIsDetecting] = useState(false)
   const [detectedScenes, setDetectedScenes] = useState<string[]>([])
   const [confidence, setConfidence] = useState(0)
+  const [selectedImage, setSelectedImage] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        setSelectedImage(event.target?.result as string)
+        setDetectedScenes([])
+        setConfidence(0)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
 
   const handleDetect = () => {
     setIsDetecting(true)
-    setDetectedScenes([])
-    setConfidence(0)
 
     setTimeout(() => {
       const randomScenes = sceneTypes
@@ -44,21 +57,37 @@ export default function SceneDetectionPage() {
           animate={{ opacity: 1, y: 0 }}
           className="card-oppo p-6 text-center"
         >
-          <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-gradient-to-br from-info/30 to-neutral-600/30 flex items-center justify-center">
-            {isDetecting ? (
-              <div className="w-12 h-12 border-4 border-info/30 border-t-info rounded-full animate-spin" />
-            ) : (
-              <Scan className="w-12 h-12 text-info" />
-            )}
-          </div>
+          {selectedImage ? (
+            <div className="mb-6">
+              <img 
+                src={selectedImage} 
+                alt="已选择" 
+                className="max-h-64 mx-auto rounded-xl object-contain mb-4"
+              />
+              <button
+                onClick={() => setSelectedImage(null)}
+                className="text-text-secondary text-sm hover:text-text-primary transition-colors"
+              >
+                更换图片
+              </button>
+            </div>
+          ) : (
+            <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-gradient-to-br from-info/30 to-neutral-600/30 flex items-center justify-center">
+              {isDetecting ? (
+                <div className="w-12 h-12 border-4 border-info/30 border-t-info rounded-full animate-spin" />
+              ) : (
+                <Upload className="w-12 h-12 text-info" />
+              )}
+            </div>
+          )}
           
           <h2 className="text-xl font-bold mb-2">
             {isDetecting ? '正在识别场景...' : 'AI 智能场景识别'}
           </h2>
           <p className="text-text-secondary mb-6">
             {isDetecting 
-              ? '正在分析当前画面，请稍候'
-              : '点击按钮开始识别当前场景类型'}
+              ? '正在分析图片，请稍候'
+              : '上传图片开始识别场景类型'}
           </p>
 
           {detectedScenes.length > 0 && (
@@ -85,15 +114,35 @@ export default function SceneDetectionPage() {
             </motion.div>
           )}
 
-          <button
-            onClick={handleDetect}
-            disabled={isDetecting}
-            className="btn-primary px-8 py-3 flex items-center justify-center gap-2 mx-auto touch-feedback disabled:opacity-50"
-            aria-label="开始场景识别"
-          >
-            <Camera className="w-5 h-5" />
-            {isDetecting ? '识别中...' : '开始识别'}
-          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleImageSelect}
+            className="hidden"
+          />
+          
+          {!selectedImage ? (
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isDetecting}
+              className="btn-primary px-8 py-3 flex items-center justify-center gap-2 mx-auto touch-feedback disabled:opacity-50"
+              aria-label="上传图片"
+            >
+              <Upload className="w-5 h-5" />
+              上传图片
+            </button>
+          ) : (
+            <button
+              onClick={handleDetect}
+              disabled={isDetecting}
+              className="btn-primary px-8 py-3 flex items-center justify-center gap-2 mx-auto touch-feedback disabled:opacity-50"
+              aria-label="开始场景识别"
+            >
+              <Camera className="w-5 h-5" />
+              {isDetecting ? '识别中...' : '开始识别'}
+            </button>
+          )}
         </motion.div>
 
         <motion.section
