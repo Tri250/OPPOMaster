@@ -22,7 +22,8 @@ const features = [
       '毫秒级响应，即时查看效果'
     ],
     gradient: 'linear-gradient(135deg, #FF6B35 0%, #9C27B0 100%)',
-    color: '#FF6B35'
+    color: '#FF6B35',
+    linkTo: '/ai-demo'
   },
   {
     icon: <Smartphone className="w-8 h-8 text-white" />,
@@ -34,7 +35,8 @@ const features = [
       '操作步骤从10+步简化到2步'
     ],
     gradient: '',
-    color: '#00C853'
+    color: '#00C853',
+    linkTo: '/tech'
   },
   {
     icon: <Monitor className="w-8 h-8 text-white" />,
@@ -46,7 +48,8 @@ const features = [
       'ColorOS Fluid Capsule支持'
     ],
     gradient: '',
-    color: '#2962FF'
+    color: '#2962FF',
+    linkTo: '/tech'
   },
   {
     icon: <Search className="w-8 h-8 text-white" />,
@@ -58,7 +61,8 @@ const features = [
       '收藏管理功能'
     ],
     gradient: '',
-    color: '#00C853'
+    color: '#00C853',
+    linkTo: '/'
   },
   {
     icon: <Zap className="w-8 h-8 text-white" />,
@@ -70,7 +74,8 @@ const features = [
       '使用他人优秀预设'
     ],
     gradient: '',
-    color: '#FF9800'
+    color: '#FF9800',
+    linkTo: '/editor'
   },
   {
     icon: <FileText className="w-8 h-8 text-white" />,
@@ -82,7 +87,8 @@ const features = [
       'JSON格式兼容'
     ],
     gradient: '',
-    color: '#E91E63'
+    color: '#E91E63',
+    linkTo: '/editor'
   }
 ];
 
@@ -91,13 +97,15 @@ const tools = [
     icon: <Palette className="w-8 h-8" />,
     title: '水印生成器',
     subtitle: '10+品牌水印模板',
-    isPrimary: true
+    isPrimary: true,
+    linkTo: '/watermark'
   },
   {
     icon: <Code className="w-8 h-8" />,
     title: '预设编辑器',
     subtitle: '创建专属预设',
-    isPrimary: false
+    isPrimary: false,
+    linkTo: '/editor'
   }
 ];
 

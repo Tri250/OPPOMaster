@@ -1,6 +1,9 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
+import { useState, useEffect } from 'react';
 import NavigationBar from './components/common/NavigationBar';
+import NetworkError from './components/common/NetworkError';
+import NotFoundPage from './pages/NotFoundPage';
 import './index.css';
 
 const HomePage = lazy(() => import('./pages/HomePage'));
@@ -23,6 +26,36 @@ function Loading() {
 }
 
 function App() {
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [showNetworkError, setShowNetworkError] = useState(false);
+
+  // 监听网络状态
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      setShowNetworkError(false);
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+      setShowNetworkError(true);
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  const handleRetry = () => {
+    if (navigator.onLine) {
+      setShowNetworkError(false);
+      window.location.reload();
+    }
+  };
+
   return (
     <Router>
       <div className="min-h-screen bg-page-bg">
@@ -37,8 +70,17 @@ function App() {
             <Route path="/preset/:id" element={<PresetDetailPage />} />
             <Route path="/watermark" element={<WatermarkPage />} />
             <Route path="/editor" element={<PresetEditorPage />} />
+            {/* 404页面 */}
+            <Route path="*" element={<NotFoundPage />} />
           </Routes>
         </Suspense>
+        
+        {/* 网络错误提示 */}
+        <NetworkError 
+          isVisible={showNetworkError}
+          onRetry={handleRetry}
+          onDismiss={() => setShowNetworkError(false)}
+        />
       </div>
     </Router>
   );

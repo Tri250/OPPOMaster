@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 
 interface ToolCardProps {
   icon: React.ReactNode;
@@ -6,6 +7,7 @@ interface ToolCardProps {
   subtitle: string;
   isPrimary?: boolean;
   index: number;
+  linkTo: string;
 }
 
 export default function ToolCard({
@@ -13,8 +15,15 @@ export default function ToolCard({
   title,
   subtitle,
   isPrimary = false,
-  index
+  index,
+  linkTo
 }: ToolCardProps) {
+  const navigate = useNavigate();
+
+  const handleClick = () => {
+    navigate(linkTo);
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -22,7 +31,8 @@ export default function ToolCard({
       viewport={{ once: true }}
       transition={{ delay: index * 0.15 }}
       whileHover={{ scale: 1.02, y: -2 }}
-      className={`rounded-[16px] overflow-hidden relative group ${
+      onClick={handleClick}
+      className={`rounded-[16px] overflow-hidden relative group cursor-pointer ${
         isPrimary 
           ? 'bg-[#D4A574] text-[#0F0F0F]' 
           : 'bg-[#333333] text-[#FFFFFF]'

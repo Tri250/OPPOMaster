@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 
 interface FeatureCardProps {
   icon: React.ReactNode;
@@ -8,6 +9,7 @@ interface FeatureCardProps {
   gradient?: string;
   color: string;
   index: number;
+  linkTo: string;
 }
 
 export default function FeatureCard({
@@ -17,8 +19,15 @@ export default function FeatureCard({
   features,
   gradient,
   color,
-  index
+  index,
+  linkTo
 }: FeatureCardProps) {
+  const navigate = useNavigate();
+
+  const handleClick = () => {
+    navigate(linkTo);
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -26,7 +35,8 @@ export default function FeatureCard({
       viewport={{ once: true }}
       transition={{ delay: index * 0.1 }}
       whileHover={{ y: -4, scale: 1.02 }}
-      className="bg-[#1A1A1A]/95 backdrop-blur-sm rounded-[16px] overflow-hidden relative group"
+      onClick={handleClick}
+      className="bg-[#1A1A1A]/95 backdrop-blur-sm rounded-[16px] overflow-hidden relative group cursor-pointer"
       style={{
         boxShadow: '0 4px 8px rgba(0, 0, 0, 0.1)',
       }}
@@ -64,7 +74,7 @@ export default function FeatureCard({
         <ul className="space-y-2">
           {features.map((feature, idx) => (
             <li key={idx} className="flex items-start gap-2">
-              {/* 实心圆点标记 - 直径6dp（1.5*2=3px，我们用w-1.5 h-1.5），颜色与图标主色一致 */}
+              {/* 实心圆点标记 - 直径6dp */}
               <span
                 className="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0"
                 style={{ backgroundColor: color }}
