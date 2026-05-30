@@ -24,9 +24,10 @@ class PresetRepository @Inject constructor(
     private var cachedPresets: List<Preset> = emptyList()
     private var favoriteIds: Set<String> = emptySet()
     
+    private val repositoryScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    
     init {
-        // 监听收藏状态变化
-        kotlinx.coroutines.GlobalScope.launch {
+        repositoryScope.launch {
             preferencesDataStore.favoritePresets.collect { favorites ->
                 favoriteIds = favorites
                 if (cachedPresets.isNotEmpty()) {

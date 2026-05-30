@@ -316,7 +316,7 @@ class Camera2Controller @Inject constructor(
         return try {
             val jsonContent = """
                 {
-                    "preset_name": "${params.hasselblad_master_style}",
+                    "preset_name": "${params.hasselblad_master_style ?: "默认预设"}",
                     "camera_params": {
                         "mode": "${params.mode}",
                         "iso": ${params.iso},
@@ -325,7 +325,7 @@ class Camera2Controller @Inject constructor(
                         "wb": "${params.wb}",
                         "focal_length": "${params.focal_length}",
                         "aperture": "${params.aperture}",
-                        "filter": "${params.filter}",
+                        "filter": "${params.filter ?: ""}",
                         "hncs": ${params.hasselblad_hncs}
                     },
                     "device": "小O帮帮",
