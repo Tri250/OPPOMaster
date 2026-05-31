@@ -170,8 +170,8 @@ fun ProSettingsScreen(
 }
 
 /**
- * ==================== BrandSection - 品牌展示区域 ====================
- * 专业设计 - 哈苏 × OPPO 联名
+ * ==================== AboutMeSection - 关于我展示区域 ====================
+ * 专业设计 - 个人开发者介绍
  */
 @Composable
 fun BrandSection(isDark: Boolean) {
@@ -180,7 +180,7 @@ fun BrandSection(isDark: Boolean) {
         initialValue = 1f,
         targetValue = 1.02f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2000, easing = ColorOSEasing.Standard),
+            animation = tween(durationMillis = 2500, easing = ColorOSEasing.Standard),
             repeatMode = RepeatMode.Reverse
         ),
         label = "pulse"
@@ -216,51 +216,50 @@ fun BrandSection(isDark: Boolean) {
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // 哈苏LOGO - 使用渐变色
+            // 个人头像LOGO
             Box(
                 modifier = Modifier
-                    .size(88.dp)
+                    .size(96.dp)
                     .clip(CircleShape)
                     .background(
                         brush = Brush.linearGradient(
                             colors = listOf(
                                 HasselbladOrange,
                                 HasselbladOrangeLight,
-                                HasselbladOrangeDark
+                                DeepOceanBlue
                             )
                         )
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = "小O",
-                    color = Color.White,
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 32.sp,
-                    letterSpacing = (-1).sp
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "📷",
+                        fontSize = 36.sp
+                    )
+                }
             }
             
             Spacer(modifier = Modifier.height(20.dp))
             
             // 标题
             Text(
-                text = "哈苏影像 × OPPO",
+                text = "小O帮帮",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = if (isDark) ColorOSTextPrimary else ColorOSLightTextPrimary,
-                fontSize = 20.sp
+                fontSize = 24.sp
             )
             
             Spacer(modifier = Modifier.height(8.dp))
             
             // 副标题
             Text(
-                text = "为专业摄影而生",
+                text = "热爱摄影的开发者",
                 style = MaterialTheme.typography.bodyMedium,
                 color = HasselbladOrange,
                 fontWeight = FontWeight.SemiBold,
-                fontSize = 15.sp
+                fontSize = 16.sp
             )
             
             Spacer(modifier = Modifier.height(16.dp))
@@ -268,48 +267,123 @@ fun BrandSection(isDark: Boolean) {
             // 分隔线
             Surface(
                 modifier = Modifier
-                    .width(80.dp)
+                    .width(100.dp)
                     .height(2.dp),
                 color = HasselbladOrange.copy(alpha = 0.5f),
                 shape = RoundedCornerShape(2.dp)
             ) {}
             
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(20.dp))
             
-            // 核心特性列表
-            Column(
+            // 介绍文字
+            Card(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isDark) {
+                        ColorOSBorder.copy(alpha = 0.2f)
+                    } else {
+                        ColorOSLightBorder.copy(alpha = 0.2f)
+                    }
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
             ) {
-                FeatureRow(
-                    icon = Icons.Default.AutoAwesome,
-                    title = "HNCS 认证预设",
-                    description = "哈苏自然色彩科学",
-                    isDark = isDark
-                )
-                FeatureRow(
-                    icon = Icons.Default.Camera,
-                    title = "实时相机参数",
-                    description = "专业摄影必备工具",
-                    isDark = isDark
-                )
-                FeatureRow(
-                    icon = Icons.Default.CloudSync,
-                    title = "云端同步",
-                    description = "预设数据安全存储",
-                    isDark = isDark
-                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp)
+                ) {
+                    Text(
+                        text = "关于我",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isDark) ColorOSTextPrimary else ColorOSLightTextPrimary,
+                        fontSize = 17.sp
+                    )
+                    
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    Text(
+                        text = "你好！我是\"带娃的小陈工\"，一名热爱摄影的开发者。小O帮帮诞生于对完美摄影体验的追求。",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (isDark) ColorOSTextSecondary else ColorOSLightTextSecondary,
+                        fontSize = 15.sp,
+                        lineHeight = 22.sp
+                    )
+                    
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    Text(
+                        text = "我相信，每一次按下快门都值得被认真对待。从一键闪记到流体云胶囊，从HNCS认证预设到AI智能推荐，每一个功能都凝聚了我对\"专业却简单\"这一理念的坚持。",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (isDark) ColorOSTextSecondary else ColorOSLightTextSecondary,
+                        fontSize = 15.sp,
+                        lineHeight = 22.sp
+                    )
+                    
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    Text(
+                        text = "希望小O帮帮能帮助你拍出更美的照片！",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = HasselbladOrange,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 15.sp
+                    )
+                }
             }
             
             Spacer(modifier = Modifier.height(20.dp))
             
+            // 联系方式
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isDark) {
+                        HasselbladOrange.copy(alpha = 0.1f)
+                    } else {
+                        HasselbladOrange.copy(alpha = 0.08f)
+                    }
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "联系我",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = HasselbladOrange,
+                        fontSize = 17.sp
+                    )
+                    
+                    Spacer(modifier = Modifier.height(10.dp))
+                    
+                    Text(
+                        text = "有任何问题或建议？抖音、小红书搜索\"带娃的小陈工\"",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (isDark) ColorOSTextSecondary else ColorOSLightTextSecondary,
+                        fontSize = 15.sp,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 22.sp
+                    )
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(24.dp))
+            
             // 底部标语
             Text(
-                text = "追求完美，记录精彩",
+                text = "用影像记录生活的美好",
                 style = MaterialTheme.typography.bodySmall,
                 color = if (isDark) ColorOSTextTertiary else ColorOSLightTextTertiary,
                 textAlign = TextAlign.Center,
-                fontSize = 13.sp
+                fontSize = 14.sp
             )
         }
     }
