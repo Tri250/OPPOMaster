@@ -197,11 +197,66 @@ GPU_FUNC float hs_shadow_deep_recovery_weight(float mask_ref, GPUOperatorParams 
   return 1.0f - hls_oklch_smoothstep(deep_full, deep_start, mask_ref);
 }
 
+GPU_FUNC float hs_highlight_zone_weight(float mask_ref, GPUOperatorParams params) {
+  constexpr float kToe = 1.0e-3f;
+  constexpr float kToePow = 0.1023292992f;
+  constexpr float kInvToeRange = 1.1135850f;
+  constexpr float kGamma = 0.33f;
+
+  const float t = hls_oklch_smoothstep(params.hs_highlight_log_pivot_,
+                                       params.hs_highlight_log_pivot_ +
+                                           params.hs_highlight_log_width_,
+                                       mask_ref);
+  const float lifted = powf(t + kToe, kGamma);
+  return fminf(fmaxf((lifted - kToePow) * kInvToeRange, 0.0f), 1.0f);
+}
+
+GPU_FUNC float hs_softplus_distance(float distance, float softness) {
+  constexpr float kLog2 = 0.6931471805599453f;
+  const float     safe_softness = fmaxf(softness, 1.0e-4f);
+  const float     x = distance / safe_softness;
+  if (x > 20.0f) {
+    return distance - safe_softness * kLog2;
+  }
+  return safe_softness * (log1pf(expf(x)) - kLog2);
+}
+
+GPU_FUNC float hs_softrelu_distance(float signed_distance, float softness, float onset) {
+  const float safe_softness = fmaxf(softness, 1.0e-4f);
+  const float safe_onset = fmaxf(onset, 0.0f);
+  const float x = (signed_distance - safe_onset) / safe_softness;
+  if (x > 20.0f) {
+    return signed_distance - safe_onset;
+  }
+  if (x < -20.0f) {
+    return safe_softness * expf(x);
+  }
+  return safe_softness * log1pf(expf(x));
+}
+
 GPU_FUNC float hs_texture_detail_weight(float detail) {
   return 1.0f - hls_oklch_smoothstep(0.28f, 0.88f, fabsf(detail));
 }
 
 GPU_FUNC float hs_lerp(float a, float b, float t) { return a + (b - a) * t; }
+
+GPU_FUNC float hs_active_mask_disagreement(float base_shadow_mask, float base_highlight_mask,
+                                           float source_shadow_mask, float source_highlight_mask,
+                                           float shadow_amount, float highlight_amount) {
+  float disagreement = 0.0f;
+  if (fabsf(shadow_amount) > 1.0e-6f) {
+    disagreement = fmaxf(disagreement, fabsf(base_shadow_mask - source_shadow_mask));
+    disagreement = fmaxf(disagreement, 0.50f * fabsf(base_highlight_mask - source_highlight_mask));
+  }
+  if (fabsf(highlight_amount) > 1.0e-6f) {
+    disagreement = fmaxf(disagreement, fabsf(base_highlight_mask - source_highlight_mask));
+  }
+  return fminf(fmaxf(disagreement, 0.0f), 1.0f);
+}
+
+GPU_FUNC float hs_tonal_reference_mix(float mask_disagreement) {
+  return hls_oklch_smoothstep(0.025f, 0.16f, mask_disagreement);
+}
 
 GPU_FUNC float hs_llf_detail_mix(float detail) {
   return 1.0f - hls_oklch_smoothstep(0.42f, 0.95f, fabsf(detail));
@@ -260,11 +315,7 @@ GPU_FUNC void hs_compute_masks(float mask_ref, float shadow_amount, float highli
                                GPUOperatorParams params, float* shadow_mask,
                                float* highlight_mask) {
   const float raw_shadow = hs_shadow_zone_weight(mask_ref, params);
-  const float raw_highlight =
-      powf(hls_oklch_smoothstep(params.hs_highlight_log_pivot_,
-                                params.hs_highlight_log_pivot_ + params.hs_highlight_log_width_,
-                                mask_ref),
-           0.33f);
+  const float raw_highlight = hs_highlight_zone_weight(mask_ref, params);
 
   const bool both_active = fabsf(shadow_amount) > 1.0e-6f && fabsf(highlight_amount) > 1.0e-6f;
   *shadow_mask = both_active ? raw_shadow * (1.0f - 0.72f * raw_highlight) : raw_shadow;
@@ -284,30 +335,34 @@ GPU_FUNC float hs_shadow_base_delta_from_ref(float mask_ref, float shadow_amount
   hs_compute_masks(mask_ref, shadow_amount, highlight_amount, params, &shadow_mask,
                    &highlight_mask);
 
-  const float shadow_weight = hs_shadow_tonal_weight(mask_ref, shadow_mask, params);
-  const float distance_to_pivot = hs_shadow_base_distance(mask_ref, params);
+  const float width = fmaxf(params.hs_shadow_log_width_, 0.35f);
+  const float upper_pivot = hs_shadow_upper_pivot(params);
+  const float lift_pivot = upper_pivot + fmaxf(width * 1.60f, 0.98f);
+  const float distance_to_pivot = fmaxf(lift_pivot - mask_ref, 0.0f);
+  const float soft_distance = hs_softplus_distance(distance_to_pivot, fmaxf(width * 2.18f, 1.35f));
+  const float black_guard = 0.82f + 0.18f * hs_shadow_black_floor_weight(mask_ref, params);
   const float highlight_overlap = fminf(fmaxf(highlight_mask, 0.0f), 1.0f);
-  const float overlap_guard = 1.0f - 0.35f * highlight_overlap;
+  const float overlap_guard = 1.0f - 0.28f * highlight_overlap;
   const float lift_amount = fmaxf(shadow_amount, 0.0f);
   const float darken_amount = fmaxf(-shadow_amount, 0.0f);
-  const float deep_recovery = hs_shadow_deep_recovery_weight(mask_ref, params);
-  const float deep_lift_guard = 1.0f - 0.45f * highlight_overlap;
-  const float lift_delta =
-      lift_amount * 0.56f * distance_to_pivot * shadow_weight * overlap_guard;
-  const float deep_lift_delta =
-      lift_amount * 0.26f * distance_to_pivot * deep_recovery * deep_lift_guard;
-  const float darken_delta =
-      darken_amount * 0.42f * (0.30f + 0.70f * distance_to_pivot) * shadow_weight;
-  return lift_delta + deep_lift_delta - darken_delta;
+  const float lift_delta = lift_amount * 0.42f * soft_distance * black_guard * overlap_guard;
+  const float darken_delta = darken_amount * 0.34f * soft_distance * (0.85f + 0.15f * black_guard);
+  return lift_delta - darken_delta;
 }
 
 GPU_FUNC float hs_highlight_base_delta_from_ref(float mask_ref, float shadow_amount,
                                                 float highlight_amount, GPUOperatorParams params) {
-  float shadow_mask = 0.0f;
-  float highlight_mask = 0.0f;
-  hs_compute_masks(mask_ref, shadow_amount, highlight_amount, params, &shadow_mask,
-                   &highlight_mask);
-  return -highlight_amount * 1.04f * highlight_mask;
+  (void)shadow_amount;
+  const float width = fmaxf(params.hs_highlight_log_width_, 0.35f);
+  const float soft_distance =
+      hs_softrelu_distance(mask_ref - params.hs_highlight_log_pivot_,
+                           fminf(fmaxf(width * 0.12f, 0.36f), 0.55f),
+                           fminf(fmaxf(width * 0.24f, 0.72f), 1.10f));
+  const float reduce_amount = fmaxf(highlight_amount, 0.0f);
+  const float boost_amount = fmaxf(-highlight_amount, 0.0f);
+  const float reduce_delta = 1.68f * (1.0f - expf(-soft_distance / 1.33f));
+  const float boost_delta = 1.24f * (1.0f - expf(-soft_distance / 1.45f));
+  return boost_amount * boost_delta - reduce_amount * reduce_delta;
 }
 
 GPU_FUNC float hs_base_delta_from_ref(float mask_ref, float shadow_amount, float highlight_amount,
@@ -367,6 +422,44 @@ GPU_FUNC float hs_highlight_detail_weight(float mask_ref, float highlight_mask, 
       1.0f - hls_oklch_smoothstep(params.hs_highlight_log_pivot_ + width * 1.15f,
                                   params.hs_highlight_log_pivot_ + width * 2.35f, mask_ref);
   return tonal_weight * noise_gate * edge_guard * clipped_guard;
+}
+
+GPU_FUNC float3 hs_preserve_highlight_chroma(float3 source_ap1, float3 output_ap1,
+                                             float log_delta, float highlight_amount,
+                                             float source_highlight_mask) {
+  const float reduce_amount = fmaxf(highlight_amount, 0.0f);
+  if (reduce_amount <= 1.0e-6f || log_delta >= -1.0e-5f || source_highlight_mask <= 1.0e-5f) {
+    return output_ap1;
+  }
+
+  const float3 source_lab = hls_oklch_ap1_to_oklab(source_ap1);
+  const float3 output_lab = hls_oklch_ap1_to_oklab(output_ap1);
+  const float  source_chroma = hypotf(source_lab.y, source_lab.z);
+  const float  output_chroma = hypotf(output_lab.y, output_lab.z);
+  if (source_chroma <= 1.0e-5f || output_lab.x <= 1.0e-5f) {
+    return output_ap1;
+  }
+
+  const float chroma_confidence = hls_oklch_smoothstep(0.012f, 0.060f, source_chroma);
+  const float compression = hls_oklch_smoothstep(0.18f, 1.15f, -log_delta);
+  const float strength =
+      fminf(fmaxf(0.56f * reduce_amount * source_highlight_mask * compression *
+                      chroma_confidence,
+                  0.0f),
+            0.62f);
+  if (strength <= 1.0e-6f) {
+    return output_ap1;
+  }
+
+  const float target_chroma = output_chroma + (source_chroma - output_chroma) * strength;
+  const float inv_source_chroma = 1.0f / fmaxf(source_chroma, 1.0e-5f);
+  const float2 hue_dir = make_float2(source_lab.y * inv_source_chroma,
+                                     source_lab.z * inv_source_chroma);
+  const float3 adjusted_lab =
+      make_float3(output_lab.x, hue_dir.x * target_chroma, hue_dir.y * target_chroma);
+  const float3 neutral_lab = make_float3(output_lab.x, 0.0f, 0.0f);
+  const float3 neutral_ap1 = hls_oklch_oklab_to_ap1(neutral_lab);
+  return hls_oklch_fit_ap1_lower_gamut(hls_oklch_oklab_to_ap1(adjusted_lab), neutral_ap1);
 }
 
 __global__ void HsBuildLogBaseHorizontalKernel(const float4* __restrict src,
@@ -461,13 +554,28 @@ GPU_FUNC float4 hs_apply_local_tone_pixel(float4 px, float base, GPUOperatorPara
   const float3 source_ap1 = hls_oklch_acescc_to_ap1(make_float3(px.x, px.y, px.z));
   const float  source_log_y  = log2f(fmaxf(hs_ap1_luminance(source_ap1), 1.0e-8f));
   const float  detail        = source_log_y - base;
-  const float  mask_ref      = base;
+  const float  base_mask_ref = base;
+  float        base_shadow_mask = 0.0f;
+  float        base_highlight_mask = 0.0f;
+  float        source_shadow_mask = 0.0f;
+  float        source_highlight_mask = 0.0f;
+  hs_compute_masks(base_mask_ref, shadow_amount, highlight_amount, params, &base_shadow_mask,
+                   &base_highlight_mask);
+  hs_compute_masks(source_log_y, shadow_amount, highlight_amount, params, &source_shadow_mask,
+                   &source_highlight_mask);
+
+  const float mask_disagreement =
+      hs_active_mask_disagreement(base_shadow_mask, base_highlight_mask, source_shadow_mask,
+                                  source_highlight_mask, shadow_amount, highlight_amount);
+  const float tonal_reference_mix = hs_tonal_reference_mix(mask_disagreement);
+  const float mask_ref = hs_lerp(base_mask_ref, source_log_y, tonal_reference_mix);
   float        shadow_mask = 0.0f;
   float        highlight_mask = 0.0f;
   hs_compute_masks(mask_ref, shadow_amount, highlight_amount, params, &shadow_mask,
                    &highlight_mask);
 
-  const float base_delta = hs_base_delta_from_ref(mask_ref, shadow_amount, highlight_amount, params);
+  const float base_delta =
+      hs_base_delta_from_ref(mask_ref, shadow_amount, highlight_amount, params);
   const float base_curve_slope =
       fminf(fmaxf(hs_base_curve_slope(mask_ref, shadow_amount, highlight_amount, params), 0.42f),
             1.65f);
@@ -491,7 +599,8 @@ GPU_FUNC float4 hs_apply_local_tone_pixel(float4 px, float base, GPUOperatorPara
   const float shadow_detail_preserve = hs_shadow_detail_preserve_weight(detail);
   const float highlight_detail_zone =
       hs_highlight_detail_weight(mask_ref, highlight_mask, detail, params) * texture_detail;
-  const float llf_detail_gain = hs_shadow_llf_detail_gain(detail, shadow_amount, shadow_texture_zone);
+  const float llf_detail_gain =
+      hs_shadow_llf_detail_gain(detail, shadow_amount, shadow_texture_zone);
   const float dark_valley = hls_oklch_smoothstep(0.85f, 1.80f, -detail);
   const float contrast_recovery =
       0.035f + 0.075f * fmaxf(base_contrast_loss, shadow_contrast_loss);
@@ -512,13 +621,16 @@ GPU_FUNC float4 hs_apply_local_tone_pixel(float4 px, float base, GPUOperatorPara
   const float source_delta =
       hs_base_delta_from_ref(source_log_y, shadow_amount, highlight_amount, params);
   const float source_adjusted_log_y = source_log_y + source_delta;
-  const float local_mix = hs_local_tone_mix(detail, local_delta, source_delta);
+  const float local_mix =
+      hs_local_tone_mix(detail, local_delta, source_delta) * (1.0f - tonal_reference_mix);
   const float adjusted_log_y = hs_lerp(source_adjusted_log_y, local_adjusted_log_y, local_mix);
   const float log_delta = adjusted_log_y - source_log_y;
 
   const float rgb_scale = exp2f(fminf(fmaxf(log_delta, -3.5f), 3.5f));
-  const float3 output_ap1 =
+  float3 output_ap1 =
       make_float3(source_ap1.x * rgb_scale, source_ap1.y * rgb_scale, source_ap1.z * rgb_scale);
+  output_ap1 = hs_preserve_highlight_chroma(source_ap1, output_ap1, log_delta, highlight_amount,
+                                            source_highlight_mask);
   const float3 output_acescc = hls_oklch_ap1_to_acescc(output_ap1);
 
   return make_float4(output_acescc.x, output_acescc.y, output_acescc.z, px.w);
