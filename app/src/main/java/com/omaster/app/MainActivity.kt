@@ -45,10 +45,12 @@ import com.omaster.app.ui.components.GlassSearchBar
 import com.omaster.app.ui.components.OMasterBottomBar
 import com.omaster.app.ui.components.OMasterTopBar
 import com.omaster.app.ui.screens.AiFineTuneScreen
+import com.omaster.app.ui.screens.CameraConfigScreen
 import com.omaster.app.ui.screens.ColorOSHomeScreenV2
 import com.omaster.app.ui.screens.ProDetailScreen
 import com.omaster.app.ui.screens.ProHomeScreenV2
 import com.omaster.app.ui.screens.ProSettingsScreenV2
+import com.omaster.app.ui.screens.ProfileScreen
 import com.omaster.app.ui.screens.SceneDetectionScreenV2
 import com.omaster.app.ui.theme.OMasterTheme
 import com.omaster.app.ui.theme.Spacing
@@ -132,9 +134,9 @@ fun OMasterApp(
                     currentScreen = when (currentRoute) {
                         OMasterScreen.Home.route -> OMasterScreen.Home
                         OMasterScreen.SceneDetection.route -> OMasterScreen.SceneDetection
+                        OMasterScreen.CameraConfig.route -> OMasterScreen.CameraConfig
                         OMasterScreen.AiFineTune.route -> OMasterScreen.AiFineTune
-                        OMasterScreen.WatermarkEditor.route -> OMasterScreen.WatermarkEditor
-                        OMasterScreen.Settings.route -> OMasterScreen.Settings
+                        OMasterScreen.Profile.route -> OMasterScreen.Profile
                         else -> OMasterScreen.Home
                     },
                     onScreenSelected = { screen ->
@@ -234,6 +236,13 @@ fun OMasterApp(
                 )
             }
             
+            // 相机配置管理
+            composable(OMasterScreen.CameraConfig.route) {
+                CameraConfigScreen(
+                    onBack = { navController.popBackStack() }
+                )
+            }
+            
             // AI专业微调
             composable(OMasterScreen.AiFineTune.route) {
                 AiFineTuneScreen(
@@ -243,10 +252,11 @@ fun OMasterApp(
                 )
             }
             
-            // 哈苏水印编辑器
-            composable(OMasterScreen.WatermarkEditor.route) {
-                AdvancedWatermarkEditorV2(
-                    onDismiss = { navController.popBackStack() }
+            // 用户个人页面
+            composable(OMasterScreen.Profile.route) {
+                ProfileScreen(
+                    onSettingsClick = { navController.navigate(OMasterScreen.Settings.route) },
+                    onCameraConfigClick = { navController.navigate(OMasterScreen.CameraConfig.route) }
                 )
             }
             

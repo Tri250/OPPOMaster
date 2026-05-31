@@ -1,16 +1,8 @@
 package com.omaster.app.navigation
 
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoFixHigh
-import androidx.compose.material.icons.filled.Brush
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.outlined.AutoFixHigh
-import androidx.compose.material.icons.outlined.Brush
-import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.ui.graphics.vector.ImageVector
 
 /**
@@ -56,6 +48,16 @@ sealed class OMasterScreen(
     )
     
     /**
+     * 相机配置管理
+     */
+    data object CameraConfig : OMasterScreen(
+        route = "camera_config",
+        title = "相机配置",
+        selectedIcon = Icons.Filled.Tune,
+        unselectedIcon = Icons.Outlined.Tune
+    )
+    
+    /**
      * AI专业微调
      */
     data object AiFineTune : OMasterScreen(
@@ -66,13 +68,13 @@ sealed class OMasterScreen(
     )
     
     /**
-     * 哈苏水印编辑器
+     * 用户个人页面
      */
-    data object WatermarkEditor : OMasterScreen(
-        route = "watermark_editor",
-        title = "哈苏水印",
-        selectedIcon = Icons.Filled.Brush,
-        unselectedIcon = Icons.Outlined.Brush
+    data object Profile : OMasterScreen(
+        route = "profile",
+        title = "我的",
+        selectedIcon = Icons.Filled.Person,
+        unselectedIcon = Icons.Outlined.Person
     )
     
     /**
@@ -92,7 +94,7 @@ sealed class OMasterScreen(
 val omasterBottomTabScreens = listOf(
     OMasterScreen.Home,
     OMasterScreen.SceneDetection,
+    OMasterScreen.CameraConfig,
     OMasterScreen.AiFineTune,
-    OMasterScreen.WatermarkEditor,
-    OMasterScreen.Settings
+    OMasterScreen.Profile
 )
