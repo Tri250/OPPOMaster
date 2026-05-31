@@ -431,3 +431,46 @@ fun ProSearchBar(
         }
     }
 }
+
+/**
+ * ==================== OMasterTopBar - 专业顶部栏 ====================
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun OMasterTopBar(
+    onSettingsClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    TopAppBar(
+        title = {
+            Text(
+                text = "哈苏大师",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        actions = {
+            IconButton(onClick = onSettingsClick) {
+                Icon(
+                    imageVector = androidx.compose.material.icons.Icons.Default.Settings,
+                    contentDescription = "设置"
+                )
+            }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = Color.Transparent
+        ),
+        modifier = modifier
+    )
+}
+
+/**
+ * ==================== ProFeature - 专业功能数据类 ====================
+ */
+data class ProFeature(
+    val title: String,
+    val subtitle: String,
+    val icon: ImageVector,
+    val gradient: List<Color>,
+    val onClick: () -> Unit
+)
