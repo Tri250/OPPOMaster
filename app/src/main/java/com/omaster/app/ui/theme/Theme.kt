@@ -10,66 +10,67 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import com.omaster.app.data.ThemeMode
 
-// ==================== OPPO 2026 深色配色方案 ====================
-private val OppoDarkColorScheme = darkColorScheme(
-    primary = OppoSunriseGold,
-    onPrimary = OppoDeepSpace,
-    primaryContainer = OppoSunriseGoldDark,
-    onPrimaryContainer = OppoTextPrimary,
-    secondary = OceanBlue,
+// ==================== ColorOS 16 专业摄影深色配色方案 ====================
+private val ColorOSDarkColorScheme = darkColorScheme(
+    primary = HasselbladOrange,
+    onPrimary = ColorOSBlack,
+    primaryContainer = HasselbladOrangeDark,
+    onPrimaryContainer = ColorOSTextPrimary,
+    secondary = DeepOceanBlue,
     onSecondary = Color.White,
-    secondaryContainer = OceanBlueDark,
-    onSecondaryContainer = OppoTextPrimary,
-    tertiary = HasselbladOrangePro,
-    onTertiary = OppoDeepSpace,
-    tertiaryContainer = HasselbladDarkPro,
-    onTertiaryContainer = OppoTextPrimary,
-    background = OppoDeepSpace,
-    onBackground = OppoTextPrimary,
-    surface = OppoCardSurface,
-    onSurface = OppoTextPrimary,
-    surfaceVariant = OppoElevated,
-    onSurfaceVariant = OppoTextSecondary,
-    outline = OppoBorder,
-    outlineVariant = OppoBorderLight,
-    error = ErrorVital,
+    secondaryContainer = DeepOceanBlueDark,
+    onSecondaryContainer = ColorOSTextPrimary,
+    tertiary = OppoGold,
+    onTertiary = ColorOSBlack,
+    tertiaryContainer = OppoGoldDark,
+    onTertiaryContainer = ColorOSTextPrimary,
+    background = ColorOSBlack,
+    onBackground = ColorOSTextPrimary,
+    surface = ColorOSCard,
+    onSurface = ColorOSTextPrimary,
+    surfaceVariant = ColorOSBlackElevated,
+    onSurfaceVariant = ColorOSTextSecondary,
+    outline = ColorOSBorder,
+    outlineVariant = ColorOSBorderLight,
+    error = ErrorPro,
     onError = Color.White,
-    errorContainer = ErrorVital.copy(alpha = 0.15f),
-    onErrorContainer = OppoTextPrimary
+    errorContainer = ErrorPro.copy(alpha = 0.15f),
+    onErrorContainer = ColorOSTextPrimary
 )
 
-// ==================== OPPO 2026 浅色配色方案 ====================
-private val OppoLightColorScheme = lightColorScheme(
-    primary = OppoSunriseGold,
+// ==================== ColorOS 16 专业摄影浅色配色方案 ====================
+private val ColorOSLightColorScheme = lightColorScheme(
+    primary = HasselbladOrange,
     onPrimary = Color.White,
-    primaryContainer = OppoSunriseGoldLight,
-    onPrimaryContainer = OppoLightTextPrimary,
-    secondary = OceanBlue,
+    primaryContainer = HasselbladOrangeLight,
+    onPrimaryContainer = ColorOSLightTextPrimary,
+    secondary = DeepOceanBlue,
     onSecondary = Color.White,
-    secondaryContainer = OceanBlueLight,
-    onSecondaryContainer = OppoLightTextPrimary,
-    tertiary = HasselbladOrangePro,
+    secondaryContainer = DeepOceanBlueLight,
+    onSecondaryContainer = ColorOSLightTextPrimary,
+    tertiary = OppoGold,
     onTertiary = Color.White,
-    tertiaryContainer = HasselbladOrangeVibrant,
-    onTertiaryContainer = OppoLightTextPrimary,
-    background = OppoLightBackground,
-    onBackground = OppoLightTextPrimary,
-    surface = OppoLightSurface,
-    onSurface = OppoLightTextPrimary,
-    surfaceVariant = OppoLightElevated,
-    onSurfaceVariant = OppoLightTextSecondary,
-    outline = OppoLightBorder,
-    outlineVariant = OppoLightBorderLight,
-    error = ErrorVital,
+    tertiaryContainer = OppoGoldLight,
+    onTertiaryContainer = ColorOSLightTextPrimary,
+    background = ColorOSLightBackground,
+    onBackground = ColorOSLightTextPrimary,
+    surface = ColorOSLightSurface,
+    onSurface = ColorOSLightTextPrimary,
+    surfaceVariant = ColorOSLightCard,
+    onSurfaceVariant = ColorOSLightTextSecondary,
+    outline = ColorOSLightBorder,
+    outlineVariant = ColorOSLightBorderLight,
+    error = ErrorPro,
     onError = Color.White,
-    errorContainer = ErrorVital.copy(alpha = 0.15f),
-    onErrorContainer = OppoLightTextPrimary
+    errorContainer = ErrorPro.copy(alpha = 0.15f),
+    onErrorContainer = ColorOSLightTextPrimary
 )
 
 @Composable
@@ -89,8 +90,8 @@ fun OMasterTheme(
             val context = LocalContext.current
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
-        darkTheme -> OppoDarkColorScheme
-        else -> OppoLightColorScheme
+        darkTheme -> ColorOSDarkColorScheme
+        else -> ColorOSLightColorScheme
     }
     
     val view = LocalView.current
@@ -106,8 +107,8 @@ fun OMasterTheme(
 
     MaterialTheme(
         colorScheme = colorScheme,
-        typography = OppoTypography,
-        shapes = OppoShapes,
+        typography = ColorOSTypography,
+        shapes = ColorOSShapes,
         content = content
     )
 }

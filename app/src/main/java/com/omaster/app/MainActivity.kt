@@ -10,12 +10,16 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.omaster.app.data.ThemeMode
 import com.omaster.app.navigation.Screen
 import com.omaster.app.service.AiService
 import com.omaster.app.ui.screens.AiFineTuneScreen
 import com.omaster.app.ui.screens.ColorOSHomeScreen
 import com.omaster.app.ui.screens.DetailScreen
 import com.omaster.app.ui.screens.HomeScreen
+import com.omaster.app.ui.screens.ProDetailScreen
+import com.omaster.app.ui.screens.ProHomeScreen
+import com.omaster.app.ui.screens.ProSettingsScreen
 import com.omaster.app.ui.screens.SceneDetectionScreen
 import com.omaster.app.ui.screens.SettingsScreen
 import com.omaster.app.ui.components.WatermarkEditorDialog
@@ -40,9 +44,17 @@ class MainActivity : ComponentActivity() {
         setContent {
             val viewModel: MainViewModel = hiltViewModel()
             val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+            val fluidCloudEnabled by viewModel.fluidCloudEnabled.collectAsStateWithLifecycle()
+            val overlayEnabled by viewModel.overlayEnabled.collectAsStateWithLifecycle()
             
             OMasterTheme(themeMode = themeMode) {
-                OMasterApp(viewModel, aiService)
+                OMasterApp(
+                    viewModel, 
+                    aiService, 
+                    themeMode,
+                    fluidCloudEnabled,
+                    overlayEnabled
+                )
             }
         }
     }
@@ -52,6 +64,9 @@ class MainActivity : ComponentActivity() {
 fun OMasterApp(
     viewModel: MainViewModel,
     aiService: AiService,
+    themeMode: Int,
+    fluidCloudEnabled: Boolean,
+    overlayEnabled: Boolean,
     modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier
 ) {
     val navController = rememberNavController()
@@ -63,7 +78,8 @@ fun OMasterApp(
         modifier = modifier
     ) {
         composable(Screen.Home.route) {
-            HomeScreen(
+            // 专业版首页
+            ProHomeScreen(
                 onPresetClick = { preset ->
                     navController.navigate(Screen.Detail.createRoute(preset.id))
                 },
@@ -82,18 +98,25 @@ fun OMasterApp(
             val preset = presets.find { it.id == presetId }
 
             preset?.let {
-                DetailScreen(
+                ProDetailScreen(
                     preset = it,
                     onBack = { navController.popBackStack() },
                     onFavoriteToggle = { viewModel.toggleFavorite(it) },
                     onApplyPreset = { appliedPreset ->
                         Timber.d("应用预设: ${appliedPreset.name}")
-                    }
+                    },
+                    themeMode = themeMode
                 )
             }
         }
         composable(Screen.Settings.route) {
-            SettingsScreen(
+            ProSettingsScreen(
+                themeMode = themeMode,
+                onThemeModeChange = { viewModel.setThemeMode(it) },
+                fluidCloudEnabled = fluidCloudEnabled,
+                onFluidCloudToggle = { viewModel.setFluidCloudEnabled(it) },
+                overlayEnabled = overlayEnabled,
+                onOverlayToggle = { viewModel.setOverlayEnabled(it) },
                 onBack = { navController.popBackStack() }
             )
         }
