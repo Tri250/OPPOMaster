@@ -5,9 +5,22 @@ package com.omaster.app.model
  * 基于 OPPO HyperTone Camera System
  */
 
+/**
+ * Schema 版本常量
+ */
+object SchemaVersions {
+    const val CURRENT_SCHEMA = 1
+    const val MIN_SUPPORTED_SCHEMA = 1
+    const val MAX_SUPPORTED_SCHEMA = 1
+}
+
+/**
+ * 验证结果
+ */
 sealed interface ValidationResult {
     object Valid : ValidationResult
     data class Invalid(val errors: List<String>) : ValidationResult
+    data class NeedsMigration(val fromVersion: Int, val toVersion: Int) : ValidationResult
 }
 
 /**
@@ -56,6 +69,8 @@ enum class FocalLengthMode(val displayName: String) {
 
 /**
  * 哈苏大师模式影像参数 - 2026年 OPPO Find X8 Ultra
+ *
+ * 包含 Schema 版本控制，防止数据腐化
  */
 data class CameraParams(
     // 基础参数
@@ -118,51 +133,147 @@ data class CameraParams(
     val digitalZoom: Int = 1,
     val sensorSize: String = "1英寸",
     
-    // 元数据
+    // Schema 版本与元数据
+    val schemaVersion: Int = SchemaVersions.CURRENT_SCHEMA,
     val version: String = "3.0",
     val lastModified: Long = System.currentTimeMillis()
 ) {
+    /**
+     * 完整的验证流程
+     */
+    fun validateFull(): ValidationResult {
+        val errors = mutableListOf<String>()
+
+        // 1. Schema 版本检查
+        if (schemaVersion < SchemaVersions.MIN_SUPPORTED_SCHEMA) {
+            return ValidationResult.NeedsMigration(
+                fromVersion = schemaVersion,
+                toVersion = SchemaVersions.CURRENT_SCHEMA
+            )
+        }
+
+        if (schemaVersion > SchemaVersions.MAX_SUPPORTED_SCHEMA) {
+            errors.add("Schema 版本太新，无法处理（当前支持到 v${SchemaVersions.MAX_SUPPORTED_SCHEMA}）")
+        }
+
+        // 2. ISO 校验 - 2026年OPPO最新范围
+        if (iso < 32 || iso > 102400) {
+            errors.add("ISO 超出范围（应在 32-102400 之间，当前值: $iso）")
+        }
+
+        // 3. 快门格式校验
+        if (!isValidShutterSpeed(shutter)) {
+            errors.add("快门速度格式无效（当前值: $shutter）")
+        }
+
+        // 4. EV 格式校验
+        if (!isValidExposureValue(ev)) {
+            errors.add("曝光补偿格式无效（当前值: $ev）")
+        }
+
+        // 5. 白平衡色温校验
+        if (colorTemperature < 2500 || colorTemperature > 10000) {
+            errors.add("色温超出范围（应在 2500-10000K 之间，当前值: ${colorTemperature}K）")
+        }
+
+        // 6. 图像参数范围校验
+        if (sharpness < 0 || sharpness > 100) {
+            errors.add("清晰度超出范围（应在 0-100 之间，当前值: $sharpness）")
+        }
+
+        if (contrast < 0 || contrast > 100) {
+            errors.add("对比度超出范围（应在 0-100 之间，当前值: $contrast）")
+        }
+
+        if (saturation < 0 || saturation > 100) {
+            errors.add("饱和度超出范围（应在 0-100 之间，当前值: $saturation）")
+        }
+
+        if (highlight < -100 || highlight > 100) {
+            errors.add("高光调整超出范围（应在 -100 到 100 之间，当前值: $highlight）")
+        }
+
+        if (shadow < -100 || shadow > 100) {
+            errors.add("阴影调整超出范围（应在 -100 到 100 之间，当前值: $shadow）")
+        }
+
+        if (noiseReduction < 0 || noiseReduction > 100) {
+            errors.add("降噪强度超出范围（应在 0-100 之间，当前值: $noiseReduction）")
+        }
+
+        if (detailEnhancement < 0 || detailEnhancement > 100) {
+            errors.add("细节增强超出范围（应在 0-100 之间，当前值: $detailEnhancement）")
+        }
+
+        return if (errors.isEmpty()) {
+            ValidationResult.Valid
+        } else {
+            ValidationResult.Invalid(errors)
+        }
+    }
+
+    /**
+     * 兼容性验证（向后兼容的简单版本）
+     */
     fun validate(): ValidationResult {
         val errors = mutableListOf<String>()
-        
+
         // ISO 校验 - 2026年OPPO最新范围
         if (iso < 32 || iso > 102400) {
             errors.add("ISO 超出范围（应在 32-102400 之间）")
         }
-        
+
         // 快门格式校验
         if (!isValidShutterSpeed(shutter)) {
             errors.add("快门速度格式无效")
         }
-        
+
         // EV 格式校验
         if (!isValidExposureValue(ev)) {
             errors.add("曝光补偿格式无效")
         }
-        
+
         // 白平衡色温校验
         if (colorTemperature < 2500 || colorTemperature > 10000) {
             errors.add("色温超出范围（应在 2500-10000K 之间）")
         }
-        
+
         // 饱和度校验
         if (saturation < 0 || saturation > 100) {
             errors.add("饱和度超出范围（应在 0-100 之间）")
         }
-        
-        return if (errors.isEmpty()) ValidationResult.Valid 
-               else ValidationResult.Invalid(errors)
+
+        return if (errors.isEmpty()) ValidationResult.Valid
+        else ValidationResult.Invalid(errors)
     }
-    
+
+    /**
+     * 安全修复参数（自动修正范围溢出）
+     */
+    fun sanitize(): CameraParams {
+        return copy(
+            iso = iso.coerceIn(32, 102400),
+            colorTemperature = colorTemperature.coerceIn(2500, 10000),
+            sharpness = sharpness.coerceIn(0, 100),
+            contrast = contrast.coerceIn(0, 100),
+            saturation = saturation.coerceIn(0, 100),
+            highlight = highlight.coerceIn(-100, 100),
+            shadow = shadow.coerceIn(-100, 100),
+            noiseReduction = noiseReduction.coerceIn(0, 100),
+            detailEnhancement = detailEnhancement.coerceIn(0, 100),
+            schemaVersion = SchemaVersions.CURRENT_SCHEMA
+        )
+    }
+
     private fun isValidShutterSpeed(shutter: String): Boolean {
         val fractionRegex = Regex("""^1/\d+$""")
         val numberRegex = Regex("""^\d+(\.\d+)?s$""")
         val plainNumberRegex = Regex("""^\d+(\.\d+)?$""")
-        return fractionRegex.matches(shutter) || 
-               numberRegex.matches(shutter) || 
+        return fractionRegex.matches(shutter) ||
+               numberRegex.matches(shutter) ||
                plainNumberRegex.matches(shutter)
     }
-    
+
     private fun isValidExposureValue(ev: String): Boolean {
         val evRegex = Regex("""^[+-]?\d+(\.\d+)?$""")
         return evRegex.matches(ev)
@@ -224,27 +335,47 @@ data class CameraParams(
             "nightMode" to nightMode,
             "portraitMode" to portraitMode,
             "aiOptimization" to aiOptimization,
+            "autoFocus" to autoFocus,
+            "opticalStabilization" to opticalStabilization,
+            "rawCapture" to rawCapture,
+            "proMode" to proMode,
             "hasselblad_hncs" to hasselblad_hncs,
             "hasselbladNaturalColor" to hasselbladNaturalColor,
             "hasselbladMasterStyle" to hasselbladMasterStyle,
+            "hasselbladProMode" to hasselbladProMode,
             "hasselbladColorScience" to hasselbladColorScience,
             "colorProfile" to colorProfile,
             "colorStyle" to colorStyle,
             "colorTemperature" to colorTemperature,
+            "tint" to tint,
             "sharpness" to sharpness,
             "contrast" to contrast,
             "saturation" to saturation,
+            "highlight" to highlight,
+            "shadow" to shadow,
+            "exposureCompensation" to exposureCompensation,
+            "meteringMode" to meteringMode,
+            "focusMode" to focusMode,
+            "whiteBalancePreset" to whiteBalancePreset,
+            "noiseReduction" to noiseReduction,
+            "detailEnhancement" to detailEnhancement,
+            "lensId" to lensId,
+            "lensAperture" to lensAperture,
+            "opticalZoom" to opticalZoom,
+            "digitalZoom" to digitalZoom,
+            "sensorSize" to sensorSize,
+            "schemaVersion" to schemaVersion,
             "version" to version,
             "lastModified" to lastModified
         )
     }
-    
+
     companion object {
         /**
-         * 从 JSON 创建 CameraParams
+         * 从 JSON 创建 CameraParams（安全解析，包含自动修正）
          */
         fun fromJsonMap(json: Map<String, Any?>): CameraParams {
-            return CameraParams(
+            val rawParams = CameraParams(
                 mode = json["mode"] as? String ?: CameraMode.HasselbladMaster.displayName,
                 filter = json["filter"] as? String ?: "",
                 iso = (json["iso"] as? Number)?.toInt() ?: 100,
@@ -252,24 +383,48 @@ data class CameraParams(
                 ev = json["ev"] as? String ?: "+0.0",
                 wb = json["wb"] as? String ?: "5500K",
                 focalLength = json["focalLength"] as? String ?: "24mm",
+                focalLengthMode = json["focalLengthMode"] as? String ?: FocalLengthMode.Wide.displayName,
                 aperture = json["aperture"] as? String ?: "f/1.8",
                 hdr = json["hdr"] as? Boolean ?: false,
                 nightMode = json["nightMode"] as? Boolean ?: false,
                 portraitMode = json["portraitMode"] as? Boolean ?: false,
                 aiOptimization = json["aiOptimization"] as? Boolean ?: true,
+                autoFocus = json["autoFocus"] as? Boolean ?: true,
+                opticalStabilization = json["opticalStabilization"] as? Boolean ?: true,
+                rawCapture = json["rawCapture"] as? Boolean ?: false,
+                proMode = json["proMode"] as? Boolean ?: true,
                 hasselblad_hncs = json["hasselblad_hncs"] as? Boolean ?: true,
                 hasselbladNaturalColor = json["hasselbladNaturalColor"] as? Boolean ?: true,
                 hasselbladMasterStyle = json["hasselbladMasterStyle"] as? String ?: "",
+                hasselbladProMode = json["hasselbladProMode"] as? Boolean ?: true,
                 hasselbladColorScience = json["hasselbladColorScience"] as? String ?: "HNCS 3.0",
                 colorProfile = json["colorProfile"] as? String ?: ColorStyle.Natural.displayName,
                 colorStyle = json["colorStyle"] as? String ?: ColorStyle.Natural.name,
                 colorTemperature = (json["colorTemperature"] as? Number)?.toInt() ?: 5500,
+                tint = (json["tint"] as? Number)?.toInt() ?: 0,
                 sharpness = (json["sharpness"] as? Number)?.toInt() ?: 50,
                 contrast = (json["contrast"] as? Number)?.toInt() ?: 50,
                 saturation = (json["saturation"] as? Number)?.toInt() ?: 50,
+                highlight = (json["highlight"] as? Number)?.toInt() ?: 0,
+                shadow = (json["shadow"] as? Number)?.toInt() ?: 0,
+                exposureCompensation = (json["exposureCompensation"] as? Number)?.toInt() ?: 0,
+                meteringMode = json["meteringMode"] as? String ?: "Evaluative",
+                focusMode = json["focusMode"] as? String ?: "Continuous AF",
+                whiteBalancePreset = json["whiteBalancePreset"] as? String ?: "Auto",
+                noiseReduction = (json["noiseReduction"] as? Number)?.toInt() ?: 50,
+                detailEnhancement = (json["detailEnhancement"] as? Number)?.toInt() ?: 50,
+                lensId = json["lensId"] as? String ?: "",
+                lensAperture = json["lensAperture"] as? String ?: "f/1.8",
+                opticalZoom = (json["opticalZoom"] as? Number)?.toInt() ?: 1,
+                digitalZoom = (json["digitalZoom"] as? Number)?.toInt() ?: 1,
+                sensorSize = json["sensorSize"] as? String ?: "1英寸",
+                schemaVersion = (json["schemaVersion"] as? Number)?.toInt() ?: SchemaVersions.CURRENT_SCHEMA,
                 version = json["version"] as? String ?: "3.0",
                 lastModified = (json["lastModified"] as? Number)?.toLong() ?: System.currentTimeMillis()
             )
+
+            // 自动修正参数范围
+            return rawParams.sanitize()
         }
         
         /**
