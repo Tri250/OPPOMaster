@@ -67,15 +67,24 @@ def candidate_shadow_delta(
 ) -> np.ndarray:
     width = max(baseline.SHADOW_LOG_WIDTH, 0.35)
     upper_pivot = baseline.shadow_upper_pivot()
-    lift_pivot = upper_pivot + max(width * 1.60, 0.98)
+    lift_pivot = upper_pivot + max(width * 4.00, 2.48)
     distance_to_pivot = np.maximum(lift_pivot - mask_ref, 0.0)
     soft_distance = softplus_distance(distance_to_pivot, max(width * 2.18, 1.35))
+    lift_shape = 1.0 - np.exp(-soft_distance / 1.25)
+    deep_noise_compression = 1.0 - smoothstep(
+        baseline.SHADOW_LOG_PIVOT - 4.15,
+        baseline.SHADOW_LOG_PIVOT - 2.35,
+        mask_ref,
+    )
     black_guard = 0.82 + 0.18 * shadow_black_floor_weight(mask_ref)
     highlight_overlap = highlight_zone_weight(mask_ref)
-    overlap_guard = 1.0 - 0.28 * np.clip(highlight_overlap, 0.0, 1.0)
+    highlight_active = 1.0 if abs(highlight_amount) > 1.0e-6 else 0.0
+    overlap_guard = 1.0 - 0.28 * highlight_active * np.clip(highlight_overlap, 0.0, 1.0)
     lift_amount = max(shadow_amount, 0.0)
     darken_amount = max(-shadow_amount, 0.0)
-    lift_delta = lift_amount * 0.42 * soft_distance * black_guard * overlap_guard
+    lift_delta = lift_amount * (
+        0.88 * lift_shape * black_guard * overlap_guard + 0.28 * deep_noise_compression
+    )
     darken_delta = darken_amount * 0.34 * soft_distance * (0.85 + 0.15 * black_guard)
     return lift_delta - darken_delta
 

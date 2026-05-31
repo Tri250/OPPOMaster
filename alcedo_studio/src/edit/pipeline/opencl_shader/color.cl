@@ -243,16 +243,23 @@ static inline float opencl_hs_shadow_base_delta_from_ref(
 
   const float width = fmax(params->hs_shadow_log_width_, 0.35f);
   const float upper_pivot = opencl_hs_shadow_upper_pivot(params);
-  const float lift_pivot = upper_pivot + fmax(width * 1.60f, 0.98f);
+  const float lift_pivot = upper_pivot + fmax(width * 4.00f, 2.48f);
   const float distance_to_pivot = fmax(lift_pivot - mask_ref, 0.0f);
   const float soft_distance =
       opencl_hs_softplus_distance(distance_to_pivot, fmax(width * 2.18f, 1.35f));
+  const float lift_shape = 1.0f - exp(-soft_distance / 1.25f);
+  const float deep_noise_compression =
+      1.0f - opencl_smoothstep_range(params->hs_shadow_log_pivot_ - 4.15f,
+                                     params->hs_shadow_log_pivot_ - 2.35f, mask_ref);
   const float black_guard = 0.82f + 0.18f * opencl_hs_shadow_black_floor_weight(mask_ref, params);
   const float highlight_overlap = clamp(highlight_mask, 0.0f, 1.0f);
-  const float overlap_guard = 1.0f - 0.28f * highlight_overlap;
+  const float highlight_active = (fabs(highlight_amount) > 1.0e-6f) ? 1.0f : 0.0f;
+  const float overlap_guard = 1.0f - 0.28f * highlight_active * highlight_overlap;
   const float lift_amount = fmax(shadow_amount, 0.0f);
   const float darken_amount = fmax(-shadow_amount, 0.0f);
-  const float lift_delta = lift_amount * 0.42f * soft_distance * black_guard * overlap_guard;
+  const float lift_delta =
+      lift_amount * (0.88f * lift_shape * black_guard * overlap_guard +
+                     0.28f * deep_noise_compression);
   const float darken_delta =
       darken_amount * 0.34f * soft_distance * (0.85f + 0.15f * black_guard);
   return lift_delta - darken_delta;
@@ -316,10 +323,14 @@ static inline float opencl_hs_highlight_curve_slope(float mask_ref, float shadow
 static inline float opencl_hs_shadow_detail_weight(float mask_ref, float shadow_mask,
                                                    __global const OpenClFusedParams* params) {
   const float tonal_weight = opencl_hs_shadow_tonal_weight(mask_ref, shadow_mask, params);
-  const float noise_floor = opencl_smoothstep_range(params->hs_shadow_log_pivot_ - 3.5f,
-                                                    params->hs_shadow_log_pivot_ - 1.75f,
+  const float signal_gate = opencl_smoothstep_range(params->hs_shadow_log_pivot_ - 2.60f,
+                                                    params->hs_shadow_log_pivot_ - 1.20f,
                                                     mask_ref);
-  return tonal_weight * noise_floor;
+  const float upper_guard =
+      1.0f - opencl_smoothstep_range(params->hs_shadow_log_pivot_ + 1.05f,
+                                     params->hs_shadow_log_pivot_ + 2.10f, mask_ref);
+  const float practical_shadow = signal_gate * upper_guard;
+  return fmax(tonal_weight * signal_gate, 0.72f * practical_shadow);
 }
 
 static inline float opencl_hs_highlight_detail_weight(float mask_ref, float highlight_mask,
