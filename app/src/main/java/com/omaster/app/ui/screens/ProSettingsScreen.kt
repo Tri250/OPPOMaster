@@ -24,6 +24,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.omaster.app.BuildConfig
 import com.omaster.app.data.ThemeMode
+import com.omaster.app.security.BiometricSecurityManager
+import com.omaster.app.security.SecurityLevel
 import com.omaster.app.ui.animation.clickableWithColorOSFeedback
 import com.omaster.app.ui.theme.*
 import com.omaster.app.utils.RomUtils
@@ -178,7 +180,34 @@ fun ProSettingsScreen(
             }
             
             Spacer(modifier = Modifier.height(16.dp))
-            
+
+            // 安全与隐私分组
+            ProSettingsGroup(
+                title = "安全与隐私",
+                icon = Icons.Default.Lock,
+                isDark = isDark
+            ) {
+                ProAppLockItem(
+                    isDark = isDark
+                )
+                Divider(
+                    color = if (isDark) ColorOSBorder else ColorOSLightBorder,
+                    thickness = 0.5.dp
+                )
+                ProSecurityLevelItem(
+                    isDark = isDark
+                )
+                Divider(
+                    color = if (isDark) ColorOSBorder else ColorOSLightBorder,
+                    thickness = 0.5.dp
+                )
+                ProPrivacySettingsItem(
+                    isDark = isDark
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
             // 性能优化分组
             ProSettingsGroup(
                 title = "性能优化",
@@ -210,7 +239,7 @@ fun ProSettingsScreen(
                     isDark = isDark
                 )
             }
-            
+
             Spacer(modifier = Modifier.height(16.dp))
             
             // 关于分组
@@ -1029,5 +1058,206 @@ fun ProPowerSaveItem(
                 }
             }
         }
+    }
+}
+
+/**
+ * ==================== ProAppLockItem - 应用锁设置项 ====================
+ */
+@Composable
+fun ProAppLockItem(
+    isDark: Boolean
+) {
+    var appLockEnabled by remember { mutableStateOf(false) }
+    
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = if (appLockEnabled) HasselbladOrange.copy(alpha = 0.15f) else ColorOSGrey700.copy(alpha = 0.1f)
+        ) {
+            Icon(
+                imageVector = if (appLockEnabled) Icons.Default.Lock else Icons.Default.LockOpen,
+                contentDescription = "应用锁",
+                tint = if (appLockEnabled) HasselbladOrange else (if (isDark) ColorOSTextTertiary else ColorOSLightTextTertiary),
+                modifier = Modifier.padding(10.dp)
+            )
+        }
+        
+        Spacer(modifier = Modifier.width(14.dp))
+        
+        Column(
+            modifier = Modifier.weight(1f)
+        ) {
+            Text(
+                text = "应用锁",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = if (isDark) ColorOSTextPrimary else ColorOSLightTextPrimary,
+                fontSize = 16.sp
+            )
+            Text(
+                text = if (appLockEnabled) "应用锁已启用" else "使用生物识别保护应用",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (isDark) ColorOSTextTertiary else ColorOSLightTextTertiary,
+                fontSize = 13.sp
+            )
+        }
+        
+        Switch(
+            checked = appLockEnabled,
+            onCheckedChange = { appLockEnabled = it },
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = HasselbladOrange,
+                uncheckedThumbColor = if (isDark) ColorOSGrey400 else ColorOSGrey500,
+                uncheckedTrackColor = if (isDark) ColorOSGrey700 else ColorOSGrey300
+            ),
+            modifier = Modifier.scale(1.1f)
+        )
+    }
+}
+
+/**
+ * ==================== ProSecurityLevelItem - 安全级别设置项 ====================
+ */
+@Composable
+fun ProSecurityLevelItem(
+    isDark: Boolean
+) {
+    var selectedLevel by remember { mutableStateOf(SecurityLevel.Basic) }
+    val levels = SecurityLevel.values()
+    
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = HasselbladOrange.copy(alpha = 0.12f)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Shield,
+                    contentDescription = "安全级别",
+                    tint = HasselbladOrange,
+                    modifier = Modifier.padding(10.dp)
+                )
+            }
+            
+            Spacer(modifier = Modifier.width(14.dp))
+            
+            Column(
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = "安全级别",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (isDark) ColorOSTextPrimary else ColorOSLightTextPrimary,
+                    fontSize = 16.sp
+                )
+                Text(
+                    text = selectedLevel.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isDark) ColorOSTextTertiary else ColorOSLightTextTertiary,
+                    fontSize = 13.sp
+                )
+            }
+        }
+        
+        // 级别选择芯片
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            levels.forEach { level ->
+                val isSelected = selectedLevel == level
+                Surface(
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (isSelected) HasselbladOrange.copy(alpha = 0.15f) else Color.Transparent,
+                    border = if (isSelected) BorderStroke(1.5.dp, HasselbladOrange.copy(alpha = 0.4f)) else null,
+                    onClick = { selectedLevel = level }
+                ) {
+                    Text(
+                        text = when (level) {
+                            SecurityLevel.None -> "无"
+                            SecurityLevel.Basic -> "基础"
+                            SecurityLevel.High -> "高级"
+                            SecurityLevel.Maximum -> "最高"
+                        },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (isSelected) HasselbladOrange else (if (isDark) ColorOSTextSecondary else ColorOSLightTextSecondary),
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(vertical = 8.dp),
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * ==================== ProPrivacySettingsItem - 隐私设置项 ====================
+ */
+@Composable
+fun ProPrivacySettingsItem(
+    isDark: Boolean
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickableWithColorOSFeedback()
+            .padding(vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = AccentPrimary.copy(alpha = 0.12f)
+        ) {
+            Icon(
+                imageVector = Icons.Default.PrivacyTip,
+                contentDescription = "隐私设置",
+                tint = AccentPrimary,
+                modifier = Modifier.padding(10.dp)
+            )
+        }
+        
+        Spacer(modifier = Modifier.width(14.dp))
+        
+        Column(
+            modifier = Modifier.weight(1f)
+        ) {
+            Text(
+                text = "隐私设置",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = if (isDark) ColorOSTextPrimary else ColorOSLightTextPrimary,
+                fontSize = 16.sp
+            )
+            Text(
+                text = "管理数据收集和隐私权限",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (isDark) ColorOSTextTertiary else ColorOSLightTextTertiary,
+                fontSize = 13.sp
+            )
+        }
+        
+        Icon(
+            imageVector = Icons.Default.ChevronRight,
+            contentDescription = "更多",
+            tint = if (isDark) ColorOSTextTertiary else ColorOSLightTextTertiary
+        )
     }
 }
