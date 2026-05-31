@@ -37,6 +37,8 @@ fun ProSettingsScreenV2(
     onFluidCloudToggle: (Boolean) -> Unit,
     overlayEnabled: Boolean,
     onOverlayToggle: (Boolean) -> Unit,
+    syncEnabled: Boolean,
+    onSyncToggle: (Boolean) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -76,6 +78,15 @@ fun ProSettingsScreenV2(
                 title = "功能",
                 icon = Icons.Default.Tune
             ) {
+                ProSwitchItemV2(
+                    title = "网络同步",
+                    description = "自动同步预设和数据",
+                    checked = syncEnabled,
+                    onCheckedChange = onSyncToggle
+                )
+                
+                GlassDivider()
+                
                 ProSwitchItemV2(
                     title = "流体云胶囊",
                     description = "在侧边栏显示快速访问入口",

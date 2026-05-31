@@ -28,6 +28,7 @@ class MainViewModel @Inject constructor(
     val themeMode = preferencesDataStore.themeMode
     val fluidCloudEnabled = preferencesDataStore.fluidCloudEnabled
     val overlayEnabled = preferencesDataStore.overlayEnabled
+    val syncEnabled = preferencesDataStore.syncEnabled
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -85,6 +86,24 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch {
             preferencesDataStore.setOverlayEnabled(enabled)
             Timber.d("Overlay enabled: $enabled")
+        }
+    }
+
+    fun setSyncEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            preferencesDataStore.setSyncEnabled(enabled)
+            Timber.d("Sync enabled: $enabled")
+        }
+    }
+
+    fun syncPresets() {
+        viewModelScope.launch {
+            try {
+                repository.syncPresets()
+                Timber.d("Presets synced successfully")
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to sync presets")
+            }
         }
     }
 

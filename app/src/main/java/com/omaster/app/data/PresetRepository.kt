@@ -3,13 +3,13 @@ package com.omaster.app.data
 import com.omaster.app.model.CameraParams
 import com.omaster.app.model.ColorStyle
 import com.omaster.app.model.Preset
+import com.omaster.app.model.SampleImage
 import com.omaster.app.model.Section
 import com.omaster.app.network.PresetApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flow
 import timber.log.Timber
 import javax.inject.Inject
@@ -45,12 +45,10 @@ class PresetRepository @Inject constructor(
     fun getPresets(forceRefresh: Boolean = false): Flow<Result<List<Preset>>> = flow {
         val currentTime = System.currentTimeMillis()
         
-        // 检查是否需要强制刷新或缓存过期（5分钟）
         val cacheExpired = (currentTime - lastSyncTime) > 5 * 60 * 1000
         
         try {
             if (forceRefresh || !isInitialized || cacheExpired) {
-                // 从网络获取最新数据
                 val response = presetApi.getAllPresets()
                 if (response.isSuccessful) {
                     val presets = response.body() ?: emptyList()
@@ -65,7 +63,6 @@ class PresetRepository @Inject constructor(
                     emit(Result.success(getPresetsWithFallback()))
                 }
             } else {
-                // 使用缓存数据
                 Timber.d("使用缓存数据，共 ${cachedPresets.size} 个预设")
                 emit(Result.success(cachedPresets.ifEmpty { getSamplePresets() }))
             }
@@ -75,9 +72,6 @@ class PresetRepository @Inject constructor(
         }
     }
     
-    /**
-     * 获取备用预设列表
-     */
     private fun getPresetsWithFallback(): List<Preset> {
         return if (cachedPresets.isNotEmpty()) {
             cachedPresets
@@ -116,7 +110,6 @@ class PresetRepository @Inject constructor(
     suspend fun toggleFavorite(presetId: String) {
         preferencesDataStore.toggleFavorite(presetId)
         
-        // 更新本地缓存
         val updatedPresets = cachedPresets.map { preset ->
             if (preset.id == presetId) {
                 preset.copy(isFavorite = !preset.isFavorite)
@@ -129,9 +122,6 @@ class PresetRepository @Inject constructor(
         Timber.d("预设 $presetId 收藏状态已切换")
     }
     
-    /**
-     * 获取OPPO预设
-     */
     fun getOppoPresets(): Flow<Result<List<Preset>>> = flow {
         try {
             val response = presetApi.getOppoPresets()
@@ -152,9 +142,6 @@ class PresetRepository @Inject constructor(
         }
     }
     
-    /**
-     * 获取realme预设
-     */
     fun getRealmePresets(): Flow<Result<List<Preset>>> = flow {
         try {
             val response = presetApi.getRealmePresets()
@@ -175,9 +162,6 @@ class PresetRepository @Inject constructor(
         }
     }
     
-    /**
-     * 更新预设收藏状态
-     */
     fun updatePresetFavorite(presetId: String, isFavorite: Boolean): Flow<Result<Preset?>> = flow {
         try {
             val updatedPresets = cachedPresets.map { preset ->
@@ -204,18 +188,22 @@ class PresetRepository @Inject constructor(
      */
     private fun getSamplePresets(): List<Preset> {
         return listOf(
-            // ==================== OPPO Find X8 Ultra 哈苏大师预设 ====================
             Preset(
-                id = "oppo_findx8ultra_001",
+                id = "oppo_findx8ultra_portrait_classic",
                 name = "哈苏人像经典",
-                coverPath = "findx8_ultra_portrait_classic",
+                coverPath = "hasselblad_portrait_classic",
+                coverUrl = "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=800&h=600&fit=crop",
                 deviceModel = "OPPO Find X8 Ultra",
-                source = "official",
+                source = "hasselblad_official",
                 author = "哈苏影像实验室",
+                description = "专为OPPO Find X8 Ultra打造的人像摄影预设，采用哈苏自然色彩解决方案(HNCS)，还原真实肤色和自然光影。",
                 sceneType = "portrait",
-                tags = listOf("人像", "哈苏", "经典"),
+                tags = listOf("人像", "哈苏", "经典", "HNCS"),
                 rating = 5.0f,
-                downloadCount = 12580,
+                downloadCount = 158642,
+                favoriteCount = 28453,
+                version = "3.0",
+                isHncsCertified = true,
                 cameraParams = CameraParams(
                     mode = "哈苏大师",
                     filter = "哈苏自然色彩",
@@ -228,34 +216,43 @@ class PresetRepository @Inject constructor(
                     aperture = "f/1.6",
                     portraitMode = true,
                     aiOptimization = true,
-                    hasselbladHncs = true,
+                    hasselblad_hncs = true,
                     hasselbladNaturalColor = true,
                     hasselbladMasterStyle = "Portrait Pro",
                     hasselbladColorScience = "HNCS 3.0",
                     colorProfile = "自然",
-                    colorStyle = "Portrait",
+                    colorStyle = ColorStyle.Portrait.name,
                     sharpness = 45,
                     contrast = 50,
                     saturation = 50,
                     sensorSize = "1英寸双大底"
                 ),
                 sections = listOf(
-                    Section("适用场景", "室内外人像拍摄，呈现自然肤色和柔和背景虚化效果"),
-                    Section("样张说明", "使用 OPPO Find X8 Ultra 哈苏人像镜头，1英寸双大底传感器加持")
+                    Section("适用场景", "室内外人像摄影，呈现自然肤色和柔和背景虚化效果。"),
+                    Section("哈苏特性", "采用哈苏自然色彩解决方案 (HNCS) 3.0，精确还原真实肤色。")
+                ),
+                sampleImages = listOf(
+                    SampleImage("portrait_1", "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&h=600&fit=crop", "室内人像", "自然肤色呈现", false, true),
+                    SampleImage("portrait_2", "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=800&h=600&fit=crop", "街拍人像", "光影层次感", false, true)
                 )
             ),
             
             Preset(
-                id = "oppo_findx8ultra_002",
-                name = "自然风光大师",
-                coverPath = "findx8_ultra_landscape_master",
+                id = "oppo_findx8ultra_landscape_master",
+                name = "哈苏风景大师",
+                coverPath = "hasselblad_landscape_master",
+                coverUrl = "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=800&h=600&fit=crop",
                 deviceModel = "OPPO Find X8 Ultra",
-                source = "official",
+                source = "hasselblad_official",
                 author = "哈苏影像实验室",
+                description = "风景摄影专用预设，精准还原天空、草地、树木等自然色彩。",
                 sceneType = "landscape",
-                tags = listOf("风景", "自然", "大师"),
+                tags = listOf("风景", "哈苏", "自然色彩", "HNCS"),
                 rating = 4.9f,
-                downloadCount = 9860,
+                downloadCount = 98642,
+                favoriteCount = 19872,
+                version = "3.0",
+                isHncsCertified = true,
                 cameraParams = CameraParams(
                     mode = "哈苏大师",
                     filter = "自然风景",
@@ -268,34 +265,43 @@ class PresetRepository @Inject constructor(
                     aperture = "f/2.8",
                     hdr = true,
                     aiOptimization = true,
-                    hasselbladHncs = true,
+                    hasselblad_hncs = true,
                     hasselbladNaturalColor = true,
                     hasselbladMasterStyle = "Landscape",
                     hasselbladColorScience = "HNCS 3.0",
                     colorProfile = "鲜明",
-                    colorStyle = "Vivid",
+                    colorStyle = ColorStyle.Vivid.name,
                     sharpness = 55,
                     contrast = 55,
                     saturation = 55,
                     sensorSize = "1英寸双大底"
                 ),
                 sections = listOf(
-                    Section("适用场景", "风景、建筑摄影，展现真实色彩和细腻细节"),
-                    Section("样张说明", "使用 OPPO Find X8 Ultra 1英寸双大底广角镜头拍摄")
+                    Section("适用场景", "风景、建筑摄影，展现真实色彩和细腻细节。"),
+                    Section("技术参数", "Find X8 Ultra 1英寸双大底广角镜头。")
+                ),
+                sampleImages = listOf(
+                    SampleImage("landscape_1", "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=800&h=600&fit=crop", "山脉风景", "层次分明的色彩呈现", false, true),
+                    SampleImage("landscape_2", "https://images.unsplash.com/photo-1433086966358-54859d0ed716?w=800&h=600&fit=crop", "海滩风景", "自然蓝色调还原", false, true)
                 )
             ),
             
             Preset(
-                id = "oppo_findx8ultra_003",
-                name = "城市夜景之王",
-                coverPath = "findx8_ultra_night_city_master",
+                id = "oppo_findx8ultra_night_city",
+                name = "哈苏夜景大师",
+                coverPath = "hasselblad_night_master",
+                coverUrl = "https://images.unsplash.com/photo-1519681393784-d120267933ba?w=800&h=600&fit=crop",
                 deviceModel = "OPPO Find X8 Ultra",
-                source = "official",
+                source = "hasselblad_official",
                 author = "哈苏影像实验室",
+                description = "夜景摄影专用预设，有效控制噪点，保留暗部细节。",
                 sceneType = "night",
-                tags = listOf("夜景", "城市", "夜拍"),
+                tags = listOf("夜景", "哈苏", "城市", "HNCS"),
                 rating = 4.8f,
-                downloadCount = 15230,
+                downloadCount = 152342,
+                favoriteCount = 21543,
+                version = "3.0",
+                isHncsCertified = true,
                 cameraParams = CameraParams(
                     mode = "哈苏夜景",
                     filter = "夜景增强",
@@ -310,12 +316,12 @@ class PresetRepository @Inject constructor(
                     hdr = true,
                     aiOptimization = true,
                     opticalStabilization = true,
-                    hasselbladHncs = true,
+                    hasselblad_hncs = true,
                     hasselbladNaturalColor = true,
                     hasselbladMasterStyle = "Night Pro",
                     hasselbladColorScience = "HNCS 3.0",
                     colorProfile = "电影感",
-                    colorStyle = "Cinematic",
+                    colorStyle = ColorStyle.Cinematic.name,
                     sharpness = 50,
                     contrast = 55,
                     saturation = 50,
@@ -323,22 +329,31 @@ class PresetRepository @Inject constructor(
                     sensorSize = "1英寸双大底"
                 ),
                 sections = listOf(
-                    Section("适用场景", "夜间城市风光摄影，捕捉光影流动和建筑轮廓"),
-                    Section("样张说明", "使用 OPPO Find X8 Ultra 1英寸双大底夜景模式拍摄")
+                    Section("适用场景", "夜间城市风光摄影，捕捉光影流动和建筑轮廓。"),
+                    Section("哈苏特性", "夜景模式优化，超光影引擎带来纯净画质。")
+                ),
+                sampleImages = listOf(
+                    SampleImage("night_1", "https://images.unsplash.com/photo-1519681393784-d120267933ba?w=800&h=600&fit=crop", "城市夜景", "霓虹灯光控制", false, true),
+                    SampleImage("night_2", "https://images.unsplash.com/photo-1480714378408-67cf0d13bc1b?w=800&h=600&fit=crop", "摩天大楼", "暗部细节保留", false, true)
                 )
             ),
             
             Preset(
-                id = "oppo_findx8ultra_004",
-                name = "美食摄影专家",
-                coverPath = "findx8_ultra_food_master",
+                id = "oppo_findx8ultra_food_expert",
+                name = "哈苏美食摄影",
+                coverPath = "hasselblad_food_expert",
+                coverUrl = "https://images.unsplash.com/photo-1466978913421-dad2ebd01d17?w=800&h=600&fit=crop",
                 deviceModel = "OPPO Find X8 Ultra",
-                source = "official",
+                source = "hasselblad_official",
                 author = "哈苏影像实验室",
+                description = "美食摄影专用预设，提升色彩饱和度和食欲感。",
                 sceneType = "food",
-                tags = listOf("美食", "食物", "摄影"),
+                tags = listOf("美食", "哈苏", "摄影", "HNCS"),
                 rating = 4.7f,
-                downloadCount = 7890,
+                downloadCount = 78642,
+                favoriteCount = 12543,
+                version = "3.0",
+                isHncsCertified = true,
                 cameraParams = CameraParams(
                     mode = "哈苏大师",
                     filter = "美食模式",
@@ -350,155 +365,41 @@ class PresetRepository @Inject constructor(
                     focalLengthMode = "人像焦",
                     aperture = "f/1.8",
                     aiOptimization = true,
-                    hasselbladHncs = true,
+                    hasselblad_hncs = true,
                     hasselbladNaturalColor = true,
                     hasselbladColorScience = "HNCS 3.0",
                     colorProfile = "美食",
-                    colorStyle = "Food",
+                    colorStyle = ColorStyle.Food.name,
                     sharpness = 50,
                     contrast = 50,
                     saturation = 65,
                     sensorSize = "1英寸双大底"
                 ),
                 sections = listOf(
-                    Section("适用场景", "美食摄影，提升色彩饱和度和食欲感"),
-                    Section("样张说明", "使用 OPPO Find X8 Ultra 超光影镜头拍摄")
-                )
-            ),
-            
-            Preset(
-                id = "oppo_findx8ultra_005",
-                name = "逆光人像大师",
-                coverPath = "findx8_ultra_backlight_master",
-                deviceModel = "OPPO Find X8 Ultra",
-                source = "official",
-                author = "哈苏影像实验室",
-                sceneType = "portrait",
-                tags = listOf("人像", "逆光", "哈苏"),
-                rating = 4.9f,
-                downloadCount = 11200,
-                cameraParams = CameraParams(
-                    mode = "哈苏人像",
-                    filter = "人像逆光",
-                    iso = 100,
-                    shutter = "1/400",
-                    ev = "+1.0",
-                    wb = "5500K",
-                    focalLength = "32mm",
-                    focalLengthMode = "人像焦",
-                    aperture = "f/1.8",
-                    portraitMode = true,
-                    hdr = true,
-                    aiOptimization = true,
-                    hasselbladHncs = true,
-                    hasselbladNaturalColor = true,
-                    hasselbladColorScience = "HNCS 3.0",
-                    colorProfile = "人像",
-                    colorStyle = "Portrait",
-                    sharpness = 45,
-                    contrast = 50,
-                    saturation = 50,
-                    highlight = -10,
-                    shadow = 10,
-                    sensorSize = "1英寸双大底"
+                    Section("适用场景", "美食摄影，提升色彩饱和度和食欲感。")
                 ),
-                sections = listOf(
-                    Section("适用场景", "逆光人像拍摄，保持主体亮度同时保留背景细节"),
-                    Section("样张说明", "使用 OPPO Find X8 Ultra 哈苏超光影引擎拍摄")
+                sampleImages = listOf(
+                    SampleImage("food_1", "https://images.unsplash.com/photo-1466978913421-dad2ebd01d17?w=800&h=600&fit=crop", "美食摆盘", "食欲色彩提升", false, true),
+                    SampleImage("food_2", "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800&h=600&fit=crop", "烘焙美食", "暖色调呈现", false, true)
                 )
             ),
             
             Preset(
-                id = "oppo_findx8ultra_006",
-                name = "哈苏经典蓝调",
-                coverPath = "findx8_ultra_classic_blue",
-                deviceModel = "OPPO Find X8 Ultra",
-                source = "community",
-                author = "社区摄影师",
-                sceneType = "artistic",
-                tags = listOf("蓝调", "艺术", "冷调"),
-                rating = 4.6f,
-                downloadCount = 5430,
-                cameraParams = CameraParams(
-                    mode = "哈苏大师",
-                    filter = "冷调风格",
-                    iso = 100,
-                    shutter = "1/320",
-                    ev = "+0.0",
-                    wb = "7000K",
-                    focalLength = "48mm",
-                    focalLengthMode = "标准",
-                    aperture = "f/2.0",
-                    aiOptimization = true,
-                    hasselbladHncs = true,
-                    hasselbladNaturalColor = true,
-                    hasselbladColorScience = "HNCS 3.0",
-                    colorProfile = "冷调",
-                    colorStyle = "Cool",
-                    sharpness = 50,
-                    contrast = 55,
-                    saturation = 45,
-                    colorTemperature = 7000,
-                    sensorSize = "1英寸双大底"
-                ),
-                sections = listOf(
-                    Section("适用场景", "冷色调风格摄影，营造静谧氛围"),
-                    Section("样张说明", "使用 OPPO Find X8 Ultra 哈苏色彩，呈现经典蓝色调")
-                )
-            ),
-            
-            Preset(
-                id = "oppo_findx8ultra_007",
-                name = "复古胶片风格",
-                coverPath = "findx8_ultra_vintage_film",
-                deviceModel = "OPPO Find X8 Ultra",
-                source = "community",
-                author = "复古摄影爱好者",
-                sceneType = "artistic",
-                tags = listOf("复古", "胶片", "艺术"),
-                rating = 4.5f,
-                downloadCount = 4210,
-                cameraParams = CameraParams(
-                    mode = "哈苏大师",
-                    filter = "复古胶片",
-                    iso = 400,
-                    shutter = "1/125",
-                    ev = "+0.3",
-                    wb = "4500K",
-                    focalLength = "24mm",
-                    focalLengthMode = "广角",
-                    aperture = "f/1.7",
-                    aiOptimization = false,
-                    hasselbladHncs = true,
-                    hasselbladNaturalColor = true,
-                    hasselbladColorScience = "HNCS 3.0",
-                    colorProfile = "经典",
-                    colorStyle = "Classic",
-                    sharpness = 40,
-                    contrast = 60,
-                    saturation = 40,
-                    colorTemperature = 4500,
-                    tint = 5,
-                    sensorSize = "1英寸双大底"
-                ),
-                sections = listOf(
-                    Section("适用场景", "复古风格摄影，重现胶片质感"),
-                    Section("样张说明", "使用 OPPO Find X8 Ultra 拍摄，复古滤镜增添怀旧感")
-                )
-            ),
-            
-            // ==================== OnePlus 13 Pro 哈苏预设 ====================
-            Preset(
-                id = "oneplus_13pro_001",
-                name = "哈苏街头模式",
-                coverPath = "oneplus_13pro_street_hasselblad",
+                id = "oneplus_13pro_street_hasselblad",
+                name = "哈苏街拍模式",
+                coverPath = "hasselblad_street_mode",
+                coverUrl = "https://images.unsplash.com/photo-1494521695290-e1b495b63894?w=800&h=600&fit=crop",
                 deviceModel = "OnePlus 13 Pro",
-                source = "official",
+                source = "hasselblad_official",
                 author = "一加影像实验室",
+                description = "街拍专用预设，快速捕捉瞬间，色彩鲜明有活力。",
                 sceneType = "street",
-                tags = listOf("街拍", "街头", "哈苏"),
+                tags = listOf("街拍", "哈苏", "街头", "HNCS"),
                 rating = 4.8f,
-                downloadCount = 8760,
+                downloadCount = 87642,
+                favoriteCount = 11234,
+                version = "3.0",
+                isHncsCertified = true,
                 cameraParams = CameraParams(
                     mode = "哈苏街拍",
                     filter = "街头色彩",
@@ -510,151 +411,42 @@ class PresetRepository @Inject constructor(
                     focalLengthMode = "标准",
                     aperture = "f/1.9",
                     aiOptimization = true,
-                    hasselbladHncs = true,
+                    hasselblad_hncs = true,
                     hasselbladNaturalColor = true,
                     hasselbladMasterStyle = "Street",
                     hasselbladColorScience = "HNCS 3.0",
                     colorProfile = "经典",
-                    colorStyle = "Classic",
+                    colorStyle = ColorStyle.Classic.name,
                     sharpness = 55,
                     contrast = 55,
                     saturation = 45,
                     sensorSize = "1英寸大底"
                 ),
                 sections = listOf(
-                    Section("适用场景", "街头摄影，快速捕捉瞬间画面"),
-                    Section("样张说明", "使用 OnePlus 13 Pro 哈苏色彩调校")
-                )
-            ),
-            
-            Preset(
-                id = "oneplus_13pro_002",
-                name = "哈苏微距世界",
-                coverPath = "oneplus_13pro_macro_hasselblad",
-                deviceModel = "OnePlus 13 Pro",
-                source = "official",
-                author = "一加影像实验室",
-                sceneType = "macro",
-                tags = listOf("微距", "细节", "哈苏"),
-                rating = 4.7f,
-                downloadCount = 6540,
-                cameraParams = CameraParams(
-                    mode = "哈苏专业",
-                    filter = "微距模式",
-                    iso = 100,
-                    shutter = "1/160",
-                    ev = "+0.0",
-                    wb = "5200K",
-                    focalLength = "微距",
-                    focalLengthMode = "超级微距",
-                    aperture = "f/2.0",
-                    aiOptimization = true,
-                    hasselbladHncs = true,
-                    hasselbladNaturalColor = true,
-                    hasselbladColorScience = "HNCS 3.0",
-                    colorProfile = "鲜明",
-                    colorStyle = "Vivid",
-                    sharpness = 60,
-                    contrast = 50,
-                    saturation = 55,
-                    detailEnhancement = 70,
-                    sensorSize = "1英寸大底"
+                    Section("适用场景", "街头摄影，快速捕捉瞬间画面。")
                 ),
-                sections = listOf(
-                    Section("适用场景", "微距摄影，展现细节之美"),
-                    Section("样张说明", "使用 OnePlus 13 Pro 微距镜头，捕捉微观世界")
+                sampleImages = listOf(
+                    SampleImage("street_1", "https://images.unsplash.com/photo-1494521695290-e1b495b63894?w=800&h=600&fit=crop", "街拍瞬间", "黑白对比效果", false, true),
+                    SampleImage("street_2", "https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=800&h=600&fit=crop", "城市街景", "层次分明", false, true)
                 )
             ),
             
             Preset(
-                id = "oneplus_13pro_003",
-                name = "金色时刻",
-                coverPath = "oneplus_13pro_sunrise_golden",
-                deviceModel = "OnePlus 13 Pro",
-                source = "official",
-                author = "一加影像实验室",
-                sceneType = "sunset",
-                tags = listOf("日出", "日落", "金色"),
-                rating = 4.9f,
-                downloadCount = 9120,
-                cameraParams = CameraParams(
-                    mode = "哈苏大师",
-                    filter = "暖调色彩",
-                    iso = 64,
-                    shutter = "1/1000",
-                    ev = "+0.7",
-                    wb = "6000K",
-                    focalLength = "23mm",
-                    focalLengthMode = "超广角",
-                    aperture = "f/2.6",
-                    aiOptimization = true,
-                    hasselbladHncs = true,
-                    hasselbladNaturalColor = true,
-                    hasselbladColorScience = "HNCS 3.0",
-                    colorProfile = "暖调",
-                    colorStyle = "Warm",
-                    sharpness = 50,
-                    contrast = 50,
-                    saturation = 60,
-                    colorTemperature = 6000,
-                    sensorSize = "1英寸大底"
-                ),
-                sections = listOf(
-                    Section("适用场景", "日出日落拍摄，记录金色时刻"),
-                    Section("样张说明", "使用 OnePlus 13 Pro 哈苏镜头拍摄日出日落美景")
-                )
-            ),
-            
-            // ==================== realme GT7 Pro 预设 ====================
-            Preset(
-                id = "realme_gt7pro_001",
-                name = "街拍达人",
-                coverPath = "realme_gt7pro_street_master",
-                deviceModel = "realme GT7 Pro",
-                source = "official",
-                author = "真我影像实验室",
-                sceneType = "street",
-                tags = listOf("街拍", "黑白", "艺术"),
-                rating = 4.6f,
-                downloadCount = 5890,
-                cameraParams = CameraParams(
-                    mode = "大师模式",
-                    filter = "黑白艺术",
-                    iso = 200,
-                    shutter = "1/160",
-                    ev = "+0.3",
-                    wb = "5500K",
-                    focalLength = "28mm",
-                    focalLengthMode = "标准",
-                    aperture = "f/1.9",
-                    aiOptimization = true,
-                    hasselbladHncs = true,
-                    hasselbladNaturalColor = true,
-                    hasselbladColorScience = "HNCS 3.0",
-                    colorProfile = "黑白",
-                    colorStyle = "BlackWhite",
-                    sharpness = 55,
-                    contrast = 60,
-                    saturation = 0,
-                    sensorSize = "1英寸大底"
-                ),
-                sections = listOf(
-                    Section("适用场景", "人像摄影，呈现经典黑白质感"),
-                    Section("样张说明", "使用 realme GT7 Pro 拍摄，黑白风格更具艺术感")
-                )
-            ),
-            
-            Preset(
-                id = "realme_gt7pro_002",
+                id = "realme_gt7pro_beach_paradise",
                 name = "海岛风情",
-                coverPath = "realme_gt7pro_beach_paradise",
+                coverPath = "realme_beach_paradise",
+                coverUrl = "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800&h=600&fit=crop",
                 deviceModel = "realme GT7 Pro",
                 source = "official",
                 author = "真我影像实验室",
+                description = "海边度假摄影专用，展现蓝天白云和清澈海水。",
                 sceneType = "landscape",
                 tags = listOf("海边", "度假", "清新"),
                 rating = 4.7f,
-                downloadCount = 7230,
+                downloadCount = 72345,
+                favoriteCount = 9876,
+                version = "2.0",
+                isHncsCertified = true,
                 cameraParams = CameraParams(
                     mode = "大师模式",
                     filter = "清新色彩",
@@ -666,19 +458,21 @@ class PresetRepository @Inject constructor(
                     focalLengthMode = "超广角",
                     aperture = "f/2.2",
                     aiOptimization = true,
-                    hasselbladHncs = true,
+                    hasselblad_hncs = true,
                     hasselbladNaturalColor = true,
                     hasselbladColorScience = "HNCS 3.0",
                     colorProfile = "鲜明",
-                    colorStyle = "Vivid",
+                    colorStyle = ColorStyle.Vivid.name,
                     sharpness = 50,
                     contrast = 50,
                     saturation = 60,
                     sensorSize = "1英寸大底"
                 ),
                 sections = listOf(
-                    Section("适用场景", "海边度假摄影，呈现蓝天白云和清澈海水"),
-                    Section("样张说明", "使用 realme GT7 Pro 拍摄海岛风光，色彩鲜艳通透")
+                    Section("适用场景", "海边度假摄影，呈现蓝天白云和清澈海水。")
+                ),
+                sampleImages = listOf(
+                    SampleImage("beach_1", "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800&h=600&fit=crop", "海滩风光", "碧海蓝天", false, true)
                 )
             )
         )

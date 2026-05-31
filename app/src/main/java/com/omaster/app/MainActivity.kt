@@ -61,6 +61,7 @@ class MainActivity : ComponentActivity() {
             val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
             val fluidCloudEnabled by viewModel.fluidCloudEnabled.collectAsStateWithLifecycle()
             val overlayEnabled by viewModel.overlayEnabled.collectAsStateWithLifecycle()
+            val syncEnabled by viewModel.syncEnabled.collectAsStateWithLifecycle()
             
             OMasterTheme(themeMode = themeMode) {
                 OMasterApp(
@@ -68,7 +69,8 @@ class MainActivity : ComponentActivity() {
                     aiService = aiService,
                     themeMode = themeMode,
                     fluidCloudEnabled = fluidCloudEnabled,
-                    overlayEnabled = overlayEnabled
+                    overlayEnabled = overlayEnabled,
+                    syncEnabled = syncEnabled
                 )
             }
         }
@@ -94,7 +96,8 @@ fun OMasterApp(
     aiService: AiService,
     themeMode: Int,
     fluidCloudEnabled: Boolean,
-    overlayEnabled: Boolean
+    overlayEnabled: Boolean,
+    syncEnabled: Boolean
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -248,6 +251,8 @@ fun OMasterApp(
                     onFluidCloudToggle = { viewModel.setFluidCloudEnabled(it) },
                     overlayEnabled = overlayEnabled,
                     onOverlayToggle = { viewModel.setOverlayEnabled(it) },
+                    syncEnabled = syncEnabled,
+                    onSyncToggle = { viewModel.setSyncEnabled(it) },
                     onBack = { navController.popBackStack() }
                 )
             }

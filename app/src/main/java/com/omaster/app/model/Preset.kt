@@ -11,6 +11,18 @@ data class Section(
 )
 
 /**
+ * 样张展示数据模型
+ */
+data class SampleImage(
+    val id: String,
+    val imagePath: String,
+    val title: String,
+    val description: String,
+    val isBeforeImage: Boolean = false,
+    val isAfterImage: Boolean = false
+)
+
+/**
  * 预设数据模型
  */
 data class Preset(
@@ -36,6 +48,9 @@ data class Preset(
     val lastUpdated: Long = System.currentTimeMillis(),
     val publishDate: Long = System.currentTimeMillis(),
     val isHncsCertified: Boolean = cameraParams?.hasselblad_hncs == true,
+    
+    // 样张展示
+    val sampleImages: List<SampleImage> = emptyList(),
     
     // 兼容性别名
     val hasselbladHncs: Boolean = cameraParams?.hasselblad_hncs ?: false,
