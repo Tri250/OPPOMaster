@@ -266,7 +266,10 @@ fun StatItem(
 @Composable
 fun ProfileMenuSection(
     onSettingsClick: () -> Unit,
-    onCameraConfigClick: () -> Unit
+    onCameraConfigClick: () -> Unit,
+    onPrivacyClick: () -> Unit = {},
+    onFeedbackClick: () -> Unit = {},
+    onSystemCapabilitiesClick: () -> Unit = {}
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -306,7 +309,19 @@ fun ProfileMenuSection(
                 icon = Icons.Default.PrivacyTip,
                 title = "隐私设置",
                 description = "数据与隐私管理",
-                onClick = { /* 隐私设置 */ }
+                onClick = onPrivacyClick
+            )
+
+            Divider(
+                color = MaterialTheme.colorScheme.outlineVariant,
+                thickness = 0.5.dp
+            )
+
+            ProfileMenuItem(
+                icon = Icons.Default.Devices,
+                title = "系统能力",
+                description = "查看设备与系统能力",
+                onClick = onSystemCapabilitiesClick
             )
 
             Divider(
@@ -316,9 +331,9 @@ fun ProfileMenuSection(
 
             ProfileMenuItem(
                 icon = Icons.Default.HelpOutline,
-                title = "帮助与反馈",
-                description = "获取帮助和提交反馈",
-                onClick = { /* 帮助与反馈 */ }
+                title = "意见反馈",
+                description = "提交反馈和建议",
+                onClick = onFeedbackClick
             )
         }
     }
