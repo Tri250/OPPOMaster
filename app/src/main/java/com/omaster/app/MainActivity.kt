@@ -22,12 +22,11 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.omaster.app.data.ThemeMode
 import com.omaster.app.navigation.OMasterScreen
 import com.omaster.app.navigation.omasterBottomTabScreens
 import com.omaster.app.service.AiService
 import com.omaster.app.ui.components.OMasterBottomBar
-import com.omaster.app.ui.components.OMasterTopBar
+import com.omaster.app.ui.components.GlassIconButton
 import com.omaster.app.ui.screens.AiFineTuneScreen
 import com.omaster.app.ui.screens.CameraConfigScreen
 import com.omaster.app.ui.screens.ProDetailScreen
@@ -246,7 +245,7 @@ fun OMasterApp(
             composable(OMasterScreen.Settings.route) {
                 ProSettingsScreenV2(
                     themeMode = themeMode,
-                    onThemeModeChange = { viewModel.setThemeMode(it) },
+                    onThemeModeChange = { mode -> viewModel.setThemeMode(com.omaster.app.data.ThemeMode.entries[mode]) },
                     fluidCloudEnabled = fluidCloudEnabled,
                     onFluidCloudToggle = { viewModel.setFluidCloudEnabled(it) },
                     overlayEnabled = overlayEnabled,

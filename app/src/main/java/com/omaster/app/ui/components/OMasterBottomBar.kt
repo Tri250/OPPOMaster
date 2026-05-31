@@ -35,9 +35,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.omaster.app.navigation.OMasterScreen
 import com.omaster.app.navigation.omasterBottomTabScreens
-import com.omaster.app.ui.theme.Colors
-import com.omaster.app.ui.theme.Spacing
-import com.omaster.app.ui.theme.Typography
+import com.omaster.app.ui.theme.OMasterColors as Colors
+import com.omaster.app.ui.theme.OMasterSpacing as Spacing
+import com.omaster.app.ui.theme.OMasterTypography as Typography
 
 /**
  * ColorOS 16 风格底部导航栏
