@@ -50,6 +50,10 @@ enum class PresetCategory(val displayName: String) {
 fun HomeScreen(
     onPresetClick: (Preset) -> Unit,
     onSettingsClick: () -> Unit,
+    onSceneDetectionClick: () -> Unit = {},
+    onAiFineTuneClick: () -> Unit = {},
+    onWatermarkClick: () -> Unit = {},
+    onColorOSHomeClick: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: MainViewModel = hiltViewModel()
 ) {
@@ -112,6 +116,16 @@ fun HomeScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
+            // 功能按钮区域
+            FeatureButtons(
+                onSceneDetectionClick = onSceneDetectionClick,
+                onAiFineTuneClick = onAiFineTuneClick,
+                onWatermarkClick = onWatermarkClick,
+                onColorOSHomeClick = onColorOSHomeClick
+            )
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
             // 分类标签
             CategoryTabs(
                 selectedCategory = selectedCategory,
@@ -789,5 +803,98 @@ fun OppoEmptyState(
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
             textAlign = TextAlign.Center
         )
+    }
+}
+
+// ==================== 功能按钮区域 ====================
+@Composable
+fun FeatureButtons(
+    onSceneDetectionClick: () -> Unit,
+    onAiFineTuneClick: () -> Unit,
+    onWatermarkClick: () -> Unit,
+    onColorOSHomeClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val features = listOf(
+        Triple(Icons.Default.Visibility, "场景检测", onSceneDetectionClick),
+        Triple(Icons.Default.AutoFixHigh, "AI微调", onAiFineTuneClick),
+        Triple(Icons.Default.Brush, "水印编辑", onWatermarkClick),
+        Triple(Icons.Default.Home, "ColorOS首页", onColorOSHomeClick)
+    )
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        features.forEach { (icon, label, onClick) ->
+            FeatureButton(
+                icon = icon,
+                label = label,
+                onClick = onClick,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+// ==================== 功能按钮 ====================
+@Composable
+fun FeatureButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.95f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "feature_btn_scale"
+    )
+    
+    Card(
+        onClick = onClick,
+        interactionSource = interactionSource,
+        modifier = modifier
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            },
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = OppoSunriseGold,
+                modifier = Modifier.size(28.dp)
+            )
+            
+            Spacer(modifier = Modifier.height(6.dp))
+            
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center
+            )
+        }
     }
 }

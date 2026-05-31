@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -22,13 +23,8 @@ class PreferencesDataStore @Inject constructor(
     private object PreferencesKeys {
         val FAVORITE_PRESETS = stringSetPreferencesKey("favorite_presets")
         val THEME_MODE = intPreferencesKey("theme_mode")
-        val FLUID_CLOUD_ENABLED = intPreferencesKey("fluid_cloud_enabled")
-        val OVERLAY_ENABLED = intPreferencesKey("overlay_enabled")
-    }
-
-    private fun Preferences.getBoolean(key: Preferences.Key<Int>, defaultValue: Boolean): Boolean {
-        val value = this[key]
-        return if (value == null) defaultValue else value == 1
+        val FLUID_CLOUD_ENABLED = booleanPreferencesKey("fluid_cloud_enabled")
+        val OVERLAY_ENABLED = booleanPreferencesKey("overlay_enabled")
     }
 
     val favoritePresets: Flow<Set<String>> = context.dataStore.data
@@ -43,12 +39,12 @@ class PreferencesDataStore @Inject constructor(
 
     val fluidCloudEnabled: Flow<Boolean> = context.dataStore.data
         .map { preferences ->
-            preferences.getBoolean(PreferencesKeys.FLUID_CLOUD_ENABLED, defaultValue = true)
+            preferences[PreferencesKeys.FLUID_CLOUD_ENABLED] ?: true
         }
 
     val overlayEnabled: Flow<Boolean> = context.dataStore.data
         .map { preferences ->
-            preferences.getBoolean(PreferencesKeys.OVERLAY_ENABLED, defaultValue = false)
+            preferences[PreferencesKeys.OVERLAY_ENABLED] ?: false
         }
 
     suspend fun toggleFavorite(presetId: String) {
@@ -71,13 +67,13 @@ class PreferencesDataStore @Inject constructor(
 
     suspend fun setFluidCloudEnabled(enabled: Boolean) {
         context.dataStore.edit { preferences ->
-            preferences[PreferencesKeys.FLUID_CLOUD_ENABLED] = if (enabled) 1 else 0
+            preferences[PreferencesKeys.FLUID_CLOUD_ENABLED] = enabled
         }
     }
 
     suspend fun setOverlayEnabled(enabled: Boolean) {
         context.dataStore.edit { preferences ->
-            preferences[PreferencesKeys.OVERLAY_ENABLED] = if (enabled) 1 else 0
+            preferences[PreferencesKeys.OVERLAY_ENABLED] = enabled
         }
     }
 }

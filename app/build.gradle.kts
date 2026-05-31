@@ -7,12 +7,12 @@ plugins {
 
 android {
     namespace = "com.omaster.app"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.omaster.app"
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 36
         versionCode = 121
         versionName = "1.2.1"
 
@@ -40,10 +40,6 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            isZipAlignEnabled = true
-
-            // 启用签名V4方案（Android 14+）
-            enableAndroidSignaturesV4()
 
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -53,9 +49,8 @@ android {
             // Release构建不包含调试信息
             isDebuggable = false
 
-            // 启用代码优化
+            // 启用PNG压缩优化
             isCrunchPngs = true
-            isCrunchResources = true
         }
 
         debug {
@@ -96,7 +91,6 @@ android {
 // 依赖版本锁定配置 - 防止依赖投毒攻击
 dependencyLocking {
     lockAllConfigurations()
-    lockMode.set(LockMode.PREFER_PROJECT)
 }
 
 // Gradle依赖校验 - 确保依赖来自可信来源
