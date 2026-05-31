@@ -1,19 +1,18 @@
 package com.omaster.app.ui.screens
-import android.content.Context
-import androidx.core.content.FileProvider
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,9 +27,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AddPhotoAlternate
@@ -52,7 +51,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -61,7 +59,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -81,8 +78,10 @@ import com.omaster.app.ui.components.ProPresetCard
 import com.omaster.app.ui.theme.ColorOSBlack
 import com.omaster.app.ui.theme.ColorOSLightBackground
 import com.omaster.app.ui.theme.HasselbladOrange
+import com.omaster.app.utils.ImageUtils
 import kotlinx.coroutines.launch
 import java.io.File
+import androidx.core.content.FileProvider
 
 /**
  * AI 场景识别界面 - 专业设计版本
@@ -112,17 +111,8 @@ fun SceneDetectionScreen(
     
     val scaleAnimation = remember { Animatable(1f) }
     
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            showImageSourceDialog = true
-        }
-    }
-    
-    val galleryLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
+    // 使用 PickVisualMedia 无需申请存储权限
+    val pickMediaLauncher = rememberLauncherForActivityResult(PickVisualMedia()) { uri: Uri? ->
         uri?.let { 
             selectedImage = it
             detectedScene = null
@@ -153,21 +143,8 @@ fun SceneDetectionScreen(
         )
     }
     
-    fun checkAndRequestPermission() {
-        val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            Manifest.permission.READ_MEDIA_IMAGES
-        } else {
-            Manifest.permission.READ_EXTERNAL_STORAGE
-        }
-        
-        when {
-            ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED -> {
-                showImageSourceDialog = true
-            }
-            else -> {
-                permissionLauncher.launch(permission)
-            }
-        }
+    fun openImageSourceDialog() {
+        showImageSourceDialog = true
     }
     
     suspend fun startDetection() {
@@ -177,6 +154,9 @@ fun SceneDetectionScreen(
         detectionStartTime = System.currentTimeMillis()
         
         try {
+            // 预处理图片（下采样）避免 OOM
+            ImageUtils.downSampleBitmap(context, selectedImage!!, 1080, 1080)
+            
             val scene = aiService.detectScene(selectedImage?.toString())
             val endTime = System.currentTimeMillis()
             
@@ -222,7 +202,7 @@ fun SceneDetectionScreen(
                         subtitle = "选择已拍摄的样张",
                         onClick = {
                             showImageSourceDialog = false
-                            galleryLauncher.launch("image/*")
+                            pickMediaLauncher.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly))
                         }
                     )
                     ImageSourceOption(
@@ -288,7 +268,7 @@ fun SceneDetectionScreen(
             // 图片选择区域 - 专业设计
             ImageSelectionAreaPro(
                 selectedImage = selectedImage?.toString(),
-                onSelectImage = { checkAndRequestPermission() }
+                onSelectImage = { openImageSourceDialog() }
             )
             
             // AI识别按钮

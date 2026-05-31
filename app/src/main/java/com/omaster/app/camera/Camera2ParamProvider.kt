@@ -5,18 +5,16 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.hardware.camera2.*
 import android.os.Build
-import android.util.Range
+import android.os.Handler
+import android.os.HandlerThread
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import com.omaster.app.utils.AppLifecycleManager
+import com.omaster.app.utils.AppLifecycleListener
 import timber.log.Timber
 
-class Camera2ParamProvider(private val context: Context) : CameraParamProvider {
+class Camera2ParamProvider(private val context: Context) : CameraParamProvider, AppLifecycleListener {
 
     private val _params = MutableLiveData(RealTimeCameraParams())
     override val params: LiveData<RealTimeCameraParams> = _params
@@ -26,14 +24,33 @@ class Camera2ParamProvider(private val context: Context) : CameraParamProvider {
 
     private val cameraManager by lazy { context.getSystemService(Context.CAMERA_SERVICE) as CameraManager }
     
-    private val scope = CoroutineScope(Dispatchers.IO + Job())
-    private var monitorJob: Job? = null
-    private var cameraDevice: CameraDevice? = null
-    private var captureRequest: CaptureRequest? = null
-    private var captureSession: CameraCaptureSession? = null
-
+    private val backgroundThread: HandlerThread by lazy {
+        HandlerThread("Camera2ParamProvider").apply { start() }
+    }
+    private val backgroundHandler: Handler by lazy { Handler(backgroundThread.looper) }
+    
+    private var isMonitoring = false
     private var currentLensType = "wide"
     private var currentCameraId: String? = null
+
+    private val availabilityCallback = object : CameraManager.AvailabilityCallback() {
+        override fun onCameraAvailable(cameraId: String) {
+            super.onCameraAvailable(cameraId)
+            Timber.d("Camera available: $cameraId")
+            if (isMonitoring) {
+                updateCameraParams()
+            }
+        }
+
+        override fun onCameraUnavailable(cameraId: String) {
+            super.onCameraUnavailable(cameraId)
+            Timber.d("Camera unavailable: $cameraId")
+        }
+    }
+
+    init {
+        AppLifecycleManager.addListener(this)
+    }
 
     override fun startMonitor() {
         if (!checkCameraSupport()) {
@@ -47,22 +64,23 @@ class Camera2ParamProvider(private val context: Context) : CameraParamProvider {
         }
 
         _status.postValue(CameraCompatibilityStatus.Available)
+        isMonitoring = true
 
-        monitorJob = scope.launch {
-            while (true) {
-                try {
-                    updateCameraParams()
-                } catch (e: Exception) {
-                    Timber.e(e, "Error updating camera params")
-                }
-                delay(300)
-            }
+        try {
+            cameraManager.registerAvailabilityCallback(availabilityCallback, backgroundHandler)
+            updateCameraParams()
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to start camera monitor")
         }
     }
 
     override fun stopMonitor() {
-        monitorJob?.cancel()
-        monitorJob = null
+        isMonitoring = false
+        try {
+            cameraManager.unregisterAvailabilityCallback(availabilityCallback)
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to unregister camera callback")
+        }
     }
 
     override fun switchCamera(lensType: String) {
@@ -73,8 +91,21 @@ class Camera2ParamProvider(private val context: Context) : CameraParamProvider {
 
     override fun release() {
         stopMonitor()
-        captureSession?.close()
-        cameraDevice?.close()
+        AppLifecycleManager.removeListener(this)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
+            backgroundThread.quitSafely()
+        } else {
+            backgroundThread.quit()
+        }
+    }
+
+    override fun onAppForeground() {
+        if (isMonitoring) {
+            updateCameraParams()
+        }
+    }
+
+    override fun onAppBackground() {
     }
 
     private fun checkCameraSupport(): Boolean {

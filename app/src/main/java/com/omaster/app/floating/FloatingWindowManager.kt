@@ -6,7 +6,6 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import android.view.*
-import android.widget.LinearLayout
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,21 +19,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleRegistry
-import androidx.lifecycle.setViewTreeLifecycleOwner
-import androidx.savedstate.SavedStateRegistry
-import androidx.savedstate.SavedStateRegistryController
-import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import com.omaster.app.service.FloatingWindowForegroundService
 import com.omaster.app.ui.theme.AccentPrimary
 import com.omaster.app.ui.theme.DeepSpace
 import com.omaster.app.ui.theme.HasselbladOrange
+import com.omaster.app.utils.RomUtils
 import timber.log.Timber
 
 object FloatingWindowManager {
     private var windowManager: WindowManager? = null
     private var floatingView: ComposeView? = null
     private var isShowing = false
+    private var serviceStarted = false
 
     private var currentPresetName: String = "预设参数"
     private var currentParams: Map<String, String> = emptyMap()
@@ -56,6 +52,12 @@ object FloatingWindowManager {
         }
 
         try {
+            // 启动前台服务保活
+            if (!serviceStarted) {
+                FloatingWindowForegroundService.startService(context)
+                serviceStarted = true
+            }
+            
             windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
             floatingView = ComposeView(context).apply {
                 setContent {
@@ -63,7 +65,8 @@ object FloatingWindowManager {
                         presetName = currentPresetName,
                         params = currentParams,
                         onClose = { hideWindow() },
-                        onCopyParams = { copyParamsToClipboard(context) }
+                        onCopyParams = { copyParamsToClipboard(context) },
+                        onOpenPermissionSettings = { RomUtils.openBatteryOptimizationSettings(context) }
                     )
                 }
             }
@@ -86,9 +89,19 @@ object FloatingWindowManager {
             }
             floatingView = null
             isShowing = false
+            
+            // 隐藏窗口时不停止服务，保持后台保活
             Timber.d("Floating window hidden")
         } catch (e: Exception) {
             Timber.e(e, "Failed to hide floating window")
+        }
+    }
+    
+    fun destroy(context: Context) {
+        hideWindow()
+        if (serviceStarted) {
+            FloatingWindowForegroundService.stopService(context)
+            serviceStarted = false
         }
     }
 
@@ -106,7 +119,8 @@ object FloatingWindowManager {
                 presetName = currentPresetName,
                 params = currentParams,
                 onClose = { hideWindow() },
-                onCopyParams = { copyParamsToClipboard(floatingView?.context) }
+                onCopyParams = { copyParamsToClipboard(floatingView?.context) },
+                onOpenPermissionSettings = { RomUtils.openBatteryOptimizationSettings(floatingView?.context) }
             )
         }
     }
@@ -148,11 +162,7 @@ object FloatingWindowManager {
     }
 
     fun requestOverlayPermission(context: Context) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(intent)
-        }
+        RomUtils.openOverlayPermissionSettings(context)
     }
 }
 
@@ -161,7 +171,8 @@ fun FloatingWindowContent(
     presetName: String,
     params: Map<String, String>,
     onClose: () -> Unit,
-    onCopyParams: () -> Unit
+    onCopyParams: () -> Unit,
+    onOpenPermissionSettings: () -> Unit
 ) {
     Card(
         modifier = Modifier
@@ -189,16 +200,29 @@ fun FloatingWindowContent(
                     fontWeight = FontWeight.Bold,
                     maxLines = 1
                 )
-                IconButton(
-                    onClick = onClose,
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "关闭",
-                        tint = HasselbladOrange,
-                        modifier = Modifier.size(20.dp)
-                    )
+                Row {
+                    IconButton(
+                        onClick = onOpenPermissionSettings,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "权限设置",
+                            tint = Color.White.copy(alpha = 0.7f),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    IconButton(
+                        onClick = onClose,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "关闭",
+                            tint = HasselbladOrange,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
 

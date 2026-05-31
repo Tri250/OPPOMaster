@@ -9,9 +9,15 @@
 
     <!-- 存储权限 - 仅用于保存截图到相册 -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    
+    <!-- Android 14+ 前台服务类型权限 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    
+    <!-- 电池优化忽略权限 -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
-    <!-- Camera权限说明：此权限仅用于读取Camera2参数(ISO/快门速度等)，
-         不采集任何相机图像或视频数据 -->
+    <!-- Camera权限说明：此权限仅用于读取Camera2参数(ISO/快门速度等)，不采集任何相机图像或视频数据 -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 
@@ -46,6 +52,18 @@
             android:enabled="true"
             android:exported="false"
             android:stopWithTask="true" />
+            
+        <!-- 悬浮窗保活前台服务 -->
+        <service
+            android:name=".service.FloatingWindowForegroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="floatingWindow" />
+        </service>
 
         <!-- File Provider for screenshot sharing -->
         <provider
