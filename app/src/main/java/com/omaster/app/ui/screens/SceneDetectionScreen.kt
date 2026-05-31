@@ -37,7 +37,12 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.ChangeCircle
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -47,10 +52,13 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -64,12 +72,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import coil.compose.AsyncImage
+import com.omaster.app.ai.AiRuntime
+import com.omaster.app.ai.FeatureFlags
 import com.omaster.app.model.Preset
 import com.omaster.app.model.SceneType
 import com.omaster.app.service.AiService
@@ -79,13 +92,17 @@ import com.omaster.app.ui.theme.ColorOSBlack
 import com.omaster.app.ui.theme.ColorOSLightBackground
 import com.omaster.app.ui.theme.HasselbladOrange
 import com.omaster.app.utils.ImageUtils
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import java.io.File
 import androidx.core.content.FileProvider
 
 /**
- * AI 场景识别界面 - 专业设计版本
- * 支持AI-SC-001到AI-SC-035所有测试用例
+ * AI场景识别界面 - 专业版 + 移动端优化
+ * 支持：防OOM、超时、取消、生命周期绑定、降级策略
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -99,7 +116,8 @@ fun SceneDetectionScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    
+    val lifecycleOwner = LocalLifecycleOwner.current
+
     var isDetecting by remember { mutableStateOf(false) }
     var detectedScene by remember { mutableStateOf<SceneType?>(null) }
     var recommendedPresets by remember { mutableStateOf<List<Preset>>(emptyList()) }
@@ -108,18 +126,36 @@ fun SceneDetectionScreen(
     var tempCameraUri by remember { mutableStateOf<Uri?>(null) }
     var detectionStartTime by remember { mutableStateOf<Long?>(null) }
     var detectionTime by remember { mutableStateOf<Int?>(null) }
-    
+    var detectionJob by remember { mutableStateOf<Job?>(null) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var showErrorDialog by remember { mutableStateOf(false) }
+
     val scaleAnimation = remember { Animatable(1f) }
-    
-    // 使用 PickVisualMedia 无需申请存储权限
+
+    // 生命周期监听 - 页面不可见时取消推理
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
+                detectionJob?.cancel()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            detectionJob?.cancel()
+        }
+    }
+
+    // 使用Photo Picker - 无需权限
     val pickMediaLauncher = rememberLauncherForActivityResult(PickVisualMedia()) { uri: Uri? ->
-        uri?.let { 
+        uri?.let {
             selectedImage = it
             detectedScene = null
             recommendedPresets = emptyList()
+            errorMessage = null
         }
     }
-    
+
     val cameraLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.TakePicture()
     ) { success ->
@@ -127,9 +163,10 @@ fun SceneDetectionScreen(
             selectedImage = tempCameraUri
             detectedScene = null
             recommendedPresets = emptyList()
+            errorMessage = null
         }
     }
-    
+
     fun createTempCameraFile(): Uri {
         val tempFile = File.createTempFile(
             "camera_photo_",
@@ -142,47 +179,79 @@ fun SceneDetectionScreen(
             tempFile
         )
     }
-    
+
     fun openImageSourceDialog() {
         showImageSourceDialog = true
     }
-    
+
     suspend fun startDetection() {
         if (selectedImage == null) return
-        
+
+        // 检查AI可用性
+        if (!FeatureFlags.isAiSceneDetectionEnabled) {
+            errorMessage = "AI场景识别暂时不可用，请稍后再试"
+            showErrorDialog = true
+            return
+        }
+
         isDetecting = true
         detectionStartTime = System.currentTimeMillis()
-        
-        try {
-            // 预处理图片（下采样）避免 OOM
-            ImageUtils.downSampleBitmap(context, selectedImage!!, 1080, 1080)
-            
-            val scene = aiService.detectScene(selectedImage?.toString())
-            val endTime = System.currentTimeMillis()
-            
-            detectedScene = scene
-            detectionTime = (endTime - (detectionStartTime ?: 0)).toInt()
-            
-            recommendedPresets = aiService.getRecommendedPresets(scene, allPresets)
-            
-            // 检测成功的动画效果
-            scaleAnimation.animateTo(
-                1.05f,
-                animationSpec = tween(150)
-            )
-            scaleAnimation.animateTo(
-                1f,
-                animationSpec = tween(150)
-            )
-        } catch (e: Exception) {
-            // 异常处理
-        } finally {
-            isDetecting = false
+        errorMessage = null
+
+        detectionJob = scope.launch {
+            try {
+                withTimeout(3000L) { // 3秒超时
+                    // 图片预处理（防OOM）
+                    ImageUtils.decodeSampledBitmapSuspend(
+                        context,
+                        selectedImage!!
+                    )
+
+                    // 确保模型已加载
+                    AiRuntime.ensureModelLoaded(context)
+
+                    // 执行推理（保持原有API兼容）
+                    val scene = aiService.detectScene(selectedImage?.toString())
+                    val endTime = System.currentTimeMillis()
+
+                    detectedScene = scene
+                    detectionTime = (endTime - (detectionStartTime ?: 0)).toInt()
+
+                    recommendedPresets = aiService.getRecommendedPresets(scene, allPresets)
+
+                    // 成功动画
+                    scaleAnimation.animateTo(
+                        1.05f,
+                        animationSpec = tween(150)
+                    )
+                    scaleAnimation.animateTo(
+                        1f,
+                        animationSpec = tween(150)
+                    )
+                }
+            } catch (e: TimeoutCancellationException) {
+                errorMessage = "识别超时，请稍后再试"
+                showErrorDialog = true
+            } catch (e: Exception) {
+                errorMessage = "识别失败：${e.message}"
+                showErrorDialog = true
+                AiRuntime.markAsUnavailable()
+                FeatureFlags.updateAiSceneDetectionEnabled(false)
+            } finally {
+                isDetecting = false
+                detectionJob = null
+            }
         }
     }
-    
+
+    fun cancelDetection() {
+        detectionJob?.cancel()
+        isDetecting = false
+    }
+
+    // 图片来源选择对话框
     if (showImageSourceDialog) {
-        androidx.compose.material3.AlertDialog(
+        AlertDialog(
             onDismissRequest = { showImageSourceDialog = false },
             title = {
                 Text(
@@ -225,7 +294,54 @@ fun SceneDetectionScreen(
             }
         )
     }
-    
+
+    // 错误对话框
+    if (showErrorDialog && errorMessage != null) {
+        AlertDialog(
+            onDismissRequest = {
+                showErrorDialog = false
+                errorMessage = null
+            },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Error,
+                    contentDescription = "错误",
+                    tint = HasselbladOrange
+                )
+            },
+            title = {
+                Text("识别失败")
+            },
+            text = {
+                Text(errorMessage ?: "")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showErrorDialog = false
+                        errorMessage = null
+                        if (!FeatureFlags.isAiSceneDetectionEnabled) {
+                            AiRuntime.reset()
+                            FeatureFlags.updateAiSceneDetectionEnabled(true)
+                        }
+                    }
+                ) {
+                    Text("重试")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showErrorDialog = false
+                        errorMessage = null
+                    }
+                ) {
+                    Text("关闭")
+                }
+            }
+        )
+    }
+
     Scaffold(
         modifier = modifier,
         containerColor = ColorOSBlack,
@@ -233,14 +349,17 @@ fun SceneDetectionScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "AI 场景识别",
+                        text = "AI场景识别",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         fontSize = 20.sp
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = {
+                        cancelDetection()
+                        onBack()
+                    }) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "返回",
@@ -264,60 +383,85 @@ fun SceneDetectionScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Spacer(modifier = Modifier.height(8.dp))
-            
-            // 图片选择区域 - 专业设计
+
+            // 图片选择区域
             ImageSelectionAreaPro(
                 selectedImage = selectedImage?.toString(),
                 onSelectImage = { openImageSourceDialog() }
             )
-            
-            // AI识别按钮
-            Button(
-                onClick = {
-                    scope.launch {
-                        startDetection()
-                    }
-                },
-                enabled = selectedImage != null && !isDetecting,
+
+            // 操作按钮区域
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = HasselbladOrange
-                ),
-                shape = RoundedCornerShape(16.dp),
-                contentPadding = PaddingValues(vertical = 16.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                // AI识别按钮
+                Button(
+                    onClick = {
+                        scope.launch {
+                            startDetection()
+                        }
+                    },
+                    enabled = selectedImage != null && !isDetecting,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = HasselbladOrange
+                    ),
+                    shape = RoundedCornerShape(16.dp),
+                    contentPadding = PaddingValues(vertical = 16.dp)
+                ) {
+                    if (isDetecting) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            color = ColorOSBlack,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "正在识别...",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = ColorOSBlack,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 16.sp
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = "AI识别",
+                            tint = ColorOSBlack,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = if (selectedImage == null) "请先选择图片" else "开始AI识别",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = ColorOSBlack,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 16.sp
+                        )
+                    }
+                }
+
+                // 取消按钮（仅在识别时显示）
                 if (isDetecting) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        color = ColorOSBlack,
-                        strokeWidth = 2.5.dp
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = "正在识别场景...",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = ColorOSBlack,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 16.sp
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Default.AutoAwesome,
-                        contentDescription = "AI识别",
-                        tint = ColorOSBlack,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = if (selectedImage == null) "请先选择图片" else "开始 AI 场景识别",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = ColorOSBlack,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 16.sp
-                    )
+                    Button(
+                        onClick = { cancelDetection() },
+                        modifier = Modifier,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = ColorOSLightBackground.copy(alpha = 0.2f)
+                        ),
+                        shape = RoundedCornerShape(16.dp),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = "取消",
+                            tint = Color.White
+                        )
+                    }
                 }
             }
-            
+
             // 识别结果展示
             detectedScene?.let { scene ->
                 SceneResultCardPro(
@@ -326,7 +470,7 @@ fun SceneDetectionScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
             }
-            
+
             // 推荐预设展示
             if (recommendedPresets.isNotEmpty()) {
                 Column(
@@ -353,7 +497,7 @@ fun SceneDetectionScreen(
                     }
                 }
             }
-            
+
             Spacer(modifier = Modifier.height(24.dp))
         }
     }
@@ -406,7 +550,7 @@ fun ImageSelectionAreaPro(
                             )
                         )
                 )
-                Surface(
+                androidx.compose.material3.Surface(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(16.dp),
@@ -425,7 +569,7 @@ fun ImageSelectionAreaPro(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Surface(
+                    androidx.compose.material3.Surface(
                         shape = CircleShape,
                         color = HasselbladOrange.copy(alpha = 0.15f)
                     ) {
@@ -444,7 +588,7 @@ fun ImageSelectionAreaPro(
                         textAlign = TextAlign.Center
                     )
                     Text(
-                        text = "AI 将根据场景推荐最佳哈苏预设",
+                        text = "AI将根据场景推荐最佳哈苏预设",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Color.White.copy(alpha = 0.6f),
                         fontSize = 14.sp,
@@ -492,7 +636,7 @@ fun SceneResultCardPro(
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Surface(
+                androidx.compose.material3.Surface(
                     shape = CircleShape,
                     color = HasselbladOrange.copy(alpha = 0.18f)
                 ) {
@@ -503,7 +647,7 @@ fun SceneResultCardPro(
                         modifier = Modifier.size(64.dp).padding(18.dp)
                     )
                 }
-                
+
                 Column(
                     modifier = Modifier.weight(1f)
                 ) {
@@ -526,8 +670,8 @@ fun SceneResultCardPro(
                         fontSize = 14.sp
                     )
                 }
-                
-                Surface(
+
+                androidx.compose.material3.Surface(
                     color = HasselbladOrange.copy(alpha = 0.2f),
                     shape = CircleShape
                 ) {
@@ -539,7 +683,7 @@ fun SceneResultCardPro(
                     )
                 }
             }
-            
+
             // 识别时间和哈苏模式
             Row(
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -556,7 +700,7 @@ fun SceneResultCardPro(
                     isPrimary = true
                 )
             }
-            
+
             // 异常场景提示
             if (SceneType.isErrorScene(scene)) {
                 Box(
@@ -610,7 +754,7 @@ fun ImageSourceOption(
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Surface(
+        androidx.compose.material3.Surface(
             shape = CircleShape,
             color = HasselbladOrange.copy(alpha = 0.2f)
         ) {
@@ -673,17 +817,17 @@ fun Chip(
     icon: ImageVector? = null,
     isPrimary: Boolean = false
 ) {
-    Surface(
+    androidx.compose.material3.Surface(
         shape = RoundedCornerShape(100.dp),
-        color = if (isPrimary) HasselbladOrange.copy(alpha = 0.2f) 
-                else Color.White.copy(alpha = 0.08f)
+        color = if (isPrimary) HasselbladOrange.copy(alpha = 0.2f)
+        else Color.White.copy(alpha = 0.08f)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
         ) {
-            icon?.let { 
+            icon?.let {
                 Icon(
                     imageVector = it,
                     contentDescription = null,
@@ -715,11 +859,12 @@ fun getSceneIcon(scene: SceneType): ImageVector {
         SceneType.STREET -> Icons.Default.Commute
         SceneType.NATURE -> Icons.Default.Eco
         SceneType.ARCHITECTURE -> Icons.Default.Apartment
-        SceneType.MACRO, SceneType.FLOWER, SceneType.INSECT, SceneType.OBJECT_DETAIL -> 
+        SceneType.MACRO, SceneType.FLOWER, SceneType.INSECT, SceneType.OBJECT_DETAIL ->
             Icons.Default.CenterFocusStrong
         SceneType.MOTION -> Icons.Default.AutoAwesome
-        SceneType.TOO_DARK, SceneType.TOO_BRIGHT, SceneType.TOO_BLURRY, 
+        SceneType.TOO_DARK, SceneType.TOO_BRIGHT, SceneType.TOO_BLURRY,
         SceneType.INDOOR_WARM, SceneType.STILL_LIFE -> Icons.Default.Warning
-        SceneType.UNKNOWN -> Icons.Default.Warning
+        SceneType.UNKNOWN -> Icons.Default.Error
     }
 }
+
