@@ -9,6 +9,7 @@
 #define ALCEDO_OPENCL_SHARED_TONE_CURVE_CONTROL_POINT_COUNT 5
 #define ALCEDO_OPENCL_HLS_PROFILE_COUNT 8
 #define ALCEDO_OPENCL_MAX_CURVE_CONTROL_POINTS 32
+#define ALCEDO_OPENCL_DETAIL_MAX_GAUSSIAN_TAP_COUNT 64
 
 typedef struct {
   float MATRIX_RGB_to_CAM16_c_[9];
@@ -184,6 +185,21 @@ typedef struct {
   float shared_tone_curve_ctrl_pts_y_[ALCEDO_OPENCL_SHARED_TONE_CURVE_CONTROL_POINT_COUNT];
   float shared_tone_curve_h_[ALCEDO_OPENCL_SHARED_TONE_CURVE_CONTROL_POINT_COUNT - 1];
   float shared_tone_curve_m_[ALCEDO_OPENCL_SHARED_TONE_CURVE_CONTROL_POINT_COUNT];
+  uint  hs_local_tone_enabled_;
+  float hs_base_radius_;
+  int   hs_base_gaussian_tap_count_;
+  float hs_base_gaussian_weights_[ALCEDO_OPENCL_DETAIL_MAX_GAUSSIAN_TAP_COUNT];
+  float hs_shadow_log_pivot_;
+  float hs_shadow_log_width_;
+  float hs_highlight_log_pivot_;
+  float hs_highlight_log_width_;
+  uint  render_roi_enabled_;
+  int   render_roi_x_;
+  int   render_roi_y_;
+  float render_roi_scale_x_;
+  float render_roi_scale_y_;
+  int   render_roi_reference_width_;
+  int   render_roi_reference_height_;
   uint  white_enabled_;
   float white_point_;
   uint  black_enabled_;

@@ -336,6 +336,18 @@ GPU_FUNC float hs_shadow_curve_slope(float mask_ref, float shadow_amount, float 
   return 1.0f + (delta_hi - delta_lo) / (2.0f * kEpsStops);
 }
 
+GPU_FUNC float hs_highlight_curve_slope(float mask_ref, float shadow_amount,
+                                        float highlight_amount, GPUOperatorParams params) {
+  constexpr float kEpsStops = 0.08f;
+  const float delta_lo =
+      hs_highlight_base_delta_from_ref(mask_ref - kEpsStops, shadow_amount, highlight_amount,
+                                       params);
+  const float delta_hi =
+      hs_highlight_base_delta_from_ref(mask_ref + kEpsStops, shadow_amount, highlight_amount,
+                                       params);
+  return 1.0f + (delta_hi - delta_lo) / (2.0f * kEpsStops);
+}
+
 GPU_FUNC float hs_shadow_detail_weight(float mask_ref, float shadow_mask,
                                        GPUOperatorParams params) {
   const float tonal_weight = hs_shadow_tonal_weight(mask_ref, shadow_mask, params);
@@ -343,6 +355,18 @@ GPU_FUNC float hs_shadow_detail_weight(float mask_ref, float shadow_mask,
       hls_oklch_smoothstep(params.hs_shadow_log_pivot_ - 3.5f,
                            params.hs_shadow_log_pivot_ - 1.75f, mask_ref);
   return tonal_weight * noise_floor;
+}
+
+GPU_FUNC float hs_highlight_detail_weight(float mask_ref, float highlight_mask, float detail,
+                                          GPUOperatorParams params) {
+  const float width = fmaxf(params.hs_highlight_log_width_, 0.35f);
+  const float tonal_weight = fminf(fmaxf(highlight_mask, 0.0f), 1.0f);
+  const float noise_gate = hls_oklch_smoothstep(0.035f, 0.12f, fabsf(detail));
+  const float edge_guard = 1.0f - hls_oklch_smoothstep(0.78f, 1.45f, fabsf(detail));
+  const float clipped_guard =
+      1.0f - hls_oklch_smoothstep(params.hs_highlight_log_pivot_ + width * 1.15f,
+                                  params.hs_highlight_log_pivot_ + width * 2.35f, mask_ref);
+  return tonal_weight * noise_gate * edge_guard * clipped_guard;
 }
 
 __global__ void HsBuildLogBaseHorizontalKernel(const float4* __restrict src,
@@ -454,11 +478,19 @@ GPU_FUNC float4 hs_apply_local_tone_pixel(float4 px, float base, GPUOperatorPara
             1.35f);
   const float shadow_contrast_loss =
       fminf(fmaxf(1.0f / shadow_curve_slope - 1.0f, 0.0f), 0.46f);
+  const float highlight_curve_slope =
+      fminf(fmaxf(hs_highlight_curve_slope(mask_ref, shadow_amount, highlight_amount, params),
+                  0.50f),
+            1.20f);
+  const float highlight_contrast_loss =
+      fminf(fmaxf(1.0f / highlight_curve_slope - 1.0f, 0.0f), 0.42f);
   const float shadow_texture_zone = hs_shadow_detail_weight(mask_ref, shadow_mask, params);
   const float texture_detail = hs_texture_detail_weight(detail);
   const float shadow_detail_sign = hs_shadow_detail_sign_weight(detail);
   const float shadow_detail_zone = shadow_texture_zone * texture_detail * shadow_detail_sign;
   const float shadow_detail_preserve = hs_shadow_detail_preserve_weight(detail);
+  const float highlight_detail_zone =
+      hs_highlight_detail_weight(mask_ref, highlight_mask, detail, params) * texture_detail;
   const float llf_detail_gain = hs_shadow_llf_detail_gain(detail, shadow_amount, shadow_texture_zone);
   const float dark_valley = hls_oklch_smoothstep(0.85f, 1.80f, -detail);
   const float contrast_recovery =
@@ -469,7 +501,9 @@ GPU_FUNC float4 hs_apply_local_tone_pixel(float4 px, float base, GPUOperatorPara
       0.018f * fmaxf(shadow_amount, 0.0f) * shadow_texture_zone * dark_valley +
       0.025f * fmaxf(-shadow_amount, 0.0f) * shadow_detail_zone *
           fmaxf(base_contrast_loss, shadow_contrast_loss);
-  const float highlight_detail_scale = -0.03f * fmaxf(highlight_amount, 0.0f) * highlight_mask;
+  const float highlight_detail_scale =
+      fmaxf(highlight_amount, 0.0f) * highlight_detail_zone *
+      (0.035f + 0.12f * highlight_contrast_loss);
   const float raw_detail_scale = fminf(
       1.24f, fmaxf(0.97f, (1.0f + shadow_detail_scale + highlight_detail_scale) * llf_detail_gain));
   const float detail_scale = 1.0f + (raw_detail_scale - 1.0f) * hs_llf_detail_mix(detail);

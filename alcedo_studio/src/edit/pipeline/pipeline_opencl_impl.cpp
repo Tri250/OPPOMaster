@@ -204,13 +204,73 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
   OpenCL::Pipeline::OpenClFusedResources resources_       = {};
 
   cl_kernel                              fused_kernel_    = nullptr;
+  cl_kernel                              fused_stage_kernel_ = nullptr;
   cl_kernel                              validate_kernel_ = nullptr;
   cl_kernel                              blur_h_kernel_   = nullptr;
   cl_kernel                              apply_v_kernel_  = nullptr;
+  cl_kernel                              hs_base_h_kernel_ = nullptr;
+  cl_kernel                              hs_base_v_kernel_ = nullptr;
+  cl_kernel                              hs_apply_kernel_  = nullptr;
 
   opencl::OpenClImage                    working_;
+  opencl::OpenClImage                    pre_hs_working_;
+  opencl::OpenClImage                    hs_working_;
   opencl::OpenClImage                    blur_horizontal_;
   opencl::OpenClImage                    detail_scratch_;
+
+  cl_mem                                 hs_base_log_ = nullptr;
+  cl_mem                                 hs_temp_log_ = nullptr;
+  size_t                                 hs_allocated_elems_ = 0;
+  int                                    hs_cached_width_ = 0;
+  int                                    hs_cached_height_ = 0;
+  int                                    hs_cached_pitch_ = 0;
+  std::uint64_t                          hs_cached_key_ = 0;
+  bool                                   hs_cached_reference_base_ = false;
+
+  void                                   ReleaseHsBaseBuffers() {
+    if (hs_base_log_ != nullptr) {
+      clReleaseMemObject(hs_base_log_);
+      hs_base_log_ = nullptr;
+    }
+    if (hs_temp_log_ != nullptr) {
+      clReleaseMemObject(hs_temp_log_);
+      hs_temp_log_ = nullptr;
+    }
+    hs_allocated_elems_ = 0;
+    hs_cached_width_ = 0;
+    hs_cached_height_ = 0;
+    hs_cached_pitch_ = 0;
+    hs_cached_key_ = 0;
+    hs_cached_reference_base_ = false;
+  }
+
+  void                                   EnsureHsBaseBuffers(int width, int height) {
+    if (width <= 0 || height <= 0) {
+      throw std::runtime_error("OpenCL fused pipeline: invalid H/S base dimensions.");
+    }
+
+    const size_t needed = static_cast<size_t>(width) * static_cast<size_t>(height);
+    if (needed <= hs_allocated_elems_) {
+      return;
+    }
+
+    ReleaseHsBaseBuffers();
+
+    auto&  context = OpenClContext::Instance();
+    cl_int err     = CL_SUCCESS;
+    hs_base_log_ =
+        clCreateBuffer(context.Context(), CL_MEM_READ_WRITE, needed * sizeof(float), nullptr, &err);
+    if (err != CL_SUCCESS || hs_base_log_ == nullptr) {
+      throw std::runtime_error("OpenCL fused pipeline: failed to allocate H/S base buffer.");
+    }
+    hs_temp_log_ =
+        clCreateBuffer(context.Context(), CL_MEM_READ_WRITE, needed * sizeof(float), nullptr, &err);
+    if (err != CL_SUCCESS || hs_temp_log_ == nullptr) {
+      ReleaseHsBaseBuffers();
+      throw std::runtime_error("OpenCL fused pipeline: failed to allocate H/S temp buffer.");
+    }
+    hs_allocated_elems_ = needed;
+  }
 
   void                                   EnsureOpenClInput() {
     if (!input_img_) {
@@ -255,6 +315,17 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
       }
     }
 
+    if (fused_stage_kernel_ == nullptr) {
+      cl_int err = CL_SUCCESS;
+      fused_stage_kernel_ =
+          clCreateKernel(program, OpenCL::Pipeline::kFusedStageKernelName, &err);
+      if (err != CL_SUCCESS || fused_stage_kernel_ == nullptr) {
+        throw std::runtime_error("OpenCL fused pipeline: failed to create kernel '" +
+                                 std::string(OpenCL::Pipeline::kFusedStageKernelName) +
+                                 "' with error " + std::to_string(err) + ".");
+      }
+    }
+
     if (validate_kernel_ == nullptr) {
       cl_int err = CL_SUCCESS;
       validate_kernel_ =
@@ -292,6 +363,39 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
       if (err != CL_SUCCESS || apply_v_kernel_ == nullptr) {
         throw std::runtime_error("OpenCL fused pipeline: failed to create kernel '" +
                                  std::string(OpenCL::Pipeline::kNeighborApplyVerticalKernelName) +
+                                 "' with error " + std::to_string(err) + ".");
+      }
+    }
+
+    if (hs_base_h_kernel_ == nullptr) {
+      cl_int err = CL_SUCCESS;
+      hs_base_h_kernel_ =
+          clCreateKernel(program, OpenCL::Pipeline::kHsBuildLogBaseHorizontalKernelName, &err);
+      if (err != CL_SUCCESS || hs_base_h_kernel_ == nullptr) {
+        throw std::runtime_error("OpenCL fused pipeline: failed to create kernel '" +
+                                 std::string(OpenCL::Pipeline::kHsBuildLogBaseHorizontalKernelName) +
+                                 "' with error " + std::to_string(err) + ".");
+      }
+    }
+
+    if (hs_base_v_kernel_ == nullptr) {
+      cl_int err = CL_SUCCESS;
+      hs_base_v_kernel_ =
+          clCreateKernel(program, OpenCL::Pipeline::kHsBuildLogBaseVerticalKernelName, &err);
+      if (err != CL_SUCCESS || hs_base_v_kernel_ == nullptr) {
+        throw std::runtime_error("OpenCL fused pipeline: failed to create kernel '" +
+                                 std::string(OpenCL::Pipeline::kHsBuildLogBaseVerticalKernelName) +
+                                 "' with error " + std::to_string(err) + ".");
+      }
+    }
+
+    if (hs_apply_kernel_ == nullptr) {
+      cl_int err = CL_SUCCESS;
+      hs_apply_kernel_ =
+          clCreateKernel(program, OpenCL::Pipeline::kHsApplyLocalToneKernelName, &err);
+      if (err != CL_SUCCESS || hs_apply_kernel_ == nullptr) {
+        throw std::runtime_error("OpenCL fused pipeline: failed to create kernel '" +
+                                 std::string(OpenCL::Pipeline::kHsApplyLocalToneKernelName) +
                                  "' with error " + std::to_string(err) + ".");
       }
     }
@@ -420,6 +524,64 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
     }
   }
 
+  void EnqueueFusedStageKernel(const opencl::OpenClImage& src, opencl::OpenClImage& dst,
+                               int stage) {
+    auto& context = OpenClContext::Instance();
+    if (!context.IsInitialized()) {
+      throw std::runtime_error("OpenCL fused pipeline: context is not initialized.");
+    }
+
+    dst.Create(src.Width(), src.Height(), src.Type());
+
+    cl_int  err            = CL_SUCCESS;
+    cl_uint arg_index      = 0;
+    cl_mem  src_buffer     = src.Buffer();
+    cl_mem  dst_buffer     = dst.Buffer();
+    cl_mem  params_buffer  = resources_.params_buffer_.Get();
+    cl_mem  lmt_lut_buffer = resources_.lmt_lut_buffer_.Get();
+    cl_int  width          = src.Width();
+    cl_int  height         = src.Height();
+    cl_int  stage_arg      = stage;
+
+    static const float kDummyLutEntry[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+    cl_mem             fallback_lut      = nullptr;
+    if (lmt_lut_buffer == nullptr) {
+      fallback_lut =
+          clCreateBuffer(context.Context(), CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                         sizeof(kDummyLutEntry), const_cast<float*>(kDummyLutEntry), &err);
+      if (err != CL_SUCCESS || fallback_lut == nullptr) {
+        throw std::runtime_error("OpenCL fused pipeline: failed to create fallback LUT buffer.");
+      }
+      lmt_lut_buffer = fallback_lut;
+    }
+
+    err |= clSetKernelArg(fused_stage_kernel_, arg_index++, sizeof(cl_mem), &src_buffer);
+    err |= clSetKernelArg(fused_stage_kernel_, arg_index++, sizeof(cl_mem), &dst_buffer);
+    err |= clSetKernelArg(fused_stage_kernel_, arg_index++, sizeof(cl_mem), &params_buffer);
+    err |= clSetKernelArg(fused_stage_kernel_, arg_index++, sizeof(cl_mem), &lmt_lut_buffer);
+    err |= clSetKernelArg(fused_stage_kernel_, arg_index++, sizeof(cl_int), &width);
+    err |= clSetKernelArg(fused_stage_kernel_, arg_index++, sizeof(cl_int), &height);
+    err |= clSetKernelArg(fused_stage_kernel_, arg_index++, sizeof(cl_int), &stage_arg);
+
+    if (err != CL_SUCCESS) {
+      if (fallback_lut != nullptr) clReleaseMemObject(fallback_lut);
+      throw std::runtime_error("OpenCL fused pipeline: failed to set fused stage arguments.");
+    }
+
+    size_t global_size[2] = {static_cast<size_t>(width), static_cast<size_t>(height)};
+    err = clEnqueueNDRangeKernel(context.Queue(), fused_stage_kernel_, 2, nullptr, global_size,
+                                 nullptr, 0, nullptr, nullptr);
+
+    if (fallback_lut != nullptr) {
+      clReleaseMemObject(fallback_lut);
+    }
+
+    if (err != CL_SUCCESS) {
+      throw std::runtime_error("OpenCL fused pipeline: failed to enqueue fused stage with error " +
+                               std::to_string(err) + ".");
+    }
+  }
+
   void EnqueueNeighborBlurHorizontal(const opencl::OpenClImage& src, opencl::OpenClImage& dst,
                                      cl_mem stage_buffer) {
     auto& context = OpenClContext::Instance();
@@ -489,6 +651,162 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
           "OpenCL fused pipeline: failed to enqueue neighbor apply vertical kernel with error " +
           std::to_string(err) + ".");
     }
+  }
+
+  void EnqueueHsBuildLogBaseHorizontal(const opencl::OpenClImage& src) {
+    auto& context = OpenClContext::Instance();
+
+    cl_int  err           = CL_SUCCESS;
+    cl_uint arg_index     = 0;
+    cl_mem  src_buf       = src.Buffer();
+    cl_mem  dst_buf       = hs_temp_log_;
+    cl_mem  params_buffer = resources_.params_buffer_.Get();
+    cl_int  width         = src.Width();
+    cl_int  height        = src.Height();
+
+    err |= clSetKernelArg(hs_base_h_kernel_, arg_index++, sizeof(cl_mem), &src_buf);
+    err |= clSetKernelArg(hs_base_h_kernel_, arg_index++, sizeof(cl_mem), &dst_buf);
+    err |= clSetKernelArg(hs_base_h_kernel_, arg_index++, sizeof(cl_mem), &params_buffer);
+    err |= clSetKernelArg(hs_base_h_kernel_, arg_index++, sizeof(cl_int), &width);
+    err |= clSetKernelArg(hs_base_h_kernel_, arg_index++, sizeof(cl_int), &height);
+    if (err != CL_SUCCESS) {
+      throw std::runtime_error(
+          "OpenCL fused pipeline: failed to set H/S base horizontal arguments.");
+    }
+
+    size_t global_size[2] = {static_cast<size_t>(width), static_cast<size_t>(height)};
+    err = clEnqueueNDRangeKernel(context.Queue(), hs_base_h_kernel_, 2, nullptr, global_size,
+                                 nullptr, 0, nullptr, nullptr);
+    if (err != CL_SUCCESS) {
+      throw std::runtime_error(
+          "OpenCL fused pipeline: failed to enqueue H/S base horizontal kernel with error " +
+          std::to_string(err) + ".");
+    }
+  }
+
+  void EnqueueHsBuildLogBaseVertical(const opencl::OpenClImage& guidance) {
+    auto& context = OpenClContext::Instance();
+
+    cl_int  err           = CL_SUCCESS;
+    cl_uint arg_index     = 0;
+    cl_mem  guidance_buf  = guidance.Buffer();
+    cl_mem  src_buf       = hs_temp_log_;
+    cl_mem  dst_buf       = hs_base_log_;
+    cl_mem  params_buffer = resources_.params_buffer_.Get();
+    cl_int  width         = guidance.Width();
+    cl_int  height        = guidance.Height();
+
+    err |= clSetKernelArg(hs_base_v_kernel_, arg_index++, sizeof(cl_mem), &guidance_buf);
+    err |= clSetKernelArg(hs_base_v_kernel_, arg_index++, sizeof(cl_mem), &src_buf);
+    err |= clSetKernelArg(hs_base_v_kernel_, arg_index++, sizeof(cl_mem), &dst_buf);
+    err |= clSetKernelArg(hs_base_v_kernel_, arg_index++, sizeof(cl_mem), &params_buffer);
+    err |= clSetKernelArg(hs_base_v_kernel_, arg_index++, sizeof(cl_int), &width);
+    err |= clSetKernelArg(hs_base_v_kernel_, arg_index++, sizeof(cl_int), &height);
+    if (err != CL_SUCCESS) {
+      throw std::runtime_error(
+          "OpenCL fused pipeline: failed to set H/S base vertical arguments.");
+    }
+
+    size_t global_size[2] = {static_cast<size_t>(width), static_cast<size_t>(height)};
+    err = clEnqueueNDRangeKernel(context.Queue(), hs_base_v_kernel_, 2, nullptr, global_size,
+                                 nullptr, 0, nullptr, nullptr);
+    if (err != CL_SUCCESS) {
+      throw std::runtime_error(
+          "OpenCL fused pipeline: failed to enqueue H/S base vertical kernel with error " +
+          std::to_string(err) + ".");
+    }
+  }
+
+  void EnqueueHsApplyLocalTone(const opencl::OpenClImage& src, opencl::OpenClImage& dst,
+                               bool use_reference_base) {
+    auto& context = OpenClContext::Instance();
+
+    dst.Create(src.Width(), src.Height(), src.Type());
+
+    cl_int  err              = CL_SUCCESS;
+    cl_uint arg_index        = 0;
+    cl_mem  src_buf          = src.Buffer();
+    cl_mem  base_buf         = hs_base_log_;
+    cl_mem  dst_buf          = dst.Buffer();
+    cl_mem  params_buffer    = resources_.params_buffer_.Get();
+    cl_int  width            = src.Width();
+    cl_int  height           = src.Height();
+    cl_int  base_width       = hs_cached_width_;
+    cl_int  base_height      = hs_cached_height_;
+    cl_int  base_pitch_elems = hs_cached_pitch_;
+    cl_int  use_reference    = use_reference_base ? 1 : 0;
+
+    err |= clSetKernelArg(hs_apply_kernel_, arg_index++, sizeof(cl_mem), &src_buf);
+    err |= clSetKernelArg(hs_apply_kernel_, arg_index++, sizeof(cl_mem), &base_buf);
+    err |= clSetKernelArg(hs_apply_kernel_, arg_index++, sizeof(cl_mem), &dst_buf);
+    err |= clSetKernelArg(hs_apply_kernel_, arg_index++, sizeof(cl_mem), &params_buffer);
+    err |= clSetKernelArg(hs_apply_kernel_, arg_index++, sizeof(cl_int), &width);
+    err |= clSetKernelArg(hs_apply_kernel_, arg_index++, sizeof(cl_int), &height);
+    err |= clSetKernelArg(hs_apply_kernel_, arg_index++, sizeof(cl_int), &base_width);
+    err |= clSetKernelArg(hs_apply_kernel_, arg_index++, sizeof(cl_int), &base_height);
+    err |= clSetKernelArg(hs_apply_kernel_, arg_index++, sizeof(cl_int), &base_pitch_elems);
+    err |= clSetKernelArg(hs_apply_kernel_, arg_index++, sizeof(cl_int), &use_reference);
+    if (err != CL_SUCCESS) {
+      throw std::runtime_error("OpenCL fused pipeline: failed to set H/S apply arguments.");
+    }
+
+    size_t global_size[2] = {static_cast<size_t>(width), static_cast<size_t>(height)};
+    err = clEnqueueNDRangeKernel(context.Queue(), hs_apply_kernel_, 2, nullptr, global_size,
+                                 nullptr, 0, nullptr, nullptr);
+    if (err != CL_SUCCESS) {
+      throw std::runtime_error("OpenCL fused pipeline: failed to enqueue H/S apply kernel with error " +
+                               std::to_string(err) + ".");
+    }
+  }
+
+  auto ShouldRunHighlightShadowLocalTone() const -> bool {
+    if (!fused_params_.hs_local_tone_enabled_ || fused_params_.hs_base_gaussian_tap_count_ <= 0) {
+      return false;
+    }
+    const float shadow_amount =
+        fused_params_.shadows_enabled_ ? std::clamp(fused_params_.shadows_offset_, -1.0f, 1.0f)
+                                       : 0.0f;
+    const float highlight_amount =
+        fused_params_.highlights_enabled_
+            ? std::clamp(-fused_params_.highlights_offset_ * 0.5f, -1.0f, 1.0f)
+            : 0.0f;
+    return std::abs(shadow_amount) > 1.0e-6f || std::abs(highlight_amount) > 1.0e-6f;
+  }
+
+  void EnqueueHighlightShadowLocalTone(const opencl::OpenClImage& src, opencl::OpenClImage& dst) {
+    const bool roi_frame_with_source_reference = fused_params_.render_roi_enabled_ &&
+                                                 fused_params_.render_roi_reference_width_ > 0 &&
+                                                 fused_params_.render_roi_reference_height_ > 0;
+    const bool reference_base_cache_valid =
+        hs_cached_reference_base_ && hs_base_log_ != nullptr &&
+        hs_cached_key_ == fused_params_.hs_mask_base_cache_key_ && hs_cached_width_ > 0 &&
+        hs_cached_height_ > 0 && hs_cached_pitch_ > 0;
+
+    if (roi_frame_with_source_reference && reference_base_cache_valid) {
+      EnqueueHsApplyLocalTone(src, dst, true);
+      return;
+    }
+    if (!roi_frame_with_source_reference && reference_base_cache_valid &&
+        (hs_cached_width_ > src.Width() || hs_cached_height_ > src.Height())) {
+      EnqueueHsApplyLocalTone(src, dst, true);
+      return;
+    }
+
+    EnsureHsBaseBuffers(src.Width(), src.Height());
+    const bool cache_valid = !roi_frame_with_source_reference && reference_base_cache_valid &&
+                             hs_cached_width_ == src.Width() && hs_cached_height_ == src.Height() &&
+                             hs_cached_pitch_ == src.Width();
+    if (!cache_valid) {
+      EnqueueHsBuildLogBaseHorizontal(src);
+      EnqueueHsBuildLogBaseVertical(src);
+      hs_cached_key_ = fused_params_.hs_mask_base_cache_key_;
+      hs_cached_width_ = src.Width();
+      hs_cached_height_ = src.Height();
+      hs_cached_pitch_ = src.Width();
+      hs_cached_reference_base_ = !roi_frame_with_source_reference;
+    }
+
+    EnqueueHsApplyLocalTone(src, dst, false);
   }
 
   auto ShouldRunSharpen() const -> bool {
@@ -567,10 +885,11 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
     }
 
     const auto neighbor_stages = BuildNeighborStages();
+    const bool run_hs_local_tone = ShouldRunHighlightShadowLocalTone();
 
     {
       const auto t0 = ProfileClock::now();
-      if (!neighbor_stages.empty()) {
+      if (run_hs_local_tone || !neighbor_stages.empty()) {
         EnsureDetailKernels();
       }
       ensure_kernels_ms =
@@ -581,7 +900,13 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
 
     {
       const auto t0 = ProfileClock::now();
-      EnqueueFusedKernel(input);
+      if (run_hs_local_tone) {
+        EnqueueFusedStageKernel(input, pre_hs_working_, 1);
+        EnqueueHighlightShadowLocalTone(pre_hs_working_, hs_working_);
+        EnqueueFusedStageKernel(hs_working_, working_, 2);
+      } else {
+        EnqueueFusedKernel(input);
+      }
       fused_kernel_ms = std::chrono::duration<double, std::milli>(ProfileClock::now() - t0).count();
     }
 
@@ -674,6 +999,10 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
       clReleaseKernel(fused_kernel_);
       fused_kernel_ = nullptr;
     }
+    if (fused_stage_kernel_ != nullptr) {
+      clReleaseKernel(fused_stage_kernel_);
+      fused_stage_kernel_ = nullptr;
+    }
     if (validate_kernel_ != nullptr) {
       clReleaseKernel(validate_kernel_);
       validate_kernel_ = nullptr;
@@ -686,9 +1015,24 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
       clReleaseKernel(apply_v_kernel_);
       apply_v_kernel_ = nullptr;
     }
+    if (hs_base_h_kernel_ != nullptr) {
+      clReleaseKernel(hs_base_h_kernel_);
+      hs_base_h_kernel_ = nullptr;
+    }
+    if (hs_base_v_kernel_ != nullptr) {
+      clReleaseKernel(hs_base_v_kernel_);
+      hs_base_v_kernel_ = nullptr;
+    }
+    if (hs_apply_kernel_ != nullptr) {
+      clReleaseKernel(hs_apply_kernel_);
+      hs_apply_kernel_ = nullptr;
+    }
     working_.Release();
+    pre_hs_working_.Release();
+    hs_working_.Release();
     blur_horizontal_.Release();
     detail_scratch_.Release();
+    ReleaseHsBaseBuffers();
     resources_.Reset();
   }
 };
