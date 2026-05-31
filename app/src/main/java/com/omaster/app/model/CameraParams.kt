@@ -84,7 +84,7 @@ data class CameraParams(
     val proMode: Boolean = true,
     
     // 哈苏认证与风格
-    val hasselbladHncs: Boolean = true,
+    val hasselblad_hncs: Boolean = true,
     val hasselbladNaturalColor: Boolean = true,
     val hasselbladMasterStyle: String = "",
     val hasselbladProMode: Boolean = true,
@@ -177,7 +177,7 @@ data class CameraParams(
             append(" · $shutter")
             if (ev != "+0.0" && ev != "0") append(" · EV $ev")
             append(" · $wb")
-            if (hasselbladHncs) append(" · HNCS")
+            if (hasselblad_hncs) append(" · HNCS")
         }
     }
     
@@ -198,7 +198,7 @@ data class CameraParams(
             "夜景模式" to if (nightMode) "开启" else "关闭",
             "人像模式" to if (portraitMode) "开启" else "关闭",
             "AI优化" to if (aiOptimization) "开启" else "关闭",
-            "哈苏HNCS" to if (hasselbladHncs) "认证" else "未认证",
+            "哈苏HNCS" to if (hasselblad_hncs) "认证" else "未认证",
             "哈苏风格" to hasselbladMasterStyle.ifEmpty { "默认" },
             "色彩科学" to hasselbladColorScience,
             "清晰度" to "$sharpness%",
@@ -224,7 +224,7 @@ data class CameraParams(
             "nightMode" to nightMode,
             "portraitMode" to portraitMode,
             "aiOptimization" to aiOptimization,
-            "hasselbladHncs" to hasselbladHncs,
+            "hasselblad_hncs" to hasselblad_hncs,
             "hasselbladNaturalColor" to hasselbladNaturalColor,
             "hasselbladMasterStyle" to hasselbladMasterStyle,
             "hasselbladColorScience" to hasselbladColorScience,
@@ -257,7 +257,7 @@ data class CameraParams(
                 nightMode = json["nightMode"] as? Boolean ?: false,
                 portraitMode = json["portraitMode"] as? Boolean ?: false,
                 aiOptimization = json["aiOptimization"] as? Boolean ?: true,
-                hasselbladHncs = json["hasselbladHncs"] as? Boolean ?: true,
+                hasselblad_hncs = json["hasselblad_hncs"] as? Boolean ?: true,
                 hasselbladNaturalColor = json["hasselbladNaturalColor"] as? Boolean ?: true,
                 hasselbladMasterStyle = json["hasselbladMasterStyle"] as? String ?: "",
                 hasselbladColorScience = json["hasselbladColorScience"] as? String ?: "HNCS 3.0",
@@ -278,7 +278,7 @@ data class CameraParams(
         fun defaultHasselbladMaster(): CameraParams {
             return CameraParams(
                 mode = CameraMode.HasselbladMaster.displayName,
-                hasselbladHncs = true,
+                hasselblad_hncs = true,
                 hasselbladNaturalColor = true,
                 hasselbladProMode = true,
                 hasselbladColorScience = "HNCS 3.0",
