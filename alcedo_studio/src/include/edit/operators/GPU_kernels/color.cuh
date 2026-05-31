@@ -201,6 +201,24 @@ GPU_FUNC float hs_texture_detail_weight(float detail) {
   return 1.0f - hls_oklch_smoothstep(0.28f, 0.88f, fabsf(detail));
 }
 
+GPU_FUNC float hs_lerp(float a, float b, float t) { return a + (b - a) * t; }
+
+GPU_FUNC float hs_llf_detail_mix(float detail) {
+  return 1.0f - hls_oklch_smoothstep(0.42f, 0.95f, fabsf(detail));
+}
+
+GPU_FUNC float hs_local_tone_mix(float detail, float local_delta, float source_delta) {
+  const float mag = fabsf(detail);
+  const float edge_weight = hls_oklch_smoothstep(0.62f, 1.55f, mag);
+  const float delta_mismatch =
+      hls_oklch_smoothstep(0.16f, 0.52f, fabsf(local_delta - source_delta));
+  const float guard = fminf(
+      fmaxf(edge_weight * (0.82f + 0.18f * delta_mismatch) + 0.18f * edge_weight * edge_weight,
+            0.0f),
+      1.0f);
+  return 1.0f - guard;
+}
+
 GPU_FUNC float hs_shadow_detail_preserve_weight(float detail) {
   const float mag = fabsf(detail);
   const float noise_gate = hls_oklch_smoothstep(0.045f, 0.15f, mag);
@@ -360,7 +378,8 @@ __global__ void HsBuildLogBaseHorizontalKernel(const float4* __restrict src,
   dst[offset] = base / fmaxf(weight_sum, 1.0e-6f);
 }
 
-__global__ void HsBuildLogBaseVerticalKernel(const float* __restrict src, float* __restrict dst,
+__global__ void HsBuildLogBaseVerticalKernel(const float4* __restrict guidance,
+                                             const float* __restrict src, float* __restrict dst,
                                              int width, int height, size_t pitch_elems,
                                              GPUOperatorParams params) {
   const int x = blockIdx.x * blockDim.x + threadIdx.x;
@@ -375,14 +394,21 @@ __global__ void HsBuildLogBaseVerticalKernel(const float* __restrict src, float*
   }
 
   const float center = src[offset];
+  const float center_guidance = hs_log2_luminance_from_acescc(guidance[offset]);
   float       base   = center * params.hs_base_gaussian_weights_[0];
   float       weight_sum = params.hs_base_gaussian_weights_[0];
   for (int tap = 1; tap < tap_count; ++tap) {
+    const int ay = min(y + tap, height - 1);
+    const int by = max(y - tap, 0);
     const float a = hs_read_log_clamped(src, x, y + tap, width, height, pitch_elems);
     const float b = hs_read_log_clamped(src, x, y - tap, width, height, pitch_elems);
+    const float ag = hs_log2_luminance_from_acescc(
+        guidance[static_cast<size_t>(ay) * pitch_elems + static_cast<size_t>(x)]);
+    const float bg = hs_log2_luminance_from_acescc(
+        guidance[static_cast<size_t>(by) * pitch_elems + static_cast<size_t>(x)]);
     const float spatial = params.hs_base_gaussian_weights_[tap];
-    const float aw      = spatial * hs_range_weight(center, a);
-    const float bw      = spatial * hs_range_weight(center, b);
+    const float aw      = spatial * hs_range_weight(center_guidance, ag);
+    const float bw      = spatial * hs_range_weight(center_guidance, bg);
     base += a * aw + b * bw;
     weight_sum += aw + bw;
   }
@@ -444,9 +470,16 @@ GPU_FUNC float4 hs_apply_local_tone_pixel(float4 px, float base, GPUOperatorPara
       0.025f * fmaxf(-shadow_amount, 0.0f) * shadow_detail_zone *
           fmaxf(base_contrast_loss, shadow_contrast_loss);
   const float highlight_detail_scale = -0.03f * fmaxf(highlight_amount, 0.0f) * highlight_mask;
-  const float detail_scale = fminf(
+  const float raw_detail_scale = fminf(
       1.24f, fmaxf(0.97f, (1.0f + shadow_detail_scale + highlight_detail_scale) * llf_detail_gain));
-  const float adjusted_log_y = base + base_delta + detail * detail_scale;
+  const float detail_scale = 1.0f + (raw_detail_scale - 1.0f) * hs_llf_detail_mix(detail);
+  const float local_delta = base_delta + detail * (detail_scale - 1.0f);
+  const float local_adjusted_log_y = source_log_y + local_delta;
+  const float source_delta =
+      hs_base_delta_from_ref(source_log_y, shadow_amount, highlight_amount, params);
+  const float source_adjusted_log_y = source_log_y + source_delta;
+  const float local_mix = hs_local_tone_mix(detail, local_delta, source_delta);
+  const float adjusted_log_y = hs_lerp(source_adjusted_log_y, local_adjusted_log_y, local_mix);
   const float log_delta = adjusted_log_y - source_log_y;
 
   const float rgb_scale = exp2f(fminf(fmaxf(log_delta, -3.5f), 3.5f));
@@ -675,8 +708,8 @@ struct GPU_HighlightShadowLocalToneStage {
     if (!cache_valid) {
       HsBuildLogBaseHorizontalKernel<<<grid, block, 0, stream>>>(src, temp_log_, width, height,
                                                                  pitch_elems, params);
-      HsBuildLogBaseVerticalKernel<<<grid, block, 0, stream>>>(temp_log_, base_log_, width, height,
-                                                               pitch_elems, params);
+      HsBuildLogBaseVerticalKernel<<<grid, block, 0, stream>>>(src, temp_log_, base_log_, width,
+                                                               height, pitch_elems, params);
       cached_key_ = params.hs_mask_base_cache_key_;
       cached_width_ = width;
       cached_height_ = height;
