@@ -113,7 +113,8 @@ class RhiImageRenderer {
   QRhiTexture*                placeholder_texture_      = nullptr;
   QRhiTexture*                bound_primary_texture_    = nullptr;
   QRhiTexture*                bound_detail_texture_     = nullptr;
-  QRhiSampler*                sampler_                  = nullptr;
+  QRhiSampler*                primary_sampler_          = nullptr;
+  QRhiSampler*                detail_sampler_           = nullptr;
   QRhiBuffer*                 uniform_buffer_           = nullptr;
   QRhiBuffer*                 vertex_buffer_            = nullptr;
   QRhiShaderResourceBindings* shader_resource_bindings_ = nullptr;

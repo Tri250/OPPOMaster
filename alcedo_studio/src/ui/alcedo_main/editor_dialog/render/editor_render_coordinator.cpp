@@ -143,7 +143,6 @@ void EditorRenderCoordinator::TriggerDetailPreviewRenderFromViewport() {
   }
 
   ++detail_serial_;
-  viewer->SetExpectedDetailToken(preview_generation_, detail_serial_);
 
   AdjustmentState snapshot = *dependencies_.state;
   snapshot.type_           = RenderType::DETAIL_ROI_PREVIEW;
@@ -225,12 +224,13 @@ void EditorRenderCoordinator::PollInflight() {
     return;
   }
 
+  bool render_succeeded = false;
   try {
-    (void)inflight_future_->get();
+    render_succeeded = static_cast<bool>(inflight_future_->get());
   } catch (...) {
   }
   inflight_future_.reset();
-  OnRenderFinished();
+  OnRenderFinished(render_succeeded);
 }
 
 void EditorRenderCoordinator::StartNext() {
@@ -299,7 +299,7 @@ void EditorRenderCoordinator::StartNext() {
   }
 }
 
-void EditorRenderCoordinator::OnRenderFinished() {
+void EditorRenderCoordinator::OnRenderFinished(bool render_succeeded) {
   inflight_ = false;
 
   if (auto* spinner = CurrentSpinner()) {
@@ -316,11 +316,23 @@ void EditorRenderCoordinator::OnRenderFinished() {
     }
   }
 
-  if (finished_request.has_value() &&
+  if (render_succeeded && finished_request.has_value() &&
       finished_request->state_.type_ == RenderType::QUALITY_BASE_PREVIEW &&
       finished_request->frame_metadata_.preview_generation == preview_generation_) {
     latest_quality_base_generation_ready_ = preview_generation_;
+    if (callbacks_.clear_full_frame_preview_after_geometry_commit) {
+      callbacks_.clear_full_frame_preview_after_geometry_commit();
+    }
     MaybeScheduleDetailPreviewRenderFromViewport();
+  }
+
+  if (render_succeeded && finished_request.has_value() &&
+      finished_request->state_.type_ == RenderType::DETAIL_ROI_PREVIEW &&
+      finished_request->frame_metadata_.preview_generation == preview_generation_) {
+    if (auto* viewer = CurrentViewer()) {
+      viewer->SetExpectedDetailToken(finished_request->frame_metadata_.preview_generation,
+                                     finished_request->frame_metadata_.detail_serial);
+    }
   }
 
   if (pending_quality_base_render_request_.has_value() ||

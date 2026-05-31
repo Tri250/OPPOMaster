@@ -187,4 +187,56 @@ TEST(CropRotateOpTests, ResizeOpScalesViewportOriginFromReferenceDimensions) {
   EXPECT_FLOAT_EQ(output.at<cv::Vec3f>(0, 0)[1], 20.0f);
 }
 
+TEST(CropRotateOpTests, ResizeOpKeepsRoiNativeSizeWhenScaleDisabled) {
+  cv::Mat image(100, 200, CV_32FC3, cv::Scalar(0.0f, 0.0f, 0.0f));
+
+  nlohmann::json params;
+  params["resize"] = {{"enable_scale", false},
+                      {"maximum_edge", 10},
+                      {"enable_roi", true},
+                      {"downsample_algorithm", "inter_area"},
+                      {"roi",
+                       {{"x", 0},
+                        {"y", 0},
+                        {"resize_factor_x", 0.5f},
+                        {"resize_factor_y", 0.5f},
+                        {"resize_factor", 0.5f},
+                        {"reference_width", 200},
+                        {"reference_height", 100}}}};
+
+  ResizeOp op(params);
+  auto     buffer = std::make_shared<ImageBuffer>(std::move(image));
+  op.Apply(buffer);
+  const auto& output = buffer->GetCPUData();
+
+  EXPECT_EQ(output.cols, 100);
+  EXPECT_EQ(output.rows, 50);
+}
+
+TEST(CropRotateOpTests, ResizeOpDoesNotUpsampleRoiWhenTargetExceedsNativeSize) {
+  cv::Mat image(100, 200, CV_32FC3, cv::Scalar(0.0f, 0.0f, 0.0f));
+
+  nlohmann::json params;
+  params["resize"] = {{"enable_scale", true},
+                      {"maximum_edge", 400},
+                      {"enable_roi", true},
+                      {"downsample_algorithm", "inter_area"},
+                      {"roi",
+                       {{"x", 0},
+                        {"y", 0},
+                        {"resize_factor_x", 0.5f},
+                        {"resize_factor_y", 0.5f},
+                        {"resize_factor", 0.5f},
+                        {"reference_width", 200},
+                        {"reference_height", 100}}}};
+
+  ResizeOp op(params);
+  auto     buffer = std::make_shared<ImageBuffer>(std::move(image));
+  op.Apply(buffer);
+  const auto& output = buffer->GetCPUData();
+
+  EXPECT_EQ(output.cols, 100);
+  EXPECT_EQ(output.rows, 50);
+}
+
 }  // namespace alcedo

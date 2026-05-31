@@ -214,6 +214,14 @@ struct FusedOperatorParams {
   float hs_highlight_log_pivot_ = -0.20f;
   float hs_highlight_log_width_ = 1.15f;
   std::uint64_t hs_mask_base_cache_key_ = 0;
+  std::uint64_t render_source_cache_key_ = 0;
+  bool  render_roi_enabled_ = false;
+  int   render_roi_x_ = 0;
+  int   render_roi_y_ = 0;
+  float render_roi_scale_x_ = 1.0f;
+  float render_roi_scale_y_ = 1.0f;
+  int   render_roi_reference_width_ = 0;
+  int   render_roi_reference_height_ = 0;
 
   bool  white_enabled_          = true;
   float white_point_            = 1.0f;
@@ -369,6 +377,14 @@ class FusedParamsConverter {
     fused.hs_highlight_log_pivot_ = cpu_params.hs_highlight_log_pivot_;
     fused.hs_highlight_log_width_ = cpu_params.hs_highlight_log_width_;
     fused.hs_mask_base_cache_key_ = BuildHsMaskBaseCacheKey(cpu_params);
+    fused.render_source_cache_key_ = cpu_params.render_source_cache_key_;
+    fused.render_roi_enabled_ = cpu_params.render_roi_enabled_;
+    fused.render_roi_x_ = cpu_params.render_roi_x_;
+    fused.render_roi_y_ = cpu_params.render_roi_y_;
+    fused.render_roi_scale_x_ = cpu_params.render_roi_scale_x_;
+    fused.render_roi_scale_y_ = cpu_params.render_roi_scale_y_;
+    fused.render_roi_reference_width_ = cpu_params.render_roi_reference_width_;
+    fused.render_roi_reference_height_ = cpu_params.render_roi_reference_height_;
     fused.white_enabled_          = cpu_params.white_enabled_;
     fused.white_point_            = cpu_params.white_point_;
     fused.black_enabled_          = cpu_params.black_enabled_;
@@ -687,6 +703,7 @@ class FusedParamsConverter {
     HashCombine(key, FloatBits(params.hs_shadow_log_width_));
     HashCombine(key, FloatBits(params.hs_highlight_log_pivot_));
     HashCombine(key, FloatBits(params.hs_highlight_log_width_));
+    HashCombine(key, params.render_source_cache_key_);
     return key;
   }
 };

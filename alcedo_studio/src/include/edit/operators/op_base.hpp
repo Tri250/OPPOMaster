@@ -137,6 +137,17 @@ struct OperatorParams {
   float                        hs_highlight_log_width_ = 1.15f;
   std::uint64_t                hs_mask_base_cache_key_ = 0;
 
+  // Runtime render context used by CUDA local H/S to keep a stable full-frame
+  // base/mask reference while DETAIL_ROI frames are rendered at viewport scale.
+  std::uint64_t                render_source_cache_key_ = 0;
+  bool                         render_roi_enabled_ = false;
+  int                          render_roi_x_ = 0;
+  int                          render_roi_y_ = 0;
+  float                        render_roi_scale_x_ = 1.0f;
+  float                        render_roi_scale_y_ = 1.0f;
+  int                          render_roi_reference_width_ = 0;
+  int                          render_roi_reference_height_ = 0;
+
   // White and Black point adjustment parameters
   bool                         white_enabled_            = true;
   float                        white_point_              = 1.0f;

@@ -119,6 +119,8 @@ EditorDialog::EditorDialog(std::shared_ptr<ImagePoolService>       image_pool,
           .active_panel = [this]() { return active_panel_; },
           .needs_full_frame_preview_after_geometry_commit =
               [this]() { return frame_manager_.NeedsFullFramePreviewAfterGeometryCommit(); },
+          .clear_full_frame_preview_after_geometry_commit =
+              [this]() { frame_manager_.ClearNeedsFullFramePreviewAfterGeometryCommit(); },
           .apply_state_to_pipeline =
               [this](const AdjustmentState& render_state) { ApplyStateToPipeline(render_state); },
           .refresh_color_temp_runtime_state =

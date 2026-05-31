@@ -30,6 +30,8 @@ struct ViewportRenderRegion {
   float scale_y_      = 1.0f;
   int   reference_width_ = 0;
   int   reference_height_ = 0;
+  int   target_width_ = 0;
+  int   target_height_ = 0;
 };
 
 enum class FrameRole {

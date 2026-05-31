@@ -77,6 +77,20 @@ auto IsResizeEffectivelyNoOp(const IOperatorBase& op, int width, int height) -> 
   const bool  enable_scale = resize.value("enable_scale", false);
   const bool  enable_roi   = resize.value("enable_roi", false);
   const int   maximum_edge = resize.value("maximum_edge", 2048);
+  bool        roi_is_full_frame = !enable_roi;
+
+  if (enable_roi) {
+    if (!resize.contains("roi") || !resize["roi"].is_object()) {
+      return false;
+    }
+    const auto& roi = resize["roi"];
+    const float factor = roi.value("resize_factor", 1.0f);
+    const float factor_x = roi.value("resize_factor_x", factor);
+    const float factor_y = roi.value("resize_factor_y", factor);
+    roi_is_full_frame =
+        roi.value("x", 0) == 0 && roi.value("y", 0) == 0 &&
+        factor_x >= (1.0f - 1e-4f) && factor_y >= (1.0f - 1e-4f);
+  }
 
   if (!enable_scale && !enable_roi) {
     return true;
@@ -86,7 +100,8 @@ auto IsResizeEffectivelyNoOp(const IOperatorBase& op, int width, int height) -> 
     return false;
   }
 
-  return std::max(width, height) <= maximum_edge;
+  const bool scale_is_noop = !enable_scale || std::max(width, height) <= maximum_edge;
+  return roi_is_full_frame && scale_is_noop;
 }
 
 auto IsCropRotateEffectivelyNoOp(const IOperatorBase& op) -> bool {

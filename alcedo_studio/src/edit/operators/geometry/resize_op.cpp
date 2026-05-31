@@ -96,7 +96,11 @@ auto BuildResizePlan(int w, int h, bool enable_scale, int maximum_edge, bool ena
   plan.roi_rect = cv::Rect(roi_x, roi_y, roi_w, roi_h);
 
   const float roi_scale =
-      std::min(1.0f, static_cast<float>(maximum_edge) / static_cast<float>(std::max(roi_w, roi_h)));
+      enable_scale
+          ? std::min(1.0f,
+                     static_cast<float>(std::max(1, maximum_edge)) /
+                         static_cast<float>(std::max(roi_w, roi_h)))
+          : 1.0f;
   if (roi_scale < (1.0f - kScaleEpsilon)) {
     plan.output_size =
         cv::Size(std::max(1, static_cast<int>(std::lround(static_cast<float>(roi_w) * roi_scale))),

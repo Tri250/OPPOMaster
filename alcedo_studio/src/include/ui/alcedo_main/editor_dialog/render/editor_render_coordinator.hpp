@@ -42,6 +42,7 @@ class EditorRenderCoordinator {
     std::function<SpinnerWidget*()>     spinner;
     std::function<ControlPanelKind()>   active_panel;
     std::function<bool()>               needs_full_frame_preview_after_geometry_commit;
+    std::function<void()>               clear_full_frame_preview_after_geometry_commit;
     std::function<void(const AdjustmentState&)> apply_state_to_pipeline;
     std::function<bool()>               refresh_color_temp_runtime_state;
     std::function<void()>               sync_color_temp_controls;
@@ -76,7 +77,7 @@ class EditorRenderCoordinator {
   void EnsurePollTimer();
   void PollInflight();
   void StartNext();
-  void OnRenderFinished();
+  void OnRenderFinished(bool render_succeeded);
 
  private:
   static constexpr std::chrono::milliseconds kQualityPreviewDebounceInterval =

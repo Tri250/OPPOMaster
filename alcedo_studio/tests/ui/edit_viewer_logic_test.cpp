@@ -46,8 +46,26 @@ TEST(EditViewerLogicTests, ViewportRenderRegionCarriesReferenceSizeForDetailPrev
   ASSERT_TRUE(region.has_value());
   EXPECT_EQ(region->reference_width_, 4096);
   EXPECT_EQ(region->reference_height_, 3072);
+  EXPECT_EQ(region->target_width_, 800);
+  EXPECT_EQ(region->target_height_, 600);
   EXPECT_LT(region->scale_x_, 1.0f);
   EXPECT_LT(region->scale_y_, 1.0f);
+}
+
+TEST(EditViewerLogicTests, ViewportRenderRegionTargetsVisibleImagePixels) {
+  const ViewportWidgetInfo widget_info{800, 600, 2.0f};
+
+  const auto fit_region = ViewportMapper::ComputeViewportRenderRegion(
+      widget_info, 1.0f, QVector2D(0.0f, 0.0f), 4000, 2000);
+  ASSERT_TRUE(fit_region.has_value());
+  EXPECT_EQ(fit_region->target_width_, 1600);
+  EXPECT_EQ(fit_region->target_height_, 800);
+
+  const auto zoom_region = ViewportMapper::ComputeViewportRenderRegion(
+      widget_info, 2.0f, QVector2D(0.0f, 0.0f), 4000, 2000);
+  ASSERT_TRUE(zoom_region.has_value());
+  EXPECT_EQ(zoom_region->target_width_, 1600);
+  EXPECT_EQ(zoom_region->target_height_, 1200);
 }
 
 TEST(EditViewerLogicTests, CropGeometryAspectLockedDiagonalPreservesRatio) {

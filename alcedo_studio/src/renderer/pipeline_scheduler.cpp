@@ -4,10 +4,13 @@
 
 #include "renderer/pipeline_scheduler.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <exception>
+#include <functional>
 #include <memory>
 #include <mutex>
+#include <string>
 
 #include "utils/profiler/profiler.hpp"
 #include "image/image_buffer.hpp"
@@ -20,7 +23,6 @@ constexpr float kRotationPreviewEpsilon = 1e-4f;
 constexpr float kFullFrameRegionEpsilon = 1e-4f;
 constexpr int   kFastPreviewMaxLongEdge = 2560;
 constexpr int   kQualityBasePreviewMaxLongEdge = 4096;
-constexpr int   kDetailRoiPreviewMaxLongEdge = 4096;
 constexpr int   kFullResPreviewMaxLongEdge = 8192;
 
 auto HasActiveGeometryRotation(const std::shared_ptr<CPUPipelineExecutor>& pipeline_executor)
@@ -97,6 +99,68 @@ auto HasActiveCudaHighlightShadowLocalTone(
          HasActiveBasicAdjustment(pipeline_executor, OperatorType::HIGHLIGHTS, "highlights");
 }
 
+void HashCombine(std::uint64_t& seed, std::uint64_t value) {
+  seed ^= value + 0x9e3779b97f4a7c15ULL + (seed << 6U) + (seed >> 2U);
+}
+
+void HashJson(std::uint64_t& seed, const nlohmann::json& value) {
+  HashCombine(seed, std::hash<std::string>{}(value.dump()));
+}
+
+void HashStageOperator(std::uint64_t& seed,
+                       const std::shared_ptr<CPUPipelineExecutor>& pipeline_executor,
+                       PipelineStageName stage_name, OperatorType op_type) {
+  if (!pipeline_executor) {
+    return;
+  }
+
+  auto& stage = pipeline_executor->GetStage(stage_name);
+  const auto entry = stage.GetOperator(op_type);
+  if (!entry.has_value() || entry.value() == nullptr) {
+    HashCombine(seed, 0);
+    return;
+  }
+
+  const auto* op_entry = entry.value();
+  HashCombine(seed, op_entry->enable_ ? 1 : 0);
+  if (op_entry->op_) {
+    HashJson(seed, op_entry->op_->GetParams());
+  }
+}
+
+auto BuildRenderSourceCacheKey(const PipelineTask& task) -> std::uint64_t {
+  std::uint64_t key = 0xa44b4e45f2f8891fULL;
+  bool has_stable_source_identity = false;
+  if (task.pipeline_executor_) {
+    const auto bound_file = task.pipeline_executor_->GetBoundFile();
+    HashCombine(key, static_cast<std::uint64_t>(bound_file));
+    has_stable_source_identity = bound_file != 0;
+  }
+  if (task.input_desc_) {
+    if (task.input_desc_->image_id_ != 0) {
+      HashCombine(key, static_cast<std::uint64_t>(task.input_desc_->image_id_));
+      has_stable_source_identity = true;
+    }
+    if (!task.input_desc_->image_path_.empty()) {
+      HashCombine(key, std::hash<std::wstring>{}(task.input_desc_->image_path_.wstring()));
+      has_stable_source_identity = true;
+    }
+  }
+  if (!has_stable_source_identity) {
+    HashCombine(key,
+                static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(task.input_.get())));
+    HashCombine(key, static_cast<std::uint64_t>(
+                         reinterpret_cast<std::uintptr_t>(task.input_desc_.get())));
+  }
+  HashStageOperator(key, task.pipeline_executor_, PipelineStageName::Image_Loading,
+                    OperatorType::RAW_DECODE);
+  HashStageOperator(key, task.pipeline_executor_, PipelineStageName::Image_Loading,
+                    OperatorType::LENS_CALIBRATION);
+  HashStageOperator(key, task.pipeline_executor_, PipelineStageName::Geometry_Adjustment,
+                    OperatorType::CROP_ROTATE);
+  return key;
+}
+
 auto BuildSourceRoiRect(const std::optional<ViewportRenderRegion>& viewport_region, int region_x,
                         int region_y, float region_scale_x, float region_scale_y) -> FrameRoiRect {
   if (viewport_region.has_value() && viewport_region->reference_width_ > 0 &&
@@ -113,6 +177,13 @@ auto BuildSourceRoiRect(const std::optional<ViewportRenderRegion>& viewport_regi
     };
   }
   return {0.0f, 0.0f, 1.0f, 1.0f};
+}
+
+auto ViewportTargetLongEdge(const std::optional<ViewportRenderRegion>& viewport_region) -> int {
+  if (!viewport_region.has_value()) {
+    return 0;
+  }
+  return std::max(viewport_region->target_width_, viewport_region->target_height_);
 }
 
 auto MetadataFromRegion(const FramePreviewMetadata& base_metadata,
@@ -140,6 +211,7 @@ void PipelineTask::SetExecutorRenderParams() {
     return;
   }
   pipeline_executor_->SetCancelRequested(cancel_requested_);
+  pipeline_executor_->GetGlobalParams().render_source_cache_key_ = BuildRenderSourceCacheKey(*this);
   auto& desc = options_.render_desc_;
   const auto requested_render_type = desc.render_type_;
 
@@ -149,9 +221,8 @@ void PipelineTask::SetExecutorRenderParams() {
   const bool rotation_active_fast_preview =
       (requested_render_type == RenderType::FAST_PREVIEW) &&
       HasActiveGeometryRotation(pipeline_executor_);
-  const bool local_tone_active_preview =
-      (requested_render_type == RenderType::FAST_PREVIEW ||
-       requested_render_type == RenderType::DETAIL_ROI_PREVIEW) &&
+  const bool local_tone_active_fast_preview =
+      requested_render_type == RenderType::FAST_PREVIEW &&
       HasActiveCudaHighlightShadowLocalTone(pipeline_executor_);
 
   int   region_x       = desc.x_;
@@ -167,7 +238,7 @@ void PipelineTask::SetExecutorRenderParams() {
   const auto viewport_region =
       LoadViewportRegion(pipeline_executor_, viewport_region_render &&
                                                 !rotation_active_fast_preview &&
-                                                !local_tone_active_preview);
+                                                !local_tone_active_fast_preview);
   if (viewport_region.has_value()) {
     region_x       = viewport_region->x_;
     region_y       = viewport_region->y_;
@@ -184,7 +255,7 @@ void PipelineTask::SetExecutorRenderParams() {
     const bool full_frame_region = region_x == 0 && region_y == 0 &&
                                    region_scale_x >= (1.0f - kFullFrameRegionEpsilon) &&
                                    region_scale_y >= (1.0f - kFullFrameRegionEpsilon);
-    if (rotation_active_fast_preview || local_tone_active_preview || full_frame_region) {
+    if (rotation_active_fast_preview || local_tone_active_fast_preview || full_frame_region) {
       // Rotation preview should use a downsampled full frame so viewport coordinates
       // stay aligned with the rotated result. CUDA local tone also needs the same
       // full-frame neighborhood reference across fast/quality preview transitions.
@@ -229,20 +300,6 @@ void PipelineTask::SetExecutorRenderParams() {
     return;
   }
   if (requested_render_type == RenderType::DETAIL_ROI_PREVIEW) {
-    if (local_tone_active_preview) {
-      frame_metadata.frame_role      = FrameRole::QualityBase;
-      frame_metadata.source_roi_norm = {};
-      pipeline_executor_->SetNextFramePresentationMode(FramePresentationMode::ViewportTransformed);
-      pipeline_executor_->SetNextFramePreviewMetadata(frame_metadata);
-      pipeline_executor_->SetResizeDownsampleAlgorithm(ResizeDownsampleAlgorithm::Area);
-      pipeline_executor_->SetRenderRegion(0, 0, 1.0f, 1.0f);
-      pipeline_executor_->SetRenderRes(false, kDetailRoiPreviewMaxLongEdge);
-      pipeline_executor_->SetForceCPUOutput(false);
-      pipeline_executor_->SetEnableCache(true);
-      pipeline_executor_->SetDecodeRes(DecodeRes::FULL);
-      return;
-    }
-
     frame_metadata.frame_role =
         (region_scale_x < (1.0f - 1e-4f) || region_scale_y < (1.0f - 1e-4f))
             ? FrameRole::DetailPatch
@@ -255,7 +312,12 @@ void PipelineTask::SetExecutorRenderParams() {
     pipeline_executor_->SetResizeDownsampleAlgorithm(ResizeDownsampleAlgorithm::Area);
     pipeline_executor_->SetRenderRegion(region_x, region_y, region_scale_x, region_scale_y,
                                         region_reference_width, region_reference_height);
-    pipeline_executor_->SetRenderRes(false, kDetailRoiPreviewMaxLongEdge);
+    const int detail_target_long_edge = ViewportTargetLongEdge(viewport_region);
+    if (detail_target_long_edge > 0) {
+      pipeline_executor_->SetRenderRes(false, detail_target_long_edge);
+    } else {
+      pipeline_executor_->SetRenderRes(true);
+    }
     pipeline_executor_->SetForceCPUOutput(false);
     pipeline_executor_->SetEnableCache(true);
     pipeline_executor_->SetDecodeRes(DecodeRes::FULL);

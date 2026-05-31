@@ -137,6 +137,12 @@ auto ViewportMapper::ComputeViewportRenderRegion(const ViewportWidgetInfo& widge
 
   const ViewportImageInfo base_image{base_width, base_height};
   const auto              scale = ComputeLetterboxScale(widget_info, base_image);
+  const float             dpr = std::max(widget_info.device_pixel_ratio, 1e-4f);
+  const float             viewport_width =
+      std::max(1.0f, static_cast<float>(widget_info.widget_width) * dpr);
+  const float             viewport_height =
+      std::max(1.0f, static_cast<float>(widget_info.widget_height) * dpr);
+  const float             clamped_zoom = std::max(zoom, 1e-4f);
   const float inv_x = 1.0f / (scale.x * std::max(zoom, 1e-4f));
   const float inv_y = 1.0f / (scale.y * std::max(zoom, 1e-4f));
 
@@ -160,6 +166,17 @@ auto ViewportMapper::ComputeViewportRenderRegion(const ViewportWidgetInfo& widge
 
   const float roi_factor_x = std::clamp(u_max - u_min, 1e-4f, 1.0f);
   const float roi_factor_y = std::clamp(v_max - v_min, 1e-4f, 1.0f);
+
+  const float image_ndc_min_x = pan.x() - (scale.x * clamped_zoom);
+  const float image_ndc_max_x = pan.x() + (scale.x * clamped_zoom);
+  const float image_ndc_min_y = pan.y() - (scale.y * clamped_zoom);
+  const float image_ndc_max_y = pan.y() + (scale.y * clamped_zoom);
+  const float visible_ndc_min_x = std::max(-1.0f, image_ndc_min_x);
+  const float visible_ndc_max_x = std::min(1.0f, image_ndc_max_x);
+  const float visible_ndc_min_y = std::max(-1.0f, image_ndc_min_y);
+  const float visible_ndc_max_y = std::min(1.0f, image_ndc_max_y);
+  const float visible_ndc_width = std::max(0.0f, visible_ndc_max_x - visible_ndc_min_x);
+  const float visible_ndc_height = std::max(0.0f, visible_ndc_max_y - visible_ndc_min_y);
 
   const int roi_w = std::clamp(
       static_cast<int>(std::lround(static_cast<float>(base_width) * roi_factor_x)), 1, base_width);
@@ -185,6 +202,12 @@ auto ViewportMapper::ComputeViewportRenderRegion(const ViewportWidgetInfo& widge
                                1.0f);
   region.reference_width_ = base_width;
   region.reference_height_ = base_height;
+  region.target_width_ = std::clamp(
+      static_cast<int>(std::ceil((visible_ndc_width * 0.5f) * viewport_width)), 1,
+      static_cast<int>(std::ceil(viewport_width)));
+  region.target_height_ = std::clamp(
+      static_cast<int>(std::ceil((visible_ndc_height * 0.5f) * viewport_height)), 1,
+      static_cast<int>(std::ceil(viewport_height)));
   return region;
 }
 

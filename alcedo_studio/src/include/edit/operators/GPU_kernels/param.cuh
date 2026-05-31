@@ -347,6 +347,14 @@ struct GPUOperatorParams {
   float                hs_highlight_log_pivot_ = -0.20f;
   float                hs_highlight_log_width_ = 1.15f;
   std::uint64_t        hs_mask_base_cache_key_ = 0;
+  std::uint64_t        render_source_cache_key_ = 0;
+  bool                 render_roi_enabled_ = false;
+  int                  render_roi_x_ = 0;
+  int                  render_roi_y_ = 0;
+  float                render_roi_scale_x_ = 1.0f;
+  float                render_roi_scale_y_ = 1.0f;
+  int                  render_roi_reference_width_ = 0;
+  int                  render_roi_reference_height_ = 0;
 
   // White and Black point adjustment parameters
   bool                 white_enabled_          = true;
@@ -539,6 +547,14 @@ class CudaFusedParamUploader {
     gpu_params.hs_highlight_log_pivot_ = fused_params.hs_highlight_log_pivot_;
     gpu_params.hs_highlight_log_width_ = fused_params.hs_highlight_log_width_;
     gpu_params.hs_mask_base_cache_key_ = fused_params.hs_mask_base_cache_key_;
+    gpu_params.render_source_cache_key_ = fused_params.render_source_cache_key_;
+    gpu_params.render_roi_enabled_ = fused_params.render_roi_enabled_;
+    gpu_params.render_roi_x_ = fused_params.render_roi_x_;
+    gpu_params.render_roi_y_ = fused_params.render_roi_y_;
+    gpu_params.render_roi_scale_x_ = fused_params.render_roi_scale_x_;
+    gpu_params.render_roi_scale_y_ = fused_params.render_roi_scale_y_;
+    gpu_params.render_roi_reference_width_ = fused_params.render_roi_reference_width_;
+    gpu_params.render_roi_reference_height_ = fused_params.render_roi_reference_height_;
 
     gpu_params.white_enabled_          = fused_params.white_enabled_;
     gpu_params.white_point_            = fused_params.white_point_;

@@ -691,7 +691,8 @@ void RhiImageRenderer::releaseResources() {
   destroyResource(shader_resource_bindings_);
   destroyResource(vertex_buffer_);
   destroyResource(uniform_buffer_);
-  destroyResource(sampler_);
+  destroyResource(primary_sampler_);
+  destroyResource(detail_sampler_);
   destroyResource(interactive_texture_);
   destroyResource(quality_base_texture_);
   destroyResource(detail_patch_texture_);
@@ -1012,10 +1013,18 @@ void RhiImageRenderer::ensureStaticResources(QRhiRenderTarget* render_target,
     static_upload_pending_ = true;
   }
 
-  if (!sampler_) {
-    sampler_ = rhi_->newSampler(QRhiSampler::Linear, QRhiSampler::Linear, QRhiSampler::None,
-                                QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge);
-    sampler_->create();
+  if (!primary_sampler_) {
+    primary_sampler_ = rhi_->newSampler(QRhiSampler::Linear, QRhiSampler::Linear,
+                                        QRhiSampler::None, QRhiSampler::ClampToEdge,
+                                        QRhiSampler::ClampToEdge);
+    primary_sampler_->create();
+  }
+
+  if (!detail_sampler_) {
+    detail_sampler_ = rhi_->newSampler(QRhiSampler::Nearest, QRhiSampler::Nearest,
+                                       QRhiSampler::None, QRhiSampler::ClampToEdge,
+                                       QRhiSampler::ClampToEdge);
+    detail_sampler_->create();
   }
 
   if (!uniform_buffer_) {
@@ -1325,6 +1334,12 @@ auto RhiImageRenderer::hasVisibleDetailPatch(const ViewerViewState& view_state) 
     return false;
   }
 
+  const auto current_viewport_roi =
+      BuildNormalizedViewportRoi(view_state.snapshot.viewport_render_region_cache);
+  if (!current_viewport_roi.has_value() || !RoiRectsMatch(roi, *current_viewport_roi)) {
+    return false;
+  }
+
   const float expected_aspect =
       (static_cast<float>(quality.width) * roi.width) /
       (static_cast<float>(quality.height) * roi.height);
@@ -1396,7 +1411,8 @@ auto RhiImageRenderer::selectedRenderState(const ViewerViewState& view_state) co
 
 void RhiImageRenderer::recreateShaderResources() {
   destroyResource(shader_resource_bindings_);
-  if (!rhi_ || !uniform_buffer_ || !sampler_ || !bound_primary_texture_ || !bound_detail_texture_) {
+  if (!rhi_ || !uniform_buffer_ || !primary_sampler_ || !detail_sampler_ ||
+      !bound_primary_texture_ || !bound_detail_texture_) {
     return;
   }
 
@@ -1407,9 +1423,9 @@ void RhiImageRenderer::recreateShaderResources() {
            QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
            uniform_buffer_),
        QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage,
-                                                 bound_primary_texture_, sampler_),
+                                                 bound_primary_texture_, primary_sampler_),
        QRhiShaderResourceBinding::sampledTexture(2, QRhiShaderResourceBinding::FragmentStage,
-                                                 bound_detail_texture_, sampler_)});
+                                                 bound_detail_texture_, detail_sampler_)});
   shader_resource_bindings_->create();
   destroyResource(pipeline_);
 }

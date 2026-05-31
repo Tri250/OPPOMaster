@@ -5,13 +5,20 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <exception>
+#include <filesystem>
 #include <memory>
 #include <mutex>
 #include <thread>
 #include <vector>
 
+#include <opencv2/core.hpp>
+
 #include "edit/operators/operator_registeration.hpp"
 #include "edit/pipeline/pipeline_cpu.hpp"
+#include "edit/pipeline/pipeline_stage.hpp"
+#include "image/image.hpp"
+#include "image/image_buffer.hpp"
 #include "renderer/pipeline_scheduler.hpp"
 #include "renderer/pipeline_task.hpp"
 #include "ui/edit_viewer/frame_sink.hpp"
@@ -49,7 +56,7 @@ class MockFrameSink final : public IFrameSink {
 
   auto GetViewportRenderRegion() const -> std::optional<ViewportRenderRegion> override {
     viewport_render_region_calls_++;
-    return std::nullopt;
+    return viewport_render_region_;
   }
 
   int GetWidth() const override { return width_; }
@@ -69,6 +76,7 @@ class MockFrameSink final : public IFrameSink {
 
   FramePresentationMode last_mode_{FramePresentationMode::FullFrame};
   FramePreviewMetadata  last_metadata_{};
+  std::optional<ViewportRenderRegion> viewport_render_region_{};
 
  private:
   int width_  = 0;
@@ -125,6 +133,169 @@ TEST_F(PipelineFrameSinkTest, GetViewportRenderRegionReturnsNulloptWhenSinkIsDet
   auto exec = std::make_shared<CPUPipelineExecutor>();
 
   EXPECT_EQ(exec->GetViewportRenderRegion(), std::nullopt);
+}
+
+TEST_F(PipelineFrameSinkTest, RenderRegionCropsEvenWhenScaleIsFullRes) {
+  cv::Mat image(100, 200, CV_32FC3);
+  for (int y = 0; y < image.rows; ++y) {
+    for (int x = 0; x < image.cols; ++x) {
+      image.at<cv::Vec3f>(y, x) =
+          cv::Vec3f(static_cast<float>(x), static_cast<float>(y), 0.0f);
+    }
+  }
+
+  nlohmann::json params;
+  params["resize"] = {{"enable_scale", false},
+                      {"maximum_edge", 4096},
+                      {"enable_roi", true},
+                      {"downsample_algorithm", "inter_area"},
+                      {"roi",
+                       {{"x", 50},
+                        {"y", 20},
+                        {"resize_factor_x", 0.5f},
+                        {"resize_factor_y", 0.5f},
+                        {"resize_factor", 0.5f},
+                        {"reference_width", 200},
+                        {"reference_height", 100}}}};
+
+  PipelineStage stage(PipelineStageName::Geometry_Adjustment,
+                      /*enable_cache=*/true,
+                      /*is_streamable=*/false);
+  stage.SetOperator(OperatorType::RESIZE, params);
+  stage.SetInputImage(std::make_shared<ImageBuffer>(std::move(image)));
+
+  OperatorParams global_params;
+  auto           result = stage.ApplyStage(global_params);
+  ASSERT_TRUE(result);
+  const auto& output = result->GetCPUData();
+
+  ASSERT_EQ(output.cols, 100);
+  ASSERT_EQ(output.rows, 50);
+  EXPECT_FLOAT_EQ(output.at<cv::Vec3f>(0, 0)[0], 50.0f);
+  EXPECT_FLOAT_EQ(output.at<cv::Vec3f>(0, 0)[1], 20.0f);
+}
+
+TEST_F(PipelineFrameSinkTest, DetailRoiPreviewUsesViewportTargetPixelsAsMaxEdge) {
+  auto          exec = std::make_shared<CPUPipelineExecutor>();
+  MockFrameSink sink;
+  exec->SetExecutionStages(&sink);
+
+  sink.viewport_render_region_ = ViewportRenderRegion{
+      .x_                = 1200,
+      .y_                = 600,
+      .scale_x_          = 0.25f,
+      .scale_y_          = 0.2f,
+      .reference_width_  = 6000,
+      .reference_height_ = 4000,
+      .target_width_     = 1800,
+      .target_height_    = 1200,
+  };
+
+  PipelineTask task;
+  task.pipeline_executor_ = exec;
+  task.options_.render_desc_.render_type_ = RenderType::DETAIL_ROI_PREVIEW;
+  task.options_.render_desc_.use_viewport_region_ = true;
+  task.options_.render_desc_.frame_metadata_.preview_generation = 7;
+
+  task.SetExecutorRenderParams();
+
+  const auto resize_entry =
+      exec->GetStage(PipelineStageName::Geometry_Adjustment).GetOperator(OperatorType::RESIZE);
+  ASSERT_TRUE(resize_entry.has_value());
+  ASSERT_NE(resize_entry.value(), nullptr);
+  ASSERT_NE(resize_entry.value()->op_, nullptr);
+
+  const auto params = resize_entry.value()->op_->GetParams();
+  ASSERT_TRUE(params.contains("resize"));
+  const auto& resize = params["resize"];
+  EXPECT_TRUE(resize.value("enable_scale", false));
+  EXPECT_EQ(resize.value("maximum_edge", 0), 1800);
+  EXPECT_TRUE(resize.value("enable_roi", false));
+  ASSERT_TRUE(resize.contains("roi"));
+  const auto& roi = resize["roi"];
+  EXPECT_EQ(roi.value("x", 0), 1200);
+  EXPECT_EQ(roi.value("y", 0), 600);
+  EXPECT_FLOAT_EQ(roi.value("resize_factor_x", 0.0f), 0.25f);
+  EXPECT_FLOAT_EQ(roi.value("resize_factor_y", 0.0f), 0.2f);
+  EXPECT_EQ(roi.value("reference_width", 0), 6000);
+  EXPECT_EQ(roi.value("reference_height", 0), 4000);
+}
+
+TEST_F(PipelineFrameSinkTest, ActiveCudaHighlightShadowKeepsDetailRoiPreviewAsPatch) {
+  auto          exec = std::make_shared<CPUPipelineExecutor>();
+  MockFrameSink sink;
+  exec->SetExecutionStages(&sink);
+
+  try {
+    exec->SetAcceleratorBackendPreference(AcceleratorBackendPreference::CUDA);
+  } catch (const std::exception& e) {
+    GTEST_SKIP() << "CUDA backend unavailable: " << e.what();
+  }
+
+  auto& basic = exec->GetStage(PipelineStageName::Basic_Adjustment);
+  basic.SetOperator(OperatorType::SHADOWS, {{"shadows", 40.0f}}, exec->GetGlobalParams());
+
+  sink.viewport_render_region_ = ViewportRenderRegion{
+      .x_                = 900,
+      .y_                = 450,
+      .scale_x_          = 0.2f,
+      .scale_y_          = 0.2f,
+      .reference_width_  = 6000,
+      .reference_height_ = 4000,
+      .target_width_     = 2200,
+      .target_height_    = 1500,
+  };
+
+  PipelineTask task;
+  task.pipeline_executor_ = exec;
+  task.options_.render_desc_.render_type_ = RenderType::DETAIL_ROI_PREVIEW;
+  task.options_.render_desc_.use_viewport_region_ = true;
+  task.options_.render_desc_.frame_metadata_.preview_generation = 8;
+
+  task.SetExecutorRenderParams();
+
+  EXPECT_GT(sink.viewport_render_region_calls_, 0);
+  EXPECT_EQ(sink.last_metadata_.frame_role, FrameRole::DetailPatch);
+  EXPECT_NEAR(sink.last_metadata_.source_roi_norm.x, 0.15f, 1.0e-5f);
+  EXPECT_NEAR(sink.last_metadata_.source_roi_norm.y, 0.1125f, 1.0e-5f);
+  EXPECT_NEAR(sink.last_metadata_.source_roi_norm.width, 0.2f, 1.0e-5f);
+  EXPECT_NEAR(sink.last_metadata_.source_roi_norm.height, 0.2f, 1.0e-5f);
+
+  const auto resize_entry =
+      exec->GetStage(PipelineStageName::Geometry_Adjustment).GetOperator(OperatorType::RESIZE);
+  ASSERT_TRUE(resize_entry.has_value());
+  ASSERT_NE(resize_entry.value(), nullptr);
+  ASSERT_NE(resize_entry.value()->op_, nullptr);
+
+  const auto params = resize_entry.value()->op_->GetParams();
+  ASSERT_TRUE(params.contains("resize"));
+  const auto& resize = params["resize"];
+  EXPECT_TRUE(resize.value("enable_roi", false));
+  EXPECT_TRUE(resize.value("enable_scale", false));
+  EXPECT_EQ(resize.value("maximum_edge", 0), 2200);
+}
+
+TEST_F(PipelineFrameSinkTest, RenderSourceCacheKeyUsesStableImageIdentityBeforeBufferPointer) {
+  auto image = std::make_shared<Image>(42, std::filesystem::path(L"D:/photos/source.dng"),
+                                       ImageType::DNG);
+
+  PipelineTask first;
+  first.pipeline_executor_ = std::make_shared<CPUPipelineExecutor>();
+  first.input_desc_ = image;
+  first.input_ = std::make_shared<ImageBuffer>(cv::Mat(4, 4, CV_32FC3));
+  first.options_.render_desc_.render_type_ = RenderType::QUALITY_BASE_PREVIEW;
+  first.SetExecutorRenderParams();
+  const auto first_key = first.pipeline_executor_->GetGlobalParams().render_source_cache_key_;
+
+  PipelineTask second;
+  second.pipeline_executor_ = std::make_shared<CPUPipelineExecutor>();
+  second.input_desc_ = image;
+  second.input_ = std::make_shared<ImageBuffer>(cv::Mat(4, 4, CV_32FC3));
+  second.options_.render_desc_.render_type_ = RenderType::DETAIL_ROI_PREVIEW;
+  second.SetExecutorRenderParams();
+  const auto second_key = second.pipeline_executor_->GetGlobalParams().render_source_cache_key_;
+
+  EXPECT_EQ(first_key, second_key);
 }
 
 // =========================================================================

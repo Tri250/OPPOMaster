@@ -208,15 +208,6 @@ class GPU_KernelLauncher {
     size_t width  = gpu_mat.cols;
     size_t height = gpu_mat.rows;
     GPUOperatorParams frame_params = params_;
-    {
-      auto hash_combine = [](std::uint64_t& seed, std::uint64_t value) {
-        seed ^= value + 0x9e3779b97f4a7c15ULL + (seed << 6U) + (seed >> 2U);
-      };
-      hash_combine(frame_params.hs_mask_base_cache_key_,
-                   static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(input_img_.get())));
-      hash_combine(frame_params.hs_mask_base_cache_key_, static_cast<std::uint64_t>(width));
-      hash_combine(frame_params.hs_mask_base_cache_key_, static_cast<std::uint64_t>(height));
-    }
 
     if (frame_sink_) {
       const auto ensure_size_start = std::chrono::steady_clock::now();

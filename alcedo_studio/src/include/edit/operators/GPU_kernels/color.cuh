@@ -398,30 +398,18 @@ __global__ void HsCopyThroughKernel(const float4* __restrict src, float4* __rest
   dst[offset]         = src[offset];
 }
 
-__global__ void HsApplyLocalToneKernel(const float4* __restrict src,
-                                       const float* __restrict base_log, float4* __restrict dst,
-                                       int width, int height, size_t pitch_elems,
-                                       GPUOperatorParams params) {
-  const int x = blockIdx.x * blockDim.x + threadIdx.x;
-  const int y = blockIdx.y * blockDim.y + threadIdx.y;
-  if (x >= width || y >= height) return;
-
-  const size_t offset = static_cast<size_t>(y) * pitch_elems + static_cast<size_t>(x);
-  const float4 px     = src[offset];
-
+GPU_FUNC float4 hs_apply_local_tone_pixel(float4 px, float base, GPUOperatorParams params) {
   const float shadow_amount =
       (params.shadows_enabled_) ? fminf(fmaxf(params.shadows_offset_, -1.0f), 1.0f) : 0.0f;
   const float highlight_amount =
       (params.highlights_enabled_) ? fminf(fmaxf(-params.highlights_offset_ * 0.5f, -1.0f), 1.0f)
                                    : 0.0f;
   if (fabsf(shadow_amount) <= 1.0e-6f && fabsf(highlight_amount) <= 1.0e-6f) {
-    dst[offset] = px;
-    return;
+    return px;
   }
 
   const float3 source_ap1 = hls_oklch_acescc_to_ap1(make_float3(px.x, px.y, px.z));
   const float  source_log_y  = log2f(fmaxf(hs_ap1_luminance(source_ap1), 1.0e-8f));
-  const float  base          = base_log[offset];
   const float  detail        = source_log_y - base;
   const float  mask_ref      = base;
   float        shadow_mask = 0.0f;
@@ -466,7 +454,82 @@ __global__ void HsApplyLocalToneKernel(const float4* __restrict src,
       make_float3(source_ap1.x * rgb_scale, source_ap1.y * rgb_scale, source_ap1.z * rgb_scale);
   const float3 output_acescc = hls_oklch_ap1_to_acescc(output_ap1);
 
-  dst[offset] = make_float4(output_acescc.x, output_acescc.y, output_acescc.z, px.w);
+  return make_float4(output_acescc.x, output_acescc.y, output_acescc.z, px.w);
+}
+
+GPU_FUNC float hs_read_base_bilinear(const float* __restrict base_log, int width, int height,
+                                     size_t pitch_elems, float x, float y) {
+  const float clamped_x = fminf(fmaxf(x, 0.0f), static_cast<float>(width - 1));
+  const float clamped_y = fminf(fmaxf(y, 0.0f), static_cast<float>(height - 1));
+  const int   x0 = min(max(static_cast<int>(floorf(clamped_x)), 0), width - 1);
+  const int   y0 = min(max(static_cast<int>(floorf(clamped_y)), 0), height - 1);
+  const int   x1 = min(x0 + 1, width - 1);
+  const int   y1 = min(y0 + 1, height - 1);
+  const float tx = clamped_x - static_cast<float>(x0);
+  const float ty = clamped_y - static_cast<float>(y0);
+
+  const float v00 = base_log[static_cast<size_t>(y0) * pitch_elems + static_cast<size_t>(x0)];
+  const float v10 = base_log[static_cast<size_t>(y0) * pitch_elems + static_cast<size_t>(x1)];
+  const float v01 = base_log[static_cast<size_t>(y1) * pitch_elems + static_cast<size_t>(x0)];
+  const float v11 = base_log[static_cast<size_t>(y1) * pitch_elems + static_cast<size_t>(x1)];
+  const float vx0 = v00 + (v10 - v00) * tx;
+  const float vx1 = v01 + (v11 - v01) * tx;
+  return vx0 + (vx1 - vx0) * ty;
+}
+
+__global__ void HsApplyLocalToneKernel(const float4* __restrict src,
+                                       const float* __restrict base_log, float4* __restrict dst,
+                                       int width, int height, size_t pitch_elems,
+                                       GPUOperatorParams params) {
+  const int x = blockIdx.x * blockDim.x + threadIdx.x;
+  const int y = blockIdx.y * blockDim.y + threadIdx.y;
+  if (x >= width || y >= height) return;
+
+  const size_t offset = static_cast<size_t>(y) * pitch_elems + static_cast<size_t>(x);
+  dst[offset] = hs_apply_local_tone_pixel(src[offset], base_log[offset], params);
+}
+
+__global__ void HsApplyLocalToneFromReferenceBaseKernel(
+    const float4* __restrict src, const float* __restrict base_log, float4* __restrict dst,
+    int width, int height, size_t pitch_elems, int base_width, int base_height,
+    size_t base_pitch_elems, GPUOperatorParams params) {
+  const int x = blockIdx.x * blockDim.x + threadIdx.x;
+  const int y = blockIdx.y * blockDim.y + threadIdx.y;
+  if (x >= width || y >= height) return;
+
+  const float reference_width =
+      static_cast<float>(max(params.render_roi_reference_width_, width));
+  const float reference_height =
+      static_cast<float>(max(params.render_roi_reference_height_, height));
+  const float roi_origin_x =
+      params.render_roi_enabled_ ? static_cast<float>(params.render_roi_x_) : 0.0f;
+  const float roi_origin_y =
+      params.render_roi_enabled_ ? static_cast<float>(params.render_roi_y_) : 0.0f;
+  const float roi_width = params.render_roi_enabled_
+                              ? fmaxf(params.render_roi_scale_x_ * reference_width, 1.0f)
+                              : reference_width;
+  const float roi_height = params.render_roi_enabled_
+                               ? fmaxf(params.render_roi_scale_y_ * reference_height, 1.0f)
+                               : reference_height;
+  const float reference_x = roi_origin_x +
+                            ((static_cast<float>(x) + 0.5f) * roi_width /
+                             fmaxf(static_cast<float>(width), 1.0f)) -
+                            0.5f;
+  const float reference_y = roi_origin_y +
+                            ((static_cast<float>(y) + 0.5f) * roi_height /
+                             fmaxf(static_cast<float>(height), 1.0f)) -
+                            0.5f;
+  const float base_x = ((reference_x + 0.5f) * static_cast<float>(base_width) /
+                        fmaxf(reference_width, 1.0f)) -
+                       0.5f;
+  const float base_y = ((reference_y + 0.5f) * static_cast<float>(base_height) /
+                        fmaxf(reference_height, 1.0f)) -
+                       0.5f;
+
+  const size_t offset = static_cast<size_t>(y) * pitch_elems + static_cast<size_t>(x);
+  const float base =
+      hs_read_base_bilinear(base_log, base_width, base_height, base_pitch_elems, base_x, base_y);
+  dst[offset] = hs_apply_local_tone_pixel(src[offset], base, params);
 }
 
 struct GPU_HighlightShadowLocalToneStage {
@@ -477,6 +540,7 @@ struct GPU_HighlightShadowLocalToneStage {
   int           cached_height_    = 0;
   size_t        cached_pitch_     = 0;
   std::uint64_t cached_key_       = 0;
+  bool          cached_reference_base_ = false;
 
   GPU_HighlightShadowLocalToneStage() = default;
 
@@ -494,7 +558,8 @@ struct GPU_HighlightShadowLocalToneStage {
         cached_width_(other.cached_width_),
         cached_height_(other.cached_height_),
         cached_pitch_(other.cached_pitch_),
-        cached_key_(other.cached_key_) {
+        cached_key_(other.cached_key_),
+        cached_reference_base_(other.cached_reference_base_) {
     other.base_log_ = nullptr;
     other.temp_log_ = nullptr;
     other.allocated_elems_ = 0;
@@ -502,6 +567,7 @@ struct GPU_HighlightShadowLocalToneStage {
     other.cached_height_ = 0;
     other.cached_pitch_ = 0;
     other.cached_key_ = 0;
+    other.cached_reference_base_ = false;
   }
 
   GPU_HighlightShadowLocalToneStage& operator=(GPU_HighlightShadowLocalToneStage&& other) noexcept {
@@ -514,6 +580,7 @@ struct GPU_HighlightShadowLocalToneStage {
       cached_height_ = other.cached_height_;
       cached_pitch_ = other.cached_pitch_;
       cached_key_ = other.cached_key_;
+      cached_reference_base_ = other.cached_reference_base_;
       other.base_log_ = nullptr;
       other.temp_log_ = nullptr;
       other.allocated_elems_ = 0;
@@ -521,6 +588,7 @@ struct GPU_HighlightShadowLocalToneStage {
       other.cached_height_ = 0;
       other.cached_pitch_ = 0;
       other.cached_key_ = 0;
+      other.cached_reference_base_ = false;
     }
     return *this;
   }
@@ -541,6 +609,7 @@ struct GPU_HighlightShadowLocalToneStage {
     cached_height_ = 0;
     cached_pitch_ = 0;
     cached_key_ = 0;
+    cached_reference_base_ = false;
   }
 
   void EnsureBuffers(int height, size_t pitch_elems) {
@@ -554,6 +623,7 @@ struct GPU_HighlightShadowLocalToneStage {
     cached_height_ = 0;
     cached_pitch_ = 0;
     cached_key_ = 0;
+    cached_reference_base_ = false;
   }
 
   void Dispatch(float4* src, float4* dst, int width, int height, size_t pitch_elems,
@@ -577,10 +647,31 @@ struct GPU_HighlightShadowLocalToneStage {
       return;
     }
 
+    const bool roi_frame_with_source_reference =
+        params.render_roi_enabled_ && params.render_roi_reference_width_ > 0 &&
+        params.render_roi_reference_height_ > 0;
+    const bool reference_base_cache_valid =
+        cached_reference_base_ && base_log_ != nullptr &&
+        cached_key_ == params.hs_mask_base_cache_key_ && cached_width_ > 0 &&
+        cached_height_ > 0 && cached_pitch_ > 0;
+    if (roi_frame_with_source_reference && reference_base_cache_valid) {
+      HsApplyLocalToneFromReferenceBaseKernel<<<grid, block, 0, stream>>>(
+          src, base_log_, dst, width, height, pitch_elems, cached_width_, cached_height_,
+          cached_pitch_, params);
+      return;
+    }
+    if (!roi_frame_with_source_reference && reference_base_cache_valid &&
+        (cached_width_ > width || cached_height_ > height)) {
+      HsApplyLocalToneFromReferenceBaseKernel<<<grid, block, 0, stream>>>(
+          src, base_log_, dst, width, height, pitch_elems, cached_width_, cached_height_,
+          cached_pitch_, params);
+      return;
+    }
+
     EnsureBuffers(height, pitch_elems);
-    const bool cache_valid = cached_key_ == params.hs_mask_base_cache_key_ &&
-                             cached_width_ == width && cached_height_ == height &&
-                             cached_pitch_ == pitch_elems;
+    const bool cache_valid =
+        !roi_frame_with_source_reference && reference_base_cache_valid && cached_width_ == width &&
+        cached_height_ == height && cached_pitch_ == pitch_elems;
     if (!cache_valid) {
       HsBuildLogBaseHorizontalKernel<<<grid, block, 0, stream>>>(src, temp_log_, width, height,
                                                                  pitch_elems, params);
@@ -590,6 +681,7 @@ struct GPU_HighlightShadowLocalToneStage {
       cached_width_ = width;
       cached_height_ = height;
       cached_pitch_ = pitch_elems;
+      cached_reference_base_ = !roi_frame_with_source_reference;
     }
 
     HsApplyLocalToneKernel<<<grid, block, 0, stream>>>(src, base_log_, dst, width, height,
