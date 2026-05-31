@@ -1,7 +1,11 @@
 package com.omaster.app.viewmodel
 
+import androidx.lifecycle.LiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.omaster.app.camera.CameraCompatibilityStatus
+import com.omaster.app.camera.CameraParamProvider
+import com.omaster.app.camera.RealTimeCameraParams
 import com.omaster.app.data.PreferencesDataStore
 import com.omaster.app.data.ThemeMode
 import com.omaster.app.data.PresetRepository
@@ -17,7 +21,8 @@ import javax.inject.Inject
 @HiltViewModel
 class MainViewModel @Inject constructor(
     private val repository: PresetRepository,
-    private val preferencesDataStore: PreferencesDataStore
+    private val preferencesDataStore: PreferencesDataStore,
+    private val cameraParamProvider: CameraParamProvider
 ) : ViewModel() {
     val presets = repository.presets
     val themeMode = preferencesDataStore.themeMode
@@ -32,6 +37,10 @@ class MainViewModel @Inject constructor(
 
     private val _selectedPreset = MutableStateFlow<Preset?>(null)
     val selectedPreset: StateFlow<Preset?> = _selectedPreset.asStateFlow()
+
+    // Camera related
+    val cameraStatus: LiveData<CameraCompatibilityStatus> = cameraParamProvider.status
+    val cameraParams: LiveData<RealTimeCameraParams> = cameraParamProvider.params
 
     fun onSearchQueryChanged(query: String) {
         _searchQuery.value = query
@@ -78,6 +87,22 @@ class MainViewModel @Inject constructor(
             Timber.d("Overlay enabled: $enabled")
         }
     }
+
+    // Camera related functions
+    fun startCameraMonitor() {
+        cameraParamProvider.startMonitor()
+        Timber.d("Camera monitor started")
+    }
+
+    fun stopCameraMonitor() {
+        cameraParamProvider.stopMonitor()
+        Timber.d("Camera monitor stopped")
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        cameraParamProvider.release()
+    }
 }
 
 enum class FilterType {
@@ -85,5 +110,7 @@ enum class FilterType {
     FAVORITES,
     HNCS,
     FIND_X,
-    RENO
+    RENO,
+    NEW,
+    TRENDING
 }

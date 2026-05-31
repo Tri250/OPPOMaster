@@ -1,6 +1,13 @@
 package com.omaster.app.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -19,9 +26,12 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import com.omaster.app.model.Preset
 import com.omaster.app.model.SceneType
@@ -29,6 +39,7 @@ import com.omaster.app.service.AiService
 import com.omaster.app.ui.components.PresetCard
 import com.omaster.app.ui.theme.*
 import kotlinx.coroutines.launch
+import java.io.File
 
 @Composable
 fun SceneDetectionScreen(
@@ -39,12 +50,118 @@ fun SceneDetectionScreen(
     onFavoriteToggle: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var isDetecting by remember { mutableStateOf(false) }
     var detectedScene by remember { mutableStateOf<SceneType?>(null) }
     var recommendedPresets by remember { mutableStateOf<List<Preset>>(emptyList()) }
-    var selectedImage by remember { mutableStateOf<String?>(null) }
-
+    var selectedImage by remember { mutableStateOf<Uri?>(null) }
+    var showImageSourceDialog by remember { mutableStateOf(false) }
+    var tempCameraUri by remember { mutableStateOf<Uri?>(null) }
+    
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            showImageSourceDialog = true
+        }
+    }
+    
+    val galleryLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let { 
+            selectedImage = it
+            detectedScene = null
+            recommendedPresets = emptyList()
+        }
+    }
+    
+    val cameraLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success && tempCameraUri != null) {
+            selectedImage = tempCameraUri
+            detectedScene = null
+            recommendedPresets = emptyList()
+        }
+    }
+    
+    fun createTempCameraFile(): Uri {
+        val tempFile = File.createTempFile(
+            "camera_photo_",
+            ".jpg",
+            context.cacheDir
+        )
+        return FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            tempFile
+        )
+    }
+    
+    fun checkAndRequestPermission() {
+        val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Manifest.permission.READ_MEDIA_IMAGES
+        } else {
+            Manifest.permission.READ_EXTERNAL_STORAGE
+        }
+        
+        when {
+            ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED -> {
+                showImageSourceDialog = true
+            }
+            else -> {
+                permissionLauncher.launch(permission)
+            }
+        }
+    }
+    
+    if (showImageSourceDialog) {
+        AlertDialog(
+            onDismissRequest = { showImageSourceDialog = false },
+            title = {
+                Text(
+                    text = "选择图片来源",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    ImageSourceOption(
+                        icon = Icons.Default.PhotoLibrary,
+                        title = "从相册选择",
+                        subtitle = "选择已拍摄的照片",
+                        onClick = {
+                            showImageSourceDialog = false
+                            galleryLauncher.launch("image/*")
+                        }
+                    )
+                    ImageSourceOption(
+                        icon = Icons.Default.CameraAlt,
+                        title = "拍照",
+                        subtitle = "使用相机拍摄",
+                        onClick = {
+                            showImageSourceDialog = false
+                            tempCameraUri = createTempCameraFile()
+                            tempCameraUri?.let { cameraLauncher.launch(it) }
+                        }
+                    )
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showImageSourceDialog = false }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+    
     Scaffold(
         modifier = modifier,
         containerColor = DeepSpace,
@@ -81,18 +198,17 @@ fun SceneDetectionScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             ImageSelectionArea(
-                selectedImage = selectedImage,
-                onSelectImage = { 
-                    selectedImage = "https://picsum.photos/seed/selected_${System.currentTimeMillis()}/800/600"
-                }
+                selectedImage = selectedImage?.toString(),
+                onSelectImage = { checkAndRequestPermission() }
             )
 
             Button(
                 onClick = {
                     scope.launch {
                         isDetecting = true
-                        detectedScene = aiService.detectScene(selectedImage)
-                        recommendedPresets = aiService.getRecommendedPresets(detectedScene!!, allPresets)
+                        val scene = aiService.detectScene(selectedImage?.toString())
+                        detectedScene = scene
+                        recommendedPresets = aiService.getRecommendedPresets(scene, allPresets)
                         isDetecting = false
                     }
                 },
@@ -156,6 +272,51 @@ fun SceneDetectionScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ImageSourceOption(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(CircleShape)
+                .background(AccentPrimary.copy(alpha = 0.1f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = title,
+                tint = AccentPrimary,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+        Column {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
