@@ -61,44 +61,6 @@ auto HasActiveGeometryRotation(const std::shared_ptr<CPUPipelineExecutor>& pipel
   return std::abs(angle) > kRotationPreviewEpsilon;
 }
 
-auto HasActiveBasicAdjustment(const std::shared_ptr<CPUPipelineExecutor>& pipeline_executor,
-                              OperatorType op_type, const char* param_name) -> bool {
-  if (!pipeline_executor) {
-    return false;
-  }
-
-  auto& basic_stage = pipeline_executor->GetStage(PipelineStageName::Basic_Adjustment);
-  const auto op = basic_stage.GetOperator(op_type);
-  if (!op.has_value() || op.value() == nullptr) {
-    return false;
-  }
-
-  const auto* entry = op.value();
-  if (!entry->enable_ || !entry->op_) {
-    return false;
-  }
-
-  try {
-    const auto params = entry->op_->GetParams();
-    if (params.is_object() && params.contains(param_name)) {
-      return std::abs(params[param_name].get<float>()) > 1e-4f;
-    }
-  } catch (...) {
-  }
-  return false;
-}
-
-auto HasActiveCudaHighlightShadowLocalTone(
-    const std::shared_ptr<CPUPipelineExecutor>& pipeline_executor) -> bool {
-  if (!pipeline_executor ||
-      pipeline_executor->GetResolvedAcceleratorBackend() != GpuBackendKind::CUDA) {
-    return false;
-  }
-
-  return HasActiveBasicAdjustment(pipeline_executor, OperatorType::SHADOWS, "shadows") ||
-         HasActiveBasicAdjustment(pipeline_executor, OperatorType::HIGHLIGHTS, "highlights");
-}
-
 void HashCombine(std::uint64_t& seed, std::uint64_t value) {
   seed ^= value + 0x9e3779b97f4a7c15ULL + (seed << 6U) + (seed >> 2U);
 }
@@ -221,9 +183,6 @@ void PipelineTask::SetExecutorRenderParams() {
   const bool rotation_active_fast_preview =
       (requested_render_type == RenderType::FAST_PREVIEW) &&
       HasActiveGeometryRotation(pipeline_executor_);
-  const bool local_tone_active_fast_preview =
-      requested_render_type == RenderType::FAST_PREVIEW &&
-      HasActiveCudaHighlightShadowLocalTone(pipeline_executor_);
 
   int   region_x       = desc.x_;
   int   region_y       = desc.y_;
@@ -237,8 +196,7 @@ void PipelineTask::SetExecutorRenderParams() {
       desc.use_viewport_region_;
   const auto viewport_region =
       LoadViewportRegion(pipeline_executor_, viewport_region_render &&
-                                                !rotation_active_fast_preview &&
-                                                !local_tone_active_fast_preview);
+                                                !rotation_active_fast_preview);
   if (viewport_region.has_value()) {
     region_x       = viewport_region->x_;
     region_y       = viewport_region->y_;
@@ -255,10 +213,9 @@ void PipelineTask::SetExecutorRenderParams() {
     const bool full_frame_region = region_x == 0 && region_y == 0 &&
                                    region_scale_x >= (1.0f - kFullFrameRegionEpsilon) &&
                                    region_scale_y >= (1.0f - kFullFrameRegionEpsilon);
-    if (rotation_active_fast_preview || local_tone_active_fast_preview || full_frame_region) {
+    if (rotation_active_fast_preview || full_frame_region) {
       // Rotation preview should use a downsampled full frame so viewport coordinates
-      // stay aligned with the rotated result. CUDA local tone also needs the same
-      // full-frame neighborhood reference across fast/quality preview transitions.
+      // stay aligned with the rotated result.
       pipeline_executor_->SetNextFramePresentationMode(FramePresentationMode::ViewportTransformed);
       frame_metadata.source_roi_norm = {};
       pipeline_executor_->SetNextFramePreviewMetadata(frame_metadata);

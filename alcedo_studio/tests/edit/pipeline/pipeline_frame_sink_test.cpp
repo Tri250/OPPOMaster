@@ -275,6 +275,69 @@ TEST_F(PipelineFrameSinkTest, ActiveCudaHighlightShadowKeepsDetailRoiPreviewAsPa
   EXPECT_EQ(resize.value("maximum_edge", 0), 2200);
 }
 
+TEST_F(PipelineFrameSinkTest, ActiveCudaHighlightShadowKeepsFastPreviewAsRoiFrame) {
+  auto          exec = std::make_shared<CPUPipelineExecutor>();
+  MockFrameSink sink;
+  exec->SetExecutionStages(&sink);
+
+  try {
+    exec->SetAcceleratorBackendPreference(AcceleratorBackendPreference::CUDA);
+  } catch (const std::exception& e) {
+    GTEST_SKIP() << "CUDA backend unavailable: " << e.what();
+  }
+
+  auto& basic = exec->GetStage(PipelineStageName::Basic_Adjustment);
+  basic.SetOperator(OperatorType::HIGHLIGHTS, {{"highlights", -35.0f}}, exec->GetGlobalParams());
+
+  sink.viewport_render_region_ = ViewportRenderRegion{
+      .x_                = 600,
+      .y_                = 400,
+      .scale_x_          = 0.3f,
+      .scale_y_          = 0.25f,
+      .reference_width_  = 5000,
+      .reference_height_ = 3000,
+      .target_width_     = 1600,
+      .target_height_    = 1200,
+  };
+
+  PipelineTask task;
+  task.pipeline_executor_ = exec;
+  task.options_.render_desc_.render_type_ = RenderType::FAST_PREVIEW;
+  task.options_.render_desc_.use_viewport_region_ = true;
+  task.options_.render_desc_.frame_metadata_.preview_generation = 9;
+
+  task.SetExecutorRenderParams();
+
+  EXPECT_GT(sink.viewport_render_region_calls_, 0);
+  EXPECT_EQ(sink.last_mode_, FramePresentationMode::RoiFrame);
+  EXPECT_EQ(sink.last_metadata_.frame_role, FrameRole::InteractivePrimary);
+  EXPECT_NEAR(sink.last_metadata_.source_roi_norm.x, 0.12f, 1.0e-5f);
+  EXPECT_NEAR(sink.last_metadata_.source_roi_norm.y, 0.13333334f, 1.0e-5f);
+  EXPECT_NEAR(sink.last_metadata_.source_roi_norm.width, 0.3f, 1.0e-5f);
+  EXPECT_NEAR(sink.last_metadata_.source_roi_norm.height, 0.25f, 1.0e-5f);
+
+  const auto resize_entry =
+      exec->GetStage(PipelineStageName::Geometry_Adjustment).GetOperator(OperatorType::RESIZE);
+  ASSERT_TRUE(resize_entry.has_value());
+  ASSERT_NE(resize_entry.value(), nullptr);
+  ASSERT_NE(resize_entry.value()->op_, nullptr);
+
+  const auto params = resize_entry.value()->op_->GetParams();
+  ASSERT_TRUE(params.contains("resize"));
+  const auto& resize = params["resize"];
+  EXPECT_TRUE(resize.value("enable_roi", false));
+  EXPECT_TRUE(resize.value("enable_scale", false));
+  EXPECT_EQ(resize.value("maximum_edge", 0), 2560);
+  ASSERT_TRUE(resize.contains("roi"));
+  const auto& roi = resize["roi"];
+  EXPECT_EQ(roi.value("x", 0), 600);
+  EXPECT_EQ(roi.value("y", 0), 400);
+  EXPECT_FLOAT_EQ(roi.value("resize_factor_x", 0.0f), 0.3f);
+  EXPECT_FLOAT_EQ(roi.value("resize_factor_y", 0.0f), 0.25f);
+  EXPECT_EQ(roi.value("reference_width", 0), 5000);
+  EXPECT_EQ(roi.value("reference_height", 0), 3000);
+}
+
 TEST_F(PipelineFrameSinkTest, RenderSourceCacheKeyUsesStableImageIdentityBeforeBufferPointer) {
   auto image = std::make_shared<Image>(42, std::filesystem::path(L"D:/photos/source.dng"),
                                        ImageType::DNG);

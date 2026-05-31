@@ -25,7 +25,6 @@
 #include <QStringList>
 #include <QWidget>
 #include <QWindow>
-
 #include <array>
 #include <atomic>
 #include <cstring>
@@ -61,7 +60,7 @@ constexpr const char* kFragmentShaderResource = ":/shaders/edit_viewer/rhi_image
 #if defined(Q_OS_WIN)
 constexpr auto kAcceleratorBackendKey = "gpu/acceleratorBackend";
 
-auto ShouldUseOpenClRhiBackend() -> bool {
+auto           ShouldUseOpenClRhiBackend() -> bool {
   return QSettings{}
              .value(QLatin1String(kAcceleratorBackendKey))
              .toString()
@@ -72,10 +71,10 @@ auto ShouldUseOpenClRhiBackend() -> bool {
 #if defined(Q_OS_WIN) && (defined(HAVE_CUDA) || defined(HAVE_OPENCL))
 using Microsoft::WRL::ComPtr;
 
-constexpr size_t kRgba32fPixelBytes = sizeof(float) * 4U;
+constexpr size_t kRgba32fPixelBytes      = sizeof(float) * 4U;
 constexpr size_t kDirectPresentSlotCount = 3U;
 
-auto IsValidSlotIndex(int slot_index, size_t slot_count) -> bool {
+auto             IsValidSlotIndex(int slot_index, size_t slot_count) -> bool {
   return slot_index >= 0 && slot_index < static_cast<int>(slot_count);
 }
 
@@ -114,11 +113,11 @@ auto GetCudaDeviceLuid(int cuda_device) -> std::optional<LUID> {
     return std::nullopt;
   }
 
-  cudaDeviceProp prop{};
+  cudaDeviceProp    prop{};
   const cudaError_t prop_err = cudaGetDeviceProperties(&prop, cuda_device);
   if (prop_err != cudaSuccess) {
-    qWarning("RhiEditViewerSurface: cudaGetDeviceProperties failed for device %d: %s",
-             cuda_device, cudaGetErrorString(prop_err));
+    qWarning("RhiEditViewerSurface: cudaGetDeviceProperties failed for device %d: %s", cuda_device,
+             cudaGetErrorString(prop_err));
     return std::nullopt;
   }
 
@@ -170,8 +169,8 @@ auto ResolveCudaDeviceForD3D11Device(ID3D11Device* device) -> int {
     return -1;
   }
 
-  int current_cuda_device = -1;
-  const cudaError_t current_device_err = cudaGetDevice(&current_cuda_device);
+  int               current_cuda_device = -1;
+  const cudaError_t current_device_err  = cudaGetDevice(&current_cuda_device);
   if (current_device_err != cudaSuccess || current_cuda_device < 0) {
     qWarning("RhiEditViewerSurface: cudaGetDevice failed while validating D3D11 interop: %s",
              cudaGetErrorString(current_device_err));
@@ -179,7 +178,7 @@ auto ResolveCudaDeviceForD3D11Device(ID3D11Device* device) -> int {
   }
 
   const auto cuda_luid = GetCudaDeviceLuid(current_cuda_device);
-  const auto adapter = GetDxgiAdapterFromDevice(device);
+  const auto adapter   = GetDxgiAdapterFromDevice(device);
   if (!cuda_luid || !adapter) {
     return -1;
   }
@@ -193,11 +192,11 @@ auto ResolveCudaDeviceForD3D11Device(ID3D11Device* device) -> int {
     return current_cuda_device;
   }
 
-  qWarning("RhiEditViewerSurface: D3D11 adapter '%s' LUID %s does not match CUDA device %d "
-           "LUID %s.",
-           qPrintable(DescribeDxgiAdapter(adapter.Get())),
-           qPrintable(DescribeLuid(desc.AdapterLuid)), current_cuda_device,
-           qPrintable(DescribeLuid(*cuda_luid)));
+  qWarning(
+      "RhiEditViewerSurface: D3D11 adapter '%s' LUID %s does not match CUDA device %d "
+      "LUID %s.",
+      qPrintable(DescribeDxgiAdapter(adapter.Get())), qPrintable(DescribeLuid(desc.AdapterLuid)),
+      current_cuda_device, qPrintable(DescribeLuid(*cuda_luid)));
   return -1;
 }
 
@@ -206,8 +205,8 @@ auto ResolveCudaDeviceForD3D12Device(ID3D12Device* device) -> int {
     return -1;
   }
 
-  int current_cuda_device = -1;
-  const cudaError_t current_device_err = cudaGetDevice(&current_cuda_device);
+  int               current_cuda_device = -1;
+  const cudaError_t current_device_err  = cudaGetDevice(&current_cuda_device);
   if (current_device_err != cudaSuccess || current_cuda_device < 0) {
     qWarning("RhiEditViewerSurface: cudaGetDevice failed while validating D3D12 interop: %s",
              cudaGetErrorString(current_device_err));
@@ -232,7 +231,7 @@ auto ResolveCudaDeviceForD3D12Device(ID3D12Device* device) -> int {
 #endif
 #endif
 
-constexpr float kViewportRoiMatchEpsilon = 1.0e-4f;
+constexpr float kViewportRoiMatchEpsilon    = 1.0e-4f;
 constexpr float kDetailPatchAspectTolerance = 2.0e-2f;
 
 auto BuildNormalizedViewportRoi(const std::optional<ViewportRenderRegion>& viewport_region)
@@ -242,8 +241,7 @@ auto BuildNormalizedViewportRoi(const std::optional<ViewportRenderRegion>& viewp
     return std::nullopt;
   }
 
-  const float reference_width =
-      static_cast<float>(std::max(1, viewport_region->reference_width_));
+  const float reference_width = static_cast<float>(std::max(1, viewport_region->reference_width_));
   const float reference_height =
       static_cast<float>(std::max(1, viewport_region->reference_height_));
   return FrameRoiRect{
@@ -266,9 +264,9 @@ auto RoiRectsMatch(const FrameRoiRect& lhs, const FrameRoiRect& rhs) -> bool {
 }  // namespace
 
 struct RhiImageRenderer::UniformData {
-  float scale_zoom[4]  = {1.0f, 1.0f, 1.0f, 0.0f};
-  float pan_mode[4]    = {0.0f, 0.0f, 0.0f, 0.0f};
-  float detail_roi[4]  = {0.0f, 0.0f, 1.0f, 1.0f};
+  float scale_zoom[4]   = {1.0f, 1.0f, 1.0f, 0.0f};
+  float pan_mode[4]     = {0.0f, 0.0f, 0.0f, 0.0f};
+  float detail_roi[4]   = {0.0f, 0.0f, 1.0f, 1.0f};
   float detail_flags[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 };
 
@@ -287,72 +285,72 @@ struct RhiEditViewerSurface::PlatformState {
   };
 
   struct DirectPresentSlot {
-    GLuint                  gl_texture      = 0;
+    GLuint                  gl_texture = 0;
     ComPtr<ID3D11Texture2D> texture;
     ComPtr<ID3D12Resource>  resource;
-    HANDLE                  shared_handle     = nullptr;
+    HANDLE                  shared_handle = nullptr;
 #ifdef HAVE_CUDA
-    cudaExternalMemory_t    external_memory   = nullptr;
-    cudaMipmappedArray_t    mipmapped_array   = nullptr;
-    cudaArray_t             image_array       = nullptr;
+    cudaExternalMemory_t external_memory = nullptr;
+    cudaMipmappedArray_t mipmapped_array = nullptr;
+    cudaArray_t          image_array     = nullptr;
 #endif
 #ifdef HAVE_OPENCL
-    cl_mem                  opencl_image      = nullptr;
-    bool                    opencl_acquired   = false;
+    cl_mem opencl_image    = nullptr;
+    bool   opencl_acquired = false;
 #endif
-    int                     width             = 0;
-    int                     height            = 0;
-    std::uintptr_t          texture_handle    = 0;
-    D3D12_RESOURCE_STATES   d3d12_state       = D3D12_RESOURCE_STATE_COMMON;
-    UINT64                  pending_cuda_signal_value = 0;
-    UINT64                  ready_cuda_signal_value   = 0;
-    UINT64                  active_cuda_signal_value  = 0;
+    int                   width                     = 0;
+    int                   height                    = 0;
+    std::uintptr_t        texture_handle            = 0;
+    D3D12_RESOURCE_STATES d3d12_state               = D3D12_RESOURCE_STATE_COMMON;
+    UINT64                pending_cuda_signal_value = 0;
+    UINT64                ready_cuda_signal_value   = 0;
+    UINT64                active_cuda_signal_value  = 0;
+    FramePresentationMode presentation_mode         = FramePresentationMode::FullFrame;
+    FramePreviewMetadata  preview_metadata{};
   };
 
   std::array<DirectPresentSlot, kDirectPresentSlotCount> targets{};
-  ID3D11Device*                    device = nullptr;
-  ID3D12Device*                    d3d12_device = nullptr;
-  ID3D12CommandQueue*              d3d12_queue = nullptr;
-  ComPtr<ID3D12CommandAllocator>   d3d12_transition_allocator;
-  ComPtr<ID3D12GraphicsCommandList> d3d12_transition_list;
-  ComPtr<ID3D12Fence>              d3d12_transition_fence;
-  std::unique_ptr<QOpenGLContext>   gl_context;
-  std::unique_ptr<QOffscreenSurface> gl_surface;
+  ID3D11Device*                                          device       = nullptr;
+  ID3D12Device*                                          d3d12_device = nullptr;
+  ID3D12CommandQueue*                                    d3d12_queue  = nullptr;
+  ComPtr<ID3D12CommandAllocator>                         d3d12_transition_allocator;
+  ComPtr<ID3D12GraphicsCommandList>                      d3d12_transition_list;
+  ComPtr<ID3D12Fence>                                    d3d12_transition_fence;
+  std::unique_ptr<QOpenGLContext>                        gl_context;
+  std::unique_ptr<QOffscreenSurface>                     gl_surface;
 #ifdef HAVE_CUDA
-  ComPtr<ID3D12Fence>              d3d12_cuda_fence;
+  ComPtr<ID3D12Fence> d3d12_cuda_fence;
 #endif
-  HANDLE                           d3d12_transition_event = nullptr;
+  HANDLE d3d12_transition_event = nullptr;
 #ifdef HAVE_CUDA
-  HANDLE                           d3d12_cuda_fence_shared_handle = nullptr;
-  cudaExternalSemaphore_t          cuda_signal_semaphore = nullptr;
+  HANDLE                  d3d12_cuda_fence_shared_handle = nullptr;
+  cudaExternalSemaphore_t cuda_signal_semaphore          = nullptr;
 #endif
-  UINT64                           d3d12_transition_fence_value = 0;
+  UINT64 d3d12_transition_fence_value = 0;
 #ifdef HAVE_CUDA
-  UINT64                           d3d12_cuda_fence_value = 0;
+  UINT64 d3d12_cuda_fence_value = 0;
 #endif
-  DirectPresentBackend             backend = DirectPresentBackend::None;
+  DirectPresentBackend backend = DirectPresentBackend::None;
 #ifdef HAVE_CUDA
-  int                              cuda_device = -1;
+  int cuda_device = -1;
 #endif
 #ifdef HAVE_OPENCL
-  bool                             supports_opencl_d3d11 = false;
+  bool supports_opencl_d3d11 = false;
 #endif
-  mutable std::mutex               mutex{};
-  std::atomic<int>                 pending_frame_idx{-1};
-  std::atomic<FramePresentationMode> active_presentation_mode{
-      FramePresentationMode::FullFrame};
-  std::atomic<FramePresentationMode> pending_presentation_mode{
-      FramePresentationMode::FullFrame};
-  std::atomic<bool>                pending_presentation_mode_valid{false};
-  FramePreviewMetadata             active_preview_metadata{};
-  FramePreviewMetadata             pending_preview_metadata{};
-  bool                             pending_preview_metadata_valid = false;
-  int                              active_idx         = 0;
-  int                              write_idx          = 1;
-  int                              render_target_idx  = 0;
-  int                              mapped_slot_idx    = -1;
-  int                              ready_slot_idx     = -1;
-  bool                             supports_direct_present = false;
+  mutable std::mutex                 mutex{};
+  DirectPresentFrameQueue            pending_frames{};
+  std::atomic<FramePresentationMode> active_presentation_mode{FramePresentationMode::FullFrame};
+  std::atomic<FramePresentationMode> pending_presentation_mode{FramePresentationMode::FullFrame};
+  std::atomic<bool>                  pending_presentation_mode_valid{false};
+  FramePreviewMetadata               active_preview_metadata{};
+  FramePreviewMetadata               pending_preview_metadata{};
+  bool                               pending_preview_metadata_valid = false;
+  int                                active_idx                     = 0;
+  int                                write_idx                      = 1;
+  int                                render_target_idx              = 0;
+  int                                mapped_slot_idx                = -1;
+  int                                ready_slot_idx                 = -1;
+  bool                               supports_direct_present        = false;
 #else
   bool supports_direct_present = false;
 #endif
@@ -387,7 +385,7 @@ auto EnsureSharedOpenGlContext(RhiEditViewerSurface::PlatformState& state) -> bo
   return true;
 }
 
-void ReleaseDirectPresentSlot(RhiEditViewerSurface::PlatformState& state,
+void ReleaseDirectPresentSlot(RhiEditViewerSurface::PlatformState&                    state,
                               RhiEditViewerSurface::PlatformState::DirectPresentSlot& slot) {
 #ifdef HAVE_OPENCL
   if (slot.opencl_image) {
@@ -422,43 +420,40 @@ void ReleaseDirectPresentSlot(RhiEditViewerSurface::PlatformState& state,
   }
   slot.texture.Reset();
   slot.resource.Reset();
-  slot.width          = 0;
-  slot.height         = 0;
-  slot.texture_handle = 0;
-  slot.d3d12_state    = D3D12_RESOURCE_STATE_COMMON;
+  slot.width                     = 0;
+  slot.height                    = 0;
+  slot.texture_handle            = 0;
+  slot.d3d12_state               = D3D12_RESOURCE_STATE_COMMON;
   slot.pending_cuda_signal_value = 0;
   slot.ready_cuda_signal_value   = 0;
   slot.active_cuda_signal_value  = 0;
 }
 
-auto HasDirectPresentResource(
-    const RhiEditViewerSurface::PlatformState::DirectPresentSlot& slot,
-    RhiEditViewerSurface::PlatformState::DirectPresentBackend backend) -> bool {
+auto HasDirectPresentResource(const RhiEditViewerSurface::PlatformState::DirectPresentSlot& slot,
+                              RhiEditViewerSurface::PlatformState::DirectPresentBackend     backend)
+    -> bool {
   switch (backend) {
     case RhiEditViewerSurface::PlatformState::DirectPresentBackend::OpenGL:
-      return slot.gl_texture != 0 &&
-             (false
+      return slot.gl_texture != 0 && (false
 #ifdef HAVE_OPENCL
-              || slot.opencl_image != nullptr
+                                      || slot.opencl_image != nullptr
 #endif
-             );
+                                     );
     case RhiEditViewerSurface::PlatformState::DirectPresentBackend::D3D11:
-      return slot.texture != nullptr &&
-             (false
+      return slot.texture != nullptr && (false
 #ifdef HAVE_CUDA
-              || slot.image_array != nullptr
+                                         || slot.image_array != nullptr
 #endif
 #ifdef HAVE_OPENCL
-              || slot.opencl_image != nullptr
+                                         || slot.opencl_image != nullptr
 #endif
-             );
+                                        );
     case RhiEditViewerSurface::PlatformState::DirectPresentBackend::D3D12:
-      return slot.resource != nullptr &&
-             (false
+      return slot.resource != nullptr && (false
 #ifdef HAVE_CUDA
-              || slot.image_array != nullptr
+                                          || slot.image_array != nullptr
 #endif
-             );
+                                         );
     case RhiEditViewerSurface::PlatformState::DirectPresentBackend::None:
       return false;
   }
@@ -476,16 +471,14 @@ auto GetOpenClD3D11Extension(cl_platform_id platform, const char* name) -> Fn {
 
 auto EnqueueOpenClD3D11Acquire(cl_command_queue queue, cl_mem image) -> bool {
   auto& context = OpenClContext::Instance();
-  auto acquire =
-      GetOpenClD3D11Extension<clEnqueueAcquireD3D11ObjectsKHR_fn>(
-          context.Platform(), "clEnqueueAcquireD3D11ObjectsKHR");
+  auto  acquire = GetOpenClD3D11Extension<clEnqueueAcquireD3D11ObjectsKHR_fn>(
+      context.Platform(), "clEnqueueAcquireD3D11ObjectsKHR");
   if (acquire == nullptr || image == nullptr) {
     return false;
   }
   const cl_int error = acquire(queue, 1, &image, 0, nullptr, nullptr);
   if (error != CL_SUCCESS) {
-    qWarning("RhiEditViewerSurface: clEnqueueAcquireD3D11ObjectsKHR failed with error %d.",
-             error);
+    qWarning("RhiEditViewerSurface: clEnqueueAcquireD3D11ObjectsKHR failed with error %d.", error);
     return false;
   }
   return true;
@@ -493,16 +486,14 @@ auto EnqueueOpenClD3D11Acquire(cl_command_queue queue, cl_mem image) -> bool {
 
 auto EnqueueOpenClD3D11Release(cl_command_queue queue, cl_mem image) -> bool {
   auto& context = OpenClContext::Instance();
-  auto release =
-      GetOpenClD3D11Extension<clEnqueueReleaseD3D11ObjectsKHR_fn>(
-          context.Platform(), "clEnqueueReleaseD3D11ObjectsKHR");
+  auto  release = GetOpenClD3D11Extension<clEnqueueReleaseD3D11ObjectsKHR_fn>(
+      context.Platform(), "clEnqueueReleaseD3D11ObjectsKHR");
   if (release == nullptr || image == nullptr) {
     return false;
   }
   const cl_int error = release(queue, 1, &image, 0, nullptr, nullptr);
   if (error != CL_SUCCESS) {
-    qWarning("RhiEditViewerSurface: clEnqueueReleaseD3D11ObjectsKHR failed with error %d.",
-             error);
+    qWarning("RhiEditViewerSurface: clEnqueueReleaseD3D11ObjectsKHR failed with error %d.", error);
     return false;
   }
   return true;
@@ -591,9 +582,9 @@ auto EnsureD3D12CudaSemaphore(RhiEditViewerSurface::PlatformState& state) -> boo
   }
 
   if (!state.d3d12_cuda_fence_shared_handle &&
-      (FAILED(state.d3d12_device->CreateSharedHandle(
-           state.d3d12_cuda_fence.Get(), nullptr, GENERIC_ALL, nullptr,
-           &state.d3d12_cuda_fence_shared_handle)) ||
+      (FAILED(state.d3d12_device->CreateSharedHandle(state.d3d12_cuda_fence.Get(), nullptr,
+                                                     GENERIC_ALL, nullptr,
+                                                     &state.d3d12_cuda_fence_shared_handle)) ||
        !state.d3d12_cuda_fence_shared_handle)) {
     qWarning("RhiEditViewerSurface: failed to create shared handle for D3D12/CUDA fence.");
     return false;
@@ -616,7 +607,7 @@ auto EnsureD3D12CudaSemaphore(RhiEditViewerSurface::PlatformState& state) -> boo
 }
 #endif
 
-auto TransitionD3D12Slot(RhiEditViewerSurface::PlatformState& state,
+auto TransitionD3D12Slot(RhiEditViewerSurface::PlatformState&                    state,
                          RhiEditViewerSurface::PlatformState::DirectPresentSlot& slot,
                          D3D12_RESOURCE_STATES target_state) -> bool {
   if (state.backend != RhiEditViewerSurface::PlatformState::DirectPresentBackend::D3D12 ||
@@ -632,8 +623,7 @@ auto TransitionD3D12Slot(RhiEditViewerSurface::PlatformState& state,
     qWarning("RhiEditViewerSurface: failed to reset D3D12 transition command allocator.");
     return false;
   }
-  if (FAILED(state.d3d12_transition_list->Reset(state.d3d12_transition_allocator.Get(),
-                                                nullptr))) {
+  if (FAILED(state.d3d12_transition_list->Reset(state.d3d12_transition_allocator.Get(), nullptr))) {
     qWarning("RhiEditViewerSurface: failed to reset D3D12 transition command list.");
     return false;
   }
@@ -661,8 +651,8 @@ auto TransitionD3D12Slot(RhiEditViewerSurface::PlatformState& state,
     return false;
   }
   if (state.d3d12_transition_fence->GetCompletedValue() < fence_value) {
-    if (FAILED(state.d3d12_transition_fence->SetEventOnCompletion(
-            fence_value, state.d3d12_transition_event))) {
+    if (FAILED(state.d3d12_transition_fence->SetEventOnCompletion(fence_value,
+                                                                  state.d3d12_transition_event))) {
       qWarning("RhiEditViewerSurface: failed to arm D3D12 transition fence event.");
       return false;
     }
@@ -729,21 +719,20 @@ void RhiImageRenderer::releaseResources() {
 }
 
 void RhiImageRenderer::queueFrame(const ViewerFrame& frame) {
-  const LayerId layer = layerIdForRole(frame.preview_metadata.frame_role);
-  auto& pending       = pendingLayer(layer);
-  pending.host_frame  = frame;
+  const LayerId layer    = layerIdForRole(frame.preview_metadata.frame_role);
+  auto&         pending  = pendingLayer(layer);
+  pending.host_frame     = frame;
   pending.pending_upload = std::make_unique<ViewerGpuFrameUpload>(
       ViewerGpuFrameUpload{frame.width, frame.height, frame.row_bytes, frame.pixels,
-                           frame.display_config, frame.presentation_mode,
-                           frame.preview_metadata});
+                           frame.display_config, frame.presentation_mode, frame.preview_metadata});
   pending.imported_frame = {};
   pending.imported_owner.reset();
   pending.has_update = true;
 
   if (layer == LayerId::QualityBase) {
     auto& detail_state = layerState(LayerId::DetailPatch);
-    if (detail_state.valid &&
-        detail_state.preview_metadata.preview_generation != frame.preview_metadata.preview_generation) {
+    if (detail_state.valid && detail_state.preview_metadata.preview_generation !=
+                                  frame.preview_metadata.preview_generation) {
       detail_state = {};
     }
   }
@@ -751,18 +740,18 @@ void RhiImageRenderer::queueFrame(const ViewerFrame& frame) {
 
 void RhiImageRenderer::queueImportedFrame(const ImportedTextureFrame& frame,
                                           std::shared_ptr<const void> owner) {
-  const LayerId layer      = layerIdForRole(frame.preview_metadata.frame_role);
-  auto& pending            = pendingLayer(layer);
-  pending.host_frame       = {};
+  const LayerId layer   = layerIdForRole(frame.preview_metadata.frame_role);
+  auto&         pending = pendingLayer(layer);
+  pending.host_frame    = {};
   pending.pending_upload.reset();
-  pending.imported_frame   = frame;
-  pending.imported_owner   = std::move(owner);
-  pending.has_update       = true;
+  pending.imported_frame = frame;
+  pending.imported_owner = std::move(owner);
+  pending.has_update     = true;
 
   if (layer == LayerId::QualityBase) {
     auto& detail_state = layerState(LayerId::DetailPatch);
-    if (detail_state.valid &&
-        detail_state.preview_metadata.preview_generation != frame.preview_metadata.preview_generation) {
+    if (detail_state.valid && detail_state.preview_metadata.preview_generation !=
+                                  frame.preview_metadata.preview_generation) {
       detail_state = {};
     }
   }
@@ -774,7 +763,7 @@ void RhiImageRenderer::releaseImportedTexture(std::uintptr_t texture_handle) {
   }
 
   const quint64 native_object = static_cast<quint64>(texture_handle);
-  auto release_layer = [&](LayerId layer, QRhiTexture*& texture, int& width, int& height,
+  auto          release_layer = [&](LayerId layer, QRhiTexture*& texture, int& width, int& height,
                            quint64& imported_native_object) {
     if (imported_native_object != native_object) {
       return;
@@ -795,7 +784,7 @@ void RhiImageRenderer::releaseImportedTexture(std::uintptr_t texture_handle) {
     height                 = 0;
     imported_native_object = 0;
 
-    auto& state = layerState(layer);
+    auto& state            = layerState(layer);
     if (state.source_is_imported) {
       state = {};
     }
@@ -821,7 +810,7 @@ auto RhiImageRenderer::currentRenderState(const ViewerViewState& view_state) con
 }
 
 void RhiImageRenderer::render(QRhiCommandBuffer* command_buffer, QRhiRenderTarget* render_target,
-                              const ViewerViewState& view_state,
+                              const ViewerViewState&    view_state,
                               const ViewportWidgetInfo& widget_info) {
   if (!command_buffer || !render_target || !rhi_) {
     return;
@@ -868,7 +857,7 @@ void RhiImageRenderer::render(QRhiCommandBuffer* command_buffer, QRhiRenderTarge
     pipeline_->create();
   }
 
-  const auto active_state = selectedRenderState(view_state);
+  const auto  active_state = selectedRenderState(view_state);
   UniformData uniform_data;
   if (active_state.width > 0 && active_state.height > 0) {
     const auto scale = ViewportMapper::ComputeLetterboxScale(
@@ -892,19 +881,19 @@ void RhiImageRenderer::render(QRhiCommandBuffer* command_buffer, QRhiRenderTarge
   }
 
   if (hasVisibleDetailPatch(view_state)) {
-    const auto& detail_state = layerState(LayerId::DetailPatch);
-    uniform_data.detail_roi[0] = detail_state.preview_metadata.source_roi_norm.x;
-    uniform_data.detail_roi[1] = detail_state.preview_metadata.source_roi_norm.y;
-    uniform_data.detail_roi[2] = detail_state.preview_metadata.source_roi_norm.width;
-    uniform_data.detail_roi[3] = detail_state.preview_metadata.source_roi_norm.height;
+    const auto& detail_state     = layerState(LayerId::DetailPatch);
+    uniform_data.detail_roi[0]   = detail_state.preview_metadata.source_roi_norm.x;
+    uniform_data.detail_roi[1]   = detail_state.preview_metadata.source_roi_norm.y;
+    uniform_data.detail_roi[2]   = detail_state.preview_metadata.source_roi_norm.width;
+    uniform_data.detail_roi[3]   = detail_state.preview_metadata.source_roi_norm.height;
     uniform_data.detail_flags[0] = 1.0f;
   }
   resource_updates->updateDynamicBuffer(uniform_buffer_, 0, sizeof(UniformData), &uniform_data);
 
   command_buffer->beginPass(render_target, Qt::black, {1.0f, 0}, resource_updates);
-  if (active_state.width > 0 && active_state.height > 0 && pipeline_ &&
-      shader_resource_bindings_ && vertex_buffer_) {
-    const QSize rt_size = render_target->pixelSize();
+  if (active_state.width > 0 && active_state.height > 0 && pipeline_ && shader_resource_bindings_ &&
+      vertex_buffer_) {
+    const QSize                          rt_size        = render_target->pixelSize();
     const QRhiCommandBuffer::VertexInput vertex_input[] = {{vertex_buffer_, 0}};
     command_buffer->setGraphicsPipeline(pipeline_);
     command_buffer->setViewport(QRhiViewport(0, 0, rt_size.width(), rt_size.height()));
@@ -996,7 +985,7 @@ auto RhiImageRenderer::layerState(LayerId layer) const -> const LayerTextureStat
   return layer_states_[static_cast<size_t>(layer)];
 }
 
-void RhiImageRenderer::ensureStaticResources(QRhiRenderTarget* render_target,
+void RhiImageRenderer::ensureStaticResources(QRhiRenderTarget*  render_target,
                                              QRhiCommandBuffer* command_buffer) {
   if (!rhi_ || !render_target) {
     return;
@@ -1014,16 +1003,15 @@ void RhiImageRenderer::ensureStaticResources(QRhiRenderTarget* render_target,
   }
 
   if (!primary_sampler_) {
-    primary_sampler_ = rhi_->newSampler(QRhiSampler::Linear, QRhiSampler::Linear,
-                                        QRhiSampler::None, QRhiSampler::ClampToEdge,
-                                        QRhiSampler::ClampToEdge);
+    primary_sampler_ = rhi_->newSampler(QRhiSampler::Linear, QRhiSampler::Linear, QRhiSampler::None,
+                                        QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge);
     primary_sampler_->create();
   }
 
   if (!detail_sampler_) {
-    detail_sampler_ = rhi_->newSampler(QRhiSampler::Nearest, QRhiSampler::Nearest,
-                                       QRhiSampler::None, QRhiSampler::ClampToEdge,
-                                       QRhiSampler::ClampToEdge);
+    detail_sampler_ =
+        rhi_->newSampler(QRhiSampler::Nearest, QRhiSampler::Nearest, QRhiSampler::None,
+                         QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge);
     detail_sampler_->create();
   }
 
@@ -1049,7 +1037,7 @@ void RhiImageRenderer::ensureStaticResources(QRhiRenderTarget* render_target,
     };
     static constexpr std::array<float, 4> kBlackPixel = {0.0f, 0.0f, 0.0f, 1.0f};
 
-    QRhiResourceUpdateBatch* updates = rhi_->nextResourceUpdateBatch();
+    QRhiResourceUpdateBatch*              updates     = rhi_->nextResourceUpdateBatch();
     updates->uploadStaticBuffer(vertex_buffer_, kVertices.data());
 
     QByteArray black_upload(reinterpret_cast<const char*>(kBlackPixel.data()),
@@ -1091,7 +1079,7 @@ void RhiImageRenderer::ensureTexture(QRhiTexture*& texture, int& width, int& hei
 }
 
 void RhiImageRenderer::ensureImportedTexture(QRhiTexture*& texture, int& width, int& height,
-                                             quint64& native_object,
+                                             quint64&                    native_object,
                                              const ImportedTextureFrame& frame) {
   if (!rhi_ || !frame) {
     return;
@@ -1117,10 +1105,11 @@ void RhiImageRenderer::ensureImportedTexture(QRhiTexture*& texture, int& width, 
   destroyResource(texture);
   texture = rhi_->newTexture(QRhiTexture::RGBA32F, QSize(frame.width, frame.height), 1);
   if (!texture->createFrom({next_native_object, frame.native_layout})) {
-    qWarning("RhiImageRenderer: failed to import native texture object=0x%llx size=%dx%d layout=%d "
-             "backend=%d.",
-             static_cast<unsigned long long>(next_native_object), frame.width, frame.height,
-             frame.native_layout, static_cast<int>(rhi_->backend()));
+    qWarning(
+        "RhiImageRenderer: failed to import native texture object=0x%llx size=%dx%d layout=%d "
+        "backend=%d.",
+        static_cast<unsigned long long>(next_native_object), frame.width, frame.height,
+        frame.native_layout, static_cast<int>(rhi_->backend()));
     destroyResource(texture);
     width         = 0;
     height        = 0;
@@ -1168,8 +1157,7 @@ void RhiImageRenderer::uploadPendingLayer(LayerId layer, QRhiResourceUpdateBatch
                   QSize(pending.pending_upload->width, pending.pending_upload->height));
     const size_t upload_bytes =
         pending.pending_upload->row_bytes * static_cast<size_t>(pending.pending_upload->height);
-    if (*target_texture &&
-        upload_bytes <= static_cast<size_t>((std::numeric_limits<int>::max)())) {
+    if (*target_texture && upload_bytes <= static_cast<size_t>((std::numeric_limits<int>::max)())) {
       QByteArray upload_data =
           QByteArray::fromRawData(static_cast<const char*>(pending.pending_upload->pixels.get()),
                                   static_cast<int>(upload_bytes));
@@ -1178,8 +1166,7 @@ void RhiImageRenderer::uploadPendingLayer(LayerId layer, QRhiResourceUpdateBatch
       upload_desc.setSourceSize(
           QSize(pending.pending_upload->width, pending.pending_upload->height));
       resource_updates->uploadTexture(
-          *target_texture,
-          QRhiTextureUploadDescription(QRhiTextureUploadEntry(0, 0, upload_desc)));
+          *target_texture, QRhiTextureUploadDescription(QRhiTextureUploadEntry(0, 0, upload_desc)));
 
       state.width              = pending.host_frame.width;
       state.height             = pending.host_frame.height;
@@ -1193,8 +1180,8 @@ void RhiImageRenderer::uploadPendingLayer(LayerId layer, QRhiResourceUpdateBatch
     switch (layer) {
       case LayerId::InteractivePrimary: {
         ensureImportedTexture(interactive_imported_texture_, interactive_imported_width_,
-                              interactive_imported_height_,
-                              interactive_imported_native_object_, pending.imported_frame);
+                              interactive_imported_height_, interactive_imported_native_object_,
+                              pending.imported_frame);
         if (interactive_imported_texture_) {
           state.width              = pending.imported_frame.width;
           state.height             = pending.imported_frame.height;
@@ -1208,14 +1195,15 @@ void RhiImageRenderer::uploadPendingLayer(LayerId layer, QRhiResourceUpdateBatch
       }
       case LayerId::QualityBase: {
         ensureImportedTexture(quality_base_imported_texture_, quality_base_imported_width_,
-                              quality_base_imported_height_,
-                              quality_base_imported_native_object_, pending.imported_frame);
+                              quality_base_imported_height_, quality_base_imported_native_object_,
+                              pending.imported_frame);
         ensureTexture(quality_base_texture_, quality_base_texture_width_,
                       quality_base_texture_height_,
                       QSize(pending.imported_frame.width, pending.imported_frame.height));
         if (quality_base_imported_texture_ && quality_base_texture_) {
           QRhiTextureCopyDescription copy_desc;
-          copy_desc.setPixelSize(QSize(pending.imported_frame.width, pending.imported_frame.height));
+          copy_desc.setPixelSize(
+              QSize(pending.imported_frame.width, pending.imported_frame.height));
           resource_updates->copyTexture(quality_base_texture_, quality_base_imported_texture_,
                                         copy_desc);
           state.width              = pending.imported_frame.width;
@@ -1230,14 +1218,15 @@ void RhiImageRenderer::uploadPendingLayer(LayerId layer, QRhiResourceUpdateBatch
       }
       case LayerId::DetailPatch: {
         ensureImportedTexture(detail_patch_imported_texture_, detail_patch_imported_width_,
-                              detail_patch_imported_height_,
-                              detail_patch_imported_native_object_, pending.imported_frame);
+                              detail_patch_imported_height_, detail_patch_imported_native_object_,
+                              pending.imported_frame);
         ensureTexture(detail_patch_texture_, detail_patch_texture_width_,
                       detail_patch_texture_height_,
                       QSize(pending.imported_frame.width, pending.imported_frame.height));
         if (detail_patch_imported_texture_ && detail_patch_texture_) {
           QRhiTextureCopyDescription copy_desc;
-          copy_desc.setPixelSize(QSize(pending.imported_frame.width, pending.imported_frame.height));
+          copy_desc.setPixelSize(
+              QSize(pending.imported_frame.width, pending.imported_frame.height));
           resource_updates->copyTexture(detail_patch_texture_, detail_patch_imported_texture_,
                                         copy_desc);
           state.width              = pending.imported_frame.width;
@@ -1261,7 +1250,7 @@ auto RhiImageRenderer::selectedPrimaryTexture(const ViewerViewState& view_state)
     -> QRhiTexture* {
   const auto& interactive = layerState(LayerId::InteractivePrimary);
   const auto& quality     = layerState(LayerId::QualityBase);
-  const auto current_viewport_roi =
+  const auto  current_viewport_roi =
       BuildNormalizedViewportRoi(view_state.snapshot.viewport_render_region_cache);
   const bool interactive_matches_viewport =
       interactive.presentation_mode != FramePresentationMode::RoiFrame ||
@@ -1340,11 +1329,9 @@ auto RhiImageRenderer::hasVisibleDetailPatch(const ViewerViewState& view_state) 
     return false;
   }
 
-  const float expected_aspect =
-      (static_cast<float>(quality.width) * roi.width) /
-      (static_cast<float>(quality.height) * roi.height);
-  const float actual_aspect =
-      static_cast<float>(detail.width) / static_cast<float>(detail.height);
+  const float expected_aspect = (static_cast<float>(quality.width) * roi.width) /
+                                (static_cast<float>(quality.height) * roi.height);
+  const float actual_aspect = static_cast<float>(detail.width) / static_cast<float>(detail.height);
   if (expected_aspect <= 1.0e-4f || actual_aspect <= 1.0e-4f) {
     return false;
   }
@@ -1364,9 +1351,9 @@ auto RhiImageRenderer::selectedDetailTexture(const ViewerViewState& view_state) 
 auto RhiImageRenderer::selectedRenderState(const ViewerViewState& view_state) const
     -> EditViewerRenderTargetState {
   EditViewerRenderTargetState state{};
-  const auto& interactive = layerState(LayerId::InteractivePrimary);
-  const auto& quality     = layerState(LayerId::QualityBase);
-  const auto current_viewport_roi =
+  const auto&                 interactive = layerState(LayerId::InteractivePrimary);
+  const auto&                 quality     = layerState(LayerId::QualityBase);
+  const auto                  current_viewport_roi =
       BuildNormalizedViewportRoi(view_state.snapshot.viewport_render_region_cache);
   const bool interactive_matches_viewport =
       interactive.presentation_mode != FramePresentationMode::RoiFrame ||
@@ -1419,8 +1406,7 @@ void RhiImageRenderer::recreateShaderResources() {
   shader_resource_bindings_ = rhi_->newShaderResourceBindings();
   shader_resource_bindings_->setBindings(
       {QRhiShaderResourceBinding::uniformBuffer(
-           0,
-           QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
+           0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
            uniform_buffer_),
        QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage,
                                                  bound_primary_texture_, primary_sampler_),
@@ -1499,17 +1485,16 @@ auto RhiEditViewerSurface::prepareRenderTarget(int width, int height)
     return decision;
   }
 
-  std::lock_guard<std::mutex> lock(platform_state_->mutex);
-  const int pending_slot = platform_state_->pending_frame_idx.load(std::memory_order_acquire);
+  std::lock_guard<std::mutex>                                        lock(platform_state_->mutex);
   std::array<DirectPresentSlotAvailability, kDirectPresentSlotCount> slot_infos{};
   for (size_t i = 0; i < platform_state_->targets.size(); ++i) {
     const auto& target = platform_state_->targets[i];
-    slot_infos[i] = DirectPresentSlotAvailability{
+    slot_infos[i]      = DirectPresentSlotAvailability{
         target.width,
         target.height,
         HasDirectPresentResource(target, platform_state_->backend),
         static_cast<int>(i) == platform_state_->active_idx ||
-            static_cast<int>(i) == pending_slot ||
+            platform_state_->pending_frames.ContainsSlot(static_cast<int>(i)) ||
             static_cast<int>(i) == platform_state_->ready_slot_idx ||
             static_cast<int>(i) == platform_state_->mapped_slot_idx,
     };
@@ -1520,14 +1505,14 @@ auto RhiEditViewerSurface::prepareRenderTarget(int width, int height)
   if (slot_infos[selection.slot_index].unavailable &&
       !IsReusableDirectPresentSlot(slot_infos[selection.slot_index], width, height)) {
     platform_state_->render_target_idx = -1;
-    decision.slot_index = -1;
-    decision.need_resize = false;
+    decision.slot_index                = -1;
+    decision.need_resize               = false;
     return decision;
   }
-  platform_state_->write_idx = selection.slot_index;
+  platform_state_->write_idx         = selection.slot_index;
   platform_state_->render_target_idx = selection.slot_index;
-  decision.slot_index = selection.slot_index;
-  decision.need_resize = selection.need_resize;
+  decision.slot_index                = selection.slot_index;
+  decision.need_resize               = selection.need_resize;
 #else
   (void)width;
   (void)height;
@@ -1562,9 +1547,9 @@ auto RhiEditViewerSurface::mapResourceForWrite(FrameMemoryDomain preferred_domai
 
   if (preferred_domain == FrameMemoryDomain::CudaDevice) {
 #ifdef HAVE_CUDA
-  if (!BindCudaDeviceOnCurrentThread(platform_state_->cuda_device, "mapResourceForWrite")) {
-    return {};
-  }
+    if (!BindCudaDeviceOnCurrentThread(platform_state_->cuda_device, "mapResourceForWrite")) {
+      return {};
+    }
 #else
     return {};
 #endif
@@ -1594,7 +1579,7 @@ auto RhiEditViewerSurface::mapResourceForWrite(FrameMemoryDomain preferred_domai
       platform_state_->mutex.unlock();
       return {};
     }
-    slot.opencl_acquired = true;
+    slot.opencl_acquired             = true;
     platform_state_->mapped_slot_idx = platform_state_->render_target_idx;
     FrameWriteMapping mapping{};
     mapping.data          = slot.opencl_image;
@@ -1640,9 +1625,8 @@ auto RhiEditViewerSurface::mapResourceForWrite(FrameMemoryDomain preferred_domai
   if (platform_state_->backend == PlatformState::DirectPresentBackend::D3D12 &&
       platform_state_->cuda_signal_semaphore) {
     slot.pending_cuda_signal_value = ++platform_state_->d3d12_cuda_fence_value;
-    mapping.cuda_signal_semaphore =
-        reinterpret_cast<void*>(platform_state_->cuda_signal_semaphore);
-    mapping.cuda_signal_value = slot.pending_cuda_signal_value;
+    mapping.cuda_signal_semaphore = reinterpret_cast<void*>(platform_state_->cuda_signal_semaphore);
+    mapping.cuda_signal_value     = slot.pending_cuda_signal_value;
   }
   return mapping;
 #else
@@ -1674,8 +1658,8 @@ void RhiEditViewerSurface::unmapResource() {
       slot.opencl_acquired = false;
     }
 #endif
-    slot.ready_cuda_signal_value = slot.pending_cuda_signal_value;
-    slot.pending_cuda_signal_value = 0;
+    slot.ready_cuda_signal_value    = slot.pending_cuda_signal_value;
+    slot.pending_cuda_signal_value  = 0;
     platform_state_->ready_slot_idx = platform_state_->mapped_slot_idx;
   }
   platform_state_->mapped_slot_idx = -1;
@@ -1691,8 +1675,22 @@ void RhiEditViewerSurface::notifyFrameReady() {
 
   std::lock_guard<std::mutex> lock(platform_state_->mutex);
   if (platform_state_->ready_slot_idx >= 0) {
-    platform_state_->pending_frame_idx.store(platform_state_->ready_slot_idx,
-                                             std::memory_order_release);
+    auto& slot = platform_state_->targets[platform_state_->ready_slot_idx];
+    if (platform_state_->pending_presentation_mode_valid.exchange(false,
+                                                                  std::memory_order_acq_rel)) {
+      slot.presentation_mode =
+          platform_state_->pending_presentation_mode.load(std::memory_order_acquire);
+    } else {
+      slot.presentation_mode =
+          platform_state_->active_presentation_mode.load(std::memory_order_acquire);
+    }
+    if (platform_state_->pending_preview_metadata_valid) {
+      slot.preview_metadata                           = platform_state_->pending_preview_metadata;
+      platform_state_->pending_preview_metadata_valid = false;
+    } else {
+      slot.preview_metadata = platform_state_->active_preview_metadata;
+    }
+    platform_state_->pending_frames.MarkReadySlot(platform_state_->ready_slot_idx);
     platform_state_->ready_slot_idx = -1;
   }
 #endif
@@ -1732,6 +1730,26 @@ auto RhiEditViewerSurface::activeRenderTargetState() const -> EditViewerRenderTa
 
   std::lock_guard<std::mutex> lock(platform_state_->mutex);
   state.slot_index = platform_state_->active_idx;
+  const auto pending_slots = platform_state_->pending_frames.PendingSlotsSnapshot();
+  for (int pending_slot : pending_slots) {
+    if (!IsValidSlotIndex(pending_slot, platform_state_->targets.size())) {
+      continue;
+    }
+    const auto& slot = platform_state_->targets[pending_slot];
+    if (slot.width <= 0 || slot.height <= 0 ||
+        !IsRenderReferenceFrame(slot.presentation_mode, slot.preview_metadata.frame_role)) {
+      continue;
+    }
+    if (state.width > 0 && state.height > 0 &&
+        state.preview_metadata.preview_generation > slot.preview_metadata.preview_generation) {
+      continue;
+    }
+    state.slot_index         = pending_slot;
+    state.width              = slot.width;
+    state.height             = slot.height;
+    state.presentation_mode  = slot.presentation_mode;
+    state.preview_metadata   = slot.preview_metadata;
+  }
 #endif
   return state;
 }
@@ -1744,7 +1762,7 @@ auto RhiEditViewerSurface::hasRenderTarget(int slot_index, int width, int height
   }
 
   std::lock_guard<std::mutex> lock(platform_state_->mutex);
-  const auto& slot = platform_state_->targets[slot_index];
+  const auto&                 slot = platform_state_->targets[slot_index];
   return HasDirectPresentResource(slot, platform_state_->backend) && slot.width == width &&
          slot.height == height;
 #else
@@ -1759,8 +1777,8 @@ auto RhiEditViewerSurface::ensureRenderTarget(int slot_index, int width, int hei
 #if defined(Q_OS_WIN) && (defined(HAVE_CUDA) || defined(HAVE_OPENCL))
   if (!supportsDirectGpuPresent() ||
       !IsValidSlotIndex(slot_index, platform_state_->targets.size()) ||
-      platform_state_->backend == PlatformState::DirectPresentBackend::None ||
-      width <= 0 || height <= 0) {
+      platform_state_->backend == PlatformState::DirectPresentBackend::None || width <= 0 ||
+      height <= 0) {
     return false;
   }
 
@@ -1772,7 +1790,7 @@ auto RhiEditViewerSurface::ensureRenderTarget(int slot_index, int width, int hei
 #endif
 
   std::lock_guard<std::mutex> lock(platform_state_->mutex);
-  auto& slot = platform_state_->targets[slot_index];
+  auto&                       slot = platform_state_->targets[slot_index];
   if (HasDirectPresentResource(slot, platform_state_->backend) && slot.width == width &&
       slot.height == height) {
     return true;
@@ -1821,8 +1839,8 @@ auto RhiEditViewerSurface::ensureRenderTarget(int slot_index, int width, int hei
 
     cl_int error = CL_SUCCESS;
     slot.opencl_image =
-        clCreateFromGLTexture(OpenClContext::Instance().Context(), CL_MEM_WRITE_ONLY,
-                              GL_TEXTURE_2D, 0, slot.gl_texture, &error);
+        clCreateFromGLTexture(OpenClContext::Instance().Context(), CL_MEM_WRITE_ONLY, GL_TEXTURE_2D,
+                              0, slot.gl_texture, &error);
     if (error != CL_SUCCESS || slot.opencl_image == nullptr) {
       qWarning("RhiEditViewerSurface: clCreateFromGLTexture failed with error %d.", error);
       ReleaseDirectPresentSlot(*platform_state_, slot);
@@ -1837,21 +1855,20 @@ auto RhiEditViewerSurface::ensureRenderTarget(int slot_index, int width, int hei
     }
 
     D3D11_TEXTURE2D_DESC desc{};
-    desc.Width              = static_cast<UINT>(width);
-    desc.Height             = static_cast<UINT>(height);
-    desc.MipLevels          = 1;
-    desc.ArraySize          = 1;
-    desc.Format             = DXGI_FORMAT_R32G32B32A32_FLOAT;
-    desc.SampleDesc.Count   = 1;
-    desc.Usage              = D3D11_USAGE_DEFAULT;
-    desc.BindFlags          = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
-    desc.CPUAccessFlags     = 0;
-    desc.MiscFlags          = D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE;
+    desc.Width            = static_cast<UINT>(width);
+    desc.Height           = static_cast<UINT>(height);
+    desc.MipLevels        = 1;
+    desc.ArraySize        = 1;
+    desc.Format           = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    desc.SampleDesc.Count = 1;
+    desc.Usage            = D3D11_USAGE_DEFAULT;
+    desc.BindFlags        = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+    desc.CPUAccessFlags   = 0;
+    desc.MiscFlags        = D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE;
 
     if (FAILED(platform_state_->device->CreateTexture2D(&desc, nullptr,
-                                                         slot.texture.GetAddressOf()))) {
-      qWarning("RhiEditViewerSurface: failed to create D3D11 present target %dx%d.", width,
-               height);
+                                                        slot.texture.GetAddressOf()))) {
+      qWarning("RhiEditViewerSurface: failed to create D3D11 present target %dx%d.", width, height);
       ReleaseDirectPresentSlot(*platform_state_, slot);
       return false;
     }
@@ -1873,11 +1890,10 @@ auto RhiEditViewerSurface::ensureRenderTarget(int slot_index, int width, int hei
 
 #ifdef HAVE_OPENCL
     if (platform_state_->supports_opencl_d3d11 && OpenClContext::Instance().IsInitialized()) {
-      auto create_from_d3d11 =
-          GetOpenClD3D11Extension<clCreateFromD3D11Texture2DKHR_fn>(
-              OpenClContext::Instance().Platform(), "clCreateFromD3D11Texture2DKHR");
+      auto create_from_d3d11 = GetOpenClD3D11Extension<clCreateFromD3D11Texture2DKHR_fn>(
+          OpenClContext::Instance().Platform(), "clCreateFromD3D11Texture2DKHR");
       if (create_from_d3d11 != nullptr) {
-        cl_int error = CL_SUCCESS;
+        cl_int error      = CL_SUCCESS;
         slot.opencl_image = create_from_d3d11(OpenClContext::Instance().Context(),
                                               CL_MEM_WRITE_ONLY, slot.texture.Get(), 0, &error);
         if (error != CL_SUCCESS || slot.opencl_image == nullptr) {
@@ -1889,8 +1905,7 @@ auto RhiEditViewerSurface::ensureRenderTarget(int slot_index, int width, int hei
 #endif
 #ifdef HAVE_CUDA
     handle_type = cudaExternalMemoryHandleTypeD3D11Resource;
-    handle_size = static_cast<unsigned long long>(width) *
-                  static_cast<unsigned long long>(height) *
+    handle_size = static_cast<unsigned long long>(width) * static_cast<unsigned long long>(height) *
                   static_cast<unsigned long long>(kRgba32fPixelBytes);
 #endif
   } else if (platform_state_->backend == PlatformState::DirectPresentBackend::D3D12) {
@@ -1919,11 +1934,11 @@ auto RhiEditViewerSurface::ensureRenderTarget(int slot_index, int width, int hei
     desc.Flags            = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
 
     D3D12_CLEAR_VALUE clear_value{};
-    clear_value.Format   = DXGI_FORMAT_R32G32B32A32_FLOAT;
-    clear_value.Color[0] = 0.0f;
-    clear_value.Color[1] = 0.0f;
-    clear_value.Color[2] = 0.0f;
-    clear_value.Color[3] = 1.0f;
+    clear_value.Format      = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    clear_value.Color[0]    = 0.0f;
+    clear_value.Color[1]    = 0.0f;
+    clear_value.Color[2]    = 0.0f;
+    clear_value.Color[3]    = 1.0f;
     const HRESULT create_hr = platform_state_->d3d12_device->CreateCommittedResource(
         &heap_props, D3D12_HEAP_FLAG_SHARED, &desc, D3D12_RESOURCE_STATE_COMMON, &clear_value,
         IID_PPV_ARGS(slot.resource.GetAddressOf()));
@@ -1955,65 +1970,63 @@ auto RhiEditViewerSurface::ensureRenderTarget(int slot_index, int width, int hei
 
 #ifdef HAVE_CUDA
   if (supportsDirectCudaPresent()) {
-  const cudaExternalMemoryHandleDesc handle_desc =
-      MakeDedicatedCudaExternalMemoryHandleDesc(slot.shared_handle, handle_type, handle_size);
-  const cudaError_t import_err =
-      cudaImportExternalMemory(&slot.external_memory, &handle_desc);
-  if (import_err != cudaSuccess) {
-    qWarning("RhiEditViewerSurface: cudaImportExternalMemory failed: %s",
-             cudaGetErrorString(import_err));
-    ReleaseDirectPresentSlot(*platform_state_, slot);
-    return false;
-  }
+    const cudaExternalMemoryHandleDesc handle_desc =
+        MakeDedicatedCudaExternalMemoryHandleDesc(slot.shared_handle, handle_type, handle_size);
+    const cudaError_t import_err = cudaImportExternalMemory(&slot.external_memory, &handle_desc);
+    if (import_err != cudaSuccess) {
+      qWarning("RhiEditViewerSurface: cudaImportExternalMemory failed: %s",
+               cudaGetErrorString(import_err));
+      ReleaseDirectPresentSlot(*platform_state_, slot);
+      return false;
+    }
 
-  cudaExternalMemoryMipmappedArrayDesc array_desc{};
-  array_desc.offset     = 0;
-  array_desc.formatDesc = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindFloat);
-  array_desc.extent     =
-      cudaExtent{static_cast<size_t>(width), static_cast<size_t>(height), 0};
-  array_desc.flags      = cudaArrayColorAttachment;
-  array_desc.numLevels  = 1;
-  const cudaError_t map_err = cudaExternalMemoryGetMappedMipmappedArray(
-      &slot.mipmapped_array, slot.external_memory, &array_desc);
-  if (map_err != cudaSuccess) {
-    qWarning("RhiEditViewerSurface: cudaExternalMemoryGetMappedMipmappedArray failed: %s",
-             cudaGetErrorString(map_err));
-    ReleaseDirectPresentSlot(*platform_state_, slot);
-    return false;
-  }
+    cudaExternalMemoryMipmappedArrayDesc array_desc{};
+    array_desc.offset     = 0;
+    array_desc.formatDesc = cudaCreateChannelDesc(32, 32, 32, 32, cudaChannelFormatKindFloat);
+    array_desc.extent     = cudaExtent{static_cast<size_t>(width), static_cast<size_t>(height), 0};
+    array_desc.flags      = cudaArrayColorAttachment;
+    array_desc.numLevels  = 1;
+    const cudaError_t map_err = cudaExternalMemoryGetMappedMipmappedArray(
+        &slot.mipmapped_array, slot.external_memory, &array_desc);
+    if (map_err != cudaSuccess) {
+      qWarning("RhiEditViewerSurface: cudaExternalMemoryGetMappedMipmappedArray failed: %s",
+               cudaGetErrorString(map_err));
+      ReleaseDirectPresentSlot(*platform_state_, slot);
+      return false;
+    }
 
-  const cudaError_t level_err =
-      cudaGetMipmappedArrayLevel(&slot.image_array, slot.mipmapped_array, 0);
-  if (level_err != cudaSuccess) {
-    qWarning("RhiEditViewerSurface: cudaGetMipmappedArrayLevel failed: %s",
-             cudaGetErrorString(level_err));
-    ReleaseDirectPresentSlot(*platform_state_, slot);
-    return false;
-  }
+    const cudaError_t level_err =
+        cudaGetMipmappedArrayLevel(&slot.image_array, slot.mipmapped_array, 0);
+    if (level_err != cudaSuccess) {
+      qWarning("RhiEditViewerSurface: cudaGetMipmappedArrayLevel failed: %s",
+               cudaGetErrorString(level_err));
+      ReleaseDirectPresentSlot(*platform_state_, slot);
+      return false;
+    }
   }
 #endif
 
-  slot.width  = width;
-  slot.height = height;
-  slot.texture_handle =
-      platform_state_->backend == PlatformState::DirectPresentBackend::OpenGL
-          ? static_cast<std::uintptr_t>(slot.gl_texture)
-      : platform_state_->backend == PlatformState::DirectPresentBackend::D3D12
-          ? reinterpret_cast<std::uintptr_t>(slot.resource.Get())
-          : reinterpret_cast<std::uintptr_t>(slot.texture.Get());
+  slot.width          = width;
+  slot.height         = height;
+  slot.texture_handle = platform_state_->backend == PlatformState::DirectPresentBackend::OpenGL
+                            ? static_cast<std::uintptr_t>(slot.gl_texture)
+                        : platform_state_->backend == PlatformState::DirectPresentBackend::D3D12
+                            ? reinterpret_cast<std::uintptr_t>(slot.resource.Get())
+                            : reinterpret_cast<std::uintptr_t>(slot.texture.Get());
   {
 #ifdef HAVE_CUDA
     if (supportsDirectCudaPresent()) {
       size_t free_bytes  = 0;
       size_t total_bytes = 0;
       if (cudaMemGetInfo(&free_bytes, &total_bytes) == cudaSuccess) {
-      const size_t used_bytes = total_bytes - free_bytes;
-      const size_t slot_bytes =
-          static_cast<size_t>(width) * static_cast<size_t>(height) * kRgba32fPixelBytes;
-      const char* backend_name =
-          platform_state_->backend == PlatformState::DirectPresentBackend::D3D12 ? "D3D12"
-                                                                                 : "D3D11";
-      qInfo("[VRAM] %s present slot[%d] allocated (%dx%d, %zu MB): free=%zu MB / total=%zu MB "
+        const size_t used_bytes = total_bytes - free_bytes;
+        const size_t slot_bytes =
+            static_cast<size_t>(width) * static_cast<size_t>(height) * kRgba32fPixelBytes;
+        const char* backend_name =
+            platform_state_->backend == PlatformState::DirectPresentBackend::D3D12 ? "D3D12"
+                                                                                   : "D3D11";
+        qInfo(
+            "[VRAM] %s present slot[%d] allocated (%dx%d, %zu MB): free=%zu MB / total=%zu MB "
             "(used=%zu MB)",
             backend_name, slot_index, width, height, slot_bytes >> 20, free_bytes >> 20,
             total_bytes >> 20, used_bytes >> 20);
@@ -2021,14 +2034,14 @@ auto RhiEditViewerSurface::ensureRenderTarget(int slot_index, int width, int hei
     } else {
       const size_t slot_bytes =
           static_cast<size_t>(width) * static_cast<size_t>(height) * kRgba32fPixelBytes;
-      qInfo("[VRAM] OpenCL/OpenGL present slot[%d] allocated (%dx%d, %zu MB).", slot_index,
-            width, height, slot_bytes >> 20);
+      qInfo("[VRAM] OpenCL/OpenGL present slot[%d] allocated (%dx%d, %zu MB).", slot_index, width,
+            height, slot_bytes >> 20);
     }
 #else
     const size_t slot_bytes =
         static_cast<size_t>(width) * static_cast<size_t>(height) * kRgba32fPixelBytes;
-    qInfo("[VRAM] OpenCL/OpenGL present slot[%d] allocated (%dx%d, %zu MB).", slot_index,
-          width, height, slot_bytes >> 20);
+    qInfo("[VRAM] OpenCL/OpenGL present slot[%d] allocated (%dx%d, %zu MB).", slot_index, width,
+          height, slot_bytes >> 20);
 #endif
   }
   return HasDirectPresentResource(slot, platform_state_->backend);
@@ -2047,39 +2060,52 @@ void RhiEditViewerSurface::initialize(QRhiCommandBuffer* command_buffer) {
 #if defined(Q_OS_WIN) && (defined(HAVE_CUDA) || defined(HAVE_OPENCL))
   platform_state_->supports_direct_present = false;
 #ifdef HAVE_CUDA
-  platform_state_->cuda_device             = -1;
+  platform_state_->cuda_device = -1;
 #endif
 #ifdef HAVE_OPENCL
-  platform_state_->supports_opencl_d3d11   = false;
+  platform_state_->supports_opencl_d3d11 = false;
 #endif
-  platform_state_->device                  = nullptr;
-  platform_state_->d3d12_device            = nullptr;
-  platform_state_->d3d12_queue             = nullptr;
-  platform_state_->backend                 = PlatformState::DirectPresentBackend::None;
-  const char* backend_name = "<none>";
+  platform_state_->device       = nullptr;
+  platform_state_->d3d12_device = nullptr;
+  platform_state_->d3d12_queue  = nullptr;
+  platform_state_->backend      = PlatformState::DirectPresentBackend::None;
+  const char* backend_name      = "<none>";
   if (rhi()) {
     switch (rhi()->backend()) {
-      case QRhi::D3D11:    backend_name = "D3D11"; break;
-      case QRhi::D3D12:    backend_name = "D3D12"; break;
-      case QRhi::Vulkan:   backend_name = "Vulkan"; break;
-      case QRhi::OpenGLES2:backend_name = "OpenGLES2"; break;
-      case QRhi::Metal:    backend_name = "Metal"; break;
-      case QRhi::Null:     backend_name = "Null"; break;
-      default:             backend_name = "<other>"; break;
+      case QRhi::D3D11:
+        backend_name = "D3D11";
+        break;
+      case QRhi::D3D12:
+        backend_name = "D3D12";
+        break;
+      case QRhi::Vulkan:
+        backend_name = "Vulkan";
+        break;
+      case QRhi::OpenGLES2:
+        backend_name = "OpenGLES2";
+        break;
+      case QRhi::Metal:
+        backend_name = "Metal";
+        break;
+      case QRhi::Null:
+        backend_name = "Null";
+        break;
+      default:
+        backend_name = "<other>";
+        break;
     }
   }
-  bool cuda_bind_ok = false;
+  bool cuda_bind_ok   = false;
   bool opencl_bind_ok = false;
   if (rhi() && rhi()->backend() == QRhi::D3D11) {
-    const auto* native_handles =
-        static_cast<const QRhiD3D11NativeHandles*>(rhi()->nativeHandles());
+    const auto* native_handles = static_cast<const QRhiD3D11NativeHandles*>(rhi()->nativeHandles());
     platform_state_->device =
         native_handles ? static_cast<ID3D11Device*>(native_handles->dev) : nullptr;
 #ifdef HAVE_CUDA
     platform_state_->cuda_device =
         platform_state_->device ? ResolveCudaDeviceForD3D11Device(platform_state_->device) : -1;
     cuda_bind_ok = platform_state_->device && platform_state_->cuda_device >= 0 &&
-              BindCudaDeviceOnCurrentThread(platform_state_->cuda_device, "initialize");
+                   BindCudaDeviceOnCurrentThread(platform_state_->cuda_device, "initialize");
 #endif
     platform_state_->supports_direct_present = cuda_bind_ok;
     if (platform_state_->supports_direct_present) {
@@ -2097,32 +2123,31 @@ void RhiEditViewerSurface::initialize(QRhiCommandBuffer* command_buffer) {
 #endif
   } else if (rhi() && rhi()->backend() == QRhi::D3D12) {
 #ifdef HAVE_CUDA
-    const auto* native_handles =
-        static_cast<const QRhiD3D12NativeHandles*>(rhi()->nativeHandles());
+    const auto* native_handles = static_cast<const QRhiD3D12NativeHandles*>(rhi()->nativeHandles());
     platform_state_->d3d12_device =
         native_handles ? static_cast<ID3D12Device*>(native_handles->dev) : nullptr;
     platform_state_->d3d12_queue =
         native_handles ? static_cast<ID3D12CommandQueue*>(native_handles->commandQueue) : nullptr;
-    platform_state_->cuda_device = platform_state_->d3d12_device
-                                       ? ResolveCudaDeviceForD3D12Device(
-                                             platform_state_->d3d12_device)
-                                       : -1;
+    platform_state_->cuda_device =
+        platform_state_->d3d12_device
+            ? ResolveCudaDeviceForD3D12Device(platform_state_->d3d12_device)
+            : -1;
     cuda_bind_ok = platform_state_->d3d12_device && platform_state_->d3d12_queue &&
-              platform_state_->cuda_device >= 0 &&
-              BindCudaDeviceOnCurrentThread(platform_state_->cuda_device, "initialize");
+                   platform_state_->cuda_device >= 0 &&
+                   BindCudaDeviceOnCurrentThread(platform_state_->cuda_device, "initialize");
     platform_state_->supports_direct_present = cuda_bind_ok;
     if (cuda_bind_ok) {
       platform_state_->backend = PlatformState::DirectPresentBackend::D3D12;
     }
 #endif
   }
-  qInfo("[DirectPresent] RHI backend=%s, d3d11_device=%p, d3d12_device=%p, d3d12_queue=%p, "
-        "cuda_bind_ok=%d, opencl_bind_ok=%d, supports_direct_present=%d",
-        backend_name, static_cast<void*>(platform_state_->device),
-        static_cast<void*>(platform_state_->d3d12_device),
-        static_cast<void*>(platform_state_->d3d12_queue),
-        cuda_bind_ok ? 1 : 0, opencl_bind_ok ? 1 : 0,
-        platform_state_->supports_direct_present ? 1 : 0);
+  qInfo(
+      "[DirectPresent] RHI backend=%s, d3d11_device=%p, d3d12_device=%p, d3d12_queue=%p, "
+      "cuda_bind_ok=%d, opencl_bind_ok=%d, supports_direct_present=%d",
+      backend_name, static_cast<void*>(platform_state_->device),
+      static_cast<void*>(platform_state_->d3d12_device),
+      static_cast<void*>(platform_state_->d3d12_queue), cuda_bind_ok ? 1 : 0,
+      opencl_bind_ok ? 1 : 0, platform_state_->supports_direct_present ? 1 : 0);
 #else
   qInfo("[DirectPresent] GPU/D3D interop unavailable at compile time.");
 #endif
@@ -2136,12 +2161,13 @@ void RhiEditViewerSurface::render(QRhiCommandBuffer* command_buffer) {
 #if defined(Q_OS_WIN) && (defined(HAVE_CUDA) || defined(HAVE_OPENCL))
   if (supportsDirectGpuPresent()) {
     ImportedTextureFrame direct_present_frame{};
-    bool                 has_pending_frame = false;
+    bool                 has_pending_frame       = false;
+    bool                 has_more_pending_frames = false;
     {
-      const int pending_slot =
-          platform_state_->pending_frame_idx.exchange(-1, std::memory_order_acq_rel);
       std::lock_guard<std::mutex> lock(platform_state_->mutex);
-      int slot_to_show = platform_state_->active_idx;
+      const auto                  pending_slot_opt = platform_state_->pending_frames.PopNextSlot();
+      const int                   pending_slot     = pending_slot_opt.value_or(-1);
+      int                         slot_to_show     = platform_state_->active_idx;
       if (IsValidSlotIndex(pending_slot, platform_state_->targets.size())) {
         slot_to_show                = pending_slot;
         platform_state_->active_idx = pending_slot;
@@ -2149,16 +2175,14 @@ void RhiEditViewerSurface::render(QRhiCommandBuffer* command_buffer) {
             platform_state_->targets[pending_slot].ready_cuda_signal_value;
         platform_state_->targets[pending_slot].ready_cuda_signal_value = 0;
         std::array<DirectPresentSlotAvailability, kDirectPresentSlotCount> slot_infos{};
-        const int queued_pending_slot =
-            platform_state_->pending_frame_idx.load(std::memory_order_acquire);
         for (size_t i = 0; i < platform_state_->targets.size(); ++i) {
           const auto& target = platform_state_->targets[i];
-          slot_infos[i] = DirectPresentSlotAvailability{
+          slot_infos[i]      = DirectPresentSlotAvailability{
               target.width,
               target.height,
               HasDirectPresentResource(target, platform_state_->backend),
               static_cast<int>(i) == platform_state_->active_idx ||
-                  static_cast<int>(i) == queued_pending_slot ||
+                  platform_state_->pending_frames.ContainsSlot(static_cast<int>(i)) ||
                   static_cast<int>(i) == platform_state_->ready_slot_idx ||
                   static_cast<int>(i) == platform_state_->mapped_slot_idx,
           };
@@ -2169,26 +2193,20 @@ void RhiEditViewerSurface::render(QRhiCommandBuffer* command_buffer) {
             slot_to_show >= 0 ? platform_state_->targets[slot_to_show].width : 0;
         const int target_height =
             slot_to_show >= 0 ? platform_state_->targets[slot_to_show].height : 0;
-        platform_state_->write_idx = SelectDirectPresentWriteSlot(
-                                         slot_infos.data(), slot_infos.size(), preferred_write_slot,
+        platform_state_->write_idx =
+            SelectDirectPresentWriteSlot(slot_infos.data(), slot_infos.size(), preferred_write_slot,
                                          target_width, target_height)
-                                         .slot_index;
-        if (platform_state_->pending_presentation_mode_valid.exchange(false,
-                                                                      std::memory_order_acq_rel)) {
-          platform_state_->active_presentation_mode.store(
-              platform_state_->pending_presentation_mode.load(std::memory_order_acquire),
-              std::memory_order_release);
-        }
-        if (platform_state_->pending_preview_metadata_valid) {
-          platform_state_->active_preview_metadata       = platform_state_->pending_preview_metadata;
-          platform_state_->pending_preview_metadata_valid = false;
-        }
+                .slot_index;
+        platform_state_->active_presentation_mode.store(
+            platform_state_->targets[pending_slot].presentation_mode, std::memory_order_release);
+        platform_state_->active_preview_metadata =
+            platform_state_->targets[pending_slot].preview_metadata;
       }
+      has_more_pending_frames = !platform_state_->pending_frames.Empty();
 
-      const auto& slot = platform_state_->targets[slot_to_show];
+      const auto& slot        = platform_state_->targets[slot_to_show];
       if (HasDirectPresentResource(slot, platform_state_->backend) && slot.width > 0 &&
-          slot.height > 0 &&
-          IsValidSlotIndex(pending_slot, platform_state_->targets.size())) {
+          slot.height > 0 && IsValidSlotIndex(pending_slot, platform_state_->targets.size())) {
         if (platform_state_->backend == PlatformState::DirectPresentBackend::D3D12 &&
 #ifdef HAVE_CUDA
             platform_state_->d3d12_queue && platform_state_->d3d12_cuda_fence &&
@@ -2196,34 +2214,37 @@ void RhiEditViewerSurface::render(QRhiCommandBuffer* command_buffer) {
 #else
             false
 #endif
-            ) {
+        ) {
           const HRESULT wait_hr = platform_state_->d3d12_queue->Wait(
               platform_state_->d3d12_cuda_fence.Get(), slot.active_cuda_signal_value);
           if (FAILED(wait_hr)) {
-            qWarning("RhiEditViewerSurface: D3D12 queue wait for CUDA fence value %llu failed "
-                     "(hr=0x%08lx).",
-                     static_cast<unsigned long long>(slot.active_cuda_signal_value),
-                     static_cast<unsigned long>(wait_hr));
+            qWarning(
+                "RhiEditViewerSurface: D3D12 queue wait for CUDA fence value %llu failed "
+                "(hr=0x%08lx).",
+                static_cast<unsigned long long>(slot.active_cuda_signal_value),
+                static_cast<unsigned long>(wait_hr));
           }
         }
-        direct_present_frame.width             = slot.width;
-        direct_present_frame.height            = slot.height;
-        direct_present_frame.texture_handle    = slot.texture_handle;
+        direct_present_frame.width          = slot.width;
+        direct_present_frame.height         = slot.height;
+        direct_present_frame.texture_handle = slot.texture_handle;
 #if defined(Q_OS_WIN)
         direct_present_frame.native_layout =
             platform_state_->backend == PlatformState::DirectPresentBackend::D3D12
                 ? static_cast<int>(D3D12_RESOURCE_STATE_COMMON)
                 : 0;
 #endif
-        direct_present_frame.presentation_mode =
-            platform_state_->active_presentation_mode.load(std::memory_order_acquire);
-        direct_present_frame.preview_metadata = platform_state_->active_preview_metadata;
-        has_pending_frame                    = true;
+        direct_present_frame.presentation_mode = slot.presentation_mode;
+        direct_present_frame.preview_metadata  = slot.preview_metadata;
+        has_pending_frame                      = true;
       }
     }
 
     if (has_pending_frame) {
       renderer_.queueImportedFrame(direct_present_frame);
+    }
+    if (has_more_pending_frames) {
+      update();
     }
   }
 #endif
@@ -2235,7 +2256,7 @@ void RhiEditViewerSurface::render(QRhiCommandBuffer* command_buffer) {
   if (supportsDirectGpuPresent() &&
       platform_state_->backend == PlatformState::DirectPresentBackend::D3D12) {
     std::lock_guard<std::mutex> lock(platform_state_->mutex);
-    auto& slot = platform_state_->targets[platform_state_->active_idx];
+    auto&                       slot = platform_state_->targets[platform_state_->active_idx];
     if (slot.resource) {
       slot.d3d12_state = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
     }
@@ -2280,10 +2301,10 @@ void RhiEditViewerSurface::releasePlatformTargets() {
   for (auto& slot : platform_state_->targets) {
     ReleaseDirectPresentSlot(*platform_state_, slot);
   }
-  platform_state_->supports_direct_present        = false;
-  platform_state_->device                         = nullptr;
-  platform_state_->d3d12_device                   = nullptr;
-  platform_state_->d3d12_queue                    = nullptr;
+  platform_state_->supports_direct_present = false;
+  platform_state_->device                  = nullptr;
+  platform_state_->d3d12_device            = nullptr;
+  platform_state_->d3d12_queue             = nullptr;
   platform_state_->d3d12_transition_list.Reset();
   platform_state_->d3d12_transition_allocator.Reset();
   platform_state_->d3d12_transition_fence.Reset();
@@ -2304,18 +2325,23 @@ void RhiEditViewerSurface::releasePlatformTargets() {
     CloseHandle(platform_state_->d3d12_transition_event);
     platform_state_->d3d12_transition_event = nullptr;
   }
-  platform_state_->d3d12_transition_fence_value   = 0;
+  platform_state_->d3d12_transition_fence_value = 0;
 #ifdef HAVE_CUDA
-  platform_state_->d3d12_cuda_fence_value         = 0;
+  platform_state_->d3d12_cuda_fence_value = 0;
 #endif
-  platform_state_->backend                        = PlatformState::DirectPresentBackend::None;
+  platform_state_->backend = PlatformState::DirectPresentBackend::None;
 #ifdef HAVE_CUDA
-  platform_state_->cuda_device                    = -1;
+  platform_state_->cuda_device = -1;
 #endif
 #ifdef HAVE_OPENCL
-  platform_state_->supports_opencl_d3d11          = false;
+  platform_state_->supports_opencl_d3d11 = false;
 #endif
-  platform_state_->pending_frame_idx.store(-1, std::memory_order_release);
+  platform_state_->pending_frames.Clear();
+  platform_state_->active_presentation_mode.store(FramePresentationMode::FullFrame,
+                                                  std::memory_order_release);
+  platform_state_->pending_presentation_mode.store(FramePresentationMode::FullFrame,
+                                                   std::memory_order_release);
+  platform_state_->pending_presentation_mode_valid.store(false, std::memory_order_release);
   platform_state_->active_idx                     = 0;
   platform_state_->write_idx                      = 1;
   platform_state_->render_target_idx              = 0;

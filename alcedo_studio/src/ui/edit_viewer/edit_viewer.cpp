@@ -155,8 +155,6 @@ void ConfigureQtD3DAdapterForCurrentCudaDevice() {
 }
 #endif
 
-auto IsRenderReferenceFrame(FrameRole role) -> bool { return role != FrameRole::DetailPatch; }
-
 }  // namespace
 
 class EditViewerOverlayWidget final : public QWidget {
@@ -359,6 +357,8 @@ void QtEditViewer::SetDisplayEncoding(ColorUtils::ColorSpace encoding_space,
   }
   emit RequestUpdate();
 }
+
+void QtEditViewer::SyncPendingFrameStateForScheduling() { SyncSurfaceState(); }
 
 void QtEditViewer::SetExpectedDetailToken(std::uint64_t preview_generation,
                                           std::uint64_t detail_serial) {
@@ -989,8 +989,9 @@ void QtEditViewer::RefreshFrameDerivedState() {
 #endif
   const auto previous_snapshot = viewer_state_.Snapshot();
   bool       render_reference_changed = false;
-  if (active_frame.presentation_mode != FramePresentationMode::RoiFrame && active_frame.width > 0 &&
-      active_frame.height > 0) {
+  if (IsRenderReferenceFrame(active_frame.presentation_mode,
+                             active_frame.preview_metadata.frame_role) &&
+      active_frame.width > 0 && active_frame.height > 0) {
     render_reference_changed =
         previous_snapshot.render_reference_width != active_frame.width ||
         previous_snapshot.render_reference_height != active_frame.height;
@@ -1027,7 +1028,8 @@ void QtEditViewer::SyncSurfaceState() {
       active_display_config_                 = submitted_frame.display_config;
       display_config                         = active_display_config_;
       metal_frame_to_submit                  = submitted_frame;
-      if (IsRenderReferenceFrame(submitted_frame.preview_metadata.frame_role)) {
+      if (IsRenderReferenceFrame(submitted_frame.presentation_mode,
+                                 submitted_frame.preview_metadata.frame_role)) {
         active_metal_frame_       = submitted_frame;
         active_host_frame_        = {};
         active_frame_width_       = submitted_frame.width;
@@ -1041,7 +1043,8 @@ void QtEditViewer::SyncSurfaceState() {
       active_display_config_            = submitted_frame.display_config;
       display_config                    = active_display_config_;
       host_frame_to_submit              = submitted_frame;
-      if (IsRenderReferenceFrame(submitted_frame.preview_metadata.frame_role)) {
+      if (IsRenderReferenceFrame(submitted_frame.presentation_mode,
+                                 submitted_frame.preview_metadata.frame_role)) {
         active_host_frame_       = submitted_frame;
         active_metal_frame_      = {};
         active_frame_width_      = submitted_frame.width;
@@ -1059,7 +1062,8 @@ void QtEditViewer::SyncSurfaceState() {
       active_display_config_            = submitted_frame.display_config;
       display_config                    = active_display_config_;
       host_frame_to_submit              = submitted_frame;
-      if (IsRenderReferenceFrame(submitted_frame.preview_metadata.frame_role)) {
+      if (IsRenderReferenceFrame(submitted_frame.presentation_mode,
+                                 submitted_frame.preview_metadata.frame_role)) {
         active_host_frame_       = submitted_frame;
         active_frame_width_      = submitted_frame.width;
         active_frame_height_     = submitted_frame.height;
