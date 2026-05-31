@@ -215,11 +215,11 @@ fun GlassPresetCard(
                         if (params.hasselblad_hncs == true) {
                             CameraParamBadge(text = "HNCS", color = Colors.HasselbladOrange)
                         }
-                        params.focal_length?.let {
-                            CameraParamBadge(text = "${it}mm", color = Colors.AccentBlue)
+                        if (params.focalLength.isNotEmpty()) {
+                            CameraParamBadge(text = params.focalLength, color = Colors.AccentBlue)
                         }
-                        params.aperture?.let {
-                            CameraParamBadge(text = "f/${it}", color = Colors.AccentGreen)
+                        if (params.aperture.isNotEmpty()) {
+                            CameraParamBadge(text = params.aperture, color = Colors.AccentGreen)
                         }
                     }
                 }

@@ -6,6 +6,10 @@ import com.omaster.app.model.Preset
 import com.omaster.app.model.Section
 import com.omaster.app.network.PresetApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flow
 import timber.log.Timber
 import javax.inject.Inject
@@ -16,11 +20,24 @@ import javax.inject.Singleton
  */
 @Singleton
 class PresetRepository @Inject constructor(
-    private val presetApi: PresetApi
+    private val presetApi: PresetApi,
+    private val preferencesDataStore: PreferencesDataStore
 ) {
     private var cachedPresets: List<Preset> = emptyList()
     private var lastSyncTime: Long = 0
     private var isInitialized: Boolean = false
+    
+    private val _presets = MutableStateFlow<List<Preset>>(emptyList())
+    val presets: StateFlow<List<Preset>> = _presets.asStateFlow()
+    
+    init {
+        initializePresets()
+    }
+    
+    private fun initializePresets() {
+        cachedPresets = getSamplePresets()
+        _presets.value = cachedPresets
+    }
     
     /**
      * 获取预设列表 - 支持实时同步
@@ -40,6 +57,7 @@ class PresetRepository @Inject constructor(
                     cachedPresets = presets
                     lastSyncTime = currentTime
                     isInitialized = true
+                    _presets.value = cachedPresets
                     Timber.d("成功从网络刷新预设数据，共 ${presets.size} 个")
                     emit(Result.success(presets))
                 } else {
@@ -79,6 +97,7 @@ class PresetRepository @Inject constructor(
                 cachedPresets = presets
                 lastSyncTime = System.currentTimeMillis()
                 isInitialized = true
+                _presets.value = cachedPresets
                 Timber.d("数据同步成功，共 ${presets.size} 个预设")
                 Result.success(presets)
             } else {
@@ -89,6 +108,25 @@ class PresetRepository @Inject constructor(
             Timber.e(e, "同步异常")
             Result.failure(e)
         }
+    }
+    
+    /**
+     * 切换预设收藏状态
+     */
+    suspend fun toggleFavorite(presetId: String) {
+        preferencesDataStore.toggleFavorite(presetId)
+        
+        // 更新本地缓存
+        val updatedPresets = cachedPresets.map { preset ->
+            if (preset.id == presetId) {
+                preset.copy(isFavorite = !preset.isFavorite)
+            } else {
+                preset
+            }
+        }
+        cachedPresets = updatedPresets
+        _presets.value = cachedPresets
+        Timber.d("预设 $presetId 收藏状态已切换")
     }
     
     /**
@@ -150,6 +188,7 @@ class PresetRepository @Inject constructor(
                 }
             }
             cachedPresets = updatedPresets
+            _presets.value = cachedPresets
             
             val updatedPreset = updatedPresets.find { it.id == presetId }
             emit(Result.success(updatedPreset))

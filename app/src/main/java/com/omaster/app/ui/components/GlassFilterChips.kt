@@ -25,13 +25,14 @@ import com.omaster.app.ui.animation.ColorOSAnimationDuration
 import com.omaster.app.ui.animation.ColorOSEasing
 import com.omaster.app.ui.animation.ColorOSScale
 import com.omaster.app.ui.theme.*
+import com.omaster.app.viewmodel.FilterType
 
 @Composable
 fun GlassFilterChips(
-    selectedFilter: String,
-    onFilterSelected: (String) -> Unit,
+    selectedFilter: FilterType,
+    onFilterSelected: (FilterType) -> Unit,
     modifier: Modifier = Modifier,
-    filters: List<Pair<String, String>> = defaultFilters
+    filters: List<Pair<FilterType, String>> = defaultFilters
 ) {
     Row(
         modifier = modifier
@@ -52,12 +53,13 @@ fun GlassFilterChips(
 }
 
 private val defaultFilters = listOf(
-    "all" to "全部",
-    "favorite" to "收藏",
-    "hncs" to "HNCS",
-    "portrait" to "人像",
-    "landscape" to "风景",
-    "night" to "夜景"
+    FilterType.ALL to "全部",
+    FilterType.FAVORITES to "收藏",
+    FilterType.HNCS to "HNCS",
+    FilterType.FIND_X to "Find X",
+    FilterType.RENO to "Reno",
+    FilterType.NEW to "最新",
+    FilterType.TRENDING to "热门"
 )
 
 @Composable

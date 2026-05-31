@@ -34,6 +34,7 @@ import com.omaster.app.ui.animation.ColorOSScale
 import com.omaster.app.ui.components.*
 import com.omaster.app.ui.theme.*
 import com.omaster.app.viewmodel.MainViewModel
+import com.omaster.app.viewmodel.FilterType
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -56,14 +57,26 @@ fun ProHomeScreenV2(
         presets.filter { preset ->
             val matchesQuery = searchQuery.isEmpty() ||
                 preset.name.contains(searchQuery, ignoreCase = true) ||
-                preset.deviceModel?.contains(searchQuery, ignoreCase = true) == true
-            matchesQuery
+                preset.deviceModel.contains(searchQuery, ignoreCase = true) ||
+                preset.tags.any { it.contains(searchQuery, ignoreCase = true) }
+            
+            val matchesFilter = when (filterType) {
+                FilterType.ALL -> true
+                FilterType.FAVORITES -> preset.isFavorite
+                FilterType.HNCS -> preset.isHncsCertified
+                FilterType.FIND_X -> preset.deviceModel.contains("Find X", ignoreCase = true)
+                FilterType.RENO -> preset.deviceModel.contains("Reno", ignoreCase = true)
+                FilterType.NEW -> preset.version.contains("3.0") || preset.downloadCount < 5000
+                FilterType.TRENDING -> preset.downloadCount > 10000
+            }
+            
+            matchesQuery && matchesFilter
         }
     }
     
     var isLoading by remember { mutableStateOf(true) }
     
-    LaunchedEffect(presets) {
+    LaunchedEffect(Unit) {
         kotlinx.coroutines.delay(300)
         isLoading = false
     }
@@ -116,8 +129,12 @@ fun ProHomeScreenV2(
             item {
                 SectionHeaderV2(
                     title = when (filterType) {
-                        "favorite" -> "我的收藏"
-                        "hncs" -> "HNCS认证"
+                        FilterType.FAVORITES -> "我的收藏"
+                        FilterType.HNCS -> "HNCS认证"
+                        FilterType.FIND_X -> "Find X 系列"
+                        FilterType.RENO -> "Reno 系列"
+                        FilterType.NEW -> "最新预设"
+                        FilterType.TRENDING -> "热门趋势"
                         else -> "哈苏大师预设"
                     }
                 )
@@ -132,7 +149,9 @@ fun ProHomeScreenV2(
             } else if (filteredPresets.isEmpty()) {
                 item {
                     ProEmptyState(
-                        message = "暂无预设",
+                        message = if (searchQuery.isNotEmpty()) "没有找到匹配的预设" 
+                                  else if (filterType == FilterType.FAVORITES) "暂无收藏的预设"
+                                  else "暂无预设",
                         modifier = Modifier.padding(horizontal = Spacing.ScreenPadding)
                     )
                 }
@@ -194,7 +213,7 @@ private fun ProTopAppBarV2(
                     color = Colors.OnBackground
                 )
                 Text(
-                    text = "OPPO Find X8 Pro",
+                    text = "OPPO Find X8 Ultra",
                     style = Typography.LabelSmall,
                     color = Colors.OnSurfaceVariant
                 )
@@ -313,8 +332,8 @@ private fun ProHeroSectionV2() {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(Spacing.xl)
                     ) {
-                        ProMetric(value = "120+", label = "摄影预设")
-                        ProMetric(value = "5", label = "场景模式")
+                        ProMetric(value = "11+", label = "摄影预设")
+                        ProMetric(value = "7+", label = "场景模式")
                         ProMetric(value = "哈苏", label = "HNCS认证")
                     }
                 }
@@ -406,8 +425,7 @@ private fun ProFeatureCardV2(
     )
     
     GlassCard(
-        modifier = modifier
-            .scale(scale),
+        modifier = modifier.scale(scale),
         onClick = onClick
     ) {
         Column(
