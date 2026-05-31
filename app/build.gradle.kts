@@ -7,12 +7,12 @@ plugins {
 
 android {
     namespace = "com.omaster.app"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.omaster.app"
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 36
         versionCode = 121
         versionName = "1.2.1"
 
