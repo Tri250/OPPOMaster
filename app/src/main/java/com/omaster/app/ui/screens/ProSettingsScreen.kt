@@ -1,5 +1,7 @@
 package com.omaster.app.ui.screens
 
+import android.app.ActivityManager
+import android.content.Context
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -15,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.*
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -23,6 +26,9 @@ import com.omaster.app.BuildConfig
 import com.omaster.app.data.ThemeMode
 import com.omaster.app.ui.animation.clickableWithColorOSFeedback
 import com.omaster.app.ui.theme.*
+import com.omaster.app.utils.RomUtils
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * ==================== ProSettingsScreen - 专业设置页 ====================
@@ -42,6 +48,12 @@ fun ProSettingsScreen(
 ) {
     val isDark = themeMode == ThemeMode.DARK.value
     val scrollState = rememberScrollState()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    
+    // 内存清理相关状态
+    var isCleaningMemory by remember { mutableStateOf(false) }
+    var availableMemory by remember { mutableStateOf(getAvailableMemory(context)) }
     
     Scaffold(
         containerColor = if (isDark) ColorOSBlack else ColorOSLightBackground,
@@ -128,6 +140,79 @@ fun ProSettingsScreen(
             
             Spacer(modifier = Modifier.height(16.dp))
             
+            // 权限管理分组
+            ProSettingsGroup(
+                title = "权限管理",
+                icon = Icons.Default.Security,
+                isDark = isDark
+            ) {
+                ProActionItem(
+                    title = "悬浮窗权限",
+                    description = "允许应用在其他应用上层显示",
+                    icon = Icons.Default.OpenInNew,
+                    isDark = isDark,
+                    onClick = { RomUtils.openOverlayPermissionSettings(context) }
+                )
+                Divider(
+                    color = if (isDark) ColorOSBorder else ColorOSLightBorder,
+                    thickness = 0.5.dp
+                )
+                ProActionItem(
+                    title = "电池优化忽略",
+                    description = "防止应用在后台被杀死",
+                    icon = Icons.Default.BatteryChargingFull,
+                    isDark = isDark,
+                    onClick = { RomUtils.openBatteryOptimizationSettings(context) }
+                )
+                Divider(
+                    color = if (isDark) ColorOSBorder else ColorOSLightBorder,
+                    thickness = 0.5.dp
+                )
+                ProActionItem(
+                    title = "自启动管理",
+                    description = "允许应用开机自启动",
+                    icon = Icons.Default.PowerSettingsNew,
+                    isDark = isDark,
+                    onClick = { RomUtils.openAutostartSettings(context) }
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            // 性能优化分组
+            ProSettingsGroup(
+                title = "性能优化",
+                icon = Icons.Default.Speed,
+                isDark = isDark
+            ) {
+                ProMemoryCleanItem(
+                    availableMemory = availableMemory,
+                    isCleaning = isCleaningMemory,
+                    isDark = isDark,
+                    onCleanClick = {
+                        scope.launch {
+                            isCleaningMemory = true
+                            // 模拟清理动画
+                            delay(1500)
+                            // 触发GC
+                            System.gc()
+                            // 更新可用内存
+                            availableMemory = getAvailableMemory(context)
+                            isCleaningMemory = false
+                        }
+                    }
+                )
+                Divider(
+                    color = if (isDark) ColorOSBorder else ColorOSLightBorder,
+                    thickness = 0.5.dp
+                )
+                ProPowerSaveItem(
+                    isDark = isDark
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
             // 关于分组
             ProSettingsGroup(
                 title = "关于",
@@ -167,6 +252,15 @@ fun ProSettingsScreen(
             Spacer(modifier = Modifier.height(32.dp))
         }
     }
+}
+
+fun getAvailableMemory(context: Context): String {
+    val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+    val memoryInfo = ActivityManager.MemoryInfo()
+    activityManager.getMemoryInfo(memoryInfo)
+    val availableMB = memoryInfo.availMem / (1024 * 1024)
+    val totalMB = memoryInfo.totalMem / (1024 * 1024)
+    return "${availableMB}MB / ${totalMB}MB"
 }
 
 /**
@@ -711,5 +805,229 @@ fun ProInfoItem(
             fontWeight = FontWeight.SemiBold,
             fontSize = 15.sp
         )
+    }
+}
+
+/**
+ * ==================== ProActionItem - 专业操作项 ====================
+ */
+@Composable
+fun ProActionItem(
+    title: String,
+    description: String,
+    icon: ImageVector,
+    isDark: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickableWithColorOSFeedback(onClick = onClick)
+            .padding(vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = HasselbladOrange.copy(alpha = 0.12f)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = title,
+                tint = HasselbladOrange,
+                modifier = Modifier.padding(10.dp)
+            )
+        }
+        
+        Spacer(modifier = Modifier.width(14.dp))
+        
+        Column(
+            modifier = Modifier.weight(1f)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = if (isDark) ColorOSTextPrimary else ColorOSLightTextPrimary,
+                fontSize = 16.sp
+            )
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (isDark) ColorOSTextTertiary else ColorOSLightTextTertiary,
+                fontSize = 13.sp
+            )
+        }
+        
+        Icon(
+            imageVector = Icons.Default.ChevronRight,
+            contentDescription = "跳转",
+            tint = if (isDark) ColorOSTextTertiary else ColorOSLightTextTertiary
+        )
+    }
+}
+
+/**
+ * ==================== ProMemoryCleanItem - 专业内存清理项 ====================
+ */
+@Composable
+fun ProMemoryCleanItem(
+    availableMemory: String,
+    isCleaning: Boolean,
+    isDark: Boolean,
+    onCleanClick: () -> Unit
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "cleaning")
+    val rotationAngle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "rotation"
+    )
+    
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = HasselbladOrange.copy(alpha = 0.12f)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Delete,
+                contentDescription = "内存清理",
+                tint = HasselbladOrange,
+                modifier = Modifier
+                    .padding(10.dp)
+                    .then(if (isCleaning) Modifier.rotate(rotationAngle) else Modifier)
+            )
+        }
+        
+        Spacer(modifier = Modifier.width(14.dp))
+        
+        Column(
+            modifier = Modifier.weight(1f)
+        ) {
+            Text(
+                text = "内存清理",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = if (isDark) ColorOSTextPrimary else ColorOSLightTextPrimary,
+                fontSize = 16.sp
+            )
+            Text(
+                text = if (isCleaning) "正在清理..." else "可用内存: $availableMemory",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (isCleaning) HasselbladOrange else (if (isDark) ColorOSTextTertiary else ColorOSLightTextTertiary),
+                fontSize = 13.sp
+            )
+        }
+        
+        Button(
+            onClick = onCleanClick,
+            enabled = !isCleaning,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = HasselbladOrange,
+                disabledContainerColor = HasselbladOrange.copy(alpha = 0.4f)
+            ),
+            shape = RoundedCornerShape(10.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+        ) {
+            Text(
+                text = if (isCleaning) "清理中" else "清理",
+                style = MaterialTheme.typography.labelLarge,
+                color = if (isDark) ColorOSBlack else Color.White,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+/**
+ * ==================== ProPowerSaveItem - 专业省电策略项 ====================
+ */
+@Composable
+fun ProPowerSaveItem(
+    isDark: Boolean
+) {
+    var selectedStrategy by remember { mutableStateOf(0) }
+    val strategies = listOf(
+        "智能省电" to "平衡性能与续航",
+        "极致省电" to "禁用后台同步，延长待机",
+        "高性能模式" to "无限制后台运行"
+    )
+    
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = HasselbladOrange.copy(alpha = 0.12f)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.BatterySaver,
+                    contentDescription = "省电策略",
+                    tint = HasselbladOrange,
+                    modifier = Modifier.padding(10.dp)
+                )
+            }
+            
+            Spacer(modifier = Modifier.width(14.dp))
+            
+            Column(
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = "省电策略",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (isDark) ColorOSTextPrimary else ColorOSLightTextPrimary,
+                    fontSize = 16.sp
+                )
+                Text(
+                    text = strategies[selectedStrategy].second,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isDark) ColorOSTextTertiary else ColorOSLightTextTertiary,
+                    fontSize = 13.sp
+                )
+            }
+        }
+        
+        // 策略选择按钮
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            strategies.forEachIndexed { index, (title, _) ->
+                val isSelected = index == selectedStrategy
+                Surface(
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (isSelected) HasselbladOrange.copy(alpha = 0.15f) else Color.Transparent,
+                    border = if (isSelected) BorderStroke(1.5.dp, HasselbladOrange.copy(alpha = 0.4f)) else null,
+                    onClick = { selectedStrategy = index }
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (isSelected) HasselbladOrange else (if (isDark) ColorOSTextSecondary else ColorOSLightTextSecondary),
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(vertical = 8.dp),
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                    )
+                }
+            }
+        }
     }
 }

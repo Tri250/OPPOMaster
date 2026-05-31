@@ -7,6 +7,7 @@ import android.os.Build
 import android.provider.Settings
 import android.view.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -16,6 +17,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -32,12 +34,25 @@ object FloatingWindowManager {
     private var isShowing = false
     private var serviceStarted = false
 
-    private var currentPresetName: String = "预设参数"
-    private var currentParams: Map<String, String> = emptyMap()
+    private var presetList: List<Pair<String, Map<String, String>>> = listOf(
+        "人像模式" to mapOf("ISO" to "100", "快门" to "1/125s", "光圈" to "f/1.8"),
+        "夜景模式" to mapOf("ISO" to "3200", "快门" to "1/8s", "光圈" to "f/1.8"),
+        "风光模式" to mapOf("ISO" to "100", "快门" to "1/250s", "光圈" to "f/8.0"),
+        "微距模式" to mapOf("ISO" to "200", "快门" to "1/200s", "光圈" to "f/2.4"),
+        "运动模式" to mapOf("ISO" to "800", "快门" to "1/2000s", "光圈" to "f/2.8")
+    )
+    private var currentPresetIndex = 0
 
-    fun setPresetData(name: String, params: Map<String, String>) {
-        currentPresetName = name
-        currentParams = params
+    private val currentPresetName: String
+        get() = presetList[currentPresetIndex].first
+    private val currentParams: Map<String, String>
+        get() = presetList[currentPresetIndex].second
+
+    fun setPresetList(presets: List<Pair<String, Map<String, String>>>) {
+        presetList = presets
+        if (currentPresetIndex >= presetList.size) {
+            currentPresetIndex = presetList.size - 1
+        }
         if (isShowing) {
             updateFloatingView()
         }
@@ -64,6 +79,10 @@ object FloatingWindowManager {
                     FloatingWindowContent(
                         presetName = currentPresetName,
                         params = currentParams,
+                        presetIndex = currentPresetIndex,
+                        totalPresets = presetList.size,
+                        onSwipeLeft = { nextPreset() },
+                        onSwipeRight = { prevPreset() },
                         onClose = { hideWindow() },
                         onCopyParams = { copyParamsToClipboard(context) },
                         onOpenPermissionSettings = { RomUtils.openBatteryOptimizationSettings(context) }
@@ -113,11 +132,27 @@ object FloatingWindowManager {
         }
     }
 
+    private fun nextPreset() {
+        if (presetList.isEmpty()) return
+        currentPresetIndex = (currentPresetIndex + 1) % presetList.size
+        updateFloatingView()
+    }
+
+    private fun prevPreset() {
+        if (presetList.isEmpty()) return
+        currentPresetIndex = if (currentPresetIndex > 0) currentPresetIndex - 1 else presetList.size - 1
+        updateFloatingView()
+    }
+
     private fun updateFloatingView() {
         floatingView?.setContent {
             FloatingWindowContent(
                 presetName = currentPresetName,
                 params = currentParams,
+                presetIndex = currentPresetIndex,
+                totalPresets = presetList.size,
+                onSwipeLeft = { nextPreset() },
+                onSwipeRight = { prevPreset() },
                 onClose = { hideWindow() },
                 onCopyParams = { copyParamsToClipboard(floatingView?.context) },
                 onOpenPermissionSettings = { RomUtils.openBatteryOptimizationSettings(floatingView?.context) }
@@ -170,14 +205,36 @@ object FloatingWindowManager {
 fun FloatingWindowContent(
     presetName: String,
     params: Map<String, String>,
+    presetIndex: Int,
+    totalPresets: Int,
+    onSwipeLeft: () -> Unit,
+    onSwipeRight: () -> Unit,
     onClose: () -> Unit,
     onCopyParams: () -> Unit,
     onOpenPermissionSettings: () -> Unit
 ) {
+    var dragOffset by remember { mutableStateOf(0f) }
+    
     Card(
         modifier = Modifier
             .width(280.dp)
-            .padding(8.dp),
+            .padding(8.dp)
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        if (dragOffset > 50f) {
+                            onSwipeRight()
+                        } else if (dragOffset < -50f) {
+                            onSwipeLeft()
+                        }
+                        dragOffset = 0f
+                    },
+                    onHorizontalDrag = { change, dragAmount ->
+                        change.consume()
+                        dragOffset += dragAmount
+                    }
+                )
+            },
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = DeepSpace
@@ -193,37 +250,101 @@ fun FloatingWindowContent(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = presetName,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1
-                )
-                Row {
-                    IconButton(
-                        onClick = onOpenPermissionSettings,
-                        modifier = Modifier.size(28.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "权限设置",
-                            tint = Color.White.copy(alpha = 0.7f),
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                    IconButton(
-                        onClick = onClose,
-                        modifier = Modifier.size(28.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "关闭",
-                            tint = HasselbladOrange,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
+                // 左箭头
+                IconButton(
+                    onClick = onSwipeRight,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowLeft,
+                        contentDescription = "上一个",
+                        tint = Color.White.copy(alpha = 0.7f),
+                        modifier = Modifier.size(24.dp)
+                    )
                 }
+                
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = presetName,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        textAlign = TextAlign.Center
+                    )
+                    // 页码指示器
+                    Text(
+                        text = "${presetIndex + 1}/$totalPresets",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.5f)
+                    )
+                }
+                
+                // 右箭头
+                IconButton(
+                    onClick = onSwipeLeft,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowRight,
+                        contentDescription = "下一个",
+                        tint = Color.White.copy(alpha = 0.7f),
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                
+                // 设置按钮
+                IconButton(
+                    onClick = onOpenPermissionSettings,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "权限设置",
+                        tint = Color.White.copy(alpha = 0.7f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                
+                // 关闭按钮
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "关闭",
+                        tint = HasselbladOrange,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            // 滑动提示
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.SwipeLeft,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.3f),
+                    modifier = Modifier.size(16.dp)
+                )
+                Text(
+                    text = " 左右滑动切换预设 ",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White.copy(alpha = 0.3f)
+                )
+                Icon(
+                    imageVector = Icons.Default.SwipeRight,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.3f),
+                    modifier = Modifier.size(16.dp)
+                )
             }
 
             params.forEach { (key, value) ->
