@@ -129,6 +129,502 @@ static inline float3 metal_hls_fit_ap1_lower_gamut(float3 adjusted_ap1, float3 n
   return neutral_ap1 + (adjusted_ap1 - neutral_ap1) * scale;
 }
 
+// === Highlight / Shadow Local Tone ============================================
+
+static inline float metal_hs_ap1_luminance(float3 ap1) {
+  return 0.27222872f * ap1.x + 0.67408177f * ap1.y + 0.05368952f * ap1.z;
+}
+
+static inline float metal_hs_log2_luminance_from_acescc(float4 px) {
+  const float3 ap1 = metal_hls_acescc_to_ap1(px.xyz);
+  return log2(fmax(metal_hs_ap1_luminance(ap1), 1.0e-8f));
+}
+
+static inline float metal_hs_range_weight(float center, float sample) {
+  const float edge_delta = fmax(fabs(sample - center) - 0.24f, 0.0f);
+  const float d = edge_delta / 0.48f;
+  return exp2(-(d * d));
+}
+
+static inline float metal_hs_shadow_upper_pivot(constant MetalFusedParams& params) {
+  const float width = fmax(params.hs_shadow_log_width_, 0.35f);
+  return params.hs_shadow_log_pivot_ + fmax(width * 0.40f, 0.24f);
+}
+
+static inline float metal_hs_shadow_black_floor_weight(float mask_ref,
+                                                       constant MetalFusedParams& params) {
+  const float width = fmax(params.hs_shadow_log_width_, 0.35f);
+  const float upper_pivot = metal_hs_shadow_upper_pivot(params);
+  const float black_start = upper_pivot - fmax(width * 7.20f, 4.45f);
+  const float black_end = upper_pivot - fmax(width * 5.20f, 3.25f);
+  const float toe = metal_smoothstep_range(black_start, black_end, mask_ref);
+  return 0.30f + 0.70f * toe;
+}
+
+static inline float metal_hs_shadow_zone_weight(float mask_ref,
+                                                constant MetalFusedParams& params) {
+  const float width = fmax(params.hs_shadow_log_width_, 0.35f);
+  const float upper_pivot = metal_hs_shadow_upper_pivot(params);
+  const float fade_start = upper_pivot - fmax(width * 3.15f, 1.95f);
+  const float tonal_weight = 1.0f - metal_smoothstep_range(fade_start, upper_pivot, mask_ref);
+  const float black_floor = metal_hs_shadow_black_floor_weight(mask_ref, params);
+  return clamp(tonal_weight * black_floor, 0.0f, 1.0f);
+}
+
+static inline float metal_hs_highlight_zone_weight(float mask_ref,
+                                                   constant MetalFusedParams& params) {
+  constexpr float kToe = 1.0e-3f;
+  constexpr float kToePow = 0.1023292992f;
+  constexpr float kInvToeRange = 1.1135850f;
+  constexpr float kGamma = 0.33f;
+  const float t =
+      metal_smoothstep_range(params.hs_highlight_log_pivot_,
+                             params.hs_highlight_log_pivot_ + params.hs_highlight_log_width_,
+                             mask_ref);
+  const float lifted = pow(t + kToe, kGamma);
+  return clamp((lifted - kToePow) * kInvToeRange, 0.0f, 1.0f);
+}
+
+static inline float metal_hs_softplus_distance(float distance, float softness) {
+  constexpr float kLog2 = 0.6931471805599453f;
+  const float safe_softness = fmax(softness, 1.0e-4f);
+  const float x = distance / safe_softness;
+  if (x > 20.0f) {
+    return distance - safe_softness * kLog2;
+  }
+  return safe_softness * (log(1.0f + exp(x)) - kLog2);
+}
+
+static inline float metal_hs_softrelu_distance(float signed_distance, float softness,
+                                               float onset) {
+  const float safe_softness = fmax(softness, 1.0e-4f);
+  const float safe_onset = fmax(onset, 0.0f);
+  const float x = (signed_distance - safe_onset) / safe_softness;
+  if (x > 20.0f) {
+    return signed_distance - safe_onset;
+  }
+  if (x < -20.0f) {
+    return safe_softness * exp(x);
+  }
+  return safe_softness * log(1.0f + exp(x));
+}
+
+static inline float metal_hs_texture_detail_weight(float detail) {
+  return 1.0f - metal_smoothstep_range(0.28f, 0.88f, fabs(detail));
+}
+
+static inline float metal_hs_active_mask_disagreement(
+    float base_shadow_mask, float base_highlight_mask, float source_shadow_mask,
+    float source_highlight_mask, float shadow_amount, float highlight_amount) {
+  float disagreement = 0.0f;
+  if (fabs(shadow_amount) > 1.0e-6f) {
+    disagreement = fmax(disagreement, fabs(base_shadow_mask - source_shadow_mask));
+    disagreement =
+        fmax(disagreement, 0.50f * fabs(base_highlight_mask - source_highlight_mask));
+  }
+  if (fabs(highlight_amount) > 1.0e-6f) {
+    disagreement = fmax(disagreement, fabs(base_highlight_mask - source_highlight_mask));
+  }
+  return clamp(disagreement, 0.0f, 1.0f);
+}
+
+static inline float metal_hs_tonal_reference_mix(float mask_disagreement) {
+  return metal_smoothstep_range(0.025f, 0.16f, mask_disagreement);
+}
+
+static inline float metal_hs_local_detail_reference_guard(float detail,
+                                                          float tonal_reference_mix) {
+  const float edge_reference = metal_smoothstep_range(0.42f, 0.95f, fabs(detail));
+  return 1.0f - tonal_reference_mix * edge_reference;
+}
+
+static inline float metal_hs_chromatic_fringe_guard(float source_chroma, float detail,
+                                                    float tonal_reference_mix,
+                                                    float active_highlight_mask,
+                                                    float shadow_amount,
+                                                    float highlight_amount) {
+  if (highlight_amount <= 1.0e-6f && shadow_amount <= 1.0e-6f) {
+    return 1.0f;
+  }
+
+  const float chroma_gate = metal_smoothstep_range(0.012f, 0.060f, source_chroma);
+  const float detail_gate = metal_smoothstep_range(0.055f, 0.34f, fabs(detail)) *
+                            (1.0f - metal_smoothstep_range(0.82f, 1.42f, fabs(detail)));
+  const float edge_gate = metal_smoothstep_range(0.020f, 0.12f, tonal_reference_mix);
+  const float highlight_gate = 0.35f + 0.65f * active_highlight_mask;
+  const float strength = 0.82f * chroma_gate * detail_gate * edge_gate * highlight_gate;
+  return 1.0f - clamp(strength, 0.0f, 0.82f);
+}
+
+static inline float metal_hs_chromatic_local_mix_guard(
+    float source_chroma, float detail, float local_delta, float source_delta,
+    float active_highlight_mask, float shadow_amount, float highlight_amount) {
+  if (highlight_amount <= 1.0e-6f && shadow_amount <= 1.0e-6f) {
+    return 1.0f;
+  }
+
+  const float chroma_gate = metal_smoothstep_range(0.012f, 0.055f, source_chroma);
+  const float detail_gate = metal_smoothstep_range(0.050f, 0.20f, fabs(detail)) *
+                            (1.0f - metal_smoothstep_range(0.85f, 1.45f, fabs(detail)));
+  const float mismatch_gate = metal_smoothstep_range(0.055f, 0.16f,
+                                                     fabs(local_delta - source_delta));
+  const float highlight_gate = 0.35f + 0.65f * active_highlight_mask;
+  const float both_active_gate =
+      0.55f + 0.45f * clamp(fmin(fmax(shadow_amount, 0.0f),
+                                  fmax(highlight_amount, 0.0f)),
+                            0.0f, 1.0f);
+  const float strength =
+      0.78f * chroma_gate * detail_gate * mismatch_gate * highlight_gate * both_active_gate;
+  return 1.0f - clamp(strength, 0.0f, 0.78f);
+}
+
+static inline float metal_hs_llf_detail_mix(float detail) {
+  return 1.0f - metal_smoothstep_range(0.42f, 0.95f, fabs(detail));
+}
+
+static inline float metal_hs_local_tone_mix(float detail, float local_delta, float source_delta) {
+  const float mag = fabs(detail);
+  const float edge_weight = metal_smoothstep_range(0.62f, 1.55f, mag);
+  const float delta_mismatch =
+      metal_smoothstep_range(0.16f, 0.52f, fabs(local_delta - source_delta));
+  const float guard =
+      clamp(edge_weight * (0.82f + 0.18f * delta_mismatch) +
+                0.18f * edge_weight * edge_weight,
+            0.0f, 1.0f);
+  return 1.0f - guard;
+}
+
+static inline float metal_hs_shadow_detail_preserve_weight(float detail) {
+  const float mag = fabs(detail);
+  const float noise_gate = metal_smoothstep_range(0.045f, 0.15f, mag);
+  const float edge_guard = 1.0f - metal_smoothstep_range(0.78f, 1.35f, mag);
+  return noise_gate * edge_guard;
+}
+
+static inline float metal_hs_shadow_llf_detail_gain(float detail, float shadow_amount,
+                                                    float shadow_zone) {
+  const float lift_amount = fmax(shadow_amount, 0.0f);
+  if (lift_amount <= 1.0e-6f || shadow_zone <= 1.0e-6f) {
+    return 1.0f;
+  }
+
+  const float mag = fabs(detail);
+  const float noise_gate = metal_smoothstep_range(0.035f, 0.11f, mag);
+  const float fine_detail_gate = 1.0f - metal_smoothstep_range(0.38f, 0.82f, mag);
+  if (noise_gate <= 0.0f || fine_detail_gate <= 0.0f) {
+    return 1.0f;
+  }
+
+  constexpr float kSigmaRStops = 0.42f;
+  const float x = clamp(mag / kSigmaRStops, 1.0e-4f, 1.0f);
+  const float alpha = 1.0f - 0.38f * lift_amount;
+  const float remapped_mag = kSigmaRStops * pow(x, alpha);
+  const float remap_gain = remapped_mag / fmax(mag, 1.0e-4f);
+  const float limited_gain = clamp(remap_gain - 1.0f, 0.0f, 0.38f);
+  const float mix = lift_amount * shadow_zone * noise_gate * fine_detail_gate;
+  return 1.0f + limited_gain * mix;
+}
+
+static inline float metal_hs_shadow_detail_sign_weight(float detail) {
+  if (detail >= 0.0f) {
+    return 1.0f;
+  }
+  return 1.0f - 0.65f * metal_smoothstep_range(0.18f, 0.72f, -detail);
+}
+
+static inline void metal_hs_compute_masks(float mask_ref, float shadow_amount,
+                                          float highlight_amount,
+                                          constant MetalFusedParams& params,
+                                          thread float& shadow_mask,
+                                          thread float& highlight_mask) {
+  const float raw_shadow = metal_hs_shadow_zone_weight(mask_ref, params);
+  const float raw_highlight = metal_hs_highlight_zone_weight(mask_ref, params);
+  const bool both_active = fabs(shadow_amount) > 1.0e-6f &&
+                           fabs(highlight_amount) > 1.0e-6f;
+  shadow_mask = both_active ? raw_shadow * (1.0f - 0.72f * raw_highlight) : raw_shadow;
+  highlight_mask =
+      both_active ? raw_highlight * (1.0f - 0.48f * raw_shadow) : raw_highlight;
+}
+
+static inline float metal_hs_shadow_base_delta_from_ref(float mask_ref, float shadow_amount,
+                                                        float highlight_amount,
+                                                        constant MetalFusedParams& params) {
+  float shadow_mask = 0.0f;
+  float highlight_mask = 0.0f;
+  metal_hs_compute_masks(mask_ref, shadow_amount, highlight_amount, params, shadow_mask,
+                         highlight_mask);
+
+  const float width = fmax(params.hs_shadow_log_width_, 0.35f);
+  const float upper_pivot = metal_hs_shadow_upper_pivot(params);
+  const float lift_pivot = upper_pivot + fmax(width * 4.00f, 2.48f);
+  const float distance_to_pivot = fmax(lift_pivot - mask_ref, 0.0f);
+  const float soft_distance =
+      metal_hs_softplus_distance(distance_to_pivot, fmax(width * 2.18f, 1.35f));
+  const float lift_shape = 1.0f - exp(-soft_distance / 1.25f);
+  const float deep_noise_compression =
+      1.0f - metal_smoothstep_range(params.hs_shadow_log_pivot_ - 4.15f,
+                                    params.hs_shadow_log_pivot_ - 2.35f, mask_ref);
+  const float black_guard = 0.82f + 0.18f * metal_hs_shadow_black_floor_weight(mask_ref, params);
+  const float highlight_overlap = clamp(highlight_mask, 0.0f, 1.0f);
+  const float highlight_active = (fabs(highlight_amount) > 1.0e-6f) ? 1.0f : 0.0f;
+  const float overlap_guard = 1.0f - 0.28f * highlight_active * highlight_overlap;
+  const float lift_amount = fmax(shadow_amount, 0.0f);
+  const float darken_amount = fmax(-shadow_amount, 0.0f);
+  const float lift_delta =
+      lift_amount * (0.88f * lift_shape * black_guard * overlap_guard +
+                     0.28f * deep_noise_compression);
+  const float darken_delta =
+      darken_amount * 0.34f * soft_distance * (0.85f + 0.15f * black_guard);
+  return lift_delta - darken_delta;
+}
+
+static inline float metal_hs_highlight_base_delta_from_ref(float mask_ref, float shadow_amount,
+                                                           float highlight_amount,
+                                                           constant MetalFusedParams& params) {
+  (void)shadow_amount;
+  const float width = fmax(params.hs_highlight_log_width_, 0.35f);
+  const float soft_distance = metal_hs_softrelu_distance(
+      mask_ref - params.hs_highlight_log_pivot_, fmin(fmax(width * 0.12f, 0.36f), 0.55f),
+      fmin(fmax(width * 0.24f, 0.72f), 1.10f));
+  const float reduce_amount = fmax(highlight_amount, 0.0f);
+  const float boost_amount = fmax(-highlight_amount, 0.0f);
+  const float reduce_delta = 1.68f * (1.0f - exp(-soft_distance / 1.33f));
+  const float boost_delta = 1.24f * (1.0f - exp(-soft_distance / 1.45f));
+  return boost_amount * boost_delta - reduce_amount * reduce_delta;
+}
+
+static inline float metal_hs_base_delta_from_ref(float mask_ref, float shadow_amount,
+                                                 float highlight_amount,
+                                                 constant MetalFusedParams& params) {
+  return metal_hs_shadow_base_delta_from_ref(mask_ref, shadow_amount, highlight_amount, params) +
+         metal_hs_highlight_base_delta_from_ref(mask_ref, shadow_amount, highlight_amount, params);
+}
+
+static inline float metal_hs_base_curve_slope(float mask_ref, float shadow_amount,
+                                              float highlight_amount,
+                                              constant MetalFusedParams& params) {
+  constexpr float kEpsStops = 0.08f;
+  const float delta_lo =
+      metal_hs_base_delta_from_ref(mask_ref - kEpsStops, shadow_amount, highlight_amount, params);
+  const float delta_hi =
+      metal_hs_base_delta_from_ref(mask_ref + kEpsStops, shadow_amount, highlight_amount, params);
+  return 1.0f + (delta_hi - delta_lo) / (2.0f * kEpsStops);
+}
+
+static inline float metal_hs_shadow_curve_slope(float mask_ref, float shadow_amount,
+                                                float highlight_amount,
+                                                constant MetalFusedParams& params) {
+  constexpr float kEpsStops = 0.08f;
+  const float delta_lo = metal_hs_shadow_base_delta_from_ref(
+      mask_ref - kEpsStops, shadow_amount, highlight_amount, params);
+  const float delta_hi = metal_hs_shadow_base_delta_from_ref(
+      mask_ref + kEpsStops, shadow_amount, highlight_amount, params);
+  return 1.0f + (delta_hi - delta_lo) / (2.0f * kEpsStops);
+}
+
+static inline float metal_hs_highlight_curve_slope(float mask_ref, float shadow_amount,
+                                                   float highlight_amount,
+                                                   constant MetalFusedParams& params) {
+  constexpr float kEpsStops = 0.08f;
+  const float delta_lo = metal_hs_highlight_base_delta_from_ref(
+      mask_ref - kEpsStops, shadow_amount, highlight_amount, params);
+  const float delta_hi = metal_hs_highlight_base_delta_from_ref(
+      mask_ref + kEpsStops, shadow_amount, highlight_amount, params);
+  return 1.0f + (delta_hi - delta_lo) / (2.0f * kEpsStops);
+}
+
+static inline float metal_hs_shadow_detail_weight(float mask_ref, float shadow_mask,
+                                                  constant MetalFusedParams& params) {
+  (void)shadow_mask;
+  const float tonal_weight = metal_hs_shadow_zone_weight(mask_ref, params);
+  const float signal_gate = metal_smoothstep_range(params.hs_shadow_log_pivot_ - 2.60f,
+                                                   params.hs_shadow_log_pivot_ - 1.20f,
+                                                   mask_ref);
+  const float upper_guard =
+      1.0f - metal_smoothstep_range(params.hs_shadow_log_pivot_ + 1.05f,
+                                    params.hs_shadow_log_pivot_ + 2.10f, mask_ref);
+  const float practical_shadow = signal_gate * upper_guard;
+  return fmax(tonal_weight * signal_gate, 0.72f * practical_shadow);
+}
+
+static inline float metal_hs_shadow_fill_light_weight(float mask_ref,
+                                                      constant MetalFusedParams& params) {
+  const float signal_gate = metal_smoothstep_range(params.hs_shadow_log_pivot_ - 2.45f,
+                                                   params.hs_shadow_log_pivot_ - 1.05f,
+                                                   mask_ref);
+  const float upper_guard =
+      1.0f - metal_smoothstep_range(params.hs_shadow_log_pivot_ + 1.55f,
+                                    params.hs_shadow_log_pivot_ + 2.50f, mask_ref);
+  return signal_gate * upper_guard;
+}
+
+static inline float metal_hs_highlight_detail_weight(float mask_ref, float highlight_mask,
+                                                     float detail,
+                                                     constant MetalFusedParams& params) {
+  const float width = fmax(params.hs_highlight_log_width_, 0.35f);
+  const float tonal_weight = clamp(highlight_mask, 0.0f, 1.0f);
+  const float noise_gate = metal_smoothstep_range(0.035f, 0.12f, fabs(detail));
+  const float edge_guard = 1.0f - metal_smoothstep_range(0.78f, 1.45f, fabs(detail));
+  const float clipped_guard =
+      1.0f - metal_smoothstep_range(params.hs_highlight_log_pivot_ + width * 1.15f,
+                                    params.hs_highlight_log_pivot_ + width * 2.35f, mask_ref);
+  return tonal_weight * noise_gate * edge_guard * clipped_guard;
+}
+
+static inline float3 metal_hs_preserve_highlight_chroma(float3 source_ap1, float3 output_ap1,
+                                                        float log_delta, float highlight_amount,
+                                                        float source_highlight_mask) {
+  const float reduce_amount = fmax(highlight_amount, 0.0f);
+  if (reduce_amount <= 1.0e-6f || log_delta >= -1.0e-5f ||
+      source_highlight_mask <= 1.0e-5f) {
+    return output_ap1;
+  }
+
+  const float3 source_lab = metal_hls_ap1_to_oklab(source_ap1);
+  const float3 output_lab = metal_hls_ap1_to_oklab(output_ap1);
+  const float source_chroma = length(source_lab.yz);
+  const float output_chroma = length(output_lab.yz);
+  if (source_chroma <= 1.0e-5f || output_lab.x <= 1.0e-5f) {
+    return output_ap1;
+  }
+
+  const float chroma_confidence = metal_smoothstep_range(0.012f, 0.060f, source_chroma);
+  const float compression = metal_smoothstep_range(0.18f, 1.15f, -log_delta);
+  const float strength = clamp(0.56f * reduce_amount * source_highlight_mask * compression *
+                                   chroma_confidence,
+                               0.0f, 0.62f);
+  if (strength <= 1.0e-6f) {
+    return output_ap1;
+  }
+
+  const float target_chroma = output_chroma + (source_chroma - output_chroma) * strength;
+  const float inv_source_chroma = 1.0f / fmax(source_chroma, 1.0e-5f);
+  const float2 hue_dir = float2(source_lab.y * inv_source_chroma,
+                                source_lab.z * inv_source_chroma);
+  const float3 adjusted_lab =
+      float3(output_lab.x, hue_dir.x * target_chroma, hue_dir.y * target_chroma);
+  const float3 neutral_lab = float3(output_lab.x, 0.0f, 0.0f);
+  const float3 neutral_ap1 = metal_hls_oklab_to_ap1(neutral_lab);
+  return metal_hls_fit_ap1_lower_gamut(metal_hls_oklab_to_ap1(adjusted_lab), neutral_ap1);
+}
+
+static inline float4 GPU_HighlightShadowLocalToneOpKernel(float4 px, float base,
+                                                          constant MetalFusedParams& params) {
+  const float shadow_amount =
+      (params.shadows_enabled_ != 0u) ? clamp(params.shadows_offset_, -1.0f, 1.0f) : 0.0f;
+  const float highlight_amount = (params.highlights_enabled_ != 0u)
+                                     ? clamp(-params.highlights_offset_ * 0.5f, -1.0f, 1.0f)
+                                     : 0.0f;
+  if (fabs(shadow_amount) <= 1.0e-6f && fabs(highlight_amount) <= 1.0e-6f) {
+    return px;
+  }
+
+  const float3 source_ap1 = metal_hls_acescc_to_ap1(px.xyz);
+  const float source_log_y = log2(fmax(metal_hs_ap1_luminance(source_ap1), 1.0e-8f));
+  const float detail = source_log_y - base;
+  const float base_mask_ref = base;
+  float base_shadow_mask = 0.0f;
+  float base_highlight_mask = 0.0f;
+  float source_shadow_mask = 0.0f;
+  float source_highlight_mask = 0.0f;
+  metal_hs_compute_masks(base_mask_ref, shadow_amount, highlight_amount, params,
+                         base_shadow_mask, base_highlight_mask);
+  metal_hs_compute_masks(source_log_y, shadow_amount, highlight_amount, params,
+                         source_shadow_mask, source_highlight_mask);
+
+  const float mask_disagreement = metal_hs_active_mask_disagreement(
+      base_shadow_mask, base_highlight_mask, source_shadow_mask, source_highlight_mask,
+      shadow_amount, highlight_amount);
+  const float tonal_reference_mix = metal_hs_tonal_reference_mix(mask_disagreement);
+  const float mask_ref = mix(base_mask_ref, source_log_y, tonal_reference_mix);
+  float shadow_mask = 0.0f;
+  float highlight_mask = 0.0f;
+  metal_hs_compute_masks(mask_ref, shadow_amount, highlight_amount, params, shadow_mask,
+                         highlight_mask);
+
+  const float base_delta =
+      metal_hs_base_delta_from_ref(mask_ref, shadow_amount, highlight_amount, params);
+  const float base_curve_slope = clamp(
+      metal_hs_base_curve_slope(mask_ref, shadow_amount, highlight_amount, params), 0.42f, 1.65f);
+  const float base_contrast_loss = clamp(1.0f / base_curve_slope - 1.0f, 0.0f, 0.62f);
+  const float shadow_curve_slope =
+      clamp(metal_hs_shadow_curve_slope(mask_ref, shadow_amount, highlight_amount, params),
+            0.58f, 1.35f);
+  const float shadow_contrast_loss = clamp(1.0f / shadow_curve_slope - 1.0f, 0.0f, 0.46f);
+  const float highlight_curve_slope =
+      clamp(metal_hs_highlight_curve_slope(mask_ref, shadow_amount, highlight_amount, params),
+            0.50f, 1.20f);
+  const float highlight_contrast_loss =
+      clamp(1.0f / highlight_curve_slope - 1.0f, 0.0f, 0.42f);
+  const float shadow_texture_zone = metal_hs_shadow_detail_weight(mask_ref, shadow_mask, params);
+  const float texture_detail = metal_hs_texture_detail_weight(detail);
+  const float shadow_detail_sign = metal_hs_shadow_detail_sign_weight(detail);
+  const float shadow_detail_zone = shadow_texture_zone * texture_detail * shadow_detail_sign;
+  const float shadow_detail_preserve = metal_hs_shadow_detail_preserve_weight(detail);
+  const float shadow_fill_light_zone = metal_hs_shadow_fill_light_weight(mask_ref, params);
+  const float active_highlight_mask =
+      (fabs(highlight_amount) > 1.0e-6f) ? clamp(highlight_mask, 0.0f, 1.0f) : 0.0f;
+  const float3 source_lab = metal_hls_ap1_to_oklab(source_ap1);
+  const float source_chroma = length(source_lab.yz);
+  const float chromatic_fringe_guard = metal_hs_chromatic_fringe_guard(
+      source_chroma, detail, tonal_reference_mix, active_highlight_mask, shadow_amount,
+      highlight_amount);
+  const float fill_highlight_guard = 1.0f - 0.35f * active_highlight_mask;
+  const float fill_detail_polarity = detail >= 0.0f ? 1.0f : 0.68f;
+  const float highlight_detail_zone =
+      metal_hs_highlight_detail_weight(mask_ref, highlight_mask, detail, params) * texture_detail;
+  const float llf_detail_gain =
+      metal_hs_shadow_llf_detail_gain(
+          detail, shadow_amount,
+          fmax(shadow_texture_zone, 0.86f * shadow_fill_light_zone * fill_highlight_guard));
+  const float guarded_llf_detail_gain =
+      1.0f + (llf_detail_gain - 1.0f) * chromatic_fringe_guard;
+  const float dark_valley = metal_smoothstep_range(0.85f, 1.80f, -detail);
+  const float contrast_recovery =
+      0.035f + 0.075f * fmax(base_contrast_loss, shadow_contrast_loss);
+  const float fill_light_recovery =
+      0.075f + 0.085f * fmax(base_contrast_loss, shadow_contrast_loss);
+  const float shadow_detail_scale =
+      fmax(shadow_amount, 0.0f) * shadow_detail_zone * shadow_detail_preserve *
+          contrast_recovery -
+      0.018f * fmax(shadow_amount, 0.0f) * shadow_texture_zone * dark_valley +
+      fmax(shadow_amount, 0.0f) * shadow_fill_light_zone * fill_highlight_guard * texture_detail *
+          shadow_detail_preserve * fill_detail_polarity * fill_light_recovery +
+      0.025f * fmax(-shadow_amount, 0.0f) * shadow_detail_zone *
+          fmax(base_contrast_loss, shadow_contrast_loss);
+  const float guarded_shadow_detail_scale = shadow_detail_scale * chromatic_fringe_guard;
+  const float highlight_detail_scale =
+      fmax(highlight_amount, 0.0f) * highlight_detail_zone *
+      (0.035f + 0.12f * highlight_contrast_loss);
+  const float guarded_highlight_detail_scale = highlight_detail_scale * chromatic_fringe_guard;
+  const float raw_detail_scale =
+      clamp((1.0f + guarded_shadow_detail_scale + guarded_highlight_detail_scale) *
+                guarded_llf_detail_gain,
+            0.97f, 1.30f);
+  const float detail_scale =
+      1.0f + (raw_detail_scale - 1.0f) * metal_hs_llf_detail_mix(detail);
+  const float local_delta = base_delta + detail * (detail_scale - 1.0f);
+  const float local_adjusted_log_y = source_log_y + local_delta;
+  const float source_delta =
+      metal_hs_base_delta_from_ref(source_log_y, shadow_amount, highlight_amount, params);
+  const float source_adjusted_log_y = source_log_y + source_delta;
+  const float chromatic_local_mix_guard = metal_hs_chromatic_local_mix_guard(
+      source_chroma, detail, local_delta, source_delta, active_highlight_mask, shadow_amount,
+      highlight_amount);
+  const float local_mix =
+      metal_hs_local_tone_mix(detail, local_delta, source_delta) *
+      metal_hs_local_detail_reference_guard(detail, tonal_reference_mix) *
+      chromatic_fringe_guard * chromatic_local_mix_guard;
+  const float adjusted_log_y = mix(source_adjusted_log_y, local_adjusted_log_y, local_mix);
+  const float log_delta = adjusted_log_y - source_log_y;
+
+  const float rgb_scale = exp2(clamp(log_delta, -3.5f, 3.5f));
+  float3 output_ap1 = source_ap1 * rgb_scale;
+  output_ap1 = metal_hs_preserve_highlight_chroma(source_ap1, output_ap1, log_delta,
+                                                  highlight_amount, source_highlight_mask);
+  return float4(metal_hls_ap1_to_acescc(output_ap1), px.w);
+}
+
 static inline float4 GPU_TintOpKernel(float4 px, constant MetalFusedParams& params) {
   if (params.tint_enabled_ == 0u) {
     return px;
