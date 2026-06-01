@@ -60,7 +60,11 @@ void EditorDialog::RefreshPanelSwitchUi() {
 
 void EditorDialog::SetActiveControlPanel(ControlPanelKind panel) {
   const ControlPanelKind previous_panel = active_panel_;
-  active_panel_                         = panel;
+  if (previous_panel == ControlPanelKind::Geometry && panel != ControlPanelKind::Geometry &&
+      geometry_panel_) {
+    geometry_panel_->CommitPendingCrop();
+  }
+  active_panel_ = panel;
   if (control_panels_stack_) {
     int panel_index = 0;
     if (panel == ControlPanelKind::Look) {
@@ -79,7 +83,11 @@ void EditorDialog::SetActiveControlPanel(ControlPanelKind panel) {
 
   if (viewer_) {
     if (geometry_panel_) {
-      geometry_panel_->SyncControlsFromDialogState();
+      if (geometry_active && previous_panel != ControlPanelKind::Geometry) {
+        geometry_panel_->BeginCropEditingSession();
+      } else {
+        geometry_panel_->SyncControlsFromDialogState();
+      }
     }
     viewer_->SetCropOverlayVisible(geometry_active);
     viewer_->SetCropToolEnabled(geometry_active);

@@ -207,10 +207,10 @@ void VersioningPanelWidget::BuildRail() {
   rail_->setAttribute(Qt::WA_StyledBackground, true);
   rail_->setStyleSheet(rail_style);
   rail_->setFixedWidth(kCollapsedWidth);
-  auto* rail_layout = new QVBoxLayout(rail_);
-  rail_layout->setContentsMargins(7, 12, 7, 12);
-  rail_layout->setSpacing(8);
-  rail_layout->setAlignment(Qt::AlignTop);
+  rail_layout_ = new QVBoxLayout(rail_);
+  rail_layout_->setContentsMargins(7, 12, 7, 12);
+  rail_layout_->setSpacing(8);
+  rail_layout_->setAlignment(Qt::AlignTop);
 
   const auto configure_rail_button = [](QPushButton* button) {
     if (!button) {
@@ -227,13 +227,13 @@ void VersioningPanelWidget::BuildRail() {
 
   history_btn_ = new QPushButton(rail_);
   configure_rail_button(history_btn_);
-  rail_layout->addWidget(history_btn_, 0, Qt::AlignTop | Qt::AlignHCenter);
+  rail_layout_->addWidget(history_btn_, 0, Qt::AlignTop | Qt::AlignHCenter);
 
   versions_btn_ = new QPushButton(rail_);
   configure_rail_button(versions_btn_);
-  rail_layout->addWidget(versions_btn_, 0, Qt::AlignTop | Qt::AlignHCenter);
+  rail_layout_->addWidget(versions_btn_, 0, Qt::AlignTop | Qt::AlignHCenter);
 
-  rail_layout->addSpacing(6);
+  rail_layout_->addSpacing(6);
   auto* nav_divider = new QFrame(rail_);
   nav_divider->setFrameShape(QFrame::HLine);
   nav_divider->setFixedWidth(kRailButtonSize - 10);
@@ -243,13 +243,21 @@ void VersioningPanelWidget::BuildRail() {
                       AppTheme::Instance().dividerColor().green(),
                       AppTheme::Instance().dividerColor().blue(), 96)
                    .name(QColor::HexArgb)));
-  rail_layout->addWidget(nav_divider, 0, Qt::AlignHCenter);
-  rail_layout->addStretch();
+  rail_layout_->addWidget(nav_divider, 0, Qt::AlignHCenter);
+  rail_layout_->addStretch();
 
   QObject::connect(history_btn_, &QPushButton::clicked, this,
                    [this]() { HandleHistoryButtonClicked(); });
   QObject::connect(versions_btn_, &QPushButton::clicked, this,
                    [this]() { HandleVersionsButtonClicked(); });
+}
+
+void VersioningPanelWidget::SetBottomStatusWidget(QWidget* widget) {
+  if (!widget || !rail_ || !rail_layout_) {
+    return;
+  }
+  widget->setParent(rail_);
+  rail_layout_->addWidget(widget, 0, Qt::AlignBottom | Qt::AlignHCenter);
 }
 
 void VersioningPanelWidget::BuildFlyout() {

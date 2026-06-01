@@ -122,14 +122,14 @@ TEST(EditViewerLogicTests, DirectPresentQueueExposesPendingReferenceFramesWithou
 }
 
 TEST(EditViewerLogicTests, RoiFramesDoNotBecomeRenderReferenceFrames) {
-  EXPECT_TRUE(IsRenderReferenceFrame(FramePresentationMode::ViewportTransformed,
-                                    FrameRole::QualityBase));
-  EXPECT_TRUE(IsRenderReferenceFrame(FramePresentationMode::FullFrame,
-                                    FrameRole::InteractivePrimary));
-  EXPECT_FALSE(IsRenderReferenceFrame(FramePresentationMode::RoiFrame,
-                                     FrameRole::InteractivePrimary));
-  EXPECT_FALSE(IsRenderReferenceFrame(FramePresentationMode::ViewportTransformed,
-                                     FrameRole::DetailPatch));
+  EXPECT_TRUE(
+      IsRenderReferenceFrame(FramePresentationMode::ViewportTransformed, FrameRole::QualityBase));
+  EXPECT_TRUE(
+      IsRenderReferenceFrame(FramePresentationMode::FullFrame, FrameRole::InteractivePrimary));
+  EXPECT_FALSE(
+      IsRenderReferenceFrame(FramePresentationMode::RoiFrame, FrameRole::InteractivePrimary));
+  EXPECT_FALSE(
+      IsRenderReferenceFrame(FramePresentationMode::ViewportTransformed, FrameRole::DetailPatch));
 }
 
 TEST(EditViewerLogicTests, CropGeometryAspectLockedDiagonalPreservesRatio) {
@@ -279,6 +279,32 @@ TEST(EditViewerLogicTests, CropInteractionControllerCreatesAndFinalizesCropRect)
   const auto release = controller.HandleRelease(state);
   EXPECT_TRUE(release.consumed);
   EXPECT_TRUE(release.rect_is_final);
+}
+
+TEST(EditViewerLogicTests, CropInteractionControllerDoubleClickResetsCropAndRotation) {
+  ViewerState               state;
+  CropInteractionController controller;
+  auto                      crop_state = state.GetCropOverlay();
+  crop_state.tool_enabled              = true;
+  crop_state.overlay_visible           = true;
+  crop_state.metric_aspect             = 4.0f / 3.0f;
+  crop_state.rect                      = QRectF(0.25, 0.25, 0.5, 0.5);
+  crop_state.rotation_degrees          = -180.0f;
+  state.SetCropOverlayState(crop_state);
+
+  const auto result = controller.HandleDoubleClick(state);
+  EXPECT_TRUE(result.consumed);
+  ASSERT_TRUE(result.rect_changed.has_value());
+  ASSERT_TRUE(result.rotation_changed.has_value());
+  EXPECT_FLOAT_EQ(*result.rotation_changed, 0.0f);
+  EXPECT_NEAR(result.rect_changed->x(), 0.0, 1e-4);
+  EXPECT_NEAR(result.rect_changed->y(), 0.0, 1e-4);
+  EXPECT_NEAR(result.rect_changed->width(), 1.0, 1e-4);
+  EXPECT_NEAR(result.rect_changed->height(), 1.0, 1e-4);
+
+  const auto updated_state = state.GetCropOverlay();
+  EXPECT_FLOAT_EQ(updated_state.rotation_degrees, 0.0f);
+  EXPECT_FALSE(updated_state.aspect_locked);
 }
 
 TEST(EditViewerLogicTests, CropGeometryHitTestPrefersCornersOverEdges) {

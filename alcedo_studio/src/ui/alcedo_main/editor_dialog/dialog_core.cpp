@@ -1,5 +1,6 @@
 #define ALCEDO_EDITOR_DIALOG_INTERNAL
 #include "ui/alcedo_main/editor_dialog/editor_dialog.hpp"
+
 #include "ui/alcedo_main/editor_dialog/pipeline/display_transform_pipeline_adapter.hpp"
 #include "ui/alcedo_main/editor_dialog/pipeline/look_pipeline_adapter.hpp"
 #include "ui/alcedo_main/editor_dialog/pipeline/raw_pipeline_adapter.hpp"
@@ -227,6 +228,8 @@ EditorDialog::EditorDialog(std::shared_ptr<ImagePoolService>       image_pool,
     };
     versioning_panel_->Configure(this, std::move(versioning_callbacks));
     versioning_panel_->Build();
+    spinner_ = new SpinnerWidget(versioning_panel_);
+    versioning_panel_->SetBottomStatusWidget(spinner_);
   }
   if (history_coordinator_ && versioning_panel_) {
     history_coordinator_->SetUiContext(versioning_panel_->MakeUiContext());
@@ -317,6 +320,27 @@ void EditorDialog::RegisterShortcuts() {
       .default_sequence = QKeySequence(Qt::CTRL | Qt::Key_R),
       .context          = Qt::WidgetWithChildrenShortcut,
       .on_trigger       = [this]() { ResetCropAndRotation(); },
+  });
+  const auto commit_geometry = [this]() {
+    if (active_panel_ != ControlPanelKind::Geometry || !geometry_panel_) {
+      return;
+    }
+    geometry_panel_->CommitPendingCrop();
+    SetActiveControlPanel(ControlPanelKind::Tone);
+  };
+  shortcut_registry_->Register({
+      .id               = kShortcutCommitGeometryId,
+      .description      = Tr("Apply crop"),
+      .default_sequence = QKeySequence(Qt::Key_Return),
+      .context          = Qt::WidgetWithChildrenShortcut,
+      .on_trigger       = commit_geometry,
+  });
+  shortcut_registry_->Register({
+      .id               = kShortcutCommitGeometryNumpadId,
+      .description      = Tr("Apply crop"),
+      .default_sequence = QKeySequence(Qt::Key_Enter),
+      .context          = Qt::WidgetWithChildrenShortcut,
+      .on_trigger       = commit_geometry,
   });
   shortcut_registry_->Register({
       .id               = kShortcutSelectPrevLutId,
