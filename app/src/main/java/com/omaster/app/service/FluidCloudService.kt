@@ -1,5 +1,9 @@
 package com.omaster.app.service
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.graphics.PixelFormat
@@ -12,6 +16,8 @@ import android.view.WindowManager
 import android.view.animation.AnimationUtils
 import android.widget.ImageView
 import android.widget.TextView
+import androidx.core.app.NotificationCompat
+import com.omaster.app.MainActivity
 import com.omaster.app.R
 import dagger.hilt.android.AndroidEntryPoint
 import timber.log.Timber
@@ -20,6 +26,10 @@ import timber.log.Timber
 class FluidCloudService : Service() {
     
     companion object {
+        private const val NOTIFICATION_CHANNEL_ID = "fluid_cloud_service_channel"
+        private const val NOTIFICATION_ID = 1001
+        private const val CHANNEL_NAME = "悬浮窗服务"
+        
         const val ACTION_SHOW_CAPSULE = "com.omaster.app.action.SHOW_CAPSULE"
         const val ACTION_HIDE_CAPSULE = "com.omaster.app.action.HIDE_CAPSULE"
         const val ACTION_UPDATE_PRESET = "com.omaster.app.action.UPDATE_PRESET"
@@ -40,7 +50,55 @@ class FluidCloudService : Service() {
     override fun onCreate() {
         super.onCreate()
         Timber.d("FluidCloudService created")
+        createNotificationChannel()
         initFluidCloudView()
+    }
+    
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                NOTIFICATION_CHANNEL_ID,
+                CHANNEL_NAME,
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "用于显示悬浮窗的前台服务通知"
+                setShowBadge(false)
+            }
+            
+            val notificationManager = getSystemService(NotificationManager::class.java)
+            notificationManager.createNotificationChannel(channel)
+        }
+    }
+    
+    private fun createNotification(): Notification {
+        val launchIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+        
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            launchIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        
+        return NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
+            .setContentTitle("小 O 帮帮悬浮窗")
+            .setContentText("悬浮窗正在运行")
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
+            .build()
+    }
+    
+    private fun startForegroundService() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            val notification = createNotification()
+            startForeground(NOTIFICATION_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val notification = createNotification()
+            startForeground(NOTIFICATION_ID, notification)
+        }
     }
 
     private fun initFluidCloudView() {
@@ -71,6 +129,7 @@ class FluidCloudService : Service() {
         try {
             when (intent?.action) {
                 ACTION_SHOW_CAPSULE -> {
+                    startForegroundService()
                     currentPresetId = intent.getStringExtra(EXTRA_PRESET_ID)
                     currentPresetName = intent.getStringExtra(EXTRA_PRESET_NAME)
                     currentCategory = intent.getStringExtra(EXTRA_PRESET_CATEGORY)

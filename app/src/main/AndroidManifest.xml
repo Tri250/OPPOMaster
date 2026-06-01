@@ -6,9 +6,17 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    
+    <!-- Android 14+ 前台服务权限 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
-    <!-- 存储权限 - 仅用于保存截图到相册 -->
+    <!-- 存储权限 - 仅用于保存截图到相册 (Android 13+) -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    
+    <!-- Android 12 及以下版本的存储权限 (已废弃，仅兼容旧版本) -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
 
     <!-- Camera权限说明：此权限仅用于读取Camera2参数(ISO/快门速度等)，
          不采集任何相机图像或视频数据 -->
@@ -45,7 +53,12 @@
             android:name=".service.FluidCloudService"
             android:enabled="true"
             android:exported="false"
-            android:stopWithTask="true" />
+            android:stopWithTask="true"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="悬浮窗显示预设信息" />
+        </service>
 
         <!-- File Provider for screenshot sharing -->
         <provider
