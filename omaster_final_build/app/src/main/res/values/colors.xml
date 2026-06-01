@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="hasselblad_orange">#D4A574</color>
+    <color name="oppo_green">#00C853</color>
+    <color name="deep_space">#121212</color>
+    <color name="deep_space_light">#1E1E1E</color>
+    <color name="accent_primary">#E5A94A</color>
+    <color name="accent_secondary">#4CAF50</color>
+    <color name="text_primary">#FFFFFF</color>
+    <color name="text_secondary">#B3B3B3</color>
+    <color name="glass_background">#80121212</color>
+</resources>

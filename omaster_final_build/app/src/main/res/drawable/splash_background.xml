@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 背景色 -->
+    <item android:drawable="@color/deep_space"/>
+    
+    <!-- 品牌 Logo -->
+    <item
+        android:gravity="center"
+        android:width="120dp"
+        android:height="120dp">
+        <bitmap
+            android:src="@drawable/ic_launcher_foreground"
+            android:gravity="center"/>
+    </item>
+    
+    <!-- 应用名称 -->
+    <item
+        android:gravity="bottom|center_horizontal"
+        android:layout_marginBottom="100dp">
+        <text android:text="@string/app_name"/>
+    </item>
+</layer-list>
