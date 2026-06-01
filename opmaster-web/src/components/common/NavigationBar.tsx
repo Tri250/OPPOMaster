@@ -5,10 +5,7 @@ import { Link, useLocation } from 'react-router-dom';
 
 const navItems = [
   { path: '/', label: '首页' },
-  { path: '/features', label: 'App功能' },
-  { path: '/ai-demo', label: 'AI场景识别' },
-  { path: '/tech', label: '影像工具' },
-  { path: '/about', label: '关于我' }
+  { path: '/features', label: 'App功能' }
 ];
 
 export default function NavigationBar() {
@@ -16,7 +13,7 @@ export default function NavigationBar() {
   const location = useLocation();
 
   const handleDownload = () => {
-    alert('下载功能即将上线，敬请期待！');
+    alert('APK下载即将上线，敬请期待！');
   };
 
   return (
@@ -52,7 +49,7 @@ export default function NavigationBar() {
             ))}
             <button onClick={handleDownload} className="btn-primary text-sm flex items-center gap-2">
               <Download className="w-4 h-4" />
-              立即下载
+              下载Android应用
             </button>
           </div>
 
@@ -90,7 +87,7 @@ export default function NavigationBar() {
             ))}
             <button onClick={handleDownload} className="btn-primary w-full text-center mt-4 flex items-center justify-center gap-2">
               <Download className="w-4 h-4" />
-              立即下载
+              下载Android应用
             </button>
           </div>
         </motion.div>

@@ -4,13 +4,7 @@ import NavigationBar from './components/common/NavigationBar';
 import './index.css';
 
 const HomePage = lazy(() => import('./pages/HomePage'));
-const AIDemoPage = lazy(() => import('./pages/AIDemoPage'));
-const TechPage = lazy(() => import('./pages/TechPage'));
-const AboutPage = lazy(() => import('./pages/AboutPage'));
 const FeaturesPage = lazy(() => import('./pages/FeaturesPage'));
-const PresetDetailPage = lazy(() => import('./pages/PresetDetailPage'));
-const WatermarkPage = lazy(() => import('./pages/WatermarkPage'));
-const PresetEditorPage = lazy(() => import('./pages/PresetEditorPage'));
 
 function Loading() {
   return (
@@ -32,12 +26,6 @@ function App() {
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/features" element={<FeaturesPage />} />
-            <Route path="/ai-demo" element={<AIDemoPage />} />
-            <Route path="/tech" element={<TechPage />} />
-            <Route path="/about" element={<AboutPage />} />
-            <Route path="/preset/:id" element={<PresetDetailPage />} />
-            <Route path="/watermark" element={<WatermarkPage />} />
-            <Route path="/editor" element={<PresetEditorPage />} />
           </Routes>
         </Suspense>
       </div>

@@ -1,6 +1,5 @@
 import { motion } from 'framer-motion';
-import { Camera, Sparkles, Star, Smartphone } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Camera, Sparkles, Star, Smartphone, Download } from 'lucide-react';
 
 export default function HeroSection() {
   return (
@@ -40,9 +39,18 @@ export default function HeroSection() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.5 }}
-          className="text-xl md:text-2xl text-white/70 mb-8 max-w-3xl mx-auto"
+          className="text-xl md:text-2xl text-white/70 mb-4 max-w-3xl mx-auto"
         >
-          哈苏影像系统级参数中枢
+          OPPO哈苏影像系统级参数中枢
+        </motion.p>
+
+        <motion.p
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.6 }}
+          className="text-lg text-white/50 mb-8"
+        >
+          专为OPPO/一加Android设备打造的专业摄影助手
         </motion.p>
 
         {/* Feature Tags - Simplified */}
@@ -55,7 +63,8 @@ export default function HeroSection() {
           {[
             { icon: Star, label: '哈苏认证', color: 'text-hasselblad' },
             { icon: Sparkles, label: 'AI智能', color: 'text-purple-400' },
-            { icon: Smartphone, label: '悬浮窗', color: 'text-pink-400' }
+            { icon: Smartphone, label: '悬浮窗', color: 'text-pink-400' },
+            { icon: Download, label: 'Android专属', color: 'text-green-400' }
           ].map((feature, idx) => (
             <motion.div
               key={feature.label}
@@ -78,12 +87,10 @@ export default function HeroSection() {
           transition={{ delay: 1.0 }}
           className="flex flex-col sm:flex-row items-center justify-center gap-4"
         >
-          <Link to="/ai-demo" className="btn-primary text-lg px-8 py-4 animate-pulse-glow">
-            立即体验AI功能
-          </Link>
-          <Link to="/preset/1" className="btn-secondary text-lg px-8 py-4">
-            浏览影像推荐
-          </Link>
+          <button onClick={() => alert('APK下载即将上线，敬请期待！')} className="btn-primary text-lg px-8 py-4 animate-pulse-glow inline-flex items-center gap-2">
+            <Download className="w-5 h-5" />
+            下载Android应用
+          </button>
         </motion.div>
       </div>
     </section>
