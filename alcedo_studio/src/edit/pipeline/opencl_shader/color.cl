@@ -159,6 +159,12 @@ static inline float opencl_hs_tonal_reference_mix(float mask_disagreement) {
   return opencl_smoothstep_range(0.025f, 0.16f, mask_disagreement);
 }
 
+static inline float opencl_hs_local_detail_reference_guard(float detail,
+                                                           float tonal_reference_mix) {
+  const float edge_reference = opencl_smoothstep_range(0.42f, 0.95f, fabs(detail));
+  return 1.0f - tonal_reference_mix * edge_reference;
+}
+
 static inline float opencl_hs_llf_detail_mix(float detail) {
   return 1.0f - opencl_smoothstep_range(0.42f, 0.95f, fabs(detail));
 }
@@ -199,10 +205,10 @@ static inline float opencl_hs_shadow_llf_detail_gain(float detail, float shadow_
 
   const float sigma_r_stops = 0.42f;
   const float x = clamp(mag / sigma_r_stops, 1.0e-4f, 1.0f);
-  const float alpha = 1.0f - 0.34f * lift_amount;
+  const float alpha = 1.0f - 0.38f * lift_amount;
   const float remapped_mag = sigma_r_stops * pow(x, alpha);
   const float remap_gain = remapped_mag / fmax(mag, 1.0e-4f);
-  const float limited_gain = clamp(remap_gain - 1.0f, 0.0f, 0.34f);
+  const float limited_gain = clamp(remap_gain - 1.0f, 0.0f, 0.38f);
   const float mix = lift_amount * shadow_zone * noise_gate * fine_detail_gate;
   return 1.0f + limited_gain * mix;
 }
@@ -333,6 +339,17 @@ static inline float opencl_hs_shadow_detail_weight(float mask_ref, float shadow_
   return fmax(tonal_weight * signal_gate, 0.72f * practical_shadow);
 }
 
+static inline float opencl_hs_shadow_fill_light_weight(
+    float mask_ref, __global const OpenClFusedParams* params) {
+  const float signal_gate = opencl_smoothstep_range(params->hs_shadow_log_pivot_ - 2.45f,
+                                                    params->hs_shadow_log_pivot_ - 1.05f,
+                                                    mask_ref);
+  const float upper_guard =
+      1.0f - opencl_smoothstep_range(params->hs_shadow_log_pivot_ + 1.55f,
+                                     params->hs_shadow_log_pivot_ + 2.50f, mask_ref);
+  return signal_gate * upper_guard;
+}
+
 static inline float opencl_hs_highlight_detail_weight(float mask_ref, float highlight_mask,
                                                       float detail,
                                                       __global const OpenClFusedParams* params) {
@@ -437,24 +454,35 @@ static inline float4 opencl_hs_apply_local_tone_pixel(
   const float shadow_detail_sign = opencl_hs_shadow_detail_sign_weight(detail);
   const float shadow_detail_zone = shadow_texture_zone * texture_detail * shadow_detail_sign;
   const float shadow_detail_preserve = opencl_hs_shadow_detail_preserve_weight(detail);
+  const float shadow_fill_light_zone = opencl_hs_shadow_fill_light_weight(mask_ref, params);
+  const float active_highlight_mask =
+      (fabs(highlight_amount) > 1.0e-6f) ? clamp(highlight_mask, 0.0f, 1.0f) : 0.0f;
+  const float fill_highlight_guard = 1.0f - 0.35f * active_highlight_mask;
+  const float fill_detail_polarity = detail >= 0.0f ? 1.0f : 0.68f;
   const float highlight_detail_zone =
       opencl_hs_highlight_detail_weight(mask_ref, highlight_mask, detail, params) * texture_detail;
   const float llf_detail_gain =
-      opencl_hs_shadow_llf_detail_gain(detail, shadow_amount, shadow_texture_zone);
+      opencl_hs_shadow_llf_detail_gain(
+          detail, shadow_amount,
+          fmax(shadow_texture_zone, 0.86f * shadow_fill_light_zone * fill_highlight_guard));
   const float dark_valley = opencl_smoothstep_range(0.85f, 1.80f, -detail);
   const float contrast_recovery =
       0.035f + 0.075f * fmax(base_contrast_loss, shadow_contrast_loss);
+  const float fill_light_recovery =
+      0.075f + 0.085f * fmax(base_contrast_loss, shadow_contrast_loss);
   const float shadow_detail_scale =
       fmax(shadow_amount, 0.0f) * shadow_detail_zone * shadow_detail_preserve *
           contrast_recovery -
       0.018f * fmax(shadow_amount, 0.0f) * shadow_texture_zone * dark_valley +
+      fmax(shadow_amount, 0.0f) * shadow_fill_light_zone * fill_highlight_guard * texture_detail *
+          shadow_detail_preserve * fill_detail_polarity * fill_light_recovery +
       0.025f * fmax(-shadow_amount, 0.0f) * shadow_detail_zone *
           fmax(base_contrast_loss, shadow_contrast_loss);
   const float highlight_detail_scale =
       fmax(highlight_amount, 0.0f) * highlight_detail_zone *
       (0.035f + 0.12f * highlight_contrast_loss);
   const float raw_detail_scale =
-      clamp((1.0f + shadow_detail_scale + highlight_detail_scale) * llf_detail_gain, 0.97f, 1.24f);
+      clamp((1.0f + shadow_detail_scale + highlight_detail_scale) * llf_detail_gain, 0.97f, 1.30f);
   const float detail_scale =
       1.0f + (raw_detail_scale - 1.0f) * opencl_hs_llf_detail_mix(detail);
   const float local_delta = base_delta + detail * (detail_scale - 1.0f);
@@ -463,7 +491,8 @@ static inline float4 opencl_hs_apply_local_tone_pixel(
       opencl_hs_base_delta_from_ref(source_log_y, shadow_amount, highlight_amount, params);
   const float source_adjusted_log_y = source_log_y + source_delta;
   const float local_mix =
-      opencl_hs_local_tone_mix(detail, local_delta, source_delta) * (1.0f - tonal_reference_mix);
+      opencl_hs_local_tone_mix(detail, local_delta, source_delta) *
+      opencl_hs_local_detail_reference_guard(detail, tonal_reference_mix);
   const float adjusted_log_y =
       source_adjusted_log_y + (local_adjusted_log_y - source_adjusted_log_y) * local_mix;
   const float log_delta = adjusted_log_y - source_log_y;
