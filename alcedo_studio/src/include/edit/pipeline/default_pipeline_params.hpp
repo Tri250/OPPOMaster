@@ -114,7 +114,7 @@ inline auto MakeCleanBaselineAdjustableParams() -> nlohmann::json {
   for (float hue : {0.0f, 45.0f, 90.0f, 135.0f, 180.0f, 225.0f, 270.0f, 315.0f}) {
     hue_bins.push_back(hue);
     hls_adj_table.push_back({0.0f, 0.0f, 0.0f});
-    h_range_table.push_back(15.0f);
+    h_range_table.push_back(45.0f);
   }
 
   nlohmann::json defaults;
@@ -135,7 +135,7 @@ inline auto MakeCleanBaselineAdjustableParams() -> nlohmann::json {
                        {"h_range_table", std::move(h_range_table)},
                        {"target_hls", {0.0f, 0.5f, 1.0f}},
                        {"hls_adj", {0.0f, 0.0f, 0.0f}},
-                       {"h_range", 15.0f},
+                       {"h_range", 45.0f},
                        {"l_range", 0.1f},
                        {"s_range", 0.1f}}}};
   defaults["color_wheel"] = {

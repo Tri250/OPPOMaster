@@ -32,6 +32,13 @@ static inline float4 opencl_detail_read_clamped(__global const float4* src, int 
   return src[(size_t)cy * (size_t)width + (size_t)cx];
 }
 
+static inline float opencl_detail_read_log_clamped(__global const float* src, int x, int y,
+                                                   int width, int height) {
+  const int cx = clamp(x, 0, width - 1);
+  const int cy = clamp(y, 0, height - 1);
+  return src[(size_t)cy * (size_t)width + (size_t)cx];
+}
+
 static inline float opencl_detail_smoothstep(float edge0, float edge1, float x) {
   const float t = clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
   return t * t * (3.0f - 2.0f * t);
@@ -158,6 +165,129 @@ __kernel void edit_pipeline_neighbor_apply_v_rgba32f(__global const float4* src,
       dst[idx] = px;
       break;
   }
+}
+
+__kernel void edit_pipeline_hs_build_log_base_h_rgba32f(
+    __global const float4* src,
+    __global float* dst,
+    __global const OpenClFusedParams* params,
+    int width,
+    int height) {
+  const int x = get_global_id(0);
+  const int y = get_global_id(1);
+  if (x >= width || y >= height) {
+    return;
+  }
+
+  const int idx = y * width + x;
+  const int tap_count = params->hs_base_gaussian_tap_count_;
+  if (tap_count <= 0) {
+    dst[idx] = opencl_hs_log2_luminance_from_acescc(src[idx]);
+    return;
+  }
+
+  const float center = opencl_hs_log2_luminance_from_acescc(src[idx]);
+  float base = center * params->hs_base_gaussian_weights_[0];
+  float weight_sum = params->hs_base_gaussian_weights_[0];
+  for (int tap = 1; tap < tap_count; ++tap) {
+    const int ax = min(x + tap, width - 1);
+    const int bx = max(x - tap, 0);
+    const float wa = opencl_hs_log2_luminance_from_acescc(src[y * width + ax]);
+    const float wb = opencl_hs_log2_luminance_from_acescc(src[y * width + bx]);
+    const float spatial = params->hs_base_gaussian_weights_[tap];
+    const float aw = spatial * opencl_hs_range_weight(center, wa);
+    const float bw = spatial * opencl_hs_range_weight(center, wb);
+    base += wa * aw + wb * bw;
+    weight_sum += aw + bw;
+  }
+  dst[idx] = base / fmax(weight_sum, 1.0e-6f);
+}
+
+__kernel void edit_pipeline_hs_build_log_base_v_rgba32f(
+    __global const float4* guidance,
+    __global const float* src,
+    __global float* dst,
+    __global const OpenClFusedParams* params,
+    int width,
+    int height) {
+  const int x = get_global_id(0);
+  const int y = get_global_id(1);
+  if (x >= width || y >= height) {
+    return;
+  }
+
+  const int idx = y * width + x;
+  const int tap_count = params->hs_base_gaussian_tap_count_;
+  if (tap_count <= 0) {
+    dst[idx] = src[idx];
+    return;
+  }
+
+  const float center = src[idx];
+  const float center_guidance = opencl_hs_log2_luminance_from_acescc(guidance[idx]);
+  float base = center * params->hs_base_gaussian_weights_[0];
+  float weight_sum = params->hs_base_gaussian_weights_[0];
+  for (int tap = 1; tap < tap_count; ++tap) {
+    const int ay = min(y + tap, height - 1);
+    const int by = max(y - tap, 0);
+    const float a = opencl_detail_read_log_clamped(src, x, y + tap, width, height);
+    const float b = opencl_detail_read_log_clamped(src, x, y - tap, width, height);
+    const float ag = opencl_hs_log2_luminance_from_acescc(guidance[ay * width + x]);
+    const float bg = opencl_hs_log2_luminance_from_acescc(guidance[by * width + x]);
+    const float spatial = params->hs_base_gaussian_weights_[tap];
+    const float aw = spatial * opencl_hs_range_weight(center_guidance, ag);
+    const float bw = spatial * opencl_hs_range_weight(center_guidance, bg);
+    base += a * aw + b * bw;
+    weight_sum += aw + bw;
+  }
+  dst[idx] = base / fmax(weight_sum, 1.0e-6f);
+}
+
+__kernel void edit_pipeline_hs_apply_local_tone_rgba32f(
+    __global const float4* src,
+    __global const float* base_log,
+    __global float4* dst,
+    __global const OpenClFusedParams* params,
+    int width,
+    int height,
+    int base_width,
+    int base_height,
+    int base_pitch_elems,
+    int use_reference_base) {
+  const int x = get_global_id(0);
+  const int y = get_global_id(1);
+  if (x >= width || y >= height) {
+    return;
+  }
+
+  const int idx = y * width + x;
+  float base = base_log[idx];
+  if (use_reference_base != 0) {
+    const float reference_width = (float)max(params->render_roi_reference_width_, width);
+    const float reference_height = (float)max(params->render_roi_reference_height_, height);
+    const float roi_origin_x = (params->render_roi_enabled_ != 0u) ? (float)params->render_roi_x_
+                                                                   : 0.0f;
+    const float roi_origin_y = (params->render_roi_enabled_ != 0u) ? (float)params->render_roi_y_
+                                                                   : 0.0f;
+    const float roi_width = (params->render_roi_enabled_ != 0u)
+                                ? fmax(params->render_roi_scale_x_ * reference_width, 1.0f)
+                                : reference_width;
+    const float roi_height = (params->render_roi_enabled_ != 0u)
+                                 ? fmax(params->render_roi_scale_y_ * reference_height, 1.0f)
+                                 : reference_height;
+    const float reference_x =
+        roi_origin_x + (((float)x + 0.5f) * roi_width / fmax((float)width, 1.0f)) - 0.5f;
+    const float reference_y =
+        roi_origin_y + (((float)y + 0.5f) * roi_height / fmax((float)height, 1.0f)) - 0.5f;
+    const float base_x =
+        ((reference_x + 0.5f) * (float)base_width / fmax(reference_width, 1.0f)) - 0.5f;
+    const float base_y =
+        ((reference_y + 0.5f) * (float)base_height / fmax(reference_height, 1.0f)) - 0.5f;
+    base = opencl_hs_read_base_bilinear(base_log, base_width, base_height, base_pitch_elems,
+                                        base_x, base_y);
+  }
+
+  dst[idx] = opencl_hs_apply_local_tone_pixel(src[idx], base, params);
 }
 
 #endif  // ALCEDO_OPENCL_EDIT_PIPELINE_DETAIL_CL

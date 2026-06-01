@@ -433,7 +433,8 @@ endif()
 
 add_executable(PipelineFrameSinkTest edit/pipeline/pipeline_frame_sink_test.cpp)
 target_include_directories(PipelineFrameSinkTest PUBLIC ${ALCEDO_INCLUDE_DIR})
-target_link_libraries(PipelineFrameSinkTest PRIVATE GTest::gtest_main Operators EditPipeline PipelineScheduler)
+target_link_libraries(PipelineFrameSinkTest PRIVATE GTest::gtest_main Operators EditPipeline
+                                                    PipelineScheduler ${ALCEDO_TEST_OPENCV_MIN_DEPS})
 gtest_discover_tests(PipelineFrameSinkTest TEST_PREFIX "PipelineFrameSinkTest.")
 if(TARGET EditViewer)
   add_executable(ImagePreview gui_pocs/image_preview_cpu.cpp)

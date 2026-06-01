@@ -471,6 +471,14 @@ void CPUPipelineExecutor::SetRenderRegion(int x, int y, float scale_factor_x,
                                  {"reference_width", std::max(0, reference_width)},
                                  {"reference_height", std::max(0, reference_height)}};
 
+  global_params_.render_roi_enabled_ = resize_params["enable_roi"].get<bool>();
+  global_params_.render_roi_x_ = std::max(0, x);
+  global_params_.render_roi_y_ = std::max(0, y);
+  global_params_.render_roi_scale_x_ = clamped_scale_x;
+  global_params_.render_roi_scale_y_ = clamped_scale_y;
+  global_params_.render_roi_reference_width_ = std::max(0, reference_width);
+  global_params_.render_roi_reference_height_ = std::max(0, reference_height);
+
   if (resize_params != prev_resize_params) {
     stages_[static_cast<int>(PipelineStageName::Geometry_Adjustment)].SetOperator(
         OperatorType::RESIZE, render_params_);

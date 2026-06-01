@@ -130,7 +130,6 @@ class PipelineStage {
     auto op_curve      = CurveOpKernel();
 
     auto op_tint       = TintOpKernel();
-    auto op_saturation = SaturationOpKernel();
     auto op_vibrance   = VibranceOpKernel();
 
     auto color_wheel   = ColorWheelOpKernel();
@@ -144,7 +143,7 @@ class PipelineStage {
 
     return StaticKernelStream(
         PointChain(op_to_working, op_exp, op_contrast, op_black, op_white, op_shadow, op_highlight,
-                                                      op_curve, op_tint, op_saturation, op_vibrance, color_wheel, op_lmt, to_output),
+                                                      op_curve, op_tint, op_vibrance, color_wheel, op_lmt, to_output),
         op_clarity, op_sharpen);
   };
 

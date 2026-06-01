@@ -119,6 +119,8 @@ EditorDialog::EditorDialog(std::shared_ptr<ImagePoolService>       image_pool,
           .active_panel = [this]() { return active_panel_; },
           .needs_full_frame_preview_after_geometry_commit =
               [this]() { return frame_manager_.NeedsFullFramePreviewAfterGeometryCommit(); },
+          .clear_full_frame_preview_after_geometry_commit =
+              [this]() { frame_manager_.ClearNeedsFullFramePreviewAfterGeometryCommit(); },
           .apply_state_to_pipeline =
               [this](const AdjustmentState& render_state) { ApplyStateToPipeline(render_state); },
           .refresh_color_temp_runtime_state =
@@ -148,6 +150,12 @@ EditorDialog::EditorDialog(std::shared_ptr<ImagePoolService>       image_pool,
               [this]() {
                 if (render_coordinator_) {
                   render_coordinator_->ScheduleQualityPreviewRenderFromPipeline();
+                }
+              },
+          .schedule_detail_preview_from_viewport =
+              [this]() {
+                if (render_coordinator_) {
+                  render_coordinator_->MaybeScheduleDetailPreviewRenderFromViewport();
                 }
               },
           .advance_preview_generation =
@@ -342,8 +350,8 @@ void EditorDialog::RegisterShortcuts() {
   });
 
   if (versioning_panel_ && versioning_panel_->UndoButton()) {
-    versioning_panel_->UndoButton()->setToolTip(shortcut_registry_->DecorateTooltip(
-        Tr("Undo last transaction"), kShortcutUndoHistoryId));
+    versioning_panel_->UndoButton()->setToolTip(
+        shortcut_registry_->DecorateTooltip(Tr("Undo last transaction"), kShortcutUndoHistoryId));
   }
   if (geometry_panel_ && geometry_panel_->ResetButton()) {
     geometry_panel_->ResetButton()->setToolTip(

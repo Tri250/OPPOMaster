@@ -115,6 +115,10 @@ void EditorFrameManager::MarkNeedsFullFramePreviewAfterGeometryCommit() {
   force_next_full_frame_preview_ = true;
 }
 
+void EditorFrameManager::ClearNeedsFullFramePreviewAfterGeometryCommit() {
+  force_next_full_frame_preview_ = false;
+}
+
 auto EditorFrameManager::NeedsFullFramePreviewAfterGeometryCommit() const -> bool {
   return force_next_full_frame_preview_;
 }

@@ -4,9 +4,11 @@
 
 #include "edit/operators/basic/shadow_op.hpp"
 
+#include <algorithm>
 #include <opencv2/core/hal/interface.h>
 #include <string>
 
+#include <cmath>
 #include <opencv2/core.hpp>
 #include <opencv2/core/types.hpp>
 #include <opencv2/opencv.hpp>
@@ -46,6 +48,46 @@ auto ShadowsOp::GetParams() const -> nlohmann::json {
 }
 
 namespace {
+void BuildGaussianKernel(float sigma, int max_radius, int& tap_count,
+                         float (&weights)[OperatorParams::kDetailMaxGaussianTapCount]) {
+  std::fill_n(weights, OperatorParams::kDetailMaxGaussianTapCount, 0.0f);
+  tap_count = 0;
+  if (sigma <= 0.0f) {
+    return;
+  }
+
+  const float safe_sigma = std::max(sigma, 1.0e-4f);
+  const int   radius =
+      std::clamp(static_cast<int>(std::ceil(3.0f * safe_sigma)), 1, max_radius);
+  tap_count = std::min(radius + 1, OperatorParams::kDetailMaxGaussianTapCount);
+
+  const double inv2sigma2 = 0.5 / (static_cast<double>(safe_sigma) * safe_sigma);
+  double       full_weight = 1.0;
+  weights[0] = 1.0f;
+  for (int tap = 1; tap < tap_count; ++tap) {
+    const double w = std::exp(-(static_cast<double>(tap) * static_cast<double>(tap)) * inv2sigma2);
+    weights[tap] = static_cast<float>(w);
+    full_weight += 2.0 * w;
+  }
+  if (full_weight > 0.0) {
+    for (int tap = 0; tap < tap_count; ++tap) {
+      weights[tap] = static_cast<float>(static_cast<double>(weights[tap]) / full_weight);
+    }
+  }
+}
+
+void UpdateHsLocalTonePayload(OperatorParams& params) {
+  params.hs_local_tone_enabled_ = true;
+  params.hs_base_radius_        = 18.0f;
+  BuildGaussianKernel(params.hs_base_radius_, 48, params.hs_base_gaussian_tap_count_,
+                      params.hs_base_gaussian_weights_);
+
+  params.hs_shadow_log_pivot_    = -3.05f;
+  params.hs_shadow_log_width_    = 0.62f;
+  params.hs_highlight_log_pivot_ = -2.80f;
+  params.hs_highlight_log_width_ = 3.35f;
+}
+
 void UpdateSharedToneCurvePayload(OperatorParams& params) {
   const bool shadows_active = params.shadows_operator_present_ && params.shadows_enabled_;
   const bool highlights_active = params.highlights_operator_present_ && params.highlights_enabled_;
@@ -100,6 +142,7 @@ void ShadowsOp::SetGlobalParams(OperatorParams& params) const {
   params.shadows_m1_     = curve_.m1_;
   params.shadows_dx_     = curve_.dx_;
   UpdateSharedToneCurvePayload(params);
+  UpdateHsLocalTonePayload(params);
 }
 
 void ShadowsOp::EnableGlobalParams(OperatorParams& params, bool enable) {

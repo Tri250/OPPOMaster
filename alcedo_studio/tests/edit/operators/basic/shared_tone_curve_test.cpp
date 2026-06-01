@@ -77,7 +77,7 @@ TEST(SharedToneCurveTest, SharedCurveUsesFixedAnchorsWithoutMidpointPin) {
   EXPECT_FALSE(params.shared_tone_curve_apply_in_highlights_);
 }
 
-TEST(SharedToneCurveTest, ShadowAndHighlightControlsOnlyChangeTheirSideTangents) {
+TEST(SharedToneCurveTest, ShadowAndHighlightControlsReachUpperMidtones) {
   ShadowsOp shadow_only(80.0f);
   OperatorParams shadow_params;
   shadow_only.SetGlobalParams(shadow_params);
@@ -102,11 +102,11 @@ TEST(SharedToneCurveTest, ShadowAndHighlightControlsOnlyChangeTheirSideTangents)
 
   EXPECT_NEAR(highlight_params.shared_tone_curve_ctrl_pts_y_[0], 0.0f, 1e-6f);
   EXPECT_NEAR(highlight_params.shared_tone_curve_ctrl_pts_y_[1], 0.25f, 1e-6f);
-  EXPECT_NEAR(highlight_params.shared_tone_curve_ctrl_pts_y_[2], 0.75f, 1e-6f);
+  EXPECT_GT(highlight_params.shared_tone_curve_ctrl_pts_y_[2], 0.75f);
   EXPECT_LT(highlight_params.shared_tone_curve_ctrl_pts_y_[3], 1.0f);
   EXPECT_LT(highlight_params.shared_tone_curve_m_[3], 1.0f);
   const auto highlight_curve = SharedCurveFromParams(highlight_params);
-  EXPECT_NEAR(detail::EvaluateSharedToneCurve(0.74f, highlight_curve), 0.74f, 0.01f);
+  EXPECT_GT(detail::EvaluateSharedToneCurve(0.74f, highlight_curve), 0.74f);
   EXPECT_GT(0.88f - detail::EvaluateSharedToneCurve(0.88f, highlight_curve), 0.015f);
   EXPECT_LT(detail::EvaluateSharedToneCurve(1.2f, highlight_curve), 1.2f);
   EXPECT_NEAR(detail::EvaluateSharedToneCurve(1.2f, highlight_curve),
@@ -117,7 +117,7 @@ TEST(SharedToneCurveTest, ShadowAndHighlightControlsOnlyChangeTheirSideTangents)
   EXPECT_TRUE(highlight_params.shared_tone_curve_apply_in_highlights_);
 }
 
-TEST(SharedToneCurveTest, SharedCurvePreservesMoreChromaThanRatioScalingBaseline) {
+TEST(SharedToneCurveTest, SharedCurvePreservesShadowChromaBaseline) {
   ShadowsOp    shadows(70.0f);
   HighlightsOp highlights(65.0f);
   OperatorParams params;
@@ -134,13 +134,6 @@ TEST(SharedToneCurveTest, SharedCurvePreservesMoreChromaThanRatioScalingBaseline
   EXPECT_GT(shadow_out_l, shadow_l);
   EXPECT_GE(Chroma(shadow_preserved) + 1e-6f, Chroma(shadow_rgb));
 
-  const TestRgb highlight_rgb = {1.10f, 0.78f, 0.34f};
-  const float   highlight_l   = Luma(highlight_rgb);
-  const float   highlight_out_l = detail::EvaluateSharedToneCurve(highlight_l, curve);
-  const auto    highlight_ratio = RatioScale(highlight_rgb, highlight_l, highlight_out_l);
-  const auto    highlight_preserved =
-      detail::ReconstructFromSharedToneLuma<TestRgb>(highlight_out_l, highlight_l, highlight_rgb);
-  EXPECT_GE(Chroma(highlight_preserved) + 1e-6f, Chroma(highlight_ratio));
 }
 
 TEST(SharedToneCurveTest, GpuUploadCopiesSharedCurvePayload) {

@@ -383,7 +383,7 @@
     </message>
     <message>
         <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="273"/>
-        <source>Per-hue lightness and saturation adjustments.</source>
+        <source>Per-hue lightness and chroma adjustments.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -398,12 +398,12 @@
     </message>
     <message>
         <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="276"/>
-        <source>HSL Saturation</source>
+        <source>Chroma</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../../../include/ui/alcedo_main/editor_dialog/editor_dialog.hpp" line="277"/>
-        <source>Hue Range</source>
+        <source>Hue Smoothness</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

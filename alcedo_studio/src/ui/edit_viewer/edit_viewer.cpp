@@ -358,6 +358,8 @@ void QtEditViewer::SetDisplayEncoding(ColorUtils::ColorSpace encoding_space,
   emit RequestUpdate();
 }
 
+void QtEditViewer::SyncPendingFrameStateForScheduling() { SyncSurfaceState(); }
+
 void QtEditViewer::SetExpectedDetailToken(std::uint64_t preview_generation,
                                           std::uint64_t detail_serial) {
   {
@@ -987,8 +989,9 @@ void QtEditViewer::RefreshFrameDerivedState() {
 #endif
   const auto previous_snapshot = viewer_state_.Snapshot();
   bool       render_reference_changed = false;
-  if (active_frame.presentation_mode != FramePresentationMode::RoiFrame && active_frame.width > 0 &&
-      active_frame.height > 0) {
+  if (IsRenderReferenceFrame(active_frame.presentation_mode,
+                             active_frame.preview_metadata.frame_role) &&
+      active_frame.width > 0 && active_frame.height > 0) {
     render_reference_changed =
         previous_snapshot.render_reference_width != active_frame.width ||
         previous_snapshot.render_reference_height != active_frame.height;
@@ -1021,40 +1024,52 @@ void QtEditViewer::SyncSurfaceState() {
     }
 #ifdef HAVE_METAL
     if (pending_metal_frame_.has_value()) {
-      active_metal_frame_        = *pending_metal_frame_;
-      active_host_frame_         = {};
-      active_display_config_     = pending_metal_frame_->display_config;
-      active_frame_width_        = pending_metal_frame_->width;
-      active_frame_height_       = pending_metal_frame_->height;
-      active_presentation_mode_  = pending_metal_frame_->presentation_mode;
-      active_preview_metadata_   = pending_metal_frame_->preview_metadata;
-      display_config             = active_display_config_;
-      metal_frame_to_submit      = *pending_metal_frame_;
+      const ViewerMetalFrame submitted_frame = *pending_metal_frame_;
+      active_display_config_                 = submitted_frame.display_config;
+      display_config                         = active_display_config_;
+      metal_frame_to_submit                  = submitted_frame;
+      if (IsRenderReferenceFrame(submitted_frame.presentation_mode,
+                                 submitted_frame.preview_metadata.frame_role)) {
+        active_metal_frame_       = submitted_frame;
+        active_host_frame_        = {};
+        active_frame_width_       = submitted_frame.width;
+        active_frame_height_      = submitted_frame.height;
+        active_presentation_mode_ = submitted_frame.presentation_mode;
+        active_preview_metadata_  = submitted_frame.preview_metadata;
+      }
       pending_metal_frame_.reset();
     } else if (pending_host_frame_.has_value()) {
-      active_host_frame_         = *pending_host_frame_;
-      active_metal_frame_        = {};
-      active_display_config_     = pending_host_frame_->display_config;
-      active_frame_width_        = pending_host_frame_->width;
-      active_frame_height_       = pending_host_frame_->height;
-      active_presentation_mode_  = pending_host_frame_->presentation_mode;
-      active_preview_metadata_   = pending_host_frame_->preview_metadata;
-      display_config             = active_display_config_;
-      host_frame_to_submit       = *pending_host_frame_;
+      const ViewerFrame submitted_frame = *pending_host_frame_;
+      active_display_config_            = submitted_frame.display_config;
+      display_config                    = active_display_config_;
+      host_frame_to_submit              = submitted_frame;
+      if (IsRenderReferenceFrame(submitted_frame.presentation_mode,
+                                 submitted_frame.preview_metadata.frame_role)) {
+        active_host_frame_       = submitted_frame;
+        active_metal_frame_      = {};
+        active_frame_width_      = submitted_frame.width;
+        active_frame_height_     = submitted_frame.height;
+        active_presentation_mode_ = submitted_frame.presentation_mode;
+        active_preview_metadata_  = submitted_frame.preview_metadata;
+      }
       pending_host_frame_.reset();
     } else {
       display_config = active_display_config_;
     }
 #else
     if (pending_host_frame_.has_value()) {
-      active_host_frame_         = *pending_host_frame_;
-      active_display_config_     = pending_host_frame_->display_config;
-      active_frame_width_        = pending_host_frame_->width;
-      active_frame_height_       = pending_host_frame_->height;
-      active_presentation_mode_  = pending_host_frame_->presentation_mode;
-      active_preview_metadata_   = pending_host_frame_->preview_metadata;
-      display_config             = active_display_config_;
-      host_frame_to_submit       = *pending_host_frame_;
+      const ViewerFrame submitted_frame = *pending_host_frame_;
+      active_display_config_            = submitted_frame.display_config;
+      display_config                    = active_display_config_;
+      host_frame_to_submit              = submitted_frame;
+      if (IsRenderReferenceFrame(submitted_frame.presentation_mode,
+                                 submitted_frame.preview_metadata.frame_role)) {
+        active_host_frame_       = submitted_frame;
+        active_frame_width_      = submitted_frame.width;
+        active_frame_height_     = submitted_frame.height;
+        active_presentation_mode_ = submitted_frame.presentation_mode;
+        active_preview_metadata_  = submitted_frame.preview_metadata;
+      }
       pending_host_frame_.reset();
     } else {
       display_config = active_display_config_;

@@ -4,8 +4,6 @@
 
 #ifdef HAVE_METAL
 
-#include "edit/pipeline/pipeline_gpu_wrapper.hpp"
-
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -21,8 +19,9 @@
 
 #include "edit/operators/GPU_kernels/fused_param.hpp"
 #include "edit/operators/GPU_kernels/metal_param.hpp"
-#include "edit/scope/scope_analyzer.hpp"
+#include "edit/pipeline/pipeline_gpu_wrapper.hpp"
 #include "edit/scope/detail/scope_metal_shared.hpp"
+#include "edit/scope/scope_analyzer.hpp"
 #include "image/image_buffer.hpp"
 #include "image/metal_image.hpp"
 #include "metal/compute_pipeline_cache.hpp"
@@ -31,15 +30,23 @@
 
 namespace alcedo {
 namespace {
-constexpr const char* kFusedPipelineKernelName          = "metal_fused_pipeline_rgba32f";
-constexpr const char* kNeighborBlurHorizontalKernelName = "metal_neighbor_blur_h_rgba32f";
-constexpr const char* kNeighborApplyVerticalKernelName  = "metal_neighbor_apply_v_rgba32f";
-constexpr const char* kFusedPipelineDebugLabel          = "Metal fused pipeline";
-constexpr const char* kNeighborBlurDebugLabel           = "Metal neighbor blur horizontal";
-constexpr const char* kNeighborApplyDebugLabel          = "Metal neighbor apply vertical";
-constexpr uint32_t    kMetalNeighborMaxTapCount         = 64;
-constexpr auto        kReportInterval                   = std::chrono::milliseconds{500};
-constexpr double      kFpsEmaAlpha                      = 0.15;
+constexpr const char* kFusedPipelineKernelName            = "metal_fused_pipeline_rgba32f";
+constexpr const char* kFusedStageKernelName               = "metal_fused_stage_rgba32f";
+constexpr const char* kHsBuildLogBaseHorizontalKernelName = "metal_hs_build_log_base_h_rgba32f";
+constexpr const char* kHsBuildLogBaseVerticalKernelName   = "metal_hs_build_log_base_v_rgba32f";
+constexpr const char* kHsApplyLocalToneKernelName         = "metal_hs_apply_local_tone_rgba32f";
+constexpr const char* kNeighborBlurHorizontalKernelName   = "metal_neighbor_blur_h_rgba32f";
+constexpr const char* kNeighborApplyVerticalKernelName    = "metal_neighbor_apply_v_rgba32f";
+constexpr const char* kFusedPipelineDebugLabel            = "Metal fused pipeline";
+constexpr const char* kFusedStageDebugLabel               = "Metal fused pipeline stage";
+constexpr const char* kHsBuildLogBaseHorizontalDebugLabel = "Metal H/S log base horizontal";
+constexpr const char* kHsBuildLogBaseVerticalDebugLabel   = "Metal H/S log base vertical";
+constexpr const char* kHsApplyLocalToneDebugLabel         = "Metal H/S local tone";
+constexpr const char* kNeighborBlurDebugLabel             = "Metal neighbor blur horizontal";
+constexpr const char* kNeighborApplyDebugLabel            = "Metal neighbor apply vertical";
+constexpr uint32_t    kMetalNeighborMaxTapCount           = 64;
+constexpr auto        kReportInterval                     = std::chrono::milliseconds{500};
+constexpr double      kFpsEmaAlpha                        = 0.15;
 
 enum class MetalNeighborOpKind : uint32_t {
   Sharpen = 1,
@@ -47,13 +54,13 @@ enum class MetalNeighborOpKind : uint32_t {
 };
 
 struct alignas(16) MetalNeighborStageParams {
-  uint32_t                                 kind_      = 0;
-  uint32_t                                 radius_    = 0;
-  uint32_t                                 tap_count_ = 0;
-  float                                    amount_    = 0.0f;
-  float                                    threshold_ = 0.0f;
-  float                                    reserved_[3] = {};
-  std::array<float, kMetalNeighborMaxTapCount> weights_ = {};
+  uint32_t                                     kind_        = 0;
+  uint32_t                                     radius_      = 0;
+  uint32_t                                     tap_count_   = 0;
+  float                                        amount_      = 0.0f;
+  float                                        threshold_   = 0.0f;
+  float                                        reserved_[3] = {};
+  std::array<float, kMetalNeighborMaxTapCount> weights_     = {};
 };
 
 static_assert(sizeof(MetalNeighborStageParams) ==
@@ -64,9 +71,17 @@ struct MetalNeighborStage {
   MetalNeighborStageParams params_ = {};
 };
 
+struct alignas(16) MetalHsApplyParams {
+  int32_t base_width_         = 0;
+  int32_t base_height_        = 0;
+  int32_t use_reference_base_ = 0;
+  int32_t reserved_           = 0;
+};
+
 struct MetalExecutionStats {
   double input_prepare_ms    = 0.0;
   double fused_encode_ms     = 0.0;
+  double hs_encode_ms        = 0.0;
   double neighbor_encode_ms  = 0.0;
   double gpu_wait_ms         = 0.0;
   double host_download_ms    = 0.0;
@@ -79,36 +94,37 @@ struct MetalExecutionStats {
 class MetalPreviewReporter {
  private:
   std::chrono::steady_clock::time_point last_report_time_{};
-  double                                ema_fps_            = 0.0;
-  double                                last_frame_ms_      = 0.0;
-  double                                last_input_ms_      = 0.0;
-  double                                last_fused_ms_      = 0.0;
-  double                                last_neighbor_ms_   = 0.0;
-  double                                last_gpu_wait_ms_   = 0.0;
-  double                                last_download_ms_   = 0.0;
-  double                                last_submit_ms_     = 0.0;
-  double                                last_output_ms_     = 0.0;
-  size_t                                last_stage_count_   = 0;
-  size_t                                total_frames_       = 0;
+  double                                ema_fps_          = 0.0;
+  double                                last_frame_ms_    = 0.0;
+  double                                last_input_ms_    = 0.0;
+  double                                last_fused_ms_    = 0.0;
+  double                                last_hs_ms_       = 0.0;
+  double                                last_neighbor_ms_ = 0.0;
+  double                                last_gpu_wait_ms_ = 0.0;
+  double                                last_download_ms_ = 0.0;
+  double                                last_submit_ms_   = 0.0;
+  double                                last_output_ms_   = 0.0;
+  size_t                                last_stage_count_ = 0;
+  size_t                                total_frames_     = 0;
 
  public:
   void Report(const MetalExecutionStats& stats) {
-    const auto now = std::chrono::steady_clock::now();
+    const auto now        = std::chrono::steady_clock::now();
 
-    last_frame_ms_    = stats.total_ms;
-    last_input_ms_    = stats.input_prepare_ms;
-    last_fused_ms_    = stats.fused_encode_ms;
-    last_neighbor_ms_ = stats.neighbor_encode_ms;
-    last_gpu_wait_ms_ = stats.gpu_wait_ms;
-    last_download_ms_ = stats.host_download_ms;
-    last_submit_ms_   = stats.host_copy_submit_ms;
-    last_output_ms_   = stats.output_wrap_ms;
-    last_stage_count_ = stats.detail_stage_count;
+    last_frame_ms_        = stats.total_ms;
+    last_input_ms_        = stats.input_prepare_ms;
+    last_fused_ms_        = stats.fused_encode_ms;
+    last_hs_ms_           = stats.hs_encode_ms;
+    last_neighbor_ms_     = stats.neighbor_encode_ms;
+    last_gpu_wait_ms_     = stats.gpu_wait_ms;
+    last_download_ms_     = stats.host_download_ms;
+    last_submit_ms_       = stats.host_copy_submit_ms;
+    last_output_ms_       = stats.output_wrap_ms;
+    last_stage_count_     = stats.detail_stage_count;
 
     const double inst_fps = (stats.total_ms > 0.0) ? (1000.0 / stats.total_ms) : 0.0;
-    ema_fps_              = (ema_fps_ <= 0.0)
-                                ? inst_fps
-                                : (ema_fps_ * (1.0 - kFpsEmaAlpha) + inst_fps * kFpsEmaAlpha);
+    ema_fps_ =
+        (ema_fps_ <= 0.0) ? inst_fps : (ema_fps_ * (1.0 - kFpsEmaAlpha) + inst_fps * kFpsEmaAlpha);
     ++total_frames_;
 
     if (last_report_time_.time_since_epoch().count() == 0) {
@@ -118,21 +134,17 @@ class MetalPreviewReporter {
       return;
     }
 
-    static std::mutex print_mutex;
+    static std::mutex           print_mutex;
     std::lock_guard<std::mutex> guard(print_mutex);
 
     std::cout << "\r\033[2KMetal preview: " << std::fixed << std::setprecision(1) << ema_fps_
               << " fps"
               << " | last " << std::setprecision(2) << last_frame_ms_ << " ms"
-              << " | parts in:" << last_input_ms_
-              << " fe:" << last_fused_ms_
-              << " ne:" << last_neighbor_ms_
-              << " gw:" << last_gpu_wait_ms_
-              << " hd:" << last_download_ms_
-              << " hs:" << last_submit_ms_
-              << " ow:" << last_output_ms_
-              << " | stages " << last_stage_count_
-              << " | frames " << total_frames_ << std::flush;
+              << " | parts in:" << last_input_ms_ << " fe:" << last_fused_ms_
+              << " lt:" << last_hs_ms_ << " ne:" << last_neighbor_ms_ << " gw:" << last_gpu_wait_ms_
+              << " hd:" << last_download_ms_ << " sub:" << last_submit_ms_
+              << " ow:" << last_output_ms_ << " | stages " << last_stage_count_ << " | frames "
+              << total_frames_ << std::flush;
 
     last_report_time_ = now;
   }
@@ -152,7 +164,7 @@ auto MakeCommandBuffer() -> NS::SharedPtr<MTL::CommandBuffer> {
 
 void DispatchThreads(MTL::ComputeCommandEncoder* encoder, MTL::ComputePipelineState* pipeline,
                      uint32_t width, uint32_t height) {
-  const auto thread_width  = std::max<NS::UInteger>(1, pipeline->threadExecutionWidth());
+  const auto thread_width = std::max<NS::UInteger>(1, pipeline->threadExecutionWidth());
   const auto thread_height =
       std::max<NS::UInteger>(1, pipeline->maxTotalThreadsPerThreadgroup() / thread_width);
   const MTL::Size threads_per_group{thread_width, thread_height, 1};
@@ -192,7 +204,7 @@ auto BuildGaussianWeights(float sigma, uint32_t radius)
   const double inv2sigma2  = 0.5 / (safe_sigma * safe_sigma);
   double       full_weight = 1.0;
 
-  weights[0] = 1.0f;
+  weights[0]               = 1.0f;
   for (uint32_t tap = 1; tap <= radius; ++tap) {
     const double w = std::exp(-(static_cast<double>(tap) * static_cast<double>(tap)) * inv2sigma2);
     weights[tap]   = static_cast<float>(w);
@@ -213,8 +225,8 @@ auto BuildNeighborStageParams(MetalNeighborOpKind kind, float sigma, float amoun
     -> MetalNeighborStageParams {
   MetalNeighborStageParams params;
 
-  params.kind_   = static_cast<uint32_t>(kind);
-  params.amount_ = amount;
+  params.kind_      = static_cast<uint32_t>(kind);
+  params.amount_    = amount;
   params.threshold_ = threshold;
 
   const int clamped_tap_count =
@@ -242,17 +254,29 @@ auto BuildNeighborStageParams(MetalNeighborOpKind kind, float sigma, float amoun
 
 class MetalGPUPipeline final : public GPUPipelineImpl {
  private:
-  std::shared_ptr<ImageBuffer> input_img_;
-  OperatorParams*              cpu_params_ = nullptr;
-  IFrameSink*                  frame_sink_ = nullptr;
-  FusedOperatorParams          fused_params_ = {};
-  metal::MetalFusedResources   resources_    = {};
-  NS::SharedPtr<MTL::ComputePipelineState> fused_pipeline_                = nullptr;
+  std::shared_ptr<ImageBuffer>             input_img_;
+  OperatorParams*                          cpu_params_                        = nullptr;
+  IFrameSink*                              frame_sink_                        = nullptr;
+  FusedOperatorParams                      fused_params_                      = {};
+  metal::MetalFusedResources               resources_                         = {};
+  NS::SharedPtr<MTL::ComputePipelineState> fused_pipeline_                    = nullptr;
+  NS::SharedPtr<MTL::ComputePipelineState> fused_stage_pipeline_              = nullptr;
+  NS::SharedPtr<MTL::ComputePipelineState> hs_base_horizontal_pipeline_       = nullptr;
+  NS::SharedPtr<MTL::ComputePipelineState> hs_base_vertical_pipeline_         = nullptr;
+  NS::SharedPtr<MTL::ComputePipelineState> hs_apply_pipeline_                 = nullptr;
   NS::SharedPtr<MTL::ComputePipelineState> neighbor_blur_horizontal_pipeline_ = nullptr;
   NS::SharedPtr<MTL::ComputePipelineState> neighbor_apply_vertical_pipeline_  = nullptr;
-  MetalPreviewReporter         preview_reporter_;
+  metal::MetalImage                        pre_hs_working_;
+  metal::MetalImage                        hs_working_;
+  metal::MetalImage                        hs_temp_log_;
+  metal::MetalImage                        hs_base_log_;
+  int                                      hs_cached_width_          = 0;
+  int                                      hs_cached_height_         = 0;
+  std::uint64_t                            hs_cached_key_            = 0;
+  bool                                     hs_cached_reference_base_ = false;
+  MetalPreviewReporter                     preview_reporter_;
 
-  void EnsureMetalInput() {
+  void                                     EnsureMetalInput() {
     if (!input_img_) {
       throw std::runtime_error("Metal fused pipeline: input image is null.");
     }
@@ -277,6 +301,32 @@ class MetalGPUPipeline final : public GPUPipelineImpl {
 #endif
   }
 
+  void InvalidateHsBaseCache() {
+    hs_cached_width_          = 0;
+    hs_cached_height_         = 0;
+    hs_cached_key_            = 0;
+    hs_cached_reference_base_ = false;
+  }
+
+  void EnsureHsBaseTextures(uint32_t width, uint32_t height) {
+    if (width == 0 || height == 0) {
+      throw std::runtime_error("Metal fused pipeline: invalid H/S base dimensions.");
+    }
+
+    const auto format         = metal::PixelFormat::R32FLOAT;
+    const bool needs_recreate = hs_base_log_.Empty() || hs_temp_log_.Empty() ||
+                                hs_base_log_.Width() != width || hs_base_log_.Height() != height ||
+                                hs_temp_log_.Width() != width || hs_temp_log_.Height() != height ||
+                                hs_base_log_.Format() != format || hs_temp_log_.Format() != format;
+    if (!needs_recreate) {
+      return;
+    }
+
+    hs_base_log_ = metal::MetalImage::Create2D(width, height, format, true, true, false);
+    hs_temp_log_ = metal::MetalImage::Create2D(width, height, format, true, true, false);
+    InvalidateHsBaseCache();
+  }
+
   void EncodeFusedKernel(MTL::CommandBuffer* command_buffer, const metal::MetalImage& src,
                          metal::MetalImage& dst) {
     if (!fused_pipeline_) {
@@ -289,6 +339,85 @@ class MetalGPUPipeline final : public GPUPipelineImpl {
     encoder->setBuffer(resources_.params_buffer_.get(), 0, 0);
     encoder->setBuffer(resources_.lmt_lut_.buffer_.get(), 0, 1);
     DispatchThreads(encoder.get(), fused_pipeline_.get(), src.Width(), src.Height());
+    encoder->endEncoding();
+  }
+
+  void EncodeFusedStageKernel(MTL::CommandBuffer* command_buffer, const metal::MetalImage& src,
+                              metal::MetalImage& dst, int32_t stage) {
+    if (!fused_stage_pipeline_) {
+      fused_stage_pipeline_ = GetPipelineState(kFusedStageKernelName, kFusedStageDebugLabel);
+    }
+
+    dst.Create(src.Width(), src.Height(), src.Format(), true, true, false);
+
+    auto encoder = NS::RetainPtr(command_buffer->computeCommandEncoder());
+    encoder->setComputePipelineState(fused_stage_pipeline_.get());
+    encoder->setTexture(src.Texture(), 0);
+    encoder->setTexture(dst.Texture(), 1);
+    encoder->setBuffer(resources_.params_buffer_.get(), 0, 0);
+    encoder->setBuffer(resources_.lmt_lut_.buffer_.get(), 0, 1);
+    encoder->setBytes(&stage, sizeof(stage), 2);
+    DispatchThreads(encoder.get(), fused_stage_pipeline_.get(), src.Width(), src.Height());
+    encoder->endEncoding();
+  }
+
+  void EncodeHsBuildLogBaseHorizontal(MTL::CommandBuffer*      command_buffer,
+                                      const metal::MetalImage& src) {
+    if (!hs_base_horizontal_pipeline_) {
+      hs_base_horizontal_pipeline_ = GetPipelineState(kHsBuildLogBaseHorizontalKernelName,
+                                                      kHsBuildLogBaseHorizontalDebugLabel);
+    }
+
+    auto encoder = NS::RetainPtr(command_buffer->computeCommandEncoder());
+    encoder->setComputePipelineState(hs_base_horizontal_pipeline_.get());
+    encoder->setTexture(src.Texture(), 0);
+    encoder->setTexture(hs_temp_log_.Texture(), 1);
+    encoder->setBuffer(resources_.params_buffer_.get(), 0, 0);
+    DispatchThreads(encoder.get(), hs_base_horizontal_pipeline_.get(), src.Width(), src.Height());
+    encoder->endEncoding();
+  }
+
+  void EncodeHsBuildLogBaseVertical(MTL::CommandBuffer*      command_buffer,
+                                    const metal::MetalImage& guidance) {
+    if (!hs_base_vertical_pipeline_) {
+      hs_base_vertical_pipeline_ =
+          GetPipelineState(kHsBuildLogBaseVerticalKernelName, kHsBuildLogBaseVerticalDebugLabel);
+    }
+
+    auto encoder = NS::RetainPtr(command_buffer->computeCommandEncoder());
+    encoder->setComputePipelineState(hs_base_vertical_pipeline_.get());
+    encoder->setTexture(guidance.Texture(), 0);
+    encoder->setTexture(hs_temp_log_.Texture(), 1);
+    encoder->setTexture(hs_base_log_.Texture(), 2);
+    encoder->setBuffer(resources_.params_buffer_.get(), 0, 0);
+    DispatchThreads(encoder.get(), hs_base_vertical_pipeline_.get(), guidance.Width(),
+                    guidance.Height());
+    encoder->endEncoding();
+  }
+
+  void EncodeHsApplyLocalTone(MTL::CommandBuffer* command_buffer, const metal::MetalImage& src,
+                              metal::MetalImage& dst, bool use_reference_base) {
+    if (!hs_apply_pipeline_) {
+      hs_apply_pipeline_ =
+          GetPipelineState(kHsApplyLocalToneKernelName, kHsApplyLocalToneDebugLabel);
+    }
+
+    dst.Create(src.Width(), src.Height(), src.Format(), true, true, false);
+    const MetalHsApplyParams apply_params{
+        hs_cached_width_,
+        hs_cached_height_,
+        use_reference_base ? 1 : 0,
+        0,
+    };
+
+    auto encoder = NS::RetainPtr(command_buffer->computeCommandEncoder());
+    encoder->setComputePipelineState(hs_apply_pipeline_.get());
+    encoder->setTexture(src.Texture(), 0);
+    encoder->setTexture(hs_base_log_.Texture(), 1);
+    encoder->setTexture(dst.Texture(), 2);
+    encoder->setBuffer(resources_.params_buffer_.get(), 0, 0);
+    encoder->setBytes(&apply_params, sizeof(apply_params), 1);
+    DispatchThreads(encoder.get(), hs_apply_pipeline_.get(), src.Width(), src.Height());
     encoder->endEncoding();
   }
 
@@ -312,7 +441,7 @@ class MetalGPUPipeline final : public GPUPipelineImpl {
   void EncodeNeighborApplyVertical(MTL::CommandBuffer* command_buffer, MTL::Buffer* stage_buffer,
                                    const metal::MetalImage& src,
                                    const metal::MetalImage& blur_horizontal,
-                                   metal::MetalImage& dst) {
+                                   metal::MetalImage&       dst) {
     if (!neighbor_apply_vertical_pipeline_) {
       neighbor_apply_vertical_pipeline_ =
           GetPipelineState(kNeighborApplyVerticalKernelName, kNeighborApplyDebugLabel);
@@ -327,6 +456,59 @@ class MetalGPUPipeline final : public GPUPipelineImpl {
     DispatchThreads(encoder.get(), neighbor_apply_vertical_pipeline_.get(), src.Width(),
                     src.Height());
     encoder->endEncoding();
+  }
+
+  auto ShouldRunHighlightShadowLocalTone() const -> bool {
+    if (!fused_params_.hs_local_tone_enabled_ || fused_params_.hs_base_gaussian_tap_count_ <= 0) {
+      return false;
+    }
+    const float shadow_amount = fused_params_.shadows_enabled_
+                                    ? std::clamp(fused_params_.shadows_offset_, -1.0f, 1.0f)
+                                    : 0.0f;
+    const float highlight_amount =
+        fused_params_.highlights_enabled_
+            ? std::clamp(-fused_params_.highlights_offset_ * 0.5f, -1.0f, 1.0f)
+            : 0.0f;
+    return std::abs(shadow_amount) > 1.0e-6f || std::abs(highlight_amount) > 1.0e-6f;
+  }
+
+  void EncodeHighlightShadowLocalTone(MTL::CommandBuffer*      command_buffer,
+                                      const metal::MetalImage& src, metal::MetalImage& dst) {
+    const bool roi_frame_with_source_reference = fused_params_.render_roi_enabled_ &&
+                                                 fused_params_.render_roi_reference_width_ > 0 &&
+                                                 fused_params_.render_roi_reference_height_ > 0;
+    const bool reference_base_cache_valid =
+        hs_cached_reference_base_ && !hs_base_log_.Empty() &&
+        hs_cached_key_ == fused_params_.hs_mask_base_cache_key_ && hs_cached_width_ > 0 &&
+        hs_cached_height_ > 0;
+
+    if (roi_frame_with_source_reference && reference_base_cache_valid) {
+      EncodeHsApplyLocalTone(command_buffer, src, dst, true);
+      return;
+    }
+    if (!roi_frame_with_source_reference && reference_base_cache_valid &&
+        (hs_cached_width_ > static_cast<int>(src.Width()) ||
+         hs_cached_height_ > static_cast<int>(src.Height()))) {
+      EncodeHsApplyLocalTone(command_buffer, src, dst, true);
+      return;
+    }
+
+    EnsureHsBaseTextures(src.Width(), src.Height());
+    const bool cache_valid = !roi_frame_with_source_reference && !hs_base_log_.Empty() &&
+                             hs_cached_key_ == fused_params_.hs_mask_base_cache_key_ &&
+                             hs_cached_width_ == static_cast<int>(src.Width()) &&
+                             hs_cached_height_ == static_cast<int>(src.Height()) &&
+                             hs_cached_reference_base_;
+    if (!cache_valid) {
+      EncodeHsBuildLogBaseHorizontal(command_buffer, src);
+      EncodeHsBuildLogBaseVertical(command_buffer, src);
+      hs_cached_key_            = fused_params_.hs_mask_base_cache_key_;
+      hs_cached_width_          = static_cast<int>(src.Width());
+      hs_cached_height_         = static_cast<int>(src.Height());
+      hs_cached_reference_base_ = !roi_frame_with_source_reference;
+    }
+
+    EncodeHsApplyLocalTone(command_buffer, src, dst, false);
   }
 
   auto ShouldRunSharpen() const -> bool {
@@ -345,14 +527,14 @@ class MetalGPUPipeline final : public GPUPipelineImpl {
 
     if (ShouldRunSharpen()) {
       stages.push_back(MetalNeighborStage{BuildNeighborStageParams(
-          MetalNeighborOpKind::Sharpen, fused_params_.sharpen_radius_, fused_params_.sharpen_offset_,
-          fused_params_.sharpen_threshold_, fused_params_.sharpen_gaussian_tap_count_,
-          fused_params_.sharpen_gaussian_weights_)});
+          MetalNeighborOpKind::Sharpen, fused_params_.sharpen_radius_,
+          fused_params_.sharpen_offset_, fused_params_.sharpen_threshold_,
+          fused_params_.sharpen_gaussian_tap_count_, fused_params_.sharpen_gaussian_weights_)});
     }
     if (ShouldRunClarity()) {
       stages.push_back(MetalNeighborStage{BuildNeighborStageParams(
-          MetalNeighborOpKind::Clarity, fused_params_.clarity_radius_, fused_params_.clarity_offset_,
-          0.0f, fused_params_.clarity_gaussian_tap_count_,
+          MetalNeighborOpKind::Clarity, fused_params_.clarity_radius_,
+          fused_params_.clarity_offset_, 0.0f, fused_params_.clarity_gaussian_tap_count_,
           fused_params_.clarity_gaussian_weights_)});
     }
 
@@ -366,12 +548,13 @@ class MetalGPUPipeline final : public GPUPipelineImpl {
     stats.input_prepare_ms =
         std::chrono::duration<double, std::milli>(input_prepare_end - input_prepare_start).count();
 
-    const auto&               input           = input_img_->GetMetalImage();
-    const auto                neighbor_stages = BuildNeighborStages();
-    stats.detail_stage_count                  = neighbor_stages.size();
+    const auto& input             = input_img_->GetMetalImage();
+    const auto  neighbor_stages   = BuildNeighborStages();
+    const bool  run_hs_local_tone = ShouldRunHighlightShadowLocalTone();
+    stats.detail_stage_count      = neighbor_stages.size();
 
-    metal::MetalImage working =
-        metal::MetalImage::Create2D(input.Width(), input.Height(), input.Format(), true, true, false);
+    metal::MetalImage working     = metal::MetalImage::Create2D(input.Width(), input.Height(),
+                                                                input.Format(), true, true, false);
     metal::MetalImage blur_horizontal;
     metal::MetalImage scratch;
     if (!neighbor_stages.empty()) {
@@ -381,25 +564,45 @@ class MetalGPUPipeline final : public GPUPipelineImpl {
                                             true, false);
     }
 
-    auto command_buffer = MakeCommandBuffer();
+    auto       command_buffer     = MakeCommandBuffer();
 
     const auto fused_encode_start = std::chrono::steady_clock::now();
-    EncodeFusedKernel(command_buffer.get(), input, working);
+    if (run_hs_local_tone) {
+      EncodeFusedStageKernel(command_buffer.get(), input, pre_hs_working_, 1);
+    } else {
+      EncodeFusedKernel(command_buffer.get(), input, working);
+    }
     const auto fused_encode_end = std::chrono::steady_clock::now();
     stats.fused_encode_ms =
         std::chrono::duration<double, std::milli>(fused_encode_end - fused_encode_start).count();
 
-    metal::MetalImage* detail_src = &working;
-    metal::MetalImage* detail_dst = &scratch;
+    if (run_hs_local_tone) {
+      const auto hs_encode_start = std::chrono::steady_clock::now();
+      EncodeHighlightShadowLocalTone(command_buffer.get(), pre_hs_working_, hs_working_);
+      const auto hs_encode_end = std::chrono::steady_clock::now();
+      stats.hs_encode_ms =
+          std::chrono::duration<double, std::milli>(hs_encode_end - hs_encode_start).count();
+
+      const auto post_hs_encode_start = std::chrono::steady_clock::now();
+      EncodeFusedStageKernel(command_buffer.get(), hs_working_, working, 2);
+      const auto post_hs_encode_end = std::chrono::steady_clock::now();
+      stats.fused_encode_ms +=
+          std::chrono::duration<double, std::milli>(post_hs_encode_end - post_hs_encode_start)
+              .count();
+    }
+
+    metal::MetalImage*                      detail_src = &working;
+    metal::MetalImage*                      detail_dst = &scratch;
     std::vector<NS::SharedPtr<MTL::Buffer>> stage_buffers;
     stage_buffers.reserve(neighbor_stages.size());
 
     for (const auto& stage : neighbor_stages) {
       stage_buffers.push_back(UploadStageParams(stage.params_));
-      auto* stage_buffer = stage_buffers.back().get();
+      auto*      stage_buffer          = stage_buffers.back().get();
 
       const auto neighbor_encode_start = std::chrono::steady_clock::now();
-      EncodeNeighborBlurHorizontal(command_buffer.get(), stage_buffer, *detail_src, blur_horizontal);
+      EncodeNeighborBlurHorizontal(command_buffer.get(), stage_buffer, *detail_src,
+                                   blur_horizontal);
       EncodeNeighborApplyVertical(command_buffer.get(), stage_buffer, *detail_src, blur_horizontal,
                                   *detail_dst);
       const auto neighbor_encode_end = std::chrono::steady_clock::now();
@@ -426,9 +629,9 @@ class MetalGPUPipeline final : public GPUPipelineImpl {
   }
 
   void SetParams(OperatorParams& params) override {
-    cpu_params_    = &params;
-    fused_params_  = FusedParamsConverter::ConvertFromCPU(params, fused_params_);
-    resources_     = metal::MetalFusedParamUploader::Upload(fused_params_, params, resources_);
+    cpu_params_   = &params;
+    fused_params_ = FusedParamsConverter::ConvertFromCPU(params, fused_params_);
+    resources_    = metal::MetalFusedParamUploader::Upload(fused_params_, params, resources_);
   }
 
   void SetFrameSink(IFrameSink* frame_sink) override { frame_sink_ = frame_sink; }
@@ -438,9 +641,9 @@ class MetalGPUPipeline final : public GPUPipelineImpl {
       throw std::runtime_error("Metal fused pipeline: parameters were not set.");
     }
 
-    const auto         exec_start = std::chrono::steady_clock::now();
-    MetalExecutionStats stats;
-    metal::MetalImage   result = RunMetalPipeline(stats);
+    const auto                exec_start = std::chrono::steady_clock::now();
+    MetalExecutionStats       stats;
+    metal::MetalImage         result         = RunMetalPipeline(stats);
     const ViewerDisplayConfig display_config = ResolveViewerDisplayConfig(*cpu_params_);
 
     if (frame_sink_) {
@@ -448,19 +651,17 @@ class MetalGPUPipeline final : public GPUPipelineImpl {
 #ifdef HAVE_METAL
       auto final_image_resource =
           std::make_shared<scope::metal_detail::MetalTextureImageResource>();
-      final_image_resource->texture       = NS::RetainPtr(result.Texture());
-      final_image_resource->width         = static_cast<int>(result.Width());
-      final_image_resource->height        = static_cast<int>(result.Height());
-      final_image_resource->format        = FramePixelFormat::RGBA32F;
+      final_image_resource->texture = NS::RetainPtr(result.Texture());
+      final_image_resource->width   = static_cast<int>(result.Width());
+      final_image_resource->height  = static_cast<int>(result.Height());
+      final_image_resource->format  = FramePixelFormat::RGBA32F;
       final_image_resource->native_object =
           reinterpret_cast<std::uintptr_t>(final_image_resource->texture.get());
       frame_sink_->SubmitFinalDisplayFrame(FinalDisplayFrameView{
           SharedGpuImageHandle{
               GpuBackend::Metal,
               std::shared_ptr<void>(final_image_resource, final_image_resource.get()),
-              static_cast<int>(result.Width()),
-              static_cast<int>(result.Height()),
-              0,
+              static_cast<int>(result.Width()), static_cast<int>(result.Height()), 0,
               FramePixelFormat::RGBA32F},
           static_cast<int>(result.Width()),
           static_cast<int>(result.Height()),
@@ -469,19 +670,16 @@ class MetalGPUPipeline final : public GPUPipelineImpl {
           AnalysisDomain::DisplayEncoded,
           {},
           0});
-      frame_sink_->SubmitMetalFrame(
-          ViewerMetalFrame{static_cast<int>(result.Width()), static_cast<int>(result.Height()),
-                           reinterpret_cast<std::uintptr_t>(final_image_resource->texture.get()),
-                           std::shared_ptr<const void>(final_image_resource,
-                                                       final_image_resource->texture.get()),
-                           display_config,
-                           FramePresentationMode::FullFrame});
+      frame_sink_->SubmitMetalFrame(ViewerMetalFrame{
+          static_cast<int>(result.Width()), static_cast<int>(result.Height()),
+          reinterpret_cast<std::uintptr_t>(final_image_resource->texture.get()),
+          std::shared_ptr<const void>(final_image_resource, final_image_resource->texture.get()),
+          display_config, FramePresentationMode::FullFrame});
 #else
       cv::Mat host_image;
       result.Download(host_image);
       stats.host_download_ms =
-          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
-                                                    submit_start)
+          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - submit_start)
               .count();
       if (host_image.type() != CV_32FC4) {
         throw std::runtime_error("Metal fused pipeline: expected RGBA32F host frame for viewer.");
@@ -489,9 +687,8 @@ class MetalGPUPipeline final : public GPUPipelineImpl {
 
       const size_t row_bytes =
           static_cast<size_t>(host_image.cols) * static_cast<size_t>(sizeof(cv::Vec4f));
-      auto host_pixels =
-          std::make_shared<std::vector<float>>(static_cast<size_t>(host_image.cols) *
-                                               static_cast<size_t>(host_image.rows) * 4U);
+      auto host_pixels = std::make_shared<std::vector<float>>(
+          static_cast<size_t>(host_image.cols) * static_cast<size_t>(host_image.rows) * 4U);
       cv::Mat contiguous_host(host_image.rows, host_image.cols, CV_32FC4, host_pixels->data(),
                               row_bytes);
       host_image.copyTo(contiguous_host);
@@ -507,23 +704,31 @@ class MetalGPUPipeline final : public GPUPipelineImpl {
 
     if (output_img) {
       const auto output_wrap_start = std::chrono::steady_clock::now();
-      *output_img = ImageBuffer(std::move(result));
-      const auto output_wrap_end = std::chrono::steady_clock::now();
+      *output_img                  = ImageBuffer(std::move(result));
+      const auto output_wrap_end   = std::chrono::steady_clock::now();
       stats.output_wrap_ms =
           std::chrono::duration<double, std::milli>(output_wrap_end - output_wrap_start).count();
     }
 
     const auto exec_end = std::chrono::steady_clock::now();
-    stats.total_ms      =
-        std::chrono::duration<double, std::milli>(exec_end - exec_start).count();
+    stats.total_ms      = std::chrono::duration<double, std::milli>(exec_end - exec_start).count();
     preview_reporter_.Report(stats);
   }
 
   void ReleaseResources() override {
     resources_.Reset();
     fused_pipeline_                    = nullptr;
+    fused_stage_pipeline_              = nullptr;
+    hs_base_horizontal_pipeline_       = nullptr;
+    hs_base_vertical_pipeline_         = nullptr;
+    hs_apply_pipeline_                 = nullptr;
     neighbor_blur_horizontal_pipeline_ = nullptr;
     neighbor_apply_vertical_pipeline_  = nullptr;
+    pre_hs_working_.Release();
+    hs_working_.Release();
+    hs_temp_log_.Release();
+    hs_base_log_.Release();
+    InvalidateHsBaseCache();
   }
 };
 

@@ -200,6 +200,21 @@ struct OpenClFusedParams {
   float    shared_tone_curve_ctrl_pts_y_[OperatorParams::kSharedToneCurveControlPointCount] = {};
   float    shared_tone_curve_h_[OperatorParams::kSharedToneCurveControlPointCount - 1]      = {};
   float    shared_tone_curve_m_[OperatorParams::kSharedToneCurveControlPointCount]          = {};
+  uint32_t hs_local_tone_enabled_                                                           = 1;
+  float    hs_base_radius_                                                                  = 18.0f;
+  int32_t  hs_base_gaussian_tap_count_                                                      = 0;
+  float    hs_base_gaussian_weights_[OperatorParams::kDetailMaxGaussianTapCount]            = {};
+  float    hs_shadow_log_pivot_                                                             = -2.45f;
+  float    hs_shadow_log_width_                                                             = 1.35f;
+  float    hs_highlight_log_pivot_                                                          = -0.20f;
+  float    hs_highlight_log_width_                                                          = 1.15f;
+  uint32_t render_roi_enabled_                                                              = 0;
+  int32_t  render_roi_x_                                                                    = 0;
+  int32_t  render_roi_y_                                                                    = 0;
+  float    render_roi_scale_x_                                                              = 1.0f;
+  float    render_roi_scale_y_                                                              = 1.0f;
+  int32_t  render_roi_reference_width_                                                      = 0;
+  int32_t  render_roi_reference_height_                                                     = 0;
   uint32_t white_enabled_                                                                   = 1;
   float    white_point_                                                                     = 1.0f;
   uint32_t black_enabled_                                                                   = 1;
@@ -208,17 +223,17 @@ struct OpenClFusedParams {
   uint32_t hls_enabled_                                                                     = 1;
   float    target_hls_[3]                                      = {0.0f, 0.5f, 1.0f};
   float    hls_adjustment_[3]                                  = {0.0f, 0.0f, 0.0f};
-  float    hue_range_                                          = 15.0f;
+  float    hue_range_                                          = 45.0f;
   float    lightness_range_                                    = 0.1f;
   float    saturation_range_                                   = 0.1f;
   int32_t  hls_profile_count_                                  = OperatorParams::kHlsProfileCount;
   float    hls_profile_hues_[OperatorParams::kHlsProfileCount] = {0.0f,   45.0f,  90.0f,  135.0f,
                                                                   180.0f, 225.0f, 270.0f, 315.0f};
   float    hls_profile_adjustments_[OperatorParams::kHlsProfileCount][3] = {};
-  float    hls_profile_hue_ranges_[OperatorParams::kHlsProfileCount] = {15.0f, 15.0f, 15.0f, 15.0f,
-                                                                        15.0f, 15.0f, 15.0f, 15.0f};
+  float    hls_profile_hue_ranges_[OperatorParams::kHlsProfileCount] = {45.0f, 45.0f, 45.0f, 45.0f,
+                                                                        45.0f, 45.0f, 45.0f, 45.0f};
   uint32_t saturation_enabled_                                       = 1;
-  float    saturation_offset_                                        = 0.0f;
+  float    saturation_offset_                                        = 1.0f;
   uint32_t tint_enabled_                                             = 1;
   float    tint_offset_                                              = 0.0f;
   uint32_t vibrance_enabled_                                         = 1;
@@ -436,6 +451,24 @@ class OpenClFusedParamUploader {
                 sizeof(params.shared_tone_curve_h_));
     std::memcpy(params.shared_tone_curve_m_, fused_params.shared_tone_curve_m_,
                 sizeof(params.shared_tone_curve_m_));
+    params.hs_local_tone_enabled_ = fused_params.hs_local_tone_enabled_ ? 1U : 0U;
+    params.hs_base_radius_ = fused_params.hs_base_radius_;
+    params.hs_base_gaussian_tap_count_ =
+        std::clamp(fused_params.hs_base_gaussian_tap_count_, 0,
+                   OperatorParams::kDetailMaxGaussianTapCount);
+    std::memcpy(params.hs_base_gaussian_weights_, fused_params.hs_base_gaussian_weights_,
+                sizeof(params.hs_base_gaussian_weights_));
+    params.hs_shadow_log_pivot_ = fused_params.hs_shadow_log_pivot_;
+    params.hs_shadow_log_width_ = fused_params.hs_shadow_log_width_;
+    params.hs_highlight_log_pivot_ = fused_params.hs_highlight_log_pivot_;
+    params.hs_highlight_log_width_ = fused_params.hs_highlight_log_width_;
+    params.render_roi_enabled_ = fused_params.render_roi_enabled_ ? 1U : 0U;
+    params.render_roi_x_ = fused_params.render_roi_x_;
+    params.render_roi_y_ = fused_params.render_roi_y_;
+    params.render_roi_scale_x_ = fused_params.render_roi_scale_x_;
+    params.render_roi_scale_y_ = fused_params.render_roi_scale_y_;
+    params.render_roi_reference_width_ = fused_params.render_roi_reference_width_;
+    params.render_roi_reference_height_ = fused_params.render_roi_reference_height_;
     params.white_enabled_ = fused_params.white_enabled_ ? 1U : 0U;
     params.white_point_   = fused_params.white_point_;
     params.black_enabled_ = fused_params.black_enabled_ ? 1U : 0U;

@@ -338,6 +338,24 @@ struct GPUOperatorParams {
   float                shared_tone_curve_h_[OperatorParams::kSharedToneCurveControlPointCount - 1] = {};
   float                shared_tone_curve_m_[OperatorParams::kSharedToneCurveControlPointCount] = {};
 
+  bool                 hs_local_tone_enabled_ = true;
+  float                hs_base_radius_ = 18.0f;
+  int                  hs_base_gaussian_tap_count_ = 0;
+  float                hs_base_gaussian_weights_[OperatorParams::kDetailMaxGaussianTapCount] = {};
+  float                hs_shadow_log_pivot_ = -2.45f;
+  float                hs_shadow_log_width_ = 1.35f;
+  float                hs_highlight_log_pivot_ = -0.20f;
+  float                hs_highlight_log_width_ = 1.15f;
+  std::uint64_t        hs_mask_base_cache_key_ = 0;
+  std::uint64_t        render_source_cache_key_ = 0;
+  bool                 render_roi_enabled_ = false;
+  int                  render_roi_x_ = 0;
+  int                  render_roi_y_ = 0;
+  float                render_roi_scale_x_ = 1.0f;
+  float                render_roi_scale_y_ = 1.0f;
+  int                  render_roi_reference_width_ = 0;
+  int                  render_roi_reference_height_ = 0;
+
   // White and Black point adjustment parameters
   bool                 white_enabled_          = true;
   float                white_point_            = 1.0f;
@@ -350,7 +368,7 @@ struct GPUOperatorParams {
   bool                 hls_enabled_            = true;
   float                target_hls_[3]          = {0.0f, 0.5f, 1.0f};
   float                hls_adjustment_[3]      = {0.0f, 0.0f, 0.0f};
-  float                hue_range_              = 15.0f;
+  float                hue_range_              = 45.0f;
   float                lightness_range_        = 0.1f;
   float                saturation_range_       = 0.1f;
   int                  hls_profile_count_      = OperatorParams::kHlsProfileCount;
@@ -358,11 +376,11 @@ struct GPUOperatorParams {
       0.0f, 45.0f, 90.0f, 135.0f, 180.0f, 225.0f, 270.0f, 315.0f};
   float                hls_profile_adjustments_[OperatorParams::kHlsProfileCount][3] = {};
   float                hls_profile_hue_ranges_[OperatorParams::kHlsProfileCount] = {
-      15.0f, 15.0f, 15.0f, 15.0f, 15.0f, 15.0f, 15.0f, 15.0f};
+      45.0f, 45.0f, 45.0f, 45.0f, 45.0f, 45.0f, 45.0f, 45.0f};
 
-  // Saturation adjustment parameter
+  // Global OKLCh chroma scale, populated by the legacy Saturation operator input.
   bool                 saturation_enabled_     = true;
-  float                saturation_offset_      = 0.0f;
+  float                saturation_offset_      = 1.0f;
 
   // Tint adjustment parameter
   bool                 tint_enabled_           = true;
@@ -516,6 +534,27 @@ class CudaFusedParamUploader {
         gpu_params.shared_tone_curve_h_[i] = fused_params.shared_tone_curve_h_[i];
       }
     }
+    gpu_params.hs_local_tone_enabled_ = fused_params.hs_local_tone_enabled_;
+    gpu_params.hs_base_radius_ = fused_params.hs_base_radius_;
+    gpu_params.hs_base_gaussian_tap_count_ =
+        std::clamp(fused_params.hs_base_gaussian_tap_count_, 0,
+                   OperatorParams::kDetailMaxGaussianTapCount);
+    for (int i = 0; i < OperatorParams::kDetailMaxGaussianTapCount; ++i) {
+      gpu_params.hs_base_gaussian_weights_[i] = fused_params.hs_base_gaussian_weights_[i];
+    }
+    gpu_params.hs_shadow_log_pivot_ = fused_params.hs_shadow_log_pivot_;
+    gpu_params.hs_shadow_log_width_ = fused_params.hs_shadow_log_width_;
+    gpu_params.hs_highlight_log_pivot_ = fused_params.hs_highlight_log_pivot_;
+    gpu_params.hs_highlight_log_width_ = fused_params.hs_highlight_log_width_;
+    gpu_params.hs_mask_base_cache_key_ = fused_params.hs_mask_base_cache_key_;
+    gpu_params.render_source_cache_key_ = fused_params.render_source_cache_key_;
+    gpu_params.render_roi_enabled_ = fused_params.render_roi_enabled_;
+    gpu_params.render_roi_x_ = fused_params.render_roi_x_;
+    gpu_params.render_roi_y_ = fused_params.render_roi_y_;
+    gpu_params.render_roi_scale_x_ = fused_params.render_roi_scale_x_;
+    gpu_params.render_roi_scale_y_ = fused_params.render_roi_scale_y_;
+    gpu_params.render_roi_reference_width_ = fused_params.render_roi_reference_width_;
+    gpu_params.render_roi_reference_height_ = fused_params.render_roi_reference_height_;
 
     gpu_params.white_enabled_          = fused_params.white_enabled_;
     gpu_params.white_point_            = fused_params.white_point_;

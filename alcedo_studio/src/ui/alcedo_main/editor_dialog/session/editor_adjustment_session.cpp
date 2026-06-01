@@ -40,10 +40,9 @@ auto EditorAdjustmentSession::Commit(const AdjustmentCommit& commit) -> CommitRe
   const auto            op    = stage.GetOperator(op_type);
   const TransactionType tx_type =
       (op.has_value() && op.value() != nullptr) ? TransactionType::_EDIT : TransactionType::_ADD;
-  const bool before_enabled = !before_params.is_null();
+  const bool      before_enabled = !before_params.is_null();
 
-  EditTransaction tx{tx_type, op_type, stage_name, before_params, new_params,
-                     before_enabled, true};
+  EditTransaction tx{tx_type, op_type, stage_name, before_params, new_params, before_enabled, true};
   try {
     (void)tx.ApplyForward(*exec);
   } catch (const std::exception& e) {
@@ -129,6 +128,9 @@ auto EditorAdjustmentSession::HasPipeline() const -> bool {
 void EditorAdjustmentSession::ScheduleQualityPreview() const {
   if (callbacks_.schedule_quality_preview) {
     callbacks_.schedule_quality_preview();
+  }
+  if (callbacks_.schedule_detail_preview_from_viewport) {
+    callbacks_.schedule_detail_preview_from_viewport();
   }
 }
 

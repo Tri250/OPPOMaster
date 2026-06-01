@@ -37,6 +37,9 @@ void RegisterOpenClEditPipelinePrograms() {
                     .name = OpenCL::Pipeline::kDetailProgramName,
                     .source_paths =
                         {
+                            ALCEDO_OPENCL_EDIT_PIPELINE_FUSED_PARAMS_CL,
+                            ALCEDO_OPENCL_EDIT_PIPELINE_COMMON_CL,
+                            ALCEDO_OPENCL_EDIT_PIPELINE_COLOR_CL,
                             ALCEDO_OPENCL_EDIT_PIPELINE_DETAIL_CL,
                         },
                     .build_options       = "-cl-std=CL1.2",

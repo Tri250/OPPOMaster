@@ -26,10 +26,11 @@ EditorRenderCoordinator::EditorRenderCoordinator(Dependencies dependencies, Call
 
 void EditorRenderCoordinator::AdvancePreviewGeneration() {
   ++preview_generation_;
-  detail_serial_                         = 0;
-  latest_quality_base_generation_ready_  = 0;
+  detail_serial_                        = 0;
+  latest_quality_base_generation_ready_ = 0;
   pending_fast_preview_request_.reset();
   pending_quality_base_render_request_.reset();
+  detail_preview_waiting_for_quality_base_ = false;
   if (quality_preview_timer_ && quality_preview_timer_->isActive()) {
     quality_preview_timer_->stop();
   }
@@ -41,6 +42,7 @@ void EditorRenderCoordinator::AdvancePreviewGeneration() {
 
 void EditorRenderCoordinator::InvalidateDetailPreviewState() {
   pending_detail_render_request_.reset();
+  detail_preview_waiting_for_quality_base_ = false;
   if (detail_preview_timer_ && detail_preview_timer_->isActive()) {
     detail_preview_timer_->stop();
   }
@@ -61,7 +63,7 @@ auto EditorRenderCoordinator::BuildPreviewMetadata(RenderType render_type) const
       metadata.frame_role = FrameRole::QualityBase;
       break;
     case RenderType::DETAIL_ROI_PREVIEW:
-      metadata.frame_role   = FrameRole::DetailPatch;
+      metadata.frame_role    = FrameRole::DetailPatch;
       metadata.detail_serial = detail_serial_;
       break;
     default:
@@ -72,18 +74,15 @@ auto EditorRenderCoordinator::BuildPreviewMetadata(RenderType render_type) const
 }
 
 auto EditorRenderCoordinator::IsDetailPreviewGeometryFallbackActive() const -> bool {
-  const auto active_panel = CurrentActivePanel();
   const auto rotation =
       dependencies_.state != nullptr ? dependencies_.state->rotate_degrees_ : 0.0f;
-  const bool needs_full_frame =
-      callbacks_.needs_full_frame_preview_after_geometry_commit
-          ? callbacks_.needs_full_frame_preview_after_geometry_commit()
-          : false;
-  return active_panel == ControlPanelKind::Geometry || std::abs(rotation) > 1.0e-4f ||
-         needs_full_frame;
+  const bool needs_full_frame = callbacks_.needs_full_frame_preview_after_geometry_commit
+                                    ? callbacks_.needs_full_frame_preview_after_geometry_commit()
+                                    : false;
+  return std::abs(rotation) > 1.0e-4f || needs_full_frame;
 }
 
-auto EditorRenderCoordinator::CanScheduleDetailPreview() const -> bool {
+auto EditorRenderCoordinator::WantsDetailPreviewFromViewport() const -> bool {
   auto* viewer = CurrentViewer();
   if (!viewer) {
     return false;
@@ -94,19 +93,27 @@ auto EditorRenderCoordinator::CanScheduleDetailPreview() const -> bool {
   if (IsDetailPreviewGeometryFallbackActive()) {
     return false;
   }
-  if (preview_generation_ == 0 ||
-      latest_quality_base_generation_ready_ != preview_generation_) {
-    return false;
-  }
   const auto viewport_region = viewer->GetViewportRenderRegion();
   return viewport_region.has_value();
 }
 
+auto EditorRenderCoordinator::CanScheduleDetailPreview() const -> bool {
+  if (!WantsDetailPreviewFromViewport()) {
+    return false;
+  }
+  return preview_generation_ != 0 && latest_quality_base_generation_ready_ == preview_generation_;
+}
+
 void EditorRenderCoordinator::MaybeScheduleDetailPreviewRenderFromViewport() {
-  if (!CanScheduleDetailPreview()) {
+  if (!WantsDetailPreviewFromViewport()) {
     InvalidateDetailPreviewState();
     return;
   }
+  if (!CanScheduleDetailPreview()) {
+    detail_preview_waiting_for_quality_base_ = true;
+    return;
+  }
+  detail_preview_waiting_for_quality_base_ = false;
   ScheduleDetailPreviewRenderFromViewport();
 }
 
@@ -143,7 +150,6 @@ void EditorRenderCoordinator::TriggerDetailPreviewRenderFromViewport() {
   }
 
   ++detail_serial_;
-  viewer->SetExpectedDetailToken(preview_generation_, detail_serial_);
 
   AdjustmentState snapshot = *dependencies_.state;
   snapshot.type_           = RenderType::DETAIL_ROI_PREVIEW;
@@ -159,8 +165,7 @@ auto EditorRenderCoordinator::CanSubmitFastPreviewNow() const -> bool {
 
 void EditorRenderCoordinator::EnqueueRenderRequest(const AdjustmentState&      snapshot,
                                                    const FramePreviewMetadata& frame_metadata,
-                                                   bool apply_state,
-                                                   bool use_viewport_region) {
+                                                   bool apply_state, bool use_viewport_region) {
   PendingRenderRequest request{snapshot, frame_metadata, apply_state, use_viewport_region};
 
   switch (snapshot.type_) {
@@ -225,12 +230,13 @@ void EditorRenderCoordinator::PollInflight() {
     return;
   }
 
+  bool render_succeeded = false;
   try {
-    (void)inflight_future_->get();
+    render_succeeded = static_cast<bool>(inflight_future_->get());
   } catch (...) {
   }
   inflight_future_.reset();
-  OnRenderFinished();
+  OnRenderFinished(render_succeeded);
 }
 
 void EditorRenderCoordinator::StartNext() {
@@ -277,16 +283,16 @@ void EditorRenderCoordinator::StartNext() {
   }
 
   PipelineTask task                               = *dependencies_.base_task;
-  task.options_.render_desc_.render_type_        = next_request.state_.type_;
+  task.options_.render_desc_.render_type_         = next_request.state_.type_;
   task.options_.render_desc_.use_viewport_region_ = next_request.use_viewport_region_;
   task.options_.render_desc_.frame_metadata_      = next_request.frame_metadata_;
   task.options_.is_callback_                      = false;
   task.options_.is_seq_callback_                  = false;
   task.options_.is_blocking_                      = true;
 
-  auto promise = std::make_shared<std::promise<std::shared_ptr<ImageBuffer>>>();
-  auto fut     = promise->get_future();
-  task.result_ = promise;
+  auto promise      = std::make_shared<std::promise<std::shared_ptr<ImageBuffer>>>();
+  auto fut          = promise->get_future();
+  task.result_      = promise;
 
   inflight_         = true;
   inflight_request_ = next_request;
@@ -299,7 +305,7 @@ void EditorRenderCoordinator::StartNext() {
   }
 }
 
-void EditorRenderCoordinator::OnRenderFinished() {
+void EditorRenderCoordinator::OnRenderFinished(bool render_succeeded) {
   inflight_ = false;
 
   if (auto* spinner = CurrentSpinner()) {
@@ -316,16 +322,35 @@ void EditorRenderCoordinator::OnRenderFinished() {
     }
   }
 
-  if (finished_request.has_value() &&
+  if (render_succeeded) {
+    if (auto* viewer = CurrentViewer()) {
+      viewer->SyncPendingFrameStateForScheduling();
+    }
+  }
+
+  if (render_succeeded && finished_request.has_value() &&
       finished_request->state_.type_ == RenderType::QUALITY_BASE_PREVIEW &&
       finished_request->frame_metadata_.preview_generation == preview_generation_) {
     latest_quality_base_generation_ready_ = preview_generation_;
-    MaybeScheduleDetailPreviewRenderFromViewport();
+    if (callbacks_.clear_full_frame_preview_after_geometry_commit) {
+      callbacks_.clear_full_frame_preview_after_geometry_commit();
+    }
+    if (detail_preview_waiting_for_quality_base_ || WantsDetailPreviewFromViewport()) {
+      MaybeScheduleDetailPreviewRenderFromViewport();
+    }
+  }
+
+  if (render_succeeded && finished_request.has_value() &&
+      finished_request->state_.type_ == RenderType::DETAIL_ROI_PREVIEW &&
+      finished_request->frame_metadata_.preview_generation == preview_generation_) {
+    if (auto* viewer = CurrentViewer()) {
+      viewer->SetExpectedDetailToken(finished_request->frame_metadata_.preview_generation,
+                                     finished_request->frame_metadata_.detail_serial);
+    }
   }
 
   if (pending_quality_base_render_request_.has_value() ||
-      pending_detail_render_request_.has_value() ||
-      pending_fast_preview_request_.has_value()) {
+      pending_detail_render_request_.has_value() || pending_fast_preview_request_.has_value()) {
     StartNext();
   } else if (poll_timer_ && poll_timer_->isActive()) {
     poll_timer_->stop();

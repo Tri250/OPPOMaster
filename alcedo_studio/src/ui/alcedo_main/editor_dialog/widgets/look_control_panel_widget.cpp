@@ -382,7 +382,7 @@ void LookControlPanelWidget::BuildHlsSection() {
     return;
   }
 
-  MakeLookSection(this, *layout_, "HSL / Color", "Per-hue lightness and saturation adjustments.");
+  MakeLookSection(this, *layout_, "HSL / Color", "Per-hue lightness and chroma adjustments.");
   auto* frame = new QWidget(this);
   auto* v     = new QVBoxLayout(frame);
   v->setContentsMargins(0, 0, 0, 0);
@@ -491,7 +491,7 @@ void LookControlPanelWidget::BuildHlsSection() {
   };
 
   hls_hue_adjust_slider_ = add_slider(
-      "Hue Shift", -15, 15, static_cast<int>(std::lround(look_state_.hls_hue_adjust_)),
+      "Hue Shift", -30, 30, static_cast<int>(std::lround(look_state_.hls_hue_adjust_)),
       [this](int v) {
         look_state_.hls_hue_adjust_ =
             std::clamp(static_cast<float>(v), -hls::kMaxHueShiftDegrees, hls::kMaxHueShiftDegrees);
@@ -523,7 +523,7 @@ void LookControlPanelWidget::BuildHlsSection() {
       [](int v) { return QString::number(v, 'f', 0); });
 
   hls_saturation_adjust_slider_ = add_slider(
-      "HSL Saturation", -100, 100,
+      "Chroma", -100, 100,
       static_cast<int>(std::lround(look_state_.hls_saturation_adjust_)),
       [this](int v) {
         look_state_.hls_saturation_adjust_ =
@@ -540,7 +540,7 @@ void LookControlPanelWidget::BuildHlsSection() {
       [](int v) { return QString::number(v, 'f', 0); });
 
   hls_hue_range_slider_ = add_slider(
-      "Hue Range", 1, 180, static_cast<int>(std::lround(look_state_.hls_hue_range_)),
+      "Hue Smoothness", 1, 180, static_cast<int>(std::lround(look_state_.hls_hue_range_)),
       [this](int v) {
         look_state_.hls_hue_range_ = static_cast<float>(v);
         SaveActiveHlsProfile();

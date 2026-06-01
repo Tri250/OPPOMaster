@@ -10,6 +10,7 @@
 
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <iomanip>
 #include <iostream>
 #include <memory>
@@ -97,6 +98,7 @@ class GPU_KernelLauncher {
 
   void ReleaseResources() {
     ReleaseScratchBuffers();
+    kernel_stream_.ReleaseResources();
     params_.to_ws_lut_.Reset();
     params_.lmt_lut_.Reset();
     params_.to_output_lut_.Reset();
@@ -205,6 +207,7 @@ class GPU_KernelLauncher {
     }
     size_t width  = gpu_mat.cols;
     size_t height = gpu_mat.rows;
+    GPUOperatorParams frame_params = params_;
 
     if (frame_sink_) {
       const auto ensure_size_start = std::chrono::steady_clock::now();
@@ -232,7 +235,7 @@ class GPU_KernelLauncher {
     const auto kernel_dispatch_start = std::chrono::steady_clock::now();
     float4* result_ptr = kernel_stream_.Process(work_buffer_, temp_buffer_, static_cast<int>(width),
                                                 static_cast<int>(height),
-                                                static_cast<size_t>(width), params_, stream_,
+                                                static_cast<size_t>(width), frame_params, stream_,
                                                 /*sync=*/false);
     const auto kernel_dispatch_end = std::chrono::steady_clock::now();
     kernel_dispatch_ms =

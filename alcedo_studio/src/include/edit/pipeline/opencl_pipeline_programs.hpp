@@ -16,10 +16,18 @@ inline constexpr const char* kDetailProgramName = "edit_pipeline_detail";
 
 inline constexpr const char* kFusedKernelName = "edit_pipeline_fused_rgba32f";
 
+inline constexpr const char* kFusedStageKernelName = "edit_pipeline_fused_stage_rgba32f";
+
 inline constexpr const char* kNeighborBlurHorizontalKernelName =
     "edit_pipeline_neighbor_blur_h_rgba32f";
 inline constexpr const char* kNeighborApplyVerticalKernelName =
     "edit_pipeline_neighbor_apply_v_rgba32f";
+inline constexpr const char* kHsBuildLogBaseHorizontalKernelName =
+    "edit_pipeline_hs_build_log_base_h_rgba32f";
+inline constexpr const char* kHsBuildLogBaseVerticalKernelName =
+    "edit_pipeline_hs_build_log_base_v_rgba32f";
+inline constexpr const char* kHsApplyLocalToneKernelName =
+    "edit_pipeline_hs_apply_local_tone_rgba32f";
 
 inline constexpr const char* kValidateFusedParamsKernelName =
     "edit_pipeline_validate_fused_params";
