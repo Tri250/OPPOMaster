@@ -83,14 +83,28 @@ static inline float3 metal_hls_ap1_to_acescc(float3 ap1) {
                 metal_hls_acescc_encode(ap1.z));
 }
 
+static inline float metal_hls_fast_cbrt(float x) {
+  if (x == 0.0f) {
+    return 0.0f;
+  }
+
+  const float ax = fabs(x);
+  uint bits = as_type<uint>(ax);
+  bits = bits / 3u + 0x2a5119f2u;
+  float y = as_type<float>(bits);
+  y = (2.0f * y + ax / (y * y)) * (1.0f / 3.0f);
+  y = (2.0f * y + ax / (y * y)) * (1.0f / 3.0f);
+  return (x < 0.0f) ? -y : y;
+}
+
 static inline float3 metal_hls_ap1_to_oklab(float3 ap1) {
   const float l = 0.62217537f * ap1.x + 0.34268438f * ap1.y + 0.02339492f * ap1.z;
   const float m = 0.26593478f * ap1.x + 0.62930460f * ap1.y + 0.10828100f * ap1.z;
   const float s = 0.09725037f * ap1.x + 0.18525749f * ap1.y + 0.77254586f * ap1.z;
 
-  const float l_ = sign(l) * pow(fabs(l), 1.0f / 3.0f);
-  const float m_ = sign(m) * pow(fabs(m), 1.0f / 3.0f);
-  const float s_ = sign(s) * pow(fabs(s), 1.0f / 3.0f);
+  const float l_ = metal_hls_fast_cbrt(l);
+  const float m_ = metal_hls_fast_cbrt(m);
+  const float s_ = metal_hls_fast_cbrt(s);
 
   return float3(0.2104542553f * l_ + 0.7936177850f * m_ - 0.0040720468f * s_,
                 1.9779984951f * l_ - 2.4285922050f * m_ + 0.4505937099f * s_,
@@ -472,6 +486,7 @@ static inline float metal_hs_highlight_detail_weight(float mask_ref, float highl
 }
 
 static inline float3 metal_hs_preserve_highlight_chroma(float3 source_ap1, float3 output_ap1,
+                                                        float3 source_lab, float source_chroma,
                                                         float log_delta, float highlight_amount,
                                                         float source_highlight_mask) {
   const float reduce_amount = fmax(highlight_amount, 0.0f);
@@ -480,9 +495,7 @@ static inline float3 metal_hs_preserve_highlight_chroma(float3 source_ap1, float
     return output_ap1;
   }
 
-  const float3 source_lab = metal_hls_ap1_to_oklab(source_ap1);
   const float3 output_lab = metal_hls_ap1_to_oklab(output_ap1);
-  const float source_chroma = length(source_lab.yz);
   const float output_chroma = length(output_lab.yz);
   if (source_chroma <= 1.0e-5f || output_lab.x <= 1.0e-5f) {
     return output_ap1;
@@ -620,8 +633,9 @@ static inline float4 GPU_HighlightShadowLocalToneOpKernel(float4 px, float base,
 
   const float rgb_scale = exp2(clamp(log_delta, -3.5f, 3.5f));
   float3 output_ap1 = source_ap1 * rgb_scale;
-  output_ap1 = metal_hs_preserve_highlight_chroma(source_ap1, output_ap1, log_delta,
-                                                  highlight_amount, source_highlight_mask);
+  output_ap1 = metal_hs_preserve_highlight_chroma(source_ap1, output_ap1, source_lab,
+                                                  source_chroma, log_delta, highlight_amount,
+                                                  source_highlight_mask);
   return float4(metal_hls_ap1_to_acescc(output_ap1), px.w);
 }
 
