@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { Camera, Sparkles, Palette, Share2, Settings, Image, Layers, Zap, Shield, Smartphone } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Camera, Sparkles, Palette, Share2, Settings, Image, Layers, Zap, Shield, Smartphone, CheckCircle2 } from 'lucide-react';
+import { motion } from 'framer-motion';
 
 const features = [
   {
@@ -9,22 +10,26 @@ const features = [
       {
         name: 'HNCS认证预设',
         description: '精选哈苏自然色彩解决方案认证预设，专业调校的色彩表现',
-        icon: '🎨'
+        icon: '🎨',
+        status: 'done'
       },
       {
         name: '预设分类展示',
         description: '按场景、风格、用途智能分类，快速找到适合的预设',
-        icon: '📁'
+        icon: '📁',
+        status: 'done'
       },
       {
         name: '收藏与分享',
         description: '收藏常用预设，一键分享给好友或社交平台',
-        icon: '❤️'
+        icon: '❤️',
+        status: 'done'
       },
       {
         name: '智能搜索筛选',
         description: '关键词搜索，多维度筛选，快速定位目标预设',
-        icon: '🔍'
+        icon: '🔍',
+        status: 'done'
       }
     ]
   },
@@ -35,27 +40,32 @@ const features = [
       {
         name: 'AI场景识别',
         description: '智能识别24种常见拍摄场景，自动匹配最佳参数',
-        icon: '🤖'
+        icon: '🤖',
+        status: 'done'
       },
       {
         name: 'AI参数建议',
         description: '基于场景智能分析，提供专业的相机参数推荐',
-        icon: '💡'
+        icon: '💡',
+        status: 'done'
       },
       {
         name: 'AI样张微调',
         description: '实时预览参数调整效果，所见即所得',
-        icon: '🎯'
+        icon: '🎯',
+        status: 'done'
       },
       {
         name: 'AI批量处理',
         description: '批量应用预设和调整，提高工作效率',
-        icon: '⚡'
+        icon: '⚡',
+        status: 'done'
       },
       {
         name: 'AI参数识别',
         description: 'OCR识别照片中的相机参数，快速还原拍摄设置',
-        icon: '📷'
+        icon: '📷',
+        status: 'done'
       }
     ]
   },
@@ -66,17 +76,20 @@ const features = [
       {
         name: '实时参数显示',
         description: 'ISO、快门、光圈、焦距、曝光补偿等专业参数',
-        icon: '📊'
+        icon: '📊',
+        status: 'done'
       },
       {
         name: '悬浮窗显示',
         description: '相机取景框实时叠加参数显示，专业拍摄辅助',
-        icon: '🪟'
+        icon: '🪟',
+        status: 'done'
       },
       {
         name: '参数截图分享',
         description: '一键生成参数截图，专业水准的分享展示',
-        icon: '📸'
+        icon: '📸',
+        status: 'done'
       }
     ]
   },
@@ -87,27 +100,32 @@ const features = [
       {
         name: '文字水印',
         description: '自定义文字内容、字体、颜色、位置',
-        icon: '✍️'
+        icon: '✍️',
+        status: 'done'
       },
       {
         name: '图片水印',
         description: '添加品牌Logo或个人水印图片',
-        icon: '🖼️'
+        icon: '🖼️',
+        status: 'done'
       },
       {
         name: '模板系统',
         description: '预置多款专业水印模板，一键应用',
-        icon: '📋'
+        icon: '📋',
+        status: 'done'
       },
       {
         name: '批量处理',
         description: '批量添加水印，高效工作流',
-        icon: '🔄'
+        icon: '🔄',
+        status: 'done'
       },
       {
         name: '撤销重做',
         description: '完整的操作历史记录，放心编辑',
-        icon: '↩️'
+        icon: '↩️',
+        status: 'done'
       }
     ]
   },
@@ -118,32 +136,38 @@ const features = [
       {
         name: '微信好友',
         description: '直接分享到微信好友或群聊',
-        icon: '💬'
+        icon: '💬',
+        status: 'done'
       },
       {
         name: '微信朋友圈',
         description: '精美的朋友圈分享样式',
-        icon: '📱'
+        icon: '📱',
+        status: 'done'
       },
       {
         name: 'QQ与空间',
         description: 'QQ好友和QQ空间分享支持',
-        icon: '🐧'
+        icon: '🐧',
+        status: 'done'
       },
       {
         name: '微博与抖音',
         description: '微博和抖音平台分享',
-        icon: '🎵'
+        icon: '🎵',
+        status: 'done'
       },
       {
         name: '小红书',
         description: '小红书社区分享',
-        icon: '📖'
+        icon: '📖',
+        status: 'done'
       },
       {
         name: '原图分享',
         description: '无损原图质量分享',
-        icon: '💯'
+        icon: '💯',
+        status: 'done'
       }
     ]
   },
@@ -154,27 +178,32 @@ const features = [
       {
         name: '浅色主题',
         description: '明亮清爽的日间模式',
-        icon: '☀️'
+        icon: '☀️',
+        status: 'done'
       },
       {
         name: '深色主题',
         description: '护眼舒适的夜间模式',
-        icon: '🌙'
+        icon: '🌙',
+        status: 'done'
       },
       {
         name: '跟随系统',
         description: '自动跟随系统主题设置',
-        icon: '⚙️'
+        icon: '⚙️',
+        status: 'done'
       },
       {
         name: 'ColorOS 16风格',
         description: '完美适配ColorOS 16设计语言',
-        icon: '🎨'
+        icon: '🎨',
+        status: 'done'
       },
       {
         name: '护眼模式',
         description: '暖色调护眼配色方案',
-        icon: '👁️'
+        icon: '👁️',
+        status: 'done'
       }
     ]
   },
@@ -185,27 +214,32 @@ const features = [
       {
         name: '60fps流畅动画',
         description: '丝滑流畅的交互动画体验',
-        icon: '🎬'
+        icon: '🎬',
+        status: 'done'
       },
       {
         name: '内存监控',
         description: '实时内存使用监控和优化',
-        icon: '🧠'
+        icon: '🧠',
+        status: 'done'
       },
       {
         name: '启动优化',
         description: '快速冷启动和热启动',
-        icon: '🚀'
+        icon: '🚀',
+        status: 'done'
       },
       {
         name: '弱网适配',
         description: '弱网环境下的优化处理',
-        icon: '📶'
+        icon: '📶',
+        status: 'done'
       },
       {
         name: '图片加载优化',
         description: '高效的图片加载和缓存策略',
-        icon: '🖼️'
+        icon: '🖼️',
+        status: 'done'
       }
     ]
   },
@@ -216,27 +250,32 @@ const features = [
       {
         name: '数据加密',
         description: '敏感数据加密存储',
-        icon: '🔒'
+        icon: '🔒',
+        status: 'done'
       },
       {
         name: '权限管理',
         description: '精细的应用权限控制',
-        icon: '🔐'
+        icon: '🔐',
+        status: 'done'
       },
       {
         name: '本地处理',
         description: 'AI处理在本地完成，不上传数据',
-        icon: '🏠'
+        icon: '🏠',
+        status: 'done'
       },
       {
         name: '安全存储',
         description: 'EncryptedSharedPreferences加密存储',
-        icon: '🛡️'
+        icon: '🛡️',
+        status: 'done'
       },
       {
         name: '权限请求',
         description: '优雅的动态权限请求引导',
-        icon: '📋'
+        icon: '📋',
+        status: 'done'
       }
     ]
   },
@@ -247,44 +286,70 @@ const features = [
       {
         name: '我的收藏',
         description: '管理所有收藏的预设',
-        icon: '⭐'
+        icon: '⭐',
+        status: 'done'
       },
       {
         name: '下载历史',
         description: '查看预设下载记录',
-        icon: '📥'
+        icon: '📥',
+        status: 'done'
       },
       {
         name: '使用统计',
         description: '详细的使用数据统计',
-        icon: '📈'
+        icon: '📈',
+        status: 'done'
       },
       {
         name: '隐私设置',
         description: '隐私保护相关设置',
-        icon: '🔒'
+        icon: '🔒',
+        status: 'done'
       },
       {
         name: '通知设置',
         description: '个性化通知偏好',
-        icon: '🔔'
+        icon: '🔔',
+        status: 'done'
       },
       {
         name: '意见反馈',
         description: '便捷的用户反馈通道',
-        icon: '💬'
+        icon: '💬',
+        status: 'done'
       },
       {
         name: '关于我们',
         description: '应用信息和版本更新',
-        icon: 'ℹ️'
+        icon: 'ℹ️',
+        status: 'done'
       }
     ]
   }
 ];
 
+const techSpecs = [
+  { label: '最低系统版本', value: 'Android 8.0 (API 26)' },
+  { label: '目标系统版本', value: 'Android 14 (API 34)' },
+  { label: '开发语言', value: 'Kotlin + Jetpack Compose' },
+  { label: '架构模式', value: 'MVVM + Clean Architecture' },
+  { label: '依赖注入', value: 'Hilt 2.48' },
+  { label: '异步处理', value: 'Kotlin Coroutines + Flow' },
+  { label: '图像加载', value: 'Coil' },
+  { label: '数据存储', value: 'DataStore + EncryptedSharedPreferences' },
+  { label: '相机库', value: 'CameraX' }
+];
+
 export default function FeaturesPage() {
   const [activeCategory, setActiveCategory] = useState(0);
+  const [isScrolled, setIsScrolled] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => setIsScrolled(window.scrollY > 50);
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   return (
     <div className="min-h-screen pt-20 pb-16">
@@ -292,12 +357,36 @@ export default function FeaturesPage() {
       <div className="relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-b from-hasselblad/10 to-transparent" />
         <div className="max-w-6xl mx-auto px-6 py-16 text-center">
-          <h1 className="text-4xl md:text-5xl font-bold mb-6">
-            <span className="gradient-text">App功能一览</span>
-          </h1>
-          <p className="text-white/60 text-lg max-w-2xl mx-auto">
-            探索OPPO哈苏影像系统的强大功能，从专业预设到AI智能，从水印编辑到社交分享
-          </p>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6 }}
+          >
+            <h1 className="text-4xl md:text-5xl font-bold mb-6">
+              <span className="gradient-text">Android端功能展示</span>
+            </h1>
+            <p className="text-white/60 text-lg max-w-2xl mx-auto">
+              OPPO哈苏影像系统 - 专为OPPO/一加设备打造的专业摄影助手
+            </p>
+          </motion.div>
+        </div>
+      </div>
+
+      {/* 技术规格 */}
+      <div className="max-w-6xl mx-auto px-6 mb-16">
+        <div className="card p-6">
+          <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
+            <Smartphone className="w-5 h-5 text-hasselblad" />
+            技术规格
+          </h2>
+          <div className="grid md:grid-cols-3 gap-4">
+            {techSpecs.map((spec, index) => (
+              <div key={index} className="bg-white/5 rounded-xl p-4">
+                <div className="text-white/50 text-sm mb-1">{spec.label}</div>
+                <div className="font-medium">{spec.value}</div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -306,12 +395,15 @@ export default function FeaturesPage() {
         <div className="flex flex-col lg:flex-row gap-8">
           {/* 分类列表 */}
           <div className="lg:w-64 flex-shrink-0">
-            <div className="sticky top-24">
+            <div className={`sticky transition-all duration-300 ${isScrolled ? 'top-20' : 'top-24'}`}>
               <div className="lg:block overflow-x-auto lg:overflow-visible pb-4 lg:pb-0">
                 <div className="flex lg:flex-col gap-2 min-w-max lg:min-w-0">
                   {features.map((featureGroup, index) => (
-                    <button
+                    <motion.button
                       key={index}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: index * 0.05 }}
                       onClick={() => setActiveCategory(index)}
                       className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 whitespace-nowrap ${
                         activeCategory === index
@@ -323,7 +415,7 @@ export default function FeaturesPage() {
                         {featureGroup.icon}
                       </span>
                       <span className="font-medium">{featureGroup.category}</span>
-                    </button>
+                    </motion.button>
                   ))}
                 </div>
               </div>
@@ -332,40 +424,55 @@ export default function FeaturesPage() {
 
           {/* 功能展示区域 */}
           <div className="flex-1">
-            <div className="mb-8">
-              <h2 className="text-2xl font-bold mb-2 flex items-center gap-3">
-                <span className="text-hasselblad">
-                  {features[activeCategory].icon}
-                </span>
-                {features[activeCategory].category}
-              </h2>
-              <p className="text-white/50">共 {features[activeCategory].features.length} 个功能</p>
-            </div>
+            <motion.div
+              key={activeCategory}
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.3 }}
+            >
+              <div className="mb-8">
+                <h2 className="text-2xl font-bold mb-2 flex items-center gap-3">
+                  <span className="text-hasselblad">
+                    {features[activeCategory].icon}
+                  </span>
+                  {features[activeCategory].category}
+                </h2>
+                <p className="text-white/50">共 {features[activeCategory].features.length} 个功能</p>
+              </div>
 
-            <div className="grid md:grid-cols-2 gap-4">
-              {features[activeCategory].features.map((feature, index) => (
-                <div
-                  key={index}
-                  className="card p-6 group hover:scale-[1.02] cursor-pointer"
-                >
-                  <div className="text-4xl mb-4 group-hover:scale-110 transition-transform duration-300">
-                    {feature.icon}
-                  </div>
-                  <h3 className="text-xl font-semibold mb-2 text-white">
-                    {feature.name}
-                  </h3>
-                  <p className="text-white/60 text-sm leading-relaxed">
-                    {feature.description}
-                  </p>
-                  <div className="mt-4 pt-4 border-t border-white/10">
-                    <span className="text-hasselblad/80 text-sm flex items-center gap-1">
-                      已实现
-                      <span className="w-2 h-2 bg-oppo-green rounded-full animate-pulse" />
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
+              <div className="grid md:grid-cols-2 gap-4">
+                {features[activeCategory].features.map((feature, index) => (
+                  <motion.div
+                    key={index}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.05 }}
+                    className="card p-6 group hover:scale-[1.02] cursor-pointer"
+                  >
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="text-4xl group-hover:scale-110 transition-transform duration-300">
+                        {feature.icon}
+                      </div>
+                      {feature.status === 'done' && (
+                        <CheckCircle2 className="w-5 h-5 text-oppo-green" />
+                      )}
+                    </div>
+                    <h3 className="text-xl font-semibold mb-2 text-white">
+                      {feature.name}
+                    </h3>
+                    <p className="text-white/60 text-sm leading-relaxed">
+                      {feature.description}
+                    </p>
+                    <div className="mt-4 pt-4 border-t border-white/10">
+                      <span className="text-hasselblad/80 text-sm flex items-center gap-1">
+                        已实现
+                        <span className="w-2 h-2 bg-oppo-green rounded-full animate-pulse" />
+                      </span>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            </motion.div>
 
             {/* 功能统计 */}
             <div className="mt-12 grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -375,12 +482,18 @@ export default function FeaturesPage() {
                 { label: '水印模板', value: '8+', color: 'text-blue-400' },
                 { label: '分享渠道', value: '9+', color: 'text-green-400' }
               ].map((stat, index) => (
-                <div key={index} className="card p-6 text-center">
+                <motion.div
+                  key={index}
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: index * 0.1 }}
+                  className="card p-6 text-center"
+                >
                   <div className={`text-3xl font-bold mb-2 ${stat.color}`}>
                     {stat.value}
                   </div>
                   <div className="text-white/60 text-sm">{stat.label}</div>
-                </div>
+                </motion.div>
               ))}
             </div>
           </div>
@@ -388,10 +501,24 @@ export default function FeaturesPage() {
 
         {/* 完整功能矩阵 */}
         <div className="mt-16">
-          <h2 className="text-2xl font-bold mb-8 text-center">完整功能矩阵</h2>
+          <motion.h2
+            initial={{ opacity: 0 }}
+            whileInView={{ opacity: 1 }}
+            viewport={{ once: true }}
+            className="text-2xl font-bold mb-8 text-center"
+          >
+            完整功能矩阵
+          </motion.h2>
           <div className="grid md:grid-cols-3 gap-4">
             {features.map((group, groupIndex) => (
-              <div key={groupIndex} className="card p-6">
+              <motion.div
+                key={groupIndex}
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: groupIndex * 0.1 }}
+                className="card p-6"
+              >
                 <div className="flex items-center gap-3 mb-4">
                   <span className="text-hasselblad">{group.icon}</span>
                   <h3 className="font-semibold">{group.category}</h3>
@@ -404,8 +531,42 @@ export default function FeaturesPage() {
                     </div>
                   ))}
                 </div>
-              </div>
+              </motion.div>
             ))}
+          </div>
+        </div>
+
+        {/* 兼容性说明 */}
+        <div className="mt-16">
+          <div className="card p-6">
+            <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+              <Smartphone className="w-5 h-5 text-hasselblad" />
+              兼容设备
+            </h2>
+            <div className="grid md:grid-cols-2 gap-6">
+              <div>
+                <h3 className="font-medium mb-2 text-white/80">OPPO系列</h3>
+                <div className="space-y-1 text-white/60 text-sm">
+                  <p>• Find X7/X7 Ultra</p>
+                  <p>• Find X6/X6 Pro</p>
+                  <p>• Find X5/X5 Pro</p>
+                  <p>• Reno 11/11 Pro</p>
+                  <p>• Reno 10/10 Pro</p>
+                  <p>• 以及更多OPPO Android 8.0+设备</p>
+                </div>
+              </div>
+              <div>
+                <h3 className="font-medium mb-2 text-white/80">一加系列</h3>
+                <div className="space-y-1 text-white/60 text-sm">
+                  <p>• OnePlus 12/12 Pro</p>
+                  <p>• OnePlus 11/11 Pro</p>
+                  <p>• OnePlus 10/10 Pro</p>
+                  <p>• OnePlus Ace 3/3 Pro</p>
+                  <p>• OnePlus Ace 2/2 Pro</p>
+                  <p>• 以及更多一加Android 8.0+设备</p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
