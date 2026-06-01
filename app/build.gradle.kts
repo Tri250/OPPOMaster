@@ -7,14 +7,14 @@ plugins {
 
 android {
     namespace = "com.omaster.app"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.omaster.app"
         minSdk = 26
-        targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        targetSdk = 35
+        versionCode = 121
+        versionName = "1.2.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -22,9 +22,20 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("/workspace/release.keystore")
+            storePassword = "omaster123"
+            keyAlias = "omaster"
+            keyPassword = "omaster123"
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
