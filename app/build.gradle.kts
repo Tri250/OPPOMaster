@@ -30,6 +30,7 @@ android {
             storePassword = "android"
             keyAlias = "androiddebugkey"
             keyPassword = "android"
+            enableV1Signing = false
             enableV2Signing = true
             enableV3Signing = true
         }
@@ -38,6 +39,7 @@ android {
             storePassword = "changeme"
             keyAlias = "omaster"
             keyPassword = "changeme"
+            enableV1Signing = false
             enableV2Signing = true
             enableV3Signing = true
         }
