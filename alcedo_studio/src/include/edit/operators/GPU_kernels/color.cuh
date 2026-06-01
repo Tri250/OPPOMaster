@@ -263,6 +263,46 @@ GPU_FUNC float hs_local_detail_reference_guard(float detail, float tonal_referen
   return 1.0f - tonal_reference_mix * edge_reference;
 }
 
+GPU_FUNC float hs_chromatic_fringe_guard(float source_chroma, float detail,
+                                         float tonal_reference_mix,
+                                         float active_highlight_mask, float shadow_amount,
+                                         float highlight_amount) {
+  if (highlight_amount <= 1.0e-6f && shadow_amount <= 1.0e-6f) {
+    return 1.0f;
+  }
+
+  const float chroma_gate = hls_oklch_smoothstep(0.012f, 0.060f, source_chroma);
+  const float detail_gate = hls_oklch_smoothstep(0.055f, 0.34f, fabsf(detail)) *
+                            (1.0f - hls_oklch_smoothstep(0.82f, 1.42f, fabsf(detail)));
+  const float edge_gate = hls_oklch_smoothstep(0.020f, 0.12f, tonal_reference_mix);
+  const float highlight_gate = 0.35f + 0.65f * active_highlight_mask;
+  const float strength = 0.82f * chroma_gate * detail_gate * edge_gate * highlight_gate;
+  return 1.0f - fminf(fmaxf(strength, 0.0f), 0.82f);
+}
+
+GPU_FUNC float hs_chromatic_local_mix_guard(float source_chroma, float detail, float local_delta,
+                                            float source_delta, float active_highlight_mask,
+                                            float shadow_amount, float highlight_amount) {
+  if (highlight_amount <= 1.0e-6f && shadow_amount <= 1.0e-6f) {
+    return 1.0f;
+  }
+
+  const float chroma_gate = hls_oklch_smoothstep(0.012f, 0.055f, source_chroma);
+  const float detail_gate = hls_oklch_smoothstep(0.050f, 0.20f, fabsf(detail)) *
+                            (1.0f - hls_oklch_smoothstep(0.85f, 1.45f, fabsf(detail)));
+  const float mismatch_gate =
+      hls_oklch_smoothstep(0.055f, 0.16f, fabsf(local_delta - source_delta));
+  const float highlight_gate = 0.35f + 0.65f * active_highlight_mask;
+  const float both_active_gate =
+      0.55f + 0.45f * fminf(fmaxf(fminf(fmaxf(shadow_amount, 0.0f),
+                                            fmaxf(highlight_amount, 0.0f)),
+                                  0.0f),
+                            1.0f);
+  const float strength =
+      0.78f * chroma_gate * detail_gate * mismatch_gate * highlight_gate * both_active_gate;
+  return 1.0f - fminf(fmaxf(strength, 0.0f), 0.78f);
+}
+
 GPU_FUNC float hs_llf_detail_mix(float detail) {
   return 1.0f - hls_oklch_smoothstep(0.42f, 0.95f, fabsf(detail));
 }
@@ -626,6 +666,11 @@ GPU_FUNC float4 hs_apply_local_tone_pixel(float4 px, float base, GPUOperatorPara
   const float shadow_fill_light_zone = hs_shadow_fill_light_weight(mask_ref, params);
   const float active_highlight_mask =
       (fabsf(highlight_amount) > 1.0e-6f) ? fminf(fmaxf(highlight_mask, 0.0f), 1.0f) : 0.0f;
+  const float3 source_lab = hls_oklch_ap1_to_oklab(source_ap1);
+  const float  source_chroma = hypotf(source_lab.y, source_lab.z);
+  const float  chromatic_fringe_guard =
+      hs_chromatic_fringe_guard(source_chroma, detail, tonal_reference_mix,
+                                active_highlight_mask, shadow_amount, highlight_amount);
   const float fill_highlight_guard = 1.0f - 0.35f * active_highlight_mask;
   const float fill_detail_polarity = detail >= 0.0f ? 1.0f : 0.68f;
   const float highlight_detail_zone =
@@ -634,6 +679,8 @@ GPU_FUNC float4 hs_apply_local_tone_pixel(float4 px, float base, GPUOperatorPara
       hs_shadow_llf_detail_gain(
           detail, shadow_amount,
           fmaxf(shadow_texture_zone, 0.86f * shadow_fill_light_zone * fill_highlight_guard));
+  const float guarded_llf_detail_gain =
+      1.0f + (llf_detail_gain - 1.0f) * chromatic_fringe_guard;
   const float dark_valley = hls_oklch_smoothstep(0.85f, 1.80f, -detail);
   const float contrast_recovery =
       0.035f + 0.075f * fmaxf(base_contrast_loss, shadow_contrast_loss);
@@ -647,20 +694,27 @@ GPU_FUNC float4 hs_apply_local_tone_pixel(float4 px, float base, GPUOperatorPara
           texture_detail * shadow_detail_preserve * fill_detail_polarity * fill_light_recovery +
       0.025f * fmaxf(-shadow_amount, 0.0f) * shadow_detail_zone *
           fmaxf(base_contrast_loss, shadow_contrast_loss);
+  const float guarded_shadow_detail_scale = shadow_detail_scale * chromatic_fringe_guard;
   const float highlight_detail_scale =
       fmaxf(highlight_amount, 0.0f) * highlight_detail_zone *
       (0.035f + 0.12f * highlight_contrast_loss);
+  const float guarded_highlight_detail_scale = highlight_detail_scale * chromatic_fringe_guard;
   const float raw_detail_scale = fminf(
-      1.30f, fmaxf(0.97f, (1.0f + shadow_detail_scale + highlight_detail_scale) * llf_detail_gain));
+      1.30f, fmaxf(0.97f, (1.0f + guarded_shadow_detail_scale +
+                           guarded_highlight_detail_scale) * guarded_llf_detail_gain));
   const float detail_scale = 1.0f + (raw_detail_scale - 1.0f) * hs_llf_detail_mix(detail);
   const float local_delta = base_delta + detail * (detail_scale - 1.0f);
   const float local_adjusted_log_y = source_log_y + local_delta;
   const float source_delta =
       hs_base_delta_from_ref(source_log_y, shadow_amount, highlight_amount, params);
   const float source_adjusted_log_y = source_log_y + source_delta;
+  const float chromatic_local_mix_guard =
+      hs_chromatic_local_mix_guard(source_chroma, detail, local_delta, source_delta,
+                                   active_highlight_mask, shadow_amount, highlight_amount);
   const float local_mix =
       hs_local_tone_mix(detail, local_delta, source_delta) *
-      hs_local_detail_reference_guard(detail, tonal_reference_mix);
+      hs_local_detail_reference_guard(detail, tonal_reference_mix) * chromatic_fringe_guard *
+      chromatic_local_mix_guard;
   const float adjusted_log_y = hs_lerp(source_adjusted_log_y, local_adjusted_log_y, local_mix);
   const float log_delta = adjusted_log_y - source_log_y;
 
