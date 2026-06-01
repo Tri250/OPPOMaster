@@ -30,15 +30,7 @@ import diagnose_hs_tone_response as tone  # noqa: E402
 
 
 def previous_shadow_delta(mask_ref: np.ndarray) -> np.ndarray:
-    width = max(tone.baseline.SHADOW_LOG_WIDTH, 0.35)
-    upper_pivot = tone.baseline.shadow_upper_pivot()
-    lift_pivot = upper_pivot + max(width * 1.60, 0.98)
-    distance_to_pivot = np.maximum(lift_pivot - mask_ref, 0.0)
-    soft_distance = tone.softplus_distance(distance_to_pivot, max(width * 2.18, 1.35))
-    black_guard = 0.82 + 0.18 * tone.shadow_black_floor_weight(mask_ref)
-    highlight_overlap = tone.highlight_zone_weight(mask_ref)
-    overlap_guard = 1.0 - 0.28 * np.clip(highlight_overlap, 0.0, 1.0)
-    return 0.42 * soft_distance * black_guard * overlap_guard
+    return tone.previous_shadow_delta(mask_ref, 1.0, 0.0)
 
 
 def candidate_active_limit() -> float:
@@ -131,8 +123,8 @@ def shadow_llf_detail_gain(
     fine_detail_gate = 1.0 - tone.smoothstep(0.38, 0.82, mag)
     sigma_r_stops = 0.42
     x = np.clip(mag / sigma_r_stops, 1.0e-4, 1.0)
-    strength = 0.38 if fill_light_candidate else 0.34
-    limit = 0.38 if fill_light_candidate else 0.34
+    strength = 0.44 if fill_light_candidate else 0.34
+    limit = 0.50 if fill_light_candidate else 0.34
     alpha = 1.0 - strength
     remapped_mag = sigma_r_stops * np.power(x, alpha)
     remap_gain = remapped_mag / np.maximum(mag, 1.0e-4)
@@ -183,6 +175,13 @@ def shadow_fill_light_weight(mask_ref: np.ndarray) -> np.ndarray:
     return signal_gate * upper_guard
 
 
+def shadow_fill_plateau_weight(mask_ref: np.ndarray) -> np.ndarray:
+    pivot = tone.baseline.SHADOW_LOG_PIVOT
+    lower_gate = tone.smoothstep(pivot - 4.05, pivot - 1.75, mask_ref)
+    upper_gate = 1.0 - 0.45 * tone.smoothstep(pivot - 1.05, pivot + 3.15, mask_ref)
+    return lower_gate * upper_gate
+
+
 def neutral_oklab_l(log_y: np.ndarray) -> np.ndarray:
     y = np.exp2(log_y)
     ap1 = np.stack([y, y, y], axis=-1)
@@ -225,8 +224,9 @@ def local_tone_output(
         shadow_texture_zone * texture_detail * shadow_detail_sign_weight(detail)
     )
     shadow_detail_preserve = shadow_detail_preserve_weight(detail)
+    shadow_fill_plateau_zone = shadow_fill_plateau_weight(mask_ref)
     dark_valley = tone.smoothstep(0.85, 1.80, -detail)
-    contrast_recovery = 0.035 + 0.075 * contrast_loss
+    contrast_recovery = 0.045 + 0.090 * contrast_loss
     shadow_detail_scale = (
         shadow_detail_zone * shadow_detail_preserve * contrast_recovery
         - 0.018 * shadow_texture_zone * dark_valley
@@ -237,7 +237,8 @@ def local_tone_output(
     if fill_light_candidate:
         fill_zone = shadow_fill_light_weight(mask_ref)
         fill_detail_polarity = np.where(detail >= 0.0, 1.0, 0.68)
-        fill_light_recovery = 0.075 + 0.085 * contrast_loss
+        fill_light_recovery = 0.095 + 0.105 * contrast_loss
+        fill_plateau_recovery = 0.10 + 0.16 * contrast_loss
         shadow_detail_scale += (
             fill_zone
             * texture_detail
@@ -245,8 +246,17 @@ def local_tone_output(
             * fill_detail_polarity
             * fill_light_recovery
         )
-        llf_shadow_zone = np.maximum(llf_shadow_zone, 0.86 * fill_zone)
-        raw_detail_cap = 1.30
+        shadow_detail_scale += (
+            shadow_fill_plateau_zone
+            * texture_detail
+            * shadow_detail_preserve
+            * fill_detail_polarity
+            * fill_plateau_recovery
+        )
+        llf_shadow_zone = np.maximum.reduce(
+            [llf_shadow_zone, 0.86 * fill_zone, 0.42 * shadow_fill_plateau_zone]
+        )
+        raw_detail_cap = 1.38
 
     raw_detail_scale = np.clip(
         (1.0 + shadow_detail_scale)

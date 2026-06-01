@@ -57,10 +57,10 @@ void UpdateHsLocalTonePayload(OperatorParams& params) {
   BuildGaussianKernel(params.hs_base_radius_, 48, params.hs_base_gaussian_tap_count_,
                       params.hs_base_gaussian_weights_);
 
-  params.hs_shadow_log_pivot_    = -3.05f;
+  params.hs_shadow_log_pivot_    = -3.35f;
   params.hs_shadow_log_width_    = 0.62f;
   params.hs_highlight_log_pivot_ = -2.80f;
-  params.hs_highlight_log_width_ = 3.35f;
+  params.hs_highlight_log_width_ = 3.65f;
 }
 
 void UpdateSharedToneCurvePayload(OperatorParams& params) {

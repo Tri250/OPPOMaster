@@ -20,6 +20,11 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import diagnose_hs_local_tone as baseline  # noqa: E402
 
+PREVIOUS_SHADOW_LOG_PIVOT = -3.05
+PREVIOUS_SHADOW_LOG_WIDTH = 0.62
+PREVIOUS_HIGHLIGHT_LOG_PIVOT = -2.80
+PREVIOUS_HIGHLIGHT_LOG_WIDTH = 3.35
+
 
 def smoothstep(edge0: float, edge1: float, x: np.ndarray) -> np.ndarray:
     t = np.clip((x - edge0) / max(edge1 - edge0, 1.0e-6), 0.0, 1.0)
@@ -46,6 +51,86 @@ def shadow_black_floor_weight(mask_ref: np.ndarray) -> np.ndarray:
     black_start = upper - max(width * 7.20, 4.45)
     black_end = upper - max(width * 5.20, 3.25)
     return 0.30 + 0.70 * smoothstep(black_start, black_end, mask_ref)
+
+
+def previous_shadow_upper_pivot() -> float:
+    width = max(PREVIOUS_SHADOW_LOG_WIDTH, 0.35)
+    return PREVIOUS_SHADOW_LOG_PIVOT + max(width * 0.40, 0.24)
+
+
+def previous_shadow_black_floor_weight(mask_ref: np.ndarray) -> np.ndarray:
+    width = max(PREVIOUS_SHADOW_LOG_WIDTH, 0.35)
+    upper = previous_shadow_upper_pivot()
+    black_start = upper - max(width * 7.20, 4.45)
+    black_end = upper - max(width * 5.20, 3.25)
+    return 0.30 + 0.70 * smoothstep(black_start, black_end, mask_ref)
+
+
+def previous_highlight_zone_weight(mask_ref: np.ndarray) -> np.ndarray:
+    t = smoothstep(
+        PREVIOUS_HIGHLIGHT_LOG_PIVOT,
+        PREVIOUS_HIGHLIGHT_LOG_PIVOT + PREVIOUS_HIGHLIGHT_LOG_WIDTH,
+        mask_ref,
+    )
+    toe = 1.0e-3
+    toe_pow = 0.1023292992
+    inv_toe_range = 1.1135850
+    return np.clip((np.power(t + toe, 0.33) - toe_pow) * inv_toe_range, 0.0, 1.0)
+
+
+def previous_shadow_delta(
+    mask_ref: np.ndarray,
+    shadow_amount: float,
+    highlight_amount: float,
+) -> np.ndarray:
+    width = max(PREVIOUS_SHADOW_LOG_WIDTH, 0.35)
+    upper_pivot = previous_shadow_upper_pivot()
+    lift_pivot = upper_pivot + max(width * 4.00, 2.48)
+    distance_to_pivot = np.maximum(lift_pivot - mask_ref, 0.0)
+    soft_distance = softplus_distance(distance_to_pivot, max(width * 2.18, 1.35))
+    lift_shape = 1.0 - np.exp(-soft_distance / 1.25)
+    deep_noise_compression = 1.0 - smoothstep(
+        PREVIOUS_SHADOW_LOG_PIVOT - 4.15,
+        PREVIOUS_SHADOW_LOG_PIVOT - 2.35,
+        mask_ref,
+    )
+    black_guard = 0.82 + 0.18 * previous_shadow_black_floor_weight(mask_ref)
+    highlight_overlap = previous_highlight_zone_weight(mask_ref)
+    highlight_active = 1.0 if abs(highlight_amount) > 1.0e-6 else 0.0
+    overlap_guard = 1.0 - 0.28 * highlight_active * np.clip(highlight_overlap, 0.0, 1.0)
+    lift_amount = max(shadow_amount, 0.0)
+    darken_amount = max(-shadow_amount, 0.0)
+    lift_delta = lift_amount * (
+        0.88 * lift_shape * black_guard * overlap_guard + 0.28 * deep_noise_compression
+    )
+    darken_delta = darken_amount * 0.34 * soft_distance * (0.85 + 0.15 * black_guard)
+    return lift_delta - darken_delta
+
+
+def previous_highlight_delta(mask_ref: np.ndarray, highlight_amount: float) -> np.ndarray:
+    distance_to_pivot = mask_ref - PREVIOUS_HIGHLIGHT_LOG_PIVOT
+    width = max(PREVIOUS_HIGHLIGHT_LOG_WIDTH, 0.35)
+    soft_distance = softrelu_distance(
+        distance_to_pivot,
+        min(max(width * 0.12, 0.36), 0.55),
+        min(max(width * 0.24, 0.72), 1.10),
+    )
+    reduce_amount = max(highlight_amount, 0.0)
+    boost_amount = max(-highlight_amount, 0.0)
+    reduce_delta = 1.68 * (1.0 - np.exp(-soft_distance / 1.33))
+    boost_delta = 1.24 * (1.0 - np.exp(-soft_distance / 1.45))
+    return boost_amount * boost_delta - reduce_amount * reduce_delta
+
+
+def previous_delta(
+    mask_ref: np.ndarray,
+    shadow_amount: float,
+    highlight_amount: float,
+) -> np.ndarray:
+    return previous_shadow_delta(mask_ref, shadow_amount, highlight_amount) + previous_highlight_delta(
+        mask_ref,
+        highlight_amount,
+    )
 
 
 def highlight_zone_weight(mask_ref: np.ndarray) -> np.ndarray:
@@ -76,30 +161,61 @@ def candidate_shadow_delta(
         baseline.SHADOW_LOG_PIVOT - 2.35,
         mask_ref,
     )
-    black_guard = 0.82 + 0.18 * shadow_black_floor_weight(mask_ref)
+    black_floor = shadow_black_floor_weight(mask_ref)
+    black_guard = 0.82 + 0.18 * black_floor
     highlight_overlap = highlight_zone_weight(mask_ref)
     highlight_active = 1.0 if abs(highlight_amount) > 1.0e-6 else 0.0
     overlap_guard = 1.0 - 0.28 * highlight_active * np.clip(highlight_overlap, 0.0, 1.0)
     lift_amount = max(shadow_amount, 0.0)
     darken_amount = max(-shadow_amount, 0.0)
+    fill_plateau = smoothstep(
+        baseline.SHADOW_LOG_PIVOT - 4.05,
+        baseline.SHADOW_LOG_PIVOT - 1.75,
+        mask_ref,
+    ) * (
+        1.0
+        - 0.45
+        * smoothstep(
+            baseline.SHADOW_LOG_PIVOT - 1.05,
+            baseline.SHADOW_LOG_PIVOT + 3.15,
+            mask_ref,
+        )
+    )
+    practical_dark = smoothstep(
+        baseline.SHADOW_LOG_PIVOT - 4.60,
+        baseline.SHADOW_LOG_PIVOT - 2.25,
+        mask_ref,
+    ) * (
+        1.0
+        - smoothstep(
+            baseline.SHADOW_LOG_PIVOT - 1.55,
+            baseline.SHADOW_LOG_PIVOT + 0.20,
+            mask_ref,
+        )
+    )
     lift_delta = lift_amount * (
-        0.88 * lift_shape * black_guard * overlap_guard + 0.28 * deep_noise_compression
+        0.72 * lift_shape * black_guard * overlap_guard
+        + 0.10 * deep_noise_compression
+        + 1.55 * fill_plateau
+        + 0.25 * practical_dark
     )
     darken_delta = darken_amount * 0.34 * soft_distance * (0.85 + 0.15 * black_guard)
     return lift_delta - darken_delta
 
 
 def candidate_highlight_delta(mask_ref: np.ndarray, highlight_amount: float) -> np.ndarray:
+    relative_ev = mask_ref - baseline.MIDDLE_GRAY_LOG2
+    highlight_nd_mask = np.clip(relative_ev / 4.0, 0.0, 1.0)
     distance_to_pivot = mask_ref - baseline.HIGHLIGHT_LOG_PIVOT
     width = max(baseline.HIGHLIGHT_LOG_WIDTH, 0.35)
     soft_distance = softrelu_distance(
         distance_to_pivot,
         min(max(width * 0.12, 0.36), 0.55),
-        min(max(width * 0.24, 0.72), 1.10),
+        min(max(width * 0.24, 0.62), 1.00),
     )
     reduce_amount = max(highlight_amount, 0.0)
     boost_amount = max(-highlight_amount, 0.0)
-    reduce_delta = 1.68 * (1.0 - np.exp(-soft_distance / 1.33))
+    reduce_delta = 3.00 * highlight_nd_mask
     boost_delta = 1.24 * (1.0 - np.exp(-soft_distance / 1.45))
     return boost_amount * boost_delta - reduce_amount * reduce_delta
 
@@ -121,10 +237,7 @@ def baseline_delta(
     shadow_amount: float,
     highlight_amount: float,
 ) -> np.ndarray:
-    return np.array(
-        [baseline.base_delta(float(x), shadow_amount, highlight_amount, True) for x in mask_ref],
-        dtype=np.float64,
-    )
+    return previous_delta(mask_ref, shadow_amount, highlight_amount)
 
 
 def ap1_luminance(ap1: np.ndarray) -> np.ndarray:
@@ -303,13 +416,31 @@ def plot_response(out_dir: Path) -> str:
 
     shadow_zone = (x >= -4.75) & (x <= -2.8)
     high_zone = (x >= -2.8) & (x <= 3.0)
+    middle_gray_log2 = math.log2(0.18)
+    middle_gray_oklab_l = 0.18 ** (1.0 / 3.0)
     lines = [
+        f"middle_gray_log2={middle_gray_log2:.6f}",
+        f"middle_gray_oklab_l={middle_gray_oklab_l:.6f}",
         f"shadow_min_slope_baseline={shadow_base_slope[shadow_zone].min():.6f}",
         f"shadow_min_slope_candidate={shadow_candidate_slope[shadow_zone].min():.6f}",
         f"shadow_delta_at_-5_baseline={np.interp(-5.0, x, shadow_base):.6f}",
         f"shadow_delta_at_-5_candidate={np.interp(-5.0, x, shadow_candidate):.6f}",
         f"shadow_delta_at_-3_baseline={np.interp(-3.0, x, shadow_base):.6f}",
         f"shadow_delta_at_-3_candidate={np.interp(-3.0, x, shadow_candidate):.6f}",
+        f"shadow_delta_at_middle_gray_baseline={np.interp(middle_gray_log2, x, shadow_base):.6f}",
+        f"shadow_delta_at_middle_gray_candidate={np.interp(middle_gray_log2, x, shadow_candidate):.6f}",
+        f"highlight_reduction_at_middle_gray_baseline={-np.interp(middle_gray_log2, x, high_base):.6f}",
+        f"highlight_reduction_at_middle_gray_candidate={-np.interp(middle_gray_log2, x, high_candidate):.6f}",
+        f"highlight_reduction_at_plus1ev_baseline={-np.interp(middle_gray_log2 + 1.0, x, high_base):.6f}",
+        f"highlight_reduction_at_plus1ev_candidate={-np.interp(middle_gray_log2 + 1.0, x, high_candidate):.6f}",
+        f"highlight_reduction_at_plus2ev_baseline={-np.interp(middle_gray_log2 + 2.0, x, high_base):.6f}",
+        f"highlight_reduction_at_plus2ev_candidate={-np.interp(middle_gray_log2 + 2.0, x, high_candidate):.6f}",
+        f"highlight_reduction_at_plus3ev_baseline={-np.interp(middle_gray_log2 + 3.0, x, high_base):.6f}",
+        f"highlight_reduction_at_plus3ev_candidate={-np.interp(middle_gray_log2 + 3.0, x, high_candidate):.6f}",
+        f"highlight_reduction_at_plus4ev_baseline={-np.interp(middle_gray_log2 + 4.0, x, high_base):.6f}",
+        f"highlight_reduction_at_plus4ev_candidate={-np.interp(middle_gray_log2 + 4.0, x, high_candidate):.6f}",
+        f"highlight_reduction_at_plus5ev_baseline={-np.interp(middle_gray_log2 + 5.0, x, high_base):.6f}",
+        f"highlight_reduction_at_plus5ev_candidate={-np.interp(middle_gray_log2 + 5.0, x, high_candidate):.6f}",
         f"highlight_max_reduction_baseline={-high_base[high_zone].min():.6f}",
         f"highlight_max_reduction_candidate={-high_candidate[high_zone].min():.6f}",
         f"highlight_min_slope_baseline={high_base_slope[high_zone].min():.6f}",
