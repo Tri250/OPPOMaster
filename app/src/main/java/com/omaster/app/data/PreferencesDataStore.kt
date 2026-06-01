@@ -4,8 +4,8 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -25,7 +25,6 @@ class PreferencesDataStore @Inject constructor(
         val THEME_MODE = intPreferencesKey("theme_mode")
         val FLUID_CLOUD_ENABLED = booleanPreferencesKey("fluid_cloud_enabled")
         val OVERLAY_ENABLED = booleanPreferencesKey("overlay_enabled")
-        val SYNC_ENABLED = booleanPreferencesKey("sync_enabled")
     }
 
     val favoritePresets: Flow<Set<String>> = context.dataStore.data
@@ -46,11 +45,6 @@ class PreferencesDataStore @Inject constructor(
     val overlayEnabled: Flow<Boolean> = context.dataStore.data
         .map { preferences ->
             preferences[PreferencesKeys.OVERLAY_ENABLED] ?: false
-        }
-
-    val syncEnabled: Flow<Boolean> = context.dataStore.data
-        .map { preferences ->
-            preferences[PreferencesKeys.SYNC_ENABLED] ?: true
         }
 
     suspend fun toggleFavorite(presetId: String) {
@@ -80,12 +74,6 @@ class PreferencesDataStore @Inject constructor(
     suspend fun setOverlayEnabled(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.OVERLAY_ENABLED] = enabled
-        }
-    }
-
-    suspend fun setSyncEnabled(enabled: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferencesKeys.SYNC_ENABLED] = enabled
         }
     }
 }
