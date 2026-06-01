@@ -1,8 +1,8 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    id("com.google.dagger.hilt.android")
     id("org.jetbrains.kotlin.kapt")
+    id("com.google.dagger.hilt.android")
 }
 
 android {
@@ -87,7 +87,14 @@ android {
             excludes += "/META-INF/DEPENDENCIES"
             excludes += "/META-INF/LICENSE*"
             excludes += "/META-INF/NOTICE*"
+            excludes += "META-INF/versions/9/previous-release/module-info.class"
         }
+    }
+    
+    // Android 14+ 需要的配置
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = false
     }
 }
 

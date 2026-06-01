@@ -2,6 +2,7 @@ package com.omaster.app.media
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.media.ThumbnailUtils
 import android.net.Uri
