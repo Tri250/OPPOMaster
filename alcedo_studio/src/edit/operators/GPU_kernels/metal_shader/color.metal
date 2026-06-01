@@ -175,14 +175,50 @@ static inline float metal_hs_shadow_black_floor_weight(float mask_ref,
   return 0.30f + 0.70f * toe;
 }
 
+static inline float metal_hs_shadow_range_weight(float mask_ref) {
+  constexpr float kMiddleGrayLog2 = -2.4739311883f;
+  const float relative_ev = mask_ref - kMiddleGrayLog2;
+  return 1.0f - metal_smoothstep_range(-5.50f, -0.50f, relative_ev);
+}
+
+static inline float metal_hs_shadow_reference_lift_delta(float mask_ref) {
+  constexpr float kMiddleGrayLog2 = -2.4739311883f;
+  const float ev = mask_ref - kMiddleGrayLog2;
+#define METAL_HS_REF_SEG(x0, y0, x1, y1)                                                   \
+  do {                                                                                      \
+    if (ev < (x1)) {                                                                        \
+      const float t = clamp((ev - (x0)) / ((x1) - (x0)), 0.0f, 1.0f);                       \
+      return (y0) + ((y1) - (y0)) * t;                                                      \
+    }                                                                                       \
+  } while (0)
+  if (ev <= -5.520f) return 3.170f;
+  METAL_HS_REF_SEG(-5.520f, 3.170f, -3.935f, 3.700f);
+  METAL_HS_REF_SEG(-3.935f, 3.700f, -2.713f, 2.974f);
+  METAL_HS_REF_SEG(-2.713f, 2.974f, -1.713f, 2.100f);
+  METAL_HS_REF_SEG(-1.713f, 2.100f, -0.997f, 1.564f);
+  METAL_HS_REF_SEG(-0.997f, 1.564f, -0.433f, 1.179f);
+  METAL_HS_REF_SEG(-0.433f, 1.179f, 0.065f, 0.807f);
+  METAL_HS_REF_SEG(0.065f, 0.807f, 0.475f, 0.570f);
+  METAL_HS_REF_SEG(0.475f, 0.570f, 0.850f, 0.483f);
+  METAL_HS_REF_SEG(0.850f, 0.483f, 1.188f, 0.415f);
+  METAL_HS_REF_SEG(1.188f, 0.415f, 1.485f, 0.355f);
+  METAL_HS_REF_SEG(1.485f, 0.355f, 1.760f, 0.300f);
+  METAL_HS_REF_SEG(1.760f, 0.300f, 2.015f, 0.255f);
+  METAL_HS_REF_SEG(2.015f, 0.255f, 2.251f, 0.220f);
+  METAL_HS_REF_SEG(2.251f, 0.220f, 2.474f, 0.0f);
+#undef METAL_HS_REF_SEG
+  return 0.0f;
+}
+
 static inline float metal_hs_shadow_zone_weight(float mask_ref,
-                                                 constant MetalFusedParams& params) {
+                                                constant MetalFusedParams& params) {
   const float width = fmax(params.hs_shadow_log_width_, 0.35f);
   const float upper_pivot = metal_hs_shadow_upper_pivot(params);
   const float fade_start = upper_pivot - fmax(width * 3.15f, 1.95f);
   const float tonal_weight = 1.0f - metal_smoothstep_range(fade_start, upper_pivot, mask_ref);
   const float black_floor = metal_hs_shadow_black_floor_weight(mask_ref, params);
-  return clamp(tonal_weight * black_floor, 0.0f, 1.0f);
+  const float range_weight = metal_hs_shadow_range_weight(mask_ref);
+  return clamp(tonal_weight * black_floor * range_weight, 0.0f, 1.0f);
 }
 
 static inline float metal_hs_shadow_fill_plateau_weight(float mask_ref,
@@ -397,10 +433,6 @@ static inline float metal_hs_shadow_base_delta_from_ref(float mask_ref, float sh
   const float distance_to_pivot = fmax(lift_pivot - mask_ref, 0.0f);
   const float soft_distance =
       metal_hs_softplus_distance(distance_to_pivot, fmax(width * 2.18f, 1.35f));
-  const float lift_shape = 1.0f - exp(-soft_distance / 1.25f);
-  const float deep_noise_compression =
-      1.0f - metal_smoothstep_range(params.hs_shadow_log_pivot_ - 4.15f,
-                                    params.hs_shadow_log_pivot_ - 2.35f, mask_ref);
   const float black_floor = metal_hs_shadow_black_floor_weight(mask_ref, params);
   const float black_guard = 0.82f + 0.18f * black_floor;
   const float highlight_overlap = clamp(highlight_mask, 0.0f, 1.0f);
@@ -408,31 +440,42 @@ static inline float metal_hs_shadow_base_delta_from_ref(float mask_ref, float sh
   const float overlap_guard = 1.0f - 0.28f * highlight_active * highlight_overlap;
   const float lift_amount = fmax(shadow_amount, 0.0f);
   const float darken_amount = fmax(-shadow_amount, 0.0f);
-  const float fill_plateau = metal_hs_shadow_fill_plateau_weight(mask_ref, params);
-  const float practical_dark = metal_hs_shadow_practical_dark_weight(mask_ref, params);
   const float lift_delta =
-      lift_amount * (0.72f * lift_shape * black_guard * overlap_guard +
-                     0.10f * deep_noise_compression + 1.55f * fill_plateau +
-                     0.25f * practical_dark);
+      lift_amount * metal_hs_shadow_reference_lift_delta(mask_ref) * overlap_guard;
   const float darken_delta =
       darken_amount * 0.34f * soft_distance * (0.85f + 0.15f * black_guard);
-  return lift_delta - darken_delta;
+  return lift_delta - metal_hs_shadow_range_weight(mask_ref) * darken_delta;
 }
 
 static inline float metal_hs_highlight_base_delta_from_ref(float mask_ref, float shadow_amount,
                                                            float highlight_amount,
                                                            constant MetalFusedParams& params) {
-  (void)shadow_amount;
   constexpr float kMiddleGrayLog2 = -2.4739311883f;
-  const float relative_ev = mask_ref - kMiddleGrayLog2;
-  const float highlight_nd_mask = clamp(relative_ev / 4.0f, 0.0f, 1.0f);
   const float width = fmax(params.hs_highlight_log_width_, 0.35f);
   const float soft_distance = metal_hs_softrelu_distance(
       mask_ref - params.hs_highlight_log_pivot_, fmin(fmax(width * 0.12f, 0.36f), 0.55f),
       fmin(fmax(width * 0.24f, 0.62f), 1.00f));
   const float reduce_amount = fmax(highlight_amount, 0.0f);
   const float boost_amount = fmax(-highlight_amount, 0.0f);
-  const float reduce_delta = 3.00f * highlight_nd_mask;
+  float reduce_delta = 0.0f;
+  if (reduce_amount > 1.0e-6f) {
+    float shadow_lift_delta = 0.0f;
+    if (shadow_amount > 1.0e-6f) {
+      shadow_lift_delta =
+          fmax(metal_hs_shadow_base_delta_from_ref(mask_ref, shadow_amount, highlight_amount,
+                                                   params),
+               0.0f);
+    }
+    const float lifted_relative_ev = mask_ref + 0.18f * shadow_lift_delta - kMiddleGrayLog2;
+    const float highlight_shelf =
+        0.60f * metal_smoothstep_range(-2.80f, 0.50f, lifted_relative_ev);
+    const float highlight_peak =
+        0.50f * metal_smoothstep_range(-1.35f, 1.60f, lifted_relative_ev) *
+        (1.0f - metal_smoothstep_range(2.25f, 4.90f, lifted_relative_ev));
+    const float extreme_high_tail =
+        0.23f * metal_smoothstep_range(3.00f, 5.15f, lifted_relative_ev);
+    reduce_delta = highlight_shelf + highlight_peak + extreme_high_tail;
+  }
   const float boost_delta = 1.24f * (1.0f - exp(-soft_distance / 1.45f));
   return boost_amount * boost_delta - reduce_amount * reduce_delta;
 }
@@ -513,42 +556,6 @@ static inline float metal_hs_highlight_detail_weight(float mask_ref, float highl
       1.0f - metal_smoothstep_range(params.hs_highlight_log_pivot_ + width * 1.15f,
                                     params.hs_highlight_log_pivot_ + width * 2.35f, mask_ref);
   return tonal_weight * noise_gate * edge_guard * clipped_guard;
-}
-
-static inline float3 metal_hs_preserve_highlight_chroma(float3 source_ap1, float3 output_ap1,
-                                                        float3 source_lab, float source_chroma,
-                                                        float log_delta, float highlight_amount,
-                                                        float source_highlight_mask) {
-  const float reduce_amount = fmax(highlight_amount, 0.0f);
-  if (reduce_amount <= 1.0e-6f || log_delta >= -1.0e-5f ||
-      source_highlight_mask <= 1.0e-5f) {
-    return output_ap1;
-  }
-
-  const float3 output_lab = metal_hls_ap1_to_oklab(output_ap1);
-  const float output_chroma = length(output_lab.yz);
-  if (source_chroma <= 1.0e-5f || output_lab.x <= 1.0e-5f) {
-    return output_ap1;
-  }
-
-  const float chroma_confidence = metal_smoothstep_range(0.012f, 0.060f, source_chroma);
-  const float compression = metal_smoothstep_range(0.18f, 1.15f, -log_delta);
-  const float strength = clamp(0.56f * reduce_amount * source_highlight_mask * compression *
-                                   chroma_confidence,
-                               0.0f, 0.62f);
-  if (strength <= 1.0e-6f) {
-    return output_ap1;
-  }
-
-  const float target_chroma = output_chroma + (source_chroma - output_chroma) * strength;
-  const float inv_source_chroma = 1.0f / fmax(source_chroma, 1.0e-5f);
-  const float2 hue_dir = float2(source_lab.y * inv_source_chroma,
-                                source_lab.z * inv_source_chroma);
-  const float3 adjusted_lab =
-      float3(output_lab.x, hue_dir.x * target_chroma, hue_dir.y * target_chroma);
-  const float3 neutral_lab = float3(output_lab.x, 0.0f, 0.0f);
-  const float3 neutral_ap1 = metal_hls_oklab_to_ap1(neutral_lab);
-  return metal_hls_fit_ap1_lower_gamut(metal_hls_oklab_to_ap1(adjusted_lab), neutral_ap1);
 }
 
 static inline float3 metal_hs_dampen_shadow_chroma(
@@ -711,9 +718,6 @@ static inline float4 GPU_HighlightShadowLocalToneOpKernel(float4 px, float base,
   output_ap1 = metal_hs_dampen_shadow_chroma(source_ap1, output_ap1, source_lab, source_chroma,
                                              log_delta, shadow_amount, source_shadow_mask,
                                              source_log_y, params);
-  output_ap1 = metal_hs_preserve_highlight_chroma(source_ap1, output_ap1, source_lab,
-                                                  source_chroma, log_delta, highlight_amount,
-                                                  source_highlight_mask);
   return float4(metal_hls_ap1_to_acescc(output_ap1), px.w);
 }
 

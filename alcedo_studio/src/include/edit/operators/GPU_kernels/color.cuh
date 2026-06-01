@@ -176,13 +176,49 @@ GPU_FUNC float hs_shadow_black_floor_weight(float mask_ref, GPUOperatorParams pa
   return 0.30f + 0.70f * toe;
 }
 
+GPU_FUNC float hs_shadow_range_weight(float mask_ref) {
+  constexpr float kMiddleGrayLog2 = -2.4739311883f;
+  const float     relative_ev = mask_ref - kMiddleGrayLog2;
+  return 1.0f - hls_oklch_smoothstep(-5.50f, -0.50f, relative_ev);
+}
+
+GPU_FUNC float hs_shadow_reference_lift_delta(float mask_ref) {
+  constexpr float kMiddleGrayLog2 = -2.4739311883f;
+  const float     ev = mask_ref - kMiddleGrayLog2;
+#define HS_REF_SEG(x0, y0, x1, y1)                                                        \
+  do {                                                                                     \
+    if (ev < (x1)) {                                                                       \
+      const float t = fminf(fmaxf((ev - (x0)) / ((x1) - (x0)), 0.0f), 1.0f);              \
+      return (y0) + ((y1) - (y0)) * t;                                                     \
+    }                                                                                      \
+  } while (0)
+  if (ev <= -5.520f) return 3.170f;
+  HS_REF_SEG(-5.520f, 3.170f, -3.935f, 3.700f);
+  HS_REF_SEG(-3.935f, 3.700f, -2.713f, 2.974f);
+  HS_REF_SEG(-2.713f, 2.974f, -1.713f, 2.100f);
+  HS_REF_SEG(-1.713f, 2.100f, -0.997f, 1.564f);
+  HS_REF_SEG(-0.997f, 1.564f, -0.433f, 1.179f);
+  HS_REF_SEG(-0.433f, 1.179f, 0.065f, 0.807f);
+  HS_REF_SEG(0.065f, 0.807f, 0.475f, 0.570f);
+  HS_REF_SEG(0.475f, 0.570f, 0.850f, 0.483f);
+  HS_REF_SEG(0.850f, 0.483f, 1.188f, 0.415f);
+  HS_REF_SEG(1.188f, 0.415f, 1.485f, 0.355f);
+  HS_REF_SEG(1.485f, 0.355f, 1.760f, 0.300f);
+  HS_REF_SEG(1.760f, 0.300f, 2.015f, 0.255f);
+  HS_REF_SEG(2.015f, 0.255f, 2.251f, 0.220f);
+  HS_REF_SEG(2.251f, 0.220f, 2.474f, 0.0f);
+#undef HS_REF_SEG
+  return 0.0f;
+}
+
 GPU_FUNC float hs_shadow_zone_weight(float mask_ref, GPUOperatorParams params) {
   const float width = fmaxf(params.hs_shadow_log_width_, 0.35f);
   const float upper_pivot = hs_shadow_upper_pivot(params);
   const float fade_start = upper_pivot - fmaxf(width * 3.15f, 1.95f);
   const float tonal_weight = 1.0f - hls_oklch_smoothstep(fade_start, upper_pivot, mask_ref);
   const float black_floor = hs_shadow_black_floor_weight(mask_ref, params);
-  return fminf(fmaxf(tonal_weight * black_floor, 0.0f), 1.0f);
+  const float range_weight = hs_shadow_range_weight(mask_ref);
+  return fminf(fmaxf(tonal_weight * black_floor * range_weight, 0.0f), 1.0f);
 }
 
 GPU_FUNC float hs_shadow_base_distance(float mask_ref, GPUOperatorParams params) {
@@ -395,10 +431,6 @@ GPU_FUNC float hs_shadow_base_delta_from_ref(float mask_ref, float shadow_amount
   const float lift_pivot = upper_pivot + fmaxf(width * 4.00f, 2.48f);
   const float distance_to_pivot = fmaxf(lift_pivot - mask_ref, 0.0f);
   const float soft_distance = hs_softplus_distance(distance_to_pivot, fmaxf(width * 2.18f, 1.35f));
-  const float lift_shape = 1.0f - expf(-soft_distance / 1.25f);
-  const float deep_noise_compression =
-      1.0f - hls_oklch_smoothstep(params.hs_shadow_log_pivot_ - 4.15f,
-                                  params.hs_shadow_log_pivot_ - 2.35f, mask_ref);
   const float black_floor = hs_shadow_black_floor_weight(mask_ref, params);
   const float black_guard = 0.82f + 0.18f * black_floor;
   const float highlight_overlap = fminf(fmaxf(highlight_mask, 0.0f), 1.0f);
@@ -406,22 +438,14 @@ GPU_FUNC float hs_shadow_base_delta_from_ref(float mask_ref, float shadow_amount
   const float overlap_guard = 1.0f - 0.28f * highlight_active * highlight_overlap;
   const float lift_amount = fmaxf(shadow_amount, 0.0f);
   const float darken_amount = fmaxf(-shadow_amount, 0.0f);
-  const float fill_plateau = hs_shadow_fill_plateau_weight(mask_ref, params);
-  const float practical_dark = hs_shadow_practical_dark_weight(mask_ref, params);
-  const float lift_delta =
-      lift_amount * (0.72f * lift_shape * black_guard * overlap_guard +
-                     0.10f * deep_noise_compression + 1.55f * fill_plateau +
-                     0.25f * practical_dark);
+  const float lift_delta = lift_amount * hs_shadow_reference_lift_delta(mask_ref) * overlap_guard;
   const float darken_delta = darken_amount * 0.34f * soft_distance * (0.85f + 0.15f * black_guard);
-  return lift_delta - darken_delta;
+  return lift_delta - hs_shadow_range_weight(mask_ref) * darken_delta;
 }
 
 GPU_FUNC float hs_highlight_base_delta_from_ref(float mask_ref, float shadow_amount,
                                                 float highlight_amount, GPUOperatorParams params) {
-  (void)shadow_amount;
   constexpr float kMiddleGrayLog2 = -2.4739311883f;
-  const float relative_ev = mask_ref - kMiddleGrayLog2;
-  const float highlight_nd_mask = fminf(fmaxf(relative_ev / 4.0f, 0.0f), 1.0f);
   const float width = fmaxf(params.hs_highlight_log_width_, 0.35f);
   const float soft_distance =
       hs_softrelu_distance(mask_ref - params.hs_highlight_log_pivot_,
@@ -429,7 +453,25 @@ GPU_FUNC float hs_highlight_base_delta_from_ref(float mask_ref, float shadow_amo
                            fminf(fmaxf(width * 0.24f, 0.62f), 1.00f));
   const float reduce_amount = fmaxf(highlight_amount, 0.0f);
   const float boost_amount = fmaxf(-highlight_amount, 0.0f);
-  const float reduce_delta = 3.00f * highlight_nd_mask;
+  float       reduce_delta = 0.0f;
+  if (reduce_amount > 1.0e-6f) {
+    float shadow_lift_delta = 0.0f;
+    if (shadow_amount > 1.0e-6f) {
+      shadow_lift_delta =
+          fmaxf(hs_shadow_base_delta_from_ref(mask_ref, shadow_amount, highlight_amount, params),
+                0.0f);
+    }
+    const float lifted_relative_ev = mask_ref + 0.18f * shadow_lift_delta - kMiddleGrayLog2;
+    const float highlight_shelf = 0.60f * hls_oklch_smoothstep(-2.80f, 0.50f,
+                                                               lifted_relative_ev);
+    const float highlight_peak = 0.50f * hls_oklch_smoothstep(-1.35f, 1.60f,
+                                                              lifted_relative_ev) *
+                                 (1.0f - hls_oklch_smoothstep(2.25f, 4.90f,
+                                                              lifted_relative_ev));
+    const float extreme_high_tail = 0.23f * hls_oklch_smoothstep(3.00f, 5.15f,
+                                                                 lifted_relative_ev);
+    reduce_delta = highlight_shelf + highlight_peak + extreme_high_tail;
+  }
   const float boost_delta = 1.24f * (1.0f - expf(-soft_distance / 1.45f));
   return boost_amount * boost_delta - reduce_amount * reduce_delta;
 }
@@ -505,44 +547,6 @@ GPU_FUNC float hs_highlight_detail_weight(float mask_ref, float highlight_mask, 
       1.0f - hls_oklch_smoothstep(params.hs_highlight_log_pivot_ + width * 1.15f,
                                   params.hs_highlight_log_pivot_ + width * 2.35f, mask_ref);
   return tonal_weight * noise_gate * edge_guard * clipped_guard;
-}
-
-GPU_FUNC float3 hs_preserve_highlight_chroma(float3 source_ap1, float3 output_ap1,
-                                             float log_delta, float highlight_amount,
-                                             float source_highlight_mask) {
-  const float reduce_amount = fmaxf(highlight_amount, 0.0f);
-  if (reduce_amount <= 1.0e-6f || log_delta >= -1.0e-5f || source_highlight_mask <= 1.0e-5f) {
-    return output_ap1;
-  }
-
-  const float3 source_lab = hls_oklch_ap1_to_oklab(source_ap1);
-  const float3 output_lab = hls_oklch_ap1_to_oklab(output_ap1);
-  const float  source_chroma = hypotf(source_lab.y, source_lab.z);
-  const float  output_chroma = hypotf(output_lab.y, output_lab.z);
-  if (source_chroma <= 1.0e-5f || output_lab.x <= 1.0e-5f) {
-    return output_ap1;
-  }
-
-  const float chroma_confidence = hls_oklch_smoothstep(0.012f, 0.060f, source_chroma);
-  const float compression = hls_oklch_smoothstep(0.18f, 1.15f, -log_delta);
-  const float strength =
-      fminf(fmaxf(0.56f * reduce_amount * source_highlight_mask * compression *
-                      chroma_confidence,
-                  0.0f),
-            0.62f);
-  if (strength <= 1.0e-6f) {
-    return output_ap1;
-  }
-
-  const float target_chroma = output_chroma + (source_chroma - output_chroma) * strength;
-  const float inv_source_chroma = 1.0f / fmaxf(source_chroma, 1.0e-5f);
-  const float2 hue_dir = make_float2(source_lab.y * inv_source_chroma,
-                                     source_lab.z * inv_source_chroma);
-  const float3 adjusted_lab =
-      make_float3(output_lab.x, hue_dir.x * target_chroma, hue_dir.y * target_chroma);
-  const float3 neutral_lab = make_float3(output_lab.x, 0.0f, 0.0f);
-  const float3 neutral_ap1 = hls_oklch_oklab_to_ap1(neutral_lab);
-  return hls_oklch_fit_ap1_lower_gamut(hls_oklch_oklab_to_ap1(adjusted_lab), neutral_ap1);
 }
 
 GPU_FUNC float3 hs_dampen_shadow_chroma(float3 source_ap1, float3 output_ap1, float3 source_lab,
@@ -783,8 +787,6 @@ GPU_FUNC float4 hs_apply_local_tone_pixel(float4 px, float base, GPUOperatorPara
   output_ap1 = hs_dampen_shadow_chroma(source_ap1, output_ap1, source_lab, source_chroma,
                                        log_delta, shadow_amount, source_shadow_mask, source_log_y,
                                        params);
-  output_ap1 = hs_preserve_highlight_chroma(source_ap1, output_ap1, log_delta, highlight_amount,
-                                            source_highlight_mask);
   const float3 output_acescc = hls_oklch_ap1_to_acescc(output_ap1);
 
   return make_float4(output_acescc.x, output_acescc.y, output_acescc.z, px.w);

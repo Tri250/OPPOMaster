@@ -73,6 +73,41 @@ static inline float opencl_hs_shadow_black_floor_weight(float mask_ref,
   return 0.30f + 0.70f * toe;
 }
 
+static inline float opencl_hs_shadow_range_weight(float mask_ref) {
+  const float middle_gray_log2 = -2.4739311883f;
+  const float relative_ev = mask_ref - middle_gray_log2;
+  return 1.0f - opencl_smoothstep_range(-5.50f, -0.50f, relative_ev);
+}
+
+static inline float opencl_hs_shadow_reference_lift_delta(float mask_ref) {
+  const float middle_gray_log2 = -2.4739311883f;
+  const float ev = mask_ref - middle_gray_log2;
+#define OPENCL_HS_REF_SEG(x0, y0, x1, y1)                                                  \
+  do {                                                                                      \
+    if (ev < (x1)) {                                                                        \
+      const float t = clamp((ev - (x0)) / ((x1) - (x0)), 0.0f, 1.0f);                       \
+      return (y0) + ((y1) - (y0)) * t;                                                      \
+    }                                                                                       \
+  } while (0)
+  if (ev <= -5.520f) return 3.170f;
+  OPENCL_HS_REF_SEG(-5.520f, 3.170f, -3.935f, 3.700f);
+  OPENCL_HS_REF_SEG(-3.935f, 3.700f, -2.713f, 2.974f);
+  OPENCL_HS_REF_SEG(-2.713f, 2.974f, -1.713f, 2.100f);
+  OPENCL_HS_REF_SEG(-1.713f, 2.100f, -0.997f, 1.564f);
+  OPENCL_HS_REF_SEG(-0.997f, 1.564f, -0.433f, 1.179f);
+  OPENCL_HS_REF_SEG(-0.433f, 1.179f, 0.065f, 0.807f);
+  OPENCL_HS_REF_SEG(0.065f, 0.807f, 0.475f, 0.570f);
+  OPENCL_HS_REF_SEG(0.475f, 0.570f, 0.850f, 0.483f);
+  OPENCL_HS_REF_SEG(0.850f, 0.483f, 1.188f, 0.415f);
+  OPENCL_HS_REF_SEG(1.188f, 0.415f, 1.485f, 0.355f);
+  OPENCL_HS_REF_SEG(1.485f, 0.355f, 1.760f, 0.300f);
+  OPENCL_HS_REF_SEG(1.760f, 0.300f, 2.015f, 0.255f);
+  OPENCL_HS_REF_SEG(2.015f, 0.255f, 2.251f, 0.220f);
+  OPENCL_HS_REF_SEG(2.251f, 0.220f, 2.474f, 0.0f);
+#undef OPENCL_HS_REF_SEG
+  return 0.0f;
+}
+
 static inline float opencl_hs_shadow_zone_weight(float mask_ref,
                                                  __global const OpenClFusedParams* params) {
   const float width = fmax(params->hs_shadow_log_width_, 0.35f);
@@ -80,7 +115,8 @@ static inline float opencl_hs_shadow_zone_weight(float mask_ref,
   const float fade_start = upper_pivot - fmax(width * 3.15f, 1.95f);
   const float tonal_weight = 1.0f - opencl_smoothstep_range(fade_start, upper_pivot, mask_ref);
   const float black_floor = opencl_hs_shadow_black_floor_weight(mask_ref, params);
-  return clamp(tonal_weight * black_floor, 0.0f, 1.0f);
+  const float range_weight = opencl_hs_shadow_range_weight(mask_ref);
+  return clamp(tonal_weight * black_floor * range_weight, 0.0f, 1.0f);
 }
 
 static inline float opencl_hs_shadow_base_distance(float mask_ref,
@@ -307,10 +343,6 @@ static inline float opencl_hs_shadow_base_delta_from_ref(
   const float distance_to_pivot = fmax(lift_pivot - mask_ref, 0.0f);
   const float soft_distance =
       opencl_hs_softplus_distance(distance_to_pivot, fmax(width * 2.18f, 1.35f));
-  const float lift_shape = 1.0f - exp(-soft_distance / 1.25f);
-  const float deep_noise_compression =
-      1.0f - opencl_smoothstep_range(params->hs_shadow_log_pivot_ - 4.15f,
-                                     params->hs_shadow_log_pivot_ - 2.35f, mask_ref);
   const float black_floor = opencl_hs_shadow_black_floor_weight(mask_ref, params);
   const float black_guard = 0.82f + 0.18f * black_floor;
   const float highlight_overlap = clamp(highlight_mask, 0.0f, 1.0f);
@@ -318,31 +350,42 @@ static inline float opencl_hs_shadow_base_delta_from_ref(
   const float overlap_guard = 1.0f - 0.28f * highlight_active * highlight_overlap;
   const float lift_amount = fmax(shadow_amount, 0.0f);
   const float darken_amount = fmax(-shadow_amount, 0.0f);
-  const float fill_plateau = opencl_hs_shadow_fill_plateau_weight(mask_ref, params);
-  const float practical_dark = opencl_hs_shadow_practical_dark_weight(mask_ref, params);
   const float lift_delta =
-      lift_amount * (0.72f * lift_shape * black_guard * overlap_guard +
-                     0.10f * deep_noise_compression + 1.55f * fill_plateau +
-                     0.25f * practical_dark);
+      lift_amount * opencl_hs_shadow_reference_lift_delta(mask_ref) * overlap_guard;
   const float darken_delta =
       darken_amount * 0.34f * soft_distance * (0.85f + 0.15f * black_guard);
-  return lift_delta - darken_delta;
+  return lift_delta - opencl_hs_shadow_range_weight(mask_ref) * darken_delta;
 }
 
 static inline float opencl_hs_highlight_base_delta_from_ref(
     float mask_ref, float shadow_amount, float highlight_amount,
     __global const OpenClFusedParams* params) {
-  (void)shadow_amount;
   const float middle_gray_log2 = -2.4739311883f;
-  const float relative_ev = mask_ref - middle_gray_log2;
-  const float highlight_nd_mask = clamp(relative_ev / 4.0f, 0.0f, 1.0f);
   const float width = fmax(params->hs_highlight_log_width_, 0.35f);
   const float soft_distance = opencl_hs_softrelu_distance(
       mask_ref - params->hs_highlight_log_pivot_, fmin(fmax(width * 0.12f, 0.36f), 0.55f),
       fmin(fmax(width * 0.24f, 0.62f), 1.00f));
   const float reduce_amount = fmax(highlight_amount, 0.0f);
   const float boost_amount = fmax(-highlight_amount, 0.0f);
-  const float reduce_delta = 3.00f * highlight_nd_mask;
+  float reduce_delta = 0.0f;
+  if (reduce_amount > 1.0e-6f) {
+    float shadow_lift_delta = 0.0f;
+    if (shadow_amount > 1.0e-6f) {
+      shadow_lift_delta =
+          fmax(opencl_hs_shadow_base_delta_from_ref(mask_ref, shadow_amount, highlight_amount,
+                                                    params),
+               0.0f);
+    }
+    const float lifted_relative_ev = mask_ref + 0.18f * shadow_lift_delta - middle_gray_log2;
+    const float highlight_shelf =
+        0.60f * opencl_smoothstep_range(-2.80f, 0.50f, lifted_relative_ev);
+    const float highlight_peak =
+        0.50f * opencl_smoothstep_range(-1.35f, 1.60f, lifted_relative_ev) *
+        (1.0f - opencl_smoothstep_range(2.25f, 4.90f, lifted_relative_ev));
+    const float extreme_high_tail =
+        0.23f * opencl_smoothstep_range(3.00f, 5.15f, lifted_relative_ev);
+    reduce_delta = highlight_shelf + highlight_peak + extreme_high_tail;
+  }
   const float boost_delta = 1.24f * (1.0f - exp(-soft_distance / 1.45f));
   return boost_amount * boost_delta - reduce_amount * reduce_delta;
 }
@@ -422,44 +465,6 @@ static inline float opencl_hs_highlight_detail_weight(float mask_ref, float high
       1.0f - opencl_smoothstep_range(params->hs_highlight_log_pivot_ + width * 1.15f,
                                      params->hs_highlight_log_pivot_ + width * 2.35f, mask_ref);
   return tonal_weight * noise_gate * edge_guard * clipped_guard;
-}
-
-static inline float3 opencl_hs_preserve_highlight_chroma(float3 source_ap1, float3 output_ap1,
-                                                         float log_delta,
-                                                         float highlight_amount,
-                                                         float source_highlight_mask) {
-  const float reduce_amount = fmax(highlight_amount, 0.0f);
-  if (reduce_amount <= 1.0e-6f || log_delta >= -1.0e-5f ||
-      source_highlight_mask <= 1.0e-5f) {
-    return output_ap1;
-  }
-
-  const float3 source_lab = opencl_ap1_to_oklab(source_ap1);
-  const float3 output_lab = opencl_ap1_to_oklab(output_ap1);
-  const float source_chroma = hypot(source_lab.y, source_lab.z);
-  const float output_chroma = hypot(output_lab.y, output_lab.z);
-  if (source_chroma <= 1.0e-5f || output_lab.x <= 1.0e-5f) {
-    return output_ap1;
-  }
-
-  const float chroma_confidence = opencl_smoothstep_range(0.012f, 0.060f, source_chroma);
-  const float compression = opencl_smoothstep_range(0.18f, 1.15f, -log_delta);
-  const float strength = clamp(0.56f * reduce_amount * source_highlight_mask * compression *
-                                   chroma_confidence,
-                               0.0f, 0.62f);
-  if (strength <= 1.0e-6f) {
-    return output_ap1;
-  }
-
-  const float target_chroma = output_chroma + (source_chroma - output_chroma) * strength;
-  const float inv_source_chroma = 1.0f / fmax(source_chroma, 1.0e-5f);
-  const float2 hue_dir = (float2)(source_lab.y * inv_source_chroma,
-                                  source_lab.z * inv_source_chroma);
-  const float3 adjusted_lab =
-      (float3)(output_lab.x, hue_dir.x * target_chroma, hue_dir.y * target_chroma);
-  const float3 neutral_lab = (float3)(output_lab.x, 0.0f, 0.0f);
-  const float3 neutral_ap1 = opencl_oklab_to_ap1(neutral_lab);
-  return opencl_fit_ap1_lower_gamut(opencl_oklab_to_ap1(adjusted_lab), neutral_ap1);
 }
 
 static inline float3 opencl_hs_dampen_shadow_chroma(
@@ -623,8 +628,6 @@ static inline float4 opencl_hs_apply_local_tone_pixel(
   output_ap1 = opencl_hs_dampen_shadow_chroma(source_ap1, output_ap1, source_lab, source_chroma,
                                               log_delta, shadow_amount, source_shadow_mask,
                                               source_log_y, params);
-  output_ap1 = opencl_hs_preserve_highlight_chroma(source_ap1, output_ap1, log_delta,
-                                                   highlight_amount, source_highlight_mask);
   return (float4)(opencl_ap1_to_acescc(output_ap1), px.w);
 }
 

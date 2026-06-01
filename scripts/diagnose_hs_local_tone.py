@@ -65,12 +65,36 @@ def shadow_black_floor_weight(mask_ref: float) -> float:
     return 0.30 + 0.70 * smoothstep(black_start, black_end, mask_ref)
 
 
+def shadow_range_weight(mask_ref: float) -> float:
+    relative_ev = mask_ref - MIDDLE_GRAY_LOG2
+    return 1.0 - smoothstep(-5.50, -0.50, relative_ev)
+
+
+def shadow_reference_lift_delta(mask_ref: float) -> float:
+    ev = mask_ref - MIDDLE_GRAY_LOG2
+    xp = [-5.520, -3.935, -2.713, -1.713, -0.997, -0.433, 0.065, 0.475,
+          0.850, 1.188, 1.485, 1.760, 2.015, 2.251, 2.474]
+    fp = [3.170, 3.700, 2.974, 2.100, 1.564, 1.179, 0.807, 0.570,
+          0.483, 0.415, 0.355, 0.300, 0.255, 0.220, 0.0]
+    if ev <= xp[0]:
+        return fp[0]
+    for i in range(1, len(xp)):
+        if ev < xp[i]:
+            t = clamp((ev - xp[i - 1]) / (xp[i] - xp[i - 1]), 0.0, 1.0)
+            return fp[i - 1] + (fp[i] - fp[i - 1]) * t
+    return 0.0
+
+
 def shadow_zone_weight(mask_ref: float) -> float:
     width = max(SHADOW_LOG_WIDTH, 0.35)
     upper = shadow_upper_pivot()
     fade_start = upper - max(width * 3.15, 1.95)
     tonal_weight = 1.0 - smoothstep(fade_start, upper, mask_ref)
-    return clamp(tonal_weight * shadow_black_floor_weight(mask_ref), 0.0, 1.0)
+    return clamp(
+        tonal_weight * shadow_black_floor_weight(mask_ref) * shadow_range_weight(mask_ref),
+        0.0,
+        1.0,
+    )
 
 
 def shadow_fill_plateau_weight(mask_ref: float) -> float:
@@ -118,10 +142,6 @@ def shadow_delta(
     lift_pivot = upper + max(width * 4.00, 2.48)
     distance_to_pivot = max(lift_pivot - mask_ref, 0.0)
     soft_distance = softplus_distance(distance_to_pivot, max(width * 2.18, 1.35))
-    lift_shape = 1.0 - math.exp(-soft_distance / 1.25)
-    deep_noise_compression = 1.0 - smoothstep(
-        SHADOW_LOG_PIVOT - 4.15, SHADOW_LOG_PIVOT - 2.35, mask_ref
-    )
     black_floor = shadow_black_floor_weight(mask_ref)
     black_guard = 0.82 + 0.18 * black_floor
     highlight_overlap = clamp(highlight_mask, 0.0, 1.0)
@@ -129,24 +149,14 @@ def shadow_delta(
     overlap_guard = 1.0 - 0.28 * highlight_active * highlight_overlap
     lift_amount = max(shadow_amount, 0.0)
     darken_amount = max(-shadow_amount, 0.0)
-    fill_plateau = shadow_fill_plateau_weight(mask_ref)
-    practical_dark = shadow_practical_dark_weight(mask_ref)
-    lift_delta = lift_amount * (
-        0.72 * lift_shape * black_guard * overlap_guard
-        + 0.10 * deep_noise_compression
-        + 1.55 * fill_plateau
-        + 0.25 * practical_dark
-    )
+    lift_delta = lift_amount * shadow_reference_lift_delta(mask_ref) * overlap_guard
     darken_delta = darken_amount * 0.34 * soft_distance * (0.85 + 0.15 * black_guard)
-    return lift_delta - darken_delta
+    return lift_delta - shadow_range_weight(mask_ref) * darken_delta
 
 
 def highlight_delta(
     mask_ref: float, shadow_amount: float, highlight_amount: float, guarded: bool
 ) -> float:
-    _ = shadow_amount, guarded
-    relative_ev = mask_ref - MIDDLE_GRAY_LOG2
-    highlight_nd_mask = clamp(relative_ev / 4.0, 0.0, 1.0)
     width = max(HIGHLIGHT_LOG_WIDTH, 0.35)
     soft_distance = softrelu_distance(
         mask_ref - HIGHLIGHT_LOG_PIVOT,
@@ -155,7 +165,21 @@ def highlight_delta(
     )
     reduce_amount = max(highlight_amount, 0.0)
     boost_amount = max(-highlight_amount, 0.0)
-    reduce_delta = 3.00 * highlight_nd_mask
+    reduce_delta = 0.0
+    if reduce_amount > 1.0e-6:
+        shadow_lift_delta = 0.0
+        if shadow_amount > 1.0e-6:
+            shadow_lift_delta = max(
+                shadow_delta(mask_ref, shadow_amount, highlight_amount, guarded),
+                0.0,
+            )
+        lifted_relative_ev = mask_ref + 0.18 * shadow_lift_delta - MIDDLE_GRAY_LOG2
+        highlight_shelf = 0.60 * smoothstep(-2.80, 0.50, lifted_relative_ev)
+        highlight_peak = 0.50 * smoothstep(-1.35, 1.60, lifted_relative_ev) * (
+            1.0 - smoothstep(2.25, 4.90, lifted_relative_ev)
+        )
+        extreme_high_tail = 0.23 * smoothstep(3.00, 5.15, lifted_relative_ev)
+        reduce_delta = highlight_shelf + highlight_peak + extreme_high_tail
     boost_delta = 1.24 * (1.0 - math.exp(-soft_distance / 1.45))
     return boost_amount * boost_delta - reduce_amount * reduce_delta
 
