@@ -7,12 +7,13 @@ plugins {
 
 android {
     namespace = "com.omaster.app"
-    compileSdk = 35
+    compileSdk = 34
+    buildToolsVersion = "35.0.0"
 
     defaultConfig {
         applicationId = "com.omaster.app"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 34
         versionCode = 121
         versionName = "1.2.1"
 
@@ -25,19 +26,11 @@ android {
     }
 
     signingConfigs {
-        create("debug") {
+        getByName("debug") {
             storeFile = file("debug.keystore")
             storePassword = "android"
             keyAlias = "androiddebugkey"
             keyPassword = "android"
-            enableV2Signing = true
-            enableV3Signing = true
-        }
-        create("release") {
-            storeFile = file("release.keystore")
-            storePassword = "changeme"
-            keyAlias = "omaster"
-            keyPassword = "changeme"
             enableV2Signing = true
             enableV3Signing = true
         }
@@ -120,8 +113,8 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.7.0")
 
     // Hilt DI
-    implementation("com.google.dagger:hilt-android:2.51.1")
-    kapt("com.google.dagger:hilt-android-compiler:2.51.1")
+    implementation("com.google.dagger:hilt-android:2.48")
+    kapt("com.google.dagger:hilt-android-compiler:2.48")
     implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
 
     // DataStore
