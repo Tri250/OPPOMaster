@@ -7,13 +7,20 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
-    <!-- 存储权限 - 仅用于保存截图到相册 -->
+    <!-- Android 13+ 媒体权限 -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+
+    <!-- Android 14+ Foreground Service 权限 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <!-- Camera权限说明：此权限仅用于读取Camera2参数(ISO/快门速度等)，
          不采集任何相机图像或视频数据 -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    
+    <!-- 确保应用兼容性 -->
+    <uses-sdk tools:overrideLibrary="androidx.core,androidx.lifecycle,androidx.compose" />
 
     <application
         android:name=".OMasterApplication"
@@ -27,6 +34,7 @@
         android:theme="@style/Theme.OMaster"
         android:networkSecurityConfig="@xml/network_security_config"
         android:usesCleartextTraffic="false"
+        android:enableOnBackInvokedCallback="true"
         tools:targetApi="35">
 
         <activity
@@ -45,6 +53,7 @@
             android:name=".service.FluidCloudService"
             android:enabled="true"
             android:exported="false"
+            android:foregroundServiceType="dataSync"
             android:stopWithTask="true" />
 
         <!-- File Provider for screenshot sharing -->
