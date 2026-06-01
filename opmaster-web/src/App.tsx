@@ -7,6 +7,7 @@ const HomePage = lazy(() => import('./pages/HomePage'));
 const AIDemoPage = lazy(() => import('./pages/AIDemoPage'));
 const TechPage = lazy(() => import('./pages/TechPage'));
 const AboutPage = lazy(() => import('./pages/AboutPage'));
+const FeaturesPage = lazy(() => import('./pages/FeaturesPage'));
 const PresetDetailPage = lazy(() => import('./pages/PresetDetailPage'));
 const WatermarkPage = lazy(() => import('./pages/WatermarkPage'));
 const PresetEditorPage = lazy(() => import('./pages/PresetEditorPage'));
@@ -30,6 +31,7 @@ function App() {
         <Suspense fallback={<Loading />}>
           <Routes>
             <Route path="/" element={<HomePage />} />
+            <Route path="/features" element={<FeaturesPage />} />
             <Route path="/ai-demo" element={<AIDemoPage />} />
             <Route path="/tech" element={<TechPage />} />
             <Route path="/about" element={<AboutPage />} />
