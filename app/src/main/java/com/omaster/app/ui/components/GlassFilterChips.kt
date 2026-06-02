@@ -239,11 +239,11 @@ private fun AnimatedFilterChip(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
-    
+
     LaunchedEffect(Unit) {
         kotlinx.coroutines.delay(index * 40L)
     }
-    
+
     val scale by animateFloatAsState(
         targetValue = when {
             isPressed -> ColorOSScale.Pressed
@@ -256,16 +256,14 @@ private fun AnimatedFilterChip(
         ),
         label = "scale"
     )
-    
+
     Box(
-        modifier = Modifier
-            .scale(scale)
-            .then(
-                GlassChip(
-                    text = text,
-                    selected = selected,
-                    onClick = onClick
-                )
-            )
-    )
+        modifier = Modifier.scale(scale)
+    ) {
+        GlassChip(
+            text = text,
+            selected = selected,
+            onClick = onClick
+        )
+    }
 }

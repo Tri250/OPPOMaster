@@ -280,24 +280,10 @@ private fun ImageSelectionAreaV2(
                 color = Colors.HasselbladOrange.copy(alpha = 0.3f),
                 shape = RoundedCornerShape(Radius.xxl)
             )
-            .clickable { isPressed = true }
-            .clickable { onSelectImage() }
-            .clickable(
-                indication = null,
-                interactionSource = remember { MutableInteractionSource() }.also { interactionSource ->
-                    DisposableEffect(interactionSource) {
-                        val listener = object : androidx.compose.foundation.interaction.DragInteraction.Start {
-                            override fun toString(): String = "Start"
-                        }
-                        val mutableInteractionSource = interactionSource as androidx.compose.foundation.interaction.MutableInteractionSource
-                        mutableInteractionSource.interactions.collect { interaction ->
-                            isPressed = interaction is androidx.compose.foundation.interaction.DragInteraction.Start
-                        }
-                        onDispose { }
-                    }
-                },
-                onClick = onSelectImage
-            ),
+            .clickable {
+                isPressed = true
+                onSelectImage()
+            },
         contentAlignment = Alignment.Center
     ) {
         if (selectedImage != null) {

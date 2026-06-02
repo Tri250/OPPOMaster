@@ -23,6 +23,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -201,11 +202,11 @@ fun ColorOSHomeScreenV2(
 }
 
 private val colorOSFilters = listOf(
-    "all" to "全部",
-    "favorite" to "收藏",
-    "hncs" to "HNCS",
-    "find_x" to "Find X",
-    "reno" to "Reno"
+    FilterType.ALL to "全部",
+    FilterType.FAVORITES to "收藏",
+    FilterType.HNCS to "HNCS",
+    FilterType.FIND_X to "Find X",
+    FilterType.RENO to "Reno"
 )
 
 @Composable

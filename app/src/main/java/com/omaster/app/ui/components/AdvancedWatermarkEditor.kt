@@ -436,7 +436,7 @@ fun DrawScope.drawTextWatermark(watermark: Watermark, opacity: Float) {
         fontStyle = if (config.isItalic) FontStyle.Italic else FontStyle.Normal,
         textDecoration = when {
             config.isUnderline && config.isStrikethrough ->
-                TextDecoration.combine(listOf(TextDecoration.Underline, TextDecoration.LineThrough))
+                TextDecoration.Underline + TextDecoration.LineThrough
             config.isUnderline -> TextDecoration.Underline
             config.isStrikethrough -> TextDecoration.LineThrough
             else -> TextDecoration.None

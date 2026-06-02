@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -233,7 +234,7 @@ fun FloatingAnimation(
     )
     
     AnimatedVisibility(visible = targetState) {
-        Box(modifier = Modifier.offset(y = yOffset)) {
+        Box(modifier = Modifier.offset(y = yOffset.dp)) {
             content()
         }
     }

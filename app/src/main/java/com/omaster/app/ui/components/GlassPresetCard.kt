@@ -194,25 +194,23 @@ fun GlassPresetCard(
                 
                 Spacer(modifier = Modifier.height(Spacing.sm))
                 
-                preset.deviceModel?.let { deviceModel ->
-                    if (deviceModel.isNotEmpty()) {
-                        GlassChip(
-                            text = deviceModel,
-                            selected = false,
-                            onClick = {},
-                            modifier = Modifier
-                        )
-                    }
+                if (preset.deviceModel.isNotEmpty()) {
+                    GlassChip(
+                        text = preset.deviceModel,
+                        selected = false,
+                        onClick = {},
+                        modifier = Modifier
+                    )
                 }
-                
+
                 preset.cameraParams?.let { params ->
                     Spacer(modifier = Modifier.height(Spacing.sm))
-                    
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
                     ) {
-                        if (params.hasselblad_hncs == true) {
+                        if (params.hasselblad_hncs) {
                             CameraParamBadge(text = "HNCS", color = Colors.HasselbladOrange)
                         }
                         if (params.focalLength.isNotEmpty()) {

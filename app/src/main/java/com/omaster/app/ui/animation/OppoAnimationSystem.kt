@@ -314,7 +314,7 @@ fun Modifier.oppoHover(
 
 // ========== ColorOS 16 震动/呼吸动画 ==========
 @Composable
-fun rememberBreathingAnimation(
+fun rememberOppoBreathingAnimation(
     minAlpha: Float = 0.9f,
     maxAlpha: Float = 1.0f,
     cycleDuration: Int = 2000
@@ -337,7 +337,7 @@ fun rememberBreathingAnimation(
 
 // ========== ColorOS 16 脉冲动画 ==========
 @Composable
-fun rememberPulseAnimation(
+fun rememberOppoPulseAnimation(
     minScale: Float = 1.0f,
     maxScale: Float = 1.05f,
     cycleDuration: Int = 1500

@@ -96,7 +96,71 @@ data class WatermarkTemplate(
     val isSystem: Boolean = false,
     val isCustom: Boolean = false,
     val createdAt: Long = System.currentTimeMillis()
-)
+) {
+    companion object {
+        val HASSELBLAD: WatermarkTemplate = WatermarkTemplate(
+            id = "hasselblad",
+            name = "HASSELBLAD",
+            description = "哈苏风格",
+            watermarks = emptyList()
+        )
+        val OPPO: WatermarkTemplate = WatermarkTemplate(
+            id = "oppo",
+            name = "OPPO",
+            description = "OPPO 风格",
+            watermarks = emptyList()
+        )
+        val ONEPLUS: WatermarkTemplate = WatermarkTemplate(
+            id = "oneplus",
+            name = "OnePlus",
+            description = "一加风格",
+            watermarks = emptyList()
+        )
+        val REALME: WatermarkTemplate = WatermarkTemplate(
+            id = "realme",
+            name = "realme",
+            description = "真我风格",
+            watermarks = emptyList()
+        )
+        val MINIMAL_PARAMS: WatermarkTemplate = WatermarkTemplate(
+            id = "minimal_params",
+            name = "MINIMAL",
+            description = "极简参数",
+            watermarks = emptyList()
+        )
+        val TIMESTAMP: WatermarkTemplate = WatermarkTemplate(
+            id = "timestamp",
+            name = "TIMESTAMP",
+            description = "时间戳",
+            watermarks = emptyList()
+        )
+        val LOCATION: WatermarkTemplate = WatermarkTemplate(
+            id = "location",
+            name = "LOCATION",
+            description = "位置",
+            watermarks = emptyList()
+        )
+        val CUSTOM: WatermarkTemplate = WatermarkTemplate(
+            id = "custom",
+            name = "CUSTOM",
+            description = "自定义",
+            watermarks = emptyList(),
+            isCustom = true
+        )
+        val BRAND_SIMPLE: WatermarkTemplate = WatermarkTemplate(
+            id = "brand_simple",
+            name = "BRAND",
+            description = "简洁品牌",
+            watermarks = emptyList()
+        )
+        val FILM_STYLE: WatermarkTemplate = WatermarkTemplate(
+            id = "film_style",
+            name = "FILM",
+            description = "胶片风格",
+            watermarks = emptyList()
+        )
+    }
+}
 
 data class ExportConfig(
     val format: ExportFormat = ExportFormat.JPEG,

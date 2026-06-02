@@ -59,8 +59,7 @@ fun <T> ProPullRefreshList(
                 isRefreshing = false
             }
         },
-        modifier = modifier,
-        pullDirection = PullToRefreshBox.PullDirection.Top
+        modifier = modifier
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
