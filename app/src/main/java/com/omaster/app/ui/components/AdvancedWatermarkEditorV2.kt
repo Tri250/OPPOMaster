@@ -400,6 +400,8 @@ private fun WatermarkCanvasV2(
 ) {
     val context = LocalContext.current
     var bitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var canvasDrawSize by remember { mutableStateOf(Size.Zero) }
+    var canvasDrawOffset by remember { mutableStateOf(Offset.Zero) }
     
     LaunchedEffect(state.imageUri) {
         state.imageUri?.let { uri ->
@@ -407,15 +409,82 @@ private fun WatermarkCanvasV2(
         }
     }
     
-    var selectedId by remember { mutableStateOf<String?>(null) }
-    var dragOffset by remember { mutableStateOf(Offset.Zero) }
-    var isDragging by remember { mutableStateOf(false) }
+    var dragStartPosition by remember { mutableStateOf(Offset.Zero) }
+    var draggedWatermarkId by remember { mutableStateOf<String?>(null) }
     
     val interactionSource = remember { MutableInteractionSource() }
     
     Box(
         modifier = modifier
             .fillMaxSize()
+            .pointerInput(Unit) {
+                detectDragGestures(
+                    onDragStart = { offset ->
+                        val hitWatermark = findWatermarkAtPosition(
+                            state.watermarks,
+                            offset,
+                            canvasDrawSize,
+                            canvasDrawOffset
+                        )
+                        if (hitWatermark != null) {
+                            draggedWatermarkId = hitWatermark.id
+                            dragStartPosition = offset
+                            onStateChange(state.copy(selectedWatermarkId = hitWatermark.id))
+                        }
+                    },
+                    onDragEnd = {
+                        draggedWatermarkId = null
+                        dragStartPosition = Offset.Zero
+                    },
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        draggedWatermarkId?.let { id ->
+                            val watermark = state.watermarks.find { it.id == id }
+                            if (watermark != null && canvasDrawSize.width > 0) {
+                                val newPosition = Offset(
+                                    x = (watermark.position.x + dragAmount.x / canvasDrawSize.width).coerceIn(0f, 1f),
+                                    y = (watermark.position.y + dragAmount.y / canvasDrawSize.height).coerceIn(0f, 1f)
+                                )
+                                val updatedWatermark = watermark.copy(position = newPosition)
+                                onStateChange(
+                                    state.copy(
+                                        watermarks = state.watermarks.map { 
+                                            if (it.id == id) updatedWatermark else it 
+                                        }
+                                    )
+                                )
+                            }
+                        }
+                    }
+                )
+            }
+            .pointerInput(Unit) {
+                detectTransformGestures { _, pan, zoom, rotation ->
+                    state.selectedWatermarkId?.let { id ->
+                        val watermark = state.watermarks.find { it.id == id }
+                        if (watermark != null && canvasDrawSize.width > 0) {
+                            val newPosition = Offset(
+                                x = (watermark.position.x + pan.x / canvasDrawSize.width).coerceIn(0f, 1f),
+                                y = (watermark.position.y + pan.y / canvasDrawSize.height).coerceIn(0f, 1f)
+                            )
+                            val newScale = (watermark.scale * zoom).coerceIn(0.2f, 3f)
+                            val newRotation = (watermark.rotation + rotation).coerceIn(0f, 360f)
+                            val updatedWatermark = watermark.copy(
+                                position = newPosition,
+                                scale = newScale,
+                                rotation = newRotation
+                            )
+                            onStateChange(
+                                state.copy(
+                                    watermarks = state.watermarks.map { 
+                                        if (it.id == id) updatedWatermark else it 
+                                    }
+                                )
+                            )
+                        }
+                    }
+                }
+            }
             .clickable(
                 interactionSource = interactionSource,
                 indication = null
@@ -425,13 +494,10 @@ private fun WatermarkCanvasV2(
     ) {
         bitmap?.let { bmp ->
             val bmpImage = remember(bmp) { bmp.asImageBitmap() }
-            var canvasSize by remember { mutableStateOf(Size.Zero) }
             
             Canvas(
                 modifier = Modifier.fillMaxSize()
             ) {
-                canvasSize = size
-                
                 val scaleFactor = minOf(
                     size.width / bmp.width,
                     size.height / bmp.height
@@ -444,6 +510,9 @@ private fun WatermarkCanvasV2(
                     (size.width - drawSize.width) / 2f,
                     (size.height - drawSize.height) / 2f
                 )
+                
+                canvasDrawSize = drawSize
+                canvasDrawOffset = drawOffset
                 
                 drawImage(
                     image = bmpImage,
@@ -464,6 +533,37 @@ private fun WatermarkCanvasV2(
     }
 }
 
+private fun findWatermarkAtPosition(
+    watermarks: List<Watermark>,
+    touchPosition: Offset,
+    canvasSize: Size,
+    canvasOffset: Offset
+): Watermark? {
+    if (canvasSize.width <= 0 || canvasSize.height <= 0) return null
+    
+    for (watermark in watermarks.sortedByDescending { it.zIndex }) {
+        val watermarkPosition = Offset(
+            canvasOffset.x + watermark.position.x * canvasSize.width,
+            canvasOffset.y + watermark.position.y * canvasSize.height
+        )
+        
+        val halfWidth = watermark.size.width / 2 * watermark.scale
+        val halfHeight = watermark.size.height / 2 * watermark.scale
+        
+        val bounds = androidx.compose.ui.geometry.Rect(
+            left = watermarkPosition.x - halfWidth,
+            top = watermarkPosition.y - halfHeight,
+            right = watermarkPosition.x + halfWidth,
+            bottom = watermarkPosition.y + halfHeight
+        )
+        
+        if (bounds.contains(touchPosition)) {
+            return watermark
+        }
+    }
+    return null
+}
+
 private fun DrawScope.drawWatermarkV2(
     watermark: Watermark,
     canvasSize: Size,
@@ -477,6 +577,7 @@ private fun DrawScope.drawWatermarkV2(
     
     withTransform({
         translate(left = position.x, top = position.y)
+        scale(watermark.scale, watermark.scale)
         rotate(watermark.rotation, pivot = Offset.Zero)
     }) {
         when (watermark.type) {

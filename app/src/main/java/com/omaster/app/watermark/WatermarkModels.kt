@@ -22,6 +22,7 @@ data class Watermark(
     var imageUri: Uri? = null,
     var position: Offset = Offset(0.5f, 0.5f),
     var size: Size = Size(100f, 100f),
+    var scale: Float = 1f,
     var rotation: Float = 0f,
     var opacity: Float = 1f,
     var zIndex: Int = 0,
