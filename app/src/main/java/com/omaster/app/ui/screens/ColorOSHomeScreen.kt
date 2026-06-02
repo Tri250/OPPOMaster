@@ -67,13 +67,13 @@ fun ColorOSHomeScreen(
         presets.filter { preset ->
             val matchesQuery = searchQuery.isEmpty() ||
                 preset.name.contains(searchQuery, ignoreCase = true) ||
-                preset.deviceModel?.contains(searchQuery, ignoreCase = true) == true
+                preset.deviceModel.contains(searchQuery, ignoreCase = true)
             val matchesFilter = when (filterType) {
                 FilterType.ALL -> true
                 FilterType.FAVORITES -> preset.isFavorite
                 FilterType.HNCS -> preset.cameraParams?.hasselblad_hncs == true
-                FilterType.FIND_X -> preset.deviceModel?.contains("Find X", ignoreCase = true) == true
-                FilterType.RENO -> preset.deviceModel?.contains("Reno", ignoreCase = true) == true
+                FilterType.FIND_X -> preset.deviceModel.contains("Find X", ignoreCase = true)
+                FilterType.RENO -> preset.deviceModel.contains("Reno", ignoreCase = true)
                 FilterType.NEW -> true
                 FilterType.TRENDING -> true
             }

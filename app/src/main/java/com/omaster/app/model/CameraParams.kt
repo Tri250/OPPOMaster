@@ -300,5 +300,67 @@ data class CameraParams(
                 proMode = true
             )
         }
+
+        /**
+         * 创建人像摄影预设参数
+         */
+        fun createPortraitPreset(): CameraParams {
+            return CameraParams(
+                mode = CameraMode.HasselbladPortrait.displayName,
+                iso = 200,
+                shutter = "1/125",
+                ev = "+0.3",
+                wb = "5200K",
+                focalLength = "50mm",
+                focalLengthMode = FocalLengthMode.Portrait.displayName,
+                aperture = "f/1.8",
+                portraitMode = true,
+                aiOptimization = true,
+                proMode = false,
+                hasselblad_hncs = true,
+                hasselbladNaturalColor = true,
+                hasselbladMasterStyle = "Portrait Master",
+                hasselbladProMode = false,
+                hasselbladColorScience = "HNCS 3.0",
+                colorStyle = ColorStyle.Portrait.name,
+                colorProfile = ColorStyle.Portrait.displayName,
+                colorTemperature = 5200,
+                sharpness = 40,
+                contrast = 45,
+                saturation = 50,
+                ai_scene_recognition = "Portrait"
+            )
+        }
+
+        /**
+         * 创建风景摄影预设参数
+         */
+        fun createLandscapePreset(): CameraParams {
+            return CameraParams(
+                mode = CameraMode.HasselbladLandscape.displayName,
+                iso = 100,
+                shutter = "1/250",
+                ev = "-0.3",
+                wb = "5500K",
+                focalLength = "24mm",
+                focalLengthMode = FocalLengthMode.Wide.displayName,
+                aperture = "f/8.0",
+                portraitMode = false,
+                aiOptimization = true,
+                proMode = true,
+                hasselblad_hncs = true,
+                hasselbladNaturalColor = true,
+                hasselbladMasterStyle = "Landscape Master",
+                hasselbladProMode = true,
+                hasselbladColorScience = "HNCS 3.0",
+                colorStyle = ColorStyle.Natural.name,
+                colorProfile = ColorStyle.Natural.displayName,
+                colorTemperature = 5500,
+                sharpness = 60,
+                contrast = 55,
+                saturation = 65,
+                ai_scene_recognition = "Landscape"
+            )
+        }
     }
 }

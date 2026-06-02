@@ -73,14 +73,14 @@ fun HomeScreen(
         presets.filter { preset ->
             val matchesSearch = searchQuery.isEmpty() ||
                 preset.name.contains(searchQuery, ignoreCase = true) ||
-                preset.deviceModel?.contains(searchQuery, ignoreCase = true) == true
+                preset.deviceModel.contains(searchQuery, ignoreCase = true)
 
             val matchesFilter = when (filterType) {
                 FilterType.ALL -> true
                 FilterType.FAVORITES -> preset.isFavorite
-                FilterType.HASSELBLAD -> preset.cameraParams?.hasselblad_hncs == true
-                FilterType.FIND_X -> preset.deviceModel?.contains("Find X", ignoreCase = true) == true
-                FilterType.RENO -> preset.deviceModel?.contains("Reno", ignoreCase = true) == true
+                FilterType.HNCS -> preset.cameraParams?.hasselblad_hncs == true
+                FilterType.FIND_X -> preset.deviceModel.contains("Find X", ignoreCase = true)
+                FilterType.RENO -> preset.deviceModel.contains("Reno", ignoreCase = true)
                 else -> true
             }
 
@@ -405,7 +405,7 @@ fun FilterChipsRow(
     val filters = listOf(
         FilterType.ALL to "全部",
         FilterType.FAVORITES to "我的收藏",
-        FilterType.HASSELBLAD to "HNCS"
+        FilterType.HNCS to "HNCS"
     )
 
     Row(
@@ -419,7 +419,7 @@ fun FilterChipsRow(
                 selected = selectedFilter == filter,
                 onClick = { onFilterSelected(filter) },
                 label = label,
-                isPrimary = filter == FilterType.HASSELBLAD,
+                isPrimary = filter == FilterType.HNCS,
                 leadingIcon = if (filter == FilterType.FAVORITES) {
                     {
                         Icon(
@@ -644,13 +644,15 @@ fun OppoPresetCard(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                preset.deviceModel?.let { device ->
-                    Text(
-                        text = device,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1
-                    )
+                preset.deviceModel.let { device ->
+                    if (device.isNotEmpty()) {
+                        Text(
+                            text = device,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1
+                        )
+                    }
                 }
 
                 preset.cameraParams?.let { params ->
@@ -663,9 +665,9 @@ fun OppoPresetCard(
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        params.wb?.let {
+                        if (params.wb.isNotEmpty()) {
                             Text(
-                                text = it,
+                                text = params.wb,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

@@ -13,11 +13,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.omaster.app.ui.theme.Spacing
 import com.omaster.app.ui.theme.Typography
 import com.omaster.app.ui.theme.hasselbladOrange
+import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
  * 系统能力页面 - SYS测试用例实现

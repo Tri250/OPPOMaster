@@ -210,13 +210,11 @@ fun ColorOSPresetCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // 设备标签
-                    preset.deviceModel?.let { deviceModel ->
-                        if (deviceModel.isNotEmpty()) {
-                            ColorOSChip(
-                                text = deviceModel,
-                                icon = Icons.Default.PhoneAndroid
-                            )
-                        }
+                    if (preset.deviceModel.isNotEmpty()) {
+                        ColorOSChip(
+                            text = preset.deviceModel,
+                            icon = Icons.Default.PhoneAndroid
+                        )
                     }
                     
                     // 参数速览

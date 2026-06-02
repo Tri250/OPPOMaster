@@ -130,14 +130,14 @@ class PresetRepository @Inject constructor(
                 emit(Result.success(presets))
             } else {
                 Timber.w("获取OPPO预设失败，使用过滤数据")
-                emit(Result.success(getSamplePresets().filter { 
-                    it.deviceModel?.contains("OPPO", ignoreCase = true) == true 
+                emit(Result.success(getSamplePresets().filter {
+                    it.deviceModel.contains("OPPO", ignoreCase = true)
                 }))
             }
         } catch (e: Exception) {
             Timber.e(e, "获取OPPO预设异常")
-            emit(Result.success(getSamplePresets().filter { 
-                it.deviceModel?.contains("OPPO", ignoreCase = true) == true 
+            emit(Result.success(getSamplePresets().filter {
+                it.deviceModel.contains("OPPO", ignoreCase = true)
             }))
         }
     }
@@ -150,14 +150,14 @@ class PresetRepository @Inject constructor(
                 emit(Result.success(presets))
             } else {
                 Timber.w("获取realme预设失败，使用过滤数据")
-                emit(Result.success(getSamplePresets().filter { 
-                    it.deviceModel?.contains("realme", ignoreCase = true) == true 
+                emit(Result.success(getSamplePresets().filter {
+                    it.deviceModel.contains("realme", ignoreCase = true)
                 }))
             }
         } catch (e: Exception) {
             Timber.e(e, "获取realme预设异常")
-            emit(Result.success(getSamplePresets().filter { 
-                it.deviceModel?.contains("realme", ignoreCase = true) == true 
+            emit(Result.success(getSamplePresets().filter {
+                it.deviceModel.contains("realme", ignoreCase = true)
             }))
         }
     }

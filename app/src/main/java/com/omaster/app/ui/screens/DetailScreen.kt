@@ -164,13 +164,13 @@ fun DetailScreen(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                preset.deviceModel?.let { deviceModel ->
+                if (preset.deviceModel.isNotEmpty()) {
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant,
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Text(
-                            text = "适配: $deviceModel",
+                            text = "适配: ${preset.deviceModel}",
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant

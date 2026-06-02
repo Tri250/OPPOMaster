@@ -216,13 +216,13 @@ private fun ExpandedFloatingWindow(
             
             Spacer(modifier = Modifier.height(8.dp))
             
-            currentPreset?.deviceModel?.let { device ->
+            if (currentPreset?.deviceModel?.isNotEmpty() == true) {
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceVariant,
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Text(
-                        text = device,
+                        text = currentPreset.deviceModel,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant

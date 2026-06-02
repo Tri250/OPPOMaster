@@ -107,22 +107,20 @@ fun PresetCard(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                preset.deviceModel?.let { deviceModel ->
-                    if (deviceModel.isNotEmpty()) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically
+                if (preset.deviceModel.isNotEmpty()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            shape = RoundedCornerShape(12.dp)
                         ) {
-                            Surface(
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Text(
-                                    text = deviceModel,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                            Text(
+                                text = preset.deviceModel,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 }

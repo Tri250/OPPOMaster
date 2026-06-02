@@ -173,7 +173,7 @@ fun ProPresetCard(
                         Spacer(modifier = Modifier.height(4.dp))
                         
                         Text(
-                            text = "${preset.device} · ${preset.author}",
+                            text = "${preset.deviceModel} · ${preset.author}",
                             style = MaterialTheme.typography.bodySmall,
                             color = if (isDark) ColorOSTextTertiary else ColorOSLightTextTertiary
                         )
@@ -230,7 +230,7 @@ fun ProPresetCard(
                     )
                     ParamPreviewItem(
                         label = "快门",
-                        value = preset.cameraParams.shutterSpeed,
+                        value = preset.cameraParams.shutter,
                         color = ColorShutter,
                         isDark = isDark
                     )
@@ -242,7 +242,7 @@ fun ProPresetCard(
                     )
                     ParamPreviewItem(
                         label = "WB",
-                        value = preset.cameraParams.whiteBalance,
+                        value = preset.cameraParams.wb,
                         color = ColorWB,
                         isDark = isDark
                     )

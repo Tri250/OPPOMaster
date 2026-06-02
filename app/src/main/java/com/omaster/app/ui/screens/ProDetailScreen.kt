@@ -473,7 +473,7 @@ private fun ProParamsSection(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    if (params.hasselblad_hncs == true) {
+                    if (params.hasselblad_hncs) {
                         GlassChip(
                             text = "HNCS",
                             selected = true,
@@ -481,45 +481,41 @@ private fun ProParamsSection(
                             modifier = Modifier
                         )
                     }
-                    
-                    params.focal_length?.let {
-                        ParamChip(label = "焦距", value = "${it}mm")
+
+                    if (params.focal_length.isNotEmpty()) {
+                        ParamChip(label = "焦距", value = "${params.focal_length}mm")
                     }
-                    
-                    params.aperture?.let {
-                        ParamChip(label = "光圈", value = "f/${it}")
-                    }
-                }
-                
-                Spacer(modifier = Modifier.height(Spacing.sm))
-                
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    params.shutter_speed?.let {
-                        ParamChip(label = "快门", value = it)
-                    }
-                    
-                    params.iso?.let {
-                        ParamChip(label = "ISO", value = it.toString())
-                    }
-                    
-                    params.white_balance?.let {
-                        ParamChip(label = "白平衡", value = "${it}K")
+
+                    if (params.aperture.isNotEmpty()) {
+                        ParamChip(label = "光圈", value = "f/${params.aperture}")
                     }
                 }
                 
                 Spacer(modifier = Modifier.height(Spacing.sm))
-                
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    params.exposure_compensation?.let {
-                        ParamChip(label = "曝光补偿", value = "${if (it >= 0) "+" else ""}$it EV")
+                    if (params.shutter.isNotEmpty()) {
+                        ParamChip(label = "快门", value = params.shutter)
                     }
-                    
+
+                    ParamChip(label = "ISO", value = params.iso.toString())
+
+                    if (params.wb.isNotEmpty()) {
+                        ParamChip(label = "白平衡", value = "${params.wb}K")
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(Spacing.sm))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    ParamChip(label = "曝光补偿", value = "${if (params.exposureCompensation >= 0) "+" else ""}${params.exposureCompensation} EV")
+
                     params.focus_distance?.let {
                         ParamChip(label = "对焦距离", value = it)
                     }
