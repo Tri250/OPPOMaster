@@ -56,14 +56,15 @@ object FloatingWindowManager {
         }
 
         try {
-            windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-            floatingView = ComposeView(context).apply {
+            val appContext = context.applicationContext
+            windowManager = appContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            floatingView = ComposeView(appContext).apply {
                 setContent {
                     FloatingWindowContent(
                         presetName = currentPresetName,
                         params = currentParams,
                         onClose = { hideWindow() },
-                        onCopyParams = { copyParamsToClipboard(context) }
+                        onCopyParams = { copyParamsToClipboard(appContext) }
                     )
                 }
             }
@@ -153,6 +154,11 @@ object FloatingWindowManager {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)
         }
+    }
+
+    fun clearPresetData() {
+        currentPresetName = "预设参数"
+        currentParams = emptyMap()
     }
 }
 

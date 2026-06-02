@@ -8,13 +8,13 @@ plugins {
 
 android {
     namespace = "com.omaster.app"
-    compileSdk = 34
+    compileSdk = 35
     buildToolsVersion = "35.0.0"
 
     defaultConfig {
         applicationId = "com.omaster.app"
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 35
         versionCode = 121
         versionName = "1.2.1"
 
@@ -22,8 +22,6 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
-
-        resValue("string", "app_storage_recipients", "")
     }
 
     signingConfigs {
@@ -72,7 +70,7 @@ android {
     }
 
     composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.8"
+        kotlinCompilerExtensionVersion = "1.5.10"
     }
 
     packaging {
@@ -137,7 +135,7 @@ dependencies {
     implementation("com.jakewharton.timber:timber:5.0.1")
 
     // CameraX
-    val cameraxVersion = "1.4.0-beta02"
+    val cameraxVersion = "1.3.4"
     implementation("androidx.camera:camera-core:$cameraxVersion")
     implementation("androidx.camera:camera-camera2:$cameraxVersion")
     implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
@@ -147,6 +145,7 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.9.1")
     implementation("androidx.hilt:hilt-work:1.2.0")
     kapt("androidx.hilt:hilt-compiler:1.2.0")
+    implementation("androidx.startup:startup-runtime:1.1.1")
 
     // Testing
     testImplementation("junit:junit:4.13.2")

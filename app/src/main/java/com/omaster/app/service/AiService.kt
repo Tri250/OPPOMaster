@@ -5,6 +5,7 @@ import com.omaster.app.model.CameraParams
 import com.omaster.app.model.Preset
 import com.omaster.app.model.SceneType
 import kotlinx.coroutines.delay
+import javax.inject.Inject
 import kotlin.random.Random
 
 /**

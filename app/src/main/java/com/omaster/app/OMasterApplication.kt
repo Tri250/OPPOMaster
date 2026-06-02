@@ -6,20 +6,32 @@ import android.app.ActivityManager
 import android.content.Context
 import android.os.Build
 import android.os.Process
+import androidx.hilt.work.HiltWorkerFactory
+import androidx.work.Configuration
 import dagger.hilt.android.HiltAndroidApp
 import timber.log.Timber
 import java.io.PrintWriter
 import java.io.StringWriter
 import java.lang.ref.WeakReference
+import javax.inject.Inject
 
 /**
  * OMaster Application - 全局异常处理和崩溃捕获
  * 符合Android 16安全隐私规范
  */
 @HiltAndroidApp
-class OMasterApplication : Application() {
+class OMasterApplication : Application(), Configuration.Provider {
+
+    @Inject
+    lateinit var workerFactory: HiltWorkerFactory
     
     private var currentActivity: WeakReference<Activity>? = null
+    
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder()
+            .setWorkerFactory(workerFactory)
+            .setMinimumLoggingLevel(if (BuildConfig.DEBUG) android.util.Log.DEBUG else android.util.Log.ERROR)
+            .build()
     
     override fun onCreate() {
         super.onCreate()

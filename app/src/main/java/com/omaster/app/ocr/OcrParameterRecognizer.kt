@@ -32,7 +32,15 @@ class OcrParameterRecognizer @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     private val textRecognizer: TextRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-    private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    @Volatile
+    private var cameraExecutor: ExecutorService? = null
+    private val executorLock = Any()
+
+    private fun obtainExecutor(): ExecutorService {
+        return cameraExecutor ?: synchronized(executorLock) {
+            cameraExecutor ?: Executors.newSingleThreadExecutor().also { cameraExecutor = it }
+        }
+    }
 
     data class OcrResult(
         val rawText: String,
@@ -135,7 +143,7 @@ class OcrParameterRecognizer @Inject constructor(
                     trySend(OcrState.Recognizing)
                     
                     imageCapture.takePicture(
-                        cameraExecutor,
+                        obtainExecutor(),
                         object : ImageCapture.OnImageCapturedCallback() {
                             override fun onCaptureSuccess(image: ImageProxy) {
                                 val bitmap = image.toBitmap()
@@ -178,7 +186,7 @@ class OcrParameterRecognizer @Inject constructor(
         }, ContextCompat.getMainExecutor(context))
 
         awaitClose {
-            cameraExecutor.shutdown()
+            cameraExecutor?.shutdown()
         }
     }
 
@@ -199,7 +207,14 @@ class OcrParameterRecognizer @Inject constructor(
     }
 
     fun close() {
-        textRecognizer.close()
-        cameraExecutor.shutdown()
+        try {
+            textRecognizer.close()
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to close text recognizer")
+        }
+        synchronized(executorLock) {
+            cameraExecutor?.shutdown()
+            cameraExecutor = null
+        }
     }
 }

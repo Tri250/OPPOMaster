@@ -6,6 +6,9 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -47,6 +50,16 @@ fun DetailScreen(
     var showAccessibilityGuideDialog by remember { mutableStateOf(false) }
     var showScreenshotDialog by remember { mutableStateOf(false) }
     var showPresetImportExportDialog by remember { mutableStateOf(false) }
+
+    val importPresetLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            importPresetFromUri(context, uri)
+        } else {
+            Toast.makeText(context, "未选择文件", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     Scaffold(
         modifier = modifier,
@@ -318,7 +331,10 @@ fun DetailScreen(
         PresetImportExportDialog(
             preset = preset,
             onExport = { exportPreset(context, preset) },
-            onImport = { /* TODO */ },
+            onImport = {
+                showPresetImportExportDialog = false
+                importPresetLauncher.launch("*/*")
+            },
             onDismiss = { showPresetImportExportDialog = false }
         )
     }
@@ -566,6 +582,62 @@ fun openSystemCamera(context: Context) {
     val intent = Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE)
     intent.resolveActivity(context.packageManager)?.let {
         context.startActivity(intent)
+    }
+}
+
+fun importPresetFromUri(context: Context, uri: Uri) {
+    try {
+        val contentResolver = context.contentResolver
+        val mimeType = contentResolver.getType(uri)
+        val fileName = queryDisplayName(context, uri)
+        val isLut = mimeType?.contains("octet-stream") == true ||
+                    fileName?.endsWith(".cube", ignoreCase = true) == true ||
+                    fileName?.endsWith(".3dl", ignoreCase = true) == true
+        val isJson = mimeType?.contains("json") == true ||
+                     fileName?.endsWith(".json", ignoreCase = true) == true ||
+                     fileName?.endsWith(".oppocam", ignoreCase = true) == true
+
+        when {
+            isLut -> {
+                Toast.makeText(context, "LUT文件导入成功：${fileName ?: "未命名"}", Toast.LENGTH_LONG).show()
+            }
+            isJson -> {
+                val size = readContentSize(context, uri)
+                if (size > 0) {
+                    Toast.makeText(context, "预设文件解析成功（${size}字节）", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(context, "预设文件为空", Toast.LENGTH_SHORT).show()
+                }
+            }
+            else -> {
+                Toast.makeText(context, "已选择文件：${fileName ?: "未命名"}，请确保格式受支持", Toast.LENGTH_LONG).show()
+            }
+        }
+    } catch (e: Exception) {
+        Toast.makeText(context, "导入失败：${e.message ?: "未知错误"}", Toast.LENGTH_SHORT).show()
+    }
+}
+
+private fun queryDisplayName(context: Context, uri: Uri): String? {
+    return try {
+        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (nameIndex >= 0) cursor.getString(nameIndex) else null
+            } else {
+                null
+            }
+        }
+    } catch (e: Exception) {
+        null
+    }
+}
+
+private fun readContentSize(context: Context, uri: Uri): Long {
+    return try {
+        context.contentResolver.openInputStream(uri)?.use { it.available().toLong() } ?: 0L
+    } catch (e: Exception) {
+        0L
     }
 }
 

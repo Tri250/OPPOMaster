@@ -24,7 +24,8 @@ class CloudSyncService @Inject constructor(
     @ApplicationContext private val context: Context,
     private val preferencesDataStore: PreferencesDataStore
 ) {
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val supervisorJob = SupervisorJob()
+    private val scope = CoroutineScope(Dispatchers.IO + supervisorJob)
     
     private val _syncState = MutableStateFlow<SyncState>(SyncState.Idle)
     val syncState: StateFlow<SyncState> = _syncState.asStateFlow()
@@ -500,6 +501,14 @@ class CloudSyncService @Inject constructor(
     }
 
     fun destroy() {
-        scope.cancel()
+        try {
+            scope.coroutineContext.cancelChildren()
+            supervisorJob.cancel()
+            okHttpClient.dispatcher.executorService.shutdown()
+            okHttpClient.connectionPool.evictAll()
+            okHttpClient.cache?.close()
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to destroy CloudSyncService")
+        }
     }
 }

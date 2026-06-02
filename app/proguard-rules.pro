@@ -81,6 +81,14 @@
     public static final ** CREATOR;
 }
 
+# 保留kotlin-parcelize生成的代码
+-keep @kotlinx.parcelize.Parcelize class * { *; }
+-keepclassmembers @kotlinx.parcelize.Parcelize class * {
+    public static final ** CREATOR;
+    public <fields>;
+    public <init>(...);
+}
+
 # 保留Serializable实现
 -keepclassmembers class * implements java.io.Serializable {
     static final long serialVersionUID;

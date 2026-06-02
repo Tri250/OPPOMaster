@@ -26,7 +26,8 @@ class Camera2ParamProvider(private val context: Context) : CameraParamProvider {
 
     private val cameraManager by lazy { context.getSystemService(Context.CAMERA_SERVICE) as CameraManager }
     
-    private val scope = CoroutineScope(Dispatchers.IO + Job())
+    private val supervisorJob = Job()
+    private val scope = CoroutineScope(Dispatchers.IO + supervisorJob)
     private var monitorJob: Job? = null
     private var cameraDevice: CameraDevice? = null
     private var captureRequest: CaptureRequest? = null
@@ -73,8 +74,21 @@ class Camera2ParamProvider(private val context: Context) : CameraParamProvider {
 
     override fun release() {
         stopMonitor()
-        captureSession?.close()
-        cameraDevice?.close()
+        try {
+            captureSession?.close()
+            cameraDevice?.close()
+        } catch (e: Exception) {
+            Timber.e(e, "Error releasing camera resources")
+        }
+        captureSession = null
+        cameraDevice = null
+        captureRequest = null
+        try {
+            scope.coroutineContext.cancelChildren()
+            supervisorJob.cancel()
+        } catch (e: Exception) {
+            Timber.e(e, "Error cancelling scope")
+        }
     }
 
     private fun checkCameraSupport(): Boolean {
