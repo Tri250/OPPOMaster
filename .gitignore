@@ -13,3 +13,8 @@
 .externalNativeBuild
 .cxx
 local.properties
+*.zip
+*.sh
+temp*
+complete_package
+fixed_package
