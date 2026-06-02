@@ -1,6 +1,8 @@
 package com.omaster.app.ui.theme
 
 import android.app.Activity
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
@@ -15,6 +17,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import com.omaster.app.data.EyeProtectionMode
 import com.omaster.app.data.ThemeMode
 
 // ==================== ColorOS 16 专业摄影深色配色方案 ====================
@@ -77,6 +80,8 @@ private val ColorOSLightColorScheme = lightColorScheme(
 fun OMasterTheme(
     themeMode: Int = ThemeMode.SYSTEM.value,
     dynamicColor: Boolean = false,
+    eyeProtectionMode: EyeProtectionMode = EyeProtectionMode.OFF,
+    eyeProtectionIntensity: Float = 0.3f,
     content: @Composable () -> Unit
 ) {
     val darkTheme = when (themeMode) {
@@ -93,7 +98,7 @@ fun OMasterTheme(
         darkTheme -> ColorOSDarkColorScheme
         else -> ColorOSLightColorScheme
     }
-    
+
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
@@ -102,6 +107,12 @@ fun OMasterTheme(
             window.navigationBarColor = colorScheme.background.toArgb()
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
             WindowCompat.getInsetsController(window, view).isAppearanceLightNavigationBars = !darkTheme
+
+            if (eyeProtectionMode != EyeProtectionMode.OFF && eyeProtectionIntensity > 0f) {
+                applyEyeProtectionFilter(view, eyeProtectionMode, eyeProtectionIntensity)
+            } else {
+                view.paint.colorFilter = null
+            }
         }
     }
 
@@ -111,4 +122,32 @@ fun OMasterTheme(
         shapes = ColorOSShapes,
         content = content
     )
+}
+
+private fun applyEyeProtectionFilter(
+    view: android.view.View,
+    mode: EyeProtectionMode,
+    intensity: Float
+) {
+    try {
+        val colorTemperature = mode.colorTemperature
+        val safeIntensity = intensity.coerceIn(0f, 1f)
+        val tempRatio = (6500 - colorTemperature).toFloat() / 3500f
+        val blueReduction = safeIntensity * tempRatio
+
+        val matrix = ColorMatrix(floatArrayOf(
+            1f + safeIntensity * 0.05f, 0f, 0f, 0f, 0f,
+            0f, 1f, 0f, 0f, 0f,
+            0f, 0f, (1f - blueReduction).coerceIn(0.4f, 1f), 0f, 0f,
+            0f, 0f, 0f, 1f, 0f
+        ))
+
+        val satScale = 1f - safeIntensity * 0.1f
+        val satMatrix = ColorMatrix().apply { setSaturation(satScale) }
+        matrix.postConcat(satMatrix)
+
+        view.paint.colorFilter = ColorMatrixColorFilter(matrix)
+    } catch (e: Exception) {
+        timber.log.Timber.e(e, "护眼模式应用失败")
+    }
 }

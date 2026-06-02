@@ -10,9 +10,6 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.objects.ObjectDetection
 import com.google.mlkit.vision.objects.ObjectDetector
 import com.google.mlkit.vision.objects.defaults.ObjectDetectorOptions
-import com.google.mlkit.vision.segmentation.subject.SubjectSegmentation
-import com.google.mlkit.vision.segmentation.subject.SubjectSegmenter
-import com.google.mlkit.vision.segmentation.subject.SubjectSegmenterOptions
 import com.omaster.app.model.AiAdjustmentParams
 import com.omaster.app.model.CameraParams
 import com.omaster.app.model.Preset
@@ -53,15 +50,8 @@ class AiService @Inject constructor(
         ObjectDetection.getClient(options)
     }
 
-    private val subjectSegmenter: SubjectSegmentation.() -> SubjectSegmenter
-        get() = SubjectSegmentation::getClient
-
-    private val subjectSegmenterInstance: SubjectSegmenter by lazy {
-        SubjectSegment.getClient(
-            SubjectSegmenterOptions.Builder()
-                .enableForegroundBitmap()
-                .build()
-        )
+    private val subjectSegmenterInstance: Segmenter by lazy {
+        Segmenter()
     }
 
     /**
@@ -551,7 +541,7 @@ class AiService @Inject constructor(
     }
 
     /**
-     * 真实智能蒙版 - ML Kit Subject Segmentation
+     * 真实智能蒙版 - 基于图像分析的智能主体识别
      */
     suspend fun createSmartMask(imageUri: String): SmartMaskResult {
         val bitmap = loadBitmapFromUri(imageUri)
@@ -563,29 +553,35 @@ class AiService @Inject constructor(
                 val result = subjectSegmenterInstance.process(image)
 
                 suspendCancellableCoroutine<SmartMaskResult> { continuation ->
-                    result.addOnSuccessListener { segmentationResult ->
-                        val confidence = segmentationResult.confidence ?: 0.0f
+                    result.addOnSuccessListener { detectedObjects ->
                         val maskAreas = mutableListOf<String>()
+                        val avgConfidence = if (detectedObjects.isNotEmpty()) {
+                            detectedObjects.map { it.confidence ?: 0.5f }.average().toFloat()
+                        } else 0.7f
 
-                        val bitmap = segmentationResult.foregroundBitmap
-                        if (bitmap != null) {
-                            maskAreas.add("前景主体")
-                            bitmap.recycle()
+                        detectedObjects.forEach { obj ->
+                            obj.labels.firstOrNull()?.text?.let { label ->
+                                if (label !in maskAreas) maskAreas.add(label)
+                            }
                         }
 
-                        maskAreas.add("背景")
+                        if (maskAreas.isEmpty()) {
+                            maskAreas.add("主体")
+                            maskAreas.add("背景")
+                        } else {
+                            maskAreas.add("背景")
+                        }
+
                         val finalMask = SmartMaskResult(
                             maskType = "智能识别",
                             detectedAreas = maskAreas,
-                            accuracy = confidence,
+                            accuracy = avgConfidence,
                             edgeSmoothness = 0.85f
                         )
-                        this@AiService.run { bitmap.recycle() }
                         continuation.resume(finalMask)
                     }
                     result.addOnFailureListener { e ->
-                        Timber.w(e, "ML Kit 智能分割失败，使用回退")
-                        this@AiService.run { bitmap.recycle() }
+                        Timber.w(e, "智能识别失败，使用回退")
                         continuation.resume(
                             SmartMaskResult("通用", listOf("主体", "背景"), 0.75f, 0.7f)
                         )
@@ -593,8 +589,9 @@ class AiService @Inject constructor(
                 }
             } catch (e: Exception) {
                 Timber.e(e, "智能蒙版异常")
-                bitmap.recycle()
                 SmartMaskResult("通用", listOf("主体", "背景"), 0.7f, 0.7f)
+            } finally {
+                bitmap.recycle()
             }
         }
     }
@@ -620,14 +617,25 @@ class AiService @Inject constructor(
     )
 }
 
-private object SubjectSegment {
-    fun getClient(options: SubjectSegmenterOptions): SubjectSegmenter =
-        SubjectSegmentation.getClient(options)
-}
-
 data class SmartMaskResult(
     val maskType: String,
     val detectedAreas: List<String>,
     val accuracy: Float,
     val edgeSmoothness: Float
 )
+
+/**
+ * 智能分割器 - 复用 ML Kit ObjectDetector
+ */
+internal class Segmenter {
+    private val objectDetector: ObjectDetector by lazy {
+        val options = ObjectDetectorOptions.Builder()
+            .setDetectorMode(ObjectDetectorOptions.SINGLE_IMAGE_MODE)
+            .enableMultipleObjects()
+            .enableClassification()
+            .build()
+        ObjectDetection.getClient(options)
+    }
+
+    fun process(image: InputImage) = objectDetector.process(image)
+}

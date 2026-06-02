@@ -26,6 +26,8 @@ class PreferencesDataStore @Inject constructor(
         val FLUID_CLOUD_ENABLED = booleanPreferencesKey("fluid_cloud_enabled")
         val OVERLAY_ENABLED = booleanPreferencesKey("overlay_enabled")
         val SYNC_ENABLED = booleanPreferencesKey("sync_enabled")
+        val EYE_PROTECTION_MODE = intPreferencesKey("eye_protection_mode")
+        val EYE_PROTECTION_INTENSITY = intPreferencesKey("eye_protection_intensity")
     }
 
     val favoritePresets: Flow<Set<String>> = context.dataStore.data
@@ -51,6 +53,18 @@ class PreferencesDataStore @Inject constructor(
     val syncEnabled: Flow<Boolean> = context.dataStore.data
         .map { preferences ->
             preferences[PreferencesKeys.SYNC_ENABLED] ?: true
+        }
+
+    val eyeProtectionMode: Flow<EyeProtectionMode> = context.dataStore.data
+        .map { preferences ->
+            val value = preferences[PreferencesKeys.EYE_PROTECTION_MODE] ?: EyeProtectionMode.OFF.value
+            EyeProtectionMode.fromValue(value)
+        }
+
+    val eyeProtectionIntensity: Flow<Float> = context.dataStore.data
+        .map { preferences ->
+            val value = preferences[PreferencesKeys.EYE_PROTECTION_INTENSITY] ?: 30
+            (value / 100f).coerceIn(0f, 1f)
         }
 
     suspend fun toggleFavorite(presetId: String) {
@@ -88,10 +102,35 @@ class PreferencesDataStore @Inject constructor(
             preferences[PreferencesKeys.SYNC_ENABLED] = enabled
         }
     }
+
+    suspend fun setEyeProtectionMode(mode: EyeProtectionMode) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.EYE_PROTECTION_MODE] = mode.value
+        }
+    }
+
+    suspend fun setEyeProtectionIntensity(intensity: Float) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.EYE_PROTECTION_INTENSITY] = (intensity * 100).toInt().coerceIn(0, 100)
+        }
+    }
 }
 
 enum class ThemeMode(val value: Int) {
     SYSTEM(0),
     LIGHT(1),
     DARK(2)
+}
+
+enum class EyeProtectionMode(val value: Int, val displayName: String, val colorTemperature: Int) {
+    OFF(0, "关闭", 6500),
+    LIGHT(1, "轻度", 5500),
+    NORMAL(2, "中度", 4500),
+    STRONG(3, "强度", 3500);
+
+    companion object {
+        fun fromValue(value: Int): EyeProtectionMode {
+            return values().find { it.value == value } ?: OFF
+        }
+    }
 }
