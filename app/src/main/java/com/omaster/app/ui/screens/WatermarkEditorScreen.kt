@@ -1,8 +1,11 @@
 package com.omaster.app.ui.screens
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -20,16 +23,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.omaster.app.ui.theme.HasselbladOrange
 import com.omaster.app.ui.theme.OMasterSpacing
-import com.omaster.app.watermark.WatermarkTemplate
+import com.omaster.app.watermark.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -37,20 +42,98 @@ fun WatermarkEditorScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
-    var selectedImageUri by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+    
+    var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
     var selectedTemplate by remember { mutableStateOf(WatermarkTemplate.HASSELBLAD) }
     var customText by remember { mutableStateOf("") }
     var showTimestamp by remember { mutableStateOf(true) }
     var showDevice by remember { mutableStateOf(true) }
     var opacity by remember { mutableStateOf(0.8f) }
+    var isProcessing by remember { mutableStateOf(false) }
+    var processedBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var showPreview by remember { mutableStateOf(false) }
+    
+    val watermarkProcessor = remember { WatermarkProcessor(context) }
 
     val imagePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
-        selectedImageUri = uri?.toString()
+        selectedImageUri = uri
+        processedBitmap = null
+        showPreview = false
+    }
+    
+    val saveLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("image/jpeg")
+    ) { uri ->
+        uri?.let { outputUri ->
+            processedBitmap?.let { bitmap ->
+                scope.launch {
+                    saveBitmapToUri(context, bitmap, outputUri)
+                    snackbarHostState.showSnackbar("水印图片已保存")
+                }
+            }
+        }
+    }
+    
+    fun applyWatermark() {
+        if (selectedImageUri == null) {
+            scope.launch {
+                snackbarHostState.showSnackbar("请先选择图片")
+            }
+            return
+        }
+        
+        scope.launch {
+            isProcessing = true
+            try {
+                val sourceBitmap = loadBitmapFromUri(context, selectedImageUri!!)
+                
+                val config = WatermarkConfig(
+                    template = selectedTemplate,
+                    opacity = opacity,
+                    customText = if (selectedTemplate == WatermarkTemplate.CUSTOM) customText else null,
+                    showTimestamp = showTimestamp,
+                    showDevice = showDevice
+                )
+                
+                val request = WatermarkProcessRequest(
+                    sourceBitmap = sourceBitmap,
+                    config = config
+                )
+                
+                val result = watermarkProcessor.processWatermark(request)
+                
+                if (result.success && result.bitmap != null) {
+                    processedBitmap = result.bitmap
+                    showPreview = true
+                    snackbarHostState.showSnackbar("水印应用成功")
+                } else {
+                    snackbarHostState.showSnackbar("水印应用失败: ${result.error}")
+                }
+            } catch (e: Exception) {
+                snackbarHostState.showSnackbar("处理失败: ${e.message}")
+            } finally {
+                isProcessing = false
+            }
+        }
+    }
+    
+    fun saveWatermarkedImage() {
+        if (processedBitmap != null) {
+            val fileName = "watermark_${System.currentTimeMillis()}.jpg"
+            saveLauncher.launch(fileName)
+        } else {
+            scope.launch {
+                snackbarHostState.showSnackbar("请先应用水印")
+            }
+        }
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -80,7 +163,9 @@ fun WatermarkEditorScreen(
             verticalArrangement = Arrangement.spacedBy(OMasterSpacing.lg)
         ) {
             ImagePreviewCard(
-                imageUri = selectedImageUri,
+                imageUri = selectedImageUri?.toString(),
+                processedBitmap = processedBitmap,
+                showPreview = showPreview,
                 onPickImage = { imagePicker.launch("image/*") }
             )
 
@@ -101,7 +186,8 @@ fun WatermarkEditorScreen(
             )
 
             Button(
-                onClick = { },
+                onClick = { applyWatermark() },
+                enabled = selectedImageUri != null && !isProcessing,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
@@ -110,17 +196,53 @@ fun WatermarkEditorScreen(
                 ),
                 shape = RoundedCornerShape(16.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Check,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "应用水印",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
+                if (isProcessing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        color = Color.Black,
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "处理中...",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "应用水印",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+            
+            if (processedBitmap != null) {
+                OutlinedButton(
+                    onClick = { saveWatermarkedImage() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Save,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "保存图片",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
     }
@@ -129,6 +251,8 @@ fun WatermarkEditorScreen(
 @Composable
 fun ImagePreviewCard(
     imageUri: String?,
+    processedBitmap: Bitmap?,
+    showPreview: Boolean,
     onPickImage: () -> Unit
 ) {
     Card(
@@ -146,13 +270,50 @@ fun ImagePreviewCard(
                 .clickable(onClick = onPickImage),
             contentAlignment = Alignment.Center
         ) {
-            if (imageUri != null) {
+            if (showPreview && processedBitmap != null) {
+                Image(
+                    bitmap = processedBitmap.asImageBitmap(),
+                    contentDescription = "Watermarked image",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.3f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "点击更换图片",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White
+                    )
+                }
+            } else if (imageUri != null) {
                 AsyncImage(
                     model = imageUri,
                     contentDescription = "Selected image",
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
                 )
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(8.dp)
+                        .background(
+                            HasselbladOrange.copy(alpha = 0.8f),
+                            RoundedCornerShape(4.dp)
+                        )
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "原图",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.Black,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             } else {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -328,3 +489,17 @@ fun WatermarkOptions(
         }
     }
 }
+
+private suspend fun loadBitmapFromUri(context: android.content.Context, uri: Uri): Bitmap =
+    withContext(Dispatchers.IO) {
+        val inputStream = context.contentResolver.openInputStream(uri)
+        BitmapFactory.decodeStream(inputStream)
+    }
+
+private suspend fun saveBitmapToUri(context: android.content.Context, bitmap: Bitmap, uri: Uri) =
+    withContext(Dispatchers.IO) {
+        val outputStream = context.contentResolver.openOutputStream(uri)
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 95, outputStream)
+        outputStream?.flush()
+        outputStream?.close()
+    }
