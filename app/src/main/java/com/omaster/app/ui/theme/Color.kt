@@ -51,6 +51,7 @@ val ColorOSBlackElevated = Color(0xFF121212)
 val ColorOSCard = Color(0xFF1A1A1A)
 val ColorOSGlass = Color(0xCC080808)
 val ColorOSGlassLight = Color(0x80080808)
+val DeepSpace = Color(0xFF050510)  // 深空背景
 
 // 专业文字层级
 val ColorOSTextPrimary = Color(0xFFFAFAFA)
@@ -79,6 +80,10 @@ val ColorOSLightBorder = Color(0xFFE4E4E7)
 val ColorOSLightBorderLight = Color(0xFFF4F4F5)
 
 val AccentPrimary = HasselbladOrange
+
+// ========== 哈苏 Pro 系列辅助色 ==========
+val HasselbladOrangePro = Color(0xFFFF8C42)  // 哈苏专业橙
+val OppoSunriseGold = Color(0xFFFFB300)      // OPPO 晨曦金
 
 // ========== 专业摄影渐变色 ==========
 // 哈苏大师渐变

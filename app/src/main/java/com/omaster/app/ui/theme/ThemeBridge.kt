@@ -20,11 +20,15 @@ object Colors {
     val Accent = AuroraGreen
     val Error = ErrorPro
 
-    val HasselbladOrange = HasselbladOrange
-    val HasselbladOrangeLight = HasselbladOrangeLight
-    val HasselbladOrangeDark = HasselbladOrangeDark
+    val HasselbladOrange = com.omaster.app.ui.theme.HasselbladOrange
+    val HasselbladOrangeLight = com.omaster.app.ui.theme.HasselbladOrangeLight
+    val HasselbladOrangeDark = com.omaster.app.ui.theme.HasselbladOrangeDark
     val HasselbladBrown = OMasterColors.HasselbladBrown
     val HasselbladGold = OMasterColors.HasselbladGold
+
+    val HasselbladOrangePro = com.omaster.app.ui.theme.HasselbladOrangePro
+    val OppoSunriseGold = com.omaster.app.ui.theme.OppoSunriseGold
+    val DeepSpace = com.omaster.app.ui.theme.DeepSpace
 
     val AccentBlue = OMasterColors.AccentBlue
     val AccentGreen = OMasterColors.AccentGreen
