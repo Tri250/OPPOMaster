@@ -1,12 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/capsule_container"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
-    app:cardCornerRadius="32dp"
-    app:cardElevation="8dp"
-    app:cardBackgroundColor="#1A1A2E">
+    android:background="@drawable/capsule_background"
+    android:elevation="8dp">
 
     <LinearLayout
         android:layout_width="wrap_content"
@@ -68,4 +66,4 @@
 
     </LinearLayout>
 
-</androidx.cardview.widget.CardView>
+</FrameLayout>

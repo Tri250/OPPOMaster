@@ -71,7 +71,7 @@ android {
     }
 
     composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.15"
+        kotlinCompilerExtensionVersion = "1.5.8"
     }
 
     packaging {
@@ -108,6 +108,18 @@ dependencies {
 
     // JSON解析
     implementation("com.google.code.gson:gson:2.11.0")
+
+    // Network
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+    implementation("com.squareup.retrofit2:retrofit:2.11.0")
+    implementation("com.squareup.retrofit2:converter-gson:2.11.0")
+
+    // Security
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
+    // ML Kit
+    implementation("com.google.mlkit:text-recognition:16.0.1")
 
     // Image Loading
     implementation("io.coil-kt:coil-compose:2.7.0")

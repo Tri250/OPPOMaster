@@ -4,7 +4,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -222,44 +221,22 @@ object OMasterAnimation {
     val DurationNormal = 300
     val DurationSlow = 500
     val DurationVerySlow = 800
-    
+
     val EasingStandard = androidx.compose.animation.core.FastOutSlowInEasing
-    val EasingDecelerate = androidx.compose.animation.core.DecelerateInterpolator
-    val EasingAccelerate = androidx.compose.animation.core.AccelerateDecelerateInterpolator
+    val EasingDecelerate = androidx.compose.animation.core.DecelerateEasing
+    val EasingAccelerate = androidx.compose.animation.core.AccelerateDecelerateEasing
 }
 
 object OMasterShadow {
-    val Soft = listOf(
-        androidx.compose.ui.draw.shadow.Shadow(
-            color = Color(0x40000000),
-            blurRadius = 16.dp,
-            offset = androidx.compose.ui.geometry.Offset(0f, 4.dp)
-        )
-    )
-    
-    val Medium = listOf(
-        androidx.compose.ui.draw.shadow.Shadow(
-            color = Color(0x60000000),
-            blurRadius = 24.dp,
-            offset = androidx.compose.ui.geometry.Offset(0f, 8.dp)
-        )
-    )
-    
-    val Strong = listOf(
-        androidx.compose.ui.draw.shadow.Shadow(
-            color = Color(0x80000000),
-            blurRadius = 32.dp,
-            offset = androidx.compose.ui.geometry.Offset(0f, 12.dp)
-        )
-    )
-    
-    val Glow = listOf(
-        androidx.compose.ui.draw.shadow.Shadow(
-            color = Color(0x40D4A574),
-            blurRadius = 24.dp,
-            offset = androidx.compose.ui.geometry.Offset(0f, 0.dp)
-        )
-    )
+    val SoftElevation = 4.dp
+    val MediumElevation = 8.dp
+    val StrongElevation = 16.dp
+    val GlowElevation = 12.dp
+
+    val SoftColor = Color(0x40000000)
+    val MediumColor = Color(0x60000000)
+    val StrongColor = Color(0x80000000)
+    val GlowColor = Color(0x40D4A574)
 }
 
 object OMasterIcons {
