@@ -1,0 +1,1260 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OPPO Master - 手机端功能展示</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --hasselblad-orange: #D4A574;
+            --hasselblad-orange-light: #E8C9A8;
+            --hasselblad-orange-dark: #B08B5A;
+            --coloros-black: #1A1A1A;
+            --coloros-card: #2A2A2A;
+            --coloros-text-primary: #FFFFFF;
+            --coloros-text-secondary: #B3B3B3;
+            --accent-green: #4CAF50;
+            --accent-blue: #2196F3;
+            --glass-bg: rgba(255, 255, 255, 0.08);
+            --glass-border: rgba(255, 255, 255, 0.12);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #0D0D0D 0%, #1A1A1A 50%, #0D0D0D 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .phone-container {
+            width: 380px;
+            height: 800px;
+            background: var(--coloros-black);
+            border-radius: 40px;
+            padding: 12px;
+            box-shadow: 
+                0 0 0 2px #333,
+                0 20px 60px rgba(0, 0, 0, 0.5),
+                inset 0 0 20px rgba(255, 255, 255, 0.05);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .phone-frame {
+            width: 100%;
+            height: 100%;
+            background: var(--coloros-black);
+            border-radius: 32px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .phone-notch {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 120px;
+            height: 28px;
+            background: var(--coloros-black);
+            border-radius: 0 0 16px 16px;
+            z-index: 100;
+        }
+
+        .phone-notch::before {
+            content: '';
+            position: absolute;
+            top: 8px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 60px;
+            height: 6px;
+            background: #333;
+            border-radius: 3px;
+        }
+
+        .screen-content {
+            width: 100%;
+            height: 100%;
+            overflow-y: auto;
+            overflow-x: hidden;
+            scrollbar-width: none;
+        }
+
+        .screen-content::-webkit-scrollbar {
+            display: none;
+        }
+
+        /* Navigation Tabs */
+        .nav-tabs {
+            display: flex;
+            gap: 8px;
+            padding: 12px;
+            background: rgba(0, 0, 0, 0.3);
+            position: absolute;
+            top: 40px;
+            left: 0;
+            right: 0;
+            z-index: 50;
+        }
+
+        .nav-tab {
+            flex: 1;
+            padding: 8px 4px;
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            color: var(--coloros-text-secondary);
+            font-size: 11px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .nav-tab.active {
+            background: var(--hasselblad-orange);
+            color: var(--coloros-black);
+            border-color: var(--hasselblad-orange);
+        }
+
+        .nav-tab:hover {
+            background: rgba(212, 165, 116, 0.2);
+        }
+
+        /* Screens */
+        .screen {
+            display: none;
+            padding-top: 100px;
+            min-height: 100%;
+        }
+
+        .screen.active {
+            display: block;
+        }
+
+        /* Home Screen */
+        .home-header {
+            padding: 16px;
+            text-align: center;
+        }
+
+        .home-title {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--coloros-text-primary);
+            margin-bottom: 4px;
+        }
+
+        .home-subtitle {
+            font-size: 12px;
+            color: var(--hasselblad-orange);
+            letter-spacing: 2px;
+        }
+
+        .search-bar {
+            margin: 16px;
+            padding: 12px 16px;
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .search-icon {
+            width: 20px;
+            height: 20px;
+            fill: var(--coloros-text-secondary);
+        }
+
+        .search-input {
+            color: var(--coloros-text-secondary);
+            font-size: 14px;
+        }
+
+        .filter-chips {
+            display: flex;
+            gap: 8px;
+            padding: 0 16px;
+            overflow-x: auto;
+            scrollbar-width: none;
+        }
+
+        .filter-chip {
+            padding: 8px 16px;
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            color: var(--coloros-text-secondary);
+            font-size: 12px;
+            white-space: nowrap;
+        }
+
+        .filter-chip.active {
+            background: var(--hasselblad-orange);
+            color: var(--coloros-black);
+            border-color: var(--hasselblad-orange);
+        }
+
+        .preset-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            padding: 16px;
+        }
+
+        .preset-card {
+            background: var(--coloros-card);
+            border-radius: 16px;
+            overflow: hidden;
+            transition: transform 0.3s ease;
+        }
+
+        .preset-card:hover {
+            transform: scale(1.02);
+        }
+
+        .preset-image {
+            width: 100%;
+            height: 120px;
+            background: linear-gradient(135deg, #2A2A2A, #3A3A3A);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .preset-image::after {
+            content: '📷';
+            font-size: 40px;
+            opacity: 0.3;
+        }
+
+        .hasselblad-badge {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            padding: 4px 8px;
+            background: var(--hasselblad-orange);
+            color: var(--coloros-black);
+            font-size: 10px;
+            font-weight: 600;
+            border-radius: 4px;
+        }
+
+        .preset-info {
+            padding: 12px;
+        }
+
+        .preset-name {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--coloros-text-primary);
+            margin-bottom: 4px;
+        }
+
+        .preset-device {
+            font-size: 11px;
+            color: var(--coloros-text-secondary);
+        }
+
+        .preset-params {
+            display: flex;
+            gap: 4px;
+            margin-top: 8px;
+        }
+
+        .param-tag {
+            padding: 2px 6px;
+            background: rgba(212, 165, 116, 0.15);
+            color: var(--hasselblad-orange);
+            font-size: 10px;
+            border-radius: 4px;
+        }
+
+        /* Detail Screen */
+        .detail-header {
+            height: 200px;
+            background: linear-gradient(180deg, #2A2A2A 0%, var(--coloros-black) 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .detail-header::before {
+            content: '🖼️';
+            font-size: 60px;
+            opacity: 0.4;
+        }
+
+        .detail-back {
+            position: absolute;
+            top: 16px;
+            left: 16px;
+            width: 36px;
+            height: 36px;
+            background: var(--glass-bg);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--coloros-text-primary);
+        }
+
+        .detail-favorite {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            width: 36px;
+            height: 36px;
+            background: var(--glass-bg);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--hasselblad-orange);
+        }
+
+        .detail-content {
+            padding: 20px;
+        }
+
+        .detail-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--coloros-text-primary);
+            margin-bottom: 8px;
+        }
+
+        .detail-meta {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .meta-item {
+            padding: 6px 12px;
+            background: var(--glass-bg);
+            border-radius: 8px;
+            font-size: 12px;
+            color: var(--coloros-text-secondary);
+        }
+
+        .params-section {
+            margin-top: 20px;
+        }
+
+        .section-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--hasselblad-orange);
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .params-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .param-card {
+            padding: 16px;
+            background: var(--coloros-card);
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        .param-label {
+            font-size: 11px;
+            color: var(--coloros-text-secondary);
+            margin-bottom: 4px;
+        }
+
+        .param-value {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--coloros-text-primary);
+        }
+
+        .apply-button {
+            margin: 20px 16px;
+            padding: 16px;
+            background: var(--hasselblad-orange);
+            color: var(--coloros-black);
+            font-size: 16px;
+            font-weight: 600;
+            border-radius: 16px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .apply-button:hover {
+            background: var(--hasselblad-orange-light);
+            transform: scale(1.02);
+        }
+
+        /* Watermark Screen */
+        .watermark-preview {
+            height: 200px;
+            margin: 16px;
+            background: linear-gradient(135deg, #2A2A2A, #1A1A1A);
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .watermark-preview::before {
+            content: '选择图片';
+            color: var(--coloros-text-secondary);
+            font-size: 14px;
+        }
+
+        .watermark-badge-preview {
+            position: absolute;
+            bottom: 16px;
+            right: 16px;
+            padding: 8px 16px;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 8px;
+            color: var(--hasselblad-orange);
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .template-selector {
+            padding: 16px;
+        }
+
+        .template-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--coloros-text-primary);
+            margin-bottom: 12px;
+        }
+
+        .template-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+        }
+
+        .template-item {
+            padding: 12px 8px;
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            text-align: center;
+            font-size: 11px;
+            color: var(--coloros-text-secondary);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .template-item.active {
+            background: var(--hasselblad-orange);
+            color: var(--coloros-black);
+            border-color: var(--hasselblad-orange);
+        }
+
+        .watermark-options {
+            padding: 16px;
+        }
+
+        .option-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid var(--glass-border);
+        }
+
+        .option-label {
+            font-size: 14px;
+            color: var(--coloros-text-primary);
+        }
+
+        .option-toggle {
+            width: 48px;
+            height: 28px;
+            background: var(--glass-bg);
+            border-radius: 14px;
+            position: relative;
+            cursor: pointer;
+        }
+
+        .option-toggle.active {
+            background: var(--hasselblad-orange);
+        }
+
+        .option-toggle::after {
+            content: '';
+            position: absolute;
+            top: 4px;
+            left: 4px;
+            width: 20px;
+            height: 20px;
+            background: var(--coloros-text-primary);
+            border-radius: 10px;
+            transition: left 0.3s ease;
+        }
+
+        .option-toggle.active::after {
+            left: 24px;
+            background: var(--coloros-black);
+        }
+
+        .opacity-slider {
+            margin: 16px;
+        }
+
+        .slider-label {
+            font-size: 14px;
+            color: var(--coloros-text-primary);
+            margin-bottom: 8px;
+        }
+
+        .slider-track {
+            height: 4px;
+            background: var(--glass-bg);
+            border-radius: 2px;
+            position: relative;
+        }
+
+        .slider-fill {
+            height: 100%;
+            width: 80%;
+            background: var(--hasselblad-orange);
+            border-radius: 2px;
+        }
+
+        .slider-thumb {
+            position: absolute;
+            top: -6px;
+            left: 80%;
+            transform: translateX(-50%);
+            width: 16px;
+            height: 16px;
+            background: var(--hasselblad-orange);
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(212, 165, 116, 0.4);
+        }
+
+        /* AI Fine Tune Screen */
+        .ai-header {
+            padding: 16px;
+            text-align: center;
+            background: linear-gradient(180deg, rgba(212, 165, 116, 0.1) 0%, transparent 100%);
+        }
+
+        .ai-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--coloros-text-primary);
+        }
+
+        .ai-subtitle {
+            font-size: 12px;
+            color: var(--hasselblad-orange);
+            margin-top: 4px;
+        }
+
+        .ai-preview {
+            height: 180px;
+            margin: 16px;
+            background: var(--coloros-card);
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .ai-preview::before {
+            content: '📷';
+            font-size: 50px;
+            opacity: 0.3;
+        }
+
+        .ai-badge {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            padding: 6px 12px;
+            background: var(--accent-green);
+            color: white;
+            font-size: 11px;
+            font-weight: 600;
+            border-radius: 8px;
+        }
+
+        .ai-controls {
+            padding: 16px;
+        }
+
+        .ai-control-group {
+            margin-bottom: 20px;
+        }
+
+        .control-label {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--coloros-text-primary);
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .control-icon {
+            width: 20px;
+            height: 20px;
+            background: var(--hasselblad-orange);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+        }
+
+        .control-options {
+            display: flex;
+            gap: 8px;
+        }
+
+        .control-option {
+            flex: 1;
+            padding: 12px;
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            text-align: center;
+            font-size: 12px;
+            color: var(--coloros-text-secondary);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .control-option.active {
+            background: rgba(212, 165, 116, 0.2);
+            border-color: var(--hasselblad-orange);
+            color: var(--hasselblad-orange);
+        }
+
+        .ai-slider-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 0;
+        }
+
+        .ai-slider-label {
+            width: 60px;
+            font-size: 12px;
+            color: var(--coloros-text-secondary);
+        }
+
+        .ai-slider-track {
+            flex: 1;
+            height: 4px;
+            background: var(--glass-bg);
+            border-radius: 2px;
+            position: relative;
+        }
+
+        .ai-slider-value {
+            width: 40px;
+            font-size: 12px;
+            color: var(--hasselblad-orange);
+            text-align: right;
+        }
+
+        .ai-button {
+            margin: 16px;
+            padding: 16px;
+            background: linear-gradient(135deg, var(--hasselblad-orange), var(--hasselblad-orange-dark));
+            color: var(--coloros-black);
+            font-size: 14px;
+            font-weight: 600;
+            border-radius: 16px;
+            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        /* Settings Screen */
+        .settings-section {
+            padding: 16px;
+        }
+
+        .settings-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--coloros-text-primary);
+            margin-bottom: 16px;
+        }
+
+        .settings-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px;
+            background: var(--coloros-card);
+            border-radius: 12px;
+            margin-bottom: 8px;
+        }
+
+        .settings-item-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .settings-icon {
+            width: 40px;
+            height: 40px;
+            background: var(--glass-bg);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+
+        .settings-text {
+            font-size: 14px;
+            color: var(--coloros-text-primary);
+        }
+
+        .settings-subtext {
+            font-size: 11px;
+            color: var(--coloros-text-secondary);
+            margin-top: 2px;
+        }
+
+        .settings-value {
+            font-size: 12px;
+            color: var(--hasselblad-orange);
+        }
+
+        /* Bottom Navigation */
+        .bottom-nav {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 60px;
+            background: var(--coloros-black);
+            border-top: 1px solid var(--glass-border);
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            padding-bottom: 8px;
+        }
+
+        .nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            color: var(--coloros-text-secondary);
+            font-size: 10px;
+            cursor: pointer;
+            transition: color 0.3s ease;
+        }
+
+        .nav-item.active {
+            color: var(--hasselblad-orange);
+        }
+
+        .nav-icon {
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+
+        /* Animations */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .screen.active {
+            animation: fadeIn 0.3s ease;
+        }
+
+        .preset-card {
+            animation: fadeIn 0.4s ease backwards;
+        }
+
+        .preset-card:nth-child(1) { animation-delay: 0.1s; }
+        .preset-card:nth-child(2) { animation-delay: 0.15s; }
+        .preset-card:nth-child(3) { animation-delay: 0.2s; }
+        .preset-card:nth-child(4) { animation-delay: 0.25s; }
+
+        /* Ripple Effect */
+        @keyframes ripple {
+            0% { transform: scale(0); opacity: 0.5; }
+            100% { transform: scale(2); opacity: 0; }
+        }
+
+        .ripple {
+            position: absolute;
+            border-radius: 50%;
+            background: var(--hasselblad-orange);
+            animation: ripple 0.6s ease-out;
+            pointer-events: none;
+        }
+
+        /* Liquid Glass Effect */
+        .glass-effect {
+            background: linear-gradient(
+                135deg,
+                rgba(255, 255, 255, 0.1) 0%,
+                rgba(255, 255, 255, 0.05) 50%,
+                rgba(255, 255, 255, 0.1) 100%
+            );
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+    </style>
+</head>
+<body>
+    <div class="phone-container">
+        <div class="phone-frame">
+            <div class="phone-notch"></div>
+            
+            <div class="nav-tabs">
+                <div class="nav-tab active" data-screen="home">首页</div>
+                <div class="nav-tab" data-screen="detail">详情</div>
+                <div class="nav-tab" data-screen="watermark">水印</div>
+                <div class="nav-tab" data-screen="ai">AI微调</div>
+                <div class="nav-tab" data-screen="settings">设置</div>
+            </div>
+            
+            <div class="screen-content">
+                <!-- Home Screen -->
+                <div class="screen active" id="home">
+                    <div class="home-header">
+                        <div class="home-title">OPPO Master</div>
+                        <div class="home-subtitle">HASSELBLAD 专业影像</div>
+                    </div>
+                    
+                    <div class="search-bar">
+                        <svg class="search-icon" viewBox="0 0 24 24">
+                            <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+                        </svg>
+                        <span class="search-input">搜索预设...</span>
+                    </div>
+                    
+                    <div class="filter-chips">
+                        <div class="filter-chip active">全部</div>
+                        <div class="filter-chip">哈苏HNCS</div>
+                        <div class="filter-chip">Find X</div>
+                        <div class="filter-chip">Reno</div>
+                        <div class="filter-chip">收藏</div>
+                    </div>
+                    
+                    <div class="preset-grid">
+                        <div class="preset-card">
+                            <div class="preset-image">
+                                <div class="hasselblad-badge">HNCS</div>
+                            </div>
+                            <div class="preset-info">
+                                <div class="preset-name">哈苏大师人像</div>
+                                <div class="preset-device">Find X8 Ultra</div>
+                                <div class="preset-params">
+                                    <div class="param-tag">ISO 100</div>
+                                    <div class="param-tag">1/200</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="preset-card">
+                            <div class="preset-image">
+                                <div class="hasselblad-badge">HNCS</div>
+                            </div>
+                            <div class="preset-info">
+                                <div class="preset-name">夜景大师</div>
+                                <div class="preset-device">Find X8 Pro</div>
+                                <div class="preset-params">
+                                    <div class="param-tag">ISO 800</div>
+                                    <div class="param-tag">1/30</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="preset-card">
+                            <div class="preset-image"></div>
+                            <div class="preset-info">
+                                <div class="preset-name">街拍模式</div>
+                                <div class="preset-device">Reno 12 Pro</div>
+                                <div class="preset-params">
+                                    <div class="param-tag">ISO 200</div>
+                                    <div class="param-tag">1/500</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="preset-card">
+                            <div class="preset-image">
+                                <div class="hasselblad-badge">HNCS</div>
+                            </div>
+                            <div class="preset-info">
+                                <div class="preset-name">风景大片</div>
+                                <div class="preset-device">Find X8 Ultra</div>
+                                <div class="preset-params">
+                                    <div class="param-tag">ISO 100</div>
+                                    <div class="param-tag">f/2.8</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Detail Screen -->
+                <div class="screen" id="detail">
+                    <div class="detail-header">
+                        <div class="detail-back">←</div>
+                        <div class="detail-favorite">♥</div>
+                    </div>
+                    
+                    <div class="detail-content">
+                        <div class="detail-title">哈苏大师人像</div>
+                        <div class="detail-meta">
+                            <div class="meta-item">Find X8 Ultra</div>
+                            <div class="meta-item">HNCS认证</div>
+                        </div>
+                        
+                        <div class="params-section">
+                            <div class="section-title">
+                                <span>📐</span> 核心参数
+                            </div>
+                            <div class="params-grid">
+                                <div class="param-card">
+                                    <div class="param-label">ISO</div>
+                                    <div class="param-value">100</div>
+                                </div>
+                                <div class="param-card">
+                                    <div class="param-label">快门</div>
+                                    <div class="param-value">1/200</div>
+                                </div>
+                                <div class="param-card">
+                                    <div class="param-label">EV</div>
+                                    <div class="param-value">+0.0</div>
+                                </div>
+                                <div class="param-card">
+                                    <div class="param-label">白平衡</div>
+                                    <div class="param-value">5200K</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="params-section">
+                            <div class="section-title">
+                                <span>🎨</span> 哈苏色彩
+                            </div>
+                            <div class="params-grid">
+                                <div class="param-card">
+                                    <div class="param-label">HNCS</div>
+                                    <div class="param-value" style="color: var(--hasselblad-orange);">认证</div>
+                                </div>
+                                <div class="param-card">
+                                    <div class="param-label">风格</div>
+                                    <div class="param-value">人像</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="apply-button">应用预设</div>
+                </div>
+                
+                <!-- Watermark Screen -->
+                <div class="screen" id="watermark">
+                    <div class="watermark-preview">
+                        <div class="watermark-badge-preview">HASSELBLAD</div>
+                    </div>
+                    
+                    <div class="template-selector">
+                        <div class="template-title">水印模板</div>
+                        <div class="template-grid">
+                            <div class="template-item active">哈苏</div>
+                            <div class="template-item">OPPO</div>
+                            <div class="template-item">参数</div>
+                            <div class="template-item">时间</div>
+                            <div class="template-item">位置</div>
+                            <div class="template-item">自定义</div>
+                            <div class="template-item">简约</div>
+                            <div class="template-item">胶片</div>
+                        </div>
+                    </div>
+                    
+                    <div class="watermark-options">
+                        <div class="option-row">
+                            <div class="option-label">显示时间戳</div>
+                            <div class="option-toggle active"></div>
+                        </div>
+                        <div class="option-row">
+                            <div class="option-label">显示设备信息</div>
+                            <div class="option-toggle active"></div>
+                        </div>
+                        <div class="option-row">
+                            <div class="option-label">保留原图</div>
+                            <div class="option-toggle"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="opacity-slider">
+                        <div class="slider-label">透明度</div>
+                        <div class="slider-track">
+                            <div class="slider-fill"></div>
+                            <div class="slider-thumb"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="apply-button">应用水印</div>
+                </div>
+                
+                <!-- AI Fine Tune Screen -->
+                <div class="screen" id="ai">
+                    <div class="ai-header">
+                        <div class="ai-title">AI 智能微调</div>
+                        <div class="ai-subtitle">一键优化样张效果</div>
+                    </div>
+                    
+                    <div class="ai-preview">
+                        <div class="ai-badge">AI分析</div>
+                    </div>
+                    
+                    <div class="ai-controls">
+                        <div class="ai-control-group">
+                            <div class="control-label">
+                                <div class="control-icon">🎨</div>
+                                色彩风格
+                            </div>
+                            <div class="control-options">
+                                <div class="control-option active">自然</div>
+                                <div class="control-option">鲜明</div>
+                                <div class="control-option">电影</div>
+                                <div class="control-option">人像</div>
+                            </div>
+                        </div>
+                        
+                        <div class="ai-control-group">
+                            <div class="control-label">
+                                <div class="control-icon">✨</div>
+                                参数调整
+                            </div>
+                            <div class="ai-slider-row">
+                                <div class="ai-slider-label">饱和度</div>
+                                <div class="ai-slider-track">
+                                    <div class="slider-fill" style="width: 50%;"></div>
+                                </div>
+                                <div class="ai-slider-value">50</div>
+                            </div>
+                            <div class="ai-slider-row">
+                                <div class="ai-slider-label">对比度</div>
+                                <div class="ai-slider-track">
+                                    <div class="slider-fill" style="width: 45%;"></div>
+                                </div>
+                                <div class="ai-slider-value">45</div>
+                            </div>
+                            <div class="ai-slider-row">
+                                <div class="ai-slider-label">清晰度</div>
+                                <div class="ai-slider-track">
+                                    <div class="slider-fill" style="width: 60%;"></div>
+                                </div>
+                                <div class="ai-slider-value">60</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="ai-button">
+                        <span>🤖</span> 开始AI优化
+                    </div>
+                </div>
+                
+                <!-- Settings Screen -->
+                <div class="screen" id="settings">
+                    <div class="settings-section">
+                        <div class="settings-title">应用设置</div>
+                        
+                        <div class="settings-item">
+                            <div class="settings-item-left">
+                                <div class="settings-icon">🌙</div>
+                                <div>
+                                    <div class="settings-text">深色模式</div>
+                                    <div class="settings-subtext">跟随系统</div>
+                                </div>
+                            </div>
+                            <div class="option-toggle active"></div>
+                        </div>
+                        
+                        <div class="settings-item">
+                            <div class="settings-item-left">
+                                <div class="settings-icon">🔔</div>
+                                <div>
+                                    <div class="settings-text">通知提醒</div>
+                                    <div class="settings-subtext">预设更新通知</div>
+                                </div>
+                            </div>
+                            <div class="option-toggle"></div>
+                        </div>
+                        
+                        <div class="settings-item">
+                            <div class="settings-item-left">
+                                <div class="settings-icon">☁️</div>
+                                <div>
+                                    <div class="settings-text">云端同步</div>
+                                    <div class="settings-subtext">自动备份预设</div>
+                                </div>
+                            </div>
+                            <div class="settings-value">已开启</div>
+                        </div>
+                        
+                        <div class="settings-item">
+                            <div class="settings-item-left">
+                                <div class="settings-icon">🔒</div>
+                                <div>
+                                    <div class="settings-text">隐私设置</div>
+                                    <div class="settings-subtext">数据安全</div>
+                                </div>
+                            </div>
+                            <div class="settings-value">→</div>
+                        </div>
+                        
+                        <div class="settings-item">
+                            <div class="settings-item-left">
+                                <div class="settings-icon">📱</div>
+                                <div>
+                                    <div class="settings-text">系统能力</div>
+                                    <div class="settings-subtext">设备信息</div>
+                                </div>
+                            </div>
+                            <div class="settings-value">→</div>
+                        </div>
+                        
+                        <div class="settings-item">
+                            <div class="settings-item-left">
+                                <div class="settings-icon">💬</div>
+                                <div>
+                                    <div class="settings-text">意见反馈</div>
+                                    <div class="settings-subtext">帮助我们改进</div>
+                                </div>
+                            </div>
+                            <div class="settings-value">→</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="bottom-nav">
+                <div class="nav-item active">
+                    <div class="nav-icon">🏠</div>
+                    <span>首页</span>
+                </div>
+                <div class="nav-item">
+                    <div class="nav-icon">🔍</div>
+                    <span>发现</span>
+                </div>
+                <div class="nav-item">
+                    <div class="nav-icon">📷</div>
+                    <span>相机</span>
+                </div>
+                <div class="nav-item">
+                    <div class="nav-icon">👤</div>
+                    <span>我的</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.querySelectorAll('.nav-tab').forEach(tab => {
+            tab.addEventListener('click', function() {
+                document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+                this.classList.add('active');
+                
+                const screenId = this.dataset.screen;
+                document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+                document.getElementById(screenId).classList.add('active');
+            });
+        });
+
+        document.querySelectorAll('.filter-chip').forEach(chip => {
+            chip.addEventListener('click', function() {
+                document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+                this.classList.add('active');
+            });
+        });
+
+        document.querySelectorAll('.template-item').forEach(item => {
+            item.addEventListener('click', function() {
+                document.querySelectorAll('.template-item').forEach(i => i.classList.remove('active'));
+                this.classList.add('active');
+            });
+        });
+
+        document.querySelectorAll('.control-option').forEach(option => {
+            option.addEventListener('click', function() {
+                const parent = this.parentElement;
+                parent.querySelectorAll('.control-option').forEach(o => o.classList.remove('active'));
+                this.classList.add('active');
+            });
+        });
+
+        document.querySelectorAll('.option-toggle').forEach(toggle => {
+            toggle.addEventListener('click', function() {
+                this.classList.toggle('active');
+            });
+        });
+
+        document.querySelectorAll('.preset-card').forEach(card => {
+            card.addEventListener('click', function() {
+                document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+                document.querySelector('.nav-tab[data-screen="detail"]').classList.add('active');
+                document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+                document.getElementById('detail').classList.add('active');
+            });
+        });
+
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', function() {
+                document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+                this.classList.add('active');
+            });
+        });
+
+        document.querySelector('.detail-back').addEventListener('click', function() {
+            document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+            document.querySelector('.nav-tab[data-screen="home"]').classList.add('active');
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            document.getElementById('home').classList.add('active');
+        });
+    </script>
+</body>
+</html>
