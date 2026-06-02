@@ -17,21 +17,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.omaster.app.data.CameraConfigRepository
-import com.omaster.app.ui.theme.Colors
-import com.omaster.app.ui.theme.Spacing
-import com.omaster.app.ui.theme.Typography
-import com.omaster.app.ui.theme.hasselbladOrange
-import dagger.hilt.android.compose.hiltViewModel
+import com.omaster.app.ui.theme.HasselbladOrange
+import com.omaster.app.ui.theme.OMasterSpacing
 import dagger.hilt.android.lifecycle.HiltViewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import javax.inject.Inject
 
-/**
- * 用户个人资料页面 - ColorOS 16 风格
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
@@ -48,7 +44,7 @@ fun ProfileScreen(
                 title = {
                     Text(
                         text = "我的",
-                        style = Typography.titleLarge,
+                        style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
                 },
@@ -63,36 +59,29 @@ fun ProfileScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(Spacing.medium),
-            verticalArrangement = Arrangement.spacedBy(Spacing.medium)
+                .padding(OMasterSpacing.lg),
+            verticalArrangement = Arrangement.spacedBy(OMasterSpacing.lg)
         ) {
-            // 用户信息卡片
             ProfileHeaderCard(
                 userProfile = userProfile,
-                onEditProfile = { /* 编辑个人信息 */ }
+                onEditProfile = { }
             )
 
-            // 统计数据卡片
             StatsCard(
                 stats = systemStats,
                 modifier = Modifier.fillMaxWidth()
             )
 
-            // 功能菜单列表
             ProfileMenuSection(
                 onSettingsClick = onSettingsClick,
                 onCameraConfigClick = onCameraConfigClick
             )
 
-            // 关于我们
             AboutSection()
         }
     }
 }
 
-/**
- * 用户信息卡片
- */
 @Composable
 fun ProfileHeaderCard(
     userProfile: UserProfile,
@@ -106,48 +95,42 @@ fun ProfileHeaderCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
-            modifier = Modifier.padding(Spacing.large),
+            modifier = Modifier.padding(OMasterSpacing.xl),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // 用户头像
             Surface(
                 modifier = Modifier.size(80.dp),
                 shape = CircleShape,
-                color = hasselbladOrange.copy(alpha = 0.1f)
+                color = HasselbladOrange.copy(alpha = 0.1f)
             ) {
-                Box(
-                    contentAlignment = Alignment.Center
-                ) {
+                Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = Icons.Default.Person,
                         contentDescription = "User Avatar",
-                        tint = hasselbladOrange,
+                        tint = HasselbladOrange,
                         modifier = Modifier.size(40.dp)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(Spacing.medium))
+            Spacer(modifier = Modifier.height(OMasterSpacing.lg))
 
-            // 用户名称
             Text(
                 text = userProfile.displayName,
-                style = Typography.titleMedium,
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
 
-            Spacer(modifier = Modifier.height(Spacing.tiny))
+            Spacer(modifier = Modifier.height(OMasterSpacing.xs))
 
-            // 用户描述
             Text(
                 text = userProfile.bio,
-                style = Typography.bodyMedium,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            Spacer(modifier = Modifier.height(Spacing.medium))
+            Spacer(modifier = Modifier.height(OMasterSpacing.lg))
 
-            // 编辑按钮
             OutlinedButton(
                 onClick = onEditProfile,
                 modifier = Modifier.fillMaxWidth()
@@ -164,9 +147,6 @@ fun ProfileHeaderCard(
     }
 }
 
-/**
- * 统计数据卡片
- */
 @Composable
 fun StatsCard(
     stats: SystemStats,
@@ -180,64 +160,45 @@ fun StatsCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
-            modifier = Modifier.padding(Spacing.large)
+            modifier = Modifier.padding(OMasterSpacing.xl)
         ) {
             Text(
                 text = "使用统计",
-                style = Typography.titleMedium,
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
 
-            Spacer(modifier = Modifier.height(Spacing.medium))
+            Spacer(modifier = Modifier.height(OMasterSpacing.lg))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                StatItem(
-                    value = stats.totalPresets.toString(),
-                    label = "总预设",
-                    icon = Icons.Default.Collections
-                )
-                StatItem(
-                    value = stats.favoritePresets.toString(),
-                    label = "收藏",
-                    icon = Icons.Default.Favorite
-                )
-                StatItem(
-                    value = stats.configsCount.toString(),
-                    label = "配置",
-                    icon = Icons.Default.Tune
-                )
+                StatItem(value = stats.totalPresets.toString(), label = "总预设", icon = Icons.Default.Collections)
+                StatItem(value = stats.favoritePresets.toString(), label = "收藏", icon = Icons.Default.Favorite)
+                StatItem(value = stats.configsCount.toString(), label = "配置", icon = Icons.Default.Tune)
             }
         }
     }
 }
 
-/**
- * 统计数据项
- */
 @Composable
 fun StatItem(
     value: String,
     label: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector
 ) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Surface(
             modifier = Modifier.size(48.dp),
             shape = CircleShape,
-            color = hasselbladOrange.copy(alpha = 0.1f)
+            color = HasselbladOrange.copy(alpha = 0.1f)
         ) {
-            Box(
-                contentAlignment = Alignment.Center
-            ) {
+            Box(contentAlignment = Alignment.Center) {
                 Icon(
                     imageVector = icon,
                     contentDescription = label,
-                    tint = hasselbladOrange,
+                    tint = HasselbladOrange,
                     modifier = Modifier.size(24.dp)
                 )
             }
@@ -247,22 +208,19 @@ fun StatItem(
 
         Text(
             text = value,
-            style = Typography.titleMedium,
+            style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
-            color = hasselbladOrange
+            color = HasselbladOrange
         )
 
         Text(
             text = label,
-            style = Typography.bodySmall,
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
 
-/**
- * 功能菜单区域
- */
 @Composable
 fun ProfileMenuSection(
     onSettingsClick: () -> Unit,
@@ -278,70 +236,20 @@ fun ProfileMenuSection(
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column(
-            modifier = Modifier.padding(vertical = Spacing.small)
-        ) {
-            ProfileMenuItem(
-                icon = Icons.Default.Tune,
-                title = "相机配置",
-                description = "管理相机参数配置",
-                onClick = onCameraConfigClick
-            )
-
-            Divider(
-                color = MaterialTheme.colorScheme.outlineVariant,
-                thickness = 0.5.dp
-            )
-
-            ProfileMenuItem(
-                icon = Icons.Default.Settings,
-                title = "设置",
-                description = "应用设置与偏好",
-                onClick = onSettingsClick
-            )
-
-            Divider(
-                color = MaterialTheme.colorScheme.outlineVariant,
-                thickness = 0.5.dp
-            )
-
-            ProfileMenuItem(
-                icon = Icons.Default.PrivacyTip,
-                title = "隐私设置",
-                description = "数据与隐私管理",
-                onClick = onPrivacyClick
-            )
-
-            Divider(
-                color = MaterialTheme.colorScheme.outlineVariant,
-                thickness = 0.5.dp
-            )
-
-            ProfileMenuItem(
-                icon = Icons.Default.Devices,
-                title = "系统能力",
-                description = "查看设备与系统能力",
-                onClick = onSystemCapabilitiesClick
-            )
-
-            Divider(
-                color = MaterialTheme.colorScheme.outlineVariant,
-                thickness = 0.5.dp
-            )
-
-            ProfileMenuItem(
-                icon = Icons.Default.HelpOutline,
-                title = "意见反馈",
-                description = "提交反馈和建议",
-                onClick = onFeedbackClick
-            )
+        Column(modifier = Modifier.padding(vertical = OMasterSpacing.sm)) {
+            ProfileMenuItem(icon = Icons.Default.Tune, title = "相机配置", description = "管理相机参数配置", onClick = onCameraConfigClick)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
+            ProfileMenuItem(icon = Icons.Default.Settings, title = "设置", description = "应用设置与偏好", onClick = onSettingsClick)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
+            ProfileMenuItem(icon = Icons.Default.PrivacyTip, title = "隐私设置", description = "数据与隐私管理", onClick = onPrivacyClick)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
+            ProfileMenuItem(icon = Icons.Default.Devices, title = "系统能力", description = "查看设备与系统能力", onClick = onSystemCapabilitiesClick)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
+            ProfileMenuItem(icon = Icons.Default.HelpOutline, title = "意见反馈", description = "提交反馈和建议", onClick = onFeedbackClick)
         }
     }
 }
 
-/**
- * 菜单项
- */
 @Composable
 fun ProfileMenuItem(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -353,45 +261,38 @@ fun ProfileMenuItem(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(Spacing.medium),
+            .padding(OMasterSpacing.lg),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Spacing.medium)
+        horizontalArrangement = Arrangement.spacedBy(OMasterSpacing.lg)
     ) {
-        // 图标
         Surface(
             modifier = Modifier.size(40.dp),
             shape = RoundedCornerShape(10.dp),
-            color = hasselbladOrange.copy(alpha = 0.1f)
+            color = HasselbladOrange.copy(alpha = 0.1f)
         ) {
-            Box(
-                contentAlignment = Alignment.Center
-            ) {
+            Box(contentAlignment = Alignment.Center) {
                 Icon(
                     imageVector = icon,
                     contentDescription = title,
-                    tint = hasselbladOrange,
+                    tint = HasselbladOrange,
                     modifier = Modifier.size(20.dp)
                 )
             }
         }
 
-        // 文字内容
-        Column(
-            modifier = Modifier.weight(1f)
-        ) {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
-                style = Typography.titleSmall,
+                style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Medium
             )
             Text(
                 text = description,
-                style = Typography.bodySmall,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
 
-        // 右箭头
         Icon(
             imageVector = Icons.Default.ChevronRight,
             contentDescription = "More",
@@ -400,9 +301,6 @@ fun ProfileMenuItem(
     }
 }
 
-/**
- * 关于我们区域
- */
 @Composable
 fun AboutSection() {
     Card(
@@ -413,21 +311,19 @@ fun AboutSection() {
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
-            modifier = Modifier.padding(Spacing.large),
+            modifier = Modifier.padding(OMasterSpacing.xl),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(Spacing.small)
+                horizontalArrangement = Arrangement.spacedBy(OMasterSpacing.sm)
             ) {
                 Surface(
                     modifier = Modifier.size(32.dp),
                     shape = RoundedCornerShape(8.dp),
-                    color = hasselbladOrange
+                    color = HasselbladOrange
                 ) {
-                    Box(
-                        contentAlignment = Alignment.Center
-                    ) {
+                    Box(contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = Icons.Default.Camera,
                             contentDescription = "Logo",
@@ -438,35 +334,33 @@ fun AboutSection() {
                 }
                 Text(
                     text = "OPPO Master",
-                    style = Typography.titleMedium,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
             }
 
-            Spacer(modifier = Modifier.height(Spacing.small))
+            Spacer(modifier = Modifier.height(OMasterSpacing.sm))
 
             Text(
                 text = "Version 3.0.0",
-                style = Typography.bodySmall,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            Spacer(modifier = Modifier.height(Spacing.medium))
+            Spacer(modifier = Modifier.height(OMasterSpacing.lg))
 
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(Spacing.medium)
-            ) {
-                TextButton(onClick = { /* 用户协议 */ }) {
+            Row(horizontalArrangement = Arrangement.spacedBy(OMasterSpacing.lg)) {
+                TextButton(onClick = { }) {
                     Text(
                         text = "用户协议",
-                        style = Typography.bodySmall,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                TextButton(onClick = { /* 隐私政策 */ }) {
+                TextButton(onClick = { }) {
                     Text(
                         text = "隐私政策",
-                        style = Typography.bodySmall,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -475,27 +369,18 @@ fun AboutSection() {
     }
 }
 
-/**
- * 用户个人资料数据类
- */
 data class UserProfile(
     val displayName: String = "哈苏摄影大师",
     val bio: String = "用镜头记录美好瞬间",
     val avatarUrl: String? = null
 )
 
-/**
- * 系统统计数据类
- */
 data class SystemStats(
     val totalPresets: Int = 128,
     val favoritePresets: Int = 12,
     val configsCount: Int = 8
 )
 
-/**
- * Profile ViewModel
- */
 @HiltViewModel
 class ProfileViewModel @Inject constructor(
     private val cameraConfigRepository: CameraConfigRepository
@@ -507,7 +392,6 @@ class ProfileViewModel @Inject constructor(
     val systemStats: StateFlow<SystemStats> = _systemStats.asStateFlow()
 
     init {
-        // 加载配置数量
         updateStats()
     }
 
