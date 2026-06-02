@@ -5,7 +5,6 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.net.Uri
-import androidx.annotation.OptIn
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.objects.ObjectDetection
 import com.google.mlkit.vision.objects.ObjectDetector
@@ -16,16 +15,15 @@ import com.omaster.app.model.Preset
 import com.omaster.app.model.SceneType
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.random.Random
 
 /**
  * AI服务 - 专业级实现
@@ -39,8 +37,6 @@ import kotlin.random.Random
 class AiService @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
-    private val random = Random(System.currentTimeMillis())
-
     private val objectDetector: ObjectDetector by lazy {
         val options = ObjectDetectorOptions.Builder()
             .setDetectorMode(ObjectDetectorOptions.SINGLE_IMAGE_MODE)
@@ -413,7 +409,7 @@ class AiService @Inject constructor(
         val elapsed = System.currentTimeMillis() - startTime
         val targetProcessTime = 1800L
         if (elapsed < targetProcessTime) {
-            kotlinx.coroutines.delay(targetProcessTime - elapsed)
+            delay(targetProcessTime - elapsed)
         }
 
         val brightnessDelta = ((0.5 - analysis.avgBrightness) * 30).toFloat()
@@ -489,7 +485,7 @@ class AiService @Inject constructor(
         styleName: String,
         intensity: Float = 1.0f
     ): AiAdjustmentParams {
-        kotlinx.coroutines.delay(800)
+        delay(800)
 
         return when (styleName) {
             "哈苏自然色" -> AiAdjustmentParams(

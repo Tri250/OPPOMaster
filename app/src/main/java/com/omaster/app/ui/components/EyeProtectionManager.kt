@@ -8,20 +8,15 @@ import android.graphics.PixelFormat
 import android.os.Build
 import android.view.View
 import android.view.WindowManager
-import android.view.animation.AccelerateDecelerateInterpolator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalView
 import com.omaster.app.data.EyeProtectionMode
 import timber.log.Timber
-import kotlin.math.abs
 
 /**
  * 护眼模式管理器 - 专业级实现

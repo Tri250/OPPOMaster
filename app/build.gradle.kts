@@ -119,6 +119,7 @@ dependencies {
 
     // ML Kit
     implementation("com.google.mlkit:text-recognition:16.0.1")
+    implementation("com.google.mlkit:object-detection:17.0.1")
 
     // Image Loading
     implementation("io.coil-kt:coil-compose:2.7.0")

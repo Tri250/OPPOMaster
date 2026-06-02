@@ -15,7 +15,7 @@ import com.google.gson.Gson
 import com.omaster.app.data.PresetRepository
 import com.omaster.app.model.CameraParams
 import com.omaster.app.model.Preset
-import com.omaster.app.model.PresetSection
+import com.omaster.app.model.Section as PresetSection
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
@@ -133,6 +133,7 @@ class PresetDownloadWorker @AssistedInject constructor(
         return Preset(
             id = presetId,
             name = name,
+            coverPath = presetId,
             author = "OMaster 官方",
             deviceModel = "通用机型",
             sceneType = "通用场景",
@@ -142,7 +143,10 @@ class PresetDownloadWorker @AssistedInject constructor(
             isFavorite = false,
             description = "OMaster 官方推荐预设",
             sections = listOf(
-                PresetSection("基础参数", listOf("ISO: 200", "快门: 1/125", "光圈: f/2.0"))
+                PresetSection(
+                    title = "基础参数",
+                    content = "ISO: 200 | 快门: 1/125 | 光圈: f/2.0"
+                )
             ),
             cameraParams = CameraParams(
                 mode = "哈苏专业模式",
@@ -157,10 +161,8 @@ class PresetDownloadWorker @AssistedInject constructor(
                 hasselbladColorScience = "HNCS 3.0",
                 colorProfile = "自然"
             ),
-            coverImage = "",
+            coverUrl = "",
             lastUpdated = System.currentTimeMillis(),
-            price = 0.0,
-            isPro = false,
             source = "local"
         )
     }
