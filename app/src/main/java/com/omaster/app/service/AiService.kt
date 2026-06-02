@@ -11,7 +11,7 @@ import kotlin.random.Random
  * AI服务 - 符合所有测试用例要求
  * 支持AI场景识别和AI微调
  */
-class AiService {
+class AiService @Inject constructor() {
     
     private val random = Random(System.currentTimeMillis())
     

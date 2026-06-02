@@ -35,6 +35,7 @@ import com.omaster.app.ui.screens.ProHomeScreenV2
 import com.omaster.app.ui.screens.ProSettingsScreenV2
 import com.omaster.app.ui.screens.ProfileScreen
 import com.omaster.app.ui.screens.SceneDetectionScreenV2
+import com.omaster.app.ui.screens.WatermarkEditorScreen
 import com.omaster.app.ui.theme.OMasterTheme
 import com.omaster.app.viewmodel.MainViewModel
 import dagger.hilt.android.AndroidEntryPoint
@@ -176,7 +177,7 @@ fun OMasterApp(
                     onSettingsClick = { navController.navigate(OMasterScreen.Settings.route) },
                     onSceneDetectionClick = { navController.navigate(OMasterScreen.SceneDetection.route) },
                     onAiFineTuneClick = { navController.navigate(OMasterScreen.AiFineTune.route) },
-                    onWatermarkClick = { /* 水印功能暂未实现 */ },
+                    onWatermarkClick = { navController.navigate(OMasterScreen.Watermark.route) },
                     onColorOSHomeClick = { /* ColorOS 首页功能暂未实现 */ }
                 )
             }
@@ -189,13 +190,13 @@ fun OMasterApp(
                 val presetId = backStackEntry.arguments?.getString("preset_id")
                 val preset = presets.find { it.id == presetId }
                 
-                preset?.let {
+                preset?.let { presetItem ->
                     ProDetailScreen(
-                        preset = it,
+                        preset = presetItem,
                         onBack = { navController.popBackStack() },
-                        onFavoriteToggle = { viewModel.toggleFavorite(it) },
-                        onApplyPreset = { appliedPreset ->
-                            Timber.d("应用预设: ${appliedPreset.name}")
+                        onFavoriteToggle = { viewModel.toggleFavorite(presetItem) },
+                        onApplyPreset = {
+                            Timber.d("应用预设: ${presetItem.name}")
                         },
                         themeMode = themeMode
                     )
@@ -253,6 +254,13 @@ fun OMasterApp(
                     onOverlayToggle = { viewModel.setOverlayEnabled(it) },
                     syncEnabled = syncEnabled,
                     onSyncToggle = { viewModel.setSyncEnabled(it) },
+                    onBack = { navController.popBackStack() }
+                )
+            }
+
+            // 水印编辑页面
+            composable(OMasterScreen.Watermark.route) {
+                WatermarkEditorScreen(
                     onBack = { navController.popBackStack() }
                 )
             }

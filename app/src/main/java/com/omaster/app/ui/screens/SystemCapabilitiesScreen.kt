@@ -173,7 +173,7 @@ fun CapabilitySectionCard(
                 
                 if (index < items.size - 1) {
                     Spacer(modifier = Modifier.height(Spacing.medium))
-                    Divider(
+                    HorizontalDivider(
                         color = MaterialTheme.colorScheme.outlineVariant,
                         thickness = 0.5.dp
                     )

@@ -235,7 +235,7 @@ private fun ColorOSTopBar(
             IconButton(onClick = onFloatingWindowClick) {
                 Surface(
                     shape = androidx.compose.foundation.shape.CircleShape,
-                    color = AccentPrimary.copy(alpha = 0.1f),
+                    color = HasselbladOrange.copy(alpha = 0.1f),
                     modifier = Modifier.size(44.dp)
                 ) {
                     Box(
@@ -244,7 +244,7 @@ private fun ColorOSTopBar(
                         Icon(
                             imageVector = Icons.Default.Widgets,
                             contentDescription = "悬浮窗",
-                            tint = AccentPrimary,
+                            tint = HasselbladOrange,
                             modifier = Modifier.size(22.dp)
                         )
                     }
@@ -330,14 +330,14 @@ private fun ColorOSPermissionDialog(
         icon = {
             Surface(
                 shape = androidx.compose.foundation.shape.CircleShape,
-                color = AccentPrimary.copy(alpha = 0.1f),
-                modifier = Modifier.size(64.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.PermDeviceInformation,
-                        contentDescription = null,
-                        tint = AccentPrimary,
+                color = HasselbladOrange.copy(alpha = 0.1f),
+                        modifier = Modifier.size(64.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.PermDeviceInformation,
+                                contentDescription = null,
+                                tint = HasselbladOrange,
                         modifier = Modifier.size(32.dp)
                     )
                 }
@@ -361,7 +361,7 @@ private fun ColorOSPermissionDialog(
             FilledTonalButton(
                 onClick = onAuthorize,
                 colors = ButtonDefaults.filledTonalButtonColors(
-                    containerColor = AccentPrimary,
+                    containerColor = HasselbladOrange,
                     contentColor = Color.White
                 )
             ) {

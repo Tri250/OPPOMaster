@@ -113,7 +113,7 @@ fun ProSettingsScreen(
                     onCheckedChange = onFluidCloudToggle,
                     isDark = isDark
                 )
-                Divider(
+                HorizontalDivider(
                     color = if (isDark) ColorOSBorder else ColorOSLightBorder,
                     thickness = 0.5.dp
                 )
@@ -139,7 +139,7 @@ fun ProSettingsScreen(
                     value = BuildConfig.VERSION_NAME,
                     isDark = isDark
                 )
-                Divider(
+                HorizontalDivider(
                     color = if (isDark) ColorOSBorder else ColorOSLightBorder,
                     thickness = 0.5.dp
                 )
@@ -148,7 +148,7 @@ fun ProSettingsScreen(
                     value = "小O帮帮",
                     isDark = isDark
                 )
-                Divider(
+                HorizontalDivider(
                     color = if (isDark) ColorOSBorder else ColorOSLightBorder,
                     thickness = 0.5.dp
                 )

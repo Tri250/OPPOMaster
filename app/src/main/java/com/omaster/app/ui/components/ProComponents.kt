@@ -188,7 +188,7 @@ fun ProPresetCard(
                             "landscape" -> AuroraGreen.copy(alpha = 0.15f)
                             "night" -> DeepOceanBlue.copy(alpha = 0.15f)
                             "sunset" -> HasselbladOrange.copy(alpha = 0.15f)
-                            "food" -> AuroraPurple.copy(alpha = 0.15f)
+                            "food" -> CosmicPurple.copy(alpha = 0.15f)
                             else -> ColorOSGrey400.copy(alpha = 0.15f)
                         }
                     ) {

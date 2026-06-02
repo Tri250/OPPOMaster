@@ -86,6 +86,16 @@ sealed class OMasterScreen(
         selectedIcon = Icons.Filled.Settings,
         unselectedIcon = Icons.Outlined.Settings
     )
+
+    /**
+     * 水印编辑页面
+     */
+    data object Watermark : OMasterScreen(
+        route = "watermark",
+        title = "水印编辑",
+        selectedIcon = Icons.Filled.Brush,
+        unselectedIcon = Icons.Outlined.Brush
+    )
 }
 
 /**

@@ -78,6 +78,8 @@ val ColorOSLightTextQuaternary = Color(0xFFD4D4D8)
 val ColorOSLightBorder = Color(0xFFE4E4E7)
 val ColorOSLightBorderLight = Color(0xFFF4F4F5)
 
+val AccentPrimary = HasselbladOrange
+
 // ========== 专业摄影渐变色 ==========
 // 哈苏大师渐变
 val GradientHasselbladMaster = listOf(
