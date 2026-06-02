@@ -1,5 +1,6 @@
 pluginManagement {
     repositories {
+        maven { url = uri("file:///workspace/local-maven") }
         maven { url = uri("https://maven.aliyun.com/repository/google") }
         maven { url = uri("https://maven.aliyun.com/repository/public") }
         google()
