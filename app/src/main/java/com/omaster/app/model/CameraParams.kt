@@ -120,7 +120,16 @@ data class CameraParams(
     
     // 元数据
     val version: String = "3.0",
-    val lastModified: Long = System.currentTimeMillis()
+    val lastModified: Long = System.currentTimeMillis(),
+    
+    // 兼容性属性（下划线命名）
+    val ai_scene_recognition: String? = null,
+    val ai_optimization: Boolean = aiOptimization,
+    val focal_length: String = focalLength,
+    val focus_distance: String? = null,
+    val hasselblad_master_style: String? = if (hasselbladMasterStyle.isNotEmpty()) hasselbladMasterStyle else null,
+    val hasselblad_natural_color: Boolean = hasselbladNaturalColor,
+    val color_profile: String = colorProfile
 ) {
     fun validate(): ValidationResult {
         val errors = mutableListOf<String>()
@@ -251,24 +260,27 @@ data class CameraParams(
                 shutter = json["shutter"] as? String ?: "1/200",
                 ev = json["ev"] as? String ?: "+0.0",
                 wb = json["wb"] as? String ?: "5500K",
-                focalLength = json["focalLength"] as? String ?: "24mm",
+                focalLength = json["focalLength"] as? String ?: json["focal_length"] as? String ?: "24mm",
                 aperture = json["aperture"] as? String ?: "f/1.8",
                 hdr = json["hdr"] as? Boolean ?: false,
                 nightMode = json["nightMode"] as? Boolean ?: false,
                 portraitMode = json["portraitMode"] as? Boolean ?: false,
                 aiOptimization = json["aiOptimization"] as? Boolean ?: true,
                 hasselblad_hncs = json["hasselblad_hncs"] as? Boolean ?: true,
-                hasselbladNaturalColor = json["hasselbladNaturalColor"] as? Boolean ?: true,
-                hasselbladMasterStyle = json["hasselbladMasterStyle"] as? String ?: "",
+                hasselbladNaturalColor = json["hasselbladNaturalColor"] as? Boolean ?: json["hasselblad_natural_color"] as? Boolean ?: true,
+                hasselbladMasterStyle = json["hasselbladMasterStyle"] as? String ?: json["hasselblad_master_style"] as? String ?: "",
                 hasselbladColorScience = json["hasselbladColorScience"] as? String ?: "HNCS 3.0",
-                colorProfile = json["colorProfile"] as? String ?: ColorStyle.Natural.displayName,
+                colorProfile = json["colorProfile"] as? String ?: json["color_profile"] as? String ?: ColorStyle.Natural.displayName,
                 colorStyle = json["colorStyle"] as? String ?: ColorStyle.Natural.name,
                 colorTemperature = (json["colorTemperature"] as? Number)?.toInt() ?: 5500,
                 sharpness = (json["sharpness"] as? Number)?.toInt() ?: 50,
                 contrast = (json["contrast"] as? Number)?.toInt() ?: 50,
                 saturation = (json["saturation"] as? Number)?.toInt() ?: 50,
                 version = json["version"] as? String ?: "3.0",
-                lastModified = (json["lastModified"] as? Number)?.toLong() ?: System.currentTimeMillis()
+                lastModified = (json["lastModified"] as? Number)?.toLong() ?: System.currentTimeMillis(),
+                ai_scene_recognition = json["ai_scene_recognition"] as? String,
+                ai_optimization = json["ai_optimization"] as? Boolean ?: json["aiOptimization"] as? Boolean ?: true,
+                focus_distance = json["focus_distance"] as? String
             )
         }
         

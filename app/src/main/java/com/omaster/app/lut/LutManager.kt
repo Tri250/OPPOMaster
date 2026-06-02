@@ -36,26 +36,12 @@ class LutManager @Inject constructor(
         EXPORT
     }
 
+    typealias IntArray3D = Array<Array<IntArray>>
+
     data class Lut3D(
         val size: Int,
-        val data: Array<IntArrayIntArrayIntArray>
-    ) {
-        override fun equals(other: Any?): Boolean {
-            if (this === other) return true
-            if (javaClass != other?.javaClass) return false
-            other as Lut3D
-            return size == other.size && data.contentDeepEquals(other.data)
-        }
-
-        override fun hashCode(): Int {
-            var result = size
-            result = 31 * result + data.contentDeepHashCode()
-            return result
-        }
-    }
-
-    // 使用简单的 IntArray 实现避免复杂类型
-    typealias IntArray3D = Array<Array<IntArray>>
+        val data: IntArray3D
+    )
 
     fun importCubeLut(file: File): Result<Lut3D> {
         return try {
