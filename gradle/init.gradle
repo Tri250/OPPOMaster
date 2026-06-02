@@ -1,31 +1,14 @@
 allprojects {
     buildscript {
         repositories {
-            maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
             maven { url 'https://maven.aliyun.com/repository/google' }
             maven { url 'https://maven.aliyun.com/repository/public' }
             mavenCentral()
             google()
         }
     }
-    
-    repositories {
-        maven { url 'https://maven.aliyun.com/repository/google' }
-        maven { url 'https://maven.aliyun.com/repository/public' }
-        mavenCentral()
-        google()
-    }
-}
 
-gradle.beforeProject { project ->
-    project.buildscript.repositories {
-        maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
-        maven { url 'https://maven.aliyun.com/repository/google' }
-        maven { url 'https://maven.aliyun.com/repository/public' }
-        mavenCentral()
-        google()
-    }
-    project.repositories {
+    repositories {
         maven { url 'https://maven.aliyun.com/repository/google' }
         maven { url 'https://maven.aliyun.com/repository/public' }
         mavenCentral()
