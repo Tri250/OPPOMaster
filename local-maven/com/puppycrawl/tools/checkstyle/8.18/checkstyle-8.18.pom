@@ -5,11 +5,6 @@
   <modelVersion>4.0.0</modelVersion>
 
   <!-- This parent is requirements for deploy of artifacts to maven central -->
-  <parent>
-    <artifactId>oss-parent</artifactId>
-    <groupId>org.sonatype.oss</groupId>
-    <version>9</version>
-  </parent>
 
   <groupId>com.puppycrawl.tools</groupId>
   <artifactId>checkstyle</artifactId>

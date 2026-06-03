@@ -6,12 +6,6 @@
 	<version>4.1.1.4</version>
 	<packaging>jar</packaging>
 
-	<parent>
-		<groupId>org.sonatype.oss</groupId>
-		<artifactId>oss-parent</artifactId>
-		<version>7</version>
-	</parent>
-
 	<name>Google Android Annotations Library</name>
 	<description>A library jar that provides annotations for the Google Android Platform.</description>
 	<url>http://source.android.com/</url>

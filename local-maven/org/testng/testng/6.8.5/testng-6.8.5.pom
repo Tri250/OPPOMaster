@@ -31,12 +31,6 @@
     </developer>
   </developers>
 
-  <parent>
-    <groupId>org.sonatype.oss</groupId>
-    <artifactId>oss-parent</artifactId>
-    <version>3</version>
-  </parent>
-
   <profiles>
     <profile>
       <!-- When activated, download dependencies from the snapshot repo -->

@@ -51,7 +51,7 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideRetrofit(okHttpClient: OkHttpClient, gson: Gson): Retrofit {
-        val baseUrl = "https://api.example.com/" // 替换为实际的 API 地址
+        val baseUrl = BuildConfig.API_BASE_URL
         return Retrofit.Builder()
             .baseUrl(baseUrl)
             .client(okHttpClient)

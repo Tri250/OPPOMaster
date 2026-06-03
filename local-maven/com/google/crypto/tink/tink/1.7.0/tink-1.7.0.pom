@@ -23,12 +23,6 @@
   <description>Tink is a small cryptographic library that provides a safe, simple, agile and fast way to accomplish some common cryptographic tasks.
   </description>
 
-  <parent>
-    <groupId>org.sonatype.oss</groupId>
-    <artifactId>oss-parent</artifactId>
-    <version>7</version>
-  </parent>
-
   <groupId>com.google.crypto.tink</groupId>
   <artifactId>tink</artifactId>
   <version>1.7.0</version>

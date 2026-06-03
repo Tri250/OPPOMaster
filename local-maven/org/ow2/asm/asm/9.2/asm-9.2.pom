@@ -67,9 +67,4 @@
   <issueManagement>
     <url>https://gitlab.ow2.org/asm/asm/issues</url>
   </issueManagement>
-  <parent>
-    <groupId>org.ow2</groupId>
-    <artifactId>ow2</artifactId>
-    <version>1.5</version>
-  </parent>
 </project>

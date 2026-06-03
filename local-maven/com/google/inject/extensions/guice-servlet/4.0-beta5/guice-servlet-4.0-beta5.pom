@@ -3,12 +3,6 @@
 
   <modelVersion>4.0.0</modelVersion>
 
-  <parent>
-    <groupId>com.google.inject.extensions</groupId>
-    <artifactId>extensions-parent</artifactId>
-    <version>4.0-beta5</version>
-  </parent>
-
   <artifactId>guice-servlet</artifactId>
 
   <name>Google Guice - Extensions - Servlet</name>

@@ -1,20 +1,19 @@
-plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.android")
-    id("com.google.dagger.hilt.android")
-    id("org.jetbrains.kotlin.kapt")
-    id("org.jetbrains.kotlin.plugin.parcelize")
-}
+// Using legacy plugin application since plugin markers are not fully available
+apply(plugin = "com.android.application")
+apply(plugin = "org.jetbrains.kotlin.android")
+apply(plugin = "dagger.hilt.android.plugin")
+apply(plugin = "org.jetbrains.kotlin.kapt")
+apply(plugin = "org.jetbrains.kotlin.plugin.parcelize")
 
 android {
     namespace = "com.omaster.app"
-    compileSdk = 35
-    buildToolsVersion = "35.0.0"
+    compileSdk = 34
+    buildToolsVersion = "34.0.0"
 
     defaultConfig {
         applicationId = "com.omaster.app"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 34
         versionCode = 121
         versionName = "1.2.1"
 
@@ -22,6 +21,8 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        buildConfigField("String", "API_BASE_URL", "\"https://api.omaster.com/\"")
     }
 
     signingConfigs {

@@ -75,9 +75,4 @@
       <scope>compile</scope>
     </dependency>
   </dependencies>
-  <parent>
-    <groupId>org.ow2</groupId>
-    <artifactId>ow2</artifactId>
-    <version>1.5</version>
-  </parent>
 </project>

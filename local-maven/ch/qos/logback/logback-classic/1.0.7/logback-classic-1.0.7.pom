@@ -4,12 +4,6 @@
 
   <modelVersion>4.0.0</modelVersion>
 
-  <parent>
-    <groupId>ch.qos.logback</groupId>
-    <artifactId>logback-parent</artifactId>
-    <version>1.0.7</version>
-  </parent>
-
   <artifactId>logback-classic</artifactId>
   <packaging>jar</packaging>
   <name>Logback Classic Module</name>
