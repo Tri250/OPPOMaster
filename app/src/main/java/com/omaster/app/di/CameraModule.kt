@@ -3,6 +3,7 @@ package com.omaster.app.di
 import android.content.Context
 import com.omaster.app.camera.CameraParamProvider
 import com.omaster.app.camera.CameraParamProviderFactory
+import com.omaster.app.service.AiService
 import com.omaster.app.service.AiServiceInterface
 import com.omaster.app.service.RealAiService
 import dagger.Module
@@ -26,7 +27,13 @@ object CameraModule {
     
     @Provides
     @Singleton
-    fun provideAiService(
+    fun provideAiService(): AiService {
+        return AiService()
+    }
+    
+    @Provides
+    @Singleton
+    fun provideAiServiceInterface(
         @ApplicationContext context: Context
     ): AiServiceInterface {
         return RealAiService(context)
