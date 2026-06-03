@@ -114,6 +114,19 @@ dependencies {
     // Timber
     implementation("com.jakewharton.timber:timber:5.0.1")
 
+    // ML Kit - 图像分析和场景识别
+    implementation("com.google.mlkit:vision-common:17.3.0")
+    implementation("com.google.mlkit:image-labeling:17.0.7")
+    implementation("com.google.mlkit:image-labeling-custom:17.0.1")
+    implementation("com.google.mlkit:object-detection:17.0.2")
+    implementation("com.google.mlkit:segmentation-selfie:16.0.0-beta6")
+
+    // TensorFlow Lite - 本地模型推理
+    implementation("org.tensorflow:tensorflow-lite:2.14.0")
+    implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
+    implementation("org.tensorflow:tensorflow-lite-gpu:2.14.0")
+    implementation("org.tensorflow:tensorflow-lite-select-tf-ops:2.14.0")
+
     // Serialization
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
 

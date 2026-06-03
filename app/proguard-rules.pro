@@ -136,6 +136,22 @@
 -keep class androidx.work.** { *; }
 -keepclassmembers class androidx.work.** { *; }
 
+# ML Kit - 图像分析和场景识别
+-keep class com.google.mlkit.** { *; }
+-keep class com.google.android.gms.internal.** { *; }
+-dontwarn com.google.mlkit.**
+
+# TensorFlow Lite - 本地模型推理
+-keep class org.tensorflow.** { *; }
+-keep class org.tensorflow.lite.** { *; }
+-keep class org.tensorflow.lite.support.** { *; }
+-keepclassmembers class org.tensorflow.lite.** { *; }
+-dontwarn org.tensorflow.lite.**
+
+# 保留TFLite模型文件
+-keep class **.tflite { *; }
+-keepassets **/*.tflite
+
 # =============================================
 # 第七部分：数字安全配置
 # =============================================
