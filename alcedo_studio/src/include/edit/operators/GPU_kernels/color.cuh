@@ -6,11 +6,16 @@
 
 #pragma once
 
+#include <array>
+#include <vector>
+
 #include <cuda_runtime.h>
 #include <device_types.h>
 
 #include "edit/operators/op_kernel.hpp"
 #include "param.cuh"
+
+#define GPU_HD_FUNC __host__ __device__ __forceinline__
 
 namespace alcedo {
 namespace CUDA {
@@ -26,7 +31,7 @@ GPU_FUNC float hls_oklch_hue_distance(float a, float b) {
   return fminf(diff, 360.0f - diff);
 }
 
-GPU_FUNC float hls_oklch_smoothstep(float edge0, float edge1, float x) {
+GPU_HD_FUNC float hls_oklch_smoothstep(float edge0, float edge1, float x) {
   const float denom = fmaxf(edge1 - edge0, 1e-6f);
   const float t     = fminf(fmaxf((x - edge0) / denom, 0.0f), 1.0f);
   return t * t * (3.0f - 2.0f * t);
@@ -138,521 +143,215 @@ GPU_FUNC float3 hls_oklch_fit_ap1_lower_gamut(float3 adjusted_ap1, float3 neutra
                      neutral_ap1.z + (adjusted_ap1.z - neutral_ap1.z) * scale);
 }
 
-GPU_FUNC float hs_ap1_luminance(float3 ap1) {
+GPU_HD_FUNC float hs_lerp(float a, float b, float t) { return a + (b - a) * t; }
+
+constexpr float kHsAcesccMiddleGray = 0.41358840f;
+constexpr float kHsAcesccCodePerEv  = 1.0f / 17.52f;
+
+GPU_FUNC float hs_ap1_intensity(float3 ap1) {
   return 0.27222872f * ap1.x + 0.67408177f * ap1.y + 0.05368952f * ap1.z;
 }
 
-GPU_FUNC float hs_log2_luminance_from_acescc(float4 px) {
+GPU_FUNC float hs_log_intensity_from_acescc(float4 px) {
   const float3 ap1 = hls_oklch_acescc_to_ap1(make_float3(px.x, px.y, px.z));
-  return log2f(fmaxf(hs_ap1_luminance(ap1), 1.0e-8f));
+  return hls_oklch_acescc_encode(fmaxf(hs_ap1_intensity(ap1), 1.0e-6f));
 }
 
-GPU_FUNC float hs_read_log_clamped(const float* __restrict src, int x, int y, int width,
-                                   int height, size_t pitch_elems) {
+template <size_t N>
+GPU_HD_FUNC float hs_piecewise_linear(const float (&xs)[N], const float (&ys)[N], float x) {
+  if (x <= xs[0]) {
+    return ys[0];
+  }
+  if (x >= xs[N - 1]) {
+    return ys[N - 1];
+  }
+
+  for (size_t i = 0; i + 1 < N; ++i) {
+    if (x <= xs[i + 1]) {
+      const float span = fmaxf(xs[i + 1] - xs[i], 1.0e-6f);
+      const float t    = fminf(fmaxf((x - xs[i]) / span, 0.0f), 1.0f);
+      return hs_lerp(ys[i], ys[i + 1], t);
+    }
+  }
+  return ys[N - 1];
+}
+
+GPU_HD_FUNC float hs_relative_ev_from_log_intensity(float log_intensity) {
+  return (log_intensity - kHsAcesccMiddleGray) / kHsAcesccCodePerEv;
+}
+
+GPU_HD_FUNC float hs_shadow_profile_ev(float relative_ev) {
+  constexpr float kXs[] = {-9.0f, -7.0f, -5.0f, -3.5f, -2.0f, -0.5f, 1.0f};
+  constexpr float kYs[] = {0.02f, 0.35f, 0.78f, 0.72f, 0.42f, 0.08f, 0.0f};
+  return hs_piecewise_linear(kXs, kYs, relative_ev);
+}
+
+GPU_HD_FUNC float hs_highlight_profile_ev(float relative_ev) {
+  constexpr float kXs[] = {-1.0f, 0.0f, 1.2f, 2.8f, 4.5f, 6.5f, 8.0f};
+  constexpr float kYs[] = {0.0f, 0.03f, 0.22f, 0.60f, 0.95f, 1.08f, 0.92f};
+  return hs_piecewise_linear(kXs, kYs, relative_ev);
+}
+
+GPU_FUNC float hs_read_l_clamped(const float* __restrict src, int x, int y, int width,
+                                 int height, size_t pitch_elems) {
   const int clamped_x = min(max(x, 0), width - 1);
   const int clamped_y = min(max(y, 0), height - 1);
   return src[static_cast<size_t>(clamped_y) * pitch_elems + static_cast<size_t>(clamped_x)];
 }
 
-GPU_FUNC float hs_range_weight(float center, float sample) {
-  constexpr float kTextureDeadbandStops = 0.24f;
-  constexpr float kRangeStops           = 0.48f;
-  const float     edge_delta = fmaxf(fabsf(sample - center) - kTextureDeadbandStops, 0.0f);
-  const float     d          = edge_delta / kRangeStops;
-  return exp2f(-(d * d));
+GPU_FUNC float hs_bilateral_range_weight(float center_l, float sample_l) {
+  constexpr float kDeadbandL = 0.018f;
+  constexpr float kSigmaL = 0.075f;
+  const float     delta = fmaxf(fabsf(sample_l - center_l) - kDeadbandL, 0.0f);
+  const float     normalized = delta / kSigmaL;
+  return exp2f(-(normalized * normalized));
 }
 
-GPU_FUNC float hs_shadow_upper_pivot(GPUOperatorParams params) {
-  const float width = fmaxf(params.hs_shadow_log_width_, 0.35f);
-  return params.hs_shadow_log_pivot_ + fmaxf(width * 0.40f, 0.24f);
+GPU_HD_FUNC float hs_shadow_region(float reference_l) {
+  const float enters_above_black = hls_oklch_smoothstep(0.020f, 0.115f, reference_l);
+  const float exits_midtones = 1.0f - hls_oklch_smoothstep(0.405f, 0.670f, reference_l);
+  return fminf(fmaxf(enters_above_black * exits_midtones, 0.0f), 1.0f);
 }
 
-GPU_FUNC float hs_shadow_black_floor_weight(float mask_ref, GPUOperatorParams params) {
-  const float width = fmaxf(params.hs_shadow_log_width_, 0.35f);
-  const float upper_pivot = hs_shadow_upper_pivot(params);
-  const float black_start = upper_pivot - fmaxf(width * 7.20f, 4.45f);
-  const float black_end = upper_pivot - fmaxf(width * 5.20f, 3.25f);
-  const float toe = hls_oklch_smoothstep(black_start, black_end, mask_ref);
-  return 0.30f + 0.70f * toe;
+GPU_HD_FUNC float hs_highlight_region(float reference_l) {
+  const float enters_upper_mid = hls_oklch_smoothstep(0.470f, 0.800f, reference_l);
+  const float soft_white_tail = 1.0f - 0.08f * hls_oklch_smoothstep(1.100f, 1.720f, reference_l);
+  return fminf(fmaxf(enters_upper_mid * soft_white_tail, 0.0f), 1.0f);
 }
 
-GPU_FUNC float hs_shadow_range_weight(float mask_ref) {
-  constexpr float kMiddleGrayLog2 = -2.4739311883f;
-  const float     relative_ev = mask_ref - kMiddleGrayLog2;
-  return 1.0f - hls_oklch_smoothstep(-5.50f, -0.50f, relative_ev);
+GPU_HD_FUNC void hs_regions(float reference_l, float shadow_amount, float highlight_amount,
+                            float* shadow_region, float* highlight_region) {
+  const float raw_shadow = hs_shadow_region(reference_l);
+  const float raw_highlight = hs_highlight_region(reference_l);
+  const bool  both_active =
+      fabsf(shadow_amount) > 1.0e-6f && fabsf(highlight_amount) > 1.0e-6f;
+  *shadow_region = both_active ? raw_shadow * (1.0f - 0.65f * raw_highlight) : raw_shadow;
+  *highlight_region = both_active ? raw_highlight * (1.0f - 0.30f * raw_shadow) : raw_highlight;
 }
 
-GPU_FUNC float hs_shadow_reference_lift_delta(float mask_ref) {
-  constexpr float kMiddleGrayLog2 = -2.4739311883f;
-  const float     ev = mask_ref - kMiddleGrayLog2;
-#define HS_REF_SEG(x0, y0, x1, y1)                                                        \
-  do {                                                                                     \
-    if (ev < (x1)) {                                                                       \
-      const float t = fminf(fmaxf((ev - (x0)) / ((x1) - (x0)), 0.0f), 1.0f);              \
-      return (y0) + ((y1) - (y0)) * t;                                                     \
-    }                                                                                      \
-  } while (0)
-  if (ev <= -5.520f) return 3.170f;
-  HS_REF_SEG(-5.520f, 3.170f, -3.935f, 3.700f);
-  HS_REF_SEG(-3.935f, 3.700f, -2.713f, 2.974f);
-  HS_REF_SEG(-2.713f, 2.974f, -1.713f, 2.100f);
-  HS_REF_SEG(-1.713f, 2.100f, -0.997f, 1.564f);
-  HS_REF_SEG(-0.997f, 1.564f, -0.433f, 1.179f);
-  HS_REF_SEG(-0.433f, 1.179f, 0.065f, 0.807f);
-  HS_REF_SEG(0.065f, 0.807f, 0.475f, 0.570f);
-  HS_REF_SEG(0.475f, 0.570f, 0.850f, 0.483f);
-  HS_REF_SEG(0.850f, 0.483f, 1.188f, 0.415f);
-  HS_REF_SEG(1.188f, 0.415f, 1.485f, 0.355f);
-  HS_REF_SEG(1.485f, 0.355f, 1.760f, 0.300f);
-  HS_REF_SEG(1.760f, 0.300f, 2.015f, 0.255f);
-  HS_REF_SEG(2.015f, 0.255f, 2.251f, 0.220f);
-  HS_REF_SEG(2.251f, 0.220f, 2.474f, 0.0f);
-#undef HS_REF_SEG
-  return 0.0f;
+GPU_HD_FUNC float hs_shadow_l_transform(float source_l, float amount, float region) {
+  const float lift = fmaxf(amount, 0.0f);
+  const float darken = fmaxf(-amount, 0.0f);
+  const float nonnegative_l = fmaxf(source_l, 0.0f);
+  const float lift_shape = nonnegative_l * expf(-nonnegative_l / 0.330f);
+  const float lift_toe = hls_oklch_smoothstep(0.018f, 0.105f, nonnegative_l);
+  const float lift_headroom = 1.0f - hls_oklch_smoothstep(0.570f, 0.760f, nonnegative_l);
+  const float lift_delta = lift * region * lift_toe * lift_headroom * 0.90f * lift_shape;
+  const float darken_delta =
+      darken * region * 0.24f * nonnegative_l * (1.0f - expf(-nonnegative_l / 0.280f));
+  return source_l + lift_delta - darken_delta;
 }
 
-GPU_FUNC float hs_shadow_zone_weight(float mask_ref, GPUOperatorParams params) {
-  const float width = fmaxf(params.hs_shadow_log_width_, 0.35f);
-  const float upper_pivot = hs_shadow_upper_pivot(params);
-  const float fade_start = upper_pivot - fmaxf(width * 3.15f, 1.95f);
-  const float tonal_weight = 1.0f - hls_oklch_smoothstep(fade_start, upper_pivot, mask_ref);
-  const float black_floor = hs_shadow_black_floor_weight(mask_ref, params);
-  const float range_weight = hs_shadow_range_weight(mask_ref);
-  return fminf(fmaxf(tonal_weight * black_floor * range_weight, 0.0f), 1.0f);
+GPU_HD_FUNC float hs_highlight_l_transform(float source_l, float amount, float region) {
+  const float reduce = fmaxf(amount, 0.0f);
+  const float boost = fmaxf(-amount, 0.0f);
+  const float nonnegative_l = fmaxf(source_l, 0.0f);
+  const float distance = fmaxf(nonnegative_l - 0.555f, 0.0f);
+  const float onset = hls_oklch_smoothstep(0.555f, 0.760f, nonnegative_l);
+  const float reduce_delta = reduce * region * onset * 0.190f * (1.0f - expf(-distance / 0.310f));
+  const float boost_delta = boost * region * onset * 0.155f * (1.0f - expf(-distance / 0.360f));
+  return source_l + boost_delta - reduce_delta;
 }
 
-GPU_FUNC float hs_shadow_base_distance(float mask_ref, GPUOperatorParams params) {
-  return fminf(fmaxf(hs_shadow_upper_pivot(params) - mask_ref, 0.0f), 3.65f);
-}
+GPU_HD_FUNC float hs_apply_reference_curve(float reference_l, float shadow_amount,
+                                           float highlight_amount,
+                                           float* shadow_region = nullptr,
+                                           float* highlight_region = nullptr) {
+  const float relative_ev = hs_relative_ev_from_log_intensity(reference_l);
+  const float shadow_lift = fmaxf(shadow_amount, 0.0f) * hs_shadow_profile_ev(relative_ev);
+  const float shadow_darken =
+      fmaxf(-shadow_amount, 0.0f) * 0.55f * hs_shadow_profile_ev(relative_ev);
+  const float highlight_reduce =
+      fmaxf(highlight_amount, 0.0f) * hs_highlight_profile_ev(relative_ev);
+  const float highlight_boost =
+      fmaxf(-highlight_amount, 0.0f) * 0.65f * hs_highlight_profile_ev(relative_ev);
 
-GPU_FUNC float hs_shadow_fill_plateau_weight(float mask_ref, GPUOperatorParams params) {
-  const float lower_gate = hls_oklch_smoothstep(params.hs_shadow_log_pivot_ - 4.05f,
-                                                params.hs_shadow_log_pivot_ - 1.75f, mask_ref);
-  const float upper_gate =
-      1.0f - 0.45f * hls_oklch_smoothstep(params.hs_shadow_log_pivot_ - 1.05f,
-                                          params.hs_shadow_log_pivot_ + 3.15f, mask_ref);
-  return lower_gate * upper_gate;
-}
-
-GPU_FUNC float hs_shadow_practical_dark_weight(float mask_ref, GPUOperatorParams params) {
-  const float lower_gate = hls_oklch_smoothstep(params.hs_shadow_log_pivot_ - 4.60f,
-                                                params.hs_shadow_log_pivot_ - 2.25f, mask_ref);
-  const float upper_gate =
-      1.0f - hls_oklch_smoothstep(params.hs_shadow_log_pivot_ - 1.55f,
-                                  params.hs_shadow_log_pivot_ + 0.20f, mask_ref);
-  return lower_gate * upper_gate;
-}
-
-GPU_FUNC float hs_highlight_zone_weight(float mask_ref, GPUOperatorParams params) {
-  constexpr float kToe = 1.0e-3f;
-  constexpr float kToePow = 0.1023292992f;
-  constexpr float kInvToeRange = 1.1135850f;
-  constexpr float kGamma = 0.33f;
-
-  const float t = hls_oklch_smoothstep(params.hs_highlight_log_pivot_,
-                                       params.hs_highlight_log_pivot_ +
-                                           params.hs_highlight_log_width_,
-                                       mask_ref);
-  const float lifted = powf(t + kToe, kGamma);
-  return fminf(fmaxf((lifted - kToePow) * kInvToeRange, 0.0f), 1.0f);
-}
-
-GPU_FUNC float hs_softplus_distance(float distance, float softness) {
-  constexpr float kLog2 = 0.6931471805599453f;
-  const float     safe_softness = fmaxf(softness, 1.0e-4f);
-  const float     x = distance / safe_softness;
-  if (x > 20.0f) {
-    return distance - safe_softness * kLog2;
+  if (shadow_region != nullptr) {
+    *shadow_region = fminf(fmaxf(shadow_lift / 0.78f, 0.0f), 1.0f);
   }
-  return safe_softness * (log1pf(expf(x)) - kLog2);
-}
-
-GPU_FUNC float hs_softrelu_distance(float signed_distance, float softness, float onset) {
-  const float safe_softness = fmaxf(softness, 1.0e-4f);
-  const float safe_onset = fmaxf(onset, 0.0f);
-  const float x = (signed_distance - safe_onset) / safe_softness;
-  if (x > 20.0f) {
-    return signed_distance - safe_onset;
-  }
-  if (x < -20.0f) {
-    return safe_softness * expf(x);
-  }
-  return safe_softness * log1pf(expf(x));
-}
-
-GPU_FUNC float hs_texture_detail_weight(float detail) {
-  return 1.0f - hls_oklch_smoothstep(0.28f, 0.88f, fabsf(detail));
-}
-
-GPU_FUNC float hs_lerp(float a, float b, float t) { return a + (b - a) * t; }
-
-GPU_FUNC float hs_active_mask_disagreement(float base_shadow_mask, float base_highlight_mask,
-                                           float source_shadow_mask, float source_highlight_mask,
-                                           float shadow_amount, float highlight_amount) {
-  float disagreement = 0.0f;
-  if (fabsf(shadow_amount) > 1.0e-6f) {
-    disagreement = fmaxf(disagreement, fabsf(base_shadow_mask - source_shadow_mask));
-    disagreement = fmaxf(disagreement, 0.50f * fabsf(base_highlight_mask - source_highlight_mask));
-  }
-  if (fabsf(highlight_amount) > 1.0e-6f) {
-    disagreement = fmaxf(disagreement, fabsf(base_highlight_mask - source_highlight_mask));
-  }
-  return fminf(fmaxf(disagreement, 0.0f), 1.0f);
-}
-
-GPU_FUNC float hs_tonal_reference_mix(float mask_disagreement) {
-  return hls_oklch_smoothstep(0.025f, 0.16f, mask_disagreement);
-}
-
-GPU_FUNC float hs_local_detail_reference_guard(float detail, float tonal_reference_mix) {
-  const float edge_reference = hls_oklch_smoothstep(0.42f, 0.95f, fabsf(detail));
-  return 1.0f - tonal_reference_mix * edge_reference;
-}
-
-GPU_FUNC float hs_chromatic_fringe_guard(float source_chroma, float detail,
-                                         float tonal_reference_mix,
-                                         float active_highlight_mask, float shadow_amount,
-                                         float highlight_amount) {
-  if (highlight_amount <= 1.0e-6f && shadow_amount <= 1.0e-6f) {
-    return 1.0f;
+  if (highlight_region != nullptr) {
+    *highlight_region = fminf(fmaxf(highlight_reduce / 1.08f, 0.0f), 1.0f);
   }
 
-  const float chroma_gate = hls_oklch_smoothstep(0.012f, 0.060f, source_chroma);
-  const float detail_gate = hls_oklch_smoothstep(0.055f, 0.34f, fabsf(detail)) *
-                            (1.0f - hls_oklch_smoothstep(0.82f, 1.42f, fabsf(detail)));
-  const float edge_gate = hls_oklch_smoothstep(0.020f, 0.12f, tonal_reference_mix);
-  const float highlight_gate = 0.35f + 0.65f * active_highlight_mask;
-  const float strength = 0.82f * chroma_gate * detail_gate * edge_gate * highlight_gate;
-  return 1.0f - fminf(fmaxf(strength, 0.0f), 0.82f);
+  const float delta_ev = shadow_lift - shadow_darken - highlight_reduce + highlight_boost;
+  return reference_l + delta_ev * kHsAcesccCodePerEv;
 }
 
-GPU_FUNC float hs_chromatic_local_mix_guard(float source_chroma, float detail, float local_delta,
-                                            float source_delta, float active_highlight_mask,
-                                            float shadow_amount, float highlight_amount) {
-  if (highlight_amount <= 1.0e-6f && shadow_amount <= 1.0e-6f) {
-    return 1.0f;
+GPU_HD_FUNC float hs_llf_detail_alpha(float reference_l, float shadow_amount,
+                                      float highlight_amount) {
+  (void)reference_l;
+  (void)shadow_amount;
+  (void)highlight_amount;
+  return 1.0f;
+}
+
+GPU_HD_FUNC float hs_llf_tone_beta(float reference_l, float shadow_amount,
+                                   float highlight_amount) {
+  constexpr float kEps = 0.035f;
+  const float lo = hs_apply_reference_curve(reference_l - kEps, shadow_amount, highlight_amount);
+  const float hi = hs_apply_reference_curve(reference_l + kEps, shadow_amount, highlight_amount);
+  return fminf(fmaxf((hi - lo) / (2.0f * kEps), 0.18f), 1.45f);
+}
+
+GPU_FUNC float hs_llf_gamma_interp_t(float gamma_lo, float gamma_hi, float g) {
+  const float span = fmaxf(gamma_hi - gamma_lo, 1.0e-6f);
+  return fminf(fmaxf((g - gamma_lo) / span, 0.0f), 1.0f);
+}
+
+GPU_FUNC float hs_llf_remap_delta(float delta_l, float sigma_r, float alpha, float beta) {
+  const float abs_delta = fabsf(delta_l);
+  if (abs_delta <= 1.0e-6f) {
+    return 0.0f;
   }
 
-  const float chroma_gate = hls_oklch_smoothstep(0.012f, 0.055f, source_chroma);
-  const float detail_gate = hls_oklch_smoothstep(0.050f, 0.20f, fabsf(detail)) *
-                            (1.0f - hls_oklch_smoothstep(0.85f, 1.45f, fabsf(detail)));
-  const float mismatch_gate =
-      hls_oklch_smoothstep(0.055f, 0.16f, fabsf(local_delta - source_delta));
-  const float highlight_gate = 0.35f + 0.65f * active_highlight_mask;
-  const float both_active_gate =
-      0.55f + 0.45f * fminf(fmaxf(fminf(fmaxf(shadow_amount, 0.0f),
-                                            fmaxf(highlight_amount, 0.0f)),
-                                  0.0f),
-                            1.0f);
-  const float strength =
-      0.78f * chroma_gate * detail_gate * mismatch_gate * highlight_gate * both_active_gate;
-  return 1.0f - fminf(fmaxf(strength, 0.0f), 0.78f);
-}
-
-GPU_FUNC float hs_llf_detail_mix(float detail) {
-  return 1.0f - hls_oklch_smoothstep(0.42f, 0.95f, fabsf(detail));
-}
-
-GPU_FUNC float hs_local_tone_mix(float detail, float local_delta, float source_delta) {
-  const float mag = fabsf(detail);
-  const float edge_weight = hls_oklch_smoothstep(0.62f, 1.55f, mag);
-  const float delta_mismatch =
-      hls_oklch_smoothstep(0.16f, 0.52f, fabsf(local_delta - source_delta));
-  const float guard = fminf(
-      fmaxf(edge_weight * (0.82f + 0.18f * delta_mismatch) + 0.18f * edge_weight * edge_weight,
-            0.0f),
-      1.0f);
-  return 1.0f - guard;
-}
-
-GPU_FUNC float hs_shadow_detail_preserve_weight(float detail) {
-  const float mag = fabsf(detail);
-  const float noise_gate = hls_oklch_smoothstep(0.045f, 0.15f, mag);
-  const float edge_guard = 1.0f - hls_oklch_smoothstep(0.78f, 1.35f, mag);
-  return noise_gate * edge_guard;
-}
-
-GPU_FUNC float hs_shadow_llf_detail_gain(float detail, float shadow_amount, float shadow_zone) {
-  const float lift_amount = fmaxf(shadow_amount, 0.0f);
-  if (lift_amount <= 1.0e-6f || shadow_zone <= 1.0e-6f) {
-    return 1.0f;
+  const float sign = copysignf(1.0f, delta_l);
+  if (abs_delta <= sigma_r) {
+    const float normalized = fminf(fmaxf(abs_delta / fmaxf(sigma_r, 1.0e-6f), 0.0f), 1.0f);
+    return sign * sigma_r * powf(normalized, alpha);
   }
+  return sign * (sigma_r + beta * (abs_delta - sigma_r));
+}
 
-  const float mag = fabsf(detail);
-  const float noise_gate = hls_oklch_smoothstep(0.035f, 0.11f, mag);
-  const float fine_detail_gate = 1.0f - hls_oklch_smoothstep(0.38f, 0.82f, mag);
-  if (noise_gate <= 0.0f || fine_detail_gate <= 0.0f) {
-    return 1.0f;
+GPU_FUNC float hs_read_plane_clamped(const float* __restrict src, int x, int y, int width,
+                                     int height) {
+  const int clamped_x = min(max(x, 0), width - 1);
+  const int clamped_y = min(max(y, 0), height - 1);
+  return src[static_cast<size_t>(clamped_y) * static_cast<size_t>(width) +
+             static_cast<size_t>(clamped_x)];
+}
+
+GPU_FUNC float hs_pyr_weight_1d(int tap) {
+  switch (tap) {
+    case -2:
+    case 2:
+      return 1.0f / 16.0f;
+    case -1:
+    case 1:
+      return 4.0f / 16.0f;
+    default:
+      return 6.0f / 16.0f;
   }
-
-  constexpr float kSigmaRStops = 0.42f;
-  const float     x = fminf(fmaxf(mag / kSigmaRStops, 1.0e-4f), 1.0f);
-  const float     alpha = 1.0f - 0.44f * lift_amount;
-  const float     remapped_mag = kSigmaRStops * powf(x, alpha);
-  const float     remap_gain = remapped_mag / fmaxf(mag, 1.0e-4f);
-  const float     limited_gain = fminf(fmaxf(remap_gain - 1.0f, 0.0f), 0.50f);
-  const float     mix = lift_amount * shadow_zone * noise_gate * fine_detail_gate;
-  return 1.0f + limited_gain * mix;
 }
 
-GPU_FUNC float hs_shadow_detail_sign_weight(float detail) {
-  if (detail >= 0.0f) {
-    return 1.0f;
-  }
-  return 1.0f - 0.65f * hls_oklch_smoothstep(0.18f, 0.72f, -detail);
-}
-
-GPU_FUNC void hs_compute_masks(float mask_ref, float shadow_amount, float highlight_amount,
-                               GPUOperatorParams params, float* shadow_mask,
-                               float* highlight_mask) {
-  const float raw_shadow = hs_shadow_zone_weight(mask_ref, params);
-  const float raw_highlight = hs_highlight_zone_weight(mask_ref, params);
-
-  const bool both_active = fabsf(shadow_amount) > 1.0e-6f && fabsf(highlight_amount) > 1.0e-6f;
-  *shadow_mask = both_active ? raw_shadow * (1.0f - 0.72f * raw_highlight) : raw_shadow;
-  *highlight_mask = both_active ? raw_highlight * (1.0f - 0.48f * raw_shadow) : raw_highlight;
-}
-
-GPU_FUNC float hs_shadow_tonal_weight(float mask_ref, float shadow_mask,
-                                      GPUOperatorParams params) {
-  (void)shadow_mask;
-  return hs_shadow_zone_weight(mask_ref, params);
-}
-
-GPU_FUNC float hs_shadow_base_delta_from_ref(float mask_ref, float shadow_amount,
-                                             float highlight_amount, GPUOperatorParams params) {
-  float shadow_mask = 0.0f;
-  float highlight_mask = 0.0f;
-  hs_compute_masks(mask_ref, shadow_amount, highlight_amount, params, &shadow_mask,
-                   &highlight_mask);
-
-  const float width = fmaxf(params.hs_shadow_log_width_, 0.35f);
-  const float upper_pivot = hs_shadow_upper_pivot(params);
-  const float lift_pivot = upper_pivot + fmaxf(width * 4.00f, 2.48f);
-  const float distance_to_pivot = fmaxf(lift_pivot - mask_ref, 0.0f);
-  const float soft_distance = hs_softplus_distance(distance_to_pivot, fmaxf(width * 2.18f, 1.35f));
-  const float black_floor = hs_shadow_black_floor_weight(mask_ref, params);
-  const float black_guard = 0.82f + 0.18f * black_floor;
-  const float highlight_overlap = fminf(fmaxf(highlight_mask, 0.0f), 1.0f);
-  const float highlight_active = (fabsf(highlight_amount) > 1.0e-6f) ? 1.0f : 0.0f;
-  const float overlap_guard = 1.0f - 0.28f * highlight_active * highlight_overlap;
-  const float lift_amount = fmaxf(shadow_amount, 0.0f);
-  const float darken_amount = fmaxf(-shadow_amount, 0.0f);
-  const float lift_delta = lift_amount * hs_shadow_reference_lift_delta(mask_ref) * overlap_guard;
-  const float darken_delta = darken_amount * 0.34f * soft_distance * (0.85f + 0.15f * black_guard);
-  return lift_delta - hs_shadow_range_weight(mask_ref) * darken_delta;
-}
-
-GPU_FUNC float hs_highlight_base_delta_from_ref(float mask_ref, float shadow_amount,
-                                                float highlight_amount, GPUOperatorParams params) {
-  constexpr float kMiddleGrayLog2 = -2.4739311883f;
-  const float width = fmaxf(params.hs_highlight_log_width_, 0.35f);
-  const float soft_distance =
-      hs_softrelu_distance(mask_ref - params.hs_highlight_log_pivot_,
-                           fminf(fmaxf(width * 0.12f, 0.36f), 0.55f),
-                           fminf(fmaxf(width * 0.24f, 0.62f), 1.00f));
-  const float reduce_amount = fmaxf(highlight_amount, 0.0f);
-  const float boost_amount = fmaxf(-highlight_amount, 0.0f);
-  float       reduce_delta = 0.0f;
-  if (reduce_amount > 1.0e-6f) {
-    float shadow_lift_delta = 0.0f;
-    if (shadow_amount > 1.0e-6f) {
-      shadow_lift_delta =
-          fmaxf(hs_shadow_base_delta_from_ref(mask_ref, shadow_amount, highlight_amount, params),
-                0.0f);
+GPU_FUNC float hs_expand_from_coarse(const float* __restrict coarse, int coarse_width,
+                                     int coarse_height, int x, int y) {
+  float sum = 0.0f;
+  for (int ky = -2; ky <= 2; ++ky) {
+    const int sample_y = y - ky;
+    if ((sample_y & 1) != 0) continue;
+    const int cy = min(max(sample_y / 2, 0), coarse_height - 1);
+    const float wy = hs_pyr_weight_1d(ky);
+    for (int kx = -2; kx <= 2; ++kx) {
+      const int sample_x = x - kx;
+      if ((sample_x & 1) != 0) continue;
+      const int cx = min(max(sample_x / 2, 0), coarse_width - 1);
+      const float wx = hs_pyr_weight_1d(kx);
+      sum += 4.0f * wx * wy *
+             coarse[static_cast<size_t>(cy) * static_cast<size_t>(coarse_width) +
+                    static_cast<size_t>(cx)];
     }
-    const float lifted_relative_ev = mask_ref + 0.18f * shadow_lift_delta - kMiddleGrayLog2;
-    const float highlight_shelf = 0.60f * hls_oklch_smoothstep(-2.80f, 0.50f,
-                                                               lifted_relative_ev);
-    const float highlight_peak = 0.50f * hls_oklch_smoothstep(-1.35f, 1.60f,
-                                                              lifted_relative_ev) *
-                                 (1.0f - hls_oklch_smoothstep(2.25f, 4.90f,
-                                                              lifted_relative_ev));
-    const float extreme_high_tail = 0.23f * hls_oklch_smoothstep(3.00f, 5.15f,
-                                                                 lifted_relative_ev);
-    reduce_delta = highlight_shelf + highlight_peak + extreme_high_tail;
   }
-  const float boost_delta = 1.24f * (1.0f - expf(-soft_distance / 1.45f));
-  return boost_amount * boost_delta - reduce_amount * reduce_delta;
-}
-
-GPU_FUNC float hs_base_delta_from_ref(float mask_ref, float shadow_amount, float highlight_amount,
-                                      GPUOperatorParams params) {
-  return hs_shadow_base_delta_from_ref(mask_ref, shadow_amount, highlight_amount, params) +
-         hs_highlight_base_delta_from_ref(mask_ref, shadow_amount, highlight_amount, params);
-}
-
-GPU_FUNC float hs_base_curve_slope(float mask_ref, float shadow_amount, float highlight_amount,
-                                   GPUOperatorParams params) {
-  constexpr float kEpsStops = 0.08f;
-  const float delta_lo =
-      hs_base_delta_from_ref(mask_ref - kEpsStops, shadow_amount, highlight_amount, params);
-  const float delta_hi =
-      hs_base_delta_from_ref(mask_ref + kEpsStops, shadow_amount, highlight_amount, params);
-  return 1.0f + (delta_hi - delta_lo) / (2.0f * kEpsStops);
-}
-
-GPU_FUNC float hs_shadow_curve_slope(float mask_ref, float shadow_amount, float highlight_amount,
-                                     GPUOperatorParams params) {
-  constexpr float kEpsStops = 0.08f;
-  const float delta_lo =
-      hs_shadow_base_delta_from_ref(mask_ref - kEpsStops, shadow_amount, highlight_amount, params);
-  const float delta_hi =
-      hs_shadow_base_delta_from_ref(mask_ref + kEpsStops, shadow_amount, highlight_amount, params);
-  return 1.0f + (delta_hi - delta_lo) / (2.0f * kEpsStops);
-}
-
-GPU_FUNC float hs_highlight_curve_slope(float mask_ref, float shadow_amount,
-                                        float highlight_amount, GPUOperatorParams params) {
-  constexpr float kEpsStops = 0.08f;
-  const float delta_lo =
-      hs_highlight_base_delta_from_ref(mask_ref - kEpsStops, shadow_amount, highlight_amount,
-                                       params);
-  const float delta_hi =
-      hs_highlight_base_delta_from_ref(mask_ref + kEpsStops, shadow_amount, highlight_amount,
-                                       params);
-  return 1.0f + (delta_hi - delta_lo) / (2.0f * kEpsStops);
-}
-
-GPU_FUNC float hs_shadow_detail_weight(float mask_ref, float shadow_mask,
-                                       GPUOperatorParams params) {
-  const float tonal_weight = hs_shadow_tonal_weight(mask_ref, shadow_mask, params);
-  const float signal_gate =
-      hls_oklch_smoothstep(params.hs_shadow_log_pivot_ - 2.60f,
-                           params.hs_shadow_log_pivot_ - 1.20f, mask_ref);
-  const float upper_guard =
-      1.0f - hls_oklch_smoothstep(params.hs_shadow_log_pivot_ + 1.05f,
-                                  params.hs_shadow_log_pivot_ + 2.10f, mask_ref);
-  const float practical_shadow = signal_gate * upper_guard;
-  return fmaxf(tonal_weight * signal_gate, 0.72f * practical_shadow);
-}
-
-GPU_FUNC float hs_shadow_fill_light_weight(float mask_ref, GPUOperatorParams params) {
-  const float signal_gate =
-      hls_oklch_smoothstep(params.hs_shadow_log_pivot_ - 2.45f,
-                           params.hs_shadow_log_pivot_ - 1.05f, mask_ref);
-  const float upper_guard =
-      1.0f - hls_oklch_smoothstep(params.hs_shadow_log_pivot_ + 1.55f,
-                                  params.hs_shadow_log_pivot_ + 2.50f, mask_ref);
-  return signal_gate * upper_guard;
-}
-
-GPU_FUNC float hs_highlight_detail_weight(float mask_ref, float highlight_mask, float detail,
-                                          GPUOperatorParams params) {
-  const float width = fmaxf(params.hs_highlight_log_width_, 0.35f);
-  const float tonal_weight = fminf(fmaxf(highlight_mask, 0.0f), 1.0f);
-  const float noise_gate = hls_oklch_smoothstep(0.035f, 0.12f, fabsf(detail));
-  const float edge_guard = 1.0f - hls_oklch_smoothstep(0.78f, 1.45f, fabsf(detail));
-  const float clipped_guard =
-      1.0f - hls_oklch_smoothstep(params.hs_highlight_log_pivot_ + width * 1.15f,
-                                  params.hs_highlight_log_pivot_ + width * 2.35f, mask_ref);
-  return tonal_weight * noise_gate * edge_guard * clipped_guard;
-}
-
-GPU_FUNC float3 hs_dampen_shadow_chroma(float3 source_ap1, float3 output_ap1, float3 source_lab,
-                                        float source_chroma, float log_delta,
-                                        float shadow_amount, float source_shadow_mask,
-                                        float source_log_y, GPUOperatorParams params) {
-  const float lift_amount = fmaxf(shadow_amount, 0.0f);
-  if (lift_amount <= 1.0e-6f || log_delta <= 1.0e-5f || source_shadow_mask <= 1.0e-5f ||
-      source_chroma <= 1.0e-5f) {
-    return output_ap1;
-  }
-
-  const float3 output_lab = hls_oklch_ap1_to_oklab(output_ap1);
-  const float  output_chroma = hypotf(output_lab.y, output_lab.z);
-  if (output_chroma <= 1.0e-5f || output_lab.x <= 1.0e-5f) {
-    return output_ap1;
-  }
-
-  const float dirty_chroma = hls_oklch_smoothstep(0.045f, 0.18f, source_chroma);
-  const float lift_gate = hls_oklch_smoothstep(0.30f, 1.20f, log_delta);
-  const float dark_gate =
-      1.0f - hls_oklch_smoothstep(params.hs_shadow_log_pivot_ + 0.75f,
-                                  params.hs_shadow_log_pivot_ + 2.40f, source_log_y);
-  const float strength = fminf(
-      fmaxf(0.30f * lift_amount * source_shadow_mask * dirty_chroma * lift_gate * dark_gate, 0.0f),
-      0.34f);
-  if (strength <= 1.0e-6f) {
-    return output_ap1;
-  }
-
-  const float3 adjusted_lab =
-      make_float3(output_lab.x, output_lab.y * (1.0f - strength),
-                  output_lab.z * (1.0f - strength));
-  const float3 neutral_lab = make_float3(output_lab.x, 0.0f, 0.0f);
-  const float3 neutral_ap1 = hls_oklch_oklab_to_ap1(neutral_lab);
-  return hls_oklch_fit_ap1_lower_gamut(hls_oklch_oklab_to_ap1(adjusted_lab), neutral_ap1);
-}
-
-__global__ void HsBuildLogBaseHorizontalKernel(const float4* __restrict src,
-                                               float* __restrict dst, int width, int height,
-                                               size_t pitch_elems, GPUOperatorParams params) {
-  const int x = blockIdx.x * blockDim.x + threadIdx.x;
-  const int y = blockIdx.y * blockDim.y + threadIdx.y;
-  if (x >= width || y >= height) return;
-
-  const int    tap_count = params.hs_base_gaussian_tap_count_;
-  const size_t offset    = static_cast<size_t>(y) * pitch_elems + static_cast<size_t>(x);
-  if (tap_count <= 0) {
-    dst[offset] = hs_log2_luminance_from_acescc(src[offset]);
-    return;
-  }
-
-  const float center = hs_log2_luminance_from_acescc(src[offset]);
-  float       base   = center * params.hs_base_gaussian_weights_[0];
-  float       weight_sum = params.hs_base_gaussian_weights_[0];
-  for (int tap = 1; tap < tap_count; ++tap) {
-    const int ax = min(x + tap, width - 1);
-    const int bx = max(x - tap, 0);
-    const float wa = hs_log2_luminance_from_acescc(
-        src[static_cast<size_t>(y) * pitch_elems + static_cast<size_t>(ax)]);
-    const float wb = hs_log2_luminance_from_acescc(
-        src[static_cast<size_t>(y) * pitch_elems + static_cast<size_t>(bx)]);
-    const float spatial = params.hs_base_gaussian_weights_[tap];
-    const float aw      = spatial * hs_range_weight(center, wa);
-    const float bw      = spatial * hs_range_weight(center, wb);
-    base += wa * aw + wb * bw;
-    weight_sum += aw + bw;
-  }
-  dst[offset] = base / fmaxf(weight_sum, 1.0e-6f);
-}
-
-__global__ void HsBuildLogBaseVerticalKernel(const float4* __restrict guidance,
-                                             const float* __restrict src, float* __restrict dst,
-                                             int width, int height, size_t pitch_elems,
-                                             GPUOperatorParams params) {
-  const int x = blockIdx.x * blockDim.x + threadIdx.x;
-  const int y = blockIdx.y * blockDim.y + threadIdx.y;
-  if (x >= width || y >= height) return;
-
-  const int    tap_count = params.hs_base_gaussian_tap_count_;
-  const size_t offset    = static_cast<size_t>(y) * pitch_elems + static_cast<size_t>(x);
-  if (tap_count <= 0) {
-    dst[offset] = src[offset];
-    return;
-  }
-
-  const float center = src[offset];
-  const float center_guidance = hs_log2_luminance_from_acescc(guidance[offset]);
-  float       base   = center * params.hs_base_gaussian_weights_[0];
-  float       weight_sum = params.hs_base_gaussian_weights_[0];
-  for (int tap = 1; tap < tap_count; ++tap) {
-    const int ay = min(y + tap, height - 1);
-    const int by = max(y - tap, 0);
-    const float a = hs_read_log_clamped(src, x, y + tap, width, height, pitch_elems);
-    const float b = hs_read_log_clamped(src, x, y - tap, width, height, pitch_elems);
-    const float ag = hs_log2_luminance_from_acescc(
-        guidance[static_cast<size_t>(ay) * pitch_elems + static_cast<size_t>(x)]);
-    const float bg = hs_log2_luminance_from_acescc(
-        guidance[static_cast<size_t>(by) * pitch_elems + static_cast<size_t>(x)]);
-    const float spatial = params.hs_base_gaussian_weights_[tap];
-    const float aw      = spatial * hs_range_weight(center_guidance, ag);
-    const float bw      = spatial * hs_range_weight(center_guidance, bg);
-    base += a * aw + b * bw;
-    weight_sum += aw + bw;
-  }
-  dst[offset] = base / fmaxf(weight_sum, 1.0e-6f);
+  return sum;
 }
 
 __global__ void HsCopyThroughKernel(const float4* __restrict src, float4* __restrict dst,
@@ -661,173 +360,157 @@ __global__ void HsCopyThroughKernel(const float4* __restrict src, float4* __rest
   const int y = blockIdx.y * blockDim.y + threadIdx.y;
   if (x >= width || y >= height) return;
   const size_t offset = static_cast<size_t>(y) * pitch_elems + static_cast<size_t>(x);
-  dst[offset]         = src[offset];
+  dst[offset] = src[offset];
 }
 
-GPU_FUNC float4 hs_apply_local_tone_pixel(float4 px, float base, GPUOperatorParams params) {
-  const float shadow_amount =
-      (params.shadows_enabled_) ? fminf(fmaxf(params.shadows_offset_, -1.0f), 1.0f) : 0.0f;
-  const float highlight_amount =
-      (params.highlights_enabled_) ? fminf(fmaxf(-params.highlights_offset_ * 0.5f, -1.0f), 1.0f)
-                                   : 0.0f;
-  if (fabsf(shadow_amount) <= 1.0e-6f && fabsf(highlight_amount) <= 1.0e-6f) {
-    return px;
-  }
-
-  const float3 source_ap1 = hls_oklch_acescc_to_ap1(make_float3(px.x, px.y, px.z));
-  const float  source_log_y  = log2f(fmaxf(hs_ap1_luminance(source_ap1), 1.0e-8f));
-  const float  detail        = source_log_y - base;
-  const float  base_mask_ref = base;
-  float        base_shadow_mask = 0.0f;
-  float        base_highlight_mask = 0.0f;
-  float        source_shadow_mask = 0.0f;
-  float        source_highlight_mask = 0.0f;
-  hs_compute_masks(base_mask_ref, shadow_amount, highlight_amount, params, &base_shadow_mask,
-                   &base_highlight_mask);
-  hs_compute_masks(source_log_y, shadow_amount, highlight_amount, params, &source_shadow_mask,
-                   &source_highlight_mask);
-
-  const float mask_disagreement =
-      hs_active_mask_disagreement(base_shadow_mask, base_highlight_mask, source_shadow_mask,
-                                  source_highlight_mask, shadow_amount, highlight_amount);
-  const float tonal_reference_mix = hs_tonal_reference_mix(mask_disagreement);
-  const float mask_ref = hs_lerp(base_mask_ref, source_log_y, tonal_reference_mix);
-  float        shadow_mask = 0.0f;
-  float        highlight_mask = 0.0f;
-  hs_compute_masks(mask_ref, shadow_amount, highlight_amount, params, &shadow_mask,
-                   &highlight_mask);
-
-  const float base_delta =
-      hs_base_delta_from_ref(mask_ref, shadow_amount, highlight_amount, params);
-  const float base_curve_slope =
-      fminf(fmaxf(hs_base_curve_slope(mask_ref, shadow_amount, highlight_amount, params), 0.42f),
-            1.65f);
-  const float base_contrast_loss =
-      fminf(fmaxf(1.0f / base_curve_slope - 1.0f, 0.0f), 0.62f);
-  const float shadow_curve_slope =
-      fminf(fmaxf(hs_shadow_curve_slope(mask_ref, shadow_amount, highlight_amount, params), 0.58f),
-            1.35f);
-  const float shadow_contrast_loss =
-      fminf(fmaxf(1.0f / shadow_curve_slope - 1.0f, 0.0f), 0.46f);
-  const float highlight_curve_slope =
-      fminf(fmaxf(hs_highlight_curve_slope(mask_ref, shadow_amount, highlight_amount, params),
-                  0.50f),
-            1.20f);
-  const float highlight_contrast_loss =
-      fminf(fmaxf(1.0f / highlight_curve_slope - 1.0f, 0.0f), 0.42f);
-  const float shadow_texture_zone = hs_shadow_detail_weight(mask_ref, shadow_mask, params);
-  const float texture_detail = hs_texture_detail_weight(detail);
-  const float shadow_detail_sign = hs_shadow_detail_sign_weight(detail);
-  const float shadow_detail_zone = shadow_texture_zone * texture_detail * shadow_detail_sign;
-  const float shadow_detail_preserve = hs_shadow_detail_preserve_weight(detail);
-  const float shadow_fill_light_zone = hs_shadow_fill_light_weight(mask_ref, params);
-  const float shadow_fill_plateau_zone = hs_shadow_fill_plateau_weight(mask_ref, params);
-  const float active_highlight_mask =
-      (fabsf(highlight_amount) > 1.0e-6f) ? fminf(fmaxf(highlight_mask, 0.0f), 1.0f) : 0.0f;
-  const float3 source_lab = hls_oklch_ap1_to_oklab(source_ap1);
-  const float  source_chroma = hypotf(source_lab.y, source_lab.z);
-  const float  chromatic_fringe_guard =
-      hs_chromatic_fringe_guard(source_chroma, detail, tonal_reference_mix,
-                                active_highlight_mask, shadow_amount, highlight_amount);
-  const float fill_highlight_guard = 1.0f - 0.35f * active_highlight_mask;
-  const float fill_detail_polarity = detail >= 0.0f ? 1.0f : 0.68f;
-  const float highlight_detail_zone =
-      hs_highlight_detail_weight(mask_ref, highlight_mask, detail, params) * texture_detail;
-  const float llf_detail_gain =
-      hs_shadow_llf_detail_gain(
-          detail, shadow_amount,
-          fmaxf(fmaxf(shadow_texture_zone, 0.86f * shadow_fill_light_zone * fill_highlight_guard),
-                0.42f * shadow_fill_plateau_zone * fill_highlight_guard));
-  const float guarded_llf_detail_gain =
-      1.0f + (llf_detail_gain - 1.0f) * chromatic_fringe_guard;
-  const float dark_valley = hls_oklch_smoothstep(0.85f, 1.80f, -detail);
-  const float contrast_recovery =
-      0.045f + 0.090f * fmaxf(base_contrast_loss, shadow_contrast_loss);
-  const float fill_light_recovery =
-      (0.095f + 0.105f * fmaxf(base_contrast_loss, shadow_contrast_loss));
-  const float fill_plateau_recovery =
-      0.10f + 0.16f * fmaxf(base_contrast_loss, shadow_contrast_loss);
-  const float shadow_detail_scale =
-      fmaxf(shadow_amount, 0.0f) * shadow_detail_zone * shadow_detail_preserve *
-          contrast_recovery -
-      0.018f * fmaxf(shadow_amount, 0.0f) * shadow_texture_zone * dark_valley +
-      fmaxf(shadow_amount, 0.0f) * shadow_fill_light_zone * fill_highlight_guard *
-          texture_detail * shadow_detail_preserve * fill_detail_polarity * fill_light_recovery +
-      fmaxf(shadow_amount, 0.0f) * shadow_fill_plateau_zone * fill_highlight_guard *
-          texture_detail * shadow_detail_preserve * fill_detail_polarity * fill_plateau_recovery +
-      0.025f * fmaxf(-shadow_amount, 0.0f) * shadow_detail_zone *
-          fmaxf(base_contrast_loss, shadow_contrast_loss);
-  const float guarded_shadow_detail_scale = shadow_detail_scale * chromatic_fringe_guard;
-  const float highlight_detail_scale =
-      fmaxf(highlight_amount, 0.0f) * highlight_detail_zone *
-      (0.035f + 0.12f * highlight_contrast_loss);
-  const float guarded_highlight_detail_scale = highlight_detail_scale * chromatic_fringe_guard;
-  const float raw_detail_scale = fminf(
-      1.38f, fmaxf(0.97f, (1.0f + guarded_shadow_detail_scale +
-                           guarded_highlight_detail_scale) * guarded_llf_detail_gain));
-  const float detail_scale = 1.0f + (raw_detail_scale - 1.0f) * hs_llf_detail_mix(detail);
-  const float local_delta = base_delta + detail * (detail_scale - 1.0f);
-  const float local_adjusted_log_y = source_log_y + local_delta;
-  const float source_delta =
-      hs_base_delta_from_ref(source_log_y, shadow_amount, highlight_amount, params);
-  const float source_adjusted_log_y = source_log_y + source_delta;
-  const float chromatic_local_mix_guard =
-      hs_chromatic_local_mix_guard(source_chroma, detail, local_delta, source_delta,
-                                   active_highlight_mask, shadow_amount, highlight_amount);
-  const float local_mix =
-      hs_local_tone_mix(detail, local_delta, source_delta) *
-      hs_local_detail_reference_guard(detail, tonal_reference_mix) * chromatic_fringe_guard *
-      chromatic_local_mix_guard;
-  const float adjusted_log_y = hs_lerp(source_adjusted_log_y, local_adjusted_log_y, local_mix);
-  const float log_delta = adjusted_log_y - source_log_y;
-
-  const float rgb_scale = exp2f(fminf(fmaxf(log_delta, -3.5f), 3.5f));
-  float3 output_ap1 =
-      make_float3(source_ap1.x * rgb_scale, source_ap1.y * rgb_scale, source_ap1.z * rgb_scale);
-  output_ap1 = hs_dampen_shadow_chroma(source_ap1, output_ap1, source_lab, source_chroma,
-                                       log_delta, shadow_amount, source_shadow_mask, source_log_y,
-                                       params);
-  const float3 output_acescc = hls_oklch_ap1_to_acescc(output_ap1);
-
-  return make_float4(output_acescc.x, output_acescc.y, output_acescc.z, px.w);
-}
-
-GPU_FUNC float hs_read_base_bilinear(const float* __restrict base_log, int width, int height,
-                                     size_t pitch_elems, float x, float y) {
-  const float clamped_x = fminf(fmaxf(x, 0.0f), static_cast<float>(width - 1));
-  const float clamped_y = fminf(fmaxf(y, 0.0f), static_cast<float>(height - 1));
-  const int   x0 = min(max(static_cast<int>(floorf(clamped_x)), 0), width - 1);
-  const int   y0 = min(max(static_cast<int>(floorf(clamped_y)), 0), height - 1);
-  const int   x1 = min(x0 + 1, width - 1);
-  const int   y1 = min(y0 + 1, height - 1);
-  const float tx = clamped_x - static_cast<float>(x0);
-  const float ty = clamped_y - static_cast<float>(y0);
-
-  const float v00 = base_log[static_cast<size_t>(y0) * pitch_elems + static_cast<size_t>(x0)];
-  const float v10 = base_log[static_cast<size_t>(y0) * pitch_elems + static_cast<size_t>(x1)];
-  const float v01 = base_log[static_cast<size_t>(y1) * pitch_elems + static_cast<size_t>(x0)];
-  const float v11 = base_log[static_cast<size_t>(y1) * pitch_elems + static_cast<size_t>(x1)];
-  const float vx0 = v00 + (v10 - v00) * tx;
-  const float vx1 = v01 + (v11 - v01) * tx;
-  return vx0 + (vx1 - vx0) * ty;
-}
-
-__global__ void HsApplyLocalToneKernel(const float4* __restrict src,
-                                       const float* __restrict base_log, float4* __restrict dst,
-                                       int width, int height, size_t pitch_elems,
-                                       GPUOperatorParams params) {
+__global__ void HsExtractLogIntensityKernel(const float4* __restrict src, float* __restrict dst,
+                                            int width, int height, size_t src_pitch_elems) {
   const int x = blockIdx.x * blockDim.x + threadIdx.x;
   const int y = blockIdx.y * blockDim.y + threadIdx.y;
   if (x >= width || y >= height) return;
 
-  const size_t offset = static_cast<size_t>(y) * pitch_elems + static_cast<size_t>(x);
-  dst[offset] = hs_apply_local_tone_pixel(src[offset], base_log[offset], params);
+  const size_t src_offset = static_cast<size_t>(y) * src_pitch_elems + static_cast<size_t>(x);
+  const size_t dst_offset = static_cast<size_t>(y) * static_cast<size_t>(width) +
+                            static_cast<size_t>(x);
+  dst[dst_offset] = hs_log_intensity_from_acescc(src[src_offset]);
 }
 
-__global__ void HsApplyLocalToneFromReferenceBaseKernel(
-    const float4* __restrict src, const float* __restrict base_log, float4* __restrict dst,
-    int width, int height, size_t pitch_elems, int base_width, int base_height,
-    size_t base_pitch_elems, GPUOperatorParams params) {
+__global__ void HsBuildRemappedSampleKernel(const float* __restrict source_l,
+                                            float* __restrict remapped_l, int width, int height,
+                                            float gamma, float target, float beta, float alpha,
+                                            float sigma_r) {
+  const int x = blockIdx.x * blockDim.x + threadIdx.x;
+  const int y = blockIdx.y * blockDim.y + threadIdx.y;
+  if (x >= width || y >= height) return;
+
+  const size_t offset = static_cast<size_t>(y) * static_cast<size_t>(width) +
+                        static_cast<size_t>(x);
+  const float source_value = source_l[offset];
+  remapped_l[offset] =
+      target + hs_llf_remap_delta(source_value - gamma, sigma_r, alpha, beta);
+}
+
+__global__ void HsPyrDownKernel(const float* __restrict src, int src_width, int src_height,
+                                float* __restrict dst, int dst_width, int dst_height) {
+  const int x = blockIdx.x * blockDim.x + threadIdx.x;
+  const int y = blockIdx.y * blockDim.y + threadIdx.y;
+  if (x >= dst_width || y >= dst_height) return;
+
+  const int center_x = x * 2;
+  const int center_y = y * 2;
+  float     sum = 0.0f;
+  for (int ky = -2; ky <= 2; ++ky) {
+    const float wy = hs_pyr_weight_1d(ky);
+    for (int kx = -2; kx <= 2; ++kx) {
+      const float wx = hs_pyr_weight_1d(kx);
+      sum += wx * wy *
+             hs_read_plane_clamped(src, center_x + kx, center_y + ky, src_width, src_height);
+    }
+  }
+
+  dst[static_cast<size_t>(y) * static_cast<size_t>(dst_width) + static_cast<size_t>(x)] = sum;
+}
+
+__global__ void HsSelectInterpolatedLevelKernel(
+    const float* __restrict source_level, const float* __restrict sample_lo_level,
+    const float* __restrict sample_lo_coarse, const float* __restrict sample_hi_level,
+    const float* __restrict sample_hi_coarse, float* __restrict output_level, int width,
+    int height, int coarse_width, int coarse_height, float gamma_lo, float gamma_hi,
+    bool first_pair, bool last_pair, bool top_level) {
+  const int x = blockIdx.x * blockDim.x + threadIdx.x;
+  const int y = blockIdx.y * blockDim.y + threadIdx.y;
+  if (x >= width || y >= height) return;
+
+  const size_t offset =
+      static_cast<size_t>(y) * static_cast<size_t>(width) + static_cast<size_t>(x);
+  const float  g = source_level[offset];
+  const bool   in_interval =
+      (first_pair && g <= gamma_hi) || (last_pair && g >= gamma_lo) ||
+      (g >= gamma_lo && g < gamma_hi);
+  if (!in_interval) {
+    return;
+  }
+
+  const float t = hs_llf_gamma_interp_t(gamma_lo, gamma_hi, g);
+  if (top_level) {
+    output_level[offset] = hs_lerp(sample_lo_level[offset], sample_hi_level[offset], t);
+    return;
+  }
+
+  const float lap_lo = sample_lo_level[offset] -
+                       hs_expand_from_coarse(sample_lo_coarse, coarse_width, coarse_height, x, y);
+  const float lap_hi = sample_hi_level[offset] -
+                       hs_expand_from_coarse(sample_hi_coarse, coarse_width, coarse_height, x, y);
+  output_level[offset] = hs_lerp(lap_lo, lap_hi, t);
+}
+
+__global__ void HsCollapseLevelKernel(const float* __restrict lap_level,
+                                      const float* __restrict coarse_level,
+                                      float* __restrict dst_level, int width, int height,
+                                      int coarse_width, int coarse_height) {
+  const int x = blockIdx.x * blockDim.x + threadIdx.x;
+  const int y = blockIdx.y * blockDim.y + threadIdx.y;
+  if (x >= width || y >= height) return;
+
+  const size_t offset =
+      static_cast<size_t>(y) * static_cast<size_t>(width) + static_cast<size_t>(x);
+  dst_level[offset] = lap_level[offset] +
+                      hs_expand_from_coarse(coarse_level, coarse_width, coarse_height, x, y);
+}
+
+GPU_FUNC float4 hs_apply_adjusted_l_pixel(float4 px, float adjusted_l) {
+  const float3 source_ap1 = hls_oklch_acescc_to_ap1(make_float3(px.x, px.y, px.z));
+  const float  source_intensity = fmaxf(hs_ap1_intensity(source_ap1), 1.0e-5f);
+  const float  adjusted_intensity = hls_oklch_acescc_decode(adjusted_l);
+  const float  ratio = fminf(fmaxf(adjusted_intensity / source_intensity, 0.0f), 32.0f);
+  const float3 ratio_ap1 = make_float3(source_ap1.x * ratio, source_ap1.y * ratio,
+                                       source_ap1.z * ratio);
+  const float3 neutral_ap1 =
+      make_float3(adjusted_intensity, adjusted_intensity, adjusted_intensity);
+  const float3 output_ap1 = hls_oklch_fit_ap1_lower_gamut(ratio_ap1, neutral_ap1);
+  const float3 output_acescc = hls_oklch_ap1_to_acescc(output_ap1);
+  return make_float4(output_acescc.x, output_acescc.y, output_acescc.z, px.w);
+}
+
+GPU_FUNC float hs_read_plane_bilinear(const float* __restrict plane, int width, int height,
+                                      size_t pitch_elems, float x, float y) {
+  const float clamped_x = fminf(fmaxf(x, 0.0f), static_cast<float>(width - 1));
+  const float clamped_y = fminf(fmaxf(y, 0.0f), static_cast<float>(height - 1));
+  const int x0 = min(max(static_cast<int>(floorf(clamped_x)), 0), width - 1);
+  const int y0 = min(max(static_cast<int>(floorf(clamped_y)), 0), height - 1);
+  const int x1 = min(x0 + 1, width - 1);
+  const int y1 = min(y0 + 1, height - 1);
+  const float tx = clamped_x - static_cast<float>(x0);
+  const float ty = clamped_y - static_cast<float>(y0);
+
+  const float v00 = plane[static_cast<size_t>(y0) * pitch_elems + static_cast<size_t>(x0)];
+  const float v10 = plane[static_cast<size_t>(y0) * pitch_elems + static_cast<size_t>(x1)];
+  const float v01 = plane[static_cast<size_t>(y1) * pitch_elems + static_cast<size_t>(x0)];
+  const float v11 = plane[static_cast<size_t>(y1) * pitch_elems + static_cast<size_t>(x1)];
+  const float vx0 = hs_lerp(v00, v10, tx);
+  const float vx1 = hs_lerp(v01, v11, tx);
+  return hs_lerp(vx0, vx1, ty);
+}
+
+__global__ void HsApplyAdjustedLKernel(const float4* __restrict src,
+                                       const float* __restrict adjusted_l,
+                                       float4* __restrict dst, int width, int height,
+                                       size_t src_pitch_elems) {
+  const int x = blockIdx.x * blockDim.x + threadIdx.x;
+  const int y = blockIdx.y * blockDim.y + threadIdx.y;
+  if (x >= width || y >= height) return;
+
+  const size_t src_offset =
+      static_cast<size_t>(y) * src_pitch_elems + static_cast<size_t>(x);
+  const size_t l_offset =
+      static_cast<size_t>(y) * static_cast<size_t>(width) + static_cast<size_t>(x);
+  dst[src_offset] = hs_apply_adjusted_l_pixel(src[src_offset], adjusted_l[l_offset]);
+}
+
+__global__ void HsApplyAdjustedLFromReferenceKernel(
+    const float4* __restrict src, const float* __restrict adjusted_l, float4* __restrict dst,
+    int width, int height, size_t src_pitch_elems, int adjusted_width, int adjusted_height,
+    size_t adjusted_pitch_elems, GPUOperatorParams params) {
   const int x = blockIdx.x * blockDim.x + threadIdx.x;
   const int y = blockIdx.y * blockDim.y + threadIdx.y;
   if (x >= width || y >= height) return;
@@ -854,28 +537,48 @@ __global__ void HsApplyLocalToneFromReferenceBaseKernel(
                             ((static_cast<float>(y) + 0.5f) * roi_height /
                              fmaxf(static_cast<float>(height), 1.0f)) -
                             0.5f;
-  const float base_x = ((reference_x + 0.5f) * static_cast<float>(base_width) /
-                        fmaxf(reference_width, 1.0f)) -
-                       0.5f;
-  const float base_y = ((reference_y + 0.5f) * static_cast<float>(base_height) /
-                        fmaxf(reference_height, 1.0f)) -
-                       0.5f;
+  const float adjusted_x =
+      ((reference_x + 0.5f) * static_cast<float>(adjusted_width) /
+       fmaxf(reference_width, 1.0f)) -
+      0.5f;
+  const float adjusted_y =
+      ((reference_y + 0.5f) * static_cast<float>(adjusted_height) /
+       fmaxf(reference_height, 1.0f)) -
+      0.5f;
 
-  const size_t offset = static_cast<size_t>(y) * pitch_elems + static_cast<size_t>(x);
-  const float base =
-      hs_read_base_bilinear(base_log, base_width, base_height, base_pitch_elems, base_x, base_y);
-  dst[offset] = hs_apply_local_tone_pixel(src[offset], base, params);
+  const size_t src_offset =
+      static_cast<size_t>(y) * src_pitch_elems + static_cast<size_t>(x);
+  const float sampled_l = hs_read_plane_bilinear(adjusted_l, adjusted_width, adjusted_height,
+                                                 adjusted_pitch_elems, adjusted_x, adjusted_y);
+  dst[src_offset] = hs_apply_adjusted_l_pixel(src[src_offset], sampled_l);
 }
 
 struct GPU_HighlightShadowLocalToneStage {
-  float*        base_log_         = nullptr;
-  float*        temp_log_         = nullptr;
-  size_t        allocated_elems_  = 0;
-  int           cached_width_     = 0;
-  int           cached_height_    = 0;
-  size_t        cached_pitch_     = 0;
-  std::uint64_t cached_key_       = 0;
-  bool          cached_reference_base_ = false;
+  static constexpr int   kMaxLevels   = 12;
+  static constexpr float kGammaMinL   = -0.15f;
+  static constexpr float kGammaMaxL   = 1.00f;
+  static constexpr float kBaseSigmaR  = 0.07545252f;
+  static constexpr float kGammaStepScale = 1.0f;
+
+  struct HsLlfSample {
+    float gamma  = 0.0f;
+    float target = 0.0f;
+    float beta   = 1.0f;
+    float alpha  = 1.0f;
+  };
+
+  std::array<float*, kMaxLevels> source_levels_ = {};
+  std::array<float*, kMaxLevels> remap_a_levels_ = {};
+  std::array<float*, kMaxLevels> remap_b_levels_ = {};
+  std::array<float*, kMaxLevels> output_levels_ = {};
+  std::array<int, kMaxLevels>    level_widths_ = {};
+  std::array<int, kMaxLevels>    level_heights_ = {};
+  int                            level_count_ = 0;
+  int                            cached_width_ = 0;
+  int                            cached_height_ = 0;
+  size_t                         cached_pitch_ = 0;
+  std::uint64_t                  cached_key_ = 0;
+  bool                           cached_reference_base_ = false;
 
   GPU_HighlightShadowLocalToneStage() = default;
 
@@ -887,17 +590,25 @@ struct GPU_HighlightShadowLocalToneStage {
   }
 
   GPU_HighlightShadowLocalToneStage(GPU_HighlightShadowLocalToneStage&& other) noexcept
-      : base_log_(other.base_log_),
-        temp_log_(other.temp_log_),
-        allocated_elems_(other.allocated_elems_),
+      : source_levels_(other.source_levels_),
+        remap_a_levels_(other.remap_a_levels_),
+        remap_b_levels_(other.remap_b_levels_),
+        output_levels_(other.output_levels_),
+        level_widths_(other.level_widths_),
+        level_heights_(other.level_heights_),
+        level_count_(other.level_count_),
         cached_width_(other.cached_width_),
         cached_height_(other.cached_height_),
         cached_pitch_(other.cached_pitch_),
         cached_key_(other.cached_key_),
         cached_reference_base_(other.cached_reference_base_) {
-    other.base_log_ = nullptr;
-    other.temp_log_ = nullptr;
-    other.allocated_elems_ = 0;
+    other.source_levels_.fill(nullptr);
+    other.remap_a_levels_.fill(nullptr);
+    other.remap_b_levels_.fill(nullptr);
+    other.output_levels_.fill(nullptr);
+    other.level_widths_.fill(0);
+    other.level_heights_.fill(0);
+    other.level_count_ = 0;
     other.cached_width_ = 0;
     other.cached_height_ = 0;
     other.cached_pitch_ = 0;
@@ -908,17 +619,25 @@ struct GPU_HighlightShadowLocalToneStage {
   GPU_HighlightShadowLocalToneStage& operator=(GPU_HighlightShadowLocalToneStage&& other) noexcept {
     if (this != &other) {
       ReleaseResources();
-      base_log_ = other.base_log_;
-      temp_log_ = other.temp_log_;
-      allocated_elems_ = other.allocated_elems_;
+      source_levels_ = other.source_levels_;
+      remap_a_levels_ = other.remap_a_levels_;
+      remap_b_levels_ = other.remap_b_levels_;
+      output_levels_ = other.output_levels_;
+      level_widths_ = other.level_widths_;
+      level_heights_ = other.level_heights_;
+      level_count_ = other.level_count_;
       cached_width_ = other.cached_width_;
       cached_height_ = other.cached_height_;
       cached_pitch_ = other.cached_pitch_;
       cached_key_ = other.cached_key_;
       cached_reference_base_ = other.cached_reference_base_;
-      other.base_log_ = nullptr;
-      other.temp_log_ = nullptr;
-      other.allocated_elems_ = 0;
+      other.source_levels_.fill(nullptr);
+      other.remap_a_levels_.fill(nullptr);
+      other.remap_b_levels_.fill(nullptr);
+      other.output_levels_.fill(nullptr);
+      other.level_widths_.fill(0);
+      other.level_heights_.fill(0);
+      other.level_count_ = 0;
       other.cached_width_ = 0;
       other.cached_height_ = 0;
       other.cached_pitch_ = 0;
@@ -930,16 +649,97 @@ struct GPU_HighlightShadowLocalToneStage {
 
   ~GPU_HighlightShadowLocalToneStage() { ReleaseResources(); }
 
+  static auto FloatBits(float value) -> std::uint32_t {
+    std::uint32_t bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    return bits;
+  }
+
+  static void HashCombine(std::uint64_t& seed, std::uint64_t value) {
+    seed ^= value + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
+  }
+
+  static auto BuildAdjustedResultCacheKey(const GPUOperatorParams& params, float shadow_amount,
+                                          float highlight_amount) -> std::uint64_t {
+    std::uint64_t key = params.hs_mask_base_cache_key_;
+    HashCombine(key, static_cast<std::uint64_t>(params.shadows_enabled_));
+    HashCombine(key, static_cast<std::uint64_t>(params.highlights_enabled_));
+    HashCombine(key, static_cast<std::uint64_t>(FloatBits(shadow_amount)));
+    HashCombine(key, static_cast<std::uint64_t>(FloatBits(highlight_amount)));
+    return key;
+  }
+
+  static auto GridFor(int width, int height, dim3 block) -> dim3 {
+    return dim3((static_cast<unsigned int>(width) + block.x - 1) / block.x,
+                (static_cast<unsigned int>(height) + block.y - 1) / block.y);
+  }
+
+  static auto ComputeLevelCount(int width, int height, float radius) -> int {
+    const int radius_levels =
+        max(3, min(kMaxLevels, static_cast<int>(ceilf(log2f(fmaxf(radius, 1.0f)))) + 2));
+    int count = 1;
+    int w = width;
+    int h = height;
+    while (count < radius_levels && (w > 1 || h > 1)) {
+      w = max(1, (w + 1) / 2);
+      h = max(1, (h + 1) / 2);
+      ++count;
+    }
+    return count;
+  }
+
+  static auto SigmaR(float shadow_amount, float highlight_amount) -> float {
+    (void)shadow_amount;
+    (void)highlight_amount;
+    return kBaseSigmaR;
+  }
+
+  static auto BuildSamples(float shadow_amount, float highlight_amount, float sigma_r)
+      -> std::vector<HsLlfSample> {
+    const float sample_step = fmaxf(sigma_r * kGammaStepScale, 0.045f);
+    const int sample_count =
+        max(2, static_cast<int>(ceilf((kGammaMaxL - kGammaMinL) / sample_step)) + 1);
+    std::vector<HsLlfSample> samples;
+    samples.reserve(static_cast<size_t>(sample_count));
+    for (int i = 0; i < sample_count; ++i) {
+      const float t =
+          (sample_count == 1) ? 0.0f : static_cast<float>(i) / static_cast<float>(sample_count - 1);
+      const float gamma = hs_lerp(kGammaMinL, kGammaMaxL, t);
+      samples.push_back(
+          {gamma, hs_apply_reference_curve(gamma, shadow_amount, highlight_amount),
+           hs_llf_tone_beta(gamma, shadow_amount, highlight_amount), 1.0f});
+    }
+    return samples;
+  }
+
   void ReleaseResources() {
-    if (base_log_) {
-      cudaFree(base_log_);
-      base_log_ = nullptr;
+    for (float*& ptr : source_levels_) {
+      if (ptr != nullptr) {
+        cudaFree(ptr);
+        ptr = nullptr;
+      }
     }
-    if (temp_log_) {
-      cudaFree(temp_log_);
-      temp_log_ = nullptr;
+    for (float*& ptr : remap_a_levels_) {
+      if (ptr != nullptr) {
+        cudaFree(ptr);
+        ptr = nullptr;
+      }
     }
-    allocated_elems_ = 0;
+    for (float*& ptr : remap_b_levels_) {
+      if (ptr != nullptr) {
+        cudaFree(ptr);
+        ptr = nullptr;
+      }
+    }
+    for (float*& ptr : output_levels_) {
+      if (ptr != nullptr) {
+        cudaFree(ptr);
+        ptr = nullptr;
+      }
+    }
+    level_widths_.fill(0);
+    level_heights_.fill(0);
+    level_count_ = 0;
     cached_width_ = 0;
     cached_height_ = 0;
     cached_pitch_ = 0;
@@ -947,18 +747,116 @@ struct GPU_HighlightShadowLocalToneStage {
     cached_reference_base_ = false;
   }
 
-  void EnsureBuffers(int height, size_t pitch_elems) {
-    const size_t needed = pitch_elems * static_cast<size_t>(height);
-    if (needed <= allocated_elems_) return;
+  void EnsurePyramidBuffers(int width, int height, float radius) {
+    const int new_level_count = ComputeLevelCount(width, height, radius);
+    std::array<int, kMaxLevels> new_widths = {};
+    std::array<int, kMaxLevels> new_heights = {};
+    new_widths[0] = width;
+    new_heights[0] = height;
+    for (int level = 1; level < new_level_count; ++level) {
+      new_widths[level] = max(1, (new_widths[level - 1] + 1) / 2);
+      new_heights[level] = max(1, (new_heights[level - 1] + 1) / 2);
+    }
+
+    bool layout_matches = level_count_ == new_level_count;
+    for (int level = 0; layout_matches && level < new_level_count; ++level) {
+      layout_matches = level_widths_[level] == new_widths[level] &&
+                       level_heights_[level] == new_heights[level] &&
+                       source_levels_[level] != nullptr && remap_a_levels_[level] != nullptr &&
+                       remap_b_levels_[level] != nullptr && output_levels_[level] != nullptr;
+    }
+    if (layout_matches) {
+      return;
+    }
+
     ReleaseResources();
-    cudaMalloc(reinterpret_cast<void**>(&base_log_), needed * sizeof(float));
-    cudaMalloc(reinterpret_cast<void**>(&temp_log_), needed * sizeof(float));
-    allocated_elems_ = needed;
+    level_count_ = new_level_count;
+    level_widths_ = new_widths;
+    level_heights_ = new_heights;
+    for (int level = 0; level < level_count_; ++level) {
+      const size_t elems =
+          static_cast<size_t>(level_widths_[level]) * static_cast<size_t>(level_heights_[level]);
+      cudaMalloc(reinterpret_cast<void**>(&source_levels_[level]), elems * sizeof(float));
+      cudaMalloc(reinterpret_cast<void**>(&remap_a_levels_[level]), elems * sizeof(float));
+      cudaMalloc(reinterpret_cast<void**>(&remap_b_levels_[level]), elems * sizeof(float));
+      cudaMalloc(reinterpret_cast<void**>(&output_levels_[level]), elems * sizeof(float));
+    }
     cached_width_ = 0;
     cached_height_ = 0;
     cached_pitch_ = 0;
     cached_key_ = 0;
     cached_reference_base_ = false;
+  }
+
+  void BuildSourcePyramid(const float4* src, int width, int height, size_t src_pitch_elems,
+                          dim3 block, cudaStream_t stream) {
+    HsExtractLogIntensityKernel<<<GridFor(width, height, block), block, 0, stream>>>(
+        src, source_levels_[0], width, height, src_pitch_elems);
+    for (int level = 1; level < level_count_; ++level) {
+      HsPyrDownKernel<<<GridFor(level_widths_[level], level_heights_[level], block), block, 0,
+                        stream>>>(source_levels_[level - 1], level_widths_[level - 1],
+                                  level_heights_[level - 1], source_levels_[level],
+                                  level_widths_[level], level_heights_[level]);
+    }
+  }
+
+  void BuildRemapPyramid(const HsLlfSample& sample, float sigma_r,
+                         std::array<float*, kMaxLevels>& remap_levels, dim3 block,
+                         cudaStream_t stream) {
+    HsBuildRemappedSampleKernel<<<GridFor(level_widths_[0], level_heights_[0], block), block, 0,
+                                  stream>>>(source_levels_[0], remap_levels[0], level_widths_[0],
+                                            level_heights_[0], sample.gamma, sample.target,
+                                            sample.beta, sample.alpha, sigma_r);
+    for (int level = 1; level < level_count_; ++level) {
+      HsPyrDownKernel<<<GridFor(level_widths_[level], level_heights_[level], block), block, 0,
+                        stream>>>(remap_levels[level - 1], level_widths_[level - 1],
+                                  level_heights_[level - 1], remap_levels[level],
+                                  level_widths_[level], level_heights_[level]);
+    }
+  }
+
+  void BuildOutputPyramid(const std::vector<HsLlfSample>& samples, float sigma_r, dim3 block,
+                          cudaStream_t stream) {
+    for (int level = 0; level < level_count_; ++level) {
+      cudaMemsetAsync(output_levels_[level], 0,
+                      static_cast<size_t>(level_widths_[level]) *
+                          static_cast<size_t>(level_heights_[level]) * sizeof(float),
+                      stream);
+    }
+
+    BuildRemapPyramid(samples.front(), sigma_r, remap_a_levels_, block, stream);
+    BuildRemapPyramid(samples[1], sigma_r, remap_b_levels_, block, stream);
+
+    for (size_t pair_index = 0; pair_index + 1 < samples.size(); ++pair_index) {
+
+      for (int level = 0; level < level_count_; ++level) {
+        const bool top_level = level == (level_count_ - 1);
+        const int coarse_width = top_level ? 1 : level_widths_[level + 1];
+        const int coarse_height = top_level ? 1 : level_heights_[level + 1];
+        HsSelectInterpolatedLevelKernel<<<GridFor(level_widths_[level], level_heights_[level], block),
+                                          block, 0, stream>>>(
+            source_levels_[level], remap_a_levels_[level],
+            top_level ? nullptr : remap_a_levels_[level + 1], remap_b_levels_[level],
+            top_level ? nullptr : remap_b_levels_[level + 1], output_levels_[level],
+            level_widths_[level], level_heights_[level], coarse_width, coarse_height,
+            samples[pair_index].gamma, samples[pair_index + 1].gamma, pair_index == 0,
+            pair_index + 2 == samples.size(), top_level);
+      }
+
+      if (pair_index + 2 < samples.size()) {
+        std::swap(remap_a_levels_, remap_b_levels_);
+        BuildRemapPyramid(samples[pair_index + 2], sigma_r, remap_b_levels_, block, stream);
+      }
+    }
+
+    for (int level = level_count_ - 2; level >= 0; --level) {
+      HsCollapseLevelKernel<<<GridFor(level_widths_[level], level_heights_[level], block), block,
+                              0, stream>>>(output_levels_[level], output_levels_[level + 1],
+                                           remap_a_levels_[level], level_widths_[level],
+                                           level_heights_[level], level_widths_[level + 1],
+                                           level_heights_[level + 1]);
+      std::swap(output_levels_[level], remap_a_levels_[level]);
+    }
   }
 
   void Dispatch(float4* src, float4* dst, int width, int height, size_t pitch_elems,
@@ -967,16 +865,18 @@ struct GPU_HighlightShadowLocalToneStage {
         params.hs_local_tone_enabled_ &&
         ((params.shadows_enabled_ && fabsf(params.shadows_offset_) > 1.0e-6f) ||
          (params.highlights_enabled_ && fabsf(params.highlights_offset_) > 1.0e-6f));
-    if (!active || params.hs_base_gaussian_tap_count_ <= 0) {
+    if (!active) {
       HsCopyThroughKernel<<<grid, block, 0, stream>>>(src, dst, width, height, pitch_elems);
       return;
     }
 
     const float shadow_amount =
-        (params.shadows_enabled_) ? fminf(fmaxf(params.shadows_offset_, -1.0f), 1.0f) : 0.0f;
-    const float highlight_amount =
-        (params.highlights_enabled_) ? fminf(fmaxf(-params.highlights_offset_ * 0.5f, -1.0f), 1.0f)
-                                     : 0.0f;
+        params.shadows_enabled_ ? fminf(fmaxf(params.shadows_offset_, -1.0f), 1.0f) : 0.0f;
+    const float highlight_amount = params.highlights_enabled_
+                                       ? fminf(fmaxf(-params.highlights_offset_, -1.0f), 1.0f)
+                                       : 0.0f;
+    const std::uint64_t adjusted_cache_key =
+        BuildAdjustedResultCacheKey(params, shadow_amount, highlight_amount);
     if (fabsf(shadow_amount) <= 1.0e-6f && fabsf(highlight_amount) <= 1.0e-6f) {
       HsCopyThroughKernel<<<grid, block, 0, stream>>>(src, dst, width, height, pitch_elems);
       return;
@@ -985,42 +885,43 @@ struct GPU_HighlightShadowLocalToneStage {
     const bool roi_frame_with_source_reference =
         params.render_roi_enabled_ && params.render_roi_reference_width_ > 0 &&
         params.render_roi_reference_height_ > 0;
-    const bool reference_base_cache_valid =
-        cached_reference_base_ && base_log_ != nullptr &&
-        cached_key_ == params.hs_mask_base_cache_key_ && cached_width_ > 0 &&
+    const bool reference_result_cache_valid =
+        cached_reference_base_ && output_levels_[0] != nullptr &&
+        cached_key_ == adjusted_cache_key && cached_width_ > 0 &&
         cached_height_ > 0 && cached_pitch_ > 0;
-    if (roi_frame_with_source_reference && reference_base_cache_valid) {
-      HsApplyLocalToneFromReferenceBaseKernel<<<grid, block, 0, stream>>>(
-          src, base_log_, dst, width, height, pitch_elems, cached_width_, cached_height_,
+    if (roi_frame_with_source_reference && reference_result_cache_valid) {
+      HsApplyAdjustedLFromReferenceKernel<<<grid, block, 0, stream>>>(
+          src, output_levels_[0], dst, width, height, pitch_elems, cached_width_, cached_height_,
           cached_pitch_, params);
       return;
     }
-    if (!roi_frame_with_source_reference && reference_base_cache_valid &&
+    if (!roi_frame_with_source_reference && reference_result_cache_valid &&
         (cached_width_ > width || cached_height_ > height)) {
-      HsApplyLocalToneFromReferenceBaseKernel<<<grid, block, 0, stream>>>(
-          src, base_log_, dst, width, height, pitch_elems, cached_width_, cached_height_,
+      HsApplyAdjustedLFromReferenceKernel<<<grid, block, 0, stream>>>(
+          src, output_levels_[0], dst, width, height, pitch_elems, cached_width_, cached_height_,
           cached_pitch_, params);
       return;
     }
 
-    EnsureBuffers(height, pitch_elems);
+    EnsurePyramidBuffers(width, height, params.hs_base_radius_);
     const bool cache_valid =
-        !roi_frame_with_source_reference && reference_base_cache_valid && cached_width_ == width &&
-        cached_height_ == height && cached_pitch_ == pitch_elems;
+        !roi_frame_with_source_reference && reference_result_cache_valid &&
+        cached_width_ == width && cached_height_ == height &&
+        cached_pitch_ == static_cast<size_t>(level_widths_[0]);
     if (!cache_valid) {
-      HsBuildLogBaseHorizontalKernel<<<grid, block, 0, stream>>>(src, temp_log_, width, height,
-                                                                 pitch_elems, params);
-      HsBuildLogBaseVerticalKernel<<<grid, block, 0, stream>>>(src, temp_log_, base_log_, width,
-                                                               height, pitch_elems, params);
-      cached_key_ = params.hs_mask_base_cache_key_;
+      const float sigma_r = SigmaR(shadow_amount, highlight_amount);
+      const auto  samples = BuildSamples(shadow_amount, highlight_amount, sigma_r);
+      BuildSourcePyramid(src, width, height, pitch_elems, block, stream);
+      BuildOutputPyramid(samples, sigma_r, block, stream);
+      cached_key_ = adjusted_cache_key;
       cached_width_ = width;
       cached_height_ = height;
-      cached_pitch_ = pitch_elems;
+      cached_pitch_ = static_cast<size_t>(level_widths_[0]);
       cached_reference_base_ = !roi_frame_with_source_reference;
     }
 
-    HsApplyLocalToneKernel<<<grid, block, 0, stream>>>(src, base_log_, dst, width, height,
-                                                       pitch_elems, params);
+    HsApplyAdjustedLKernel<<<grid, block, 0, stream>>>(src, output_levels_[0], dst, width, height,
+                                                       pitch_elems);
   }
 };
 

@@ -570,6 +570,28 @@ if(WIN32)
   target_link_libraries(ExportServiceTest)
 endif()
 
+add_executable(HsResearchExportTool app/hs_research_export_tool.cpp)
+target_include_directories(HsResearchExportTool PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(HsResearchExportTool PRIVATE ExportService ProjectService ImportService ImageWriter ${ALCEDO_TEST_OPENCV_MIN_DEPS})
+
+if(WIN32)
+  target_link_libraries(HsResearchExportTool)
+  if(TARGET alcedo_lensfun)
+    add_custom_command(TARGET HsResearchExportTool POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "$<TARGET_FILE:alcedo_lensfun>"
+              "$<TARGET_FILE_DIR:HsResearchExportTool>/lensfun.dll"
+      VERBATIM)
+  endif()
+  if(EXISTS "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/libduckdb-windows/duckdb.dll")
+    add_custom_command(TARGET HsResearchExportTool POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/libduckdb-windows/duckdb.dll"
+              "$<TARGET_FILE_DIR:HsResearchExportTool>/duckdb.dll"
+      VERBATIM)
+  endif()
+endif()
+
 add_executable(ImageWriterTest io/image_writer_test.cpp)
 target_include_directories(ImageWriterTest PUBLIC ${ALCEDO_INCLUDE_DIR})
 target_link_libraries(ImageWriterTest PRIVATE GTest::gtest_main ImageWriter ${ALCEDO_TEST_OPENCV_MIN_DEPS})
