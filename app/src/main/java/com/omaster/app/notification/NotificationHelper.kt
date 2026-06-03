@@ -7,6 +7,13 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import androidx.annotation.DrawableRes
+import androidx.annotation.Keep
+import androidx.annotation.MainThread
+import androidx.annotation.NonNull
+import androidx.annotation.Nullable
+import androidx.annotation.RequiresApi
+import androidx.annotation.StringRes
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.omaster.app.MainActivity
@@ -17,9 +24,10 @@ import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
 
+@Keep
 @Singleton
 class NotificationHelper @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext @NonNull private val context: Context
 ) {
     companion object {
         const val CHANNEL_ID = "omaster_floating_window"

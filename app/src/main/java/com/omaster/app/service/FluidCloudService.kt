@@ -12,10 +12,16 @@ import android.view.WindowManager
 import android.view.animation.AnimationUtils
 import android.widget.ImageView
 import android.widget.TextView
+import androidx.annotation.Keep
+import androidx.annotation.MainThread
+import androidx.annotation.NonNull
+import androidx.annotation.Nullable
+import androidx.annotation.RequiresApi
 import com.omaster.app.R
 import dagger.hilt.android.AndroidEntryPoint
 import timber.log.Timber
 
+@Keep
 @AndroidEntryPoint
 class FluidCloudService : Service() {
     

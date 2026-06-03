@@ -1,5 +1,10 @@
 package com.omaster.app.data
 
+import androidx.annotation.Keep
+import androidx.annotation.MainThread
+import androidx.annotation.NonNull
+import androidx.annotation.Nullable
+import androidx.annotation.WorkerThread
 import com.omaster.app.model.CameraParams
 import com.omaster.app.model.ColorStyle
 import com.omaster.app.model.Preset
@@ -18,10 +23,11 @@ import javax.inject.Singleton
 /**
  * 预设数据仓库 - 支持数据同步和JSON刷新
  */
+@Keep
 @Singleton
 class PresetRepository @Inject constructor(
-    private val presetApi: PresetApi,
-    private val preferencesDataStore: PreferencesDataStore
+    @NonNull private val presetApi: PresetApi,
+    @NonNull private val preferencesDataStore: PreferencesDataStore
 ) {
     private var cachedPresets: List<Preset> = emptyList()
     private var lastSyncTime: Long = 0
