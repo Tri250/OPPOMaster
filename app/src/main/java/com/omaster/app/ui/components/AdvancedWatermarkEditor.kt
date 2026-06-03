@@ -801,7 +801,7 @@ fun ExportDialog(
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text("格式", style = MaterialTheme.typography.titleSmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ExportFormat.values().forEach { f ->
+                    ExportFormat.entries.forEach { f ->
                         FilterChip(
                             selected = format == f,
                             onClick = { format = f },
@@ -819,7 +819,7 @@ fun ExportDialog(
                 
                 Text("分辨率", style = MaterialTheme.typography.titleSmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ExportResolution.values().forEach { r ->
+                    ExportResolution.entries.forEach { r ->
                         FilterChip(
                             selected = resolution == r,
                             onClick = { resolution = r },

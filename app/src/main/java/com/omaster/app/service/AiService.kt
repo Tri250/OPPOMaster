@@ -68,7 +68,7 @@ class AiService @Inject constructor() {
             
             // 默认随机（模拟实际场景变化）
             else -> {
-                val allScenes = SceneType.values()
+                val allScenes = SceneType.entries
                     .filter { !SceneType.isErrorScene(it) }
                     .filter { it != SceneType.UNKNOWN }
                 allScenes[random.nextInt(allScenes.size)]

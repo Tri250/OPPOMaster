@@ -26,12 +26,12 @@ class ThemeModeTest {
 
     @Test
     fun `ThemeMode should have exactly 3 values`() {
-        assertEquals(3, ThemeMode.values().size)
+        assertEquals(3, ThemeMode.entries.size)
     }
 
     @Test
     fun `ThemeMode values should be ordered correctly`() {
-        val values = ThemeMode.values()
+        val values = ThemeMode.entries
         assertEquals(ThemeMode.SYSTEM, values[0])
         assertEquals(ThemeMode.LIGHT, values[1])
         assertEquals(ThemeMode.DARK, values[2])

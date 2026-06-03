@@ -46,7 +46,7 @@ enum class SceneType(
 
     companion object {
         fun fromKey(key: String): SceneType {
-            return values().find { it.sceneKey == key } ?: UNKNOWN
+            return entries.find { it.sceneKey == key } ?: UNKNOWN
         }
         
         /**

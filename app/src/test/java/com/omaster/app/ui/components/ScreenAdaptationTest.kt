@@ -13,33 +13,33 @@ class ScreenAdaptationTest {
 
     @Test
     fun `ScreenSizeClass should have 3 values`() {
-        assertEquals(3, ScreenSizeClass.values().size)
+        assertEquals(3, ScreenSizeClass.entries.size)
     }
 
     @Test
     fun `ScreenSizeClass values should be COMPACT MEDIUM EXPANDED`() {
-        assertTrue(ScreenSizeClass.values().contains(ScreenSizeClass.COMPACT))
-        assertTrue(ScreenSizeClass.values().contains(ScreenSizeClass.MEDIUM))
-        assertTrue(ScreenSizeClass.values().contains(ScreenSizeClass.EXPANDED))
+        assertTrue(ScreenSizeClass.entries.contains(ScreenSizeClass.COMPACT))
+        assertTrue(ScreenSizeClass.entries.contains(ScreenSizeClass.MEDIUM))
+        assertTrue(ScreenSizeClass.entries.contains(ScreenSizeClass.EXPANDED))
     }
 
     @Test
     fun `ScreenSizeClass COMPACT should be first`() {
-        assertEquals(ScreenSizeClass.COMPACT, ScreenSizeClass.values()[0])
+        assertEquals(ScreenSizeClass.COMPACT, ScreenSizeClass.entries[0])
     }
 
     // ==================== FoldState 测试 ====================
 
     @Test
     fun `FoldState should have 3 values`() {
-        assertEquals(3, FoldState.values().size)
+        assertEquals(3, FoldState.entries.size)
     }
 
     @Test
     fun `FoldState should have FLAT HALF_OPENED FOLDED`() {
-        assertTrue(FoldState.values().contains(FoldState.FLAT))
-        assertTrue(FoldState.values().contains(FoldState.HALF_OPENED))
-        assertTrue(FoldState.values().contains(FoldState.FOLDED))
+        assertTrue(FoldState.entries.contains(FoldState.FLAT))
+        assertTrue(FoldState.entries.contains(FoldState.HALF_OPENED))
+        assertTrue(FoldState.entries.contains(FoldState.FOLDED))
     }
 
     // ==================== DeviceFoldInfo 测试 ====================
@@ -84,14 +84,14 @@ class ScreenAdaptationTest {
 
     @Test
     fun `DisplayMode should have 3 values`() {
-        assertEquals(3, DisplayMode.values().size)
+        assertEquals(3, DisplayMode.entries.size)
     }
 
     @Test
     fun `DisplayMode should have LIGHT DARK SYSTEM`() {
-        assertTrue(DisplayMode.values().contains(DisplayMode.LIGHT))
-        assertTrue(DisplayMode.values().contains(DisplayMode.DARK))
-        assertTrue(DisplayMode.values().contains(DisplayMode.SYSTEM))
+        assertTrue(DisplayMode.entries.contains(DisplayMode.LIGHT))
+        assertTrue(DisplayMode.entries.contains(DisplayMode.DARK))
+        assertTrue(DisplayMode.entries.contains(DisplayMode.SYSTEM))
     }
 
     // ==================== 触摸目标测试 ====================

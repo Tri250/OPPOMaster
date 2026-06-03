@@ -15,23 +15,23 @@ class FilterTypeLogicTest {
 
     @Test
     fun `FilterType should have 7 values`() {
-        assertEquals(7, FilterType.values().size)
+        assertEquals(7, FilterType.entries.size)
     }
 
     @Test
     fun `FilterType ALL should be first`() {
-        assertEquals(FilterType.ALL, FilterType.values()[0])
+        assertEquals(FilterType.ALL, FilterType.entries[0])
     }
 
     @Test
     fun `all FilterType values should be distinct`() {
-        val values = FilterType.values().toSet()
-        assertEquals("All FilterType values should be unique", FilterType.values().size, values.size)
+        val values = FilterType.entries.toSet()
+        assertEquals("All FilterType values should be unique", FilterType.entries.size, values.size)
     }
 
     @Test
     fun `FilterType should contain all expected values`() {
-        val values = FilterType.values().toSet()
+        val values = FilterType.entries.toSet()
         assertTrue(values.contains(FilterType.ALL))
         assertTrue(values.contains(FilterType.FAVORITES))
         assertTrue(values.contains(FilterType.HNCS))

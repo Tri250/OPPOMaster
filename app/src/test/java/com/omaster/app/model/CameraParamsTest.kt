@@ -369,7 +369,7 @@ class CameraParamsTest {
 
     @Test
     fun `CameraMode should have all expected values`() {
-        val modes = CameraMode.values()
+        val modes = CameraMode.entries
         assertEquals(8, modes.size)
         assertEquals("哈苏大师", CameraMode.HasselbladMaster.displayName)
         assertEquals("哈苏人像", CameraMode.HasselbladPortrait.displayName)
@@ -383,7 +383,7 @@ class CameraParamsTest {
 
     @Test
     fun `ColorStyle should have all expected values`() {
-        val styles = ColorStyle.values()
+        val styles = ColorStyle.entries
         assertEquals(10, styles.size)
         assertEquals("自然", ColorStyle.Natural.displayName)
         assertEquals("鲜明", ColorStyle.Vivid.displayName)
@@ -399,7 +399,7 @@ class CameraParamsTest {
 
     @Test
     fun `FocalLengthMode should have all expected values`() {
-        val modes = FocalLengthMode.values()
+        val modes = FocalLengthMode.entries
         assertEquals(8, modes.size)
         assertEquals("超广角", FocalLengthMode.UltraWide.displayName)
         assertEquals("广角", FocalLengthMode.Wide.displayName)

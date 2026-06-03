@@ -178,7 +178,7 @@ class RealAiService @Inject constructor(
             val processedImage = imageProcessor.process(tensorImage)
             
             // 运行推理
-            val output = Array(1) { FloatArray(SceneType.values().size) }
+            val output = Array(1) { FloatArray(SceneType.entries.size) }
             interpreter.run(processedImage.buffer, output)
             
             // 解析结果

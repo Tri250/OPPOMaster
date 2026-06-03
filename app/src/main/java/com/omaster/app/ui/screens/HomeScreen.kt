@@ -385,7 +385,7 @@ fun CategoryTabs(
             .horizontalScroll(scrollState),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        PresetCategory.values().forEach { category ->
+        PresetCategory.entries.forEach { category ->
             OppoFilterChip(
                 selected = selectedCategory == category,
                 onClick = { onCategorySelected(category) },
