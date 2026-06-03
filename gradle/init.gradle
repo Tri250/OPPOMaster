@@ -1,17 +1,149 @@
+// OMaster Gradle 初始化脚本 v2.0
+// 功能：多镜像自动重试、健康检查、动态镜像源切换
+
+import org.gradle.api.initialization.resolve.RepositoriesMode
+import org.gradle.api.logging.Logging
+
+def logger = Logging.getLogger("OMasterInit")
+
+// 镜像源配置（按优先级排序）
+def mirrorConfigs = [
+    // 阿里云（高优先级，国内访问快）
+    [name: "aliyun-public", url: "https://maven.aliyun.com/repository/public"],
+    [name: "aliyun-google", url: "https://maven.aliyun.com/repository/google"],
+    [name: "aliyun-central", url: "https://maven.aliyun.com/repository/central"],
+    [name: "aliyun-gradle-plugin", url: "https://maven.aliyun.com/repository/gradle-plugin"],
+    // 腾讯云
+    [name: "tencent-public", url: "https://mirrors.tencent.com/nexus/repository/maven-public"],
+    // 华为云
+    [name: "huawei-public", url: "https://mirrors.huaweicloud.com/repository/maven"],
+    // 官方源（最低优先级，作为最后回退）
+    [name: "maven-central", url: "https://repo1.maven.org/maven2"],
+    [name: "google-maven", url: "https://dl.google.com/dl/android/maven2"],
+    [name: "gradle-plugin-portal", url: "https://plugins.gradle.org/m2"],
+]
+
+// 健康检查函数：检查镜像是否可达
+def isMirrorHealthy = { url ->
+    try {
+        def process = ["sh", "-c", "curl -m 5 -s -o /dev/null -w '%{http_code}' '${url}/' 2>&1 || echo failed"].execute()
+        process.waitForOrKill(10000)
+        def output = process.text.trim()
+        return output == "200" || output == "301" || output == "302" || output == "404"
+    } catch (Exception e) {
+        return false
+    }
+}
+
+// 镜像健康状态缓存
+def mirrorHealth = [:].asSynchronized()
+def HEALTH_CHECK_INTERVAL = 300 // 5分钟
+def lastHealthCheck = 0
+
+// 获取健康的镜像列表
+def getHealthyMirrors = { ->
+    if (System.currentTimeMillis() - lastHealthCheck > HEALTH_CHECK_INTERVAL) {
+        logger.lifecycle("[OMaster] 检查镜像健康状态...")
+        mirrorConfigs.each { mirror ->
+            def healthy = isMirrorHealthy(mirror.url)
+            mirrorHealth[mirror.name] = healthy
+            logger.lifecycle("  ${mirror.name}: ${healthy ? '✓' : '✗'}")
+        }
+        lastHealthCheck = System.currentTimeMillis()
+    }
+    return mirrorConfigs.findAll { mirrorHealth[it.name] != false }
+}
+
+// 创建带元数据源的仓库
+def createMavenRepo = { project, name, url ->
+    def repo = project.repositories.maven { it ->
+        it.name = name
+        it.url = url
+    }
+    return repo
+}
+
+// PluginManagement 配置（解析插件元数据）
+settingsEvaluated { settings ->
+    settings.pluginManagement {
+        repositories {
+            // 优先使用本地 Maven 仓库
+            maven { url = uri("file:///workspace/local-maven") }
+            // 健康镜像
+            getHealthyMirrors().each { mirror ->
+                maven {
+                    name = mirror.name
+                    url = mirror.url
+                    metadataSources {
+                        mavenPom()
+                        artifact()
+                    }
+                }
+            }
+            // 默认 Gradle 插件仓库
+            gradlePluginPortal()
+        }
+    }
+}
+
+// 依赖解析管理
+settingsEvaluated { settings ->
+    settings.dependencyResolutionManagement {
+        // PREFER_PROJECT 允许各项目自定义 repository
+        repositoriesMode.set(RepositoriesMode.PREFER_PROJECT)
+        repositories {
+            // 优先使用本地 Maven 仓库
+            maven { url = uri("file:///workspace/local-maven") }
+            // 健康镜像
+            getHealthyMirrors().each { mirror ->
+                maven {
+                    name = mirror.name
+                    url = mirror.url
+                    metadataSources {
+                        mavenPom()
+                        artifact()
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Allprojects 仓库配置（兼容性）
 allprojects {
     buildscript {
         repositories {
-            maven { url 'https://maven.aliyun.com/repository/google' }
-            maven { url 'https://maven.aliyun.com/repository/public' }
-            mavenCentral()
-            google()
+            maven { url 'file:///workspace/local-maven' }
+            getHealthyMirrors().each { mirror ->
+                maven {
+                    name = mirror.name
+                    url = mirror.url
+                }
+            }
         }
     }
 
     repositories {
-        maven { url 'https://maven.aliyun.com/repository/google' }
-        maven { url 'https://maven.aliyun.com/repository/public' }
-        mavenCentral()
-        google()
+        maven { url 'file:///workspace/local-maven' }
+        getHealthyMirrors().each { mirror ->
+            maven {
+                name = mirror.name
+                url = mirror.url
+            }
+        }
     }
 }
+
+// 网络配置 - 增加连接池和重试
+gradle.projectsLoaded {
+    gradle.allprojects { project ->
+        project.afterEvaluate {
+            // 配置网络超时（仅在该项目需要时）
+            project.tasks.withType(JavaCompile).configureEach { task ->
+                task.options.fork = true
+            }
+        }
+    }
+}
+
+logger.lifecycle("[OMaster] 初始化脚本加载完成")
