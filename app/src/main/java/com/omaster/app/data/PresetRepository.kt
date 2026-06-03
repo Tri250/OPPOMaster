@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import timber.log.Timber
 import javax.inject.Inject
@@ -108,18 +109,27 @@ class PresetRepository @Inject constructor(
      * 切换预设收藏状态
      */
     suspend fun toggleFavorite(presetId: String) {
+        // 先获取当前收藏状态
+        val currentFavorites = preferencesDataStore.favoritePresets
+        val isCurrentlyFavorite = try {
+            kotlinx.coroutines.flow.first(currentFavorites).contains(presetId)
+        } catch (e: Exception) {
+            cachedPresets.find { it.id == presetId }?.isFavorite ?: false
+        }
+        
         preferencesDataStore.toggleFavorite(presetId)
         
+        val newFavoriteState = !isCurrentlyFavorite
         val updatedPresets = cachedPresets.map { preset ->
             if (preset.id == presetId) {
-                preset.copy(isFavorite = !preset.isFavorite)
+                preset.copy(isFavorite = newFavoriteState)
             } else {
                 preset
             }
         }
         cachedPresets = updatedPresets
         _presets.value = cachedPresets
-        Timber.d("预设 $presetId 收藏状态已切换")
+        Timber.d("预设 $presetId 收藏状态已切换为 $newFavoriteState")
     }
     
     fun getOppoPresets(): Flow<Result<List<Preset>>> = flow {

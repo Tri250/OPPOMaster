@@ -62,11 +62,12 @@ data class Preset(
      */
     fun getDeviceDisplay(): String {
         return when {
-            deviceModel.isNotEmpty() -> deviceModel
+            deviceModel.isEmpty() -> "通用设备"
             deviceModel.contains("Find X", ignoreCase = true) -> "OPPO Find X 系列"
             deviceModel.contains("Reno", ignoreCase = true) -> "OPPO Reno 系列"
             deviceModel.contains("Find N", ignoreCase = true) -> "OPPO Find N 系列"
-            else -> "通用设备"
+            deviceModel.equals("通用", ignoreCase = true) -> "通用设备"
+            else -> deviceModel
         }
     }
     

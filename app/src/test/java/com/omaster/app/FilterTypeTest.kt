@@ -8,12 +8,14 @@ class FilterTypeTest {
     @Test
     fun `all filter types should be available`() {
         val filters = FilterType.values()
-        assertEquals(5, filters.size)
+        assertEquals(7, filters.size)
         assertTrue(filters.contains(FilterType.ALL))
         assertTrue(filters.contains(FilterType.FAVORITES))
         assertTrue(filters.contains(FilterType.HNCS))
         assertTrue(filters.contains(FilterType.FIND_X))
         assertTrue(filters.contains(FilterType.RENO))
+        assertTrue(filters.contains(FilterType.NEW))
+        assertTrue(filters.contains(FilterType.TRENDING))
     }
 
     @Test
@@ -24,5 +26,7 @@ class FilterTypeTest {
         assertEquals(FilterType.HNCS, filters[2])
         assertEquals(FilterType.FIND_X, filters[3])
         assertEquals(FilterType.RENO, filters[4])
+        assertEquals(FilterType.NEW, filters[5])
+        assertEquals(FilterType.TRENDING, filters[6])
     }
 }
