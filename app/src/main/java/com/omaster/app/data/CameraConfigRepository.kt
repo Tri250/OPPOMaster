@@ -1,6 +1,11 @@
 package com.omaster.app.data
 
 import android.content.Context
+import androidx.annotation.Keep
+import androidx.annotation.MainThread
+import androidx.annotation.NonNull
+import androidx.annotation.Nullable
+import androidx.annotation.WorkerThread
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.omaster.app.model.CameraConfig
@@ -20,9 +25,10 @@ import javax.inject.Singleton
  * 相机配置文件Repository
  * 负责配置文件的存储、读取、更新、删除操作
  */
+@Keep
 @Singleton
 class CameraConfigRepository @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext @NonNull private val context: Context
 ) {
     private val gson = Gson()
     private val configsDir: File by lazy {
@@ -35,7 +41,7 @@ class CameraConfigRepository @Inject constructor(
     }
 
     private val _configs = MutableStateFlow<List<CameraConfig>>(emptyList())
-    val configs: StateFlow<List<CameraConfig>> = _configs.asStateFlow()
+    @NonNull val configs: StateFlow<List<CameraConfig>> = _configs.asStateFlow()
 
     init {
         loadConfigs()
@@ -44,6 +50,7 @@ class CameraConfigRepository @Inject constructor(
     /**
      * 加载所有配置
      */
+    @WorkerThread
     private fun loadConfigs() {
         try {
             if (configsFile.exists()) {
@@ -115,7 +122,8 @@ class CameraConfigRepository @Inject constructor(
     /**
      * 删除配置
      */
-    suspend fun deleteConfig(configId: String): Result<Unit> {
+    @MainThread
+    suspend fun deleteConfig(@NonNull configId: String): @NonNull Result<Unit> {
         return try {
             val currentConfigs = _configs.value.toMutableList()
             currentConfigs.removeAll { it.id == configId }
@@ -168,6 +176,7 @@ class CameraConfigRepository @Inject constructor(
     /**
      * 获取所有分类
      */
+    @NonNull
     fun getCategories(): List<String> {
         return _configs.value.map { it.category }.distinct().sorted()
     }
@@ -222,7 +231,8 @@ class CameraConfigRepository @Inject constructor(
     /**
      * 导入配置文件
      */
-    suspend fun importConfig(inputFile: File): Result<List<CameraConfig>> {
+    @WorkerThread
+    suspend fun importConfig(@NonNull inputFile: File): @NonNull Result<List<CameraConfig>> {
         return try {
             FileReader(inputFile).use { reader ->
                 val exportData = gson.fromJson(reader, CameraConfigExport::class.java)
@@ -247,14 +257,16 @@ class CameraConfigRepository @Inject constructor(
     /**
      * 根据ID获取配置
      */
-    fun getConfigById(id: String): CameraConfig? {
+    @Nullable
+    fun getConfigById(@NonNull id: String): CameraConfig? {
         return _configs.value.find { it.id == id }
     }
 
     /**
      * 搜索配置
      */
-    fun searchConfigs(query: String): List<CameraConfig> {
+    @NonNull
+    fun searchConfigs(@NonNull query: String): List<CameraConfig> {
         val lowercaseQuery = query.lowercase()
         return _configs.value.filter { config ->
             config.name.lowercase().contains(lowercaseQuery) ||

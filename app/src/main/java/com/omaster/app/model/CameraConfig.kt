@@ -1,6 +1,9 @@
 package com.omaster.app.model
 
 import android.os.Parcelable
+import androidx.annotation.Keep
+import androidx.annotation.NonNull
+import androidx.annotation.Nullable
 import kotlinx.parcelize.Parcelize
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -10,17 +13,18 @@ import java.util.Locale
  * 相机配置文件模型
  * 支持创建、保存、应用、分享相机参数配置
  */
+@Keep
 @Parcelize
 data class CameraConfig(
-    val id: String = generateId(),
-    val name: String = "",
-    val description: String = "",
-    val params: CameraParams = CameraParams(),
+    @NonNull val id: String = generateId(),
+    @NonNull val name: String = "",
+    @NonNull val description: String = "",
+    @NonNull val params: CameraParams = CameraParams(),
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
     val isFavorite: Boolean = false,
-    val category: String = "默认",
-    val tags: List<String> = emptyList()
+    @NonNull val category: String = "默认",
+    @NonNull val tags: List<String> = emptyList()
 ) : Parcelable {
 
     companion object {
@@ -127,11 +131,12 @@ data class CameraConfig(
 /**
  * 配置文件导入导出格式
  */
+@Keep
 data class CameraConfigExport(
-    val version: String = "1.0",
-    val appVersion: String = "OPPO Master 3.0",
+    @NonNull val version: String = "1.0",
+    @NonNull val appVersion: String = "OPPO Master 3.0",
     val exportTime: Long = System.currentTimeMillis(),
-    val configs: List<CameraConfig>
+    @NonNull val configs: List<CameraConfig>
 ) {
     companion object {
         const val FILE_EXTENSION = ".oppocam"

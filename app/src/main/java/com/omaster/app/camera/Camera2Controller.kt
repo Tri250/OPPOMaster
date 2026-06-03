@@ -14,7 +14,13 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.util.Size
 import android.view.Surface
+import androidx.annotation.Keep
+import androidx.annotation.MainThread
+import androidx.annotation.NonNull
+import androidx.annotation.Nullable
 import androidx.annotation.OptIn
+import androidx.annotation.RequiresApi
+import androidx.annotation.WorkerThread
 import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.*
@@ -38,16 +44,17 @@ import java.util.concurrent.Executors
 import javax.inject.Inject
 import javax.inject.Singleton
 
+@Keep
 @Singleton
 class Camera2Controller @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext @NonNull private val context: Context
 ) {
-    private var cameraDevice: CameraDevice? = null
-    private var captureSession: CameraCaptureSession? = null
-    private var imageReader: ImageReader? = null
-    private var backgroundThread: HandlerThread? = null
-    private var backgroundHandler: Handler? = null
-    private var previewSurface: Surface? = null
+    @Nullable private var cameraDevice: CameraDevice? = null
+    @Nullable private var captureSession: CameraCaptureSession? = null
+    @Nullable private var imageReader: ImageReader? = null
+    @Nullable private var backgroundThread: HandlerThread? = null
+    @Nullable private var backgroundHandler: Handler? = null
+    @Nullable private var previewSurface: Surface? = null
 
     private val _cameraState = MutableStateFlow<CameraState>(CameraState.Idle)
     val cameraState: StateFlow<CameraState> = _cameraState.asStateFlow()

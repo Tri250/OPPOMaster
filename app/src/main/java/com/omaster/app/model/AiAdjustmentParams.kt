@@ -1,5 +1,9 @@
 package com.omaster.app.model
 
+import androidx.annotation.Keep
+import androidx.annotation.NonNull
+
+@Keep
 data class AiAdjustmentParams(
     val brightness: Float = 0f,
     val contrast: Float = 0f,
@@ -12,9 +16,10 @@ data class AiAdjustmentParams(
     val vignette: Float = 0f
 ) {
     companion object {
-        val DEFAULT = AiAdjustmentParams()
+        @NonNull val DEFAULT = AiAdjustmentParams()
     }
-    
+
+    @NonNull
     fun toDisplayMap(): Map<String, Float> = mapOf(
         "亮度" to brightness,
         "对比度" to contrast,

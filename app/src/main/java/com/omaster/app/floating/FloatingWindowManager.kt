@@ -7,6 +7,11 @@ import android.os.Build
 import android.provider.Settings
 import android.view.*
 import android.widget.LinearLayout
+import androidx.annotation.Keep
+import androidx.annotation.MainThread
+import androidx.annotation.NonNull
+import androidx.annotation.Nullable
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,15 +36,16 @@ import com.omaster.app.ui.theme.DeepSpace
 import com.omaster.app.ui.theme.HasselbladOrange
 import timber.log.Timber
 
+@Keep
 object FloatingWindowManager {
-    private var windowManager: WindowManager? = null
-    private var floatingView: ComposeView? = null
+    @Nullable private var windowManager: WindowManager? = null
+    @Nullable private var floatingView: ComposeView? = null
     private var isShowing = false
 
-    private var currentPresetName: String = "预设参数"
-    private var currentParams: Map<String, String> = emptyMap()
+    @NonNull private var currentPresetName: String = "预设参数"
+    @NonNull private var currentParams: Map<String, String> = emptyMap()
 
-    fun setPresetData(name: String, params: Map<String, String>) {
+    fun setPresetData(@NonNull name: String, @NonNull params: Map<String, String>) {
         currentPresetName = name
         currentParams = params
         if (isShowing) {
@@ -47,7 +53,8 @@ object FloatingWindowManager {
         }
     }
 
-    fun showWindow(context: Context) {
+    @MainThread
+    fun showWindow(@NonNull context: Context) {
         if (isShowing) return
 
         if (!canDrawOverlays(context)) {

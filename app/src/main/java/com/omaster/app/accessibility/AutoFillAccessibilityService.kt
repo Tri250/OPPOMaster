@@ -6,18 +6,23 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.content.Context
 import android.content.Intent
 import android.provider.Settings
+import androidx.annotation.Keep
+import androidx.annotation.MainThread
+import androidx.annotation.NonNull
+import androidx.annotation.Nullable
 import timber.log.Timber
 
+@Keep
 class AutoFillAccessibilityService : AccessibilityService() {
 
     companion object {
         private var currentParams: Map<String, String>? = null
 
-        fun setParams(params: Map<String, String>) {
+        fun setParams(@NonNull params: Map<String, String>) {
             currentParams = params
         }
 
-        fun isServiceEnabled(context: Context): Boolean {
+        fun isServiceEnabled(@NonNull context: Context): Boolean {
             val pref = Settings.Secure.getString(
                 context.contentResolver,
                 Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
@@ -25,13 +30,14 @@ class AutoFillAccessibilityService : AccessibilityService() {
             return pref?.contains("${context.packageName}/.accessibility.AutoFillAccessibilityService") ?: false
         }
 
-        fun openAccessibilitySettings(context: Context) {
+        fun openAccessibilitySettings(@NonNull context: Context) {
             val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
             context.startActivity(intent)
         }
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+    @MainThread
+    override fun onAccessibilityEvent(@Nullable event: AccessibilityEvent?) {
         event ?: return
 
         val rootNode = rootInActiveWindow ?: return
@@ -43,7 +49,7 @@ class AutoFillAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun tryAutoFillParams(rootNode: AccessibilityNodeInfo) {
+    private fun tryAutoFillParams(@NonNull rootNode: AccessibilityNodeInfo) {
         currentParams ?: return
 
         Timber.d("Trying to auto-fill params: $currentParams")

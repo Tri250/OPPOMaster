@@ -1,23 +1,27 @@
 package com.omaster.app.model
 
+import androidx.annotation.Keep
+import androidx.annotation.NonNull
+import androidx.annotation.Nullable
+
 /**
  * Preset - 预设数据模型
  * 支持2026年 OPPO Find X8 Ultra 哈苏大师模式
  */
 
 data class Section(
-    val title: String,
-    val content: String
+    @NonNull val title: String,
+    @NonNull val content: String
 )
 
 /**
  * 样张展示数据模型
  */
 data class SampleImage(
-    val id: String,
-    val imagePath: String,
-    val title: String,
-    val description: String,
+    @NonNull val id: String,
+    @NonNull val imagePath: String,
+    @NonNull val title: String,
+    @NonNull val description: String,
     val isBeforeImage: Boolean = false,
     val isAfterImage: Boolean = false
 )
@@ -25,32 +29,33 @@ data class SampleImage(
 /**
  * 预设数据模型
  */
+@Keep
 data class Preset(
-    val id: String,
-    val name: String,
-    val coverPath: String,
-    val coverUrl: String = "",
-    val sections: List<Section> = emptyList(),
-    val cameraParams: CameraParams? = null,
-    val deviceModel: String = "",
-    val source: String = "omaster_cloud",
+    @NonNull val id: String,
+    @NonNull val name: String,
+    @NonNull val coverPath: String,
+    @NonNull val coverUrl: String = "",
+    @NonNull val sections: List<Section> = emptyList(),
+    @Nullable val cameraParams: CameraParams? = null,
+    @NonNull val deviceModel: String = "",
+    @NonNull val source: String = "omaster_cloud",
     val isFavorite: Boolean = false,
     
     // 扩展元数据
-    val author: String = "哈苏影像实验室",
-    val description: String = "",
-    val sceneType: String = "",
-    val tags: List<String> = emptyList(),
+    @NonNull val author: String = "哈苏影像实验室",
+    @NonNull val description: String = "",
+    @NonNull val sceneType: String = "",
+    @NonNull val tags: List<String> = emptyList(),
     val rating: Float = 5.0f,
     val downloadCount: Int = 0,
     val favoriteCount: Int = 0,
-    val version: String = "3.0",
+    @NonNull val version: String = "3.0",
     val lastUpdated: Long = System.currentTimeMillis(),
     val publishDate: Long = System.currentTimeMillis(),
     val isHncsCertified: Boolean = cameraParams?.hasselblad_hncs == true,
-    
+
     // 样张展示
-    val sampleImages: List<SampleImage> = emptyList(),
+    @NonNull val sampleImages: List<SampleImage> = emptyList(),
     
     // 兼容性别名
     val hasselbladHncs: Boolean = cameraParams?.hasselblad_hncs ?: false,
@@ -172,7 +177,7 @@ data class Preset(
         /**
          * 从 JSON 创建 Preset
          */
-        fun fromJson(json: Map<String, Any?>): Preset {
+        fun fromJson(@NonNull json: Map<String, Any?>): Preset {
             val paramsJson = json["cameraParams"] as? Map<String, Any?>
             val cameraParams = paramsJson?.let { CameraParams.fromJsonMap(it) }
             

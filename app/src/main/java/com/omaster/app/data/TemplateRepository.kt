@@ -1,6 +1,11 @@
 package com.omaster.app.data
 
 import android.content.Context
+import androidx.annotation.Keep
+import androidx.annotation.MainThread
+import androidx.annotation.NonNull
+import androidx.annotation.Nullable
+import androidx.annotation.WorkerThread
 import com.omaster.app.watermark.*
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -15,22 +20,23 @@ import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
+@Keep
 @Singleton
 class TemplateRepository @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext @NonNull private val context: Context
 ) {
     private val templatesDir = File(context.filesDir, "templates")
     private val systemTemplates = mutableListOf<WatermarkTemplate>()
     private val customTemplates = mutableListOf<WatermarkTemplate>()
 
     private val _templates = MutableStateFlow<List<WatermarkTemplate>>(emptyList())
-    val templates: Flow<List<WatermarkTemplate>> = _templates.asStateFlow()
+    @NonNull val templates: Flow<List<WatermarkTemplate>> = _templates.asStateFlow()
 
     private val _systemTemplatesFlow = MutableStateFlow<List<WatermarkTemplate>>(emptyList())
-    val systemTemplatesFlow: Flow<List<WatermarkTemplate>> = _systemTemplatesFlow.asStateFlow()
+    @NonNull val systemTemplatesFlow: Flow<List<WatermarkTemplate>> = _systemTemplatesFlow.asStateFlow()
 
     private val _customTemplatesFlow = MutableStateFlow<List<WatermarkTemplate>>(emptyList())
-    val customTemplatesFlow: Flow<List<WatermarkTemplate>> = _customTemplatesFlow.asStateFlow()
+    @NonNull val customTemplatesFlow: Flow<List<WatermarkTemplate>> = _customTemplatesFlow.asStateFlow()
 
     init {
         if (!templatesDir.exists()) {

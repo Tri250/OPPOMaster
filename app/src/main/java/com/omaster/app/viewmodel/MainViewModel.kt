@@ -1,5 +1,9 @@
 package com.omaster.app.viewmodel
 
+import androidx.annotation.Keep
+import androidx.annotation.MainThread
+import androidx.annotation.NonNull
+import androidx.annotation.Nullable
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -18,42 +22,46 @@ import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
 
+@Keep
 @HiltViewModel
 class MainViewModel @Inject constructor(
-    private val repository: PresetRepository,
-    private val preferencesDataStore: PreferencesDataStore,
-    private val cameraParamProvider: CameraParamProvider
+    @NonNull private val repository: PresetRepository,
+    @NonNull private val preferencesDataStore: PreferencesDataStore,
+    @NonNull private val cameraParamProvider: CameraParamProvider
 ) : ViewModel() {
-    val presets = repository.presets
-    val themeMode = preferencesDataStore.themeMode
-    val fluidCloudEnabled = preferencesDataStore.fluidCloudEnabled
-    val overlayEnabled = preferencesDataStore.overlayEnabled
-    val syncEnabled = preferencesDataStore.syncEnabled
+    @NonNull val presets = repository.presets
+    @NonNull val themeMode = preferencesDataStore.themeMode
+    @NonNull val fluidCloudEnabled = preferencesDataStore.fluidCloudEnabled
+    @NonNull val overlayEnabled = preferencesDataStore.overlayEnabled
+    @NonNull val syncEnabled = preferencesDataStore.syncEnabled
 
     private val _searchQuery = MutableStateFlow("")
-    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+    @NonNull val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
     private val _filterType = MutableStateFlow(FilterType.ALL)
-    val filterType: StateFlow<FilterType> = _filterType.asStateFlow()
+    @NonNull val filterType: StateFlow<FilterType> = _filterType.asStateFlow()
 
     private val _selectedPreset = MutableStateFlow<Preset?>(null)
-    val selectedPreset: StateFlow<Preset?> = _selectedPreset.asStateFlow()
+    @NonNull val selectedPreset: StateFlow<Preset?> = _selectedPreset.asStateFlow()
 
     // Camera related
-    val cameraStatus: LiveData<CameraCompatibilityStatus> = cameraParamProvider.status
-    val cameraParams: LiveData<RealTimeCameraParams> = cameraParamProvider.params
+    @NonNull val cameraStatus: LiveData<CameraCompatibilityStatus> = cameraParamProvider.status
+    @NonNull val cameraParams: LiveData<RealTimeCameraParams> = cameraParamProvider.params
 
-    fun onSearchQueryChanged(query: String) {
+    @MainThread
+    fun onSearchQueryChanged(@NonNull query: String) {
         _searchQuery.value = query
         Timber.d("Search query changed: $query")
     }
 
-    fun onFilterTypeChanged(filterType: FilterType) {
+    @MainThread
+    fun onFilterTypeChanged(@NonNull filterType: FilterType) {
         _filterType.value = filterType
         Timber.d("Filter type changed: $filterType")
     }
 
-    fun toggleFavorite(preset: Preset) {
+    @MainThread
+    fun toggleFavorite(@NonNull preset: Preset) {
         viewModelScope.launch {
             try {
                 repository.toggleFavorite(preset.id)
@@ -64,17 +72,20 @@ class MainViewModel @Inject constructor(
         }
     }
 
-    fun selectPreset(preset: Preset) {
+    @MainThread
+    fun selectPreset(@NonNull preset: Preset) {
         _selectedPreset.value = preset
     }
 
-    fun setThemeMode(themeMode: ThemeMode) {
+    @MainThread
+    fun setThemeMode(@NonNull themeMode: ThemeMode) {
         viewModelScope.launch {
             preferencesDataStore.setThemeMode(themeMode)
             Timber.d("Theme mode changed: $themeMode")
         }
     }
 
+    @MainThread
     fun setFluidCloudEnabled(enabled: Boolean) {
         viewModelScope.launch {
             preferencesDataStore.setFluidCloudEnabled(enabled)
@@ -82,6 +93,7 @@ class MainViewModel @Inject constructor(
         }
     }
 
+    @MainThread
     fun setOverlayEnabled(enabled: Boolean) {
         viewModelScope.launch {
             preferencesDataStore.setOverlayEnabled(enabled)
@@ -89,6 +101,7 @@ class MainViewModel @Inject constructor(
         }
     }
 
+    @MainThread
     fun setSyncEnabled(enabled: Boolean) {
         viewModelScope.launch {
             preferencesDataStore.setSyncEnabled(enabled)
@@ -96,6 +109,7 @@ class MainViewModel @Inject constructor(
         }
     }
 
+    @MainThread
     fun syncPresets() {
         viewModelScope.launch {
             try {
@@ -108,22 +122,26 @@ class MainViewModel @Inject constructor(
     }
 
     // Camera related functions
+    @MainThread
     fun startCameraMonitor() {
         cameraParamProvider.startMonitor()
         Timber.d("Camera monitor started")
     }
 
+    @MainThread
     fun stopCameraMonitor() {
         cameraParamProvider.stopMonitor()
         Timber.d("Camera monitor stopped")
     }
 
+    @MainThread
     override fun onCleared() {
         super.onCleared()
         cameraParamProvider.release()
     }
 }
 
+@Keep
 enum class FilterType {
     ALL,
     FAVORITES,

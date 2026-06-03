@@ -45,7 +45,7 @@ enum class SceneType(
     UNKNOWN("未知", "无法识别场景", "unknown", 999);
 
     companion object {
-        fun fromKey(key: String): SceneType {
+        fun fromKey(@NonNull key: String): SceneType {
             return values().find { it.sceneKey == key } ?: UNKNOWN
         }
         

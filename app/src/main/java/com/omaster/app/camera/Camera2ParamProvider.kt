@@ -6,6 +6,12 @@ import android.content.pm.PackageManager
 import android.hardware.camera2.*
 import android.os.Build
 import android.util.Range
+import androidx.annotation.Keep
+import androidx.annotation.MainThread
+import androidx.annotation.NonNull
+import androidx.annotation.Nullable
+import androidx.annotation.RequiresApi
+import androidx.annotation.WorkerThread
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
@@ -16,26 +22,28 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import timber.log.Timber
 
-class Camera2ParamProvider(private val context: Context) : CameraParamProvider {
+@Keep
+class Camera2ParamProvider(@NonNull private val context: Context) : CameraParamProvider {
 
-    private val _params = MutableLiveData(RealTimeCameraParams())
-    override val params: LiveData<RealTimeCameraParams> = _params
+    @NonNull private val _params = MutableLiveData(RealTimeCameraParams())
+    @NonNull override val params: LiveData<RealTimeCameraParams> = _params
 
     private val _status = MutableLiveData<CameraCompatibilityStatus>(CameraCompatibilityStatus.NotSupported)
-    override val status: LiveData<CameraCompatibilityStatus> = _status
+    @NonNull override val status: LiveData<CameraCompatibilityStatus> = _status
 
-    private val cameraManager by lazy { context.getSystemService(Context.CAMERA_SERVICE) as CameraManager }
-    
+    @NonNull private val cameraManager by lazy { context.getSystemService(Context.CAMERA_SERVICE) as CameraManager }
+
     private val supervisorJob = Job()
-    private val scope = CoroutineScope(Dispatchers.IO + supervisorJob)
-    private var monitorJob: Job? = null
-    private var cameraDevice: CameraDevice? = null
-    private var captureRequest: CaptureRequest? = null
-    private var captureSession: CameraCaptureSession? = null
+    @NonNull private val scope = CoroutineScope(Dispatchers.IO + supervisorJob)
+    @Nullable private var monitorJob: Job? = null
+    @Nullable private var cameraDevice: CameraDevice? = null
+    @Nullable private var captureRequest: CaptureRequest? = null
+    @Nullable private var captureSession: CameraCaptureSession? = null
 
-    private var currentLensType = "wide"
-    private var currentCameraId: String? = null
+    @NonNull private var currentLensType = "wide"
+    @Nullable private var currentCameraId: String? = null
 
+    @MainThread
     override fun startMonitor() {
         if (!checkCameraSupport()) {
             _status.postValue(CameraCompatibilityStatus.NotSupported)

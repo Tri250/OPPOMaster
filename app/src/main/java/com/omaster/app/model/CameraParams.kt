@@ -1,5 +1,9 @@
 package com.omaster.app.model
 
+import androidx.annotation.Keep
+import androidx.annotation.NonNull
+import androidx.annotation.Nullable
+
 /**
  * 2026年 OPPO Find X8 Ultra 哈苏大师模式影像参数
  * 基于 OPPO HyperTone Camera System
@@ -57,21 +61,22 @@ enum class FocalLengthMode(val displayName: String) {
 /**
  * 哈苏大师模式影像参数 - 2026年 OPPO Find X8 Ultra
  */
+@Keep
 data class CameraParams(
     // 基础参数
-    val mode: String = CameraMode.HasselbladMaster.displayName,
-    val filter: String = "",
-    
+    @NonNull val mode: String = CameraMode.HasselbladMaster.displayName,
+    @NonNull val filter: String = "",
+
     // 核心影像参数
     val iso: Int = 100,
-    val shutter: String = "1/200",
-    val ev: String = "+0.0",
-    val wb: String = "5500K",
-    
+    @NonNull val shutter: String = "1/200",
+    @NonNull val ev: String = "+0.0",
+    @NonNull val wb: String = "5500K",
+
     // 焦距与光圈
-    val focalLength: String = "24mm",
-    val focalLengthMode: String = FocalLengthMode.Wide.displayName,
-    val aperture: String = "f/1.8",
+    @NonNull val focalLength: String = "24mm",
+    @NonNull val focalLengthMode: String = FocalLengthMode.Wide.displayName,
+    @NonNull val aperture: String = "f/1.8",
     
     // 拍摄模式开关
     val hdr: Boolean = false,
@@ -86,13 +91,13 @@ data class CameraParams(
     // 哈苏认证与风格
     val hasselblad_hncs: Boolean = true,
     val hasselbladNaturalColor: Boolean = true,
-    val hasselbladMasterStyle: String = "",
+    @NonNull val hasselbladMasterStyle: String = "",
     val hasselbladProMode: Boolean = true,
-    val hasselbladColorScience: String = "HNCS 3.0",
-    
+    @NonNull val hasselbladColorScience: String = "HNCS 3.0",
+
     // 色彩与风格
-    val colorProfile: String = ColorStyle.Natural.displayName,
-    val colorStyle: String = ColorStyle.Natural.name,
+    @NonNull val colorProfile: String = ColorStyle.Natural.displayName,
+    @NonNull val colorStyle: String = ColorStyle.Natural.name,
     val colorTemperature: Int = 5500,
     val tint: Int = 0,
     
@@ -105,31 +110,31 @@ data class CameraParams(
     val exposureCompensation: Int = 0,
     
     // 高级参数
-    val meteringMode: String = "Evaluative",
-    val focusMode: String = "Continuous AF",
-    val whiteBalancePreset: String = "Auto",
+    @NonNull val meteringMode: String = "Evaluative",
+    @NonNull val focusMode: String = "Continuous AF",
+    @NonNull val whiteBalancePreset: String = "Auto",
     val noiseReduction: Int = 50,
     val detailEnhancement: Int = 50,
-    
+
     // 镜头信息
-    val lensId: String = "",
-    val lensAperture: String = "f/1.8",
+    @NonNull val lensId: String = "",
+    @NonNull val lensAperture: String = "f/1.8",
     val opticalZoom: Int = 1,
     val digitalZoom: Int = 1,
-    val sensorSize: String = "1英寸",
-    
+    @NonNull val sensorSize: String = "1英寸",
+
     // 元数据
-    val version: String = "3.0",
+    @NonNull val version: String = "3.0",
     val lastModified: Long = System.currentTimeMillis(),
-    
+
     // 兼容性属性（下划线命名）
-    val ai_scene_recognition: String? = null,
+    @Nullable val ai_scene_recognition: String? = null,
     val ai_optimization: Boolean = aiOptimization,
-    val focal_length: String = focalLength,
-    val focus_distance: String? = null,
-    val hasselblad_master_style: String? = if (hasselbladMasterStyle.isNotEmpty()) hasselbladMasterStyle else null,
+    @NonNull val focal_length: String = focalLength,
+    @Nullable val focus_distance: String? = null,
+    @Nullable val hasselblad_master_style: String? = if (hasselbladMasterStyle.isNotEmpty()) hasselbladMasterStyle else null,
     val hasselblad_natural_color: Boolean = hasselbladNaturalColor,
-    val color_profile: String = colorProfile
+    @NonNull val color_profile: String = colorProfile
 ) {
     fun validate(): ValidationResult {
         val errors = mutableListOf<String>()
@@ -252,7 +257,7 @@ data class CameraParams(
         /**
          * 从 JSON 创建 CameraParams
          */
-        fun fromJsonMap(json: Map<String, Any?>): CameraParams {
+        fun fromJsonMap(@NonNull json: Map<String, Any?>): CameraParams {
             return CameraParams(
                 mode = json["mode"] as? String ?: CameraMode.HasselbladMaster.displayName,
                 filter = json["filter"] as? String ?: "",

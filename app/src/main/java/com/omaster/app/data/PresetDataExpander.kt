@@ -1,12 +1,16 @@
 package com.omaster.app.data
 
+import androidx.annotation.Keep
+import androidx.annotation.NonNull
 import com.omaster.app.model.CameraParams
 import com.omaster.app.model.Preset
 import com.omaster.app.model.Section
 
+@Keep
 object PresetDataExpander {
 
-    fun expandPresets(originalPresets: List<Preset>): List<Preset> {
+    @NonNull
+    fun expandPresets(@NonNull originalPresets: List<Preset>): List<Preset> {
         val expandedPresets = mutableListOf<Preset>()
         expandedPresets.addAll(originalPresets)
         

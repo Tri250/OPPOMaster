@@ -53,6 +53,7 @@ class NotificationHelper @Inject constructor(
         }
     }
     
+    @MainThread
     fun showFloatingWindowNotification() {
         if (isNotificationShowing) {
             Timber.d("Notification already showing")
@@ -101,7 +102,8 @@ class NotificationHelper @Inject constructor(
         }
     }
     
-    private fun buildNotification(presetName: String? = null, isExpanded: Boolean = true): Notification {
+    @NonNull
+    private fun buildNotification(@Nullable presetName: String? = null, isExpanded: Boolean = true): Notification {
         val contentIntent = PendingIntent.getActivity(
             context,
             0,
@@ -188,7 +190,7 @@ class NotificationHelper @Inject constructor(
             .build()
     }
     
-    fun handleIntent(intent: Intent?) {
+    fun handleIntent(@Nullable intent: Intent?) {
         when (intent?.action) {
             ACTION_EXPAND -> {
                 Timber.d("Notification action: EXPAND")

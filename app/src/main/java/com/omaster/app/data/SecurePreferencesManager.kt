@@ -4,6 +4,11 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import androidx.annotation.Keep
+import androidx.annotation.MainThread
+import androidx.annotation.NonNull
+import androidx.annotation.Nullable
+import androidx.annotation.WorkerThread
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -29,9 +34,10 @@ import android.util.Base64
  *
  * 作者备注：带娃的小陈工
  */
+@Keep
 @Singleton
 class SecurePreferencesManager @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext @NonNull private val context: Context
 ) {
     companion object {
         private const val KEYSTORE_ALIAS = "omaster_master_key"
@@ -42,13 +48,13 @@ class SecurePreferencesManager @Inject constructor(
         private const val GCM_IV_LENGTH = 12
     }
 
-    private val masterKey: MasterKey by lazy {
+    @NonNull private val masterKey: MasterKey by lazy {
         MasterKey.Builder(context)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
             .build()
     }
 
-    private val encryptedPrefs: SharedPreferences by lazy {
+    @NonNull private val encryptedPrefs: SharedPreferences by lazy {
         try {
             EncryptedSharedPreferences.create(
                 context,
@@ -66,7 +72,8 @@ class SecurePreferencesManager @Inject constructor(
     /**
      * 保存加密字符串
      */
-    fun putString(key: String, value: String) {
+    @WorkerThread
+    fun putString(@NonNull key: String, @NonNull value: String) {
         try {
             encryptedPrefs.edit().putString(key, value).apply()
         } catch (e: Exception) {
@@ -77,7 +84,9 @@ class SecurePreferencesManager @Inject constructor(
     /**
      * 获取加密字符串
      */
-    fun getString(key: String, defaultValue: String? = null): String? {
+    @WorkerThread
+    @Nullable
+    fun getString(@NonNull key: String, @Nullable defaultValue: String? = null): String? {
         return try {
             encryptedPrefs.getString(key, defaultValue)
         } catch (e: Exception) {
@@ -89,7 +98,8 @@ class SecurePreferencesManager @Inject constructor(
     /**
      * 保存加密布尔值
      */
-    fun putBoolean(key: String, value: Boolean) {
+    @WorkerThread
+    fun putBoolean(@NonNull key: String, value: Boolean) {
         try {
             encryptedPrefs.edit().putBoolean(key, value).apply()
         } catch (e: Exception) {
@@ -100,7 +110,8 @@ class SecurePreferencesManager @Inject constructor(
     /**
      * 获取加密布尔值
      */
-    fun getBoolean(key: String, defaultValue: Boolean = false): Boolean {
+    @WorkerThread
+    fun getBoolean(@NonNull key: String, defaultValue: Boolean = false): Boolean {
         return try {
             encryptedPrefs.getBoolean(key, defaultValue)
         } catch (e: Exception) {
@@ -112,7 +123,8 @@ class SecurePreferencesManager @Inject constructor(
     /**
      * 保存加密整数
      */
-    fun putInt(key: String, value: Int) {
+    @WorkerThread
+    fun putInt(@NonNull key: String, value: Int) {
         try {
             encryptedPrefs.edit().putInt(key, value).apply()
         } catch (e: Exception) {
@@ -123,7 +135,8 @@ class SecurePreferencesManager @Inject constructor(
     /**
      * 获取加密整数
      */
-    fun getInt(key: String, defaultValue: Int = 0): Int {
+    @WorkerThread
+    fun getInt(@NonNull key: String, defaultValue: Int = 0): Int {
         return try {
             encryptedPrefs.getInt(key, defaultValue)
         } catch (e: Exception) {
@@ -135,7 +148,8 @@ class SecurePreferencesManager @Inject constructor(
     /**
      * 保存加密长整数
      */
-    fun putLong(key: String, value: Long) {
+    @WorkerThread
+    fun putLong(@NonNull key: String, value: Long) {
         try {
             encryptedPrefs.edit().putLong(key, value).apply()
         } catch (e: Exception) {
@@ -146,7 +160,8 @@ class SecurePreferencesManager @Inject constructor(
     /**
      * 获取加密长整数
      */
-    fun getLong(key: String, defaultValue: Long = 0L): Long {
+    @WorkerThread
+    fun getLong(@NonNull key: String, defaultValue: Long = 0L): Long {
         return try {
             encryptedPrefs.getLong(key, defaultValue)
         } catch (e: Exception) {
@@ -158,7 +173,8 @@ class SecurePreferencesManager @Inject constructor(
     /**
      * 保存加密浮点数
      */
-    fun putFloat(key: String, value: Float) {
+    @WorkerThread
+    fun putFloat(@NonNull key: String, value: Float) {
         try {
             encryptedPrefs.edit().putFloat(key, value).apply()
         } catch (e: Exception) {
@@ -169,7 +185,8 @@ class SecurePreferencesManager @Inject constructor(
     /**
      * 获取加密浮点数
      */
-    fun getFloat(key: String, defaultValue: Float = 0f): Float {
+    @WorkerThread
+    fun getFloat(@NonNull key: String, defaultValue: Float = 0f): Float {
         return try {
             encryptedPrefs.getFloat(key, defaultValue)
         } catch (e: Exception) {
@@ -181,7 +198,8 @@ class SecurePreferencesManager @Inject constructor(
     /**
      * 保存加密字符串集合
      */
-    fun putStringSet(key: String, value: Set<String>) {
+    @WorkerThread
+    fun putStringSet(@NonNull key: String, @NonNull value: Set<String>) {
         try {
             encryptedPrefs.edit().putStringSet(key, value).apply()
         } catch (e: Exception) {
@@ -192,7 +210,9 @@ class SecurePreferencesManager @Inject constructor(
     /**
      * 获取加密字符串集合
      */
-    fun getStringSet(key: String, defaultValue: Set<String>? = null): Set<String>? {
+    @WorkerThread
+    @Nullable
+    fun getStringSet(@NonNull key: String, @Nullable defaultValue: Set<String>? = null): Set<String>? {
         return try {
             encryptedPrefs.getStringSet(key, defaultValue)
         } catch (e: Exception) {
@@ -204,7 +224,8 @@ class SecurePreferencesManager @Inject constructor(
     /**
      * 移除指定键值
      */
-    fun remove(key: String) {
+    @MainThread
+    fun remove(@NonNull key: String) {
         try {
             encryptedPrefs.edit().remove(key).apply()
         } catch (e: Exception) {
@@ -215,6 +236,7 @@ class SecurePreferencesManager @Inject constructor(
     /**
      * 清空所有加密数据
      */
+    @MainThread
     fun clear() {
         try {
             encryptedPrefs.edit().clear().apply()
@@ -227,7 +249,8 @@ class SecurePreferencesManager @Inject constructor(
     /**
      * 检查是否存在指定键
      */
-    fun contains(key: String): Boolean {
+    @WorkerThread
+    fun contains(@NonNull key: String): Boolean {
         return try {
             encryptedPrefs.contains(key)
         } catch (e: Exception) {
@@ -239,6 +262,8 @@ class SecurePreferencesManager @Inject constructor(
     /**
      * 获取所有键
      */
+    @NonNull
+    @WorkerThread
     fun getAllKeys(): Set<String> {
         return try {
             encryptedPrefs.all.keys
@@ -251,8 +276,9 @@ class SecurePreferencesManager @Inject constructor(
     /**
      * 注册监听器
      */
+    @MainThread
     fun registerOnSharedPreferenceChangeListener(
-        listener: SharedPreferences.OnSharedPreferenceChangeListener
+        @NonNull listener: SharedPreferences.OnSharedPreferenceChangeListener
     ) {
         encryptedPrefs.registerOnSharedPreferenceChangeListener(listener)
     }
@@ -260,8 +286,9 @@ class SecurePreferencesManager @Inject constructor(
     /**
      * 注销监听器
      */
+    @MainThread
     fun unregisterOnSharedPreferenceChangeListener(
-        listener: SharedPreferences.OnSharedPreferenceChangeListener
+        @NonNull listener: SharedPreferences.OnSharedPreferenceChangeListener
     ) {
         encryptedPrefs.unregisterOnSharedPreferenceChangeListener(listener)
     }
@@ -269,6 +296,7 @@ class SecurePreferencesManager @Inject constructor(
     /**
      * 获取存储统计信息
      */
+    @NonNull
     fun getStorageStats(): StorageStats {
         return try {
             val allData = encryptedPrefs.all
@@ -282,7 +310,7 @@ class SecurePreferencesManager @Inject constructor(
         }
     }
 
-    private fun estimateStorageSize(data: Map<String, *>): Long {
+    private fun estimateStorageSize(@NonNull data: Map<String, *>): Long {
         return data.entries.sumOf { (key, value) ->
             key.toByteArray().size + (value?.toString()?.toByteArray()?.size ?: 0)
         }.toLong()
@@ -291,6 +319,7 @@ class SecurePreferencesManager @Inject constructor(
     /**
      * 导出所有数据（用于用户数据导出功能SP-017）
      */
+    @NonNull
     fun exportAllData(): Map<String, *> {
         return try {
             encryptedPrefs.all.toMap()
@@ -303,7 +332,7 @@ class SecurePreferencesManager @Inject constructor(
     /**
      * 导入数据（用于用户数据恢复功能SP-017）
      */
-    fun importData(data: Map<String, *>) {
+    fun importData(@NonNull data: Map<String, *>) {
         try {
             val editor = encryptedPrefs.edit()
             data.forEach { (key, value) ->
@@ -327,6 +356,7 @@ class SecurePreferencesManager @Inject constructor(
 /**
  * 存储统计信息
  */
+@Keep
 data class StorageStats(
     val totalKeys: Int,
     val estimatedSize: Long
@@ -336,6 +366,7 @@ data class StorageStats(
  * OMaster安全加密工具类
  * 提供AES-256-GCM加密解密功能
  */
+@Keep
 object SecurityUtils {
 
     private const val ANDROID_KEYSTORE = "AndroidKeyStore"
@@ -347,6 +378,7 @@ object SecurityUtils {
     /**
      * 生成加密密钥（存储在Android Keystore）
      */
+    @NonNull
     fun generateKey(): SecretKey {
         val keyGenerator = KeyGenerator.getInstance(
             KeyProperties.KEY_ALGORITHM_AES,
@@ -370,6 +402,7 @@ object SecurityUtils {
     /**
      * 获取加密密钥
      */
+    @NonNull
     fun getKey(): SecretKey {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE)
         keyStore.load(null)
@@ -379,7 +412,8 @@ object SecurityUtils {
     /**
      * 加密数据
      */
-    fun encrypt(data: ByteArray, key: SecretKey = getKey()): ByteArray {
+    @NonNull
+    fun encrypt(@NonNull data: ByteArray, @NonNull key: SecretKey = getKey()): ByteArray {
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, key)
 
@@ -392,7 +426,8 @@ object SecurityUtils {
     /**
      * 解密数据
      */
-    fun decrypt(encryptedData: ByteArray, key: SecretKey = getKey()): ByteArray {
+    @NonNull
+    fun decrypt(@NonNull encryptedData: ByteArray, @NonNull key: SecretKey = getKey()): ByteArray {
         val iv = encryptedData.copyOfRange(0, GCM_IV_LENGTH)
         val data = encryptedData.copyOfRange(GCM_IV_LENGTH, encryptedData.size)
 
@@ -406,7 +441,8 @@ object SecurityUtils {
     /**
      * Base64编码加密
      */
-    fun encryptToBase64(data: String): String {
+    @NonNull
+    fun encryptToBase64(@NonNull data: String): String {
         val encrypted = encrypt(data.toByteArray(Charsets.UTF_8))
         return Base64.encodeToString(encrypted, Base64.NO_WRAP)
     }
@@ -414,7 +450,8 @@ object SecurityUtils {
     /**
      * Base64解码解密
      */
-    fun decryptFromBase64(encryptedBase64: String): String {
+    @NonNull
+    fun decryptFromBase64(@NonNull encryptedBase64: String): String {
         val encrypted = Base64.decode(encryptedBase64, Base64.NO_WRAP)
         val decrypted = decrypt(encrypted)
         return String(decrypted, Charsets.UTF_8)
@@ -423,7 +460,8 @@ object SecurityUtils {
     /**
      * 计算数据哈希（用于数据完整性校验SP-007）
      */
-    fun computeHash(data: ByteArray): String {
+    @NonNull
+    fun computeHash(@NonNull data: ByteArray): String {
         val md = java.security.MessageDigest.getInstance("SHA-256")
         val digest = md.digest(data)
         return digest.joinToString("") { "%02x".format(it) }
@@ -432,7 +470,7 @@ object SecurityUtils {
     /**
      * 验证数据哈希（用于数据完整性校验SP-007）
      */
-    fun verifyHash(data: ByteArray, expectedHash: String): Boolean {
+    fun verifyHash(@NonNull data: ByteArray, @NonNull expectedHash: String): Boolean {
         val actualHash = computeHash(data)
         return actualHash.equals(expectedHash, ignoreCase = true)
     }

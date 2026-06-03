@@ -65,7 +65,8 @@ class FluidCloudService : Service() {
         }
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    @MainThread
+    override fun onStartCommand(@Nullable intent: Intent?, flags: Int, startId: Int): Int {
         Timber.d("FluidCloudService onStartCommand with action: ${intent?.action}")
         
         try {

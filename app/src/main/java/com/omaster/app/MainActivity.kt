@@ -3,6 +3,9 @@ package com.omaster.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.annotation.Keep
+import androidx.annotation.MainThread
+import androidx.annotation.NonNull
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -46,12 +49,14 @@ import timber.log.Timber
  * ColorOS 16 风格主入口
  * 简洁大气，符合OPPO高端哈苏摄影用户体验
  */
+@Keep
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
-    
+
     @Inject
-    lateinit var aiService: AiService
-    
+    @NonNull lateinit var aiService: AiService
+
+    @MainThread
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (BuildConfig.DEBUG) {
@@ -63,7 +68,7 @@ class MainActivity : ComponentActivity() {
             val fluidCloudEnabled by viewModel.fluidCloudEnabled.collectAsStateWithLifecycle()
             val overlayEnabled by viewModel.overlayEnabled.collectAsStateWithLifecycle()
             val syncEnabled by viewModel.syncEnabled.collectAsStateWithLifecycle()
-            
+
             OMasterTheme(themeMode = themeMode) {
                 OMasterApp(
                     viewModel = viewModel,
@@ -76,12 +81,14 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-    
+
+    @MainThread
     override fun onStart() {
         super.onStart()
         (application as? OMasterApplication)?.registerActivity(this)
     }
-    
+
+    @MainThread
     override fun onStop() {
         super.onStop()
         (application as? OMasterApplication)?.unregisterActivity()

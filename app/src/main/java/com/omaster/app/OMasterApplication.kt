@@ -6,6 +6,10 @@ import android.app.ActivityManager
 import android.content.Context
 import android.os.Build
 import android.os.Process
+import androidx.annotation.Keep
+import androidx.annotation.MainThread
+import androidx.annotation.NonNull
+import androidx.annotation.Nullable
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import dagger.hilt.android.HiltAndroidApp
@@ -19,20 +23,23 @@ import javax.inject.Inject
  * OMaster Application - 全局异常处理和崩溃捕获
  * 符合Android 16安全隐私规范
  */
+@Keep
 @HiltAndroidApp
 class OMasterApplication : Application(), Configuration.Provider {
 
     @Inject
-    lateinit var workerFactory: HiltWorkerFactory
-    
-    private var currentActivity: WeakReference<Activity>? = null
-    
+    @NonNull lateinit var workerFactory: HiltWorkerFactory
+
+    @Nullable private var currentActivity: WeakReference<Activity>? = null
+
+    @NonNull
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
             .setWorkerFactory(workerFactory)
             .setMinimumLoggingLevel(if (BuildConfig.DEBUG) android.util.Log.DEBUG else android.util.Log.ERROR)
             .build()
-    
+
+    @MainThread
     override fun onCreate() {
         super.onCreate()
         
@@ -190,20 +197,23 @@ class OMasterApplication : Application(), Configuration.Provider {
     /**
      * 注册当前Activity - 用于崩溃时获取上下文
      */
-    fun registerActivity(activity: Activity) {
+    @MainThread
+    fun registerActivity(@NonNull activity: Activity) {
         currentActivity = WeakReference(activity)
     }
-    
+
     /**
      * 注销Activity
      */
+    @MainThread
     fun unregisterActivity() {
         currentActivity = null
     }
-    
+
     /**
      * 检查应用是否运行在低内存环境
      */
+    @NonNull
     fun isLowMemoryDevice(): Boolean {
         val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
         return activityManager.isLowRamDevice

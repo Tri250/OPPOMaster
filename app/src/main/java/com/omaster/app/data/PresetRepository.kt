@@ -122,7 +122,8 @@ class PresetRepository @Inject constructor(
         Timber.d("预设 $presetId 收藏状态已切换")
     }
     
-    fun getOppoPresets(): Flow<Result<List<Preset>>> = flow {
+    @WorkerThread
+    fun getOppoPresets(): @NonNull Flow<Result<List<Preset>>> = flow {
         try {
             val response = presetApi.getOppoPresets()
             if (response.isSuccessful) {
@@ -142,7 +143,8 @@ class PresetRepository @Inject constructor(
         }
     }
     
-    fun getRealmePresets(): Flow<Result<List<Preset>>> = flow {
+    @WorkerThread
+    fun getRealmePresets(): @NonNull Flow<Result<List<Preset>>> = flow {
         try {
             val response = presetApi.getRealmePresets()
             if (response.isSuccessful) {
@@ -186,6 +188,7 @@ class PresetRepository @Inject constructor(
     /**
      * 获取示例预设 - 符合2026年OPPO Find X8 Ultra哈苏大师模式
      */
+    @NonNull
     private fun getSamplePresets(): List<Preset> {
         return listOf(
             Preset(

@@ -1,26 +1,35 @@
 package com.omaster.app.service
 
+import androidx.annotation.Keep
+import androidx.annotation.MainThread
+import androidx.annotation.NonNull
+import androidx.annotation.Nullable
+import androidx.annotation.WorkerThread
 import com.omaster.app.model.AiAdjustmentParams
 import com.omaster.app.model.CameraParams
 import com.omaster.app.model.Preset
 import com.omaster.app.model.SceneType
 import kotlinx.coroutines.delay
 import javax.inject.Inject
+import javax.inject.Singleton
 import kotlin.random.Random
 
 /**
  * AI服务 - 符合所有测试用例要求
  * 支持AI场景识别和AI微调
  */
+@Keep
+@Singleton
 class AiService @Inject constructor() {
-    
+
     private val random = Random(System.currentTimeMillis())
-    
+
     /**
      * AI场景识别 - AI-SC-001至AI-SC-035
      * 响应时间 ≤300ms（标准），≤500ms（夜景），≤200ms（运动）
      */
-    suspend fun detectScene(imageUri: String? = null): SceneType {
+    @WorkerThread
+    suspend fun detectScene(@Nullable imageUri: String? = null): @NonNull SceneType {
         // 模拟分析 - 根据测试用例要求的响应时间
         val analysisTime = when {
             imageUri?.contains("night") == true -> 300L // 夜景略慢
@@ -274,7 +283,8 @@ class AiService @Inject constructor() {
      * AI图片微调 - AI-FT-001至AI-FT-014
      * 处理时间 ≤3秒
      */
-    suspend fun fineTuneImage(imageUri: String, preset: Preset?): AiAdjustmentParams {
+    @WorkerThread
+    suspend fun fineTuneImage(@NonNull imageUri: String, @Nullable preset: Preset?): @NonNull AiAdjustmentParams {
         delay(1800) // 模拟处理时间，≤3秒
         
         // 根据图像类型和预设进行智能微调
@@ -416,11 +426,12 @@ class AiService @Inject constructor() {
     /**
      * 应用样式迁移 - AI-FT-015
      */
+    @WorkerThread
     suspend fun applyStyleTransfer(
-        imageUri: String,
-        styleName: String,
+        @NonNull imageUri: String,
+        @NonNull styleName: String,
         intensity: Float = 1.0f
-    ): AiAdjustmentParams {
+    ): @NonNull AiAdjustmentParams {
         delay(1500)
         
         return when (styleName) {
@@ -493,9 +504,10 @@ class AiService @Inject constructor() {
 /**
  * 智能蒙版结果
  */
+@Keep
 data class SmartMaskResult(
-    val maskType: String,
-    val detectedAreas: List<String>,
+    @NonNull val maskType: String,
+    @NonNull val detectedAreas: List<String>,
     val accuracy: Float,
     val edgeSmoothness: Float
 )
