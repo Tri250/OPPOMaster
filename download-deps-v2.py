@@ -419,7 +419,7 @@ def get_android_dependencies() -> List[DownloadTask]:
         ("com.android.tools.analytics-library", "crash", "31.0.2"),
         ("com.android", "zipflinger", "8.0.2"),
         ("com.android", "signflinger", "8.0.2"),
-        ("com.android", "databinding", "baseLibrary", "8.0.2"),
+        ("com.android", "databinding.baseLibrary", "8.0.2"),
         ("androidx.databinding", "databinding-common", "8.0.2"),
         ("androidx.databinding", "databinding-compiler-common", "8.0.2"),
     ]

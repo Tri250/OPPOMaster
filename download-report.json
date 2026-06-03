@@ -1,0 +1,18 @@
+{
+  "duration": 55.97626709938049,
+  "total": 97,
+  "success": 95,
+  "failed": 2,
+  "failures": [
+    {
+      "path": "org/jetbrains/kotlin/kotlin-gradle-plugins-bom/1.9.22/kotlin-gradle-plugins-bom-1.9.22.jar",
+      "error": "HTTP Error 404: Not Found",
+      "attempts": 18
+    },
+    {
+      "path": "org/jetbrains/kotlin/kotlin-bom/1.9.0/kotlin-bom-1.9.0.jar",
+      "error": "HTTP Error 404: Not Found",
+      "attempts": 18
+    }
+  ]
+}
