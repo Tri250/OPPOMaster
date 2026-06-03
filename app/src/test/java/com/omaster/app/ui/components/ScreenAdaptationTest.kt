@@ -48,7 +48,6 @@ class ScreenAdaptationTest {
     fun `DeviceFoldInfo default should be FLAT`() {
         val foldInfo = DeviceFoldInfo(
             foldState = FoldState.FLAT,
-            orientation = androidx.compose.ui.unit.LayoutDirection.Ltr,
             isTableTopMode = false,
             isBookMode = false
         )
@@ -61,7 +60,6 @@ class ScreenAdaptationTest {
     fun `DeviceFoldInfo table top mode should have correct state`() {
         val foldInfo = DeviceFoldInfo(
             foldState = FoldState.HALF_OPENED,
-            orientation = androidx.compose.ui.unit.LayoutDirection.Rtl,
             isTableTopMode = true,
             isBookMode = false
         )
@@ -74,7 +72,6 @@ class ScreenAdaptationTest {
     fun `DeviceFoldInfo book mode should have correct state`() {
         val foldInfo = DeviceFoldInfo(
             foldState = FoldState.HALF_OPENED,
-            orientation = androidx.compose.ui.unit.LayoutDirection.Ltr,
             isTableTopMode = false,
             isBookMode = true
         )
@@ -150,7 +147,7 @@ class ScreenAdaptationTest {
     }
 
     @Test
-    fun `screen width 840+ should be EXPANDED`() {
+    fun `screen width 840 plus should be EXPANDED`() {
         val widths = listOf(840, 1024, 1280)
         widths.forEach { width ->
             val sizeClass = when {
@@ -246,5 +243,26 @@ class ScreenAdaptationTest {
         val columns = 2
         val chunked = items.chunked(columns)
         assertTrue(chunked.isEmpty())
+    }
+
+    @Test
+    fun `items exactly matching columns should chunk correctly`() {
+        val items = listOf(1, 2, 3, 4)
+        val columns = 2
+        val chunked = items.chunked(columns)
+
+        assertEquals(2, chunked.size)
+        assertEquals(listOf(1, 2), chunked[0])
+        assertEquals(listOf(3, 4), chunked[1])
+    }
+
+    @Test
+    fun `single column should preserve order`() {
+        val items = listOf(1, 2, 3)
+        val chunked = items.chunked(1)
+        assertEquals(3, chunked.size)
+        assertEquals(listOf(1), chunked[0])
+        assertEquals(listOf(2), chunked[1])
+        assertEquals(listOf(3), chunked[2])
     }
 }

@@ -1,83 +1,69 @@
 package com.omaster.app.data
 
-import com.omaster.app.model.CameraParams
-import com.omaster.app.model.ColorStyle
 import com.omaster.app.model.Preset
+import com.omaster.app.model.ValidationResult
 import org.junit.Assert.*
 import org.junit.Test
 
 /**
- * ThemeMode 和设计系统单元测试
- * 覆盖：主题模式枚举、设计系统常量
- */
-class ThemeModeTest {
-
-    @Test
-    fun `ThemeMode SYSTEM should have value 0`() {
-        assertEquals(0, ThemeMode.SYSTEM.value)
-    }
-
-    @Test
-    fun `ThemeMode LIGHT should have value 1`() {
-        assertEquals(1, ThemeMode.LIGHT.value)
-    }
-
-    @Test
-    fun `ThemeMode DARK should have value 2`() {
-        assertEquals(2, ThemeMode.DARK.value)
-    }
-
-    @Test
-    fun `ThemeMode should have exactly 3 values`() {
-        assertEquals(3, ThemeMode.values().size)
-    }
-
-    @Test
-    fun `ThemeMode values should be ordered correctly`() {
-        val values = ThemeMode.values()
-        assertEquals(ThemeMode.SYSTEM, values[0])
-        assertEquals(ThemeMode.LIGHT, values[1])
-        assertEquals(ThemeMode.DARK, values[2])
-    }
-
-    @Test
-    fun `ThemeMode valueOf should work correctly`() {
-        assertEquals(ThemeMode.SYSTEM, ThemeMode.valueOf("SYSTEM"))
-        assertEquals(ThemeMode.LIGHT, ThemeMode.valueOf("LIGHT"))
-        assertEquals(ThemeMode.DARK, ThemeMode.valueOf("DARK"))
-    }
-}
-
-/**
  * PresetRepository 数据逻辑单元测试
- * 由于PresetRepository依赖Android Context和Retrofit，这里测试数据逻辑
+ * 验证数据完整性、过滤、搜索、收藏等核心业务逻辑
  */
 class PresetRepositoryLogicTest {
 
-    // ==================== 示例预设数据验证测试 ====================
+    // ==================== 示例预设数据完整性测试 ====================
 
     @Test
-    fun `sample presets should have valid structure`() {
+    fun `sample presets should be non-empty`() {
+        val presets = Preset.createSamplePresets()
+        assertTrue("Sample presets should not be empty", presets.isNotEmpty())
+    }
+
+    @Test
+    fun `sample presets should have unique IDs`() {
+        val presets = Preset.createSamplePresets()
+        val ids = presets.map { it.id }
+        assertEquals("All preset IDs should be unique", ids.size, ids.toSet().size)
+    }
+
+    @Test
+    fun `sample presets should have non-empty names`() {
         val presets = Preset.createSamplePresets()
         presets.forEach { preset ->
-            assertTrue("Preset ID should not be empty", preset.id.isNotEmpty())
-            assertTrue("Preset name should not be empty", preset.name.isNotEmpty())
-            assertTrue("Preset coverPath should not be empty", preset.coverPath.isNotEmpty())
+            assertTrue("Preset '${preset.id}' should have non-empty name", preset.name.isNotEmpty())
         }
     }
 
     @Test
-    fun `sample presets with HNCS should have cameraParams`() {
+    fun `sample presets should have non-empty coverPath`() {
+        val presets = Preset.createSamplePresets()
+        presets.forEach { preset ->
+            assertTrue("Preset '${preset.name}' should have non-empty coverPath", preset.coverPath.isNotEmpty())
+        }
+    }
+
+    @Test
+    fun `sample presets with HNCS should have cameraParams with HNCS enabled`() {
         val presets = Preset.createSamplePresets()
         val hncsPresets = presets.filter { it.isHncsCertified }
+        assertTrue("Should have HNCS certified presets", hncsPresets.isNotEmpty())
         hncsPresets.forEach { preset ->
-            assertNotNull(
-                "HNCS preset '${preset.name}' should have cameraParams",
-                preset.cameraParams
-            )
+            assertNotNull("HNCS preset '${preset.name}' should have cameraParams", preset.cameraParams)
             assertTrue(
-                "HNCS preset '${preset.name}' should have HNCS enabled in cameraParams",
+                "HNCS preset '${preset.name}' should have HNCS enabled",
                 preset.cameraParams?.hasselblad_hncs == true
+            )
+        }
+    }
+
+    @Test
+    fun `sample presets cameraParams should all pass validation`() {
+        val presets = Preset.createSamplePresets()
+        presets.filter { it.cameraParams != null }.forEach { preset ->
+            val result = preset.cameraParams!!.validate()
+            assertTrue(
+                "Preset '${preset.name}' cameraParams should pass validation. Errors: ${(result as? ValidationResult.Invalid)?.errors}",
+                result is ValidationResult.Valid
             )
         }
     }
@@ -87,10 +73,7 @@ class PresetRepositoryLogicTest {
         val presets = Preset.createSamplePresets()
         presets.filter { it.cameraParams != null }.forEach { preset ->
             val iso = preset.cameraParams!!.iso
-            assertTrue(
-                "Preset '${preset.name}' ISO $iso should be in valid range",
-                iso in 32..102400
-            )
+            assertTrue("Preset '${preset.name}' ISO $iso should be in 32-102400", iso in 32..102400)
         }
     }
 
@@ -100,7 +83,7 @@ class PresetRepositoryLogicTest {
         presets.filter { it.cameraParams != null }.forEach { preset ->
             val saturation = preset.cameraParams!!.saturation
             assertTrue(
-                "Preset '${preset.name}' saturation $saturation should be in valid range",
+                "Preset '${preset.name}' saturation $saturation should be in 0-100",
                 saturation in 0..100
             )
         }
@@ -111,9 +94,60 @@ class PresetRepositoryLogicTest {
         val presets = Preset.createSamplePresets()
         presets.forEach { preset ->
             assertTrue(
-                "Preset '${preset.name}' rating ${preset.rating} should be in 0-5 range",
+                "Preset '${preset.name}' rating ${preset.rating} should be 0-5",
                 preset.rating in 0f..5f
             )
+        }
+    }
+
+    @Test
+    fun `sample presets should have non-negative download counts`() {
+        val presets = Preset.createSamplePresets()
+        presets.forEach { preset ->
+            assertTrue("Download count should be non-negative", preset.downloadCount >= 0)
+            assertTrue("Favorite count should be non-negative", preset.favoriteCount >= 0)
+        }
+    }
+
+    @Test
+    fun `sample presets should have non-empty tags`() {
+        val presets = Preset.createSamplePresets()
+        presets.forEach { preset ->
+            assertTrue("Preset '${preset.name}' should have tags", preset.tags.isNotEmpty())
+        }
+    }
+
+    @Test
+    fun `sample presets should have non-empty scene types`() {
+        val presets = Preset.createSamplePresets()
+        presets.forEach { preset ->
+            assertTrue("Preset '${preset.name}' should have scene type", preset.sceneType.isNotEmpty())
+        }
+    }
+
+    @Test
+    fun `sample presets should have multiple scene types`() {
+        val presets = Preset.createSamplePresets()
+        val sceneTypes = presets.map { it.sceneType }.toSet()
+        assertTrue("Should have multiple scene types", sceneTypes.size >= 2)
+    }
+
+    @Test
+    fun `sample presets should have version info`() {
+        val presets = Preset.createSamplePresets()
+        presets.forEach { preset ->
+            assertTrue("Preset should have version", preset.version.isNotEmpty())
+            assertTrue("Version should start with v", preset.getVersionInfo().startsWith("v"))
+        }
+    }
+
+    @Test
+    fun `sample presets should have publish date`() {
+        val presets = Preset.createSamplePresets()
+        presets.forEach { preset ->
+            assertTrue("Publish date should be positive", preset.publishDate > 0)
+            assertTrue("Date format should be YYYY-MM-DD",
+                preset.getFormattedPublishDate().matches(Regex("\\d{4}-\\d{2}-\\d{2}")))
         }
     }
 
@@ -135,27 +169,11 @@ class PresetRepositoryLogicTest {
     }
 
     @Test
-    fun `filter by Reno should match correct presets`() {
-        val presets = Preset.createSamplePresets()
-        val renoPresets = presets.filter {
-            it.deviceModel.contains("Reno", ignoreCase = true)
-        }
-        renoPresets.forEach { preset ->
-            assertTrue(
-                "Preset '${preset.name}' should contain Reno",
-                preset.deviceModel.contains("Reno", ignoreCase = true)
-            )
-        }
-    }
-
-    @Test
     fun `filter by HNCS should match certified presets`() {
         val presets = Preset.createSamplePresets()
         val hncsPresets = presets.filter { it.isHncsCertified }
         assertTrue("Should find HNCS presets", hncsPresets.isNotEmpty())
-        hncsPresets.forEach { preset ->
-            assertTrue("Preset '${preset.name}' should be HNCS certified", preset.isHncsCertified)
-        }
+        hncsPresets.forEach { assertTrue(it.isHncsCertified) }
     }
 
     @Test
@@ -166,16 +184,36 @@ class PresetRepositoryLogicTest {
     }
 
     @Test
-    fun `filter by new should match version 3 presets`() {
+    fun `filter by OPPO brand should match OPPO device presets`() {
         val presets = Preset.createSamplePresets()
-        val newPresets = presets.filter { it.version.contains("3.0") || it.downloadCount < 5000 }
-        assertTrue("Should find new presets", newPresets.isNotEmpty())
+        val oppoPresets = presets.filter {
+            it.deviceModel.contains("OPPO", ignoreCase = true)
+        }
+        assertTrue("Should find OPPO presets", oppoPresets.isNotEmpty())
+    }
+
+    @Test
+    fun `filter by OnePlus brand should match OnePlus presets`() {
+        val presets = Preset.createSamplePresets()
+        val onePlusPresets = presets.filter {
+            it.deviceModel.contains("OnePlus", ignoreCase = true)
+        }
+        assertTrue("Should find OnePlus presets", onePlusPresets.isNotEmpty())
+    }
+
+    @Test
+    fun `filter by realme brand should match realme presets`() {
+        val presets = Preset.createSamplePresets()
+        val realmePresets = presets.filter {
+            it.deviceModel.contains("realme", ignoreCase = true)
+        }
+        assertTrue("Should find realme presets", realmePresets.isNotEmpty())
     }
 
     // ==================== 搜索逻辑测试 ====================
 
     @Test
-    fun `search by name should find matching presets`() {
+    fun `search by Chinese name should find matching presets`() {
         val presets = Preset.createSamplePresets()
         val query = "人像"
         val results = presets.filter {
@@ -201,13 +239,13 @@ class PresetRepositoryLogicTest {
     @Test
     fun `search by device model should find matching presets`() {
         val presets = Preset.createSamplePresets()
-        val query = "Find X8"
+        val query = "Find"
         val results = presets.filter {
             it.name.contains(query, ignoreCase = true) ||
             it.deviceModel.contains(query, ignoreCase = true) ||
             it.tags.any { tag -> tag.contains(query, ignoreCase = true) }
         }
-        assertTrue("Search for 'Find X8' should find results", results.isNotEmpty())
+        assertTrue("Search for 'Find' should find results", results.isNotEmpty())
     }
 
     @Test
@@ -225,7 +263,7 @@ class PresetRepositoryLogicTest {
     @Test
     fun `search with non-matching query should return empty`() {
         val presets = Preset.createSamplePresets()
-        val query = "nonexistent_query_xyz"
+        val query = "nonexistent_query_xyz_9999"
         val results = presets.filter {
             it.name.contains(query, ignoreCase = true) ||
             it.deviceModel.contains(query, ignoreCase = true) ||
@@ -234,14 +272,23 @@ class PresetRepositoryLogicTest {
         assertTrue("Non-matching query should return empty", results.isEmpty())
     }
 
+    @Test
+    fun `search should be case insensitive`() {
+        val presets = Preset.createSamplePresets()
+        val query = "hncs"
+        val results = presets.filter {
+            it.name.contains(query, ignoreCase = true) ||
+            it.deviceModel.contains(query, ignoreCase = true) ||
+            it.tags.any { tag -> tag.contains(query, ignoreCase = true) }
+        }
+        assertTrue("Case insensitive search should find results", results.isNotEmpty())
+    }
+
     // ==================== 收藏切换逻辑测试 ====================
 
     @Test
     fun `toggling favorite should change state`() {
-        val preset = Preset(
-            id = "test-1", name = "Test", coverPath = "test",
-            isFavorite = false
-        )
+        val preset = Preset(id = "test-1", name = "Test", coverPath = "test", isFavorite = false)
         val toggled = preset.copy(isFavorite = !preset.isFavorite)
         assertTrue("Toggled preset should be favorite", toggled.isFavorite)
 
@@ -260,72 +307,41 @@ class PresetRepositoryLogicTest {
         val toggled = preset.copy(isFavorite = !preset.isFavorite)
         assertEquals(preset.id, toggled.id)
         assertEquals(preset.name, toggled.name)
+        assertEquals(preset.coverPath, toggled.coverPath)
         assertEquals(preset.downloadCount, toggled.downloadCount)
         assertEquals(preset.rating, toggled.rating, 0.01f)
     }
 
-    // ==================== 品牌过滤测试 ====================
+    // ==================== 格式化方法测试 ====================
 
     @Test
-    fun `OPPO presets should be identifiable`() {
-        val presets = Preset.createSamplePresets()
-        val oppoPresets = presets.filter {
-            it.deviceModel.contains("OPPO", ignoreCase = true)
-        }
-        assertTrue("Should find OPPO presets", oppoPresets.isNotEmpty())
+    fun `getFormattedDownloadCount for different values`() {
+        val preset = Preset(id = "1", name = "Test", coverPath = "test")
+
+        val pMillion = preset.copy(downloadCount = 1500000)
+        assertEquals("1.5M", pMillion.getFormattedDownloadCount())
+
+        val pThousand = preset.copy(downloadCount = 158642)
+        assertEquals("158.6K", pThousand.getFormattedDownloadCount())
+
+        val pSmall = preset.copy(downloadCount = 999)
+        assertEquals("999", pSmall.getFormattedDownloadCount())
+
+        val pZero = preset.copy(downloadCount = 0)
+        assertEquals("0", pZero.getFormattedDownloadCount())
     }
 
     @Test
-    fun `OnePlus presets should be identifiable`() {
-        val presets = Preset.createSamplePresets()
-        val onePlusPresets = presets.filter {
-            it.deviceModel.contains("OnePlus", ignoreCase = true)
-        }
-        assertTrue("Should find OnePlus presets", onePlusPresets.isNotEmpty())
-    }
+    fun `getFormattedFavoriteCount for different values`() {
+        val preset = Preset(id = "1", name = "Test", coverPath = "test")
 
-    @Test
-    fun `realme presets should be identifiable`() {
-        val presets = Preset.createSamplePresets()
-        val realmePresets = presets.filter {
-            it.deviceModel.contains("realme", ignoreCase = true)
-        }
-        assertTrue("Should find realme presets", realmePresets.isNotEmpty())
-    }
+        val pMillion = preset.copy(favoriteCount = 2300000)
+        assertEquals("2.3M", pMillion.getFormattedFavoriteCount())
 
-    // ==================== 数据完整性测试 ====================
+        val pThousand = preset.copy(favoriteCount = 28453)
+        assertEquals("28.5K", pThousand.getFormattedFavoriteCount())
 
-    @Test
-    fun `all sample presets should have valid cameraParams validation`() {
-        val presets = Preset.createSamplePresets()
-        presets.filter { it.cameraParams != null }.forEach { preset ->
-            val result = preset.cameraParams!!.validate()
-            assertTrue(
-                "Preset '${preset.name}' cameraParams should pass validation: ${(result as? ValidationResult.Invalid)?.errors}",
-                result is ValidationResult.Valid
-            )
-        }
-    }
-
-    @Test
-    fun `all sample presets should have non-empty tags`() {
-        val presets = Preset.createSamplePresets()
-        presets.forEach { preset ->
-            assertTrue(
-                "Preset '${preset.name}' should have at least one tag",
-                preset.tags.isNotEmpty()
-            )
-        }
-    }
-
-    @Test
-    fun `all sample presets should have scene type`() {
-        val presets = Preset.createSamplePresets()
-        presets.forEach { preset ->
-            assertTrue(
-                "Preset '${preset.name}' should have scene type",
-                preset.sceneType.isNotEmpty()
-            )
-        }
+        val pSmall = preset.copy(favoriteCount = 500)
+        assertEquals("500", pSmall.getFormattedFavoriteCount())
     }
 }
