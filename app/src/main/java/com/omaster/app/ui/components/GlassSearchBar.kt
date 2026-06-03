@@ -275,7 +275,6 @@ fun GlassSearchBarWithVoice(
                 ),
                 singleLine = true,
                 cursorBrush = SolidColor(Colors.HasselbladOrange),
-                onValueChange = onQueryChange,
                 decorationBox = { innerTextField ->
                     Box {
                         if (query.isEmpty()) {

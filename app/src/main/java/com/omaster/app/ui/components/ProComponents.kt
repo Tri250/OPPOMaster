@@ -61,17 +61,15 @@ fun ProPresetCard(
         label = "cardElevation"
     )
     
-    Card(
+    Surface(
         onClick = onClick,
         interactionSource = interactionSource,
         modifier = modifier
             .fillMaxWidth()
             .scale(scale),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isDark) ColorOSCard else ColorOSLightCard
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = elevation)
+        color = if (isDark) ColorOSCard else ColorOSLightCard,
+        shadowElevation = elevation
     ) {
         Column(
             modifier = Modifier.fillMaxWidth()
@@ -301,17 +299,15 @@ fun ProFeatureCard(
         label = "featureScale"
     )
     
-    Card(
+    Surface(
         onClick = feature.onClick,
         interactionSource = interactionSource,
         modifier = modifier
             .aspectRatio(1f)
             .scale(scale),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = Color.Transparent
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        color = Color.Transparent,
+        shadowElevation = 0.dp
     ) {
         Box(
             modifier = Modifier

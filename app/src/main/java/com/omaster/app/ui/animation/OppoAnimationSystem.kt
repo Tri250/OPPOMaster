@@ -7,6 +7,7 @@ import androidx.compose.foundation.IndicationInstance
 import androidx.compose.foundation.interaction.InteractionSource
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
@@ -174,15 +175,17 @@ fun Modifier.oppoCardAnimation(
 
 // ========== ColorOS 16 淡入动画 ==========
 @Composable
-fun Modifier.animateFadeIn(
-    delayMillis: Int = 0
-): Modifier {
+fun AnimatedFadeInBox(
+    delayMillis: Int = 0,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
     val visible = remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         delay(delayMillis.toLong())
         visible.value = true
     }
-    
+
     val alpha by animateFloatAsState(
         targetValue = if (visible.value) 1f else 0f,
         animationSpec = tween(
@@ -191,22 +194,28 @@ fun Modifier.animateFadeIn(
         ),
         label = "fade_in"
     )
-    
-    return this.graphicsLayer { this.alpha = alpha }
+
+    Box(
+        modifier = modifier.graphicsLayer { this.alpha = alpha }
+    ) {
+        content()
+    }
 }
 
 // ========== ColorOS 16 滑动动画 ==========
 @Composable
-fun Modifier.animateSlideIn(
+fun AnimatedSlideInBox(
     direction: SlideDirection = SlideDirection.FromBottom,
-    delayMillis: Int = 0
-): Modifier {
+    delayMillis: Int = 0,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
     val visible = remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         delay(delayMillis.toLong())
         visible.value = true
     }
-    
+
     val offset by animateFloatAsState(
         targetValue = if (visible.value) 0f else direction.offset,
         animationSpec = tween(
@@ -215,14 +224,18 @@ fun Modifier.animateSlideIn(
         ),
         label = "slide_in"
     )
-    
-    return this.graphicsLayer {
-        when (direction) {
-            SlideDirection.FromTop -> translationY = -offset
-            SlideDirection.FromBottom -> translationY = offset
-            SlideDirection.FromStart -> translationX = -offset
-            SlideDirection.FromEnd -> translationX = offset
+
+    Box(
+        modifier = modifier.graphicsLayer {
+            when (direction) {
+                SlideDirection.FromTop -> translationY = -offset
+                SlideDirection.FromBottom -> translationY = offset
+                SlideDirection.FromStart -> translationX = -offset
+                SlideDirection.FromEnd -> translationX = offset
+            }
         }
+    ) {
+        content()
     }
 }
 
@@ -235,16 +248,18 @@ enum class SlideDirection(val offset: Float) {
 
 // ========== ColorOS 16 缩放进入动画 ==========
 @Composable
-fun Modifier.animateScaleIn(
+fun AnimatedScaleInBox(
     initialScale: Float = 0.85f,
-    delayMillis: Int = 0
-): Modifier {
+    delayMillis: Int = 0,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
     val visible = remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         delay(delayMillis.toLong())
         visible.value = true
     }
-    
+
     val scale by animateFloatAsState(
         targetValue = if (visible.value) 1f else initialScale,
         animationSpec = spring(
@@ -253,7 +268,7 @@ fun Modifier.animateScaleIn(
         ),
         label = "scale_in"
     )
-    
+
     val alpha by animateFloatAsState(
         targetValue = if (visible.value) 1f else 0f,
         animationSpec = tween(
@@ -262,32 +277,52 @@ fun Modifier.animateScaleIn(
         ),
         label = "scale_alpha"
     )
-    
-    return this.graphicsLayer {
-        this.alpha = alpha
-        scaleX = scale
-        scaleY = scale
+
+    Box(
+        modifier = modifier.graphicsLayer {
+            this.alpha = alpha
+            scaleX = scale
+            scaleY = scale
+        }
+    ) {
+        content()
     }
 }
 
 // ========== ColorOS 16 组合进入动画 ==========
 @Composable
-fun Modifier.animateEnter(
-    delayMillis: Int = 0
-): Modifier {
-    return this
-        .animateFadeIn(delayMillis)
-        .animateSlideIn(SlideDirection.FromBottom, delayMillis)
+fun AnimatedEnterBox(
+    delayMillis: Int = 0,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    AnimatedFadeInBox(
+        delayMillis = delayMillis,
+        modifier = modifier
+    ) {
+        AnimatedSlideInBox(
+            direction = SlideDirection.FromBottom,
+            delayMillis = delayMillis
+        ) {
+            content()
+        }
+    }
 }
 
 // ========== ColorOS 16 列表项动画 ==========
 @Composable
-fun Modifier.animateListItem(
+fun AnimatedListItemBox(
     index: Int,
-    baseDelay: Int = 50
-): Modifier {
+    baseDelay: Int = 50,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
     val delay = baseDelay * (index % 8)  // 控制延迟
-    return this.animateEnter(delay)
+    AnimatedEnterBox(
+        delayMillis = delay,
+        modifier = modifier,
+        content = content
+    )
 }
 
 // ========== ColorOS 16 卡片悬停/高亮动画 ==========

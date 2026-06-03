@@ -279,13 +279,13 @@ fun ColorOSFilterBar(
 ) {
     val filters = remember {
         listOf(
-            FilterInfo(com.omaster.app.viewmodel.FilterType.ALL, "全部", Icons.Default.Apps),
-            FilterInfo(com.omaster.app.viewmodel.FilterType.FAVORITES, "收藏", Icons.Default.Favorite),
-            FilterInfo(com.omaster.app.viewmodel.FilterType.HNCS, "HNCS", Icons.Default.Star),
-            FilterInfo(com.omaster.app.viewmodel.FilterType.FIND_X, "Find X", Icons.Default.PhoneAndroid),
-            FilterInfo(com.omaster.app.viewmodel.FilterType.RENO, "Reno", Icons.Default.PhoneAndroid),
-            FilterInfo(com.omaster.app.viewmodel.FilterType.NEW, "最新", Icons.Default.NewReleases),
-            FilterInfo(com.omaster.app.viewmodel.FilterType.TRENDING, "热门", Icons.Default.FireExtinguisher)
+            ColorOSFilterInfo(com.omaster.app.viewmodel.FilterType.ALL, "全部", Icons.Default.Apps),
+            ColorOSFilterInfo(com.omaster.app.viewmodel.FilterType.FAVORITES, "收藏", Icons.Default.Favorite),
+            ColorOSFilterInfo(com.omaster.app.viewmodel.FilterType.HNCS, "HNCS", Icons.Default.Star),
+            ColorOSFilterInfo(com.omaster.app.viewmodel.FilterType.FIND_X, "Find X", Icons.Default.PhoneAndroid),
+            ColorOSFilterInfo(com.omaster.app.viewmodel.FilterType.RENO, "Reno", Icons.Default.PhoneAndroid),
+            ColorOSFilterInfo(com.omaster.app.viewmodel.FilterType.NEW, "最新", Icons.Default.NewReleases),
+            ColorOSFilterInfo(com.omaster.app.viewmodel.FilterType.TRENDING, "热门", Icons.Default.TrendingUp)
         )
     }
     
@@ -335,7 +335,7 @@ fun ColorOSFilterBar(
 // ==================== ColorOS 16 筛选Chip ====================
 @Composable
 private fun ColorOSFilterChip(
-    filterInfo: FilterInfo,
+    filterInfo: ColorOSFilterInfo,
     selected: Boolean,
     onClick: () -> Unit,
     index: Int
@@ -425,7 +425,7 @@ private fun ColorOSFilterChip(
     }
 }
 
-private data class FilterInfo(
+private data class ColorOSFilterInfo(
     val type: com.omaster.app.viewmodel.FilterType,
     val label: String,
     val icon: androidx.compose.ui.graphics.vector.ImageVector

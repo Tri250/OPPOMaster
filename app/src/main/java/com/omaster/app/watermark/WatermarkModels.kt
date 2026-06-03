@@ -12,7 +12,8 @@ import java.util.UUID
 enum class WatermarkType {
     TEXT,
     IMAGE,
-    TEMPLATE
+    TEMPLATE,
+    HASSELBLAD
 }
 
 data class Watermark(

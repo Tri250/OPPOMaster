@@ -257,7 +257,7 @@ fun DetailScreen(
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.QuickContacts,
+                            imageVector = Icons.Default.OpenInNew,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)

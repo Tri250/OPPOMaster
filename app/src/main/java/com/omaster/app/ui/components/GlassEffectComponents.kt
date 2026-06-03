@@ -107,16 +107,14 @@ fun GlassButton(
         primaryColor.copy(alpha = 0.2f)
     }
     
-    Card(
+    Surface(
         onClick = onClick,
         enabled = enabled,
         interactionSource = interactionSource,
         modifier = modifier.scale(scale),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = backgroundColor
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        color = backgroundColor,
+        shadowElevation = 0.dp
     ) {
         Row(
             modifier = Modifier

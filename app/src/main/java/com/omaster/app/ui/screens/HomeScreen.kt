@@ -567,7 +567,7 @@ fun OppoPresetCard(
         label = "card_elevation"
     )
 
-    Card(
+    Surface(
         onClick = onClick,
         interactionSource = interactionSource,
         modifier = modifier
@@ -578,10 +578,8 @@ fun OppoPresetCard(
                 scaleY = scale
             },
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = elevation)
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = elevation
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             // 图片
@@ -859,7 +857,7 @@ fun FeatureButton(
         label = "feature_btn_scale"
     )
     
-    Card(
+    Surface(
         onClick = onClick,
         interactionSource = interactionSource,
         modifier = modifier
@@ -868,10 +866,8 @@ fun FeatureButton(
                 scaleY = scale
             },
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shadowElevation = 1.dp
     ) {
         Column(
             modifier = Modifier

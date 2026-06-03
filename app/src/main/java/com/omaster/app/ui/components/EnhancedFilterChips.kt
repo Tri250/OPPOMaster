@@ -26,13 +26,13 @@ fun EnhancedFilterChips(
 ) {
     val filters = remember {
         listOf(
-            FilterInfo(FilterType.ALL, "全部", Icons.Default.Apps),
-            FilterInfo(FilterType.FAVORITES, "收藏", Icons.Default.Favorite),
-            FilterInfo(FilterType.HNCS, "HNCS", Icons.Default.Star),
-            FilterInfo(FilterType.FIND_X, "Find X", Icons.Default.PhoneAndroid),
-            FilterInfo(FilterType.RENO, "Reno", Icons.Default.PhoneIphone),
-            FilterInfo(FilterType.NEW, "最新", Icons.Default.NewReleases),
-            FilterInfo(FilterType.TRENDING, "热门", Icons.Default.TrendingUp)
+            EnhancedFilterInfo(FilterType.ALL, "全部", Icons.Default.Apps),
+            EnhancedFilterInfo(FilterType.FAVORITES, "收藏", Icons.Default.Favorite),
+            EnhancedFilterInfo(FilterType.HNCS, "HNCS", Icons.Default.Star),
+            EnhancedFilterInfo(FilterType.FIND_X, "Find X", Icons.Default.PhoneAndroid),
+            EnhancedFilterInfo(FilterType.RENO, "Reno", Icons.Default.PhoneIphone),
+            EnhancedFilterInfo(FilterType.NEW, "最新", Icons.Default.NewReleases),
+            EnhancedFilterInfo(FilterType.TRENDING, "热门", Icons.Default.TrendingUp)
         )
     }
     
@@ -60,7 +60,7 @@ fun EnhancedFilterChips(
 
 @Composable
 private fun FilterChipItem(
-    filterInfo: FilterInfo,
+    filterInfo: EnhancedFilterInfo,
     selected: Boolean,
     onClick: () -> Unit,
     index: Int,
@@ -164,7 +164,7 @@ private fun AnimatedUnderline() {
     )
 }
 
-private data class FilterInfo(
+private data class EnhancedFilterInfo(
     val type: FilterType,
     val label: String,
     val icon: androidx.compose.ui.graphics.vector.ImageVector

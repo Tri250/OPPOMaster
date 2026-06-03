@@ -36,11 +36,9 @@ class LutManager @Inject constructor(
         EXPORT
     }
 
-    typealias IntArray3D = Array<Array<IntArray>>
-
     data class Lut3D(
         val size: Int,
-        val data: IntArray3D
+        val data: Array<Array<IntArray>>
     )
 
     fun importCubeLut(file: File): Result<Lut3D> {

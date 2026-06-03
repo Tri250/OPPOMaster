@@ -475,9 +475,8 @@ class WatermarkProcessor(private val context: Context) {
     }
 }
 
-@HiltWorker
-class WatermarkWorker @Inject constructor(
-    @ApplicationContext appContext: Context,
+class WatermarkWorker(
+    appContext: Context,
     workerParams: WorkerParameters
 ) : CoroutineWorker(appContext, workerParams) {
 
