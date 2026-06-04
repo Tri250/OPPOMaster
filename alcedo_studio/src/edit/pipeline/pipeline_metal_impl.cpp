@@ -30,23 +30,44 @@
 
 namespace alcedo {
 namespace {
-constexpr const char* kFusedPipelineKernelName            = "metal_fused_pipeline_rgba32f";
-constexpr const char* kFusedStageKernelName               = "metal_fused_stage_rgba32f";
-constexpr const char* kHsBuildLogBaseHorizontalKernelName = "metal_hs_build_log_base_h_rgba32f";
-constexpr const char* kHsBuildLogBaseVerticalKernelName   = "metal_hs_build_log_base_v_rgba32f";
-constexpr const char* kHsApplyLocalToneKernelName         = "metal_hs_apply_local_tone_rgba32f";
-constexpr const char* kNeighborBlurHorizontalKernelName   = "metal_neighbor_blur_h_rgba32f";
-constexpr const char* kNeighborApplyVerticalKernelName    = "metal_neighbor_apply_v_rgba32f";
-constexpr const char* kFusedPipelineDebugLabel            = "Metal fused pipeline";
-constexpr const char* kFusedStageDebugLabel               = "Metal fused pipeline stage";
-constexpr const char* kHsBuildLogBaseHorizontalDebugLabel = "Metal H/S log base horizontal";
-constexpr const char* kHsBuildLogBaseVerticalDebugLabel   = "Metal H/S log base vertical";
-constexpr const char* kHsApplyLocalToneDebugLabel         = "Metal H/S local tone";
-constexpr const char* kNeighborBlurDebugLabel             = "Metal neighbor blur horizontal";
-constexpr const char* kNeighborApplyDebugLabel            = "Metal neighbor apply vertical";
-constexpr uint32_t    kMetalNeighborMaxTapCount           = 64;
-constexpr auto        kReportInterval                     = std::chrono::milliseconds{500};
-constexpr double      kFpsEmaAlpha                        = 0.15;
+constexpr const char* kFusedPipelineKernelName         = "metal_fused_pipeline_rgba32f";
+constexpr const char* kFusedStageKernelName            = "metal_fused_stage_rgba32f";
+constexpr const char* kHsExtractLogIntensityKernelName = "metal_hs_extract_log_intensity_rgba32f";
+constexpr const char* kHsExtractLogIntensityResampledKernelName =
+    "metal_hs_extract_log_intensity_resampled_rgba32f";
+constexpr const char* kHsBuildRemappedSampleKernelName     = "metal_hs_build_remapped_sample";
+constexpr const char* kHsPyrDownKernelName                 = "metal_hs_pyr_down";
+constexpr const char* kHsSelectInterpolatedLevelKernelName = "metal_hs_select_interpolated_level";
+constexpr const char* kHsCollapseLevelKernelName           = "metal_hs_collapse_level";
+constexpr const char* kHsApplyAdjustedLKernelName          = "metal_hs_apply_adjusted_l_rgba32f";
+constexpr const char* kHsApplyAdjustedLFromFrameKernelName =
+    "metal_hs_apply_adjusted_l_from_frame_rgba32f";
+constexpr const char* kNeighborBlurHorizontalKernelName = "metal_neighbor_blur_h_rgba32f";
+constexpr const char* kNeighborApplyVerticalKernelName  = "metal_neighbor_apply_v_rgba32f";
+constexpr const char* kFusedPipelineDebugLabel          = "Metal fused pipeline";
+constexpr const char* kFusedStageDebugLabel             = "Metal fused pipeline stage";
+constexpr const char* kHsExtractLogIntensityDebugLabel  = "Metal H/S extract log intensity";
+constexpr const char* kHsExtractLogIntensityResampledDebugLabel =
+    "Metal H/S extract log intensity resampled";
+constexpr const char* kHsBuildRemappedSampleDebugLabel     = "Metal H/S remapped sample";
+constexpr const char* kHsPyrDownDebugLabel                 = "Metal H/S pyr down";
+constexpr const char* kHsSelectInterpolatedLevelDebugLabel = "Metal H/S select level";
+constexpr const char* kHsCollapseLevelDebugLabel           = "Metal H/S collapse level";
+constexpr const char* kHsApplyAdjustedLDebugLabel          = "Metal H/S apply adjusted L";
+constexpr const char* kHsApplyAdjustedLFromFrameDebugLabel =
+    "Metal H/S apply adjusted L from frame";
+constexpr const char* kNeighborBlurDebugLabel     = "Metal neighbor blur horizontal";
+constexpr const char* kNeighborApplyDebugLabel    = "Metal neighbor apply vertical";
+constexpr uint32_t    kMetalNeighborMaxTapCount   = 64;
+constexpr int         kHsMaxLevels                = 12;
+constexpr float       kHsGammaMinL                = -0.15f;
+constexpr float       kHsGammaMaxL                = 1.18f;
+constexpr float       kHsBaseSigmaR               = 0.07545252f;
+constexpr float       kHsGammaStepScale           = 1.35f;
+constexpr float       kHsHighlightStrengthScale   = 1.5f;
+constexpr int         kHsReferenceMaskMaxLongEdge = 2048;
+constexpr auto        kReportInterval             = std::chrono::milliseconds{500};
+constexpr double      kFpsEmaAlpha                = 0.15;
 
 enum class MetalNeighborOpKind : uint32_t {
   Sharpen = 1,
@@ -71,11 +92,61 @@ struct MetalNeighborStage {
   MetalNeighborStageParams params_ = {};
 };
 
-struct alignas(16) MetalHsApplyParams {
-  int32_t base_width_         = 0;
-  int32_t base_height_        = 0;
-  int32_t use_reference_base_ = 0;
-  int32_t reserved_           = 0;
+struct MetalHsLlfSample {
+  float gamma_  = 0.0f;
+  float target_ = 0.0f;
+  float beta_   = 1.0f;
+  float alpha_  = 1.0f;
+};
+
+struct MetalHsMaskDimensions {
+  int32_t width_  = 1;
+  int32_t height_ = 1;
+};
+
+struct alignas(16) MetalHsExtractParams {
+  int32_t src_width_  = 0;
+  int32_t src_height_ = 0;
+  int32_t dst_width_  = 0;
+  int32_t dst_height_ = 0;
+};
+
+struct alignas(16) MetalHsRemapParams {
+  int32_t width_    = 0;
+  int32_t height_   = 0;
+  float   gamma_    = 0.0f;
+  float   target_   = 0.0f;
+  float   beta_     = 1.0f;
+  float   alpha_    = 1.0f;
+  float   sigma_r_  = kHsBaseSigmaR;
+  int32_t reserved_ = 0;
+};
+
+struct alignas(16) MetalHsPyrDownParams {
+  int32_t src_width_  = 0;
+  int32_t src_height_ = 0;
+  int32_t dst_width_  = 0;
+  int32_t dst_height_ = 0;
+};
+
+struct alignas(16) MetalHsSelectParams {
+  int32_t width_         = 0;
+  int32_t height_        = 0;
+  int32_t coarse_width_  = 0;
+  int32_t coarse_height_ = 0;
+  float   gamma_lo_      = 0.0f;
+  float   gamma_hi_      = 0.0f;
+  int32_t first_pair_    = 0;
+  int32_t last_pair_     = 0;
+  int32_t top_level_     = 0;
+  int32_t reserved_[3]   = {};
+};
+
+struct alignas(16) MetalHsPlaneApplyParams {
+  int32_t width_           = 0;
+  int32_t height_          = 0;
+  int32_t adjusted_width_  = 0;
+  int32_t adjusted_height_ = 0;
 };
 
 struct MetalExecutionStats {
@@ -186,6 +257,20 @@ auto MakeSharedBuffer(size_t length) -> NS::SharedPtr<MTL::Buffer> {
   return buffer;
 }
 
+auto MakeDeviceBuffer(size_t length) -> NS::SharedPtr<MTL::Buffer> {
+  auto* device = MetalContext::Instance().Device();
+  if (device == nullptr) {
+    throw std::runtime_error("Metal fused pipeline: Metal device is unavailable.");
+  }
+
+  auto buffer = NS::TransferPtr(
+      device->newBuffer(static_cast<NS::UInteger>(length), MTL::ResourceStorageModePrivate));
+  if (!buffer) {
+    throw std::runtime_error("Metal fused pipeline: failed to allocate device buffer.");
+  }
+  return buffer;
+}
+
 auto UploadStageParams(const MetalNeighborStageParams& params) -> NS::SharedPtr<MTL::Buffer> {
   auto buffer = MakeSharedBuffer(sizeof(MetalNeighborStageParams));
   std::memcpy(buffer->contents(), &params, sizeof(MetalNeighborStageParams));
@@ -255,28 +340,41 @@ auto BuildNeighborStageParams(MetalNeighborOpKind kind, float sigma, float amoun
 class MetalGPUPipeline final : public GPUPipelineImpl {
  private:
   std::shared_ptr<ImageBuffer>             input_img_;
-  OperatorParams*                          cpu_params_                        = nullptr;
-  IFrameSink*                              frame_sink_                        = nullptr;
-  FusedOperatorParams                      fused_params_                      = {};
-  metal::MetalFusedResources               resources_                         = {};
-  NS::SharedPtr<MTL::ComputePipelineState> fused_pipeline_                    = nullptr;
-  NS::SharedPtr<MTL::ComputePipelineState> fused_stage_pipeline_              = nullptr;
-  NS::SharedPtr<MTL::ComputePipelineState> hs_base_horizontal_pipeline_       = nullptr;
-  NS::SharedPtr<MTL::ComputePipelineState> hs_base_vertical_pipeline_         = nullptr;
-  NS::SharedPtr<MTL::ComputePipelineState> hs_apply_pipeline_                 = nullptr;
-  NS::SharedPtr<MTL::ComputePipelineState> neighbor_blur_horizontal_pipeline_ = nullptr;
-  NS::SharedPtr<MTL::ComputePipelineState> neighbor_apply_vertical_pipeline_  = nullptr;
+  OperatorParams*                          cpu_params_                              = nullptr;
+  IFrameSink*                              frame_sink_                              = nullptr;
+  FusedOperatorParams                      fused_params_                            = {};
+  metal::MetalFusedResources               resources_                               = {};
+  NS::SharedPtr<MTL::ComputePipelineState> fused_pipeline_                          = nullptr;
+  NS::SharedPtr<MTL::ComputePipelineState> fused_stage_pipeline_                    = nullptr;
+  NS::SharedPtr<MTL::ComputePipelineState> hs_extract_pipeline_                     = nullptr;
+  NS::SharedPtr<MTL::ComputePipelineState> hs_extract_resampled_pipeline_           = nullptr;
+  NS::SharedPtr<MTL::ComputePipelineState> hs_build_remapped_sample_pipeline_       = nullptr;
+  NS::SharedPtr<MTL::ComputePipelineState> hs_pyr_down_pipeline_                    = nullptr;
+  NS::SharedPtr<MTL::ComputePipelineState> hs_select_level_pipeline_                = nullptr;
+  NS::SharedPtr<MTL::ComputePipelineState> hs_collapse_level_pipeline_              = nullptr;
+  NS::SharedPtr<MTL::ComputePipelineState> hs_apply_adjusted_l_pipeline_            = nullptr;
+  NS::SharedPtr<MTL::ComputePipelineState> hs_apply_adjusted_l_from_frame_pipeline_ = nullptr;
+  NS::SharedPtr<MTL::ComputePipelineState> neighbor_blur_horizontal_pipeline_       = nullptr;
+  NS::SharedPtr<MTL::ComputePipelineState> neighbor_apply_vertical_pipeline_        = nullptr;
   metal::MetalImage                        pre_hs_working_;
   metal::MetalImage                        hs_working_;
-  metal::MetalImage                        hs_temp_log_;
-  metal::MetalImage                        hs_base_log_;
-  int                                      hs_cached_width_          = 0;
-  int                                      hs_cached_height_         = 0;
-  std::uint64_t                            hs_cached_key_            = 0;
-  bool                                     hs_cached_reference_base_ = false;
-  MetalPreviewReporter                     preview_reporter_;
+  std::array<NS::SharedPtr<MTL::Buffer>, kHsMaxLevels> hs_source_levels_         = {};
+  std::array<NS::SharedPtr<MTL::Buffer>, kHsMaxLevels> hs_remap_a_levels_        = {};
+  std::array<NS::SharedPtr<MTL::Buffer>, kHsMaxLevels> hs_remap_b_levels_        = {};
+  std::array<NS::SharedPtr<MTL::Buffer>, kHsMaxLevels> hs_output_levels_         = {};
+  std::array<int32_t, kHsMaxLevels>                    hs_level_widths_          = {};
+  std::array<int32_t, kHsMaxLevels>                    hs_level_heights_         = {};
+  int32_t                                              hs_level_count_           = 0;
+  int32_t                                              hs_cached_width_          = 0;
+  int32_t                                              hs_cached_height_         = 0;
+  int32_t                                              hs_cached_frame_width_    = 0;
+  int32_t                                              hs_cached_frame_height_   = 0;
+  int32_t                                              hs_cached_pitch_          = 0;
+  std::uint64_t                                        hs_cached_key_            = 0;
+  bool                                                 hs_cached_reference_base_ = false;
+  MetalPreviewReporter                                 preview_reporter_;
 
-  void                                     EnsureMetalInput() {
+  void                                                 EnsureMetalInput() {
     if (!input_img_) {
       throw std::runtime_error("Metal fused pipeline: input image is null.");
     }
@@ -304,27 +402,233 @@ class MetalGPUPipeline final : public GPUPipelineImpl {
   void InvalidateHsBaseCache() {
     hs_cached_width_          = 0;
     hs_cached_height_         = 0;
+    hs_cached_frame_width_    = 0;
+    hs_cached_frame_height_   = 0;
+    hs_cached_pitch_          = 0;
     hs_cached_key_            = 0;
     hs_cached_reference_base_ = false;
   }
 
-  void EnsureHsBaseTextures(uint32_t width, uint32_t height) {
-    if (width == 0 || height == 0) {
-      throw std::runtime_error("Metal fused pipeline: invalid H/S base dimensions.");
+  void ReleaseHsPyramidBuffers() {
+    for (auto& buffer : hs_source_levels_) {
+      buffer = nullptr;
+    }
+    for (auto& buffer : hs_remap_a_levels_) {
+      buffer = nullptr;
+    }
+    for (auto& buffer : hs_remap_b_levels_) {
+      buffer = nullptr;
+    }
+    for (auto& buffer : hs_output_levels_) {
+      buffer = nullptr;
+    }
+    hs_level_widths_.fill(0);
+    hs_level_heights_.fill(0);
+    hs_level_count_ = 0;
+    InvalidateHsBaseCache();
+  }
+
+  static auto FloatBits(float value) -> std::uint32_t {
+    std::uint32_t bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    return bits;
+  }
+
+  static void HashCombine(std::uint64_t& seed, std::uint64_t value) {
+    seed ^= value + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
+  }
+
+  static auto BuildAdjustedResultCacheKey(const FusedOperatorParams& params, float shadow_amount,
+                                          float highlight_amount) -> std::uint64_t {
+    std::uint64_t key = params.hs_mask_base_cache_key_;
+    HashCombine(key, static_cast<std::uint64_t>(params.shadows_enabled_));
+    HashCombine(key, static_cast<std::uint64_t>(params.highlights_enabled_));
+    HashCombine(key, static_cast<std::uint64_t>(FloatBits(shadow_amount)));
+    HashCombine(key, static_cast<std::uint64_t>(FloatBits(highlight_amount)));
+    HashCombine(key, static_cast<std::uint64_t>(params.render_roi_enabled_));
+    if (params.render_roi_enabled_) {
+      HashCombine(key, static_cast<std::uint64_t>(params.render_roi_x_));
+      HashCombine(key, static_cast<std::uint64_t>(params.render_roi_y_));
+      HashCombine(key, static_cast<std::uint64_t>(FloatBits(params.render_roi_scale_x_)));
+      HashCombine(key, static_cast<std::uint64_t>(FloatBits(params.render_roi_scale_y_)));
+      HashCombine(key, static_cast<std::uint64_t>(params.render_roi_reference_width_));
+      HashCombine(key, static_cast<std::uint64_t>(params.render_roi_reference_height_));
+    }
+    return key;
+  }
+
+  static auto ComputeHsMaskDimensions(int width, int height, bool roi_frame_with_source_reference)
+      -> MetalHsMaskDimensions {
+    const int max_long_edge =
+        roi_frame_with_source_reference ? std::max(width, height) : kHsReferenceMaskMaxLongEdge;
+    const float scale = std::min(1.0f, static_cast<float>(std::max(1, max_long_edge)) /
+                                           static_cast<float>(std::max(width, height)));
+    return {std::max(1, static_cast<int>(std::ceil(static_cast<float>(width) * scale))),
+            std::max(1, static_cast<int>(std::ceil(static_cast<float>(height) * scale)))};
+  }
+
+  static auto ComputeHsLevelCount(int width, int height, float radius) -> int {
+    const int radius_levels = std::max(
+        3,
+        std::min(kHsMaxLevels, static_cast<int>(std::ceil(std::log2(std::max(radius, 1.0f)))) + 2));
+    int count = 1;
+    int w     = width;
+    int h     = height;
+    while (count < radius_levels && (w > 1 || h > 1)) {
+      w = std::max(1, (w + 1) / 2);
+      h = std::max(1, (h + 1) / 2);
+      ++count;
+    }
+    return count;
+  }
+
+  static auto HsLerp(float a, float b, float t) -> float { return a + (b - a) * t; }
+
+  static auto HsSegment(float x, float x0, float y0, float x1, float y1) -> float {
+    const float t = std::clamp((x - x0) / std::max(x1 - x0, 1.0e-6f), 0.0f, 1.0f);
+    return HsLerp(y0, y1, t);
+  }
+
+  static auto HsShadowProfileEv(float relative_ev) -> float {
+    if (relative_ev <= -9.0f) return 0.02f;
+    if (relative_ev <= -7.0f) return HsSegment(relative_ev, -9.0f, 0.02f, -7.0f, 0.35f);
+    if (relative_ev <= -5.4f) return HsSegment(relative_ev, -7.0f, 0.35f, -5.4f, 0.82f);
+    if (relative_ev <= -4.3f) return HsSegment(relative_ev, -5.4f, 0.82f, -4.3f, 0.98f);
+    if (relative_ev <= -3.1f) return HsSegment(relative_ev, -4.3f, 0.98f, -3.1f, 0.72f);
+    if (relative_ev <= -2.0f) return HsSegment(relative_ev, -3.1f, 0.72f, -2.0f, 0.42f);
+    if (relative_ev <= -0.5f) return HsSegment(relative_ev, -2.0f, 0.42f, -0.5f, 0.08f);
+    if (relative_ev <= 1.0f) return HsSegment(relative_ev, -0.5f, 0.08f, 1.0f, 0.0f);
+    return 0.0f;
+  }
+
+  static auto HsHighlightProfileEv(float relative_ev) -> float {
+    if (relative_ev <= -1.0f) return 0.0f;
+    if (relative_ev <= 0.0f) return HsSegment(relative_ev, -1.0f, 0.0f, 0.0f, 0.03f);
+    if (relative_ev <= 1.2f) return HsSegment(relative_ev, 0.0f, 0.03f, 1.2f, 0.22f);
+    if (relative_ev <= 2.8f) return HsSegment(relative_ev, 1.2f, 0.22f, 2.8f, 0.60f);
+    if (relative_ev <= 4.5f) return HsSegment(relative_ev, 2.8f, 0.60f, 4.5f, 0.95f);
+    if (relative_ev <= 6.5f) return HsSegment(relative_ev, 4.5f, 0.95f, 6.5f, 1.08f);
+    if (relative_ev <= 8.0f) return HsSegment(relative_ev, 6.5f, 1.08f, 8.0f, 0.92f);
+    return 0.92f;
+  }
+
+  static auto Smoothstep(float edge0, float edge1, float x) -> float {
+    const float t = std::clamp((x - edge0) / std::max(edge1 - edge0, 1.0e-6f), 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+  }
+
+  static auto HsRelativeEv(float log_intensity) -> float {
+    return (log_intensity - 0.41358840f) * 17.52f;
+  }
+
+  static auto HsApplyReferenceCurve(float reference_l, float shadow_amount, float highlight_amount)
+      -> float {
+    const float relative_ev = HsRelativeEv(reference_l);
+    const float shadow_lift = std::max(shadow_amount, 0.0f) * HsShadowProfileEv(relative_ev);
+    const float shadow_darken =
+        std::max(-shadow_amount, 0.0f) * 0.55f * HsShadowProfileEv(relative_ev);
+    const float highlight_reduce = std::max(highlight_amount, 0.0f) * kHsHighlightStrengthScale *
+                                   HsHighlightProfileEv(relative_ev);
+    const float highlight_boost =
+        std::max(-highlight_amount, 0.0f) * 0.65f * HsHighlightProfileEv(relative_ev);
+    const float practical_dark =
+        Smoothstep(-5.85f, -3.95f, relative_ev) * (1.0f - Smoothstep(-3.20f, -1.65f, relative_ev));
+    const float fill_plateau = Smoothstep(-5.55f, -3.30f, relative_ev) *
+                               (1.0f - 0.45f * Smoothstep(-2.65f, -0.20f, relative_ev));
+    const float deep_toe_fill =
+        shadow_lift * (1.0f - Smoothstep(-7.35f, -4.95f, relative_ev)) * 0.28f;
+    const float shadow_fill_lift =
+        shadow_lift * (0.62f * practical_dark + 0.14f * fill_plateau) + deep_toe_fill;
+    const float lifted_relative_ev = relative_ev + 0.24f * (shadow_lift + 0.84f * shadow_fill_lift);
+    const float combo_shadow_rollback =
+        ((shadow_lift > 1.0e-6f && highlight_reduce > 1.0e-6f) ? 1.0f : 0.0f) * shadow_fill_lift *
+        Smoothstep(-2.00f, -0.60f, lifted_relative_ev) *
+        (1.0f - Smoothstep(0.10f, 1.30f, lifted_relative_ev)) * 1.08f;
+    const float combo_low_mid_darken = std::min(shadow_lift + shadow_fill_lift, highlight_reduce) *
+                                       Smoothstep(-2.45f, -0.90f, lifted_relative_ev) *
+                                       (1.0f - Smoothstep(0.50f, 1.95f, lifted_relative_ev)) *
+                                       1.30f;
+    const float delta_ev = shadow_lift + shadow_fill_lift - combo_shadow_rollback - shadow_darken -
+                           highlight_reduce - combo_low_mid_darken + highlight_boost;
+    return reference_l + delta_ev * (1.0f / 17.52f);
+  }
+
+  static auto HsDetailAlpha(float reference_l, float shadow_amount, float highlight_amount)
+      -> float {
+    (void)highlight_amount;
+    const float relative_ev = HsRelativeEv(reference_l);
+    const float deep_shadow = 1.0f - Smoothstep(-5.7f, -4.1f, relative_ev);
+    const float mid_shadow =
+        Smoothstep(-5.0f, -3.6f, relative_ev) * (1.0f - Smoothstep(-2.4f, -1.0f, relative_ev));
+    const float lift_amount = std::max(shadow_amount, 0.0f);
+    return 1.0f + 0.40f * lift_amount * deep_shadow - 0.14f * lift_amount * mid_shadow;
+  }
+
+  static auto HsToneBeta(float reference_l, float shadow_amount, float highlight_amount) -> float {
+    constexpr float kEps = 0.035f;
+    const float     lo = HsApplyReferenceCurve(reference_l - kEps, shadow_amount, highlight_amount);
+    const float     hi = HsApplyReferenceCurve(reference_l + kEps, shadow_amount, highlight_amount);
+    return std::clamp((hi - lo) / (2.0f * kEps), 0.08f, 1.70f);
+  }
+
+  static auto BuildHsSamples(float shadow_amount, float highlight_amount)
+      -> std::vector<MetalHsLlfSample> {
+    const float sample_step = std::max(kHsBaseSigmaR * kHsGammaStepScale, 0.045f);
+    const int   sample_count =
+        std::max(2, static_cast<int>(std::ceil((kHsGammaMaxL - kHsGammaMinL) / sample_step)) + 1);
+    std::vector<MetalHsLlfSample> samples;
+    samples.reserve(static_cast<size_t>(sample_count));
+    for (int i = 0; i < sample_count; ++i) {
+      const float t =
+          sample_count == 1 ? 0.0f : static_cast<float>(i) / static_cast<float>(sample_count - 1);
+      const float gamma = HsLerp(kHsGammaMinL, kHsGammaMaxL, t);
+      samples.push_back({gamma, HsApplyReferenceCurve(gamma, shadow_amount, highlight_amount),
+                         HsToneBeta(gamma, shadow_amount, highlight_amount),
+                         HsDetailAlpha(gamma, shadow_amount, highlight_amount)});
+    }
+    return samples;
+  }
+
+  void EnsureHsPyramidBuffers(int32_t width, int32_t height, float radius) {
+    if (width <= 0 || height <= 0) {
+      throw std::runtime_error("Metal fused pipeline: invalid H/S pyramid dimensions.");
     }
 
-    const auto format         = metal::PixelFormat::R32FLOAT;
-    const bool needs_recreate = hs_base_log_.Empty() || hs_temp_log_.Empty() ||
-                                hs_base_log_.Width() != width || hs_base_log_.Height() != height ||
-                                hs_temp_log_.Width() != width || hs_temp_log_.Height() != height ||
-                                hs_base_log_.Format() != format || hs_temp_log_.Format() != format;
-    if (!needs_recreate) {
+    const int                         new_level_count = ComputeHsLevelCount(width, height, radius);
+    std::array<int32_t, kHsMaxLevels> new_widths      = {};
+    std::array<int32_t, kHsMaxLevels> new_heights     = {};
+    new_widths[0]                                     = width;
+    new_heights[0]                                    = height;
+    for (int level = 1; level < new_level_count; ++level) {
+      new_widths[level]  = std::max<int32_t>(1, (new_widths[level - 1] + 1) / 2);
+      new_heights[level] = std::max<int32_t>(1, (new_heights[level - 1] + 1) / 2);
+    }
+
+    bool layout_matches = hs_level_count_ == new_level_count;
+    for (int level = 0; layout_matches && level < new_level_count; ++level) {
+      layout_matches =
+          hs_level_widths_[level] == new_widths[level] &&
+          hs_level_heights_[level] == new_heights[level] &&
+          hs_source_levels_[level].get() != nullptr && hs_remap_a_levels_[level].get() != nullptr &&
+          hs_remap_b_levels_[level].get() != nullptr && hs_output_levels_[level].get() != nullptr;
+    }
+    if (layout_matches) {
       return;
     }
 
-    hs_base_log_ = metal::MetalImage::Create2D(width, height, format, true, true, false);
-    hs_temp_log_ = metal::MetalImage::Create2D(width, height, format, true, true, false);
-    InvalidateHsBaseCache();
+    ReleaseHsPyramidBuffers();
+    hs_level_count_   = new_level_count;
+    hs_level_widths_  = new_widths;
+    hs_level_heights_ = new_heights;
+    for (int level = 0; level < hs_level_count_; ++level) {
+      const size_t elems = static_cast<size_t>(hs_level_widths_[level]) *
+                           static_cast<size_t>(hs_level_heights_[level]);
+      const size_t bytes        = elems * sizeof(float);
+      hs_source_levels_[level]  = MakeDeviceBuffer(bytes);
+      hs_remap_a_levels_[level] = MakeDeviceBuffer(bytes);
+      hs_remap_b_levels_[level] = MakeDeviceBuffer(bytes);
+      hs_output_levels_[level]  = MakeDeviceBuffer(bytes);
+    }
   }
 
   void EncodeFusedKernel(MTL::CommandBuffer* command_buffer, const metal::MetalImage& src,
@@ -361,63 +665,242 @@ class MetalGPUPipeline final : public GPUPipelineImpl {
     encoder->endEncoding();
   }
 
-  void EncodeHsBuildLogBaseHorizontal(MTL::CommandBuffer*      command_buffer,
-                                      const metal::MetalImage& src) {
-    if (!hs_base_horizontal_pipeline_) {
-      hs_base_horizontal_pipeline_ = GetPipelineState(kHsBuildLogBaseHorizontalKernelName,
-                                                      kHsBuildLogBaseHorizontalDebugLabel);
+  void EncodeHsExtractLogIntensity(MTL::CommandBuffer*      command_buffer,
+                                   const metal::MetalImage& src) {
+    if (!hs_extract_pipeline_) {
+      hs_extract_pipeline_ =
+          GetPipelineState(kHsExtractLogIntensityKernelName, kHsExtractLogIntensityDebugLabel);
     }
 
-    auto encoder = NS::RetainPtr(command_buffer->computeCommandEncoder());
-    encoder->setComputePipelineState(hs_base_horizontal_pipeline_.get());
+    const MetalHsExtractParams params{static_cast<int32_t>(src.Width()),
+                                      static_cast<int32_t>(src.Height()), hs_level_widths_[0],
+                                      hs_level_heights_[0]};
+    auto                       encoder = NS::RetainPtr(command_buffer->computeCommandEncoder());
+    encoder->setComputePipelineState(hs_extract_pipeline_.get());
     encoder->setTexture(src.Texture(), 0);
-    encoder->setTexture(hs_temp_log_.Texture(), 1);
-    encoder->setBuffer(resources_.params_buffer_.get(), 0, 0);
-    DispatchThreads(encoder.get(), hs_base_horizontal_pipeline_.get(), src.Width(), src.Height());
+    encoder->setBuffer(hs_source_levels_[0].get(), 0, 0);
+    encoder->setBytes(&params, sizeof(params), 1);
+    DispatchThreads(encoder.get(), hs_extract_pipeline_.get(),
+                    static_cast<uint32_t>(hs_level_widths_[0]),
+                    static_cast<uint32_t>(hs_level_heights_[0]));
     encoder->endEncoding();
   }
 
-  void EncodeHsBuildLogBaseVertical(MTL::CommandBuffer*      command_buffer,
-                                    const metal::MetalImage& guidance) {
-    if (!hs_base_vertical_pipeline_) {
-      hs_base_vertical_pipeline_ =
-          GetPipelineState(kHsBuildLogBaseVerticalKernelName, kHsBuildLogBaseVerticalDebugLabel);
+  void EncodeHsExtractLogIntensityResampled(MTL::CommandBuffer*      command_buffer,
+                                            const metal::MetalImage& src) {
+    if (!hs_extract_resampled_pipeline_) {
+      hs_extract_resampled_pipeline_ = GetPipelineState(kHsExtractLogIntensityResampledKernelName,
+                                                        kHsExtractLogIntensityResampledDebugLabel);
     }
 
-    auto encoder = NS::RetainPtr(command_buffer->computeCommandEncoder());
-    encoder->setComputePipelineState(hs_base_vertical_pipeline_.get());
-    encoder->setTexture(guidance.Texture(), 0);
-    encoder->setTexture(hs_temp_log_.Texture(), 1);
-    encoder->setTexture(hs_base_log_.Texture(), 2);
-    encoder->setBuffer(resources_.params_buffer_.get(), 0, 0);
-    DispatchThreads(encoder.get(), hs_base_vertical_pipeline_.get(), guidance.Width(),
-                    guidance.Height());
+    const MetalHsExtractParams params{static_cast<int32_t>(src.Width()),
+                                      static_cast<int32_t>(src.Height()), hs_level_widths_[0],
+                                      hs_level_heights_[0]};
+    auto                       encoder = NS::RetainPtr(command_buffer->computeCommandEncoder());
+    encoder->setComputePipelineState(hs_extract_resampled_pipeline_.get());
+    encoder->setTexture(src.Texture(), 0);
+    encoder->setBuffer(hs_source_levels_[0].get(), 0, 0);
+    encoder->setBytes(&params, sizeof(params), 1);
+    DispatchThreads(encoder.get(), hs_extract_resampled_pipeline_.get(),
+                    static_cast<uint32_t>(hs_level_widths_[0]),
+                    static_cast<uint32_t>(hs_level_heights_[0]));
     encoder->endEncoding();
   }
 
-  void EncodeHsApplyLocalTone(MTL::CommandBuffer* command_buffer, const metal::MetalImage& src,
-                              metal::MetalImage& dst, bool use_reference_base) {
-    if (!hs_apply_pipeline_) {
-      hs_apply_pipeline_ =
-          GetPipelineState(kHsApplyLocalToneKernelName, kHsApplyLocalToneDebugLabel);
+  void EncodeHsPyrDown(MTL::CommandBuffer* command_buffer, MTL::Buffer* src, int32_t src_width,
+                       int32_t src_height, MTL::Buffer* dst, int32_t dst_width,
+                       int32_t dst_height) {
+    if (!hs_pyr_down_pipeline_) {
+      hs_pyr_down_pipeline_ = GetPipelineState(kHsPyrDownKernelName, kHsPyrDownDebugLabel);
+    }
+
+    const MetalHsPyrDownParams params{src_width, src_height, dst_width, dst_height};
+    auto                       encoder = NS::RetainPtr(command_buffer->computeCommandEncoder());
+    encoder->setComputePipelineState(hs_pyr_down_pipeline_.get());
+    encoder->setBuffer(src, 0, 0);
+    encoder->setBuffer(dst, 0, 1);
+    encoder->setBytes(&params, sizeof(params), 2);
+    DispatchThreads(encoder.get(), hs_pyr_down_pipeline_.get(), static_cast<uint32_t>(dst_width),
+                    static_cast<uint32_t>(dst_height));
+    encoder->endEncoding();
+  }
+
+  void BuildHsSourcePyramid(MTL::CommandBuffer* command_buffer, const metal::MetalImage& src) {
+    if (hs_level_widths_[0] == static_cast<int32_t>(src.Width()) &&
+        hs_level_heights_[0] == static_cast<int32_t>(src.Height())) {
+      EncodeHsExtractLogIntensity(command_buffer, src);
+    } else {
+      EncodeHsExtractLogIntensityResampled(command_buffer, src);
+    }
+    for (int level = 1; level < hs_level_count_; ++level) {
+      EncodeHsPyrDown(command_buffer, hs_source_levels_[level - 1].get(),
+                      hs_level_widths_[level - 1], hs_level_heights_[level - 1],
+                      hs_source_levels_[level].get(), hs_level_widths_[level],
+                      hs_level_heights_[level]);
+    }
+  }
+
+  void BuildHsRemapPyramid(MTL::CommandBuffer* command_buffer, const MetalHsLlfSample& sample,
+                           std::array<NS::SharedPtr<MTL::Buffer>, kHsMaxLevels>& remap_levels) {
+    if (!hs_build_remapped_sample_pipeline_) {
+      hs_build_remapped_sample_pipeline_ =
+          GetPipelineState(kHsBuildRemappedSampleKernelName, kHsBuildRemappedSampleDebugLabel);
+    }
+
+    const MetalHsRemapParams params{
+        hs_level_widths_[0], hs_level_heights_[0], sample.gamma_, sample.target_,
+        sample.beta_,        sample.alpha_,        kHsBaseSigmaR, 0};
+    auto encoder = NS::RetainPtr(command_buffer->computeCommandEncoder());
+    encoder->setComputePipelineState(hs_build_remapped_sample_pipeline_.get());
+    encoder->setBuffer(hs_source_levels_[0].get(), 0, 0);
+    encoder->setBuffer(remap_levels[0].get(), 0, 1);
+    encoder->setBytes(&params, sizeof(params), 2);
+    DispatchThreads(encoder.get(), hs_build_remapped_sample_pipeline_.get(),
+                    static_cast<uint32_t>(hs_level_widths_[0]),
+                    static_cast<uint32_t>(hs_level_heights_[0]));
+    encoder->endEncoding();
+
+    for (int level = 1; level < hs_level_count_; ++level) {
+      EncodeHsPyrDown(command_buffer, remap_levels[level - 1].get(), hs_level_widths_[level - 1],
+                      hs_level_heights_[level - 1], remap_levels[level].get(),
+                      hs_level_widths_[level], hs_level_heights_[level]);
+    }
+  }
+
+  void ClearHsOutputPyramid(MTL::CommandBuffer* command_buffer) {
+    auto blit = NS::RetainPtr(command_buffer->blitCommandEncoder());
+    for (int level = 0; level < hs_level_count_; ++level) {
+      const size_t elems = static_cast<size_t>(hs_level_widths_[level]) *
+                           static_cast<size_t>(hs_level_heights_[level]);
+      blit->fillBuffer(hs_output_levels_[level].get(), NS::Range::Make(0, elems * sizeof(float)),
+                       0);
+    }
+    blit->endEncoding();
+  }
+
+  void EncodeHsSelectLevel(MTL::CommandBuffer* command_buffer, int level,
+                           const MetalHsLlfSample& sample_lo, const MetalHsLlfSample& sample_hi,
+                           bool first_pair, bool last_pair) {
+    if (!hs_select_level_pipeline_) {
+      hs_select_level_pipeline_ = GetPipelineState(kHsSelectInterpolatedLevelKernelName,
+                                                   kHsSelectInterpolatedLevelDebugLabel);
+    }
+
+    const bool                top_level     = level == (hs_level_count_ - 1);
+    const int32_t             coarse_width  = top_level ? 1 : hs_level_widths_[level + 1];
+    const int32_t             coarse_height = top_level ? 1 : hs_level_heights_[level + 1];
+    const MetalHsSelectParams params{hs_level_widths_[level],
+                                     hs_level_heights_[level],
+                                     coarse_width,
+                                     coarse_height,
+                                     sample_lo.gamma_,
+                                     sample_hi.gamma_,
+                                     first_pair ? 1 : 0,
+                                     last_pair ? 1 : 0,
+                                     top_level ? 1 : 0,
+                                     {0, 0, 0}};
+
+    auto                      encoder = NS::RetainPtr(command_buffer->computeCommandEncoder());
+    encoder->setComputePipelineState(hs_select_level_pipeline_.get());
+    encoder->setBuffer(hs_source_levels_[level].get(), 0, 0);
+    encoder->setBuffer(hs_remap_a_levels_[level].get(), 0, 1);
+    encoder->setBuffer(
+        top_level ? hs_remap_a_levels_[level].get() : hs_remap_a_levels_[level + 1].get(), 0, 2);
+    encoder->setBuffer(hs_remap_b_levels_[level].get(), 0, 3);
+    encoder->setBuffer(
+        top_level ? hs_remap_b_levels_[level].get() : hs_remap_b_levels_[level + 1].get(), 0, 4);
+    encoder->setBuffer(hs_output_levels_[level].get(), 0, 5);
+    encoder->setBytes(&params, sizeof(params), 6);
+    DispatchThreads(encoder.get(), hs_select_level_pipeline_.get(),
+                    static_cast<uint32_t>(hs_level_widths_[level]),
+                    static_cast<uint32_t>(hs_level_heights_[level]));
+    encoder->endEncoding();
+  }
+
+  void EncodeHsCollapseLevel(MTL::CommandBuffer* command_buffer, int level) {
+    if (!hs_collapse_level_pipeline_) {
+      hs_collapse_level_pipeline_ =
+          GetPipelineState(kHsCollapseLevelKernelName, kHsCollapseLevelDebugLabel);
+    }
+
+    const MetalHsPyrDownParams params{hs_level_widths_[level], hs_level_heights_[level],
+                                      hs_level_widths_[level + 1], hs_level_heights_[level + 1]};
+    auto                       encoder = NS::RetainPtr(command_buffer->computeCommandEncoder());
+    encoder->setComputePipelineState(hs_collapse_level_pipeline_.get());
+    encoder->setBuffer(hs_output_levels_[level].get(), 0, 0);
+    encoder->setBuffer(hs_output_levels_[level + 1].get(), 0, 1);
+    encoder->setBuffer(hs_remap_a_levels_[level].get(), 0, 2);
+    encoder->setBytes(&params, sizeof(params), 3);
+    DispatchThreads(encoder.get(), hs_collapse_level_pipeline_.get(),
+                    static_cast<uint32_t>(hs_level_widths_[level]),
+                    static_cast<uint32_t>(hs_level_heights_[level]));
+    encoder->endEncoding();
+    std::swap(hs_output_levels_[level], hs_remap_a_levels_[level]);
+  }
+
+  void BuildHsOutputPyramid(MTL::CommandBuffer*                  command_buffer,
+                            const std::vector<MetalHsLlfSample>& samples) {
+    ClearHsOutputPyramid(command_buffer);
+    BuildHsRemapPyramid(command_buffer, samples.front(), hs_remap_a_levels_);
+    BuildHsRemapPyramid(command_buffer, samples[1], hs_remap_b_levels_);
+
+    for (size_t pair_index = 0; pair_index + 1 < samples.size(); ++pair_index) {
+      for (int level = 0; level < hs_level_count_; ++level) {
+        EncodeHsSelectLevel(command_buffer, level, samples[pair_index], samples[pair_index + 1],
+                            pair_index == 0, pair_index + 2 == samples.size());
+      }
+
+      if (pair_index + 2 < samples.size()) {
+        std::swap(hs_remap_a_levels_, hs_remap_b_levels_);
+        BuildHsRemapPyramid(command_buffer, samples[pair_index + 2], hs_remap_b_levels_);
+      }
+    }
+
+    for (int level = hs_level_count_ - 2; level >= 0; --level) {
+      EncodeHsCollapseLevel(command_buffer, level);
+    }
+  }
+
+  void EncodeHsApplyAdjustedL(MTL::CommandBuffer* command_buffer, const metal::MetalImage& src,
+                              metal::MetalImage& dst) {
+    if (!hs_apply_adjusted_l_pipeline_) {
+      hs_apply_adjusted_l_pipeline_ =
+          GetPipelineState(kHsApplyAdjustedLKernelName, kHsApplyAdjustedLDebugLabel);
     }
 
     dst.Create(src.Width(), src.Height(), src.Format(), true, true, false);
-    const MetalHsApplyParams apply_params{
-        hs_cached_width_,
-        hs_cached_height_,
-        use_reference_base ? 1 : 0,
-        0,
-    };
-
-    auto encoder = NS::RetainPtr(command_buffer->computeCommandEncoder());
-    encoder->setComputePipelineState(hs_apply_pipeline_.get());
+    const MetalHsPlaneApplyParams params{static_cast<int32_t>(src.Width()),
+                                         static_cast<int32_t>(src.Height()), hs_cached_width_,
+                                         hs_cached_height_};
+    auto                          encoder = NS::RetainPtr(command_buffer->computeCommandEncoder());
+    encoder->setComputePipelineState(hs_apply_adjusted_l_pipeline_.get());
     encoder->setTexture(src.Texture(), 0);
-    encoder->setTexture(hs_base_log_.Texture(), 1);
-    encoder->setTexture(dst.Texture(), 2);
-    encoder->setBuffer(resources_.params_buffer_.get(), 0, 0);
-    encoder->setBytes(&apply_params, sizeof(apply_params), 1);
-    DispatchThreads(encoder.get(), hs_apply_pipeline_.get(), src.Width(), src.Height());
+    encoder->setBuffer(hs_output_levels_[0].get(), 0, 0);
+    encoder->setTexture(dst.Texture(), 1);
+    encoder->setBytes(&params, sizeof(params), 1);
+    DispatchThreads(encoder.get(), hs_apply_adjusted_l_pipeline_.get(), src.Width(), src.Height());
+    encoder->endEncoding();
+  }
+
+  void EncodeHsApplyAdjustedLFromFrame(MTL::CommandBuffer*      command_buffer,
+                                       const metal::MetalImage& src, metal::MetalImage& dst) {
+    if (!hs_apply_adjusted_l_from_frame_pipeline_) {
+      hs_apply_adjusted_l_from_frame_pipeline_ = GetPipelineState(
+          kHsApplyAdjustedLFromFrameKernelName, kHsApplyAdjustedLFromFrameDebugLabel);
+    }
+
+    dst.Create(src.Width(), src.Height(), src.Format(), true, true, false);
+    const MetalHsPlaneApplyParams params{static_cast<int32_t>(src.Width()),
+                                         static_cast<int32_t>(src.Height()), hs_cached_width_,
+                                         hs_cached_height_};
+    auto                          encoder = NS::RetainPtr(command_buffer->computeCommandEncoder());
+    encoder->setComputePipelineState(hs_apply_adjusted_l_from_frame_pipeline_.get());
+    encoder->setTexture(src.Texture(), 0);
+    encoder->setBuffer(hs_output_levels_[0].get(), 0, 0);
+    encoder->setTexture(dst.Texture(), 1);
+    encoder->setBytes(&params, sizeof(params), 1);
+    DispatchThreads(encoder.get(), hs_apply_adjusted_l_from_frame_pipeline_.get(), src.Width(),
+                    src.Height());
     encoder->endEncoding();
   }
 
@@ -459,56 +942,71 @@ class MetalGPUPipeline final : public GPUPipelineImpl {
   }
 
   auto ShouldRunHighlightShadowLocalTone() const -> bool {
-    if (!fused_params_.hs_local_tone_enabled_ || fused_params_.hs_base_gaussian_tap_count_ <= 0) {
+    if (!fused_params_.hs_local_tone_enabled_) {
       return false;
     }
-    const float shadow_amount = fused_params_.shadows_enabled_
-                                    ? std::clamp(fused_params_.shadows_offset_, -1.0f, 1.0f)
-                                    : 0.0f;
-    const float highlight_amount =
-        fused_params_.highlights_enabled_
-            ? std::clamp(-fused_params_.highlights_offset_, -1.0f, 1.0f)
-            : 0.0f;
+    const float shadow_amount    = fused_params_.shadows_enabled_
+                                       ? std::clamp(fused_params_.shadows_offset_, -1.0f, 1.0f)
+                                       : 0.0f;
+    const float highlight_amount = fused_params_.highlights_enabled_
+                                       ? std::clamp(-fused_params_.highlights_offset_, -1.0f, 1.0f)
+                                       : 0.0f;
     return std::abs(shadow_amount) > 1.0e-6f || std::abs(highlight_amount) > 1.0e-6f;
   }
 
   void EncodeHighlightShadowLocalTone(MTL::CommandBuffer*      command_buffer,
                                       const metal::MetalImage& src, metal::MetalImage& dst) {
+    const float         shadow_amount    = fused_params_.shadows_enabled_
+                                               ? std::clamp(fused_params_.shadows_offset_, -1.0f, 1.0f)
+                                               : 0.0f;
+    const float         highlight_amount = fused_params_.highlights_enabled_
+                                               ? std::clamp(-fused_params_.highlights_offset_, -1.0f, 1.0f)
+                                               : 0.0f;
+    const std::uint64_t adjusted_cache_key =
+        BuildAdjustedResultCacheKey(fused_params_, shadow_amount, highlight_amount);
     const bool roi_frame_with_source_reference = fused_params_.render_roi_enabled_ &&
                                                  fused_params_.render_roi_reference_width_ > 0 &&
                                                  fused_params_.render_roi_reference_height_ > 0;
-    const bool reference_base_cache_valid =
-        hs_cached_reference_base_ && !hs_base_log_.Empty() &&
-        hs_cached_key_ == fused_params_.hs_mask_base_cache_key_ && hs_cached_width_ > 0 &&
-        hs_cached_height_ > 0;
-
-    if (roi_frame_with_source_reference && reference_base_cache_valid) {
-      EncodeHsApplyLocalTone(command_buffer, src, dst, true);
-      return;
-    }
-    if (!roi_frame_with_source_reference && reference_base_cache_valid &&
-        (hs_cached_width_ > static_cast<int>(src.Width()) ||
-         hs_cached_height_ > static_cast<int>(src.Height()))) {
-      EncodeHsApplyLocalTone(command_buffer, src, dst, true);
+    const bool reference_result_cache_valid =
+        hs_cached_reference_base_ && hs_output_levels_[0].get() != nullptr &&
+        hs_cached_key_ == adjusted_cache_key && hs_cached_width_ > 0 && hs_cached_height_ > 0 &&
+        hs_cached_frame_width_ > 0 && hs_cached_frame_height_ > 0 && hs_cached_pitch_ > 0;
+    if (!roi_frame_with_source_reference && reference_result_cache_valid &&
+        (hs_cached_frame_width_ > static_cast<int32_t>(src.Width()) ||
+         hs_cached_frame_height_ > static_cast<int32_t>(src.Height()))) {
+      EncodeHsApplyAdjustedLFromFrame(command_buffer, src, dst);
       return;
     }
 
-    EnsureHsBaseTextures(src.Width(), src.Height());
-    const bool cache_valid = !roi_frame_with_source_reference && !hs_base_log_.Empty() &&
-                             hs_cached_key_ == fused_params_.hs_mask_base_cache_key_ &&
-                             hs_cached_width_ == static_cast<int>(src.Width()) &&
-                             hs_cached_height_ == static_cast<int>(src.Height()) &&
-                             hs_cached_reference_base_;
+    const MetalHsMaskDimensions mask_dims = ComputeHsMaskDimensions(
+        static_cast<int32_t>(src.Width()), static_cast<int32_t>(src.Height()),
+        roi_frame_with_source_reference);
+    EnsureHsPyramidBuffers(mask_dims.width_, mask_dims.height_, fused_params_.hs_base_radius_);
+    const bool cache_valid =
+        hs_output_levels_[0].get() != nullptr && hs_cached_key_ == adjusted_cache_key &&
+        hs_cached_frame_width_ == static_cast<int32_t>(src.Width()) &&
+        hs_cached_frame_height_ == static_cast<int32_t>(src.Height()) &&
+        hs_cached_width_ == mask_dims.width_ && hs_cached_height_ == mask_dims.height_ &&
+        hs_cached_pitch_ == hs_level_widths_[0];
     if (!cache_valid) {
-      EncodeHsBuildLogBaseHorizontal(command_buffer, src);
-      EncodeHsBuildLogBaseVertical(command_buffer, src);
-      hs_cached_key_            = fused_params_.hs_mask_base_cache_key_;
-      hs_cached_width_          = static_cast<int>(src.Width());
-      hs_cached_height_         = static_cast<int>(src.Height());
+      const auto samples = BuildHsSamples(shadow_amount, highlight_amount);
+      BuildHsSourcePyramid(command_buffer, src);
+      BuildHsOutputPyramid(command_buffer, samples);
+      hs_cached_key_            = adjusted_cache_key;
+      hs_cached_width_          = mask_dims.width_;
+      hs_cached_height_         = mask_dims.height_;
+      hs_cached_frame_width_    = static_cast<int32_t>(src.Width());
+      hs_cached_frame_height_   = static_cast<int32_t>(src.Height());
+      hs_cached_pitch_          = hs_level_widths_[0];
       hs_cached_reference_base_ = !roi_frame_with_source_reference;
     }
 
-    EncodeHsApplyLocalTone(command_buffer, src, dst, false);
+    if (hs_cached_width_ == static_cast<int32_t>(src.Width()) &&
+        hs_cached_height_ == static_cast<int32_t>(src.Height())) {
+      EncodeHsApplyAdjustedL(command_buffer, src, dst);
+    } else {
+      EncodeHsApplyAdjustedLFromFrame(command_buffer, src, dst);
+    }
   }
 
   auto ShouldRunSharpen() const -> bool {
@@ -717,18 +1215,21 @@ class MetalGPUPipeline final : public GPUPipelineImpl {
 
   void ReleaseResources() override {
     resources_.Reset();
-    fused_pipeline_                    = nullptr;
-    fused_stage_pipeline_              = nullptr;
-    hs_base_horizontal_pipeline_       = nullptr;
-    hs_base_vertical_pipeline_         = nullptr;
-    hs_apply_pipeline_                 = nullptr;
-    neighbor_blur_horizontal_pipeline_ = nullptr;
-    neighbor_apply_vertical_pipeline_  = nullptr;
+    fused_pipeline_                          = nullptr;
+    fused_stage_pipeline_                    = nullptr;
+    hs_extract_pipeline_                     = nullptr;
+    hs_extract_resampled_pipeline_           = nullptr;
+    hs_build_remapped_sample_pipeline_       = nullptr;
+    hs_pyr_down_pipeline_                    = nullptr;
+    hs_select_level_pipeline_                = nullptr;
+    hs_collapse_level_pipeline_              = nullptr;
+    hs_apply_adjusted_l_pipeline_            = nullptr;
+    hs_apply_adjusted_l_from_frame_pipeline_ = nullptr;
+    neighbor_blur_horizontal_pipeline_       = nullptr;
+    neighbor_apply_vertical_pipeline_        = nullptr;
     pre_hs_working_.Release();
     hs_working_.Release();
-    hs_temp_log_.Release();
-    hs_base_log_.Release();
-    InvalidateHsBaseCache();
+    ReleaseHsPyramidBuffers();
   }
 };
 
