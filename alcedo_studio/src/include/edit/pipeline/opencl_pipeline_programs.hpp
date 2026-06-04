@@ -36,6 +36,8 @@ inline constexpr const char* kHsApplyAdjustedLKernelName =
     "edit_pipeline_hs_apply_adjusted_l_rgba32f";
 inline constexpr const char* kHsApplyAdjustedLFromFrameKernelName =
     "edit_pipeline_hs_apply_adjusted_l_from_frame_rgba32f";
+inline constexpr const char* kHsApplyAdjustedLFromReferenceKernelName =
+    "edit_pipeline_hs_apply_adjusted_l_from_reference_rgba32f";
 
 inline constexpr const char* kValidateFusedParamsKernelName =
     "edit_pipeline_validate_fused_params";

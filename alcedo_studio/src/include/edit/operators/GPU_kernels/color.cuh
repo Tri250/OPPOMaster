@@ -709,7 +709,6 @@ struct GPU_HighlightShadowLocalToneStage {
   static constexpr float kGammaMaxL   = 1.18f;
   static constexpr float kBaseSigmaR  = 0.07545252f;
   static constexpr float kGammaStepScale = 1.35f;
-  static constexpr int   kReferenceMaskMaxLongEdge = 2048;
   static constexpr size_t kMaxRetainedMaskBytes = 256ULL * 1024ULL * 1024ULL;
 
   struct HsLlfSample {
@@ -731,6 +730,7 @@ struct GPU_HighlightShadowLocalToneStage {
   int                            cached_frame_width_ = 0;
   int                            cached_frame_height_ = 0;
   size_t                         cached_pitch_ = 0;
+  std::uint64_t                  cached_source_key_ = 0;
   std::uint64_t                  cached_key_ = 0;
   bool                           cached_reference_base_ = false;
 
@@ -756,6 +756,7 @@ struct GPU_HighlightShadowLocalToneStage {
         cached_frame_width_(other.cached_frame_width_),
         cached_frame_height_(other.cached_frame_height_),
         cached_pitch_(other.cached_pitch_),
+        cached_source_key_(other.cached_source_key_),
         cached_key_(other.cached_key_),
         cached_reference_base_(other.cached_reference_base_) {
     other.source_levels_.fill(nullptr);
@@ -770,6 +771,7 @@ struct GPU_HighlightShadowLocalToneStage {
     other.cached_frame_width_ = 0;
     other.cached_frame_height_ = 0;
     other.cached_pitch_ = 0;
+    other.cached_source_key_ = 0;
     other.cached_key_ = 0;
     other.cached_reference_base_ = false;
   }
@@ -789,6 +791,7 @@ struct GPU_HighlightShadowLocalToneStage {
       cached_frame_width_ = other.cached_frame_width_;
       cached_frame_height_ = other.cached_frame_height_;
       cached_pitch_ = other.cached_pitch_;
+      cached_source_key_ = other.cached_source_key_;
       cached_key_ = other.cached_key_;
       cached_reference_base_ = other.cached_reference_base_;
       other.source_levels_.fill(nullptr);
@@ -803,6 +806,7 @@ struct GPU_HighlightShadowLocalToneStage {
       other.cached_frame_width_ = 0;
       other.cached_frame_height_ = 0;
       other.cached_pitch_ = 0;
+      other.cached_source_key_ = 0;
       other.cached_key_ = 0;
       other.cached_reference_base_ = false;
     }
@@ -849,10 +853,8 @@ struct GPU_HighlightShadowLocalToneStage {
     int height = 1;
   };
 
-  static auto ComputeMaskDimensions(int width, int height, bool full_resolution_reference)
+  static auto ComputeMaskDimensions(int width, int height, int max_long_edge)
       -> MaskDimensions {
-    const int max_long_edge =
-        full_resolution_reference ? max(width, height) : kReferenceMaskMaxLongEdge;
     const float scale = fminf(
         1.0f, static_cast<float>(max(1, max_long_edge)) / static_cast<float>(max(width, height)));
     return {max(1, static_cast<int>(ceilf(static_cast<float>(width) * scale))),
@@ -936,6 +938,7 @@ struct GPU_HighlightShadowLocalToneStage {
     cached_frame_width_ = 0;
     cached_frame_height_ = 0;
     cached_pitch_ = 0;
+    cached_source_key_ = 0;
     cached_key_ = 0;
     cached_reference_base_ = false;
   }
@@ -988,6 +991,7 @@ struct GPU_HighlightShadowLocalToneStage {
     cached_frame_width_ = 0;
     cached_frame_height_ = 0;
     cached_pitch_ = 0;
+    cached_source_key_ = 0;
     cached_key_ = 0;
     cached_reference_base_ = false;
   }
@@ -1102,23 +1106,50 @@ struct GPU_HighlightShadowLocalToneStage {
         params.render_roi_enabled_ && params.render_roi_reference_width_ > 0 &&
         params.render_roi_reference_height_ > 0;
     const bool preserve_source_detail = params.render_hs_preserve_source_detail_;
+    const int reference_max_long_edge =
+        max(1, params.render_hs_reference_max_long_edge_);
+    const MaskDimensions current_reference_dims =
+        ComputeMaskDimensions(width, height,
+                              roi_frame_with_source_reference ? max(width, height)
+                                                              : reference_max_long_edge);
+    const std::uint64_t reference_source_cache_key = params.hs_mask_base_cache_key_;
     std::uint64_t reference_cache_key = adjusted_cache_key;
     HashCombine(reference_cache_key, static_cast<std::uint64_t>(preserve_source_detail));
-    const bool reference_result_cache_valid =
-        cached_reference_base_ && source_levels_[0] != nullptr && output_levels_[0] != nullptr &&
-        cached_key_ == reference_cache_key && cached_width_ > 0 &&
+    const bool reference_source_cache_valid =
+        cached_reference_base_ && source_levels_[0] != nullptr && cached_source_key_ ==
+        reference_source_cache_key && cached_width_ > 0 &&
         cached_height_ > 0 && cached_frame_width_ > 0 && cached_frame_height_ > 0 &&
         cached_pitch_ > 0;
-    if (roi_frame_with_source_reference && reference_result_cache_valid &&
+    const bool reference_result_cache_valid =
+        reference_source_cache_valid && output_levels_[0] != nullptr &&
+        cached_key_ == reference_cache_key;
+    const int current_reference_long_edge =
+        max(current_reference_dims.width, current_reference_dims.height);
+    const int cached_reference_long_edge = max(cached_width_, cached_height_);
+    const bool current_can_improve_reference =
+        params.render_hs_can_seed_reference_ &&
+        current_reference_long_edge > cached_reference_long_edge;
+    const auto ensure_reference_output = [&]() {
+      if (!reference_result_cache_valid) {
+        const float sigma_r = SigmaR(shadow_amount, highlight_amount);
+        const auto  samples = BuildSamples(shadow_amount, highlight_amount, sigma_r);
+        BuildOutputPyramid(samples, sigma_r, block, stream);
+        cached_key_ = reference_cache_key;
+      }
+    };
+    if (roi_frame_with_source_reference && reference_source_cache_valid &&
         cached_frame_width_ == params.render_roi_reference_width_ &&
         cached_frame_height_ == params.render_roi_reference_height_) {
+      ensure_reference_output();
       HsApplyAdjustedDeltaLFromReferenceKernel<<<grid, block, 0, stream>>>(
           src, source_levels_[0], output_levels_[0], dst, width, height, pitch_elems,
           cached_width_, cached_height_, cached_pitch_, params);
       return;
     }
-    if (!roi_frame_with_source_reference && reference_result_cache_valid &&
+    if (!roi_frame_with_source_reference && reference_source_cache_valid &&
+        !current_can_improve_reference &&
         (cached_frame_width_ != width || cached_frame_height_ != height)) {
+      ensure_reference_output();
       HsApplyAdjustedDeltaLFromFrameKernel<<<grid, block, 0, stream>>>(
           src, source_levels_[0], output_levels_[0], dst, width, height, pitch_elems,
           cached_width_, cached_height_, cached_pitch_);
@@ -1126,11 +1157,12 @@ struct GPU_HighlightShadowLocalToneStage {
     }
 
     const bool build_roi_local_reference = roi_frame_with_source_reference;
+    const bool seed_canonical_reference =
+        params.render_hs_can_seed_reference_ && !build_roi_local_reference;
     std::uint64_t render_cache_key =
         build_roi_local_reference ? BuildRoiAdjustedResultCacheKey(params, reference_cache_key)
                                   : reference_cache_key;
-    const MaskDimensions mask_dims =
-        ComputeMaskDimensions(width, height, build_roi_local_reference);
+    const MaskDimensions mask_dims = current_reference_dims;
     EnsurePyramidBuffers(mask_dims.width, mask_dims.height, params.hs_base_radius_);
     const bool cache_valid =
         output_levels_[0] != nullptr && cached_key_ == render_cache_key &&
@@ -1143,12 +1175,13 @@ struct GPU_HighlightShadowLocalToneStage {
       BuildSourcePyramid(src, width, height, pitch_elems, block, stream);
       BuildOutputPyramid(samples, sigma_r, block, stream);
       cached_key_ = render_cache_key;
+      cached_source_key_ = seed_canonical_reference ? reference_source_cache_key : 0;
       cached_width_ = mask_dims.width;
       cached_height_ = mask_dims.height;
       cached_frame_width_ = width;
       cached_frame_height_ = height;
       cached_pitch_ = static_cast<size_t>(level_widths_[0]);
-      cached_reference_base_ = !roi_frame_with_source_reference;
+      cached_reference_base_ = seed_canonical_reference;
     }
 
     const bool release_after_dispatch = AllocatedPyramidBytes() > kMaxRetainedMaskBytes;

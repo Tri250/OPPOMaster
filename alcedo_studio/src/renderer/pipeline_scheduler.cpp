@@ -158,6 +158,28 @@ auto MetadataFromRegion(const FramePreviewMetadata& base_metadata,
   return metadata;
 }
 
+auto RenderFrameRoleId(FrameRole role) -> int {
+  switch (role) {
+    case FrameRole::InteractivePrimary:
+      return OperatorParams::kRenderFrameRoleInteractivePrimary;
+    case FrameRole::QualityBase:
+      return OperatorParams::kRenderFrameRoleQualityBase;
+    case FrameRole::DetailPatch:
+      return OperatorParams::kRenderFrameRoleDetailPatch;
+  }
+  return OperatorParams::kRenderFrameRoleInteractivePrimary;
+}
+
+void SetNextFrameMetadata(const std::shared_ptr<CPUPipelineExecutor>& pipeline_executor,
+                          const FramePreviewMetadata& metadata) {
+  if (!pipeline_executor) {
+    return;
+  }
+  pipeline_executor->GetGlobalParams().render_frame_role_ =
+      RenderFrameRoleId(metadata.frame_role);
+  pipeline_executor->SetNextFramePreviewMetadata(metadata);
+}
+
 auto LoadViewportRegion(const std::shared_ptr<CPUPipelineExecutor>& pipeline_executor,
                         bool should_use_viewport_region)
     -> std::optional<ViewportRenderRegion> {
@@ -175,6 +197,9 @@ void PipelineTask::SetExecutorRenderParams() {
   pipeline_executor_->SetCancelRequested(cancel_requested_);
   pipeline_executor_->GetGlobalParams().render_source_cache_key_ = BuildRenderSourceCacheKey(*this);
   pipeline_executor_->GetGlobalParams().render_hs_preserve_source_detail_ = false;
+  pipeline_executor_->GetGlobalParams().render_hs_can_seed_reference_ = false;
+  pipeline_executor_->GetGlobalParams().render_hs_reference_max_long_edge_ =
+      kQualityBasePreviewMaxLongEdge;
   auto& desc = options_.render_desc_;
   const auto requested_render_type = desc.render_type_;
 
@@ -218,8 +243,9 @@ void PipelineTask::SetExecutorRenderParams() {
       // Rotation preview should use a downsampled full frame so viewport coordinates
       // stay aligned with the rotated result.
       pipeline_executor_->SetNextFramePresentationMode(FramePresentationMode::ViewportTransformed);
+      pipeline_executor_->GetGlobalParams().render_hs_can_seed_reference_ = true;
       frame_metadata.source_roi_norm = {};
-      pipeline_executor_->SetNextFramePreviewMetadata(frame_metadata);
+      SetNextFrameMetadata(pipeline_executor_, frame_metadata);
       pipeline_executor_->SetResizeDownsampleAlgorithm(ResizeDownsampleAlgorithm::Bilinear);
       pipeline_executor_->SetRenderRegion(0, 0, 1.0f, 1.0f);
       pipeline_executor_->SetForceCPUOutput(false);
@@ -233,7 +259,7 @@ void PipelineTask::SetExecutorRenderParams() {
     frame_metadata =
         MetadataFromRegion(frame_metadata, viewport_region, region_x, region_y, region_scale_x,
                            region_scale_y);
-    pipeline_executor_->SetNextFramePreviewMetadata(frame_metadata);
+    SetNextFrameMetadata(pipeline_executor_, frame_metadata);
     pipeline_executor_->SetResizeDownsampleAlgorithm(ResizeDownsampleAlgorithm::Bilinear);
     pipeline_executor_->SetRenderRegion(region_x, region_y, region_scale_x, region_scale_y,
                                         region_reference_width, region_reference_height);
@@ -248,7 +274,8 @@ void PipelineTask::SetExecutorRenderParams() {
     frame_metadata.frame_role      = FrameRole::QualityBase;
     frame_metadata.source_roi_norm = {};
     pipeline_executor_->SetNextFramePresentationMode(FramePresentationMode::ViewportTransformed);
-    pipeline_executor_->SetNextFramePreviewMetadata(frame_metadata);
+    pipeline_executor_->GetGlobalParams().render_hs_can_seed_reference_ = true;
+    SetNextFrameMetadata(pipeline_executor_, frame_metadata);
     pipeline_executor_->SetResizeDownsampleAlgorithm(ResizeDownsampleAlgorithm::Area);
     pipeline_executor_->SetRenderRegion(0, 0, 1.0f, 1.0f);
     pipeline_executor_->SetRenderRes(false, kQualityBasePreviewMaxLongEdge);
@@ -266,7 +293,7 @@ void PipelineTask::SetExecutorRenderParams() {
         MetadataFromRegion(frame_metadata, viewport_region, region_x, region_y, region_scale_x,
                            region_scale_y);
     pipeline_executor_->SetNextFramePresentationMode(FramePresentationMode::ViewportTransformed);
-    pipeline_executor_->SetNextFramePreviewMetadata(frame_metadata);
+    SetNextFrameMetadata(pipeline_executor_, frame_metadata);
     pipeline_executor_->SetResizeDownsampleAlgorithm(ResizeDownsampleAlgorithm::Area);
     pipeline_executor_->SetRenderRegion(region_x, region_y, region_scale_x, region_scale_y,
                                         region_reference_width, region_reference_height);
@@ -283,7 +310,7 @@ void PipelineTask::SetExecutorRenderParams() {
   }
   if (requested_render_type == RenderType::THUMBNAIL) {
     pipeline_executor_->SetNextFramePresentationMode(FramePresentationMode::ViewportTransformed);
-    pipeline_executor_->SetNextFramePreviewMetadata(frame_metadata);
+    SetNextFrameMetadata(pipeline_executor_, frame_metadata);
     pipeline_executor_->SetResizeDownsampleAlgorithm(ResizeDownsampleAlgorithm::Bilinear);
     pipeline_executor_->SetRenderRegion(0, 0, 1.0f);
     pipeline_executor_->SetForceCPUOutput(true);
@@ -294,7 +321,8 @@ void PipelineTask::SetExecutorRenderParams() {
   }
   if (requested_render_type == RenderType::FULL_RES_PREVIEW) {
     pipeline_executor_->SetNextFramePresentationMode(FramePresentationMode::ViewportTransformed);
-    pipeline_executor_->SetNextFramePreviewMetadata(frame_metadata);
+    pipeline_executor_->GetGlobalParams().render_hs_can_seed_reference_ = true;
+    SetNextFrameMetadata(pipeline_executor_, frame_metadata);
     pipeline_executor_->SetResizeDownsampleAlgorithm(ResizeDownsampleAlgorithm::Area);
     pipeline_executor_->SetRenderRegion(0, 0, 1.0f);
     pipeline_executor_->SetRenderRes(false, kFullResPreviewMaxLongEdge);
@@ -305,8 +333,9 @@ void PipelineTask::SetExecutorRenderParams() {
   }
   if (requested_render_type == RenderType::FULL_RES_EXPORT) {
     pipeline_executor_->GetGlobalParams().render_hs_preserve_source_detail_ = true;
+    pipeline_executor_->GetGlobalParams().render_hs_can_seed_reference_ = true;
     pipeline_executor_->SetNextFramePresentationMode(FramePresentationMode::ViewportTransformed);
-    pipeline_executor_->SetNextFramePreviewMetadata(frame_metadata);
+    SetNextFrameMetadata(pipeline_executor_, frame_metadata);
     pipeline_executor_->SetResizeDownsampleAlgorithm(ResizeDownsampleAlgorithm::Area);
     pipeline_executor_->SetRenderRegion(0, 0, 1.0f);
     pipeline_executor_->SetRenderRes(true);

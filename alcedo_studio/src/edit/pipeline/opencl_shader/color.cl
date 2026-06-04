@@ -181,6 +181,13 @@ static inline float4 opencl_hs_apply_adjusted_l_pixel(float4 px, float adjusted_
   return (float4)(opencl_ap1_to_acescc(output_ap1), px.w);
 }
 
+static inline float4 opencl_hs_apply_adjusted_l_delta_pixel(float4 px,
+                                                            float reference_l,
+                                                            float adjusted_l) {
+  const float source_l = opencl_hs_log_intensity_from_acescc(px);
+  return opencl_hs_apply_adjusted_l_pixel(px, source_l + (adjusted_l - reference_l));
+}
+
 static inline float opencl_hs_shadow_upper_pivot(__global const OpenClFusedParams* params) {
   const float width = fmax(params->hs_shadow_log_width_, 0.35f);
   return params->hs_shadow_log_pivot_ + fmax(width * 0.40f, 0.24f);

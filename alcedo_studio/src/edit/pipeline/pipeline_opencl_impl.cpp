@@ -218,6 +218,7 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
   cl_kernel                              hs_collapse_level_kernel_ = nullptr;
   cl_kernel                              hs_apply_adjusted_l_kernel_ = nullptr;
   cl_kernel                              hs_apply_adjusted_l_from_frame_kernel_ = nullptr;
+  cl_kernel                              hs_apply_adjusted_l_from_reference_kernel_ = nullptr;
 
   opencl::OpenClImage                    working_;
   opencl::OpenClImage                    pre_hs_working_;
@@ -230,7 +231,7 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
   static constexpr float                 kHsGammaMaxL = 1.18f;
   static constexpr float                 kHsBaseSigmaR = 0.07545252f;
   static constexpr float                 kHsGammaStepScale = 1.35f;
-  static constexpr int                   kHsReferenceMaskMaxLongEdge = 2048;
+  static constexpr size_t                kHsMaxRetainedMaskBytes = 256ULL * 1024ULL * 1024ULL;
 
   struct HsLlfSample {
     float gamma = 0.0f;
@@ -251,6 +252,7 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
   int                                    hs_cached_frame_width_ = 0;
   int                                    hs_cached_frame_height_ = 0;
   int                                    hs_cached_pitch_ = 0;
+  std::uint64_t                          hs_cached_source_key_ = 0;
   std::uint64_t                          hs_cached_key_ = 0;
   bool                                   hs_cached_reference_base_ = false;
 
@@ -287,6 +289,7 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
     hs_cached_frame_width_ = 0;
     hs_cached_frame_height_ = 0;
     hs_cached_pitch_ = 0;
+    hs_cached_source_key_ = 0;
     hs_cached_key_ = 0;
     hs_cached_reference_base_ = false;
   }
@@ -379,15 +382,19 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
     HashCombine(key, static_cast<std::uint64_t>(params.highlights_enabled_));
     HashCombine(key, static_cast<std::uint64_t>(FloatBits(shadow_amount)));
     HashCombine(key, static_cast<std::uint64_t>(FloatBits(highlight_amount)));
+    return key;
+  }
+
+  static auto BuildRoiAdjustedResultCacheKey(const FusedOperatorParams& params,
+                                             std::uint64_t base_key) -> std::uint64_t {
+    std::uint64_t key = base_key;
     HashCombine(key, static_cast<std::uint64_t>(params.render_roi_enabled_));
-    if (params.render_roi_enabled_) {
-      HashCombine(key, static_cast<std::uint64_t>(params.render_roi_x_));
-      HashCombine(key, static_cast<std::uint64_t>(params.render_roi_y_));
-      HashCombine(key, static_cast<std::uint64_t>(FloatBits(params.render_roi_scale_x_)));
-      HashCombine(key, static_cast<std::uint64_t>(FloatBits(params.render_roi_scale_y_)));
-      HashCombine(key, static_cast<std::uint64_t>(params.render_roi_reference_width_));
-      HashCombine(key, static_cast<std::uint64_t>(params.render_roi_reference_height_));
-    }
+    HashCombine(key, static_cast<std::uint64_t>(params.render_roi_x_));
+    HashCombine(key, static_cast<std::uint64_t>(params.render_roi_y_));
+    HashCombine(key, static_cast<std::uint64_t>(FloatBits(params.render_roi_scale_x_)));
+    HashCombine(key, static_cast<std::uint64_t>(FloatBits(params.render_roi_scale_y_)));
+    HashCombine(key, static_cast<std::uint64_t>(params.render_roi_reference_width_));
+    HashCombine(key, static_cast<std::uint64_t>(params.render_roi_reference_height_));
     return key;
   }
 
@@ -396,10 +403,8 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
     int height = 1;
   };
 
-  static auto ComputeHsMaskDimensions(int width, int height, bool roi_frame_with_source_reference)
+  static auto ComputeHsMaskDimensions(int width, int height, int max_long_edge)
       -> HsMaskDimensions {
-    const int max_long_edge =
-        roi_frame_with_source_reference ? std::max(width, height) : kHsReferenceMaskMaxLongEdge;
     const float scale = std::min(
         1.0f, static_cast<float>(std::max(1, max_long_edge)) /
                   static_cast<float>(std::max(width, height)));
@@ -420,6 +425,15 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
       ++count;
     }
     return count;
+  }
+
+  [[nodiscard]] auto AllocatedHsPyramidBytes() const -> size_t {
+    size_t bytes = 0;
+    for (int level = 0; level < hs_level_count_; ++level) {
+      bytes += static_cast<size_t>(hs_level_widths_[level]) *
+               static_cast<size_t>(hs_level_heights_[level]) * sizeof(float) * 4ULL;
+    }
+    return bytes;
   }
 
   static auto HsLerp(float a, float b, float t) -> float { return a + (b - a) * t; }
@@ -713,6 +727,18 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
         throw std::runtime_error("OpenCL fused pipeline: failed to create kernel '" +
                                  std::string(OpenCL::Pipeline::kHsApplyAdjustedLFromFrameKernelName) +
                                  "' with error " + std::to_string(err) + ".");
+      }
+    }
+
+    if (hs_apply_adjusted_l_from_reference_kernel_ == nullptr) {
+      cl_int err = CL_SUCCESS;
+      hs_apply_adjusted_l_from_reference_kernel_ =
+          clCreateKernel(program, OpenCL::Pipeline::kHsApplyAdjustedLFromReferenceKernelName, &err);
+      if (err != CL_SUCCESS || hs_apply_adjusted_l_from_reference_kernel_ == nullptr) {
+        throw std::runtime_error(
+            "OpenCL fused pipeline: failed to create kernel '" +
+            std::string(OpenCL::Pipeline::kHsApplyAdjustedLFromReferenceKernelName) +
+            "' with error " + std::to_string(err) + ".");
       }
     }
   }
@@ -1252,6 +1278,7 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
     cl_int err = CL_SUCCESS;
     cl_uint arg_index = 0;
     cl_mem src_buf = src.Buffer();
+    cl_mem reference_buf = hs_source_levels_[0];
     cl_mem adjusted_buf = hs_output_levels_[0];
     cl_mem dst_buf = dst.Buffer();
     cl_int width = src.Width();
@@ -1260,6 +1287,8 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
     cl_int adjusted_height = hs_cached_height_;
     err |= clSetKernelArg(hs_apply_adjusted_l_from_frame_kernel_, arg_index++, sizeof(cl_mem),
                           &src_buf);
+    err |= clSetKernelArg(hs_apply_adjusted_l_from_frame_kernel_, arg_index++, sizeof(cl_mem),
+                          &reference_buf);
     err |= clSetKernelArg(hs_apply_adjusted_l_from_frame_kernel_, arg_index++, sizeof(cl_mem),
                           &adjusted_buf);
     err |= clSetKernelArg(hs_apply_adjusted_l_from_frame_kernel_, arg_index++, sizeof(cl_mem),
@@ -1280,6 +1309,47 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
                     "H/S apply adjusted-L-from-frame kernel");
   }
 
+  void EnqueueHsApplyAdjustedLFromReference(const opencl::OpenClImage& src,
+                                            opencl::OpenClImage& dst) {
+    dst.Create(src.Width(), src.Height(), src.Type());
+
+    cl_int err = CL_SUCCESS;
+    cl_uint arg_index = 0;
+    cl_mem src_buf = src.Buffer();
+    cl_mem reference_buf = hs_source_levels_[0];
+    cl_mem adjusted_buf = hs_output_levels_[0];
+    cl_mem dst_buf = dst.Buffer();
+    cl_mem params_buf = resources_.params_buffer_.Get();
+    cl_int width = src.Width();
+    cl_int height = src.Height();
+    cl_int adjusted_width = hs_cached_width_;
+    cl_int adjusted_height = hs_cached_height_;
+    err |= clSetKernelArg(hs_apply_adjusted_l_from_reference_kernel_, arg_index++, sizeof(cl_mem),
+                          &src_buf);
+    err |= clSetKernelArg(hs_apply_adjusted_l_from_reference_kernel_, arg_index++, sizeof(cl_mem),
+                          &reference_buf);
+    err |= clSetKernelArg(hs_apply_adjusted_l_from_reference_kernel_, arg_index++, sizeof(cl_mem),
+                          &adjusted_buf);
+    err |= clSetKernelArg(hs_apply_adjusted_l_from_reference_kernel_, arg_index++, sizeof(cl_mem),
+                          &dst_buf);
+    err |= clSetKernelArg(hs_apply_adjusted_l_from_reference_kernel_, arg_index++, sizeof(cl_mem),
+                          &params_buf);
+    err |= clSetKernelArg(hs_apply_adjusted_l_from_reference_kernel_, arg_index++, sizeof(cl_int),
+                          &width);
+    err |= clSetKernelArg(hs_apply_adjusted_l_from_reference_kernel_, arg_index++, sizeof(cl_int),
+                          &height);
+    err |= clSetKernelArg(hs_apply_adjusted_l_from_reference_kernel_, arg_index++, sizeof(cl_int),
+                          &adjusted_width);
+    err |= clSetKernelArg(hs_apply_adjusted_l_from_reference_kernel_, arg_index++, sizeof(cl_int),
+                          &adjusted_height);
+    if (err != CL_SUCCESS) {
+      throw std::runtime_error(
+          "OpenCL fused pipeline: failed to set H/S apply adjusted-L-from-reference arguments.");
+    }
+    EnqueueKernel2D(hs_apply_adjusted_l_from_reference_kernel_, width, height,
+                    "H/S apply adjusted-L-from-reference kernel");
+  }
+
   void EnqueueHighlightShadowLocalTone(const opencl::OpenClImage& src, opencl::OpenClImage& dst) {
     const float shadow_amount =
         fused_params_.shadows_enabled_
@@ -1297,22 +1367,63 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
     const bool roi_frame_with_source_reference = fused_params_.render_roi_enabled_ &&
                                                  fused_params_.render_roi_reference_width_ > 0 &&
                                                  fused_params_.render_roi_reference_height_ > 0;
-    const bool reference_result_cache_valid =
-        hs_cached_reference_base_ && hs_output_levels_[0] != nullptr &&
-        hs_cached_key_ == adjusted_cache_key && hs_cached_width_ > 0 &&
+    const bool preserve_source_detail = fused_params_.render_hs_preserve_source_detail_;
+    const int reference_max_long_edge =
+        std::max(1, fused_params_.render_hs_reference_max_long_edge_);
+    const HsMaskDimensions current_reference_dims =
+        ComputeHsMaskDimensions(src.Width(), src.Height(),
+                                roi_frame_with_source_reference
+                                    ? std::max(src.Width(), src.Height())
+                                    : reference_max_long_edge);
+    const std::uint64_t reference_source_cache_key = fused_params_.hs_mask_base_cache_key_;
+    std::uint64_t reference_cache_key = adjusted_cache_key;
+    HashCombine(reference_cache_key, static_cast<std::uint64_t>(preserve_source_detail));
+    const bool reference_source_cache_valid =
+        hs_cached_reference_base_ && hs_source_levels_[0] != nullptr &&
+        hs_cached_source_key_ == reference_source_cache_key && hs_cached_width_ > 0 &&
         hs_cached_height_ > 0 && hs_cached_frame_width_ > 0 &&
         hs_cached_frame_height_ > 0 && hs_cached_pitch_ > 0;
-    if (!roi_frame_with_source_reference && reference_result_cache_valid &&
-        (hs_cached_frame_width_ > src.Width() || hs_cached_frame_height_ > src.Height())) {
+    const bool reference_result_cache_valid =
+        reference_source_cache_valid && hs_output_levels_[0] != nullptr &&
+        hs_cached_key_ == reference_cache_key;
+    const int current_reference_long_edge =
+        std::max(current_reference_dims.width, current_reference_dims.height);
+    const int cached_reference_long_edge = std::max(hs_cached_width_, hs_cached_height_);
+    const bool current_can_improve_reference =
+        fused_params_.render_hs_can_seed_reference_ &&
+        current_reference_long_edge > cached_reference_long_edge;
+    const auto ensure_reference_output = [&]() {
+      if (!reference_result_cache_valid) {
+        const auto samples = BuildHsSamples(shadow_amount, highlight_amount);
+        BuildHsOutputPyramid(samples);
+        hs_cached_key_ = reference_cache_key;
+      }
+    };
+    if (roi_frame_with_source_reference && reference_source_cache_valid &&
+        hs_cached_frame_width_ == fused_params_.render_roi_reference_width_ &&
+        hs_cached_frame_height_ == fused_params_.render_roi_reference_height_) {
+      ensure_reference_output();
+      EnqueueHsApplyAdjustedLFromReference(src, dst);
+      return;
+    }
+    if (!roi_frame_with_source_reference && reference_source_cache_valid &&
+        !current_can_improve_reference &&
+        (hs_cached_frame_width_ != src.Width() || hs_cached_frame_height_ != src.Height())) {
+      ensure_reference_output();
       EnqueueHsApplyAdjustedLFromFrame(src, dst);
       return;
     }
 
-    const HsMaskDimensions mask_dims =
-        ComputeHsMaskDimensions(src.Width(), src.Height(), roi_frame_with_source_reference);
+    const bool build_roi_local_reference = roi_frame_with_source_reference;
+    const bool seed_canonical_reference =
+        fused_params_.render_hs_can_seed_reference_ && !build_roi_local_reference;
+    std::uint64_t render_cache_key =
+        build_roi_local_reference ? BuildRoiAdjustedResultCacheKey(fused_params_, reference_cache_key)
+                                  : reference_cache_key;
+    const HsMaskDimensions mask_dims = current_reference_dims;
     EnsureHsPyramidBuffers(mask_dims.width, mask_dims.height, fused_params_.hs_base_radius_);
     const bool cache_valid =
-        hs_output_levels_[0] != nullptr && hs_cached_key_ == adjusted_cache_key &&
+        hs_output_levels_[0] != nullptr && hs_cached_key_ == render_cache_key &&
         hs_cached_frame_width_ == src.Width() && hs_cached_frame_height_ == src.Height() &&
         hs_cached_width_ == mask_dims.width && hs_cached_height_ == mask_dims.height &&
         hs_cached_pitch_ == hs_level_widths_[0];
@@ -1320,19 +1431,25 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
       const auto samples = BuildHsSamples(shadow_amount, highlight_amount);
       BuildHsSourcePyramid(src);
       BuildHsOutputPyramid(samples);
-      hs_cached_key_ = adjusted_cache_key;
+      hs_cached_key_ = render_cache_key;
+      hs_cached_source_key_ = seed_canonical_reference ? reference_source_cache_key : 0;
       hs_cached_width_ = mask_dims.width;
       hs_cached_height_ = mask_dims.height;
       hs_cached_frame_width_ = src.Width();
       hs_cached_frame_height_ = src.Height();
       hs_cached_pitch_ = hs_level_widths_[0];
-      hs_cached_reference_base_ = !roi_frame_with_source_reference;
+      hs_cached_reference_base_ = seed_canonical_reference;
     }
 
+    const bool release_after_dispatch = AllocatedHsPyramidBytes() > kHsMaxRetainedMaskBytes;
     if (hs_cached_width_ == src.Width() && hs_cached_height_ == src.Height()) {
       EnqueueHsApplyAdjustedL(src, dst);
     } else {
       EnqueueHsApplyAdjustedLFromFrame(src, dst);
+    }
+    if (release_after_dispatch) {
+      clFinish(OpenClContext::Instance().Queue());
+      ReleaseHsBaseBuffers();
     }
   }
 
@@ -1521,6 +1638,14 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
     }
   }
 
+  void ReleaseScratchBuffers() override {
+    working_.Release();
+    pre_hs_working_.Release();
+    hs_working_.Release();
+    blur_horizontal_.Release();
+    detail_scratch_.Release();
+  }
+
   void ReleaseResources() override {
     if (fused_kernel_ != nullptr) {
       clReleaseKernel(fused_kernel_);
@@ -1574,11 +1699,11 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
       clReleaseKernel(hs_apply_adjusted_l_from_frame_kernel_);
       hs_apply_adjusted_l_from_frame_kernel_ = nullptr;
     }
-    working_.Release();
-    pre_hs_working_.Release();
-    hs_working_.Release();
-    blur_horizontal_.Release();
-    detail_scratch_.Release();
+    if (hs_apply_adjusted_l_from_reference_kernel_ != nullptr) {
+      clReleaseKernel(hs_apply_adjusted_l_from_reference_kernel_);
+      hs_apply_adjusted_l_from_reference_kernel_ = nullptr;
+    }
+    ReleaseScratchBuffers();
     ReleaseHsBaseBuffers();
     resources_.Reset();
   }

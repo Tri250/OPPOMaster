@@ -421,6 +421,7 @@ __kernel void edit_pipeline_hs_apply_adjusted_l_rgba32f(
 
 __kernel void edit_pipeline_hs_apply_adjusted_l_from_frame_rgba32f(
     __global const float4* src,
+    __global const float* reference_l,
     __global const float* adjusted_l,
     __global float4* dst,
     int width,
@@ -438,9 +439,62 @@ __kernel void edit_pipeline_hs_apply_adjusted_l_from_frame_rgba32f(
   const float adjusted_y =
       (((float)y + 0.5f) * (float)adjusted_height / fmax((float)height, 1.0f)) - 0.5f;
   const size_t offset = (size_t)y * (size_t)width + (size_t)x;
-  const float sampled_l = opencl_hs_read_plane_bilinear(adjusted_l, adjusted_width,
-                                                        adjusted_height, adjusted_x, adjusted_y);
-  dst[offset] = opencl_hs_apply_adjusted_l_pixel(src[offset], sampled_l);
+  const float sampled_reference =
+      opencl_hs_read_plane_bilinear(reference_l, adjusted_width, adjusted_height,
+                                    adjusted_x, adjusted_y);
+  const float sampled_adjusted =
+      opencl_hs_read_plane_bilinear(adjusted_l, adjusted_width, adjusted_height,
+                                    adjusted_x, adjusted_y);
+  dst[offset] =
+      opencl_hs_apply_adjusted_l_delta_pixel(src[offset], sampled_reference, sampled_adjusted);
+}
+
+__kernel void edit_pipeline_hs_apply_adjusted_l_from_reference_rgba32f(
+    __global const float4* src,
+    __global const float* reference_l,
+    __global const float* adjusted_l,
+    __global float4* dst,
+    __global const OpenClFusedParams* params,
+    int width,
+    int height,
+    int adjusted_width,
+    int adjusted_height) {
+  const int x = get_global_id(0);
+  const int y = get_global_id(1);
+  if (x >= width || y >= height) {
+    return;
+  }
+
+  const float reference_width = (float)max(params->render_roi_reference_width_, width);
+  const float reference_height = (float)max(params->render_roi_reference_height_, height);
+  const float roi_origin_x =
+      (params->render_roi_enabled_ != 0u) ? (float)params->render_roi_x_ : 0.0f;
+  const float roi_origin_y =
+      (params->render_roi_enabled_ != 0u) ? (float)params->render_roi_y_ : 0.0f;
+  const float roi_width = (params->render_roi_enabled_ != 0u)
+                              ? fmax(params->render_roi_scale_x_ * reference_width, 1.0f)
+                              : reference_width;
+  const float roi_height = (params->render_roi_enabled_ != 0u)
+                               ? fmax(params->render_roi_scale_y_ * reference_height, 1.0f)
+                               : reference_height;
+  const float reference_x =
+      roi_origin_x + (((float)x + 0.5f) * roi_width / fmax((float)width, 1.0f)) - 0.5f;
+  const float reference_y =
+      roi_origin_y + (((float)y + 0.5f) * roi_height / fmax((float)height, 1.0f)) - 0.5f;
+  const float adjusted_x =
+      ((reference_x + 0.5f) * (float)adjusted_width / fmax(reference_width, 1.0f)) - 0.5f;
+  const float adjusted_y =
+      ((reference_y + 0.5f) * (float)adjusted_height / fmax(reference_height, 1.0f)) - 0.5f;
+
+  const size_t offset = (size_t)y * (size_t)width + (size_t)x;
+  const float sampled_reference =
+      opencl_hs_read_plane_bilinear(reference_l, adjusted_width, adjusted_height,
+                                    adjusted_x, adjusted_y);
+  const float sampled_adjusted =
+      opencl_hs_read_plane_bilinear(adjusted_l, adjusted_width, adjusted_height,
+                                    adjusted_x, adjusted_y);
+  dst[offset] =
+      opencl_hs_apply_adjusted_l_delta_pixel(src[offset], sampled_reference, sampled_adjusted);
 }
 
 #endif  // ALCEDO_OPENCL_EDIT_PIPELINE_DETAIL_CL
