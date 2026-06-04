@@ -801,7 +801,7 @@ fun ExportDialog(
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text("格式", style = MaterialTheme.typography.titleSmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ExportFormat.values().forEach { f ->
+                    ExportFormat.entries.forEach { f ->
                         FilterChip(
                             selected = format == f,
                             onClick = { format = f },
@@ -819,7 +819,7 @@ fun ExportDialog(
                 
                 Text("分辨率", style = MaterialTheme.typography.titleSmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ExportResolution.values().forEach { r ->
+                    ExportResolution.entries.forEach { r ->
                         FilterChip(
                             selected = resolution == r,
                             onClick = { resolution = r },
@@ -847,7 +847,7 @@ fun ExportDialog(
 
 @Composable
 fun TemplatePickerDialog(
-    onTemplateSelected: (WatermarkTemplate) -> Unit,
+    onTemplateSelected: (WatermarkTemplateData) -> Unit,
     onDismiss: () -> Unit
 ) {
     val templates = getDefaultTemplates()
@@ -877,7 +877,7 @@ fun TemplatePickerDialog(
 
 @Composable
 fun TemplateItem(
-    template: WatermarkTemplate,
+    template: WatermarkTemplateData,
     onClick: () -> Unit
 ) {
     Card(
@@ -909,8 +909,8 @@ fun TemplateItem(
     }
 }
 
-fun getDefaultTemplates(): List<WatermarkTemplate> = listOf(
-    WatermarkTemplate(
+fun getDefaultTemplates(): List<WatermarkTemplateData> = listOf(
+    WatermarkTemplateData(
         id = "simple_text",
         name = "简单文字",
         description = "底部居中文字水印",
@@ -929,7 +929,7 @@ fun getDefaultTemplates(): List<WatermarkTemplate> = listOf(
             )
         )
     ),
-    WatermarkTemplate(
+    WatermarkTemplateData(
         id = "corner_text",
         name = "角落文字",
         description = "右下角文字水印",

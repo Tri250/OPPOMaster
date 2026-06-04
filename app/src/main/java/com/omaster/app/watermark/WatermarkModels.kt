@@ -87,7 +87,7 @@ data class WatermarkEditorState(
         get() = watermarks.find { it.id == selectedWatermarkId }
 }
 
-data class WatermarkTemplate(
+data class WatermarkTemplateData(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
     val description: String = "",
@@ -121,7 +121,7 @@ enum class ExportResolution(val width: Int? = null, val height: Int? = null) {
 
 data class BatchExportRequest(
     val sourceUris: List<Uri>,
-    val template: WatermarkTemplate,
+    val template: WatermarkTemplateData,
     val config: ExportConfig
 )
 
