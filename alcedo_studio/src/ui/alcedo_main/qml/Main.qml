@@ -136,6 +136,8 @@ ApplicationWindow {
     property var pendingDeleteTargets: []
     property var pendingDetailsTarget: ({})
     property var pendingRatingTarget: ({})
+    property var pendingAdjustmentSource: ({})
+    property var pendingAdjustmentPasteTargets: []
     property string deleteConfirmText: ""
     property string snackbarText: ""
     property bool importSessionObserved: false
@@ -254,6 +256,54 @@ ApplicationWindow {
         }
     }
 
+    function selectionShortcutBlocked() {
+        return exportDialog.opened
+               || settingsDialog.opened
+               || adjustmentTransferDialog.opened
+               || imageDetailsDialog.opened
+               || nikonHeRecoveryDialog.opened
+               || deleteConfirmDialog.opened
+               || welcomeDialog.opened
+    }
+
+    function selectionItemFromThumbnailRow(row) {
+        if (!row || !row.elementId) {
+            return null
+        }
+        const elementId = Number(row.elementId)
+        if (elementId <= 0) {
+            return null
+        }
+        return {
+            elementId: elementId,
+            imageId: Number(row.imageId),
+            fileName: row.fileName ? row.fileName : qsTr("(unnamed)"),
+            rating: Number(row.rating)
+        }
+    }
+
+    function selectAllCurrentAlbum() {
+        if (!root.backendInteractive || albumBackend.thumbnailModel.loading) {
+            return
+        }
+        const total = Number(albumBackend.totalCount)
+        if (total <= 0) {
+            selectionState.clearSelectedImages()
+            return
+        }
+
+        albumBackend.LoadThumbnailsThroughIndex(total - 1)
+        const rows = albumBackend.thumbnailModel.getItemsInRange(0, total - 1)
+        const items = []
+        for (let i = 0; i < rows.length; ++i) {
+            const item = root.selectionItemFromThumbnailRow(rows[i])
+            if (item) {
+                items.push(item)
+            }
+        }
+        selectionState.replaceSelectedImages(items)
+    }
+
     function resolveDeleteTargets(clickedItem) {
         if (root.selectedCount > 0) {
             return Object.values(root.selectedImagesById)
@@ -320,6 +370,12 @@ ApplicationWindow {
                     ? Number(ratingResult.rating)
                     : Number(clickedItem.rating || 0)
         }
+        root.pendingAdjustmentSource = {
+            elementId: Number(clickedItem.elementId),
+            imageId: Number(clickedItem.imageId),
+            fileName: clickedItem.fileName ? clickedItem.fileName : qsTr("(unnamed)")
+        }
+        root.pendingAdjustmentPasteTargets = targets
         imageContextMenu.openAt(sceneX, sceneY)
     }
 
@@ -399,6 +455,41 @@ ApplicationWindow {
         if (result && result.message) {
             root.showSnackbar(result.message)
         }
+    }
+
+    function requestCopyAdjustments() {
+        if (!root.pendingAdjustmentSource || Number(root.pendingAdjustmentSource.elementId) <= 0) {
+            return
+        }
+        const result = albumBackend.adjustmentTransferController.PrepareCopy(
+            Number(root.pendingAdjustmentSource.elementId))
+        if (!result || result.success !== true) {
+            if (result && result.message) {
+                root.showSnackbar(result.message)
+            }
+            return
+        }
+        adjustmentTransferDialog.mode = "copy"
+        adjustmentTransferDialog.sourceTitle = result.sourceTitle ? String(result.sourceTitle) : ""
+        adjustmentTransferDialog.targetCount = 0
+        adjustmentTransferDialog.adjustmentRows = result.items ? result.items : []
+        adjustmentTransferDialog.open()
+    }
+
+    function requestPasteAdjustments() {
+        if (!albumBackend.adjustmentTransferController.packageAvailable) {
+            return
+        }
+        if (!root.pendingAdjustmentPasteTargets || root.pendingAdjustmentPasteTargets.length === 0) {
+            return
+        }
+        adjustmentTransferDialog.mode = "paste"
+        adjustmentTransferDialog.sourceTitle =
+                albumBackend.adjustmentTransferController.packageSourceTitle
+        adjustmentTransferDialog.targetCount = root.pendingAdjustmentPasteTargets.length
+        adjustmentTransferDialog.adjustmentRows =
+                albumBackend.adjustmentTransferController.packageSummary
+        adjustmentTransferDialog.open()
     }
 
     ExportQueueState {
@@ -544,6 +635,32 @@ ApplicationWindow {
         }
     }
 
+    AdjustmentTransferDialog {
+        id: adjustmentTransferDialog
+        blurSource: mainContent
+        cornerRadius: root.windowCornerRadius
+        onCopyAccepted: function(selectedKeys) {
+            const result = albumBackend.adjustmentTransferController.Copy(
+                Number(root.pendingAdjustmentSource.elementId),
+                selectedKeys)
+            if (result && result.message) {
+                root.showSnackbar(result.message)
+            }
+        }
+        onPasteAccepted: {
+            const result = albumBackend.adjustmentTransferController.Paste(
+                root.pendingAdjustmentPasteTargets)
+            if (result && result.message) {
+                root.showSnackbar(result.message)
+            }
+            root.pendingAdjustmentPasteTargets = []
+        }
+        onPasteDiscarded: {
+            albumBackend.adjustmentTransferController.Discard()
+            root.pendingAdjustmentPasteTargets = []
+        }
+    }
+
     ImageContextMenu {
         id: imageContextMenu
         ratingEnabled: Number(root.pendingRatingTarget.imageId) > 0
@@ -553,6 +670,17 @@ ApplicationWindow {
                 id: "details",
                 label: qsTr("Details"),
                 enabled: Number(root.pendingDetailsTarget.imageId) > 0
+            },
+            {
+                id: "copy-adjustments",
+                label: qsTr("Copy Adjustments"),
+                enabled: Number(root.pendingAdjustmentSource.elementId) > 0
+            },
+            {
+                id: "paste-adjustments",
+                label: qsTr("Paste Adjustments"),
+                enabled: albumBackend.adjustmentTransferController.packageAvailable
+                         && root.pendingAdjustmentPasteTargets.length > 0
             },
             {
                 id: "delete",
@@ -568,6 +696,14 @@ ApplicationWindow {
             imageContextMenu.close()
             if (actionId === "details") {
                 requestImageDetails()
+                return
+            }
+            if (actionId === "copy-adjustments") {
+                requestCopyAdjustments()
+                return
+            }
+            if (actionId === "paste-adjustments") {
+                requestPasteAdjustments()
                 return
             }
             if (actionId === "delete") {
@@ -1693,6 +1829,12 @@ ApplicationWindow {
             })
         }
         onClosed: root.startPendingProjectLaunch()
+    }
+
+    Shortcut {
+        sequence: StandardKey.SelectAll
+        enabled: root.backendInteractive && !root.selectionShortcutBlocked()
+        onActivated: root.selectAllCurrentAlbum()
     }
 
     // ── Accelerator preparation overlay ───────────────────────────────

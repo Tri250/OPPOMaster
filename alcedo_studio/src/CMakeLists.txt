@@ -902,6 +902,11 @@ def_library(PipelineMgmtService
     PUBLIC_DEPS ProjectService EditPipeline
     )
 
+def_library(AdjustmentTransferService
+    SOURCES app/adjustment_transfer_service.cpp
+    PUBLIC_DEPS PipelineMgmtService EditPipeline
+)
+
 def_library(EditHistoryMgmtService
     SOURCES app/history_mgmt_service.cpp
     PUBLIC_DEPS ProjectService EditHistory
@@ -1033,6 +1038,7 @@ add_library(AlbumBackendLib STATIC
     ui/alcedo_main/album_backend/import_export.cpp
     ui/alcedo_main/album_backend/nikon_he_recovery_controller.cpp
     ui/alcedo_main/album_backend/editor_controller.cpp
+    ui/alcedo_main/album_backend/adjustment_transfer_controller.cpp
     include/ui/alcedo_main/album_backend/album_backend.hpp
     include/ui/alcedo_main/album_backend/album_thumbnail_model.hpp
     include/ui/alcedo_main/album_backend/album_types.hpp
@@ -1047,6 +1053,7 @@ add_library(AlbumBackendLib STATIC
     include/ui/alcedo_main/album_backend/nikon_he_recovery_controller.hpp
     include/ui/alcedo_main/album_backend/nikon_he_recovery_types.hpp
     include/ui/alcedo_main/album_backend/editor_controller.hpp
+    include/ui/alcedo_main/album_backend/adjustment_transfer_controller.hpp
 )
 
 target_include_directories(AlbumBackendLib
@@ -1068,6 +1075,7 @@ target_link_libraries(AlbumBackendLib
         ImportService
         ExportService
         PipelineMgmtService
+        AdjustmentTransferService
         EditHistoryMgmtService
         ThumbnailService
         SleeveFilterService
@@ -1284,6 +1292,7 @@ qt_add_qml_module(alcedo_main
         ui/alcedo_main/qml/ExportQueueState.qml
         ui/alcedo_main/qml/AlbumExportDialog.qml
         ui/alcedo_main/qml/ImageDetailsDialog.qml
+        ui/alcedo_main/qml/AdjustmentTransferDialog.qml
         ui/alcedo_main/qml/SettingDialog.qml
         ui/alcedo_main/qml/WelcomeDialog.qml
         ui/alcedo_main/qml/NikonHeRecoveryDialog.qml
