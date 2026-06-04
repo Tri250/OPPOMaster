@@ -177,7 +177,4 @@ dependencies {
 
 kapt {
     correctErrorTypes = true
-    arguments {
-        arg("dagger.hilt.disableModulesHaveInstallInCheck", "true")
-    }
 }
