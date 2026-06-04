@@ -174,7 +174,7 @@ fun ProPresetCard(
                         Spacer(modifier = Modifier.height(4.dp))
                         
                         Text(
-                            text = "${preset.device} · ${preset.author}",
+                            text = "${preset.deviceModel} · ${preset.author}",
                             style = MaterialTheme.typography.bodySmall,
                             color = if (isDark) ColorOSTextTertiary else ColorOSLightTextTertiary
                         )
@@ -219,34 +219,36 @@ fun ProPresetCard(
                 Spacer(modifier = Modifier.height(12.dp))
                 
                 // 参数预览
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    ParamPreviewItem(
-                        label = "ISO",
-                        value = preset.cameraParams.iso.toString(),
-                        color = ColorISO,
-                        isDark = isDark
-                    )
-                    ParamPreviewItem(
-                        label = "快门",
-                        value = preset.cameraParams.shutterSpeed,
-                        color = ColorShutter,
-                        isDark = isDark
-                    )
-                    ParamPreviewItem(
-                        label = "EV",
-                        value = if (preset.cameraParams.ev >= 0) "+${preset.cameraParams.ev}" else preset.cameraParams.ev.toString(),
-                        color = ColorEV,
-                        isDark = isDark
-                    )
-                    ParamPreviewItem(
-                        label = "WB",
-                        value = preset.cameraParams.whiteBalance,
-                        color = ColorWB,
-                        isDark = isDark
-                    )
+                preset.cameraParams?.let { params ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        ParamPreviewItem(
+                            label = "ISO",
+                            value = params.iso.toString(),
+                            color = ColorISO,
+                            isDark = isDark
+                        )
+                        ParamPreviewItem(
+                            label = "快门",
+                            value = params.shutter,
+                            color = ColorShutter,
+                            isDark = isDark
+                        )
+                        ParamPreviewItem(
+                            label = "EV",
+                            value = params.ev,
+                            color = ColorEV,
+                            isDark = isDark
+                        )
+                        ParamPreviewItem(
+                            label = "WB",
+                            value = params.wb,
+                            color = ColorWB,
+                            isDark = isDark
+                        )
+                    }
                 }
             }
         }

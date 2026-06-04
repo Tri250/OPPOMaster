@@ -1026,7 +1026,7 @@ private fun ExportDialogV2(
 
 @Composable
 private fun TemplatePickerDialogV2(
-    onTemplateSelected: (WatermarkTemplate) -> Unit,
+    onTemplateSelected: (WatermarkTemplateData) -> Unit,
     onDismiss: () -> Unit
 ) {
     val templates = getDefaultTemplatesV2()
@@ -1056,7 +1056,7 @@ private fun TemplatePickerDialogV2(
 
 @Composable
 private fun TemplateItemV2(
-    template: WatermarkTemplate,
+    template: WatermarkTemplateData,
     onClick: () -> Unit
 ) {
     var isPressed by remember { mutableStateOf(false) }
@@ -1122,8 +1122,8 @@ private fun TemplateItemV2(
     }
 }
 
-private fun getDefaultTemplatesV2(): List<WatermarkTemplate> = listOf(
-    WatermarkTemplate(
+private fun getDefaultTemplatesV2(): List<WatermarkTemplateData> = listOf(
+    WatermarkTemplateData(
         id = "simple_text",
         name = "简单文字",
         description = "底部居中文字水印",
@@ -1142,7 +1142,7 @@ private fun getDefaultTemplatesV2(): List<WatermarkTemplate> = listOf(
             )
         )
     ),
-    WatermarkTemplate(
+    WatermarkTemplateData(
         id = "corner_text",
         name = "角落文字",
         description = "右下角文字水印",

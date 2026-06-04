@@ -189,7 +189,7 @@ fun WatermarkEditorDialog(
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(WatermarkTemplate.values()) { template ->
+                items(WatermarkTemplate.entries) { template ->
                     TemplateChip(
                         template = template,
                         selected = selectedTemplate == template,

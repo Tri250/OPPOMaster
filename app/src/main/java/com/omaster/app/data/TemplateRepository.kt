@@ -20,17 +20,17 @@ class TemplateRepository @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     private val templatesDir = File(context.filesDir, "templates")
-    private val systemTemplates = mutableListOf<WatermarkTemplate>()
-    private val customTemplates = mutableListOf<WatermarkTemplate>()
+    private val systemTemplates = mutableListOf<WatermarkTemplateData>()
+    private val customTemplates = mutableListOf<WatermarkTemplateData>()
 
-    private val _templates = MutableStateFlow<List<WatermarkTemplate>>(emptyList())
-    val templates: Flow<List<WatermarkTemplate>> = _templates.asStateFlow()
+    private val _templates = MutableStateFlow<List<WatermarkTemplateData>>(emptyList())
+    val templates: Flow<List<WatermarkTemplateData>> = _templates.asStateFlow()
 
-    private val _systemTemplatesFlow = MutableStateFlow<List<WatermarkTemplate>>(emptyList())
-    val systemTemplatesFlow: Flow<List<WatermarkTemplate>> = _systemTemplatesFlow.asStateFlow()
+    private val _systemTemplatesFlow = MutableStateFlow<List<WatermarkTemplateData>>(emptyList())
+    val systemTemplatesFlow: Flow<List<WatermarkTemplateData>> = _systemTemplatesFlow.asStateFlow()
 
-    private val _customTemplatesFlow = MutableStateFlow<List<WatermarkTemplate>>(emptyList())
-    val customTemplatesFlow: Flow<List<WatermarkTemplate>> = _customTemplatesFlow.asStateFlow()
+    private val _customTemplatesFlow = MutableStateFlow<List<WatermarkTemplateData>>(emptyList())
+    val customTemplatesFlow: Flow<List<WatermarkTemplateData>> = _customTemplatesFlow.asStateFlow()
 
     init {
         if (!templatesDir.exists()) {
@@ -194,8 +194,8 @@ class TemplateRepository @Inject constructor(
         name: String,
         description: String,
         watermarks: List<Watermark>
-    ): WatermarkTemplate {
-        return WatermarkTemplate(
+    ): WatermarkTemplateData {
+        return WatermarkTemplateData(
             id = id,
             name = name,
             description = description,
@@ -222,7 +222,7 @@ class TemplateRepository @Inject constructor(
         updateCombinedTemplates()
     }
 
-    suspend fun saveTemplate(template: WatermarkTemplate): Result<WatermarkTemplate> = withContext(Dispatchers.IO) {
+    suspend fun saveTemplate(template: WatermarkTemplateData): Result<WatermarkTemplateData> = withContext(Dispatchers.IO) {
         try {
             val customTemplate = template.copy(
                 isCustom = true,
@@ -268,18 +268,18 @@ class TemplateRepository @Inject constructor(
         }
     }
 
-    suspend fun updateTemplate(template: WatermarkTemplate): Result<WatermarkTemplate> = withContext(Dispatchers.IO) {
+    suspend fun updateTemplate(template: WatermarkTemplateData): Result<WatermarkTemplateData> = withContext(Dispatchers.IO) {
         if (template.isSystem) {
             return@withContext Result.failure(IllegalArgumentException("Cannot update system templates"))
         }
         saveTemplate(template)
     }
 
-    fun getTemplateById(id: String): WatermarkTemplate? {
+    fun getTemplateById(id: String): WatermarkTemplateData? {
         return (systemTemplates + customTemplates).find { it.id == id }
     }
 
-    fun searchTemplates(query: String): List<WatermarkTemplate> {
+    fun searchTemplates(query: String): List<WatermarkTemplateData> {
         val lowerQuery = query.lowercase()
         return (systemTemplates + customTemplates).filter {
             it.name.lowercase().contains(lowerQuery) ||
@@ -291,7 +291,7 @@ class TemplateRepository @Inject constructor(
         _templates.value = systemTemplates + customTemplates
     }
 
-    private fun parseTemplateFromJson(json: String): WatermarkTemplate {
+    private fun parseTemplateFromJson(json: String): WatermarkTemplateData {
         val jsonObject = JSONObject(json)
 
         val watermarksArray = jsonObject.getJSONArray("watermarks")
@@ -302,7 +302,7 @@ class TemplateRepository @Inject constructor(
             watermarks.add(parseWatermarkFromJson(wmObject))
         }
 
-        return WatermarkTemplate(
+        return WatermarkTemplateData(
             id = jsonObject.getString("id"),
             name = jsonObject.getString("name"),
             description = jsonObject.optString("description", ""),
@@ -334,7 +334,7 @@ class TemplateRepository @Inject constructor(
         )
     }
 
-    private fun templateToJson(template: WatermarkTemplate): String {
+    private fun templateToJson(template: WatermarkTemplateData): String {
         val jsonObject = JSONObject()
 
         jsonObject.put("id", template.id)
@@ -380,7 +380,7 @@ class TemplateRepository @Inject constructor(
         }
     }
 
-    suspend fun importTemplate(importFile: File): Result<WatermarkTemplate> = withContext(Dispatchers.IO) {
+    suspend fun importTemplate(importFile: File): Result<WatermarkTemplateData> = withContext(Dispatchers.IO) {
         try {
             val json = importFile.readText()
             var template = parseTemplateFromJson(json)
