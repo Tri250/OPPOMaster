@@ -252,7 +252,19 @@ struct MetalHsRemapParams {
   float beta_;
   float alpha_;
   float sigma_r_;
+  int   dst_offset_;
+};
+
+struct MetalHsRemapPackedParams {
+  int   width_;
+  int   height_;
+  int   sample_count_;
   int   reserved_;
+  float sigma_r_;
+  float gammas_[32];
+  float targets_[32];
+  float betas_[32];
+  float alphas_[32];
 };
 
 struct MetalHsPyrDownParams {
@@ -260,6 +272,21 @@ struct MetalHsPyrDownParams {
   int src_height_;
   int dst_width_;
   int dst_height_;
+  int src_offset_;
+  int dst_offset_;
+  int reserved0_;
+  int reserved1_;
+};
+
+struct MetalHsPyrDownPackedParams {
+  int src_width_;
+  int src_height_;
+  int dst_width_;
+  int dst_height_;
+  int sample_count_;
+  int reserved0_;
+  int reserved1_;
+  int reserved2_;
 };
 
 struct MetalHsSelectParams {
@@ -275,6 +302,18 @@ struct MetalHsSelectParams {
   int   reserved0_;
   int   reserved1_;
   int   reserved2_;
+};
+
+struct MetalHsSelectPackedParams {
+  int   width_;
+  int   height_;
+  int   coarse_width_;
+  int   coarse_height_;
+  int   sample_count_;
+  int   top_level_;
+  int   reserved0_;
+  int   reserved1_;
+  float gammas_[32];
 };
 
 struct MetalHsPlaneApplyParams {
@@ -414,9 +453,31 @@ kernel void metal_hs_build_remapped_sample(device const float*          source_l
   const size_t offset =
       static_cast<size_t>(gid.y) * static_cast<size_t>(params.width_) + static_cast<size_t>(gid.x);
   const float source_value = source_l[offset];
-  remapped_l[offset] =
+  remapped_l[static_cast<size_t>(params.dst_offset_) + offset] =
       params.target_ + metal_hs_llf_remap_delta(source_value - params.gamma_, params.sigma_r_,
                                                 params.alpha_, params.beta_);
+}
+
+kernel void metal_hs_build_remapped_samples_packed(device const float* source_l [[buffer(0)]],
+                                                   device float*       remapped_l [[buffer(1)]],
+                                                   constant MetalHsRemapPackedParams& params
+                                                   [[buffer(2)]],
+                                                   uint3 gid [[thread_position_in_grid]]) {
+  if (gid.x >= static_cast<uint>(params.width_) || gid.y >= static_cast<uint>(params.height_) ||
+      gid.z >= static_cast<uint>(params.sample_count_)) {
+    return;
+  }
+
+  const size_t plane_elems =
+      static_cast<size_t>(params.width_) * static_cast<size_t>(params.height_);
+  const size_t offset =
+      static_cast<size_t>(gid.y) * static_cast<size_t>(params.width_) + static_cast<size_t>(gid.x);
+  const int   sample_index = static_cast<int>(gid.z);
+  const float source_value = source_l[offset];
+  remapped_l[static_cast<size_t>(sample_index) * plane_elems + offset] =
+      params.targets_[sample_index] +
+      metal_hs_llf_remap_delta(source_value - params.gammas_[sample_index], params.sigma_r_,
+                               params.alphas_[sample_index], params.betas_[sample_index]);
 }
 
 kernel void metal_hs_pyr_down(device const float*            src [[buffer(0)]],
@@ -435,13 +496,49 @@ kernel void metal_hs_pyr_down(device const float*            src [[buffer(0)]],
     const float wy = metal_hs_pyr_weight_1d(ky);
     for (int kx = -2; kx <= 2; ++kx) {
       const float wx = metal_hs_pyr_weight_1d(kx);
-      sum += wx * wy *
-             metal_hs_read_plane_clamped(src, center_x + kx, center_y + ky, params.src_width_,
-                                         params.src_height_);
+      sum +=
+          wx * wy *
+          metal_hs_read_plane_clamped(src + static_cast<size_t>(params.src_offset_), center_x + kx,
+                                      center_y + ky, params.src_width_, params.src_height_);
     }
   }
 
-  dst[static_cast<size_t>(gid.y) * static_cast<size_t>(params.dst_width_) +
+  dst[static_cast<size_t>(params.dst_offset_) +
+      static_cast<size_t>(gid.y) * static_cast<size_t>(params.dst_width_) +
+      static_cast<size_t>(gid.x)] = sum;
+}
+
+kernel void metal_hs_pyr_down_packed(device const float*                  src [[buffer(0)]],
+                                     device float*                        dst [[buffer(1)]],
+                                     constant MetalHsPyrDownPackedParams& params [[buffer(2)]],
+                                     uint3 gid [[thread_position_in_grid]]) {
+  if (gid.x >= static_cast<uint>(params.dst_width_) ||
+      gid.y >= static_cast<uint>(params.dst_height_) ||
+      gid.z >= static_cast<uint>(params.sample_count_)) {
+    return;
+  }
+
+  const size_t src_plane_elems =
+      static_cast<size_t>(params.src_width_) * static_cast<size_t>(params.src_height_);
+  const size_t dst_plane_elems =
+      static_cast<size_t>(params.dst_width_) * static_cast<size_t>(params.dst_height_);
+  const size_t src_offset = static_cast<size_t>(gid.z) * src_plane_elems;
+  const size_t dst_offset = static_cast<size_t>(gid.z) * dst_plane_elems;
+
+  const int    center_x   = static_cast<int>(gid.x) * 2;
+  const int    center_y   = static_cast<int>(gid.y) * 2;
+  float        sum        = 0.0f;
+  for (int ky = -2; ky <= 2; ++ky) {
+    const float wy = metal_hs_pyr_weight_1d(ky);
+    for (int kx = -2; kx <= 2; ++kx) {
+      const float wx = metal_hs_pyr_weight_1d(kx);
+      sum += wx * wy *
+             metal_hs_read_plane_clamped(src + src_offset, center_x + kx, center_y + ky,
+                                         params.src_width_, params.src_height_);
+    }
+  }
+
+  dst[dst_offset + static_cast<size_t>(gid.y) * static_cast<size_t>(params.dst_width_) +
       static_cast<size_t>(gid.x)] = sum;
 }
 
@@ -481,6 +578,67 @@ kernel void metal_hs_select_interpolated_level(device const float* source_level 
                                                             params.coarse_height_, x, y);
   const float lap_hi =
       sample_hi_level[offset] - metal_hs_expand_from_coarse(sample_hi_coarse, params.coarse_width_,
+                                                            params.coarse_height_, x, y);
+  output_level[offset] = mix(lap_lo, lap_hi, t);
+}
+
+kernel void metal_hs_select_interpolated_level_packed(
+    device const float* source_level [[buffer(0)]], device const float* sample_level [[buffer(1)]],
+    device const float* sample_coarse [[buffer(2)]], device float* output_level [[buffer(3)]],
+    constant MetalHsSelectPackedParams& params [[buffer(4)]],
+    uint2                               gid [[thread_position_in_grid]]) {
+  if (gid.x >= static_cast<uint>(params.width_) || gid.y >= static_cast<uint>(params.height_)) {
+    return;
+  }
+  if (params.sample_count_ < 2) {
+    return;
+  }
+
+  const size_t plane_elems =
+      static_cast<size_t>(params.width_) * static_cast<size_t>(params.height_);
+  const size_t coarse_elems =
+      static_cast<size_t>(params.coarse_width_) * static_cast<size_t>(params.coarse_height_);
+  const size_t offset =
+      static_cast<size_t>(gid.y) * static_cast<size_t>(params.width_) + static_cast<size_t>(gid.x);
+  const float g = source_level[offset];
+  if (isnan(g)) {
+    return;
+  }
+
+  int pair = 0;
+  if (g <= params.gammas_[1]) {
+    pair = 0;
+  } else if (g >= params.gammas_[params.sample_count_ - 2]) {
+    pair = params.sample_count_ - 2;
+  } else {
+    for (int i = 1; i + 1 < params.sample_count_; ++i) {
+      if (g >= params.gammas_[i] && g < params.gammas_[i + 1]) {
+        pair = i;
+        break;
+      }
+    }
+  }
+
+  const float  gamma_lo  = params.gammas_[pair];
+  const float  gamma_hi  = params.gammas_[pair + 1];
+  const float  t         = clamp((g - gamma_lo) / fmax(gamma_hi - gamma_lo, 1.0e-6f), 0.0f, 1.0f);
+  const size_t lo_offset = static_cast<size_t>(pair) * plane_elems + offset;
+  const size_t hi_offset = static_cast<size_t>(pair + 1) * plane_elems + offset;
+  if (params.top_level_ != 0) {
+    output_level[offset] = mix(sample_level[lo_offset], sample_level[hi_offset], t);
+    return;
+  }
+
+  const int           x                = static_cast<int>(gid.x);
+  const int           y                = static_cast<int>(gid.y);
+  device const float* sample_lo_coarse = sample_coarse + static_cast<size_t>(pair) * coarse_elems;
+  device const float* sample_hi_coarse =
+      sample_coarse + static_cast<size_t>(pair + 1) * coarse_elems;
+  const float lap_lo =
+      sample_level[lo_offset] - metal_hs_expand_from_coarse(sample_lo_coarse, params.coarse_width_,
+                                                            params.coarse_height_, x, y);
+  const float lap_hi =
+      sample_level[hi_offset] - metal_hs_expand_from_coarse(sample_hi_coarse, params.coarse_width_,
                                                             params.coarse_height_, x, y);
   output_level[offset] = mix(lap_lo, lap_hi, t);
 }

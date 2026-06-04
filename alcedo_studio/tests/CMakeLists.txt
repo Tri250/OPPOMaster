@@ -209,6 +209,10 @@ if(ALCEDO_METAL_ENABLED)
   target_link_libraries(MetalFullPipelinePreviewTest PRIVATE GTest::gtest_main EditPipeline RawProcessor PipelineScheduler ThreadPool opencv_highgui ${ALCEDO_TEST_OPENCV_MIN_DEPS})
   gtest_discover_tests(MetalFullPipelinePreviewTest TEST_PREFIX "MetalFullPipelinePreviewTest."
     PROPERTIES LABELS "ci_metal_runtime")
+
+  add_executable(MetalFastPreviewProfile raw/metal_fast_preview_profile.cpp)
+  target_include_directories(MetalFastPreviewProfile PUBLIC ${ALCEDO_INCLUDE_DIR})
+  target_link_libraries(MetalFastPreviewProfile PRIVATE GTest::gtest_main EditPipeline RawProcessor PipelineScheduler ThreadPool opencv_highgui ${ALCEDO_TEST_OPENCV_MIN_DEPS})
 endif()
 
 if(ALCEDO_OPENCL_ENABLED)
