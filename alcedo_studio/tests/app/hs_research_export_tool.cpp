@@ -47,6 +47,7 @@ struct Options {
   std::vector<std::filesystem::path> raw_paths;
   float                              shadow_slider = 100.0f;
   float                              highlight_slider = -100.0f;
+  float                              saturation_slider = pipeline_defaults::kCleanBaselineSaturation;
   bool                               keep_project = false;
   bool                               use_default_lut = false;
 };
@@ -107,6 +108,8 @@ auto BuildOptions(int argc, wchar_t** argv) -> Options {
   options.shadow_slider = ParseFloatArg(argc, argv, L"--shadow", options.shadow_slider);
   options.highlight_slider =
       ParseFloatArg(argc, argv, L"--highlight", options.highlight_slider);
+  options.saturation_slider =
+      ParseFloatArg(argc, argv, L"--saturation", options.saturation_slider);
   options.keep_project    = HasFlag(argc, argv, L"--keep-project");
   options.use_default_lut = HasFlag(argc, argv, L"--default-lut");
 
@@ -116,7 +119,8 @@ auto BuildOptions(int argc, wchar_t** argv) -> Options {
       continue;
     }
     if (arg[0] == L'-') {
-      if (arg == L"--out-dir" || arg == L"--shadow" || arg == L"--highlight") {
+      if (arg == L"--out-dir" || arg == L"--shadow" || arg == L"--highlight" ||
+          arg == L"--saturation") {
         ++i;
       }
       continue;
@@ -129,6 +133,7 @@ auto BuildOptions(int argc, wchar_t** argv) -> Options {
 void PrintUsage() {
   std::cout << "Usage:\n"
             << "  HsResearchExportTool [--out-dir DIR] [--shadow 100] [--highlight -100]\n"
+            << "                      [--saturation 30]\n"
             << "                      [--default-lut] [--keep-project] RAW1 [RAW2 ...]\n";
 }
 
@@ -227,7 +232,8 @@ auto FindImportedEntry(const ImportLogSnapshot& snapshot, const std::filesystem:
 }
 
 void ApplyReferenceStudyAdjustments(CPUPipelineExecutor& exec, float shadow_slider,
-                                    float highlight_slider, const std::string& lut_path) {
+                                    float highlight_slider, float saturation_slider,
+                                    const std::string& lut_path) {
   exec.ResetToCleanBaselineAdjustments();
 
   auto& global_params = exec.GetGlobalParams();
@@ -244,7 +250,7 @@ void ApplyReferenceStudyAdjustments(CPUPipelineExecutor& exec, float shadow_slid
                           global_params);
 
   color_stage.SetOperator(OperatorType::SATURATION,
-                          {{"saturation", pipeline_defaults::kCleanBaselineSaturation}},
+                          {{"saturation", saturation_slider}},
                           global_params);
   color_stage.SetOperator(OperatorType::TINT, {{"tint", 0.0f}}, global_params);
   color_stage.SetOperator(OperatorType::LMT, {{"ocio_lmt", lut_path}}, global_params);
@@ -348,7 +354,8 @@ auto RunHsResearchExportTool(int argc, char** argv) -> int {
         }
 
         ApplyReferenceStudyAdjustments(*pipeline_guard->pipeline_, options.shadow_slider,
-                                       options.highlight_slider, default_lut_path);
+                                       options.highlight_slider, options.saturation_slider,
+                                       default_lut_path);
         pipeline_guard->dirty_ = true;
         pipeline_service->SavePipeline(pipeline_guard);
 

@@ -181,8 +181,8 @@ GPU_HD_FUNC float hs_relative_ev_from_log_intensity(float log_intensity) {
 }
 
 GPU_HD_FUNC float hs_shadow_profile_ev(float relative_ev) {
-  constexpr float kXs[] = {-9.0f, -7.0f, -5.0f, -3.5f, -2.0f, -0.5f, 1.0f};
-  constexpr float kYs[] = {0.02f, 0.35f, 0.78f, 0.72f, 0.42f, 0.08f, 0.0f};
+  constexpr float kXs[] = {-9.0f, -7.0f, -5.4f, -4.3f, -3.1f, -2.0f, -0.5f, 1.0f};
+  constexpr float kYs[] = {0.02f, 0.35f, 0.82f, 0.98f, 0.72f, 0.42f, 0.08f, 0.0f};
   return hs_piecewise_linear(kXs, kYs, relative_ev);
 }
 
@@ -265,32 +265,59 @@ GPU_HD_FUNC float hs_apply_reference_curve(float reference_l, float shadow_amoun
       fmaxf(highlight_amount, 0.0f) * hs_highlight_profile_ev(relative_ev);
   const float highlight_boost =
       fmaxf(-highlight_amount, 0.0f) * 0.65f * hs_highlight_profile_ev(relative_ev);
+  const float practical_dark =
+      hls_oklch_smoothstep(-5.85f, -3.95f, relative_ev) *
+      (1.0f - hls_oklch_smoothstep(-3.20f, -1.65f, relative_ev));
+  const float fill_plateau =
+      hls_oklch_smoothstep(-5.55f, -3.30f, relative_ev) *
+      (1.0f - 0.45f * hls_oklch_smoothstep(-2.65f, -0.20f, relative_ev));
+  const float deep_toe_fill =
+      shadow_lift * (1.0f - hls_oklch_smoothstep(-7.35f, -4.95f, relative_ev)) * 0.28f;
+  const float shadow_fill_lift =
+      shadow_lift * (0.62f * practical_dark + 0.14f * fill_plateau) + deep_toe_fill;
+  const float lifted_relative_ev = relative_ev + 0.24f * (shadow_lift + 0.84f * shadow_fill_lift);
+  const float combo_shadow_rollback =
+      ((shadow_lift > 1.0e-6f && highlight_reduce > 1.0e-6f) ? 1.0f : 0.0f) * shadow_fill_lift *
+      hls_oklch_smoothstep(-2.00f, -0.60f, lifted_relative_ev) *
+      (1.0f - hls_oklch_smoothstep(0.10f, 1.30f, lifted_relative_ev)) * 1.08f;
+  const float combo_low_mid_darken =
+      fminf(shadow_lift + shadow_fill_lift, highlight_reduce) *
+      hls_oklch_smoothstep(-2.45f, -0.90f, lifted_relative_ev) *
+      (1.0f - hls_oklch_smoothstep(0.50f, 1.95f, lifted_relative_ev)) * 1.30f;
 
   if (shadow_region != nullptr) {
-    *shadow_region = fminf(fmaxf(shadow_lift / 0.78f, 0.0f), 1.0f);
+    *shadow_region =
+        fminf(fmaxf((shadow_lift + 0.20f * shadow_fill_lift) / 0.86f, 0.0f), 1.0f);
   }
   if (highlight_region != nullptr) {
     *highlight_region = fminf(fmaxf(highlight_reduce / 1.08f, 0.0f), 1.0f);
   }
 
-  const float delta_ev = shadow_lift - shadow_darken - highlight_reduce + highlight_boost;
+  const float delta_ev = shadow_lift + shadow_fill_lift - combo_shadow_rollback -
+                         shadow_darken - highlight_reduce - combo_low_mid_darken +
+                         highlight_boost;
   return reference_l + delta_ev * kHsAcesccCodePerEv;
 }
 
 GPU_HD_FUNC float hs_llf_detail_alpha(float reference_l, float shadow_amount,
                                       float highlight_amount) {
-  (void)reference_l;
-  (void)shadow_amount;
   (void)highlight_amount;
-  return 1.0f;
+  const float relative_ev = hs_relative_ev_from_log_intensity(reference_l);
+  const float deep_shadow =
+      1.0f - hls_oklch_smoothstep(-5.7f, -4.1f, relative_ev);
+  const float mid_shadow =
+      hls_oklch_smoothstep(-5.0f, -3.6f, relative_ev) *
+      (1.0f - hls_oklch_smoothstep(-2.4f, -1.0f, relative_ev));
+  const float lift_amount = fmaxf(shadow_amount, 0.0f);
+  return 1.0f + 0.40f * lift_amount * deep_shadow - 0.14f * lift_amount * mid_shadow;
 }
 
 GPU_HD_FUNC float hs_llf_tone_beta(float reference_l, float shadow_amount,
-                                   float highlight_amount) {
+                                    float highlight_amount) {
   constexpr float kEps = 0.035f;
   const float lo = hs_apply_reference_curve(reference_l - kEps, shadow_amount, highlight_amount);
   const float hi = hs_apply_reference_curve(reference_l + kEps, shadow_amount, highlight_amount);
-  return fminf(fmaxf((hi - lo) / (2.0f * kEps), 0.18f), 1.45f);
+  return fminf(fmaxf((hi - lo) / (2.0f * kEps), 0.08f), 1.70f);
 }
 
 GPU_FUNC float hs_llf_gamma_interp_t(float gamma_lo, float gamma_hi, float g) {
@@ -493,9 +520,9 @@ GPU_FUNC float hs_read_plane_bilinear(const float* __restrict plane, int width, 
 }
 
 __global__ void HsApplyAdjustedLKernel(const float4* __restrict src,
-                                       const float* __restrict adjusted_l,
-                                       float4* __restrict dst, int width, int height,
-                                       size_t src_pitch_elems) {
+                                        const float* __restrict adjusted_l,
+                                        float4* __restrict dst, int width, int height,
+                                        size_t src_pitch_elems) {
   const int x = blockIdx.x * blockDim.x + threadIdx.x;
   const int y = blockIdx.y * blockDim.y + threadIdx.y;
   if (x >= width || y >= height) return;
@@ -549,14 +576,14 @@ __global__ void HsApplyAdjustedLFromReferenceKernel(
   const size_t src_offset =
       static_cast<size_t>(y) * src_pitch_elems + static_cast<size_t>(x);
   const float sampled_l = hs_read_plane_bilinear(adjusted_l, adjusted_width, adjusted_height,
-                                                 adjusted_pitch_elems, adjusted_x, adjusted_y);
+                                                  adjusted_pitch_elems, adjusted_x, adjusted_y);
   dst[src_offset] = hs_apply_adjusted_l_pixel(src[src_offset], sampled_l);
 }
 
 struct GPU_HighlightShadowLocalToneStage {
   static constexpr int   kMaxLevels   = 12;
   static constexpr float kGammaMinL   = -0.15f;
-  static constexpr float kGammaMaxL   = 1.00f;
+  static constexpr float kGammaMaxL   = 1.18f;
   static constexpr float kBaseSigmaR  = 0.07545252f;
   static constexpr float kGammaStepScale = 1.0f;
 
@@ -707,7 +734,8 @@ struct GPU_HighlightShadowLocalToneStage {
       const float gamma = hs_lerp(kGammaMinL, kGammaMaxL, t);
       samples.push_back(
           {gamma, hs_apply_reference_curve(gamma, shadow_amount, highlight_amount),
-           hs_llf_tone_beta(gamma, shadow_amount, highlight_amount), 1.0f});
+           hs_llf_tone_beta(gamma, shadow_amount, highlight_amount),
+           hs_llf_detail_alpha(gamma, shadow_amount, highlight_amount)});
     }
     return samples;
   }

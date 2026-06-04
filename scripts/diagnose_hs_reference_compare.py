@@ -38,10 +38,46 @@ class CaseMetrics:
     chroma_mae: float
     chroma_mean_ratio: float
     highlight_chroma_ratio: float
+    luma_normalized_chroma_mae: float
+    luma_normalized_chroma_ratio: float
+    shadow_luma_normalized_chroma_ratio: float
+    highlight_luma_normalized_chroma_ratio: float
     shadow_noise_ratio: float
     gradient_p90_ratio: float
     halo_score: float
     smooth_break_score: float
+
+
+@dataclass
+class PatchMetrics:
+    case: str
+    patch: str
+    x0: int
+    y0: int
+    x1: int
+    y1: int
+    luma_mae: float
+    luma_p95_abs: float
+    luma_mean_delta: float
+    luma_median_delta: float
+    luma_hist_intersection: float
+    luma_hist_emd: float
+
+
+@dataclass(frozen=True)
+class RelativePatch:
+    name: str
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+
+
+DEFAULT_PATCHES: dict[str, tuple[RelativePatch, ...]] = {
+    "P2625410_shadow_plus_100_highlight_minus_100": (
+        RelativePatch("bottom_people", 0.03, 0.54, 0.98, 0.985),
+    ),
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -134,6 +170,11 @@ def sobel_magnitude(image: np.ndarray) -> np.ndarray:
     return np.hypot(gx, gy)
 
 
+def luma_normalized_chroma(oklab: np.ndarray, chroma: np.ndarray) -> np.ndarray:
+    # Floor avoids exploding the metric in near-black pixels where chroma is not perceptually stable.
+    return chroma / np.maximum(oklab[..., 0], 0.05)
+
+
 def compute_case_metrics(filename: str, actual_rgb: np.ndarray, reference_rgb: np.ndarray, gamma: float) -> tuple[CaseMetrics, dict[str, np.ndarray]]:
     actual_rgb = resize_like_reference(actual_rgb, reference_rgb)
     if actual_rgb.shape != reference_rgb.shape:
@@ -151,6 +192,9 @@ def compute_case_metrics(filename: str, actual_rgb: np.ndarray, reference_rgb: n
     actual_chroma = np.hypot(actual_oklab[..., 1], actual_oklab[..., 2])
     reference_chroma = np.hypot(reference_oklab[..., 1], reference_oklab[..., 2])
     diff_chroma = actual_chroma - reference_chroma
+    actual_luma_norm_chroma = luma_normalized_chroma(actual_oklab, actual_chroma)
+    reference_luma_norm_chroma = luma_normalized_chroma(reference_oklab, reference_chroma)
+    diff_luma_norm_chroma = actual_luma_norm_chroma - reference_luma_norm_chroma
 
     grad_actual = sobel_magnitude(actual_luma)
     grad_reference = sobel_magnitude(reference_luma)
@@ -184,6 +228,18 @@ def compute_case_metrics(filename: str, actual_rgb: np.ndarray, reference_rgb: n
         highlight_chroma_ratio=float(
             np.mean(actual_chroma[highlight_mask]) / max(np.mean(reference_chroma[highlight_mask]), 1.0e-6)
         ),
+        luma_normalized_chroma_mae=float(np.mean(np.abs(diff_luma_norm_chroma))),
+        luma_normalized_chroma_ratio=float(
+            np.mean(actual_luma_norm_chroma) / max(np.mean(reference_luma_norm_chroma), 1.0e-6)
+        ),
+        shadow_luma_normalized_chroma_ratio=float(
+            np.mean(actual_luma_norm_chroma[shadow_mask])
+            / max(np.mean(reference_luma_norm_chroma[shadow_mask]), 1.0e-6)
+        ),
+        highlight_luma_normalized_chroma_ratio=float(
+            np.mean(actual_luma_norm_chroma[highlight_mask])
+            / max(np.mean(reference_luma_norm_chroma[highlight_mask]), 1.0e-6)
+        ),
         shadow_noise_ratio=float(shadow_noise_actual / shadow_noise_reference),
         gradient_p90_ratio=float(
             np.quantile(grad_actual, 0.90) / max(np.quantile(grad_reference, 0.90), 1.0e-6)
@@ -198,11 +254,75 @@ def compute_case_metrics(filename: str, actual_rgb: np.ndarray, reference_rgb: n
         "diff_luma": diff_luma,
         "actual_chroma": actual_chroma,
         "reference_chroma": reference_chroma,
+        "actual_luma_norm_chroma": actual_luma_norm_chroma,
+        "reference_luma_norm_chroma": reference_luma_norm_chroma,
         "grad_actual": grad_actual,
         "grad_reference": grad_reference,
         "grad_diff": grad_diff,
     }
     return metrics, debug
+
+
+def relative_patch_rect(patch: RelativePatch, width: int, height: int) -> tuple[int, int, int, int]:
+    x0 = int(round(np.clip(patch.x0, 0.0, 1.0) * width))
+    y0 = int(round(np.clip(patch.y0, 0.0, 1.0) * height))
+    x1 = int(round(np.clip(patch.x1, 0.0, 1.0) * width))
+    y1 = int(round(np.clip(patch.y1, 0.0, 1.0) * height))
+    x0, x1 = sorted((x0, x1))
+    y0, y1 = sorted((y0, y1))
+    return max(0, x0), max(0, y0), min(width, max(x0 + 1, x1)), min(height, max(y0 + 1, y1))
+
+
+def luma_histogram(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    hist, edges = np.histogram(np.clip(values, 0.0, 1.0), bins=128, range=(0.0, 1.0), density=False)
+    hist = hist.astype(np.float64)
+    total = np.sum(hist)
+    if total > 0.0:
+        hist /= total
+    centers = 0.5 * (edges[:-1] + edges[1:])
+    return hist, centers
+
+
+def histogram_emd(actual_hist: np.ndarray, reference_hist: np.ndarray) -> float:
+    # Equal-width bins on [0, 1], so 1D EMD is the CDF difference integrated by bin width.
+    bin_width = 1.0 / max(len(actual_hist), 1)
+    return float(np.sum(np.abs(np.cumsum(actual_hist) - np.cumsum(reference_hist))) * bin_width)
+
+
+def compute_patch_metrics(
+    filename: str,
+    patch: RelativePatch,
+    debug: dict[str, np.ndarray],
+) -> tuple[PatchMetrics, dict[str, np.ndarray]]:
+    height, width = debug["actual_luma"].shape
+    x0, y0, x1, y1 = relative_patch_rect(patch, width, height)
+    actual_luma = debug["actual_luma"][y0:y1, x0:x1]
+    reference_luma = debug["reference_luma"][y0:y1, x0:x1]
+    diff_luma = actual_luma - reference_luma
+    actual_hist, hist_centers = luma_histogram(actual_luma.ravel())
+    reference_hist, _ = luma_histogram(reference_luma.ravel())
+    metrics = PatchMetrics(
+        case=filename,
+        patch=patch.name,
+        x0=x0,
+        y0=y0,
+        x1=x1,
+        y1=y1,
+        luma_mae=float(np.mean(np.abs(diff_luma))),
+        luma_p95_abs=float(np.quantile(np.abs(diff_luma), 0.95)),
+        luma_mean_delta=float(np.mean(diff_luma)),
+        luma_median_delta=float(np.median(diff_luma)),
+        luma_hist_intersection=float(np.sum(np.minimum(actual_hist, reference_hist))),
+        luma_hist_emd=histogram_emd(actual_hist, reference_hist),
+    )
+    return metrics, {
+        "actual_luma": actual_luma,
+        "reference_luma": reference_luma,
+        "diff_luma": diff_luma,
+        "actual_hist": actual_hist,
+        "reference_hist": reference_hist,
+        "hist_centers": hist_centers,
+    }
 
 
 def select_windows(score_map: np.ndarray, window: int, count: int = 3) -> list[tuple[int, int]]:
@@ -221,7 +341,15 @@ def select_windows(score_map: np.ndarray, window: int, count: int = 3) -> list[t
     return coords
 
 
-def save_case_report(out_dir: Path, filename: str, actual_rgb: np.ndarray, reference_rgb: np.ndarray, debug: dict[str, np.ndarray], metrics: CaseMetrics) -> None:
+def save_case_report(
+    out_dir: Path,
+    filename: str,
+    actual_rgb: np.ndarray,
+    reference_rgb: np.ndarray,
+    debug: dict[str, np.ndarray],
+    metrics: CaseMetrics,
+    patch_reports: list[tuple[PatchMetrics, dict[str, np.ndarray]]],
+) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = Path(filename).stem
 
@@ -285,12 +413,54 @@ def save_case_report(out_dir: Path, filename: str, actual_rgb: np.ndarray, refer
     crop_fig.savefig(out_dir / f"{stem}_crops.png", dpi=150)
     plt.close(crop_fig)
 
+    if patch_reports:
+        patch_fig, patch_axes = plt.subplots(
+            len(patch_reports), 4, figsize=(18, 4.5 * len(patch_reports)), constrained_layout=True
+        )
+        if len(patch_reports) == 1:
+            patch_axes = np.array(patch_axes).reshape(1, 4)
+        for row, (patch_metrics, patch_debug) in enumerate(patch_reports):
+            x0, y0, x1, y1 = patch_metrics.x0, patch_metrics.y0, patch_metrics.x1, patch_metrics.y1
+            patch_axes[row, 0].imshow(reference_rgb[y0:y1, x0:x1])
+            patch_axes[row, 0].set_title(f"{patch_metrics.patch} reference")
+            patch_axes[row, 1].imshow(actual_rgb[y0:y1, x0:x1])
+            patch_axes[row, 1].set_title(f"{patch_metrics.patch} current")
+            patch_axes[row, 2].imshow(np.clip(np.abs(patch_debug["diff_luma"]) * 6.0, 0.0, 1.0), cmap="magma")
+            patch_axes[row, 2].set_title(f"{patch_metrics.patch} luma diff x6")
+            patch_axes[row, 3].plot(
+                patch_debug["hist_centers"],
+                patch_debug["reference_hist"],
+                label="ref",
+                linewidth=1.4,
+            )
+            patch_axes[row, 3].plot(
+                patch_debug["hist_centers"],
+                patch_debug["actual_hist"],
+                label="current",
+                linewidth=1.2,
+            )
+            patch_axes[row, 3].set_title(
+                f"luma hist EMD {patch_metrics.luma_hist_emd:.4f}, "
+                f"intersection {patch_metrics.luma_hist_intersection:.3f}"
+            )
+            patch_axes[row, 3].legend()
+            for col in range(3):
+                patch_axes[row, col].set_xticks([])
+                patch_axes[row, col].set_yticks([])
+        patch_fig.savefig(out_dir / f"{stem}_patches.png", dpi=150)
+        plt.close(patch_fig)
+
     (out_dir / f"{stem}_metrics.json").write_text(
         json.dumps(asdict(metrics), indent=2, ensure_ascii=False), encoding="utf-8"
     )
+    if patch_reports:
+        (out_dir / f"{stem}_patch_metrics.json").write_text(
+            json.dumps([asdict(metrics) for metrics, _ in patch_reports], indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
 
 
-def summarize(metrics: list[CaseMetrics]) -> str:
+def summarize(metrics: list[CaseMetrics], patch_metrics: list[PatchMetrics]) -> str:
     lines = ["# Highlight/Shadow Reference Comparison", ""]
     for item in metrics:
         lines.extend(
@@ -302,6 +472,10 @@ def summarize(metrics: list[CaseMetrics]) -> str:
                 f"- chroma_mae: {item.chroma_mae:.6f}",
                 f"- chroma_mean_ratio: {item.chroma_mean_ratio:.4f}",
                 f"- highlight_chroma_ratio: {item.highlight_chroma_ratio:.4f}",
+                f"- luma_normalized_chroma_mae: {item.luma_normalized_chroma_mae:.6f}",
+                f"- luma_normalized_chroma_ratio: {item.luma_normalized_chroma_ratio:.4f}",
+                f"- shadow_luma_normalized_chroma_ratio: {item.shadow_luma_normalized_chroma_ratio:.4f}",
+                f"- highlight_luma_normalized_chroma_ratio: {item.highlight_luma_normalized_chroma_ratio:.4f}",
                 f"- shadow_noise_ratio: {item.shadow_noise_ratio:.4f}",
                 f"- gradient_p90_ratio: {item.gradient_p90_ratio:.4f}",
                 f"- halo_score: {item.halo_score:.6f}",
@@ -315,6 +489,15 @@ def summarize(metrics: list[CaseMetrics]) -> str:
             "mean_luma_mae": float(np.mean([m.luma_mae for m in metrics])),
             "mean_chroma_mae": float(np.mean([m.chroma_mae for m in metrics])),
             "mean_highlight_chroma_ratio": float(np.mean([m.highlight_chroma_ratio for m in metrics])),
+            "mean_luma_normalized_chroma_mae": float(
+                np.mean([m.luma_normalized_chroma_mae for m in metrics])
+            ),
+            "mean_luma_normalized_chroma_ratio": float(
+                np.mean([m.luma_normalized_chroma_ratio for m in metrics])
+            ),
+            "mean_shadow_luma_normalized_chroma_ratio": float(
+                np.mean([m.shadow_luma_normalized_chroma_ratio for m in metrics])
+            ),
             "mean_shadow_noise_ratio": float(np.mean([m.shadow_noise_ratio for m in metrics])),
             "mean_halo_score": float(np.mean([m.halo_score for m in metrics])),
             "mean_smooth_break_score": float(np.mean([m.smooth_break_score for m in metrics])),
@@ -326,7 +509,41 @@ def summarize(metrics: list[CaseMetrics]) -> str:
                 "",
             ]
         )
+    if patch_metrics:
+        lines.extend(["## Patch Metrics", ""])
+        for item in patch_metrics:
+            lines.extend(
+                [
+                    f"### {item.case} / {item.patch}",
+                    f"- rect_xyxy: {item.x0},{item.y0},{item.x1},{item.y1}",
+                    f"- luma_mae: {item.luma_mae:.6f}",
+                    f"- luma_p95_abs: {item.luma_p95_abs:.6f}",
+                    f"- luma_mean_delta: {item.luma_mean_delta:.6f}",
+                    f"- luma_median_delta: {item.luma_median_delta:.6f}",
+                    f"- luma_hist_intersection: {item.luma_hist_intersection:.6f}",
+                    f"- luma_hist_emd: {item.luma_hist_emd:.6f}",
+                    "",
+                ]
+            )
     return "\n".join(lines)
+
+
+def actual_filename_candidates(filename: str) -> list[str]:
+    candidates = [filename]
+    zero_alias = filename.replace("_shadow_0_", "_shadow_plus_0_").replace(
+        "_highlight_0.", "_highlight_plus_0."
+    )
+    if zero_alias not in candidates:
+        candidates.append(zero_alias)
+    return candidates
+
+
+def resolve_actual_path(actual_dir: Path, filename: str) -> Path:
+    for candidate in actual_filename_candidates(filename):
+        path = actual_dir / candidate
+        if path.exists():
+            return path
+    return actual_dir / filename
 
 
 def main() -> int:
@@ -339,8 +556,9 @@ def main() -> int:
         filenames = sorted(p.name for p in args.reference_dir.glob("*.png"))
 
     reports: list[CaseMetrics] = []
+    patch_reports: list[PatchMetrics] = []
     for filename in filenames:
-        actual_path = args.actual_dir / filename
+        actual_path = resolve_actual_path(args.actual_dir, filename)
         reference_path = args.reference_dir / filename
         if not actual_path.exists():
             raise FileNotFoundError(f"Missing actual export: {actual_path}")
@@ -351,16 +569,28 @@ def main() -> int:
         reference_rgb = load_rgb_image(reference_path)
         actual_rgb = resize_like_reference(actual_rgb, reference_rgb)
         metrics, debug = compute_case_metrics(filename, actual_rgb, reference_rgb, args.gamma)
-        save_case_report(args.out_dir, filename, actual_rgb, reference_rgb, debug, metrics)
+        stem = Path(filename).stem
+        case_patch_reports = [
+            compute_patch_metrics(filename, patch, debug) for patch in DEFAULT_PATCHES.get(stem, ())
+        ]
+        save_case_report(args.out_dir, filename, actual_rgb, reference_rgb, debug, metrics, case_patch_reports)
         reports.append(metrics)
+        patch_reports.extend(metrics for metrics, _ in case_patch_reports)
         print(json.dumps(asdict(metrics), ensure_ascii=False))
+        for patch_metrics in (metrics for metrics, _ in case_patch_reports):
+            print(json.dumps(asdict(patch_metrics), ensure_ascii=False))
 
-    summary_md = summarize(reports)
+    summary_md = summarize(reports, patch_reports)
     (args.out_dir / "summary.md").write_text(summary_md, encoding="utf-8")
     (args.out_dir / "metrics.json").write_text(
         json.dumps([asdict(item) for item in reports], indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
+    if patch_reports:
+        (args.out_dir / "patch_metrics.json").write_text(
+            json.dumps([asdict(item) for item in patch_reports], indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
     print(f"Wrote {args.out_dir / 'summary.md'}")
     print(f"Wrote {args.out_dir / 'metrics.json'}")
     return 0
