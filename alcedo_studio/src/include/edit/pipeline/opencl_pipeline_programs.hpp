@@ -22,12 +22,20 @@ inline constexpr const char* kNeighborBlurHorizontalKernelName =
     "edit_pipeline_neighbor_blur_h_rgba32f";
 inline constexpr const char* kNeighborApplyVerticalKernelName =
     "edit_pipeline_neighbor_apply_v_rgba32f";
-inline constexpr const char* kHsBuildLogBaseHorizontalKernelName =
-    "edit_pipeline_hs_build_log_base_h_rgba32f";
-inline constexpr const char* kHsBuildLogBaseVerticalKernelName =
-    "edit_pipeline_hs_build_log_base_v_rgba32f";
-inline constexpr const char* kHsApplyLocalToneKernelName =
-    "edit_pipeline_hs_apply_local_tone_rgba32f";
+inline constexpr const char* kHsExtractLogIntensityKernelName =
+    "edit_pipeline_hs_extract_log_intensity_rgba32f";
+inline constexpr const char* kHsExtractLogIntensityResampledKernelName =
+    "edit_pipeline_hs_extract_log_intensity_resampled_rgba32f";
+inline constexpr const char* kHsBuildRemappedSampleKernelName =
+    "edit_pipeline_hs_build_remapped_sample";
+inline constexpr const char* kHsPyrDownKernelName = "edit_pipeline_hs_pyr_down";
+inline constexpr const char* kHsSelectInterpolatedLevelKernelName =
+    "edit_pipeline_hs_select_interpolated_level";
+inline constexpr const char* kHsCollapseLevelKernelName = "edit_pipeline_hs_collapse_level";
+inline constexpr const char* kHsApplyAdjustedLKernelName =
+    "edit_pipeline_hs_apply_adjusted_l_rgba32f";
+inline constexpr const char* kHsApplyAdjustedLFromFrameKernelName =
+    "edit_pipeline_hs_apply_adjusted_l_from_frame_rgba32f";
 
 inline constexpr const char* kValidateFusedParamsKernelName =
     "edit_pipeline_validate_fused_params";

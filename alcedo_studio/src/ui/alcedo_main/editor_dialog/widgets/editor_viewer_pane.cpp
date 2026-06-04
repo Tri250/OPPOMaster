@@ -188,8 +188,6 @@ void EditorDialog::BuildViewerAndPanelShell() {
       viewer_grid->addWidget(zoom_anchor, 0, 0, Qt::AlignRight | Qt::AlignTop);
     }
 
-    spinner_ = new SpinnerWidget(viewer_container_);
-    viewer_grid->addWidget(spinner_, 0, 0, Qt::AlignRight | Qt::AlignBottom);
     viewer_grid->setRowStretch(0, 1);
     viewer_grid->setColumnStretch(0, 1);
 

@@ -139,12 +139,14 @@ namespace alcedo::ui {
 
 namespace {
 
-const auto     kShortcutUndoHistoryId   = QStringLiteral("editor_dialog.undo_history_transaction");
-const auto     kShortcutResetGeometryId = QStringLiteral("editor_dialog.reset_geometry");
-const auto     kShortcutSelectPrevLutId = QStringLiteral("editor_dialog.select_prev_lut");
-const auto     kShortcutSelectNextLutId = QStringLiteral("editor_dialog.select_next_lut");
-constexpr char kPanelIconPathProperty[] = "puerhlabPanelIconPath";
-constexpr char kLocalizedTextProperty[] = "puerhlabI18nText";
+const auto kShortcutUndoHistoryId    = QStringLiteral("editor_dialog.undo_history_transaction");
+const auto kShortcutResetGeometryId  = QStringLiteral("editor_dialog.reset_geometry");
+const auto kShortcutCommitGeometryId = QStringLiteral("editor_dialog.commit_geometry");
+const auto kShortcutCommitGeometryNumpadId = QStringLiteral("editor_dialog.commit_geometry_numpad");
+const auto kShortcutSelectPrevLutId        = QStringLiteral("editor_dialog.select_prev_lut");
+const auto kShortcutSelectNextLutId        = QStringLiteral("editor_dialog.select_next_lut");
+constexpr char kPanelIconPathProperty[]    = "puerhlabPanelIconPath";
+constexpr char kLocalizedTextProperty[]    = "puerhlabI18nText";
 constexpr char kLocalizedTextUpperProperty[] = "puerhlabI18nTextUpper";
 constexpr char kLocalizedToolTipProperty[]   = "puerhlabI18nToolTip";
 const QSize    kPanelToggleIconSize(18, 18);
@@ -298,11 +300,8 @@ void RetranslateMarkedObjects(QObject* root) {
     QT_TRANSLATE_NOOP("Alcedo", "Geometry"),
     QT_TRANSLATE_NOOP("Alcedo", "Crop & Aspect Ratio"),
     QT_TRANSLATE_NOOP("Alcedo", "Aspect"),
-    QT_TRANSLATE_NOOP("Alcedo", "Rotate & Flip"),
+    QT_TRANSLATE_NOOP("Alcedo", "Crop Rotation"),
     QT_TRANSLATE_NOOP("Alcedo", "Angle"),
-    QT_TRANSLATE_NOOP("Alcedo", "Rotate 90° left"),
-    QT_TRANSLATE_NOOP("Alcedo", "Rotate 90° right"),
-    QT_TRANSLATE_NOOP("Alcedo", "Flip horizontal (coming soon)"),
     QT_TRANSLATE_NOOP("Alcedo", "Crop Offset"),
     QT_TRANSLATE_NOOP("Alcedo", "X"),
     QT_TRANSLATE_NOOP("Alcedo", "Y"),

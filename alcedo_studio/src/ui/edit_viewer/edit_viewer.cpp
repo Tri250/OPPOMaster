@@ -14,6 +14,7 @@
 #include <QApplication>
 #include <QByteArray>
 #include <QEasingCurve>
+#include <QFontMetrics>
 #include <QMouseEvent>
 #include <QNativeGestureEvent>
 #include <QPainter>
@@ -22,7 +23,6 @@
 #include <QPolygonF>
 #include <QSettings>
 #include <QWheelEvent>
-
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -33,10 +33,9 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+#include <cuda_runtime_api.h>
 #include <dxgi.h>
 #include <wrl/client.h>
-
-#include <cuda_runtime_api.h>
 #endif
 
 namespace alcedo {
@@ -55,7 +54,7 @@ auto HasLegacyGlSurface(const IEditViewerSurface* surface) -> bool {
 #if defined(ALCEDO_HAS_RHI_VIEWER) && defined(Q_OS_WIN)
 constexpr auto kAcceleratorBackendKey = "gpu/acceleratorBackend";
 
-auto ShouldUseOpenClRhiBackend() -> bool {
+auto           ShouldUseOpenClRhiBackend() -> bool {
   return QSettings{}
              .value(QLatin1String(kAcceleratorBackendKey))
              .toString()
@@ -83,7 +82,7 @@ auto GetCudaDeviceLuid(int cuda_device) -> std::optional<LUID> {
     return std::nullopt;
   }
 
-  cudaDeviceProp prop{};
+  cudaDeviceProp    prop{};
   const cudaError_t prop_err = cudaGetDeviceProperties(&prop, cuda_device);
   if (prop_err != cudaSuccess) {
     qWarning("QtEditViewer: cudaGetDeviceProperties failed before selecting Qt D3D adapter: %s",
@@ -108,8 +107,8 @@ void ConfigureQtD3DAdapterForCurrentCudaDevice() {
       return;
     }
 
-    int current_cuda_device = -1;
-    const cudaError_t current_device_err = cudaGetDevice(&current_cuda_device);
+    int               current_cuda_device = -1;
+    const cudaError_t current_device_err  = cudaGetDevice(&current_cuda_device);
     if (current_device_err != cudaSuccess || current_cuda_device < 0) {
       qWarning("QtEditViewer: cudaGetDevice failed before selecting Qt D3D11 adapter: %s",
                cudaGetErrorString(current_device_err));
@@ -129,7 +128,7 @@ void ConfigureQtD3DAdapterForCurrentCudaDevice() {
 
     for (UINT adapter_index = 0;; ++adapter_index) {
       ComPtr<IDXGIAdapter1> adapter;
-      const HRESULT enum_hr = factory->EnumAdapters1(adapter_index, adapter.GetAddressOf());
+      const HRESULT         enum_hr = factory->EnumAdapters1(adapter_index, adapter.GetAddressOf());
       if (enum_hr == DXGI_ERROR_NOT_FOUND) {
         break;
       }
@@ -148,9 +147,10 @@ void ConfigureQtD3DAdapterForCurrentCudaDevice() {
       return;
     }
 
-    qWarning("QtEditViewer: no DXGI adapter matched current CUDA device %d. "
-             "Qt D3D may select an incompatible adapter for CUDA interop.",
-             current_cuda_device);
+    qWarning(
+        "QtEditViewer: no DXGI adapter matched current CUDA device %d. "
+        "Qt D3D may select an incompatible adapter for CUDA interop.",
+        current_cuda_device);
   });
 }
 #endif
@@ -199,11 +199,13 @@ QtEditViewer::QtEditViewer(QWidget* parent) : QWidget(parent) {
     ConfigureQtD3DAdapterForCurrentCudaDevice();
   }
 #endif
-  surface_ = std::make_unique<RhiEditViewerSurface>(this);
+  surface_               = std::make_unique<RhiEditViewerSurface>(this);
   render_target_surface_ = dynamic_cast<IEditViewerRenderTargetSurface*>(surface_.get());
 #elif defined(ALCEDO_HAS_LEGACY_GL_VIEWER)
   GlEditViewerSurface::Callbacks surface_callbacks;
-  surface_callbacks.consume_pending_frame = [this]() { return frame_mailbox_.ConsumePendingFrame(); };
+  surface_callbacks.consume_pending_frame = [this]() {
+    return frame_mailbox_.ConsumePendingFrame();
+  };
   surface_callbacks.consume_histogram_request = [this]() {
     return frame_mailbox_.ConsumeHistogramPendingFrame();
   };
@@ -214,7 +216,7 @@ QtEditViewer::QtEditViewer(QWidget* parent) : QWidget(parent) {
   };
   surface_callbacks.histogram_data_updated = [this]() { emit HistogramDataUpdated(); };
 
-  surface_ = std::make_unique<GlEditViewerSurface>(surface_callbacks, this);
+  surface_               = std::make_unique<GlEditViewerSurface>(surface_callbacks, this);
   render_target_surface_ = dynamic_cast<IEditViewerRenderTargetSurface*>(surface_.get());
 #endif
 
@@ -236,13 +238,12 @@ QtEditViewer::QtEditViewer(QWidget* parent) : QWidget(parent) {
   zoom_animation_->setEasingCurve(QEasingCurve::InOutCubic);
   zoom_animation_->setStartValue(0.0);
   zoom_animation_->setEndValue(1.0);
-  connect(zoom_animation_, &QVariantAnimation::valueChanged, this,
-          [this](const QVariant& value) {
-            const auto result = view_transform_controller_.ApplyAnimationProgress(
-                viewer_state_, CurrentWidgetInfo(), CurrentInteractionImageInfo(),
-                std::clamp(static_cast<float>(value.toDouble()), 0.0f, 1.0f));
-            ApplyViewTransformResult(result);
-          });
+  connect(zoom_animation_, &QVariantAnimation::valueChanged, this, [this](const QVariant& value) {
+    const auto result = view_transform_controller_.ApplyAnimationProgress(
+        viewer_state_, CurrentWidgetInfo(), CurrentInteractionImageInfo(),
+        std::clamp(static_cast<float>(value.toDouble()), 0.0f, 1.0f));
+    ApplyViewTransformResult(result);
+  });
   connect(zoom_animation_, &QVariantAnimation::finished, this, [this]() {
     const auto result = view_transform_controller_.ApplyAnimationFinished(
         viewer_state_, CurrentWidgetInfo(), CurrentInteractionImageInfo());
@@ -279,7 +280,8 @@ void QtEditViewer::SetCropToolEnabled(bool enabled) {
   if (!enabled) {
     crop_interaction_controller_.Cancel();
   }
-  const auto result = view_transform_controller_.HandleCropToolEnabledChanged(viewer_state_, enabled);
+  const auto result =
+      view_transform_controller_.HandleCropToolEnabledChanged(viewer_state_, enabled);
   ApplyViewTransformResult(result);
   UpdateOverlay();
 }
@@ -293,8 +295,8 @@ void QtEditViewer::SetCropOverlayVisible(bool visible) {
 }
 
 void QtEditViewer::SetCropOverlayRectNormalized(float x, float y, float w, float h) {
-  auto crop_state = viewer_state_.GetCropOverlay();
-  const QRectF clamped_rect = CropGeometry::ClampCropRect(QRectF(x, y, w, h));
+  auto         crop_state    = viewer_state_.GetCropOverlay();
+  const QRectF clamped_rect  = CropGeometry::ClampCropRect(QRectF(x, y, w, h));
   const QRectF adjusted_rect = CropGeometry::ClampCropRectForRotation(
       clamped_rect, crop_state.rotation_degrees, crop_state.metric_aspect);
   const bool rect_changed =
@@ -314,9 +316,9 @@ void QtEditViewer::SetCropOverlayRectNormalized(float x, float y, float w, float
 }
 
 void QtEditViewer::SetCropOverlayRotationDegrees(float angle_degrees) {
-  auto crop_state = viewer_state_.GetCropOverlay();
-  crop_state.rotation_degrees = CropGeometry::NormalizeAngleDegrees(angle_degrees);
-  const QRectF adjusted_rect = CropGeometry::ClampCropRectForRotation(
+  auto crop_state             = viewer_state_.GetCropOverlay();
+  crop_state.rotation_degrees = std::clamp(angle_degrees, -180.0f, 180.0f);
+  const QRectF adjusted_rect  = CropGeometry::ClampCropRectForRotation(
       crop_state.rect, crop_state.rotation_degrees, crop_state.metric_aspect);
   const bool rect_changed =
       std::abs(static_cast<float>(adjusted_rect.x() - crop_state.rect.x())) > 1e-6f ||
@@ -335,14 +337,16 @@ void QtEditViewer::SetCropOverlayRotationDegrees(float angle_degrees) {
 }
 
 void QtEditViewer::SetCropOverlayAspectLock(bool enabled, float aspect_ratio) {
-  auto crop_state = viewer_state_.GetCropOverlay();
+  auto crop_state          = viewer_state_.GetCropOverlay();
   crop_state.aspect_locked = enabled;
   crop_state.aspect_ratio  = CropGeometry::ClampAspectRatio(aspect_ratio);
   viewer_state_.SetCropOverlayState(crop_state);
   UpdateOverlay();
 }
 
-void QtEditViewer::ResetCropOverlayRectToFull() { SetCropOverlayRectNormalized(0.0f, 0.0f, 1.0f, 1.0f); }
+void QtEditViewer::ResetCropOverlayRectToFull() {
+  SetCropOverlayRectNormalized(0.0f, 0.0f, 1.0f, 1.0f);
+}
 
 auto QtEditViewer::GetViewZoom() const -> float { return viewer_state_.GetViewZoom(); }
 
@@ -446,14 +450,14 @@ void QtEditViewer::NotifyFrameReady() {
 void QtEditViewer::SubmitHostFrame(const ViewerFrame& frame) {
   {
     std::lock_guard<std::mutex> lock(host_frame_mutex_);
-    ViewerFrame submitted_frame = frame;
+    ViewerFrame                 submitted_frame = frame;
     if (pending_presentation_mode_valid_) {
       submitted_frame.presentation_mode = pending_presentation_mode_;
-      pending_presentation_mode_valid_ = false;
+      pending_presentation_mode_valid_  = false;
     }
     if (pending_preview_metadata_valid_) {
       submitted_frame.preview_metadata = pending_preview_metadata_;
-      pending_preview_metadata_valid_ = false;
+      pending_preview_metadata_valid_  = false;
     }
     pending_host_frame_ = std::move(submitted_frame);
 #ifdef HAVE_METAL
@@ -467,14 +471,14 @@ void QtEditViewer::SubmitHostFrame(const ViewerFrame& frame) {
 void QtEditViewer::SubmitMetalFrame(const ViewerMetalFrame& frame) {
   {
     std::lock_guard<std::mutex> lock(host_frame_mutex_);
-    ViewerMetalFrame submitted_frame = frame;
+    ViewerMetalFrame            submitted_frame = frame;
     if (pending_presentation_mode_valid_) {
       submitted_frame.presentation_mode = pending_presentation_mode_;
-      pending_presentation_mode_valid_ = false;
+      pending_presentation_mode_valid_  = false;
     }
     if (pending_preview_metadata_valid_) {
       submitted_frame.preview_metadata = pending_preview_metadata_;
-      pending_preview_metadata_valid_ = false;
+      pending_preview_metadata_valid_  = false;
     }
     pending_metal_frame_ = std::move(submitted_frame);
     pending_host_frame_.reset();
@@ -565,9 +569,9 @@ auto QtEditViewer::GetViewerSurface() const -> const IEditViewerSurface* { retur
 void QtEditViewer::MarkViewInteractionChanged() {
   {
     std::lock_guard<std::mutex> lock(host_frame_mutex_);
-    view_interaction_active_     = true;
-    prefer_interactive_primary_  = false;
-    allow_detail_patch_          = false;
+    view_interaction_active_    = true;
+    prefer_interactive_primary_ = false;
+    allow_detail_patch_         = false;
   }
   if (view_interaction_settle_timer_) {
     view_interaction_settle_timer_->start(kViewInteractionSettleDelayMs);
@@ -645,14 +649,33 @@ void QtEditViewer::PaintOverlay(QWidget& widget) {
   QPainterPath crop_path;
   crop_path.addPolygon(crop_polygon);
   crop_path.closeSubpath();
-  painter.fillPath(image_path.subtracted(crop_path), QColor(0, 0, 0, 110));
+  painter.fillPath(image_path.subtracted(crop_path), QColor(0, 0, 0, 112));
 
-  painter.setPen(QPen(QColor(252, 199, 4, 220), 1.2));
+  painter.setPen(QPen(QColor(255, 255, 255, 235), 3.0));
   painter.setBrush(Qt::NoBrush);
   painter.drawPolygon(crop_polygon);
+  painter.setPen(QPen(QColor(22, 22, 22, 230), 1.2));
+  painter.drawPolygon(crop_polygon);
+
+  auto draw_edge_grip = [&](const QPointF& a, const QPointF& b) {
+    const QPointF grip_a = CropGeometry::LerpPoint(a, b, 0.38f);
+    const QPointF grip_b = CropGeometry::LerpPoint(a, b, 0.62f);
+    painter.setPen(QPen(QColor(255, 255, 255, 245), 5.0, Qt::SolidLine, Qt::RoundCap));
+    painter.drawLine(grip_a, grip_b);
+    painter.setPen(QPen(QColor(28, 28, 28, 235), 2.4, Qt::SolidLine, Qt::RoundCap));
+    painter.drawLine(grip_a, grip_b);
+  };
+  draw_edge_grip(geometry.crop_corners_widget[0], geometry.crop_corners_widget[1]);
+  draw_edge_grip(geometry.crop_corners_widget[1], geometry.crop_corners_widget[2]);
+  draw_edge_grip(geometry.crop_corners_widget[2], geometry.crop_corners_widget[3]);
+  draw_edge_grip(geometry.crop_corners_widget[3], geometry.crop_corners_widget[0]);
+
+  painter.setPen(QPen(QColor(255, 255, 255, 220), 2.4, Qt::SolidLine, Qt::RoundCap));
+  painter.drawLine(geometry.rotate_stem_widget, geometry.rotate_handle_widget);
+  painter.setPen(QPen(QColor(25, 25, 25, 220), 1.1, Qt::SolidLine, Qt::RoundCap));
   painter.drawLine(geometry.rotate_stem_widget, geometry.rotate_handle_widget);
 
-  painter.setPen(QPen(QColor(252, 199, 4, 150), 1.0, Qt::DashLine));
+  painter.setPen(QPen(QColor(255, 255, 255, 135), 1.0, Qt::DashLine));
   for (const float t : {1.0f / 3.0f, 2.0f / 3.0f}) {
     painter.drawLine(CropGeometry::LerpPoint(geometry.crop_corners_widget[0],
                                              geometry.crop_corners_widget[1], t),
@@ -664,23 +687,38 @@ void QtEditViewer::PaintOverlay(QWidget& widget) {
                                              geometry.crop_corners_widget[2], t));
   }
 
-  painter.setPen(QPen(QColor(18, 18, 18, 230), 1.0));
-  painter.setBrush(QColor(252, 199, 4, 230));
+  painter.setPen(QPen(QColor(28, 28, 28, 230), 1.2));
+  painter.setBrush(QColor(255, 255, 255, 245));
   for (const auto& corner : geometry.crop_corners_widget) {
     painter.drawEllipse(corner, CropGeometry::kCropCornerDrawRadiusPx,
                         CropGeometry::kCropCornerDrawRadiusPx);
   }
-  painter.setBrush(QColor(252, 199, 4, 245));
+  painter.setBrush(QColor(245, 245, 245, 250));
   painter.drawEllipse(geometry.rotate_handle_widget, CropGeometry::kCropRotateHandleDrawRadiusPx,
                       CropGeometry::kCropRotateHandleDrawRadiusPx);
+
+  const QString angle_label =
+      QString::fromUtf8("%1°").arg(snapshot.viewer_state.crop_overlay.rotation_degrees, 0, 'f', 1);
+  const QFontMetrics metrics(painter.font());
+  const QRect        text_bounds = metrics.boundingRect(angle_label);
+  QRectF             label_rect(geometry.rotate_handle_widget.x() + 10.0,
+                                geometry.rotate_handle_widget.y() - (text_bounds.height() * 0.5) - 5.0,
+                                text_bounds.width() + 14.0, text_bounds.height() + 10.0);
+  if (label_rect.right() > widget.width()) {
+    label_rect.moveRight(geometry.rotate_handle_widget.x() - 10.0);
+  }
+  painter.setPen(Qt::NoPen);
+  painter.setBrush(QColor(18, 18, 18, 210));
+  painter.drawRoundedRect(label_rect, 4.0, 4.0);
+  painter.setPen(QColor(255, 255, 255, 245));
+  painter.drawText(label_rect, Qt::AlignCenter, angle_label);
 }
 
 void QtEditViewer::HandleOverlayWheel(QWheelEvent* event) {
   if ((event->modifiers() & Qt::ControlModifier) == Qt::ControlModifier) {
     StopZoomAnimation();
     const auto result = view_transform_controller_.HandleCtrlWheel(
-        viewer_state_, CurrentWidgetInfo(), CurrentInteractionImageInfo(),
-        event->angleDelta().y(),
+        viewer_state_, CurrentWidgetInfo(), CurrentInteractionImageInfo(), event->angleDelta().y(),
         event->position());
     ApplyViewTransformResult(result);
     event->accept();
@@ -726,10 +764,10 @@ void QtEditViewer::HandleOverlayNativeGesture(QNativeGestureEvent* event) {
 
 void QtEditViewer::HandleOverlayMousePress(QMouseEvent* event) {
   if (event->button() == Qt::LeftButton) {
-    const auto hover = CurrentOverlayHover(event->position());
+    const auto             hover = CurrentOverlayHover(event->position());
     const CropPressContext press_context{event->position(), hover.image_uv, hover.crop_hit,
                                          hover.inside_image};
-    const auto crop_result =
+    const auto             crop_result =
         crop_interaction_controller_.HandlePress(viewer_state_, CurrentImageInfo(), press_context);
     if (crop_result.consumed) {
       ApplyCropInteractionResult(crop_result);
@@ -787,7 +825,7 @@ void QtEditViewer::HandleOverlayMouseRelease(QMouseEvent* event) {
   }
 
   const auto crop_state = viewer_state_.GetCropOverlay();
-  const auto result = view_transform_controller_.HandlePanRelease(
+  const auto result     = view_transform_controller_.HandlePanRelease(
       viewer_state_, crop_state.tool_enabled && crop_state.overlay_visible, event->button(),
       event->position());
   if (result.consumed) {
@@ -881,8 +919,8 @@ void QtEditViewer::OnResizeSurface(int w, int h) {
 }
 
 void QtEditViewer::ResizeChildWidgets() {
-  const QRect area = rect();
-  const int corner_radius = property("cornerRadius").toInt();
+  const QRect area          = rect();
+  const int   corner_radius = property("cornerRadius").toInt();
   if (corner_radius > 0) {
     QPainterPath mask_path;
     mask_path.addRoundedRect(QRectF(area), corner_radius, corner_radius);
@@ -927,12 +965,11 @@ void QtEditViewer::ReconcileViewTransformForRenderReference() {
     return;
   }
 
-  const float     clamped_zoom =
+  const float clamped_zoom =
       std::clamp(snapshot.view_transform.zoom, ViewTransformController::kMinInteractiveZoom,
                  ViewTransformController::kMaxInteractiveZoom);
-  QVector2D       clamped_pan = ViewportMapper::ClampPanForZoom(
-      CurrentWidgetInfo(),
-      {snapshot.render_reference_width, snapshot.render_reference_height},
+  QVector2D clamped_pan = ViewportMapper::ClampPanForZoom(
+      CurrentWidgetInfo(), {snapshot.render_reference_width, snapshot.render_reference_height},
       clamped_zoom, snapshot.view_transform.pan, ViewTransformController::kMinInteractiveZoom,
       ViewTransformController::kMaxInteractiveZoom);
   if (clamped_zoom <= (ViewTransformController::kMinInteractiveZoom + 1.0e-4f)) {
@@ -940,8 +977,7 @@ void QtEditViewer::ReconcileViewTransformForRenderReference() {
   }
 
   const bool zoom_changed = std::abs(clamped_zoom - snapshot.view_transform.zoom) > 1.0e-5f;
-  const bool pan_changed =
-      (clamped_pan - snapshot.view_transform.pan).lengthSquared() > 1.0e-8f;
+  const bool pan_changed  = (clamped_pan - snapshot.view_transform.pan).lengthSquared() > 1.0e-8f;
   if (!zoom_changed && !pan_changed) {
     return;
   }
@@ -960,8 +996,8 @@ void QtEditViewer::RefreshFrameDerivedState() {
 #ifdef HAVE_CUDA
     if (HasLegacyGlSurface(surface_.get())) {
       const auto mailbox_frame = frame_mailbox_.GetActiveFrame();
-      active_frame             = {mailbox_frame.slot_index, mailbox_frame.width, mailbox_frame.height,
-                                  mailbox_frame.presentation_mode};
+      active_frame = {mailbox_frame.slot_index, mailbox_frame.width, mailbox_frame.height,
+                      mailbox_frame.presentation_mode};
     } else {
 #endif
       std::lock_guard<std::mutex> lock(host_frame_mutex_);
@@ -974,10 +1010,10 @@ void QtEditViewer::RefreshFrameDerivedState() {
   }
 #else
   struct FrameState {
-    int                   width = 0;
-    int                   height = 0;
+    int                   width             = 0;
+    int                   height            = 0;
     FramePresentationMode presentation_mode = FramePresentationMode::FullFrame;
-    FramePreviewMetadata  preview_metadata = {};
+    FramePreviewMetadata  preview_metadata  = {};
   } active_frame;
   {
     std::lock_guard<std::mutex> lock(host_frame_mutex_);
@@ -987,14 +1023,13 @@ void QtEditViewer::RefreshFrameDerivedState() {
     active_frame.preview_metadata  = active_preview_metadata_;
   }
 #endif
-  const auto previous_snapshot = viewer_state_.Snapshot();
+  const auto previous_snapshot        = viewer_state_.Snapshot();
   bool       render_reference_changed = false;
   if (IsRenderReferenceFrame(active_frame.presentation_mode,
                              active_frame.preview_metadata.frame_role) &&
       active_frame.width > 0 && active_frame.height > 0) {
-    render_reference_changed =
-        previous_snapshot.render_reference_width != active_frame.width ||
-        previous_snapshot.render_reference_height != active_frame.height;
+    render_reference_changed = previous_snapshot.render_reference_width != active_frame.width ||
+                               previous_snapshot.render_reference_height != active_frame.height;
     viewer_state_.SetRenderReferenceSize(active_frame.width, active_frame.height);
     if (render_reference_changed) {
       ReconcileViewTransformForRenderReference();
@@ -1010,7 +1045,7 @@ void QtEditViewer::SyncSurfaceState() {
     return;
   }
 
-  ViewerDisplayConfig display_config = active_display_config_;
+  ViewerDisplayConfig        display_config = active_display_config_;
   std::optional<ViewerFrame> host_frame_to_submit;
 #ifdef HAVE_METAL
   std::optional<ViewerMetalFrame> metal_frame_to_submit;
@@ -1045,10 +1080,10 @@ void QtEditViewer::SyncSurfaceState() {
       host_frame_to_submit              = submitted_frame;
       if (IsRenderReferenceFrame(submitted_frame.presentation_mode,
                                  submitted_frame.preview_metadata.frame_role)) {
-        active_host_frame_       = submitted_frame;
-        active_metal_frame_      = {};
-        active_frame_width_      = submitted_frame.width;
-        active_frame_height_     = submitted_frame.height;
+        active_host_frame_        = submitted_frame;
+        active_metal_frame_       = {};
+        active_frame_width_       = submitted_frame.width;
+        active_frame_height_      = submitted_frame.height;
         active_presentation_mode_ = submitted_frame.presentation_mode;
         active_preview_metadata_  = submitted_frame.preview_metadata;
       }
@@ -1064,9 +1099,9 @@ void QtEditViewer::SyncSurfaceState() {
       host_frame_to_submit              = submitted_frame;
       if (IsRenderReferenceFrame(submitted_frame.presentation_mode,
                                  submitted_frame.preview_metadata.frame_role)) {
-        active_host_frame_       = submitted_frame;
-        active_frame_width_      = submitted_frame.width;
-        active_frame_height_     = submitted_frame.height;
+        active_host_frame_        = submitted_frame;
+        active_frame_width_       = submitted_frame.width;
+        active_frame_height_      = submitted_frame.height;
         active_presentation_mode_ = submitted_frame.presentation_mode;
         active_preview_metadata_  = submitted_frame.preview_metadata;
       }
@@ -1124,8 +1159,8 @@ auto QtEditViewer::CurrentImageInfo() const -> ViewportImageInfo {
 #ifdef HAVE_CUDA
     if (HasLegacyGlSurface(surface_.get())) {
       const auto mailbox_frame = frame_mailbox_.GetActiveFrame();
-      active_frame             = {mailbox_frame.slot_index, mailbox_frame.width, mailbox_frame.height,
-                                  mailbox_frame.presentation_mode};
+      active_frame = {mailbox_frame.slot_index, mailbox_frame.width, mailbox_frame.height,
+                      mailbox_frame.presentation_mode};
     } else {
 #endif
       std::lock_guard<std::mutex> lock(host_frame_mutex_);
@@ -1171,7 +1206,8 @@ auto QtEditViewer::CurrentPresentationMode() const -> FramePresentationMode {
 }
 
 auto QtEditViewer::CurrentOverlaySnapshot() const -> EditViewerOverlaySnapshot {
-  return {viewer_state_.Snapshot(), CurrentWidgetInfo(), CurrentImageInfo(), CurrentPresentationMode()};
+  return {viewer_state_.Snapshot(), CurrentWidgetInfo(), CurrentImageInfo(),
+          CurrentPresentationMode()};
 }
 
 auto QtEditViewer::CurrentOverlayHover(const QPointF& event_pos) const -> EditViewerOverlayHover {
@@ -1221,11 +1257,10 @@ void QtEditViewer::ApplyViewTransformResult(const ViewTransformResult& result) {
 void QtEditViewer::ApplyCropInteractionResult(const CropInteractionResult& result) {
   ApplyOverlayCursor(result.cursor, result.unset_cursor);
   if (result.rect_changed.has_value()) {
-    emit CropOverlayRectChanged(static_cast<float>(result.rect_changed->x()),
-                                static_cast<float>(result.rect_changed->y()),
-                                static_cast<float>(result.rect_changed->width()),
-                                static_cast<float>(result.rect_changed->height()),
-                                result.rect_is_final);
+    emit CropOverlayRectChanged(
+        static_cast<float>(result.rect_changed->x()), static_cast<float>(result.rect_changed->y()),
+        static_cast<float>(result.rect_changed->width()),
+        static_cast<float>(result.rect_changed->height()), result.rect_is_final);
   }
   if (result.rotation_changed.has_value()) {
     emit CropOverlayRotationChanged(*result.rotation_changed, result.rotation_is_final);

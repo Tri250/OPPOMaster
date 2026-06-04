@@ -6,7 +6,6 @@
 
 #include <QPainter>
 #include <QPen>
-#include <QTimer>
 
 namespace alcedo::ui {
 
@@ -14,51 +13,51 @@ SpinnerWidget::SpinnerWidget(QWidget* parent) : QWidget(parent) {
   setFixedSize(22, 22);
   setAttribute(Qt::WA_TransparentForMouseEvents);
   setAttribute(Qt::WA_TranslucentBackground);
-
-  timer_ = new QTimer(this);
-  timer_->setInterval(16);
-  QObject::connect(timer_, &QTimer::timeout, this, [this]() {
-    angle_deg_ = (angle_deg_ + 18) % 360;
-    update();
-  });
   hide();
 }
 
 void SpinnerWidget::Start() {
-  show();
-  raise();
-  if (!timer_->isActive()) {
-    timer_->start();
-  }
+  SetState(State::Active);
 }
 
 void SpinnerWidget::Stop() {
-  if (timer_->isActive()) {
-    timer_->stop();
+  SetState(State::Idle);
+}
+
+void SpinnerWidget::SetState(State state) {
+  if (state_ == state) {
+    return;
   }
-  hide();
+  state_ = state;
+  setVisible(state_ == State::Active);
+  if (state_ == State::Active) {
+    raise();
+  }
+  update();
 }
 
 void SpinnerWidget::paintEvent(QPaintEvent*) {
+  if (state_ != State::Active) {
+    return;
+  }
+
   QPainter painter(this);
   painter.setRenderHint(QPainter::Antialiasing, true);
 
-  const QRectF r = QRectF(2.5, 2.5, width() - 5.0, height() - 5.0);
+  const QRectF r = QRectF(4.0, 4.0, width() - 8.0, height() - 8.0);
 
   {
-    QPen pen(QColor(0x3A, 0x3A, 0x3A, 180));
-    pen.setWidthF(2.0);
+    QPen pen(QColor(0xFC, 0xC7, 0x04, 210));
+    pen.setWidthF(1.7);
     pen.setCapStyle(Qt::RoundCap);
     painter.setPen(pen);
     painter.drawArc(r, 0 * 16, 360 * 16);
   }
 
   {
-    QPen pen(QColor(0xFC, 0xC7, 0x04, 230));
-    pen.setWidthF(2.2);
-    pen.setCapStyle(Qt::RoundCap);
-    painter.setPen(pen);
-    painter.drawArc(r, (90 - angle_deg_) * 16, 100 * 16);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor(0xFC, 0xC7, 0x04, 235));
+    painter.drawEllipse(QPointF(width() * 0.5, height() * 0.5), 2.6, 2.6);
   }
 }
 

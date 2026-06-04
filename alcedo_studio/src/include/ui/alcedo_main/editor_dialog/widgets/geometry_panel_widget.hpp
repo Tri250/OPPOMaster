@@ -56,6 +56,8 @@ class GeometryPanelWidget final : public AdjustmentPanelWidget {
   void SetSyncing(bool syncing) override;
 
   void SyncControlsFromDialogState();
+  void BeginCropEditingSession();
+  void CommitPendingCrop();
   void RetranslateUi();
 
   auto ResetButton() const -> QPushButton* { return geometry_reset_btn_; }
@@ -83,6 +85,8 @@ class GeometryPanelWidget final : public AdjustmentPanelWidget {
 
   void         PreviewGeometryField(AdjustmentField field);
   void         CommitGeometryField(AdjustmentField field);
+  void         MarkGeometryEditDirty();
+  void         SetGeometryStateToFullFrameCrop();
 
   void         UpdateGeometryCropRectLabel();
   auto         CurrentGeometrySourceAspect() const -> float;
@@ -99,7 +103,8 @@ class GeometryPanelWidget final : public AdjustmentPanelWidget {
 
   Dependencies deps_{};
   Callbacks    callbacks_{};
-  bool         local_syncing_ = false;
+  bool         local_syncing_       = false;
+  bool         geometry_edit_dirty_ = false;
 
   GeometryAdjustmentState                   geometry_state_{};
   GeometryAdjustmentState                   committed_geometry_state_{};
@@ -113,7 +118,6 @@ class GeometryPanelWidget final : public AdjustmentPanelWidget {
   QDoubleSpinBox*                           geometry_crop_aspect_width_spin_   = nullptr;
   QDoubleSpinBox*                           geometry_crop_aspect_height_spin_  = nullptr;
   QLabel*                                   geometry_crop_rect_label_          = nullptr;
-  QPushButton*                              geometry_apply_btn_                = nullptr;
   QPushButton*                              geometry_reset_btn_                = nullptr;
   std::map<QSlider*, std::function<void()>> slider_reset_callbacks_{};
 };

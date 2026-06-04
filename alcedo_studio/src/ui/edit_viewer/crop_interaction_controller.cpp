@@ -13,7 +13,7 @@ namespace {
 
 constexpr float kPi = 3.14159265358979323846f;
 
-auto ToCropCorner(int corner_index) -> CropCorner {
+auto            ToCropCorner(int corner_index) -> CropCorner {
   switch (corner_index) {
     case 0:
       return CropCorner::TopLeft;
@@ -30,30 +30,30 @@ auto ToCropCorner(int corner_index) -> CropCorner {
 
 }  // namespace
 
-auto CropInteractionController::HandlePress(ViewerState& state,
+auto CropInteractionController::HandlePress(ViewerState&              state,
                                             const ViewportWidgetInfo& widget_info,
-                                            const ViewportImageInfo& image_info,
+                                            const ViewportImageInfo&  image_info,
                                             const QPointF& event_pos) -> CropInteractionResult {
-  const auto crop_state = state.GetCropOverlay();
-  const auto view_state = state.GetViewTransform();
+  const auto       crop_state = state.GetCropOverlay();
+  const auto       view_state = state.GetViewTransform();
 
   CropPressContext press_context;
   press_context.event_pos = event_pos;
-  press_context.image_uv =
-      ViewportMapper::WidgetPointToImageUv(event_pos, widget_info, image_info, view_state.zoom,
-                                           view_state.pan);
+  press_context.image_uv  = ViewportMapper::WidgetPointToImageUv(event_pos, widget_info, image_info,
+                                                                 view_state.zoom, view_state.pan);
   press_context.inside_image = press_context.image_uv.has_value();
 
   if (crop_state.tool_enabled && crop_state.overlay_visible) {
-    const float metric_aspect = CropGeometry::SafeAspect(image_info.image_width, image_info.image_height);
-    const auto  crop_corners_uv = CropGeometry::RotatedCropCornersUv(
+    const float metric_aspect =
+        CropGeometry::SafeAspect(image_info.image_width, image_info.image_height);
+    const auto crop_corners_uv = CropGeometry::RotatedCropCornersUv(
         crop_state.rect, crop_state.rotation_degrees, metric_aspect);
     std::array<QPointF, 4> crop_corners_widget{};
     bool                   corners_valid = true;
     for (int i = 0; i < static_cast<int>(crop_corners_uv.size()); ++i) {
-      const auto corner_widget = ViewportMapper::ImageUvToWidgetPoint(
-          crop_corners_uv[static_cast<size_t>(i)], widget_info, image_info, view_state.zoom,
-          view_state.pan);
+      const auto corner_widget =
+          ViewportMapper::ImageUvToWidgetPoint(crop_corners_uv[static_cast<size_t>(i)], widget_info,
+                                               image_info, view_state.zoom, view_state.pan);
       if (!corner_widget.has_value()) {
         corners_valid = false;
         break;
@@ -81,8 +81,9 @@ auto CropInteractionController::HandlePress(ViewerState& state, const ViewportIm
     return result;
   }
 
-  const float metric_aspect = CropGeometry::SafeAspect(image_info.image_width, image_info.image_height);
-  const auto  crop_corners_uv = CropGeometry::RotatedCropCornersUv(
+  const float metric_aspect =
+      CropGeometry::SafeAspect(image_info.image_width, image_info.image_height);
+  const auto crop_corners_uv = CropGeometry::RotatedCropCornersUv(
       crop_state.rect, crop_state.rotation_degrees, metric_aspect);
   CropHitTestResult hit_test = press_context.hit_test;
   if (!hit_test.rotate_handle_hit && !press_context.inside_image) {
@@ -90,10 +91,11 @@ auto CropInteractionController::HandlePress(ViewerState& state, const ViewportIm
     return result;
   }
 
-  const QPointF uv_point = press_context.image_uv.has_value()
-                               ? QPointF(CropGeometry::Clamp01(static_cast<float>(press_context.image_uv->x())),
-                                         CropGeometry::Clamp01(static_cast<float>(press_context.image_uv->y())))
-                               : QPointF();
+  const QPointF uv_point =
+      press_context.image_uv.has_value()
+          ? QPointF(CropGeometry::Clamp01(static_cast<float>(press_context.image_uv->x())),
+                    CropGeometry::Clamp01(static_cast<float>(press_context.image_uv->y())))
+          : QPointF();
 
   CropOverlayState new_state = crop_state;
   new_state.metric_aspect    = metric_aspect;
@@ -106,25 +108,25 @@ auto CropInteractionController::HandlePress(ViewerState& state, const ViewportIm
   drag_fixed_corner_uv_      = QPointF();
 
   if (hit_test.rotate_handle_hit) {
-    drag_mode_  = CropDragMode::RotateHandle;
+    drag_mode_    = CropDragMode::RotateHandle;
     result.cursor = Qt::ClosedHandCursor;
   } else if (hit_test.corner_index >= 0) {
-    drag_mode_   = CropDragMode::ResizeCorner;
-    drag_corner_ = ToCropCorner(hit_test.corner_index);
+    drag_mode_                = CropDragMode::ResizeCorner;
+    drag_corner_              = ToCropCorner(hit_test.corner_index);
     const int opposite_corner = CropGeometry::OppositeCropCornerIndex(hit_test.corner_index);
     if (opposite_corner >= 0) {
       drag_fixed_corner_uv_ = crop_corners_uv[static_cast<size_t>(opposite_corner)];
     }
     result.cursor = CropGeometry::CursorForCropCorner(hit_test.corner_index);
   } else if (hit_test.edge != CropEdge::None) {
-    drag_mode_  = CropDragMode::ResizeEdge;
-    drag_edge_  = hit_test.edge;
+    drag_mode_    = CropDragMode::ResizeEdge;
+    drag_edge_    = hit_test.edge;
     result.cursor = Qt::SizeAllCursor;
   } else if (hit_test.inside_crop) {
-    drag_mode_  = CropDragMode::Move;
+    drag_mode_    = CropDragMode::Move;
     result.cursor = Qt::SizeAllCursor;
   } else {
-    drag_mode_   = CropDragMode::Create;
+    drag_mode_     = CropDragMode::Create;
     new_state.rect = CropGeometry::ClampCropRectForRotation(
         QRectF(uv_point, QSizeF(CropGeometry::kCropMinSize, CropGeometry::kCropMinSize)),
         crop_state.rotation_degrees, metric_aspect);
@@ -139,8 +141,9 @@ auto CropInteractionController::HandlePress(ViewerState& state, const ViewportIm
   return result;
 }
 
-auto CropInteractionController::HandleMove(ViewerState& state, const ViewportWidgetInfo& widget_info,
-                                           const ViewportImageInfo& image_info,
+auto CropInteractionController::HandleMove(ViewerState&              state,
+                                           const ViewportWidgetInfo& widget_info,
+                                           const ViewportImageInfo&  image_info,
                                            Qt::MouseButtons buttons, const QPointF& event_pos)
     -> CropInteractionResult {
   CropInteractionResult result;
@@ -154,12 +157,12 @@ auto CropInteractionController::HandleMove(ViewerState& state, const ViewportWid
     return result;
   }
 
-  const float metric_aspect = CropGeometry::SafeAspect(image_info.image_width, image_info.image_height);
-  QPointF     uv{};
+  const float metric_aspect =
+      CropGeometry::SafeAspect(image_info.image_width, image_info.image_height);
+  QPointF uv{};
   if (drag_mode_ != CropDragMode::RotateHandle) {
-    const auto uv_opt =
-        ViewportMapper::WidgetPointToImageUv(event_pos, widget_info, image_info, view_state.zoom,
-                                             view_state.pan);
+    const auto uv_opt = ViewportMapper::WidgetPointToImageUv(event_pos, widget_info, image_info,
+                                                             view_state.zoom, view_state.pan);
     if (!uv_opt.has_value()) {
       result.consumed = true;
       return result;
@@ -172,43 +175,42 @@ auto CropInteractionController::HandleMove(ViewerState& state, const ViewportWid
   float  new_rotation_degrees = drag_rotation_degrees_;
   bool   rotation_changed     = false;
   if (drag_mode_ == CropDragMode::Create) {
-    const QRectF draft_rect =
-        crop_state.aspect_locked
-            ? CropGeometry::MakeAspectLockedRectFromDiagonal(drag_anchor_uv_, uv, metric_aspect,
-                                                             crop_state.aspect_ratio)
-            : QRectF(drag_anchor_uv_, uv).normalized();
-    new_rect = CropGeometry::ClampCropRectForRotation(draft_rect, drag_rotation_degrees_,
-                                                      metric_aspect);
+    const QRectF draft_rect = crop_state.aspect_locked
+                                  ? CropGeometry::MakeAspectLockedRectFromDiagonal(
+                                        drag_anchor_uv_, uv, metric_aspect, crop_state.aspect_ratio)
+                                  : QRectF(drag_anchor_uv_, uv).normalized();
+    new_rect =
+        CropGeometry::ClampCropRectForRotation(draft_rect, drag_rotation_degrees_, metric_aspect);
   } else if (drag_mode_ == CropDragMode::Move) {
-    const QPointF delta_metric =
-        CropGeometry::UvToMetric(uv, metric_aspect) -
-        CropGeometry::UvToMetric(drag_anchor_uv_, metric_aspect);
+    const QPointF delta_metric = CropGeometry::UvToMetric(uv, metric_aspect) -
+                                 CropGeometry::UvToMetric(drag_anchor_uv_, metric_aspect);
     const QPointF new_center_metric =
         CropGeometry::UvToMetric(drag_origin_rect_.center(), metric_aspect) + delta_metric;
     const QPointF new_center_uv = CropGeometry::MetricToUv(new_center_metric, metric_aspect);
-    new_rect = CropGeometry::ClampCropRectForRotation(
+    new_rect                    = CropGeometry::ClampCropRectForRotation(
         CropGeometry::MakeRectFromCenterSize(new_center_uv,
-                                             static_cast<float>(drag_origin_rect_.width()),
-                                             static_cast<float>(drag_origin_rect_.height())),
+                                                                static_cast<float>(drag_origin_rect_.width()),
+                                                                static_cast<float>(drag_origin_rect_.height())),
         drag_rotation_degrees_, metric_aspect);
   } else if (drag_mode_ == CropDragMode::ResizeEdge) {
-    const QPointF center_metric = CropGeometry::UvToMetric(drag_origin_rect_.center(), metric_aspect);
+    const QPointF center_metric =
+        CropGeometry::UvToMetric(drag_origin_rect_.center(), metric_aspect);
     const QPointF cursor_metric = CropGeometry::UvToMetric(uv, metric_aspect);
     const QPointF local =
         CropGeometry::InverseRotateVector(cursor_metric - center_metric, drag_rotation_degrees_);
 
     const float min_width_metric  = CropGeometry::kCropMinSize * metric_aspect;
     const float min_height_metric = CropGeometry::kCropMinSize;
-    float       left = -std::max((CropGeometry::kCropMinSize * metric_aspect) * 0.5f,
-                                 static_cast<float>(drag_origin_rect_.width()) * metric_aspect * 0.5f);
-    float right = std::max((CropGeometry::kCropMinSize * metric_aspect) * 0.5f,
-                           static_cast<float>(drag_origin_rect_.width()) * metric_aspect * 0.5f);
-    float top = -std::max(CropGeometry::kCropMinSize * 0.5f,
-                          static_cast<float>(drag_origin_rect_.height()) * 0.5f);
-    float bottom = std::max(CropGeometry::kCropMinSize * 0.5f,
-                            static_cast<float>(drag_origin_rect_.height()) * 0.5f);
-    float center_local_x = 0.0f;
-    float center_local_y = 0.0f;
+    float       left              = -std::max((CropGeometry::kCropMinSize * metric_aspect) * 0.5f,
+                                              static_cast<float>(drag_origin_rect_.width()) * metric_aspect * 0.5f);
+    float       right             = std::max((CropGeometry::kCropMinSize * metric_aspect) * 0.5f,
+                                             static_cast<float>(drag_origin_rect_.width()) * metric_aspect * 0.5f);
+    float       top               = -std::max(CropGeometry::kCropMinSize * 0.5f,
+                                              static_cast<float>(drag_origin_rect_.height()) * 0.5f);
+    float       bottom            = std::max(CropGeometry::kCropMinSize * 0.5f,
+                                             static_cast<float>(drag_origin_rect_.height()) * 0.5f);
+    float       center_local_x    = 0.0f;
+    float       center_local_y    = 0.0f;
 
     if (crop_state.aspect_locked) {
       const float locked_ratio = CropGeometry::ClampAspectRatio(crop_state.aspect_ratio);
@@ -279,7 +281,7 @@ auto CropInteractionController::HandleMove(ViewerState& state, const ViewportWid
       }
     }
 
-    const float   new_half_width =
+    const float new_half_width =
         std::max((CropGeometry::kCropMinSize * metric_aspect) * 0.5f, (right - left) * 0.5f);
     const float new_half_height =
         std::max(CropGeometry::kCropMinSize * 0.5f, (bottom - top) * 0.5f);
@@ -290,7 +292,7 @@ auto CropInteractionController::HandleMove(ViewerState& state, const ViewportWid
     const float   new_width_uv =
         std::max(CropGeometry::kCropMinSize, (new_half_width * 2.0f) / metric_aspect);
     const float new_height_uv = std::max(CropGeometry::kCropMinSize, new_half_height * 2.0f);
-    new_rect = CropGeometry::ClampCropRectForRotation(
+    new_rect                  = CropGeometry::ClampCropRectForRotation(
         CropGeometry::MakeRectFromCenterSize(new_center_uv, new_width_uv, new_height_uv),
         drag_rotation_degrees_, metric_aspect);
   } else if (drag_mode_ == CropDragMode::ResizeCorner) {
@@ -307,7 +309,7 @@ auto CropInteractionController::HandleMove(ViewerState& state, const ViewportWid
     const QPointF start_vector   = drag_anchor_widget_pos_ - *center_widget;
     const QPointF current_vector = event_pos - *center_widget;
     const float   start_len2 = static_cast<float>(QPointF::dotProduct(start_vector, start_vector));
-    const float current_len2 =
+    const float   current_len2 =
         static_cast<float>(QPointF::dotProduct(current_vector, current_vector));
     if (start_len2 <= 1e-8f || current_len2 <= 1e-8f) {
       result.consumed = true;
@@ -317,9 +319,9 @@ auto CropInteractionController::HandleMove(ViewerState& state, const ViewportWid
         std::atan2(static_cast<float>(start_vector.y()), static_cast<float>(start_vector.x()));
     const float current_angle =
         std::atan2(static_cast<float>(current_vector.y()), static_cast<float>(current_vector.x()));
-    const float delta_degrees = (current_angle - start_angle) * (180.0f / kPi);
-    new_rotation_degrees =
-        CropGeometry::NormalizeAngleDegrees(drag_rotation_degrees_ + delta_degrees);
+    const float delta_degrees =
+        CropGeometry::NormalizeAngleDegrees((current_angle - start_angle) * (180.0f / kPi));
+    new_rotation_degrees = std::clamp(drag_rotation_degrees_ + delta_degrees, -180.0f, 180.0f);
     new_rect = CropGeometry::ClampCropRectForRotation(drag_origin_rect_, new_rotation_degrees,
                                                       metric_aspect);
     rotation_changed = true;
@@ -332,9 +334,9 @@ auto CropInteractionController::HandleMove(ViewerState& state, const ViewportWid
   }
   state.SetCropOverlayState(crop_state);
 
-  result.consumed         = true;
-  result.request_repaint  = true;
-  result.rect_changed     = new_rect;
+  result.consumed        = true;
+  result.request_repaint = true;
+  result.rect_changed    = new_rect;
   if (rotation_changed) {
     result.rotation_changed = new_rotation_degrees;
   }
@@ -348,13 +350,13 @@ auto CropInteractionController::HandleRelease(ViewerState& state) -> CropInterac
   }
 
   const auto crop_state = state.GetCropOverlay();
-  result.consumed         = true;
-  result.unset_cursor     = true;
-  result.rect_changed     = crop_state.rect;
-  result.rect_is_final    = true;
+  result.consumed       = true;
+  result.unset_cursor   = true;
+  result.rect_changed   = crop_state.rect;
+  result.rect_is_final  = true;
   if (drag_mode_ == CropDragMode::RotateHandle) {
-    result.rotation_changed    = crop_state.rotation_degrees;
-    result.rotation_is_final   = true;
+    result.rotation_changed  = crop_state.rotation_degrees;
+    result.rotation_is_final = true;
   }
   Cancel();
   return result;
@@ -367,23 +369,27 @@ auto CropInteractionController::HandleDoubleClick(ViewerState& state) -> CropInt
     return result;
   }
 
-  crop_state.rect = CropGeometry::ClampCropRectForRotation(
-      QRectF(0.0, 0.0, 1.0, 1.0), crop_state.rotation_degrees, crop_state.metric_aspect);
+  crop_state.rotation_degrees = 0.0f;
+  crop_state.aspect_locked    = false;
+  crop_state.aspect_ratio     = 1.0f;
+  crop_state.rect             = QRectF(0.0, 0.0, 1.0, 1.0);
   state.SetCropOverlayState(crop_state);
 
-  result.consumed        = true;
-  result.request_repaint = true;
-  result.rect_changed    = crop_state.rect;
-  result.rect_is_final   = true;
+  result.consumed          = true;
+  result.request_repaint   = true;
+  result.rect_changed      = crop_state.rect;
+  result.rect_is_final     = true;
+  result.rotation_changed  = crop_state.rotation_degrees;
+  result.rotation_is_final = true;
   return result;
 }
 
 void CropInteractionController::Cancel() {
-  drag_mode_             = CropDragMode::None;
-  drag_corner_           = CropCorner::None;
-  drag_edge_             = CropEdge::None;
-  drag_rotation_degrees_ = 0.0f;
-  drag_fixed_corner_uv_  = QPointF();
+  drag_mode_              = CropDragMode::None;
+  drag_corner_            = CropCorner::None;
+  drag_edge_              = CropEdge::None;
+  drag_rotation_degrees_  = 0.0f;
+  drag_fixed_corner_uv_   = QPointF();
   drag_anchor_widget_pos_ = QPointF();
 }
 

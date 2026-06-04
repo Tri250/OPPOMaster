@@ -103,6 +103,34 @@ void SetGaussianWeights(OperatorParams& params, bool is_sharpen, float sigma, fl
   }
 }
 
+void SetHighlightShadowWeights(OperatorParams& params, float sigma) {
+  constexpr int  kMaxTap         = OperatorParams::kDetailMaxGaussianTapCount;
+  const float    safe_sigma      = std::max(sigma, 1.0e-4f);
+  const uint32_t computed_radius = std::min<uint32_t>(
+      static_cast<uint32_t>(std::ceil(3.0f * safe_sigma)), static_cast<uint32_t>(kMaxTap - 1));
+  const uint32_t tap_count = computed_radius + 1U;
+
+  std::array<float, kMaxTap> weights{};
+  const double               inv2sigma2 = 0.5 / (static_cast<double>(safe_sigma) * safe_sigma);
+  double                     full_weight = 1.0;
+  weights[0] = 1.0f;
+  for (uint32_t tap = 1; tap <= computed_radius; ++tap) {
+    const double w = std::exp(-(static_cast<double>(tap) * static_cast<double>(tap)) * inv2sigma2);
+    weights[tap] = static_cast<float>(w);
+    full_weight += 2.0 * w;
+  }
+  if (full_weight > 0.0) {
+    for (uint32_t tap = 0; tap <= computed_radius; ++tap) {
+      weights[tap] = static_cast<float>(static_cast<double>(weights[tap]) / full_weight);
+    }
+  }
+
+  params.hs_base_gaussian_tap_count_ = static_cast<int>(tap_count);
+  for (int i = 0; i < static_cast<int>(tap_count); ++i) {
+    params.hs_base_gaussian_weights_[i] = weights[i];
+  }
+}
+
 auto RunOpenClFusedPipeline(GPUPipelineWrapper& pipeline, const cv::Mat& input,
                             OperatorParams& params) -> cv::Mat {
   auto input_buffer  = std::make_shared<ImageBuffer>(input.clone());
@@ -296,6 +324,44 @@ auto MakeOutputTransformParams(std::string method) -> OperatorParams {
 
 auto MakeDefaultOutputTransformParams() -> OperatorParams {
   return MakeOutputTransformParams("open_drt");
+}
+
+auto MakeHighlightShadowComparisonInput() -> cv::Mat {
+  constexpr int kW = 96;
+  constexpr int kH = 64;
+  cv::Mat       input(kH, kW, CV_32FC4);
+  for (int y = 0; y < kH; ++y) {
+    for (int x = 0; x < kW; ++x) {
+      const float fx = static_cast<float>(x) / static_cast<float>(kW - 1);
+      const float fy = static_cast<float>(y) / static_cast<float>(kH - 1);
+      const float soft_edge = 0.5f + 0.5f * std::tanh((fx - 0.47f) * 12.0f);
+      const float texture =
+          0.010f * std::sin(static_cast<float>(x) * 0.55f) *
+          std::cos(static_cast<float>(y) * 0.37f);
+      const float shadow_band = 0.25f + 0.10f * fy + texture;
+      const float sky_band = 0.54f + 0.26f * (1.0f - fy) + 0.035f * fx + texture;
+      const float code = shadow_band + (sky_band - shadow_band) * soft_edge;
+      input.at<cv::Vec4f>(y, x) = {
+          code + 0.010f * (1.0f - fy),
+          code,
+          code - 0.012f * fx,
+          1.0f,
+      };
+    }
+  }
+  return input;
+}
+
+auto MakeHighlightShadowComparisonParams() -> OperatorParams {
+  auto params = MakeNoOpFusedParams();
+  params.shadows_enabled_ = true;
+  params.shadows_offset_ = 1.0f;
+  params.highlights_enabled_ = true;
+  params.highlights_offset_ = -1.0f;
+  params.hs_local_tone_enabled_ = true;
+  params.hs_base_radius_ = 18.0f;
+  SetHighlightShadowWeights(params, params.hs_base_radius_);
+  return params;
 }
 
 }  // namespace
@@ -765,6 +831,38 @@ TEST(OpenClFusedEditPipelineTest, DetailSharpenWithThresholdMatchesCuda) {
 
   ExpectCudaOpenClDetailClose("[OpenCL fused sharpen+threshold]", cuda_output, opencl_output,
                               cuda_ms, opencl_ms);
+}
+
+TEST(OpenClFusedEditPipelineTest, HighlightShadowLocalToneMatchesCuda) {
+  if (!TryEnsureOpenClRuntime()) {
+    GTEST_SKIP() << OpenClContext::Instance().LastInitializationError();
+  }
+
+  const cv::Mat input = MakeHighlightShadowComparisonInput();
+  const auto    params = MakeHighlightShadowComparisonParams();
+
+  double  cuda_ms = 0.0;
+  double  opencl_ms = 0.0;
+  cv::Mat cuda_output;
+  cv::Mat opencl_output;
+  try {
+    cuda_output = RunFusedPipeline(GpuBackendKind::CUDA, input, params, &cuda_ms);
+    opencl_output = RunFusedPipeline(GpuBackendKind::OpenCL, input, params, &opencl_ms);
+  } catch (const std::exception& e) {
+    GTEST_SKIP() << "CUDA/OpenCL H/S comparison unavailable: " << e.what();
+  }
+
+  ExpectFiniteRgba32f(cuda_output);
+  ExpectFiniteRgba32f(opencl_output);
+  const RgbDiffStats stats = ComputeRgbDiffStats(cuda_output, opencl_output);
+  std::cout << "[OpenCL fused H/S] CUDA: " << cuda_ms << " ms | OpenCL: " << opencl_ms
+            << " ms | max_abs_diff=" << stats.max_diff << " at (" << stats.x << ","
+            << stats.y << ") channel=" << stats.channel << " cuda=" << stats.lhs
+            << " opencl=" << stats.rhs << "\n";
+
+  EXPECT_LE(stats.max_diff, 8.0e-4f);
+  EXPECT_GT(cuda_ms, 0.0);
+  EXPECT_GT(opencl_ms, 0.0);
 }
 
 TEST(OpenClFusedEditPipelineTest, ScopeAnalyzerProcessesOpenClFrame) {

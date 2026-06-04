@@ -4,12 +4,11 @@
 
 #pragma once
 
-#include <array>
-#include <utility>
-
 #include <QPointF>
 #include <QRectF>
 #include <Qt>
+#include <array>
+#include <utility>
 
 namespace alcedo {
 
@@ -38,24 +37,24 @@ struct CropHitTestResult {
 
 class CropGeometry {
  public:
-  static constexpr float kCropMinSize                 = 1e-4f;
-  static constexpr float kCropCornerHitRadiusPx       = 12.0f;
-  static constexpr float kCropEdgeHitRadiusPx         = 10.0f;
-  static constexpr float kCropCornerDrawRadiusPx      = 4.0f;
-  static constexpr float kCropRotateHandleOffsetPx    = 28.0f;
-  static constexpr float kCropRotateHandleHitRadiusPx = 14.0f;
+  static constexpr float kCropMinSize                  = 1e-4f;
+  static constexpr float kCropCornerHitRadiusPx        = 12.0f;
+  static constexpr float kCropEdgeHitRadiusPx          = 10.0f;
+  static constexpr float kCropCornerDrawRadiusPx       = 4.0f;
+  static constexpr float kCropRotateHandleOffsetPx     = 28.0f;
+  static constexpr float kCropRotateHandleHitRadiusPx  = 14.0f;
   static constexpr float kCropRotateHandleDrawRadiusPx = 5.0f;
 
-  static auto Clamp01(float value) -> float;
-  static auto NormalizeAngleDegrees(float angle_degrees) -> float;
-  static auto ClampAspect(float aspect) -> float;
-  static auto ClampAspectRatio(float aspect_ratio) -> float;
-  static auto SafeAspect(int image_width, int image_height) -> float;
+  static auto            Clamp01(float value) -> float;
+  static auto            NormalizeAngleDegrees(float angle_degrees) -> float;
+  static auto            ClampAspect(float aspect) -> float;
+  static auto            ClampAspectRatio(float aspect_ratio) -> float;
+  static auto            SafeAspect(int image_width, int image_height) -> float;
 
-  static auto UvToMetric(const QPointF& uv, float aspect) -> QPointF;
-  static auto MetricToUv(const QPointF& metric, float aspect) -> QPointF;
-  static auto RotateVector(const QPointF& vector, float angle_degrees) -> QPointF;
-  static auto InverseRotateVector(const QPointF& vector, float angle_degrees) -> QPointF;
+  static auto            UvToMetric(const QPointF& uv, float aspect) -> QPointF;
+  static auto            MetricToUv(const QPointF& metric, float aspect) -> QPointF;
+  static auto            RotateVector(const QPointF& vector, float angle_degrees) -> QPointF;
+  static auto            InverseRotateVector(const QPointF& vector, float angle_degrees) -> QPointF;
   static auto MakeRectFromCenterSize(const QPointF& center, float width, float height) -> QRectF;
   static auto ClampCropRect(const QRectF& rect) -> QRectF;
   static auto MakeAspectLockedRectFromDiagonal(const QPointF& anchor_uv, const QPointF& cursor_uv,
@@ -80,7 +79,7 @@ class CropGeometry {
                                                float metric_aspect, bool aspect_locked,
                                                float aspect_ratio) -> QRectF;
   static auto HitTestWidgetGeometry(const std::array<QPointF, 4>& corners_widget,
-                                    const QPointF& event_pos) -> CropHitTestResult;
+                                    const QPointF&                event_pos) -> CropHitTestResult;
 };
 
 }  // namespace alcedo

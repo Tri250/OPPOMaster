@@ -52,14 +52,6 @@ void             SetLocalizedText(QObject* object, const char* source, bool uppe
   }
 }
 
-void SetLocalizedToolTip(QWidget* widget, const char* source) {
-  if (!widget || source == nullptr) {
-    return;
-  }
-  widget->setToolTip(Tr(source));
-  widget->setAccessibleName(Tr(source));
-}
-
 auto NewLocalizedLabel(const char* source, QWidget* parent, bool uppercase = false) -> QLabel* {
   auto* label = new QLabel(parent);
   SetLocalizedText(label, source, uppercase);
@@ -203,6 +195,60 @@ void GeometryPanelWidget::CommitGeometryField(AdjustmentField field) {
   PullCommittedGeometryStateFromDialog();
 }
 
+void GeometryPanelWidget::MarkGeometryEditDirty() {
+  if (!IsSyncing()) {
+    geometry_edit_dirty_ = true;
+  }
+}
+
+void GeometryPanelWidget::SetGeometryStateToFullFrameCrop() {
+  geometry_state_.crop_x_             = 0.0f;
+  geometry_state_.crop_y_             = 0.0f;
+  geometry_state_.crop_w_             = 1.0f;
+  geometry_state_.crop_h_             = 1.0f;
+  geometry_state_.crop_enabled_       = true;
+  geometry_state_.rotate_degrees_     = 0.0f;
+  geometry_state_.crop_aspect_preset_ = geometry::CropAspectPreset::Free;
+  geometry_state_.crop_aspect_width_  = 1.0f;
+  geometry_state_.crop_aspect_height_ = 1.0f;
+}
+
+void GeometryPanelWidget::BeginCropEditingSession() {
+  PullCommittedGeometryStateFromDialog();
+  PullGeometryStateFromDialog();
+  geometry_edit_dirty_ = false;
+  ProjectGeometryStateToDialog();
+
+  const bool prev_sync = local_syncing_;
+  local_syncing_       = true;
+  if (rotate_slider_) {
+    rotate_slider_->setValue(static_cast<int>(
+        std::lround(geometry_state_.rotate_degrees_ * geometry::kRotationSliderScale)));
+  }
+  SyncGeometryCropSlidersFromState();
+  SyncCropAspectControlsFromState();
+  PushGeometryStateToOverlay();
+  local_syncing_ = prev_sync;
+
+  UpdateGeometryCropRectLabel();
+}
+
+void GeometryPanelWidget::CommitPendingCrop() {
+  if (!geometry_edit_dirty_) {
+    geometry_state_ = committed_geometry_state_;
+    ProjectGeometryStateToDialog();
+    const bool prev_sync = local_syncing_;
+    local_syncing_       = true;
+    PushGeometryStateToOverlay();
+    local_syncing_ = prev_sync;
+    return;
+  }
+
+  geometry_state_.crop_enabled_ = true;
+  CommitGeometryField(AdjustmentField::CropRotate);
+  geometry_edit_dirty_ = false;
+}
+
 void GeometryPanelWidget::Build() {
   if (!deps_.panel_layout) {
     return;
@@ -216,7 +262,6 @@ void GeometryPanelWidget::Build() {
 
   BuildCropAspectSection();
   BuildRotateSection();
-  BuildCropOffsetSection();
   BuildApplyResetSection();
 
   UpdateGeometryCropRectLabel();
@@ -503,7 +548,7 @@ void GeometryPanelWidget::BuildRotateSection() {
     return slider;
   };
 
-  auto* v        = AddGeometrySection(this, *deps_.panel_layout, "Rotate & Flip");
+  auto* v        = AddGeometrySection(this, *deps_.panel_layout, "Crop Rotation");
 
   rotate_slider_ = addSlider(
       this, v, "Angle", -18000, 18000,
@@ -511,6 +556,7 @@ void GeometryPanelWidget::BuildRotateSection() {
           std::lround(geometry_state_.rotate_degrees_ * geometry::kRotationSliderScale)),
       [&](int vv) {
         geometry_state_.rotate_degrees_ = static_cast<float>(vv) / geometry::kRotationSliderScale;
+        MarkGeometryEditDirty();
         if (callbacks_.set_crop_overlay_rotation) {
           callbacks_.set_crop_overlay_rotation(geometry_state_.rotate_degrees_);
         }
@@ -520,53 +566,6 @@ void GeometryPanelWidget::BuildRotateSection() {
         return QString::fromUtf8("%1°").arg(
             static_cast<double>(vv) / geometry::kRotationSliderScale, 0, 'f', 1);
       });
-
-  auto* btn_row = new QWidget(this);
-  auto* btn_h   = new QHBoxLayout(btn_row);
-  btn_h->setContentsMargins(0, 0, 0, 0);
-  btn_h->setSpacing(kRowInnerSpacing);
-
-  auto rotateBy = [this](float delta) {
-    if (!rotate_slider_) {
-      return;
-    }
-    float a = geometry_state_.rotate_degrees_ + delta;
-    while (a > 180.0f) a -= 360.0f;
-    while (a < -180.0f) a += 360.0f;
-    rotate_slider_->setValue(static_cast<int>(std::lround(a * geometry::kRotationSliderScale)));
-  };
-
-  auto makeToolButton = [&](const QString& glyph, const char* tip_source,
-                            std::function<void()> onClick, bool enabled) {
-    auto* b = new QPushButton(glyph, btn_row);
-    b->setFixedHeight(36);
-    b->setCursor(Qt::PointingHandCursor);
-    b->setStyleSheet(AppTheme::EditorSecondaryButtonStyle());
-    SetLocalizedToolTip(b, tip_source);
-    b->setEnabled(enabled);
-    AppTheme::MarkFontRole(b, AppTheme::FontRole::UiBodyStrong);
-    QFont gf = b->font();
-    gf.setPointSizeF(gf.pointSizeF() + 2.0);
-    b->setFont(gf);
-    if (enabled && onClick) {
-      QObject::connect(b, &QPushButton::clicked, this, std::move(onClick));
-    }
-    return b;
-  };
-
-  auto* rotate_l = makeToolButton(
-      QString::fromUtf8("\xE2\x86\xBA"), "Rotate 90° left", [rotateBy]() { rotateBy(-90.0f); },
-      true);
-  auto* rotate_r = makeToolButton(
-      QString::fromUtf8("\xE2\x86\xBB"), "Rotate 90° right", [rotateBy]() { rotateBy(90.0f); },
-      true);
-  auto* flip =
-      makeToolButton(QString::fromUtf8("\xE2\x87\x84"), "Flip horizontal (coming soon)", {}, false);
-
-  btn_h->addWidget(rotate_l, 1);
-  btn_h->addWidget(rotate_r, 1);
-  btn_h->addWidget(flip, 1);
-  v->addWidget(btn_row, 0);
 }
 
 void GeometryPanelWidget::BuildCropOffsetSection() {
@@ -694,16 +693,6 @@ void GeometryPanelWidget::BuildApplyResetSection() {
   btn_h->setContentsMargins(0, 0, 0, 0);
   btn_h->setSpacing(kRowInnerSpacing);
 
-  geometry_apply_btn_ = NewLocalizedButton("Apply Crop", btn_row);
-  geometry_apply_btn_->setFixedHeight(36);
-  geometry_apply_btn_->setCursor(Qt::PointingHandCursor);
-  geometry_apply_btn_->setStyleSheet(AppTheme::EditorPrimaryButtonStyle());
-  QObject::connect(geometry_apply_btn_, &QPushButton::clicked, this, [this]() {
-    geometry_state_.crop_enabled_ = true;
-    CommitGeometryField(AdjustmentField::CropRotate);
-  });
-  btn_h->addWidget(geometry_apply_btn_, 2);
-
   geometry_reset_btn_ = NewLocalizedButton("Reset", btn_row);
   geometry_reset_btn_->setFixedHeight(36);
   geometry_reset_btn_->setCursor(Qt::PointingHandCursor);
@@ -713,8 +702,7 @@ void GeometryPanelWidget::BuildApplyResetSection() {
   btn_h->addWidget(geometry_reset_btn_, 1);
 
   auto* hint = NewLocalizedLabel(
-      "Pixels update on Apply. Double click any slider or the viewer to reset. "
-      "Ctrl+R resets all geometry.",
+      "Press Enter or switch panels to apply. Reset returns to a full-frame, unrotated crop.",
       frame);
   hint->setWordWrap(true);
   hint->setStyleSheet(AppTheme::EditorLabelStyle(AppTheme::Instance().textMutedColor()));
@@ -834,6 +822,7 @@ void GeometryPanelWidget::SetCropRectState(float x, float y, float w, float h, b
   geometry_state_.crop_w_       = clamped[2];
   geometry_state_.crop_h_       = clamped[3];
   geometry_state_.crop_enabled_ = true;
+  MarkGeometryEditDirty();
   if (sync_controls) {
     SyncGeometryCropSlidersFromState();
   }
@@ -893,6 +882,7 @@ void GeometryPanelWidget::ResizeCropRectWithAspect(float proposed_value, bool us
 
 void GeometryPanelWidget::SetCropAspectPresetState(geometry::CropAspectPreset preset) {
   geometry_state_.crop_aspect_preset_ = preset;
+  MarkGeometryEditDirty();
   if (const auto preset_ratio = geometry::CropAspectPresetRatio(preset); preset_ratio.has_value()) {
     geometry_state_.crop_aspect_width_  = preset_ratio->at(0);
     geometry_state_.crop_aspect_height_ = preset_ratio->at(1);
@@ -907,15 +897,8 @@ void GeometryPanelWidget::SetCropAspectPresetState(geometry::CropAspectPreset pr
 }
 
 void GeometryPanelWidget::ResetCropAndRotation() {
-  geometry_state_.crop_x_             = 0.0f;
-  geometry_state_.crop_y_             = 0.0f;
-  geometry_state_.crop_w_             = 1.0f;
-  geometry_state_.crop_h_             = 1.0f;
-  geometry_state_.crop_enabled_       = true;
-  geometry_state_.rotate_degrees_     = 0.0f;
-  geometry_state_.crop_aspect_preset_ = geometry::CropAspectPreset::Free;
-  geometry_state_.crop_aspect_width_  = 1.0f;
-  geometry_state_.crop_aspect_height_ = 1.0f;
+  SetGeometryStateToFullFrameCrop();
+  MarkGeometryEditDirty();
 
   ProjectGeometryStateToDialog();
 
@@ -972,14 +955,30 @@ void GeometryPanelWidget::SetRotationFromViewer(float degrees) {
   if (IsSyncing()) {
     return;
   }
-  geometry_state_.rotate_degrees_ = degrees;
-  const bool prev_sync            = local_syncing_;
-  local_syncing_                  = true;
+  const bool reset_full_frame = std::abs(degrees) <= 1.0e-4f &&
+                                std::abs(geometry_state_.crop_x_) <= 1.0e-4f &&
+                                std::abs(geometry_state_.crop_y_) <= 1.0e-4f &&
+                                std::abs(geometry_state_.crop_w_ - 1.0f) <= 1.0e-4f &&
+                                std::abs(geometry_state_.crop_h_ - 1.0f) <= 1.0e-4f;
+  if (reset_full_frame) {
+    SetGeometryStateToFullFrameCrop();
+  } else {
+    geometry_state_.rotate_degrees_ = std::clamp(degrees, -180.0f, 180.0f);
+  }
+  MarkGeometryEditDirty();
+  const bool prev_sync = local_syncing_;
+  local_syncing_       = true;
   if (rotate_slider_) {
     rotate_slider_->setValue(static_cast<int>(
         std::lround(geometry_state_.rotate_degrees_ * geometry::kRotationSliderScale)));
   }
+  if (reset_full_frame) {
+    SyncGeometryCropSlidersFromState();
+    SyncCropAspectControlsFromState();
+    PushGeometryStateToOverlay();
+  }
   local_syncing_ = prev_sync;
+  UpdateGeometryCropRectLabel();
 }
 
 void GeometryPanelWidget::SyncControlsFromDialogState() {
@@ -988,6 +987,7 @@ void GeometryPanelWidget::SyncControlsFromDialogState() {
   }
   PullGeometryStateFromDialog();
   PullCommittedGeometryStateFromDialog();
+  geometry_edit_dirty_ = false;
 
   const bool prev_sync = local_syncing_;
   local_syncing_       = true;
@@ -1003,9 +1003,6 @@ void GeometryPanelWidget::SyncControlsFromDialogState() {
 }
 
 void GeometryPanelWidget::RetranslateUi() {
-  if (geometry_apply_btn_) {
-    SetLocalizedText(geometry_apply_btn_, "Apply Crop");
-  }
   if (geometry_reset_btn_) {
     SetLocalizedText(geometry_reset_btn_, "Reset");
   }

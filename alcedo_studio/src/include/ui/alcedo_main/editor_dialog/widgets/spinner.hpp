@@ -6,23 +6,26 @@
 
 #include <QWidget>
 
-class QTimer;
-
 namespace alcedo::ui {
 
 class SpinnerWidget final : public QWidget {
  public:
+  enum class State {
+    Idle,
+    Active,
+  };
+
   explicit SpinnerWidget(QWidget* parent = nullptr);
 
   void Start();
   void Stop();
+  void SetState(State state);
 
  protected:
   void paintEvent(QPaintEvent*) override;
 
  private:
-  QTimer* timer_     = nullptr;
-  int     angle_deg_ = 0;
+  State state_ = State::Idle;
 };
 
 }  // namespace alcedo::ui

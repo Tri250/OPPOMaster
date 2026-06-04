@@ -15,10 +15,11 @@ import math
 from pathlib import Path
 
 
-SHADOW_LOG_PIVOT = -3.05
+SHADOW_LOG_PIVOT = -3.35
 SHADOW_LOG_WIDTH = 0.62
 HIGHLIGHT_LOG_PIVOT = -2.80
-HIGHLIGHT_LOG_WIDTH = 3.35
+HIGHLIGHT_LOG_WIDTH = 3.65
+MIDDLE_GRAY_LOG2 = math.log2(0.18)
 AP1_LUMA = (0.27222872, 0.67408177, 0.05368952)
 
 
@@ -64,12 +65,50 @@ def shadow_black_floor_weight(mask_ref: float) -> float:
     return 0.30 + 0.70 * smoothstep(black_start, black_end, mask_ref)
 
 
+def shadow_range_weight(mask_ref: float) -> float:
+    relative_ev = mask_ref - MIDDLE_GRAY_LOG2
+    return 1.0 - smoothstep(-5.50, -0.50, relative_ev)
+
+
+def shadow_reference_lift_delta(mask_ref: float) -> float:
+    ev = mask_ref - MIDDLE_GRAY_LOG2
+    xp = [-5.520, -3.935, -2.713, -1.713, -0.997, -0.433, 0.065, 0.475,
+          0.850, 1.188, 1.485, 1.760, 2.015, 2.251, 2.474]
+    fp = [3.170, 3.700, 2.974, 2.100, 1.564, 1.179, 0.807, 0.570,
+          0.483, 0.415, 0.355, 0.300, 0.255, 0.220, 0.0]
+    if ev <= xp[0]:
+        return fp[0]
+    for i in range(1, len(xp)):
+        if ev < xp[i]:
+            t = clamp((ev - xp[i - 1]) / (xp[i] - xp[i - 1]), 0.0, 1.0)
+            return fp[i - 1] + (fp[i] - fp[i - 1]) * t
+    return 0.0
+
+
 def shadow_zone_weight(mask_ref: float) -> float:
     width = max(SHADOW_LOG_WIDTH, 0.35)
     upper = shadow_upper_pivot()
     fade_start = upper - max(width * 3.15, 1.95)
     tonal_weight = 1.0 - smoothstep(fade_start, upper, mask_ref)
-    return clamp(tonal_weight * shadow_black_floor_weight(mask_ref), 0.0, 1.0)
+    return clamp(
+        tonal_weight * shadow_black_floor_weight(mask_ref) * shadow_range_weight(mask_ref),
+        0.0,
+        1.0,
+    )
+
+
+def shadow_fill_plateau_weight(mask_ref: float) -> float:
+    lower_gate = smoothstep(SHADOW_LOG_PIVOT - 4.05, SHADOW_LOG_PIVOT - 1.75, mask_ref)
+    upper_gate = 1.0 - 0.45 * smoothstep(
+        SHADOW_LOG_PIVOT - 1.05, SHADOW_LOG_PIVOT + 3.15, mask_ref
+    )
+    return lower_gate * upper_gate
+
+
+def shadow_practical_dark_weight(mask_ref: float) -> float:
+    lower_gate = smoothstep(SHADOW_LOG_PIVOT - 4.60, SHADOW_LOG_PIVOT - 2.25, mask_ref)
+    upper_gate = 1.0 - smoothstep(SHADOW_LOG_PIVOT - 1.55, SHADOW_LOG_PIVOT + 0.20, mask_ref)
+    return lower_gate * upper_gate
 
 
 def highlight_zone_weight(mask_ref: float, guarded: bool) -> float:
@@ -103,36 +142,44 @@ def shadow_delta(
     lift_pivot = upper + max(width * 4.00, 2.48)
     distance_to_pivot = max(lift_pivot - mask_ref, 0.0)
     soft_distance = softplus_distance(distance_to_pivot, max(width * 2.18, 1.35))
-    lift_shape = 1.0 - math.exp(-soft_distance / 1.25)
-    deep_noise_compression = 1.0 - smoothstep(
-        SHADOW_LOG_PIVOT - 4.15, SHADOW_LOG_PIVOT - 2.35, mask_ref
-    )
-    black_guard = 0.82 + 0.18 * shadow_black_floor_weight(mask_ref)
+    black_floor = shadow_black_floor_weight(mask_ref)
+    black_guard = 0.82 + 0.18 * black_floor
     highlight_overlap = clamp(highlight_mask, 0.0, 1.0)
     highlight_active = 1.0 if abs(highlight_amount) > 1.0e-6 else 0.0
     overlap_guard = 1.0 - 0.28 * highlight_active * highlight_overlap
     lift_amount = max(shadow_amount, 0.0)
     darken_amount = max(-shadow_amount, 0.0)
-    lift_delta = lift_amount * (
-        0.88 * lift_shape * black_guard * overlap_guard + 0.28 * deep_noise_compression
-    )
+    lift_delta = lift_amount * shadow_reference_lift_delta(mask_ref) * overlap_guard
     darken_delta = darken_amount * 0.34 * soft_distance * (0.85 + 0.15 * black_guard)
-    return lift_delta - darken_delta
+    return lift_delta - shadow_range_weight(mask_ref) * darken_delta
 
 
 def highlight_delta(
     mask_ref: float, shadow_amount: float, highlight_amount: float, guarded: bool
 ) -> float:
-    _ = shadow_amount, guarded
     width = max(HIGHLIGHT_LOG_WIDTH, 0.35)
     soft_distance = softrelu_distance(
         mask_ref - HIGHLIGHT_LOG_PIVOT,
         min(max(width * 0.12, 0.36), 0.55),
-        min(max(width * 0.24, 0.72), 1.10),
+        min(max(width * 0.24, 0.62), 1.00),
     )
     reduce_amount = max(highlight_amount, 0.0)
     boost_amount = max(-highlight_amount, 0.0)
-    reduce_delta = 1.68 * (1.0 - math.exp(-soft_distance / 1.33))
+    reduce_delta = 0.0
+    if reduce_amount > 1.0e-6:
+        shadow_lift_delta = 0.0
+        if shadow_amount > 1.0e-6:
+            shadow_lift_delta = max(
+                shadow_delta(mask_ref, shadow_amount, highlight_amount, guarded),
+                0.0,
+            )
+        lifted_relative_ev = mask_ref + 0.18 * shadow_lift_delta - MIDDLE_GRAY_LOG2
+        highlight_shelf = 0.60 * smoothstep(-2.80, 0.50, lifted_relative_ev)
+        highlight_peak = 0.50 * smoothstep(-1.35, 1.60, lifted_relative_ev) * (
+            1.0 - smoothstep(2.25, 4.90, lifted_relative_ev)
+        )
+        extreme_high_tail = 0.23 * smoothstep(3.00, 5.15, lifted_relative_ev)
+        reduce_delta = highlight_shelf + highlight_peak + extreme_high_tail
     boost_delta = 1.24 * (1.0 - math.exp(-soft_distance / 1.45))
     return boost_amount * boost_delta - reduce_amount * reduce_delta
 
@@ -209,10 +256,10 @@ def shadow_llf_detail_gain(detail: float, shadow_amount: float, shadow_zone: flo
         return 1.0
     sigma_r_stops = 0.42
     x = clamp(mag / sigma_r_stops, 1.0e-4, 1.0)
-    alpha = 1.0 - 0.38 * lift_amount
+    alpha = 1.0 - 0.44 * lift_amount
     remapped_mag = sigma_r_stops * math.pow(x, alpha)
     remap_gain = remapped_mag / max(mag, 1.0e-4)
-    limited_gain = clamp(remap_gain - 1.0, 0.0, 0.38)
+    limited_gain = clamp(remap_gain - 1.0, 0.0, 0.50)
     mix = lift_amount * shadow_zone * noise_gate * fine_detail_gate
     return 1.0 + limited_gain * mix
 
@@ -342,6 +389,7 @@ def apply_local_tone(
     shadow_detail_zone = shadow_texture_zone * texture_detail * shadow_detail_sign_weight(detail)
     shadow_detail_preserve = shadow_detail_preserve_weight(detail)
     shadow_fill_light_zone = shadow_fill_light_weight(mask_ref)
+    shadow_fill_plateau_zone = shadow_fill_plateau_weight(mask_ref)
     active_highlight_mask = clamp(highlight_mask, 0.0, 1.0) if abs(highlight_amount) > 1.0e-6 else 0.0
     fill_highlight_guard = 1.0 - 0.35 * active_highlight_mask
     fill_detail_polarity = 1.0 if detail >= 0.0 else 0.68
@@ -358,8 +406,9 @@ def apply_local_tone(
         if guarded
         else 1.0
     )
-    contrast_recovery = 0.035 + 0.075 * max(base_contrast_loss, shadow_contrast_loss)
-    fill_light_recovery = 0.075 + 0.085 * max(base_contrast_loss, shadow_contrast_loss)
+    contrast_recovery = 0.045 + 0.090 * max(base_contrast_loss, shadow_contrast_loss)
+    fill_light_recovery = 0.095 + 0.105 * max(base_contrast_loss, shadow_contrast_loss)
+    fill_plateau_recovery = 0.10 + 0.16 * max(base_contrast_loss, shadow_contrast_loss)
     shadow_detail_scale = (
         max(shadow_amount, 0.0) * shadow_detail_zone * shadow_detail_preserve * contrast_recovery
         - 0.018 * max(shadow_amount, 0.0) * shadow_texture_zone * smoothstep(0.85, 1.80, -detail)
@@ -370,6 +419,13 @@ def apply_local_tone(
         * shadow_detail_preserve
         * fill_detail_polarity
         * fill_light_recovery
+        + max(shadow_amount, 0.0)
+        * shadow_fill_plateau_zone
+        * fill_highlight_guard
+        * texture_detail
+        * shadow_detail_preserve
+        * fill_detail_polarity
+        * fill_plateau_recovery
         + 0.025
         * max(-shadow_amount, 0.0)
         * shadow_detail_zone
@@ -384,13 +440,17 @@ def apply_local_tone(
     raw_llf_gain = shadow_llf_detail_gain(
         detail,
         shadow_amount,
-        max(shadow_texture_zone, 0.86 * shadow_fill_light_zone * fill_highlight_guard),
+        max(
+            shadow_texture_zone,
+            0.86 * shadow_fill_light_zone * fill_highlight_guard,
+            0.42 * shadow_fill_plateau_zone * fill_highlight_guard,
+        ),
     )
     llf_gain = 1.0 + (raw_llf_gain - 1.0) * fringe_guard
     raw_detail_scale = clamp(
         (1.0 + shadow_detail_scale + highlight_detail_scale) * llf_gain,
         0.97,
-        1.30,
+        1.38,
     )
     detail_scale = 1.0 + (raw_detail_scale - 1.0) * llf_detail_mix(detail)
     local_delta = bd + detail * (detail_scale - 1.0)

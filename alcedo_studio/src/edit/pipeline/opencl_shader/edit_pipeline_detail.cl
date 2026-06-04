@@ -167,10 +167,92 @@ __kernel void edit_pipeline_neighbor_apply_v_rgba32f(__global const float4* src,
   }
 }
 
-__kernel void edit_pipeline_hs_build_log_base_h_rgba32f(
+static inline float opencl_hs_read_plane_clamped(__global const float* src, int x, int y,
+                                                 int width, int height) {
+  const int cx = clamp(x, 0, width - 1);
+  const int cy = clamp(y, 0, height - 1);
+  return src[(size_t)cy * (size_t)width + (size_t)cx];
+}
+
+static inline float opencl_hs_pyr_weight_1d(int tap) {
+  if (tap == -2 || tap == 2) {
+    return 1.0f / 16.0f;
+  }
+  if (tap == -1 || tap == 1) {
+    return 4.0f / 16.0f;
+  }
+  return 6.0f / 16.0f;
+}
+
+static inline float opencl_hs_expand_from_coarse(__global const float* coarse,
+                                                 int coarse_width,
+                                                 int coarse_height,
+                                                 int x,
+                                                 int y) {
+  float sum = 0.0f;
+  for (int ky = -2; ky <= 2; ++ky) {
+    const int sample_y = y - ky;
+    if ((sample_y & 1) != 0) continue;
+    const int cy = clamp(sample_y / 2, 0, coarse_height - 1);
+    const float wy = opencl_hs_pyr_weight_1d(ky);
+    for (int kx = -2; kx <= 2; ++kx) {
+      const int sample_x = x - kx;
+      if ((sample_x & 1) != 0) continue;
+      const int cx = clamp(sample_x / 2, 0, coarse_width - 1);
+      const float wx = opencl_hs_pyr_weight_1d(kx);
+      sum += 4.0f * wx * wy * coarse[(size_t)cy * (size_t)coarse_width + (size_t)cx];
+    }
+  }
+  return sum;
+}
+
+static inline float4 opencl_hs_read_rgba_bilinear(__global const float4* src,
+                                                  int width,
+                                                  int height,
+                                                  float x,
+                                                  float y) {
+  const float clamped_x = clamp(x, 0.0f, (float)(width - 1));
+  const float clamped_y = clamp(y, 0.0f, (float)(height - 1));
+  const int x0 = clamp((int)floor(clamped_x), 0, width - 1);
+  const int y0 = clamp((int)floor(clamped_y), 0, height - 1);
+  const int x1 = min(x0 + 1, width - 1);
+  const int y1 = min(y0 + 1, height - 1);
+  const float tx = clamped_x - (float)x0;
+  const float ty = clamped_y - (float)y0;
+  const float4 v00 = src[(size_t)y0 * (size_t)width + (size_t)x0];
+  const float4 v10 = src[(size_t)y0 * (size_t)width + (size_t)x1];
+  const float4 v01 = src[(size_t)y1 * (size_t)width + (size_t)x0];
+  const float4 v11 = src[(size_t)y1 * (size_t)width + (size_t)x1];
+  const float4 vx0 = v00 + (v10 - v00) * tx;
+  const float4 vx1 = v01 + (v11 - v01) * tx;
+  return vx0 + (vx1 - vx0) * ty;
+}
+
+static inline float opencl_hs_read_plane_bilinear(__global const float* plane,
+                                                  int width,
+                                                  int height,
+                                                  float x,
+                                                  float y) {
+  const float clamped_x = clamp(x, 0.0f, (float)(width - 1));
+  const float clamped_y = clamp(y, 0.0f, (float)(height - 1));
+  const int x0 = clamp((int)floor(clamped_x), 0, width - 1);
+  const int y0 = clamp((int)floor(clamped_y), 0, height - 1);
+  const int x1 = min(x0 + 1, width - 1);
+  const int y1 = min(y0 + 1, height - 1);
+  const float tx = clamped_x - (float)x0;
+  const float ty = clamped_y - (float)y0;
+  const float v00 = plane[(size_t)y0 * (size_t)width + (size_t)x0];
+  const float v10 = plane[(size_t)y0 * (size_t)width + (size_t)x1];
+  const float v01 = plane[(size_t)y1 * (size_t)width + (size_t)x0];
+  const float v11 = plane[(size_t)y1 * (size_t)width + (size_t)x1];
+  const float vx0 = v00 + (v10 - v00) * tx;
+  const float vx1 = v01 + (v11 - v01) * tx;
+  return vx0 + (vx1 - vx0) * ty;
+}
+
+__kernel void edit_pipeline_hs_extract_log_intensity_rgba32f(
     __global const float4* src,
     __global float* dst,
-    __global const OpenClFusedParams* params,
     int width,
     int height) {
   const int x = get_global_id(0);
@@ -180,114 +262,185 @@ __kernel void edit_pipeline_hs_build_log_base_h_rgba32f(
   }
 
   const int idx = y * width + x;
-  const int tap_count = params->hs_base_gaussian_tap_count_;
-  if (tap_count <= 0) {
-    dst[idx] = opencl_hs_log2_luminance_from_acescc(src[idx]);
-    return;
-  }
-
-  const float center = opencl_hs_log2_luminance_from_acescc(src[idx]);
-  float base = center * params->hs_base_gaussian_weights_[0];
-  float weight_sum = params->hs_base_gaussian_weights_[0];
-  for (int tap = 1; tap < tap_count; ++tap) {
-    const int ax = min(x + tap, width - 1);
-    const int bx = max(x - tap, 0);
-    const float wa = opencl_hs_log2_luminance_from_acescc(src[y * width + ax]);
-    const float wb = opencl_hs_log2_luminance_from_acescc(src[y * width + bx]);
-    const float spatial = params->hs_base_gaussian_weights_[tap];
-    const float aw = spatial * opencl_hs_range_weight(center, wa);
-    const float bw = spatial * opencl_hs_range_weight(center, wb);
-    base += wa * aw + wb * bw;
-    weight_sum += aw + bw;
-  }
-  dst[idx] = base / fmax(weight_sum, 1.0e-6f);
+  dst[idx] = opencl_hs_log_intensity_from_acescc(src[idx]);
 }
 
-__kernel void edit_pipeline_hs_build_log_base_v_rgba32f(
-    __global const float4* guidance,
-    __global const float* src,
+__kernel void edit_pipeline_hs_extract_log_intensity_resampled_rgba32f(
+    __global const float4* src,
     __global float* dst,
-    __global const OpenClFusedParams* params,
-    int width,
-    int height) {
+    int src_width,
+    int src_height,
+    int dst_width,
+    int dst_height) {
   const int x = get_global_id(0);
   const int y = get_global_id(1);
-  if (x >= width || y >= height) {
+  if (x >= dst_width || y >= dst_height) {
     return;
   }
 
-  const int idx = y * width + x;
-  const int tap_count = params->hs_base_gaussian_tap_count_;
-  if (tap_count <= 0) {
-    dst[idx] = src[idx];
-    return;
-  }
-
-  const float center = src[idx];
-  const float center_guidance = opencl_hs_log2_luminance_from_acescc(guidance[idx]);
-  float base = center * params->hs_base_gaussian_weights_[0];
-  float weight_sum = params->hs_base_gaussian_weights_[0];
-  for (int tap = 1; tap < tap_count; ++tap) {
-    const int ay = min(y + tap, height - 1);
-    const int by = max(y - tap, 0);
-    const float a = opencl_detail_read_log_clamped(src, x, y + tap, width, height);
-    const float b = opencl_detail_read_log_clamped(src, x, y - tap, width, height);
-    const float ag = opencl_hs_log2_luminance_from_acescc(guidance[ay * width + x]);
-    const float bg = opencl_hs_log2_luminance_from_acescc(guidance[by * width + x]);
-    const float spatial = params->hs_base_gaussian_weights_[tap];
-    const float aw = spatial * opencl_hs_range_weight(center_guidance, ag);
-    const float bw = spatial * opencl_hs_range_weight(center_guidance, bg);
-    base += a * aw + b * bw;
-    weight_sum += aw + bw;
-  }
-  dst[idx] = base / fmax(weight_sum, 1.0e-6f);
+  const float src_x =
+      (((float)x + 0.5f) * (float)src_width / fmax((float)dst_width, 1.0f)) - 0.5f;
+  const float src_y =
+      (((float)y + 0.5f) * (float)src_height / fmax((float)dst_height, 1.0f)) - 0.5f;
+  dst[(size_t)y * (size_t)dst_width + (size_t)x] =
+      opencl_hs_log_intensity_from_acescc(
+          opencl_hs_read_rgba_bilinear(src, src_width, src_height, src_x, src_y));
 }
 
-__kernel void edit_pipeline_hs_apply_local_tone_rgba32f(
-    __global const float4* src,
-    __global const float* base_log,
-    __global float4* dst,
-    __global const OpenClFusedParams* params,
+__kernel void edit_pipeline_hs_build_remapped_sample(
+    __global const float* source_l,
+    __global float* remapped_l,
     int width,
     int height,
-    int base_width,
-    int base_height,
-    int base_pitch_elems,
-    int use_reference_base) {
+    float gamma,
+    float target,
+    float beta,
+    float alpha,
+    float sigma_r) {
+  const int x = get_global_id(0);
+  const int y = get_global_id(1);
+  if (x >= width || y >= height) {
+    return;
+  }
+  const size_t offset = (size_t)y * (size_t)width + (size_t)x;
+  const float source_value = source_l[offset];
+  remapped_l[offset] = target + opencl_hs_llf_remap_delta(source_value - gamma, sigma_r,
+                                                          alpha, beta);
+}
+
+__kernel void edit_pipeline_hs_pyr_down(
+    __global const float* src,
+    __global float* dst,
+    int src_width,
+    int src_height,
+    int dst_width,
+    int dst_height) {
+  const int x = get_global_id(0);
+  const int y = get_global_id(1);
+  if (x >= dst_width || y >= dst_height) {
+    return;
+  }
+
+  const int center_x = x * 2;
+  const int center_y = y * 2;
+  float sum = 0.0f;
+  for (int ky = -2; ky <= 2; ++ky) {
+    const float wy = opencl_hs_pyr_weight_1d(ky);
+    for (int kx = -2; kx <= 2; ++kx) {
+      const float wx = opencl_hs_pyr_weight_1d(kx);
+      sum += wx * wy *
+             opencl_hs_read_plane_clamped(src, center_x + kx, center_y + ky,
+                                          src_width, src_height);
+    }
+  }
+  dst[(size_t)y * (size_t)dst_width + (size_t)x] = sum;
+}
+
+__kernel void edit_pipeline_hs_select_interpolated_level(
+    __global const float* source_level,
+    __global const float* sample_lo_level,
+    __global const float* sample_lo_coarse,
+    __global const float* sample_hi_level,
+    __global const float* sample_hi_coarse,
+    __global float* output_level,
+    int width,
+    int height,
+    int coarse_width,
+    int coarse_height,
+    float gamma_lo,
+    float gamma_hi,
+    int first_pair,
+    int last_pair,
+    int top_level) {
   const int x = get_global_id(0);
   const int y = get_global_id(1);
   if (x >= width || y >= height) {
     return;
   }
 
-  const int idx = y * width + x;
-  float base = base_log[idx];
-  if (use_reference_base != 0) {
-    const float reference_width = (float)max(params->render_roi_reference_width_, width);
-    const float reference_height = (float)max(params->render_roi_reference_height_, height);
-    const float roi_origin_x = (params->render_roi_enabled_ != 0u) ? (float)params->render_roi_x_
-                                                                   : 0.0f;
-    const float roi_origin_y = (params->render_roi_enabled_ != 0u) ? (float)params->render_roi_y_
-                                                                   : 0.0f;
-    const float roi_width = (params->render_roi_enabled_ != 0u)
-                                ? fmax(params->render_roi_scale_x_ * reference_width, 1.0f)
-                                : reference_width;
-    const float roi_height = (params->render_roi_enabled_ != 0u)
-                                 ? fmax(params->render_roi_scale_y_ * reference_height, 1.0f)
-                                 : reference_height;
-    const float reference_x =
-        roi_origin_x + (((float)x + 0.5f) * roi_width / fmax((float)width, 1.0f)) - 0.5f;
-    const float reference_y =
-        roi_origin_y + (((float)y + 0.5f) * roi_height / fmax((float)height, 1.0f)) - 0.5f;
-    const float base_x =
-        ((reference_x + 0.5f) * (float)base_width / fmax(reference_width, 1.0f)) - 0.5f;
-    const float base_y =
-        ((reference_y + 0.5f) * (float)base_height / fmax(reference_height, 1.0f)) - 0.5f;
-    base = opencl_hs_read_base_bilinear(base_log, base_width, base_height, base_pitch_elems,
-                                        base_x, base_y);
+  const size_t offset = (size_t)y * (size_t)width + (size_t)x;
+  const float g = source_level[offset];
+  const bool in_interval =
+      ((first_pair != 0) && g <= gamma_hi) || ((last_pair != 0) && g >= gamma_lo) ||
+      (g >= gamma_lo && g < gamma_hi);
+  if (!in_interval) {
+    return;
   }
 
-  dst[idx] = opencl_hs_apply_local_tone_pixel(src[idx], base, params);
+  const float t = clamp((g - gamma_lo) / fmax(gamma_hi - gamma_lo, 1.0e-6f), 0.0f, 1.0f);
+  if (top_level != 0) {
+    output_level[offset] = sample_lo_level[offset] + (sample_hi_level[offset] -
+                                                      sample_lo_level[offset]) * t;
+    return;
+  }
+
+  const float lap_lo = sample_lo_level[offset] -
+                       opencl_hs_expand_from_coarse(sample_lo_coarse, coarse_width,
+                                                    coarse_height, x, y);
+  const float lap_hi = sample_hi_level[offset] -
+                       opencl_hs_expand_from_coarse(sample_hi_coarse, coarse_width,
+                                                    coarse_height, x, y);
+  output_level[offset] = lap_lo + (lap_hi - lap_lo) * t;
+}
+
+__kernel void edit_pipeline_hs_collapse_level(
+    __global const float* lap_level,
+    __global const float* coarse_level,
+    __global float* dst_level,
+    int width,
+    int height,
+    int coarse_width,
+    int coarse_height) {
+  const int x = get_global_id(0);
+  const int y = get_global_id(1);
+  if (x >= width || y >= height) {
+    return;
+  }
+
+  const size_t offset = (size_t)y * (size_t)width + (size_t)x;
+  dst_level[offset] = lap_level[offset] +
+                      opencl_hs_expand_from_coarse(coarse_level, coarse_width,
+                                                   coarse_height, x, y);
+}
+
+__kernel void edit_pipeline_hs_apply_adjusted_l_rgba32f(
+    __global const float4* src,
+    __global const float* adjusted_l,
+    __global float4* dst,
+    int width,
+    int height) {
+  const int x = get_global_id(0);
+  const int y = get_global_id(1);
+  if (x >= width || y >= height) {
+    return;
+  }
+
+  const size_t offset = (size_t)y * (size_t)width + (size_t)x;
+  dst[offset] = opencl_hs_apply_adjusted_l_pixel(src[offset], adjusted_l[offset]);
+}
+
+__kernel void edit_pipeline_hs_apply_adjusted_l_from_frame_rgba32f(
+    __global const float4* src,
+    __global const float* adjusted_l,
+    __global float4* dst,
+    int width,
+    int height,
+    int adjusted_width,
+    int adjusted_height) {
+  const int x = get_global_id(0);
+  const int y = get_global_id(1);
+  if (x >= width || y >= height) {
+    return;
+  }
+
+  const float adjusted_x =
+      (((float)x + 0.5f) * (float)adjusted_width / fmax((float)width, 1.0f)) - 0.5f;
+  const float adjusted_y =
+      (((float)y + 0.5f) * (float)adjusted_height / fmax((float)height, 1.0f)) - 0.5f;
+  const size_t offset = (size_t)y * (size_t)width + (size_t)x;
+  const float sampled_l = opencl_hs_read_plane_bilinear(adjusted_l, adjusted_width,
+                                                        adjusted_height, adjusted_x, adjusted_y);
+  dst[offset] = opencl_hs_apply_adjusted_l_pixel(src[offset], sampled_l);
 }
 
 #endif  // ALCEDO_OPENCL_EDIT_PIPELINE_DETAIL_CL

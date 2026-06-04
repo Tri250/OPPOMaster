@@ -38,6 +38,7 @@ class VersioningPanelWidget final : public QWidget {
   void Configure(QWidget* flyout_parent, Callbacks callbacks);
   void Build();
   void RetranslateUi();
+  void SetBottomStatusWidget(QWidget* widget);
 
   auto MakeUiContext() const -> versioning::VersionUiContext;
 
@@ -65,6 +66,7 @@ class VersioningPanelWidget final : public QWidget {
 
   // Rail (this widget hosts the rail directly).
   QWidget*     rail_         = nullptr;
+  QVBoxLayout* rail_layout_  = nullptr;
   QPushButton* history_btn_  = nullptr;
   QPushButton* versions_btn_ = nullptr;
 
