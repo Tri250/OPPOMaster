@@ -25,6 +25,8 @@ object NetworkModule {
     @Singleton
     fun provideGson(): Gson {
         return GsonBuilder()
+            // 注意: setLenient 允许解析非标准 JSON，仅在处理不规范的第三方 API 时使用
+            // 如果 API 返回标准 JSON，建议移除此设置以提高安全性
             .setLenient()
             .create()
     }

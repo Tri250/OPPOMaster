@@ -7,14 +7,20 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import timber.log.Timber
+import java.util.concurrent.atomic.AtomicReference
 
 class AutoFillAccessibilityService : AccessibilityService() {
 
     companion object {
-        private var currentParams: Map<String, String>? = null
+        // 使用 AtomicReference 确保线程安全
+        private val currentParams = AtomicReference<Map<String, String>>(null)
 
         fun setParams(params: Map<String, String>) {
-            currentParams = params
+            currentParams.set(params)
+        }
+
+        fun getParams(): Map<String, String>? {
+            return currentParams.get()
         }
 
         fun isServiceEnabled(context: Context): Boolean {
@@ -44,9 +50,9 @@ class AutoFillAccessibilityService : AccessibilityService() {
     }
 
     private fun tryAutoFillParams(rootNode: AccessibilityNodeInfo) {
-        currentParams ?: return
+        val params = currentParams.get() ?: return
 
-        Timber.d("Trying to auto-fill params: $currentParams")
+        Timber.d("Trying to auto-fill params: $params")
 
         val brandCameraMap = mapOf(
             "com.oppo.camera" to OPPOCameraHelper,
@@ -58,7 +64,7 @@ class AutoFillAccessibilityService : AccessibilityService() {
         val packageName = rootNode.packageName?.toString()
         val helper = brandCameraMap.entries.find { packageName?.contains(it.key) == true }?.value
 
-        helper?.autoFillParams(rootNode, currentParams!!)
+        helper?.autoFillParams(rootNode, params)
     }
 
     override fun onInterrupt() {

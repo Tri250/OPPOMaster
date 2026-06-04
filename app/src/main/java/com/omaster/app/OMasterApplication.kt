@@ -5,11 +5,11 @@ import android.app.Activity
 import android.app.ActivityManager
 import android.content.Context
 import android.os.Build
-import android.os.Process
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import dagger.hilt.android.HiltAndroidApp
 import timber.log.Timber
+import java.io.File
 import java.io.PrintWriter
 import java.io.StringWriter
 import java.lang.ref.WeakReference
@@ -49,7 +49,7 @@ class OMasterApplication : Application(), Configuration.Provider {
     }
     
     /**
-     * 设置全局异常处理器 - 防止应用崩溃
+     * 设置全局异常处理器 - 防止应用崩溃并确保第三方崩溃上报正常工作
      */
     private fun setupGlobalExceptionHandler() {
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
@@ -59,16 +59,14 @@ class OMasterApplication : Application(), Configuration.Provider {
                 // 记录崩溃日志
                 logException(thread, throwable)
                 
-                // 执行清理工作
+                // 执行清理工作（不删除缓存，只保存必要数据）
                 performCleanup()
-                
-                // 尝试优雅地关闭应用
-                gracefulShutdown()
                 
             } catch (e: Exception) {
                 Timber.e(e, "异常处理器执行失败")
             } finally {
-                // 调用默认处理器（确保崩溃报告仍然发送）
+                // 必须调用默认处理器，确保第三方崩溃上报（Bugly、Firebase等）正常工作
+                // 不调用 Process.killProcess，让系统自然处理崩溃
                 defaultHandler?.uncaughtException(thread, throwable)
             }
         }
@@ -143,12 +141,15 @@ class OMasterApplication : Application(), Configuration.Provider {
     }
     
     /**
-     * 清理临时文件
+     * 清理临时文件 - 不删除整个缓存目录，只清理临时文件
      */
     private fun cleanupTempFiles() {
         try {
-            // 清理缓存目录
-            cacheDir?.deleteRecursively()
+            // 只清理临时目录，不删除整个缓存目录
+            val tempDir = File(cacheDir, "temp")
+            if (tempDir.exists() && tempDir.isDirectory) {
+                tempDir.listFiles()?.forEach { it.delete() }
+            }
             Timber.d("临时文件已清理")
         } catch (e: Exception) {
             Timber.e(e, "清理临时文件失败")
@@ -165,25 +166,6 @@ class OMasterApplication : Application(), Configuration.Provider {
             Timber.d("数据库连接已关闭")
         } catch (e: Exception) {
             Timber.e(e, "关闭数据库连接失败")
-        }
-    }
-    
-    /**
-     * 优雅关闭应用
-     */
-    private fun gracefulShutdown() {
-        try {
-            Timber.d("开始优雅关闭应用...")
-            
-            // 等待一小段时间让日志写入
-            Thread.sleep(500)
-            
-            // 杀死当前进程
-            Process.killProcess(Process.myPid())
-            System.exit(1)
-            
-        } catch (e: Exception) {
-            Timber.e(e, "优雅关闭失败")
         }
     }
     

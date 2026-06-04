@@ -21,20 +21,56 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
-import androidx.lifecycle.setViewTreeLifecycleOwner
+import androidx.lifecycle.ViewTreeLifecycleOwner
 import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
-import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import androidx.savedstate.ViewTreeSavedStateRegistryOwner
 import com.omaster.app.ui.theme.AccentPrimary
 import com.omaster.app.ui.theme.DeepSpace
 import com.omaster.app.ui.theme.HasselbladOrange
 import timber.log.Timber
 
+/**
+ * 自定义 LifecycleOwner 用于悬浮窗
+ */
+private class FloatingLifecycleOwner : LifecycleOwner {
+    private val lifecycleRegistry = LifecycleRegistry(this)
+    
+    override val lifecycle: Lifecycle
+        get() = lifecycleRegistry
+    
+    fun onCreate() {
+        lifecycleRegistry.currentState = Lifecycle.State.CREATED
+    }
+    
+    fun onStart() {
+        lifecycleRegistry.currentState = Lifecycle.State.STARTED
+    }
+    
+    fun onResume() {
+        lifecycleRegistry.currentState = Lifecycle.State.RESUMED
+    }
+    
+    fun onPause() {
+        lifecycleRegistry.currentState = Lifecycle.State.STARTED
+    }
+    
+    fun onStop() {
+        lifecycleRegistry.currentState = Lifecycle.State.CREATED
+    }
+    
+    fun onDestroy() {
+        lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
+    }
+}
+
 object FloatingWindowManager {
     private var windowManager: WindowManager? = null
     private var floatingView: ComposeView? = null
     private var isShowing = false
+    private var lifecycleOwner: FloatingLifecycleOwner? = null
 
     private var currentPresetName: String = "预设参数"
     private var currentParams: Map<String, String> = emptyMap()
@@ -58,7 +94,27 @@ object FloatingWindowManager {
         try {
             val appContext = context.applicationContext
             windowManager = appContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            
+            // 创建并初始化 LifecycleOwner
+            lifecycleOwner = FloatingLifecycleOwner().apply {
+                onCreate()
+                onStart()
+                onResume()
+            }
+            
             floatingView = ComposeView(appContext).apply {
+                // 设置 LifecycleOwner
+                ViewTreeLifecycleOwner.set(this, lifecycleOwner)
+                
+                // 设置 SavedStateRegistryOwner
+                val savedStateRegistryOwner = object : androidx.savedstate.SavedStateRegistryOwner {
+                    override val lifecycle: Lifecycle
+                        get() = lifecycleOwner!!.lifecycle
+                    override val savedStateRegistry: SavedStateRegistry
+                        get() = SavedStateRegistry()
+                }
+                ViewTreeSavedStateRegistryOwner.set(this, savedStateRegistryOwner)
+                
                 setContent {
                     FloatingWindowContent(
                         presetName = currentPresetName,
@@ -85,6 +141,13 @@ object FloatingWindowManager {
             floatingView?.let {
                 windowManager?.removeView(it)
             }
+            // 清理 LifecycleOwner
+            lifecycleOwner?.apply {
+                onPause()
+                onStop()
+                onDestroy()
+            }
+            lifecycleOwner = null
             floatingView = null
             isShowing = false
             Timber.d("Floating window hidden")

@@ -49,6 +49,8 @@ class Camera2ParamProvider(private val context: Context) : CameraParamProvider {
 
         _status.postValue(CameraCompatibilityStatus.Available)
 
+        // 使用更长的轮询间隔（2秒）以节省电量
+        // 相机参数不需要频繁更新，2秒足够响应
         monitorJob = scope.launch {
             while (true) {
                 try {
@@ -56,7 +58,7 @@ class Camera2ParamProvider(private val context: Context) : CameraParamProvider {
                 } catch (e: Exception) {
                     Timber.e(e, "Error updating camera params")
                 }
-                delay(300)
+                delay(2000) // 从 300ms 改为 2000ms，减少电量消耗
             }
         }
     }

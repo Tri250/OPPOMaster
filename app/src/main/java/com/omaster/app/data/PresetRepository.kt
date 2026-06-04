@@ -6,11 +6,15 @@ import com.omaster.app.model.Preset
 import com.omaster.app.model.SampleImage
 import com.omaster.app.model.Section
 import com.omaster.app.network.PresetApi
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -30,8 +34,14 @@ class PresetRepository @Inject constructor(
     private val _presets = MutableStateFlow<List<Preset>>(emptyList())
     val presets: StateFlow<List<Preset>> = _presets.asStateFlow()
     
+    // 使用 SupervisorJob 避免协程取消影响整个作用域
+    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    
     init {
-        initializePresets()
+        // 异步初始化，避免阻塞主线程导致 ANR
+        repositoryScope.launch {
+            initializePresets()
+        }
     }
     
     private fun initializePresets() {
