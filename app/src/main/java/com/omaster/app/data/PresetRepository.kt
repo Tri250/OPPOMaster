@@ -30,13 +30,24 @@ class PresetRepository @Inject constructor(
     private val _presets = MutableStateFlow<List<Preset>>(emptyList())
     val presets: StateFlow<List<Preset>> = _presets.asStateFlow()
     
-    init {
-        initializePresets()
+    // 移除 init 块中的同步初始化，改为延迟初始化
+    private val initializationJob = kotlinx.coroutines.GlobalScope.launch {
+        initializePresetsAsync()
     }
     
-    private fun initializePresets() {
-        cachedPresets = getSamplePresets()
-        _presets.value = cachedPresets
+    private suspend fun initializePresetsAsync() {
+        // 在后台线程初始化，避免阻塞主线程
+        kotlinx.coroutines.Dispatchers.IO.let {
+            cachedPresets = getSamplePresets()
+            _presets.value = cachedPresets
+        }
+    }
+    
+    /**
+     * 确保初始化完成
+     */
+    private suspend fun ensureInitialized() {
+        initializationJob.join()
     }
     
     /**

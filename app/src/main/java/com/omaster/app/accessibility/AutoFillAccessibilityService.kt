@@ -7,15 +7,20 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import timber.log.Timber
+import java.util.concurrent.ConcurrentHashMap
 
 class AutoFillAccessibilityService : AccessibilityService() {
 
     companion object {
-        private var currentParams: Map<String, String>? = null
+        // 使用 ConcurrentHashMap 保证线程安全
+        private val currentParams = ConcurrentHashMap<String, String>()
 
         fun setParams(params: Map<String, String>) {
-            currentParams = params
+            currentParams.clear()
+            currentParams.putAll(params)
         }
+
+        fun getParams(): Map<String, String> = currentParams.toMap()
 
         fun isServiceEnabled(context: Context): Boolean {
             val pref = Settings.Secure.getString(
@@ -44,7 +49,7 @@ class AutoFillAccessibilityService : AccessibilityService() {
     }
 
     private fun tryAutoFillParams(rootNode: AccessibilityNodeInfo) {
-        currentParams ?: return
+        if (currentParams.isEmpty()) return
 
         Timber.d("Trying to auto-fill params: $currentParams")
 
@@ -58,7 +63,7 @@ class AutoFillAccessibilityService : AccessibilityService() {
         val packageName = rootNode.packageName?.toString()
         val helper = brandCameraMap.entries.find { packageName?.contains(it.key) == true }?.value
 
-        helper?.autoFillParams(rootNode, currentParams!!)
+        helper?.autoFillParams(rootNode, currentParams.toMap())
     }
 
     override fun onInterrupt() {
