@@ -46,7 +46,7 @@ class CloudSyncService @Inject constructor(
     val userProfile: StateFlow<UserProfile?> = _userProfile.asStateFlow()
 
     private val _lastSyncTime = MutableStateFlow<Long?>(null)
-    val lastSyncTime: Flow<Long?> = _lastSyncTime.asStateFlow()
+    val lastSyncTime: StateFlow<Long?> = _lastSyncTime.asStateFlow()
 
     private val _pendingChanges = MutableStateFlow<List<SyncChange>>(emptyList())
     val pendingChanges: Flow<List<SyncChange>> = _pendingChanges.asStateFlow()
@@ -491,12 +491,16 @@ class CloudSyncService @Inject constructor(
     }
 
     private fun loadLocalPreset(presetId: String): Preset? {
-        // 从本地数据库加载预设
+        // TODO: 从本地数据库加载预设（待 Room 集成后实现）
+        // 当前云端为唯一数据源，本地缓存由 PresetRepository 内存持有
+        Timber.w("loadLocalPreset 未实现: presetId=$presetId")
         return null
     }
 
     private fun saveLocalPreset(preset: Preset) {
-        // 保存预设到本地数据库
+        // TODO: 将预设保存到本地数据库（待 Room 集成后实现）
+        // 当前云端为唯一数据源，预设修改后由云端同步流程保证一致性
+        Timber.w("saveLocalPreset 未实现: presetId=${preset.id}")
     }
 
     fun addPendingChange(change: SyncChange) {

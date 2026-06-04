@@ -66,9 +66,9 @@ fun rememberFrameRateMonitor(): State<FrameRateState> {
     val frameRateState = remember { mutableStateOf(FrameRateState()) }
     
     val choreographer = remember { Choreographer.getInstance() }
-    var lastFrameTimeNanos = remember { System.nanoTime() }
-    var frameCount = remember { 0 }
-    var lastFpsUpdate = remember { SystemClock.elapsedRealtime() }
+    var lastFrameTimeNanos by remember { mutableLongStateOf(System.nanoTime()) }
+    var frameCount by remember { mutableIntStateOf(0) }
+    var lastFpsUpdate by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     val frameIntervalNanos = remember { 1_000_000_000L / 60L } // 60fps
     
     DisposableEffect(Unit) {
@@ -303,10 +303,32 @@ data class LoadPerformanceState(
  * 页面加载性能监控器
  */
 @Composable
-fun rememberPageLoadMonitor(): State<LoadPerformanceState> {
+fun rememberPageLoadMonitor(
+    onLoadStart: () -> Unit = {},
+    onLoadComplete: (Long) -> Unit = {}
+): State<LoadPerformanceState> {
     val state = remember { mutableStateOf(LoadPerformanceState()) }
     var startTime by remember { mutableLongStateOf(0L) }
-    
+
+    // 提供简单的调用入口：调用方可在加载开始时通过 LocalComposition 触发
+    // 出于 API 稳定性考虑，这里仅暴露 State，外部通过返回的 state.value 读取；
+    // 真实实现建议改用 DisposableEffect/LifecycleEventObserver 监听生命周期阶段
+    DisposableEffect(Unit) {
+        startTime = System.nanoTime()
+        onLoadStart()
+        onDispose {
+            if (startTime > 0) {
+                val elapsedMs = (System.nanoTime() - startTime) / 1_000_000L
+                state.value = state.value.copy(
+                    loadTime = elapsedMs,
+                    isLoading = false
+                )
+                onLoadComplete(elapsedMs)
+                startTime = 0L
+            }
+        }
+    }
+
     return state
 }
 

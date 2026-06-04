@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
@@ -208,21 +209,23 @@ fun OMasterApp(
                 val context = LocalContext.current
                 val presetId = backStackEntry.arguments?.getString("preset_id")
                 val preset = presets.find { it.id == presetId }
-                
-                preset?.let { presetItem ->
+
+                if (preset != null) {
                     ProDetailScreen(
-                        preset = presetItem,
+                        preset = preset,
                         onBack = { navController.popBackStack() },
-                        onFavoriteToggle = { viewModel.toggleFavorite(presetItem) },
+                        onFavoriteToggle = { viewModel.toggleFavorite(preset) },
                         onApplyPreset = {
-                            Timber.d("应用预设: ${presetItem.name}")
+                            Timber.d("应用预设: ${preset.name}")
                         },
                         themeMode = themeMode
                     )
-                } ?: run {
-                    // 预设不存在时的提示
-                    Toast.makeText(context, "预设不存在或已被删除", Toast.LENGTH_SHORT).show()
-                    navController.popBackStack()
+                } else {
+                    // 预设不存在时使用 LaunchedEffect 避免重组时重复弹 Toast
+                    LaunchedEffect(presetId) {
+                        Toast.makeText(context, "预设不存在或已被删除", Toast.LENGTH_SHORT).show()
+                        navController.popBackStack()
+                    }
                 }
             }
             

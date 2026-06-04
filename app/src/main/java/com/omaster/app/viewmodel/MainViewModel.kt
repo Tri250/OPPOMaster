@@ -1,5 +1,6 @@
 package com.omaster.app.viewmodel
 
+import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.omaster.app.camera.CameraCompatibilityStatus
@@ -78,15 +79,19 @@ class MainViewModel @Inject constructor(
 
     // Camera monitoring flag
     private var isCameraMonitoring = false
-    
+
+    // 保存 LiveData 观察者引用，便于 onCleared 时清理，避免内存泄漏
+    private val statusObserver = Observer<CameraCompatibilityStatus> { status ->
+        _cameraStatus.value = status
+    }
+    private val paramsObserver = Observer<RealTimeCameraParams> { params ->
+        _cameraParams.value = params
+    }
+
     // Observe LiveData and update StateFlow
     init {
-        cameraParamProvider.status.observeForever { status ->
-            _cameraStatus.value = status
-        }
-        cameraParamProvider.params.observeForever { params ->
-            _cameraParams.value = params
-        }
+        cameraParamProvider.status.observeForever(statusObserver)
+        cameraParamProvider.params.observeForever(paramsObserver)
     }
 
     fun onSearchQueryChanged(query: String) {
@@ -193,6 +198,9 @@ class MainViewModel @Inject constructor(
 
     override fun onCleared() {
         stopCameraMonitor()
+        // 移除 LiveData 观察者，避免内存泄漏
+        cameraParamProvider.status.removeObserver(statusObserver)
+        cameraParamProvider.params.removeObserver(paramsObserver)
         cameraParamProvider.release()
         super.onCleared()
     }

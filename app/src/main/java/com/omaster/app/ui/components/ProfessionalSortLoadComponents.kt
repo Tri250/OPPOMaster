@@ -103,8 +103,8 @@ fun <T> ProSortableList(
     var isRefreshing by remember { mutableStateOf(false) }
     var showSortMenu by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    var sortedItems by remember(items, currentSort) {
-        mutableStateOf(sortItems(items, currentSort))
+    val sortedItems = remember(items, currentSort) {
+        sortItems(items, currentSort)
     }
     
     Column(modifier = modifier) {
@@ -518,10 +518,10 @@ fun <T> ProSortableLoadMoreContainer(
     key: ((T) -> Any)? = null,
     itemContent: @Composable (T) -> Unit
 ) {
-    var sortedItems by remember(items, currentSort) {
-        mutableStateOf(sortItems(items, currentSort))
+    val sortedItems = remember(items, currentSort) {
+        sortItems(items, currentSort)
     }
-    
+
     Column(modifier = modifier) {
         // 离线提示
         AnimatedVisibility(
@@ -531,14 +531,14 @@ fun <T> ProSortableLoadMoreContainer(
         ) {
             OfflineBanner()
         }
-        
+
         // 排序选项栏
         SortToolbar(
             currentSort = currentSort,
             sortOptions = sortOptions,
             onSortChange = { option ->
+                // 排序变更后由父组件更新 currentSort 触发重组，无需本地重复赋值
                 onSortChange(option)
-                sortedItems = sortItems(items, option)
             }
         )
         
