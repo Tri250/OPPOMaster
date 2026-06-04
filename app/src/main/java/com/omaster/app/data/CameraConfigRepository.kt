@@ -6,9 +6,13 @@ import com.google.gson.reflect.TypeToken
 import com.omaster.app.model.CameraConfig
 import com.omaster.app.model.CameraConfigExport
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import timber.log.Timber
 import java.io.File
 import java.io.FileReader
@@ -37,14 +41,20 @@ class CameraConfigRepository @Inject constructor(
     private val _configs = MutableStateFlow<List<CameraConfig>>(emptyList())
     val configs: StateFlow<List<CameraConfig>> = _configs.asStateFlow()
 
+    // 使用 SupervisorJob 避免协程取消影响整个作用域
+    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     init {
-        loadConfigs()
+        // 异步初始化，避免阻塞主线程
+        repositoryScope.launch {
+            loadConfigsAsync()
+        }
     }
 
     /**
-     * 加载所有配置
+     * 异步加载所有配置
      */
-    private fun loadConfigs() {
+    private suspend fun loadConfigsAsync() {
         try {
             if (configsFile.exists()) {
                 val type = object : TypeToken<List<CameraConfig>>() {}.type
@@ -54,8 +64,10 @@ class CameraConfigRepository @Inject constructor(
                 }
             } else {
                 val sampleConfigs = CameraConfig.sampleConfigs()
-                _configs.value = sampleConfigs
-                saveConfigs(sampleConfigs)
+                // 先写文件成功后再更新内存
+                if (saveConfigsToFile(sampleConfigs)) {
+                    _configs.value = sampleConfigs
+                }
             }
         } catch (e: Exception) {
             Timber.e(e, "Error loading configs")
@@ -64,28 +76,47 @@ class CameraConfigRepository @Inject constructor(
     }
 
     /**
-     * 保存配置列表
+     * 仅保存配置到文件（不更新内存）
      */
-    private fun saveConfigs(configs: List<CameraConfig>) {
+    private fun saveConfigsToFile(configs: List<CameraConfig>): Boolean {
         try {
             FileWriter(configsFile).use { writer ->
                 gson.toJson(configs, writer)
             }
-            _configs.value = configs
+            return true
         } catch (e: Exception) {
-            Timber.e(e, "Error saving configs")
+            Timber.e(e, "Error saving configs to file")
+            return false
         }
     }
 
     /**
-     * 添加新配置
+     * 保存配置列表 - 先写文件成功后再更新内存
+     */
+    private fun saveConfigs(configs: List<CameraConfig>): Boolean {
+        // 先写文件
+        val fileSaved = saveConfigsToFile(configs)
+        if (fileSaved) {
+            // 文件写入成功后再更新内存
+            _configs.value = configs
+            return true
+        }
+        return false
+    }
+
+    /**
+     * 添加新配置 - 先写文件成功后再更新内存
      */
     suspend fun addConfig(config: CameraConfig): Result<CameraConfig> {
         return try {
             val currentConfigs = _configs.value.toMutableList()
             currentConfigs.add(0, config)
-            saveConfigs(currentConfigs)
-            Result.success(config)
+            // 先写文件成功后再更新内存
+            if (saveConfigs(currentConfigs)) {
+                Result.success(config)
+            } else {
+                Result.failure(Exception("Failed to save config to file"))
+            }
         } catch (e: Exception) {
             Timber.e(e, "Error adding config")
             Result.failure(e)
@@ -93,16 +124,21 @@ class CameraConfigRepository @Inject constructor(
     }
 
     /**
-     * 更新配置
+     * 更新配置 - 先写文件成功后再更新内存
      */
     suspend fun updateConfig(config: CameraConfig): Result<CameraConfig> {
         return try {
             val currentConfigs = _configs.value.toMutableList()
             val index = currentConfigs.indexOfFirst { it.id == config.id }
             if (index != -1) {
-                currentConfigs[index] = config.copy(updatedAt = System.currentTimeMillis())
-                saveConfigs(currentConfigs)
-                Result.success(currentConfigs[index])
+                val updatedConfig = config.copy(updatedAt = System.currentTimeMillis())
+                currentConfigs[index] = updatedConfig
+                // 先写文件成功后再更新内存
+                if (saveConfigs(currentConfigs)) {
+                    Result.success(updatedConfig)
+                } else {
+                    Result.failure(Exception("Failed to save config to file"))
+                }
             } else {
                 Result.failure(Exception("Config not found"))
             }
@@ -113,14 +149,18 @@ class CameraConfigRepository @Inject constructor(
     }
 
     /**
-     * 删除配置
+     * 删除配置 - 先写文件成功后再更新内存
      */
     suspend fun deleteConfig(configId: String): Result<Unit> {
         return try {
             val currentConfigs = _configs.value.toMutableList()
             currentConfigs.removeAll { it.id == configId }
-            saveConfigs(currentConfigs)
-            Result.success(Unit)
+            // 先写文件成功后再更新内存
+            if (saveConfigs(currentConfigs)) {
+                Result.success(Unit)
+            } else {
+                Result.failure(Exception("Failed to save config to file"))
+            }
         } catch (e: Exception) {
             Timber.e(e, "Error deleting config")
             Result.failure(e)
@@ -128,14 +168,18 @@ class CameraConfigRepository @Inject constructor(
     }
 
     /**
-     * 批量删除配置
+     * 批量删除配置 - 先写文件成功后再更新内存
      */
     suspend fun deleteConfigs(configIds: List<String>): Result<Unit> {
         return try {
             val currentConfigs = _configs.value.toMutableList()
             currentConfigs.removeAll { it.id in configIds }
-            saveConfigs(currentConfigs)
-            Result.success(Unit)
+            // 先写文件成功后再更新内存
+            if (saveConfigs(currentConfigs)) {
+                Result.success(Unit)
+            } else {
+                Result.failure(Exception("Failed to save config to file"))
+            }
         } catch (e: Exception) {
             Timber.e(e, "Error deleting configs")
             Result.failure(e)
@@ -143,19 +187,24 @@ class CameraConfigRepository @Inject constructor(
     }
 
     /**
-     * 切换收藏状态
+     * 切换收藏状态 - 先写文件成功后再更新内存
      */
     suspend fun toggleFavorite(configId: String): Result<CameraConfig> {
         return try {
             val currentConfigs = _configs.value.toMutableList()
             val index = currentConfigs.indexOfFirst { it.id == configId }
             if (index != -1) {
-                currentConfigs[index] = currentConfigs[index].copy(
+                val updatedConfig = currentConfigs[index].copy(
                     isFavorite = !currentConfigs[index].isFavorite,
                     updatedAt = System.currentTimeMillis()
                 )
-                saveConfigs(currentConfigs)
-                Result.success(currentConfigs[index])
+                currentConfigs[index] = updatedConfig
+                // 先写文件成功后再更新内存
+                if (saveConfigs(currentConfigs)) {
+                    Result.success(updatedConfig)
+                } else {
+                    Result.failure(Exception("Failed to save config to file"))
+                }
             } else {
                 Result.failure(Exception("Config not found"))
             }
@@ -220,7 +269,7 @@ class CameraConfigRepository @Inject constructor(
     }
 
     /**
-     * 导入配置文件
+     * 导入配置文件 - 先写文件成功后再更新内存
      */
     suspend fun importConfig(inputFile: File): Result<List<CameraConfig>> {
         return try {
@@ -235,8 +284,12 @@ class CameraConfigRepository @Inject constructor(
                 }
                 val currentConfigs = _configs.value.toMutableList()
                 currentConfigs.addAll(0, importedConfigs)
-                saveConfigs(currentConfigs)
-                Result.success(importedConfigs)
+                // 先写文件成功后再更新内存
+                if (saveConfigs(currentConfigs)) {
+                    Result.success(importedConfigs)
+                } else {
+                    Result.failure(Exception("Failed to save imported configs to file"))
+                }
             }
         } catch (e: Exception) {
             Timber.e(e, "Error importing config")

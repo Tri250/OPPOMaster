@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
+import android.widget.Toast
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -31,8 +32,6 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val currentThemeMode by viewModel.themeMode.collectAsStateWithLifecycle()
-    val fluidCloudEnabled by viewModel.fluidCloudEnabled.collectAsStateWithLifecycle()
-    val overlayEnabled by viewModel.overlayEnabled.collectAsStateWithLifecycle()
     var showThemeDialog by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -165,8 +164,12 @@ fun SettingsScreen(
                         color = AccentPrimary,
                         textDecoration = TextDecoration.Underline,
                         modifier = Modifier.clickable {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.douyin.com/"))
-                            context.startActivity(intent)
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.douyin.com/"))
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "无法打开链接", Toast.LENGTH_SHORT).show()
+                            }
                         }
                     )
                 }

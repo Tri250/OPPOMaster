@@ -79,7 +79,8 @@ fun WatermarkEditorScreen(
     }
     
     fun applyWatermark() {
-        if (selectedImageUri == null) {
+        val imageUri = selectedImageUri
+        if (imageUri == null) {
             scope.launch {
                 snackbarHostState.showSnackbar("请先选择图片")
             }
@@ -89,7 +90,7 @@ fun WatermarkEditorScreen(
         scope.launch {
             isProcessing = true
             try {
-                val sourceBitmap = loadBitmapFromUri(context, selectedImageUri!!)
+                val sourceBitmap = loadBitmapFromUri(context, imageUri)
                 
                 val config = WatermarkConfig(
                     template = selectedTemplate,

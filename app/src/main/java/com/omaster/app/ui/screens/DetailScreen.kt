@@ -32,7 +32,7 @@ import com.omaster.app.model.CameraParams
 import com.omaster.app.model.Preset
 import com.omaster.app.ui.theme.*
 import com.omaster.app.viewmodel.MainViewModel
-import kotlinx.coroutines.launch
+
 
 @Composable
 fun DetailScreen(
@@ -44,7 +44,6 @@ fun DetailScreen(
     viewModel: MainViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
 
     var showApplyGuideDialog by remember { mutableStateOf(false) }
     var showAccessibilityGuideDialog by remember { mutableStateOf(false) }
@@ -532,7 +531,11 @@ fun PresetImportExportDialog(
 }
 
 fun copyAllParamsToClipboard(context: Context, preset: Preset) {
-    val params = preset.cameraParams ?: return
+    val params = preset.cameraParams
+    if (params == null) {
+        Toast.makeText(context, "该预设没有相机参数", Toast.LENGTH_SHORT).show()
+        return
+    }
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     val text = buildString {
         appendLine("📷 ${preset.name}")
@@ -550,7 +553,11 @@ fun copyAllParamsToClipboard(context: Context, preset: Preset) {
 }
 
 fun sharePreset(context: Context, preset: Preset) {
-    val params = preset.cameraParams ?: return
+    val params = preset.cameraParams
+    if (params == null) {
+        Toast.makeText(context, "该预设没有相机参数，无法分享", Toast.LENGTH_SHORT).show()
+        return
+    }
     val shareText = buildString {
         appendLine("📷 ${preset.name}")
         appendLine()
@@ -580,8 +587,10 @@ fun exportPreset(context: Context, preset: Preset) {
 
 fun openSystemCamera(context: Context) {
     val intent = Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE)
-    intent.resolveActivity(context.packageManager)?.let {
+    if (intent.resolveActivity(context.packageManager) != null) {
         context.startActivity(intent)
+    } else {
+        Toast.makeText(context, "无法打开系统相机", Toast.LENGTH_SHORT).show()
     }
 }
 

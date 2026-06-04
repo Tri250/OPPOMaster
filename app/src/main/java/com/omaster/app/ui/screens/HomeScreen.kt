@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -60,8 +61,8 @@ fun HomeScreen(
     val presets by viewModel.presets.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val filterType by viewModel.filterType.collectAsStateWithLifecycle()
-    var selectedCategory by remember { mutableStateOf(PresetCategory.ALL) }
-    var isScrolled by remember { mutableStateOf(false) }
+    var selectedCategory by rememberSaveable { mutableStateOf(PresetCategory.ALL) }
+    var isScrolled by rememberSaveable { mutableStateOf(false) }
     val scrollState = rememberScrollState()
     
     // 检测滚动位置
@@ -377,7 +378,7 @@ fun CategoryTabs(
     selectedCategory: PresetCategory,
     onCategorySelected: (PresetCategory) -> Unit
 ) {
-    var scrollState = rememberScrollState()
+    val scrollState = rememberScrollState()
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -586,7 +587,7 @@ fun OppoPresetCard(
         Box(modifier = Modifier.fillMaxSize()) {
             // 图片
             AsyncImage(
-                model = "https://picsum.photos/seed/${preset.coverPath}/400/533",
+                model = preset.coverPath,
                 contentDescription = preset.name,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()

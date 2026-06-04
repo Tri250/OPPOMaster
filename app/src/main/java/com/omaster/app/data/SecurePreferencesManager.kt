@@ -26,6 +26,7 @@ import android.util.Base64
  * 2. 密钥存储在Android Keystore中
  * 3. 支持加密SharedPreferences
  * 4. 防止敏感数据明文存储
+ * 5. 初始化状态标志和降级方案
  *
  * 作者备注：带娃的小陈工
  */
@@ -37,38 +38,109 @@ class SecurePreferencesManager @Inject constructor(
         private const val KEYSTORE_ALIAS = "omaster_master_key"
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val PREFS_FILE_NAME = "omaster_secure_prefs"
+        private const val FALLBACK_PREFS_FILE_NAME = "omaster_fallback_prefs"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
         private const val GCM_TAG_LENGTH = 128
         private const val GCM_IV_LENGTH = 12
     }
 
-    private val masterKey: MasterKey by lazy {
-        MasterKey.Builder(context)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
-    }
+    // 初始化状态标志
+    @Volatile
+    private var isInitialized: Boolean = false
+    
+    @Volatile
+    private var isUsingFallback: Boolean = false
+    
+    @Volatile
+    private var initializationError: Exception? = null
 
-    private val encryptedPrefs: SharedPreferences by lazy {
+    private val masterKey: MasterKey? by lazy {
         try {
-            EncryptedSharedPreferences.create(
-                context,
-                PREFS_FILE_NAME,
-                masterKey,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-            )
+            MasterKey.Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
         } catch (e: Exception) {
-            Timber.e(e, "Failed to create encrypted shared preferences")
-            throw SecurityException("无法创建加密存储，请检查设备安全性设置")
+            Timber.e(e, "Failed to create master key")
+            initializationError = e
+            null
         }
     }
+
+    // 加密 SharedPreferences（主方案）
+    private val encryptedPrefs: SharedPreferences? by lazy {
+        try {
+            val key = masterKey
+            if (key != null) {
+                EncryptedSharedPreferences.create(
+                    context,
+                    PREFS_FILE_NAME,
+                    key,
+                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+                ).also {
+                    isInitialized = true
+                    isUsingFallback = false
+                    Timber.d("EncryptedSharedPreferences initialized successfully")
+                }
+            } else {
+                Timber.w("Master key is null, falling back to plain SharedPreferences")
+                getFallbackPrefs()
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to create encrypted shared preferences, using fallback")
+            initializationError = e
+            getFallbackPrefs()
+        }
+    }
+
+    // 降级方案：普通 SharedPreferences
+    private val fallbackPrefs: SharedPreferences by lazy {
+        context.getSharedPreferences(FALLBACK_PREFS_FILE_NAME, Context.MODE_PRIVATE)
+    }
+
+    /**
+     * 获取降级 SharedPreferences
+     */
+    private fun getFallbackPrefs(): SharedPreferences {
+        isInitialized = true
+        isUsingFallback = true
+        Timber.w("Using fallback (non-encrypted) SharedPreferences - data will not be encrypted")
+        return fallbackPrefs
+    }
+
+    /**
+     * 获取当前使用的 SharedPreferences
+     */
+    private fun getActivePrefs(): SharedPreferences {
+        return encryptedPrefs ?: fallbackPrefs
+    }
+
+    /**
+     * 检查是否已初始化
+     */
+    fun isInitialized(): Boolean = isInitialized
+
+    /**
+     * 检查是否使用降级方案
+     */
+    fun isUsingFallback(): Boolean = isUsingFallback
+
+    /**
+     * 获取初始化错误（如果有）
+     */
+    fun getInitializationError(): Exception? = initializationError
+
+    /**
+     * 检查加密是否可用
+     */
+    fun isEncryptionAvailable(): Boolean = isInitialized && !isUsingFallback
 
     /**
      * 保存加密字符串
      */
     fun putString(key: String, value: String) {
         try {
-            encryptedPrefs.edit().putString(key, value).apply()
+            getActivePrefs().edit().putString(key, value).apply()
         } catch (e: Exception) {
             Timber.e(e, "Failed to save encrypted string for key: $key")
         }
@@ -79,7 +151,7 @@ class SecurePreferencesManager @Inject constructor(
      */
     fun getString(key: String, defaultValue: String? = null): String? {
         return try {
-            encryptedPrefs.getString(key, defaultValue)
+            getActivePrefs().getString(key, defaultValue)
         } catch (e: Exception) {
             Timber.e(e, "Failed to get encrypted string for key: $key")
             defaultValue
@@ -91,7 +163,7 @@ class SecurePreferencesManager @Inject constructor(
      */
     fun putBoolean(key: String, value: Boolean) {
         try {
-            encryptedPrefs.edit().putBoolean(key, value).apply()
+            getActivePrefs().edit().putBoolean(key, value).apply()
         } catch (e: Exception) {
             Timber.e(e, "Failed to save encrypted boolean for key: $key")
         }
@@ -102,7 +174,7 @@ class SecurePreferencesManager @Inject constructor(
      */
     fun getBoolean(key: String, defaultValue: Boolean = false): Boolean {
         return try {
-            encryptedPrefs.getBoolean(key, defaultValue)
+            getActivePrefs().getBoolean(key, defaultValue)
         } catch (e: Exception) {
             Timber.e(e, "Failed to get encrypted boolean for key: $key")
             defaultValue
@@ -114,7 +186,7 @@ class SecurePreferencesManager @Inject constructor(
      */
     fun putInt(key: String, value: Int) {
         try {
-            encryptedPrefs.edit().putInt(key, value).apply()
+            getActivePrefs().edit().putInt(key, value).apply()
         } catch (e: Exception) {
             Timber.e(e, "Failed to save encrypted int for key: $key")
         }
@@ -125,7 +197,7 @@ class SecurePreferencesManager @Inject constructor(
      */
     fun getInt(key: String, defaultValue: Int = 0): Int {
         return try {
-            encryptedPrefs.getInt(key, defaultValue)
+            getActivePrefs().getInt(key, defaultValue)
         } catch (e: Exception) {
             Timber.e(e, "Failed to get encrypted int for key: $key")
             defaultValue
@@ -137,7 +209,7 @@ class SecurePreferencesManager @Inject constructor(
      */
     fun putLong(key: String, value: Long) {
         try {
-            encryptedPrefs.edit().putLong(key, value).apply()
+            getActivePrefs().edit().putLong(key, value).apply()
         } catch (e: Exception) {
             Timber.e(e, "Failed to save encrypted long for key: $key")
         }
@@ -148,7 +220,7 @@ class SecurePreferencesManager @Inject constructor(
      */
     fun getLong(key: String, defaultValue: Long = 0L): Long {
         return try {
-            encryptedPrefs.getLong(key, defaultValue)
+            getActivePrefs().getLong(key, defaultValue)
         } catch (e: Exception) {
             Timber.e(e, "Failed to get encrypted long for key: $key")
             defaultValue
@@ -160,7 +232,7 @@ class SecurePreferencesManager @Inject constructor(
      */
     fun putFloat(key: String, value: Float) {
         try {
-            encryptedPrefs.edit().putFloat(key, value).apply()
+            getActivePrefs().edit().putFloat(key, value).apply()
         } catch (e: Exception) {
             Timber.e(e, "Failed to save encrypted float for key: $key")
         }
@@ -171,7 +243,7 @@ class SecurePreferencesManager @Inject constructor(
      */
     fun getFloat(key: String, defaultValue: Float = 0f): Float {
         return try {
-            encryptedPrefs.getFloat(key, defaultValue)
+            getActivePrefs().getFloat(key, defaultValue)
         } catch (e: Exception) {
             Timber.e(e, "Failed to get encrypted float for key: $key")
             defaultValue
@@ -183,7 +255,7 @@ class SecurePreferencesManager @Inject constructor(
      */
     fun putStringSet(key: String, value: Set<String>) {
         try {
-            encryptedPrefs.edit().putStringSet(key, value).apply()
+            getActivePrefs().edit().putStringSet(key, value).apply()
         } catch (e: Exception) {
             Timber.e(e, "Failed to save encrypted string set for key: $key")
         }
@@ -194,7 +266,7 @@ class SecurePreferencesManager @Inject constructor(
      */
     fun getStringSet(key: String, defaultValue: Set<String>? = null): Set<String>? {
         return try {
-            encryptedPrefs.getStringSet(key, defaultValue)
+            getActivePrefs().getStringSet(key, defaultValue)
         } catch (e: Exception) {
             Timber.e(e, "Failed to get encrypted string set for key: $key")
             defaultValue
@@ -206,7 +278,7 @@ class SecurePreferencesManager @Inject constructor(
      */
     fun remove(key: String) {
         try {
-            encryptedPrefs.edit().remove(key).apply()
+            getActivePrefs().edit().remove(key).apply()
         } catch (e: Exception) {
             Timber.e(e, "Failed to remove key: $key")
         }
@@ -217,7 +289,7 @@ class SecurePreferencesManager @Inject constructor(
      */
     fun clear() {
         try {
-            encryptedPrefs.edit().clear().apply()
+            getActivePrefs().edit().clear().apply()
             Timber.d("Secure preferences cleared")
         } catch (e: Exception) {
             Timber.e(e, "Failed to clear secure preferences")
@@ -229,7 +301,7 @@ class SecurePreferencesManager @Inject constructor(
      */
     fun contains(key: String): Boolean {
         return try {
-            encryptedPrefs.contains(key)
+            getActivePrefs().contains(key)
         } catch (e: Exception) {
             Timber.e(e, "Failed to check key existence: $key")
             false
@@ -241,7 +313,7 @@ class SecurePreferencesManager @Inject constructor(
      */
     fun getAllKeys(): Set<String> {
         return try {
-            encryptedPrefs.all.keys
+            getActivePrefs().all.keys
         } catch (e: Exception) {
             Timber.e(e, "Failed to get all keys")
             emptySet()
@@ -254,7 +326,11 @@ class SecurePreferencesManager @Inject constructor(
     fun registerOnSharedPreferenceChangeListener(
         listener: SharedPreferences.OnSharedPreferenceChangeListener
     ) {
-        encryptedPrefs.registerOnSharedPreferenceChangeListener(listener)
+        try {
+            getActivePrefs().registerOnSharedPreferenceChangeListener(listener)
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to register preference change listener")
+        }
     }
 
     /**
@@ -263,7 +339,11 @@ class SecurePreferencesManager @Inject constructor(
     fun unregisterOnSharedPreferenceChangeListener(
         listener: SharedPreferences.OnSharedPreferenceChangeListener
     ) {
-        encryptedPrefs.unregisterOnSharedPreferenceChangeListener(listener)
+        try {
+            getActivePrefs().unregisterOnSharedPreferenceChangeListener(listener)
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to unregister preference change listener")
+        }
     }
 
     /**
@@ -271,14 +351,15 @@ class SecurePreferencesManager @Inject constructor(
      */
     fun getStorageStats(): StorageStats {
         return try {
-            val allData = encryptedPrefs.all
+            val allData = getActivePrefs().all
             StorageStats(
                 totalKeys = allData.size,
-                estimatedSize = estimateStorageSize(allData)
+                estimatedSize = estimateStorageSize(allData),
+                isEncrypted = !isUsingFallback
             )
         } catch (e: Exception) {
             Timber.e(e, "Failed to get storage stats")
-            StorageStats(0, 0)
+            StorageStats(0, 0, !isUsingFallback)
         }
     }
 
@@ -293,7 +374,7 @@ class SecurePreferencesManager @Inject constructor(
      */
     fun exportAllData(): Map<String, *> {
         return try {
-            encryptedPrefs.all.toMap()
+            getActivePrefs().all.toMap()
         } catch (e: Exception) {
             Timber.e(e, "Failed to export data")
             emptyMap()
@@ -305,7 +386,7 @@ class SecurePreferencesManager @Inject constructor(
      */
     fun importData(data: Map<String, *>) {
         try {
-            val editor = encryptedPrefs.edit()
+            val editor = getActivePrefs().edit()
             data.forEach { (key, value) ->
                 when (value) {
                     is String -> editor.putString(key, value)
@@ -329,7 +410,8 @@ class SecurePreferencesManager @Inject constructor(
  */
 data class StorageStats(
     val totalKeys: Int,
-    val estimatedSize: Long
+    val estimatedSize: Long,
+    val isEncrypted: Boolean = true
 )
 
 /**

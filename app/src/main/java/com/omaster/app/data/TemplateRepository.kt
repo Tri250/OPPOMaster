@@ -3,15 +3,19 @@ package com.omaster.app.data
 import android.content.Context
 import com.omaster.app.watermark.*
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import timber.log.Timber
 import java.io.File
+import java.util.concurrent.CopyOnWriteArrayList
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -20,8 +24,9 @@ class TemplateRepository @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     private val templatesDir = File(context.filesDir, "templates")
-    private val systemTemplates = mutableListOf<WatermarkTemplateData>()
-    private val customTemplates = mutableListOf<WatermarkTemplateData>()
+    // 使用 CopyOnWriteArrayList 保证线程安全
+    private val systemTemplates = CopyOnWriteArrayList<WatermarkTemplateData>()
+    private val customTemplates = CopyOnWriteArrayList<WatermarkTemplateData>()
 
     private val _templates = MutableStateFlow<List<WatermarkTemplateData>>(emptyList())
     val templates: Flow<List<WatermarkTemplateData>> = _templates.asStateFlow()
@@ -32,12 +37,19 @@ class TemplateRepository @Inject constructor(
     private val _customTemplatesFlow = MutableStateFlow<List<WatermarkTemplateData>>(emptyList())
     val customTemplatesFlow: Flow<List<WatermarkTemplateData>> = _customTemplatesFlow.asStateFlow()
 
+    // 使用 SupervisorJob 避免协程取消影响整个作用域
+    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     init {
         if (!templatesDir.exists()) {
             templatesDir.mkdirs()
         }
+        // 移除 init 中的 suspend 调用，改为异步执行
         initializeSystemTemplates()
-        loadCustomTemplates()
+        // 异步加载自定义模板
+        repositoryScope.launch {
+            loadCustomTemplatesAsync()
+        }
     }
 
     private fun initializeSystemTemplates() {
@@ -205,21 +217,32 @@ class TemplateRepository @Inject constructor(
         )
     }
 
-    suspend fun loadCustomTemplates() = withContext(Dispatchers.IO) {
+    /**
+     * 异步加载自定义模板
+     */
+    private suspend fun loadCustomTemplatesAsync() = withContext(Dispatchers.IO) {
         customTemplates.clear()
 
-        templatesDir.listFiles()?.filter { it.extension == "json" }?.forEach { file ->
-            try {
-                val json = file.readText()
-                val template = parseTemplateFromJson(json)
-                customTemplates.add(template)
-            } catch (e: Exception) {
-                Timber.e(e, "Failed to load template from: ${file.absolutePath}")
+        // 添加空检查，避免 NullPointerException
+        val files = templatesDir.listFiles()
+        if (files != null) {
+            files.filter { it.extension == "json" }.forEach { file ->
+                try {
+                    val json = file.readText()
+                    val template = parseTemplateFromJson(json)
+                    customTemplates.add(template)
+                } catch (e: Exception) {
+                    Timber.e(e, "Failed to load template from: ${file.absolutePath}")
+                }
             }
         }
 
         _customTemplatesFlow.value = customTemplates.toList()
         updateCombinedTemplates()
+    }
+
+    suspend fun loadCustomTemplates() = withContext(Dispatchers.IO) {
+        loadCustomTemplatesAsync()
     }
 
     suspend fun saveTemplate(template: WatermarkTemplateData): Result<WatermarkTemplateData> = withContext(Dispatchers.IO) {

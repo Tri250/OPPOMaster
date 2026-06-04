@@ -1,7 +1,6 @@
 package com.omaster.app.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -30,11 +29,10 @@ fun PresetCard(
     modifier: Modifier = Modifier
 ) {
     Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
+        modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+        onClick = onClick
     ) {
         Column {
             Box(
@@ -43,7 +41,7 @@ fun PresetCard(
                     .height(180.dp)
             ) {
                 AsyncImage(
-                    model = "https://picsum.photos/seed/${preset.coverPath}/600/400",
+                    model = preset.coverUrl.ifEmpty { "https://picsum.photos/seed/${preset.coverPath}/600/400" },
                     contentDescription = preset.name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
@@ -80,6 +78,7 @@ fun PresetCard(
                     }
                 }
 
+                // 点击防抖：收藏按钮点击后需要等待操作完成才能再次点击
                 IconButton(
                     onClick = onFavoriteToggle,
                     modifier = Modifier

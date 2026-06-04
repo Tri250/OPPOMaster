@@ -12,8 +12,10 @@ import com.omaster.app.data.PresetRepository
 import com.omaster.app.model.Preset
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
@@ -24,11 +26,32 @@ class MainViewModel @Inject constructor(
     private val preferencesDataStore: PreferencesDataStore,
     private val cameraParamProvider: CameraParamProvider
 ) : ViewModel() {
-    val presets = repository.presets
-    val themeMode = preferencesDataStore.themeMode
-    val fluidCloudEnabled = preferencesDataStore.fluidCloudEnabled
-    val overlayEnabled = preferencesDataStore.overlayEnabled
-    val syncEnabled = preferencesDataStore.syncEnabled
+    // Repository Flow exposed with stateIn for optimization
+    val presets = repository.presets.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+    val themeMode = preferencesDataStore.themeMode.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = ThemeMode.SYSTEM
+    )
+    val fluidCloudEnabled = preferencesDataStore.fluidCloudEnabled.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = false
+    )
+    val overlayEnabled = preferencesDataStore.overlayEnabled.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = false
+    )
+    val syncEnabled = preferencesDataStore.syncEnabled.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = false
+    )
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -39,9 +62,20 @@ class MainViewModel @Inject constructor(
     private val _selectedPreset = MutableStateFlow<Preset?>(null)
     val selectedPreset: StateFlow<Preset?> = _selectedPreset.asStateFlow()
 
+    // Error state Flow
+    private val _syncError = MutableStateFlow<String?>(null)
+    val syncError: StateFlow<String?> = _syncError.asStateFlow()
+
+    // Loading state Flow
+    private val _isLoading = MutableStateFlow(false)
+    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+
     // Camera related
     val cameraStatus: LiveData<CameraCompatibilityStatus> = cameraParamProvider.status
     val cameraParams: LiveData<RealTimeCameraParams> = cameraParamProvider.params
+
+    // Camera monitoring flag
+    private var isCameraMonitoring = false
 
     fun onSearchQueryChanged(query: String) {
         _searchQuery.value = query
@@ -70,57 +104,85 @@ class MainViewModel @Inject constructor(
 
     fun setThemeMode(themeMode: ThemeMode) {
         viewModelScope.launch {
-            preferencesDataStore.setThemeMode(themeMode)
-            Timber.d("Theme mode changed: $themeMode")
+            try {
+                preferencesDataStore.setThemeMode(themeMode)
+                Timber.d("Theme mode changed: $themeMode")
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to set theme mode")
+            }
         }
     }
 
     fun setFluidCloudEnabled(enabled: Boolean) {
         viewModelScope.launch {
-            preferencesDataStore.setFluidCloudEnabled(enabled)
-            Timber.d("Fluid cloud enabled: $enabled")
+            try {
+                preferencesDataStore.setFluidCloudEnabled(enabled)
+                Timber.d("Fluid cloud enabled: $enabled")
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to set fluid cloud enabled")
+            }
         }
     }
 
     fun setOverlayEnabled(enabled: Boolean) {
         viewModelScope.launch {
-            preferencesDataStore.setOverlayEnabled(enabled)
-            Timber.d("Overlay enabled: $enabled")
+            try {
+                preferencesDataStore.setOverlayEnabled(enabled)
+                Timber.d("Overlay enabled: $enabled")
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to set overlay enabled")
+            }
         }
     }
 
     fun setSyncEnabled(enabled: Boolean) {
         viewModelScope.launch {
-            preferencesDataStore.setSyncEnabled(enabled)
-            Timber.d("Sync enabled: $enabled")
+            try {
+                preferencesDataStore.setSyncEnabled(enabled)
+                Timber.d("Sync enabled: $enabled")
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to set sync enabled")
+            }
         }
     }
 
     fun syncPresets() {
         viewModelScope.launch {
             try {
+                _isLoading.value = true
+                _syncError.value = null
                 repository.syncPresets()
                 Timber.d("Presets synced successfully")
             } catch (e: Exception) {
                 Timber.e(e, "Failed to sync presets")
+                _syncError.value = e.message ?: "Unknown error occurred"
+            } finally {
+                _isLoading.value = false
             }
         }
     }
 
     // Camera related functions
     fun startCameraMonitor() {
-        cameraParamProvider.startMonitor()
-        Timber.d("Camera monitor started")
+        if (!isCameraMonitoring) {
+            cameraParamProvider.startMonitor()
+            isCameraMonitoring = true
+            Timber.d("Camera monitor started")
+        }
     }
 
     fun stopCameraMonitor() {
-        cameraParamProvider.stopMonitor()
-        Timber.d("Camera monitor stopped")
+        if (isCameraMonitoring) {
+            cameraParamProvider.stopMonitor()
+            isCameraMonitoring = false
+            Timber.d("Camera monitor stopped")
+        }
     }
 
     override fun onCleared() {
-        super.onCleared()
+        stopCameraMonitor()
         cameraParamProvider.release()
+        super.onCleared()
     }
 }
 

@@ -24,6 +24,7 @@ android {
         }
         
         // 预设数据 API 配置 - 使用官方 API 服务器
+        buildConfigField("String", "BASE_URL", "\"https://api.xiaobangbang.app/\"")
         buildConfigField("String", "PRESET_OPPO_URL", "\"https://api.xiaobangbang.app/v1/presets/oppo\"")
         buildConfigField("String", "PRESET_REALME_URL", "\"https://api.xiaobangbang.app/v1/presets/realme\"")
         buildConfigField("String", "PRESET_ALL_URL", "\"https://api.xiaobangbang.app/v1/presets/all\"")

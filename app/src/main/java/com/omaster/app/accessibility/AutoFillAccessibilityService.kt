@@ -5,6 +5,7 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.content.Context
 import android.content.Intent
+import android.os.IBinder
 import android.provider.Settings
 import timber.log.Timber
 import java.util.concurrent.atomic.AtomicReference
@@ -15,8 +16,17 @@ class AutoFillAccessibilityService : AccessibilityService() {
         // 使用 AtomicReference 确保线程安全
         private val currentParams = AtomicReference<Map<String, String>>(null)
 
+        // 静态常量：品牌相机映射
+        private val brandCameraMap = mapOf(
+            "com.oppo.camera" to OPPOCameraHelper,
+            "com.oneplus.camera" to OnePlusCameraHelper,
+            "com.realme.camera" to RealmeCameraHelper,
+            "com.android.camera" to GenericCameraHelper
+        )
+
         fun setParams(params: Map<String, String>) {
-            currentParams.set(params)
+            // 创建不可变副本
+            currentParams.set(params.toMap())
         }
 
         fun getParams(): Map<String, String>? {
@@ -24,11 +34,16 @@ class AutoFillAccessibilityService : AccessibilityService() {
         }
 
         fun isServiceEnabled(context: Context): Boolean {
-            val pref = Settings.Secure.getString(
-                context.contentResolver,
-                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-            )
-            return pref?.contains("${context.packageName}/.accessibility.AutoFillAccessibilityService") ?: false
+            return try {
+                val pref = Settings.Secure.getString(
+                    context.contentResolver,
+                    Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+                )
+                pref?.contains("${context.packageName}/.accessibility.AutoFillAccessibilityService") ?: false
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to check accessibility service status")
+                false
+            }
         }
 
         fun openAccessibilitySettings(context: Context) {
@@ -37,15 +52,32 @@ class AutoFillAccessibilityService : AccessibilityService() {
         }
     }
 
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        Timber.d("Accessibility service connected")
+    }
+
+    override fun onUnbind(intent: Intent?): Boolean {
+        Timber.d("Accessibility service unbound")
+        return super.onUnbind(intent)
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         event ?: return
 
-        val rootNode = rootInActiveWindow ?: return
+        var rootNode: AccessibilityNodeInfo? = null
+        try {
+            rootNode = rootInActiveWindow ?: return
 
-        when (event.eventType) {
-            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
-                tryAutoFillParams(rootNode)
+            when (event.eventType) {
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
+                    tryAutoFillParams(rootNode)
+                }
             }
+        } catch (e: Exception) {
+            Timber.e(e, "Error in onAccessibilityEvent")
+        } finally {
+            rootNode?.recycle()
         }
     }
 
@@ -54,17 +86,18 @@ class AutoFillAccessibilityService : AccessibilityService() {
 
         Timber.d("Trying to auto-fill params: $params")
 
-        val brandCameraMap = mapOf(
-            "com.oppo.camera" to OPPOCameraHelper,
-            "com.oneplus.camera" to OnePlusCameraHelper,
-            "com.realme.camera" to RealmeCameraHelper,
-            "com.android.camera" to GenericCameraHelper
-        )
-
         val packageName = rootNode.packageName?.toString()
-        val helper = brandCameraMap.entries.find { packageName?.contains(it.key) == true }?.value
+        if (packageName == null) {
+            Timber.d("Package name is null, skipping auto-fill")
+            return
+        }
 
-        helper?.autoFillParams(rootNode, params)
+        try {
+            val helper = brandCameraMap.entries.find { packageName.contains(it.key) }?.value
+            helper?.autoFillParams(rootNode, params)
+        } catch (e: Exception) {
+            Timber.e(e, "Error in tryAutoFillParams")
+        }
     }
 
     override fun onInterrupt() {
@@ -87,11 +120,18 @@ object OPPOCameraHelper : CameraAutoFillHelper {
 
     private fun fillParam(rootNode: AccessibilityNodeInfo, paramName: String, viewId: String, value: String?) {
         value ?: return
-        val nodes = rootNode.findAccessibilityNodeInfosByViewId(viewId)
-        nodes.firstOrNull()?.apply {
-            if (isClickable || isFocusable) {
-                performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        var nodes: List<AccessibilityNodeInfo>? = null
+        try {
+            nodes = rootNode.findAccessibilityNodeInfosByViewId(viewId)
+            nodes.firstOrNull()?.apply {
+                if (isClickable || isFocusable) {
+                    performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                }
             }
+        } catch (e: Exception) {
+            Timber.e(e, "Error in fillParam for $paramName")
+        } finally {
+            nodes?.forEach { it.recycle() }
         }
     }
 }

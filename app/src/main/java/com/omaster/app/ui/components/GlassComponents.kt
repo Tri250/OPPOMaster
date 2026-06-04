@@ -74,11 +74,17 @@ fun GlassCard(
     Surface(
         modifier = modifier
             .scale(scale * pressScale)
-            .combinedClickable(
-                interactionSource = interactionSource,
-                indication = null,
-                enabled = enabled,
-                onClick = onClick ?: {}
+            .then(
+                if (onClick != null) {
+                    Modifier.combinedClickable(
+                        interactionSource = interactionSource,
+                        indication = null,
+                        enabled = enabled,
+                        onClick = onClick
+                    )
+                } else {
+                    Modifier
+                }
             ),
         shape = RoundedCornerShape(Radius.Card),
         color = Color.Transparent,
@@ -269,6 +275,7 @@ fun GlassChip(
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
     icon: ImageVector? = null
 ) {
     val backgroundColor by animateColorAsState(
@@ -310,9 +317,15 @@ fun GlassChip(
     Surface(
         modifier = modifier
             .scale(scale)
-            .pointerInput(Unit) {
-                detectTapGestures(onTap = { onClick() })
-            },
+            .then(
+                if (enabled) {
+                    Modifier.pointerInput(Unit) {
+                        detectTapGestures(onTap = { onClick() })
+                    }
+                } else {
+                    Modifier
+                }
+            ),
         shape = RoundedCornerShape(Radius.Chip),
         color = Color.Transparent
     ) {
@@ -358,22 +371,34 @@ fun GlassSlider(
     valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
     enabled: Boolean = true
 ) {
-    val progress by animateFloatAsState(
-        targetValue = (value - valueRange.start) / (valueRange.endInclusive - valueRange.start),
-        animationSpec = tween(100),
-        label = "progress"
-    )
-    
     val thumbScale by animateFloatAsState(
         targetValue = if (enabled) 1f else 0.8f,
         animationSpec = spring(dampingRatio = 0.7f, stiffness = 400f),
         label = "thumbScale"
     )
     
+    var sliderWidth by remember { mutableStateOf(0f) }
+    val progress = (value - valueRange.start) / (valueRange.endInclusive - valueRange.start)
+    
     Box(
         modifier = modifier
             .height(32.dp)
             .fillMaxWidth()
+            .pointerInput(enabled) {
+                if (enabled) {
+                    detectDragGestures { change, _ ->
+                        change.consume()
+                        if (sliderWidth > 0) {
+                            val newProgress = (change.position.x / sliderWidth).coerceIn(0f, 1f)
+                            val newValue = valueRange.start + newProgress * (valueRange.endInclusive - valueRange.start)
+                            onValueChange(newValue)
+                        }
+                    }
+                }
+            }
+            .onGloballyPositioned { coordinates ->
+                sliderWidth = coordinates.size.width.toFloat()
+            }
     ) {
         Box(
             modifier = Modifier
@@ -406,7 +431,7 @@ fun GlassSlider(
             modifier = Modifier
                 .size((12 * thumbScale).dp)
                 .align(Alignment.CenterStart)
-                .offset(x = (progress * 200).dp - 6.dp)
+                .offset(x = (progress * sliderWidth).dp - 6.dp)
                 .background(
                     color = Colors.HasselbladOrange,
                     shape = CircleShape
@@ -416,6 +441,18 @@ fun GlassSlider(
                     color = Colors.OnPrimary,
                     shape = CircleShape
                 )
+                .pointerInput(enabled) {
+                    if (enabled) {
+                        detectDragGestures { change, _ ->
+                            change.consume()
+                            if (sliderWidth > 0) {
+                                val newProgress = (change.position.x / sliderWidth).coerceIn(0f, 1f)
+                                val newValue = valueRange.start + newProgress * (valueRange.endInclusive - valueRange.start)
+                                onValueChange(newValue)
+                            }
+                        }
+                    }
+                }
         )
     }
 }

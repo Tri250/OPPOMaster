@@ -1,6 +1,7 @@
 package com.omaster.app.floating
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.PixelFormat
 import android.net.Uri
 import android.os.Build
@@ -31,17 +32,24 @@ import com.omaster.app.ui.theme.AccentPrimary
 import com.omaster.app.ui.theme.DeepSpace
 import com.omaster.app.ui.theme.HasselbladOrange
 import timber.log.Timber
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * 自定义 LifecycleOwner 用于悬浮窗
+ * 自定义 LifecycleOwner 和 SavedStateRegistryOwner 用于悬浮窗
  */
-private class FloatingLifecycleOwner : LifecycleOwner {
+private class FloatingLifecycleOwner : LifecycleOwner, androidx.savedstate.SavedStateRegistryOwner {
     private val lifecycleRegistry = LifecycleRegistry(this)
+    private val savedStateRegistryController = SavedStateRegistryController.create(this)
     
     override val lifecycle: Lifecycle
         get() = lifecycleRegistry
     
+    override val savedStateRegistry: SavedStateRegistry
+        get() = savedStateRegistryController.savedStateRegistry
+    
     fun onCreate() {
+        savedStateRegistryController.performAttach()
+        savedStateRegistryController.performRestore(null)
         lifecycleRegistry.currentState = Lifecycle.State.CREATED
     }
     
@@ -69,7 +77,7 @@ private class FloatingLifecycleOwner : LifecycleOwner {
 object FloatingWindowManager {
     private var windowManager: WindowManager? = null
     private var floatingView: ComposeView? = null
-    private var isShowing = false
+    private val isShowing = AtomicBoolean(false)
     private var lifecycleOwner: FloatingLifecycleOwner? = null
 
     private var currentPresetName: String = "预设参数"
@@ -78,15 +86,16 @@ object FloatingWindowManager {
     fun setPresetData(name: String, params: Map<String, String>) {
         currentPresetName = name
         currentParams = params
-        if (isShowing) {
+        if (isShowing.get()) {
             updateFloatingView()
         }
     }
 
     fun showWindow(context: Context) {
-        if (isShowing) return
+        if (!isShowing.compareAndSet(false, true)) return
 
         if (!canDrawOverlays(context)) {
+            isShowing.set(false)
             requestOverlayPermission(context)
             return
         }
@@ -106,14 +115,8 @@ object FloatingWindowManager {
                 // 设置 LifecycleOwner
                 ViewTreeLifecycleOwner.set(this, lifecycleOwner)
                 
-                // 设置 SavedStateRegistryOwner
-                val savedStateRegistryOwner = object : androidx.savedstate.SavedStateRegistryOwner {
-                    override val lifecycle: Lifecycle
-                        get() = lifecycleOwner!!.lifecycle
-                    override val savedStateRegistry: SavedStateRegistry
-                        get() = SavedStateRegistry()
-                }
-                ViewTreeSavedStateRegistryOwner.set(this, savedStateRegistryOwner)
+                // 设置 SavedStateRegistryOwner (lifecycleOwner 已实现该接口)
+                ViewTreeSavedStateRegistryOwner.set(this, lifecycleOwner)
                 
                 setContent {
                     FloatingWindowContent(
@@ -127,15 +130,15 @@ object FloatingWindowManager {
 
             val params = getWindowParams()
             windowManager?.addView(floatingView, params)
-            isShowing = true
             Timber.d("Floating window shown")
         } catch (e: Exception) {
             Timber.e(e, "Failed to show floating window")
+            isShowing.set(false)
         }
     }
 
     fun hideWindow() {
-        if (!isShowing) return
+        if (!isShowing.compareAndSet(true, false)) return
 
         try {
             floatingView?.let {
@@ -149,15 +152,15 @@ object FloatingWindowManager {
             }
             lifecycleOwner = null
             floatingView = null
-            isShowing = false
             Timber.d("Floating window hidden")
         } catch (e: Exception) {
             Timber.e(e, "Failed to hide floating window")
+            isShowing.set(true)
         }
     }
 
     fun toggleWindow(context: Context) {
-        if (isShowing) {
+        if (isShowing.get()) {
             hideWindow()
         } else {
             showWindow(context)

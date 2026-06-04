@@ -115,7 +115,7 @@ class OcrParameterRecognizer @Inject constructor(
         }
     }
 
-    fun recognizeFromCameraX(): Flow<OcrState> = callbackFlow {
+    fun recognizeFromCameraX(lifecycleOwner: LifecycleOwner): Flow<OcrState> = callbackFlow {
         trySend(OcrState.Idle)
         
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
@@ -134,7 +134,7 @@ class OcrParameterRecognizer @Inject constructor(
                 try {
                     cameraProvider.unbindAll()
                     val camera = cameraProvider.bindToLifecycle(
-                        this as LifecycleOwner,
+                        lifecycleOwner,
                         cameraSelector,
                         preview,
                         imageCapture
@@ -146,30 +146,31 @@ class OcrParameterRecognizer @Inject constructor(
                         obtainExecutor(),
                         object : ImageCapture.OnImageCapturedCallback() {
                             override fun onCaptureSuccess(image: ImageProxy) {
-                                val bitmap = image.toBitmap()
-                                val inputImage = InputImage.fromBitmap(bitmap, image.imageInfo.rotationDegrees)
-                                
-                                textRecognizer.process(inputImage)
-                                    .addOnSuccessListener { visionText ->
-                                        val ocrResult = OcrResult(
-                                            rawText = visionText.text,
-                                            confidence = calculateConfidence(visionText),
-                                            textBlocks = visionText.textBlocks.map { block ->
-                                                TextBlock(
-                                                    text = block.text,
-                                                    boundingBox = block.boundingBox,
-                                                    lines = block.lines.map { it.text }
-                                                )
-                                            }
-                                        )
-                                        trySend(OcrState.Success(ocrResult))
-                                    }
-                                    .addOnFailureListener { e ->
-                                        trySend(OcrState.Error(e.message ?: "Recognition failed"))
-                                    }
-                                    .addOnCompleteListener {
-                                        image.close()
-                                    }
+                                try {
+                                    val bitmap = image.toBitmap()
+                                    val inputImage = InputImage.fromBitmap(bitmap, image.imageInfo.rotationDegrees)
+                                    
+                                    textRecognizer.process(inputImage)
+                                        .addOnSuccessListener { visionText ->
+                                            val ocrResult = OcrResult(
+                                                rawText = visionText.text,
+                                                confidence = calculateConfidence(visionText),
+                                                textBlocks = visionText.textBlocks.map { block ->
+                                                    TextBlock(
+                                                        text = block.text,
+                                                        boundingBox = block.boundingBox,
+                                                        lines = block.lines.map { it.text }
+                                                    )
+                                                }
+                                            )
+                                            trySend(OcrState.Success(ocrResult))
+                                        }
+                                        .addOnFailureListener { e ->
+                                            trySend(OcrState.Error(e.message ?: "Recognition failed"))
+                                        }
+                                } finally {
+                                    image.close()
+                                }
                             }
 
                             override fun onError(exception: ImageCaptureException) {
@@ -186,7 +187,16 @@ class OcrParameterRecognizer @Inject constructor(
         }, ContextCompat.getMainExecutor(context))
 
         awaitClose {
-            cameraExecutor?.shutdown()
+            // 正确关闭资源
+            try {
+                textRecognizer.close()
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to close text recognizer in awaitClose")
+            }
+            synchronized(executorLock) {
+                cameraExecutor?.shutdown()
+                cameraExecutor = null
+            }
         }
     }
 
