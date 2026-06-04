@@ -22,6 +22,11 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+        
+        // 预设数据 API 配置 - 使用官方 API 服务器
+        buildConfigField("String", "PRESET_OPPO_URL", "\"https://api.xiaobangbang.app/v1/presets/oppo\"")
+        buildConfigField("String", "PRESET_REALME_URL", "\"https://api.xiaobangbang.app/v1/presets/realme\"")
+        buildConfigField("String", "PRESET_ALL_URL", "\"https://api.xiaobangbang.app/v1/presets/all\"")
     }
 
     signingConfigs {
@@ -33,18 +38,30 @@ android {
             enableV2Signing = true
             enableV3Signing = true
         }
+        
+        // Release 签名配置 - 需要创建 release.keystore 文件
+        // 创建命令: keytool -genkey -v -keystore release.keystore -alias release -keyalg RSA -keysize 2048 -validity 10000
+        create("release") {
+            // 从环境变量或 gradle.properties 读取签名配置
+            storeFile = file(System.getenv("KEYSTORE_FILE") ?: "release.keystore")
+            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "release_store_pass"
+            keyAlias = System.getenv("KEY_ALIAS") ?: "release"
+            keyPassword = System.getenv("KEY_PASSWORD") ?: "release_key_pass"
+            enableV2Signing = true
+            enableV3Signing = true
+        }
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
-            isShrinkResources = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
             isDebuggable = false
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
 
         debug {

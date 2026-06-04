@@ -69,7 +69,7 @@ class Camera2Controller @Inject constructor(
         val filePath: String?
     )
 
-    private val cameraExecutor: Executor = ContextCompat.getMainExecutor(context)
+    private val cameraExecutor: Executor = Executors.newSingleThreadExecutor()
 
     @OptIn(ExperimentalCamera2Interop::class)
     fun bindCameraX(
@@ -179,6 +179,11 @@ class Camera2Controller @Inject constructor(
     }
 
     private fun applyParamsToSession(params: CameraParams) {
+        val handler = backgroundHandler ?: run {
+            Timber.w("backgroundHandler is null, cannot apply params")
+            return
+        }
+        
         captureSession?.let { session ->
             val captureBuilder = cameraDevice?.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
             
@@ -216,7 +221,7 @@ class Camera2Controller @Inject constructor(
                     ) {
                         Timber.e("Failed to apply camera params: ${failure.reason}")
                     }
-                }, backgroundHandler)
+                }, handler)
             }
         }
     }
@@ -226,6 +231,11 @@ class Camera2Controller @Inject constructor(
             _cameraState.value = CameraState.Capturing
             
             val currentParamsValue = _currentParams.value ?: CameraParams()
+            val handler = backgroundHandler ?: run {
+                Timber.w("backgroundHandler is null, cannot capture image")
+                _cameraState.value = CameraState.Error("Camera not ready")
+                return Result.failure(IllegalStateException("backgroundHandler is null"))
+            }
             
             captureSession?.let { session ->
                 val captureBuilder = cameraDevice?.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
@@ -253,7 +263,7 @@ class Camera2Controller @Inject constructor(
                             Timber.e("Capture failed: ${failure.reason}")
                             _cameraState.value = CameraState.Error("Capture failed")
                         }
-                    }, backgroundHandler)
+                    }, handler)
                 }
             }
             
@@ -314,24 +324,25 @@ class Camera2Controller @Inject constructor(
 
     fun saveParamsToImage(imageFile: File, params: CameraParams): Result<File> {
         return try {
-            val jsonContent = """
-                {
-                    "preset_name": "${params.hasselblad_master_style}",
-                    "camera_params": {
-                        "mode": "${params.mode}",
-                        "iso": ${params.iso},
-                        "shutter": "${params.shutter}",
-                        "ev": "${params.ev}",
-                        "wb": "${params.wb}",
-                        "focal_length": "${params.focal_length}",
-                        "aperture": "${params.aperture}",
-                        "filter": "${params.filter}",
-                        "hncs": ${params.hasselblad_hncs}
-                    },
-                    "device": "小O帮帮",
-                    "version": "2.0"
-                }
-            """.trimIndent()
+            // 使用 Gson 构建 JSON，避免字符串拼接注入风险
+            val gson = com.google.gson.Gson()
+            val jsonData = mapOf(
+                "preset_name" to params.hasselblad_master_style,
+                "camera_params" to mapOf(
+                    "mode" to params.mode,
+                    "iso" to params.iso,
+                    "shutter" to params.shutter,
+                    "ev" to params.ev,
+                    "wb" to params.wb,
+                    "focal_length" to params.focal_length,
+                    "aperture" to params.aperture,
+                    "filter" to params.filter,
+                    "hncs" to params.hasselblad_hncs
+                ),
+                "device" to "小O帮帮",
+                "version" to "2.0"
+            )
+            val jsonContent = gson.toJson(jsonData)
             
             val jsonFile = File(imageFile.parent, "${imageFile.nameWithoutExtension}.json")
             FileOutputStream(jsonFile).use { fos ->

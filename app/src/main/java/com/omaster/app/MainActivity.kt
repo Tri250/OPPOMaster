@@ -54,9 +54,7 @@ class MainActivity : ComponentActivity() {
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (BuildConfig.DEBUG) {
-            Timber.plant(Timber.DebugTree())
-        }
+        // Timber 已在 OMasterApplication 中初始化，不需要重复注册
         setContent {
             val viewModel: MainViewModel = hiltViewModel()
             val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
