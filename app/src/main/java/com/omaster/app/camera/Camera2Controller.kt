@@ -201,7 +201,9 @@ class Camera2Controller @Inject constructor(
 
     private fun analyzeImage(imageProxy: ImageProxy, onParamsDetected: (CameraParams) -> Unit) {
         try {
-            val buffer = imageProxy.planes[0].buffer
+            val planes = imageProxy.planes
+            if (planes.isEmpty()) return
+            val buffer = planes[0].buffer
             val bytes = ByteArray(buffer.remaining())
             buffer.get(bytes)
             

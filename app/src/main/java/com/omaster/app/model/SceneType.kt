@@ -41,7 +41,6 @@ enum class SceneType(
     TOO_DARK("光线太暗", "提示光线太暗无法识别", "too_dark", 100),
     TOO_BRIGHT("光线太亮", "光线太亮无法识别", "too_bright", 101),
     TOO_BLURRY("画面模糊", "画面模糊无法识别", "too_blurry", 102),
-    INDOOR_WARM("室内暖光", "室内暖光场景", "indoor_warm", 103),
     UNKNOWN("未知", "无法识别场景", "unknown", 999);
 
     companion object {

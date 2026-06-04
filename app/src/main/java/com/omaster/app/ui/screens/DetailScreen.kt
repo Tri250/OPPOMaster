@@ -574,7 +574,11 @@ fun sharePreset(context: Context, preset: Preset) {
         putExtra(Intent.EXTRA_TEXT, shareText)
         putExtra(Intent.EXTRA_SUBJECT, "分享预设：${preset.name}")
     }
-    context.startActivity(Intent.createChooser(intent, "分享预设"))
+    try {
+        context.startActivity(Intent.createChooser(intent, "分享预设"))
+    } catch (e: Exception) {
+        Toast.makeText(context, "无法打开分享界面", Toast.LENGTH_SHORT).show()
+    }
 }
 
 fun exportPreset(context: Context, preset: Preset) {
@@ -582,13 +586,21 @@ fun exportPreset(context: Context, preset: Preset) {
         type = "text/plain"
         putExtra(Intent.EXTRA_TEXT, "预设导出功能开发中...")
     }
-    context.startActivity(Intent.createChooser(intent, "导出预设"))
+    try {
+        context.startActivity(Intent.createChooser(intent, "导出预设"))
+    } catch (e: Exception) {
+        Toast.makeText(context, "无法打开导出界面", Toast.LENGTH_SHORT).show()
+    }
 }
 
 fun openSystemCamera(context: Context) {
     val intent = Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE)
     if (intent.resolveActivity(context.packageManager) != null) {
-        context.startActivity(intent)
+        try {
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Toast.makeText(context, "无法打开系统相机", Toast.LENGTH_SHORT).show()
+        }
     } else {
         Toast.makeText(context, "无法打开系统相机", Toast.LENGTH_SHORT).show()
     }

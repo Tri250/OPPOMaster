@@ -9,6 +9,8 @@ import androidx.security.crypto.MasterKey
 import dagger.hilt.android.qualifiers.ApplicationContext
 import timber.log.Timber
 import java.security.KeyStore
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -45,14 +47,11 @@ class SecurePreferencesManager @Inject constructor(
     }
 
     // 初始化状态标志
-    @Volatile
-    private var isInitialized: Boolean = false
+    private val isInitialized = AtomicBoolean(false)
     
-    @Volatile
-    private var isUsingFallback: Boolean = false
+    private val isUsingFallback = AtomicBoolean(false)
     
-    @Volatile
-    private var initializationError: Exception? = null
+    private val initializationError = AtomicReference<Exception?>(null)
 
     private val masterKey: MasterKey? by lazy {
         try {
@@ -61,7 +60,7 @@ class SecurePreferencesManager @Inject constructor(
                 .build()
         } catch (e: Exception) {
             Timber.e(e, "Failed to create master key")
-            initializationError = e
+            initializationError.set(e)
             null
         }
     }
@@ -78,8 +77,8 @@ class SecurePreferencesManager @Inject constructor(
                     EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                     EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
                 ).also {
-                    isInitialized = true
-                    isUsingFallback = false
+                    isInitialized.set(true)
+                    isUsingFallback.set(false)
                     Timber.d("EncryptedSharedPreferences initialized successfully")
                 }
             } else {
@@ -88,7 +87,7 @@ class SecurePreferencesManager @Inject constructor(
             }
         } catch (e: Exception) {
             Timber.e(e, "Failed to create encrypted shared preferences, using fallback")
-            initializationError = e
+            initializationError.set(e)
             getFallbackPrefs()
         }
     }
@@ -102,8 +101,8 @@ class SecurePreferencesManager @Inject constructor(
      * 获取降级 SharedPreferences
      */
     private fun getFallbackPrefs(): SharedPreferences {
-        isInitialized = true
-        isUsingFallback = true
+        isInitialized.set(true)
+        isUsingFallback.set(true)
         Timber.w("Using fallback (non-encrypted) SharedPreferences - data will not be encrypted")
         return fallbackPrefs
     }
@@ -118,22 +117,22 @@ class SecurePreferencesManager @Inject constructor(
     /**
      * 检查是否已初始化
      */
-    fun isInitialized(): Boolean = isInitialized
+    fun isInitialized(): Boolean = isInitialized.get()
 
     /**
      * 检查是否使用降级方案
      */
-    fun isUsingFallback(): Boolean = isUsingFallback
+    fun isUsingFallback(): Boolean = isUsingFallback.get()
 
     /**
      * 获取初始化错误（如果有）
      */
-    fun getInitializationError(): Exception? = initializationError
+    fun getInitializationError(): Exception? = initializationError.get()
 
     /**
      * 检查加密是否可用
      */
-    fun isEncryptionAvailable(): Boolean = isInitialized && !isUsingFallback
+    fun isEncryptionAvailable(): Boolean = isInitialized.get() && !isUsingFallback.get()
 
     /**
      * 保存加密字符串

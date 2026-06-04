@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -231,7 +232,9 @@ private fun ProDetailHeader(
             model = preset.coverUrl.ifEmpty { "https://picsum.photos/seed/${preset.coverPath}/800/600" },
             contentDescription = preset.name,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize(),
+            placeholder = painterResource(id = android.R.drawable.ic_menu_gallery),
+            error = painterResource(id = android.R.drawable.ic_menu_report_image)
         )
         
         Box(
@@ -334,7 +337,7 @@ private fun ProDetailTitle(
                     color = if (isDark) Colors.SurfaceVariant else ColorOSLightSurface
                 ) {
                     Text(
-                        text = preset.author.first().toString().uppercase(),
+                        text = preset.author.takeIf { it.isNotEmpty() }?.first()?.toString()?.uppercase() ?: "",
                         color = if (isDark) Colors.OnSurface else ColorOSLightTextPrimary,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(12.dp)
@@ -831,7 +834,9 @@ private fun ProComparisonSection(
                 model = originalImageUrl.ifEmpty { "https://picsum.photos/seed/${originalImageUrl}_original/800/600" },
                 contentDescription = "原图",
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
+                placeholder = painterResource(id = android.R.drawable.ic_menu_gallery),
+                error = painterResource(id = android.R.drawable.ic_menu_report_image)
             )
             
             Box(
@@ -844,7 +849,9 @@ private fun ProComparisonSection(
                     model = presetImageUrl,
                     contentDescription = "应用预设后",
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize(),
+                    placeholder = painterResource(id = android.R.drawable.ic_menu_gallery),
+                    error = painterResource(id = android.R.drawable.ic_menu_report_image)
                 )
             }
             
@@ -959,6 +966,8 @@ private fun FullScreenPreviewDialog(
             model = imageUrl.ifEmpty { "https://picsum.photos/seed/${imageUrl}/1200/900" },
             contentDescription = presetName,
             contentScale = ContentScale.Fit,
+            placeholder = painterResource(id = android.R.drawable.ic_menu_gallery),
+            error = painterResource(id = android.R.drawable.ic_menu_report_image),
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {

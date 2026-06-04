@@ -103,6 +103,13 @@ class AutoFillAccessibilityService : AccessibilityService() {
     override fun onInterrupt() {
         Timber.d("Accessibility service interrupted")
     }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // 清理静态变量，避免内存泄漏
+        currentParams.set(null)
+        Timber.d("Accessibility service destroyed, params cleared")
+    }
 }
 
 interface CameraAutoFillHelper {

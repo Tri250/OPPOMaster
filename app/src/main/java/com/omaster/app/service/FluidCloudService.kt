@@ -15,6 +15,7 @@ import android.widget.TextView
 import com.omaster.app.R
 import dagger.hilt.android.AndroidEntryPoint
 import timber.log.Timber
+import java.lang.ref.WeakReference
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
@@ -29,6 +30,22 @@ class FluidCloudService : Service() {
         const val EXTRA_PRESET_NAME = "preset_name"
         const val EXTRA_PRESET_CATEGORY = "preset_category"
         const val EXTRA_HAS_HNCS = "has_hncs"
+
+        /**
+         * 静态内部类 AnimationListener，使用 WeakReference 避免内存泄漏
+         */
+        private class CapsuleAnimationListener(
+            service: FluidCloudService
+        ) : android.view.animation.Animation.AnimationListener {
+            private val serviceRef = WeakReference(service)
+            
+            override fun onAnimationEnd(animation: android.view.animation.Animation?) {
+                serviceRef.get()?.onCapsuleAnimationEnd()
+            }
+            
+            override fun onAnimationRepeat(animation: android.view.animation.Animation?) {}
+            override fun onAnimationStart(animation: android.view.animation.Animation?) {}
+        }
     }
 
     private val windowManagerRef = AtomicReference<WindowManager?>(null)
@@ -177,30 +194,31 @@ class FluidCloudService : Service() {
         try {
             fluidCloudViewRef.get()?.apply {
                 val slideOut = AnimationUtils.loadAnimation(context, R.anim.capsule_slide_out)
-                slideOut.setAnimationListener(object : android.view.animation.Animation.AnimationListener {
-                    override fun onAnimationEnd(animation: android.view.animation.Animation?) {
-                        synchronized(viewLock) {
-                            try {
-                                if (isViewAttached.get() && fluidCloudViewRef.get()?.parent != null) {
-                                    windowManagerRef.get()?.removeView(fluidCloudViewRef.get())
-                                    isViewAttached.set(false)
-                                }
-                            } catch (e: Exception) {
-                                Timber.e(e, "Failed to remove fluid cloud view")
-                                // 在 catch 块中重置状态
-                                isViewAttached.set(false)
-                            }
-                        }
-                    }
-                    override fun onAnimationRepeat(animation: android.view.animation.Animation?) {}
-                    override fun onAnimationStart(animation: android.view.animation.Animation?) {}
-                })
+                slideOut.setAnimationListener(CapsuleAnimationListener(this@FluidCloudService))
                 startAnimation(slideOut)
             }
         } catch (e: Exception) {
             Timber.e(e, "Failed to animate capsule out")
             // 在 catch 块中重置状态
             isViewAttached.set(false)
+        }
+    }
+
+    /**
+     * 胶囊动画结束后的回调处理
+     */
+    private fun onCapsuleAnimationEnd() {
+        synchronized(viewLock) {
+            try {
+                if (isViewAttached.get() && fluidCloudViewRef.get()?.parent != null) {
+                    windowManagerRef.get()?.removeView(fluidCloudViewRef.get())
+                    isViewAttached.set(false)
+                }
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to remove fluid cloud view")
+                // 在 catch 块中重置状态
+                isViewAttached.set(false)
+            }
         }
     }
 

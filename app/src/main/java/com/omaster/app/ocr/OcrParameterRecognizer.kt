@@ -27,6 +27,16 @@ import java.util.concurrent.Executors
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * OCR参数识别器
+ * 
+ * 使用 ML Kit 文字识别功能从图像中提取相机参数，支持：
+ * - 从 Bitmap 图像识别文字
+ * - 从 Uri 文件路径识别文字
+ * - 从 CameraX 相机实时流识别文字
+ * 
+ * 返回识别结果包含原始文字、置信度和文本块信息。
+ */
 @Singleton
 class OcrParameterRecognizer @Inject constructor(
     @ApplicationContext private val context: Context
@@ -35,6 +45,10 @@ class OcrParameterRecognizer @Inject constructor(
     @Volatile
     private var cameraExecutor: ExecutorService? = null
     private val executorLock = Any()
+    
+    @Volatile
+    private var isClosed = false
+    private val closeLock = Any()
 
     private fun obtainExecutor(): ExecutorService {
         return cameraExecutor ?: synchronized(executorLock) {
@@ -188,6 +202,10 @@ class OcrParameterRecognizer @Inject constructor(
 
         awaitClose {
             // 正确关闭资源
+            synchronized(closeLock) {
+                if (isClosed) return@awaitClose
+                isClosed = true
+            }
             try {
                 textRecognizer.close()
             } catch (e: Exception) {
@@ -217,6 +235,10 @@ class OcrParameterRecognizer @Inject constructor(
     }
 
     fun close() {
+        synchronized(closeLock) {
+            if (isClosed) return
+            isClosed = true
+        }
         try {
             textRecognizer.close()
         } catch (e: Exception) {

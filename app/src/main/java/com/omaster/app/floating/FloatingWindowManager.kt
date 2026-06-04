@@ -33,6 +33,7 @@ import com.omaster.app.ui.theme.DeepSpace
 import com.omaster.app.ui.theme.HasselbladOrange
 import timber.log.Timber
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * 自定义 LifecycleOwner 和 SavedStateRegistryOwner 用于悬浮窗
@@ -75,17 +76,23 @@ private class FloatingLifecycleOwner : LifecycleOwner, androidx.savedstate.Saved
 }
 
 object FloatingWindowManager {
-    private var windowManager: WindowManager? = null
-    private var floatingView: ComposeView? = null
+    private val windowManagerRef = AtomicReference<WindowManager?>(null)
+    private val floatingViewRef = AtomicReference<ComposeView?>(null)
     private val isShowing = AtomicBoolean(false)
-    private var lifecycleOwner: FloatingLifecycleOwner? = null
+    private val lifecycleOwnerRef = AtomicReference<FloatingLifecycleOwner?>(null)
 
+    private val stateLock = Any()
+    
+    @Volatile
     private var currentPresetName: String = "预设参数"
+    @Volatile
     private var currentParams: Map<String, String> = emptyMap()
 
     fun setPresetData(name: String, params: Map<String, String>) {
-        currentPresetName = name
-        currentParams = params
+        synchronized(stateLock) {
+            currentPresetName = name
+            currentParams = params
+        }
         if (isShowing.get()) {
             updateFloatingView()
         }
@@ -102,34 +109,34 @@ object FloatingWindowManager {
 
         try {
             val appContext = context.applicationContext
-            windowManager = appContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            windowManagerRef.set(appContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager)
             
             // 创建并初始化 LifecycleOwner
-            lifecycleOwner = FloatingLifecycleOwner().apply {
+            lifecycleOwnerRef.set(FloatingLifecycleOwner().apply {
                 onCreate()
                 onStart()
                 onResume()
-            }
+            })
             
-            floatingView = ComposeView(appContext).apply {
+            floatingViewRef.set(ComposeView(appContext).apply {
                 // 设置 LifecycleOwner
-                ViewTreeLifecycleOwner.set(this, lifecycleOwner)
+                ViewTreeLifecycleOwner.set(this, lifecycleOwnerRef.get())
                 
                 // 设置 SavedStateRegistryOwner (lifecycleOwner 已实现该接口)
-                ViewTreeSavedStateRegistryOwner.set(this, lifecycleOwner)
+                ViewTreeSavedStateRegistryOwner.set(this, lifecycleOwnerRef.get())
                 
                 setContent {
                     FloatingWindowContent(
-                        presetName = currentPresetName,
-                        params = currentParams,
+                        presetName = currentPresetNameRef.get(),
+                        params = currentParamsRef.get(),
                         onClose = { hideWindow() },
                         onCopyParams = { copyParamsToClipboard(appContext) }
                     )
                 }
-            }
+            })
 
             val params = getWindowParams()
-            windowManager?.addView(floatingView, params)
+            windowManagerRef.get()?.addView(floatingViewRef.get(), params)
             Timber.d("Floating window shown")
         } catch (e: Exception) {
             Timber.e(e, "Failed to show floating window")
@@ -141,17 +148,17 @@ object FloatingWindowManager {
         if (!isShowing.compareAndSet(true, false)) return
 
         try {
-            floatingView?.let {
-                windowManager?.removeView(it)
+            floatingViewRef.get()?.let {
+                windowManagerRef.get()?.removeView(it)
             }
             // 清理 LifecycleOwner
-            lifecycleOwner?.apply {
+            lifecycleOwnerRef.get()?.apply {
                 onPause()
                 onStop()
                 onDestroy()
             }
-            lifecycleOwner = null
-            floatingView = null
+            lifecycleOwnerRef.set(null)
+            floatingViewRef.set(null)
             Timber.d("Floating window hidden")
         } catch (e: Exception) {
             Timber.e(e, "Failed to hide floating window")
@@ -168,12 +175,12 @@ object FloatingWindowManager {
     }
 
     private fun updateFloatingView() {
-        floatingView?.setContent {
+        floatingViewRef.get()?.setContent {
             FloatingWindowContent(
-                presetName = currentPresetName,
-                params = currentParams,
+                presetName = currentPresetNameRef.get(),
+                params = currentParamsRef.get(),
                 onClose = { hideWindow() },
-                onCopyParams = { copyParamsToClipboard(floatingView?.context) }
+                onCopyParams = { copyParamsToClipboard(floatingViewRef.get()?.context) }
             )
         }
     }
@@ -181,7 +188,7 @@ object FloatingWindowManager {
     private fun copyParamsToClipboard(context: Context?) {
         context ?: return
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-        val text = currentParams.entries.joinToString("\n") { "${it.key}: ${it.value}" }
+        val text = currentParamsRef.get().entries.joinToString("\n") { "${it.key}: ${it.value}" }
         val clip = android.content.ClipData.newPlainText("参数", text)
         clipboard.setPrimaryClip(clip)
     }
@@ -223,8 +230,19 @@ object FloatingWindowManager {
     }
 
     fun clearPresetData() {
-        currentPresetName = "预设参数"
-        currentParams = emptyMap()
+        currentPresetNameRef.set("预设参数")
+        currentParamsRef.set(emptyMap())
+    }
+
+    /**
+     * 清理所有引用，防止内存泄漏
+     */
+    fun cleanup() {
+        hideWindow()
+        windowManagerRef.set(null)
+        currentPresetNameRef.set("预设参数")
+        currentParamsRef.set(emptyMap())
+        Timber.d("FloatingWindowManager cleaned up")
     }
 }
 

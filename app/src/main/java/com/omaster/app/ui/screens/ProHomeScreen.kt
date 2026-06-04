@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.ripple.rememberRipple
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -60,10 +61,10 @@ fun ProHomeScreen(
     modifier: Modifier = Modifier,
     viewModel: MainViewModel = hiltViewModel()
 ) {
-    val presets by viewModel.presets.collectAsState()
-    val searchQuery by viewModel.searchQuery.collectAsState()
-    val filterType by viewModel.filterType.collectAsState()
-    val themeMode by viewModel.themeMode.collectAsState()
+    val presets by viewModel.presets.collectAsStateWithLifecycle()
+    val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val filterType by viewModel.filterType.collectAsStateWithLifecycle()
+    val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
     val isDark = themeMode == ThemeMode.DARK.value
     
     var isSearching by remember { mutableStateOf(false) }
@@ -379,17 +380,6 @@ fun ProFeatureGrid(
         }
     }
 }
-
-/**
- * ==================== ProFeature - 专业功能数据类 ====================
- */
-data class ProFeature(
-    val icon: ImageVector,
-    val title: String,
-    val subtitle: String,
-    val gradient: List<Color>,
-    val onClick: () -> Unit
-)
 
 /**
  * ==================== ProFilterChips - 专业筛选标签 ====================

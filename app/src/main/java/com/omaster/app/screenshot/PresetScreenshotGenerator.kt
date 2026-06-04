@@ -111,6 +111,7 @@ class PresetScreenshotGenerator(private val context: Context) {
         coverImage?.let { image ->
             val scaledBitmap = Bitmap.createScaledBitmap(image, width, height, true)
             canvas.drawBitmap(scaledBitmap, 0f, 0f, null)
+            scaledBitmap.recycle()
             
             val gradientPaint = Paint(Paint.ANTI_ALIAS_FLAG)
             gradientPaint.setARGB(180, 18, 18, 18)
@@ -238,6 +239,8 @@ class PresetScreenshotGenerator(private val context: Context) {
         FileOutputStream(file).use { out ->
             bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
         }
+        
+        bitmap.recycle()
         
         return file
     }

@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import timber.log.Timber
+import java.io.Closeable
 import java.io.File
 import java.io.FileReader
 import java.io.FileWriter
@@ -27,7 +28,7 @@ import javax.inject.Singleton
 @Singleton
 class CameraConfigRepository @Inject constructor(
     @ApplicationContext private val context: Context
-) {
+) : Closeable {
     private val gson = Gson()
     private val configsDir: File by lazy {
         File(context.filesDir, "camera_configs").apply {
@@ -43,6 +44,13 @@ class CameraConfigRepository @Inject constructor(
 
     // 使用 SupervisorJob 避免协程取消影响整个作用域
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * 关闭 Repository，取消所有协程
+     */
+    fun close() {
+        repositoryScope.cancel()
+    }
 
     init {
         // 异步初始化，避免阻塞主线程
@@ -314,5 +322,11 @@ class CameraConfigRepository @Inject constructor(
                     config.description.lowercase().contains(lowercaseQuery) ||
                     config.tags.any { it.lowercase().contains(lowercaseQuery) }
         }
+    }
+
+    override fun close() {
+        // 清理资源，取消所有协程
+        repositoryScope.coroutineContext.cancel()
+        Timber.d("CameraConfigRepository closed, resources cleaned up")
     }
 }

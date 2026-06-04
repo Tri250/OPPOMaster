@@ -20,6 +20,17 @@ import java.util.*
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * 云端同步服务
+ * 
+ * 负责预设数据的云端同步功能，支持：
+ * - 用户登录/注册/注销
+ * - 预设数据上传与下载
+ * - 变更追踪与冲突检测
+ * - 离线模式与同步状态管理
+ * 
+ * 使用 OkHttp 进行网络请求，StateFlow 管理同步状态。
+ */
 @Singleton
 class CloudSyncService @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -89,7 +100,7 @@ class CloudSyncService @Inject constructor(
         val remoteTimestamp: Long
     )
 
-    private val baseUrl = "https://api.xiaobangbang.app/v1"
+    private val BASE_URL = "https://api.xiaobangbang.app/v1"
     private val okHttpClient = OkHttpClient.Builder()
         .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
         .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
@@ -119,7 +130,7 @@ class CloudSyncService @Inject constructor(
                 
                 val requestBody = json.toString().toRequestBody("application/json".toMediaType())
                 val request = Request.Builder()
-                    .url("$baseUrl/auth/login")
+                    .url("$BASE_URL/auth/login")
                     .post(requestBody)
                     .build()
                 
@@ -166,7 +177,7 @@ class CloudSyncService @Inject constructor(
                 
                 val requestBody = json.toString().toRequestBody("application/json".toMediaType())
                 val request = Request.Builder()
-                    .url("$baseUrl/auth/register")
+                    .url("$BASE_URL/auth/register")
                     .post(requestBody)
                     .build()
                 
@@ -262,7 +273,7 @@ class CloudSyncService @Inject constructor(
                 val json = presetToJson(preset)
                 val requestBody = json.toString().toRequestBody("application/json".toMediaType())
                 val request = Request.Builder()
-                    .url("$baseUrl/presets/${preset.id}")
+                    .url("$BASE_URL/presets/${preset.id}")
                     .put(requestBody)
                     .addHeader("Authorization", "Bearer $token")
                     .build()
@@ -297,7 +308,7 @@ class CloudSyncService @Inject constructor(
                     
                     val requestBody = json.toString().toRequestBody("application/json".toMediaType())
                     val request = Request.Builder()
-                        .url("$baseUrl/sync/upload")
+                        .url("$BASE_URL/sync/upload")
                         .post(requestBody)
                         .addHeader("Authorization", "Bearer $token")
                         .build()
@@ -329,7 +340,7 @@ class CloudSyncService @Inject constructor(
         try {
             val lastSync = _lastSyncTime.value ?: 0L
             val request = Request.Builder()
-                .url("$baseUrl/sync/changes?since=$lastSync")
+                .url("$BASE_URL/sync/changes?since=$lastSync")
                 .get()
                 .addHeader("Authorization", "Bearer $token")
                 .build()

@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -35,8 +36,8 @@ fun ProfileScreen(
     onCameraConfigClick: () -> Unit,
     viewModel: ProfileViewModel = hiltViewModel()
 ) {
-    val userProfile by viewModel.userProfile.collectAsState()
-    val systemStats by viewModel.systemStats.collectAsState()
+    val userProfile by viewModel.userProfile.collectAsStateWithLifecycle()
+    val systemStats by viewModel.systemStats.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {

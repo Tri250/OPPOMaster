@@ -6,6 +6,7 @@ import com.omaster.app.data.PresetRepository
 import com.omaster.app.model.Preset
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -142,16 +143,16 @@ class CloudSyncManager @Inject constructor(
         return sb.toString()
     }
 
-    private fun simulateCloudUpload(file: File) {
+    private suspend fun simulateCloudUpload(file: File) {
         // 模拟上传到云端
         Timber.d("Uploading backup file: ${file.name}")
-        Thread.sleep(1500) // 模拟网络延迟
+        delay(1500) // 模拟网络延迟
     }
 
-    private fun simulateCloudDownload(): List<Preset> {
+    private suspend fun simulateCloudDownload(): List<Preset> {
         // 模拟从云端下载
         Timber.d("Downloading presets from cloud")
-        Thread.sleep(1000) // 模拟网络延迟
+        delay(1000) // 模拟网络延迟
         
         return getLocalPresets() // 返回本地数据作为模拟
     }

@@ -75,7 +75,7 @@ class AiService @Inject constructor() {
                 val allScenes = SceneType.entries
                     .filter { !SceneType.isErrorScene(it) }
                     .filter { it != SceneType.UNKNOWN }
-                allScenes[random.nextInt(allScenes.size)]
+                if (allScenes.isNotEmpty()) allScenes[random.nextInt(allScenes.size)] else SceneType.UNKNOWN
             }
         }
     }

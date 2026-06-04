@@ -28,12 +28,21 @@ class Camera2ParamProvider(private val context: Context) : CameraParamProvider {
     
     private val supervisorJob = Job()
     private val scope = CoroutineScope(Dispatchers.IO + supervisorJob)
+    
+    private val cameraLock = Any()
+    
+    @Volatile
     private var monitorJob: Job? = null
+    @Volatile
     private var cameraDevice: CameraDevice? = null
+    @Volatile
     private var captureRequest: CaptureRequest? = null
+    @Volatile
     private var captureSession: CameraCaptureSession? = null
 
+    @Volatile
     private var currentLensType = "wide"
+    @Volatile
     private var currentCameraId: String? = null
 
     override fun startMonitor() {
@@ -64,27 +73,33 @@ class Camera2ParamProvider(private val context: Context) : CameraParamProvider {
     }
 
     override fun stopMonitor() {
-        monitorJob?.cancel()
-        monitorJob = null
+        synchronized(cameraLock) {
+            monitorJob?.cancel()
+            monitorJob = null
+        }
     }
 
     override fun switchCamera(lensType: String) {
-        currentLensType = lensType
-        currentCameraId = null
+        synchronized(cameraLock) {
+            currentLensType = lensType
+            currentCameraId = null
+        }
         updateCameraParams()
     }
 
     override fun release() {
         stopMonitor()
-        try {
-            captureSession?.close()
-            cameraDevice?.close()
-        } catch (e: Exception) {
-            Timber.e(e, "Error releasing camera resources")
+        synchronized(cameraLock) {
+            try {
+                captureSession?.close()
+                cameraDevice?.close()
+            } catch (e: Exception) {
+                Timber.e(e, "Error releasing camera resources")
+            }
+            captureSession = null
+            cameraDevice = null
+            captureRequest = null
         }
-        captureSession = null
-        cameraDevice = null
-        captureRequest = null
         try {
             scope.coroutineContext.cancelChildren()
             supervisorJob.cancel()

@@ -493,14 +493,14 @@ fun WatermarkOptions(
 
 private suspend fun loadBitmapFromUri(context: android.content.Context, uri: Uri): Bitmap =
     withContext(Dispatchers.IO) {
-        val inputStream = context.contentResolver.openInputStream(uri)
-        BitmapFactory.decodeStream(inputStream)
+        context.contentResolver.openInputStream(uri)?.use { inputStream ->
+            BitmapFactory.decodeStream(inputStream)
+        } ?: throw IllegalArgumentException("Cannot open URI: $uri")
     }
 
 private suspend fun saveBitmapToUri(context: android.content.Context, bitmap: Bitmap, uri: Uri) =
     withContext(Dispatchers.IO) {
-        val outputStream = context.contentResolver.openOutputStream(uri)
-        bitmap.compress(Bitmap.CompressFormat.JPEG, 95, outputStream)
-        outputStream?.flush()
-        outputStream?.close()
+        context.contentResolver.openOutputStream(uri)?.use { outputStream ->
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 95, outputStream)
+        }
     }

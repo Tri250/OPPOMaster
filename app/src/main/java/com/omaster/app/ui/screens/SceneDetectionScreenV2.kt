@@ -45,6 +45,7 @@ import com.omaster.app.ui.animation.ColorOSScale
 import com.omaster.app.ui.components.*
 import com.omaster.app.ui.theme.*
 import kotlinx.coroutines.launch
+import timber.log.Timber
 import java.io.File
 
 @Composable
@@ -151,6 +152,7 @@ fun SceneDetectionScreenV2(
                 animationSpec = tween(150)
             )
         } catch (e: Exception) {
+            Timber.e(e, "Failed to detect scene")
         } finally {
             isDetecting = false
         }

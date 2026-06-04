@@ -8,6 +8,16 @@ import javax.inject.Singleton
 @Singleton
 class ParameterRuleEngine @Inject constructor() {
 
+    companion object {
+        // 静态 Regex 模式，避免每次调用时重新创建
+        private val COLD_WARM_REGEX = Regex("""冷暖[:\s]*([+-]?\d+)""")
+        private val CYAN_MAGENTA_REGEX = Regex("""青品[:\s]*([+-]?\d+)""")
+        private val SATURATION_REGEX = Regex("""饱和度[:\s]*(?:[+-]?(\d+)|(高|中|低|标准))""")
+        private val VIGNETTE_REGEX = Regex("""暗角[:\s]*([+-]?\d+)""")
+        private val SHARPNESS_REGEX = Regex("""锐度[:\s]*([+-]?\d+)""")
+        private val CONTRAST_REGEX = Regex("""对比度[:\s]*([+-]?\d+)""")
+    }
+
     data class ExtractedParams(
         val iso: Int?,
         val shutter: String?,
@@ -167,16 +177,16 @@ class ParameterRuleEngine @Inject constructor() {
     }
 
     private fun processCompoundParams(rawText: String, matches: MutableMap<String, String>) {
-        // 处理冷暖/青品等高级参数
+        // 处理冷暖/青品等高级参数 - 使用静态 Regex
         val advancedParams = mapOf(
-            "冷暖" to Regex("""冷暖[:\s]*([+-]?\d+)""").find(rawText)?.groupValues?.getOrNull(1),
-            "青品" to Regex("""青品[:\s]*([+-]?\d+)""").find(rawText)?.groupValues?.getOrNull(1),
-            "饱和度" to Regex("""饱和度[:\s]*(?:[+-]?(\d+)|(高|中|低|标准))""").find(rawText)?.let { 
+            "冷暖" to COLD_WARM_REGEX.find(rawText)?.groupValues?.getOrNull(1),
+            "青品" to CYAN_MAGENTA_REGEX.find(rawText)?.groupValues?.getOrNull(1),
+            "饱和度" to SATURATION_REGEX.find(rawText)?.let { 
                 it.groupValues.getOrNull(1) ?: it.groupValues.getOrNull(2)
             },
-            "暗角" to Regex("""暗角[:\s]*([+-]?\d+)""").find(rawText)?.groupValues?.getOrNull(1),
-            "锐度" to Regex("""锐度[:\s]*([+-]?\d+)""").find(rawText)?.groupValues?.getOrNull(1),
-            "对比度" to Regex("""对比度[:\s]*([+-]?\d+)""").find(rawText)?.groupValues?.getOrNull(1)
+            "暗角" to VIGNETTE_REGEX.find(rawText)?.groupValues?.getOrNull(1),
+            "锐度" to SHARPNESS_REGEX.find(rawText)?.groupValues?.getOrNull(1),
+            "对比度" to CONTRAST_REGEX.find(rawText)?.groupValues?.getOrNull(1)
         )
         
         advancedParams.forEach { (key, value) ->

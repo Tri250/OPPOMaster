@@ -24,7 +24,15 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * 预设数据仓库 - 支持数据同步和JSON刷新
+ * 预设数据仓库
+ * 
+ * 负责管理和缓存摄影预设数据，支持：
+ * - 网络数据同步与本地缓存
+ * - 异步初始化避免阻塞主线程
+ * - 收藏状态管理
+ * - OPPO/Realme 设备预设过滤
+ * 
+ * 使用 Mutex 保护并发访问，CompletableDeferred 确保初始化完成。
  */
 @Singleton
 class PresetRepository @Inject constructor(

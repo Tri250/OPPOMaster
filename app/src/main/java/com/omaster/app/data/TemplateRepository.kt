@@ -14,6 +14,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import timber.log.Timber
+import java.io.Closeable
 import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
 import javax.inject.Inject
@@ -22,7 +23,7 @@ import javax.inject.Singleton
 @Singleton
 class TemplateRepository @Inject constructor(
     @ApplicationContext private val context: Context
-) {
+) : Closeable {
     private val templatesDir = File(context.filesDir, "templates")
     // 使用 CopyOnWriteArrayList 保证线程安全
     private val systemTemplates = CopyOnWriteArrayList<WatermarkTemplateData>()
@@ -39,6 +40,13 @@ class TemplateRepository @Inject constructor(
 
     // 使用 SupervisorJob 避免协程取消影响整个作用域
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * 关闭 Repository，取消所有协程
+     */
+    fun close() {
+        repositoryScope.cancel()
+    }
 
     init {
         if (!templatesDir.exists()) {
@@ -421,5 +429,11 @@ class TemplateRepository @Inject constructor(
             Timber.e(e, "Failed to import template")
             Result.failure(e)
         }
+    }
+
+    override fun close() {
+        // 清理资源，取消所有协程
+        repositoryScope.coroutineContext.cancel()
+        Timber.d("TemplateRepository closed, resources cleaned up")
     }
 }
