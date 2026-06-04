@@ -23,15 +23,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.omaster.app.accessibility.AutoFillAccessibilityService
 import com.omaster.app.floating.FloatingWindowManager
 import com.omaster.app.model.CameraParams
 import com.omaster.app.model.Preset
 import com.omaster.app.ui.theme.*
-import com.omaster.app.viewmodel.MainViewModel
 
 
 @Composable
@@ -40,8 +37,7 @@ fun DetailScreen(
     onBack: () -> Unit,
     onFavoriteToggle: () -> Unit,
     onApplyPreset: (Preset) -> Unit = {},
-    modifier: Modifier = Modifier,
-    viewModel: MainViewModel = hiltViewModel()
+    modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
 

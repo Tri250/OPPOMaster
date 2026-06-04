@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">OMaster</string>
+    <string name="home_title">Color Presets</string>
+    <string name="detail_title">Preset Details</string>
+    <string name="settings_title">Settings</string>
+    <string name="favorite">Favorite</string>
+    <string name="unfavorite">Unfavorite</string>
+    <string name="share">Share</string>
+    <string name="apply">Apply Preset</string>
+    <string name="fluid_cloud">Fluid Cloud</string>
+    <string name="enable_fluid_cloud">Enable Fluid Cloud Capsule</string>
+    <string name="enable_fluid_cloud_desc">Display current preset in system sidebar</string>
+    <string name="overlay">Floating Window</string>
+    <string name="enable_overlay">Enable Floating Window (Fallback)</string>
+    <string name="enable_overlay_desc">Only for older systems without Fluid Cloud support</string>
+    <string name="about">About</string>
+    <string name="version">Version</string>
+    <string name="camera_params">Camera Parameters</string>
+    <string name="iso">ISO</string>
+    <string name="shutter">Shutter</string>
+    <string name="ev">EV Compensation</string>
+    <string name="wb">White Balance</string>
+    <string name="filter">Filter</string>
+    <string name="device_model">Compatible Device</string>
+    <string name="hncs">HNCS Certified</string>
+    <string name="preset_applied">Preset Applied</string>
+    <string name="preset_saved">Preset Saved</string>
+    <string name="accessibility_service_description">OMaster accessibility service for auto-filling camera parameters in Master Mode. It will automatically recognize and fill parameter controls in supported camera apps.</string>
+</resources>

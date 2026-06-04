@@ -7,8 +7,6 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import android.view.*
-import android.widget.LinearLayout
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -83,15 +81,14 @@ object FloatingWindowManager {
 
     private val stateLock = Any()
     
-    @Volatile
-    private var currentPresetName: String = "预设参数"
-    @Volatile
-    private var currentParams: Map<String, String> = emptyMap()
+    // 使用 AtomicReference 保证线程安全
+    private val currentPresetNameRef = AtomicReference("预设参数")
+    private val currentParamsRef = AtomicReference<Map<String, String>>(emptyMap())
 
     fun setPresetData(name: String, params: Map<String, String>) {
         synchronized(stateLock) {
-            currentPresetName = name
-            currentParams = params
+            currentPresetNameRef.set(name)
+            currentParamsRef.set(params.toMap()) // 创建不可变副本
         }
         if (isShowing.get()) {
             updateFloatingView()
@@ -197,6 +194,7 @@ object FloatingWindowManager {
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         } else {
+            @Suppress("DEPRECATION")
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
@@ -230,8 +228,10 @@ object FloatingWindowManager {
     }
 
     fun clearPresetData() {
-        currentPresetNameRef.set("预设参数")
-        currentParamsRef.set(emptyMap())
+        synchronized(stateLock) {
+            currentPresetNameRef.set("预设参数")
+            currentParamsRef.set(emptyMap())
+        }
     }
 
     /**
@@ -240,8 +240,10 @@ object FloatingWindowManager {
     fun cleanup() {
         hideWindow()
         windowManagerRef.set(null)
-        currentPresetNameRef.set("预设参数")
-        currentParamsRef.set(emptyMap())
+        synchronized(stateLock) {
+            currentPresetNameRef.set("预设参数")
+            currentParamsRef.set(emptyMap())
+        }
         Timber.d("FloatingWindowManager cleaned up")
     }
 }

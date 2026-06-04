@@ -109,15 +109,13 @@ class Camera2ParamProvider(private val context: Context) : CameraParamProvider {
     }
 
     private fun checkCameraSupport(): Boolean {
-        return if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
+        // minSdk是26，Camera2 API在API 21+已可用，所以这里总是支持
+        return try {
+            val cameraIdList = cameraManager.cameraIdList
+            cameraIdList.isNotEmpty()
+        } catch (e: Exception) {
+            Timber.e(e, "Camera2 API not available")
             false
-        } else {
-            try {
-                val cameraIdList = cameraManager.cameraIdList
-                cameraIdList.isNotEmpty()
-            } catch (e: Exception) {
-                false
-            }
         }
     }
 

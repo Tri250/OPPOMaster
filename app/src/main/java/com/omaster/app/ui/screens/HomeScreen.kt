@@ -26,14 +26,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.omaster.app.model.Preset
 import com.omaster.app.ui.animation.*
 import com.omaster.app.ui.theme.*
 import com.omaster.app.viewmodel.FilterType
-import com.omaster.app.viewmodel.MainViewModel
 
 // ==================== 预设分类枚举 ====================
 enum class PresetCategory(val displayName: String) {
@@ -56,11 +53,13 @@ fun HomeScreen(
     onWatermarkClick: () -> Unit = {},
     onColorOSHomeClick: () -> Unit = {},
     modifier: Modifier = Modifier,
-    viewModel: MainViewModel = hiltViewModel()
+    presets: List<Preset>,
+    searchQuery: String,
+    filterType: FilterType,
+    onSearchQueryChange: (String) -> Unit,
+    onFilterTypeChange: (FilterType) -> Unit,
+    onFavoriteToggle: (Preset) -> Unit
 ) {
-    val presets by viewModel.presets.collectAsStateWithLifecycle()
-    val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
-    val filterType by viewModel.filterType.collectAsStateWithLifecycle()
     var selectedCategory by rememberSaveable { mutableStateOf(PresetCategory.ALL) }
     var isScrolled by rememberSaveable { mutableStateOf(false) }
     val scrollState = rememberScrollState()
@@ -106,8 +105,8 @@ fun HomeScreen(
                 isScrolled = isScrolled,
                 onSettingsClick = onSettingsClick,
                 searchQuery = searchQuery,
-                onSearchQueryChange = { viewModel.onSearchQueryChanged(it) },
-                onClearSearch = { viewModel.onSearchQueryChanged("") }
+                onSearchQueryChange = onSearchQueryChange,
+                onClearSearch = { onSearchQueryChange("") }
             )
         },
         containerColor = MaterialTheme.colorScheme.background
@@ -136,7 +135,7 @@ fun HomeScreen(
             // 筛选标签
             FilterChipsRow(
                 selectedFilter = filterType,
-                onFilterSelected = { viewModel.onFilterTypeChanged(it) }
+                onFilterSelected = onFilterTypeChange
             )
             
             if (filteredPresets.isEmpty()) {
@@ -149,7 +148,7 @@ fun HomeScreen(
                 OppoPresetGrid(
                     presets = filteredPresets,
                     onPresetClick = onPresetClick,
-                    onFavoriteToggle = { viewModel.toggleFavorite(it) },
+                    onFavoriteToggle = onFavoriteToggle,
                     modifier = Modifier.weight(1f)
                 )
             }

@@ -536,5 +536,10 @@ class PresetRepository @Inject constructor(
     override fun close() {
         // 清理资源，取消所有协程
         repositoryScope.coroutineContext.cancel()
+        // 清空缓存，释放大对象内存
+        cacheMutex.withLock {
+            cachedPresets = emptyList()
+        }
+        _presets.value = emptyList()
     }
 }

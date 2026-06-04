@@ -17,6 +17,24 @@ import javax.inject.Singleton
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "omaster_preferences")
 
+/**
+ * 用户偏好设置数据存储
+ *
+ * 安全说明:
+ * - 此DataStore存储非敏感用户偏好数据（收藏预设、主题模式、功能开关等）
+ * - 不存储敏感数据（密码、Token、个人隐私信息等）
+ * - 非敏感数据不需要加密存储，加密会降低性能且增加复杂度
+ * - 敏感数据应使用SecurePreferencesManager进行加密存储
+ *
+ * 数据分类:
+ * - FAVORITE_PRESETS: 用户收藏的预设ID列表（非敏感）
+ * - THEME_MODE: 主题模式设置（非敏感）
+ * - FLUID_CLOUD_ENABLED: 流体云功能开关（非敏感）
+ * - OVERLAY_ENABLED: 悬浮窗功能开关（非敏感）
+ * - SYNC_ENABLED: 同步功能开关（非敏感）
+ *
+ * 如需存储敏感数据，请使用SecurePreferencesManager
+ */
 @Singleton
 class PreferencesDataStore @Inject constructor(
     @ApplicationContext private val context: Context

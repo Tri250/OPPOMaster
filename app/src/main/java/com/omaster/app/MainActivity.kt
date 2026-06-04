@@ -180,6 +180,12 @@ fun OMasterApp(
             // 哈苏预设首页 - 主入口
             composable(OMasterScreen.Home.route) {
                 ProHomeScreenV2(
+                    presets = presets,
+                    searchQuery = searchQuery,
+                    filterType = filterType,
+                    onSearchQueryChange = { viewModel.onSearchQueryChanged(it) },
+                    onFilterTypeChange = { viewModel.onFilterTypeChanged(it) },
+                    onFavoriteToggle = { viewModel.toggleFavorite(it) },
                     onPresetClick = { preset ->
                         navController.navigate(OMasterScreen.Detail.createRoute(preset.id))
                     },

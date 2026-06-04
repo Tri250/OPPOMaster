@@ -203,7 +203,7 @@ private fun ProDetailHeader(
     isDark: Boolean,
     onPreviewClick: () -> Unit
 ) {
-    var isPressed by remember { mutableStateOf(false) }
+    var isPressed by remember(preset.id) { mutableStateOf(false) }
     val scale by animateFloatAsState(
         targetValue = if (isPressed) 0.98f else 1f,
         animationSpec = spring(
@@ -500,16 +500,15 @@ private fun ProParamsSection(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    params.shutter_speed?.let {
+                    params.shutter?.takeIf { it.isNotEmpty() }?.let {
                         ParamChip(label = "快门", value = it)
                     }
                     
-                    params.iso?.let {
-                        ParamChip(label = "ISO", value = it.toString())
-                    }
+                    // ISO 始终显示
+                    ParamChip(label = "ISO", value = params.iso.toString())
                     
-                    params.white_balance?.let {
-                        ParamChip(label = "白平衡", value = "${it}K")
+                    params.wb?.takeIf { it.isNotEmpty() }?.let {
+                        ParamChip(label = "白平衡", value = it)
                     }
                 }
                 
@@ -519,11 +518,12 @@ private fun ProParamsSection(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    params.exposure_compensation?.let {
-                        ParamChip(label = "曝光补偿", value = "${if (it >= 0) "+" else ""}$it EV")
+                    // 使用 ev 字段作为曝光补偿
+                    params.ev.takeIf { it.isNotEmpty() && it != "+0.0" && it != "0" }?.let {
+                        ParamChip(label = "曝光补偿", value = "$it EV")
                     }
                     
-                    params.focus_distance?.let {
+                    params.focus_distance?.takeIf { it.isNotEmpty() }?.let {
                         ParamChip(label = "对焦距离", value = it)
                     }
                 }
@@ -810,7 +810,8 @@ private fun ProComparisonSection(
     presetImageUrl: String,
     isDark: Boolean
 ) {
-    var sliderPosition by remember { mutableFloatStateOf(0.5f) }
+    // 使用 rememberSaveable 确保滑块位置在重组时保持
+    var sliderPosition by rememberSaveable { mutableFloatStateOf(0.5f) }
     
     Column(
         modifier = Modifier.fillMaxWidth()

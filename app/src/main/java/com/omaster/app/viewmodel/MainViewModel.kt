@@ -1,6 +1,5 @@
 package com.omaster.app.viewmodel
 
-import androidx.lifecycle.LiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.omaster.app.camera.CameraCompatibilityStatus
@@ -35,7 +34,7 @@ class MainViewModel @Inject constructor(
     val themeMode = preferencesDataStore.themeMode.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
-        initialValue = ThemeMode.SYSTEM
+        initialValue = ThemeMode.SYSTEM.value
     )
     val fluidCloudEnabled = preferencesDataStore.fluidCloudEnabled.stateIn(
         scope = viewModelScope,
@@ -70,12 +69,25 @@ class MainViewModel @Inject constructor(
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
-    // Camera related
-    val cameraStatus: LiveData<CameraCompatibilityStatus> = cameraParamProvider.status
-    val cameraParams: LiveData<RealTimeCameraParams> = cameraParamProvider.params
+    // Camera related - Convert LiveData to StateFlow for consistency
+    private val _cameraStatus = MutableStateFlow(CameraCompatibilityStatus.NotSupported)
+    val cameraStatus: StateFlow<CameraCompatibilityStatus> = _cameraStatus.asStateFlow()
+    
+    private val _cameraParams = MutableStateFlow(RealTimeCameraParams())
+    val cameraParams: StateFlow<RealTimeCameraParams> = _cameraParams.asStateFlow()
 
     // Camera monitoring flag
     private var isCameraMonitoring = false
+    
+    // Observe LiveData and update StateFlow
+    init {
+        cameraParamProvider.status.observeForever { status ->
+            _cameraStatus.value = status
+        }
+        cameraParamProvider.params.observeForever { params ->
+            _cameraParams.value = params
+        }
+    }
 
     fun onSearchQueryChanged(query: String) {
         _searchQuery.value = query

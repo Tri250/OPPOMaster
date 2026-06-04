@@ -74,7 +74,8 @@ data class Preset(
      * 获取场景类型中文显示
      */
     fun getSceneTypeDisplay(): String {
-        return when (sceneType.lowercase()) {
+        val sceneTypeValue = sceneType ?: ""
+        return when (sceneTypeValue.lowercase()) {
             "portrait", "人像" -> "人像摄影"
             "landscape", "风景" -> "风景摄影"
             "night", "夜景" -> "夜景摄影"

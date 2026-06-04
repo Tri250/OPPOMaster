@@ -21,7 +21,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.ripple.rememberRipple
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -32,7 +31,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.omaster.app.data.ThemeMode
 import com.omaster.app.model.Preset
@@ -43,7 +41,6 @@ import com.omaster.app.ui.components.ProFeatureCard
 import com.omaster.app.ui.components.ProPresetCard
 import com.omaster.app.ui.components.ProSearchBar
 import com.omaster.app.ui.theme.*
-import com.omaster.app.viewmodel.MainViewModel
 
 /**
  * ==================== ProHomeScreen - ColorOS 16 专业摄影首页 ====================
@@ -59,12 +56,14 @@ fun ProHomeScreen(
     onWatermarkClick: () -> Unit,
     onColorOSHomeClick: () -> Unit,
     modifier: Modifier = Modifier,
-    viewModel: MainViewModel = hiltViewModel()
+    presets: List<Preset>,
+    searchQuery: String,
+    filterType: String,
+    onSearchQueryChange: (String) -> Unit,
+    onFilterTypeChange: (String) -> Unit,
+    onFavoriteToggle: (Preset) -> Unit,
+    themeMode: Int
 ) {
-    val presets by viewModel.presets.collectAsStateWithLifecycle()
-    val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
-    val filterType by viewModel.filterType.collectAsStateWithLifecycle()
-    val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
     val isDark = themeMode == ThemeMode.DARK.value
     
     var isSearching by remember { mutableStateOf(false) }
@@ -106,7 +105,7 @@ fun ProHomeScreen(
                 ProSearchBar(
                     query = searchQuery,
                     onQueryChange = {
-                        viewModel.onSearchQueryChanged(it)
+                        onSearchQueryChange(it)
                         isSearching = it.isNotEmpty()
                     },
                     isDark = isDark
@@ -117,7 +116,7 @@ fun ProHomeScreen(
             item {
                 ProFilterChips(
                     selectedFilter = filterType,
-                    onFilterSelected = { viewModel.onFilterTypeChanged(it) },
+                    onFilterSelected = onFilterTypeChange,
                     isDark = isDark
                 )
             }
@@ -138,7 +137,7 @@ fun ProHomeScreen(
                 ProPresetCard(
                     preset = preset,
                     onClick = { onPresetClick(preset) },
-                    onFavoriteToggle = { viewModel.toggleFavorite(preset) },
+                    onFavoriteToggle = { onFavoriteToggle(preset) },
                     isDark = isDark,
                     modifier = Modifier
                         .animateItemPlacement(

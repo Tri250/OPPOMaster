@@ -18,20 +18,17 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import android.widget.Toast
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.omaster.app.data.ThemeMode
 import com.omaster.app.ui.theme.*
-import com.omaster.app.viewmodel.MainViewModel
 
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
-    viewModel: MainViewModel = hiltViewModel()
+    currentThemeMode: Int,
+    onThemeModeChange: (ThemeMode) -> Unit
 ) {
     val context = LocalContext.current
-    val currentThemeMode by viewModel.themeMode.collectAsStateWithLifecycle()
     var showThemeDialog by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -204,7 +201,7 @@ fun SettingsScreen(
         ThemeSelectionDialog(
             currentThemeMode = currentThemeMode,
             onThemeSelected = { themeMode ->
-                viewModel.setThemeMode(themeMode)
+                onThemeModeChange(themeMode)
                 showThemeDialog = false
             },
             onDismiss = { showThemeDialog = false }

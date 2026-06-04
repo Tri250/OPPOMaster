@@ -109,50 +109,108 @@ class NotificationHelper @Inject constructor(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         
-        val expandIntent = PendingIntent.getService(
-            context,
-            1,
-            Intent(context, FluidCloudService::class.java).apply {
-                action = FluidCloudService.ACTION_SHOW_CAPSULE
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+        // Android 14+ 建议使用 getForegroundService 来启动前台服务
+        val flag = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         
-        val collapseIntent = PendingIntent.getService(
-            context,
-            2,
-            Intent(context, FluidCloudService::class.java).apply {
-                action = FluidCloudService.ACTION_HIDE_CAPSULE
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+        val expandIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            PendingIntent.getForegroundService(
+                context,
+                1,
+                Intent(context, FluidCloudService::class.java).apply {
+                    action = FluidCloudService.ACTION_SHOW_CAPSULE
+                },
+                flag
+            )
+        } else {
+            PendingIntent.getService(
+                context,
+                1,
+                Intent(context, FluidCloudService::class.java).apply {
+                    action = FluidCloudService.ACTION_SHOW_CAPSULE
+                },
+                flag
+            )
+        }
         
-        val nextIntent = PendingIntent.getService(
-            context,
-            3,
-            Intent(context, FluidCloudService::class.java).apply {
-                action = ACTION_NEXT_PRESET
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+        val collapseIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            PendingIntent.getForegroundService(
+                context,
+                2,
+                Intent(context, FluidCloudService::class.java).apply {
+                    action = FluidCloudService.ACTION_HIDE_CAPSULE
+                },
+                flag
+            )
+        } else {
+            PendingIntent.getService(
+                context,
+                2,
+                Intent(context, FluidCloudService::class.java).apply {
+                    action = FluidCloudService.ACTION_HIDE_CAPSULE
+                },
+                flag
+            )
+        }
         
-        val prevIntent = PendingIntent.getService(
-            context,
-            4,
-            Intent(context, FluidCloudService::class.java).apply {
-                action = ACTION_PREV_PRESET
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+        val nextIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            PendingIntent.getForegroundService(
+                context,
+                3,
+                Intent(context, FluidCloudService::class.java).apply {
+                    action = ACTION_NEXT_PRESET
+                },
+                flag
+            )
+        } else {
+            PendingIntent.getService(
+                context,
+                3,
+                Intent(context, FluidCloudService::class.java).apply {
+                    action = ACTION_NEXT_PRESET
+                },
+                flag
+            )
+        }
         
-        val closeIntent = PendingIntent.getService(
-            context,
-            5,
-            Intent(context, FluidCloudService::class.java).apply {
-                action = ACTION_CLOSE
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+        val prevIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            PendingIntent.getForegroundService(
+                context,
+                4,
+                Intent(context, FluidCloudService::class.java).apply {
+                    action = ACTION_PREV_PRESET
+                },
+                flag
+            )
+        } else {
+            PendingIntent.getService(
+                context,
+                4,
+                Intent(context, FluidCloudService::class.java).apply {
+                    action = ACTION_PREV_PRESET
+                },
+                flag
+            )
+        }
+        
+        val closeIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            PendingIntent.getForegroundService(
+                context,
+                5,
+                Intent(context, FluidCloudService::class.java).apply {
+                    action = ACTION_CLOSE
+                },
+                flag
+            )
+        } else {
+            PendingIntent.getService(
+                context,
+                5,
+                Intent(context, FluidCloudService::class.java).apply {
+                    action = ACTION_CLOSE
+                },
+                flag
+            )
+        }
         
         val title = presetName ?: "OMaster"
         val text = if (isExpanded) "悬浮窗已展开" else "悬浮窗已收起"

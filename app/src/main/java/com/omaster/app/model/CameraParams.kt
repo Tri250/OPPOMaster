@@ -300,5 +300,59 @@ data class CameraParams(
                 proMode = true
             )
         }
+        
+        /**
+         * 创建人像预设参数
+         */
+        fun createPortraitPreset(): CameraParams {
+            return CameraParams(
+                mode = CameraMode.HasselbladPortrait.displayName,
+                iso = 100,
+                shutter = "1/125",
+                ev = "+0.3",
+                wb = "5200K",
+                focalLength = "85mm",
+                aperture = "f/1.8",
+                portraitMode = true,
+                aiOptimization = true,
+                hasselblad_hncs = true,
+                hasselbladNaturalColor = true,
+                hasselbladMasterStyle = "Portrait Pro",
+                hasselbladColorScience = "HNCS 3.0",
+                colorProfile = "自然",
+                colorStyle = ColorStyle.Portrait.name,
+                sharpness = 45,
+                contrast = 50,
+                saturation = 55,
+                sensorSize = "1英寸双大底"
+            )
+        }
+        
+        /**
+         * 创建风景预设参数
+         */
+        fun createLandscapePreset(): CameraParams {
+            return CameraParams(
+                mode = CameraMode.HasselbladLandscape.displayName,
+                iso = 64,
+                shutter = "1/500",
+                ev = "+0.7",
+                wb = "6500K",
+                focalLength = "23mm",
+                aperture = "f/2.8",
+                hdr = true,
+                aiOptimization = true,
+                hasselblad_hncs = true,
+                hasselbladNaturalColor = true,
+                hasselbladMasterStyle = "Landscape",
+                hasselbladColorScience = "HNCS 3.0",
+                colorProfile = "鲜明",
+                colorStyle = ColorStyle.Vivid.name,
+                sharpness = 55,
+                contrast = 55,
+                saturation = 55,
+                sensorSize = "1英寸双大底"
+            )
+        }
     }
 }

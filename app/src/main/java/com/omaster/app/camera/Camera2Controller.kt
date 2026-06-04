@@ -9,7 +9,6 @@ import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
 import android.os.Handler
 import android.os.HandlerThread
-import android.util.Log
 import android.util.Size
 import android.view.Surface
 import androidx.annotation.OptIn
@@ -207,13 +206,20 @@ class Camera2Controller @Inject constructor(
             val bytes = ByteArray(buffer.remaining())
             buffer.get(bytes)
             
+            // 创建 Bitmap，确保及时回收，避免内存泄漏
             val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
             if (bitmap != null) {
-                // 检测画面特征，估算参数
-                val estimatedParams = estimateParamsFromImage(bitmap)
-                _currentParams.value = estimatedParams
-                onParamsDetected(estimatedParams)
-                bitmap.recycle()
+                try {
+                    // 检测画面特征，估算参数
+                    val estimatedParams = estimateParamsFromImage(bitmap)
+                    _currentParams.value = estimatedParams
+                    onParamsDetected(estimatedParams)
+                } finally {
+                    // 确保 bitmap 被回收
+                    if (!bitmap.isRecycled) {
+                        bitmap.recycle()
+                    }
+                }
             }
         } catch (e: Exception) {
             Timber.e(e, "Error analyzing image")

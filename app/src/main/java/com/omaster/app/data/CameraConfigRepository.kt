@@ -45,13 +45,6 @@ class CameraConfigRepository @Inject constructor(
     // 使用 SupervisorJob 避免协程取消影响整个作用域
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    /**
-     * 关闭 Repository，取消所有协程
-     */
-    fun close() {
-        repositoryScope.cancel()
-    }
-
     init {
         // 异步初始化，避免阻塞主线程
         repositoryScope.launch {
@@ -65,10 +58,32 @@ class CameraConfigRepository @Inject constructor(
     private suspend fun loadConfigsAsync() {
         try {
             if (configsFile.exists()) {
+                // 安全检查: 限制文件大小
+                val maxFileSize = 1024 * 1024 // 1MB
+                if (configsFile.length() > maxFileSize) {
+                    Timber.w("Configs file too large, using sample configs")
+                    _configs.value = CameraConfig.sampleConfigs()
+                    return
+                }
+                
                 val type = object : TypeToken<List<CameraConfig>>() {}.type
                 FileReader(configsFile).use { reader ->
-                    val configs = gson.fromJson<List<CameraConfig>>(reader, type)
-                    _configs.value = configs ?: CameraConfig.sampleConfigs()
+                    // 限制读取的字符数
+                    val content = reader.readText()
+                    if (content.length > maxFileSize) {
+                        Timber.w("Configs content too large, using sample configs")
+                        _configs.value = CameraConfig.sampleConfigs()
+                        return
+                    }
+                    
+                    val configs = gson.fromJson<List<CameraConfig>>(content, type)
+                    // 验证解析结果
+                    val validConfigs = configs?.filter { config ->
+                        // 基本验证：ID和名称不能为空
+                        config.id.isNotEmpty() && config.name.isNotEmpty()
+                    } ?: CameraConfig.sampleConfigs()
+                    
+                    _configs.value = validConfigs
                 }
             } else {
                 val sampleConfigs = CameraConfig.sampleConfigs()
@@ -281,11 +296,43 @@ class CameraConfigRepository @Inject constructor(
      */
     suspend fun importConfig(inputFile: File): Result<List<CameraConfig>> {
         return try {
+            // 安全检查: 验证导入文件
+            if (!inputFile.exists() || !inputFile.canRead()) {
+                return Result.failure(IllegalArgumentException("Import file does not exist or cannot be read"))
+            }
+            
+            // 限制文件大小，防止内存攻击
+            val maxFileSize = 1024 * 1024 // 1MB
+            if (inputFile.length() > maxFileSize) {
+                Timber.w("Import file too large: ${inputFile.length()} bytes")
+                return Result.failure(IllegalArgumentException("File too large, max size is 1MB"))
+            }
+            
             FileReader(inputFile).use { reader ->
-                val exportData = gson.fromJson(reader, CameraConfigExport::class.java)
-                val importedConfigs = exportData.configs.map { config ->
+                val content = reader.readText()
+                if (content.length > maxFileSize) {
+                    return Result.failure(IllegalArgumentException("Content too large"))
+                }
+                
+                val exportData = gson.fromJson(content, CameraConfigExport::class.java)
+                
+                // 验证导入数据
+                if (exportData?.configs == null || exportData.configs.isEmpty()) {
+                    return Result.failure(IllegalArgumentException("No valid configs in import file"))
+                }
+                
+                // 验证每个配置的有效性
+                val validConfigs = exportData.configs.filter { config ->
+                    config.id.isNotEmpty() && config.name.isNotEmpty()
+                }
+                
+                if (validConfigs.isEmpty()) {
+                    return Result.failure(IllegalArgumentException("No valid configs after validation"))
+                }
+                
+                val importedConfigs = validConfigs.map { config ->
                     config.copy(
-                        id = config.id + "_imported_${System.currentTimeMillis()}",
+                        id = sanitizeConfigId(config.id) + "_imported_${System.currentTimeMillis()}",
                         createdAt = System.currentTimeMillis(),
                         updatedAt = System.currentTimeMillis()
                     )
@@ -303,6 +350,16 @@ class CameraConfigRepository @Inject constructor(
             Timber.e(e, "Error importing config")
             Result.failure(e)
         }
+    }
+    
+    /**
+     * 验证并清理配置ID，防止注入攻击
+     */
+    private fun sanitizeConfigId(id: String): String {
+        // 只允许安全字符：字母、数字、下划线、连字符
+        return id.filter { char ->
+            char.isLetterOrDigit() || char == '_' || char == '-'
+        }.take(64).ifEmpty { "config" }
     }
 
     /**

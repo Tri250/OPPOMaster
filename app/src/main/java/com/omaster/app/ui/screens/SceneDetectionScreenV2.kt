@@ -422,9 +422,10 @@ private fun SceneResultCardV2(
     detectionTime: Int? = null,
     modifier: Modifier = Modifier
 ) {
-    var isVisible by remember { mutableStateOf(false) }
+    // 使用 remember 的 key 参数确保状态正确重置
+    var isVisible by remember(scene) { mutableStateOf(false) }
     
-    LaunchedEffect(Unit) {
+    LaunchedEffect(scene) {
         isVisible = true
     }
     

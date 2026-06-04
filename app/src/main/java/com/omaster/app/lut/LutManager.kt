@@ -45,6 +45,18 @@ class LutManager @Inject constructor(
 
     fun importCubeLut(file: File): Result<Lut3D> {
         return try {
+            // 安全检查: 验证文件是否存在且可读
+            if (!file.exists() || !file.canRead()) {
+                return Result.failure(Exception("File does not exist or cannot be read"))
+            }
+            
+            // 限制文件大小，防止内存攻击
+            val maxFileSize = 10 * 1024 * 1024 // 10MB
+            if (file.length() > maxFileSize) {
+                Timber.w("LUT file too large: ${file.length()} bytes")
+                return Result.failure(Exception("File too large, max size is 10MB"))
+            }
+            
             val lines = file.readLines()
             var size = 0
             val dataList = mutableListOf<MutableList<FloatArray>>()
@@ -182,7 +194,8 @@ class LutManager @Inject constructor(
         }
         
         // 应用色调调整 (基于白平衡)
-        val wbValue = params.wb.replace("K", "").toIntOrNull() ?: 5500
+        val wbValue = params.wb.replace("K", "").replace("k", "").trim().toIntOrNull() ?: 5500
+        if (wbValue <= 0) wbValue = 5500 // 防止零值或负值
         val wbFactor = wbValue / 5500f
         red *= wbFactor.coerceIn(0.7f, 1.3f)
         
@@ -200,31 +213,98 @@ class LutManager @Inject constructor(
         val result = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         
         val pixels = IntArray(width * height)
-        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
-        
-        for (i in pixels.indices) {
-            val color = pixels[i]
-            val r = Color.red(color)
-            val g = Color.green(color)
-            val b = Color.blue(color)
+        try {
+            bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
             
-            // 在 LUT 中查找颜色
-            val lutR = (r * (lut.size - 1) / 255f).roundToInt().coerceIn(0, lut.size - 1)
-            val lutG = (g * (lut.size - 1) / 255f).roundToInt().coerceIn(0, lut.size - 1)
-            val lutB = (b * (lut.size - 1) / 255f).roundToInt().coerceIn(0, lut.size - 1)
+            for (i in pixels.indices) {
+                val color = pixels[i]
+                val r = Color.red(color)
+                val g = Color.green(color)
+                val b = Color.blue(color)
+                
+                // 在 LUT 中查找颜色
+                val lutR = (r * (lut.size - 1) / 255f).roundToInt().coerceIn(0, lut.size - 1)
+                val lutG = (g * (lut.size - 1) / 255f).roundToInt().coerceIn(0, lut.size - 1)
+                val lutB = (b * (lut.size - 1) / 255f).roundToInt().coerceIn(0, lut.size - 1)
+                
+                val newColor = lut.data[lutR][lutG][lutB]
+                pixels[i] = (Color.alpha(color) shl 24) or newColor
+            }
             
-            val newColor = lut.data[lutR][lutG][lutB]
-            pixels[i] = (Color.alpha(color) shl 24) or newColor
+            result.setPixels(pixels, 0, width, 0, 0, width, height)
+        } catch (e: Exception) {
+            // 处理失败时回收结果 Bitmap，避免内存泄漏
+            if (!result.isRecycled) {
+                result.recycle()
+            }
+            throw e
         }
         
-        result.setPixels(pixels, 0, width, 0, 0, width, height)
         return result
     }
 
     fun convertPresetToLut(params: CameraParams, outputDir: File): Result<File> {
-        val fileName = "${params.hasselblad_master_style ?: "custom_preset"}.cube"
-        val outputFile = File(outputDir, fileName)
+        // 安全检查: 验证输出目录
+        if (!outputDir.exists() || !outputDir.isDirectory) {
+            return Result.failure(Exception("Output directory does not exist or is not a directory"))
+        }
+        
+        // 验证并清理文件名，防止路径遍历
+        val rawFileName = "${params.hasselblad_master_style ?: "custom_preset"}.cube"
+        val safeFileName = sanitizeFileName(rawFileName)
+        if (safeFileName == null) {
+            return Result.failure(Exception("Invalid file name"))
+        }
+        
+        val outputFile = File(outputDir, safeFileName)
+        
+        // 验证输出路径是否在预期目录内
+        if (!isPathInAllowedDirectory(outputFile, outputDir)) {
+            Timber.w("Path traversal attempt detected in output file")
+            return Result.failure(Exception("Invalid output path"))
+        }
+        
         return exportCubeLut(params, outputFile)
+    }
+    
+    /**
+     * 验证并清理文件名，防止路径遍历攻击
+     */
+    private fun sanitizeFileName(fileName: String?): String? {
+        if (fileName == null || fileName.isEmpty()) return null
+        
+        // 限制最大长度
+        val maxLength = 128
+        if (fileName.length > maxLength) {
+            return fileName.take(maxLength)
+        }
+        
+        // 只允许安全字符：字母、数字、下划线、连字符、点（用于扩展名）
+        val sanitized = fileName.filter { char ->
+            char.isLetterOrDigit() || char == '_' || char == '-' || char == '.'
+        }
+        
+        // 检查是否包含路径遍历字符
+        if (sanitized.contains("..") || sanitized.contains("/") || sanitized.contains("\\")) {
+            Timber.w("Path traversal attempt detected in file name: $fileName")
+            return null
+        }
+        
+        return sanitized.ifEmpty { null }
+    }
+    
+    /**
+     * 验证文件路径是否在允许的目录内
+     */
+    private fun isPathInAllowedDirectory(file: File, allowedDir: File): Boolean {
+        try {
+            val canonicalPath = file.canonicalPath
+            val canonicalAllowedDir = allowedDir.canonicalPath
+            return canonicalPath.startsWith(canonicalAllowedDir)
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to verify file path")
+            return false
+        }
     }
 
     fun getLutFiles(directory: File, type: LutType): List<LutFile> {

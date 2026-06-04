@@ -18,45 +18,45 @@ enum class WatermarkType {
 data class Watermark(
     val id: String = UUID.randomUUID().toString(),
     val type: WatermarkType,
-    var text: String = "",
-    var imageUri: Uri? = null,
-    var position: Offset = Offset(0.5f, 0.5f),
-    var size: Size = Size(100f, 100f),
-    var scale: Float = 1f,
-    var rotation: Float = 0f,
-    var opacity: Float = 1f,
-    var zIndex: Int = 0,
-    var textConfig: TextWatermarkConfig = TextWatermarkConfig(),
-    var imageConfig: ImageWatermarkConfig = ImageWatermarkConfig(),
-    var mixMode: BlendMode = BlendMode.NORMAL,
-    var isSelected: Boolean = false
+    val text: String = "",
+    val imageUri: Uri? = null,
+    val position: Offset = Offset(0.5f, 0.5f),
+    val size: Size = Size(100f, 100f),
+    val scale: Float = 1f,
+    val rotation: Float = 0f,
+    val opacity: Float = 1f,
+    val zIndex: Int = 0,
+    val textConfig: TextWatermarkConfig = TextWatermarkConfig(),
+    val imageConfig: ImageWatermarkConfig = ImageWatermarkConfig(),
+    val mixMode: BlendMode = BlendMode.NORMAL,
+    val isSelected: Boolean = false
 )
 
 data class TextWatermarkConfig(
-    var fontSize: Float = 24f,
-    var fontColor: Color = Color.White,
-    var fontWeight: FontWeight = FontWeight.Normal,
-    var isBold: Boolean = false,
-    var isItalic: Boolean = false,
-    var isUnderline: Boolean = false,
-    var isStrikethrough: Boolean = false,
-    var hasStroke: Boolean = false,
-    var strokeColor: Color = Color.Black,
-    var strokeWidth: Float = 2f,
-    var hasShadow: Boolean = false,
-    var shadowColor: Color = Color.Black,
-    var shadowBlurRadius: Float = 4f,
-    var shadowOffset: Offset = Offset(2f, 2f),
-    var alignment: TextAlignment = TextAlignment.CENTER,
-    var lineSpacing: Float = 1.2f
+    val fontSize: Float = 24f,
+    val fontColor: Color = Color.White,
+    val fontWeight: FontWeight = FontWeight.Normal,
+    val isBold: Boolean = false,
+    val isItalic: Boolean = false,
+    val isUnderline: Boolean = false,
+    val isStrikethrough: Boolean = false,
+    val hasStroke: Boolean = false,
+    val strokeColor: Color = Color.Black,
+    val strokeWidth: Float = 2f,
+    val hasShadow: Boolean = false,
+    val shadowColor: Color = Color.Black,
+    val shadowBlurRadius: Float = 4f,
+    val shadowOffset: Offset = Offset(2f, 2f),
+    val alignment: TextAlignment = TextAlignment.CENTER,
+    val lineSpacing: Float = 1.2f
 )
 
 data class ImageWatermarkConfig(
-    var bitmap: Bitmap? = null,
-    var preserveAspectRatio: Boolean = true,
-    var cropRect: Rect? = null,
-    var flipHorizontal: Boolean = false,
-    var flipVertical: Boolean = false
+    val bitmap: Bitmap? = null,
+    val preserveAspectRatio: Boolean = true,
+    val cropRect: Rect? = null,
+    val flipHorizontal: Boolean = false,
+    val flipVertical: Boolean = false
 )
 
 enum class TextAlignment {

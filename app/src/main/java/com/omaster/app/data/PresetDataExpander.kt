@@ -42,7 +42,7 @@ object PresetDataExpander {
                     mode = "人像模式",
                     filter = "人像",
                     iso = 100,
-                    shutter = "1/125s",
+                    shutter = "1/125",
                     ev = "0",
                     wb = "5200K",
                     hasselblad_hncs = index < 5
@@ -76,7 +76,7 @@ object PresetDataExpander {
                     mode = "专业模式",
                     filter = "风光",
                     iso = 100,
-                    shutter = "1/500s",
+                    shutter = "1/500",
                     ev = "-0.3",
                     wb = "5600K",
                     hasselblad_hncs = index < 5
@@ -110,7 +110,7 @@ object PresetDataExpander {
                     mode = "夜景模式",
                     filter = "夜景",
                     iso = 800,
-                    shutter = "1/30s",
+                    shutter = "1/30",
                     ev = "0",
                     wb = "4500K",
                     hasselblad_hncs = index < 3
@@ -143,7 +143,7 @@ object PresetDataExpander {
                     mode = "专业模式",
                     filter = "美食",
                     iso = 200,
-                    shutter = "1/200s",
+                    shutter = "1/200",
                     ev = "+0.3",
                     wb = "5200K",
                     hasselblad_hncs = index < 3
@@ -176,7 +176,7 @@ object PresetDataExpander {
                     mode = "专业模式",
                     filter = "建筑",
                     iso = 100,
-                    shutter = "1/250s",
+                    shutter = "1/250",
                     ev = "0",
                     wb = "5600K",
                     hasselblad_hncs = index < 3
@@ -209,9 +209,9 @@ object PresetDataExpander {
                     mode = "专业模式",
                     filter = "黑白",
                     iso = 400,
-                    shutter = "1/1000s",
+                    shutter = "1/1000",
                     ev = "0",
-                    wb = "自动",
+                    wb = "Auto",
                     hasselblad_hncs = index < 3
                 ),
                 deviceModel = "Find X8",
@@ -246,7 +246,7 @@ object PresetDataExpander {
                     mode = "专业模式",
                     filter = "复古",
                     iso = 200,
-                    shutter = "1/125s",
+                    shutter = "1/125",
                     ev = "0",
                     wb = "5400K",
                     hasselblad_hncs = index < 5

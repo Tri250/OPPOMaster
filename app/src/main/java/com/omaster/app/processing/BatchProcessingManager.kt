@@ -318,7 +318,7 @@ class BatchProcessingManager @Inject constructor(
             }
 
             FileOutputStream(outputFile).use { out ->
-                bitmap.compress(compress_format, quality, out)
+                bitmap.compress(compressFormat, quality, out)
             }
 
             Uri.fromFile(outputFile)

@@ -89,20 +89,44 @@ class FluidCloudService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Timber.d("FluidCloudService onStartCommand with action: ${intent?.action}")
         
+        // 安全检查: 验证Intent来源和数据
         try {
-            when (intent?.action) {
+            // 验证Intent action是否合法
+            val action = intent?.action
+            if (action == null || action !in listOf(
+                ACTION_SHOW_CAPSULE,
+                ACTION_HIDE_CAPSULE,
+                ACTION_UPDATE_PRESET
+            )) {
+                Timber.w("Invalid or null action received: $action, ignoring")
+                return START_NOT_STICKY
+            }
+            
+            when (action) {
                 ACTION_SHOW_CAPSULE -> {
-                    currentPresetId.set(intent.getStringExtra(EXTRA_PRESET_ID))
-                    currentPresetName.set(intent.getStringExtra(EXTRA_PRESET_NAME))
-                    currentCategory.set(intent.getStringExtra(EXTRA_PRESET_CATEGORY))
-                    hasHncs.set(intent.getBooleanExtra(EXTRA_HAS_HNCS, false))
+                    // 验证并处理Intent数据
+                    val presetId = validateAndSanitizeString(intent.getStringExtra(EXTRA_PRESET_ID))
+                    val presetName = validateAndSanitizeString(intent.getStringExtra(EXTRA_PRESET_NAME))
+                    val category = validateAndSanitizeString(intent.getStringExtra(EXTRA_PRESET_CATEGORY))
+                    val hasHncsValue = intent.getBooleanExtra(EXTRA_HAS_HNCS, false)
+                    
+                    currentPresetId.set(presetId)
+                    currentPresetName.set(presetName)
+                    currentCategory.set(category)
+                    hasHncs.set(hasHncsValue)
                     showFluidCloudCapsule()
                 }
                 ACTION_UPDATE_PRESET -> {
-                    currentPresetId.set(intent.getStringExtra(EXTRA_PRESET_ID))
-                    currentPresetName.set(intent.getStringExtra(EXTRA_PRESET_NAME))
-                    currentCategory.set(intent.getStringExtra(EXTRA_PRESET_CATEGORY))
-                    hasHncs.set(intent.getBooleanExtra(EXTRA_HAS_HNCS, false))
+                    // 验证并处理Intent数据
+                    val presetId = validateAndSanitizeString(intent.getStringExtra(EXTRA_PRESET_ID))
+                    val presetName = validateAndSanitizeString(intent.getStringExtra(EXTRA_PRESET_NAME))
+                    val category = validateAndSanitizeString(intent.getStringExtra(EXTRA_PRESET_CATEGORY))
+                    val hasHncsValue = intent.getBooleanExtra(EXTRA_HAS_HNCS, false)
+                    
+                    currentPresetId.set(presetId)
+                    currentPresetName.set(presetName)
+                    currentCategory.set(category)
+                    hasHncs.set(hasHncsValue)
                     updateCapsuleContent()
                 }
                 ACTION_HIDE_CAPSULE -> {
@@ -114,6 +138,35 @@ class FluidCloudService : Service() {
         }
         
         return START_NOT_STICKY
+    }
+    
+    /**
+     * 验证并清理字符串数据，防止注入攻击
+     * - 限制字符串长度
+     * - 过滤危险字符
+     * - 返回安全字符串或null
+     */
+    private fun validateAndSanitizeString(input: String?): String? {
+        if (input == null) return null
+        
+        // 限制最大长度，防止内存攻击
+        val maxLength = 100
+        if (input.length > maxLength) {
+            Timber.w("Input string too long (${input.length}), truncating to $maxLength")
+            return input.take(maxLength)
+        }
+        
+        // 过滤潜在危险字符（防止日志注入等）
+        // 保留正常字符：字母、数字、中文、空格、常用标点
+        val sanitized = input.filter { char ->
+            char.isLetterOrDigit() || 
+            char.isWhitespace() ||
+            char in ".,_-:()（）【】" ||
+            // 允许中文字符范围
+            (char.code >= 0x4E00 && char.code <= 0x9FFF)
+        }
+        
+        return sanitized.ifEmpty { null }
     }
 
     private fun showFluidCloudCapsule() {
@@ -225,13 +278,28 @@ class FluidCloudService : Service() {
     private fun handleCapsuleClick() {
         Timber.d("Fluid cloud capsule clicked")
         try {
+            // Android 11+ 需要声明包可见性才能查询其他应用
+            // 由于我们查询的是自己的包，不需要额外权限
             val launchIntent = packageManager?.getLaunchIntentForPackage(packageName)
             if (launchIntent != null) {
                 launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                 startActivity(launchIntent)
+            } else {
+                // 如果无法获取启动Intent，尝试直接启动MainActivity
+                val fallbackIntent = Intent(this, com.omaster.app.MainActivity::class.java)
+                fallbackIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                startActivity(fallbackIntent)
             }
         } catch (e: Exception) {
             Timber.e(e, "Failed to launch app from capsule")
+            // 尝试备用方案
+            try {
+                val fallbackIntent = Intent(this, com.omaster.app.MainActivity::class.java)
+                fallbackIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                startActivity(fallbackIntent)
+            } catch (e2: Exception) {
+                Timber.e(e2, "Fallback launch also failed")
+            }
         }
     }
 
