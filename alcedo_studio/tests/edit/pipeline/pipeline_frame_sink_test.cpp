@@ -175,6 +175,44 @@ TEST_F(PipelineFrameSinkTest, RenderRegionCropsEvenWhenScaleIsFullRes) {
   EXPECT_FLOAT_EQ(output.at<cv::Vec3f>(0, 0)[1], 20.0f);
 }
 
+TEST_F(PipelineFrameSinkTest, RenderRegionDoesNotUpscaleWhenViewportTargetExceedsSourceRoi) {
+  cv::Mat image(100, 200, CV_32FC3);
+  for (int y = 0; y < image.rows; ++y) {
+    for (int x = 0; x < image.cols; ++x) {
+      image.at<cv::Vec3f>(y, x) =
+          cv::Vec3f(static_cast<float>(x), static_cast<float>(y), 0.0f);
+    }
+  }
+
+  nlohmann::json params;
+  params["resize"] = {{"enable_scale", true},
+                      {"maximum_edge", 220},
+                      {"enable_roi", true},
+                      {"downsample_algorithm", "inter_area"},
+                      {"roi",
+                       {{"x", 0},
+                        {"y", 0},
+                        {"resize_factor_x", 0.5f},
+                        {"resize_factor_y", 0.5f},
+                        {"resize_factor", 0.5f},
+                        {"reference_width", 200},
+                        {"reference_height", 100}}}};
+
+  PipelineStage stage(PipelineStageName::Geometry_Adjustment,
+                      /*enable_cache=*/true,
+                      /*is_streamable=*/false);
+  stage.SetOperator(OperatorType::RESIZE, params);
+  stage.SetInputImage(std::make_shared<ImageBuffer>(std::move(image)));
+
+  OperatorParams global_params;
+  auto           result = stage.ApplyStage(global_params);
+  ASSERT_TRUE(result);
+  const auto& output = result->GetCPUData();
+
+  EXPECT_EQ(output.cols, 100);
+  EXPECT_EQ(output.rows, 50);
+}
+
 TEST_F(PipelineFrameSinkTest, DetailRoiPreviewUsesViewportTargetPixelsAsMaxEdge) {
   auto          exec = std::make_shared<CPUPipelineExecutor>();
   MockFrameSink sink;
@@ -359,6 +397,34 @@ TEST_F(PipelineFrameSinkTest, RenderSourceCacheKeyUsesStableImageIdentityBeforeB
   const auto second_key = second.pipeline_executor_->GetGlobalParams().render_source_cache_key_;
 
   EXPECT_EQ(first_key, second_key);
+}
+
+TEST_F(PipelineFrameSinkTest, FullResExportPreservesHighlightShadowSourceDetail) {
+  auto exec = std::make_shared<CPUPipelineExecutor>();
+
+  PipelineTask export_task;
+  export_task.pipeline_executor_ = exec;
+  export_task.options_.render_desc_.render_type_ = RenderType::FULL_RES_EXPORT;
+  export_task.SetExecutorRenderParams();
+
+  EXPECT_TRUE(exec->GetGlobalParams().render_hs_preserve_source_detail_);
+
+  const auto resize_entry =
+      exec->GetStage(PipelineStageName::Geometry_Adjustment).GetOperator(OperatorType::RESIZE);
+  ASSERT_TRUE(resize_entry.has_value());
+  ASSERT_NE(resize_entry.value(), nullptr);
+  ASSERT_NE(resize_entry.value()->op_, nullptr);
+
+  const auto params = resize_entry.value()->op_->GetParams();
+  ASSERT_TRUE(params.contains("resize"));
+  EXPECT_FALSE(params["resize"].value("enable_scale", true));
+
+  PipelineTask preview_task;
+  preview_task.pipeline_executor_ = exec;
+  preview_task.options_.render_desc_.render_type_ = RenderType::QUALITY_BASE_PREVIEW;
+  preview_task.SetExecutorRenderParams();
+
+  EXPECT_FALSE(exec->GetGlobalParams().render_hs_preserve_source_detail_);
 }
 
 // =========================================================================

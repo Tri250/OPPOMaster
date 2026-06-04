@@ -631,10 +631,14 @@ static inline float3 opencl_hs_dampen_shadow_chroma(
 
 static inline float4 opencl_hs_apply_local_tone_pixel(
     float4 px, float base, __global const OpenClFusedParams* params) {
+  const float kBackendAmountLimit = 1.5f;
   const float shadow_amount =
-      (params->shadows_enabled_ != 0u) ? clamp(params->shadows_offset_, -1.0f, 1.0f) : 0.0f;
+      (params->shadows_enabled_ != 0u)
+          ? clamp(params->shadows_offset_, -kBackendAmountLimit, kBackendAmountLimit)
+          : 0.0f;
   const float highlight_amount = (params->highlights_enabled_ != 0u)
-                                     ? clamp(-params->highlights_offset_, -1.0f, 1.0f)
+                                     ? clamp(-params->highlights_offset_, -kBackendAmountLimit,
+                                             kBackendAmountLimit)
                                      : 0.0f;
   if (fabs(shadow_amount) <= 1.0e-6f && fabs(highlight_amount) <= 1.0e-6f) {
     return px;

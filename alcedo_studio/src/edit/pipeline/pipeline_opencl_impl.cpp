@@ -34,6 +34,7 @@ namespace {
 
 constexpr uint32_t kOpenClNeighborMaxTapCount = 64;
 constexpr float    kHsHighlightStrengthScale  = 1.5f;
+constexpr float    kHsBackendAmountLimit      = 1.5f;
 
 enum class OpenClNeighborOpKind : uint32_t {
   Sharpen = 1,
@@ -1099,11 +1100,14 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
       return false;
     }
     const float shadow_amount =
-        fused_params_.shadows_enabled_ ? std::clamp(fused_params_.shadows_offset_, -1.0f, 1.0f)
+        fused_params_.shadows_enabled_
+            ? std::clamp(fused_params_.shadows_offset_, -kHsBackendAmountLimit,
+                         kHsBackendAmountLimit)
                                        : 0.0f;
     const float highlight_amount =
         fused_params_.highlights_enabled_
-            ? std::clamp(-fused_params_.highlights_offset_, -1.0f, 1.0f)
+            ? std::clamp(-fused_params_.highlights_offset_, -kHsBackendAmountLimit,
+                         kHsBackendAmountLimit)
             : 0.0f;
     return std::abs(shadow_amount) > 1.0e-6f || std::abs(highlight_amount) > 1.0e-6f;
   }
@@ -1278,11 +1282,14 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
 
   void EnqueueHighlightShadowLocalTone(const opencl::OpenClImage& src, opencl::OpenClImage& dst) {
     const float shadow_amount =
-        fused_params_.shadows_enabled_ ? std::clamp(fused_params_.shadows_offset_, -1.0f, 1.0f)
+        fused_params_.shadows_enabled_
+            ? std::clamp(fused_params_.shadows_offset_, -kHsBackendAmountLimit,
+                         kHsBackendAmountLimit)
                                        : 0.0f;
     const float highlight_amount =
         fused_params_.highlights_enabled_
-            ? std::clamp(-fused_params_.highlights_offset_, -1.0f, 1.0f)
+            ? std::clamp(-fused_params_.highlights_offset_, -kHsBackendAmountLimit,
+                         kHsBackendAmountLimit)
             : 0.0f;
     const std::uint64_t adjusted_cache_key =
         BuildAdjustedResultCacheKey(fused_params_, shadow_amount, highlight_amount);

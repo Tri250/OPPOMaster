@@ -71,6 +71,7 @@ constexpr float       kHsGammaMaxL                = 1.18f;
 constexpr float       kHsBaseSigmaR               = 0.07545252f;
 constexpr float       kHsGammaStepScale           = 1.35f;
 constexpr float       kHsHighlightStrengthScale   = 1.5f;
+constexpr float       kHsBackendAmountLimit       = 1.5f;
 constexpr int         kHsReferenceMaskMaxLongEdge = 2048;
 constexpr auto        kReportInterval             = std::chrono::milliseconds{500};
 constexpr double      kFpsEmaAlpha                = 0.15;
@@ -1084,10 +1085,14 @@ class MetalGPUPipeline final : public GPUPipelineImpl {
       return false;
     }
     const float shadow_amount    = fused_params_.shadows_enabled_
-                                       ? std::clamp(fused_params_.shadows_offset_, -1.0f, 1.0f)
+                                       ? std::clamp(fused_params_.shadows_offset_,
+                                                    -kHsBackendAmountLimit,
+                                                    kHsBackendAmountLimit)
                                        : 0.0f;
     const float highlight_amount = fused_params_.highlights_enabled_
-                                       ? std::clamp(-fused_params_.highlights_offset_, -1.0f, 1.0f)
+                                       ? std::clamp(-fused_params_.highlights_offset_,
+                                                    -kHsBackendAmountLimit,
+                                                    kHsBackendAmountLimit)
                                        : 0.0f;
     return std::abs(shadow_amount) > 1.0e-6f || std::abs(highlight_amount) > 1.0e-6f;
   }
@@ -1096,10 +1101,14 @@ class MetalGPUPipeline final : public GPUPipelineImpl {
                                       const metal::MetalImage& src, metal::MetalImage& dst,
                                       MetalExecutionStats* stats) {
     const float         shadow_amount    = fused_params_.shadows_enabled_
-                                               ? std::clamp(fused_params_.shadows_offset_, -1.0f, 1.0f)
+                                               ? std::clamp(fused_params_.shadows_offset_,
+                                                            -kHsBackendAmountLimit,
+                                                            kHsBackendAmountLimit)
                                                : 0.0f;
     const float         highlight_amount = fused_params_.highlights_enabled_
-                                               ? std::clamp(-fused_params_.highlights_offset_, -1.0f, 1.0f)
+                                               ? std::clamp(-fused_params_.highlights_offset_,
+                                                            -kHsBackendAmountLimit,
+                                                            kHsBackendAmountLimit)
                                                : 0.0f;
     const std::uint64_t adjusted_cache_key =
         BuildAdjustedResultCacheKey(fused_params_, shadow_amount, highlight_amount);

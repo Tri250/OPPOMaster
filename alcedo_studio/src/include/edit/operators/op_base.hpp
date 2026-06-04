@@ -140,6 +140,7 @@ struct OperatorParams {
   // Runtime render context used by CUDA local H/S to keep a stable full-frame
   // base/mask reference while DETAIL_ROI frames are rendered at viewport scale.
   std::uint64_t                render_source_cache_key_ = 0;
+  bool                         render_hs_preserve_source_detail_ = false;
   bool                         render_roi_enabled_ = false;
   int                          render_roi_x_ = 0;
   int                          render_roi_y_ = 0;

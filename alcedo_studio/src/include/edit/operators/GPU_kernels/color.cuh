@@ -193,6 +193,7 @@ GPU_HD_FUNC float hs_highlight_profile_ev(float relative_ev) {
 }
 
 constexpr float kHsHighlightStrengthScale = 1.5f;
+constexpr float kHsBackendAmountLimit = 1.5f;
 
 GPU_FUNC float hs_read_l_clamped(const float* __restrict src, int x, int y, int width,
                                  int height, size_t pitch_elems) {
@@ -547,6 +548,11 @@ GPU_FUNC float4 hs_apply_adjusted_l_pixel(float4 px, float adjusted_l) {
   return make_float4(output_acescc.x, output_acescc.y, output_acescc.z, px.w);
 }
 
+GPU_FUNC float4 hs_apply_adjusted_l_delta_pixel(float4 px, float reference_l, float adjusted_l) {
+  const float source_l = hs_log_intensity_from_acescc(px);
+  return hs_apply_adjusted_l_pixel(px, source_l + (adjusted_l - reference_l));
+}
+
 GPU_FUNC float hs_read_plane_bilinear(const float* __restrict plane, int width, int height,
                                       size_t pitch_elems, float x, float y) {
   const float clamped_x = fminf(fmaxf(x, 0.0f), static_cast<float>(width - 1));
@@ -582,10 +588,76 @@ __global__ void HsApplyAdjustedLKernel(const float4* __restrict src,
   dst[src_offset] = hs_apply_adjusted_l_pixel(src[src_offset], adjusted_l[l_offset]);
 }
 
-__global__ void HsApplyAdjustedLFromReferenceKernel(
+__global__ void HsApplyAdjustedLFromFrameKernel(
     const float4* __restrict src, const float* __restrict adjusted_l, float4* __restrict dst,
     int width, int height, size_t src_pitch_elems, int adjusted_width, int adjusted_height,
-    size_t adjusted_pitch_elems, GPUOperatorParams params) {
+    size_t adjusted_pitch_elems) {
+  const int x = blockIdx.x * blockDim.x + threadIdx.x;
+  const int y = blockIdx.y * blockDim.y + threadIdx.y;
+  if (x >= width || y >= height) return;
+
+  const float adjusted_x =
+      ((static_cast<float>(x) + 0.5f) * static_cast<float>(adjusted_width) /
+       fmaxf(static_cast<float>(width), 1.0f)) -
+      0.5f;
+  const float adjusted_y =
+      ((static_cast<float>(y) + 0.5f) * static_cast<float>(adjusted_height) /
+       fmaxf(static_cast<float>(height), 1.0f)) -
+      0.5f;
+  const size_t src_offset =
+      static_cast<size_t>(y) * src_pitch_elems + static_cast<size_t>(x);
+  const float sampled_l = hs_read_plane_bilinear(adjusted_l, adjusted_width, adjusted_height,
+                                                  adjusted_pitch_elems, adjusted_x, adjusted_y);
+  dst[src_offset] = hs_apply_adjusted_l_pixel(src[src_offset], sampled_l);
+}
+
+__global__ void HsApplyAdjustedDeltaLKernel(
+    const float4* __restrict src, const float* __restrict reference_l,
+    const float* __restrict adjusted_l, float4* __restrict dst, int width, int height,
+    size_t src_pitch_elems) {
+  const int x = blockIdx.x * blockDim.x + threadIdx.x;
+  const int y = blockIdx.y * blockDim.y + threadIdx.y;
+  if (x >= width || y >= height) return;
+
+  const size_t src_offset =
+      static_cast<size_t>(y) * src_pitch_elems + static_cast<size_t>(x);
+  const size_t l_offset =
+      static_cast<size_t>(y) * static_cast<size_t>(width) + static_cast<size_t>(x);
+  dst[src_offset] =
+      hs_apply_adjusted_l_delta_pixel(src[src_offset], reference_l[l_offset], adjusted_l[l_offset]);
+}
+
+__global__ void HsApplyAdjustedDeltaLFromFrameKernel(
+    const float4* __restrict src, const float* __restrict reference_l,
+    const float* __restrict adjusted_l, float4* __restrict dst, int width, int height,
+    size_t src_pitch_elems, int adjusted_width, int adjusted_height, size_t adjusted_pitch_elems) {
+  const int x = blockIdx.x * blockDim.x + threadIdx.x;
+  const int y = blockIdx.y * blockDim.y + threadIdx.y;
+  if (x >= width || y >= height) return;
+
+  const float adjusted_x =
+      ((static_cast<float>(x) + 0.5f) * static_cast<float>(adjusted_width) /
+       fmaxf(static_cast<float>(width), 1.0f)) -
+      0.5f;
+  const float adjusted_y =
+      ((static_cast<float>(y) + 0.5f) * static_cast<float>(adjusted_height) /
+       fmaxf(static_cast<float>(height), 1.0f)) -
+      0.5f;
+  const size_t src_offset =
+      static_cast<size_t>(y) * src_pitch_elems + static_cast<size_t>(x);
+  const float sampled_reference = hs_read_plane_bilinear(
+      reference_l, adjusted_width, adjusted_height, adjusted_pitch_elems, adjusted_x, adjusted_y);
+  const float sampled_adjusted = hs_read_plane_bilinear(
+      adjusted_l, adjusted_width, adjusted_height, adjusted_pitch_elems, adjusted_x, adjusted_y);
+  dst[src_offset] =
+      hs_apply_adjusted_l_delta_pixel(src[src_offset], sampled_reference, sampled_adjusted);
+}
+
+__global__ void HsApplyAdjustedDeltaLFromReferenceKernel(
+    const float4* __restrict src, const float* __restrict reference_l,
+    const float* __restrict adjusted_l, float4* __restrict dst, int width, int height,
+    size_t src_pitch_elems, int adjusted_width, int adjusted_height, size_t adjusted_pitch_elems,
+    GPUOperatorParams params) {
   const int x = blockIdx.x * blockDim.x + threadIdx.x;
   const int y = blockIdx.y * blockDim.y + threadIdx.y;
   if (x >= width || y >= height) return;
@@ -623,32 +695,12 @@ __global__ void HsApplyAdjustedLFromReferenceKernel(
 
   const size_t src_offset =
       static_cast<size_t>(y) * src_pitch_elems + static_cast<size_t>(x);
-  const float sampled_l = hs_read_plane_bilinear(adjusted_l, adjusted_width, adjusted_height,
-                                                  adjusted_pitch_elems, adjusted_x, adjusted_y);
-  dst[src_offset] = hs_apply_adjusted_l_pixel(src[src_offset], sampled_l);
-}
-
-__global__ void HsApplyAdjustedLFromFrameKernel(
-    const float4* __restrict src, const float* __restrict adjusted_l, float4* __restrict dst,
-    int width, int height, size_t src_pitch_elems, int adjusted_width, int adjusted_height,
-    size_t adjusted_pitch_elems) {
-  const int x = blockIdx.x * blockDim.x + threadIdx.x;
-  const int y = blockIdx.y * blockDim.y + threadIdx.y;
-  if (x >= width || y >= height) return;
-
-  const float adjusted_x =
-      ((static_cast<float>(x) + 0.5f) * static_cast<float>(adjusted_width) /
-       fmaxf(static_cast<float>(width), 1.0f)) -
-      0.5f;
-  const float adjusted_y =
-      ((static_cast<float>(y) + 0.5f) * static_cast<float>(adjusted_height) /
-       fmaxf(static_cast<float>(height), 1.0f)) -
-      0.5f;
-  const size_t src_offset =
-      static_cast<size_t>(y) * src_pitch_elems + static_cast<size_t>(x);
-  const float sampled_l = hs_read_plane_bilinear(adjusted_l, adjusted_width, adjusted_height,
-                                                  adjusted_pitch_elems, adjusted_x, adjusted_y);
-  dst[src_offset] = hs_apply_adjusted_l_pixel(src[src_offset], sampled_l);
+  const float sampled_reference = hs_read_plane_bilinear(
+      reference_l, adjusted_width, adjusted_height, adjusted_pitch_elems, adjusted_x, adjusted_y);
+  const float sampled_adjusted = hs_read_plane_bilinear(
+      adjusted_l, adjusted_width, adjusted_height, adjusted_pitch_elems, adjusted_x, adjusted_y);
+  dst[src_offset] =
+      hs_apply_adjusted_l_delta_pixel(src[src_offset], sampled_reference, sampled_adjusted);
 }
 
 struct GPU_HighlightShadowLocalToneStage {
@@ -658,6 +710,7 @@ struct GPU_HighlightShadowLocalToneStage {
   static constexpr float kBaseSigmaR  = 0.07545252f;
   static constexpr float kGammaStepScale = 1.35f;
   static constexpr int   kReferenceMaskMaxLongEdge = 2048;
+  static constexpr size_t kMaxRetainedMaskBytes = 256ULL * 1024ULL * 1024ULL;
 
   struct HsLlfSample {
     float gamma  = 0.0f;
@@ -775,15 +828,19 @@ struct GPU_HighlightShadowLocalToneStage {
     HashCombine(key, static_cast<std::uint64_t>(params.highlights_enabled_));
     HashCombine(key, static_cast<std::uint64_t>(FloatBits(shadow_amount)));
     HashCombine(key, static_cast<std::uint64_t>(FloatBits(highlight_amount)));
+    return key;
+  }
+
+  static auto BuildRoiAdjustedResultCacheKey(const GPUOperatorParams& params,
+                                             std::uint64_t base_key) -> std::uint64_t {
+    std::uint64_t key = base_key;
     HashCombine(key, static_cast<std::uint64_t>(params.render_roi_enabled_));
-    if (params.render_roi_enabled_) {
-      HashCombine(key, static_cast<std::uint64_t>(params.render_roi_x_));
-      HashCombine(key, static_cast<std::uint64_t>(params.render_roi_y_));
-      HashCombine(key, static_cast<std::uint64_t>(FloatBits(params.render_roi_scale_x_)));
-      HashCombine(key, static_cast<std::uint64_t>(FloatBits(params.render_roi_scale_y_)));
-      HashCombine(key, static_cast<std::uint64_t>(params.render_roi_reference_width_));
-      HashCombine(key, static_cast<std::uint64_t>(params.render_roi_reference_height_));
-    }
+    HashCombine(key, static_cast<std::uint64_t>(params.render_roi_x_));
+    HashCombine(key, static_cast<std::uint64_t>(params.render_roi_y_));
+    HashCombine(key, static_cast<std::uint64_t>(FloatBits(params.render_roi_scale_x_)));
+    HashCombine(key, static_cast<std::uint64_t>(FloatBits(params.render_roi_scale_y_)));
+    HashCombine(key, static_cast<std::uint64_t>(params.render_roi_reference_width_));
+    HashCombine(key, static_cast<std::uint64_t>(params.render_roi_reference_height_));
     return key;
   }
 
@@ -792,10 +849,10 @@ struct GPU_HighlightShadowLocalToneStage {
     int height = 1;
   };
 
-  static auto ComputeMaskDimensions(int width, int height, bool roi_frame_with_source_reference)
+  static auto ComputeMaskDimensions(int width, int height, bool full_resolution_reference)
       -> MaskDimensions {
     const int max_long_edge =
-        roi_frame_with_source_reference ? max(width, height) : kReferenceMaskMaxLongEdge;
+        full_resolution_reference ? max(width, height) : kReferenceMaskMaxLongEdge;
     const float scale = fminf(
         1.0f, static_cast<float>(max(1, max_long_edge)) / static_cast<float>(max(width, height)));
     return {max(1, static_cast<int>(ceilf(static_cast<float>(width) * scale))),
@@ -881,6 +938,15 @@ struct GPU_HighlightShadowLocalToneStage {
     cached_pitch_ = 0;
     cached_key_ = 0;
     cached_reference_base_ = false;
+  }
+
+  [[nodiscard]] auto AllocatedPyramidBytes() const -> size_t {
+    size_t bytes = 0;
+    for (int level = 0; level < level_count_; ++level) {
+      bytes += static_cast<size_t>(level_widths_[level]) *
+               static_cast<size_t>(level_heights_[level]) * sizeof(float) * 4ULL;
+    }
+    return bytes;
   }
 
   void EnsurePyramidBuffers(int width, int height, float radius) {
@@ -1016,9 +1082,14 @@ struct GPU_HighlightShadowLocalToneStage {
     }
 
     const float shadow_amount =
-        params.shadows_enabled_ ? fminf(fmaxf(params.shadows_offset_, -1.0f), 1.0f) : 0.0f;
+        params.shadows_enabled_
+            ? fminf(fmaxf(params.shadows_offset_, -kHsBackendAmountLimit),
+                    kHsBackendAmountLimit)
+            : 0.0f;
     const float highlight_amount = params.highlights_enabled_
-                                       ? fminf(fmaxf(-params.highlights_offset_, -1.0f), 1.0f)
+                                       ? fminf(fmaxf(-params.highlights_offset_,
+                                                    -kHsBackendAmountLimit),
+                                               kHsBackendAmountLimit)
                                        : 0.0f;
     const std::uint64_t adjusted_cache_key =
         BuildAdjustedResultCacheKey(params, shadow_amount, highlight_amount);
@@ -1030,24 +1101,39 @@ struct GPU_HighlightShadowLocalToneStage {
     const bool roi_frame_with_source_reference =
         params.render_roi_enabled_ && params.render_roi_reference_width_ > 0 &&
         params.render_roi_reference_height_ > 0;
+    const bool preserve_source_detail = params.render_hs_preserve_source_detail_;
+    std::uint64_t reference_cache_key = adjusted_cache_key;
+    HashCombine(reference_cache_key, static_cast<std::uint64_t>(preserve_source_detail));
     const bool reference_result_cache_valid =
-        cached_reference_base_ && output_levels_[0] != nullptr &&
-        cached_key_ == adjusted_cache_key && cached_width_ > 0 &&
+        cached_reference_base_ && source_levels_[0] != nullptr && output_levels_[0] != nullptr &&
+        cached_key_ == reference_cache_key && cached_width_ > 0 &&
         cached_height_ > 0 && cached_frame_width_ > 0 && cached_frame_height_ > 0 &&
         cached_pitch_ > 0;
+    if (roi_frame_with_source_reference && reference_result_cache_valid &&
+        cached_frame_width_ == params.render_roi_reference_width_ &&
+        cached_frame_height_ == params.render_roi_reference_height_) {
+      HsApplyAdjustedDeltaLFromReferenceKernel<<<grid, block, 0, stream>>>(
+          src, source_levels_[0], output_levels_[0], dst, width, height, pitch_elems,
+          cached_width_, cached_height_, cached_pitch_, params);
+      return;
+    }
     if (!roi_frame_with_source_reference && reference_result_cache_valid &&
-        (cached_frame_width_ > width || cached_frame_height_ > height)) {
-      HsApplyAdjustedLFromFrameKernel<<<grid, block, 0, stream>>>(
-          src, output_levels_[0], dst, width, height, pitch_elems, cached_width_, cached_height_,
-          cached_pitch_);
+        (cached_frame_width_ != width || cached_frame_height_ != height)) {
+      HsApplyAdjustedDeltaLFromFrameKernel<<<grid, block, 0, stream>>>(
+          src, source_levels_[0], output_levels_[0], dst, width, height, pitch_elems,
+          cached_width_, cached_height_, cached_pitch_);
       return;
     }
 
+    const bool build_roi_local_reference = roi_frame_with_source_reference;
+    std::uint64_t render_cache_key =
+        build_roi_local_reference ? BuildRoiAdjustedResultCacheKey(params, reference_cache_key)
+                                  : reference_cache_key;
     const MaskDimensions mask_dims =
-        ComputeMaskDimensions(width, height, roi_frame_with_source_reference);
+        ComputeMaskDimensions(width, height, build_roi_local_reference);
     EnsurePyramidBuffers(mask_dims.width, mask_dims.height, params.hs_base_radius_);
     const bool cache_valid =
-        output_levels_[0] != nullptr && cached_key_ == adjusted_cache_key &&
+        output_levels_[0] != nullptr && cached_key_ == render_cache_key &&
         cached_frame_width_ == width && cached_frame_height_ == height &&
         cached_width_ == mask_dims.width && cached_height_ == mask_dims.height &&
         cached_pitch_ == static_cast<size_t>(level_widths_[0]);
@@ -1056,7 +1142,7 @@ struct GPU_HighlightShadowLocalToneStage {
       const auto  samples = BuildSamples(shadow_amount, highlight_amount, sigma_r);
       BuildSourcePyramid(src, width, height, pitch_elems, block, stream);
       BuildOutputPyramid(samples, sigma_r, block, stream);
-      cached_key_ = adjusted_cache_key;
+      cached_key_ = render_cache_key;
       cached_width_ = mask_dims.width;
       cached_height_ = mask_dims.height;
       cached_frame_width_ = width;
@@ -1065,13 +1151,19 @@ struct GPU_HighlightShadowLocalToneStage {
       cached_reference_base_ = !roi_frame_with_source_reference;
     }
 
+    const bool release_after_dispatch = AllocatedPyramidBytes() > kMaxRetainedMaskBytes;
     if (cached_width_ == width && cached_height_ == height) {
       HsApplyAdjustedLKernel<<<grid, block, 0, stream>>>(src, output_levels_[0], dst, width, height,
                                                          pitch_elems);
     } else {
-      HsApplyAdjustedLFromFrameKernel<<<grid, block, 0, stream>>>(
-          src, output_levels_[0], dst, width, height, pitch_elems, cached_width_, cached_height_,
+      HsApplyAdjustedDeltaLFromFrameKernel<<<grid, block, 0, stream>>>(
+          src, source_levels_[0], output_levels_[0], dst, width, height, pitch_elems,
+          cached_width_, cached_height_,
           cached_pitch_);
+    }
+    if (release_after_dispatch) {
+      cudaStreamSynchronize(stream);
+      ReleaseResources();
     }
   }
 };

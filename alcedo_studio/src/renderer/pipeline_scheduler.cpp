@@ -174,6 +174,7 @@ void PipelineTask::SetExecutorRenderParams() {
   }
   pipeline_executor_->SetCancelRequested(cancel_requested_);
   pipeline_executor_->GetGlobalParams().render_source_cache_key_ = BuildRenderSourceCacheKey(*this);
+  pipeline_executor_->GetGlobalParams().render_hs_preserve_source_detail_ = false;
   auto& desc = options_.render_desc_;
   const auto requested_render_type = desc.render_type_;
 
@@ -303,6 +304,7 @@ void PipelineTask::SetExecutorRenderParams() {
     return;
   }
   if (requested_render_type == RenderType::FULL_RES_EXPORT) {
+    pipeline_executor_->GetGlobalParams().render_hs_preserve_source_detail_ = true;
     pipeline_executor_->SetNextFramePresentationMode(FramePresentationMode::ViewportTransformed);
     pipeline_executor_->SetNextFramePreviewMetadata(frame_metadata);
     pipeline_executor_->SetResizeDownsampleAlgorithm(ResizeDownsampleAlgorithm::Area);

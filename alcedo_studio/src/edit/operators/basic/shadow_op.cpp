@@ -48,6 +48,8 @@ auto ShadowsOp::GetParams() const -> nlohmann::json {
 }
 
 namespace {
+constexpr float kShadowsAdjustmentStrengthScale = 1.5f;
+
 void BuildGaussianKernel(float sigma, int max_radius, int& tap_count,
                          float (&weights)[OperatorParams::kDetailMaxGaussianTapCount]) {
   std::fill_n(weights, OperatorParams::kDetailMaxGaussianTapCount, 0.0f);
@@ -133,7 +135,7 @@ void ShadowsOp::SetParams(const nlohmann::json& params) {
 void ShadowsOp::SetGlobalParams(OperatorParams& params) const {
   params.shadows_operator_present_ = true;
   params.shadows_slider_value_     = offset_;
-  params.shadows_offset_ = offset_ / 80.0f;
+  params.shadows_offset_ = (offset_ * kShadowsAdjustmentStrengthScale) / 80.0f;
   params.shadows_m0_     = 1.0f + params.shadows_offset_ * curve_.slope_range_;
   params.shadows_x0_     = curve_.x0_;
   params.shadows_x1_     = curve_.x1_;
