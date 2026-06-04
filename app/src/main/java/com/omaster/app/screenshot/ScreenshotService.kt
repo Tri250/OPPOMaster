@@ -52,8 +52,13 @@ class ScreenshotService(private val context: Context) {
             uri?.let {
                 contentResolver.openOutputStream(it).use { out ->
                     val bitmap = BitmapFactory.decodeFile(screenshotFile.absolutePath)
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
-                    bitmap.recycle()
+                    try {
+                        bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
+                    } finally {
+                        if (!bitmap.isRecycled) {
+                            bitmap.recycle()
+                        }
+                    }
                 }
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

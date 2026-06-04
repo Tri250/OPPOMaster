@@ -311,14 +311,19 @@ suspend fun shareImage(
             
             context.contentResolver.openInputStream(imageUri)?.use { input ->
                 val bitmap = android.graphics.BitmapFactory.decodeStream(input)
-                FileOutputStream(tempFile).use { output ->
-                    bitmap.compress(
-                        Bitmap.CompressFormat.JPEG,
-                        quality.compressionQuality,
-                        output
-                    )
+                try {
+                    FileOutputStream(tempFile).use { output ->
+                        bitmap.compress(
+                            Bitmap.CompressFormat.JPEG,
+                            quality.compressionQuality,
+                            output
+                        )
+                    }
+                } finally {
+                    if (!bitmap.isRecycled) {
+                        bitmap.recycle()
+                    }
                 }
-                bitmap.recycle()
             }
             
             val shareUri = FileProvider.getUriForFile(

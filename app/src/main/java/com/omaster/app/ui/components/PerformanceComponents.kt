@@ -366,15 +366,15 @@ enum class NetworkQuality {
 private fun checkNetworkQuality(context: Context): NetworkQuality {
     return try {
         val process = Runtime.getRuntime().exec("/system/bin ping -c 1 -W 2 8.8.8.8")
-        val reader = BufferedReader(FileReader(process.inputStream.descriptor))
-        val lines = reader.readLines()
-        reader.close()
-        process.waitFor()
-        
-        if (process.exitValue() == 0) {
-            NetworkQuality.EXCELLENT
-        } else {
-            NetworkQuality.POOR
+        BufferedReader(FileReader(process.inputStream.descriptor)).use { reader ->
+            val lines = reader.readLines()
+            process.waitFor()
+            
+            if (process.exitValue() == 0) {
+                NetworkQuality.EXCELLENT
+            } else {
+                NetworkQuality.POOR
+            }
         }
     } catch (e: Exception) {
         NetworkQuality.OFFLINE
@@ -558,27 +558,27 @@ fun rememberCpuUsage(): Float {
 
 private fun getCpuUsage(): Float {
     return try {
-        val reader = BufferedReader(FileReader("/proc/stat"))
-        val line = reader.readLine()
-        reader.close()
-        
-        if (line != null && line.startsWith("cpu ")) {
-            val parts = line.split("\\s+".toRegex())
-            if (parts.size >= 6) {
-                val user = parts[1].toLongOrNull() ?: 0L
-                val nice = parts[2].toLongOrNull() ?: 0L
-                val system = parts[3].toLongOrNull() ?: 0L
-                val idle = parts[4].toLongOrNull() ?: 0L
-                val iowait = parts[5].toLongOrNull() ?: 0L
-                
-                val total = user + nice + system + idle + iowait
-                val used = user + nice + system
-                
-                if (total > 0) {
-                    (used.toFloat() / total.toFloat()) * 100f
+        BufferedReader(FileReader("/proc/stat")).use { reader ->
+            val line = reader.readLine()
+            
+            if (line != null && line.startsWith("cpu ")) {
+                val parts = line.split("\\s+".toRegex())
+                if (parts.size >= 6) {
+                    val user = parts[1].toLongOrNull() ?: 0L
+                    val nice = parts[2].toLongOrNull() ?: 0L
+                    val system = parts[3].toLongOrNull() ?: 0L
+                    val idle = parts[4].toLongOrNull() ?: 0L
+                    val iowait = parts[5].toLongOrNull() ?: 0L
+                    
+                    val total = user + nice + system + idle + iowait
+                    val used = user + nice + system
+                    
+                    if (total > 0) {
+                        (used.toFloat() / total.toFloat()) * 100f
+                    } else 0f
                 } else 0f
             } else 0f
-        } else 0f
+        }
     } catch (e: Exception) {
         0f
     }

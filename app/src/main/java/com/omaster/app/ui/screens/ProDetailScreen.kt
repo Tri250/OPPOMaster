@@ -476,7 +476,7 @@ private fun ProParamsSection(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    if (params.hasselblad_hncs == true) {
+                    if (params.hasselblad_hncs) {
                         GlassChip(
                             text = "HNCS",
                             selected = true,
@@ -485,12 +485,12 @@ private fun ProParamsSection(
                         )
                     }
                     
-                    params.focal_length?.let {
-                        ParamChip(label = "焦距", value = "${it}mm")
+                    if (params.focal_length.isNotEmpty()) {
+                        ParamChip(label = "焦距", value = params.focal_length)
                     }
                     
-                    params.aperture?.let {
-                        ParamChip(label = "光圈", value = "f/${it}")
+                    if (params.aperture.isNotEmpty()) {
+                        ParamChip(label = "光圈", value = params.aperture)
                     }
                 }
                 
@@ -500,15 +500,15 @@ private fun ProParamsSection(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    params.shutter?.takeIf { it.isNotEmpty() }?.let {
-                        ParamChip(label = "快门", value = it)
+                    if (params.shutter.isNotEmpty()) {
+                        ParamChip(label = "快门", value = params.shutter)
                     }
                     
                     // ISO 始终显示
                     ParamChip(label = "ISO", value = params.iso.toString())
                     
-                    params.wb?.takeIf { it.isNotEmpty() }?.let {
-                        ParamChip(label = "白平衡", value = it)
+                    if (params.wb.isNotEmpty()) {
+                        ParamChip(label = "白平衡", value = params.wb)
                     }
                 }
                 
