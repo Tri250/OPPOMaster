@@ -65,11 +65,6 @@ fun SearchBar(
             focusedIndicatorColor = Color.Transparent,
             unfocusedIndicatorColor = Color.Transparent
         ),
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-        keyboardActions = KeyboardActions(
-            onSearch = {
-                // 搜索动作
-            }
-        )
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search)
     )
 }

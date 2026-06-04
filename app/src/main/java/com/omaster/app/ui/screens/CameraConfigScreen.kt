@@ -5,7 +5,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -21,8 +22,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.omaster.app.data.CameraConfigRepository
 import com.omaster.app.model.CameraConfig
@@ -133,17 +136,17 @@ class CameraConfigViewModel @Inject constructor(
 /**
  * 相机配置管理主屏幕
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun CameraConfigScreen(
     onBack: () -> Unit,
     viewModel: CameraConfigViewModel = hiltViewModel()
 ) {
-    val configs by viewModel.configs.collectAsState()
-    val currentTab by viewModel.currentTab.collectAsState()
-    val selectedIds by viewModel.selectedIds.collectAsState()
-    val showSaveDialog by viewModel.showSaveDialog.collectAsState()
-    val currentParams by viewModel.currentParams.collectAsState()
+    val configs by viewModel.configs.collectAsStateWithLifecycle()
+    val currentTab by viewModel.currentTab.collectAsStateWithLifecycle()
+    val selectedIds by viewModel.selectedIds.collectAsStateWithLifecycle()
+    val showSaveDialog by viewModel.showSaveDialog.collectAsStateWithLifecycle()
+    val currentParams by viewModel.currentParams.collectAsStateWithLifecycle()
 
     val isEditing = selectedIds.isNotEmpty()
 
@@ -386,7 +389,7 @@ private fun ConfigCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .clickable(
+            .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick
             ),

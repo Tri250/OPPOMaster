@@ -15,6 +15,8 @@ import android.widget.TextView
 import com.omaster.app.R
 import dagger.hilt.android.AndroidEntryPoint
 import timber.log.Timber
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 @AndroidEntryPoint
 class FluidCloudService : Service() {
@@ -29,13 +31,15 @@ class FluidCloudService : Service() {
         const val EXTRA_HAS_HNCS = "has_hncs"
     }
 
-    private var windowManager: WindowManager? = null
-    private var fluidCloudView: View? = null
-    private var currentPresetId: String? = null
-    private var currentPresetName: String? = null
-    private var currentCategory: String? = null
-    private var hasHncs: Boolean = false
-    private var isViewAttached: Boolean = false
+    private val windowManagerRef = AtomicReference<WindowManager?>(null)
+    private val fluidCloudViewRef = AtomicReference<View?>(null)
+    private val currentPresetId = AtomicReference<String?>(null)
+    private val currentPresetName = AtomicReference<String?>(null)
+    private val currentCategory = AtomicReference<String?>(null)
+    private val hasHncs = AtomicBoolean(false)
+    private val isViewAttached = AtomicBoolean(false)
+    
+    private val viewLock = Any()
 
     override fun onCreate() {
         super.onCreate()
@@ -45,8 +49,8 @@ class FluidCloudService : Service() {
 
     private fun initFluidCloudView() {
         try {
-            windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-            fluidCloudView = LayoutInflater.from(this).inflate(R.layout.fluid_cloud_capsule, null)
+            windowManagerRef.set(getSystemService(WINDOW_SERVICE) as WindowManager)
+            fluidCloudViewRef.set(LayoutInflater.from(this).inflate(R.layout.fluid_cloud_capsule, null))
             setupCapsuleView()
         } catch (e: Exception) {
             Timber.e(e, "Failed to initialize fluid cloud view")
@@ -54,7 +58,7 @@ class FluidCloudService : Service() {
     }
 
     private fun setupCapsuleView() {
-        fluidCloudView?.apply {
+        fluidCloudViewRef.get()?.apply {
             findViewById<View>(R.id.capsule_container)?.setOnClickListener {
                 handleCapsuleClick()
             }
@@ -71,17 +75,17 @@ class FluidCloudService : Service() {
         try {
             when (intent?.action) {
                 ACTION_SHOW_CAPSULE -> {
-                    currentPresetId = intent.getStringExtra(EXTRA_PRESET_ID)
-                    currentPresetName = intent.getStringExtra(EXTRA_PRESET_NAME)
-                    currentCategory = intent.getStringExtra(EXTRA_PRESET_CATEGORY)
-                    hasHncs = intent.getBooleanExtra(EXTRA_HAS_HNCS, false)
+                    currentPresetId.set(intent.getStringExtra(EXTRA_PRESET_ID))
+                    currentPresetName.set(intent.getStringExtra(EXTRA_PRESET_NAME))
+                    currentCategory.set(intent.getStringExtra(EXTRA_PRESET_CATEGORY))
+                    hasHncs.set(intent.getBooleanExtra(EXTRA_HAS_HNCS, false))
                     showFluidCloudCapsule()
                 }
                 ACTION_UPDATE_PRESET -> {
-                    currentPresetId = intent.getStringExtra(EXTRA_PRESET_ID)
-                    currentPresetName = intent.getStringExtra(EXTRA_PRESET_NAME)
-                    currentCategory = intent.getStringExtra(EXTRA_PRESET_CATEGORY)
-                    hasHncs = intent.getBooleanExtra(EXTRA_HAS_HNCS, false)
+                    currentPresetId.set(intent.getStringExtra(EXTRA_PRESET_ID))
+                    currentPresetName.set(intent.getStringExtra(EXTRA_PRESET_NAME))
+                    currentCategory.set(intent.getStringExtra(EXTRA_PRESET_CATEGORY))
+                    hasHncs.set(intent.getBooleanExtra(EXTRA_HAS_HNCS, false))
                     updateCapsuleContent()
                 }
                 ACTION_HIDE_CAPSULE -> {
@@ -96,15 +100,19 @@ class FluidCloudService : Service() {
     }
 
     private fun showFluidCloudCapsule() {
-        Timber.d("Showing fluid cloud capsule for preset: $currentPresetName")
+        Timber.d("Showing fluid cloud capsule for preset: ${currentPresetName.get()}")
         
         try {
             val layoutParams = createLayoutParams()
             
-            if (fluidCloudView?.parent == null && !isViewAttached) {
-                windowManager?.addView(fluidCloudView, layoutParams)
-                isViewAttached = true
-                animateCapsuleIn()
+            synchronized(viewLock) {
+                val fluidCloudView = fluidCloudViewRef.get()
+                val windowManager = windowManagerRef.get()
+                if (fluidCloudView?.parent == null && !isViewAttached.get()) {
+                    windowManager?.addView(fluidCloudView, layoutParams)
+                    isViewAttached.set(true)
+                    animateCapsuleIn()
+                }
             }
             
             updateCapsuleContent()
@@ -138,12 +146,12 @@ class FluidCloudService : Service() {
 
     private fun updateCapsuleContent() {
         try {
-            fluidCloudView?.apply {
-                findViewById<TextView>(R.id.capsule_preset_name)?.text = currentPresetName ?: "小O帮帮"
-                findViewById<TextView>(R.id.capsule_category)?.text = currentCategory ?: "哈苏预设"
+            fluidCloudViewRef.get()?.apply {
+                findViewById<TextView>(R.id.capsule_preset_name)?.text = currentPresetName.get() ?: "小O帮帮"
+                findViewById<TextView>(R.id.capsule_category)?.text = currentCategory.get() ?: "哈苏预设"
                 
                 val hncsIcon = findViewById<ImageView>(R.id.capsule_hncs_icon)
-                if (hasHncs) {
+                if (hasHncs.get()) {
                     hncsIcon?.visibility = View.VISIBLE
                 } else {
                     hncsIcon?.visibility = View.GONE
@@ -156,7 +164,7 @@ class FluidCloudService : Service() {
 
     private fun animateCapsuleIn() {
         try {
-            fluidCloudView?.apply {
+            fluidCloudViewRef.get()?.apply {
                 val slideIn = AnimationUtils.loadAnimation(context, R.anim.capsule_slide_in)
                 startAnimation(slideIn)
             }
@@ -167,17 +175,21 @@ class FluidCloudService : Service() {
 
     private fun animateCapsuleOut() {
         try {
-            fluidCloudView?.apply {
+            fluidCloudViewRef.get()?.apply {
                 val slideOut = AnimationUtils.loadAnimation(context, R.anim.capsule_slide_out)
                 slideOut.setAnimationListener(object : android.view.animation.Animation.AnimationListener {
                     override fun onAnimationEnd(animation: android.view.animation.Animation?) {
-                        try {
-                            if (isViewAttached && fluidCloudView?.parent != null) {
-                                windowManager?.removeView(fluidCloudView)
-                                isViewAttached = false
+                        synchronized(viewLock) {
+                            try {
+                                if (isViewAttached.get() && fluidCloudViewRef.get()?.parent != null) {
+                                    windowManagerRef.get()?.removeView(fluidCloudViewRef.get())
+                                    isViewAttached.set(false)
+                                }
+                            } catch (e: Exception) {
+                                Timber.e(e, "Failed to remove fluid cloud view")
+                                // 在 catch 块中重置状态
+                                isViewAttached.set(false)
                             }
-                        } catch (e: Exception) {
-                            Timber.e(e, "Failed to remove fluid cloud view")
                         }
                     }
                     override fun onAnimationRepeat(animation: android.view.animation.Animation?) {}
@@ -187,15 +199,19 @@ class FluidCloudService : Service() {
             }
         } catch (e: Exception) {
             Timber.e(e, "Failed to animate capsule out")
+            // 在 catch 块中重置状态
+            isViewAttached.set(false)
         }
     }
 
     private fun handleCapsuleClick() {
         Timber.d("Fluid cloud capsule clicked")
         try {
-            val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
-            launchIntent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            startActivity(launchIntent)
+            val launchIntent = packageManager?.getLaunchIntentForPackage(packageName)
+            if (launchIntent != null) {
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                startActivity(launchIntent)
+            }
         } catch (e: Exception) {
             Timber.e(e, "Failed to launch app from capsule")
         }
@@ -205,7 +221,7 @@ class FluidCloudService : Service() {
         Timber.d("Hiding fluid cloud capsule")
         
         try {
-            if (isViewAttached && fluidCloudView?.parent != null) {
+            if (isViewAttached.get() && fluidCloudViewRef.get()?.parent != null) {
                 animateCapsuleOut()
             }
         } catch (e: Exception) {
@@ -219,13 +235,15 @@ class FluidCloudService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        try {
-            if (isViewAttached && fluidCloudView?.parent != null) {
-                windowManager?.removeView(fluidCloudView)
-                isViewAttached = false
+        synchronized(viewLock) {
+            try {
+                if (isViewAttached.get() && fluidCloudViewRef.get()?.parent != null) {
+                    windowManagerRef.get()?.removeView(fluidCloudViewRef.get())
+                    isViewAttached.set(false)
+                }
+            } catch (e: Exception) {
+                Timber.e(e, "Error removing fluid cloud view")
             }
-        } catch (e: Exception) {
-            Timber.e(e, "Error removing fluid cloud view")
         }
         Timber.d("FluidCloudService destroyed")
     }

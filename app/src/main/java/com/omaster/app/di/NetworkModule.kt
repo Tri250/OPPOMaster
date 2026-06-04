@@ -4,12 +4,17 @@ import android.content.Context
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.omaster.app.network.PresetApi
+import com.omaster.app.network.interceptor.ErrorHandlingInterceptor
+import com.omaster.app.network.interceptor.HeaderInterceptor
+import com.omaster.app.network.interceptor.NetworkStatusInterceptor
+import com.omaster.app.network.interceptor.RetryInterceptor
 import com.omaster.app.BuildConfig
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import okhttp3.CertificatePinner
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -20,7 +25,12 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
-    
+
+    private const val CONNECT_TIMEOUT = 10L // 秒
+    private const val READ_TIMEOUT = 20L // 秒
+    private const val WRITE_TIMEOUT = 20L // 秒
+    private const val MAX_RETRY_COUNT = 3
+
     @Provides
     @Singleton
     fun provideGson(): Gson {
@@ -33,7 +43,23 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideOkHttpClient(): OkHttpClient {
+    fun provideCertificatePinner(): CertificatePinner {
+        // SSL 证书钉扎配置
+        // 使用 SHA-256 公钥哈希，防止中间人攻击
+        return CertificatePinner.Builder()
+            .add("api.xiaobangbang.app", "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+            // 注意: 上面的哈希值是占位符，需要替换为实际的证书公钥哈希
+            // 可以通过以下命令获取证书哈希:
+            // openssl s_client -connect api.xiaobangbang.app:443 -servername api.xiaobangbang.app | openssl x509 -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | openssl enc -base64
+            .build()
+    }
+
+    @Provides
+    @Singleton
+    fun provideOkHttpClient(
+        @ApplicationContext context: Context,
+        certificatePinner: CertificatePinner
+    ): OkHttpClient {
         val loggingInterceptor = HttpLoggingInterceptor().apply {
             level = if (BuildConfig.DEBUG) {
                 HttpLoggingInterceptor.Level.BODY
@@ -43,19 +69,26 @@ object NetworkModule {
         }
 
         return OkHttpClient.Builder()
+            // 添加拦截器（按执行顺序排列）
+            .addInterceptor(NetworkStatusInterceptor(context))
+            .addInterceptor(HeaderInterceptor())
+            .addInterceptor(RetryInterceptor(maxRetryCount = MAX_RETRY_COUNT))
+            .addInterceptor(ErrorHandlingInterceptor())
             .addInterceptor(loggingInterceptor)
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
+            // SSL 证书钉扎
+            .certificatePinner(certificatePinner)
+            // 超时配置
+            .connectTimeout(CONNECT_TIMEOUT, TimeUnit.SECONDS)
+            .readTimeout(READ_TIMEOUT, TimeUnit.SECONDS)
+            .writeTimeout(WRITE_TIMEOUT, TimeUnit.SECONDS)
             .build()
     }
 
     @Provides
     @Singleton
     fun provideRetrofit(okHttpClient: OkHttpClient, gson: Gson): Retrofit {
-        val baseUrl = "https://api.example.com/" // 替换为实际的 API 地址
         return Retrofit.Builder()
-            .baseUrl(baseUrl)
+            .baseUrl(BuildConfig.BASE_URL)
             .client(okHttpClient)
             .addConverterFactory(GsonConverterFactory.create(gson))
             .build()

@@ -11,6 +11,7 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.omaster.app.viewmodel.FilterType
@@ -21,13 +22,15 @@ fun FilterChips(
     onFilterSelected: (FilterType) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val filters = listOf(
-        FilterType.ALL to "全部",
-        FilterType.FAVORITES to "收藏",
-        FilterType.HNCS to "HNCS",
-        FilterType.FIND_X to "Find X",
-        FilterType.RENO to "Reno"
-    )
+    val filters = remember {
+        listOf(
+            FilterType.ALL to "全部",
+            FilterType.FAVORITES to "收藏",
+            FilterType.HNCS to "HNCS",
+            FilterType.FIND_X to "Find X",
+            FilterType.RENO to "Reno"
+        )
+    }
 
     Row(
         modifier = modifier

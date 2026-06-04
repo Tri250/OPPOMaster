@@ -13,6 +13,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import timber.log.Timber
+import java.io.Closeable
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
@@ -23,7 +24,7 @@ import javax.inject.Singleton
 class CloudSyncService @Inject constructor(
     @ApplicationContext private val context: Context,
     private val preferencesDataStore: PreferencesDataStore
-) {
+) : Closeable {
     private val supervisorJob = SupervisorJob()
     private val scope = CoroutineScope(Dispatchers.IO + supervisorJob)
     
@@ -124,20 +125,24 @@ class CloudSyncService @Inject constructor(
                 
                 val response = okHttpClient.newCall(request).execute()
                 
-                if (response.isSuccessful) {
-                    val responseJson = JSONObject(response.body?.string() ?: "{}")
-                    val user = parseUserProfile(responseJson.getJSONObject("user"))
-                    val token = responseJson.getString("token")
-                    
-                    preferencesDataStore.saveAuthToken(token)
-                    _userProfile.value = user
-                    _syncState.value = SyncState.Success("登录成功")
-                    
-                    Result.success(user)
-                } else {
-                    val error = response.message ?: "登录失败"
-                    _syncState.value = SyncState.Error(error)
-                    Result.failure(Exception(error))
+                try {
+                    if (response.isSuccessful) {
+                        val responseJson = JSONObject(response.body?.string() ?: "{}")
+                        val user = parseUserProfile(responseJson.getJSONObject("user"))
+                        val token = responseJson.getString("token")
+                        
+                        preferencesDataStore.saveAuthToken(token)
+                        _userProfile.value = user
+                        _syncState.value = SyncState.Success("登录成功")
+                        
+                        Result.success(user)
+                    } else {
+                        val error = response.message ?: "登录失败"
+                        _syncState.value = SyncState.Error(error)
+                        Result.failure(Exception(error))
+                    }
+                } finally {
+                    response.body?.close()
                 }
             } catch (e: Exception) {
                 Timber.e(e, "Login failed")
@@ -167,20 +172,24 @@ class CloudSyncService @Inject constructor(
                 
                 val response = okHttpClient.newCall(request).execute()
                 
-                if (response.isSuccessful) {
-                    val responseJson = JSONObject(response.body?.string() ?: "{}")
-                    val user = parseUserProfile(responseJson.getJSONObject("user"))
-                    val token = responseJson.getString("token")
-                    
-                    preferencesDataStore.saveAuthToken(token)
-                    _userProfile.value = user
-                    _syncState.value = SyncState.Success("注册成功")
-                    
-                    Result.success(user)
-                } else {
-                    val error = response.message ?: "注册失败"
-                    _syncState.value = SyncState.Error(error)
-                    Result.failure(Exception(error))
+                try {
+                    if (response.isSuccessful) {
+                        val responseJson = JSONObject(response.body?.string() ?: "{}")
+                        val user = parseUserProfile(responseJson.getJSONObject("user"))
+                        val token = responseJson.getString("token")
+                        
+                        preferencesDataStore.saveAuthToken(token)
+                        _userProfile.value = user
+                        _syncState.value = SyncState.Success("注册成功")
+                        
+                        Result.success(user)
+                    } else {
+                        val error = response.message ?: "注册失败"
+                        _syncState.value = SyncState.Error(error)
+                        Result.failure(Exception(error))
+                    }
+                } finally {
+                    response.body?.close()
                 }
             } catch (e: Exception) {
                 Timber.e(e, "Registration failed")
@@ -225,8 +234,9 @@ class CloudSyncService @Inject constructor(
                 _syncState.value = SyncState.Syncing(100)
 
                 // 5. 更新同步时间
-                _lastSyncTime.value = System.currentTimeMillis()
-                preferencesDataStore.saveLastSyncTime(_lastSyncTime.value!!)
+                val syncTime = System.currentTimeMillis()
+                _lastSyncTime.value = syncTime
+                preferencesDataStore.saveLastSyncTime(syncTime)
 
                 _syncState.value = SyncState.Success("同步完成")
 
@@ -271,38 +281,46 @@ class CloudSyncService @Inject constructor(
         }
     }
 
-    private suspend fun uploadChanges(changes: List<SyncChange>, token: String): List<SyncChange> {
-        val uploadedChanges = mutableListOf<SyncChange>()
-        
-        changes.forEach { change ->
-            try {
-                val json = JSONObject().apply {
-                    put("id", change.id)
-                    put("type", change.type.name)
-                    put("preset_id", change.presetId)
-                    put("data", change.data)
-                    put("timestamp", change.timestamp)
-                    put("device_id", change.deviceId)
+    private suspend fun uploadChanges(changes: List<SyncChange>, token: String): List<SyncChange> = coroutineScope {
+        // 使用并发上传提高效率
+        val deferredUploads = changes.map { change ->
+            async {
+                try {
+                    val json = JSONObject().apply {
+                        put("id", change.id)
+                        put("type", change.type.name)
+                        put("preset_id", change.presetId)
+                        put("data", change.data)
+                        put("timestamp", change.timestamp)
+                        put("device_id", change.deviceId)
+                    }
+                    
+                    val requestBody = json.toString().toRequestBody("application/json".toMediaType())
+                    val request = Request.Builder()
+                        .url("$baseUrl/sync/upload")
+                        .post(requestBody)
+                        .addHeader("Authorization", "Bearer $token")
+                        .build()
+                    
+                    val response = okHttpClient.newCall(request).execute()
+                    
+                    try {
+                        if (response.isSuccessful) {
+                            change.copy(synced = true)
+                        } else {
+                            null
+                        }
+                    } finally {
+                        response.body?.close()
+                    }
+                } catch (e: Exception) {
+                    Timber.e(e, "Failed to upload change: ${change.id}")
+                    null
                 }
-                
-                val requestBody = json.toString().toRequestBody("application/json".toMediaType())
-                val request = Request.Builder()
-                    .url("$baseUrl/sync/upload")
-                    .post(requestBody)
-                    .addHeader("Authorization", "Bearer $token")
-                    .build()
-                
-                val response = okHttpClient.newCall(request).execute()
-                
-                if (response.isSuccessful) {
-                    uploadedChanges.add(change.copy(synced = true))
-                }
-            } catch (e: Exception) {
-                Timber.e(e, "Failed to upload change: ${change.id}")
             }
         }
         
-        return uploadedChanges
+        deferredUploads.awaitAll().filterNotNull()
     }
 
     private suspend fun fetchRemoteChanges(token: String): List<SyncChange> {
@@ -354,8 +372,17 @@ class CloudSyncService @Inject constructor(
                 val localPreset = loadLocalPreset(change.presetId)
                 
                 if (localPreset != null) {
-                    // 检测冲突
-                    if (localPreset.cameraParams != remotePreset.cameraParams) {
+                    // 检测冲突 - 使用内容比较而非引用比较
+                    val localParams = localPreset.cameraParams
+                    val remoteParams = remotePreset.cameraParams
+                    val hasConflict = when {
+                        localParams == null && remoteParams != null -> true
+                        localParams != null && remoteParams == null -> true
+                        localParams != null && remoteParams != null -> !cameraParamsContentEquals(localParams, remoteParams)
+                        else -> false
+                    }
+                    
+                    if (hasConflict) {
                         conflicts.add(SyncConflict(
                             presetId = change.presetId,
                             localVersion = localPreset,
@@ -374,6 +401,19 @@ class CloudSyncService @Inject constructor(
         }
         
         return MergeResult(presets, conflicts)
+    }
+    
+    // 内容比较 CameraParams
+    private fun cameraParamsContentEquals(local: CameraParams, remote: CameraParams): Boolean {
+        return local.mode == remote.mode &&
+               local.iso == remote.iso &&
+               local.shutter == remote.shutter &&
+               local.ev == remote.ev &&
+               local.wb == remote.wb &&
+               local.focal_length == remote.focal_length &&
+               local.aperture == remote.aperture &&
+               local.filter == remote.filter &&
+               local.hasselblad_hncs == remote.hasselblad_hncs
     }
 
     private fun parseUserProfile(json: JSONObject): UserProfile {
@@ -500,7 +540,10 @@ class CloudSyncService @Inject constructor(
     )
 
     fun clearPendingChanges() {
-        _pendingChanges.value = _pendingChanges.value.filter { !it.synced }
+        // 使用 update 确保原子性
+        _pendingChanges.update { current ->
+            current.filter { !it.synced }
+        }
     }
 
     fun cancelSync() {
@@ -509,6 +552,10 @@ class CloudSyncService @Inject constructor(
     }
 
     fun destroy() {
+        close()
+    }
+
+    override fun close() {
         try {
             scope.coroutineContext.cancelChildren()
             supervisorJob.cancel()
@@ -516,7 +563,7 @@ class CloudSyncService @Inject constructor(
             okHttpClient.connectionPool.evictAll()
             okHttpClient.cache?.close()
         } catch (e: Exception) {
-            Timber.e(e, "Failed to destroy CloudSyncService")
+            Timber.e(e, "Failed to close CloudSyncService")
         }
     }
 }

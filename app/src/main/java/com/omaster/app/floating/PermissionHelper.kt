@@ -5,7 +5,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
-import androidx.core.app.ActivityCompat
 import dagger.hilt.android.qualifiers.ApplicationContext
 import timber.log.Timber
 import javax.inject.Inject
@@ -20,7 +19,11 @@ class PermissionHelper @Inject constructor(
     }
 
     fun canDrawOverlays(): Boolean {
-        return Settings.canDrawOverlays(context)
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            Settings.canDrawOverlays(context)
+        } else {
+            true
+        }
     }
 
     fun requestOverlayPermission(): Intent {
