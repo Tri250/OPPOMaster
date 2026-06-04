@@ -399,17 +399,19 @@ class CloudSyncService @Inject constructor(
             put("device_model", preset.deviceModel)
             put("cover_path", preset.coverPath)
             put("source", preset.source)
-            put("camera_params", JSONObject().apply {
-                put("mode", preset.cameraParams.mode)
-                put("iso", preset.cameraParams.iso)
-                put("shutter", preset.cameraParams.shutter)
-                put("ev", preset.cameraParams.ev)
-                put("wb", preset.cameraParams.wb)
-                put("focal_length", preset.cameraParams.focal_length)
-                put("aperture", preset.cameraParams.aperture)
-                put("filter", preset.cameraParams.filter)
-                put("hncs", preset.cameraParams.hasselblad_hncs)
-            })
+            preset.cameraParams?.let { params ->
+                put("camera_params", JSONObject().apply {
+                    put("mode", params.mode)
+                    put("iso", params.iso)
+                    put("shutter", params.shutter)
+                    put("ev", params.ev)
+                    put("wb", params.wb)
+                    put("focal_length", params.focal_length)
+                    put("aperture", params.aperture)
+                    put("filter", params.filter)
+                    put("hncs", params.hasselblad_hncs)
+                })
+            } ?: put("camera_params", JSONObject.NULL)
         }
     }
 
@@ -471,11 +473,17 @@ class CloudSyncService @Inject constructor(
     }
 
     private fun mergePresets(local: Preset, remote: Preset): Preset {
-        return local.copy(
-            cameraParams = local.cameraParams.copy(
-                mode = if (local.cameraParams.mode != "哈苏大师") local.cameraParams.mode else remote.cameraParams.mode
-            )
-        )
+        val mergedCameraParams = when {
+            local.cameraParams != null && remote.cameraParams != null -> {
+                local.cameraParams.copy(
+                    mode = if (local.cameraParams.mode != "哈苏大师") local.cameraParams.mode else remote.cameraParams.mode
+                )
+            }
+            local.cameraParams != null -> local.cameraParams
+            remote.cameraParams != null -> remote.cameraParams
+            else -> null
+        }
+        return local.copy(cameraParams = mergedCameraParams)
     }
 
     enum class ConflictResolution {
