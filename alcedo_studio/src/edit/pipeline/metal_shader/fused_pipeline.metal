@@ -90,19 +90,19 @@ kernel void metal_hs_build_log_base_h_rgba32f(texture2d<float, access::read> src
   const int y = static_cast<int>(gid.y);
   const int tap_count = params.hs_base_gaussian_tap_count_;
   if (tap_count <= 0) {
-    dst.write(float4(metal_hs_log2_luminance_from_acescc(src.read(gid))), gid);
+    dst.write(float4(metal_hs_log_intensity_from_acescc(src.read(gid))), gid);
     return;
   }
 
-  const float center = metal_hs_log2_luminance_from_acescc(src.read(gid));
+  const float center = metal_hs_log_intensity_from_acescc(src.read(gid));
   float base = center * params.hs_base_gaussian_weights_[0];
   float weight_sum = params.hs_base_gaussian_weights_[0];
   for (int tap = 1; tap < tap_count; ++tap) {
     const int ax = min(x + tap, width - 1);
     const int bx = max(x - tap, 0);
-    const float wa = metal_hs_log2_luminance_from_acescc(
+    const float wa = metal_hs_log_intensity_from_acescc(
         src.read(uint2(static_cast<uint>(ax), static_cast<uint>(y))));
-    const float wb = metal_hs_log2_luminance_from_acescc(
+    const float wb = metal_hs_log_intensity_from_acescc(
         src.read(uint2(static_cast<uint>(bx), static_cast<uint>(y))));
     const float spatial = params.hs_base_gaussian_weights_[tap];
     const float aw = spatial * metal_hs_range_weight(center, wa);
@@ -133,7 +133,7 @@ kernel void metal_hs_build_log_base_v_rgba32f(texture2d<float, access::read> gui
   }
 
   const float center = src.read(gid).x;
-  const float center_guidance = metal_hs_log2_luminance_from_acescc(guidance.read(gid));
+  const float center_guidance = metal_hs_log_intensity_from_acescc(guidance.read(gid));
   float base = center * params.hs_base_gaussian_weights_[0];
   float weight_sum = params.hs_base_gaussian_weights_[0];
   for (int tap = 1; tap < tap_count; ++tap) {
@@ -143,8 +143,8 @@ kernel void metal_hs_build_log_base_v_rgba32f(texture2d<float, access::read> gui
     const uint2 bcoord = uint2(static_cast<uint>(x), static_cast<uint>(by));
     const float a = src.read(acoord).x;
     const float b = src.read(bcoord).x;
-    const float ag = metal_hs_log2_luminance_from_acescc(guidance.read(acoord));
-    const float bg = metal_hs_log2_luminance_from_acescc(guidance.read(bcoord));
+    const float ag = metal_hs_log_intensity_from_acescc(guidance.read(acoord));
+    const float bg = metal_hs_log_intensity_from_acescc(guidance.read(bcoord));
     const float spatial = params.hs_base_gaussian_weights_[tap];
     const float aw = spatial * metal_hs_range_weight(center_guidance, ag);
     const float bw = spatial * metal_hs_range_weight(center_guidance, bg);

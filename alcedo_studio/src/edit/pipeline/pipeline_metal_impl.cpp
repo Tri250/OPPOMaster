@@ -467,7 +467,7 @@ class MetalGPUPipeline final : public GPUPipelineImpl {
                                     : 0.0f;
     const float highlight_amount =
         fused_params_.highlights_enabled_
-            ? std::clamp(-fused_params_.highlights_offset_ * 0.5f, -1.0f, 1.0f)
+            ? std::clamp(-fused_params_.highlights_offset_, -1.0f, 1.0f)
             : 0.0f;
     return std::abs(shadow_amount) > 1.0e-6f || std::abs(highlight_amount) > 1.0e-6f;
   }
