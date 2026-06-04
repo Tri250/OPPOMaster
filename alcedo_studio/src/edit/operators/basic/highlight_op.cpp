@@ -23,6 +23,8 @@ HighlightsOp::HighlightsOp(const nlohmann::json& params) { SetParams(params); }
 static inline float clampf(float v, float a, float b) { return std::max(a, std::min(b, v)); }
 
 namespace {
+constexpr float kHighlightsAdjustmentStrengthScale = 1.5f;
+
 void BuildGaussianKernel(float sigma, int max_radius, int& tap_count,
                          float (&weights)[OperatorParams::kDetailMaxGaussianTapCount]) {
   std::fill_n(weights, OperatorParams::kDetailMaxGaussianTapCount, 0.0f);
@@ -66,8 +68,10 @@ void UpdateHsLocalTonePayload(OperatorParams& params) {
 void UpdateSharedToneCurvePayload(OperatorParams& params) {
   const bool shadows_active = params.shadows_operator_present_ && params.shadows_enabled_;
   const bool highlights_active = params.highlights_operator_present_ && params.highlights_enabled_;
+  const float scaled_highlights_slider_value =
+      params.highlights_slider_value_ * kHighlightsAdjustmentStrengthScale;
   const auto curve = detail::BuildSharedToneCurve(shadows_active, params.shadows_slider_value_,
-                                                  highlights_active, params.highlights_slider_value_);
+                                                  highlights_active, scaled_highlights_slider_value);
   detail::StoreSharedToneCurve(curve, params);
   params.shared_tone_curve_apply_in_shadows_    = shadows_active;
   params.shared_tone_curve_apply_in_highlights_ = (!shadows_active) && highlights_active;
@@ -104,7 +108,8 @@ void HighlightsOp::SetParams(const nlohmann::json& params) {
   if (!found) {
     offset_ = 0.0f;
   }
-  curve_.control_    = clampf(offset_ / 50.0f, -2.0f, 2.0f);
+  const float scaled_offset = offset_ * kHighlightsAdjustmentStrengthScale;
+  curve_.control_           = clampf(scaled_offset / 50.0f, -2.0f, 2.0f);
   const float c = std::max(0.0f, curve_.control_);
   curve_.knee_start_ = clampf(0.75f + 0.1f * c, 0.0f, 0.95f);
   // curve_.knee_start_ = clampf(0.8f, 0.0f, 1.0f);  // ensure <= whitepoint

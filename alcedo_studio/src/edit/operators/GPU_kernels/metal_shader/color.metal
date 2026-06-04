@@ -196,6 +196,8 @@ static inline float metal_hs_highlight_profile_ev(float relative_ev) {
   return 0.92f;
 }
 
+constant float kMetalHsHighlightStrengthScale = 1.5f;
+
 static inline float metal_hs_apply_reference_curve(float reference_l, float shadow_amount,
                                                    float highlight_amount) {
   const float relative_ev = metal_hs_relative_ev_from_log_intensity(reference_l);
@@ -203,7 +205,8 @@ static inline float metal_hs_apply_reference_curve(float reference_l, float shad
   const float shadow_darken =
       fmax(-shadow_amount, 0.0f) * 0.55f * metal_hs_shadow_profile_ev(relative_ev);
   const float highlight_reduce =
-      fmax(highlight_amount, 0.0f) * metal_hs_highlight_profile_ev(relative_ev);
+      fmax(highlight_amount, 0.0f) * kMetalHsHighlightStrengthScale *
+      metal_hs_highlight_profile_ev(relative_ev);
   const float highlight_boost =
       fmax(-highlight_amount, 0.0f) * 0.65f * metal_hs_highlight_profile_ev(relative_ev);
   const float practical_dark =
@@ -595,7 +598,8 @@ static inline float metal_hs_highlight_base_delta_from_ref(float mask_ref, float
         (1.0f - metal_smoothstep_range(2.25f, 4.90f, lifted_relative_ev));
     const float extreme_high_tail =
         0.23f * metal_smoothstep_range(3.00f, 5.15f, lifted_relative_ev);
-    reduce_delta = highlight_shelf + highlight_peak + extreme_high_tail;
+    reduce_delta =
+        (highlight_shelf + highlight_peak + extreme_high_tail) * kMetalHsHighlightStrengthScale;
   }
   const float boost_delta = 1.24f * (1.0f - exp(-soft_distance / 1.45f));
   return boost_amount * boost_delta - reduce_amount * reduce_delta;

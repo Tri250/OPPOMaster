@@ -6,6 +6,7 @@
 #define ALCEDO_OPENCL_EDIT_PIPELINE_COLOR_CL
 
 #define ALCEDO_OPENCL_HLS_PROFILE_COUNT 8
+#define ALCEDO_OPENCL_HS_HIGHLIGHT_STRENGTH_SCALE 1.5f
 
 // === Tint =====================================================================
 
@@ -101,7 +102,8 @@ static inline float opencl_hs_apply_reference_curve(float reference_l, float sha
   const float shadow_darken =
       fmax(-shadow_amount, 0.0f) * 0.55f * opencl_hs_shadow_profile_ev(relative_ev);
   const float highlight_reduce =
-      fmax(highlight_amount, 0.0f) * opencl_hs_highlight_profile_ev(relative_ev);
+      fmax(highlight_amount, 0.0f) * ALCEDO_OPENCL_HS_HIGHLIGHT_STRENGTH_SCALE *
+      opencl_hs_highlight_profile_ev(relative_ev);
   const float highlight_boost =
       fmax(-highlight_amount, 0.0f) * 0.65f * opencl_hs_highlight_profile_ev(relative_ev);
   const float practical_dark =
@@ -505,7 +507,8 @@ static inline float opencl_hs_highlight_base_delta_from_ref(
         (1.0f - opencl_smoothstep_range(2.25f, 4.90f, lifted_relative_ev));
     const float extreme_high_tail =
         0.23f * opencl_smoothstep_range(3.00f, 5.15f, lifted_relative_ev);
-    reduce_delta = highlight_shelf + highlight_peak + extreme_high_tail;
+    reduce_delta = (highlight_shelf + highlight_peak + extreme_high_tail) *
+                   ALCEDO_OPENCL_HS_HIGHLIGHT_STRENGTH_SCALE;
   }
   const float boost_delta = 1.24f * (1.0f - exp(-soft_distance / 1.45f));
   return boost_amount * boost_delta - reduce_amount * reduce_delta;

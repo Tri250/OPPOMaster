@@ -33,6 +33,7 @@ namespace alcedo {
 namespace {
 
 constexpr uint32_t kOpenClNeighborMaxTapCount = 64;
+constexpr float    kHsHighlightStrengthScale  = 1.5f;
 
 enum class OpenClNeighborOpKind : uint32_t {
   Sharpen = 1,
@@ -466,7 +467,8 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
     const float shadow_darken =
         std::max(-shadow_amount, 0.0f) * 0.55f * HsShadowProfileEv(relative_ev);
     const float highlight_reduce =
-        std::max(highlight_amount, 0.0f) * HsHighlightProfileEv(relative_ev);
+        std::max(highlight_amount, 0.0f) * kHsHighlightStrengthScale *
+        HsHighlightProfileEv(relative_ev);
     const float highlight_boost =
         std::max(-highlight_amount, 0.0f) * 0.65f * HsHighlightProfileEv(relative_ev);
     const float practical_dark = Smoothstep(-5.85f, -3.95f, relative_ev) *

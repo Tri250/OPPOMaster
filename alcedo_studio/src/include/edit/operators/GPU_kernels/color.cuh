@@ -192,6 +192,8 @@ GPU_HD_FUNC float hs_highlight_profile_ev(float relative_ev) {
   return hs_piecewise_linear(kXs, kYs, relative_ev);
 }
 
+constexpr float kHsHighlightStrengthScale = 1.5f;
+
 GPU_FUNC float hs_read_l_clamped(const float* __restrict src, int x, int y, int width,
                                  int height, size_t pitch_elems) {
   const int clamped_x = min(max(x, 0), width - 1);
@@ -248,7 +250,8 @@ GPU_HD_FUNC float hs_highlight_l_transform(float source_l, float amount, float r
   const float nonnegative_l = fmaxf(source_l, 0.0f);
   const float distance = fmaxf(nonnegative_l - 0.555f, 0.0f);
   const float onset = hls_oklch_smoothstep(0.555f, 0.760f, nonnegative_l);
-  const float reduce_delta = reduce * region * onset * 0.190f * (1.0f - expf(-distance / 0.310f));
+  const float reduce_delta = reduce * region * onset * (0.190f * kHsHighlightStrengthScale) *
+                             (1.0f - expf(-distance / 0.310f));
   const float boost_delta = boost * region * onset * 0.155f * (1.0f - expf(-distance / 0.360f));
   return source_l + boost_delta - reduce_delta;
 }
@@ -262,7 +265,8 @@ GPU_HD_FUNC float hs_apply_reference_curve(float reference_l, float shadow_amoun
   const float shadow_darken =
       fmaxf(-shadow_amount, 0.0f) * 0.55f * hs_shadow_profile_ev(relative_ev);
   const float highlight_reduce =
-      fmaxf(highlight_amount, 0.0f) * hs_highlight_profile_ev(relative_ev);
+      fmaxf(highlight_amount, 0.0f) * kHsHighlightStrengthScale *
+      hs_highlight_profile_ev(relative_ev);
   const float highlight_boost =
       fmaxf(-highlight_amount, 0.0f) * 0.65f * hs_highlight_profile_ev(relative_ev);
   const float practical_dark =
