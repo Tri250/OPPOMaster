@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -73,6 +74,7 @@ fun WatermarkLivePreviewCanvas(
 ) {
     var canvasSize by remember { mutableStateOf(Size.Zero) }
     var canvasOffset by remember { mutableStateOf(Offset.Zero) }
+    val textMeasurer = rememberTextMeasurer()
     
     Box(
         modifier = modifier
@@ -149,7 +151,8 @@ fun WatermarkLivePreviewCanvas(
                         watermark = watermark,
                         canvasSize = drawSize,
                         canvasOffset = drawOffset,
-                        isSelected = watermark.id == selectedWatermarkId
+                        isSelected = watermark.id == selectedWatermarkId,
+                        textMeasurer = textMeasurer
                     )
                 }
             }
@@ -170,7 +173,8 @@ private fun DrawScope.drawLivePreviewWatermark(
     watermark: Watermark,
     canvasSize: Size,
     canvasOffset: Offset,
-    isSelected: Boolean
+    isSelected: Boolean,
+    textMeasurer: TextMeasurer
 ) {
     val position = Offset(
         canvasOffset.x + watermark.position.x * canvasSize.width,
@@ -186,7 +190,6 @@ private fun DrawScope.drawLivePreviewWatermark(
         when (watermark.type) {
             WatermarkType.TEXT -> {
                 val config = watermark.textConfig
-                val textMeasurer = rememberTextMeasurer()
                 val textStyle = TextStyle(
                     fontSize = config.fontSize.sp,
                     color = config.fontColor.copy(alpha = watermark.opacity),
