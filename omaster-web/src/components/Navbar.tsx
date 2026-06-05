@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { Camera, Sparkles, Settings, Image as ImageIcon, Menu, X } from "lucide-react";
+import { Camera, Menu, X } from "lucide-react";
 import { useState } from "react";
 
 const navItems = [

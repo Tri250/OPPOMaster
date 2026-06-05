@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { FilterType, WatermarkConfig, WatermarkTemplate, WatermarkPosition } from "../types";
+import type { FilterType, WatermarkConfig } from "../types";
 
 interface AppState {
   // 收藏
@@ -86,7 +86,7 @@ export const useAppStore = create<AppState>()(
           return data;
         },
         setItem: (name, value) => {
-          const data = JSON.stringify(value, (key, val) => {
+          const data = JSON.stringify(value, (_key, val) => {
             if (val instanceof Set) return Array.from(val);
             return val;
           });

@@ -3,7 +3,6 @@ import { motion } from "framer-motion";
 import {
   Camera,
   Activity,
-  Smartphone,
   CircleDot,
   Zap,
   Aperture,
@@ -14,7 +13,6 @@ import {
   Save,
   Download,
   Upload,
-  Wifi,
 } from "lucide-react";
 import PageHeader from "../components/PageHeader";
 import { cameraConfigs as initialConfigs } from "../data/mock";
@@ -42,7 +40,6 @@ export default function CameraConfig() {
     tags: [],
   });
   const [isNew, setIsNew] = useState(true);
-  const [isSupported, setIsSupported] = useState(true);
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [currentParams, setCurrentParams] = useState({
     iso: 200,
@@ -57,13 +54,13 @@ export default function CameraConfig() {
   useEffect(() => {
     if (!isMonitoring) return;
     const timer = setInterval(() => {
-      setCurrentParams((prev) => ({
+      setCurrentParams({
         iso: isoOptions[Math.floor(Math.random() * isoOptions.length)],
         shutter: shutterOptions[Math.floor(Math.random() * shutterOptions.length)],
         aperture: apertureOptions[Math.floor(Math.random() * apertureOptions.length)],
         ev: evOptions[Math.floor(Math.random() * evOptions.length)],
         wb: wbOptions[Math.floor(Math.random() * wbOptions.length)],
-      }));
+      });
     }, 1500);
     return () => clearInterval(timer);
   }, [isMonitoring]);
@@ -141,18 +138,7 @@ export default function CameraConfig() {
           </div>
         </PageHeader>
 
-        {!isSupported ? (
-          <PageHeader>
-            <div className="card p-12 text-center max-w-2xl mx-auto">
-              <Smartphone className="w-16 h-16 text-ink-400 mx-auto mb-4" />
-              <h2 className="font-display text-2xl font-bold mb-2">当前设备不支持相机参数监控</h2>
-              <p className="text-ink-300">
-                此功能仅支持 OPPO / 一加 / 真我 设备。
-              </p>
-            </div>
-          </PageHeader>
-        ) : (
-          <div className="grid lg:grid-cols-3 gap-6">
+        <div className="grid lg:grid-cols-3 gap-6">
             {/* 实时监控 */}
             <PageHeader>
               <div className="card p-6 lg:col-span-1">
@@ -343,7 +329,6 @@ export default function CameraConfig() {
               </PageHeader>
             </div>
           </div>
-        )}
       </div>
     </div>
   );

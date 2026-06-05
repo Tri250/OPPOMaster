@@ -11,10 +11,8 @@ import {
   TrendingUp,
   ChevronRight,
   RefreshCw,
-  Aperture,
   CircleDot,
   Zap,
-  Sun,
 } from "lucide-react";
 import PageHeader from "../components/PageHeader";
 import { detectSceneFromImage, presets, sceneInfo } from "../data/mock";
@@ -312,11 +310,11 @@ export default function SceneDetection() {
                             <div className="flex items-center gap-3 text-xs text-ink-400 mt-1">
                               <span className="flex items-center gap-1">
                                 <CircleDot className="w-3 h-3" />
-                                ISO {preset.cameraParams.iso}
+                                {preset.brand}
                               </span>
                               <span className="flex items-center gap-1">
                                 <Zap className="w-3 h-3" />
-                                {preset.cameraParams.shutter}
+                                {preset.tags[0]}
                               </span>
                             </div>
                           </div>

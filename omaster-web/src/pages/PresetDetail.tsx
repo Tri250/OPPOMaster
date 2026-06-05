@@ -8,27 +8,42 @@ import {
   Camera as CameraIcon,
   PlayCircle,
   Sparkles,
-  ArrowRight,
   Check,
   X as XIcon,
   Smartphone,
-  Aperture,
-  Sun,
-  Zap,
-  CircleDot,
   Award,
+  Info,
+  Lightbulb,
 } from "lucide-react";
 import { useState } from "react";
 import PageHeader from "../components/PageHeader";
 import { presets } from "../data/mock";
 import { useAppStore } from "../store/useAppStore";
+import { BRAND_CONFIG } from "../types";
+import type { BrandType } from "../types";
 
-const paramIcons: Record<string, React.ComponentType<{ className?: string }>> = {
-  iso: CircleDot,
-  shutter: Zap,
-  aperture: Aperture,
-  ev: Sun,
-  wb: Sparkles,
+// 品牌颜色映射
+const brandColors: Record<BrandType, { bg: string; text: string; badge: string }> = {
+  OPPO: {
+    bg: "bg-green-500/20",
+    text: "text-green-400",
+    badge: "bg-green-500 text-white",
+  },
+  REALME: {
+    bg: "bg-yellow-500/20",
+    text: "text-yellow-400",
+    badge: "bg-yellow-500 text-ink-900",
+  },
+  VIVO: {
+    bg: "bg-blue-500/20",
+    text: "text-blue-400",
+    badge: "bg-blue-500 text-white",
+  },
+  HONOR: {
+    bg: "bg-purple-500/20",
+    text: "text-purple-400",
+    badge: "bg-purple-500 text-white",
+  },
 };
 
 export default function PresetDetail() {
@@ -54,17 +69,7 @@ export default function PresetDetail() {
   }
 
   const isFavorite = favorites.has(preset.id);
-
-  // 模拟AI微调后的参数
-  const tunedParams = {
-    iso: Math.max(50, preset.cameraParams.iso - 50),
-    shutter: preset.cameraParams.shutter,
-    aperture: preset.cameraParams.aperture,
-    ev: parseFloat(preset.cameraParams.ev) > 0
-      ? "+" + (parseFloat(preset.cameraParams.ev) + 0.2).toFixed(1)
-      : (parseFloat(preset.cameraParams.ev) + 0.2).toFixed(1),
-    wb: preset.cameraParams.wb,
-  };
+  const brandStyle = brandColors[preset.brand];
 
   const handleApply = () => setShowApplyDialog(true);
 
@@ -86,14 +91,6 @@ export default function PresetDetail() {
       setShowTuningResult(true);
     }, 1800);
   };
-
-  const params: { key: keyof typeof preset.cameraParams; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
-    { key: "iso", label: "ISO 感光度", icon: paramIcons.iso },
-    { key: "shutter", label: "快门速度", icon: paramIcons.shutter },
-    { key: "aperture", label: "光圈", icon: paramIcons.aperture },
-    { key: "ev", label: "曝光补偿", icon: paramIcons.ev },
-    { key: "wb", label: "白平衡", icon: paramIcons.wb },
-  ];
 
   return (
     <div className="pt-24 pb-20 min-h-screen">
@@ -126,12 +123,28 @@ export default function PresetDetail() {
             <div className="relative aspect-[4/3] rounded-3xl overflow-hidden card">
               <img src={preset.coverUrl} alt={preset.name} className="w-full h-full object-cover" />
               <div className="absolute inset-0 bg-gradient-to-t from-ink-900/80 via-transparent to-transparent" />
+              
+              {/* 品牌徽章 */}
+              <div className={`absolute top-5 left-5 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full ${brandStyle.badge} text-xs font-bold`}>
+                <Smartphone className="w-3.5 h-3.5" />
+                {BRAND_CONFIG[preset.brand].label}
+              </div>
+
+              {/* HNCS 认证 */}
               {preset.isHncsCertified && (
-                <div className="absolute top-5 left-5 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-hasselblad-500 text-ink-900 text-xs font-bold">
+                <div className="absolute top-5 left-24 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-hasselblad-500 text-ink-900 text-xs font-bold">
                   <Award className="w-3.5 h-3.5" />
-                  HNCS 认证
+                  HNCS
                 </div>
               )}
+
+              {/* 新品 */}
+              {preset.isNew && (
+                <div className="absolute top-5 left-24 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500 text-white text-xs font-bold">
+                  NEW
+                </div>
+              )}
+
               <button
                 onClick={() => toggleFavorite(preset.id)}
                 className="absolute top-5 right-5 w-11 h-11 rounded-full glass-strong flex items-center justify-center hover:scale-110 transition-transform"
@@ -143,19 +156,24 @@ export default function PresetDetail() {
                 />
               </button>
             </div>
+
+            {/* 图片画廊 */}
+            {preset.galleryImages && preset.galleryImages.length > 0 && (
+              <div className="grid grid-cols-2 gap-4 mt-4">
+                {preset.galleryImages.slice(0, 2).map((img, i) => (
+                  <div key={i} className="aspect-[4/3] rounded-2xl overflow-hidden card">
+                    <img src={img} alt={`${preset.name} 示例 ${i + 1}`} className="w-full h-full object-cover" />
+                  </div>
+                ))}
+              </div>
+            )}
           </PageHeader>
 
           {/* 右：信息 */}
           <PageHeader delay={0.1}>
             <div>
               <div className="flex items-center gap-2 mb-3 flex-wrap">
-                <span className="text-xs text-ink-300 px-2.5 py-1 rounded-md bg-white/5">
-                  v{preset.version}
-                </span>
-                <span className="text-xs text-ink-300 px-2.5 py-1 rounded-md bg-white/5">
-                  {preset.sceneType}
-                </span>
-                {preset.tags.slice(0, 3).map((tag) => (
+                {preset.tags.slice(0, 5).map((tag) => (
                   <span key={tag} className="text-xs text-hasselblad-400 px-2.5 py-1 rounded-md bg-hasselblad-500/10 border border-hasselblad-500/20">
                     #{tag}
                   </span>
@@ -166,17 +184,15 @@ export default function PresetDetail() {
                 {preset.name}
               </h1>
 
-              <p className="text-ink-300 leading-relaxed mb-6">{preset.description}</p>
-
               {/* 元数据 */}
               <div className="grid grid-cols-2 gap-3 mb-6">
                 <div className="card p-4 flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-hasselblad-500/10 flex items-center justify-center">
-                    <CameraIcon className="w-5 h-5 text-hasselblad-500" />
+                  <div className={`w-10 h-10 rounded-xl ${brandStyle.bg} flex items-center justify-center`}>
+                    <Smartphone className={`w-5 h-5 ${brandStyle.text}`} />
                   </div>
                   <div>
-                    <div className="text-[10px] text-ink-400 tracking-wider uppercase">设备</div>
-                    <div className="text-sm font-medium text-ink-100">{preset.deviceModel}</div>
+                    <div className="text-[10px] text-ink-400 tracking-wider uppercase">品牌</div>
+                    <div className="text-sm font-medium text-ink-100">{BRAND_CONFIG[preset.brand].label}</div>
                   </div>
                 </div>
                 <div className="card p-4 flex items-center gap-3">
@@ -185,7 +201,7 @@ export default function PresetDetail() {
                   </div>
                   <div>
                     <div className="text-[10px] text-ink-400 tracking-wider uppercase">评分</div>
-                    <div className="text-sm font-medium text-ink-100">{preset.rating.toFixed(1)} / 5.0</div>
+                    <div className="text-sm font-medium text-ink-100">{preset.rating?.toFixed(1) || "4.5"} / 5.0</div>
                   </div>
                 </div>
                 <div className="card p-4 flex items-center gap-3">
@@ -194,12 +210,12 @@ export default function PresetDetail() {
                   </div>
                   <div>
                     <div className="text-[10px] text-ink-400 tracking-wider uppercase">下载量</div>
-                    <div className="text-sm font-medium text-ink-100">{(preset.downloadCount / 1000).toFixed(1)}K</div>
+                    <div className="text-sm font-medium text-ink-100">{((preset.downloadCount || 0) / 1000).toFixed(1)}K</div>
                   </div>
                 </div>
                 <div className="card p-4 flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl bg-cyan-500/10 flex items-center justify-center">
-                    <Smartphone className="w-5 h-5 text-cyan-500" />
+                    <CameraIcon className="w-5 h-5 text-cyan-500" />
                   </div>
                   <div>
                     <div className="text-[10px] text-ink-400 tracking-wider uppercase">作者</div>
@@ -208,32 +224,36 @@ export default function PresetDetail() {
                 </div>
               </div>
 
-              {/* 相机参数 */}
-              <div className="card p-6 mb-6">
-                <h3 className="font-display text-lg font-bold mb-4 flex items-center gap-2">
-                  <Aperture className="w-5 h-5 text-hasselblad-500" />
-                  相机参数
-                </h3>
-                <div className="space-y-3">
-                  {params.map(({ key, label, icon: Icon }) => {
-                    const value = preset.cameraParams[key];
-                    return (
-                      <div
-                        key={key}
-                        className="flex items-center justify-between py-2 border-b border-white/[0.06] last:border-0"
-                      >
-                        <div className="flex items-center gap-2 text-ink-300">
-                          <Icon className="w-4 h-4 text-hasselblad-500" />
-                          <span className="text-sm">{label}</span>
-                        </div>
-                        <div className="font-mono text-sm font-semibold text-ink-50">
-                          {String(value)}
-                        </div>
+              {/* 参数区块 */}
+              {preset.sections && preset.sections.length > 0 && (
+                <div className="space-y-4 mb-6">
+                  {preset.sections.map((section, i) => (
+                    <div key={i} className="card p-5">
+                      <h3 className="font-display text-base font-bold mb-4 flex items-center gap-2 text-hasselblad-400">
+                        <Info className="w-4 h-4" />
+                        {section.title.replace("@string/", "")}
+                      </h3>
+                      <div className="grid grid-cols-2 gap-2">
+                        {section.items.map((item, j) => (
+                          <div
+                            key={j}
+                            className={`p-2.5 rounded-xl bg-white/[0.03] ${
+                              item.span === 2 ? "col-span-2" : ""
+                            }`}
+                          >
+                            <div className="text-xs text-ink-400 mb-0.5">
+                              {item.label.replace("@string/", "")}
+                            </div>
+                            <div className="font-mono text-sm font-semibold text-ink-100">
+                              {item.value}
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                    );
-                  })}
+                    </div>
+                  ))}
                 </div>
-              </div>
+              )}
 
               {/* 操作按钮 */}
               <div className="flex flex-wrap gap-3">
@@ -271,59 +291,11 @@ export default function PresetDetail() {
               </div>
             </div>
 
-            <div className="grid md:grid-cols-2 gap-6">
-              <div>
-                <h3 className="text-sm font-semibold text-ink-300 mb-3 tracking-wider uppercase">调整前</h3>
-                <div className="space-y-2">
-                  {params.map(({ key, label, icon: Icon }) => (
-                    <div key={`before-${key}`} className="flex items-center justify-between p-3 rounded-xl bg-white/[0.03]">
-                      <div className="flex items-center gap-2 text-sm text-ink-300">
-                        <Icon className="w-4 h-4" />
-                        {label}
-                      </div>
-                      <div className="font-mono text-sm text-ink-400">
-                        {String(preset.cameraParams[key])}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <h3 className="text-sm font-semibold text-hasselblad-400 mb-3 tracking-wider uppercase">AI 建议</h3>
-                <div className="space-y-2">
-                  {params.map(({ key, label, icon: Icon }) => {
-                    const before = preset.cameraParams[key];
-                    const after = tunedParams[key as keyof typeof tunedParams];
-                    const changed = String(before) !== String(after);
-                    return (
-                      <div
-                        key={`after-${key}`}
-                        className={`flex items-center justify-between p-3 rounded-xl ${
-                          changed ? "bg-hasselblad-500/10 border border-hasselblad-500/30" : "bg-white/[0.03]"
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 text-sm text-ink-300">
-                          <Icon className="w-4 h-4" />
-                          {label}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className="font-mono text-sm text-ink-400 line-through">{String(before)}</div>
-                          <ArrowRight className="w-3 h-3 text-ink-400" />
-                          <div className="font-mono text-sm font-bold text-hasselblad-400">{String(after)}</div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-6 p-4 rounded-xl bg-hasselblad-500/5 border border-hasselblad-500/20">
+            <div className="p-4 rounded-xl bg-hasselblad-500/5 border border-hasselblad-500/20">
               <p className="text-sm text-ink-200">
-                <strong className="text-hasselblad-400">AI 建议说明：</strong>
-                降低 ISO 以减少噪点，适当提高曝光补偿增强画面亮度。
-                优化后的参数在保留哈苏色彩科学基础上，更适合当前拍摄环境。
+                <strong className="text-hasselblad-400">AI 建议：</strong>
+                根据当前光线条件，建议适当调整曝光参数以获得更好的画面效果。
+                优化后的参数在保留原有色彩风格基础上，更适合当前拍摄环境。
               </p>
             </div>
 
@@ -341,24 +313,23 @@ export default function PresetDetail() {
           </motion.div>
         )}
 
-        {/* 预设说明 */}
-        <div className="mt-12 grid md:grid-cols-2 gap-4">
-          {preset.sections.map((section, i) => (
-            <motion.div
-              key={i}
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: i * 0.1 }}
-              className="card p-6"
-            >
-              <h3 className="font-display text-lg font-bold text-hasselblad-400 mb-3">
-                {section.title}
-              </h3>
-              <p className="text-ink-200 leading-relaxed text-sm">{section.content}</p>
-            </motion.div>
-          ))}
-        </div>
+        {/* 拍摄建议 */}
+        {preset.description && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            className="mt-12 card p-6"
+          >
+            <h3 className="font-display text-lg font-bold mb-4 flex items-center gap-2">
+              <Lightbulb className="w-5 h-5 text-hasselblad-500" />
+              {preset.description.title}
+            </h3>
+            <div className="text-ink-200 leading-relaxed whitespace-pre-line">
+              {preset.description.content}
+            </div>
+          </motion.div>
+        )}
       </div>
 
       {/* 应用预设确认 */}

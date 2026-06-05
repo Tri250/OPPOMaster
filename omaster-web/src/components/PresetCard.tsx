@@ -1,8 +1,9 @@
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
-import { Heart, Star, Download, Camera as CameraIcon } from "lucide-react";
-import type { Preset } from "../types";
+import { Heart, Star, Download, Smartphone } from "lucide-react";
+import type { Preset, BrandType } from "../types";
 import { useAppStore } from "../store/useAppStore";
+import { BRAND_CONFIG } from "../types";
 
 interface Props {
   preset: Preset;
@@ -10,9 +11,34 @@ interface Props {
   showRank?: boolean;
 }
 
+// 品牌颜色映射
+const brandColors: Record<BrandType, { bg: string; text: string; badge: string }> = {
+  OPPO: {
+    bg: "bg-green-500/20",
+    text: "text-green-400",
+    badge: "bg-green-500 text-white",
+  },
+  REALME: {
+    bg: "bg-yellow-500/20",
+    text: "text-yellow-400",
+    badge: "bg-yellow-500 text-ink-900",
+  },
+  VIVO: {
+    bg: "bg-blue-500/20",
+    text: "text-blue-400",
+    badge: "bg-blue-500 text-white",
+  },
+  HONOR: {
+    bg: "bg-purple-500/20",
+    text: "text-purple-400",
+    badge: "bg-purple-500 text-white",
+  },
+};
+
 export default function PresetCard({ preset, index = 0, showRank = false }: Props) {
   const isFavorite = useAppStore((s) => s.favorites.has(preset.id));
   const toggleFavorite = useAppStore((s) => s.toggleFavorite);
+  const brandStyle = brandColors[preset.brand];
 
   return (
     <motion.div
@@ -34,15 +60,32 @@ export default function PresetCard({ preset, index = 0, showRank = false }: Prop
           {/* 渐变遮罩 */}
           <div className="absolute inset-0 bg-gradient-to-t from-ink-900 via-ink-900/30 to-transparent" />
 
-          {/* 角标 */}
+          {/* 排名角标 */}
           {showRank && (
             <div className="absolute top-3 left-3 w-8 h-8 rounded-lg bg-hasselblad-500 text-ink-900 font-bold text-sm flex items-center justify-center shadow-lg">
               {index + 1}
             </div>
           )}
 
+          {/* 品牌徽章 */}
+          <div className={`absolute top-3 right-3 px-2.5 py-1 rounded-md ${brandStyle.badge} text-[11px] font-bold tracking-wide flex items-center gap-1.5`}>
+            <Smartphone className="w-3 h-3" />
+            {preset.brand === "OPPO" && "OPPO"}
+            {preset.brand === "REALME" && "Realme"}
+            {preset.brand === "VIVO" && "vivo"}
+            {preset.brand === "HONOR" && "荣耀"}
+          </div>
+
+          {/* 新品角标 */}
+          {preset.isNew && (
+            <div className="absolute top-3 left-3 px-2 py-1 rounded-md bg-emerald-500 text-white text-[10px] font-bold tracking-wider">
+              NEW
+            </div>
+          )}
+
+          {/* HNCS 认证徽章 */}
           {preset.isHncsCertified && (
-            <div className="absolute top-3 right-3 px-2 py-1 rounded-md bg-hasselblad-500/95 text-ink-900 text-[10px] font-bold tracking-wider flex items-center gap-1">
+            <div className="absolute top-3 left-3 px-2 py-1 rounded-md bg-hasselblad-500/95 text-ink-900 text-[10px] font-bold tracking-wider flex items-center gap-1">
               <span className="w-1 h-1 rounded-full bg-ink-900" />
               HNCS
             </div>
@@ -51,8 +94,9 @@ export default function PresetCard({ preset, index = 0, showRank = false }: Prop
           {/* 底部信息 */}
           <div className="absolute bottom-0 inset-x-0 p-4">
             <div className="flex items-center gap-2 text-[11px] text-ink-200/80 mb-1.5">
-              <CameraIcon className="w-3 h-3" />
-              <span>{preset.deviceModel}</span>
+              <span className={`px-1.5 py-0.5 rounded ${brandStyle.bg} ${brandStyle.text}`}>
+                {BRAND_CONFIG[preset.brand].label}
+              </span>
             </div>
             <h3 className="font-display text-base font-bold text-ink-50 line-clamp-2 leading-snug">
               {preset.name}
@@ -67,8 +111,9 @@ export default function PresetCard({ preset, index = 0, showRank = false }: Prop
           e.preventDefault();
           toggleFavorite(preset.id);
         }}
-        className="absolute top-3 right-3 z-10 w-9 h-9 rounded-full glass-strong flex items-center justify-center hover:scale-110 transition-transform"
-        style={{ display: preset.isHncsCertified ? "none" : "flex" }}
+        className={`absolute z-10 w-9 h-9 rounded-full glass-strong flex items-center justify-center hover:scale-110 transition-transform ${
+          preset.isHncsCertified || preset.isNew ? "top-14 right-3" : "top-3 right-3"
+        }`}
         aria-label="收藏"
       >
         <Heart
@@ -83,11 +128,11 @@ export default function PresetCard({ preset, index = 0, showRank = false }: Prop
         <div className="flex items-center gap-3">
           <span className="inline-flex items-center gap-1">
             <Star className="w-3.5 h-3.5 fill-hasselblad-500 text-hasselblad-500" />
-            <span className="text-ink-100 font-medium">{preset.rating.toFixed(1)}</span>
+            <span className="text-ink-100 font-medium">{preset.rating?.toFixed(1) || "4.5"}</span>
           </span>
           <span className="inline-flex items-center gap-1">
             <Download className="w-3.5 h-3.5" />
-            <span>{(preset.downloadCount / 1000).toFixed(1)}K</span>
+            <span>{((preset.downloadCount || 0) / 1000).toFixed(1)}K</span>
           </span>
         </div>
         <span className="text-ink-400">{preset.author}</span>

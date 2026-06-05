@@ -1,343 +1,664 @@
-import type { Preset, CameraConfig, SceneType, SceneDetectionResult, WatermarkTemplate } from "../types";
+import type { Preset, BrandType, RemotePresetData, CameraConfig, SceneType, SceneDetectionResult, WatermarkTemplate } from "../types";
 
+// 远程数据 URL
+const PRESET_URLS: Record<BrandType, string> = {
+  OPPO: "https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/oppo.json",
+  REALME: "https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/realme.json",
+  VIVO: "https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/vivo.json",
+  HONOR: "https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/honor.json",
+};
+
+// 预设数据（按品牌分组）
+let presetsCache: Preset[] = [];
+let presetsByBrandCache: Record<BrandType, Preset[]> = {
+  OPPO: [],
+  REALME: [],
+  VIVO: [],
+  HONOR: [],
+};
+
+// 获取远程预设数据
+export async function fetchPresets(): Promise<Preset[]> {
+  if (presetsCache.length > 0) return presetsCache;
+
+  const allPresets: Preset[] = [];
+  const brandOrder: BrandType[] = ["OPPO", "REALME", "VIVO", "HONOR"];
+
+  for (const brand of brandOrder) {
+    try {
+      const response = await fetch(PRESET_URLS[brand]);
+      const data: RemotePresetData = await response.json();
+      
+      const brandPresets = data.presets.map((p, index) => {
+        // 处理 coverPath，如果是相对路径则转为 CDN 基础路径
+        let coverUrl = p.coverPath;
+        if (coverUrl.startsWith("images/")) {
+          const baseUrl = PRESET_URLS[brand].replace("/presets/v2/", "/presets/v2/images/");
+          coverUrl = baseUrl.replace(brand.toLowerCase() + ".json", p.coverPath.replace("images/", ""));
+        }
+        
+        // 处理 galleryImages
+        const galleryImages = p.galleryImages.map(img => {
+          if (img.startsWith("images/")) {
+            const baseUrl = PRESET_URLS[brand].replace("/presets/v2/", "/presets/v2/images/");
+            return baseUrl.replace(brand.toLowerCase() + ".json", img.replace("images/", ""));
+          }
+          return img;
+        });
+
+        return {
+          id: `${brand.toLowerCase()}-${index + 1}`,
+          brand,
+          name: p.name,
+          coverUrl,
+          galleryImages,
+          author: p.author,
+          isNew: p.isNew,
+          sections: p.sections,
+          tags: p.tags,
+          description: p.description,
+          rating: 4.5 + Math.random() * 0.5,
+          downloadCount: Math.floor(50000 + Math.random() * 200000),
+          isHncsCertified: brand === "OPPO" && p.tags.includes("Auto"),
+          isFavorite: false,
+        };
+      });
+
+      presetsByBrandCache[brand] = brandPresets;
+      allPresets.push(...brandPresets);
+    } catch (error) {
+      console.error(`Failed to fetch ${brand} presets:`, error);
+    }
+  }
+
+  presetsCache = allPresets;
+  return allPresets;
+}
+
+// 获取按品牌分组的预设
+export function getPresetsByBrand(brand: BrandType): Preset[] {
+  return presetsByBrandCache[brand] || [];
+}
+
+// 获取所有品牌预设（同步版本，使用预加载的静态数据）
 export const presets: Preset[] = [
+  // OPPO / 一加 预设
   {
-    id: "p01",
-    name: "哈苏 X2D | 慵懒午后的佛罗伦萨",
-    coverUrl: "https://picsum.photos/seed/florence-afternoon/800/600",
-    author: "哈苏影像实验室",
-    deviceModel: "OPPO Find X8 Ultra",
-    sceneType: "portrait",
-    tags: ["人像", "哈苏", "HNCS", "午后", "暖调"],
+    id: "oppo-1",
+    brand: "OPPO",
+    name: "德味预设",
+    coverUrl: "https://cdn.fky.ltd/dw_01.webp",
+    galleryImages: ["https://cdn.fky.ltd/dw_02.webp", "https://cdn.fky.ltd/dw_03.webp"],
+    author: "@波子Booz",
+    isNew: true,
+    sections: [
+      {
+        title: "色彩调节",
+        items: [
+          { label: "滤镜", value: "明艳 100%", span: 2 },
+          { label: "柔光", value: "无", span: 1 },
+          { label: "色调曲线", value: "-35", span: 1 },
+          { label: "饱和度", value: "0", span: 1 },
+          { label: "冷暖", value: "-5", span: 1 },
+          { label: "青品", value: "4", span: 1 },
+          { label: "锐度", value: "10", span: 1 },
+          { label: "暗角", value: "开", span: 2 },
+        ],
+      },
+    ],
+    tags: ["Auto", "德味", "街拍"],
+    description: {
+      title: "拍摄建议",
+      content: "【环境建议】日间户外或光线充足的室内\n【场景推荐】街拍、建筑、风景、人文\n【拍摄要点】德味风格，影调偏暗，色彩浓郁",
+    },
     rating: 4.9,
     downloadCount: 158642,
     isHncsCertified: true,
     isFavorite: false,
-    version: "3.0",
-    description: "哈苏 X2D 经典色彩科学下的慵懒午后，暖调光感与柔和阴影交织，捕捉佛罗伦萨街头的光影与故事。",
-    cameraParams: {
-      iso: 100,
-      shutter: "1/250",
-      aperture: "f/2.0",
-      ev: "+0.3",
-      wb: "5600K",
-      mode: "哈苏人像模式",
-      focalLength: "85mm",
-    },
-    sections: [
-      { title: "光感设置", content: "降低对比度，提高高光保留，让午后阳光自然过渡。" },
-      { title: "色彩调校", content: "暖色调偏移，饱和度适中，保留肤色自然质感。" },
-    ],
   },
   {
-    id: "p02",
-    name: "城市夜景·霓虹",
-    coverUrl: "https://picsum.photos/seed/city-neon/800/600",
-    author: "OPPO 影像团队",
-    deviceModel: "OPPO Find X8 Pro",
-    sceneType: "night",
-    tags: ["夜景", "霓虹", "城市", "哈苏"],
+    id: "oppo-2",
+    brand: "OPPO",
+    name: "富士胶片",
+    coverUrl: "https://picsum.photos/seed/fuji-film/800/600",
+    galleryImages: ["https://picsum.photos/seed/fuji-1/800/600", "https://picsum.photos/seed/fuji-2/800/600"],
+    author: "@OPPO影像",
+    sections: [
+      {
+        title: "色彩调节",
+        items: [
+          { label: "滤镜", value: "复古 100%", span: 2 },
+          { label: "柔光", value: "无", span: 1 },
+          { label: "色调曲线", value: "0", span: 1 },
+          { label: "饱和度", value: "+19", span: 1 },
+          { label: "冷暖", value: "-5", span: 1 },
+          { label: "锐度", value: "15", span: 1 },
+          { label: "暗角", value: "开", span: 2 },
+        ],
+      },
+    ],
+    tags: ["Auto", "胶片", "复古"],
+    description: {
+      title: "拍摄建议",
+      content: "【环境建议】日间户外或光线充足的室内\n【场景推荐】街拍、人像、风景、建筑\n【拍摄要点】经典胶片质感，色彩浓郁复古",
+    },
     rating: 4.8,
     downloadCount: 152342,
     isHncsCertified: true,
-    isFavorite: true,
-    version: "3.0",
-    description: "夜色中的霓虹灯辉，HNCS 自然色彩还原，让每一束光都讲述城市的故事。",
-    cameraParams: {
-      iso: 3200,
-      shutter: "1/30",
-      aperture: "f/1.8",
-      ev: "+0.7",
-      wb: "4000K",
-      mode: "哈苏夜景模式",
-      focalLength: "24mm",
-    },
-    sections: [
-      { title: "夜景优化", content: "提升暗部细节，保留霓虹色彩饱和度。" },
-      { title: "降噪处理", content: "智能降噪，保留画面纯净度。" },
-    ],
-  },
-  {
-    id: "p03",
-    name: "哈苏 X2D | 极地风光",
-    coverUrl: "https://picsum.photos/seed/polar-landscape/800/600",
-    author: "Steve McCurry",
-    deviceModel: "OPPO Find X8 Ultra",
-    sceneType: "landscape",
-    tags: ["风景", "极地", "哈苏", "广角"],
-    rating: 5.0,
-    downloadCount: 98642,
-    isHncsCertified: true,
     isFavorite: false,
-    version: "3.0",
-    description: "极地风光的壮阔与宁静，哈苏广角镜头下的纯净画面，捕捉自然之美。",
-    cameraParams: {
-      iso: 64,
-      shutter: "1/500",
-      aperture: "f/8.0",
-      ev: "+0.7",
-      wb: "6500K",
-      mode: "哈苏风景模式",
-      focalLength: "14mm",
-    },
-    sections: [
-      { title: "广角畸变", content: "校正广角畸变，保持画面自然。" },
-      { title: "HDR 合成", content: "高动态范围，保留云层层次。" },
-    ],
   },
   {
-    id: "p04",
-    name: "美食摄影·鲜亮",
-    coverUrl: "https://picsum.photos/seed/food-fresh/800/600",
-    author: "美食摄影联盟",
-    deviceModel: "OPPO Find X8 Ultra",
-    sceneType: "food",
-    tags: ["美食", "鲜亮", "暖调"],
+    id: "oppo-3",
+    brand: "OPPO",
+    name: "胶片感",
+    coverUrl: "https://picsum.photos/seed/film-feel/800/600",
+    galleryImages: ["https://picsum.photos/seed/film-1/800/600", "https://picsum.photos/seed/film-2/800/600"],
+    author: "@OPPO影像",
+    sections: [
+      {
+        title: "色彩调节",
+        items: [
+          { label: "滤镜", value: "复古 75%", span: 2 },
+          { label: "柔光", value: "柔美", span: 1 },
+          { label: "色调曲线", value: "-5", span: 1 },
+          { label: "饱和度", value: "+20", span: 1 },
+          { label: "冷暖", value: "-3", span: 1 },
+          { label: "青品", value: "+4", span: 1 },
+          { label: "锐度", value: "7", span: 1 },
+          { label: "暗角", value: "开", span: 2 },
+        ],
+      },
+    ],
+    tags: ["Auto", "胶片", "柔光"],
+    description: {
+      title: "拍摄建议",
+      content: "【环境建议】自然光或柔和人工光源\n【场景推荐】人像写真、静物、咖啡馆\n【拍摄要点】柔光效果营造梦幻氛围",
+    },
     rating: 4.7,
     downloadCount: 87642,
-    isHncsCertified: false,
-    isFavorite: false,
-    version: "2.0",
-    description: "让食物的色彩与质感跃然眼前，专业美食摄影预设。",
-    cameraParams: {
-      iso: 200,
-      shutter: "1/125",
-      aperture: "f/2.8",
-      ev: "+0.3",
-      wb: "5000K",
-      mode: "美食模式",
-      focalLength: "50mm",
-    },
-    sections: [
-      { title: "色彩优化", content: "提升饱和度，让食物色彩更诱人。" },
-      { title: "细节增强", content: "锐化食物纹理与质感。" },
-    ],
-  },
-  {
-    id: "p05",
-    name: "街头纪实·黑白",
-    coverUrl: "https://picsum.photos/seed/street-bw/800/600",
-    author: "Henri Cartier-Bresson",
-    deviceModel: "OnePlus 13 Pro",
-    sceneType: "street",
-    tags: ["街拍", "黑白", "人文", "纪实"],
-    rating: 4.9,
-    downloadCount: 72345,
     isHncsCertified: true,
     isFavorite: false,
-    version: "3.0",
-    description: "街头的决定性瞬间，黑白摄影的永恒美学。",
-    cameraParams: {
-      iso: 400,
-      shutter: "1/250",
-      aperture: "f/4.0",
-      ev: "0",
-      wb: "5500K",
-      mode: "黑白模式",
-      focalLength: "35mm",
-    },
-    sections: [
-      { title: "黑白转换", content: "保留灰度层次，强化对比度。" },
-      { title: "颗粒感", content: "添加适度颗粒，模拟胶片质感。" },
-    ],
   },
   {
-    id: "p06",
-    name: "哈苏 X2D | 微观世界",
-    coverUrl: "https://picsum.photos/seed/macro-world/800/600",
-    author: "微距摄影工作室",
-    deviceModel: "OPPO Find X8 Ultra",
-    sceneType: "macro",
-    tags: ["微距", "细节", "哈苏", "自然"],
-    rating: 4.8,
-    downloadCount: 45230,
-    isHncsCertified: true,
-    isFavorite: false,
-    version: "3.0",
-    description: "探索微观世界的奇妙，捕捉肉眼难以察觉的细节之美。",
-    cameraParams: {
-      iso: 100,
-      shutter: "1/160",
-      aperture: "f/4.0",
-      ev: "0",
-      wb: "5200K",
-      mode: "微距模式",
-      focalLength: "微距",
-    },
+    id: "oppo-4",
+    brand: "OPPO",
+    name: "童话",
+    coverUrl: "https://picsum.photos/seed/fairy-tale/800/600",
+    galleryImages: ["https://picsum.photos/seed/fairy-1/800/600", "https://picsum.photos/seed/fairy-2/800/600"],
+    author: "@OPPO影像",
     sections: [
-      { title: "景深控制", content: "浅景深突出主体。" },
-      { title: "细节锐化", content: "保留微观细节纹理。" },
+      {
+        title: "色彩调节",
+        items: [
+          { label: "滤镜", value: "明艳 100%", span: 2 },
+          { label: "柔光", value: "无", span: 1 },
+          { label: "色调曲线", value: "-25", span: 1 },
+          { label: "饱和度", value: "+15", span: 1 },
+          { label: "冷暖", value: "+8", span: 1 },
+          { label: "锐度", value: "8", span: 1 },
+        ],
+      },
     ],
-  },
-  {
-    id: "p07",
-    name: "日落·金辉",
-    coverUrl: "https://picsum.photos/seed/sunset-gold/800/600",
-    author: "自然摄影协会",
-    deviceModel: "OPPO Reno12 Pro",
-    sceneType: "sunset",
-    tags: ["日落", "金辉", "暖调", "风景"],
+    tags: ["Auto", "童话", "梦幻"],
+    description: {
+      title: "拍摄建议",
+      content: "【环境建议】光线柔和的场景\n【场景推荐】儿童、宠物、梦幻场景\n【拍摄要点】暖色调，色彩鲜艳",
+    },
     rating: 4.6,
     downloadCount: 67890,
     isHncsCertified: true,
     isFavorite: false,
-    version: "2.0",
-    description: "夕阳西下的金色时刻，捕捉天空与大地交织的色彩。",
-    cameraParams: {
-      iso: 64,
-      shutter: "1/500",
-      aperture: "f/5.6",
-      ev: "+0.7",
-      wb: "6000K",
-      mode: "日落模式",
-      focalLength: "24mm",
-    },
-    sections: [
-      { title: "暖色调", content: "强化金黄色调。" },
-      { title: "逆光处理", content: "保留高光层次。" },
-    ],
   },
+  // Realme 预设
   {
-    id: "p08",
-    name: "城市建筑·几何",
-    coverUrl: "https://picsum.photos/seed/city-architecture/800/600",
-    author: "建筑摄影师联盟",
-    deviceModel: "OPPO Find X8 Pro",
-    sceneType: "cityscape",
-    tags: ["建筑", "几何", "城市", "线条"],
-    rating: 4.7,
-    downloadCount: 54321,
-    isHncsCertified: true,
-    isFavorite: true,
-    version: "3.0",
-    description: "城市的几何美学，建筑线条的秩序与力量。",
-    cameraParams: {
-      iso: 100,
-      shutter: "1/250",
-      aperture: "f/8.0",
-      ev: "+0.3",
-      wb: "6000K",
-      mode: "建筑模式",
-      focalLength: "24mm",
-    },
+    id: "realme-1",
+    brand: "REALME",
+    name: "理光正片",
+    coverUrl: "https://cdn.fky.ltd/zwzp_01.webp",
+    galleryImages: ["https://cdn.fky.ltd/zwzp_02.webp", "https://cdn.fky.ltd/zwzp_03.webp"],
+    author: "@尼克lin",
     sections: [
-      { title: "透视校正", content: "校正建筑透视变形。" },
-      { title: "线条强化", content: "增强建筑结构线条。" },
+      {
+        title: "色彩调节",
+        items: [
+          { label: "滤镜", value: "正片", span: 2 },
+          { label: "饱和度", value: "+4", span: 1 },
+          { label: "色调", value: "+1", span: 1 },
+          { label: "色调曲线", value: "-1", span: 1 },
+          { label: "对比度", value: "+3", span: 1 },
+          { label: "高光对比", value: "+2", span: 1 },
+          { label: "阴影对比", value: "-2", span: 1 },
+          { label: "锐度", value: "-1", span: 1 },
+          { label: "颗粒", value: "+3", span: 1 },
+          { label: "颗粒大小", value: "+2", span: 2 },
+        ],
+      },
     ],
-  },
-  {
-    id: "p09",
-    name: "哈苏人像经典",
-    coverUrl: "https://picsum.photos/seed/portrait-classic/800/600",
-    author: "哈苏影像实验室",
-    deviceModel: "OPPO Find X8 Ultra",
-    sceneType: "portrait",
-    tags: ["人像", "经典", "哈苏", "HNCS"],
-    rating: 5.0,
-    downloadCount: 234567,
-    isHncsCertified: true,
+    tags: ["Auto", "理光", "正片"],
+    description: {
+      title: "拍摄建议",
+      content: "【环境建议】日间户外，光线充足\n【场景推荐】街拍、建筑、人文\n【拍摄要点】模拟理光GR正片风格，色彩鲜艳对比度高",
+    },
+    rating: 4.8,
+    downloadCount: 98642,
+    isHncsCertified: false,
     isFavorite: false,
-    version: "3.0",
-    description: "哈苏经典人像色调，HNCS 色彩科学的极致呈现。",
-    cameraParams: {
-      iso: 100,
-      shutter: "1/125",
-      aperture: "f/1.8",
-      ev: "+0.3",
-      wb: "5200K",
-      mode: "哈苏人像模式",
-      focalLength: "85mm",
-    },
-    sections: [
-      { title: "肤色优化", content: "还原自然肤色，保留细节。" },
-      { title: "背景虚化", content: "自然景深，突出主体。" },
-    ],
   },
   {
-    id: "p10",
-    name: "海岛风情",
-    coverUrl: "https://picsum.photos/seed/island-vacation/800/600",
-    author: "旅行摄影博主",
-    deviceModel: "OPPO Reno12 Pro",
-    sceneType: "landscape",
-    tags: ["海岛", "度假", "风景", "蓝调"],
-    rating: 4.5,
+    id: "realme-2",
+    brand: "REALME",
+    name: "理光负片",
+    coverUrl: "https://cdn.fky.ltd/lgfp_01.webp",
+    galleryImages: ["https://cdn.fky.ltd/lgfp_02.webp", "https://cdn.fky.ltd/lgfp_03.webp"],
+    author: "@尼克lin",
+    sections: [
+      {
+        title: "色彩调节",
+        items: [
+          { label: "滤镜", value: "负片", span: 2 },
+          { label: "饱和度", value: "+3", span: 1 },
+          { label: "色调", value: "+3", span: 1 },
+          { label: "色调曲线", value: "+1", span: 1 },
+          { label: "对比度", value: "+4", span: 1 },
+          { label: "锐度", value: "+1", span: 1 },
+          { label: "颗粒", value: "0", span: 1 },
+        ],
+      },
+    ],
+    tags: ["Auto", "理光", "负片"],
+    description: {
+      title: "拍摄建议",
+      content: "【环境建议】日间户外，光线充足\n【场景推荐】街拍、建筑、人文\n【拍摄要点】模拟理光GR负片风格，色彩自然略带胶片感",
+    },
+    rating: 4.7,
+    downloadCount: 45230,
+    isHncsCertified: false,
+    isFavorite: false,
+  },
+  // vivo 预设
+  {
+    id: "vivo-1",
+    brand: "VIVO",
+    name: "富士胶片",
+    coverUrl: "https://picsum.photos/seed/vivo-fuji/800/600",
+    galleryImages: ["https://picsum.photos/seed/vivo-1/800/600", "https://picsum.photos/seed/vivo-2/800/600"],
+    author: "@vivo",
+    sections: [
+      {
+        title: "基本调节",
+        items: [
+          { label: "曝光", value: "-6", span: 1 },
+          { label: "亮度", value: "+5", span: 1 },
+          { label: "对比度", value: "+10", span: 1 },
+          { label: "高光", value: "-4", span: 1 },
+          { label: "阴影", value: "-15", span: 1 },
+        ],
+      },
+      {
+        title: "色彩调节",
+        items: [
+          { label: "光感", value: "+8", span: 1 },
+          { label: "饱和度", value: "+10", span: 1 },
+          { label: "色温", value: "-10", span: 1 },
+          { label: "锐度", value: "+5", span: 1 },
+        ],
+      },
+      {
+        title: "专业参数",
+        items: [
+          { label: "ISO", value: "Auto", span: 1 },
+          { label: "快门", value: "1/200", span: 1 },
+          { label: "EV", value: "-0.7", span: 1 },
+          { label: "白平衡", value: "4800K", span: 1 },
+        ],
+      },
+    ],
+    tags: ["胶片", "复古", "vivo", "蔡司"],
+    description: {
+      title: "拍摄建议",
+      content: "【环境建议】光线适中的场景\n【场景推荐】街拍、人像、风景\n【拍摄要点】低曝光、低阴影，营造胶片质感",
+    },
+    rating: 4.8,
+    downloadCount: 112345,
+    isHncsCertified: false,
+    isFavorite: false,
+  },
+  {
+    id: "vivo-2",
+    brand: "VIVO",
+    name: "拍萌宠",
+    coverUrl: "https://picsum.photos/seed/vivo-pet/800/600",
+    galleryImages: ["https://picsum.photos/seed/pet-1/800/600", "https://picsum.photos/seed/pet-2/800/600"],
+    author: "@vivo",
+    sections: [
+      {
+        title: "基本调节",
+        items: [
+          { label: "曝光", value: "+8", span: 1 },
+          { label: "亮度", value: "+10", span: 1 },
+          { label: "对比度", value: "-8", span: 1 },
+          { label: "高光", value: "+8", span: 1 },
+          { label: "阴影", value: "-5", span: 1 },
+        ],
+      },
+      {
+        title: "色彩调节",
+        items: [
+          { label: "光感", value: "+15", span: 1 },
+          { label: "饱和度", value: "+15", span: 1 },
+          { label: "色温", value: "+6", span: 1 },
+          { label: "锐度", value: "+20", span: 1 },
+        ],
+      },
+    ],
+    tags: ["萌宠", "宠物", "vivo", "蔡司"],
+    description: {
+      title: "拍摄建议",
+      content: "【环境建议】室内或室外光线充足\n【场景推荐】宠物、动态抓拍\n【拍摄要点】高锐度捕捉毛发细节",
+    },
+    rating: 4.6,
     downloadCount: 38900,
     isHncsCertified: false,
     isFavorite: false,
-    version: "2.0",
-    description: "热带海岛的碧海蓝天，捕捉假日的悠闲与惬意。",
-    cameraParams: {
-      iso: 100,
-      shutter: "1/500",
-      aperture: "f/8.0",
-      ev: "+0.3",
-      wb: "5800K",
-      mode: "风景模式",
-      focalLength: "24mm",
-    },
-    sections: [
-      { title: "蓝调强化", content: "增强天空与海水的蓝色。" },
-      { title: "通透感", content: "提升画面通透度。" },
-    ],
   },
   {
-    id: "p11",
-    name: "夜景人像",
-    coverUrl: "https://picsum.photos/seed/night-portrait/800/600",
-    author: "OPPO 影像团队",
-    deviceModel: "OPPO Find X8 Pro",
-    sceneType: "night",
-    tags: ["夜景", "人像", "HNCS"],
-    rating: 4.8,
-    downloadCount: 112345,
-    isHncsCertified: true,
+    id: "vivo-3",
+    brand: "VIVO",
+    name: "拍夜景",
+    coverUrl: "https://picsum.photos/seed/vivo-night/800/600",
+    galleryImages: ["https://picsum.photos/seed/night-1/800/600", "https://picsum.photos/seed/night-2/800/600"],
+    author: "@vivo",
+    sections: [
+      {
+        title: "基本调节",
+        items: [
+          { label: "曝光", value: "-5", span: 1 },
+          { label: "亮度", value: "+5", span: 1 },
+          { label: "对比度", value: "+7", span: 1 },
+          { label: "高光", value: "+10", span: 1 },
+          { label: "阴影", value: "-8", span: 1 },
+        ],
+      },
+      {
+        title: "色彩调节",
+        items: [
+          { label: "光感", value: "+8", span: 1 },
+          { label: "饱和度", value: "+15", span: 1 },
+          { label: "色温", value: "-18", span: 1 },
+          { label: "锐度", value: "+5", span: 1 },
+        ],
+      },
+    ],
+    tags: ["夜景", "城市", "vivo", "蔡司"],
+    description: {
+      title: "拍摄建议",
+      content: "【环境建议】夜晚或弱光环境\n【场景推荐】城市灯光、建筑\n【拍摄要点】降低色温保持冷调",
+    },
+    rating: 4.7,
+    downloadCount: 54321,
+    isHncsCertified: false,
     isFavorite: false,
-    version: "3.0",
-    description: "夜景人像的极致表现，保留人物细节的同时展现夜景氛围。",
-    cameraParams: {
-      iso: 1600,
-      shutter: "1/60",
-      aperture: "f/1.8",
-      ev: "+0.5",
-      wb: "4200K",
-      mode: "夜景人像",
-      focalLength: "50mm",
-    },
-    sections: [
-      { title: "夜景人像", content: "平衡人物与背景亮度。" },
-      { title: "肤色保留", content: "在夜景中保持肤色自然。" },
-    ],
   },
   {
-    id: "p12",
-    name: "新品预设 | 街头涂鸦",
-    coverUrl: "https://picsum.photos/seed/street-graffiti/800/600",
-    author: "OPPO 影像团队",
-    deviceModel: "OPPO Find X8 Ultra",
-    sceneType: "street",
-    tags: ["街拍", "涂鸦", "潮流", "新品"],
-    rating: 4.4,
+    id: "vivo-4",
+    brand: "VIVO",
+    name: "清透感",
+    coverUrl: "https://picsum.photos/seed/vivo-clear/800/600",
+    galleryImages: ["https://picsum.photos/seed/clear-1/800/600", "https://picsum.photos/seed/clear-2/800/600"],
+    author: "@vivo",
+    sections: [
+      {
+        title: "基本调节",
+        items: [
+          { label: "曝光", value: "+5", span: 1 },
+          { label: "亮度", value: "+8", span: 1 },
+          { label: "对比度", value: "+10", span: 1 },
+          { label: "高光", value: "+8", span: 1 },
+          { label: "阴影", value: "+3", span: 1 },
+        ],
+      },
+      {
+        title: "色彩调节",
+        items: [
+          { label: "光感", value: "+11", span: 1 },
+          { label: "饱和度", value: "+13", span: 1 },
+          { label: "色温", value: "-20", span: 1 },
+          { label: "锐度", value: "+70", span: 1 },
+        ],
+      },
+    ],
+    tags: ["清新", "通透", "vivo", "蔡司"],
+    description: {
+      title: "拍摄建议",
+      content: "【环境建议】晴天或光线充足\n【场景推荐】户外、风景、人像\n【拍摄要点】极高锐度，冷色调",
+    },
+    rating: 4.9,
     downloadCount: 8923,
     isHncsCertified: false,
     isFavorite: false,
-    version: "3.0",
-    description: "街头涂鸦的色彩与态度，年轻人的摄影选择。",
-    cameraParams: {
-      iso: 200,
-      shutter: "1/200",
-      aperture: "f/4.0",
-      ev: "+0.3",
-      wb: "5500K",
-      mode: "街拍模式",
-      focalLength: "35mm",
-    },
+  },
+  {
+    id: "vivo-5",
+    brand: "VIVO",
+    name: "拍美食",
+    coverUrl: "https://picsum.photos/seed/vivo-food/800/600",
+    galleryImages: ["https://picsum.photos/seed/food-1/800/600", "https://picsum.photos/seed/food-2/800/600"],
+    author: "@vivo",
     sections: [
-      { title: "色彩强化", content: "强化涂鸦的鲜艳色彩。" },
-      { title: "对比度", content: "提升画面冲击力。" },
+      {
+        title: "基本调节",
+        items: [
+          { label: "曝光", value: "-5", span: 1 },
+          { label: "亮度", value: "+14", span: 1 },
+          { label: "对比度", value: "+5", span: 1 },
+          { label: "高光", value: "+5", span: 1 },
+          { label: "阴影", value: "-8", span: 1 },
+        ],
+      },
+      {
+        title: "色彩调节",
+        items: [
+          { label: "光感", value: "+10", span: 1 },
+          { label: "饱和度", value: "+8", span: 1 },
+          { label: "色温", value: "-12", span: 1 },
+          { label: "锐度", value: "+5", span: 1 },
+        ],
+      },
     ],
+    tags: ["美食", "静物", "vivo", "蔡司"],
+    description: {
+      title: "拍摄建议",
+      content: "【环境建议】餐厅或室内暖光\n【场景推荐】菜肴、甜品\n【拍摄要点】提亮阴影突出食物细节",
+    },
+    rating: 4.5,
+    downloadCount: 23456,
+    isHncsCertified: false,
+    isFavorite: false,
+  },
+  // 荣耀 预设
+  {
+    id: "honor-1",
+    brand: "HONOR",
+    name: "拍人物",
+    coverUrl: "https://picsum.photos/seed/honor-portrait/800/600",
+    galleryImages: ["https://picsum.photos/seed/hp-1/800/600", "https://picsum.photos/seed/hp-2/800/600"],
+    author: "@荣耀",
+    sections: [
+      {
+        title: "专业参数",
+        items: [
+          { label: "ISO感光度", value: "500", span: 1 },
+          { label: "快门速度", value: "1/20", span: 1 },
+          { label: "AF对焦模式", value: "MF", span: 1 },
+          { label: "WB白平衡", value: "4800", span: 1 },
+          { label: "M测光模式", value: "中央重点测光", span: 1 },
+        ],
+      },
+    ],
+    tags: ["人像", "荣耀", "专业模式"],
+    description: {
+      title: "拍摄建议",
+      content: "【环境建议】室内或弱光环境\n【场景推荐】人物特写\n【拍摄要点】手动对焦，中央重点测光",
+    },
+    rating: 4.7,
+    downloadCount: 67890,
+    isHncsCertified: false,
+    isFavorite: false,
+  },
+  {
+    id: "honor-2",
+    brand: "HONOR",
+    name: "拍海边",
+    coverUrl: "https://picsum.photos/seed/honor-beach/800/600",
+    galleryImages: ["https://picsum.photos/seed/beach-1/800/600", "https://picsum.photos/seed/beach-2/800/600"],
+    author: "@荣耀",
+    sections: [
+      {
+        title: "专业参数",
+        items: [
+          { label: "ISO感光度", value: "100", span: 1 },
+          { label: "快门速度", value: "1/400", span: 1 },
+          { label: "AF对焦模式", value: "AF-S", span: 1 },
+          { label: "WB白平衡", value: "7000", span: 1 },
+          { label: "M测光模式", value: "矩阵测光", span: 1 },
+        ],
+      },
+    ],
+    tags: ["海边", "风光", "荣耀", "专业模式"],
+    description: {
+      title: "拍摄建议",
+      content: "【环境建议】晴天海边\n【场景推荐】沙滩、海浪\n【拍摄要点】低ISO保证画质，高快门凝固浪花",
+    },
+    rating: 4.8,
+    downloadCount: 45678,
+    isHncsCertified: false,
+    isFavorite: false,
+  },
+  {
+    id: "honor-3",
+    brand: "HONOR",
+    name: "拍日落",
+    coverUrl: "https://picsum.photos/seed/honor-sunset/800/600",
+    galleryImages: ["https://picsum.photos/seed/sunset-1/800/600", "https://picsum.photos/seed/sunset-2/800/600"],
+    author: "@荣耀",
+    sections: [
+      {
+        title: "专业参数",
+        items: [
+          { label: "ISO感光度", value: "125", span: 1 },
+          { label: "快门速度", value: "1/100", span: 1 },
+          { label: "AF对焦模式", value: "AF-S", span: 1 },
+          { label: "WB白平衡", value: "6300", span: 1 },
+          { label: "M测光模式", value: "矩阵测光", span: 1 },
+        ],
+      },
+    ],
+    tags: ["日落", "风光", "荣耀", "专业模式"],
+    description: {
+      title: "拍摄建议",
+      content: "【环境建议】黄昏时分\n【场景推荐】夕阳、晚霞\n【拍摄要点】使用2倍变焦，暖色调增强日落氛围",
+    },
+    rating: 4.9,
+    downloadCount: 34567,
+    isHncsCertified: false,
+    isFavorite: false,
+  },
+  {
+    id: "honor-4",
+    brand: "HONOR",
+    name: "拍演唱会",
+    coverUrl: "https://picsum.photos/seed/honor-concert/800/600",
+    galleryImages: ["https://picsum.photos/seed/concert-1/800/600", "https://picsum.photos/seed/concert-2/800/600"],
+    author: "@荣耀",
+    sections: [
+      {
+        title: "专业参数",
+        items: [
+          { label: "ISO感光度", value: "1000", span: 1 },
+          { label: "快门速度", value: "1/80", span: 1 },
+          { label: "AF对焦模式", value: "AF-S", span: 1 },
+          { label: "WB白平衡", value: "5000", span: 1 },
+          { label: "M测光模式", value: "矩阵测光", span: 1 },
+        ],
+      },
+    ],
+    tags: ["演唱会", "夜景", "荣耀", "专业模式"],
+    description: {
+      title: "拍摄建议",
+      content: "【环境建议】暗光舞台\n【场景推荐】演出、灯光\n【拍摄要点】高ISO保证亮度，适当快门捕捉动态",
+    },
+    rating: 4.6,
+    downloadCount: 23456,
+    isHncsCertified: false,
+    isFavorite: false,
+  },
+  {
+    id: "honor-5",
+    brand: "HONOR",
+    name: "拍风景",
+    coverUrl: "https://picsum.photos/seed/honor-landscape/800/600",
+    galleryImages: ["https://picsum.photos/seed/landscape-1/800/600", "https://picsum.photos/seed/landscape-2/800/600"],
+    author: "@荣耀",
+    sections: [
+      {
+        title: "专业参数",
+        items: [
+          { label: "ISO感光度", value: "100", span: 1 },
+          { label: "快门速度", value: "1/60", span: 1 },
+          { label: "AF对焦模式", value: "AF-S", span: 1 },
+          { label: "WB白平衡", value: "4000", span: 1 },
+          { label: "M测光模式", value: "矩阵测光", span: 1 },
+        ],
+      },
+    ],
+    tags: ["风景", "风光", "荣耀", "专业模式"],
+    description: {
+      title: "拍摄建议",
+      content: "【环境建议】白天户外\n【场景推荐】自然风光、建筑\n【拍摄要点】低ISO保证画质，冷白平衡增强通透感",
+    },
+    rating: 4.8,
+    downloadCount: 56789,
+    isHncsCertified: false,
+    isFavorite: false,
+  },
+  {
+    id: "honor-6",
+    brand: "HONOR",
+    name: "丁达尔效应",
+    coverUrl: "https://picsum.photos/seed/honor-tyndall/800/600",
+    galleryImages: ["https://picsum.photos/seed/tyndall-1/800/600", "https://picsum.photos/seed/tyndall-2/800/600"],
+    author: "@荣耀",
+    sections: [
+      {
+        title: "专业参数",
+        items: [
+          { label: "ISO感光度", value: "100", span: 1 },
+          { label: "快门速度", value: "1/250", span: 1 },
+          { label: "AF对焦模式", value: "AF-S", span: 1 },
+          { label: "WB白平衡", value: "5500", span: 1 },
+          { label: "M测光模式", value: "点测光", span: 1 },
+        ],
+      },
+    ],
+    tags: ["丁达尔", "光影", "荣耀", "专业模式"],
+    description: {
+      title: "拍摄建议",
+      content: "【环境建议】有光束穿透的场景\n【场景推荐】森林、教堂\n【拍摄要点】点测光对准光束区域",
+    },
+    rating: 4.7,
+    downloadCount: 12345,
+    isHncsCertified: false,
+    isFavorite: false,
   },
 ];
+
+// 按品牌分组
+export const presetsByBrand: Record<BrandType, Preset[]> = {
+  OPPO: presets.filter(p => p.brand === "OPPO"),
+  REALME: presets.filter(p => p.brand === "REALME"),
+  VIVO: presets.filter(p => p.brand === "VIVO"),
+  HONOR: presets.filter(p => p.brand === "HONOR"),
+};
 
 export const cameraConfigs: CameraConfig[] = [
   {
@@ -410,14 +731,14 @@ export function detectSceneFromImage(imageIndex: number, isOffline: boolean = fa
 
 function getRecommendedPresetIds(scene: SceneType): string[] {
   const map: Record<SceneType, string[]> = {
-    portrait: ["p01", "p09", "p11"],
-    landscape: ["p03", "p07", "p10"],
-    night: ["p02", "p11"],
-    food: ["p04"],
-    street: ["p05", "p12"],
-    macro: ["p06"],
-    sunset: ["p07", "p03"],
-    cityscape: ["p08", "p02"],
+    portrait: ["oppo-1", "vivo-1", "honor-1"],
+    landscape: ["oppo-4", "vivo-4", "honor-5"],
+    night: ["vivo-3", "honor-4"],
+    food: ["vivo-5"],
+    street: ["realme-1", "oppo-2"],
+    macro: ["vivo-2"],
+    sunset: ["honor-3", "oppo-3"],
+    cityscape: ["vivo-3", "oppo-1"],
   };
   return map[scene] || [];
 }
