@@ -51,7 +51,8 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideRetrofit(okHttpClient: OkHttpClient, gson: Gson): Retrofit {
-        val baseUrl = "https://api.example.com/" // 替换为实际的 API 地址
+        // 使用jsdelivr CDN作为基础URL，PresetApi中的GET请求使用完整URL
+        val baseUrl = "https://cdn.jsdelivr.net/"
         return Retrofit.Builder()
             .baseUrl(baseUrl)
             .client(okHttpClient)

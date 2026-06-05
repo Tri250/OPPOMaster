@@ -83,4 +83,158 @@ class PresetTest {
         assertTrue(presetWithHncs.cameraParams?.hasselblad_hncs ?: false)
         assertFalse(presetWithoutHncs.cameraParams?.hasselblad_hncs ?: true)
     }
+    
+    @Test
+    fun `preset isHncsCertified should match cameraParams hasselblad_hncs`() {
+        val presetWithHncs = Preset(
+            id = "1",
+            name = "HNCS Preset",
+            coverPath = "test",
+            cameraParams = CameraParams(hasselblad_hncs = true)
+        )
+        
+        val presetWithoutHncs = Preset(
+            id = "2",
+            name = "Non-HNCS Preset",
+            coverPath = "test",
+            cameraParams = CameraParams(hasselblad_hncs = false)
+        )
+        
+        assertTrue(presetWithHncs.isHncsCertified)
+        assertFalse(presetWithoutHncs.isHncsCertified)
+    }
+    
+    @Test
+    fun `preset formatted download count should be correct`() {
+        val millionDownload = Preset(
+            id = "1",
+            name = "Popular",
+            coverPath = "test",
+            downloadCount = 1500000
+        )
+        
+        val thousandDownload = Preset(
+            id = "2",
+            name = "Medium",
+            coverPath = "test",
+            downloadCount = 15000
+        )
+        
+        val smallDownload = Preset(
+            id = "3",
+            name = "Small",
+            coverPath = "test",
+            downloadCount = 500
+        )
+        
+        assertEquals("1.5M", millionDownload.getFormattedDownloadCount())
+        assertEquals("15.0K", thousandDownload.getFormattedDownloadCount())
+        assertEquals("500", smallDownload.getFormattedDownloadCount())
+    }
+    
+    @Test
+    fun `preset device display should be correct`() {
+        val findXPreset = Preset(
+            id = "1",
+            name = "Find X",
+            coverPath = "test",
+            deviceModel = "OPPO Find X8 Ultra"
+        )
+        
+        val renoPreset = Preset(
+            id = "2",
+            name = "Reno",
+            coverPath = "test",
+            deviceModel = "OPPO Reno12 Pro"
+        )
+        
+        val genericPreset = Preset(
+            id = "3",
+            name = "Generic",
+            coverPath = "test",
+            deviceModel = ""
+        )
+        
+        assertEquals("OPPO Find X8 Ultra", findXPreset.deviceModel)
+        assertEquals("OPPO Reno12 Pro", renoPreset.deviceModel)
+        assertEquals("", genericPreset.deviceModel)
+    }
+    
+    @Test
+    fun `preset scene type display should be correct`() {
+        val portraitPreset = Preset(
+            id = "1",
+            name = "Portrait",
+            coverPath = "test",
+            sceneType = "portrait"
+        )
+        
+        val landscapePreset = Preset(
+            id = "2",
+            name = "Landscape",
+            coverPath = "test",
+            sceneType = "landscape"
+        )
+        
+        val nightPreset = Preset(
+            id = "3",
+            name = "Night",
+            coverPath = "test",
+            sceneType = "night"
+        )
+        
+        assertEquals("人像摄影", portraitPreset.getSceneTypeDisplay())
+        assertEquals("风景摄影", landscapePreset.getSceneTypeDisplay())
+        assertEquals("夜景摄影", nightPreset.getSceneTypeDisplay())
+    }
+    
+    @Test
+    fun `preset toJson and fromJson should work correctly`() {
+        val originalPreset = Preset(
+            id = "test_json",
+            name = "JSON Test",
+            coverPath = "test_cover",
+            coverUrl = "https://example.com/cover.jpg",
+            deviceModel = "OPPO Find X8 Ultra",
+            author = "哈苏影像实验室",
+            description = "测试预设",
+            sceneType = "portrait",
+            tags = listOf("人像", "HNCS"),
+            rating = 4.8f,
+            downloadCount = 10000,
+            version = "3.0",
+            isHncsCertified = true,
+            cameraParams = CameraParams(
+                mode = "哈苏大师",
+                hasselblad_hncs = true
+            )
+        )
+        
+        val json = originalPreset.toJson()
+        val restoredPreset = Preset.fromJson(json)
+        
+        assertEquals(originalPreset.id, restoredPreset.id)
+        assertEquals(originalPreset.name, restoredPreset.name)
+        assertEquals(originalPreset.coverUrl, restoredPreset.coverUrl)
+        assertEquals(originalPreset.deviceModel, restoredPreset.deviceModel)
+        assertEquals(originalPreset.author, restoredPreset.author)
+        assertEquals(originalPreset.rating, restoredPreset.rating)
+        assertEquals(originalPreset.downloadCount, restoredPreset.downloadCount)
+        assertEquals(originalPreset.isHncsCertified, restoredPreset.isHncsCertified)
+    }
+    
+    @Test
+    fun `preset sample presets should be valid`() {
+        val samplePresets = Preset.createSamplePresets()
+        
+        assertTrue(samplePresets.isNotEmpty())
+        assertTrue(samplePresets.any { it.isHncsCertified })
+        assertTrue(samplePresets.any { it.deviceModel.contains("OPPO") })
+        
+        for (preset in samplePresets) {
+            assertTrue(preset.id.isNotEmpty())
+            assertTrue(preset.name.isNotEmpty())
+            assertTrue(preset.coverPath.isNotEmpty())
+        }
+    }
 }
