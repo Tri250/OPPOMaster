@@ -74,6 +74,158 @@
   </div>
 </section>
 
+<!-- Navigation Architecture · 2 级扁平化 -->
+<section class="nav-arch-section">
+  <div class="section-header">
+    <div>
+      <h2 class="section-title">导航架构 · 2 级扁平化</h2>
+      <p class="section-subtitle">Level 0 底部导航 → Level 1 子入口 · 扁平化结构,最多 2 级跳转,零冗余路径。</p>
+    </div>
+    <div class="arch-stats">
+      <div class="arch-stat"><div class="arch-stat-num">3</div><div class="arch-stat-label">TAB</div></div>
+      <div class="arch-stat"><div class="arch-stat-num">8</div><div class="arch-stat-label">核心页</div></div>
+      <div class="arch-stat"><div class="arch-stat-num">≤2</div><div class="arch-stat-label">跳转深度</div></div>
+    </div>
+  </div>
+
+  <div class="nav-tree">
+    <!-- ROOT: 底部导航 -->
+    <div class="nav-root">
+      <div class="nav-root-label">Level 0 · 底部导航</div>
+      <div class="nav-root-bar">
+        <div class="nav-root-item active">
+          <div class="nav-root-icon">🏠</div>
+          <div class="nav-root-name">预设</div>
+        </div>
+        <div class="nav-root-item">
+          <div class="nav-root-icon">✨</div>
+          <div class="nav-root-name">创作</div>
+        </div>
+        <div class="nav-root-item">
+          <div class="nav-root-icon">👤</div>
+          <div class="nav-root-name">我的</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BRANCHES: 3 个 TAB 的子入口 -->
+    <div class="nav-branches">
+      <!-- 预设 -->
+      <div class="nav-branch">
+        <div class="branch-connector"></div>
+        <div class="branch-header">
+          <span class="branch-emoji">🏠</span>
+          <span class="branch-title">预设</span>
+          <span class="branch-tag">HOME · 屏幕 1-2, 5</span>
+        </div>
+        <div class="branch-nodes">
+          <div class="branch-node">
+            <div class="node-icon">🔍</div>
+            <div class="node-text">
+              <div class="node-name">搜索栏</div>
+              <div class="node-desc">预设 · 风格 · 摄影师</div>
+            </div>
+          </div>
+          <div class="branch-node">
+            <div class="node-icon">🏷</div>
+            <div class="node-text">
+              <div class="node-name">分类标签</div>
+              <div class="node-desc">全部 / HNCS / 人像 / 风光 / 收藏</div>
+            </div>
+          </div>
+          <div class="branch-node">
+            <div class="node-icon">🖼</div>
+            <div class="node-text">
+              <div class="node-name">预设卡片</div>
+              <div class="node-desc">点击 → 详情页(屏幕 2)</div>
+            </div>
+            <div class="node-link">→</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 创作 -->
+      <div class="nav-branch highlight">
+        <div class="branch-connector"></div>
+        <div class="branch-header">
+          <span class="branch-emoji">✨</span>
+          <span class="branch-title">创作</span>
+          <span class="branch-tag">CREATE · 屏幕 3-4</span>
+        </div>
+        <div class="branch-nodes">
+          <div class="branch-node">
+            <div class="node-icon">📷</div>
+            <div class="node-text">
+              <div class="node-name">选择照片 / 拍摄</div>
+              <div class="node-desc">图库选片 · 系统相机</div>
+            </div>
+          </div>
+          <div class="branch-node">
+            <div class="node-icon">🪄</div>
+            <div class="node-text">
+              <div class="node-name">AI 优化</div>
+              <div class="node-desc">8 场景 · 4 风格 · 三轴微调</div>
+            </div>
+            <div class="node-link">→</div>
+          </div>
+          <div class="branch-node">
+            <div class="node-icon">📝</div>
+            <div class="node-text">
+              <div class="node-name">水印编辑</div>
+              <div class="node-desc">8 模板 · 实时预览 · 拖拽(屏幕 4)</div>
+            </div>
+            <div class="node-link">→</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 我的 -->
+      <div class="nav-branch">
+        <div class="branch-connector"></div>
+        <div class="branch-header">
+          <span class="branch-emoji">👤</span>
+          <span class="branch-title">我的</span>
+          <span class="branch-tag">PROFILE · 屏幕 6-8</span>
+        </div>
+        <div class="branch-nodes">
+          <div class="branch-node">
+            <div class="node-icon">★</div>
+            <div class="node-text">
+              <div class="node-name">我的预设</div>
+              <div class="node-desc">12 个 · 含 3 自定义</div>
+            </div>
+            <div class="node-link">→</div>
+          </div>
+          <div class="branch-node">
+            <div class="node-icon">♥</div>
+            <div class="node-text">
+              <div class="node-name">收藏夹</div>
+              <div class="node-desc">42 个 · 已同步</div>
+            </div>
+            <div class="node-link">→</div>
+          </div>
+          <div class="branch-node">
+            <div class="node-icon">⏱</div>
+            <div class="node-text">
+              <div class="node-name">历史记录</div>
+              <div class="node-desc">128 条操作</div>
+            </div>
+            <div class="node-link">→</div>
+          </div>
+          <div class="branch-node">
+            <div class="node-icon">⚙</div>
+            <div class="node-text">
+              <div class="node-name">设置</div>
+              <div class="node-desc">外观 · 拍摄 · 隐私(屏幕 7-8)</div>
+            </div>
+            <div class="node-link">→</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- Design System -->
 <section class="design-section">
   <div class="section-header">
