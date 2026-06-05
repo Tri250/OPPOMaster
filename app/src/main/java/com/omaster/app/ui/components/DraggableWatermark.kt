@@ -2,6 +2,7 @@ package com.omaster.app.ui.components
 
 import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.*

@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -99,10 +100,9 @@ fun AdvancedWatermarkEditorV2(
                     val newWatermark = Watermark(
                         type = WatermarkType.IMAGE,
                         imageUri = it,
-                        imageConfig = ImageWatermarkConfig(bitmap = bmp)
-                    ).apply {
+                        imageConfig = ImageWatermarkConfig(bitmap = bmp),
                         zIndex = state.watermarks.size
-                    }
+                    )
                     state = addToHistoryV2(
                         state,
                         state.copy(
@@ -270,14 +270,14 @@ fun AdvancedWatermarkEditorV2(
 }
 
 @Composable
-private fun GlassTopAppBarV2(
+internal fun GlassTopAppBarV2(
     title: String,
     onBackClick: () -> Unit,
-    onUndo: () -> Unit,
-    onRedo: () -> Unit,
-    canUndo: Boolean,
-    canRedo: Boolean,
-    onExport: () -> Unit
+    onUndo: (() -> Unit)? = null,
+    onRedo: (() -> Unit)? = null,
+    canUndo: Boolean = false,
+    canRedo: Boolean = false,
+    onExport: (() -> Unit)? = null
 ) {
     Row(
         modifier = Modifier
@@ -296,7 +296,7 @@ private fun GlassTopAppBarV2(
                 contentDescription = "关闭",
                 size = 44.dp
             )
-            
+
             Text(
                 text = title,
                 style = Typography.HeadlineMedium,
@@ -304,32 +304,38 @@ private fun GlassTopAppBarV2(
                 color = Colors.OnBackground
             )
         }
-        
+
         Row(
             horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
         ) {
-            GlassIconButton(
-                icon = Icons.Default.Undo,
-                onClick = onUndo,
-                contentDescription = "撤销",
-                size = 40.dp,
-                enabled = canUndo
-            )
-            
-            GlassIconButton(
-                icon = Icons.Default.Redo,
-                onClick = onRedo,
-                contentDescription = "重做",
-                size = 40.dp,
-                enabled = canRedo
-            )
-            
-            GlassIconButton(
-                icon = Icons.Default.Save,
-                onClick = onExport,
-                contentDescription = "导出",
-                size = 40.dp
-            )
+            if (onUndo != null) {
+                GlassIconButton(
+                    icon = Icons.Default.Undo,
+                    onClick = onUndo,
+                    contentDescription = "撤销",
+                    size = 40.dp,
+                    enabled = canUndo
+                )
+            }
+
+            if (onRedo != null) {
+                GlassIconButton(
+                    icon = Icons.Default.Redo,
+                    onClick = onRedo,
+                    contentDescription = "重做",
+                    size = 40.dp,
+                    enabled = canRedo
+                )
+            }
+
+            if (onExport != null) {
+                GlassIconButton(
+                    icon = Icons.Default.Save,
+                    onClick = onExport,
+                    contentDescription = "导出",
+                    size = 40.dp
+                )
+            }
         }
     }
 }
@@ -1030,28 +1036,45 @@ private fun TemplatePickerDialogV2(
     onDismiss: () -> Unit
 ) {
     val templates = getDefaultTemplatesV2()
-    
-    GlassDialog(
-        onDismiss = onDismiss,
-        title = "选择模板",
-        text = "选择一个预设水印模板",
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "选择模板",
+                style = Typography.HeadlineSmall,
+                color = Colors.OnSurface
+            )
+        },
+        text = {
+            Column {
+                Text(
+                    text = "选择一个预设水印模板",
+                    style = Typography.BodyMedium,
+                    color = Colors.OnSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(Spacing.md))
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
+                ) {
+                    items(templates) { template ->
+                        TemplateItemV2(
+                            template = template,
+                            onClick = { onTemplateSelected(template) }
+                        )
+                    }
+                }
+            }
+        },
         confirmButton = {
             TextButton(onClick = onDismiss) {
                 Text("取消")
             }
-        }
-    ) {
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
-        ) {
-            items(templates) { template ->
-                TemplateItemV2(
-                    template = template,
-                    onClick = { onTemplateSelected(template) }
-                )
-            }
-        }
-    }
+        },
+        containerColor = Colors.Surface,
+        titleContentColor = Colors.OnSurface,
+        textContentColor = Colors.OnSurfaceVariant
+    )
 }
 
 @Composable

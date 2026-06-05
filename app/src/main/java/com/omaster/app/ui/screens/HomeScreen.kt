@@ -5,7 +5,11 @@ import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.*
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.shape.CircleShape
@@ -78,7 +82,7 @@ fun HomeScreen(
             val matchesFilter = when (filterType) {
                 FilterType.ALL -> true
                 FilterType.FAVORITES -> preset.isFavorite
-                FilterType.HASSELBLAD -> preset.cameraParams?.hasselblad_hncs == true
+                FilterType.HNCS -> preset.cameraParams?.hasselblad_hncs == true
                 FilterType.FIND_X -> preset.deviceModel?.contains("Find X", ignoreCase = true) == true
                 FilterType.RENO -> preset.deviceModel?.contains("Reno", ignoreCase = true) == true
                 else -> true
@@ -405,7 +409,7 @@ fun FilterChipsRow(
     val filters = listOf(
         FilterType.ALL to "全部",
         FilterType.FAVORITES to "我的收藏",
-        FilterType.HASSELBLAD to "HNCS"
+        FilterType.HNCS to "HNCS"
     )
 
     Row(
@@ -419,7 +423,7 @@ fun FilterChipsRow(
                 selected = selectedFilter == filter,
                 onClick = { onFilterSelected(filter) },
                 label = label,
-                isPrimary = filter == FilterType.HASSELBLAD,
+                isPrimary = filter == FilterType.HNCS,
                 leadingIcon = if (filter == FilterType.FAVORITES) {
                     {
                         Icon(
@@ -691,7 +695,7 @@ fun OppoHncsBadge(
             text = "HNCS",
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             style = MaterialTheme.typography.labelSmall,
-            color = OppoDeepSpace,
+            color = DeepSpace,
             fontWeight = FontWeight.Bold
         )
     }

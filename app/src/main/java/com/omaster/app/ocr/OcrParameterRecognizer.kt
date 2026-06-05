@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import androidx.annotation.OptIn
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
@@ -129,6 +130,7 @@ class OcrParameterRecognizer @Inject constructor(
         }
     }
 
+    @OptIn(ExperimentalGetImage::class)
     fun recognizeFromCameraX(lifecycleOwner: LifecycleOwner): Flow<OcrState> = callbackFlow {
         trySend(OcrState.Idle)
         

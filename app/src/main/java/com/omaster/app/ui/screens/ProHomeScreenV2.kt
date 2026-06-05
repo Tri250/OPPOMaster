@@ -467,7 +467,7 @@ private fun ProFeatureCardV2(
 }
 
 @Composable
-private fun SectionHeaderV2(
+internal fun SectionHeaderV2(
     title: String
 ) {
     Text(

@@ -285,6 +285,7 @@ fun ParamPreviewItem(
 /**
  * ==================== ProFeatureCard - 专业功能卡片 ====================
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProFeatureCard(
     feature: ProFeature,

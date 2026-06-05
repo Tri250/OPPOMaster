@@ -106,10 +106,12 @@ object ColorOSElevation {
  * ==================== ColorOS 16 按压反馈 Modifier ====================
  */
 fun Modifier.clickableWithColorOSFeedback(
-    interactionSource: MutableInteractionSource = remember { MutableInteractionSource() }
+    onClick: (() -> Unit)? = null,
+    interactionSource: MutableInteractionSource = remember { MutableInteractionSource() },
+    enabled: Boolean = true
 ): Modifier = composed {
     val isPressed by interactionSource.collectIsPressedAsState()
-    
+
     val scale by animateFloatAsState(
         targetValue = if (isPressed) ColorOSScale.Pressed else 1f,
         animationSpec = spring(
@@ -118,8 +120,20 @@ fun Modifier.clickableWithColorOSFeedback(
         ),
         label = "colorosScale"
     )
-    
-    this.scale(scale)
+
+    val baseModifier = this.scale(scale)
+    if (onClick != null) {
+        baseModifier.then(
+            androidx.compose.foundation.clickable(
+                interactionSource = interactionSource,
+                indication = androidx.compose.material.ripple.rememberRipple(),
+                enabled = enabled,
+                onClick = onClick
+            )
+        )
+    } else {
+        baseModifier
+    }
 }
 
 /**

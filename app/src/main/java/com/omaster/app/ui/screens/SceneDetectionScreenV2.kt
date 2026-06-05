@@ -43,6 +43,8 @@ import com.omaster.app.ui.animation.ColorOSAnimationDuration
 import com.omaster.app.ui.animation.ColorOSEasing
 import com.omaster.app.ui.animation.ColorOSScale
 import com.omaster.app.ui.components.*
+import com.omaster.app.ui.components.GlassTopAppBarV2
+import com.omaster.app.ui.screens.SectionHeaderV2
 import com.omaster.app.ui.theme.*
 import kotlinx.coroutines.launch
 import timber.log.Timber
@@ -191,7 +193,7 @@ fun SceneDetectionScreenV2(
             contentPadding = PaddingValues(bottom = Spacing.xxl)
         ) {
             item {
-                GlassTopAppBar(
+                GlassTopAppBarV2(
                     title = "AI 场景识别",
                     onBackClick = onBack
                 )

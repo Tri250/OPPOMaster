@@ -1,7 +1,9 @@
 package com.omaster.app.media
 
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.media.ThumbnailUtils
 import android.net.Uri
@@ -17,7 +19,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import coil.ImageLoader
 import coil.request.ImageRequest
-import coil.request.VideoFrameMetadata
+import coil.request.SuccessResult
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -40,7 +42,7 @@ class MediaImportService @Inject constructor(
     private val _importState = MutableStateFlow<ImportState>(ImportState.Idle)
     val importState: Flow<ImportState> = _importState.asStateFlow()
 
-    private val imageLoader = ImageLoader(context)
+    private val imageLoader = ImageLoader.Builder(context).build()
 
     sealed class ImportState {
         object Idle : ImportState()
@@ -252,7 +254,9 @@ class MediaImportService @Inject constructor(
             .build()
 
         val result = imageLoader.execute(request)
-        val bitmap = (result.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
+        val bitmap = if (result is SuccessResult) {
+            (result.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
+        } else null
 
         bitmap?.let { saveThumbnailToCache(it) } ?: imageUri
     }
@@ -372,7 +376,7 @@ class VideoPlayerController @Inject constructor(
         recording = videoCapture.output
             .prepareRecording(context, outputOptions)
             .apply {
-                if (AudioFormat.hasAudio()) {
+                if (context.packageManager.hasSystemFeature(PackageManager.FEATURE_MICROPHONE)) {
                     withAudioEnabled()
                 }
             }

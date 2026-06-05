@@ -10,6 +10,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -241,7 +242,7 @@ class PresetRepository @Inject constructor(
     /**
      * 获取示例预设 - 符合2026年OPPO Find X8 Ultra哈苏大师模式
      */
-    private fun getSamplePresets(): List<Preset> {
+    fun getSamplePresets(): List<Preset> {
         return listOf(
             Preset(
                 id = "oppo_findx8ultra_portrait_classic",

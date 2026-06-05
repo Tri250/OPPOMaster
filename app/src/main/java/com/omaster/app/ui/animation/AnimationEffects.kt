@@ -4,9 +4,11 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -219,9 +221,9 @@ fun FloatingAnimation(
     content: @Composable () -> Unit
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "floating")
-    val yOffset by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = offsetY.toPx(),
+    val yOffset by infiniteTransition.animateDp(
+        initialValue = 0.dp,
+        targetValue = offsetY,
         animationSpec = infiniteRepeatable(
             animation = tween(
                 durationMillis = duration,
@@ -231,7 +233,7 @@ fun FloatingAnimation(
         ),
         label = "floatingOffset"
     )
-    
+
     AnimatedVisibility(visible = targetState) {
         Box(modifier = Modifier.offset(y = yOffset)) {
             content()

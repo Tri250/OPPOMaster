@@ -194,8 +194,8 @@ class LutManager @Inject constructor(
         }
         
         // 应用色调调整 (基于白平衡)
-        val wbValue = params.wb.replace("K", "").replace("k", "").trim().toIntOrNull() ?: 5500
-        if (wbValue <= 0) wbValue = 5500 // 防止零值或负值
+        val rawWbValue = params.wb.replace("K", "").replace("k", "").trim().toIntOrNull() ?: 5500
+        val wbValue = if (rawWbValue <= 0) 5500 else rawWbValue // 防止零值或负值
         val wbFactor = wbValue / 5500f
         red *= wbFactor.coerceIn(0.7f, 1.3f)
         

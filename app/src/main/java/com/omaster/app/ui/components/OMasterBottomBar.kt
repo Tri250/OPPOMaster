@@ -220,7 +220,6 @@ fun OMasterTopBar(
         GlassIconButton(
             icon = androidx.compose.material.icons.Icons.Default.Settings,
             onClick = onSettingsClick,
-            contentDescription = "设置",
             size = 44.dp
         )
     }

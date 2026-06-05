@@ -1,43 +1,29 @@
 package com.omaster.app.ui.components
 
 import android.app.Activity
+import android.content.Context
 import android.content.res.Configuration
 import android.os.Build
-import android.view.View
-import android.view.WindowInsets
-import android.view.WindowManager
-import androidx.compose.foundation.background
+import android.view.accessibility.AccessibilityManager
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
-import androidx.compose.material3.windowsizeclass.WindowHeightSizeClass
-import androidx.compose.material3.windowsizeclass.WindowSizeClass
-import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
-import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
-import androidx.window.layout.FoldingFeature
-import androidx.window.layout.WindowInfoTracker
 import com.omaster.app.ui.theme.ColorOSBlack
 import com.omaster.app.ui.theme.HasselbladOrange
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.flowOf
 import timber.log.Timber
 
 /**
@@ -425,10 +411,10 @@ fun isDarkMode(): Boolean {
  */
 @Composable
 fun isHighContrastMode(): Boolean {
-    val configuration = LocalConfiguration.current
-    return remember(configuration) {
-        val accessibilityFlags = configuration.accessibilityFlags
-        (accessibilityFlags and Configuration.ACCESSIBILITY_HIGH_CONTRAST) != 0
+    val context = LocalContext.current
+    return remember(context) {
+        val am = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as? AccessibilityManager
+        am?.isHighTextContrastEnabled ?: false
     }
 }
 
@@ -497,17 +483,16 @@ fun responsiveTextSize(
  */
 @Composable
 fun rememberSafeArea(): PaddingValues {
-    val view = LocalView.current
-    val windowInsets = WindowInsets.safeArea
-    
-    return remember {
-        PaddingValues(
-            start = windowInsets.getLeft(android.view.WindowInsets.Type.systemBars(), view).toDp(),
-            top = windowInsets.getTop(android.view.WindowInsets.Type.systemBars(), view).toDp(),
-            end = windowInsets.getRight(android.view.WindowInsets.Type.systemBars(), view).toDp(),
-            bottom = windowInsets.getBottom(android.view.WindowInsets.Type.systemBars(), view).toDp()
-        )
-    }
+    val windowInsets = WindowInsets.systemBars
+    val density = LocalDensity.current
+    val layoutDirection = LocalLayoutDirection.current
+
+    return PaddingValues(
+        start = windowInsets.getLeft(density, layoutDirection).toDp(),
+        top = windowInsets.getTop(density).toDp(),
+        end = windowInsets.getRight(density, layoutDirection).toDp(),
+        bottom = windowInsets.getBottom(density).toDp()
+    )
 }
 
 /**
@@ -515,12 +500,10 @@ fun rememberSafeArea(): PaddingValues {
  */
 @Composable
 fun rememberNavigationBarHeight(): Dp {
-    val view = LocalView.current
     val windowInsets = WindowInsets.navigationBars
-    
-    return remember {
-        windowInsets.getBottom(android.view.WindowInsets.Type.navigationBars(), view).toDp()
-    }
+    val density = LocalDensity.current
+
+    return windowInsets.getBottom(density).toDp()
 }
 
 /**
@@ -528,12 +511,10 @@ fun rememberNavigationBarHeight(): Dp {
  */
 @Composable
 fun rememberStatusBarHeight(): Dp {
-    val view = LocalView.current
     val windowInsets = WindowInsets.statusBars
-    
-    return remember {
-        windowInsets.getTop(android.view.WindowInsets.Type.statusBars(), view).toDp()
-    }
+    val density = LocalDensity.current
+
+    return windowInsets.getTop(density).toDp()
 }
 
 /**
@@ -570,7 +551,8 @@ fun ProEdgeToEdgeLayout(
 
 // ==================== 辅助函数 ====================
 
-private fun Int.toDp(): Dp = (this / androidx.compose.ui.platform.LocalDensity.current.density).dp
+@Composable
+private fun Int.toDp(): Dp = (this / LocalDensity.current.density).dp
 
 /**
  * 屏幕宽度
@@ -599,3 +581,38 @@ val MinTouchTarget = 48.dp
  * 推荐触摸目标大小（56dp）
  */
 val RecommendedTouchTarget = 56.dp
+
+// ==================== 折叠屏本地存根（androidx.window.layout 不可用时的最小实现） ====================
+
+/**
+ * 显示屏特征基类
+ */
+sealed class DisplayFeature
+
+/**
+ * 折叠屏特征本地存根
+ */
+class FoldingFeature(
+    val state: State,
+    val orientation: Orientation
+) : DisplayFeature() {
+    enum class State { FLAT, HALF_OPENED }
+    enum class Orientation { HORIZONTAL, VERTICAL }
+}
+
+/**
+ * 窗口布局信息本地存根
+ */
+class WindowLayoutInfo(val displayFeatures: List<DisplayFeature>)
+
+/**
+ * 窗口信息追踪器本地存根
+ */
+class WindowInfoTracker private constructor() {
+    fun windowLayoutInfo(context: Context): Flow<WindowLayoutInfo> =
+        flowOf(WindowLayoutInfo(emptyList()))
+
+    companion object {
+        fun getOrCreate(context: Context): WindowInfoTracker = WindowInfoTracker()
+    }
+}

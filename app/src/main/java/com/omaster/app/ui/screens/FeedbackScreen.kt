@@ -15,12 +15,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.omaster.app.ui.theme.Spacing
 import com.omaster.app.ui.theme.Typography
 import com.omaster.app.ui.theme.hasselbladOrange
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 /**
@@ -548,7 +551,7 @@ enum class FeedbackType(
  */
 class FeedbackViewModel {
     private val _uiState = MutableStateFlow(FeedbackUiState())
-    val uiState: androidx.compose.runtime.StateFlow<FeedbackUiState> = _uiState
+    val uiState: StateFlow<FeedbackUiState> = _uiState
 
     fun selectFeedbackType(type: FeedbackType) {
         _uiState.value = _uiState.value.copy(selectedType = type)

@@ -13,6 +13,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,11 +35,22 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.Apartment
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.ChangeCircle
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Commute
+import androidx.compose.material.icons.filled.Eco
+import androidx.compose.material.icons.filled.Landscape
+import androidx.compose.material.icons.filled.Nightlight
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -47,7 +59,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.foundation.layout.PaddingValues
@@ -369,7 +383,8 @@ fun SceneDetectionScreen(
                             ProPresetCard(
                                 preset = preset,
                                 onClick = { onPresetClick(preset) },
-                                onFavoriteToggle = { onFavoriteToggle(preset.id) }
+                                onFavoriteToggle = { onFavoriteToggle(preset.id) },
+                                isDark = true
                             )
                         }
                     }
@@ -736,12 +751,12 @@ fun getSceneIcon(scene: SceneType): ImageVector {
         SceneType.FOOD, SceneType.MIXED_FOOD -> Icons.Default.Restaurant
         SceneType.STREET -> Icons.Default.Commute
         SceneType.NATURE -> Icons.Default.Eco
-        SceneType.ARCHITECTURE -> Icons.Default.Apartment
-        SceneType.MACRO, SceneType.FLOWER, SceneType.INSECT, SceneType.OBJECT_DETAIL -> 
+        SceneType.ARCHITECTURE, SceneType.DESERT -> Icons.Default.Apartment
+        SceneType.MACRO, SceneType.FLOWER, SceneType.INSECT, SceneType.OBJECT_DETAIL ->
             Icons.Default.CenterFocusStrong
         SceneType.MOTION -> Icons.Default.AutoAwesome
-        SceneType.TOO_DARK, SceneType.TOO_BRIGHT, SceneType.TOO_BLURRY, 
-        SceneType.INDOOR_WARM, SceneType.STILL_LIFE -> Icons.Default.Warning
+        SceneType.TOO_DARK, SceneType.TOO_BRIGHT, SceneType.TOO_BLURRY,
+        SceneType.INTERIOR_WARM, SceneType.STILL_LIFE -> Icons.Default.Warning
         SceneType.UNKNOWN -> Icons.Default.Warning
     }
 }

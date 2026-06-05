@@ -2,6 +2,7 @@ package com.omaster.app.ui.components
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -10,8 +11,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -135,12 +138,12 @@ private fun FilterChipItem(
                 )
             },
             colors = FilterChipDefaults.filterChipColors(
+                containerColor = animatedColor,
                 selectedContainerColor = animatedColor,
-                unselectedContainerColor = animatedColor,
+                labelColor = textColor,
                 selectedLabelColor = textColor,
-                unselectedLabelColor = textColor,
-                selectedLeadingIconColor = iconColor,
-                unselectedLeadingIconColor = iconColor
+                iconColor = iconColor,
+                selectedLeadingIconColor = iconColor
             ),
             shape = RoundedCornerShape(20.dp),
             border = null
@@ -227,10 +230,10 @@ fun MultiSelectFilterChips(
                     },
                     label = { Text(getFilterLabel(filterType)) },
                     colors = FilterChipDefaults.filterChipColors(
+                        containerColor = animatedColor,
                         selectedContainerColor = animatedColor,
-                        unselectedContainerColor = animatedColor,
-                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        unselectedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
                     ),
                     shape = RoundedCornerShape(20.dp)
                 )

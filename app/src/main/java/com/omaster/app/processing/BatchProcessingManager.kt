@@ -15,6 +15,7 @@ import com.omaster.app.watermark.WatermarkTemplate
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.Semaphore
 import timber.log.Timber
 import java.io.File
 import java.io.FileOutputStream
