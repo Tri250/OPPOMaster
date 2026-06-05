@@ -774,6 +774,81 @@ body {
   overflow: hidden;
 }
 
+/* 创作中心 · 4 模式入口 */
+.create-modes {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 8px 20px 12px;
+}
+
+.mode-card {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--glass-soft);
+  border: 1px solid var(--noir-stroke);
+  padding: 12px;
+  display: flex; flex-direction: column; justify-content: space-between;
+  cursor: pointer;
+  transition: all 0.3s var(--ease-hassel);
+}
+
+.mode-card.primary {
+  background: linear-gradient(135deg, rgba(212, 165, 116, 0.18), rgba(184, 137, 90, 0.08));
+  border-color: var(--hassel-orange-aurora);
+  box-shadow: 0 0 0 1px rgba(212, 165, 116, 0.2);
+}
+
+.mode-card:hover { transform: scale(1.02); }
+
+.mode-glow {
+  position: absolute; top: 0; right: 0;
+  width: 80px; height: 80px;
+  background: radial-gradient(circle at top right, rgba(212, 165, 116, 0.2), transparent 70%);
+}
+
+.mode-icon {
+  width: 28px; height: 28px;
+  border-radius: 10px;
+  background: var(--hassel-orange-aurora);
+  display: grid; place-items: center;
+  color: var(--hassel-orange);
+}
+
+.mode-icon.lg {
+  background: linear-gradient(135deg, var(--hassel-orange), var(--hassel-orange-deep));
+  color: var(--noir-void);
+  box-shadow: var(--shadow-orange);
+}
+
+.mode-icon svg { width: 14px; height: 14px; }
+.mode-icon.lg svg { width: 16px; height: 16px; }
+
+.mode-title {
+  font-family: 'Noto Serif SC', serif;
+  font-size: 14px; font-weight: 600;
+  letter-spacing: -0.01em;
+  margin-top: auto;
+}
+
+.mode-sub {
+  font-size: 9px; color: var(--text-tertiary);
+  font-weight: 500;
+  margin-top: 2px;
+  letter-spacing: 0.05em;
+}
+
+.mode-tag {
+  position: absolute; top: 10px; right: 10px;
+  padding: 2px 6px;
+  background: var(--hassel-orange);
+  color: var(--noir-void);
+  border-radius: 4px;
+  font-size: 8px; font-weight: 800;
+  letter-spacing: 0.1em;
+}
+
 .create-header {
   padding: 8px 20px 12px;
   display: flex; align-items: center; justify-content: space-between;
@@ -1305,6 +1380,45 @@ body {
    SCREEN 6: PROFILE
    ============================================================ */
 .screen-profile { height: 100%; display: flex; flex-direction: column; background: var(--noir-void); overflow: hidden; }
+
+/* 我的中心 · 4 子入口 */
+.profile-entries {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 0 20px 12px;
+}
+
+.profile-entry {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  background: var(--glass-soft);
+  border: 1px solid var(--noir-stroke);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.3s var(--ease-hassel);
+}
+
+.profile-entry:hover { background: var(--glass-medium); border-color: var(--hassel-orange-aurora); }
+
+.entry-icon {
+  width: 32px; height: 32px;
+  border-radius: 10px;
+  background: var(--hassel-orange-aurora);
+  display: grid; place-items: center;
+  color: var(--hassel-orange);
+  flex-shrink: 0;
+}
+
+.entry-icon svg { width: 14px; height: 14px; }
+
+.entry-text { flex: 1; min-width: 0; }
+.entry-name { font-size: 11px; font-weight: 700; color: var(--text-primary); }
+.entry-count {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  color: var(--text-tertiary);
+  margin-top: 1px;
+}
 
 .profile-header { padding: 16px 20px 20px; text-align: center; position: relative; }
 

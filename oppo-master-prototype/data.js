@@ -30,8 +30,8 @@ const SCREENS = [
   // ============================================================
   {
     num: '03',
-    name: 'AI 智能修图',
-    tag: 'AI CREATE',
+    name: '创作中心',
+    tag: 'CREATE CENTER',
     type: 'create'
   },
 
@@ -60,8 +60,8 @@ const SCREENS = [
   // ============================================================
   {
     num: '06',
-    name: '个人中心',
-    tag: 'PROFILE',
+    name: '我的中心',
+    tag: 'MY PROFILE',
     type: 'profile'
   },
 
@@ -183,11 +183,10 @@ function renderHome() {
       </div>
 
       <div class="category-tabs">
-        <div class="cat-tab active">HNCS · 8</div>
+        <div class="cat-tab active">全部 · 42</div>
+        <div class="cat-tab">HNCS · 8</div>
         <div class="cat-tab">人像 · 12</div>
         <div class="cat-tab">风光 · 9</div>
-        <div class="cat-tab">夜景 · 6</div>
-        <div class="cat-tab">街拍 · 7</div>
         <div class="cat-tab">★ 收藏</div>
       </div>
 
@@ -335,16 +334,49 @@ function renderDetail() {
 }
 
 // ============================================================
-// SCREEN 3: AI CREATE
+// SCREEN 3: CREATE CENTER (创作中心)
 // ============================================================
 function renderCreate() {
   return `
     <div class="screen-create">
       ${statusBar()}
       <div class="create-header">
-        <div class="back-btn">${ICONS.back}</div>
-        <div class="create-title">AI 智能 <span class="accent">修图</span></div>
         <div style="width:36px;height:36px;"></div>
+        <div class="create-title"><span class="accent">创作</span> 中心</div>
+        <div style="width:36px;height:36px;display:grid;place-items:center;color:var(--text-tertiary);">${ICONS.more}</div>
+      </div>
+
+      <div class="create-modes">
+        <div class="mode-card primary">
+          <div class="mode-glow"></div>
+          <div class="mode-icon lg">${ICONS.create}</div>
+          <div>
+            <div class="mode-title">AI 智能修图</div>
+            <div class="mode-sub">8 场景 · 4 风格</div>
+          </div>
+        </div>
+        <div class="mode-card">
+          <div class="mode-icon">${ICONS.logo}</div>
+          <div>
+            <div class="mode-title">哈苏水印</div>
+            <div class="mode-sub">8 模板 · 实时预览</div>
+          </div>
+        </div>
+        <div class="mode-card">
+          <div class="mode-icon">${ICONS.layers}</div>
+          <div>
+            <div class="mode-title">批量处理</div>
+            <div class="mode-sub">最多 20 张</div>
+          </div>
+          <span class="mode-tag">PRO</span>
+        </div>
+        <div class="mode-card">
+          <div class="mode-icon">${ICONS.camera}</div>
+          <div>
+            <div class="mode-title">直接拍摄</div>
+            <div class="mode-sub">系统相机调用</div>
+          </div>
+        </div>
       </div>
 
       <div class="photo-canvas">
@@ -583,7 +615,7 @@ function renderCamera() {
 }
 
 // ============================================================
-// SCREEN 6: PROFILE
+// SCREEN 6: PROFILE (我的中心)
 // ============================================================
 function renderProfile() {
   return `
@@ -599,6 +631,37 @@ function renderProfile() {
           <div class="pstat"><div class="pstat-num">128</div><div class="pstat-label">作品</div></div>
           <div class="pstat"><div class="pstat-num">42</div><div class="pstat-label">收藏</div></div>
           <div class="pstat"><div class="pstat-num">3.2K</div><div class="pstat-label">点赞</div></div>
+        </div>
+      </div>
+
+      <div class="profile-entries">
+        <div class="profile-entry">
+          <div class="entry-icon">${ICONS.hasselMark}</div>
+          <div class="entry-text">
+            <div class="entry-name">我的预设</div>
+            <div class="entry-count">12 个 · 含 3 自定义</div>
+          </div>
+        </div>
+        <div class="profile-entry">
+          <div class="entry-icon">${ICONS.heart}</div>
+          <div class="entry-text">
+            <div class="entry-name">收藏夹</div>
+            <div class="entry-count">42 个 · 已同步</div>
+          </div>
+        </div>
+        <div class="profile-entry">
+          <div class="entry-icon">${ICONS.timer}</div>
+          <div class="entry-text">
+            <div class="entry-name">历史记录</div>
+            <div class="entry-count">128 条操作</div>
+          </div>
+        </div>
+        <div class="profile-entry">
+          <div class="entry-icon">${ICONS.more}</div>
+          <div class="entry-text">
+            <div class="entry-name">设置</div>
+            <div class="entry-count">外观 · 隐私 · 拍摄</div>
+          </div>
         </div>
       </div>
 
