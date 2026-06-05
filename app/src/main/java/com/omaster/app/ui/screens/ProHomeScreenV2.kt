@@ -51,27 +51,49 @@ fun ProHomeScreenV2(
 ) {
     val presets by viewModel.presets.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
+    val debouncedQuery by viewModel.debouncedSearchQuery.collectAsState()
     val filterType by viewModel.filterType.collectAsState()
     val themeMode by viewModel.themeMode.collectAsState()
+    val favoritePresets by viewModel.favoritePresets.collectAsState()
+    val favoriteMessage by viewModel.favoriteMessage.collectAsState()
     
-    val filteredPresets = remember(presets, searchQuery, filterType) {
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    
+    // 使用防抖后的查询进行筛选
+    val filteredPresets = remember(presets, debouncedQuery, filterType, favoritePresets) {
         presets.filter { preset ->
-            val matchesQuery = searchQuery.isEmpty() ||
-                preset.name.contains(searchQuery, ignoreCase = true) ||
-                preset.deviceModel.contains(searchQuery, ignoreCase = true) ||
-                preset.tags.any { it.contains(searchQuery, ignoreCase = true) }
+            // 更新预设的收藏状态
+            val presetWithFavorite = preset.copy(isFavorite = favoritePresets.contains(preset.id))
+            
+            val matchesQuery = debouncedQuery.isEmpty() ||
+                presetWithFavorite.name.contains(debouncedQuery, ignoreCase = true) ||
+                presetWithFavorite.deviceModel.contains(debouncedQuery, ignoreCase = true) ||
+                presetWithFavorite.sceneType.contains(debouncedQuery, ignoreCase = true) ||
+                presetWithFavorite.tags.any { it.contains(debouncedQuery, ignoreCase = true) }
             
             val matchesFilter = when (filterType) {
                 FilterType.ALL -> true
-                FilterType.FAVORITES -> preset.isFavorite
-                FilterType.HNCS -> preset.isHncsCertified
-                FilterType.FIND_X -> preset.deviceModel.contains("Find X", ignoreCase = true)
-                FilterType.RENO -> preset.deviceModel.contains("Reno", ignoreCase = true)
-                FilterType.NEW -> preset.version.contains("3.0") || preset.downloadCount < 5000
-                FilterType.TRENDING -> preset.downloadCount > 10000
+                FilterType.FAVORITES -> presetWithFavorite.isFavorite
+                FilterType.HNCS -> presetWithFavorite.isHncsCertified
+                FilterType.FIND_X -> presetWithFavorite.deviceModel.contains("Find X", ignoreCase = true)
+                FilterType.RENO -> presetWithFavorite.deviceModel.contains("Reno", ignoreCase = true)
+                FilterType.NEW -> presetWithFavorite.version.contains("3.0") || presetWithFavorite.downloadCount < 5000
+                FilterType.TRENDING -> presetWithFavorite.downloadCount > 10000
             }
             
             matchesQuery && matchesFilter
+        }
+    }
+    
+    // 显示收藏消息Snackbar
+    LaunchedEffect(favoriteMessage) {
+        favoriteMessage?.let { message ->
+            snackbarHostState.showSnackbar(
+                message = message,
+                duration = SnackbarDuration.Short
+            )
+            viewModel.clearFavoriteMessage()
         }
     }
     
@@ -84,6 +106,7 @@ fun ProHomeScreenV2(
     
     Scaffold(
         containerColor = Colors.Background,
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         modifier = modifier
     ) { paddingValues ->
         LazyColumn(
@@ -161,10 +184,12 @@ fun ProHomeScreenV2(
                     items = filteredPresets,
                     key = { _, preset -> preset.id }
                 ) { index, preset ->
+                    // 使用更新后的收藏状态
+                    val presetWithFavorite = preset.copy(isFavorite = favoritePresets.contains(preset.id))
                     GlassPresetCard(
-                        preset = preset,
-                        onClick = { onPresetClick(preset) },
-                        onFavoriteToggle = { viewModel.toggleFavorite(preset) },
+                        preset = presetWithFavorite,
+                        onClick = { onPresetClick(presetWithFavorite) },
+                        onFavoriteToggle = { viewModel.toggleFavorite(presetWithFavorite) },
                         isNew = index < 3,
                         index = index,
                         modifier = Modifier.padding(horizontal = Spacing.ScreenPadding, vertical = Spacing.sm)
