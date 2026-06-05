@@ -3,7 +3,10 @@ package com.omaster.app.ui.screens
 import android.content.Context
 import androidx.core.content.FileProvider
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -61,6 +64,8 @@ fun SceneDetectionScreenV2(
     
     var isDetecting by remember { mutableStateOf(false) }
     var detectedScene by remember { mutableStateOf<SceneType?>(null) }
+    var sceneConfidence by remember { mutableStateOf(0f) }
+    var isOfflineDetection by remember { mutableStateOf(false) }
     var recommendedPresets by remember { mutableStateOf<List<Preset>>(emptyList()) }
     var selectedImage by remember { mutableStateOf<Uri?>(null) }
     var showImageSourceDialog by remember { mutableStateOf(false) }
@@ -134,13 +139,23 @@ fun SceneDetectionScreenV2(
         val startTime = System.currentTimeMillis()
         
         try {
-            val scene = aiService.detectScene(selectedImage?.toString())
+            // 检查网络状态，选择在线或离线检测
+            val hasNetwork = isNetworkAvailable(context)
+            
+            val result = if (hasNetwork) {
+                aiService.detectSceneWithConfidence(selectedImage?.toString())
+            } else {
+                aiService.detectSceneOffline(selectedImage?.toString())
+            }
+            
             val endTime = System.currentTimeMillis()
             
-            detectedScene = scene
+            detectedScene = result.scene
+            sceneConfidence = result.confidence
+            isOfflineDetection = result.isOffline
             detectionTime = (endTime - startTime).toInt()
             
-            recommendedPresets = aiService.getRecommendedPresets(scene, allPresets)
+            recommendedPresets = aiService.getRecommendedPresets(result.scene, allPresets)
             
             scaleAnimation.animateTo(
                 1.05f,
@@ -154,6 +169,14 @@ fun SceneDetectionScreenV2(
         } finally {
             isDetecting = false
         }
+    }
+    
+    fun isNetworkAvailable(context: Context): Boolean {
+        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val network = connectivityManager.activeNetwork ?: return false
+        val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+               capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
     }
     
     if (showImageSourceDialog) {
