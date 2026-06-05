@@ -486,7 +486,7 @@ private fun ParamChipEnhanced(
                     text = value,
                     style = Typography.TitleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = if (isDark) Colors.HasselbladOrange else ColorOSLightAccent
+                    color = if (isDark) Colors.HasselbladOrange else Colors.HasselbladOrange
                 )
             }
         }

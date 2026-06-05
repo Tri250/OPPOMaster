@@ -386,7 +386,7 @@ private fun WatermarkTemplateCard(
     
     val borderColor by animateColorAsState(
         targetValue = if (isSelected) Colors.HasselbladOrange else Colors.GlassBackground,
-        animationSpec = tween(ColorOSAnimationDuration.Fast),
+        animationSpec = tween(ColorOSAnimationDuration.FAST),
         label = "borderColor"
     )
     
@@ -631,7 +631,7 @@ fun getDefaultPreviewTemplates(): List<WatermarkPreviewTemplate> = listOf(
         id = "minimal",
         name = "极简水印",
         description = "简洁角落水印",
-        previewIcon = Icons.Default.Minimize,
+        previewIcon = Icons.Default.Remove,
         previewColor = Colors.OnSurfaceVariant,
         watermarks = listOf(
             Watermark(

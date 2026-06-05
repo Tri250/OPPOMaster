@@ -56,11 +56,11 @@ fun ParamApplyFeedbackCard(
                 dampingRatio = 0.8f,
                 stiffness = 400f
             )
-        ) + fadeIn(animationSpec = tween(ColorOSAnimationDuration.Medium)),
+        ) + fadeIn(animationSpec = tween(ColorOSAnimationDuration.MEDIUM)),
         exit = slideOutVertically(
             targetOffsetY = { it },
-            animationSpec = tween(ColorOSAnimationDuration.Fast)
-        ) + fadeOut(animationSpec = tween(ColorOSAnimationDuration.Fast)),
+            animationSpec = tween(ColorOSAnimationDuration.FAST)
+        ) + fadeOut(animationSpec = tween(ColorOSAnimationDuration.FAST)),
         modifier = modifier
     ) {
         when (state) {
