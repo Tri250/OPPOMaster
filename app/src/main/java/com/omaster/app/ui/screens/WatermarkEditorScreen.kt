@@ -28,9 +28,13 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.omaster.app.ui.theme.HasselbladOrange
 import com.omaster.app.ui.theme.OMasterSpacing
+import com.omaster.app.viewmodel.WatermarkViewModel
 import com.omaster.app.watermark.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -39,23 +43,58 @@ import kotlinx.coroutines.withContext
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WatermarkEditorScreen(
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    viewModel: WatermarkViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     
+    // 从ViewModel获取持久化配置
+    val savedTemplate by viewModel.watermarkTemplate.collectAsStateWithLifecycle()
+    val savedPosition by viewModel.watermarkPosition.collectAsStateWithLifecycle()
+    val savedOpacity by viewModel.watermarkOpacity.collectAsStateWithLifecycle()
+    val savedShowTimestamp by viewModel.watermarkShowTimestamp.collectAsStateWithLifecycle()
+    val savedShowDevice by viewModel.watermarkShowDevice.collectAsStateWithLifecycle()
+    val savedCustomText by viewModel.watermarkCustomText.collectAsStateWithLifecycle()
+    val savedTextSize by viewModel.watermarkTextSize.collectAsStateWithLifecycle()
+    
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
     var selectedTemplate by remember { mutableStateOf(WatermarkTemplate.HASSELBLAD) }
+    var selectedPosition by remember { mutableStateOf(WatermarkPosition.BOTTOM_RIGHT) }
     var customText by remember { mutableStateOf("") }
     var showTimestamp by remember { mutableStateOf(true) }
     var showDevice by remember { mutableStateOf(true) }
     var opacity by remember { mutableStateOf(0.8f) }
+    var textSize by remember { mutableStateOf(1.0f) }
     var isProcessing by remember { mutableStateOf(false) }
     var processedBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var showPreview by remember { mutableStateOf(false) }
+    var configLoaded by remember { mutableStateOf(false) }
     
     val watermarkProcessor = remember { WatermarkProcessor(context) }
+    
+    // 加载保存的配置
+    LaunchedEffect(savedTemplate, savedPosition, configLoaded) {
+        if (!configLoaded && savedTemplate.isNotEmpty()) {
+            selectedTemplate = try {
+                WatermarkTemplate.valueOf(savedTemplate)
+            } catch (e: Exception) {
+                WatermarkTemplate.HASSELBLAD
+            }
+            selectedPosition = try {
+                WatermarkPosition.valueOf(savedPosition)
+            } catch (e: Exception) {
+                WatermarkPosition.BOTTOM_RIGHT
+            }
+            opacity = savedOpacity
+            showTimestamp = savedShowTimestamp
+            showDevice = savedShowDevice
+            customText = savedCustomText
+            textSize = savedTextSize
+            configLoaded = true
+        }
+    }
 
     val imagePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -93,8 +132,10 @@ fun WatermarkEditorScreen(
                 
                 val config = WatermarkConfig(
                     template = selectedTemplate,
+                    position = selectedPosition,
                     opacity = opacity,
-                    customText = if (selectedTemplate == WatermarkTemplate.CUSTOM) customText else null,
+                    scale = textSize,
+                    customText = if (selectedTemplate == WatermarkTemplate.CUSTOM || customText.isNotEmpty()) customText else null,
                     showTimestamp = showTimestamp,
                     showDevice = showDevice
                 )
@@ -182,8 +223,46 @@ fun WatermarkEditorScreen(
                 showDevice = showDevice,
                 onShowDeviceChange = { showDevice = it },
                 opacity = opacity,
-                onOpacityChange = { opacity = it }
+                onOpacityChange = { opacity = it },
+                textSize = textSize,
+                onTextSizeChange = { textSize = it },
+                selectedPosition = selectedPosition,
+                onPositionChange = { selectedPosition = it }
             )
+
+            // 保存水印配置按钮
+            OutlinedButton(
+                onClick = {
+                    scope.launch {
+                        viewModel.saveWatermarkConfig(
+                            template = selectedTemplate.name,
+                            position = selectedPosition.name,
+                            opacity = opacity,
+                            showTimestamp = showTimestamp,
+                            showDevice = showDevice,
+                            customText = customText,
+                            textSize = textSize
+                        )
+                        snackbarHostState.showSnackbar("水印配置已保存")
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Settings,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "保存水印配置",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
 
             Button(
                 onClick = { applyWatermark() },
@@ -417,8 +496,22 @@ fun WatermarkOptions(
     showDevice: Boolean,
     onShowDeviceChange: (Boolean) -> Unit,
     opacity: Float,
-    onOpacityChange: (Float) -> Unit
+    onOpacityChange: (Float) -> Unit,
+    textSize: Float,
+    onTextSizeChange: (Float) -> Unit,
+    selectedPosition: WatermarkPosition,
+    onPositionChange: (WatermarkPosition) -> Unit
 ) {
+    val positions = listOf(
+        WatermarkPosition.TOP_LEFT to "左上",
+        WatermarkPosition.TOP_CENTER to "上中",
+        WatermarkPosition.TOP_RIGHT to "右上",
+        WatermarkPosition.CENTER to "居中",
+        WatermarkPosition.BOTTOM_LEFT to "左下",
+        WatermarkPosition.BOTTOM_CENTER to "下中",
+        WatermarkPosition.BOTTOM_RIGHT to "右下"
+    )
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -435,6 +528,24 @@ fun WatermarkOptions(
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
+
+            // 水印位置选择
+            Text(
+                text = "水印位置",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium
+            )
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                items(positions) { (position, name) ->
+                    PositionChip(
+                        name = name,
+                        isSelected = selectedPosition == position,
+                        onClick = { onPositionChange(position) }
+                    )
+                }
+            }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -456,7 +567,7 @@ fun WatermarkOptions(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("显示设备信息", style = MaterialTheme.typography.bodyMedium)
+                Text("显示设备型号", style = MaterialTheme.typography.bodyMedium)
                 Switch(
                     checked = showDevice,
                     onCheckedChange = onShowDeviceChange,
@@ -465,6 +576,20 @@ fun WatermarkOptions(
                     )
                 )
             }
+
+            Text(
+                text = "文字大小: ${(textSize * 100).toInt()}%",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Slider(
+                value = textSize,
+                onValueChange = onTextSizeChange,
+                valueRange = 0.5f..2.0f,
+                colors = SliderDefaults.colors(
+                    thumbColor = HasselbladOrange,
+                    activeTrackColor = HasselbladOrange
+                )
+            )
 
             Text(
                 text = "透明度: ${(opacity * 100).toInt()}%",
@@ -482,11 +607,46 @@ fun WatermarkOptions(
             OutlinedTextField(
                 value = customText,
                 onValueChange = onCustomTextChange,
-                label = { Text("自定义文字") },
+                label = { Text("水印文字") },
+                placeholder = { Text("输入水印文字，如：OPPOMaster 出品") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp)
             )
         }
+    }
+}
+
+@Composable
+fun PositionChip(
+    name: String,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .then(
+                if (isSelected) Modifier.border(
+                    2.dp,
+                    HasselbladOrange,
+                    RoundedCornerShape(8.dp)
+                ) else Modifier
+            ),
+        shape = RoundedCornerShape(8.dp),
+        color = if (isSelected) {
+            HasselbladOrange.copy(alpha = 0.15f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        }
+    ) {
+        Text(
+            text = name,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+            color = if (isSelected) HasselbladOrange else MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
