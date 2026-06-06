@@ -16,14 +16,8 @@ import {
   Send,
   Sparkles,
   Image as ImageIcon,
-  Users,
-  Calendar,
-  Languages,
-  Shield,
-  Tag,
-  Scan,
   Plus,
-  Zap
+  Camera
 } from 'lucide-react'
 
 interface MoreFeature {
@@ -410,185 +404,6 @@ const moreFeatures: MoreFeature[] = [
     )
   },
   {
-    id: 'community',
-    icon: Users,
-    title: '社区分享',
-    subtitle: '发现更多预设',
-    description: '加入OMaster社区，与全球摄影师交流，发现和分享优质预设，一起成长。',
-    details: [
-      '浏览社区热门预设',
-      '关注摄影师动态',
-      '分享你的原创预设',
-      '评论互动交流',
-      '收藏喜欢的预设'
-    ],
-    color: '#58A6FF',
-    preview: (
-      <div className="space-y-2">
-        <div className="flex items-center gap-2 p-2 bg-[#1C1C1E] rounded-lg">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-purple-500" />
-          <div className="flex-1">
-            <div className="text-white text-xs">摄影爱好者</div>
-            <div className="text-gray-500 text-[10px]">分享了新预设</div>
-          </div>
-          <span className="text-gray-400 text-[10px]">2m</span>
-        </div>
-        <div className="flex items-center gap-2 p-2 bg-[#1C1C1E] rounded-lg">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-green-400 to-teal-500" />
-          <div className="flex-1">
-            <div className="text-white text-xs">风景大师</div>
-            <div className="text-gray-500 text-[10px]">更新了预设</div>
-          </div>
-          <span className="text-gray-400 text-[10px]">15m</span>
-        </div>
-      </div>
-    )
-  },
-  {
-    id: 'holiday',
-    icon: Calendar,
-    title: '节日问候',
-    subtitle: '节日专属预设',
-    description: '节日期间推送专属预设和问候，让你的节日照片更有仪式感。',
-    details: [
-      '节日专属预设包',
-      '节日问候提醒',
-      '节日主题水印',
-      '节日拍摄建议',
-      '节日分享模板'
-    ],
-    color: '#F778BA',
-    preview: (
-      <div className="space-y-2">
-        <div className="bg-gradient-to-r from-pink-500/20 to-purple-500/20 rounded-lg p-3 border border-pink-500/30">
-          <div className="flex items-center gap-2 mb-2">
-            <Calendar size={14} className="text-pink-400" />
-            <span className="text-white text-xs font-medium">新年快乐</span>
-          </div>
-          <p className="text-gray-300 text-[10px]">解锁新年专属预设包，拍出氛围感照片！</p>
-        </div>
-        <div className="grid grid-cols-3 gap-2">
-          <div className="bg-[#1C1C1E] rounded-lg p-2">
-            <div className="w-full h-8 rounded bg-gradient-to-br from-red-400 to-red-600 mb-1" />
-            <div className="text-center text-white text-[10px]">春节</div>
-          </div>
-          <div className="bg-[#1C1C1E] rounded-lg p-2">
-            <div className="w-full h-8 rounded bg-gradient-to-br from-pink-400 to-pink-600 mb-1" />
-            <div className="text-center text-white text-[10px]">情人节</div>
-          </div>
-          <div className="bg-[#1C1C1E] rounded-lg p-2">
-            <div className="w-full h-8 rounded bg-gradient-to-br from-yellow-400 to-orange-500 mb-1" />
-            <div className="text-center text-white text-[10px]">中秋</div>
-          </div>
-        </div>
-      </div>
-    )
-  },
-  {
-    id: 'languages',
-    icon: Languages,
-    title: '多语言支持',
-    subtitle: '全球用户友好',
-    description: '支持多种语言界面，覆盖全球用户，让更多人享受OMaster的便利。',
-    details: [
-      '中文简体/繁体',
-      'English',
-      '日本語',
-      '한국어',
-      '智能语言检测'
-    ],
-    color: '#FFD700',
-    preview: (
-      <div className="space-y-2">
-        <div className="flex items-center justify-between p-2 bg-[#1C1C1E] rounded-lg">
-          <span className="text-white text-xs">简体中文</span>
-          <div className="w-4 h-4 rounded-full bg-[#FF6B35] flex items-center justify-center">
-            <div className="w-2 h-2 bg-white rounded-full" />
-          </div>
-        </div>
-        <div className="flex items-center justify-between p-2 bg-[#1C1C1E] rounded-lg">
-          <span className="text-gray-400 text-xs">English</span>
-          <div className="w-4 h-4 rounded-full border border-gray-600" />
-        </div>
-        <div className="flex items-center justify-between p-2 bg-[#1C1C1E] rounded-lg">
-          <span className="text-gray-400 text-xs">日本語</span>
-          <div className="w-4 h-4 rounded-full border border-gray-600" />
-        </div>
-      </div>
-    )
-  },
-  {
-    id: 'privacy',
-    icon: Shield,
-    title: '隐私保护',
-    subtitle: '安全可靠',
-    description: '完善的隐私保护机制，你的数据安全得到充分保障。',
-    details: [
-      '本地数据存储',
-      '隐私协议透明',
-      '数据加密传输',
-      '用户隐私设置',
-      '无后台数据收集'
-    ],
-    color: '#3FB950',
-    preview: (
-      <div className="space-y-2">
-        <div className="flex items-center gap-3 p-2 bg-[#1C1C1E] rounded-lg">
-          <Shield size={16} className="text-green-400" />
-          <div className="flex-1">
-            <div className="text-white text-xs">数据已加密</div>
-            <div className="text-gray-500 text-[10px]">你的预设安全存储</div>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <div className="bg-[#1C1C1E] rounded-lg p-2 text-center">
-            <div className="text-green-400 text-xs font-bold">本地</div>
-            <div className="text-gray-400 text-[10px]">存储</div>
-          </div>
-          <div className="bg-[#1C1C1E] rounded-lg p-2 text-center">
-            <div className="text-blue-400 text-xs font-bold">加密</div>
-            <div className="text-gray-400 text-[10px]">传输</div>
-          </div>
-        </div>
-      </div>
-    )
-  },
-  {
-    id: 'ocr',
-    icon: Scan,
-    title: 'OCR参数识别',
-    subtitle: '智能识别参数',
-    description: '通过OCR技术识别其他应用的相机参数，一键导入到OMaster中使用。',
-    details: [
-      '屏幕截图识别参数',
-      '图片OCR参数提取',
-      '一键导入预设',
-      '智能参数匹配',
-      '参数格式转换'
-    ],
-    color: '#A371F7',
-    preview: (
-      <div className="space-y-2">
-        <div className="bg-[#1C1C1E] rounded-lg p-3 relative">
-          <div className="w-full h-20 bg-gray-800 rounded relative overflow-hidden">
-            <div className="absolute inset-0 border-2 border-[#A371F7] border-dashed m-2 rounded" />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <Scan size={24} className="text-[#A371F7] opacity-50" />
-            </div>
-          </div>
-        </div>
-        <div className="bg-[#1C1C1E] rounded-lg p-2">
-          <div className="text-gray-400 text-[10px] mb-1">识别结果</div>
-          <div className="grid grid-cols-3 gap-2 text-center">
-            <div><span className="text-white text-xs">ISO 100</span></div>
-            <div><span className="text-white text-xs">1/125s</span></div>
-            <div><span className="text-white text-xs">f/2.8</span></div>
-          </div>
-        </div>
-      </div>
-    )
-  },
-  {
     id: 'submit',
     icon: Plus,
     title: '预设提交',
@@ -626,42 +441,33 @@ const moreFeatures: MoreFeature[] = [
     )
   },
   {
-    id: 'screenshot',
-    icon: Zap,
-    title: '截图分享',
-    subtitle: '一键生成截图',
-    description: '自动生成漂亮的预设展示截图，包含参数信息，方便分享到社交平台。',
+    id: 'scene-detection',
+    icon: Camera,
+    title: '场景检测',
+    subtitle: '智能识别场景',
+    description: '智能识别当前拍摄场景（人像、风景、夜景、美食等），自动推荐最适合的预设方案。',
     details: [
-      '自动生成预设截图',
-      '参数信息展示',
-      '多种模板选择',
-      '一键保存图片',
-      '直接分享到社交'
+      '自动识别拍摄场景',
+      '智能推荐预设方案',
+      '实时场景切换提示',
+      '场景匹配度显示',
+      '自定义场景预设'
     ],
     color: '#58A6FF',
     preview: (
       <div className="space-y-2">
-        <div className="bg-[#1C1C1E] rounded-lg p-2">
-          <div className="w-full h-24 bg-gradient-to-br from-orange-400 to-red-500 rounded-lg relative overflow-hidden">
-            <div className="absolute bottom-3 left-3 right-3 bg-black/50 backdrop-blur-sm rounded-lg p-2">
-              <div className="text-white text-xs font-bold">哈苏自然</div>
-              <div className="text-white/80 text-[10px] flex gap-3 mt-1">
-                <span>ISO 100</span>
-                <span>1/125s</span>
-                <span>f/2.8</span>
-              </div>
-            </div>
+        <div className="flex items-center gap-3 p-3 bg-[#1C1C1E] rounded-lg">
+          <Camera size={18} className="text-[#58A6FF]" />
+          <div className="flex-1">
+            <div className="text-white text-xs font-medium">检测到: 人像</div>
+            <div className="text-gray-500 text-[10px]">匹配度: 92%</div>
           </div>
         </div>
         <div className="flex gap-2">
-          <button className="flex-1 py-1.5 bg-[#58A6FF] text-white text-xs rounded flex items-center justify-center gap-1">
-            <Download size={12} />
-            保存
-          </button>
-          <button className="flex-1 py-1.5 bg-[#30363D] text-white text-xs rounded flex items-center justify-center gap-1">
-            <Share2 size={12} />
-            分享
-          </button>
+          <span className="px-2 py-1 bg-[#FF6B35]/20 text-[#FF6B35] text-[10px] rounded-full">人像</span>
+          <span className="px-2 py-1 bg-[#30363D] text-gray-400 text-[10px] rounded-full">风景</span>
+          <span className="px-2 py-1 bg-[#30363D] text-gray-400 text-[10px] rounded-full">夜景</span>
+          <span className="px-2 py-1 bg-[#30363D] text-gray-400 text-[10px] rounded-full">美食</span>
         </div>
       </div>
     )
