@@ -2,9 +2,9 @@ package com.omaster.app.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.omaster.app.camera.CameraCompatibilityStatus
-import com.omaster.app.camera.CameraParamProvider
-import com.omaster.app.camera.RealTimeCameraParams
+import com.omaster.app.data.camera.CameraCompatibilityStatus
+import com.omaster.app.data.camera.CameraParamProvider
+import com.omaster.app.data.camera.RealTimeCameraParams
 import com.omaster.app.data.FilterType
 import com.omaster.app.data.PreferencesDataStore
 import com.omaster.app.data.PresetRepository
