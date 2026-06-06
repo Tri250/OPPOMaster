@@ -23,10 +23,12 @@ android {
             useSupportLibrary = true
         }
         
-        // 预设数据 API 配置 - 使用官方 API 服务器
-        buildConfigField("String", "PRESET_OPPO_URL", "\"https://api.xiaobangbang.app/v1/presets/oppo\"")
-        buildConfigField("String", "PRESET_REALME_URL", "\"https://api.xiaobangbang.app/v1/presets/realme\"")
-        buildConfigField("String", "PRESET_ALL_URL", "\"https://api.xiaobangbang.app/v1/presets/all\"")
+        // 预设数据 API 配置 - 使用真实数据源
+        buildConfigField("String", "PRESET_OPPO_URL", "\"https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/oppo.json\"")
+        buildConfigField("String", "PRESET_REALME_URL", "\"https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/realme.json\"")
+        buildConfigField("String", "PRESET_HONOR_URL", "\"https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/honor.json\"")
+        buildConfigField("String", "PRESET_VIVO_URL", "\"https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/vivo.json\"")
+        buildConfigField("String", "PRESET_BASE_URL", "\"https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/\"")
     }
 
     signingConfigs {
@@ -39,10 +41,7 @@ android {
             enableV3Signing = true
         }
         
-        // Release 签名配置 - 需要创建 release.keystore 文件
-        // 创建命令: keytool -genkey -v -keystore release.keystore -alias release -keyalg RSA -keysize 2048 -validity 10000
         create("release") {
-            // 从环境变量或 gradle.properties 读取签名配置
             storeFile = file(System.getenv("KEYSTORE_FILE") ?: "release.keystore")
             storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "release_store_pass"
             keyAlias = System.getenv("KEY_ALIAS") ?: "release"
@@ -166,6 +165,8 @@ dependencies {
 
     // Testing
     testImplementation("junit:junit:4.13.2")
+    testImplementation("io.mockk:mockk:1.13.10")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
     androidTestImplementation(platform("androidx.compose:compose-bom:2024.09.00"))

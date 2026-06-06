@@ -7,9 +7,9 @@ import com.omaster.app.camera.CameraParamProvider
 import com.omaster.app.camera.RealTimeCameraParams
 import com.omaster.app.data.FilterType
 import com.omaster.app.data.PreferencesDataStore
+import com.omaster.app.data.PresetRepository
 import com.omaster.app.data.SearchManager
 import com.omaster.app.data.ThemeMode
-import com.omaster.app.data.PresetRepository
 import com.omaster.app.model.Preset
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,12 +29,26 @@ class MainViewModel @Inject constructor(
     private val cameraParamProvider: CameraParamProvider,
     private val searchManager: SearchManager
 ) : ViewModel() {
-    // Repository Flow exposed with stateIn for optimization
+
+    // 从Repository暴露的Flow
     val presets = repository.presets.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptyList()
     )
+    
+    val isLoading = repository.isLoading.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = false
+    )
+    
+    val error = repository.error.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = null
+    )
+    
     val themeMode = preferencesDataStore.themeMode.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -64,14 +78,6 @@ class MainViewModel @Inject constructor(
 
     private val _selectedPreset = MutableStateFlow<Preset?>(null)
     val selectedPreset: StateFlow<Preset?> = _selectedPreset.asStateFlow()
-
-    // Error state Flow
-    private val _syncError = MutableStateFlow<String?>(null)
-    val syncError: StateFlow<String?> = _syncError.asStateFlow()
-
-    // Loading state Flow
-    private val _isLoading = MutableStateFlow(false)
-    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
     // Camera related - Convert LiveData to StateFlow for consistency
     private val _cameraStatus = MutableStateFlow(CameraCompatibilityStatus.NotSupported)
@@ -106,8 +112,13 @@ class MainViewModel @Inject constructor(
     // Search history
     val searchHistory: List<String> get() = searchManager.searchHistory
 
-    // Observe LiveData and update StateFlow
     init {
+        // 初始化时从远程加载预设
+        viewModelScope.launch {
+            repository.loadPresetsFromRemote()
+        }
+        
+        // Observe LiveData and update StateFlow
         cameraParamProvider.status.observeForever { status ->
             _cameraStatus.value = status
         }
@@ -147,7 +158,6 @@ class MainViewModel @Inject constructor(
     fun filterByStyle(style: String) {
         viewModelScope.launch {
             val filtered = searchManager.filterByStyle(presets.value, style)
-            // 可以在这里更新UI状态或触发特定操作
             Timber.d("Filtered by style: $style, count: ${filtered.size}")
         }
     }
@@ -244,15 +254,10 @@ class MainViewModel @Inject constructor(
     fun syncPresets() {
         viewModelScope.launch {
             try {
-                _isLoading.value = true
-                _syncError.value = null
                 repository.syncPresets()
                 Timber.d("Presets synced successfully")
             } catch (e: Exception) {
                 Timber.e(e, "Failed to sync presets")
-                _syncError.value = e.message ?: "Unknown error occurred"
-            } finally {
-                _isLoading.value = false
             }
         }
     }
