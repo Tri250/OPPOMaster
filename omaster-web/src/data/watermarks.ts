@@ -1,11 +1,12 @@
-// 水印模板数据
+// 水印模板数据 - 参考2026年国内手机水印趋势
 export interface WatermarkTemplate {
   id: string;
   name: string;
   description: string;
   previewUrl: string;
-  category: 'brand' | 'functional' | 'opensource';
+  category: 'brand' | 'functional' | 'free';
   features: string[];
+  source?: string; // 来源品牌参考
 }
 
 // 使用图片生成API
@@ -17,26 +18,38 @@ export const watermarkTemplates: WatermarkTemplate[] = [
   {
     id: 'hasselblad',
     name: '哈苏认证',
-    description: '官方哈苏HNCS认证水印',
-    previewUrl: generateImageUrl('Hasselblad camera watermark, luxury brand logo, professional photography badge, orange and black theme'),
+    description: 'OPPO哈苏HNCS官方认证水印',
+    previewUrl: generateImageUrl('Hasselblad camera watermark, luxury brand logo, professional photography badge, orange and black theme, OPPO phone'),
     category: 'brand',
-    features: ['HNCS认证', '官方授权', '专业风格']
+    features: ['HNCS认证', '官方授权', '专业风格'],
+    source: 'OPPO'
   },
   {
-    id: 'oppo',
-    name: 'OPPO品牌',
-    description: 'OPPO官方品牌水印',
-    previewUrl: generateImageUrl('OPPO smartphone watermark, brand logo, camera parameters display, green accent color'),
+    id: 'leica',
+    name: '徕卡经典',
+    description: '小米徕卡联名水印，红标设计',
+    previewUrl: generateImageUrl('Leica camera watermark, red dot logo, minimalist design, black and white photography style, Xiaomi phone'),
     category: 'brand',
-    features: ['品牌标识', '设备型号', '参数展示']
+    features: ['徕卡红标', '经典双拼', '大师风格'],
+    source: '小米'
   },
   {
-    id: 'oneplus',
-    name: '一加风格',
-    description: '一加手机专属水印',
-    previewUrl: generateImageUrl('OnePlus phone watermark, minimalist design, red accent color, clean typography'),
+    id: 'zeiss',
+    name: '蔡司光学',
+    description: 'vivo蔡司联名水印，T*镀膜标识',
+    previewUrl: generateImageUrl('Zeiss camera watermark, blue accent, T coating mark, professional lens branding, vivo phone'),
     category: 'brand',
-    features: ['一加标识', '简洁设计', '参数信息']
+    features: ['蔡司T*', '光学认证', '多种背景色'],
+    source: 'vivo'
+  },
+  {
+    id: 'oppo-frame',
+    name: 'OPPO相框',
+    description: 'OPPO多样相框水印样式',
+    previewUrl: generateImageUrl('OPPO photo frame watermark, elegant border design, camera parameters display, white background'),
+    category: 'brand',
+    features: ['相框样式', '参数展示', '节日限定'],
+    source: 'OPPO'
   },
   // 功能水印
   {
@@ -56,20 +69,75 @@ export const watermarkTemplates: WatermarkTemplate[] = [
     features: ['日期显示', '时间记录', '自定义格式']
   },
   {
-    id: 'date-stamp',
-    name: '日期印章',
-    description: '证件照专用日期印章',
-    previewUrl: generateImageUrl('official date stamp, red warning text, document verification mark, certificate style'),
+    id: 'location',
+    name: '旅拍打卡',
+    description: '旅行场景水印，显示城市名称',
+    previewUrl: generateImageUrl('travel location watermark, city name display, GPS coordinates, travel photography style'),
     category: 'functional',
-    features: ['用途声明', '红色警示', '防伪标记']
+    features: ['城市名称', 'GPS定位', '旅拍风格'],
+    source: 'vivo'
   },
-  // 开源水印
+  {
+    id: 'live-photo',
+    name: '动态照片',
+    description: 'Live Photo动态水印效果',
+    previewUrl: generateImageUrl('Live Photo watermark, dynamic effect indicator, motion photo badge, animated icon'),
+    category: 'functional',
+    features: ['动态效果', '实况标识', '趣味动画'],
+    source: 'vivo/小米'
+  },
+  // 免费模板 - 参考2026年国内手机水印趋势
+  {
+    id: 'stamp',
+    name: '邮票邮戳',
+    description: 'vivo邮票邮戳风格，复古文艺',
+    previewUrl: generateImageUrl('postage stamp watermark, vintage style, postal mark design, retro aesthetic, decorative border'),
+    category: 'free',
+    features: ['邮票边框', '邮戳效果', '复古文艺'],
+    source: 'vivo'
+  },
+  {
+    id: 'chinese-style',
+    name: '国风印章',
+    description: '国风传统印章水印，水墨风格',
+    previewUrl: generateImageUrl('Chinese style watermark, traditional seal, ink painting style, red stamp mark, calligraphy'),
+    category: 'free',
+    features: ['国风设计', '水墨风格', '生肖定制'],
+    source: 'vivo/荣耀'
+  },
+  {
+    id: 'film-frame',
+    name: '胶片相框',
+    description: '小米胶片风格相框水印',
+    previewUrl: generateImageUrl('film camera frame watermark, vintage film border, analog photography style, nostalgic look'),
+    category: 'free',
+    features: ['胶片质感', '复古边框', '怀旧风格'],
+    source: '小米/荣耀'
+  },
+  {
+    id: 'new-year',
+    name: '新春舞狮',
+    description: '小米新春舞狮水印，非遗文化',
+    previewUrl: generateImageUrl('Chinese New Year watermark, lion dance design, festive red and gold, traditional pattern, Spring Festival'),
+    category: 'free',
+    features: ['舞狮元素', '新春限定', '非遗文化'],
+    source: '小米'
+  },
+  {
+    id: 'signature',
+    name: '艺术签名',
+    description: '手写艺术签名水印',
+    previewUrl: generateImageUrl('handwritten signature watermark, script font style, personal signature, elegant cursive'),
+    category: 'free',
+    features: ['手写体', '个性签名', '艺术风格'],
+    source: 'vivo'
+  },
   {
     id: 'tile-pattern',
-    name: '平铺水印',
+    name: '平铺防盗',
     description: '防盗用平铺水印',
     previewUrl: generateImageUrl('tiled watermark pattern, repeated text overlay, diagonal pattern, copyright protection'),
-    category: 'opensource',
+    category: 'free',
     features: ['全覆盖', '难去除', '防盗用']
   },
   {
@@ -77,39 +145,16 @@ export const watermarkTemplates: WatermarkTemplate[] = [
     name: '对角线',
     description: '对角线文字水印',
     previewUrl: generateImageUrl('diagonal text watermark, copyright text across image, bold typography, protection overlay'),
-    category: 'opensource',
+    category: 'free',
     features: ['对角布局', '版权保护', '视觉冲击']
   },
   {
-    id: 'copyright',
-    name: '版权符号',
-    description: '简洁版权声明水印',
-    previewUrl: generateImageUrl('copyright symbol watermark, C symbol with year and author, minimal corner design, elegant typography'),
-    category: 'opensource',
-    features: ['©符号', '年份作者', '极简风格']
-  },
-  {
-    id: 'signature',
-    name: '签名水印',
-    description: '手写风格签名效果',
-    previewUrl: generateImageUrl('handwritten signature watermark, script font style, personal signature, elegant cursive'),
-    category: 'opensource',
-    features: ['手写体', '斜体效果', '个性化']
-  },
-  {
-    id: 'social',
-    name: '社交媒体',
-    description: '社交媒体账号水印',
-    previewUrl: generateImageUrl('social media watermark, Instagram handle, platform icons, username display'),
-    category: 'opensource',
-    features: ['平台图标', '@账号', '多平台']
-  },
-  {
     id: 'minimal',
-    name: '极简角标',
-    description: '右下角极简文字',
-    previewUrl: generateImageUrl('minimal corner watermark, subtle text placement, bottom right corner, low opacity design'),
-    category: 'opensource',
-    features: ['极简设计', '角标位置', '低调优雅']
+    name: '极简白底',
+    description: '小米白底水印潮流，简洁高级',
+    previewUrl: generateImageUrl('minimal white background watermark, clean typography, simple text placement, elegant design'),
+    category: 'free',
+    features: ['白底设计', '极简风格', '高级质感'],
+    source: '小米'
   }
 ];

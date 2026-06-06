@@ -375,6 +375,162 @@ object OpenSourceWatermarkTemplates {
 
         canvas.drawText(text, x, y, paint)
     }
+
+    /**
+     * 邮票邮戳水印 - vivo风格
+     * 灵感来源: vivo 2026邮票水印
+     * 特点: 复古文艺风格
+     */
+    fun drawStampWatermark(
+        canvas: Canvas,
+        width: Int,
+        height: Int,
+        location: String,
+        config: WatermarkConfig
+    ) {
+        val paint = Paint().apply {
+            color = Color.parseColor("#8B4513") // 棕色邮戳色
+            alpha = (config.opacity * 255).toInt()
+            textSize = 24f * config.scale
+            typeface = Typeface.DEFAULT_BOLD
+            isAntiAlias = true
+            textAlign = Paint.Align.CENTER
+        }
+
+        val date = SimpleDateFormat("yyyy.MM.dd", Locale.getDefault()).format(Date())
+        val centerX = width / 2f
+        val centerY = height / 2f
+
+        // 绘制圆形边框模拟邮票
+        val borderPaint = Paint().apply {
+            color = Color.parseColor("#8B4513")
+            alpha = (config.opacity * 0.5f * 255).toInt()
+            style = Paint.Style.STROKE
+            strokeWidth = 2f * config.scale
+            isAntiAlias = true
+        }
+        canvas.drawCircle(centerX, centerY, 60f * config.scale, borderPaint)
+
+        // 绘制地点和日期
+        canvas.drawText(location, centerX, centerY - 10 * config.scale, paint)
+        paint.textSize = 16f * config.scale
+        canvas.drawText(date, centerX, centerY + 20 * config.scale, paint)
+    }
+
+    /**
+     * 国风印章水印 - 水墨风格
+     * 灵感来源: vivo/荣耀国风水印
+     * 特点: 传统印章效果
+     */
+    fun drawChineseStyleWatermark(
+        canvas: Canvas,
+        width: Int,
+        height: Int,
+        text: String,
+        config: WatermarkConfig
+    ) {
+        val paint = Paint().apply {
+            color = Color.parseColor("#C41E3A") // 中国红
+            alpha = (config.opacity * 255).toInt()
+            textSize = 32f * config.scale
+            typeface = Typeface.DEFAULT_BOLD
+            isAntiAlias = true
+            textAlign = Paint.Align.CENTER
+        }
+
+        val padding = 30f * config.scale
+        val x = width - padding - 40 * config.scale
+        val y = height - padding
+
+        // 绘制印章方框
+        val borderPaint = Paint().apply {
+            color = Color.parseColor("#C41E3A")
+            alpha = (config.opacity * 0.7f * 255).toInt()
+            style = Paint.Style.STROKE
+            strokeWidth = 2f * config.scale
+            isAntiAlias = true
+        }
+        val rect = RectF(x - 30 * config.scale, y - 40 * config.scale, x + 30 * config.scale, y + 10 * config.scale)
+        canvas.drawRect(rect, borderPaint)
+
+        // 绘制文字
+        canvas.drawText(text, x, y - 10 * config.scale, paint)
+    }
+
+    /**
+     * 胶片相框水印 - 小米风格
+     * 灵感来源: 小米胶片水印
+     * 特点: 复古胶片边框
+     */
+    fun drawFilmFrameWatermark(
+        canvas: Canvas,
+        width: Int,
+        height: Int,
+        config: WatermarkConfig
+    ) {
+        val paint = Paint().apply {
+            color = Color.WHITE
+            alpha = (config.opacity * 255).toInt()
+            textSize = 14f * config.scale
+            typeface = Typeface.DEFAULT
+            isAntiAlias = true
+        }
+
+        // 绘制底部胶片信息栏
+        val barHeight = 30f * config.scale
+        val barPaint = Paint().apply {
+            color = Color.BLACK
+            alpha = (config.opacity * 0.8f * 255).toInt()
+            style = Paint.Style.FILL
+        }
+        canvas.drawRect(0f, height - barHeight, width.toFloat(), height.toFloat(), barPaint)
+
+        // 绘制胶片参数
+        val params = config.cameraParams
+        val text = if (params != null) {
+            "f/${params.aperture}  ${params.shutter}  ISO ${params.iso}"
+        } else {
+            "f/1.8  1/125  ISO 100"
+        }
+        canvas.drawText(text, 20f * config.scale, height - 10 * config.scale, paint)
+    }
+
+    /**
+     * 新春舞狮水印 - 小米非遗
+     * 灵感来源: 小米17 Ultra新春水印
+     * 特点: 舞狮元素，喜庆红金
+     */
+    fun drawNewYearWatermark(
+        canvas: Canvas,
+        width: Int,
+        height: Int,
+        greeting: String,
+        config: WatermarkConfig
+    ) {
+        val paint = Paint().apply {
+            color = Color.parseColor("#FF0000") // 正红色
+            alpha = (config.opacity * 255).toInt()
+            textSize = 28f * config.scale
+            typeface = Typeface.DEFAULT_BOLD
+            isAntiAlias = true
+            textAlign = Paint.Align.CENTER
+        }
+
+        // 绘制红色底部边框
+        val barHeight = 50f * config.scale
+        val barPaint = Paint().apply {
+            color = Color.parseColor("#FF0000")
+            alpha = (config.opacity * 0.9f * 255).toInt()
+            style = Paint.Style.FILL
+        }
+        canvas.drawRect(0f, height - barHeight, width.toFloat(), height.toFloat(), barPaint)
+
+        // 绘制新春祝福
+        val year = SimpleDateFormat("yyyy", Locale.getDefault()).format(Date())
+        val text = "$greeting · $year"
+        paint.color = Color.WHITE
+        canvas.drawText(text, width / 2f, height - 15 * config.scale, paint)
+    }
 }
 
 /**

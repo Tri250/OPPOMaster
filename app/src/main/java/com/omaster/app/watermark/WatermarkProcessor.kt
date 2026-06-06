@@ -30,7 +30,7 @@ enum class WatermarkTemplate {
     HASSELBLAD,
     BRAND_SIMPLE,
     FILM_STYLE,
-    // 新增免费开源水印模板
+    // 免费水印模板 - 参考2026年国内手机水印趋势
     TILE_PATTERN,        // 平铺水印 - 防盗用
     DIAGONAL_TEXT,       // 对角线文字 - 版权保护
     CAMERA_INFO,         // 相机参数水印 - Leica风格
@@ -40,7 +40,14 @@ enum class WatermarkTemplate {
     SIGNATURE,           // 签名水印
     COLLAGE_GRID,        // 拼图九宫格
     SOCIAL_MEDIA,        // 社交媒体水印
-    MINIMAL_CORNER       // 极简角标
+    MINIMAL_CORNER,      // 极简角标
+    // 新增2026年国内手机水印趋势
+    STAMP,               // 邮票邮戳 - vivo风格
+    CHINESE_STYLE,       // 国风印章 - 水墨风格
+    FILM_FRAME,          // 胶片相框 - 小米风格
+    NEW_YEAR,            // 新春舞狮 - 小米非遗
+    LEICA_CLASSIC,       // 徕卡经典 - 小米联名
+    ZEISS_OPTICS         // 蔡司光学 - vivo联名
 }
 
 data class WatermarkConfig(
@@ -168,9 +175,24 @@ class WatermarkProcessor(private val context: Context) {
                 canvas, width, height, "instagram", config.customText ?: "username", config
             )
             WatermarkTemplate.MINIMAL_CORNER -> OpenSourceWatermarkTemplates.drawMinimalCornerWatermark(
-                canvas, width, height, config.customText ?: "© 2025", config
+                canvas, width, height, config.customText ?: "© 2026", config
             )
             WatermarkTemplate.QR_CODE -> drawCustomWatermark(canvas, width, height, config)
+            // 新增2026年国内手机水印趋势
+            WatermarkTemplate.STAMP -> OpenSourceWatermarkTemplates.drawStampWatermark(
+                canvas, width, height, config.customText ?: "北京", config
+            )
+            WatermarkTemplate.CHINESE_STYLE -> OpenSourceWatermarkTemplates.drawChineseStyleWatermark(
+                canvas, width, height, config.customText ?: "摄影", config
+            )
+            WatermarkTemplate.FILM_FRAME -> OpenSourceWatermarkTemplates.drawFilmFrameWatermark(
+                canvas, width, height, config
+            )
+            WatermarkTemplate.NEW_YEAR -> OpenSourceWatermarkTemplates.drawNewYearWatermark(
+                canvas, width, height, config.customText ?: "新春快乐", config
+            )
+            WatermarkTemplate.LEICA_CLASSIC -> drawLeicaWatermark(canvas, width, height, config)
+            WatermarkTemplate.ZEISS_OPTICS -> drawZeissWatermark(canvas, width, height, config)
         }
 
         return result
@@ -278,6 +300,80 @@ class WatermarkProcessor(private val context: Context) {
         
         val textY = boxRect.centerY() + paint.textSize / 2 - paint.descent()
         canvas.drawText("HASSELBLAD", boxRect.centerX(), textY, paint)
+
+        if (config.showTimestamp) {
+            drawTimestamp(canvas, boxRect, paint, config.timestampFormat)
+        }
+    }
+
+    /**
+     * 徕卡经典水印 - 小米联名风格
+     * 灵感来源: 小米徕卡联名水印
+     * 特点: 红标设计，经典双拼
+     */
+    private fun drawLeicaWatermark(
+        canvas: Canvas,
+        width: Int,
+        height: Int,
+        config: WatermarkConfig
+    ) {
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        
+        val boxWidth = width * 0.35f * config.scale
+        val boxHeight = height * 0.12f * config.scale
+        val boxRect = getPositionRect(width.toFloat(), height.toFloat(), boxWidth, boxHeight, config.position)
+        
+        drawRoundedBackground(canvas, boxRect, config.opacity)
+        
+        // 绘制徕卡红标
+        val redDotPaint = Paint().apply {
+            color = Color.parseColor("#FF0000") // 徕卡红
+            style = Paint.Style.FILL
+            isAntiAlias = true
+        }
+        canvas.drawCircle(boxRect.left + 15 * config.scale, boxRect.centerY(), 6 * config.scale, redDotPaint)
+        
+        // 绘制LEICA文字
+        paint.color = Color.WHITE
+        paint.textSize = boxHeight * 0.45f
+        paint.typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+        paint.textAlign = Paint.Align.LEFT
+        
+        val textY = boxRect.centerY() + paint.textSize / 2 - paint.descent()
+        canvas.drawText("LEICA", boxRect.left + 30 * config.scale, textY, paint)
+
+        if (config.showTimestamp) {
+            drawTimestamp(canvas, boxRect, paint, config.timestampFormat)
+        }
+    }
+
+    /**
+     * 蔡司光学水印 - vivo联名风格
+     * 灵感来源: vivo蔡司联名水印
+     * 特点: T*镀膜标识，蓝色点缀
+     */
+    private fun drawZeissWatermark(
+        canvas: Canvas,
+        width: Int,
+        height: Int,
+        config: WatermarkConfig
+    ) {
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        
+        val boxWidth = width * 0.35f * config.scale
+        val boxHeight = height * 0.12f * config.scale
+        val boxRect = getPositionRect(width.toFloat(), height.toFloat(), boxWidth, boxHeight, config.position)
+        
+        drawRoundedBackground(canvas, boxRect, config.opacity)
+        
+        // 绘制蔡司蓝色标识
+        paint.color = Color.parseColor("#0077BE") // 蔡司蓝
+        paint.textSize = boxHeight * 0.35f
+        paint.typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+        paint.textAlign = Paint.Align.CENTER
+        
+        val textY = boxRect.centerY() + paint.textSize / 2 - paint.descent()
+        canvas.drawText("ZEISS T*", boxRect.centerX(), textY, paint)
 
         if (config.showTimestamp) {
             drawTimestamp(canvas, boxRect, paint, config.timestampFormat)

@@ -9,13 +9,13 @@ interface WatermarkCardProps {
 const categoryColors = {
   brand: 'from-orange-500 to-orange-600',
   functional: 'from-blue-500 to-blue-600',
-  opensource: 'from-green-500 to-green-600'
+  free: 'from-green-500 to-green-600'
 };
 
 const categoryLabels = {
   brand: '品牌',
   functional: '功能',
-  opensource: '开源'
+  free: '免费'
 };
 
 export function WatermarkCard({ template, index }: WatermarkCardProps) {
@@ -41,6 +41,13 @@ export function WatermarkCard({ template, index }: WatermarkCardProps) {
         <div className={`absolute top-3 left-3 px-2 py-1 bg-gradient-to-r ${categoryColors[template.category]} rounded-md`}>
           <span className="text-white text-xs font-medium">{categoryLabels[template.category]}</span>
         </div>
+        
+        {/* 来源品牌 */}
+        {template.source && (
+          <div className="absolute top-3 right-3 px-2 py-1 bg-black/50 rounded-md">
+            <span className="text-zinc-300 text-xs">{template.source}</span>
+          </div>
+        )}
       </div>
       
       {/* 内容 */}

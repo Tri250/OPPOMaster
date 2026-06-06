@@ -345,14 +345,21 @@ fun TemplateSelector(
     val templates = listOf(
         // 品牌水印
         WatermarkTemplate.HASSELBLAD to "哈苏",
+        WatermarkTemplate.LEICA_CLASSIC to "徕卡",
+        WatermarkTemplate.ZEISS_OPTICS to "蔡司",
         WatermarkTemplate.OPPO to "OPPO",
         WatermarkTemplate.ONEPLUS to "一加",
         WatermarkTemplate.REALME to "真我",
         // 功能水印
         WatermarkTemplate.MINIMAL_PARAMS to "参数",
         WatermarkTemplate.TIMESTAMP to "时间",
+        WatermarkTemplate.LOCATION to "定位",
         WatermarkTemplate.FILM_STYLE to "胶片",
-        // 开源水印模板
+        // 免费模板 - 2026年趋势
+        WatermarkTemplate.STAMP to "邮票",
+        WatermarkTemplate.CHINESE_STYLE to "国风",
+        WatermarkTemplate.FILM_FRAME to "胶片框",
+        WatermarkTemplate.NEW_YEAR to "新春",
         WatermarkTemplate.TILE_PATTERN to "平铺",
         WatermarkTemplate.DIAGONAL_TEXT to "对角线",
         WatermarkTemplate.CAMERA_INFO to "相机信息",
