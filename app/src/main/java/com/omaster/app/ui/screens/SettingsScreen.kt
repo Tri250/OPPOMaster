@@ -135,7 +135,7 @@ fun SettingsScreen(
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = "热爱摄影的：带娃的小陈宫",
+                        text = "热爱摄影的：带娃的小陈工",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -160,7 +160,7 @@ fun SettingsScreen(
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = "抖音 小红书 搜索 带娃的小陈宫",
+                        text = "抖音 小红书 搜索 带娃的小陈工",
                         style = MaterialTheme.typography.bodyMedium,
                         color = AccentPrimary,
                         textDecoration = TextDecoration.Underline,

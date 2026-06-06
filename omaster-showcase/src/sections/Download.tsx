@@ -3,32 +3,7 @@ import { useInView } from 'framer-motion'
 import { useRef, useState } from 'react'
 import { Download, Github, ExternalLink, QrCode, X, Check } from 'lucide-react'
 
-const downloadOptions = [
-  {
-    id: 'github',
-    name: 'GitHub Releases',
-    description: '官方下载渠道，获取最新版本',
-    icon: Github,
-    url: 'https://github.com/iCurrer/OMaster/releases',
-    color: '#FFFFFF'
-  },
-  {
-    id: 'pgyer',
-    name: '蒲公英',
-    description: '国内快速下载，无需翻墙',
-    icon: ExternalLink,
-    url: 'https://www.pgyer.com/omaster-android',
-    color: '#3B82F6'
-  },
-  {
-    id: 'lanzou',
-    name: '蓝奏云',
-    description: '备用下载渠道，稳定可靠',
-    icon: ExternalLink,
-    url: 'https://wwbwy.lanzouu.com/b016klqmib',
-    color: '#10B981'
-  }
-]
+const downloadOptions: never[] = []
 
 const requirements = [
   'Android 13 (API 33) 及以上',
@@ -164,10 +139,7 @@ export default function DownloadSection() {
           className="mt-20 pt-8 border-t border-[#30363D] text-center"
         >
           <p className="text-gray-500 text-sm">
-            Made with ❤️ by 小O帮帮 Team | 
-            <a href="https://github.com/iCurrer/OMaster" target="_blank" rel="noopener noreferrer" className="text-[#FF6B35] hover:underline ml-1">
-              GitHub
-            </a>
+            Made with ❤️ by 小O帮帮 Team
           </p>
         </motion.div>
       </div>

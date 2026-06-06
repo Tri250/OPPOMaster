@@ -606,15 +606,13 @@ export default function MoreFeatures() {
 
               {/* CTA */}
               <div className="mt-8 pt-6 border-t border-[#30363D]">
-                <a
-                  href="https://github.com/iCurrer/OMaster/releases"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full py-4 bg-[#58A6FF] hover:bg-[#79B8FF] text-white rounded-xl font-semibold flex items-center justify-center gap-2 transition-colors"
+                <button
+                  disabled
+                  className="w-full py-4 bg-[#58A6FF] text-white rounded-xl font-semibold flex items-center justify-center gap-2 transition-colors cursor-not-allowed opacity-70"
                 >
                   <Send size={20} />
-                  下载 App 体验完整功能
-                </a>
+                  即将上线
+                </button>
               </div>
             </motion.div>
           </motion.div>

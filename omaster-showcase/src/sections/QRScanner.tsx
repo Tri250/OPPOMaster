@@ -15,11 +15,7 @@ export default function QRScanner({ isOpen, onClose }: QRScannerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   // Mock QR codes for demo
-  const mockQRCodes = [
-    { id: 1, name: 'GitHub Releases', url: 'https://github.com/iCurrer/OMaster/releases', color: '#FFFFFF' },
-    { id: 2, name: '蒲公英下载', url: 'https://www.pgyer.com/omaster-android', color: '#3B82F6' },
-    { id: 3, name: '蓝奏云下载', url: 'https://wwbwy.lanzouu.com/b016klqmib', color: '#10B981' },
-  ]
+  const mockQRCodes: { id: number; name: string; url: string; color: string }[] = []
 
   const startScanning = async () => {
     setScanning(true)

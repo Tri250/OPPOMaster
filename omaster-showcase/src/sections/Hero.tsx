@@ -62,28 +62,15 @@ export default function Hero() {
             </p>
 
             <div className="flex flex-wrap gap-4 mb-8">
-              <motion.a
-                href="https://github.com/iCurrer/OMaster/releases"
-                target="_blank"
-                rel="noopener noreferrer"
+              <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                className="inline-flex items-center gap-2 px-8 py-4 bg-[#FF6B35] hover:bg-[#FF8C42] text-white rounded-xl font-semibold transition-colors shadow-lg shadow-[#FF6B35]/25"
+                className="inline-flex items-center gap-2 px-8 py-4 bg-[#FF6B35] hover:bg-[#FF8C42] text-white rounded-xl font-semibold transition-colors shadow-lg shadow-[#FF6B35]/25 cursor-not-allowed opacity-70"
+                disabled
               >
                 <Download size={20} />
-                立即下载
-              </motion.a>
-              <motion.a
-                href="https://github.com/iCurrer/OMaster"
-                target="_blank"
-                rel="noopener noreferrer"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className="inline-flex items-center gap-2 px-8 py-4 bg-[#30363D] hover:bg-[#484F58] text-white rounded-xl font-semibold transition-colors"
-              >
-                <Github size={20} />
-                GitHub
-              </motion.a>
+                即将上线
+              </motion.button>
             </div>
 
             <div className="flex items-center gap-6 text-sm text-gray-500">
