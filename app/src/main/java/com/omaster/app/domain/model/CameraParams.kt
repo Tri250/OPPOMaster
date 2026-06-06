@@ -195,8 +195,8 @@ data class CameraParams(
      */
     fun formatFullParams(): Map<String, String> {
         return mapOf(
-            "模式" to mode,
-            "ISO" to iso.toString(),
+            "拍摄模式" to mode,
+            "ISO 感光度" to iso.toString(),
             "快门速度" to shutter,
             "曝光补偿" to ev,
             "白平衡" to wb,
@@ -206,9 +206,9 @@ data class CameraParams(
             "HDR" to if (hdr) "开启" else "关闭",
             "夜景模式" to if (nightMode) "开启" else "关闭",
             "人像模式" to if (portraitMode) "开启" else "关闭",
-            "AI优化" to if (aiOptimization) "开启" else "关闭",
-            "哈苏HNCS" to if (hasselblad_hncs) "认证" else "未认证",
-            "哈苏风格" to hasselbladMasterStyle.ifEmpty { "默认" },
+            "AI 影像引擎" to if (aiOptimization) "开启" else "关闭",
+            "哈苏 HNCS" to if (hasselblad_hncs) "认证" else "未认证",
+            "哈苏大师风格" to hasselbladMasterStyle.ifEmpty { "默认" },
             "色彩科学" to hasselbladColorScience,
             "清晰度" to "$sharpness%",
             "对比度" to "$contrast%",

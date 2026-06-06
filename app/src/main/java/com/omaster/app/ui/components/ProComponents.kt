@@ -237,13 +237,13 @@ fun ProPresetCard(
                             isDark = isDark
                         )
                         ParamPreviewItem(
-                            label = "EV",
+                            label = "曝光",
                             value = params.ev,
                             color = ColorEV,
                             isDark = isDark
                         )
                         ParamPreviewItem(
-                            label = "WB",
+                            label = "白平衡",
                             value = params.wb,
                             color = ColorWB,
                             isDark = isDark

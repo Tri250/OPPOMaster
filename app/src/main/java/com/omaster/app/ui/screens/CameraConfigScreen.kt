@@ -454,8 +454,8 @@ private fun ConfigCard(
             ) {
                 ParamChip(label = "ISO", value = config.params.iso.toString())
                 ParamChip(label = "快门", value = config.params.shutter)
-                ParamChip(label = "EV", value = config.params.ev)
-                ParamChip(label = "WB", value = config.params.wb)
+                ParamChip(label = "曝光", value = config.params.ev)
+                ParamChip(label = "白平衡", value = config.params.wb)
             }
 
             Spacer(modifier = Modifier.height(8.dp))

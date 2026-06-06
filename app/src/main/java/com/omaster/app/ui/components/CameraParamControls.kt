@@ -152,13 +152,13 @@ fun IsoControl(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = Icons.Default.Speed,
-                        contentDescription = "ISO",
+                        contentDescription = "ISO 感光度",
                         tint = hasselbladOrange,
                         modifier = Modifier.size(24.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "ISO",
+                        text = "ISO 感光度",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -632,7 +632,7 @@ fun AdditionalOptions(
             // 夜景模式
             SettingSwitch(
                 title = "夜景模式",
-                description = "低光环境优化",
+                description = "哈苏夜景算法优化",
                 checked = params.nightMode,
                 onCheckedChange = {
                     onParamsChanged(params.copy(nightMode = it))
@@ -643,8 +643,8 @@ fun AdditionalOptions(
 
             // AI优化
             SettingSwitch(
-                title = "AI优化",
-                description = "自动优化参数",
+                title = "AI 影像引擎",
+                description = "智能场景识别与优化",
                 checked = params.aiOptimization,
                 onCheckedChange = {
                     onParamsChanged(params.copy(aiOptimization = it))
@@ -655,8 +655,8 @@ fun AdditionalOptions(
 
             // RAW格式
             SettingSwitch(
-                title = "RAW拍摄",
-                description = "保存原始数据",
+                title = "RAW 格式",
+                description = "保存无损原始影像数据",
                 checked = params.rawCapture,
                 onCheckedChange = {
                     onParamsChanged(params.copy(rawCapture = it))

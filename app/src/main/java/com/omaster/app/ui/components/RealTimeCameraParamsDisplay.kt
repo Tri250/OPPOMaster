@@ -105,7 +105,7 @@ private fun CameraParamsGrid(params: RealTimeCameraParams) {
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceEvenly
     ) {
-        ParamItem(label = "ISO", value = params.iso.toString())
+        ParamItem(label = "ISO 感光度", value = params.iso.toString())
         ParamItem(label = "快门", value = params.shutterSpeed)
     }
     Spacer(modifier = Modifier.height(8.dp))
