@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
@@ -26,6 +27,8 @@ class PreferencesDataStore @Inject constructor(
         val FLUID_CLOUD_ENABLED = booleanPreferencesKey("fluid_cloud_enabled")
         val OVERLAY_ENABLED = booleanPreferencesKey("overlay_enabled")
         val SYNC_ENABLED = booleanPreferencesKey("sync_enabled")
+        val USER_ID = stringPreferencesKey("user_id")
+        val USER_NAME = stringPreferencesKey("user_name")
     }
 
     val favoritePresets: Flow<Set<String>> = context.dataStore.data
@@ -86,6 +89,34 @@ class PreferencesDataStore @Inject constructor(
     suspend fun setSyncEnabled(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.SYNC_ENABLED] = enabled
+        }
+    }
+
+    fun getUserId(): String? {
+        return try {
+            context.dataStore.data.value?.get(PreferencesKeys.USER_ID)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun getUserName(): String? {
+        return try {
+            context.dataStore.data.value?.get(PreferencesKeys.USER_NAME)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    suspend fun setUserId(userId: String) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.USER_ID] = userId
+        }
+    }
+
+    suspend fun setUserName(userName: String) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.USER_NAME] = userName
         }
     }
 }

@@ -28,8 +28,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.omaster.app.camera.CameraCompatibilityStatus
-import com.omaster.app.camera.RealTimeCameraParams
+import com.omaster.app.data.camera.CameraCompatibilityStatus
+import com.omaster.app.data.camera.RealTimeCameraParams
 import com.omaster.app.ui.theme.hasselbladOrange
 
 @Composable
