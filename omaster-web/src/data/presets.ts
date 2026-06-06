@@ -25,11 +25,15 @@ export interface Preset {
   cameraParams: CameraParams;
 }
 
+// 使用图片生成API
+const generateImageUrl = (prompt: string) => 
+  `https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=${encodeURIComponent(prompt)}&image_size=landscape_4_3`;
+
 export const presets: Preset[] = [
   {
     id: '1',
     name: '哈苏人像大师',
-    coverUrl: 'https://images.unsplash.com/photo-1531746020798-e695blllll?w=400',
+    coverUrl: generateImageUrl('professional portrait photography, beautiful model, soft lighting, Hasselblad camera style, shallow depth of field, warm skin tones'),
     deviceModel: 'OPPO Find X8 Ultra',
     author: '哈苏影像实验室',
     description: '专业人像拍摄预设，完美还原肤色质感',
@@ -52,7 +56,7 @@ export const presets: Preset[] = [
   {
     id: '2',
     name: '夜景璀璨',
-    coverUrl: 'https://images.unsplash.com/photo-1519501021993-2dbdd66c1e1e?w=400',
+    coverUrl: generateImageUrl('city night photography, neon lights, long exposure, light trails, urban skyline at night, vibrant colors'),
     deviceModel: 'OPPO Find X8 Pro',
     author: 'OPPO影像团队',
     description: '城市夜景专用，智能降噪与高光抑制',
@@ -75,7 +79,7 @@ export const presets: Preset[] = [
   {
     id: '3',
     name: '美食诱惑',
-    coverUrl: 'https://images.unsplash.com/photo-1504674900606-5c5c5c5c5c5c?w=400',
+    coverUrl: generateImageUrl('delicious food photography, gourmet dish, warm lighting, shallow depth of field, restaurant style, vibrant colors'),
     deviceModel: '一加 13',
     author: '美食摄影达人',
     description: '美食拍摄专属，色彩鲜艳饱和度高',
@@ -98,7 +102,7 @@ export const presets: Preset[] = [
   {
     id: '4',
     name: '风光大片',
-    coverUrl: 'https://images.unsplash.com/photo-1506905927340-1234567890ab?w=400',
+    coverUrl: generateImageUrl('landscape photography, mountain scenery, golden hour, dramatic sky, wide angle, nature beauty'),
     deviceModel: 'OPPO Find X8 Ultra',
     author: '风光摄影师',
     description: '风景拍摄预设，HDR增强与广角优化',
@@ -121,7 +125,7 @@ export const presets: Preset[] = [
   {
     id: '5',
     name: '街拍纪实',
-    coverUrl: 'https://images.unsplash.com/photo-1477959855332-1234567890ab?w=400',
+    coverUrl: generateImageUrl('street photography, urban life, candid moment, black and white style, city street, people walking'),
     deviceModel: 'realme GT7 Pro',
     author: '街头摄影师',
     description: '街头抓拍预设，快速对焦与自然色彩',
@@ -144,7 +148,7 @@ export const presets: Preset[] = [
   {
     id: '6',
     name: '微距细节',
-    coverUrl: 'https://images.unsplash.com/photo-1490750601234-1234567890ab?w=400',
+    coverUrl: generateImageUrl('macro photography, flower close up, water droplets, sharp details, shallow depth of field, nature macro'),
     deviceModel: 'OPPO Find X8 Ultra',
     author: '微距爱好者',
     description: '微距拍摄预设，景深控制与锐度增强',
