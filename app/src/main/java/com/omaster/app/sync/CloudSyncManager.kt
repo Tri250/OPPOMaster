@@ -6,7 +6,6 @@ import com.omaster.app.data.PresetRepository
 import com.omaster.app.model.Preset
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -107,48 +106,52 @@ class CloudSyncManager @Inject constructor(
     }
 
     private fun serializePresetsToJson(presets: List<Preset>): String {
-        // 使用 Gson 进行 JSON 序列化，避免手动拼接的安全风险和性能问题
-        val gson = com.google.gson.GsonBuilder()
-            .setPrettyPrinting()
-            .create()
+        val sb = StringBuilder()
+        sb.append("{\n")
+        sb.append("  \"version\": \"2.0\",\n")
+        sb.append("  \"app\": \"小O帮帮\",\n")
+        sb.append("  \"timestamp\": ${System.currentTimeMillis()},\n")
+        sb.append("  \"presets\": [\n")
         
-        val backupData = mapOf(
-            "version" to "2.0",
-            "app" to "小O帮帮",
-            "timestamp" to System.currentTimeMillis(),
-            "presets" to presets.map { preset ->
-                mapOf(
-                    "id" to preset.id,
-                    "name" to preset.name,
-                    "device_model" to preset.deviceModel,
-                    "source" to preset.source,
-                    "camera_params" to preset.cameraParams?.let { params ->
-                        mapOf(
-                            "mode" to params.mode,
-                            "iso" to params.iso,
-                            "shutter" to params.shutter,
-                            "ev" to params.ev,
-                            "wb" to params.wb,
-                            "filter" to params.filter
-                        )
-                    }
-                )
+        presets.forEachIndexed { index, preset ->
+            sb.append("    {\n")
+            sb.append("      \"id\": \"${preset.id}\",\n")
+            sb.append("      \"name\": \"${preset.name}\",\n")
+            sb.append("      \"device_model\": \"${preset.deviceModel}\",\n")
+            sb.append("      \"source\": \"${preset.source}\",\n")
+            preset.cameraParams?.let { params ->
+                sb.append("      \"camera_params\": {\n")
+                sb.append("        \"mode\": \"${params.mode}\",\n")
+                sb.append("        \"iso\": ${params.iso},\n")
+                sb.append("        \"shutter\": \"${params.shutter}\",\n")
+                sb.append("        \"ev\": \"${params.ev}\",\n")
+                sb.append("        \"wb\": \"${params.wb}\",\n")
+                sb.append("        \"filter\": \"${params.filter}\"\n")
+                sb.append("      }\n")
+            } ?: run {
+                sb.append("      \"camera_params\": null\n")
             }
-        )
+            sb.append("    }")
+            if (index < presets.size - 1) sb.append(",")
+            sb.append("\n")
+        }
         
-        return gson.toJson(backupData)
+        sb.append("  ]\n")
+        sb.append("}")
+        
+        return sb.toString()
     }
 
-    private suspend fun simulateCloudUpload(file: File) {
+    private fun simulateCloudUpload(file: File) {
         // 模拟上传到云端
         Timber.d("Uploading backup file: ${file.name}")
-        delay(1500) // 模拟网络延迟
+        Thread.sleep(1500) // 模拟网络延迟
     }
 
-    private suspend fun simulateCloudDownload(): List<Preset> {
+    private fun simulateCloudDownload(): List<Preset> {
         // 模拟从云端下载
         Timber.d("Downloading presets from cloud")
-        delay(1000) // 模拟网络延迟
+        Thread.sleep(1000) // 模拟网络延迟
         
         return getLocalPresets() // 返回本地数据作为模拟
     }

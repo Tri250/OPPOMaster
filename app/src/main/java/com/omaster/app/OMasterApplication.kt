@@ -13,7 +13,6 @@ import java.io.File
 import java.io.PrintWriter
 import java.io.StringWriter
 import java.lang.ref.WeakReference
-import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 
 /**
@@ -26,18 +25,13 @@ class OMasterApplication : Application(), Configuration.Provider {
     @Inject
     lateinit var workerFactory: HiltWorkerFactory
     
-    // 使用 AtomicReference 保证线程安全
-    private val currentActivity = AtomicReference<WeakReference<Activity>?>(null)
+    private var currentActivity: WeakReference<Activity>? = null
     
     override val workManagerConfiguration: Configuration
-        get() {
-            // 检查 workerFactory 是否已初始化
-            check(::workerFactory.isInitialized) { "HiltWorkerFactory 尚未初始化" }
-            return Configuration.Builder()
-                .setWorkerFactory(workerFactory)
-                .setMinimumLoggingLevel(if (BuildConfig.DEBUG) android.util.Log.DEBUG else android.util.Log.ERROR)
-                .build()
-        }
+        get() = Configuration.Builder()
+            .setWorkerFactory(workerFactory)
+            .setMinimumLoggingLevel(if (BuildConfig.DEBUG) android.util.Log.DEBUG else android.util.Log.ERROR)
+            .build()
     
     override fun onCreate() {
         super.onCreate()
@@ -51,10 +45,7 @@ class OMasterApplication : Application(), Configuration.Provider {
         setupGlobalExceptionHandler()
         
         Timber.d("OMasterApplication已初始化")
-        // 仅在 DEBUG 模式下打印设备信息，避免敏感信息泄露
-        if (BuildConfig.DEBUG) {
-            Timber.d("设备信息: ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
-        }
+        Timber.d("设备信息: ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
     }
     
     /**
@@ -85,12 +76,9 @@ class OMasterApplication : Application(), Configuration.Provider {
      * 记录异常日志
      */
     private fun logException(thread: Thread, throwable: Throwable) {
-        val stackTrace = StringWriter().use { sw ->
-            PrintWriter(sw).use { pw ->
-                throwable.printStackTrace(pw)
-                sw.toString()
-            }
-        }
+        val sw = StringWriter()
+        throwable.printStackTrace(PrintWriter(sw))
+        val stackTrace = sw.toString()
         
         Timber.e("========== 应用崩溃报告 ==========")
         Timber.e("线程: ${thread.name}")
@@ -100,7 +88,7 @@ class OMasterApplication : Application(), Configuration.Provider {
         Timber.e("设备信息: ${Build.MANUFACTURER} ${Build.MODEL}")
         Timber.e("Android版本: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
         Timber.e("应用版本: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
-        Timber.e("当前Activity: ${currentActivity.get()?.get()?.javaClass?.simpleName ?: "未知"}")
+        Timber.e("当前Activity: ${currentActivity?.get()?.javaClass?.simpleName ?: "未知"}")
         Timber.e("内存状态: ${getMemoryInfo()}")
         Timber.e("===================================")
     }
@@ -143,8 +131,8 @@ class OMasterApplication : Application(), Configuration.Provider {
             // 获取DataStore中的收藏数据
             val prefs = getSharedPreferences("omaster_preferences", Context.MODE_PRIVATE)
             
-            // SharedPreferences 无需手动提交空操作
-            // 数据会在应用正常生命周期中自动保存
+            // 确保数据被提交
+            prefs.edit().apply()
             
             Timber.d("用户数据已保存")
         } catch (e: Exception) {
@@ -160,14 +148,7 @@ class OMasterApplication : Application(), Configuration.Provider {
             // 只清理临时目录，不删除整个缓存目录
             val tempDir = File(cacheDir, "temp")
             if (tempDir.exists() && tempDir.isDirectory) {
-                tempDir.listFiles()?.forEach { file ->
-                    if (file.isDirectory) {
-                        // 递归删除子目录
-                        file.deleteRecursively()
-                    } else {
-                        file.delete()
-                    }
-                }
+                tempDir.listFiles()?.forEach { it.delete() }
             }
             Timber.d("临时文件已清理")
         } catch (e: Exception) {
@@ -180,7 +161,8 @@ class OMasterApplication : Application(), Configuration.Provider {
      */
     private fun closeDatabaseConnections() {
         try {
-            // 数据库连接由 Room/Hilt 自动管理
+            // 触发GC
+            System.gc()
             Timber.d("数据库连接已关闭")
         } catch (e: Exception) {
             Timber.e(e, "关闭数据库连接失败")
@@ -191,14 +173,14 @@ class OMasterApplication : Application(), Configuration.Provider {
      * 注册当前Activity - 用于崩溃时获取上下文
      */
     fun registerActivity(activity: Activity) {
-        currentActivity.set(WeakReference(activity))
+        currentActivity = WeakReference(activity)
     }
     
     /**
      * 注销Activity
      */
     fun unregisterActivity() {
-        currentActivity.set(null)
+        currentActivity = null
     }
     
     /**
@@ -213,6 +195,7 @@ class OMasterApplication : Application(), Configuration.Provider {
         super.onLowMemory()
         Timber.w("系统内存低，清理缓存...")
         cleanupTempFiles()
+        System.gc()
     }
     
     override fun onTrimMemory(level: Int) {
@@ -228,6 +211,7 @@ class OMasterApplication : Application(), Configuration.Provider {
             TRIM_MEMORY_RUNNING_CRITICAL -> {
                 Timber.e("内存压力: 严重，清理所有缓存")
                 cleanupTempFiles()
+                System.gc()
             }
         }
     }

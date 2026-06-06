@@ -1,7 +1,6 @@
 package com.omaster.app
 
 import android.os.Bundle
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.core.tween
@@ -16,7 +15,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -39,7 +37,7 @@ import com.omaster.app.ui.screens.ProfileScreen
 import com.omaster.app.ui.screens.SceneDetectionScreenV2
 import com.omaster.app.ui.screens.WatermarkEditorScreen
 import com.omaster.app.ui.theme.OMasterTheme
-import com.omaster.app.viewmodel.MainViewModel
+import com.omaster.app.presentation.viewmodel.MainViewModel
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 import timber.log.Timber
@@ -88,15 +86,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// 动画时长常量
-private object AnimationDurations {
-    const val ENTER_TRANSITION = 300
-    const val EXIT_TRANSITION = 200
-}
-
-// 底部导航栏路由列表 - 静态常量
-private val bottomTabRoutes = omasterBottomTabScreens.map { it.route }
-
 /**
  * 统一ColorOS 16风格应用主界面
  */
@@ -123,7 +112,7 @@ fun OMasterApp(
             .fillMaxSize(),
         topBar = {
             // 根据当前路由决定是否显示顶部栏
-            if (currentRoute in bottomTabRoutes) {
+            if (currentRoute in omasterBottomTabScreens.map { it.route }) {
                 OMasterTopBar(
                     onSettingsClick = { navController.navigate(OMasterScreen.Settings.route) }
                 )
@@ -131,7 +120,7 @@ fun OMasterApp(
         },
         bottomBar = {
             // 仅在底部导航页面显示底部栏
-            if (currentRoute in bottomTabRoutes) {
+            if (currentRoute in omasterBottomTabScreens.map { it.route }) {
                 OMasterBottomBar(
                     currentScreen = when (currentRoute) {
                         OMasterScreen.Home.route -> OMasterScreen.Home
@@ -163,7 +152,7 @@ fun OMasterApp(
             enterTransition = {
                 fadeIn(
                     animationSpec = tween(
-                        durationMillis = AnimationDurations.ENTER_TRANSITION,
+                        durationMillis = 300,
                         easing = com.omaster.app.ui.animation.ColorOSEasing.Decelerate
                     )
                 )
@@ -171,7 +160,7 @@ fun OMasterApp(
             exitTransition = {
                 fadeOut(
                     animationSpec = tween(
-                        durationMillis = AnimationDurations.EXIT_TRANSITION,
+                        durationMillis = 200,
                         easing = com.omaster.app.ui.animation.ColorOSEasing.Accelerate
                     )
                 )
@@ -180,12 +169,6 @@ fun OMasterApp(
             // 哈苏预设首页 - 主入口
             composable(OMasterScreen.Home.route) {
                 ProHomeScreenV2(
-                    presets = presets,
-                    searchQuery = searchQuery,
-                    filterType = filterType,
-                    onSearchQueryChange = { viewModel.onSearchQueryChanged(it) },
-                    onFilterTypeChange = { viewModel.onFilterTypeChanged(it) },
-                    onFavoriteToggle = { viewModel.toggleFavorite(it) },
                     onPresetClick = { preset ->
                         navController.navigate(OMasterScreen.Detail.createRoute(preset.id))
                     },
@@ -193,10 +176,7 @@ fun OMasterApp(
                     onSceneDetectionClick = { navController.navigate(OMasterScreen.SceneDetection.route) },
                     onAiFineTuneClick = { navController.navigate(OMasterScreen.AiFineTune.route) },
                     onWatermarkClick = { navController.navigate(OMasterScreen.Watermark.route) },
-                    onColorOSHomeClick = { 
-                        // TODO: ColorOS 首页功能待实现
-                        Timber.d("ColorOS 首页功能暂未实现")
-                    }
+                    onColorOSHomeClick = { /* ColorOS 首页功能暂未实现 */ }
                 )
             }
             
@@ -205,7 +185,6 @@ fun OMasterApp(
                 route = OMasterScreen.Detail.route,
                 arguments = listOf(navArgument("preset_id") { type = NavType.StringType })
             ) { backStackEntry ->
-                val context = LocalContext.current
                 val presetId = backStackEntry.arguments?.getString("preset_id")
                 val preset = presets.find { it.id == presetId }
                 
@@ -220,8 +199,7 @@ fun OMasterApp(
                         themeMode = themeMode
                     )
                 } ?: run {
-                    // 预设不存在时的提示
-                    Toast.makeText(context, "预设不存在或已被删除", Toast.LENGTH_SHORT).show()
+                    // 预设未找到时的备用界面 - 简单处理
                     navController.popBackStack()
                 }
             }

@@ -22,7 +22,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -203,7 +202,7 @@ private fun ProDetailHeader(
     isDark: Boolean,
     onPreviewClick: () -> Unit
 ) {
-    var isPressed by remember(preset.id) { mutableStateOf(false) }
+    var isPressed by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
         targetValue = if (isPressed) 0.98f else 1f,
         animationSpec = spring(
@@ -232,9 +231,7 @@ private fun ProDetailHeader(
             model = preset.coverUrl.ifEmpty { "https://picsum.photos/seed/${preset.coverPath}/800/600" },
             contentDescription = preset.name,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
-            placeholder = painterResource(id = android.R.drawable.ic_menu_gallery),
-            error = painterResource(id = android.R.drawable.ic_menu_report_image)
+            modifier = Modifier.fillMaxSize()
         )
         
         Box(
@@ -337,7 +334,7 @@ private fun ProDetailTitle(
                     color = if (isDark) Colors.SurfaceVariant else ColorOSLightSurface
                 ) {
                     Text(
-                        text = preset.author.takeIf { it.isNotEmpty() }?.first()?.toString()?.uppercase() ?: "",
+                        text = preset.author.first().toString().uppercase(),
                         color = if (isDark) Colors.OnSurface else ColorOSLightTextPrimary,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(12.dp)
@@ -476,7 +473,7 @@ private fun ProParamsSection(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    if (params.hasselblad_hncs) {
+                    if (params.hasselblad_hncs == true) {
                         GlassChip(
                             text = "HNCS",
                             selected = true,
@@ -485,12 +482,12 @@ private fun ProParamsSection(
                         )
                     }
                     
-                    if (params.focal_length.isNotEmpty()) {
-                        ParamChip(label = "焦距", value = params.focal_length)
+                    params.focal_length?.let {
+                        ParamChip(label = "焦距", value = "${it}mm")
                     }
                     
-                    if (params.aperture.isNotEmpty()) {
-                        ParamChip(label = "光圈", value = params.aperture)
+                    params.aperture?.let {
+                        ParamChip(label = "光圈", value = "f/${it}")
                     }
                 }
                 
@@ -500,15 +497,16 @@ private fun ProParamsSection(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    if (params.shutter.isNotEmpty()) {
-                        ParamChip(label = "快门", value = params.shutter)
+                    params.shutter_speed?.let {
+                        ParamChip(label = "快门", value = it)
                     }
                     
-                    // ISO 始终显示
-                    ParamChip(label = "ISO", value = params.iso.toString())
+                    params.iso?.let {
+                        ParamChip(label = "ISO", value = it.toString())
+                    }
                     
-                    if (params.wb.isNotEmpty()) {
-                        ParamChip(label = "白平衡", value = params.wb)
+                    params.white_balance?.let {
+                        ParamChip(label = "白平衡", value = "${it}K")
                     }
                 }
                 
@@ -518,12 +516,11 @@ private fun ProParamsSection(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // 使用 ev 字段作为曝光补偿
-                    params.ev.takeIf { it.isNotEmpty() && it != "+0.0" && it != "0" }?.let {
-                        ParamChip(label = "曝光补偿", value = "$it EV")
+                    params.exposure_compensation?.let {
+                        ParamChip(label = "曝光补偿", value = "${if (it >= 0) "+" else ""}$it EV")
                     }
                     
-                    params.focus_distance?.takeIf { it.isNotEmpty() }?.let {
+                    params.focus_distance?.let {
                         ParamChip(label = "对焦距离", value = it)
                     }
                 }
@@ -810,8 +807,7 @@ private fun ProComparisonSection(
     presetImageUrl: String,
     isDark: Boolean
 ) {
-    // 使用 rememberSaveable 确保滑块位置在重组时保持
-    var sliderPosition by rememberSaveable { mutableFloatStateOf(0.5f) }
+    var sliderPosition by remember { mutableFloatStateOf(0.5f) }
     
     Column(
         modifier = Modifier.fillMaxWidth()
@@ -835,9 +831,7 @@ private fun ProComparisonSection(
                 model = originalImageUrl.ifEmpty { "https://picsum.photos/seed/${originalImageUrl}_original/800/600" },
                 contentDescription = "原图",
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-                placeholder = painterResource(id = android.R.drawable.ic_menu_gallery),
-                error = painterResource(id = android.R.drawable.ic_menu_report_image)
+                modifier = Modifier.fillMaxSize()
             )
             
             Box(
@@ -850,9 +844,7 @@ private fun ProComparisonSection(
                     model = presetImageUrl,
                     contentDescription = "应用预设后",
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                    placeholder = painterResource(id = android.R.drawable.ic_menu_gallery),
-                    error = painterResource(id = android.R.drawable.ic_menu_report_image)
+                    modifier = Modifier.fillMaxSize()
                 )
             }
             
@@ -967,8 +959,6 @@ private fun FullScreenPreviewDialog(
             model = imageUrl.ifEmpty { "https://picsum.photos/seed/${imageUrl}/1200/900" },
             contentDescription = presetName,
             contentScale = ContentScale.Fit,
-            placeholder = painterResource(id = android.R.drawable.ic_menu_gallery),
-            error = painterResource(id = android.R.drawable.ic_menu_report_image),
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {

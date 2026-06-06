@@ -72,7 +72,6 @@ import com.omaster.app.ui.theme.ColorOSBlack
 import com.omaster.app.ui.theme.ColorOSLightBackground
 import com.omaster.app.ui.theme.HasselbladOrange
 import kotlinx.coroutines.launch
-import timber.log.Timber
 
 /**
  * AI 样张微调界面 - 专业设计版本
@@ -110,7 +109,7 @@ fun AiFineTuneScreen(
             processingTime = (endTime - startTime).toInt()
             showResult = true
         } catch (e: Exception) {
-            Timber.e(e, "Failed to fine tune image")
+            // 异常处理
         } finally {
             isProcessing = false
         }

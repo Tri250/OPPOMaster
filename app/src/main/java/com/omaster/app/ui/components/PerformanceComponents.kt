@@ -38,8 +38,6 @@ import java.io.BufferedReader
 import java.io.FileReader
 import java.text.SimpleDateFormat
 import java.util.*
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.roundToLong
 
 /**
@@ -236,8 +234,7 @@ fun ProLowEndDeviceAdapter(
  * 动画性能跟踪器
  */
 class AnimationPerformanceTracker {
-    private val animationDurations = Collections.synchronizedList(mutableListOf<Long>())
-    @Volatile
+    private val animationDurations = mutableListOf<Long>()
     private var startTime: Long = 0L
     
     fun start() {
@@ -247,22 +244,19 @@ class AnimationPerformanceTracker {
     fun end() {
         if (startTime > 0) {
             val duration = (System.nanoTime() - startTime) / 1_000_000 // ms
-            synchronized(animationDurations) {
-                animationDurations.add(duration)
-                // 保持最近100次记录
-                if (animationDurations.size > 100) {
-                    animationDurations.removeAt(0)
-                }
-            }
+            animationDurations.add(duration)
             startTime = 0L
+            
+            // 保持最近100次记录
+            if (animationDurations.size > 100) {
+                animationDurations.removeAt(0)
+            }
         }
     }
     
     fun getAverageDuration(): Float {
-        synchronized(animationDurations) {
-            return if (animationDurations.isEmpty()) 0f
-            else animationDurations.average().toFloat()
-        }
+        return if (animationDurations.isEmpty()) 0f
+        else animationDurations.average().toFloat()
     }
     
     fun getPerformanceScore(): Float {
@@ -276,14 +270,12 @@ class AnimationPerformanceTracker {
     }
     
     fun isStable(): Boolean {
-        synchronized(animationDurations) {
-            if (animationDurations.size < 10) return true
-            val recent = animationDurations.takeLast(10)
-            val avg = recent.average()
-            val max = recent.maxOrNull() ?: 0.0
-            val variance = recent.map { (it - avg) * (it - avg) }.average()
-            return variance < avg * 0.5 // 波动不超过50%
-        }
+        if (animationDurations.size < 10) return true
+        val recent = animationDurations.takeLast(10)
+        val avg = recent.average()
+        val max = recent.maxOrNull() ?: 0.0
+        val variance = recent.map { (it - avg) * (it - avg) }.average()
+        return variance < avg * 0.5 // 波动不超过50%
     }
 }
 
@@ -314,29 +306,26 @@ fun rememberPageLoadMonitor(): State<LoadPerformanceState> {
  * 启动时间追踪器
  */
 object StartupTimeTracker {
-    private val appCreateTime = AtomicLong(0L)
-    private val onResumeTime = AtomicLong(0L)
+    private var appCreateTime: Long = 0L
+    private var onResumeTime: Long = 0L
     
     fun onAppCreate() {
-        appCreateTime.set(SystemClock.elapsedRealtime())
+        appCreateTime = SystemClock.elapsedRealtime()
     }
     
     fun onResume() {
-        onResumeTime.set(SystemClock.elapsedRealtime())
+        onResumeTime = SystemClock.elapsedRealtime()
     }
     
     fun getColdStartTime(): Long {
-        val create = appCreateTime.get()
-        val resume = onResumeTime.get()
-        return if (create > 0 && resume > 0) {
-            resume - create
+        return if (appCreateTime > 0 && onResumeTime > 0) {
+            onResumeTime - appCreateTime
         } else 0L
     }
     
     fun getWarmStartTime(): Long {
-        val resume = onResumeTime.get()
-        return if (resume > 0) {
-            SystemClock.elapsedRealtime() - resume
+        return if (onResumeTime > 0) {
+            SystemClock.elapsedRealtime() - onResumeTime
         } else 0L
     }
 }
@@ -366,15 +355,15 @@ enum class NetworkQuality {
 private fun checkNetworkQuality(context: Context): NetworkQuality {
     return try {
         val process = Runtime.getRuntime().exec("/system/bin ping -c 1 -W 2 8.8.8.8")
-        BufferedReader(FileReader(process.inputStream.descriptor)).use { reader ->
-            val lines = reader.readLines()
-            process.waitFor()
-            
-            if (process.exitValue() == 0) {
-                NetworkQuality.EXCELLENT
-            } else {
-                NetworkQuality.POOR
-            }
+        val reader = BufferedReader(FileReader(process.inputStream.descriptor))
+        val lines = reader.readLines()
+        reader.close()
+        process.waitFor()
+        
+        if (process.exitValue() == 0) {
+            NetworkQuality.EXCELLENT
+        } else {
+            NetworkQuality.POOR
         }
     } catch (e: Exception) {
         NetworkQuality.OFFLINE
@@ -459,7 +448,7 @@ object ImageLoaderOptimizer {
  * 页面内存释放追踪器
  */
 class PageMemoryTracker {
-    private val pageMemoryUsage = ConcurrentHashMap<String, Float>()
+    private val pageMemoryUsage = mutableMapOf<String, Float>()
     
     fun trackPageEnter(pageName: String, context: Context) {
         val usage = getCurrentMemoryUsage(context)
@@ -482,7 +471,7 @@ class PageMemoryTracker {
     
     fun isMemoryStable(): Boolean {
         if (pageMemoryUsage.size < 3) return true
-        val recentUsages = pageMemoryUsage.values.take(3)
+        val recentUsages = pageMemoryUsage.values.takeLast(3)
         val avg = recentUsages.average()
         val max = recentUsages.maxOrNull() ?: 0.0
         return (max - avg) < avg * 0.2 // 波动不超过20%
@@ -558,27 +547,25 @@ fun rememberCpuUsage(): Float {
 
 private fun getCpuUsage(): Float {
     return try {
-        BufferedReader(FileReader("/proc/stat")).use { reader ->
-            val line = reader.readLine()
+        val reader = BufferedReader(FileReader("/proc/stat"))
+        val line = reader.readLine()
+        reader.close()
+        
+        if (line != null && line.startsWith("cpu ")) {
+            val parts = line.split("\\s+".toRegex())
+            val user = parts[1].toLongOrNull() ?: 0L
+            val nice = parts[2].toLongOrNull() ?: 0L
+            val system = parts[3].toLongOrNull() ?: 0L
+            val idle = parts[4].toLongOrNull() ?: 0L
+            val iowait = parts[5].toLongOrNull() ?: 0L
             
-            if (line != null && line.startsWith("cpu ")) {
-                val parts = line.split("\\s+".toRegex())
-                if (parts.size >= 6) {
-                    val user = parts[1].toLongOrNull() ?: 0L
-                    val nice = parts[2].toLongOrNull() ?: 0L
-                    val system = parts[3].toLongOrNull() ?: 0L
-                    val idle = parts[4].toLongOrNull() ?: 0L
-                    val iowait = parts[5].toLongOrNull() ?: 0L
-                    
-                    val total = user + nice + system + idle + iowait
-                    val used = user + nice + system
-                    
-                    if (total > 0) {
-                        (used.toFloat() / total.toFloat()) * 100f
-                    } else 0f
-                } else 0f
+            val total = user + nice + system + idle + iowait
+            val used = user + nice + system
+            
+            if (total > 0) {
+                (used.toFloat() / total.toFloat()) * 100f
             } else 0f
-        }
+        } else 0f
     } catch (e: Exception) {
         0f
     }

@@ -361,9 +361,7 @@ fun SceneDetectionScreen(
                     )
                     LazyColumn(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height((recommendedPresets.size * 120 + 12).dp)
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         items(recommendedPresets) { preset ->
                             ProPresetCard(

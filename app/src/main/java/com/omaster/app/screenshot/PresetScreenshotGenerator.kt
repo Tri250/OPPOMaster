@@ -66,24 +66,16 @@ class PresetScreenshotGenerator(private val context: Context) {
         val width = aspectRatio.width
         val height = aspectRatio.height
 
-        // 使用 try-finally 确保 Bitmap 总是被回收，避免内存泄漏
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        try {
-            val canvas = Canvas(bitmap)
+        val canvas = Canvas(bitmap)
 
-            drawBackground(canvas, width, height, data.watermarkStyle)
-            drawCoverImage(canvas, data.coverImage, width, height)
-            drawPresetName(canvas, data.presetName, width, height)
-            drawCameraParams(canvas, data, width, height)
-            drawWatermark(canvas, data.watermarkStyle, width, height, data.cameraModel)
+        drawBackground(canvas, width, height, data.watermarkStyle)
+        drawCoverImage(canvas, data.coverImage, width, height)
+        drawPresetName(canvas, data.presetName, width, height)
+        drawCameraParams(canvas, data, width, height)
+        drawWatermark(canvas, data.watermarkStyle, width, height, data.cameraModel)
 
-            saveBitmapToFile(bitmap, data.presetName)
-        } finally {
-            // 确保 bitmap 被回收，防止内存泄漏
-            if (!bitmap.isRecycled) {
-                bitmap.recycle()
-            }
-        }
+        saveBitmapToFile(bitmap, data.presetName)
     }
 
     private fun drawBackground(
@@ -117,23 +109,15 @@ class PresetScreenshotGenerator(private val context: Context) {
         height: Int
     ) {
         coverImage?.let { image ->
-            // 创建缩放后的 Bitmap，确保及时回收
             val scaledBitmap = Bitmap.createScaledBitmap(image, width, height, true)
-            try {
-                canvas.drawBitmap(scaledBitmap, 0f, 0f, null)
-                
-                val gradientPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-                gradientPaint.setARGB(180, 18, 18, 18)
-                canvas.drawRect(
-                    0f, height * 0.5f, width.toFloat(), height.toFloat(),
-                    gradientPaint
-                )
-            } finally {
-                // 确保缩放后的 bitmap 被回收，避免内存泄漏
-                if (!scaledBitmap.isRecycled) {
-                    scaledBitmap.recycle()
-                }
-            }
+            canvas.drawBitmap(scaledBitmap, 0f, 0f, null)
+            
+            val gradientPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+            gradientPaint.setARGB(180, 18, 18, 18)
+            canvas.drawRect(
+                0f, height * 0.5f, width.toFloat(), height.toFloat(),
+                gradientPaint
+            )
         }
     }
 
@@ -251,31 +235,17 @@ class PresetScreenshotGenerator(private val context: Context) {
         val fileName = "preset_${presetName.replace(" ", "_")}_${System.currentTimeMillis()}.jpg"
         val file = File(context.getExternalFilesDir(null), fileName)
         
-        try {
-            FileOutputStream(file).use { out ->
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
-            }
-        } catch (e: Exception) {
-            // 压缩失败时确保 bitmap 被回收
-            if (!bitmap.isRecycled) {
-                bitmap.recycle()
-            }
-            throw e
-        }
-        
-        // 压缩成功后回收 bitmap
-        if (!bitmap.isRecycled) {
-            bitmap.recycle()
+        FileOutputStream(file).use { out ->
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
         }
         
         return file
     }
 
-    suspend fun generateBatchScreenshots(
+    suspend fun generateMultipleScreenshots(
         dataList: List<PresetScreenshotData>,
         aspectRatio: ScreenshotAspectRatio
     ): List<File> = withContext(Dispatchers.IO) {
-        // 使用并发处理批量截图生成，提高效率
         dataList.map { generateScreenshot(it, aspectRatio) }
     }
 }

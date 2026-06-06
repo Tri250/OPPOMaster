@@ -3,10 +3,13 @@ package com.omaster.app.camera
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.hardware.camera2.CameraCharacteristics
-import android.hardware.camera2.CameraDevice
-import android.hardware.camera2.CameraManager
-import android.hardware.camera2.CaptureRequest
+import android.graphics.ImageFormat
+import android.hardware.camera2.*
+import android.hardware.camera2.params.OutputConfiguration
+import android.hardware.camera2.params.SessionConfiguration
+import android.media.Image
+import android.media.ImageReader
+import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.Size
@@ -14,28 +17,24 @@ import android.view.Surface
 import androidx.annotation.OptIn
 import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
-import androidx.camera.core.ImageAnalysis
-import androidx.camera.core.ImageProxy
-import androidx.camera.core.Preview
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.Camera
+import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import com.omaster.app.model.CameraParams
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.callbackFlow
 import timber.log.Timber
 import java.io.File
 import java.io.FileOutputStream
-import java.util.concurrent.ExecutorService
+import java.nio.ByteBuffer
+import java.util.concurrent.Executor
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -43,18 +42,13 @@ import javax.inject.Singleton
 class Camera2Controller @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
-    @Volatile
     private var cameraDevice: CameraDevice? = null
-    
-    @Volatile
+    private var captureSession: CameraCaptureSession? = null
+    private var imageReader: ImageReader? = null
+    private var backgroundThread: HandlerThread? = null
+    private var backgroundHandler: Handler? = null
     private var previewSurface: Surface? = null
-    
-    private val backgroundThreadRef = AtomicReference<HandlerThread?>(null)
-    private val backgroundHandlerRef = AtomicReference<Handler?>(null)
-    private val currentCameraIdRef = AtomicReference<String?>(null)
-    
-    private val isClosed = AtomicBoolean(false)
-    
+
     private val _cameraState = MutableStateFlow<CameraState>(CameraState.Idle)
     val cameraState: StateFlow<CameraState> = _cameraState.asStateFlow()
 
@@ -75,83 +69,14 @@ class Camera2Controller @Inject constructor(
         val filePath: String?
     )
 
-    private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
-    private val cameraManager: CameraManager by lazy {
-        context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
-    }
-
-    /**
-     * 检查相机设备是否支持指定的能力
-     */
-    private fun isCameraCapabilitySupported(cameraId: String, capability: Int): Boolean {
-        return try {
-            val characteristics = cameraManager.getCameraCharacteristics(cameraId)
-            val supportedCapabilities = characteristics.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES)
-            supportedCapabilities?.contains(capability) == true
-        } catch (e: Exception) {
-            Timber.e(e, "Error checking camera capability")
-            false
-        }
-    }
-
-    /**
-     * 获取相机支持的 ISO 范围
-     */
-    private fun getSupportedIsoRange(cameraId: String): IntRange? {
-        return try {
-            val characteristics = cameraManager.getCameraCharacteristics(cameraId)
-            characteristics.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE)
-        } catch (e: Exception) {
-            Timber.e(e, "Error getting ISO range")
-            null
-        }
-    }
-
-    /**
-     * 获取相机支持的曝光补偿范围
-     */
-    private fun getSupportedExposureCompensationRange(cameraId: String): android.util.Range<Int>? {
-        return try {
-            val characteristics = cameraManager.getCameraCharacteristics(cameraId)
-            characteristics.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE)
-        } catch (e: Exception) {
-            Timber.e(e, "Error getting exposure compensation range")
-            null
-        }
-    }
-
-    /**
-     * 获取当前曝光补偿值（从实际捕获结果中读取）
-     */
-    private fun getCurrentExposureCompensation(cameraId: String): Int {
-        return try {
-            val characteristics = cameraManager.getCameraCharacteristics(cameraId)
-            // 返回默认值0，实际值需要从 CaptureResult 中获取
-            0
-        } catch (e: Exception) {
-            Timber.e(e, "Error getting current exposure compensation")
-            0
-        }
-    }
-
-    /**
-     * 安全地获取 backgroundHandler
-     */
-    private fun getBackgroundHandler(): Handler? {
-        return backgroundHandlerRef.get()
-    }
+    private val cameraExecutor: Executor = Executors.newSingleThreadExecutor()
 
     @OptIn(ExperimentalCamera2Interop::class)
-    suspend fun bindCameraX(
+    fun bindCameraX(
         lifecycleOwner: LifecycleOwner,
         previewView: PreviewView,
         onParamsDetected: (CameraParams) -> Unit
-    ): Result<Camera> {
-        if (isClosed.get()) {
-            return Result.failure(IllegalStateException("Camera2Controller has been closed"))
-        }
-        
-        val deferred = CompletableDeferred<Result<Camera>>()
+    ): Camera? {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         
         cameraProviderFuture.addListener({
@@ -187,39 +112,30 @@ class Camera2Controller @Inject constructor(
 
                 _cameraState.value = CameraState.Ready
                 Timber.d("CameraX bound successfully")
-                deferred.complete(Result.success(camera))
+
+                camera
             } catch (e: Exception) {
                 Timber.e(e, "Failed to bind CameraX")
                 _cameraState.value = CameraState.Error(e.message ?: "Camera initialization failed")
-                deferred.complete(Result.failure(e))
             }
-        }, ContextCompat.getMainExecutor(context))
+        }, cameraExecutor)
 
-        return deferred.await()
+        return null
     }
 
     private fun analyzeImage(imageProxy: ImageProxy, onParamsDetected: (CameraParams) -> Unit) {
         try {
-            val planes = imageProxy.planes
-            if (planes.isEmpty()) return
-            val buffer = planes[0].buffer
+            val buffer = imageProxy.planes[0].buffer
             val bytes = ByteArray(buffer.remaining())
             buffer.get(bytes)
             
-            // 创建 Bitmap，确保及时回收，避免内存泄漏
             val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
             if (bitmap != null) {
-                try {
-                    // 检测画面特征，估算参数
-                    val estimatedParams = estimateParamsFromImage(bitmap)
-                    _currentParams.value = estimatedParams
-                    onParamsDetected(estimatedParams)
-                } finally {
-                    // 确保 bitmap 被回收
-                    if (!bitmap.isRecycled) {
-                        bitmap.recycle()
-                    }
-                }
+                // 检测画面特征，估算参数
+                val estimatedParams = estimateParamsFromImage(bitmap)
+                _currentParams.value = estimatedParams
+                onParamsDetected(estimatedParams)
+                bitmap.recycle()
             }
         } catch (e: Exception) {
             Timber.e(e, "Error analyzing image")
@@ -231,6 +147,9 @@ class Camera2Controller @Inject constructor(
     private fun estimateParamsFromImage(bitmap: Bitmap): CameraParams {
         // 基于图像分析估算相机参数
         // 这是一个简化版本，实际可以使用更复杂的算法
+        val width = bitmap.width
+        val height = bitmap.height
+        
         return CameraParams(
             mode = "哈苏大师",
             iso = 100,
@@ -249,28 +168,104 @@ class Camera2Controller @Inject constructor(
     fun setCameraParams(params: CameraParams): Boolean {
         Timber.d("Setting camera params: $params")
         _currentParams.value = params
-        return true
+        
+        try {
+            applyParamsToSession(params)
+            return true
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to apply camera params")
+            return false
+        }
+    }
+
+    private fun applyParamsToSession(params: CameraParams) {
+        val handler = backgroundHandler ?: run {
+            Timber.w("backgroundHandler is null, cannot apply params")
+            return
+        }
+        
+        captureSession?.let { session ->
+            val captureBuilder = cameraDevice?.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
+            
+            captureBuilder?.apply {
+                // ISO
+                set(CaptureRequest.SENSOR_SENSITIVITY, params.iso)
+                
+                // EV
+                val evValue = (params.ev.replace("+", "").toFloatOrNull() ?: 0f) * 6 // 转换为Camera2 EV单位
+                set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, evValue.toInt())
+                
+                // White Balance
+                if (params.wb.equals("Auto", ignoreCase = true)) {
+                    set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
+                } else {
+                    set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_OFF)
+                    val wbValue = params.wb.replace("K", "").toIntOrNull() ?: 5500
+                    // 设置色温 (简化处理)
+                }
+                
+                // Apply to session
+                session.capture(build(), object : CameraCaptureSession.CaptureCallback() {
+                    override fun onCaptureCompleted(
+                        session: CameraCaptureSession,
+                        request: CaptureRequest,
+                        result: TotalCaptureResult
+                    ) {
+                        Timber.d("Camera params applied successfully")
+                    }
+
+                    override fun onCaptureFailed(
+                        session: CameraCaptureSession,
+                        request: CaptureRequest,
+                        failure: CaptureFailure
+                    ) {
+                        Timber.e("Failed to apply camera params: ${failure.reason}")
+                    }
+                }, handler)
+            }
+        }
     }
 
     suspend fun captureImage(outputFile: File): Result<CaptureResult> {
-        if (isClosed.get()) {
-            return Result.failure(IllegalStateException("Camera2Controller has been closed"))
-        }
-        
         return try {
             _cameraState.value = CameraState.Capturing
             
             val currentParamsValue = _currentParams.value ?: CameraParams()
-            val handler = getBackgroundHandler()
-            
-            if (handler == null) {
+            val handler = backgroundHandler ?: run {
                 Timber.w("backgroundHandler is null, cannot capture image")
                 _cameraState.value = CameraState.Error("Camera not ready")
                 return Result.failure(IllegalStateException("backgroundHandler is null"))
             }
             
-            // 由于当前实现不使用 Camera2 API 进行捕获，直接返回成功
-            _cameraState.value = CameraState.Ready
+            captureSession?.let { session ->
+                val captureBuilder = cameraDevice?.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
+                
+                imageReader?.surface?.let { surface ->
+                    captureBuilder?.addTarget(surface)
+                    
+                    applyParamsToCaptureRequest(captureBuilder!!, currentParamsValue)
+                    
+                    session.capture(captureBuilder.build(), object : CameraCaptureSession.CaptureCallback() {
+                        override fun onCaptureCompleted(
+                            session: CameraCaptureSession,
+                            request: CaptureRequest,
+                            result: TotalCaptureResult
+                        ) {
+                            Timber.d("Image captured successfully")
+                            _cameraState.value = CameraState.Ready
+                        }
+
+                        override fun onCaptureFailed(
+                            session: CameraCaptureSession,
+                            request: CaptureRequest,
+                            failure: CaptureFailure
+                        ) {
+                            Timber.e("Capture failed: ${failure.reason}")
+                            _cameraState.value = CameraState.Error("Capture failed")
+                        }
+                    }, handler)
+                }
+            }
             
             Result.success(
                 CaptureResult(
@@ -286,60 +281,45 @@ class Camera2Controller @Inject constructor(
         }
     }
 
-    fun startBackgroundThread() {
-        if (isClosed.get()) {
-            Timber.w("Cannot start background thread, controller is closed")
-            return
+    private fun applyParamsToCaptureRequest(builder: CaptureRequest.Builder, params: CameraParams) {
+        builder.apply {
+            set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
+            set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+            set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
+            
+            // Apply custom params
+            set(CaptureRequest.SENSOR_SENSITIVITY, params.iso)
+            
+            val evValue = (params.ev.replace("+", "").toFloatOrNull() ?: 0f) * 6
+            set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, evValue.toInt())
         }
-        
-        stopBackgroundThread()
-        
-        val thread = HandlerThread("CameraBackground").also { it.start() }
-        backgroundThreadRef.set(thread)
-        backgroundHandlerRef.set(Handler(thread.looper))
+    }
+
+    fun startBackgroundThread() {
+        backgroundThread = HandlerThread("CameraBackground").also { it.start() }
+        backgroundHandler = Handler(backgroundThread!!.looper)
     }
 
     fun stopBackgroundThread() {
-        backgroundThreadRef.getAndSet(null)?.let { thread ->
-            thread.quitSafely()
-            try {
-                thread.join()
-            } catch (e: InterruptedException) {
-                Timber.e(e, "Error stopping background thread")
-                Thread.currentThread().interrupt()
-            }
+        backgroundThread?.quitSafely()
+        try {
+            backgroundThread?.join()
+            backgroundThread = null
+            backgroundHandler = null
+        } catch (e: InterruptedException) {
+            Timber.e(e, "Error stopping background thread")
         }
-        backgroundHandlerRef.set(null)
     }
 
-    /**
-     * 关闭所有资源，包括 executor
-     */
     fun close() {
-        if (isClosed.getAndSet(true)) {
-            return // 已经关闭
-        }
-        
         try {
-            previewSurface?.release()
-            previewSurface = null
+            captureSession?.close()
             cameraDevice?.close()
-            cameraDevice = null
+            imageReader?.close()
         } catch (e: Exception) {
             Timber.e(e, "Error closing camera")
         }
-        
         stopBackgroundThread()
-        
-        // 关闭 executor
-        try {
-            cameraExecutor.shutdown()
-            if (!cameraExecutor.isTerminated) {
-                cameraExecutor.shutdownNow()
-            }
-        } catch (e: Exception) {
-            Timber.e(e, "Error closing camera executor")
-        }
     }
 
     fun saveParamsToImage(imageFile: File, params: CameraParams): Result<File> {

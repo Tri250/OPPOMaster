@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.omaster.app.data.ThemeMode
 import com.omaster.app.model.Preset
@@ -41,6 +42,7 @@ import com.omaster.app.ui.components.ProFeatureCard
 import com.omaster.app.ui.components.ProPresetCard
 import com.omaster.app.ui.components.ProSearchBar
 import com.omaster.app.ui.theme.*
+import com.omaster.app.viewmodel.MainViewModel
 
 /**
  * ==================== ProHomeScreen - ColorOS 16 专业摄影首页 ====================
@@ -56,14 +58,12 @@ fun ProHomeScreen(
     onWatermarkClick: () -> Unit,
     onColorOSHomeClick: () -> Unit,
     modifier: Modifier = Modifier,
-    presets: List<Preset>,
-    searchQuery: String,
-    filterType: String,
-    onSearchQueryChange: (String) -> Unit,
-    onFilterTypeChange: (String) -> Unit,
-    onFavoriteToggle: (Preset) -> Unit,
-    themeMode: Int
+    viewModel: MainViewModel = hiltViewModel()
 ) {
+    val presets by viewModel.presets.collectAsState()
+    val searchQuery by viewModel.searchQuery.collectAsState()
+    val filterType by viewModel.filterType.collectAsState()
+    val themeMode by viewModel.themeMode.collectAsState()
     val isDark = themeMode == ThemeMode.DARK.value
     
     var isSearching by remember { mutableStateOf(false) }
@@ -105,7 +105,7 @@ fun ProHomeScreen(
                 ProSearchBar(
                     query = searchQuery,
                     onQueryChange = {
-                        onSearchQueryChange(it)
+                        viewModel.onSearchQueryChanged(it)
                         isSearching = it.isNotEmpty()
                     },
                     isDark = isDark
@@ -116,7 +116,7 @@ fun ProHomeScreen(
             item {
                 ProFilterChips(
                     selectedFilter = filterType,
-                    onFilterSelected = onFilterTypeChange,
+                    onFilterSelected = { viewModel.onFilterTypeChanged(it) },
                     isDark = isDark
                 )
             }
@@ -137,7 +137,7 @@ fun ProHomeScreen(
                 ProPresetCard(
                     preset = preset,
                     onClick = { onPresetClick(preset) },
-                    onFavoriteToggle = { onFavoriteToggle(preset) },
+                    onFavoriteToggle = { viewModel.toggleFavorite(preset) },
                     isDark = isDark,
                     modifier = Modifier
                         .animateItemPlacement(
@@ -379,6 +379,17 @@ fun ProFeatureGrid(
         }
     }
 }
+
+/**
+ * ==================== ProFeature - 专业功能数据类 ====================
+ */
+data class ProFeature(
+    val icon: ImageVector,
+    val title: String,
+    val subtitle: String,
+    val gradient: List<Color>,
+    val onClick: () -> Unit
+)
 
 /**
  * ==================== ProFilterChips - 专业筛选标签 ====================

@@ -42,8 +42,7 @@ fun GlassPresetCard(
     isNew: Boolean = false,
     index: Int = 0
 ) {
-    // 使用 key 确保只有真正变化的预设才会触发动画，避免不必要的重组
-    var isVisible by remember(preset.id) { mutableStateOf(false) }
+    var isVisible by remember { mutableStateOf(false) }
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     
@@ -59,8 +58,7 @@ fun GlassPresetCard(
         label = "scale"
     )
     
-    // 使用 LaunchedEffect 的 key 参数优化动画触发
-    LaunchedEffect(preset.id) {
+    LaunchedEffect(Unit) {
         kotlinx.coroutines.delay(index * 60L)
         isVisible = true
     }

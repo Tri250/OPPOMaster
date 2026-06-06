@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import androidx.core.app.ActivityCompat
 import dagger.hilt.android.qualifiers.ApplicationContext
 import timber.log.Timber
 import javax.inject.Inject
@@ -19,26 +20,19 @@ class PermissionHelper @Inject constructor(
     }
 
     fun canDrawOverlays(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            Settings.canDrawOverlays(context)
-        } else {
-            true
-        }
+        return Settings.canDrawOverlays(context)
     }
 
     fun requestOverlayPermission(): Intent {
         return Intent(
             Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
             Uri.parse("package:${context.packageName}")
-        ).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
+        )
     }
 
     fun getSystemPermissionIntent(): Intent {
         return Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
             data = Uri.parse("package:${context.packageName}")
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
     }
 
@@ -52,7 +46,6 @@ class PermissionHelper @Inject constructor(
                         "com.coloros.safecenter",
                         "com.coloros.safecenter.permission.startup.StartupAppListActivity"
                     )
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
             }
             manufacturer.contains("oneplus") -> {
@@ -61,7 +54,6 @@ class PermissionHelper @Inject constructor(
                         "com.oneplus.security",
                         "com.oneplus.security.chainlaunch.view.ChainLaunchAppListActivity"
                     )
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
             }
             manufacturer.contains("xiaomi") || manufacturer.contains("redmi") -> {
@@ -71,7 +63,6 @@ class PermissionHelper @Inject constructor(
                         "com.miui.permcenter.permissions.PermissionsEditorActivity"
                     )
                     putExtra("extra_pkgname", context.packageName)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
             }
             manufacturer.contains("vivo") -> {
@@ -80,7 +71,6 @@ class PermissionHelper @Inject constructor(
                         "com.vivo.permissionmanager",
                         "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"
                     )
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
             }
             else -> null
@@ -96,7 +86,6 @@ class PermissionHelper @Inject constructor(
                     "com.coloros.safecenter",
                     "com.coloros.safecenter.permission.startup.StartupAppListActivity"
                 )
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
         } else null
     }

@@ -15,9 +15,6 @@ import android.widget.TextView
 import com.omaster.app.R
 import dagger.hilt.android.AndroidEntryPoint
 import timber.log.Timber
-import java.lang.ref.WeakReference
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicReference
 
 @AndroidEntryPoint
 class FluidCloudService : Service() {
@@ -30,33 +27,15 @@ class FluidCloudService : Service() {
         const val EXTRA_PRESET_NAME = "preset_name"
         const val EXTRA_PRESET_CATEGORY = "preset_category"
         const val EXTRA_HAS_HNCS = "has_hncs"
-
-        /**
-         * 静态内部类 AnimationListener，使用 WeakReference 避免内存泄漏
-         */
-        private class CapsuleAnimationListener(
-            service: FluidCloudService
-        ) : android.view.animation.Animation.AnimationListener {
-            private val serviceRef = WeakReference(service)
-            
-            override fun onAnimationEnd(animation: android.view.animation.Animation?) {
-                serviceRef.get()?.onCapsuleAnimationEnd()
-            }
-            
-            override fun onAnimationRepeat(animation: android.view.animation.Animation?) {}
-            override fun onAnimationStart(animation: android.view.animation.Animation?) {}
-        }
     }
 
-    private val windowManagerRef = AtomicReference<WindowManager?>(null)
-    private val fluidCloudViewRef = AtomicReference<View?>(null)
-    private val currentPresetId = AtomicReference<String?>(null)
-    private val currentPresetName = AtomicReference<String?>(null)
-    private val currentCategory = AtomicReference<String?>(null)
-    private val hasHncs = AtomicBoolean(false)
-    private val isViewAttached = AtomicBoolean(false)
-    
-    private val viewLock = Any()
+    private var windowManager: WindowManager? = null
+    private var fluidCloudView: View? = null
+    private var currentPresetId: String? = null
+    private var currentPresetName: String? = null
+    private var currentCategory: String? = null
+    private var hasHncs: Boolean = false
+    private var isViewAttached: Boolean = false
 
     override fun onCreate() {
         super.onCreate()
@@ -66,8 +45,8 @@ class FluidCloudService : Service() {
 
     private fun initFluidCloudView() {
         try {
-            windowManagerRef.set(getSystemService(WINDOW_SERVICE) as WindowManager)
-            fluidCloudViewRef.set(LayoutInflater.from(this).inflate(R.layout.fluid_cloud_capsule, null))
+            windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+            fluidCloudView = LayoutInflater.from(this).inflate(R.layout.fluid_cloud_capsule, null)
             setupCapsuleView()
         } catch (e: Exception) {
             Timber.e(e, "Failed to initialize fluid cloud view")
@@ -75,7 +54,7 @@ class FluidCloudService : Service() {
     }
 
     private fun setupCapsuleView() {
-        fluidCloudViewRef.get()?.apply {
+        fluidCloudView?.apply {
             findViewById<View>(R.id.capsule_container)?.setOnClickListener {
                 handleCapsuleClick()
             }
@@ -89,44 +68,20 @@ class FluidCloudService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Timber.d("FluidCloudService onStartCommand with action: ${intent?.action}")
         
-        // 安全检查: 验证Intent来源和数据
         try {
-            // 验证Intent action是否合法
-            val action = intent?.action
-            if (action == null || action !in listOf(
-                ACTION_SHOW_CAPSULE,
-                ACTION_HIDE_CAPSULE,
-                ACTION_UPDATE_PRESET
-            )) {
-                Timber.w("Invalid or null action received: $action, ignoring")
-                return START_NOT_STICKY
-            }
-            
-            when (action) {
+            when (intent?.action) {
                 ACTION_SHOW_CAPSULE -> {
-                    // 验证并处理Intent数据
-                    val presetId = validateAndSanitizeString(intent.getStringExtra(EXTRA_PRESET_ID))
-                    val presetName = validateAndSanitizeString(intent.getStringExtra(EXTRA_PRESET_NAME))
-                    val category = validateAndSanitizeString(intent.getStringExtra(EXTRA_PRESET_CATEGORY))
-                    val hasHncsValue = intent.getBooleanExtra(EXTRA_HAS_HNCS, false)
-                    
-                    currentPresetId.set(presetId)
-                    currentPresetName.set(presetName)
-                    currentCategory.set(category)
-                    hasHncs.set(hasHncsValue)
+                    currentPresetId = intent.getStringExtra(EXTRA_PRESET_ID)
+                    currentPresetName = intent.getStringExtra(EXTRA_PRESET_NAME)
+                    currentCategory = intent.getStringExtra(EXTRA_PRESET_CATEGORY)
+                    hasHncs = intent.getBooleanExtra(EXTRA_HAS_HNCS, false)
                     showFluidCloudCapsule()
                 }
                 ACTION_UPDATE_PRESET -> {
-                    // 验证并处理Intent数据
-                    val presetId = validateAndSanitizeString(intent.getStringExtra(EXTRA_PRESET_ID))
-                    val presetName = validateAndSanitizeString(intent.getStringExtra(EXTRA_PRESET_NAME))
-                    val category = validateAndSanitizeString(intent.getStringExtra(EXTRA_PRESET_CATEGORY))
-                    val hasHncsValue = intent.getBooleanExtra(EXTRA_HAS_HNCS, false)
-                    
-                    currentPresetId.set(presetId)
-                    currentPresetName.set(presetName)
-                    currentCategory.set(category)
-                    hasHncs.set(hasHncsValue)
+                    currentPresetId = intent.getStringExtra(EXTRA_PRESET_ID)
+                    currentPresetName = intent.getStringExtra(EXTRA_PRESET_NAME)
+                    currentCategory = intent.getStringExtra(EXTRA_PRESET_CATEGORY)
+                    hasHncs = intent.getBooleanExtra(EXTRA_HAS_HNCS, false)
                     updateCapsuleContent()
                 }
                 ACTION_HIDE_CAPSULE -> {
@@ -139,50 +94,17 @@ class FluidCloudService : Service() {
         
         return START_NOT_STICKY
     }
-    
-    /**
-     * 验证并清理字符串数据，防止注入攻击
-     * - 限制字符串长度
-     * - 过滤危险字符
-     * - 返回安全字符串或null
-     */
-    private fun validateAndSanitizeString(input: String?): String? {
-        if (input == null) return null
-        
-        // 限制最大长度，防止内存攻击
-        val maxLength = 100
-        if (input.length > maxLength) {
-            Timber.w("Input string too long (${input.length}), truncating to $maxLength")
-            return input.take(maxLength)
-        }
-        
-        // 过滤潜在危险字符（防止日志注入等）
-        // 保留正常字符：字母、数字、中文、空格、常用标点
-        val sanitized = input.filter { char ->
-            char.isLetterOrDigit() || 
-            char.isWhitespace() ||
-            char in ".,_-:()（）【】" ||
-            // 允许中文字符范围
-            (char.code >= 0x4E00 && char.code <= 0x9FFF)
-        }
-        
-        return sanitized.ifEmpty { null }
-    }
 
     private fun showFluidCloudCapsule() {
-        Timber.d("Showing fluid cloud capsule for preset: ${currentPresetName.get()}")
+        Timber.d("Showing fluid cloud capsule for preset: $currentPresetName")
         
         try {
             val layoutParams = createLayoutParams()
             
-            synchronized(viewLock) {
-                val fluidCloudView = fluidCloudViewRef.get()
-                val windowManager = windowManagerRef.get()
-                if (fluidCloudView?.parent == null && !isViewAttached.get()) {
-                    windowManager?.addView(fluidCloudView, layoutParams)
-                    isViewAttached.set(true)
-                    animateCapsuleIn()
-                }
+            if (fluidCloudView?.parent == null && !isViewAttached) {
+                windowManager?.addView(fluidCloudView, layoutParams)
+                isViewAttached = true
+                animateCapsuleIn()
             }
             
             updateCapsuleContent()
@@ -216,12 +138,12 @@ class FluidCloudService : Service() {
 
     private fun updateCapsuleContent() {
         try {
-            fluidCloudViewRef.get()?.apply {
-                findViewById<TextView>(R.id.capsule_preset_name)?.text = currentPresetName.get() ?: "小O帮帮"
-                findViewById<TextView>(R.id.capsule_category)?.text = currentCategory.get() ?: "哈苏预设"
+            fluidCloudView?.apply {
+                findViewById<TextView>(R.id.capsule_preset_name)?.text = currentPresetName ?: "小O帮帮"
+                findViewById<TextView>(R.id.capsule_category)?.text = currentCategory ?: "哈苏预设"
                 
                 val hncsIcon = findViewById<ImageView>(R.id.capsule_hncs_icon)
-                if (hasHncs.get()) {
+                if (hasHncs) {
                     hncsIcon?.visibility = View.VISIBLE
                 } else {
                     hncsIcon?.visibility = View.GONE
@@ -234,7 +156,7 @@ class FluidCloudService : Service() {
 
     private fun animateCapsuleIn() {
         try {
-            fluidCloudViewRef.get()?.apply {
+            fluidCloudView?.apply {
                 val slideIn = AnimationUtils.loadAnimation(context, R.anim.capsule_slide_in)
                 startAnimation(slideIn)
             }
@@ -245,61 +167,37 @@ class FluidCloudService : Service() {
 
     private fun animateCapsuleOut() {
         try {
-            fluidCloudViewRef.get()?.apply {
+            fluidCloudView?.apply {
                 val slideOut = AnimationUtils.loadAnimation(context, R.anim.capsule_slide_out)
-                slideOut.setAnimationListener(CapsuleAnimationListener(this@FluidCloudService))
+                slideOut.setAnimationListener(object : android.view.animation.Animation.AnimationListener {
+                    override fun onAnimationEnd(animation: android.view.animation.Animation?) {
+                        try {
+                            if (isViewAttached && fluidCloudView?.parent != null) {
+                                windowManager?.removeView(fluidCloudView)
+                                isViewAttached = false
+                            }
+                        } catch (e: Exception) {
+                            Timber.e(e, "Failed to remove fluid cloud view")
+                        }
+                    }
+                    override fun onAnimationRepeat(animation: android.view.animation.Animation?) {}
+                    override fun onAnimationStart(animation: android.view.animation.Animation?) {}
+                })
                 startAnimation(slideOut)
             }
         } catch (e: Exception) {
             Timber.e(e, "Failed to animate capsule out")
-            // 在 catch 块中重置状态
-            isViewAttached.set(false)
-        }
-    }
-
-    /**
-     * 胶囊动画结束后的回调处理
-     */
-    private fun onCapsuleAnimationEnd() {
-        synchronized(viewLock) {
-            try {
-                if (isViewAttached.get() && fluidCloudViewRef.get()?.parent != null) {
-                    windowManagerRef.get()?.removeView(fluidCloudViewRef.get())
-                    isViewAttached.set(false)
-                }
-            } catch (e: Exception) {
-                Timber.e(e, "Failed to remove fluid cloud view")
-                // 在 catch 块中重置状态
-                isViewAttached.set(false)
-            }
         }
     }
 
     private fun handleCapsuleClick() {
         Timber.d("Fluid cloud capsule clicked")
         try {
-            // Android 11+ 需要声明包可见性才能查询其他应用
-            // 由于我们查询的是自己的包，不需要额外权限
-            val launchIntent = packageManager?.getLaunchIntentForPackage(packageName)
-            if (launchIntent != null) {
-                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                startActivity(launchIntent)
-            } else {
-                // 如果无法获取启动Intent，尝试直接启动MainActivity
-                val fallbackIntent = Intent(this, com.omaster.app.MainActivity::class.java)
-                fallbackIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                startActivity(fallbackIntent)
-            }
+            val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+            launchIntent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            startActivity(launchIntent)
         } catch (e: Exception) {
             Timber.e(e, "Failed to launch app from capsule")
-            // 尝试备用方案
-            try {
-                val fallbackIntent = Intent(this, com.omaster.app.MainActivity::class.java)
-                fallbackIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                startActivity(fallbackIntent)
-            } catch (e2: Exception) {
-                Timber.e(e2, "Fallback launch also failed")
-            }
         }
     }
 
@@ -307,7 +205,7 @@ class FluidCloudService : Service() {
         Timber.d("Hiding fluid cloud capsule")
         
         try {
-            if (isViewAttached.get() && fluidCloudViewRef.get()?.parent != null) {
+            if (isViewAttached && fluidCloudView?.parent != null) {
                 animateCapsuleOut()
             }
         } catch (e: Exception) {
@@ -321,15 +219,13 @@ class FluidCloudService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        synchronized(viewLock) {
-            try {
-                if (isViewAttached.get() && fluidCloudViewRef.get()?.parent != null) {
-                    windowManagerRef.get()?.removeView(fluidCloudViewRef.get())
-                    isViewAttached.set(false)
-                }
-            } catch (e: Exception) {
-                Timber.e(e, "Error removing fluid cloud view")
+        try {
+            if (isViewAttached && fluidCloudView?.parent != null) {
+                windowManager?.removeView(fluidCloudView)
+                isViewAttached = false
             }
+        } catch (e: Exception) {
+            Timber.e(e, "Error removing fluid cloud view")
         }
         Timber.d("FluidCloudService destroyed")
     }

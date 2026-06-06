@@ -18,7 +18,7 @@ import androidx.core.view.WindowCompat
 import com.omaster.app.data.ThemeMode
 
 // ==================== ColorOS 16 专业摄影深色配色方案 ====================
-private val ColorOSDarkColorScheme = darkColorScheme(
+val ColorOSDarkColorScheme = darkColorScheme(
     primary = HasselbladOrange,
     onPrimary = ColorOSBlack,
     primaryContainer = HasselbladOrangeDark,
@@ -46,7 +46,7 @@ private val ColorOSDarkColorScheme = darkColorScheme(
 )
 
 // ==================== ColorOS 16 专业摄影浅色配色方案 ====================
-private val ColorOSLightColorScheme = lightColorScheme(
+val ColorOSLightColorScheme = lightColorScheme(
     primary = HasselbladOrange,
     onPrimary = Color.White,
     primaryContainer = HasselbladOrangeLight,

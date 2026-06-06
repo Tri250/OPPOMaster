@@ -1,5 +1,6 @@
 package com.omaster.app.ui.components
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -197,50 +198,10 @@ fun ParamComparisonDisplay(
                     color = hasselbladOrange,
                     params = presetParams
                 )
-                RealTimeParamComparisonItem(
+                ParamComparisonItem(
                     label = "实时",
                     color = MaterialTheme.colorScheme.primary,
-                    params = realTimeParams
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun RealTimeParamComparisonItem(
-    label: String,
-    color: Color,
-    params: RealTimeCameraParams
-) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.weight(1f)
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            color = color
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Box(
-            modifier = Modifier
-                .background(
-                    color = color.copy(alpha = 0.1f),
-                    shape = RoundedCornerShape(8.dp)
-                )
-                .padding(8.dp)
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = "ISO ${params.iso}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = "EV ${params.ev}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface
+                    params = presetParams // Convert real time
                 )
             }
         }

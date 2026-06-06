@@ -31,13 +31,6 @@ class BatchProcessingManager @Inject constructor(
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private val processingJobs = ConcurrentHashMap<String, Job>()
 
-    /**
-     * 关闭 Manager，取消所有协程
-     */
-    fun close() {
-        scope.cancel()
-    }
-
     private val _batchState = MutableStateFlow(BatchState())
     val batchState: StateFlow<BatchState> = _batchState.asStateFlow()
 
@@ -78,10 +71,10 @@ class BatchProcessingManager @Inject constructor(
     ): List<BatchResult> = withContext(Dispatchers.IO) {
         if (images.isEmpty()) return@withContext emptyList()
 
-        _batchState.update { BatchState(
+        _batchState.value = BatchState(
             isProcessing = true,
             totalTasks = images.size
-        ) }
+        )
 
         val results = mutableListOf<BatchResult>()
         val startTime = System.currentTimeMillis()
@@ -89,12 +82,12 @@ class BatchProcessingManager @Inject constructor(
         images.forEachIndexed { index, uri ->
             val taskId = "task_${index}_${System.currentTimeMillis()}"
             
-            _batchState.update { it.copy(
+            _batchState.value = _batchState.value.copy(
                 currentTask = uri.lastPathSegment ?: "Image ${index + 1}",
                 completedTasks = index
-            ) }
+            )
 
-            _currentProgress.update { BatchProgress(
+            _currentProgress.value = BatchProgress(
                 taskId = taskId,
                 taskName = uri.lastPathSegment ?: "Image ${index + 1}",
                 progress = index.toFloat() / images.size,
@@ -103,24 +96,24 @@ class BatchProcessingManager @Inject constructor(
                 estimatedTimeRemaining = estimateRemainingTime(
                     startTime, index, images.size
                 )
-            ) }
+            )
 
             val result = processSingleImage(uri, template, config)
             results.add(result)
 
             if (!result.success) {
-                _batchState.update { it.copy(
-                    failedTasks = it.failedTasks + 1
-                ) }
+                _batchState.value = _batchState.value.copy(
+                    failedTasks = _batchState.value.failedTasks + 1
+                )
             }
         }
 
-        _batchState.update { it.copy(
+        _batchState.value = _batchState.value.copy(
             isProcessing = false,
             completedTasks = images.size,
             results = results
-        ) }
-        _currentProgress.update { null }
+        )
+        _currentProgress.value = null
 
         results
     }
@@ -133,10 +126,10 @@ class BatchProcessingManager @Inject constructor(
     ): List<BatchResult> = withContext(Dispatchers.IO) {
         if (images.isEmpty()) return@withContext emptyList()
 
-        _batchState.update { BatchState(
+        _batchState.value = BatchState(
             isProcessing = true,
             totalTasks = images.size
-        ) }
+        )
 
         val semaphore = Semaphore(maxParallelism)
         val results = mutableListOf<BatchResult>()
@@ -147,14 +140,14 @@ class BatchProcessingManager @Inject constructor(
                 async {
                     semaphore.acquire()
                     try {
-                        _batchState.update { it.copy(
+                        _batchState.value = _batchState.value.copy(
                             currentTask = uri.lastPathSegment ?: "Image ${index + 1}",
                             completedTasks = index
-                        ) }
+                        )
 
                         val result = processSingleImage(uri, template, config)
 
-                        _currentProgress.update { BatchProgress(
+                        _currentProgress.value = BatchProgress(
                             taskId = "task_$index",
                             taskName = uri.lastPathSegment ?: "Image ${index + 1}",
                             progress = index.toFloat() / images.size,
@@ -163,7 +156,7 @@ class BatchProcessingManager @Inject constructor(
                             estimatedTimeRemaining = estimateRemainingTime(
                                 startTime, index, images.size
                             )
-                        ) }
+                        )
 
                         result
                     } finally {
@@ -173,12 +166,12 @@ class BatchProcessingManager @Inject constructor(
             }.awaitAll().also { results.addAll(it) }
         }
 
-        _batchState.update { it.copy(
+        _batchState.value = _batchState.value.copy(
             isProcessing = false,
             completedTasks = images.size,
             results = results
-        ) }
-        _currentProgress.update { null }
+        )
+        _currentProgress.value = null
 
         results
     }
@@ -318,7 +311,7 @@ class BatchProcessingManager @Inject constructor(
             }
 
             FileOutputStream(outputFile).use { out ->
-                bitmap.compress(compressFormat, quality, out)
+                bitmap.compress(compress_format, quality, out)
             }
 
             Uri.fromFile(outputFile)
@@ -338,8 +331,8 @@ class BatchProcessingManager @Inject constructor(
     fun cancelAll() {
         processingJobs.values.forEach { it.cancel() }
         processingJobs.clear()
-        _batchState.update { BatchState() }
-        _currentProgress.update { null }
+        _batchState.value = BatchState()
+        _currentProgress.value = null
     }
 
     fun cancelTask(taskId: String) {

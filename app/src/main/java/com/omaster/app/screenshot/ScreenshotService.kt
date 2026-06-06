@@ -52,13 +52,7 @@ class ScreenshotService(private val context: Context) {
             uri?.let {
                 contentResolver.openOutputStream(it).use { out ->
                     val bitmap = BitmapFactory.decodeFile(screenshotFile.absolutePath)
-                    try {
-                        bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
-                    } finally {
-                        if (!bitmap.isRecycled) {
-                            bitmap.recycle()
-                        }
-                    }
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
                 }
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -113,17 +107,11 @@ fun rememberStoragePermissionLauncher(
 
 fun hasStoragePermission(context: Context): Boolean {
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        // Android 13+ 需要READ_MEDIA_IMAGES权限
         ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.READ_MEDIA_IMAGES
         ) == PackageManager.PERMISSION_GRANTED
-    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-        // Android 10-12 分区存储，保存到MediaStore不需要权限
-        // 但读取其他应用的媒体文件需要READ_EXTERNAL_STORAGE
-        true // 保存操作使用MediaStore不需要权限
     } else {
-        // Android 9及以下需要WRITE_EXTERNAL_STORAGE权限
         ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.WRITE_EXTERNAL_STORAGE

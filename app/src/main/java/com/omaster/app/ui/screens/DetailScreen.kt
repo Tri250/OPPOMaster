@@ -23,13 +23,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.omaster.app.accessibility.AutoFillAccessibilityService
 import com.omaster.app.floating.FloatingWindowManager
 import com.omaster.app.model.CameraParams
 import com.omaster.app.model.Preset
 import com.omaster.app.ui.theme.*
-
+import com.omaster.app.viewmodel.MainViewModel
+import kotlinx.coroutines.launch
 
 @Composable
 fun DetailScreen(
@@ -37,9 +40,11 @@ fun DetailScreen(
     onBack: () -> Unit,
     onFavoriteToggle: () -> Unit,
     onApplyPreset: (Preset) -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    viewModel: MainViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     var showApplyGuideDialog by remember { mutableStateOf(false) }
     var showAccessibilityGuideDialog by remember { mutableStateOf(false) }
@@ -527,11 +532,7 @@ fun PresetImportExportDialog(
 }
 
 fun copyAllParamsToClipboard(context: Context, preset: Preset) {
-    val params = preset.cameraParams
-    if (params == null) {
-        Toast.makeText(context, "该预设没有相机参数", Toast.LENGTH_SHORT).show()
-        return
-    }
+    val params = preset.cameraParams ?: return
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     val text = buildString {
         appendLine("📷 ${preset.name}")
@@ -549,11 +550,7 @@ fun copyAllParamsToClipboard(context: Context, preset: Preset) {
 }
 
 fun sharePreset(context: Context, preset: Preset) {
-    val params = preset.cameraParams
-    if (params == null) {
-        Toast.makeText(context, "该预设没有相机参数，无法分享", Toast.LENGTH_SHORT).show()
-        return
-    }
+    val params = preset.cameraParams ?: return
     val shareText = buildString {
         appendLine("📷 ${preset.name}")
         appendLine()
@@ -570,11 +567,7 @@ fun sharePreset(context: Context, preset: Preset) {
         putExtra(Intent.EXTRA_TEXT, shareText)
         putExtra(Intent.EXTRA_SUBJECT, "分享预设：${preset.name}")
     }
-    try {
-        context.startActivity(Intent.createChooser(intent, "分享预设"))
-    } catch (e: Exception) {
-        Toast.makeText(context, "无法打开分享界面", Toast.LENGTH_SHORT).show()
-    }
+    context.startActivity(Intent.createChooser(intent, "分享预设"))
 }
 
 fun exportPreset(context: Context, preset: Preset) {
@@ -582,23 +575,13 @@ fun exportPreset(context: Context, preset: Preset) {
         type = "text/plain"
         putExtra(Intent.EXTRA_TEXT, "预设导出功能开发中...")
     }
-    try {
-        context.startActivity(Intent.createChooser(intent, "导出预设"))
-    } catch (e: Exception) {
-        Toast.makeText(context, "无法打开导出界面", Toast.LENGTH_SHORT).show()
-    }
+    context.startActivity(Intent.createChooser(intent, "导出预设"))
 }
 
 fun openSystemCamera(context: Context) {
     val intent = Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE)
-    if (intent.resolveActivity(context.packageManager) != null) {
-        try {
-            context.startActivity(intent)
-        } catch (e: Exception) {
-            Toast.makeText(context, "无法打开系统相机", Toast.LENGTH_SHORT).show()
-        }
-    } else {
-        Toast.makeText(context, "无法打开系统相机", Toast.LENGTH_SHORT).show()
+    intent.resolveActivity(context.packageManager)?.let {
+        context.startActivity(intent)
     }
 }
 

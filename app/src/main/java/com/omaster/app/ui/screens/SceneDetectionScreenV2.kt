@@ -45,7 +45,6 @@ import com.omaster.app.ui.animation.ColorOSScale
 import com.omaster.app.ui.components.*
 import com.omaster.app.ui.theme.*
 import kotlinx.coroutines.launch
-import timber.log.Timber
 import java.io.File
 
 @Composable
@@ -152,7 +151,6 @@ fun SceneDetectionScreenV2(
                 animationSpec = tween(150)
             )
         } catch (e: Exception) {
-            Timber.e(e, "Failed to detect scene")
         } finally {
             isDetecting = false
         }
@@ -422,10 +420,9 @@ private fun SceneResultCardV2(
     detectionTime: Int? = null,
     modifier: Modifier = Modifier
 ) {
-    // 使用 remember 的 key 参数确保状态正确重置
-    var isVisible by remember(scene) { mutableStateOf(false) }
+    var isVisible by remember { mutableStateOf(false) }
     
-    LaunchedEffect(scene) {
+    LaunchedEffect(Unit) {
         isVisible = true
     }
     

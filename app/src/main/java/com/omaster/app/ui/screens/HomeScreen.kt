@@ -14,7 +14,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -26,11 +25,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.omaster.app.model.Preset
 import com.omaster.app.ui.animation.*
 import com.omaster.app.ui.theme.*
 import com.omaster.app.viewmodel.FilterType
+import com.omaster.app.viewmodel.MainViewModel
 
 // ==================== 预设分类枚举 ====================
 enum class PresetCategory(val displayName: String) {
@@ -53,15 +55,13 @@ fun HomeScreen(
     onWatermarkClick: () -> Unit = {},
     onColorOSHomeClick: () -> Unit = {},
     modifier: Modifier = Modifier,
-    presets: List<Preset>,
-    searchQuery: String,
-    filterType: FilterType,
-    onSearchQueryChange: (String) -> Unit,
-    onFilterTypeChange: (FilterType) -> Unit,
-    onFavoriteToggle: (Preset) -> Unit
+    viewModel: MainViewModel = hiltViewModel()
 ) {
-    var selectedCategory by rememberSaveable { mutableStateOf(PresetCategory.ALL) }
-    var isScrolled by rememberSaveable { mutableStateOf(false) }
+    val presets by viewModel.presets.collectAsStateWithLifecycle()
+    val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val filterType by viewModel.filterType.collectAsStateWithLifecycle()
+    var selectedCategory by remember { mutableStateOf(PresetCategory.ALL) }
+    var isScrolled by remember { mutableStateOf(false) }
     val scrollState = rememberScrollState()
     
     // 检测滚动位置
@@ -105,8 +105,8 @@ fun HomeScreen(
                 isScrolled = isScrolled,
                 onSettingsClick = onSettingsClick,
                 searchQuery = searchQuery,
-                onSearchQueryChange = onSearchQueryChange,
-                onClearSearch = { onSearchQueryChange("") }
+                onSearchQueryChange = { viewModel.onSearchQueryChanged(it) },
+                onClearSearch = { viewModel.onSearchQueryChanged("") }
             )
         },
         containerColor = MaterialTheme.colorScheme.background
@@ -135,7 +135,7 @@ fun HomeScreen(
             // 筛选标签
             FilterChipsRow(
                 selectedFilter = filterType,
-                onFilterSelected = onFilterTypeChange
+                onFilterSelected = { viewModel.onFilterTypeChanged(it) }
             )
             
             if (filteredPresets.isEmpty()) {
@@ -148,7 +148,7 @@ fun HomeScreen(
                 OppoPresetGrid(
                     presets = filteredPresets,
                     onPresetClick = onPresetClick,
-                    onFavoriteToggle = onFavoriteToggle,
+                    onFavoriteToggle = { viewModel.toggleFavorite(it) },
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -377,7 +377,7 @@ fun CategoryTabs(
     selectedCategory: PresetCategory,
     onCategorySelected: (PresetCategory) -> Unit
 ) {
-    val scrollState = rememberScrollState()
+    var scrollState = rememberScrollState()
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -586,7 +586,7 @@ fun OppoPresetCard(
         Box(modifier = Modifier.fillMaxSize()) {
             // 图片
             AsyncImage(
-                model = preset.coverPath,
+                model = "https://picsum.photos/seed/${preset.coverPath}/400/533",
                 contentDescription = preset.name,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()

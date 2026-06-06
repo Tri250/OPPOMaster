@@ -5,8 +5,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -22,30 +21,129 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.omaster.app.data.CameraConfigRepository
 import com.omaster.app.model.CameraConfig
 import com.omaster.app.model.CameraParams
 import com.omaster.app.ui.components.CameraParamControls
 import com.omaster.app.ui.components.SaveConfigDialog
 import com.omaster.app.ui.theme.hasselbladOrange
-import com.omaster.app.viewmodel.CameraConfigViewModel
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+
+/**
+ * 相机配置管理ViewModel
+ */
+@HiltViewModel
+class CameraConfigViewModel @Inject constructor(
+    private val repository: CameraConfigRepository
+) : ViewModel() {
+    val configs: StateFlow<List<CameraConfig>> = repository.configs
+
+    private val _selectedConfig = MutableStateFlow<CameraConfig?>(null)
+    val selectedConfig: StateFlow<CameraConfig?> = _selectedConfig.asStateFlow()
+
+    private val _currentParams = MutableStateFlow(CameraParams())
+    val currentParams: StateFlow<CameraParams> = _currentParams.asStateFlow()
+
+    private val _editingConfigId = MutableStateFlow<String?>(null)
+    val editingConfigId: StateFlow<String?> = _editingConfigId.asStateFlow()
+
+    private val _selectedIds = MutableStateFlow<List<String>>(emptyList())
+    val selectedIds: StateFlow<List<String>> = _selectedIds.asStateFlow()
+
+    private val _showSaveDialog = MutableStateFlow(false)
+    val showSaveDialog: StateFlow<Boolean> = _showSaveDialog.asStateFlow()
+
+    private val _currentTab = MutableStateFlow(0)
+    val currentTab: StateFlow<Int> = _currentTab.asStateFlow()
+
+    fun selectConfig(config: CameraConfig) {
+        _selectedConfig.value = config
+        _currentParams.value = config.params
+    }
+
+    fun updateParams(params: CameraParams) {
+        _currentParams.value = params
+    }
+
+    fun applyConfig(config: CameraConfig) {
+        _currentParams.value = config.params
+    }
+
+    fun toggleSelection(configId: String) {
+        val current = _selectedIds.value.toMutableList()
+        if (configId in current) {
+            current.remove(configId)
+        } else {
+            current.add(configId)
+        }
+        _selectedIds.value = current
+    }
+
+    fun clearSelection() {
+        _selectedIds.value = emptyList()
+    }
+
+    fun showSaveDialog() {
+        _showSaveDialog.value = true
+    }
+
+    fun hideSaveDialog() {
+        _showSaveDialog.value = false
+    }
+
+    fun saveConfig(name: String, description: String) = viewModelScope.launch {
+        val config = CameraConfig.fromParams(name, _currentParams.value, description)
+        repository.addConfig(config)
+        _showSaveDialog.value = false
+    }
+
+    fun deleteConfig(configId: String) = viewModelScope.launch {
+        repository.deleteConfig(configId)
+        if (_selectedConfig.value?.id == configId) {
+            _selectedConfig.value = null
+        }
+    }
+
+    fun deleteSelectedConfigs() = viewModelScope.launch {
+        repository.deleteConfigs(_selectedIds.value)
+        _selectedIds.value = emptyList()
+    }
+
+    fun toggleFavorite(configId: String) = viewModelScope.launch {
+        repository.toggleFavorite(configId)
+    }
+
+    fun setTab(tab: Int) {
+        _currentTab.value = tab
+    }
+
+    fun setEditingId(id: String?) {
+        _editingConfigId.value = id
+    }
+}
 
 /**
  * 相机配置管理主屏幕
  */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CameraConfigScreen(
     onBack: () -> Unit,
     viewModel: CameraConfigViewModel = hiltViewModel()
 ) {
-    val configs by viewModel.configs.collectAsStateWithLifecycle()
-    val currentTab by viewModel.currentTab.collectAsStateWithLifecycle()
-    val selectedIds by viewModel.selectedIds.collectAsStateWithLifecycle()
-    val showSaveDialog by viewModel.showSaveDialog.collectAsStateWithLifecycle()
-    val currentParams by viewModel.currentParams.collectAsStateWithLifecycle()
+    val configs by viewModel.configs.collectAsState()
+    val currentTab by viewModel.currentTab.collectAsState()
+    val selectedIds by viewModel.selectedIds.collectAsState()
+    val showSaveDialog by viewModel.showSaveDialog.collectAsState()
+    val currentParams by viewModel.currentParams.collectAsState()
 
     val isEditing = selectedIds.isNotEmpty()
 
@@ -288,7 +386,7 @@ private fun ConfigCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .combinedClickable(
+            .clickable(
                 onClick = onClick,
                 onLongClick = onLongClick
             ),

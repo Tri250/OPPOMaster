@@ -79,8 +79,7 @@ fun WatermarkEditorScreen(
     }
     
     fun applyWatermark() {
-        val imageUri = selectedImageUri
-        if (imageUri == null) {
+        if (selectedImageUri == null) {
             scope.launch {
                 snackbarHostState.showSnackbar("请先选择图片")
             }
@@ -90,7 +89,7 @@ fun WatermarkEditorScreen(
         scope.launch {
             isProcessing = true
             try {
-                val sourceBitmap = loadBitmapFromUri(context, imageUri)
+                val sourceBitmap = loadBitmapFromUri(context, selectedImageUri!!)
                 
                 val config = WatermarkConfig(
                     template = selectedTemplate,
@@ -493,14 +492,14 @@ fun WatermarkOptions(
 
 private suspend fun loadBitmapFromUri(context: android.content.Context, uri: Uri): Bitmap =
     withContext(Dispatchers.IO) {
-        context.contentResolver.openInputStream(uri)?.use { inputStream ->
-            BitmapFactory.decodeStream(inputStream)
-        } ?: throw IllegalArgumentException("Cannot open URI: $uri")
+        val inputStream = context.contentResolver.openInputStream(uri)
+        BitmapFactory.decodeStream(inputStream)
     }
 
 private suspend fun saveBitmapToUri(context: android.content.Context, bitmap: Bitmap, uri: Uri) =
     withContext(Dispatchers.IO) {
-        context.contentResolver.openOutputStream(uri)?.use { outputStream ->
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 95, outputStream)
-        }
+        val outputStream = context.contentResolver.openOutputStream(uri)
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 95, outputStream)
+        outputStream?.flush()
+        outputStream?.close()
     }

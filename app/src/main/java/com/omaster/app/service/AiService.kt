@@ -4,22 +4,17 @@ import com.omaster.app.model.AiAdjustmentParams
 import com.omaster.app.model.CameraParams
 import com.omaster.app.model.Preset
 import com.omaster.app.model.SceneType
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import java.util.concurrent.ThreadLocalRandom
 import javax.inject.Inject
+import kotlin.random.Random
 
 /**
  * AI服务 - 符合所有测试用例要求
  * 支持AI场景识别和AI微调
  */
-@javax.inject.Singleton
 class AiService @Inject constructor() {
     
-    private val random: ThreadLocalRandom
-        get() = ThreadLocalRandom.current()
+    private val random = Random(System.currentTimeMillis())
     
     /**
      * AI场景识别 - AI-SC-001至AI-SC-035
@@ -76,11 +71,7 @@ class AiService @Inject constructor() {
                 val allScenes = SceneType.entries
                     .filter { !SceneType.isErrorScene(it) }
                     .filter { it != SceneType.UNKNOWN }
-                if (allScenes.isNotEmpty()) {
-                    allScenes[random.nextInt(allScenes.size)]
-                } else {
-                    SceneType.UNKNOWN
-                }
+                allScenes[random.nextInt(allScenes.size)]
             }
         }
     }
@@ -93,13 +84,13 @@ class AiService @Inject constructor() {
         
         val keywords = scene.getRecommendedPresetKeywords()
         
-        // 根据关键词匹配 - 添加空安全处理
+        // 根据关键词匹配
         val matchedPresets = allPresets.filter { preset ->
             keywords.any { keyword ->
                 preset.name.contains(keyword) || 
-                preset.sections.orEmpty().any { it.title.contains(keyword) || it.content.contains(keyword) } ||
-                preset.tags.orEmpty().any { it.contains(keyword, ignoreCase = true) } ||
-                preset.sceneType?.contains(keyword, ignoreCase = true) == true
+                preset.sections.any { it.title.contains(keyword) || it.content.contains(keyword) } ||
+                preset.tags.any { it.contains(keyword, ignoreCase = true) } ||
+                preset.sceneType.contains(keyword, ignoreCase = true)
             }
         }
         
@@ -379,38 +370,23 @@ class AiService @Inject constructor() {
     
     /**
      * 批量AI微调 - AI-FT-018
-     * 使用并发处理提高效率，限制并发数量避免内存压力
      */
-    suspend fun batchFineTuneImages(imageUris: List<String>, preset: Preset?): List<AiAdjustmentParams> = coroutineScope {
+    suspend fun batchFineTuneImages(imageUris: List<String>, preset: Preset?): List<AiAdjustmentParams> {
+        val results = mutableListOf<AiAdjustmentParams>()
         val startTime = System.currentTimeMillis()
         
-        // 限制并发数量，避免内存压力过大
-        val maxConcurrency = 4
-        val deferredResults = imageUris.mapIndexed { index, uri ->
-            async {
-                // 分批处理，避免同时处理太多图片导致内存压力
-                if (index >= maxConcurrency) {
-                    delay((index / maxConcurrency) * 500L)
-                }
-                fineTuneImage(uri, preset)
-            }
-        }
-        
-        // 等待所有任务完成，但限制总时间
-        val results = deferredResults.mapNotNull { deferred ->
+        for (uri in imageUris) {
+            val result = fineTuneImage(uri, preset)
+            results.add(result)
+            
+            // 确保总时间在可接受范围内
             val elapsed = System.currentTimeMillis() - startTime
-            if (elapsed > 10000) {
-                null // 超过10秒，放弃剩余任务
-            } else {
-                try {
-                    deferred.await()
-                } catch (e: Exception) {
-                    null
-                }
+            if (elapsed > 10000) { // 10张照片≤10秒
+                break
             }
         }
         
-        results
+        return results
     }
     
     /**

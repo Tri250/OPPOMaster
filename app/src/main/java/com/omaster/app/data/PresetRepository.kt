@@ -1,12 +1,11 @@
 package com.omaster.app.data
 
-import com.omaster.app.model.CameraParams
-import com.omaster.app.model.ColorStyle
-import com.omaster.app.model.Preset
-import com.omaster.app.model.SampleImage
-import com.omaster.app.model.Section
-import com.omaster.app.network.PresetApi
-import kotlinx.coroutines.CompletableDeferred
+import com.omaster.app.domain.model.CameraParams
+import com.omaster.app.domain.model.ColorStyle
+import com.omaster.app.domain.model.Preset
+import com.omaster.app.domain.model.SampleImage
+import com.omaster.app.domain.model.Section
+import com.omaster.app.data.remote.PresetApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -16,45 +15,24 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import timber.log.Timber
-import java.io.Closeable
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * 预设数据仓库
- * 
- * 负责管理和缓存摄影预设数据，支持：
- * - 网络数据同步与本地缓存
- * - 异步初始化避免阻塞主线程
- * - 收藏状态管理
- * - OPPO/Realme 设备预设过滤
- * 
- * 使用 Mutex 保护并发访问，CompletableDeferred 确保初始化完成。
+ * 预设数据仓库 - 支持数据同步和JSON刷新
  */
 @Singleton
 class PresetRepository @Inject constructor(
     private val presetApi: PresetApi,
     private val preferencesDataStore: PreferencesDataStore
-) : Closeable {
-    // 使用 @Volatile 保护缓存变量的可见性
-    @Volatile
+) {
     private var cachedPresets: List<Preset> = emptyList()
-    @Volatile
     private var lastSyncTime: Long = 0
-    @Volatile
     private var isInitialized: Boolean = false
-    
-    // 使用 Mutex 保护缓存变量的并发访问
-    private val cacheMutex = Mutex()
     
     private val _presets = MutableStateFlow<List<Preset>>(emptyList())
     val presets: StateFlow<List<Preset>> = _presets.asStateFlow()
-    
-    // 使用 CompletableDeferred 确保初始化完成
-    private val initDeferred = CompletableDeferred<Unit>()
     
     // 使用 SupervisorJob 避免协程取消影响整个作用域
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -62,26 +40,13 @@ class PresetRepository @Inject constructor(
     init {
         // 异步初始化，避免阻塞主线程导致 ANR
         repositoryScope.launch {
-            try {
-                initializePresets()
-                initDeferred.complete(Unit)
-            } catch (e: Exception) {
-                Timber.e(e, "初始化预设失败")
-                initDeferred.complete(Unit) // 即使失败也完成，避免永久等待
-            }
+            initializePresets()
         }
     }
     
     private fun initializePresets() {
         cachedPresets = getSamplePresets()
         _presets.value = cachedPresets
-    }
-    
-    /**
-     * 等待初始化完成
-     */
-    suspend fun awaitInitialization() {
-        initDeferred.await()
     }
     
     /**
@@ -97,12 +62,10 @@ class PresetRepository @Inject constructor(
                 val response = presetApi.getAllPresets()
                 if (response.isSuccessful) {
                     val presets = response.body() ?: emptyList()
-                    cacheMutex.withLock {
-                        cachedPresets = presets
-                        lastSyncTime = currentTime
-                        isInitialized = true
-                    }
-                    _presets.value = presets
+                    cachedPresets = presets
+                    lastSyncTime = currentTime
+                    isInitialized = true
+                    _presets.value = cachedPresets
                     Timber.d("成功从网络刷新预设数据，共 ${presets.size} 个")
                     emit(Result.success(presets))
                 } else {
@@ -135,12 +98,10 @@ class PresetRepository @Inject constructor(
             val response = presetApi.getAllPresets()
             if (response.isSuccessful) {
                 val presets = response.body() ?: emptyList()
-                cacheMutex.withLock {
-                    cachedPresets = presets
-                    lastSyncTime = System.currentTimeMillis()
-                    isInitialized = true
-                }
-                _presets.value = presets
+                cachedPresets = presets
+                lastSyncTime = System.currentTimeMillis()
+                isInitialized = true
+                _presets.value = cachedPresets
                 Timber.d("数据同步成功，共 ${presets.size} 个预设")
                 Result.success(presets)
             } else {
@@ -154,24 +115,20 @@ class PresetRepository @Inject constructor(
     }
     
     /**
-     * 切换预设收藏状态 - 使用事务模式更新数据
+     * 切换预设收藏状态
      */
     suspend fun toggleFavorite(presetId: String) {
-        // 先持久化到 DataStore
         preferencesDataStore.toggleFavorite(presetId)
         
-        // 使用事务模式更新内存缓存
-        cacheMutex.withLock {
-            val updatedPresets = cachedPresets.map { preset ->
-                if (preset.id == presetId) {
-                    preset.copy(isFavorite = !preset.isFavorite)
-                } else {
-                    preset
-                }
+        val updatedPresets = cachedPresets.map { preset ->
+            if (preset.id == presetId) {
+                preset.copy(isFavorite = !preset.isFavorite)
+            } else {
+                preset
             }
-            cachedPresets = updatedPresets
-            _presets.value = updatedPresets
         }
+        cachedPresets = updatedPresets
+        _presets.value = cachedPresets
         Timber.d("预设 $presetId 收藏状态已切换")
     }
     
@@ -217,21 +174,19 @@ class PresetRepository @Inject constructor(
     
     fun updatePresetFavorite(presetId: String, isFavorite: Boolean): Flow<Result<Preset?>> = flow {
         try {
-            cacheMutex.withLock {
-                val updatedPresets = cachedPresets.map { preset ->
-                    if (preset.id == presetId) {
-                        preset.copy(isFavorite = isFavorite)
-                    } else {
-                        preset
-                    }
+            val updatedPresets = cachedPresets.map { preset ->
+                if (preset.id == presetId) {
+                    preset.copy(isFavorite = isFavorite)
+                } else {
+                    preset
                 }
-                cachedPresets = updatedPresets
-                _presets.value = updatedPresets
-                
-                val updatedPreset = updatedPresets.find { it.id == presetId }
-                emit(Result.success(updatedPreset))
-                Timber.d("预设 $presetId 收藏状态已更新为 $isFavorite")
             }
+            cachedPresets = updatedPresets
+            _presets.value = cachedPresets
+            
+            val updatedPreset = updatedPresets.find { it.id == presetId }
+            emit(Result.success(updatedPreset))
+            Timber.d("预设 $presetId 收藏状态已更新为 $isFavorite")
         } catch (e: Exception) {
             Timber.e(e, "更新收藏状态失败")
             emit(Result.failure(e))
@@ -531,15 +486,5 @@ class PresetRepository @Inject constructor(
                 )
             )
         )
-    }
-    
-    override fun close() {
-        // 清理资源，取消所有协程
-        repositoryScope.coroutineContext.cancel()
-        // 清空缓存，释放大对象内存
-        cacheMutex.withLock {
-            cachedPresets = emptyList()
-        }
-        _presets.value = emptyList()
     }
 }

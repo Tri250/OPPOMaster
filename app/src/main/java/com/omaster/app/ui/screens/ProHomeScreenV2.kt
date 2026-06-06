@@ -21,15 +21,19 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import com.omaster.app.data.ThemeMode
 import com.omaster.app.model.Preset
 import com.omaster.app.ui.animation.ColorOSAnimationDuration
 import com.omaster.app.ui.animation.ColorOSEasing
 import com.omaster.app.ui.animation.ColorOSScale
 import com.omaster.app.ui.components.*
 import com.omaster.app.ui.theme.*
+import com.omaster.app.viewmodel.MainViewModel
 import com.omaster.app.viewmodel.FilterType
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -42,35 +46,32 @@ fun ProHomeScreenV2(
     onWatermarkClick: () -> Unit,
     onColorOSHomeClick: () -> Unit,
     modifier: Modifier = Modifier,
-    presets: List<Preset>,
-    searchQuery: String,
-    filterType: FilterType,
-    onSearchQueryChange: (String) -> Unit,
-    onFilterTypeChange: (FilterType) -> Unit,
-    onFavoriteToggle: (Preset) -> Unit
+    viewModel: MainViewModel = hiltViewModel()
 ) {
-    // 使用 derivedStateOf 优化过滤计算，避免不必要的重组
+    val presets by viewModel.presets.collectAsState()
+    val searchQuery by viewModel.searchQuery.collectAsState()
+    val filterType by viewModel.filterType.collectAsState()
+    val themeMode by viewModel.themeMode.collectAsState()
+    
     val filteredPresets = remember(presets, searchQuery, filterType) {
-        derivedStateOf {
-            presets.filter { preset ->
-                val matchesQuery = searchQuery.isEmpty() ||
-                    preset.name.contains(searchQuery, ignoreCase = true) ||
-                    preset.deviceModel?.contains(searchQuery, ignoreCase = true) == true ||
-                    preset.tags.any { it.contains(searchQuery, ignoreCase = true) }
-                
-                val matchesFilter = when (filterType) {
-                    FilterType.ALL -> true
-                    FilterType.FAVORITES -> preset.isFavorite
-                    FilterType.HNCS -> preset.isHncsCertified
-                    FilterType.FIND_X -> preset.deviceModel?.contains("Find X", ignoreCase = true) == true
-                    FilterType.RENO -> preset.deviceModel?.contains("Reno", ignoreCase = true) == true
-                    FilterType.NEW -> preset.version?.contains("3.0") == true || preset.downloadCount < 5000
-                    FilterType.TRENDING -> preset.downloadCount > 10000
-                }
-                
-                matchesQuery && matchesFilter
+        presets.filter { preset ->
+            val matchesQuery = searchQuery.isEmpty() ||
+                preset.name.contains(searchQuery, ignoreCase = true) ||
+                preset.deviceModel.contains(searchQuery, ignoreCase = true) ||
+                preset.tags.any { it.contains(searchQuery, ignoreCase = true) }
+            
+            val matchesFilter = when (filterType) {
+                FilterType.ALL -> true
+                FilterType.FAVORITES -> preset.isFavorite
+                FilterType.HNCS -> preset.isHncsCertified
+                FilterType.FIND_X -> preset.deviceModel.contains("Find X", ignoreCase = true)
+                FilterType.RENO -> preset.deviceModel.contains("Reno", ignoreCase = true)
+                FilterType.NEW -> preset.version.contains("3.0") || preset.downloadCount < 5000
+                FilterType.TRENDING -> preset.downloadCount > 10000
             }
-        }.value
+            
+            matchesQuery && matchesFilter
+        }
     }
     
     var isLoading by remember { mutableStateOf(true) }
@@ -112,8 +113,8 @@ fun ProHomeScreenV2(
             item {
                 GlassAnimatedSearchBar(
                     query = searchQuery,
-                    onQueryChange = onSearchQueryChange,
-                    onClearQuery = { onSearchQueryChange("") },
+                    onQueryChange = { viewModel.onSearchQueryChanged(it) },
+                    onClearQuery = { viewModel.onSearchQueryChanged("") },
                     delayMillis = 200
                 )
             }
@@ -121,7 +122,7 @@ fun ProHomeScreenV2(
             item {
                 GlassFilterChips(
                     selectedFilter = filterType,
-                    onFilterSelected = onFilterTypeChange
+                    onFilterSelected = { viewModel.onFilterTypeChanged(it) }
                 )
             }
             
@@ -162,7 +163,7 @@ fun ProHomeScreenV2(
                     GlassPresetCard(
                         preset = preset,
                         onClick = { onPresetClick(preset) },
-                        onFavoriteToggle = { onFavoriteToggle(preset) },
+                        onFavoriteToggle = { viewModel.toggleFavorite(preset) },
                         isNew = index < 3,
                         index = index,
                         modifier = Modifier.padding(horizontal = Spacing.ScreenPadding, vertical = Spacing.sm)
@@ -443,7 +444,7 @@ private fun ProFeatureCardV2(
                 Icon(
                     imageVector = icon,
                     contentDescription = title,
-                    tint = gradientColors.firstOrNull() ?: Color.White,
+                    tint = gradientColors.first(),
                     modifier = Modifier.size(28.dp)
                 )
             }

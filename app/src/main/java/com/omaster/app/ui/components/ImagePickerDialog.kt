@@ -620,17 +620,9 @@ fun rememberStoragePermissionLauncher(
 }
 
 fun hasStoragePermission(context: Context): Boolean {
-    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        // Android 13+ 需要READ_MEDIA_IMAGES权限
-        context.checkSelfPermission(Manifest.permission.READ_MEDIA_IMAGES) == 
-            android.content.pm.PackageManager.PERMISSION_GRANTED
-    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-        // Android 10-12 分区存储，读取自己的文件不需要权限
-        // 但读取其他应用的媒体文件仍需要READ_EXTERNAL_STORAGE
-        context.checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == 
-            android.content.pm.PackageManager.PERMISSION_GRANTED
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        true
     } else {
-        // Android 9及以下需要WRITE_EXTERNAL_STORAGE权限
         context.checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) == 
             android.content.pm.PackageManager.PERMISSION_GRANTED
     }

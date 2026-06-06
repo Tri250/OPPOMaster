@@ -38,7 +38,6 @@ import androidx.window.layout.WindowInfoTracker
 import com.omaster.app.ui.theme.ColorOSBlack
 import com.omaster.app.ui.theme.HasselbladOrange
 import kotlinx.coroutines.flow.collect
-import timber.log.Timber
 
 /**
  * 专业屏幕适配组件库 - 符合CMP-001到CMP-011所有测试用例
@@ -274,81 +273,18 @@ fun rememberAndroidVersion(): Int {
 }
 
 /**
- * ColorOS版本检测 - 通过系统属性获取真实版本
+ * ColorOS版本检测
  */
 @Composable
 fun rememberColorOSVersion(): String {
-    val context = LocalContext.current
-    return remember(context) {
+    // ColorOS版本检测逻辑
+    return remember {
         try {
-            // 通过系统属性检测ColorOS版本
-            val manufacturer = Build.MANUFACTURER.lowercase()
-            if (manufacturer.contains("oppo") || manufacturer.contains("realme")) {
-                // 尝试从系统属性获取ColorOS版本
-                val colorOSVersion = getSystemProperty("ro.build.version.oplusrom")
-                    ?: getSystemProperty("ro.build.version.coloros")
-                    ?: getSystemProperty("ro.rom.version")
-                
-                if (colorOSVersion != null) {
-                    // 解析版本号，如 "ColorOS 15" 或 "V15.0"
-                    val versionNumber = colorOSVersion.extractVersionNumber()
-                    "ColorOS $versionNumber"
-                } else {
-                    // 根据Android API版本估算ColorOS版本
-                    val estimatedVersion = estimateColorOSVersionFromApi(Build.VERSION.SDK_INT)
-                    "ColorOS $estimatedVersion (估算)"
-                }
-            } else {
-                "非ColorOS设备"
-            }
+            val osVersion = Build.VERSION.SDK_INT
+            "ColorOS ${osVersion - 20}" // 估算ColorOS版本
         } catch (e: Exception) {
-            Timber.w(e, "Failed to detect ColorOS version")
             "Unknown"
         }
-    }
-}
-
-/**
- * 通过反射获取系统属性
- */
-private fun getSystemProperty(key: String): String? {
-    return try {
-        val clazz = Class.forName("android.os.SystemProperties")
-        val method = clazz.getMethod("get", String::class.java)
-        method.invoke(null, key) as? String
-    } catch (e: Exception) {
-        null
-    }
-}
-
-/**
- * 从版本字符串提取版本号
- */
-private fun String.extractVersionNumber(): String {
-    // 匹配数字版本号，如 "15", "14.0", "V15" 等
-    val regex = Regex("(\\d+(\\.\\d+)?)")
-    return regex.find(this)?.value ?: "Unknown"
-}
-
-/**
- * 根据Android API版本估算ColorOS版本
- * ColorOS版本与Android版本的对应关系：
- * - ColorOS 15: Android 15 (API 35)
- * - ColorOS 14: Android 14 (API 34)
- * - ColorOS 13: Android 13 (API 33)
- * - ColorOS 12: Android 12 (API 31-32)
- * - ColorOS 11: Android 11 (API 30)
- * - ColorOS 7: Android 10 (API 29)
- */
-private fun estimateColorOSVersionFromApi(apiLevel: Int): String {
-    return when (apiLevel) {
-        35 -> "15"
-        34 -> "14"
-        33 -> "13"
-        31, 32 -> "12"
-        30 -> "11"
-        29 -> "7"
-        else -> "${apiLevel - 20}"
     }
 }
 

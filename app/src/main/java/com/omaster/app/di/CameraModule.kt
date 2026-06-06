@@ -1,8 +1,8 @@
 package com.omaster.app.di
 
 import android.content.Context
-import com.omaster.app.camera.CameraParamProvider
-import com.omaster.app.camera.CameraParamProviderFactory
+import com.omaster.app.data.camera.CameraParamProvider
+import com.omaster.app.data.camera.CameraParamProviderFactory
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn

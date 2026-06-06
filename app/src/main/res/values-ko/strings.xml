@@ -1,0 +1,203 @@
+<resources>
+    <!-- 앱 이름 -->
+    <string name="app_name">OMaster</string>
+
+    <!-- 네비게이션 -->
+    <string name="nav_home">홈</string>
+    <string name="nav_discover">발견</string>
+    <string name="nav_favorites">즐겨찾기</string>
+    <string name="nav_settings">설정</string>
+    <string name="nav_history">기록</string>
+    <string name="nav_profile">내 정보</string>
+
+    <!-- 페이지 제목 -->
+    <string name="home_title">컬러 프리셋 라이브러리</string>
+    <string name="discover_title">발견</string>
+    <string name="favorites_title">내 즐겨찾기</string>
+    <string name="settings_title">설정</string>
+    <string name="detail_title">프리셋 상세</string>
+    <string name="history_title">기록</string>
+    <string name="language_settings_title">언어 설정</string>
+    <string name="privacy_settings_title">개인정보 설정</string>
+    <string name="about_title">정보</string>
+
+    <!-- 작업 버튼 -->
+    <string name="action_save">저장</string>
+    <string name="action_cancel">취소</string>
+    <string name="action_confirm">확인</string>
+    <string name="action_delete">삭제</string>
+    <string name="action_edit">편집</string>
+    <string name="action_share">공유</string>
+    <string name="action_apply">적용</string>
+    <string name="action_close">닫기</string>
+    <string name="action_back">뒤로</string>
+    <string name="action_more">더 보기</string>
+    <string name="action_search">검색</string>
+    <string name="action_filter">필터</string>
+    <string name="action_sort">정렬</string>
+    <string name="action_refresh">새로고침</string>
+
+    <!-- 즐겨찾기 -->
+    <string name="favorite">즐겨찾기</string>
+    <string name="unfavorite">즐겨찾기 해제</string>
+    <string name="add_to_favorites">즐겨찾기에 추가</string>
+    <string name="remove_from_favorites">즐겨찾기에서 제거</string>
+    <string name="favorites_empty">즐겨찾기가 없습니다</string>
+    <string name="favorites_count">즐겨찾기: %d개</string>
+
+    <!-- 프리셋 -->
+    <string name="preset">프리셋</string>
+    <string name="preset_list">프리셋 목록</string>
+    <string name="preset_details">프리셋 상세</string>
+    <string name="apply_preset">프리셋 적용</string>
+    <string name="preset_applied">프리셋이 적용되었습니다</string>
+    <string name="preset_saved">프리셋이 저장되었습니다</string>
+    <string name="preset_deleted">프리셋이 삭제되었습니다</string>
+    <string name="preset_name">프리셋 이름</string>
+    <string name="preset_description">프리셋 설명</string>
+    <string name="create_preset">프리셋 만들기</string>
+    <string name="edit_preset">프리셋 편집</string>
+    <string name="delete_preset">프리셋 삭제</string>
+    <string name="duplicate_preset">프리셋 복제</string>
+    <string name="preset_empty">프리셋이 없습니다</string>
+    <string name="preset_count">프리셋: %d개</string>
+
+    <!-- 카메라 매개변수 -->
+    <string name="camera_params">카메라 매개변수</string>
+    <string name="iso">ISO</string>
+    <string name="shutter">셔터</string>
+    <string name="shutter_speed">셔터 속도</string>
+    <string name="ev">노출 보정</string>
+    <string name="exposure">노출</string>
+    <string name="wb">화이트밸런스</string>
+    <string name="white_balance">화이트밸런스</string>
+    <string name="filter">필터</string>
+    <string name="focus">초점</string>
+    <string name="aperture">조리개</string>
+    <string name="device_model">호환 기기</string>
+    <string name="hncs">HNCS 인증</string>
+
+    <!-- 장면 유형 -->
+    <string name="scene_portrait">인물</string>
+    <string name="scene_landscape">풍경</string>
+    <string name="scene_night">야경</string>
+    <string name="scene_food">음식</string>
+    <string name="scene_street">스트리트</string>
+    <string name="scene_macro">매크로</string>
+    <string name="scene_sports">스포츠</string>
+
+    <!-- 플루이드 클라우드 및 오버레이 -->
+    <string name="fluid_cloud">플루이드 클라우드</string>
+    <string name="enable_fluid_cloud">플루이드 클라우드 캡슐 활성화</string>
+    <string name="enable_fluid_cloud_desc">시스템 사이드바에 선택한 프리셋 표시</string>
+    <string name="overlay">오버레이</string>
+    <string name="enable_overlay">오버레이 활성화(대체)</string>
+    <string name="enable_overlay_desc">플루이드 클라우드를 지원하지 않는 이전 시스템용</string>
+
+    <!-- 테마 설정 -->
+    <string name="theme">테마</string>
+    <string name="theme_system">시스템 설정 따르기</string>
+    <string name="theme_light">라이트 모드</string>
+    <string name="theme_dark">다크 모드</string>
+    <string name="theme_system_desc">시스템 설정 사용</string>
+    <string name="theme_light_desc">항상 라이트 테마 사용</string>
+    <string name="theme_dark_desc">항상 다크 테마 사용</string>
+
+    <!-- 언어 설정 -->
+    <string name="language">언어</string>
+    <string name="language_system">시스템 설정 따르기</string>
+    <string name="language_chinese">중국어</string>
+    <string name="language_english">영어</string>
+    <string name="language_japanese">일본어</string>
+    <string name="language_korean">한국어</string>
+    <string name="language_restart_hint">언어 변경을 완전히 적용하려면 앱을 다시 시작해야 합니다</string>
+    <string name="language_switch_confirm">%s(으)로 전환하시겠습니까?</string>
+
+    <!-- 메시지 -->
+    <string name="msg_success">성공</string>
+    <string name="msg_error">오류</string>
+    <string name="msg_loading">로딩 중…</string>
+    <string name="msg_no_data">데이터가 없습니다</string>
+    <string name="msg_network_error">네트워크 오류. 연결을 확인해주세요</string>
+    <string name="msg_save_success">저장되었습니다</string>
+    <string name="msg_save_failed">저장 실패</string>
+    <string name="msg_delete_confirm">삭제하시겠습니까?</string>
+    <string name="msg_delete_success">삭제되었습니다</string>
+    <string name="msg_copy_success">복사되었습니다</string>
+    <string name="msg_share_success">공유되었습니다</string>
+    <string name="msg_permission_denied">권한이 거부되었습니다</string>
+    <string name="msg_restart_required">앱 재시작 필요</string>
+
+    <!-- 검색 -->
+    <string name="search_hint">프리셋 검색…</string>
+    <string name="search_empty">결과를 찾을 수 없습니다</string>
+    <string name="search_history">검색 기록</string>
+    <string name="clear_history">기록 지우기</string>
+    <string name="hot_search">인기 검색</string>
+
+    <!-- 태그 -->
+    <string name="tag">태그</string>
+    <string name="add_tag">태그 추가</string>
+    <string name="edit_tag">태그 편집</string>
+    <string name="delete_tag">태그 삭제</string>
+    <string name="popular_tags">인기 태그</string>
+    <string name="my_tags">내 태그</string>
+
+    <!-- 워터마크 -->
+    <string name="watermark">워터마크</string>
+    <string name="enable_watermark">워터마크 활성화</string>
+    <string name="watermark_text">워터마크 텍스트</string>
+    <string name="watermark_style">워터마크 스타일</string>
+    <string name="watermark_position">워터마크 위치</string>
+    <string name="watermark_opacity">워터마크 투명도</string>
+
+    <!-- 스크린샷 및 공유 -->
+    <string name="screenshot">스크린샷</string>
+    <string name="share">공유</string>
+    <string name="share_to">공유하기</string>
+    <string name="save_image">이미지 저장</string>
+    <string name="share_image">이미지 공유</string>
+    <string name="generate_screenshot">스크린샷 생성</string>
+
+    <!-- 정보 -->
+    <string name="about">정보</string>
+    <string name="version">버전</string>
+    <string name="version_name">버전 %s</string>
+    <string name="copyright">© 2026 OMaster. All rights reserved.</string>
+    <string name="feedback">피드백</string>
+    <string name="contact_us">문의하기</string>
+    <string name="privacy_policy">개인정보처리방침</string>
+    <string name="terms_of_service">서비스 약관</string>
+    <string name="open_source">오픈소스 라이선스</string>
+    <string name="rate_app">앱 평가하기</string>
+
+    <!-- 접근성 서비스 -->
+    <string name="accessibility_service_description">OMaster 접근성 서비스. 마스터 모드에서 카메라 매개변수를 자동으로 입력합니다. 활성화하면 지원되는 카메라 앱에서 매개변수 입력 컨트롤을 자동으로 인식하고 입력합니다.</string>
+    <string name="accessibility_service_name">OMaster 자동 입력 서비스</string>
+
+    <!-- 동기화 -->
+    <string name="sync">동기화</string>
+    <string name="enable_sync">클라우드 동기화 활성화</string>
+    <string name="sync_now">지금 동기화</string>
+    <string name="sync_success">동기화 성공</string>
+    <string name="sync_failed">동기화 실패</string>
+    <string name="last_sync">마지막 동기화: %s</string>
+
+    <!-- AI 기능 -->
+    <string name="ai_adjust">AI 조정</string>
+    <string name="ai_scene_detection">AI 장면 인식</string>
+    <string name="ai_recommendation">AI 추천</string>
+    <string name="ai_fine_tune">AI 미세 조정</string>
+    <string name="scene_detection">장면 인식</string>
+
+    <!-- 기타 -->
+    <string name="welcome">환영합니다</string>
+    <string name="get_started">시작하기</string>
+    <string name="skip">건너뛰기</string>
+    <string name="next">다음</string>
+    <string name="finish">완료</string>
+    <string name="done">완료</string>
+    <string name="retry">다시 시도</string>
+    <string name="later">나중에</string>
+    <string name="never">다시 표시하지 않음</string>
+</resources>

@@ -101,10 +101,6 @@ class WatermarkProcessor(private val context: Context) {
                 WatermarkProcessResult(success = true, bitmap = resultBitmap)
             } catch (e: Exception) {
                 Timber.e(e, "Failed to process watermark")
-                // 异常时确保源 Bitmap 被回收
-                if (!request.sourceBitmap.isRecycled) {
-                    request.sourceBitmap.recycle()
-                }
                 WatermarkProcessResult(success = false, error = e.message)
             }
         }
@@ -121,29 +117,20 @@ class WatermarkProcessor(private val context: Context) {
         val width = source.width
         val height = source.height
 
-        // 创建结果 Bitmap，使用更高效的配置
-        val result = source.copy(source.config ?: Bitmap.Config.ARGB_8888, true)
+        val result = source.copy(source.config, true)
         val canvas = Canvas(result)
 
-        try {
-            when (config.template) {
-                WatermarkTemplate.OPPO -> drawOppoWatermark(canvas, width, height, config)
-                WatermarkTemplate.ONEPLUS -> drawOneplusWatermark(canvas, width, height, config)
-                WatermarkTemplate.REALME -> drawRealmeWatermark(canvas, width, height, config)
-                WatermarkTemplate.MINIMAL_PARAMS -> drawMinimalParamsWatermark(canvas, width, height, config)
-                WatermarkTemplate.TIMESTAMP -> drawTimestampWatermark(canvas, width, height, config)
-                WatermarkTemplate.LOCATION -> drawLocationWatermark(canvas, width, height, config)
-                WatermarkTemplate.CUSTOM -> drawCustomWatermark(canvas, width, height, config)
-                WatermarkTemplate.HASSELBLAD -> drawHasselbladWatermark(canvas, width, height, config)
-                WatermarkTemplate.BRAND_SIMPLE -> drawBrandSimpleWatermark(canvas, width, height, config)
-                WatermarkTemplate.FILM_STYLE -> drawFilmStyleWatermark(canvas, width, height, config)
-            }
-        } catch (e: Exception) {
-            // 绘制失败时回收结果 Bitmap
-            if (!result.isRecycled) {
-                result.recycle()
-            }
-            throw e
+        when (config.template) {
+            WatermarkTemplate.OPPO -> drawOppoWatermark(canvas, width, height, config)
+            WatermarkTemplate.ONEPLUS -> drawOneplusWatermark(canvas, width, height, config)
+            WatermarkTemplate.REALME -> drawRealmeWatermark(canvas, width, height, config)
+            WatermarkTemplate.MINIMAL_PARAMS -> drawMinimalParamsWatermark(canvas, width, height, config)
+            WatermarkTemplate.TIMESTAMP -> drawTimestampWatermark(canvas, width, height, config)
+            WatermarkTemplate.LOCATION -> drawLocationWatermark(canvas, width, height, config)
+            WatermarkTemplate.CUSTOM -> drawCustomWatermark(canvas, width, height, config)
+            WatermarkTemplate.HASSELBLAD -> drawHasselbladWatermark(canvas, width, height, config)
+            WatermarkTemplate.BRAND_SIMPLE -> drawBrandSimpleWatermark(canvas, width, height, config)
+            WatermarkTemplate.FILM_STYLE -> drawFilmStyleWatermark(canvas, width, height, config)
         }
 
         return result
