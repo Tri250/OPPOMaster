@@ -1,310 +1,152 @@
 package com.omaster.app.data
 
-import com.omaster.app.model.Preset
+import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
+import com.omaster.app.data.remote.PresetApiService
+import com.omaster.app.domain.model.Preset
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import java.text.Normalizer
+import kotlinx.coroutines.withContext
+import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
 
+private val Context.searchDataStore: DataStore<Preferences> by preferencesDataStore(name = "search_preferences")
+
 /**
- * 搜索管理器
- * 提供智能搜索功能，支持关键词搜索、模糊匹配、多维度筛选
+ * 搜索管理器 - 从远程API获取真实搜索数据
+ * 不再使用硬编码的热门搜索词，所有数据来自远程服务器
  */
 @Singleton
 class SearchManager @Inject constructor(
-    private val presetRepository: PresetRepository,
-    private val presetHistoryManager: PresetHistoryManager
+    @ApplicationContext private val context: Context,
+    private val presetApiService: PresetApiService
 ) {
-    // 搜索历史记录
-    private val _searchHistory = mutableListOf<String>()
-    val searchHistory: List<String> get() = _searchHistory.toList()
+    private val dataStore = context.searchDataStore
 
-    // 热门搜索关键词
-    val hotSearchKeywords = listOf(
-        "哈苏", "胶片", "夜景", "人像", "风景",
-        "街拍", "美食", "复古", "清新", "黑白",
-        "日系", "赛博朋克", "自然", "城市", "旅行"
-    )
-
-    /**
-     * 执行智能搜索
-     * @param query 搜索关键词
-     * @param presets 预设列表
-     * @return 搜索结果
-     */
-    fun search(query: String, presets: List<Preset>): List<Preset> {
-        if (query.isBlank()) return presets
-
-        // 记录搜索历史
-        addToSearchHistory(query)
-
-        val normalizedQuery = normalizeText(query)
-        val keywords = normalizedQuery.split(" ", "，", ",")
-
-        return presets.filter { preset ->
-            matchPreset(preset, keywords, query)
-        }.sortedByDescending { preset ->
-            calculateRelevanceScore(preset, query, keywords)
-        }
+    companion object {
+        private val SEARCH_HISTORY_KEY = stringPreferencesKey("search_history")
+        private const val MAX_HISTORY_SIZE = 20
     }
 
     /**
-     * 多维度筛选
-     * @param presets 预设列表
-     * @param filterType 筛选类型
-     * @return 筛选结果
+     * 获取搜索历史
      */
-    fun filter(presets: List<Preset>, filterType: FilterType): List<Preset> {
-        return when (filterType) {
-            FilterType.ALL -> presets
-            FilterType.FAVORITES -> presets.filter { it.isFavorite }
-            FilterType.HNCS -> presets.filter { 
-                it.name.contains("哈苏", ignoreCase = true) || 
-                it.tags.contains("HNCS") ||
-                it.tags.contains("哈苏自然")
-            }
-            FilterType.FIND_X -> presets.filter {
-                it.supportedDevices.any { device -> 
-                    device.contains("Find", ignoreCase = true) ||
-                    device.contains("X", ignoreCase = true)
-                }
-            }
-            FilterType.RENO -> presets.filter {
-                it.supportedDevices.any { device ->
-                    device.contains("Reno", ignoreCase = true)
-                }
-            }
-            FilterType.NEW -> presets.sortedByDescending { it.createdAt }
-            FilterType.TRENDING -> presets.sortedByDescending { it.useCount }
-        }
+    fun getSearchHistory(): Flow<List<String>> = dataStore.data.map { preferences ->
+        val historyString = preferences[SEARCH_HISTORY_KEY] ?: ""
+        if (historyString.isEmpty()) emptyList() else historyString.split(",")
     }
 
     /**
-     * 组合搜索和筛选
+     * 添加搜索历史
      */
-    fun searchAndFilter(
-        query: String,
-        filterType: FilterType,
-        presets: List<Preset>
-    ): List<Preset> {
-        val filtered = filter(presets, filterType)
-        return if (query.isBlank()) {
-            filtered
-        } else {
-            search(query, filtered)
-        }
-    }
-
-    /**
-     * 获取搜索建议
-     */
-    fun getSearchSuggestions(query: String, presets: List<Preset>): List<String> {
-        if (query.length < 2) return emptyList()
-
-        val normalizedQuery = normalizeText(query)
-        val suggestions = mutableSetOf<String>()
-
-        // 从预设名称、标签、作者中提取建议
-        presets.forEach { preset ->
-            // 名称匹配
-            if (normalizeText(preset.name).contains(normalizedQuery)) {
-                suggestions.add(preset.name)
+    suspend fun addSearchHistory(query: String) {
+        if (query.isBlank()) return
+        dataStore.edit { preferences ->
+            val currentHistory = preferences[SEARCH_HISTORY_KEY]?.split(",")?.toMutableList() ?: mutableListOf()
+            currentHistory.remove(query)
+            currentHistory.add(0, query)
+            if (currentHistory.size > MAX_HISTORY_SIZE) {
+                currentHistory.subList(MAX_HISTORY_SIZE, currentHistory.size).clear()
             }
-            // 标签匹配
-            preset.tags.forEach { tag ->
-                if (normalizeText(tag).contains(normalizedQuery)) {
-                    suggestions.add(tag)
-                }
-            }
-            // 作者匹配
-            if (preset.author != null && normalizeText(preset.author).contains(normalizedQuery)) {
-                suggestions.add(preset.author)
-            }
-        }
-
-        // 添加热门搜索匹配
-        hotSearchKeywords.forEach { keyword ->
-            if (normalizeText(keyword).contains(normalizedQuery)) {
-                suggestions.add(keyword)
-            }
-        }
-
-        return suggestions.take(8)
-    }
-
-    /**
-     * 按风格筛选
-     */
-    fun filterByStyle(presets: List<Preset>, style: String): List<Preset> {
-        return presets.filter { preset ->
-            preset.tags.any { tag ->
-                tag.equals(style, ignoreCase = true) ||
-                tag.contains(style, ignoreCase = true)
-            }
-        }
-    }
-
-    /**
-     * 按场景筛选
-     */
-    fun filterByScene(presets: List<Preset>, scene: String): List<Preset> {
-        return presets.filter { preset ->
-            preset.tags.any { tag ->
-                tag.equals(scene, ignoreCase = true) ||
-                tag.contains(scene, ignoreCase = true)
-            } || preset.description.contains(scene, ignoreCase = true)
-        }
-    }
-
-    /**
-     * 按设备筛选
-     */
-    fun filterByDevice(presets: List<Preset>, device: String): List<Preset> {
-        return presets.filter { preset ->
-            preset.supportedDevices.any { supportedDevice ->
-                supportedDevice.contains(device, ignoreCase = true)
-            }
-        }
-    }
-
-    /**
-     * 按摄影师筛选
-     */
-    fun filterByPhotographer(presets: List<Preset>, photographer: String): List<Preset> {
-        return presets.filter { preset ->
-            preset.author?.contains(photographer, ignoreCase = true) == true
+            preferences[SEARCH_HISTORY_KEY] = currentHistory.joinToString(",")
         }
     }
 
     /**
      * 清除搜索历史
      */
-    fun clearSearchHistory() {
-        _searchHistory.clear()
-    }
-
-    /**
-     * 添加搜索历史
-     */
-    private fun addToSearchHistory(query: String) {
-        if (query.isBlank()) return
-        _searchHistory.remove(query)
-        _searchHistory.add(0, query)
-        if (_searchHistory.size > 20) {
-            _searchHistory.removeAt(_searchHistory.lastIndex)
+    suspend fun clearSearchHistory() {
+        dataStore.edit { preferences ->
+            preferences.remove(SEARCH_HISTORY_KEY)
         }
     }
 
     /**
-     * 匹配预设
+     * 从远程API获取热门搜索关键词
      */
-    private fun matchPreset(preset: Preset, keywords: List<String>, originalQuery: String): Boolean {
-        val searchableText = buildSearchableText(preset)
-
-        // 完整短语匹配（优先级更高）
-        val normalizedOriginal = normalizeText(originalQuery)
-        if (searchableText.contains(normalizedOriginal)) {
-            return true
-        }
-
-        // 关键词匹配（任一关键词匹配即可）
-        return keywords.any { keyword ->
-            searchableText.contains(keyword)
+    suspend fun getHotSearches(): List<String> = withContext(Dispatchers.IO) {
+        try {
+            val response = presetApiService.getHotSearches()
+            if (response.isSuccessful) {
+                response.body() ?: emptyList()
+            } else {
+                emptyList()
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "获取热门搜索失败")
+            emptyList()
         }
     }
 
     /**
-     * 构建可搜索文本
+     * 从远程API获取搜索建议
      */
-    private fun buildSearchableText(preset: Preset): String {
-        return buildString {
-            append(normalizeText(preset.name))
-            append(" ")
-            append(normalizeText(preset.description))
-            append(" ")
-            preset.tags.forEach { tag ->
-                append(normalizeText(tag))
-                append(" ")
+    suspend fun getSearchSuggestions(query: String): List<String> = withContext(Dispatchers.IO) {
+        if (query.isBlank()) return@withContext emptyList()
+        try {
+            val response = presetApiService.getSearchSuggestions(query)
+            if (response.isSuccessful) {
+                response.body() ?: emptyList()
+            } else {
+                emptyList()
             }
-            preset.author?.let {
-                append(normalizeText(it))
-                append(" ")
-            }
-            preset.supportedDevices.forEach { device ->
-                append(normalizeText(device))
-                append(" ")
-            }
-        }.toString()
+        } catch (e: Exception) {
+            Timber.e(e, "获取搜索建议失败")
+            emptyList()
+        }
     }
 
     /**
-     * 计算相关度分数
+     * 执行搜索
      */
-    private fun calculateRelevanceScore(preset: Preset, query: String, keywords: List<String>): Int {
-        var score = 0
-        val normalizedQuery = normalizeText(query)
-
-        // 名称完全匹配（最高优先级）
-        if (normalizeText(preset.name) == normalizedQuery) {
-            score += 100
-        } else if (normalizeText(preset.name).contains(normalizedQuery)) {
-            score += 50
-        }
-
-        // 标签匹配
-        preset.tags.forEach { tag ->
-            if (normalizeText(tag) == normalizedQuery) {
-                score += 30
-            } else if (keywords.any { normalizeText(tag).contains(it) }) {
-                score += 15
+    suspend fun search(query: String): List<Preset> = withContext(Dispatchers.IO) {
+        if (query.isBlank()) return@withContext emptyList()
+        try {
+            val response = presetApiService.searchPresets(query)
+            if (response.isSuccessful) {
+                val results = response.body() ?: emptyList()
+                addSearchHistory(query)
+                results
+            } else {
+                emptyList()
             }
+        } catch (e: Exception) {
+            Timber.e(e, "搜索失败")
+            emptyList()
         }
-
-        // 描述匹配
-        if (normalizeText(preset.description).contains(normalizedQuery)) {
-            score += 20
-        }
-
-        // 作者匹配
-        preset.author?.let { author ->
-            if (normalizeText(author).contains(normalizedQuery)) {
-                score += 25
-            }
-        }
-
-        // 使用次数加成
-        score += (preset.useCount / 10).coerceAtMost(20)
-
-        // 收藏加成
-        if (preset.isFavorite) {
-            score += 10
-        }
-
-        return score
     }
 
     /**
-     * 文本标准化（统一大小写、去除重音符号）
+     * 获取搜索统计信息
      */
-    private fun normalizeText(text: String): String {
-        return Normalizer.normalize(text, Normalizer.Form.NFD)
-            .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
-            .lowercase()
-            .trim()
+    suspend fun getSearchStats(): SearchStats = withContext(Dispatchers.IO) {
+        try {
+            val response = presetApiService.getSearchStats()
+            if (response.isSuccessful) {
+                response.body() ?: SearchStats()
+            } else {
+                SearchStats()
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "获取搜索统计失败")
+            SearchStats()
+        }
     }
 }
 
 /**
- * 筛选类型枚举
+ * 搜索统计数据类
  */
-enum class FilterType {
-    ALL,           // 全部
-    FAVORITES,     // 收藏
-    HNCS,          // 哈苏色彩
-    FIND_X,        // Find X系列
-    RENO,          // Reno系列
-    NEW,           // 最新
-    TRENDING       // 热门
-}
+data class SearchStats(
+    val totalSearches: Int = 0,
+    val uniqueQueries: Int = 0,
+    val popularQueries: List<String> = emptyList()
+)

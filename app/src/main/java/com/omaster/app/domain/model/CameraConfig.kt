@@ -1,140 +1,189 @@
 package com.omaster.app.domain.model
 
-import android.os.Parcelable
-import kotlinx.parcelize.Parcelize
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import kotlinx.serialization.Serializable
 
 /**
- * 相机配置文件模型
- * 支持创建、保存、应用、分享相机参数配置
+ * 相机配置数据类 - 企业级实现
+ * 所有数据来自真实用户输入或远程服务器，不使用模拟数据
  */
-@Parcelize
+@Serializable
 data class CameraConfig(
-    val id: String = generateId(),
+    val id: String = "",
     val name: String = "",
     val description: String = "",
-    val params: CameraParams = CameraParams(),
+    val brand: String = "",
+    val model: String = "",
+    val iso: ISO = ISO.AUTO,
+    val shutterSpeed: ShutterSpeed = ShutterSpeed.AUTO,
+    val aperture: Aperture = Aperture.AUTO,
+    val ev: EV = EV.ZERO,
+    val wb: WB = WB.AUTO,
+    val focusMode: FocusMode = FocusMode.AUTO,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
-    val isFavorite: Boolean = false,
-    val category: String = "默认",
+    val isCustom: Boolean = false,
+    val source: String = "user", // user, remote, import
+    val appVersion: String = "小O帮帮 3.0",
+    val author: String = "",
     val tags: List<String> = emptyList()
-) : Parcelable {
-
-    companion object {
-        private fun generateId(): String {
-            val sdf = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
-            return "config_${sdf.format(Date())}_${(0..9999).random().toString().padStart(4, '0')}"
-        }
-
-        /**
-         * 创建示例配置
-         */
-        fun sampleConfigs(): List<CameraConfig> {
-            return listOf(
-                CameraConfig(
-                    name = "哈苏大师人像",
-                    description = "适合人像拍摄的哈苏自然色彩方案",
-                    params = CameraParams(
-                        iso = 100,
-                        shutter = "1/200",
-                        ev = "+0.0",
-                        wb = "5200K",
-                        portraitMode = true,
-                        colorStyle = ColorStyle.Portrait.name
-                    ),
-                    category = "人像",
-                    tags = listOf("人像", "哈苏", "自然色彩")
-                ),
-                CameraConfig(
-                    name = "夜景大师",
-                    description = "低光环境下的哈苏夜景方案",
-                    params = CameraParams(
-                        iso = 800,
-                        shutter = "1/30",
-                        ev = "+0.3",
-                        wb = "Auto",
-                        nightMode = true,
-                        colorStyle = ColorStyle.Natural.name
-                    ),
-                    category = "夜景",
-                    tags = listOf("夜景", "低光", "哈苏")
-                ),
-                CameraConfig(
-                    name = "街拍模式",
-                    description = "快速抓拍的街拍配置",
-                    params = CameraParams(
-                        iso = 200,
-                        shutter = "1/500",
-                        ev = "0",
-                        wb = "Auto",
-                        colorStyle = ColorStyle.Cinematic.name
-                    ),
-                    category = "街拍",
-                    tags = listOf("街拍", "快速抓拍")
-                ),
-                CameraConfig(
-                    name = "风景大片",
-                    description = "风景摄影的哈苏配置",
-                    params = CameraParams(
-                        iso = 100,
-                        shutter = "1/125",
-                        ev = "-0.3",
-                        wb = "5600K",
-                        focalLength = "24mm",
-                        colorStyle = ColorStyle.Natural.name
-                    ),
-                    category = "风景",
-                    tags = listOf("风景", "广角")
-                )
-            )
-        }
-
-        /**
-         * 从现有参数创建配置
-         */
-        fun fromParams(name: String, params: CameraParams, description: String = ""): CameraConfig {
-            return CameraConfig(
-                name = name,
-                description = description,
-                params = params
-            )
-        }
-    }
-
+) {
     /**
-     * 格式化创建时间
+     * 获取格式化创建时间
      */
     fun getFormattedDate(): String {
-        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
-        return sdf.format(Date(createdAt))
+        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
+        return sdf.format(java.util.Date(createdAt))
     }
 
     /**
-     * 获取简要信息
+     * 获取配置摘要
      */
     fun getSummary(): String {
         return buildString {
-            append("ISO ${params.iso}")
-            append(" · ${params.shutter}")
-            if (params.ev != "+0.0" && params.ev != "0") append(" · EV ${params.ev}")
+            append("ISO: ${iso.value}, ")
+            append("快门: ${shutterSpeed.value}, ")
+            append("光圈: ${aperture.value}, ")
+            append("EV: ${ev.value}, ")
+            append("WB: ${wb.value}")
+        }
+    }
+
+    /**
+     * 验证配置是否有效
+     */
+    fun isValid(): Boolean {
+        return name.isNotBlank() && brand.isNotBlank()
+    }
+}
+
+@Serializable
+enum class ISO(val value: String, val description: String) {
+    AUTO("AUTO", "自动"),
+    ISO_50("50", "ISO 50"),
+    ISO_100("100", "ISO 100"),
+    ISO_200("200", "ISO 200"),
+    ISO_400("400", "ISO 400"),
+    ISO_800("800", "ISO 800"),
+    ISO_1600("1600", "ISO 1600"),
+    ISO_3200("3200", "ISO 3200"),
+    ISO_6400("6400", "ISO 6400");
+
+    companion object {
+        fun fromValue(value: String): ISO {
+            return entries.find { it.value == value } ?: AUTO
         }
     }
 }
 
-/**
- * 配置文件导入导出格式
- */
-data class CameraConfigExport(
-    val version: String = "1.0",
-    val appVersion: String = "小O帮帮 3.0",
-    val exportTime: Long = System.currentTimeMillis(),
-    val configs: List<CameraConfig>
-) {
+@Serializable
+enum class ShutterSpeed(val value: String, val description: String) {
+    AUTO("AUTO", "自动"),
+    S_1_8000("1/8000", "1/8000秒"),
+    S_1_4000("1/4000", "1/4000秒"),
+    S_1_2000("1/2000", "1/2000秒"),
+    S_1_1000("1/1000", "1/1000秒"),
+    S_1_500("1/500", "1/500秒"),
+    S_1_250("1/250", "1/250秒"),
+    S_1_125("1/125", "1/125秒"),
+    S_1_60("1/60", "1/60秒"),
+    S_1_30("1/30", "1/30秒"),
+    S_1_15("1/15", "1/15秒"),
+    S_1_8("1/8", "1/8秒"),
+    S_1_4("1/4", "1/4秒"),
+    S_1_2("1/2", "1/2秒"),
+    S_1("1", "1秒"),
+    S_2("2", "2秒"),
+    S_4("4", "4秒"),
+    S_8("8", "8秒"),
+    S_15("15", "15秒"),
+    S_30("30", "30秒");
+
     companion object {
-        const val FILE_EXTENSION = ".oppocam"
-        const val MIME_TYPE = "application/octet-stream"
+        fun fromValue(value: String): ShutterSpeed {
+            return entries.find { it.value == value } ?: AUTO
+        }
+    }
+}
+
+@Serializable
+enum class Aperture(val value: String, val description: String) {
+    AUTO("AUTO", "自动"),
+    F_1_4("f/1.4", "f/1.4"),
+    F_1_8("f/1.8", "f/1.8"),
+    F_2_0("f/2.0", "f/2.0"),
+    F_2_8("f/2.8", "f/2.8"),
+    F_4_0("f/4.0", "f/4.0"),
+    F_5_6("f/5.6", "f/5.6"),
+    F_8_0("f/8.0", "f/8.0"),
+    F_11("f/11", "f/11"),
+    F_16("f/16", "f/16"),
+    F_22("f/22", "f/22");
+
+    companion object {
+        fun fromValue(value: String): Aperture {
+            return entries.find { it.value == value } ?: AUTO
+        }
+    }
+}
+
+@Serializable
+enum class EV(val value: String, val description: String) {
+    NEG_3("-3.0", "-3.0 EV"),
+    NEG_2_7("-2.7", "-2.7 EV"),
+    NEG_2_3("-2.3", "-2.3 EV"),
+    NEG_2("-2.0", "-2.0 EV"),
+    NEG_1_7("-1.7", "-1.7 EV"),
+    NEG_1_3("-1.3", "-1.3 EV"),
+    NEG_1("-1.0", "-1.0 EV"),
+    NEG_0_7("-0.7", "-0.7 EV"),
+    NEG_0_3("-0.3", "-0.3 EV"),
+    ZERO("0.0", "0.0 EV"),
+    POS_0_3("+0.3", "+0.3 EV"),
+    POS_0_7("+0.7", "+0.7 EV"),
+    POS_1("+1.0", "+1.0 EV"),
+    POS_1_3("+1.3", "+1.3 EV"),
+    POS_1_7("+1.7", "+1.7 EV"),
+    POS_2("+2.0", "+2.0 EV"),
+    POS_2_3("+2.3", "+2.3 EV"),
+    POS_2_7("+2.7", "+2.7 EV"),
+    POS_3("+3.0", "+3.0 EV");
+
+    companion object {
+        fun fromValue(value: String): EV {
+            return entries.find { it.value == value } ?: ZERO
+        }
+    }
+}
+
+@Serializable
+enum class WB(val value: String, val description: String, val temperature: Int) {
+    AUTO("AUTO", "自动", 0),
+    DAYLIGHT("日光", "日光 5200K", 5200),
+    CLOUDY("阴天", "阴天 6000K", 6000),
+    SHADE("阴影", "阴影 7000K", 7000),
+    TUNGSTEN("钨丝灯", "钨丝灯 3200K", 3200),
+    FLUORESCENT("荧光灯", "荧光灯 4000K", 4000),
+    FLASH("闪光灯", "闪光灯 5500K", 5500),
+    CUSTOM("自定义", "自定义", 0);
+
+    companion object {
+        fun fromValue(value: String): WB {
+            return entries.find { it.value == value } ?: AUTO
+        }
+    }
+}
+
+@Serializable
+enum class FocusMode(val value: String, val description: String) {
+    AUTO("AUTO", "自动对焦"),
+    MANUAL("MANUAL", "手动对焦"),
+    CONTINUOUS("CONTINUOUS", "连续对焦"),
+    SINGLE("SINGLE", "单次对焦"),
+    MACRO("MACRO", "微距对焦");
+
+    companion object {
+        fun fromValue(value: String): FocusMode {
+            return entries.find { it.value == value } ?: AUTO
+        }
     }
 }
