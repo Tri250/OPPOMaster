@@ -256,7 +256,7 @@ fun AdvancedFilterChips(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            FilterType.values().forEach { filterType ->
+            FilterType.entries.forEach { filterType ->
                 val label = when (filterType) {
                     com.omaster.app.data.FilterType.ALL -> "全部"
                     com.omaster.app.data.FilterType.FAVORITES -> "收藏"

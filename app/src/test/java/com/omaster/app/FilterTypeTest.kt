@@ -7,8 +7,8 @@ import org.junit.Assert.*
 class FilterTypeTest {
     @Test
     fun `all filter types should be available`() {
-        val filters = FilterType.values()
-        assertEquals(5, filters.size)
+        val filters = FilterType.entries
+        assertEquals(7, filters.size)
         assertTrue(filters.contains(FilterType.ALL))
         assertTrue(filters.contains(FilterType.FAVORITES))
         assertTrue(filters.contains(FilterType.HNCS))
@@ -18,7 +18,7 @@ class FilterTypeTest {
 
     @Test
     fun `filter type order should be correct`() {
-        val filters = FilterType.values()
+        val filters = FilterType.entries
         assertEquals(FilterType.ALL, filters[0])
         assertEquals(FilterType.FAVORITES, filters[1])
         assertEquals(FilterType.HNCS, filters[2])

@@ -119,7 +119,7 @@ class PresetTagSystem @Inject constructor() {
      * 获取所有标签分类
      */
     fun getAllCategories(): List<TagCategory> {
-        return TagCategory.values().toList()
+        return TagCategory.entries.toList()
     }
 
     /**
