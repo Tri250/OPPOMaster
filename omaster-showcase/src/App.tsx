@@ -1,6 +1,7 @@
 import Hero from './sections/Hero'
 import Features from './sections/Features'
 import FeatureShowcase from './sections/FeatureShowcase'
+import MoreFeatures from './sections/MoreFeatures'
 import Gallery from './sections/Gallery'
 import Preview from './sections/Preview'
 import Testimonials from './sections/Testimonials'
@@ -13,6 +14,7 @@ function App() {
       <Hero />
       <Features />
       <FeatureShowcase />
+      <MoreFeatures />
       <Gallery />
       <Preview />
       <Testimonials />
