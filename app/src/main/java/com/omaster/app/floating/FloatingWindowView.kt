@@ -41,7 +41,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
-import com.omaster.app.model.Preset
+import com.omaster.app.domain.model.Preset
 import com.omaster.app.ui.theme.*
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay

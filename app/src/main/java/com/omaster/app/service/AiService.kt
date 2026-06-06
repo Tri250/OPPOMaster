@@ -6,10 +6,10 @@ import android.net.Uri
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.label.ImageLabeling
 import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
-import com.omaster.app.model.AiAdjustmentParams
-import com.omaster.app.model.CameraParams
-import com.omaster.app.model.Preset
-import com.omaster.app.model.SceneType
+import com.omaster.app.domain.model.AiAdjustmentParams
+import com.omaster.app.domain.model.CameraParams
+import com.omaster.app.domain.model.Preset
+import com.omaster.app.domain.model.SceneType
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await

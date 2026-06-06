@@ -64,8 +64,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.omaster.app.model.AiAdjustmentParams
-import com.omaster.app.model.Preset
+import com.omaster.app.domain.model.AiAdjustmentParams
+import com.omaster.app.domain.model.Preset
 import com.omaster.app.service.AiService
 import com.omaster.app.ui.animation.clickableWithColorOSFeedback
 import com.omaster.app.ui.theme.ColorOSBlack

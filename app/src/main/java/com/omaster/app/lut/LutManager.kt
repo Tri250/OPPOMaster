@@ -3,7 +3,7 @@ package com.omaster.app.lut
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
-import com.omaster.app.model.CameraParams
+import com.omaster.app.domain.model.CameraParams
 import dagger.hilt.android.qualifiers.ApplicationContext
 import timber.log.Timber
 import java.io.*

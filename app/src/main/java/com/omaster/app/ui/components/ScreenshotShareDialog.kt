@@ -20,7 +20,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.omaster.app.model.Preset
+import com.omaster.app.domain.model.Preset
 import com.omaster.app.screenshot.*
 import com.omaster.app.ui.theme.*
 import kotlinx.coroutines.launch

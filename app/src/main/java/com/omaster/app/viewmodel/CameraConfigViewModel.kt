@@ -3,8 +3,8 @@ package com.omaster.app.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.omaster.app.data.CameraConfigRepository
-import com.omaster.app.model.CameraConfig
-import com.omaster.app.model.CameraParams
+import com.omaster.app.domain.model.CameraConfig
+import com.omaster.app.domain.model.CameraParams
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

@@ -25,8 +25,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.omaster.app.data.CameraConfigRepository
-import com.omaster.app.model.CameraConfig
-import com.omaster.app.model.CameraParams
+import com.omaster.app.domain.model.CameraConfig
+import com.omaster.app.domain.model.CameraParams
 import com.omaster.app.ui.components.CameraParamControls
 import com.omaster.app.ui.components.SaveConfigDialog
 import com.omaster.app.ui.theme.hasselbladOrange

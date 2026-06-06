@@ -1,6 +1,6 @@
 package com.omaster.app.ocr
 
-import com.omaster.app.model.CameraParams
+import com.omaster.app.domain.model.CameraParams
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton

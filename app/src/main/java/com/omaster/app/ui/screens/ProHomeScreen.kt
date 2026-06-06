@@ -34,7 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.omaster.app.data.ThemeMode
-import com.omaster.app.model.Preset
+import com.omaster.app.domain.model.Preset
 import com.omaster.app.ui.animation.ColorOSElevation
 import com.omaster.app.ui.animation.ColorOSScale
 import com.omaster.app.ui.animation.clickableWithColorOSFeedback

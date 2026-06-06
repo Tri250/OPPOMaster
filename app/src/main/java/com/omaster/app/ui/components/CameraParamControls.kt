@@ -55,8 +55,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.omaster.app.model.CameraParams
-import com.omaster.app.model.ColorStyle
+import com.omaster.app.domain.model.CameraParams
+import com.omaster.app.domain.model.ColorStyle
 import com.omaster.app.ui.theme.hasselbladOrange
 import kotlin.math.roundToInt
 

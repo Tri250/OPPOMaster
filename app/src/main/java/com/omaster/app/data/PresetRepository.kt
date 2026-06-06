@@ -2,7 +2,7 @@ package com.omaster.app.data
 
 import android.content.Context
 import com.omaster.app.data.remote.PresetRemoteDataSource
-import com.omaster.app.model.Preset
+import com.omaster.app.domain.model.Preset
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow

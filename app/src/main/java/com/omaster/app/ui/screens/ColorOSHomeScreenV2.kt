@@ -29,7 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.omaster.app.model.Preset
+import com.omaster.app.domain.model.Preset
 import com.omaster.app.ui.animation.ColorOSAnimationDuration
 import com.omaster.app.ui.animation.ColorOSEasing
 import com.omaster.app.ui.animation.ColorOSScale

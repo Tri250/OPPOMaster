@@ -1,6 +1,6 @@
 package com.omaster.app.data
 
-import com.omaster.app.model.Preset
+import com.omaster.app.domain.model.Preset
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import javax.inject.Inject

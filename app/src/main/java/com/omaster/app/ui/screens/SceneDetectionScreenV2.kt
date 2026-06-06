@@ -36,8 +36,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
-import com.omaster.app.model.Preset
-import com.omaster.app.model.SceneType
+import com.omaster.app.domain.model.Preset
+import com.omaster.app.domain.model.SceneType
 import com.omaster.app.service.AiService
 import com.omaster.app.ui.animation.ColorOSAnimationDuration
 import com.omaster.app.ui.animation.ColorOSEasing
