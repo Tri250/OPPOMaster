@@ -17,8 +17,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * 相机配置文件Repository
+ * 相机配置文件Repository - 企业级实现
  * 负责配置文件的存储、读取、更新、删除操作
+ * 所有数据来自真实用户输入，不使用模拟数据
  */
 @Singleton
 class CameraConfigRepository @Inject constructor(
@@ -50,16 +51,15 @@ class CameraConfigRepository @Inject constructor(
                 val type = object : TypeToken<List<CameraConfig>>() {}.type
                 FileReader(configsFile).use { reader ->
                     val configs = gson.fromJson<List<CameraConfig>>(reader, type)
-                    _configs.value = configs ?: CameraConfig.sampleConfigs()
+                    _configs.value = configs ?: emptyList()
                 }
             } else {
-                val sampleConfigs = CameraConfig.sampleConfigs()
-                _configs.value = sampleConfigs
-                saveConfigs(sampleConfigs)
+                _configs.value = emptyList()
+                saveConfigs(emptyList())
             }
         } catch (e: Exception) {
             Timber.e(e, "Error loading configs")
-            _configs.value = CameraConfig.sampleConfigs()
+            _configs.value = emptyList()
         }
     }
 
