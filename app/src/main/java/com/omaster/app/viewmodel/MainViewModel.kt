@@ -5,7 +5,9 @@ import androidx.lifecycle.viewModelScope
 import com.omaster.app.camera.CameraCompatibilityStatus
 import com.omaster.app.camera.CameraParamProvider
 import com.omaster.app.camera.RealTimeCameraParams
+import com.omaster.app.data.FilterType
 import com.omaster.app.data.PreferencesDataStore
+import com.omaster.app.data.SearchManager
 import com.omaster.app.data.ThemeMode
 import com.omaster.app.data.PresetRepository
 import com.omaster.app.model.Preset
@@ -14,6 +16,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import timber.log.Timber
@@ -23,7 +26,8 @@ import javax.inject.Inject
 class MainViewModel @Inject constructor(
     private val repository: PresetRepository,
     private val preferencesDataStore: PreferencesDataStore,
-    private val cameraParamProvider: CameraParamProvider
+    private val cameraParamProvider: CameraParamProvider,
+    private val searchManager: SearchManager
 ) : ViewModel() {
     // Repository Flow exposed with stateIn for optimization
     val presets = repository.presets.stateIn(
@@ -76,9 +80,32 @@ class MainViewModel @Inject constructor(
     private val _cameraParams = MutableStateFlow(RealTimeCameraParams())
     val cameraParams: StateFlow<RealTimeCameraParams> = _cameraParams.asStateFlow()
 
+    // Search suggestions
+    private val _searchSuggestions = MutableStateFlow<List<String>>(emptyList())
+    val searchSuggestions: StateFlow<List<String>> = _searchSuggestions.asStateFlow()
+
     // Camera monitoring flag
     private var isCameraMonitoring = false
     
+    // Combined search and filter results
+    val filteredPresets = combine(
+        presets,
+        searchQuery,
+        filterType
+    ) { presetList, query, filter ->
+        searchManager.searchAndFilter(query, filter, presetList)
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    // Hot search keywords
+    val hotSearchKeywords = searchManager.hotSearchKeywords
+
+    // Search history
+    val searchHistory: List<String> get() = searchManager.searchHistory
+
     // Observe LiveData and update StateFlow
     init {
         cameraParamProvider.status.observeForever { status ->
@@ -91,12 +118,68 @@ class MainViewModel @Inject constructor(
 
     fun onSearchQueryChanged(query: String) {
         _searchQuery.value = query
+        
+        // Update search suggestions
+        viewModelScope.launch {
+            _searchSuggestions.value = searchManager.getSearchSuggestions(query, presets.value)
+        }
+        
         Timber.d("Search query changed: $query")
     }
 
     fun onFilterTypeChanged(filterType: FilterType) {
         _filterType.value = filterType
         Timber.d("Filter type changed: $filterType")
+    }
+
+    fun clearSearchQuery() {
+        _searchQuery.value = ""
+        _searchSuggestions.value = emptyList()
+    }
+
+    fun clearSearchHistory() {
+        searchManager.clearSearchHistory()
+    }
+
+    /**
+     * 按风格筛选
+     */
+    fun filterByStyle(style: String) {
+        viewModelScope.launch {
+            val filtered = searchManager.filterByStyle(presets.value, style)
+            // 可以在这里更新UI状态或触发特定操作
+            Timber.d("Filtered by style: $style, count: ${filtered.size}")
+        }
+    }
+
+    /**
+     * 按场景筛选
+     */
+    fun filterByScene(scene: String) {
+        viewModelScope.launch {
+            val filtered = searchManager.filterByScene(presets.value, scene)
+            Timber.d("Filtered by scene: $scene, count: ${filtered.size}")
+        }
+    }
+
+    /**
+     * 按设备筛选
+     */
+    fun filterByDevice(device: String) {
+        viewModelScope.launch {
+            val filtered = searchManager.filterByDevice(presets.value, device)
+            Timber.d("Filtered by device: $device, count: ${filtered.size}")
+        }
+    }
+
+    /**
+     * 按摄影师筛选
+     */
+    fun filterByPhotographer(photographer: String) {
+        viewModelScope.launch {
+            val filtered = searchManager.filterByPhotographer(presets.value, photographer)
+            Timber.d("Filtered by photographer: $photographer, count: ${filtered.size}")
+        }
     }
 
     fun toggleFavorite(preset: Preset) {
@@ -196,14 +279,4 @@ class MainViewModel @Inject constructor(
         cameraParamProvider.release()
         super.onCleared()
     }
-}
-
-enum class FilterType {
-    ALL,
-    FAVORITES,
-    HNCS,
-    FIND_X,
-    RENO,
-    NEW,
-    TRENDING
 }
