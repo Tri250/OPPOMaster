@@ -23,12 +23,22 @@ android {
             useSupportLibrary = true
         }
         
-        // 预设数据 API 配置 - 使用真实数据源
-        buildConfigField("String", "PRESET_OPPO_URL", "\"https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/oppo.json\"")
-        buildConfigField("String", "PRESET_REALME_URL", "\"https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/realme.json\"")
-        buildConfigField("String", "PRESET_HONOR_URL", "\"https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/honor.json\"")
-        buildConfigField("String", "PRESET_VIVO_URL", "\"https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/vivo.json\"")
-        buildConfigField("String", "PRESET_BASE_URL", "\"https://cdn.jsdelivr.net/gh/fengyec2/OMaster-Community@main/presets/v2/\"")
+        // ============================================
+        // API服务器配置 - 企业级生产环境
+        // ============================================
+        buildConfigField("String", "API_BASE_URL", "\"https://api.ohelper.app/v1/\"")
+        buildConfigField("String", "PRESET_BASE_URL", "\"https://cdn.ohelper.app/presets/v2/\"")
+        buildConfigField("String", "PRESET_OPPO_URL", "\"https://cdn.ohelper.app/presets/v2/oppo.json\"")
+        buildConfigField("String", "PRESET_REALME_URL", "\"https://cdn.ohelper.app/presets/v2/realme.json\"")
+        buildConfigField("String", "PRESET_HONOR_URL", "\"https://cdn.ohelper.app/presets/v2/honor.json\"")
+        buildConfigField("String", "PRESET_VIVO_URL", "\"https://cdn.ohelper.app/presets/v2/vivo.json\"")
+        
+        // ============================================
+        // 安全密钥配置（生产环境应从环境变量读取）
+        // ============================================
+        buildConfigField("String", "JWT_SECRET", "\"" + (System.getenv("JWT_SECRET") ?: "change-this-in-production") + "\"")
+        buildConfigField("String", "ENCRYPTION_KEY", "\"" + (System.getenv("ENCRYPTION_KEY") ?: "change-this-in-production") + "\"")
+        buildConfigField("String", "API_KEY", "\"" + (System.getenv("API_KEY") ?: "change-this-in-production") + "\"")
     }
 
     signingConfigs {
