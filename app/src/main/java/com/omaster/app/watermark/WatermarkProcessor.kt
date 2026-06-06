@@ -29,7 +29,18 @@ enum class WatermarkTemplate {
     CUSTOM,
     HASSELBLAD,
     BRAND_SIMPLE,
-    FILM_STYLE
+    FILM_STYLE,
+    // 新增免费开源水印模板
+    TILE_PATTERN,        // 平铺水印 - 防盗用
+    DIAGONAL_TEXT,       // 对角线文字 - 版权保护
+    CAMERA_INFO,         // 相机参数水印 - Leica风格
+    DATE_STAMP,          // 日期印章 - 证件照专用
+    COPYRIGHT_SIGN,      // 版权符号 - ©️风格
+    QR_CODE,             // 二维码水印
+    SIGNATURE,           // 签名水印
+    COLLAGE_GRID,        // 拼图九宫格
+    SOCIAL_MEDIA,        // 社交媒体水印
+    MINIMAL_CORNER       // 极简角标
 }
 
 data class WatermarkConfig(
@@ -131,6 +142,35 @@ class WatermarkProcessor(private val context: Context) {
             WatermarkTemplate.HASSELBLAD -> drawHasselbladWatermark(canvas, width, height, config)
             WatermarkTemplate.BRAND_SIMPLE -> drawBrandSimpleWatermark(canvas, width, height, config)
             WatermarkTemplate.FILM_STYLE -> drawFilmStyleWatermark(canvas, width, height, config)
+            // 新增开源水印模板
+            WatermarkTemplate.TILE_PATTERN -> OpenSourceWatermarkTemplates.drawTilePatternWatermark(
+                canvas, width, height, config.customText ?: "SAMPLE", config
+            )
+            WatermarkTemplate.DIAGONAL_TEXT -> OpenSourceWatermarkTemplates.drawDiagonalTextWatermark(
+                canvas, width, height, config.customText ?: "COPYRIGHT", config
+            )
+            WatermarkTemplate.CAMERA_INFO -> OpenSourceWatermarkTemplates.drawCameraInfoWatermark(
+                canvas, width, height, config
+            )
+            WatermarkTemplate.DATE_STAMP -> OpenSourceWatermarkTemplates.drawDateStampWatermark(
+                canvas, width, height, config.customText ?: "身份核验", config
+            )
+            WatermarkTemplate.COPYRIGHT_SIGN -> OpenSourceWatermarkTemplates.drawCopyrightSignWatermark(
+                canvas, width, height, config.customText ?: "Author", config
+            )
+            WatermarkTemplate.SIGNATURE -> OpenSourceWatermarkTemplates.drawSignatureWatermark(
+                canvas, width, height, config.customText ?: "Signature", config
+            )
+            WatermarkTemplate.COLLAGE_GRID -> OpenSourceWatermarkTemplates.drawCollageGridWatermark(
+                canvas, width, height, config
+            )
+            WatermarkTemplate.SOCIAL_MEDIA -> OpenSourceWatermarkTemplates.drawSocialMediaWatermark(
+                canvas, width, height, "instagram", config.customText ?: "username", config
+            )
+            WatermarkTemplate.MINIMAL_CORNER -> OpenSourceWatermarkTemplates.drawMinimalCornerWatermark(
+                canvas, width, height, config.customText ?: "© 2025", config
+            )
+            WatermarkTemplate.QR_CODE -> drawCustomWatermark(canvas, width, height, config)
         }
 
         return result

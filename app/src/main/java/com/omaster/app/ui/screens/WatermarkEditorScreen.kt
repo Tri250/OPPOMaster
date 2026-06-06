@@ -343,13 +343,25 @@ fun TemplateSelector(
     onTemplateSelected: (WatermarkTemplate) -> Unit
 ) {
     val templates = listOf(
+        // 品牌水印
         WatermarkTemplate.HASSELBLAD to "哈苏",
         WatermarkTemplate.OPPO to "OPPO",
         WatermarkTemplate.ONEPLUS to "一加",
         WatermarkTemplate.REALME to "真我",
+        // 功能水印
         WatermarkTemplate.MINIMAL_PARAMS to "参数",
         WatermarkTemplate.TIMESTAMP to "时间",
         WatermarkTemplate.FILM_STYLE to "胶片",
+        // 开源水印模板
+        WatermarkTemplate.TILE_PATTERN to "平铺",
+        WatermarkTemplate.DIAGONAL_TEXT to "对角线",
+        WatermarkTemplate.CAMERA_INFO to "相机信息",
+        WatermarkTemplate.DATE_STAMP to "日期印章",
+        WatermarkTemplate.COPYRIGHT_SIGN to "版权",
+        WatermarkTemplate.SIGNATURE to "签名",
+        WatermarkTemplate.COLLAGE_GRID to "九宫格",
+        WatermarkTemplate.SOCIAL_MEDIA to "社交",
+        WatermarkTemplate.MINIMAL_CORNER to "极简",
         WatermarkTemplate.CUSTOM to "自定义"
     )
 
