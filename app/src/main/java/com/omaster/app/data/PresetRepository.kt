@@ -1,11 +1,11 @@
 package com.omaster.app.data
 
-import com.omaster.app.model.CameraParams
-import com.omaster.app.model.ColorStyle
-import com.omaster.app.model.Preset
-import com.omaster.app.model.SampleImage
-import com.omaster.app.model.Section
-import com.omaster.app.network.PresetApi
+import com.omaster.app.domain.model.CameraParams
+import com.omaster.app.domain.model.ColorStyle
+import com.omaster.app.domain.model.Preset
+import com.omaster.app.domain.model.SampleImage
+import com.omaster.app.domain.model.Section
+import com.omaster.app.data.remote.PresetApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob

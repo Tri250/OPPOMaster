@@ -1,4 +1,4 @@
-package com.omaster.app.model
+package com.omaster.app.domain.model
 
 data class AiAdjustmentParams(
     val brightness: Float = 0f,

@@ -1,4 +1,4 @@
-package com.omaster.app.model
+package com.omaster.app.domain.model
 
 /**
  * 2026年 OPPO Find X8 Ultra 哈苏大师模式影像参数
@@ -298,6 +298,58 @@ data class CameraParams(
                 colorProfile = ColorStyle.Natural.displayName,
                 aiOptimization = true,
                 proMode = true
+            )
+        }
+        
+        /**
+         * 创建哈苏人像预设参数
+         */
+        fun createPortraitPreset(): CameraParams {
+            return CameraParams(
+                mode = CameraMode.HasselbladPortrait.displayName,
+                iso = 100,
+                shutter = "1/200",
+                ev = "+0.0",
+                wb = "5200K",
+                focalLength = "50mm",
+                aperture = "f/1.8",
+                portraitMode = true,
+                hasselblad_hncs = true,
+                hasselbladNaturalColor = true,
+                hasselbladMasterStyle = "Portrait",
+                hasselbladColorScience = "HNCS 3.0",
+                colorStyle = ColorStyle.Portrait.name,
+                colorProfile = ColorStyle.Portrait.displayName,
+                colorTemperature = 5200,
+                sharpness = 45,
+                contrast = 48,
+                saturation = 52
+            )
+        }
+        
+        /**
+         * 创建哈苏风景预设参数
+         */
+        fun createLandscapePreset(): CameraParams {
+            return CameraParams(
+                mode = CameraMode.HasselbladLandscape.displayName,
+                iso = 100,
+                shutter = "1/125",
+                ev = "-0.3",
+                wb = "5600K",
+                focalLength = "24mm",
+                aperture = "f/8",
+                hdr = true,
+                hasselblad_hncs = true,
+                hasselbladNaturalColor = true,
+                hasselbladMasterStyle = "Landscape",
+                hasselbladColorScience = "HNCS 3.0",
+                colorStyle = ColorStyle.Natural.name,
+                colorProfile = ColorStyle.Natural.displayName,
+                colorTemperature = 5600,
+                sharpness = 55,
+                contrast = 52,
+                saturation = 50
             )
         }
     }

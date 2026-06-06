@@ -1,4 +1,4 @@
-package com.omaster.app.watermark
+package com.omaster.app.domain.model
 
 import android.graphics.Bitmap
 import android.net.Uri

@@ -1,4 +1,4 @@
-package com.omaster.app.model
+package com.omaster.app.domain.model
 
 /**
  * 场景类型枚举 - 符合AI场景识别

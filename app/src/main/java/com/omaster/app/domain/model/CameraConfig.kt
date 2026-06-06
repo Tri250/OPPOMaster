@@ -1,4 +1,4 @@
-package com.omaster.app.model
+package com.omaster.app.domain.model
 
 import android.os.Parcelable
 import kotlinx.parcelize.Parcelize

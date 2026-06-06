@@ -37,7 +37,7 @@ import com.omaster.app.ui.screens.ProfileScreen
 import com.omaster.app.ui.screens.SceneDetectionScreenV2
 import com.omaster.app.ui.screens.WatermarkEditorScreen
 import com.omaster.app.ui.theme.OMasterTheme
-import com.omaster.app.viewmodel.MainViewModel
+import com.omaster.app.presentation.viewmodel.MainViewModel
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 import timber.log.Timber

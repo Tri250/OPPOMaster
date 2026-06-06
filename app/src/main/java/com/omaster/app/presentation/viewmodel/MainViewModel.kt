@@ -1,15 +1,17 @@
-package com.omaster.app.viewmodel
+package com.omaster.app.presentation.viewmodel
 
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.omaster.app.camera.CameraCompatibilityStatus
-import com.omaster.app.camera.CameraParamProvider
-import com.omaster.app.camera.RealTimeCameraParams
+import com.omaster.app.data.camera.CameraCompatibilityStatus
+import com.omaster.app.data.camera.CameraParamProvider
+import com.omaster.app.data.camera.RealTimeCameraParams
+import com.omaster.app.data.AppLanguage
+import com.omaster.app.data.LanguageManager
 import com.omaster.app.data.PreferencesDataStore
 import com.omaster.app.data.ThemeMode
 import com.omaster.app.data.PresetRepository
-import com.omaster.app.model.Preset
+import com.omaster.app.domain.model.Preset
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,6 +24,7 @@ import javax.inject.Inject
 class MainViewModel @Inject constructor(
     private val repository: PresetRepository,
     private val preferencesDataStore: PreferencesDataStore,
+    private val languageManager: LanguageManager,
     private val cameraParamProvider: CameraParamProvider
 ) : ViewModel() {
     val presets = repository.presets
@@ -29,6 +32,7 @@ class MainViewModel @Inject constructor(
     val fluidCloudEnabled = preferencesDataStore.fluidCloudEnabled
     val overlayEnabled = preferencesDataStore.overlayEnabled
     val syncEnabled = preferencesDataStore.syncEnabled
+    val selectedLanguage = languageManager.selectedLanguage
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -93,6 +97,17 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch {
             preferencesDataStore.setSyncEnabled(enabled)
             Timber.d("Sync enabled: $enabled")
+        }
+    }
+
+    /**
+     * 设置应用语言
+     * @param language 目标语言
+     */
+    fun setLanguage(language: AppLanguage) {
+        viewModelScope.launch {
+            languageManager.setLanguage(language)
+            Timber.d("Language changed: $language")
         }
     }
 

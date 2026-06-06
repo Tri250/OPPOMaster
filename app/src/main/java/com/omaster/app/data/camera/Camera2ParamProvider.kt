@@ -1,4 +1,4 @@
-package com.omaster.app.camera
+package com.omaster.app.data.camera
 
 import android.Manifest
 import android.content.Context

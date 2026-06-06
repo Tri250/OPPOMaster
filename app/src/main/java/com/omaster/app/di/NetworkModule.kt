@@ -3,7 +3,7 @@ package com.omaster.app.di
 import android.content.Context
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
-import com.omaster.app.network.PresetApi
+import com.omaster.app.data.remote.PresetApi
 import com.omaster.app.BuildConfig
 import dagger.Module
 import dagger.Provides

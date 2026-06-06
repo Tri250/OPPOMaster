@@ -3,8 +3,8 @@ package com.omaster.app.data
 import android.content.Context
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
-import com.omaster.app.model.CameraConfig
-import com.omaster.app.model.CameraConfigExport
+import com.omaster.app.domain.model.CameraConfig
+import com.omaster.app.domain.model.CameraConfigExport
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

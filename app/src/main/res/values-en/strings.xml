@@ -1,0 +1,203 @@
+<resources>
+    <!-- App Name -->
+    <string name="app_name">OMaster</string>
+
+    <!-- Navigation -->
+    <string name="nav_home">Home</string>
+    <string name="nav_discover">Discover</string>
+    <string name="nav_favorites">Favorites</string>
+    <string name="nav_settings">Settings</string>
+    <string name="nav_history">History</string>
+    <string name="nav_profile">Profile</string>
+
+    <!-- Page Titles -->
+    <string name="home_title">Color Preset Library</string>
+    <string name="discover_title">Discover</string>
+    <string name="favorites_title">My Favorites</string>
+    <string name="settings_title">Settings</string>
+    <string name="detail_title">Preset Details</string>
+    <string name="history_title">History</string>
+    <string name="language_settings_title">Language Settings</string>
+    <string name="privacy_settings_title">Privacy Settings</string>
+    <string name="about_title">About</string>
+
+    <!-- Action Buttons -->
+    <string name="action_save">Save</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_confirm">Confirm</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_edit">Edit</string>
+    <string name="action_share">Share</string>
+    <string name="action_apply">Apply</string>
+    <string name="action_close">Close</string>
+    <string name="action_back">Back</string>
+    <string name="action_more">More</string>
+    <string name="action_search">Search</string>
+    <string name="action_filter">Filter</string>
+    <string name="action_sort">Sort</string>
+    <string name="action_refresh">Refresh</string>
+
+    <!-- Favorites -->
+    <string name="favorite">Favorite</string>
+    <string name="unfavorite">Unfavorite</string>
+    <string name="add_to_favorites">Add to Favorites</string>
+    <string name="remove_from_favorites">Remove from Favorites</string>
+    <string name="favorites_empty">No favorites yet</string>
+    <string name="favorites_count">Favorites: %d</string>
+
+    <!-- Presets -->
+    <string name="preset">Preset</string>
+    <string name="preset_list">Preset List</string>
+    <string name="preset_details">Preset Details</string>
+    <string name="apply_preset">Apply Preset</string>
+    <string name="preset_applied">Preset Applied</string>
+    <string name="preset_saved">Preset Saved</string>
+    <string name="preset_deleted">Preset Deleted</string>
+    <string name="preset_name">Preset Name</string>
+    <string name="preset_description">Preset Description</string>
+    <string name="create_preset">Create Preset</string>
+    <string name="edit_preset">Edit Preset</string>
+    <string name="delete_preset">Delete Preset</string>
+    <string name="duplicate_preset">Duplicate Preset</string>
+    <string name="preset_empty">No presets</string>
+    <string name="preset_count">Presets: %d</string>
+
+    <!-- Camera Parameters -->
+    <string name="camera_params">Camera Parameters</string>
+    <string name="iso">ISO</string>
+    <string name="shutter">Shutter</string>
+    <string name="shutter_speed">Shutter Speed</string>
+    <string name="ev">Exposure Compensation</string>
+    <string name="exposure">Exposure</string>
+    <string name="wb">White Balance</string>
+    <string name="white_balance">White Balance</string>
+    <string name="filter">Filter</string>
+    <string name="focus">Focus</string>
+    <string name="aperture">Aperture</string>
+    <string name="device_model">Device Model</string>
+    <string name="hncs">HNCS Certified</string>
+
+    <!-- Scene Types -->
+    <string name="scene_portrait">Portrait</string>
+    <string name="scene_landscape">Landscape</string>
+    <string name="scene_night">Night</string>
+    <string name="scene_food">Food</string>
+    <string name="scene_street">Street</string>
+    <string name="scene_macro">Macro</string>
+    <string name="scene_sports">Sports</string>
+
+    <!-- Fluid Cloud & Overlay -->
+    <string name="fluid_cloud">Fluid Cloud</string>
+    <string name="enable_fluid_cloud">Enable Fluid Cloud Capsule</string>
+    <string name="enable_fluid_cloud_desc">Display selected preset in system sidebar</string>
+    <string name="overlay">Overlay</string>
+    <string name="enable_overlay">Enable Overlay (Fallback)</string>
+    <string name="enable_overlay_desc">For older systems without Fluid Cloud support</string>
+
+    <!-- Theme Settings -->
+    <string name="theme">Theme</string>
+    <string name="theme_system">System Default</string>
+    <string name="theme_light">Light Mode</string>
+    <string name="theme_dark">Dark Mode</string>
+    <string name="theme_system_desc">Follow system settings</string>
+    <string name="theme_light_desc">Always use light theme</string>
+    <string name="theme_dark_desc">Always use dark theme</string>
+
+    <!-- Language Settings -->
+    <string name="language">Language</string>
+    <string name="language_system">System Default</string>
+    <string name="language_chinese">Chinese</string>
+    <string name="language_english">English</string>
+    <string name="language_japanese">Japanese</string>
+    <string name="language_korean">Korean</string>
+    <string name="language_restart_hint">App restart required for changes to take full effect</string>
+    <string name="language_switch_confirm">Switch to %s?</string>
+
+    <!-- Messages -->
+    <string name="msg_success">Success</string>
+    <string name="msg_error">Error</string>
+    <string name="msg_loading">Loading…</string>
+    <string name="msg_no_data">No data</string>
+    <string name="msg_network_error">Network error. Please check your connection</string>
+    <string name="msg_save_success">Saved successfully</string>
+    <string name="msg_save_failed">Save failed</string>
+    <string name="msg_delete_confirm">Are you sure you want to delete?</string>
+    <string name="msg_delete_success">Deleted successfully</string>
+    <string name="msg_copy_success">Copied successfully</string>
+    <string name="msg_share_success">Shared successfully</string>
+    <string name="msg_permission_denied">Permission denied</string>
+    <string name="msg_restart_required">Restart required</string>
+
+    <!-- Search -->
+    <string name="search_hint">Search presets…</string>
+    <string name="search_empty">No results found</string>
+    <string name="search_history">Search History</string>
+    <string name="clear_history">Clear History</string>
+    <string name="hot_search">Trending</string>
+
+    <!-- Tags -->
+    <string name="tag">Tag</string>
+    <string name="add_tag">Add Tag</string>
+    <string name="edit_tag">Edit Tag</string>
+    <string name="delete_tag">Delete Tag</string>
+    <string name="popular_tags">Popular Tags</string>
+    <string name="my_tags">My Tags</string>
+
+    <!-- Watermark -->
+    <string name="watermark">Watermark</string>
+    <string name="enable_watermark">Enable Watermark</string>
+    <string name="watermark_text">Watermark Text</string>
+    <string name="watermark_style">Watermark Style</string>
+    <string name="watermark_position">Watermark Position</string>
+    <string name="watermark_opacity">Watermark Opacity</string>
+
+    <!-- Screenshot & Share -->
+    <string name="screenshot">Screenshot</string>
+    <string name="share">Share</string>
+    <string name="share_to">Share to</string>
+    <string name="save_image">Save Image</string>
+    <string name="share_image">Share Image</string>
+    <string name="generate_screenshot">Generate Screenshot</string>
+
+    <!-- About -->
+    <string name="about">About</string>
+    <string name="version">Version</string>
+    <string name="version_name">Version %s</string>
+    <string name="copyright">© 2026 OMaster. All rights reserved.</string>
+    <string name="feedback">Feedback</string>
+    <string name="contact_us">Contact Us</string>
+    <string name="privacy_policy">Privacy Policy</string>
+    <string name="terms_of_service">Terms of Service</string>
+    <string name="open_source">Open Source Licenses</string>
+    <string name="rate_app">Rate App</string>
+
+    <!-- Accessibility Service -->
+    <string name="accessibility_service_description">OMaster accessibility service for automatically filling camera parameters in Master Mode. When enabled, it will automatically recognize parameter input controls in supported camera apps and fill them.</string>
+    <string name="accessibility_service_name">OMaster Auto-Fill Service</string>
+
+    <!-- Sync -->
+    <string name="sync">Sync</string>
+    <string name="enable_sync">Enable Cloud Sync</string>
+    <string name="sync_now">Sync Now</string>
+    <string name="sync_success">Sync successful</string>
+    <string name="sync_failed">Sync failed</string>
+    <string name="last_sync">Last sync: %s</string>
+
+    <!-- AI Features -->
+    <string name="ai_adjust">AI Adjust</string>
+    <string name="ai_scene_detection">AI Scene Detection</string>
+    <string name="ai_recommendation">AI Recommendation</string>
+    <string name="ai_fine_tune">AI Fine-tune</string>
+    <string name="scene_detection">Scene Detection</string>
+
+    <!-- Other -->
+    <string name="welcome">Welcome</string>
+    <string name="get_started">Get Started</string>
+    <string name="skip">Skip</string>
+    <string name="next">Next</string>
+    <string name="finish">Finish</string>
+    <string name="done">Done</string>
+    <string name="retry">Retry</string>
+    <string name="later">Later</string>
+    <string name="never">Never</string>
+</resources>

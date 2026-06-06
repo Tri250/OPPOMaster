@@ -1,4 +1,4 @@
-package com.omaster.app.model
+package com.omaster.app.domain.model
 
 /**
  * Preset - 预设数据模型
