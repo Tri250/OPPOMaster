@@ -1,6 +1,6 @@
 <resources>
     <!-- App Name -->
-    <string name="app_name">OMaster</string>
+    <string name="app_name">OHelper</string>
 
     <!-- Navigation -->
     <string name="nav_home">Home</string>
@@ -163,7 +163,7 @@
     <string name="about">About</string>
     <string name="version">Version</string>
     <string name="version_name">Version %s</string>
-    <string name="copyright">© 2026 OMaster. All rights reserved.</string>
+    <string name="copyright">© 2026 OHelper. All rights reserved.</string>
     <string name="feedback">Feedback</string>
     <string name="contact_us">Contact Us</string>
     <string name="privacy_policy">Privacy Policy</string>

@@ -333,7 +333,7 @@ fun AboutSection() {
                     }
                 }
                 Text(
-                    text = "OPPO Master",
+                    text = "小O帮帮",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )

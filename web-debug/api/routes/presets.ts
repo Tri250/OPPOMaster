@@ -8,7 +8,7 @@ const mockPresets = [
   {
     id: '1',
     name: '哈苏自然',
-    author: 'OMaster官方',
+    author: '小O帮帮官方',
     description: '还原哈苏相机自然色彩',
     coverUrl: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400',
     params: {

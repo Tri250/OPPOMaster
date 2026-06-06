@@ -9,7 +9,7 @@ const testimonials = [
     name: '摄影师小王',
     avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100',
     rating: 5,
-    content: 'OMaster真的是摄影爱好者的福音！以前每次拍照都要在网上搜索参数，现在一键就能找到合适的预设，太方便了。',
+    content: '小O帮帮真的是摄影爱好者的福音！以前每次拍照都要在网上搜索参数，现在一键就能找到合适的预设，太方便了。',
     date: '2024-12-15'
   },
   {
@@ -33,7 +33,7 @@ const testimonials = [
     name: '街拍大师',
     avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100',
     rating: 5,
-    content: '作为一个街拍爱好者，OMaster的黑白人文预设帮了我大忙。参数调得很到位，直出就很有质感，省了很多后期时间。',
+    content: '作为一个街拍爱好者，小O帮帮的黑白人文预设帮了我大忙。参数调得很到位，直出就很有质感，省了很多后期时间。',
     date: '2024-12-05'
   }
 ]

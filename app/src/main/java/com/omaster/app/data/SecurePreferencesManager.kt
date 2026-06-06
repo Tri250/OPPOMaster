@@ -27,7 +27,7 @@ import android.util.Base64
  * 3. 支持加密SharedPreferences
  * 4. 防止敏感数据明文存储
  *
- * 作者备注：带娃的小陈工
+ * 作者备注：带娃的小陈宫
  */
 @Singleton
 class SecurePreferencesManager @Inject constructor(

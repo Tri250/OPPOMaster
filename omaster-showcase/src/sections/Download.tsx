@@ -89,7 +89,7 @@ export default function DownloadSection() {
               开始你的<span className="text-[#FF6B35]">摄影之旅</span>
             </h2>
             <p className="text-xl text-gray-400 mb-8">
-              免费下载 OMaster，告别参数焦虑，让每一次拍摄都能获得完美的色彩。
+              免费下载 小O帮帮，告别参数焦虑，让每一次拍摄都能获得完美的色彩。
             </p>
 
             {/* Requirements */}
@@ -164,7 +164,7 @@ export default function DownloadSection() {
           className="mt-20 pt-8 border-t border-[#30363D] text-center"
         >
           <p className="text-gray-500 text-sm">
-            Made with ❤️ by OMaster Team | 
+            Made with ❤️ by 小O帮帮 Team | 
             <a href="https://github.com/iCurrer/OMaster" target="_blank" rel="noopener noreferrer" className="text-[#FF6B35] hover:underline ml-1">
               GitHub
             </a>

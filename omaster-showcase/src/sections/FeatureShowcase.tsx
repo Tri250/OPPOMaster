@@ -198,7 +198,7 @@ const features: Feature[] = [
           <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-orange-400 to-red-500" />
           <div className="flex-1">
             <div className="text-white text-sm">哈苏自然</div>
-            <div className="text-gray-500 text-xs">OMaster官方</div>
+            <div className="text-gray-500 text-xs">小O帮帮官方</div>
           </div>
           <Star size={16} className="text-yellow-400 fill-yellow-400" />
         </div>
@@ -269,7 +269,7 @@ export default function FeatureShowcase() {
             点击卡片<span className="text-[#FF6B35]">体验功能</span>
           </h2>
           <p className="text-xl text-gray-400 max-w-2xl mx-auto">
-            探索 OMaster 的强大功能，让摄影更简单
+            探索 小O帮帮 的强大功能，让摄影更简单
           </p>
         </div>
 

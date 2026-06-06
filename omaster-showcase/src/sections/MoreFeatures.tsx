@@ -491,7 +491,7 @@ export default function MoreFeatures() {
             探索更多<span className="text-[#58A6FF]">强大功能</span>
           </h2>
           <p className="text-xl text-gray-400 max-w-2xl mx-auto">
-            OMaster 还有更多实用功能等待你发现
+            小O帮帮 还有更多实用功能等待你发现
           </p>
         </div>
 

@@ -1,6 +1,6 @@
 <resources>
     <!-- 应用名称 -->
-    <string name="app_name">OMaster</string>
+    <string name="app_name">小O帮帮</string>
 
     <!-- 导航栏 -->
     <string name="nav_home">首页</string>

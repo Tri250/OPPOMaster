@@ -15,7 +15,7 @@ const screenshots = [
           <div className="w-8 h-8 rounded-lg bg-[#FF6B35] flex items-center justify-center">
             <span className="text-white font-bold text-sm">O</span>
           </div>
-          <span className="text-white font-semibold">OMaster</span>
+          <span className="text-white font-semibold">小O帮帮</span>
         </div>
         <div className="flex gap-2 mb-3">
           <span className="px-3 py-1 bg-[#FF6B35] text-white text-xs rounded-full">全部</span>

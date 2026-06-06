@@ -37,7 +37,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#FF6B35] to-[#FF8C42] flex items-center justify-center">
               <span className="text-white font-bold text-sm">O</span>
             </div>
-            <span className="text-white font-semibold text-lg">OMaster调试</span>
+            <span className="text-white font-semibold text-lg">小O帮帮调试</span>
           </div>
         </div>
         
@@ -64,7 +64,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         
         <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-[#30363D]">
           <div className="text-xs text-gray-500">
-            <p>OMaster Web Debug Console</p>
+            <p>小O帮帮 Web Debug Console</p>
             <p>v1.0.0</p>
           </div>
         </div>

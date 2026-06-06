@@ -53,7 +53,7 @@ router.get('/app', (req: Request, res: Response) => {
   res.json({
     success: true,
     data: {
-      appName: 'OMaster',
+      appName: '小O帮帮',
       version: '1.5.0',
       buildNumber: 150,
       packageName: 'com.omaster.app',

@@ -129,7 +129,7 @@ data class CameraConfig(
  */
 data class CameraConfigExport(
     val version: String = "1.0",
-    val appVersion: String = "OPPO Master 3.0",
+    val appVersion: String = "小O帮帮 3.0",
     val exportTime: Long = System.currentTimeMillis(),
     val configs: List<CameraConfig>
 ) {

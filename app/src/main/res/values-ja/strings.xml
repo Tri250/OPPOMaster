@@ -1,6 +1,6 @@
 <resources>
     <!-- アプリ名 -->
-    <string name="app_name">OMaster</string>
+    <string name="app_name">OHelper</string>
 
     <!-- ナビゲーション -->
     <string name="nav_home">ホーム</string>
@@ -163,7 +163,7 @@
     <string name="about">アプリについて</string>
     <string name="version">バージョン</string>
     <string name="version_name">バージョン %s</string>
-    <string name="copyright">© 2026 OMaster. All rights reserved.</string>
+    <string name="copyright">© 2026 OHelper. All rights reserved.</string>
     <string name="feedback">フィードバック</string>
     <string name="contact_us">お問い合わせ</string>
     <string name="privacy_policy">プライバシーポリシー</string>

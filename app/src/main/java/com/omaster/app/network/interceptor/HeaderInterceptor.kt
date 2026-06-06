@@ -21,7 +21,7 @@ class HeaderInterceptor : Interceptor {
             header("Accept", "application/json")
             
             // 添加 User-Agent
-            header("User-Agent", "OMasterApp/${BuildConfig.VERSION_NAME}")
+            header("User-Agent", "OHelper/${BuildConfig.VERSION_NAME}")
             
             // 添加应用版本信息
             header("X-App-Version", BuildConfig.VERSION_NAME)

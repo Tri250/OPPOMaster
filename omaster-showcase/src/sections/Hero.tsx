@@ -140,7 +140,7 @@ export default function Hero() {
                           <div className="w-8 h-8 rounded-lg bg-[#FF6B35] flex items-center justify-center">
                             <span className="text-white font-bold text-sm">O</span>
                           </div>
-                          <span className="text-white font-semibold">OMaster</span>
+                          <span className="text-white font-semibold">小O帮帮</span>
                         </div>
                         
                         {/* Preset cards */}
