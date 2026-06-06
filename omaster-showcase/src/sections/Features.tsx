@@ -3,7 +3,7 @@ import { useInView } from 'framer-motion'
 import { useRef } from 'react'
 import { 
   Palette, 
-  Cloud, 
+  Cpu, 
   Layers, 
   Star, 
   Smartphone, 
@@ -18,16 +18,16 @@ const features = [
     color: '#FF6B35'
   },
   {
-    icon: Cloud,
-    title: '配置云更新',
-    description: '支持从云端获取最新配置，支持自定义更新源，随时获取社区分享的优质预设。',
+    icon: Cpu,
+    title: 'AI场景识别',
+    description: '智能识别拍摄场景（人像、风景、夜景、美食等），自动推荐最合适的预设方案。',
     color: '#58A6FF'
   },
   {
     icon: Layers,
     title: '悬浮窗模式',
     description: '拍照时可悬浮显示参数，支持左右滑动切换预设，半透明设计不遮挡取景。',
-    color: '#A371F7'
+    color: '#A371F'
   },
   {
     icon: Star,
