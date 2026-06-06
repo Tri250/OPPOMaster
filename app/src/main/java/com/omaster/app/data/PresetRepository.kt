@@ -1,5 +1,7 @@
 package com.omaster.app.data
 
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import com.omaster.app.domain.model.CameraParams
 import com.omaster.app.domain.model.ColorStyle
 import com.omaster.app.domain.model.Preset
@@ -27,12 +29,19 @@ class PresetRepository @Inject constructor(
     private val presetApi: PresetApi,
     private val preferencesDataStore: PreferencesDataStore
 ) {
+    private val gson = Gson()
     private var cachedPresets: List<Preset> = emptyList()
     private var lastSyncTime: Long = 0
     private var isInitialized: Boolean = false
     
     private val _presets = MutableStateFlow<List<Preset>>(emptyList())
     val presets: StateFlow<List<Preset>> = _presets.asStateFlow()
+    
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+    
+    private val _refreshError = MutableStateFlow<String?>(null)
+    val refreshError: StateFlow<String?> = _refreshError.asStateFlow()
     
     // 使用 SupervisorJob 避免协程取消影响整个作用域
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -113,6 +122,235 @@ class PresetRepository @Inject constructor(
             Result.failure(e)
         }
     }
+    
+    /**
+     * 刷新预设样张库 - 从远程API获取最新数据
+     */
+    suspend fun refreshPresetLibrary(): Result<List<Preset>> {
+        _isRefreshing.value = true
+        _refreshError.value = null
+        
+        return try {
+            Timber.d("开始刷新预设样张库...")
+            
+            val response = presetApi.getAllPresets()
+            if (response.isSuccessful) {
+                val presets = response.body() ?: emptyList()
+                
+                // 解析并验证数据
+                val validatedPresets = presets.map { preset ->
+                    validateAndEnrichPreset(preset)
+                }
+                
+                cachedPresets = validatedPresets
+                lastSyncTime = System.currentTimeMillis()
+                isInitialized = true
+                _presets.value = cachedPresets
+                
+                Timber.d("预设样张库刷新成功，共 ${validatedPresets.size} 个预设")
+                Result.success(validatedPresets)
+            } else {
+                val error = "刷新失败: HTTP ${response.code()}"
+                _refreshError.value = error
+                Timber.e(error)
+                Result.failure(Exception(error))
+            }
+        } catch (e: Exception) {
+            _refreshError.value = e.message ?: "刷新异常"
+            Timber.e(e, "刷新预设样张库异常")
+            Result.failure(e)
+        } finally {
+            _isRefreshing.value = false
+        }
+    }
+    
+    /**
+     * 从JSON字符串解析预设列表
+     */
+    fun parsePresetsFromJson(jsonString: String): Result<List<Preset>> {
+        return try {
+            val type = object : TypeToken<List<PresetJsonData>>() {}.type
+            val jsonDataList: List<PresetJsonData> = gson.fromJson(jsonString, type)
+            
+            val presets = jsonDataList.map { jsonData ->
+                parsePresetFromJsonData(jsonData)
+            }
+            
+            Timber.d("JSON解析成功，共 ${presets.size} 个预设")
+            Result.success(presets)
+        } catch (e: Exception) {
+            Timber.e(e, "JSON解析失败")
+            Result.failure(e)
+        }
+    }
+    
+    /**
+     * 从JSON字符串解析单个预设
+     */
+    fun parsePresetFromJson(jsonString: String): Result<Preset> {
+        return try {
+            val jsonData: PresetJsonData = gson.fromJson(jsonString, PresetJsonData::class.java)
+            val preset = parsePresetFromJsonData(jsonData)
+            Timber.d("预设JSON解析成功: ${preset.name}")
+            Result.success(preset)
+        } catch (e: Exception) {
+            Timber.e(e, "预设JSON解析失败")
+            Result.failure(e)
+        }
+    }
+    
+    /**
+     * 将预设列表转换为JSON字符串
+     */
+    fun presetsToJson(presets: List<Preset>): String {
+        return gson.toJson(presets.map { it.toJson() })
+    }
+    
+    /**
+     * 验证并丰富预设数据
+     */
+    private fun validateAndEnrichPreset(preset: Preset): Preset {
+        return preset.copy(
+            // 确保HNCS认证状态正确
+            isHncsCertified = preset.cameraParams?.hasselblad_hncs == true,
+            // 确保版本信息存在
+            version = preset.version.ifEmpty { "3.0" },
+            // 确保作者信息存在
+            author = preset.author.ifEmpty { "哈苏影像实验室" }
+        )
+    }
+    
+    /**
+     * 从JSON数据对象解析预设
+     */
+    private fun parsePresetFromJsonData(jsonData: PresetJsonData): Preset {
+        val cameraParams = jsonData.cameraParams?.let { params ->
+            CameraParams(
+                mode = params.mode ?: "哈苏大师",
+                filter = params.filter ?: "",
+                iso = params.iso ?: 100,
+                shutter = params.shutter ?: "1/200",
+                ev = params.ev ?: "+0.0",
+                wb = params.wb ?: "5500K",
+                focalLength = params.focalLength ?: "23mm",
+                focalLengthMode = params.focalLengthMode ?: "标准",
+                aperture = params.aperture ?: "f/1.8",
+                hdr = params.hdr ?: false,
+                nightMode = params.nightMode ?: false,
+                portraitMode = params.portraitMode ?: false,
+                aiOptimization = params.aiOptimization ?: true,
+                opticalStabilization = params.opticalStabilization ?: false,
+                rawCapture = params.rawCapture ?: false,
+                proMode = params.proMode ?: false,
+                hasselblad_hncs = params.hasselblad_hncs ?: false,
+                hasselbladNaturalColor = params.hasselbladNaturalColor ?: false,
+                hasselbladMasterStyle = params.hasselbladMasterStyle ?: "",
+                hasselbladColorScience = params.hasselbladColorScience ?: "HNCS 3.0",
+                colorProfile = params.colorProfile ?: "自然",
+                colorStyle = params.colorStyle ?: ColorStyle.Natural.name,
+                sharpness = params.sharpness ?: 50,
+                contrast = params.contrast ?: 50,
+                saturation = params.saturation ?: 50,
+                noiseReduction = params.noiseReduction ?: 0,
+                sensorSize = params.sensorSize ?: "1英寸大底"
+            )
+        }
+        
+        return Preset(
+            id = jsonData.id ?: "",
+            name = jsonData.name ?: "",
+            coverPath = jsonData.coverPath ?: "",
+            coverUrl = jsonData.coverUrl ?: "",
+            deviceModel = jsonData.deviceModel ?: "",
+            source = jsonData.source ?: "omaster_cloud",
+            author = jsonData.author ?: "哈苏影像实验室",
+            description = jsonData.description ?: "",
+            sceneType = jsonData.sceneType ?: "",
+            tags = jsonData.tags ?: emptyList(),
+            rating = jsonData.rating ?: 5.0f,
+            downloadCount = jsonData.downloadCount ?: 0,
+            favoriteCount = jsonData.favoriteCount ?: 0,
+            version = jsonData.version ?: "3.0",
+            lastUpdated = jsonData.lastUpdated ?: System.currentTimeMillis(),
+            publishDate = jsonData.publishDate ?: System.currentTimeMillis(),
+            isHncsCertified = jsonData.isHncsCertified ?: (cameraParams?.hasselblad_hncs == true),
+            cameraParams = cameraParams,
+            sections = jsonData.sections?.map { Section(it.title ?: "", it.content ?: "") } ?: emptyList(),
+            sampleImages = jsonData.sampleImages?.map { 
+                SampleImage(it.id ?: "", it.imagePath ?: "", it.title ?: "", it.description ?: "", it.isBeforeImage ?: false, it.isAfterImage ?: false) 
+            } ?: emptyList()
+        )
+    }
+    
+    /**
+     * JSON数据类 - 用于解析
+     */
+    private data class PresetJsonData(
+        val id: String? = null,
+        val name: String? = null,
+        val coverPath: String? = null,
+        val coverUrl: String? = null,
+        val deviceModel: String? = null,
+        val source: String? = null,
+        val author: String? = null,
+        val description: String? = null,
+        val sceneType: String? = null,
+        val tags: List<String>? = null,
+        val rating: Float? = null,
+        val downloadCount: Int? = null,
+        val favoriteCount: Int? = null,
+        val version: String? = null,
+        val lastUpdated: Long? = null,
+        val publishDate: Long? = null,
+        val isHncsCertified: Boolean? = null,
+        val cameraParams: CameraParamsJsonData? = null,
+        val sections: List<SectionJsonData>? = null,
+        val sampleImages: List<SampleImageJsonData>? = null
+    )
+    
+    private data class CameraParamsJsonData(
+        val mode: String? = null,
+        val filter: String? = null,
+        val iso: Int? = null,
+        val shutter: String? = null,
+        val ev: String? = null,
+        val wb: String? = null,
+        val focalLength: String? = null,
+        val focalLengthMode: String? = null,
+        val aperture: String? = null,
+        val hdr: Boolean? = null,
+        val nightMode: Boolean? = null,
+        val portraitMode: Boolean? = null,
+        val aiOptimization: Boolean? = null,
+        val opticalStabilization: Boolean? = null,
+        val rawCapture: Boolean? = null,
+        val proMode: Boolean? = null,
+        val hasselblad_hncs: Boolean? = null,
+        val hasselbladNaturalColor: Boolean? = null,
+        val hasselbladMasterStyle: String? = null,
+        val hasselbladColorScience: String? = null,
+        val colorProfile: String? = null,
+        val colorStyle: String? = null,
+        val sharpness: Int? = null,
+        val contrast: Int? = null,
+        val saturation: Int? = null,
+        val noiseReduction: Int? = null,
+        val sensorSize: String? = null
+    )
+    
+    private data class SectionJsonData(
+        val title: String? = null,
+        val content: String? = null
+    )
+    
+    private data class SampleImageJsonData(
+        val id: String? = null,
+        val imagePath: String? = null,
+        val title: String? = null,
+        val description: String? = null,
+        val isBeforeImage: Boolean? = null,
+        val isAfterImage: Boolean? = null
+    )
     
     /**
      * 切换预设收藏状态

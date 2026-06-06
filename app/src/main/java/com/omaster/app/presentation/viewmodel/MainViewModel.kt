@@ -121,6 +121,47 @@ class MainViewModel @Inject constructor(
             }
         }
     }
+    
+    /**
+     * 刷新预设样张库
+     */
+    fun refreshPresetLibrary() {
+        viewModelScope.launch {
+            try {
+                val result = repository.refreshPresetLibrary()
+                if (result.isSuccess) {
+                    Timber.d("预设样张库刷新成功，共 ${result.getOrNull()?.size ?: 0} 个预设")
+                } else {
+                    Timber.e("预设样张库刷新失败: ${result.exceptionOrNull()?.message}")
+                }
+            } catch (e: Exception) {
+                Timber.e(e, "刷新预设样张库异常")
+            }
+        }
+    }
+    
+    /**
+     * 从JSON解析预设
+     */
+    fun parsePresetsFromJson(jsonString: String): List<Preset>? {
+        return try {
+            val result = repository.parsePresetsFromJson(jsonString)
+            result.getOrNull()
+        } catch (e: Exception) {
+            Timber.e(e, "JSON解析失败")
+            null
+        }
+    }
+    
+    /**
+     * 获取刷新状态
+     */
+    val isRefreshing = repository.isRefreshing
+    
+    /**
+     * 获取刷新错误
+     */
+    val refreshError = repository.refreshError
 
     // Camera related functions
     fun startCameraMonitor() {
