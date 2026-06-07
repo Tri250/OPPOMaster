@@ -1655,6 +1655,231 @@ body {
 .fb-bottom { padding: 12px 20px 20px; }
 
 /* ============================================================
+   Project Dashboard · 实时拉取最新状态
+   ============================================================ */
+.dashboard-section {
+  padding: 64px 48px;
+  background: linear-gradient(180deg, var(--noir-deep) 0%, var(--noir-void) 100%);
+  border-top: 1px solid var(--noir-stroke);
+}
+
+.live-dot {
+  display: inline-block;
+  width: 10px; height: 10px;
+  background: var(--status-success);
+  border-radius: 50%;
+  margin-left: 8px;
+  vertical-align: middle;
+  box-shadow: 0 0 12px var(--status-success);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.dash-stats {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 12px;
+  margin: 32px 0 40px;
+}
+
+.dash-stat {
+  background: var(--noir-elevated);
+  border: 1px solid var(--noir-stroke);
+  border-radius: var(--radius-lg);
+  padding: 20px 16px;
+  text-align: center;
+  transition: all 0.3s var(--ease-hassel);
+}
+
+.dash-stat:hover {
+  transform: translateY(-4px);
+  border-color: var(--hassel-orange-aurora);
+  box-shadow: var(--shadow-mid);
+}
+
+.dash-stat.highlight {
+  background: linear-gradient(135deg, rgba(212, 165, 116, 0.15) 0%, rgba(184, 137, 90, 0.05) 100%);
+  border-color: var(--hassel-orange-aurora);
+  box-shadow: 0 0 0 1px var(--hassel-orange-aurora);
+}
+
+.dash-stat-icon { font-size: 22px; margin-bottom: 8px; }
+.dash-stat-num {
+  font-family: 'Noto Serif SC', serif;
+  font-size: 28px; font-weight: 700;
+  color: var(--hassel-orange);
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+.dash-stat.highlight .dash-stat-num {
+  background: linear-gradient(135deg, var(--hassel-orange), var(--hassel-orange-glow));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.dash-stat-label {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-top: 6px;
+  font-weight: 600;
+}
+
+.dash-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+.dash-card {
+  background: var(--noir-elevated);
+  border: 1px solid var(--noir-stroke);
+  border-radius: var(--radius-xl);
+  padding: 28px;
+}
+
+.dash-card-title {
+  font-size: 11px;
+  color: var(--hassel-orange);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 700;
+  margin-bottom: 20px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Module Bars */
+.module-bars { display: flex; flex-direction: column; gap: 10px; }
+.module-bar { display: flex; align-items: center; gap: 12px; }
+.mb-name {
+  font-size: 12px; font-weight: 600;
+  color: var(--text-secondary);
+  width: 80px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.mb-track {
+  flex: 1; height: 8px;
+  background: var(--noir-card);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.mb-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--hassel-orange), var(--hassel-orange-glow));
+  border-radius: 4px;
+  transition: width 1s var(--ease-hassel);
+}
+.mb-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px; font-weight: 700;
+  color: var(--hassel-orange);
+  width: 32px;
+  text-align: right;
+}
+
+/* Commit List */
+.commit-list { display: flex; flex-direction: column; gap: 8px; }
+.commit-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--noir-stroke);
+  border-radius: var(--radius-md);
+  transition: all 0.3s var(--ease-hassel);
+}
+.commit-item:hover {
+  background: var(--glass-soft);
+  border-color: var(--hassel-orange-aurora);
+  transform: translateX(4px);
+}
+.commit-hash {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; font-weight: 700;
+  color: var(--hassel-orange);
+  background: var(--hassel-orange-aurora);
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+.commit-msg {
+  flex: 1; font-size: 12px;
+  color: var(--text-secondary);
+}
+.commit-badge {
+  font-size: 8px; font-weight: 800;
+  color: var(--noir-void);
+  background: var(--status-success);
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.1em;
+}
+
+/* Tech Stack Tags */
+.tech-stack { display: flex; flex-wrap: wrap; gap: 8px; }
+.tech-tag {
+  padding: 6px 12px;
+  background: var(--glass-soft);
+  border: 1px solid var(--noir-stroke);
+  border-radius: var(--radius-full);
+  font-size: 11px; font-weight: 600;
+  color: var(--text-secondary);
+  font-family: 'JetBrains Mono', monospace;
+  transition: all 0.3s var(--ease-hassel);
+}
+.tech-tag:hover {
+  background: var(--hassel-orange-aurora);
+  color: var(--hassel-orange);
+  border-color: var(--hassel-orange-aurora);
+}
+
+/* Module Map */
+.module-map { display: flex; flex-direction: column; gap: 12px; }
+.map-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--noir-stroke);
+  border-radius: var(--radius-md);
+}
+.map-module {
+  font-size: 12px; font-weight: 700;
+  color: var(--text-primary);
+  width: 130px;
+  flex-shrink: 0;
+}
+.map-arrow {
+  color: var(--hassel-orange);
+  font-size: 16px; font-weight: 700;
+  flex-shrink: 0;
+}
+.map-screens { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; }
+.map-screen {
+  font-size: 10px; font-weight: 600;
+  padding: 4px 8px;
+  background: var(--noir-card);
+  border: 1px solid var(--noir-stroke);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-family: 'JetBrains Mono', monospace;
+}
+.map-screen.highlight {
+  background: var(--hassel-orange-aurora);
+  color: var(--hassel-orange);
+  border-color: var(--hassel-orange-aurora);
+}
+
+@media (max-width: 1100px) {
+  .dash-stats { grid-template-columns: repeat(3, 1fr); }
+  .dash-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 720px) {
+  .dashboard-section { padding: 32px 20px; }
+  .dash-stats { grid-template-columns: repeat(2, 1fr); }
+  .dash-card { padding: 20px; }
+  .map-module { width: 100px; font-size: 11px; }
+}
+
+/* ============================================================
    Navigation Architecture · 2 级扁平化
    ============================================================ */
 .nav-arch-section {
