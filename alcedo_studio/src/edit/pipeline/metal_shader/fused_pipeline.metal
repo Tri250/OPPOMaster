@@ -676,9 +676,9 @@ kernel void metal_hs_apply_adjusted_l_rgba32f(texture2d<float, access::read> src
 }
 
 kernel void metal_hs_apply_adjusted_l_from_frame_rgba32f(
-    texture2d<float, access::read> src [[texture(0)]], device const float* adjusted_l [[buffer(0)]],
-    texture2d<float, access::write>   dst [[texture(1)]],
-    constant MetalHsPlaneApplyParams& params [[buffer(1)]], uint2 gid [[thread_position_in_grid]]) {
+    texture2d<float, access::read> src [[texture(0)]], device const float* reference_l [[buffer(0)]],
+    device const float* adjusted_l [[buffer(1)]], texture2d<float, access::write> dst [[texture(1)]],
+    constant MetalHsPlaneApplyParams& params [[buffer(2)]], uint2 gid [[thread_position_in_grid]]) {
   if (gid.x >= static_cast<uint>(params.width_) || gid.y >= static_cast<uint>(params.height_)) {
     return;
   }
@@ -691,7 +691,67 @@ kernel void metal_hs_apply_adjusted_l_from_frame_rgba32f(
       ((static_cast<float>(gid.y) + 0.5f) * static_cast<float>(params.adjusted_height_) /
        fmax(static_cast<float>(params.height_), 1.0f)) -
       0.5f;
-  const float sampled_l = metal_hs_read_plane_bilinear(
-      adjusted_l, params.adjusted_width_, params.adjusted_height_, adjusted_x, adjusted_y);
-  dst.write(metal_hs_apply_adjusted_l_pixel(src.read(gid), sampled_l), gid);
+  const float sampled_reference =
+      metal_hs_read_plane_bilinear(reference_l, params.adjusted_width_, params.adjusted_height_,
+                                   adjusted_x, adjusted_y);
+  const float sampled_adjusted =
+      metal_hs_read_plane_bilinear(adjusted_l, params.adjusted_width_, params.adjusted_height_,
+                                   adjusted_x, adjusted_y);
+  dst.write(metal_hs_apply_adjusted_l_delta_pixel(src.read(gid), sampled_reference,
+                                                  sampled_adjusted),
+            gid);
+}
+
+kernel void metal_hs_apply_adjusted_l_from_reference_rgba32f(
+    texture2d<float, access::read> src [[texture(0)]], device const float* reference_l [[buffer(0)]],
+    device const float* adjusted_l [[buffer(1)]], texture2d<float, access::write> dst [[texture(1)]],
+    constant MetalFusedParams& fused_params [[buffer(2)]],
+    constant MetalHsPlaneApplyParams& params [[buffer(3)]], uint2 gid [[thread_position_in_grid]]) {
+  if (gid.x >= static_cast<uint>(params.width_) || gid.y >= static_cast<uint>(params.height_)) {
+    return;
+  }
+
+  const float reference_width =
+      static_cast<float>(max(fused_params.render_roi_reference_width_, params.width_));
+  const float reference_height =
+      static_cast<float>(max(fused_params.render_roi_reference_height_, params.height_));
+  const float roi_origin_x =
+      (fused_params.render_roi_enabled_ != 0u) ? static_cast<float>(fused_params.render_roi_x_)
+                                               : 0.0f;
+  const float roi_origin_y =
+      (fused_params.render_roi_enabled_ != 0u) ? static_cast<float>(fused_params.render_roi_y_)
+                                               : 0.0f;
+  const float roi_width = (fused_params.render_roi_enabled_ != 0u)
+                              ? fmax(fused_params.render_roi_scale_x_ * reference_width, 1.0f)
+                              : reference_width;
+  const float roi_height = (fused_params.render_roi_enabled_ != 0u)
+                               ? fmax(fused_params.render_roi_scale_y_ * reference_height, 1.0f)
+                               : reference_height;
+  const float reference_x =
+      roi_origin_x +
+      ((static_cast<float>(gid.x) + 0.5f) * roi_width / fmax(static_cast<float>(params.width_), 1.0f)) -
+      0.5f;
+  const float reference_y =
+      roi_origin_y +
+      ((static_cast<float>(gid.y) + 0.5f) * roi_height /
+       fmax(static_cast<float>(params.height_), 1.0f)) -
+      0.5f;
+  const float adjusted_x =
+      ((reference_x + 0.5f) * static_cast<float>(params.adjusted_width_) /
+       fmax(reference_width, 1.0f)) -
+      0.5f;
+  const float adjusted_y =
+      ((reference_y + 0.5f) * static_cast<float>(params.adjusted_height_) /
+       fmax(reference_height, 1.0f)) -
+      0.5f;
+
+  const float sampled_reference =
+      metal_hs_read_plane_bilinear(reference_l, params.adjusted_width_, params.adjusted_height_,
+                                   adjusted_x, adjusted_y);
+  const float sampled_adjusted =
+      metal_hs_read_plane_bilinear(adjusted_l, params.adjusted_width_, params.adjusted_height_,
+                                   adjusted_x, adjusted_y);
+  dst.write(metal_hs_apply_adjusted_l_delta_pixel(src.read(gid), sampled_reference,
+                                                  sampled_adjusted),
+            gid);
 }

@@ -284,6 +284,12 @@ static inline float4 metal_hs_apply_adjusted_l_pixel(float4 px, float adjusted_l
   return float4(metal_hls_ap1_to_acescc(output_ap1), px.w);
 }
 
+static inline float4 metal_hs_apply_adjusted_l_delta_pixel(float4 px, float reference_l,
+                                                           float adjusted_l) {
+  const float source_l = metal_hs_log_intensity_from_acescc(px);
+  return metal_hs_apply_adjusted_l_pixel(px, source_l + (adjusted_l - reference_l));
+}
+
 static inline float metal_hs_shadow_upper_pivot(constant MetalFusedParams& params) {
   const float width = fmax(params.hs_shadow_log_width_, 0.35f);
   return params.hs_shadow_log_pivot_ + fmax(width * 0.40f, 0.24f);
