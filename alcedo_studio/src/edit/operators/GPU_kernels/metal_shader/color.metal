@@ -284,6 +284,12 @@ static inline float4 metal_hs_apply_adjusted_l_pixel(float4 px, float adjusted_l
   return float4(metal_hls_ap1_to_acescc(output_ap1), px.w);
 }
 
+static inline float4 metal_hs_apply_adjusted_l_delta_pixel(float4 px, float reference_l,
+                                                           float adjusted_l) {
+  const float source_l = metal_hs_log_intensity_from_acescc(px);
+  return metal_hs_apply_adjusted_l_pixel(px, source_l + (adjusted_l - reference_l));
+}
+
 static inline float metal_hs_shadow_upper_pivot(constant MetalFusedParams& params) {
   const float width = fmax(params.hs_shadow_log_width_, 0.35f);
   return params.hs_shadow_log_pivot_ + fmax(width * 0.40f, 0.24f);
@@ -723,10 +729,14 @@ static inline float3 metal_hs_dampen_shadow_chroma(
 
 static inline float4 GPU_HighlightShadowLocalToneOpKernel(float4 px, float base,
                                                           constant MetalFusedParams& params) {
+  constexpr float kBackendAmountLimit = 1.5f;
   const float shadow_amount =
-      (params.shadows_enabled_ != 0u) ? clamp(params.shadows_offset_, -1.0f, 1.0f) : 0.0f;
+      (params.shadows_enabled_ != 0u)
+          ? clamp(params.shadows_offset_, -kBackendAmountLimit, kBackendAmountLimit)
+          : 0.0f;
   const float highlight_amount = (params.highlights_enabled_ != 0u)
-                                     ? clamp(-params.highlights_offset_, -1.0f, 1.0f)
+                                     ? clamp(-params.highlights_offset_, -kBackendAmountLimit,
+                                             kBackendAmountLimit)
                                      : 0.0f;
   if (fabs(shadow_amount) <= 1.0e-6f && fabs(highlight_amount) <= 1.0e-6f) {
     return px;

@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "edit/pipeline/pipeline_accelerator.hpp"
+#include "ui/alcedo_main/album_backend/adjustment_transfer_controller.hpp"
 #include "ui/alcedo_main/album_backend/album_thumbnail_model.hpp"
 #include "ui/alcedo_main/album_backend/album_types.hpp"
 #include "ui/alcedo_main/album_backend/editor_controller.hpp"
@@ -36,6 +37,7 @@ class AlbumBackend final : public QObject {
   Q_OBJECT
   Q_PROPERTY(QVariantList thumbnails READ Thumbnails NOTIFY ThumbnailsChanged)
   Q_PROPERTY(QObject* thumbnailModel READ ThumbnailModel CONSTANT)
+  Q_PROPERTY(QObject* adjustmentTransferController READ AdjustmentTransferControllerObject CONSTANT)
   Q_PROPERTY(QVariantList folders READ Folders NOTIFY FoldersChanged)
   Q_PROPERTY(uint currentFolderId READ CurrentFolderId NOTIFY FolderSelectionChanged)
   Q_PROPERTY(QString currentFolderPath READ CurrentFolderPath NOTIFY FolderSelectionChanged)
@@ -126,6 +128,7 @@ class AlbumBackend final : public QObject {
   // ── Q_PROPERTY getters ──────────────────────────────────────────────
   QVariantList Thumbnails() const;
   QObject*     ThumbnailModel() { return &thumbnail_model_; }
+  QObject*     AdjustmentTransferControllerObject() { return &adjustment_transfer_; }
   QVariantList Folders() const { return folder_ctrl_.folders(); }
   uint CurrentFolderId() const { return static_cast<uint>(folder_ctrl_.current_folder_id()); }
   const QString& CurrentFolderPath() const { return folder_ctrl_.current_folder_path_text(); }
@@ -316,6 +319,7 @@ class AlbumBackend final : public QObject {
   friend class ImportExportHandler;
   friend class NikonHeRecoveryController;
   friend class EditorController;
+  friend class AdjustmentTransferController;
 
   void SetServiceState(bool ready, const i18n::LocalizedText& message);
   void SetServiceMessageForCurrentProject(const i18n::LocalizedText& message);
@@ -354,6 +358,7 @@ class AlbumBackend final : public QObject {
   ImportExportHandler          import_export_;
   NikonHeRecoveryController    nikon_he_recovery_;
   EditorController             editor_;
+  AdjustmentTransferController adjustment_transfer_;
   AlbumThumbnailModel          thumbnail_model_{};
 
   // ── Shared data (accessed by helpers via friend) ────────────────────

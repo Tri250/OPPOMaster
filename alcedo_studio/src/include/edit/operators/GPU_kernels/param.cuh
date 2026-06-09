@@ -348,6 +348,10 @@ struct GPUOperatorParams {
   float                hs_highlight_log_width_ = 1.15f;
   std::uint64_t        hs_mask_base_cache_key_ = 0;
   std::uint64_t        render_source_cache_key_ = 0;
+  int                  render_frame_role_ = OperatorParams::kRenderFrameRoleInteractivePrimary;
+  bool                 render_hs_can_seed_reference_ = false;
+  int                  render_hs_reference_max_long_edge_ = 2048;
+  bool                 render_hs_preserve_source_detail_ = false;
   bool                 render_roi_enabled_ = false;
   int                  render_roi_x_ = 0;
   int                  render_roi_y_ = 0;
@@ -548,6 +552,12 @@ class CudaFusedParamUploader {
     gpu_params.hs_highlight_log_width_ = fused_params.hs_highlight_log_width_;
     gpu_params.hs_mask_base_cache_key_ = fused_params.hs_mask_base_cache_key_;
     gpu_params.render_source_cache_key_ = fused_params.render_source_cache_key_;
+    gpu_params.render_frame_role_ = fused_params.render_frame_role_;
+    gpu_params.render_hs_can_seed_reference_ = fused_params.render_hs_can_seed_reference_;
+    gpu_params.render_hs_reference_max_long_edge_ =
+        fused_params.render_hs_reference_max_long_edge_;
+    gpu_params.render_hs_preserve_source_detail_ =
+        fused_params.render_hs_preserve_source_detail_;
     gpu_params.render_roi_enabled_ = fused_params.render_roi_enabled_;
     gpu_params.render_roi_x_ = fused_params.render_roi_x_;
     gpu_params.render_roi_y_ = fused_params.render_roi_y_;

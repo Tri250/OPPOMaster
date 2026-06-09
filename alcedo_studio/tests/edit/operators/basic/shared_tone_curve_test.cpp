@@ -117,6 +117,19 @@ TEST(SharedToneCurveTest, ShadowAndHighlightControlsReachUpperMidtones) {
   EXPECT_TRUE(highlight_params.shared_tone_curve_apply_in_highlights_);
 }
 
+TEST(SharedToneCurveTest, ShadowSliderContinuesPastEighty) {
+  ShadowsOp shadow_eighty(80.0f);
+  ShadowsOp shadow_hundred(100.0f);
+  OperatorParams eighty_params;
+  OperatorParams hundred_params;
+
+  shadow_eighty.SetGlobalParams(eighty_params);
+  shadow_hundred.SetGlobalParams(hundred_params);
+
+  EXPECT_GT(hundred_params.shadows_offset_, eighty_params.shadows_offset_);
+  EXPECT_GT(hundred_params.shadows_m0_, eighty_params.shadows_m0_);
+}
+
 TEST(SharedToneCurveTest, SharedCurvePreservesShadowChromaBaseline) {
   ShadowsOp    shadows(70.0f);
   HighlightsOp highlights(65.0f);

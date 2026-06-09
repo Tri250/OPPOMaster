@@ -633,7 +633,6 @@ void CPUPipelineExecutor::ClearAllIntermediateBuffers() {
   for (auto& stage : exec_stages_) {
     stage->ResetRuntimeResources(PipelineStage::RuntimeResetMode::ClearIntermediateBuffers);
   }
-  ReleaseAllGPUResources();
 
   if (merged_stages_) {
     merged_stages_->ResetRuntimeResources(PipelineStage::RuntimeResetMode::ClearIntermediateBuffers);

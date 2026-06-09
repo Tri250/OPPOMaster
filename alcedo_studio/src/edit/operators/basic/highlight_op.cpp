@@ -133,7 +133,7 @@ void HighlightsOp::SetParams(const nlohmann::json& params) {
 void HighlightsOp::SetGlobalParams(OperatorParams& params) const {
   params.highlights_operator_present_ = true;
   params.highlights_slider_value_     = offset_;
-  params.highlights_offset_ = offset_ / 50.0f;
+  params.highlights_offset_ = (offset_ * kHighlightsAdjustmentStrengthScale) / 100.0f;
   params.highlights_m1_     = curve_.m1_;
   UpdateSharedToneCurvePayload(params);
   UpdateHsLocalTonePayload(params);

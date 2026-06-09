@@ -234,7 +234,8 @@ AlbumBackend::AlbumBackend(QObject* parent)
       search_(*this),
       import_export_(*this),
       nikon_he_recovery_(*this),
-      editor_(*this) {
+      editor_(*this),
+      adjustment_transfer_(*this) {
   LoadRecentProjectsFromSettings();
   LoadThumbnailDiskCacheSettings();
   QObject::connect(&i18n::TranslationNotifier::Instance(),

@@ -498,6 +498,22 @@ if(WIN32)
   target_link_libraries(PipelineServiceTest)
 endif()
 
+add_executable(AdjustmentTransferServiceTest app/adjustment_transfer_service_test.cpp)
+target_include_directories(AdjustmentTransferServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(AdjustmentTransferServiceTest
+  AdjustmentTransferService
+  ProjectService
+  PipelineMgmtService
+  EditHistoryMgmtService
+  GTest::gtest_main
+)
+gtest_discover_tests(AdjustmentTransferServiceTest TEST_PREFIX "AdjustmentTransferServiceTest."
+  PROPERTIES LABELS "ci_core_flow")
+
+if(WIN32)
+  target_link_libraries(AdjustmentTransferServiceTest)
+endif()
+
 add_executable(EditHistoryMgmtServiceTest app/history_mgmt_service_test.cpp)
 target_include_directories(EditHistoryMgmtServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
 target_link_libraries(EditHistoryMgmtServiceTest ProjectService EditHistoryMgmtService GTest::gtest_main)
