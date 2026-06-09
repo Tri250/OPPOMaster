@@ -553,11 +553,13 @@ if(ALCEDO_CUDA_ENABLED)
 endif()
 if(ALCEDO_METAL_ENABLED)
     list(APPEND OPERATORS_SRCS
+        edit/operators/basic/highlight_shadow_local_tone_metal.cpp
         edit/operators/geometry/metal_lens_calib.cpp
     )
 endif()
 if(ALCEDO_OPENCL_ENABLED)
     list(APPEND OPERATORS_SRCS
+        edit/operators/basic/highlight_shadow_local_tone_opencl.cpp
         edit/operators/geometry/opencl_lens_calib_ops.cpp
     )
 endif()
@@ -571,10 +573,11 @@ if(ALCEDO_CUDA_ENABLED)
     set_target_properties(Operators PROPERTIES CUDA_RESOLVE_DEVICE_SYMBOLS ON)
 endif()
 if(ALCEDO_METAL_ENABLED)
-    add_dependencies(Operators LensCalibOpMetalShaders)
-    target_link_libraries(Operators PRIVATE MetalGeometryUtils)
+    add_dependencies(Operators LensCalibOpMetalShaders EditPipelineMetalShaders)
+    target_link_libraries(Operators PRIVATE MetalGeometryUtils MetalImage MetalContext)
     target_compile_definitions(Operators PRIVATE
         ALCEDO_METAL_LENS_CALIB_METALLIB_PATH="${METAL_LENS_CALIB_METALLIB}"
+        ALCEDO_METAL_FUSED_PIPELINE_METALLIB_PATH="${METAL_FUSED_PIPELINE_METALLIB}"
     )
 endif()
 if(ALCEDO_OPENCL_ENABLED)
@@ -612,6 +615,10 @@ set(PIPELINE_SRCS
     edit/pipeline/pipeline_cpu.cpp
     edit/pipeline/pipeline_stage.cpp
     edit/pipeline/pipeline_gpu_wrapper.cpp
+    include/edit/pipeline/highlight_shadow_local_tone.hpp
+    include/edit/pipeline/metal_kernel_dispatch.hpp
+    include/edit/pipeline/metal_pipeline_stats.hpp
+    include/edit/pipeline/opencl_kernel_dispatch.hpp
     edit/scope/scope_analyzer.cpp
     edit/scope/final_display_frame_tap.cpp
 )
