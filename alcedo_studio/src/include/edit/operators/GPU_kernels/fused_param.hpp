@@ -217,7 +217,7 @@ struct FusedOperatorParams {
   std::uint64_t render_source_cache_key_ = 0;
   int   render_frame_role_ = OperatorParams::kRenderFrameRoleInteractivePrimary;
   bool  render_hs_can_seed_reference_ = false;
-  int   render_hs_reference_max_long_edge_ = 4096;
+  int   render_hs_reference_max_long_edge_ = 2048;
   bool  render_hs_preserve_source_detail_ = false;
   bool  render_roi_enabled_ = false;
   int   render_roi_x_ = 0;

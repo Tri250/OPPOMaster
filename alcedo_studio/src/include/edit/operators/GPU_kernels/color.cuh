@@ -709,7 +709,7 @@ struct GPU_HighlightShadowLocalToneStage {
   static constexpr float kGammaMaxL   = 1.18f;
   static constexpr float kBaseSigmaR  = 0.07545252f;
   static constexpr float kGammaStepScale = 1.35f;
-  static constexpr size_t kMaxRetainedMaskBytes = 256ULL * 1024ULL * 1024ULL;
+  static constexpr int   kReferenceMaskMaxLongEdge = 2048;
 
   struct HsLlfSample {
     float gamma  = 0.0f;
@@ -943,15 +943,6 @@ struct GPU_HighlightShadowLocalToneStage {
     cached_reference_base_ = false;
   }
 
-  [[nodiscard]] auto AllocatedPyramidBytes() const -> size_t {
-    size_t bytes = 0;
-    for (int level = 0; level < level_count_; ++level) {
-      bytes += static_cast<size_t>(level_widths_[level]) *
-               static_cast<size_t>(level_heights_[level]) * sizeof(float) * 4ULL;
-    }
-    return bytes;
-  }
-
   void EnsurePyramidBuffers(int width, int height, float radius) {
     const int new_level_count = ComputeLevelCount(width, height, radius);
     std::array<int, kMaxLevels> new_widths = {};
@@ -1086,10 +1077,7 @@ struct GPU_HighlightShadowLocalToneStage {
     }
 
     const float shadow_amount =
-        params.shadows_enabled_
-            ? fminf(fmaxf(params.shadows_offset_, -kHsBackendAmountLimit),
-                    kHsBackendAmountLimit)
-            : 0.0f;
+        params.shadows_enabled_ ? params.shadows_offset_ : 0.0f;
     const float highlight_amount = params.highlights_enabled_
                                        ? fminf(fmaxf(-params.highlights_offset_,
                                                     -kHsBackendAmountLimit),
@@ -1107,11 +1095,9 @@ struct GPU_HighlightShadowLocalToneStage {
         params.render_roi_reference_height_ > 0;
     const bool preserve_source_detail = params.render_hs_preserve_source_detail_;
     const int reference_max_long_edge =
-        max(1, params.render_hs_reference_max_long_edge_);
+        max(1, min(params.render_hs_reference_max_long_edge_, kReferenceMaskMaxLongEdge));
     const MaskDimensions current_reference_dims =
-        ComputeMaskDimensions(width, height,
-                              roi_frame_with_source_reference ? max(width, height)
-                                                              : reference_max_long_edge);
+        ComputeMaskDimensions(width, height, reference_max_long_edge);
     const std::uint64_t reference_source_cache_key = params.hs_mask_base_cache_key_;
     std::uint64_t reference_cache_key = adjusted_cache_key;
     HashCombine(reference_cache_key, static_cast<std::uint64_t>(preserve_source_detail));
@@ -1184,7 +1170,6 @@ struct GPU_HighlightShadowLocalToneStage {
       cached_reference_base_ = seed_canonical_reference;
     }
 
-    const bool release_after_dispatch = AllocatedPyramidBytes() > kMaxRetainedMaskBytes;
     if (cached_width_ == width && cached_height_ == height) {
       HsApplyAdjustedLKernel<<<grid, block, 0, stream>>>(src, output_levels_[0], dst, width, height,
                                                          pitch_elems);
@@ -1193,10 +1178,6 @@ struct GPU_HighlightShadowLocalToneStage {
           src, source_levels_[0], output_levels_[0], dst, width, height, pitch_elems,
           cached_width_, cached_height_,
           cached_pitch_);
-    }
-    if (release_after_dispatch) {
-      cudaStreamSynchronize(stream);
-      ReleaseResources();
     }
   }
 };

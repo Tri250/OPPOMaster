@@ -231,7 +231,7 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
   static constexpr float                 kHsGammaMaxL = 1.18f;
   static constexpr float                 kHsBaseSigmaR = 0.07545252f;
   static constexpr float                 kHsGammaStepScale = 1.35f;
-  static constexpr size_t                kHsMaxRetainedMaskBytes = 256ULL * 1024ULL * 1024ULL;
+  static constexpr int                   kHsReferenceMaskMaxLongEdge = 2048;
 
   struct HsLlfSample {
     float gamma = 0.0f;
@@ -425,15 +425,6 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
       ++count;
     }
     return count;
-  }
-
-  [[nodiscard]] auto AllocatedHsPyramidBytes() const -> size_t {
-    size_t bytes = 0;
-    for (int level = 0; level < hs_level_count_; ++level) {
-      bytes += static_cast<size_t>(hs_level_widths_[level]) *
-               static_cast<size_t>(hs_level_heights_[level]) * sizeof(float) * 4ULL;
-    }
-    return bytes;
   }
 
   static auto HsLerp(float a, float b, float t) -> float { return a + (b - a) * t; }
@@ -1126,10 +1117,7 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
       return false;
     }
     const float shadow_amount =
-        fused_params_.shadows_enabled_
-            ? std::clamp(fused_params_.shadows_offset_, -kHsBackendAmountLimit,
-                         kHsBackendAmountLimit)
-                                       : 0.0f;
+        fused_params_.shadows_enabled_ ? fused_params_.shadows_offset_ : 0.0f;
     const float highlight_amount =
         fused_params_.highlights_enabled_
             ? std::clamp(-fused_params_.highlights_offset_, -kHsBackendAmountLimit,
@@ -1352,10 +1340,7 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
 
   void EnqueueHighlightShadowLocalTone(const opencl::OpenClImage& src, opencl::OpenClImage& dst) {
     const float shadow_amount =
-        fused_params_.shadows_enabled_
-            ? std::clamp(fused_params_.shadows_offset_, -kHsBackendAmountLimit,
-                         kHsBackendAmountLimit)
-                                       : 0.0f;
+        fused_params_.shadows_enabled_ ? fused_params_.shadows_offset_ : 0.0f;
     const float highlight_amount =
         fused_params_.highlights_enabled_
             ? std::clamp(-fused_params_.highlights_offset_, -kHsBackendAmountLimit,
@@ -1369,12 +1354,10 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
                                                  fused_params_.render_roi_reference_height_ > 0;
     const bool preserve_source_detail = fused_params_.render_hs_preserve_source_detail_;
     const int reference_max_long_edge =
-        std::max(1, fused_params_.render_hs_reference_max_long_edge_);
+        std::max(1, std::min(fused_params_.render_hs_reference_max_long_edge_,
+                             kHsReferenceMaskMaxLongEdge));
     const HsMaskDimensions current_reference_dims =
-        ComputeHsMaskDimensions(src.Width(), src.Height(),
-                                roi_frame_with_source_reference
-                                    ? std::max(src.Width(), src.Height())
-                                    : reference_max_long_edge);
+        ComputeHsMaskDimensions(src.Width(), src.Height(), reference_max_long_edge);
     const std::uint64_t reference_source_cache_key = fused_params_.hs_mask_base_cache_key_;
     std::uint64_t reference_cache_key = adjusted_cache_key;
     HashCombine(reference_cache_key, static_cast<std::uint64_t>(preserve_source_detail));
@@ -1441,15 +1424,10 @@ class OpenCLGPUPipeline final : public GPUPipelineImpl {
       hs_cached_reference_base_ = seed_canonical_reference;
     }
 
-    const bool release_after_dispatch = AllocatedHsPyramidBytes() > kHsMaxRetainedMaskBytes;
     if (hs_cached_width_ == src.Width() && hs_cached_height_ == src.Height()) {
       EnqueueHsApplyAdjustedL(src, dst);
     } else {
       EnqueueHsApplyAdjustedLFromFrame(src, dst);
-    }
-    if (release_after_dispatch) {
-      clFinish(OpenClContext::Instance().Queue());
-      ReleaseHsBaseBuffers();
     }
   }
 

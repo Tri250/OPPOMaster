@@ -518,10 +518,9 @@ class MetalGPUPipeline final : public GPUPipelineImpl {
     return key;
   }
 
-  static auto ComputeHsMaskDimensions(int width, int height, bool roi_frame_with_source_reference)
+  static auto ComputeHsMaskDimensions(int width, int height)
       -> MetalHsMaskDimensions {
-    const int max_long_edge =
-        roi_frame_with_source_reference ? std::max(width, height) : kHsReferenceMaskMaxLongEdge;
+    const int max_long_edge = kHsReferenceMaskMaxLongEdge;
     const float scale = std::min(1.0f, static_cast<float>(std::max(1, max_long_edge)) /
                                            static_cast<float>(std::max(width, height)));
     return {std::max(1, static_cast<int>(std::ceil(static_cast<float>(width) * scale))),
@@ -1084,11 +1083,8 @@ class MetalGPUPipeline final : public GPUPipelineImpl {
     if (!fused_params_.hs_local_tone_enabled_) {
       return false;
     }
-    const float shadow_amount    = fused_params_.shadows_enabled_
-                                       ? std::clamp(fused_params_.shadows_offset_,
-                                                    -kHsBackendAmountLimit,
-                                                    kHsBackendAmountLimit)
-                                       : 0.0f;
+    const float shadow_amount =
+        fused_params_.shadows_enabled_ ? fused_params_.shadows_offset_ : 0.0f;
     const float highlight_amount = fused_params_.highlights_enabled_
                                        ? std::clamp(-fused_params_.highlights_offset_,
                                                     -kHsBackendAmountLimit,
@@ -1100,11 +1096,8 @@ class MetalGPUPipeline final : public GPUPipelineImpl {
   void EncodeHighlightShadowLocalTone(MTL::CommandBuffer*      command_buffer,
                                       const metal::MetalImage& src, metal::MetalImage& dst,
                                       MetalExecutionStats* stats) {
-    const float         shadow_amount    = fused_params_.shadows_enabled_
-                                               ? std::clamp(fused_params_.shadows_offset_,
-                                                            -kHsBackendAmountLimit,
-                                                            kHsBackendAmountLimit)
-                                               : 0.0f;
+    const float shadow_amount =
+        fused_params_.shadows_enabled_ ? fused_params_.shadows_offset_ : 0.0f;
     const float         highlight_amount = fused_params_.highlights_enabled_
                                                ? std::clamp(-fused_params_.highlights_offset_,
                                                             -kHsBackendAmountLimit,
@@ -1133,8 +1126,7 @@ class MetalGPUPipeline final : public GPUPipelineImpl {
     }
 
     const MetalHsMaskDimensions mask_dims = ComputeHsMaskDimensions(
-        static_cast<int32_t>(src.Width()), static_cast<int32_t>(src.Height()),
-        roi_frame_with_source_reference);
+        static_cast<int32_t>(src.Width()), static_cast<int32_t>(src.Height()));
     EnsureHsPyramidBuffers(mask_dims.width_, mask_dims.height_, fused_params_.hs_base_radius_);
     const bool cache_valid =
         hs_output_levels_[0].get() != nullptr && hs_cached_key_ == adjusted_cache_key &&

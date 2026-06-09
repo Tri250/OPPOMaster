@@ -23,6 +23,7 @@ constexpr float kRotationPreviewEpsilon = 1e-4f;
 constexpr float kFullFrameRegionEpsilon = 1e-4f;
 constexpr int   kFastPreviewMaxLongEdge = 2560;
 constexpr int   kQualityBasePreviewMaxLongEdge = 4096;
+constexpr int   kHsReferenceMaskMaxLongEdge = 2048;
 constexpr int   kFullResPreviewMaxLongEdge = 8192;
 
 auto HasActiveGeometryRotation(const std::shared_ptr<CPUPipelineExecutor>& pipeline_executor)
@@ -199,7 +200,7 @@ void PipelineTask::SetExecutorRenderParams() {
   pipeline_executor_->GetGlobalParams().render_hs_preserve_source_detail_ = false;
   pipeline_executor_->GetGlobalParams().render_hs_can_seed_reference_ = false;
   pipeline_executor_->GetGlobalParams().render_hs_reference_max_long_edge_ =
-      kQualityBasePreviewMaxLongEdge;
+      kHsReferenceMaskMaxLongEdge;
   auto& desc = options_.render_desc_;
   const auto requested_render_type = desc.render_type_;
 
