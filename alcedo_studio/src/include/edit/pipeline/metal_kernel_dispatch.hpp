@@ -18,8 +18,7 @@ namespace alcedo::metal_detail {
 
 class MetalKernelHandle {
  public:
-  constexpr MetalKernelHandle(const char* metallib_path, const char* kernel_name,
-                              const char* debug_label)
+  MetalKernelHandle(const char* metallib_path, const char* kernel_name, const char* debug_label)
       : metallib_path_(metallib_path), kernel_name_(kernel_name), debug_label_(debug_label) {}
 
   MetalKernelHandle(const MetalKernelHandle&)                    = delete;

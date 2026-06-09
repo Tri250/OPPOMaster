@@ -6,7 +6,6 @@
 
 #ifdef HAVE_METAL
 
-#include <alcedo/metal/Metal.hpp>
 #include <array>
 #include <cstdint>
 #include <vector>
