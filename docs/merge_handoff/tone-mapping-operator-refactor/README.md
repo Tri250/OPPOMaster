@@ -243,6 +243,22 @@ Acceptance:
   construction.
 - Existing shared tone curve tests remain green.
 
+Implementation status:
+
+- Added `alcedo_studio/src/include/edit/pipeline/local_tone_mapping.hpp` as the shared
+  backend-agnostic tone-mapping contract. The previous
+  `highlight_shadow_local_tone.hpp` remains as a compatibility include for the existing
+  OpenCL/Metal stage namespace.
+- Centralized host-side constants, reference curve, sample generation, sigma, mask dimensions,
+  level-count logic, and adjusted/ROI cache-key construction in the shared contract.
+- Updated the CUDA local-tone stage to reuse the shared contract for constants, host-side cache
+  keys, dimensions, sigma, level count, and LLF sample payload generation.
+- Added explicit OpenCL and Metal mirrored constant blocks in `tone_mapping.cl` and
+  `tone_mapping.metal`; these are now guarded by tests so backend drift is easier to catch.
+- Added `LocalToneMappingContractTest` for sample generation, reference curve tone direction,
+  detail alpha/beta bounds, cache-key participation, compatibility exports, and shader constant
+  mirror checks.
+
 ### Phase 3 - ToneMappingOp Facade
 
 Goal: introduce the new operator boundary without breaking UI or project files.

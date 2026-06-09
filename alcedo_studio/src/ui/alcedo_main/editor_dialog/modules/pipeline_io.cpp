@@ -164,6 +164,18 @@ auto ReadCurvePoints(const PipelineStage& stage, OperatorType type)
   return curve::ParseCurveControlPointsFromParams(j["params"]);
 }
 
+auto ResolveHighlightsSliderValue(std::optional<float>  serialized_value,
+                                  std::optional<bool>   enabled_value,
+                                  const OperatorParams& global_params) -> std::optional<float> {
+  if (serialized_value.has_value()) {
+    return serialized_value.value();
+  }
+  if (enabled_value.has_value() && enabled_value.value()) {
+    return global_params.highlights_offset_ * kHighlightsSliderFromGlobalScale;
+  }
+  return std::nullopt;
+}
+
 // =========================================================================
 // ReadCurrentOperatorParams
 // =========================================================================
@@ -825,13 +837,11 @@ auto LoadStateFromPipeline(CPUPipelineExecutor& exec, const AdjustmentState& bas
   }
 
   const auto highlights_enabled = IsOperatorEnabled(basic, OperatorType::HIGHLIGHTS);
-  if (highlights_enabled.has_value() && highlights_enabled.value()) {
-    loaded_state.highlights_ =
-        exec.GetGlobalParams().highlights_offset_ * kHighlightsSliderFromGlobalScale;
-    has_loaded_any = true;
-  } else if (const auto v = ReadFloat(basic, OperatorType::HIGHLIGHTS, "highlights");
-             v.has_value()) {
-    loaded_state.highlights_ = v.value();
+  if (const auto highlight_value =
+          ResolveHighlightsSliderValue(ReadFloat(basic, OperatorType::HIGHLIGHTS, "highlights"),
+                                       highlights_enabled, exec.GetGlobalParams());
+      highlight_value.has_value()) {
+    loaded_state.highlights_ = highlight_value.value();
     has_loaded_any           = true;
   }
 

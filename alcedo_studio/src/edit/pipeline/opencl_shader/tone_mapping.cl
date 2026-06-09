@@ -5,7 +5,15 @@
 #ifndef ALCEDO_OPENCL_EDIT_PIPELINE_TONE_MAPPING_CL
 #define ALCEDO_OPENCL_EDIT_PIPELINE_TONE_MAPPING_CL
 
+// Mirrored from edit/pipeline/local_tone_mapping.hpp.
+#define ALCEDO_OPENCL_HS_ACESCC_MIDDLE_GRAY 0.41358840f
+#define ALCEDO_OPENCL_HS_ACESCC_CODE_PER_EV (1.0f / 17.52f)
+#define ALCEDO_OPENCL_HS_BASE_SIGMA_R 0.07545252f
 #define ALCEDO_OPENCL_HS_HIGHLIGHT_STRENGTH_SCALE 1.5f
+#define ALCEDO_OPENCL_HS_BACKEND_AMOUNT_LIMIT 1.5f
+#define ALCEDO_OPENCL_HS_TONE_BETA_EPS 0.035f
+#define ALCEDO_OPENCL_HS_TONE_BETA_MIN 0.08f
+#define ALCEDO_OPENCL_HS_TONE_BETA_MAX 1.70f
 
 // === Highlight / Shadow Local Tone ============================================
 
@@ -34,7 +42,8 @@ static inline float opencl_hs_segment(float x, float x0, float y0, float x1, flo
 }
 
 static inline float opencl_hs_relative_ev_from_log_intensity(float log_intensity) {
-  return (log_intensity - 0.41358840f) * 17.52f;
+  return (log_intensity - ALCEDO_OPENCL_HS_ACESCC_MIDDLE_GRAY) /
+         ALCEDO_OPENCL_HS_ACESCC_CODE_PER_EV;
 }
 
 static inline float opencl_hs_shadow_profile_ev(float relative_ev) {
@@ -93,7 +102,7 @@ static inline float opencl_hs_apply_reference_curve(float reference_l, float sha
   const float delta_ev = shadow_lift + shadow_fill_lift - combo_shadow_rollback -
                          shadow_darken - highlight_reduce - combo_low_mid_darken +
                          highlight_boost;
-  return reference_l + delta_ev * (1.0f / 17.52f);
+  return reference_l + delta_ev * ALCEDO_OPENCL_HS_ACESCC_CODE_PER_EV;
 }
 
 static inline float opencl_hs_llf_detail_alpha(float reference_l, float shadow_amount,
@@ -111,12 +120,13 @@ static inline float opencl_hs_llf_detail_alpha(float reference_l, float shadow_a
 
 static inline float opencl_hs_llf_tone_beta(float reference_l, float shadow_amount,
                                             float highlight_amount) {
-  const float eps = 0.035f;
+  const float eps = ALCEDO_OPENCL_HS_TONE_BETA_EPS;
   const float lo = opencl_hs_apply_reference_curve(reference_l - eps, shadow_amount,
                                                    highlight_amount);
   const float hi = opencl_hs_apply_reference_curve(reference_l + eps, shadow_amount,
                                                    highlight_amount);
-  return clamp((hi - lo) / (2.0f * eps), 0.08f, 1.70f);
+  return clamp((hi - lo) / (2.0f * eps), ALCEDO_OPENCL_HS_TONE_BETA_MIN,
+               ALCEDO_OPENCL_HS_TONE_BETA_MAX);
 }
 
 static inline float opencl_hs_llf_remap_delta(float delta_l, float sigma_r, float alpha,
@@ -603,21 +613,22 @@ static inline float3 opencl_hs_dampen_shadow_chroma(
 
 static inline float4 opencl_hs_apply_local_tone_pixel(
     float4 px, float base, __global const OpenClFusedParams* params) {
-  const float kBackendAmountLimit = 1.5f;
   const float shadow_amount =
       (params->shadows_enabled_ != 0u)
-          ? clamp(params->shadows_offset_, -kBackendAmountLimit, kBackendAmountLimit)
+          ? clamp(params->shadows_offset_, -ALCEDO_OPENCL_HS_BACKEND_AMOUNT_LIMIT,
+                  ALCEDO_OPENCL_HS_BACKEND_AMOUNT_LIMIT)
           : 0.0f;
   const float highlight_amount = (params->highlights_enabled_ != 0u)
-                                     ? clamp(-params->highlights_offset_, -kBackendAmountLimit,
-                                             kBackendAmountLimit)
+                                     ? clamp(-params->highlights_offset_,
+                                             -ALCEDO_OPENCL_HS_BACKEND_AMOUNT_LIMIT,
+                                             ALCEDO_OPENCL_HS_BACKEND_AMOUNT_LIMIT)
                                      : 0.0f;
   if (fabs(shadow_amount) <= 1.0e-6f && fabs(highlight_amount) <= 1.0e-6f) {
     return px;
   }
 
   const float source_l = opencl_hs_log_intensity_from_acescc(px);
-  const float sigma_r = 0.07545252f;
+  const float sigma_r = ALCEDO_OPENCL_HS_BASE_SIGMA_R;
   const float target_l = opencl_hs_apply_reference_curve(base, shadow_amount, highlight_amount);
   const float alpha = opencl_hs_llf_detail_alpha(base, shadow_amount, highlight_amount);
   const float beta = opencl_hs_llf_tone_beta(base, shadow_amount, highlight_amount);

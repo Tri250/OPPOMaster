@@ -8,6 +8,16 @@
 
 // === Highlight / Shadow Local Tone ============================================
 
+// Mirrored from edit/pipeline/local_tone_mapping.hpp.
+constant float kMetalHsAcesccMiddleGray = 0.41358840f;
+constant float kMetalHsAcesccCodePerEv = 1.0f / 17.52f;
+constant float kMetalHsBaseSigmaR = 0.07545252f;
+constant float kMetalHsHighlightStrengthScale = 1.5f;
+constant float kMetalHsBackendAmountLimit = 1.5f;
+constant float kMetalHsToneBetaEps = 0.035f;
+constant float kMetalHsToneBetaMin = 0.08f;
+constant float kMetalHsToneBetaMax = 1.70f;
+
 static inline float metal_hs_ap1_luminance(float3 ap1) {
   return 0.27222872f * ap1.x + 0.67408177f * ap1.y + 0.05368952f * ap1.z;
 }
@@ -33,7 +43,7 @@ static inline float metal_hs_segment(float x, float x0, float y0, float x1, floa
 }
 
 static inline float metal_hs_relative_ev_from_log_intensity(float log_intensity) {
-  return (log_intensity - 0.41358840f) * 17.52f;
+  return (log_intensity - kMetalHsAcesccMiddleGray) / kMetalHsAcesccCodePerEv;
 }
 
 static inline float metal_hs_shadow_profile_ev(float relative_ev) {
@@ -58,8 +68,6 @@ static inline float metal_hs_highlight_profile_ev(float relative_ev) {
   if (relative_ev <= 8.0f) return metal_hs_segment(relative_ev, 6.5f, 1.08f, 8.0f, 0.92f);
   return 0.92f;
 }
-
-constant float kMetalHsHighlightStrengthScale = 1.5f;
 
 static inline float metal_hs_apply_reference_curve(float reference_l, float shadow_amount,
                                                    float highlight_amount) {
@@ -94,7 +102,7 @@ static inline float metal_hs_apply_reference_curve(float reference_l, float shad
   const float delta_ev = shadow_lift + shadow_fill_lift - combo_shadow_rollback -
                          shadow_darken - highlight_reduce - combo_low_mid_darken +
                          highlight_boost;
-  return reference_l + delta_ev * (1.0f / 17.52f);
+  return reference_l + delta_ev * kMetalHsAcesccCodePerEv;
 }
 
 static inline float metal_hs_llf_detail_alpha(float reference_l, float shadow_amount,
@@ -112,12 +120,12 @@ static inline float metal_hs_llf_detail_alpha(float reference_l, float shadow_am
 
 static inline float metal_hs_llf_tone_beta(float reference_l, float shadow_amount,
                                            float highlight_amount) {
-  constexpr float kEps = 0.035f;
+  const float kEps = kMetalHsToneBetaEps;
   const float lo = metal_hs_apply_reference_curve(reference_l - kEps, shadow_amount,
                                                   highlight_amount);
   const float hi = metal_hs_apply_reference_curve(reference_l + kEps, shadow_amount,
                                                   highlight_amount);
-  return clamp((hi - lo) / (2.0f * kEps), 0.08f, 1.70f);
+  return clamp((hi - lo) / (2.0f * kEps), kMetalHsToneBetaMin, kMetalHsToneBetaMax);
 }
 
 static inline float metal_hs_llf_remap_delta(float delta_l, float sigma_r, float alpha,
@@ -592,21 +600,22 @@ static inline float3 metal_hs_dampen_shadow_chroma(
 
 static inline float4 GPU_HighlightShadowLocalToneOpKernel(float4 px, float base,
                                                           constant MetalFusedParams& params) {
-  constexpr float kBackendAmountLimit = 1.5f;
   const float shadow_amount =
       (params.shadows_enabled_ != 0u)
-          ? clamp(params.shadows_offset_, -kBackendAmountLimit, kBackendAmountLimit)
+          ? clamp(params.shadows_offset_, -kMetalHsBackendAmountLimit,
+                  kMetalHsBackendAmountLimit)
           : 0.0f;
   const float highlight_amount = (params.highlights_enabled_ != 0u)
-                                     ? clamp(-params.highlights_offset_, -kBackendAmountLimit,
-                                             kBackendAmountLimit)
+                                     ? clamp(-params.highlights_offset_,
+                                             -kMetalHsBackendAmountLimit,
+                                             kMetalHsBackendAmountLimit)
                                      : 0.0f;
   if (fabs(shadow_amount) <= 1.0e-6f && fabs(highlight_amount) <= 1.0e-6f) {
     return px;
   }
 
   const float source_l = metal_hs_log_intensity_from_acescc(px);
-  constexpr float kSigmaR = 0.07545252f;
+  const float kSigmaR = kMetalHsBaseSigmaR;
   const float target_l = metal_hs_apply_reference_curve(base, shadow_amount, highlight_amount);
   const float alpha = metal_hs_llf_detail_alpha(base, shadow_amount, highlight_amount);
   const float beta = metal_hs_llf_tone_beta(base, shadow_amount, highlight_amount);

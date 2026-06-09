@@ -13,6 +13,7 @@
 #include <device_types.h>
 
 #include "edit/operators/op_kernel.hpp"
+#include "edit/pipeline/local_tone_mapping.hpp"
 #include "param.cuh"
 
 #define GPU_HD_FUNC __host__ __device__ __forceinline__

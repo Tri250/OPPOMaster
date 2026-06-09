@@ -619,6 +619,7 @@ set(PIPELINE_SRCS
     edit/pipeline/pipeline_stage.cpp
     edit/pipeline/pipeline_gpu_wrapper.cpp
     include/edit/pipeline/highlight_shadow_local_tone.hpp
+    include/edit/pipeline/local_tone_mapping.hpp
     include/edit/pipeline/metal_kernel_dispatch.hpp
     include/edit/pipeline/metal_pipeline_stats.hpp
     include/edit/pipeline/opencl_kernel_dispatch.hpp

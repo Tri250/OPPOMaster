@@ -7,8 +7,8 @@
 
 GPU_HD_FUNC float hs_lerp(float a, float b, float t) { return a + (b - a) * t; }
 
-constexpr float kHsAcesccMiddleGray = 0.41358840f;
-constexpr float kHsAcesccCodePerEv  = 1.0f / 17.52f;
+constexpr float kHsAcesccMiddleGray = ::alcedo::local_tone_mapping::kAcesccMiddleGray;
+constexpr float kHsAcesccCodePerEv  = ::alcedo::local_tone_mapping::kAcesccCodePerEv;
 
 GPU_FUNC float hs_ap1_intensity(float3 ap1) {
   return 0.27222872f * ap1.x + 0.67408177f * ap1.y + 0.05368952f * ap1.z;
@@ -54,8 +54,8 @@ GPU_HD_FUNC float hs_highlight_profile_ev(float relative_ev) {
   return hs_piecewise_linear(kXs, kYs, relative_ev);
 }
 
-constexpr float kHsHighlightStrengthScale = 1.5f;
-constexpr float kHsBackendAmountLimit = 1.5f;
+constexpr float kHsHighlightStrengthScale = ::alcedo::local_tone_mapping::kHighlightStrengthScale;
+constexpr float kHsBackendAmountLimit = ::alcedo::local_tone_mapping::kBackendAmountLimit;
 
 GPU_FUNC float hs_read_l_clamped(const float* __restrict src, int x, int y, int width,
                                  int height, size_t pitch_elems) {
@@ -181,10 +181,12 @@ GPU_HD_FUNC float hs_llf_detail_alpha(float reference_l, float shadow_amount,
 
 GPU_HD_FUNC float hs_llf_tone_beta(float reference_l, float shadow_amount,
                                     float highlight_amount) {
-  constexpr float kEps = 0.035f;
+  constexpr float kEps = ::alcedo::local_tone_mapping::kToneBetaEps;
   const float lo = hs_apply_reference_curve(reference_l - kEps, shadow_amount, highlight_amount);
   const float hi = hs_apply_reference_curve(reference_l + kEps, shadow_amount, highlight_amount);
-  return fminf(fmaxf((hi - lo) / (2.0f * kEps), 0.08f), 1.70f);
+  return fminf(fmaxf((hi - lo) / (2.0f * kEps),
+                     ::alcedo::local_tone_mapping::kToneBetaMin),
+               ::alcedo::local_tone_mapping::kToneBetaMax);
 }
 
 GPU_FUNC float hs_llf_gamma_interp_t(float gamma_lo, float gamma_hi, float g) {
@@ -566,12 +568,14 @@ __global__ void HsApplyAdjustedDeltaLFromReferenceKernel(
 }
 
 struct GPU_HighlightShadowLocalToneStage {
-  static constexpr int   kMaxLevels   = 12;
-  static constexpr float kGammaMinL   = -0.15f;
-  static constexpr float kGammaMaxL   = 1.18f;
-  static constexpr float kBaseSigmaR  = 0.07545252f;
-  static constexpr float kGammaStepScale = 1.35f;
-  static constexpr int   kReferenceMaskMaxLongEdge = 2048;
+  static constexpr int   kMaxLevels   = ::alcedo::local_tone_mapping::kMaxLevels;
+  static constexpr float kGammaMinL   = ::alcedo::local_tone_mapping::kGammaMinL;
+  static constexpr float kGammaMaxL   = ::alcedo::local_tone_mapping::kGammaMaxL;
+  static constexpr float kBaseSigmaR  = ::alcedo::local_tone_mapping::kBaseSigmaR;
+  static constexpr float kGammaStepScale = ::alcedo::local_tone_mapping::kGammaStepScale;
+  static constexpr float kMinSampleStep = ::alcedo::local_tone_mapping::kMinSampleStep;
+  static constexpr int   kReferenceMaskMaxLongEdge =
+      ::alcedo::local_tone_mapping::kReferenceMaskMaxLongEdge;
 
   struct HsLlfSample {
     float gamma  = 0.0f;
@@ -678,36 +682,22 @@ struct GPU_HighlightShadowLocalToneStage {
   ~GPU_HighlightShadowLocalToneStage() { ReleaseResources(); }
 
   static auto FloatBits(float value) -> std::uint32_t {
-    std::uint32_t bits = 0;
-    std::memcpy(&bits, &value, sizeof(bits));
-    return bits;
+    return ::alcedo::local_tone_mapping::FloatBits(value);
   }
 
   static void HashCombine(std::uint64_t& seed, std::uint64_t value) {
-    seed ^= value + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
+    ::alcedo::local_tone_mapping::HashCombine(seed, value);
   }
 
   static auto BuildAdjustedResultCacheKey(const GPUOperatorParams& params, float shadow_amount,
                                           float highlight_amount) -> std::uint64_t {
-    std::uint64_t key = params.hs_mask_base_cache_key_;
-    HashCombine(key, static_cast<std::uint64_t>(params.shadows_enabled_));
-    HashCombine(key, static_cast<std::uint64_t>(params.highlights_enabled_));
-    HashCombine(key, static_cast<std::uint64_t>(FloatBits(shadow_amount)));
-    HashCombine(key, static_cast<std::uint64_t>(FloatBits(highlight_amount)));
-    return key;
+    return ::alcedo::local_tone_mapping::BuildAdjustedResultCacheKey(params, shadow_amount,
+                                                                     highlight_amount);
   }
 
   static auto BuildRoiAdjustedResultCacheKey(const GPUOperatorParams& params,
                                              std::uint64_t base_key) -> std::uint64_t {
-    std::uint64_t key = base_key;
-    HashCombine(key, static_cast<std::uint64_t>(params.render_roi_enabled_));
-    HashCombine(key, static_cast<std::uint64_t>(params.render_roi_x_));
-    HashCombine(key, static_cast<std::uint64_t>(params.render_roi_y_));
-    HashCombine(key, static_cast<std::uint64_t>(FloatBits(params.render_roi_scale_x_)));
-    HashCombine(key, static_cast<std::uint64_t>(FloatBits(params.render_roi_scale_y_)));
-    HashCombine(key, static_cast<std::uint64_t>(params.render_roi_reference_width_));
-    HashCombine(key, static_cast<std::uint64_t>(params.render_roi_reference_height_));
-    return key;
+    return ::alcedo::local_tone_mapping::BuildRoiAdjustedResultCacheKey(params, base_key);
   }
 
   struct MaskDimensions {
@@ -717,10 +707,9 @@ struct GPU_HighlightShadowLocalToneStage {
 
   static auto ComputeMaskDimensions(int width, int height, int max_long_edge)
       -> MaskDimensions {
-    const float scale = fminf(
-        1.0f, static_cast<float>(max(1, max_long_edge)) / static_cast<float>(max(width, height)));
-    return {max(1, static_cast<int>(ceilf(static_cast<float>(width) * scale))),
-            max(1, static_cast<int>(ceilf(static_cast<float>(height) * scale)))};
+    const auto dims =
+        ::alcedo::local_tone_mapping::ComputeMaskDimensions(width, height, max_long_edge);
+    return {dims.width, dims.height};
   }
 
   static auto GridFor(int width, int height, dim3 block) -> dim3 {
@@ -729,30 +718,18 @@ struct GPU_HighlightShadowLocalToneStage {
   }
 
   static auto ComputeLevelCount(int width, int height, float radius) -> int {
-    const int radius_levels =
-        max(3, min(kMaxLevels, static_cast<int>(ceilf(log2f(fmaxf(radius, 1.0f)))) + 2));
-    int count = 1;
-    int w = width;
-    int h = height;
-    while (count < radius_levels && (w > 1 || h > 1)) {
-      w = max(1, (w + 1) / 2);
-      h = max(1, (h + 1) / 2);
-      ++count;
-    }
-    return count;
+    return ::alcedo::local_tone_mapping::ComputeLevelCount(width, height, radius);
   }
 
   static auto SigmaR(float shadow_amount, float highlight_amount) -> float {
-    (void)shadow_amount;
-    (void)highlight_amount;
-    return kBaseSigmaR;
+    return ::alcedo::local_tone_mapping::SigmaR(shadow_amount, highlight_amount);
   }
 
   static auto BuildSamples(float shadow_amount, float highlight_amount, float sigma_r)
       -> std::vector<HsLlfSample> {
-    const float sample_step = fmaxf(sigma_r * kGammaStepScale, 0.045f);
+    const float sample_step = std::max(sigma_r * kGammaStepScale, kMinSampleStep);
     const int sample_count =
-        max(2, static_cast<int>(ceilf((kGammaMaxL - kGammaMinL) / sample_step)) + 1);
+        std::max(2, static_cast<int>(std::ceil((kGammaMaxL - kGammaMinL) / sample_step)) + 1);
     std::vector<HsLlfSample> samples;
     samples.reserve(static_cast<size_t>(sample_count));
     for (int i = 0; i < sample_count; ++i) {
@@ -760,9 +737,11 @@ struct GPU_HighlightShadowLocalToneStage {
           (sample_count == 1) ? 0.0f : static_cast<float>(i) / static_cast<float>(sample_count - 1);
       const float gamma = hs_lerp(kGammaMinL, kGammaMaxL, t);
       samples.push_back(
-          {gamma, hs_apply_reference_curve(gamma, shadow_amount, highlight_amount),
-           hs_llf_tone_beta(gamma, shadow_amount, highlight_amount),
-           hs_llf_detail_alpha(gamma, shadow_amount, highlight_amount)});
+          {gamma,
+           ::alcedo::local_tone_mapping::ApplyReferenceCurve(gamma, shadow_amount,
+                                                             highlight_amount),
+           ::alcedo::local_tone_mapping::ToneBeta(gamma, shadow_amount, highlight_amount),
+           ::alcedo::local_tone_mapping::DetailAlpha(gamma, shadow_amount, highlight_amount)});
     }
     return samples;
   }
