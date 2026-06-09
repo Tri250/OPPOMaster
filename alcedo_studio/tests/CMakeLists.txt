@@ -309,6 +309,12 @@ if(ALCEDO_CUDA_ENABLED)
   gtest_discover_tests(SharedToneCurveTest TEST_PREFIX "SharedToneCurveTest.")
 endif()
 
+add_executable(ToneMappingOwnershipTest edit/operators/tone/tone_mapping_ownership_test.cpp)
+target_compile_definitions(ToneMappingOwnershipTest
+    PRIVATE ALCEDO_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/alcedo_studio/src")
+target_link_libraries(ToneMappingOwnershipTest PRIVATE GTest::gtest_main)
+gtest_discover_tests(ToneMappingOwnershipTest TEST_PREFIX "ToneMappingOwnershipTest.")
+
 # add_executable(ContrastOPTest edit/operators/basic/contrast_op_test.cpp)
 # target_include_directories(ContrastOPTest PUBLIC ${CMAKE_SOURCE_DIR}/alcedo/src/include)
 # target_link_libraries(ContrastOPTest GTest::gtest_main Operators SleeveManager)
@@ -878,6 +884,7 @@ alcedo_assign_test_category(gpu ALCEDO_BUILD_GPU_TESTS alcedo_tests_gpu
 
 alcedo_assign_test_category(edit ALCEDO_BUILD_EDIT_TESTS alcedo_tests_edit
   SharedToneCurveTest
+  ToneMappingOwnershipTest
   ODTOpTest
   CropRotateOpTest
   PipelineFrameSinkTest

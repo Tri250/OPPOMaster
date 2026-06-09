@@ -209,6 +209,20 @@ Acceptance:
 - Existing highlight/shadow outputs remain unchanged within current backend tolerances.
 - OpenCL and Metal still compile their shader libraries.
 
+Implementation status:
+
+- CUDA `hs_*` helpers, LLF kernels, and `GPU_HighlightShadowLocalToneStage` moved from
+  `color.cuh` to `tone_mapping.cuh`; `color.cuh` now includes the tone-mapping header after the
+  shared ACEScc/AP1 helpers it depends on.
+- OpenCL highlight/shadow local-tone helpers moved from `color.cl` to `tone_mapping.cl`; the
+  OpenCL pipeline program manifest now concatenates `tone_mapping.cl` before `color.cl` and
+  `edit_pipeline_detail.cl`.
+- Metal highlight/shadow local-tone helpers and `GPU_HighlightShadowLocalToneOpKernel` moved from
+  `color.metal` to `tone_mapping.metal`; the fused Metal shader includes it and CMake tracks it as
+  a fused-pipeline dependency.
+- Added `ToneMappingOwnershipTest` to guard the Phase 1 source ownership boundary while existing
+  highlight/shadow parity tests continue to validate unchanged output behavior.
+
 ### Phase 2 - Shared Tone Mapping Contract
 
 Goal: remove duplicated constants and curve logic across CUDA/OpenCL/Metal/host code.

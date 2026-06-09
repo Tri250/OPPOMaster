@@ -50,6 +50,7 @@ if(ALCEDO_OPENCL_ENABLED)
     set(OPENCL_EDIT_PIPELINE_DETAIL_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/edit_pipeline_detail.cl")
     set(OPENCL_EDIT_PIPELINE_COMMON_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/common.cl")
     set(OPENCL_EDIT_PIPELINE_BASIC_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/basic.cl")
+    set(OPENCL_EDIT_PIPELINE_TONE_MAPPING_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/tone_mapping.cl")
     set(OPENCL_EDIT_PIPELINE_COLOR_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/color.cl")
     set(OPENCL_EDIT_PIPELINE_CST_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/cst.cl")
     set(OPENCL_GEOMETRY_UTILS_CL "${CMAKE_CURRENT_SOURCE_DIR}/opencl/opencl_shader/geometry_utils.cl")
@@ -83,6 +84,7 @@ if(ALCEDO_OPENCL_ENABLED)
         ALCEDO_OPENCL_EDIT_PIPELINE_DETAIL_CL="${OPENCL_EDIT_PIPELINE_DETAIL_CL}"
         ALCEDO_OPENCL_EDIT_PIPELINE_COMMON_CL="${OPENCL_EDIT_PIPELINE_COMMON_CL}"
         ALCEDO_OPENCL_EDIT_PIPELINE_BASIC_CL="${OPENCL_EDIT_PIPELINE_BASIC_CL}"
+        ALCEDO_OPENCL_EDIT_PIPELINE_TONE_MAPPING_CL="${OPENCL_EDIT_PIPELINE_TONE_MAPPING_CL}"
         ALCEDO_OPENCL_EDIT_PIPELINE_COLOR_CL="${OPENCL_EDIT_PIPELINE_COLOR_CL}"
         ALCEDO_OPENCL_EDIT_PIPELINE_CST_CL="${OPENCL_EDIT_PIPELINE_CST_CL}"
         ALCEDO_OPENCL_GEOMETRY_UTILS_CL="${OPENCL_GEOMETRY_UTILS_CL}"
@@ -137,6 +139,7 @@ if(ALCEDO_METAL_ENABLED)
     set(METAL_FUSED_PIPELINE_DEPS
         "${CMAKE_CURRENT_SOURCE_DIR}/edit/operators/GPU_kernels/metal_shader/common.metal"
         "${CMAKE_CURRENT_SOURCE_DIR}/edit/operators/GPU_kernels/metal_shader/basic.metal"
+        "${CMAKE_CURRENT_SOURCE_DIR}/edit/operators/GPU_kernels/metal_shader/tone_mapping.metal"
         "${CMAKE_CURRENT_SOURCE_DIR}/edit/operators/GPU_kernels/metal_shader/color.metal"
         "${CMAKE_CURRENT_SOURCE_DIR}/edit/operators/GPU_kernels/metal_shader/cst.metal"
         "${CMAKE_CURRENT_SOURCE_DIR}/edit/operators/GPU_kernels/metal_shader/detail.metal"
