@@ -61,7 +61,8 @@ Item {
     readonly property real delegateReflowTravelDamping: 0.32
     readonly property real delegateReflowMaxTravel: 44
 
-    signal imageSelectionChanged(int elementId, int imageId, string fileName, bool selected)
+    signal imageSelectionChanged(int elementId, int imageId, string fileName, bool isHdr,
+                                 bool selected)
     signal replaceSelection(var items)
     signal contextMenuRequested(var item, real sceneX, real sceneY)
     signal zoomChanged(int zoomLevel)
@@ -580,7 +581,8 @@ Item {
             elementId: elementId,
             imageId: Number(row.imageId),
             fileName: row.fileName ? row.fileName : qsTr("(unnamed)"),
-            rating: Number(row.rating)
+            rating: Number(row.rating),
+            isHdr: row.isHdr === true
         }
     }
 
@@ -600,7 +602,8 @@ Item {
                 elementId: elementId,
                 imageId: Number(row.imageId),
                 fileName: row.fileName ? row.fileName : qsTr("(unnamed)"),
-                rating: Number(row.rating)
+                rating: Number(row.rating),
+                isHdr: row.isHdr === true
             })
         }
         return items
@@ -666,6 +669,7 @@ Item {
         required property string aperture
         required property string captureDate
         required property int rating
+        required property bool isHdr
         required property string accent
         required property string thumbUrl
         required property bool thumbLoading
@@ -1014,16 +1018,46 @@ Item {
                 elide: Text.ElideRight
                 width: parent.width
             }
-            Label {
+            Row {
                 visible: !root.hideMetadata
-                text: qsTr("%1 | Rating %2/5").arg(captureDate).arg(rating)
-                color: root.cardMuted
-                font.family: appTheme.dataFontFamily
-                font.pixelSize: root.metadataFontSize
-                font.weight: root.dataFontWeight
-                font.letterSpacing: root.dataLetterSpacing
-                elide: Text.ElideRight
                 width: parent.width
+                height: Math.max(ratingLabel.implicitHeight, hdrGridTag.height)
+                spacing: 5
+
+                Label {
+                    id: ratingLabel
+                    text: qsTr("%1 | Rating %2/5").arg(captureDate).arg(rating)
+                    color: root.cardMuted
+                    font.family: appTheme.dataFontFamily
+                    font.pixelSize: root.metadataFontSize
+                    font.weight: root.dataFontWeight
+                    font.letterSpacing: root.dataLetterSpacing
+                    elide: Text.ElideRight
+                    width: isHdr ? Math.max(0, parent.width - hdrGridTag.width - parent.spacing)
+                                 : parent.width
+                    anchors.bottom: parent.bottom
+                }
+
+                Rectangle {
+                    id: hdrGridTag
+                    visible: isHdr
+                    width: hdrGridTagText.implicitWidth + 8
+                    height: Math.max(13, hdrGridTagText.implicitHeight + 2)
+                    radius: 3
+                    color: "#3A3020"
+                    border.width: 1
+                    border.color: "#D8A93B"
+                    anchors.bottom: parent.bottom
+                    Label {
+                        id: hdrGridTagText
+                        anchors.centerIn: parent
+                        text: "HDR"
+                        color: "#F2C766"
+                        font.family: appTheme.dataFontFamily
+                        font.pixelSize: Math.max(8, root.metadataFontSize - 1)
+                        font.weight: Font.DemiBold
+                    }
+                }
             }
         }
 
@@ -1204,7 +1238,8 @@ Item {
                             root.selectRangeToIndex(idx, mouse.modifiers & Qt.ControlModifier)
                         } else if (mouse.modifiers & Qt.ControlModifier) {
                             const next = !root.isImageSelected(item.elementId)
-                            root.imageSelectionChanged(item.elementId, item.imageId, item.fileName, next)
+                            root.imageSelectionChanged(item.elementId, item.imageId, item.fileName,
+                                                       item.isHdr === true, next)
                             root.updateSelectionAnchor(idx)
                         } else {
                             root.replaceSelection([item])

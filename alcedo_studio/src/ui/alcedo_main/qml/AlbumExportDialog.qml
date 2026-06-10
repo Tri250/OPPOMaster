@@ -66,20 +66,18 @@ Dialog {
     signal ensurePreviewRequested()
     signal startExportRequested(
         string outDir,
-        string format,
-        string hdrExportMode,
-        bool resizeEnabled,
-        int maxSide,
-        int quality,
-        int bitDepth,
-        int pngLevel,
-        string tiffCompression)
+        bool sdrResizeEnabled,
+        int sdrMaxSide,
+        int ultraHdrMaxSide,
+        string sdrFormat,
+        int sdrQuality,
+        int sdrBitDepth,
+        int sdrPngLevel,
+        string sdrTiffCompression,
+        int ultraHdrQuality,
+        bool ultraHdrDitherEnabled)
 
-    readonly property bool ultraHdrSelected: hdrExportAvailable
-                                             && hdrExportMode.currentValue === "ULTRA_HDR"
-    readonly property string effectiveExportFormat: root.ultraHdrSelected
-                                                    ? "JPEG"
-                                                    : exportFormat.currentValue
+    readonly property string sdrExportFormat: exportFormat.currentValue
     readonly property string effectiveOutDir: {
         if (!subfolderCheck.checked || subfolderName.text.trim().length === 0)
             return exportOutDir.text
@@ -172,12 +170,12 @@ Dialog {
     }
 
     function ensureValidBitDepthSelection() {
-        const options = root.bitDepthOptionsFor(root.effectiveExportFormat)
+        const options = root.bitDepthOptionsFor(root.sdrExportFormat)
         const current = Number(exportBitDepth.currentValue)
         for (let i = 0; i < options.length; ++i) {
             if (Number(options[i].value) === current) return
         }
-        const preferred = root.preferredBitDepthFor(root.effectiveExportFormat)
+        const preferred = root.preferredBitDepthFor(root.sdrExportFormat)
         for (let i = 0; i < options.length; ++i) {
             if (Number(options[i].value) === preferred) {
                 exportBitDepth.currentIndex = i
@@ -187,11 +185,32 @@ Dialog {
         exportBitDepth.currentIndex = 0
     }
 
+    function normalizeUltraHdrMaxSide() {
+        const raw = ultraHdrMaxSideField.text.trim()
+        if (raw.length === 0) {
+            ultraHdrMaxSideField.text = "8192"
+            return
+        }
+        const v = parseInt(raw)
+        if (isNaN(v)) {
+            ultraHdrMaxSideField.text = "8192"
+        } else if (v > 8192) {
+            ultraHdrMaxSideField.text = "8192"
+        } else if (v < 256) {
+            ultraHdrMaxSideField.text = "256"
+        }
+    }
+
+    function clearSizeLimitFocus() {
+        if (sdrMaxSideField.activeFocus || ultraHdrMaxSideField.activeFocus) {
+            root.forceActiveFocus()
+        }
+    }
+
     onOpened: {
         if (exportOutDir.text.length === 0)
             exportOutDir.text = albumBackend.defaultExportFolder
-        if (!hdrExportAvailable)
-            hdrExportMode.currentIndex = 1
+        normalizeUltraHdrMaxSide()
         ensureValidBitDepthSelection()
         ensurePreviewRequested()
         albumBackend.ResetExportState()
@@ -199,22 +218,11 @@ Dialog {
     }
     onClosed: exportTriggered = false
     onHdrExportAvailableChanged: {
-        if (!hdrExportAvailable)
-            hdrExportMode.currentIndex = 1
         ensureValidBitDepthSelection()
+        if (hdrExportAvailable)
+            normalizeUltraHdrMaxSide()
     }
-    onEffectiveExportFormatChanged: ensureValidBitDepthSelection()
-    onUltraHdrSelectedChanged: {
-        if (ultraHdrSelected) {
-            if (exportMaxSideField.text.length === 0) {
-                exportMaxSideField.text = "8192"
-            } else {
-                const v = parseInt(exportMaxSideField.text)
-                if (!isNaN(v) && v > 8192)
-                    exportMaxSideField.text = "8192"
-            }
-        }
-    }
+    onSdrExportFormatChanged: ensureValidBitDepthSelection()
 
     FolderDialog {
         id: exportFolderDialog
@@ -305,6 +313,12 @@ Dialog {
                         radius: 8
                         color: root.cardColor
 
+                        MouseArea {
+                            anchors.fill: parent
+                            enabled: !albumBackend.exportInFlight
+                            onClicked: root.clearSizeLimitFocus()
+                        }
+
                         ColumnLayout {
                             id: destCol
                             y: 14; x: 16
@@ -373,27 +387,138 @@ Dialog {
                         }
                     }
 
-                    // ── Cards: File Settings + Quality (side by side) ──
+                    // ── Cards: HDR + SDR Settings ──────────────
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 10
 
-                        // Card: File Settings
+                        // Card: HDR Export Settings
                         Rectangle {
                             Layout.fillWidth: true
-                            Layout.preferredHeight: Math.max(fileSettingsCol.implicitHeight,
-                                                            qualityCol.implicitHeight) + 28
+                            Layout.preferredHeight: Math.max(hdrSettingsCol.implicitHeight,
+                                                            sdrSettingsCol.implicitHeight) + 28
                             radius: 8
                             color: root.cardColor
 
+                            MouseArea {
+                                anchors.fill: parent
+                                enabled: !albumBackend.exportInFlight
+                                onClicked: root.clearSizeLimitFocus()
+                            }
+
                             ColumnLayout {
-                                id: fileSettingsCol
+                                id: hdrSettingsCol
+                                y: 14; x: 16
+                                width: parent.width - 32
+                                spacing: 10
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Label {
+                                        text: qsTr("HDR Export Settings")
+                                        font.pixelSize: 13
+                                        font.weight: Font.DemiBold
+                                        color: root.textColor
+                                    }
+                                    Item { Layout.fillWidth: true }
+                                    Label {
+                                        text: qsTr("Ultra HDR")
+                                        color: root.hdrExportAvailable ? root.accentColor : root.mutedTextColor
+                                        font.family: root.dataFontFamily
+                                        font.pixelSize: 11
+                                    }
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 8
+                                    enabled: root.hdrExportAvailable && !albumBackend.exportInFlight
+                                    opacity: root.hdrExportAvailable ? 1.0 : 0.45
+
+                                    Label {
+                                        text: qsTr("HDR quality")
+                                        color: root.mutedTextColor
+                                        font.pixelSize: 11
+                                    }
+                                    Item { Layout.fillWidth: true }
+                                    Label {
+                                        text: Math.round(ultraHdrQualitySlider.value) + "%"
+                                        font.family: root.dataFontFamily
+                                        font.pixelSize: 13
+                                        font.weight: Font.DemiBold
+                                        color: root.accentColor
+                                    }
+                                }
+
+                                Slider {
+                                    id: ultraHdrQualitySlider
+                                    Layout.fillWidth: true
+                                    from: 1; to: 100; value: 95; stepSize: 1
+                                    enabled: root.hdrExportAvailable && !albumBackend.exportInFlight
+                                    opacity: root.hdrExportAvailable ? 1.0 : 0.45
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 5
+                                    enabled: root.hdrExportAvailable && !albumBackend.exportInFlight
+                                    opacity: root.hdrExportAvailable ? 1.0 : 0.45
+                                    Label {
+                                        text: qsTr("Encoding longest edge (px)")
+                                        color: root.mutedTextColor
+                                        font.pixelSize: 11
+                                    }
+                                    TextField {
+                                        id: ultraHdrMaxSideField
+                                        Layout.fillWidth: true
+                                        text: "8192"
+                                        placeholderText: "8192"
+                                        validator: IntValidator {
+                                            bottom: 256
+                                            top: 8192
+                                        }
+                                        inputMethodHints: Qt.ImhDigitsOnly
+                                        font.family: root.dataFontFamily
+                                        font.pixelSize: 12
+                                        enabled: root.hdrExportAvailable && !albumBackend.exportInFlight
+                                        onEditingFinished: root.normalizeUltraHdrMaxSide()
+                                    }
+                                }
+
+                                CheckBox {
+                                    id: ultraHdrDitherCheck
+                                    Layout.fillWidth: true
+                                    text: qsTr("Dithering")
+                                    checked: true
+                                    font.pixelSize: 12
+                                    enabled: root.hdrExportAvailable && !albumBackend.exportInFlight
+                                    opacity: root.hdrExportAvailable ? 1.0 : 0.45
+                                }
+                            }
+                        }
+
+                        // Card: SDR Export Settings
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: Math.max(hdrSettingsCol.implicitHeight,
+                                                            sdrSettingsCol.implicitHeight) + 28
+                            radius: 8
+                            color: root.cardColor
+
+                            MouseArea {
+                                anchors.fill: parent
+                                enabled: !albumBackend.exportInFlight
+                                onClicked: root.clearSizeLimitFocus()
+                            }
+
+                            ColumnLayout {
+                                id: sdrSettingsCol
                                 y: 14; x: 16
                                 width: parent.width - 32
                                 spacing: 10
 
                                 Label {
-                                    text: qsTr("File Settings")
+                                    text: qsTr("SDR Export Settings")
                                     font.pixelSize: 13
                                     font.weight: Font.DemiBold
                                     color: root.textColor
@@ -410,7 +535,7 @@ Dialog {
                                     ComboBox {
                                         id: exportFormat
                                         Layout.fillWidth: true
-                                        enabled: !root.ultraHdrSelected && !albumBackend.exportInFlight
+                                        enabled: !albumBackend.exportInFlight
                                         model: [
                                             { text: "JPEG", value: "JPEG" },
                                             { text: "PNG",  value: "PNG"  },
@@ -427,49 +552,37 @@ Dialog {
                                     Layout.fillWidth: true
                                     spacing: 5
                                     Label {
-                                        text: qsTr("Bit Depth")
+                                        text: qsTr("Limit longest edge (px)")
                                         color: root.mutedTextColor
                                         font.pixelSize: 11
                                     }
-                                    ComboBox {
-                                        id: exportBitDepth
+                                    TextField {
+                                        id: sdrMaxSideField
                                         Layout.fillWidth: true
-                                        enabled: root.bitDepthOptionsFor(root.effectiveExportFormat).length > 1
-                                                 && !albumBackend.exportInFlight
-                                        model: root.bitDepthOptionsFor(root.effectiveExportFormat)
-                                        textRole: "text"
-                                        valueRole: "value"
+                                        placeholderText: qsTr("No limit")
+                                        validator: IntValidator {
+                                            bottom: 256
+                                            top: 16384
+                                        }
+                                        inputMethodHints: Qt.ImhDigitsOnly
+                                        font.family: root.dataFontFamily
+                                        font.pixelSize: 12
+                                        enabled: !albumBackend.exportInFlight
                                     }
                                 }
-                            }
-                        }
-
-                        // Card: Quality & Resize
-                        Rectangle {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: Math.max(fileSettingsCol.implicitHeight,
-                                                            qualityCol.implicitHeight) + 28
-                            radius: 8
-                            color: root.cardColor
-
-                            ColumnLayout {
-                                id: qualityCol
-                                y: 14; x: 16
-                                width: parent.width - 32
-                                spacing: 10
 
                                 RowLayout {
                                     Layout.fillWidth: true
+                                    visible: root.sdrExportFormat === "JPEG"
+                                             || root.sdrExportFormat === "WEBP"
+                                    spacing: 8
                                     Label {
                                         text: qsTr("Quality")
-                                        font.pixelSize: 13
-                                        font.weight: Font.DemiBold
-                                        color: root.textColor
+                                        color: root.mutedTextColor
+                                        font.pixelSize: 11
                                     }
                                     Item { Layout.fillWidth: true }
                                     Label {
-                                        visible: root.effectiveExportFormat === "JPEG"
-                                                 || root.effectiveExportFormat === "WEBP"
                                         text: Math.round(exportQualitySlider.value) + "%"
                                         font.family: root.dataFontFamily
                                         font.pixelSize: 13
@@ -481,15 +594,34 @@ Dialog {
                                 Slider {
                                     id: exportQualitySlider
                                     Layout.fillWidth: true
-                                    visible: root.effectiveExportFormat === "JPEG"
-                                             || root.effectiveExportFormat === "WEBP"
+                                    visible: root.sdrExportFormat === "JPEG"
+                                             || root.sdrExportFormat === "WEBP"
                                     from: 1; to: 100; value: 90; stepSize: 1
                                     enabled: !albumBackend.exportInFlight
                                 }
 
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 5
+                                    Label {
+                                        text: qsTr("Bit Depth")
+                                        color: root.mutedTextColor
+                                        font.pixelSize: 11
+                                    }
+                                    ComboBox {
+                                        id: exportBitDepth
+                                        Layout.fillWidth: true
+                                        enabled: root.bitDepthOptionsFor(root.sdrExportFormat).length > 1
+                                                 && !albumBackend.exportInFlight
+                                        model: root.bitDepthOptionsFor(root.sdrExportFormat)
+                                        textRole: "text"
+                                        valueRole: "value"
+                                    }
+                                }
+
                                 RowLayout {
                                     Layout.fillWidth: true
-                                    visible: root.effectiveExportFormat === "PNG"
+                                    visible: root.sdrExportFormat === "PNG"
                                     spacing: 8
                                     Label {
                                         text: qsTr("PNG level")
@@ -507,7 +639,7 @@ Dialog {
 
                                 RowLayout {
                                     Layout.fillWidth: true
-                                    visible: root.effectiveExportFormat === "TIFF"
+                                    visible: root.sdrExportFormat === "TIFF"
                                     spacing: 8
                                     Label {
                                         text: qsTr("Compression")
@@ -529,107 +661,6 @@ Dialog {
                                         enabled: !albumBackend.exportInFlight
                                     }
                                 }
-
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 5
-                                    Label {
-                                        text: qsTr("Limit Longest Edge (px)")
-                                        color: root.mutedTextColor
-                                        font.pixelSize: 11
-                                    }
-                                    TextField {
-                                        id: exportMaxSideField
-                                        Layout.fillWidth: true
-                                        placeholderText: "e.g. 2048"
-                                        validator: IntValidator {
-                                            bottom: 256
-                                            top: root.ultraHdrSelected ? 8192 : 16384
-                                        }
-                                        inputMethodHints: Qt.ImhDigitsOnly
-                                        font.family: root.dataFontFamily
-                                        font.pixelSize: 12
-                                        enabled: !albumBackend.exportInFlight
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // ── Card: Metadata & Output ────────────────
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: metadataCol.implicitHeight + 28
-                        radius: 8
-                        color: root.cardColor
-
-                        ColumnLayout {
-                            id: metadataCol
-                            y: 14; x: 16
-                            width: parent.width - 32
-                            spacing: 10
-
-                            Label {
-                                text: qsTr("Metadata & Output")
-                                font.pixelSize: 13
-                                font.weight: Font.DemiBold
-                                color: root.textColor
-                            }
-
-                            RowLayout {
-                                id: metadataRow
-                                Layout.fillWidth: true
-                                spacing: 12
-
-                                // HDR Export
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    Layout.preferredWidth: (metadataRow.width - metadataRow.spacing) / 2
-                                    spacing: 4
-
-                                    Label {
-                                        text: qsTr("HDR Export")
-                                        color: root.mutedTextColor
-                                        font.pixelSize: 11
-                                    }
-
-                                    ComboBox {
-                                        id: hdrExportMode
-                                        Layout.fillWidth: true
-                                        enabled: root.hdrExportAvailable && !albumBackend.exportInFlight
-                                        model: [
-                                            { text: qsTr("Ultra HDR"),        value: "ULTRA_HDR"            },
-                                            { text: qsTr("ICC Profile"),      value: "EMBEDDED_PROFILE_ONLY" }
-                                        ]
-                                        textRole: "text"
-                                        valueRole: "value"
-                                        onCurrentValueChanged: {
-                                            if (currentValue === "ULTRA_HDR")
-                                                exportFormat.currentIndex = 0
-                                        }
-                                    }
-                                }
-
-                                // SDR Export
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    Layout.preferredWidth: (metadataRow.width - metadataRow.spacing) / 2
-                                    spacing: 4
-
-                                    Label {
-                                        text: qsTr("SDR Export")
-                                        color: root.mutedTextColor
-                                        font.pixelSize: 11
-                                    }
-
-                                    CheckBox {
-                                        id: embedColorProfileCheck
-                                        text: qsTr("Embed ICC Profile")
-                                        checked: true
-                                        enabled: !root.ultraHdrSelected && !albumBackend.exportInFlight
-                                        font.pixelSize: 12
-                                    }
-                                }
                             }
                         }
                     }
@@ -642,6 +673,12 @@ Dialog {
                 Layout.fillHeight: true
                 radius: 8
                 color: root.cardColor
+
+                MouseArea {
+                    anchors.fill: parent
+                    enabled: !albumBackend.exportInFlight
+                    onClicked: root.clearSizeLimitFocus()
+                }
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -750,14 +787,41 @@ Dialog {
                                 ColumnLayout {
                                     Layout.fillWidth: true
                                     spacing: 2
-                                    Label {
+
+                                    RowLayout {
                                         Layout.fillWidth: true
-                                        text: modelData.label
-                                        elide: Text.ElideRight
-                                        color: root.textColor
-                                        font.family: root.dataFontFamily
-                                        font.pixelSize: 12
+                                        spacing: 6
+
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: modelData.label
+                                            elide: Text.ElideRight
+                                            color: root.textColor
+                                            font.family: root.dataFontFamily
+                                            font.pixelSize: 12
+                                        }
+
+                                        Rectangle {
+                                            visible: !summaryRow && modelData.isHdr === true
+                                            Layout.preferredWidth: hdrQueueTagText.implicitWidth + 10
+                                            Layout.preferredHeight: 18
+                                            radius: 4
+                                            color: "#3A3020"
+                                            border.width: 1
+                                            border.color: "#D8A93B"
+
+                                            Label {
+                                                id: hdrQueueTagText
+                                                anchors.centerIn: parent
+                                                text: "HDR"
+                                                color: "#F2C766"
+                                                font.family: root.dataFontFamily
+                                                font.pixelSize: 10
+                                                font.weight: Font.DemiBold
+                                            }
+                                        }
                                     }
+
                                     RowLayout {
                                         spacing: 5
                                         Rectangle {
@@ -881,18 +945,22 @@ Dialog {
                 }
                 onClicked: {
                     root.exportTriggered = true
-                    const hasResize = exportMaxSideField.text.trim().length > 0
-                    const maxSide   = hasResize ? parseInt(exportMaxSideField.text) : 0
+                    root.normalizeUltraHdrMaxSide()
+                    const hasSdrResize = sdrMaxSideField.text.trim().length > 0
+                    const sdrMaxSide   = hasSdrResize ? parseInt(sdrMaxSideField.text) : 0
+                    const ultraHdrMaxSide = parseInt(ultraHdrMaxSideField.text)
                     root.startExportRequested(
                         root.effectiveOutDir,
+                        hasSdrResize,
+                        sdrMaxSide,
+                        isNaN(ultraHdrMaxSide) ? 8192 : ultraHdrMaxSide,
                         exportFormat.currentValue,
-                        hdrExportMode.currentValue,
-                        hasResize,
-                        maxSide,
                         Math.round(exportQualitySlider.value),
                         Number(exportBitDepth.currentValue),
                         exportPngLevel.value,
-                        exportTiffComp.currentValue)
+                        exportTiffComp.currentValue,
+                        Math.round(ultraHdrQualitySlider.value),
+                        ultraHdrDitherCheck.checked)
                 }
             }
         }

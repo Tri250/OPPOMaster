@@ -10,6 +10,7 @@
 #include "app/pipeline_service.hpp"
 #include "edit/pipeline/default_pipeline_params.hpp"
 #include "io/image/image_loader.hpp"
+#include "edit/operators/utils/color_utils.hpp"
 #include "ui/alcedo_main/editor_dialog/editor_dialog.hpp"
 
 #include <QApplication>
@@ -40,6 +41,10 @@ auto Utf8OrNativeToPath(const std::string& raw_path) -> std::filesystem::path {
   } catch (...) {
     return std::filesystem::path(raw_path);
   }
+}
+
+auto IsHdrExportEotf(const ColorUtils::EOTF eotf) -> bool {
+  return eotf == ColorUtils::EOTF::ST2084 || eotf == ColorUtils::EOTF::HLG;
 }
 
 }  // namespace
@@ -110,6 +115,9 @@ void EditorController::OpenEditor(sl_element_id_t elementId, image_id_t imageId)
       psvc->Sync();
       hsvc->SaveHistory(history_guard);
       hsvc->Sync();
+      backend_.PersistImageHdrFlag(
+          elementId, imageId,
+          IsHdrExportEotf(pipeline_guard->pipeline_->GetGlobalParams().to_output_params_.eotf_));
       proj->GetImagePoolService()->SyncWithStorage();
       proj->SaveProject(backend_.project_handler_.meta_path());
 
@@ -539,11 +547,16 @@ void EditorController::FinalizeEditorSession(bool persistChanges) {
   const auto finishedImage   = editor_image_id_;
 
   const auto& psvc = backend_.project_handler_.pipeline_service();
+  bool        update_hdr_flag = false;
+  bool        is_hdr_export   = false;
   if (psvc) {
     try {
       if (persistChanges) {
         ApplyEditorStateToPipeline();
         editor_pipeline_guard_->dirty_ = true;
+        is_hdr_export = IsHdrExportEotf(
+            editor_pipeline_guard_->pipeline_->GetGlobalParams().to_output_params_.eotf_);
+        update_hdr_flag = true;
       } else {
         editor_pipeline_guard_->dirty_ = false;
       }
@@ -558,6 +571,9 @@ void EditorController::FinalizeEditorSession(bool persistChanges) {
   auto proj = backend_.project_handler_.project();
   if (persistChanges && proj) {
     try {
+      if (update_hdr_flag) {
+        backend_.PersistImageHdrFlag(finishedElement, finishedImage, is_hdr_export);
+      }
       proj->GetImagePoolService()->SyncWithStorage();
       proj->SaveProject(backend_.project_handler_.meta_path());
     } catch (...) {

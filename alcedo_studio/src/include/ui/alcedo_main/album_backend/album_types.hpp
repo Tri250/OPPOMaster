@@ -34,6 +34,7 @@ struct AlbumItem {
   QDate                 capture_date{};
   QDate                 import_date{};
   int                   rating = 0;
+  bool                  is_hdr = false;
   QString               tags{};
   QString               accent{};
   QString               thumb_data_url{};

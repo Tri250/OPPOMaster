@@ -9,6 +9,7 @@
 #include <optional>
 
 #include "image/image_buffer.hpp"
+#include "image/metadata.hpp"
 #include "io/image/export_color_profile_config.hpp"
 #include "type/supported_file_type.hpp"
 #include "type/type.hpp"
@@ -24,6 +25,6 @@ class ImageWriter {
                                std::shared_ptr<ImageBuffer> image_data,
                                ExportFormatOptions          options,
                                std::optional<ExportColorProfileConfig> color_profile = std::nullopt,
-                               std::optional<int> rating = std::nullopt);
+                               std::optional<ExifDisplayMetaData> export_metadata = std::nullopt);
 };
 };  // namespace alcedo

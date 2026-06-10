@@ -81,6 +81,7 @@ class Image {
 
   void                  SetId(image_id_t image_id);
   void                  SetExifDisplayMetaData(ExifDisplayMetaData&& exif_display);
+  void                  SetHdrDisplayMetadata(bool is_hdr);
   void                  SetRawColorContext(RawRuntimeColorContext&& ctx);
   auto                  GetRawColorContext() const -> const RawRuntimeColorContext&;
   auto                  HasRawColorContext() const -> bool;

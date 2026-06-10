@@ -26,27 +26,31 @@ auto ResolveExportColorProfileConfig(const OperatorParams& params) -> ExportColo
                                   params.to_output_params_.peak_luminance_};
 }
 
-auto RatedValueOrNull(int rating) -> std::optional<int> {
-  const int normalized_rating = ExifDisplayMetaData::NormalizeRating(rating);
-  if (normalized_rating <= 0) {
-    return std::nullopt;
-  }
-  return normalized_rating;
+auto HasExportMetadata(const ExifDisplayMetaData& metadata) -> bool {
+  return !metadata.make_.empty() || !metadata.model_.empty() || !metadata.lens_.empty() ||
+         !metadata.lens_make_.empty() || !metadata.date_time_str_.empty() ||
+         metadata.aperture_ > 0.0f || metadata.focal_ > 0.0f || metadata.focal_35mm_ > 0.0f ||
+         metadata.focus_distance_m_ > 0.0f || metadata.iso_ > 0 ||
+         (metadata.shutter_speed_.first > 0 && metadata.shutter_speed_.second > 0) ||
+         ExifDisplayMetaData::NormalizeRating(metadata.rating_) > 0;
 }
 
-auto ResolveImageRating(const std::shared_ptr<Image>& image) -> std::optional<int> {
+auto ResolveImageExportMetadata(const std::shared_ptr<Image>& image)
+    -> std::optional<ExifDisplayMetaData> {
   if (!image) {
     return std::nullopt;
   }
+  ExifDisplayMetaData metadata;
   if (image->has_exif_display_.load()) {
-    return RatedValueOrNull(image->exif_display_.rating_);
-  }
-  if (image->has_exif_json_.load()) {
-    ExifDisplayMetaData metadata;
+    metadata = image->exif_display_;
+  } else if (image->has_exif_json_.load()) {
     metadata.FromJson(image->exif_json_);
-    return RatedValueOrNull(metadata.rating_);
+  } else {
+    return std::nullopt;
   }
-  return std::nullopt;
+  metadata.rating_ = ExifDisplayMetaData::NormalizeRating(metadata.rating_);
+  return HasExportMetadata(metadata) ? std::optional<ExifDisplayMetaData>(std::move(metadata))
+                                     : std::nullopt;
 }
 
 }  // namespace
@@ -68,7 +72,7 @@ auto ExportService::RunExportRenderTask(const ExportTask& task) -> ExportResult 
                              std::to_string(task.image_id_));
   }
   auto img_src_path = source_img->image_path_;
-  const auto export_rating = ResolveImageRating(source_img);
+  const auto export_metadata = ResolveImageExportMetadata(source_img);
 
   // Create a pipeline task for export
   PipelineTask render_task;
@@ -113,16 +117,13 @@ auto ExportService::RunExportRenderTask(const ExportTask& task) -> ExportResult 
   const auto export_profile =
       ResolveExportColorProfileConfig(pipeline_guard->pipeline_->GetGlobalParams());
   const bool wrote_ultra_hdr = ImageWriter::ShouldWriteUltraHdr(task.options_, export_profile);
-  const bool requested_ultra_hdr =
-      task.options_.hdr_export_mode_ == ExportFormatOptions::HDR_EXPORT_MODE::ULTRA_HDR &&
-      task.options_.format_ == ImageFormatType::JPEG;
   pipeline_service_->SavePipeline(pipeline_guard);
   // Use ImageWriter to write the image to disk
   ImageWriter::WriteImageToPath(img_src_path, rendered_image, task.options_, export_profile,
-                                export_rating);
+                                export_metadata);
   result.success_ = true;
   result.wrote_ultra_hdr_ = wrote_ultra_hdr;
-  result.used_embedded_profile_fallback_ = requested_ultra_hdr && !wrote_ultra_hdr;
+  result.used_embedded_profile_fallback_ = false;
   return result;
 }
 

@@ -52,6 +52,8 @@ struct ExportFormatOptions {
   int                   compression_level_ = 5;                    // For PNG
   TIFF_COMPRESS         tiff_compress_     = TIFF_COMPRESS::NONE;  // For TIFF
   HDR_EXPORT_MODE       hdr_export_mode_   = HDR_EXPORT_MODE::ULTRA_HDR;
+  int                   ultra_hdr_quality_ = 95;  // Gain map quality for Ultra HDR
+  bool                  ultra_hdr_dither_enabled_ = true;
 };
 
 static const std::unordered_set<std::wstring> supported_extensions = {

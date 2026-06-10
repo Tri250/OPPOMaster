@@ -36,6 +36,38 @@ TEST(ODTOpTests, MethodSwitchesToACES2) {
   EXPECT_EQ(op.GetParams()["odt"]["limiting_space"], "rec709");
 }
 
+TEST(ODTOpTests, ACES2St2084UsesReferenceLuminanceScale) {
+  nlohmann::json params           = pipeline_defaults::MakeDefaultODTParams();
+  params["odt"]["method"]         = "aces_2_0";
+  params["odt"]["encoding_space"] = "rec2020";
+  params["odt"]["encoding_eotf"]  = "st2084";
+  params["odt"]["limiting_space"] = "rec2020";
+  params["odt"]["peak_luminance"] = 600.0f;
+
+  ODT_Op         op(params);
+  OperatorParams global_params;
+  op.SetGlobalParams(global_params);
+
+  EXPECT_EQ(global_params.to_output_params_.method_, ColorUtils::ODTMethod::ACES_2_0);
+  EXPECT_EQ(global_params.to_output_params_.eotf_, ColorUtils::EOTF::ST2084);
+  EXPECT_FLOAT_EQ(global_params.to_output_params_.display_linear_scale_, ColorUtils::ref_lum);
+}
+
+TEST(ODTOpTests, ACES2GammaOutputKeepsUnitScale) {
+  nlohmann::json params           = pipeline_defaults::MakeDefaultODTParams();
+  params["odt"]["method"]         = "aces_2_0";
+  params["odt"]["encoding_space"] = "rec709";
+  params["odt"]["encoding_eotf"]  = "gamma_2_2";
+  params["odt"]["limiting_space"] = "rec709";
+
+  ODT_Op         op(params);
+  OperatorParams global_params;
+  op.SetGlobalParams(global_params);
+
+  EXPECT_EQ(global_params.to_output_params_.method_, ColorUtils::ODTMethod::ACES_2_0);
+  EXPECT_FLOAT_EQ(global_params.to_output_params_.display_linear_scale_, 1.0f);
+}
+
 TEST(ODTOpTests, UnsupportedOpenDRTOutputCombinationThrows) {
   nlohmann::json params           = pipeline_defaults::MakeDefaultODTParams();
   params["odt"]["encoding_space"] = "prophoto";

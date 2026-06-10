@@ -14,6 +14,7 @@
 #include <cmath>
 #include <cstring>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -30,6 +31,25 @@ OIIO_NAMESPACE_USING
 constexpr float kSdrWhiteNits = 203.0f;
 constexpr float kHlgReferencePeakNits = 1000.0f;
 constexpr float kPqReferencePeakNits = 10000.0f;
+constexpr int   kUltraHdrGainMapScaleFactor = 1;
+
+auto OrderedDither8x8(int x, int y, int channel) -> float {
+  static constexpr int kBayer8x8[8][8] = {
+      {0, 48, 12, 60, 3, 51, 15, 63},     {32, 16, 44, 28, 35, 19, 47, 31},
+      {8, 56, 4, 52, 11, 59, 7, 55},      {40, 24, 36, 20, 43, 27, 39, 23},
+      {2, 50, 14, 62, 1, 49, 13, 61},     {34, 18, 46, 30, 33, 17, 45, 29},
+      {10, 58, 6, 54, 9, 57, 5, 53},      {42, 26, 38, 22, 41, 25, 37, 21},
+  };
+  const int sample = kBayer8x8[(y + channel * 3) & 7][(x + channel * 5) & 7];
+  return (static_cast<float>(sample) + 0.5f) / 64.0f - 0.5f;
+}
+
+auto QuantizeToU8WithDither(float value, int x, int y, int channel) -> uint8_t {
+  const float scaled = std::clamp(value, 0.0f, 1.0f) * 255.0f;
+  const int quantized =
+      static_cast<int>(std::floor(scaled + 0.5f + OrderedDither8x8(x, y, channel)));
+  return static_cast<uint8_t>(std::clamp(quantized, 0, 255));
+}
 
 auto PathToUtf8(const std::filesystem::path& path) -> std::string {
   auto u8 = path.u8string();
@@ -145,7 +165,13 @@ auto ConvertHdrIntentToLinear(const cv::Mat& rgba32f, ColorUtils::EOTF eotf) -> 
   return linear;
 }
 
-auto BuildSdrBaseRgb8(const cv::Mat& linear_rgba32f) -> cv::Mat {
+auto QuantizeToU8(float value) -> uint8_t {
+  return static_cast<uint8_t>(
+      std::clamp(static_cast<int>(std::floor(std::clamp(value, 0.0f, 1.0f) * 255.0f + 0.5f)), 0,
+                 255));
+}
+
+auto BuildSdrBaseRgb8(const cv::Mat& linear_rgba32f, bool dither_enabled) -> cv::Mat {
   cv::Mat rgb8(linear_rgba32f.rows, linear_rgba32f.cols, CV_8UC3);
   for (int y = 0; y < linear_rgba32f.rows; ++y) {
     const auto* src_row = linear_rgba32f.ptr<cv::Vec4f>(y);
@@ -153,8 +179,9 @@ auto BuildSdrBaseRgb8(const cv::Mat& linear_rgba32f) -> cv::Mat {
     for (int x = 0; x < linear_rgba32f.cols; ++x) {
       for (int c = 0; c < 3; ++c) {
         const float base_linear = std::clamp(src_row[x][c], 0.0f, 1.0f);
-        dst_row[x][c] =
-            static_cast<uint8_t>(std::lround(EncodeSrgb(base_linear) * 255.0f));
+        const float encoded = EncodeSrgb(base_linear);
+        dst_row[x][c] = dither_enabled ? QuantizeToU8WithDither(encoded, x, y, c)
+                                       : QuantizeToU8(encoded);
       }
     }
   }
@@ -198,16 +225,127 @@ auto RatingPercentFor(int rating) -> uint16_t {
   }
 }
 
-void ApplyExifRating(Exiv2::ExifData& exif_data, std::optional<int> rating) {
-  if (!rating.has_value()) {
+auto HasMeaningfulExportMetadata(const ExifDisplayMetaData& metadata) -> bool {
+  return !metadata.make_.empty() || !metadata.model_.empty() || !metadata.lens_.empty() ||
+         !metadata.lens_make_.empty() || !metadata.date_time_str_.empty() ||
+         metadata.aperture_ > 0.0f || metadata.focal_ > 0.0f || metadata.focal_35mm_ > 0.0f ||
+         metadata.focus_distance_m_ > 0.0f || metadata.iso_ > 0 ||
+         (metadata.shutter_speed_.first > 0 && metadata.shutter_speed_.second > 0) ||
+         ExifDisplayMetaData::NormalizeRating(metadata.rating_) > 0;
+}
+
+auto RationalFromFloat(float value, int denominator) -> Exiv2::Rational {
+  if (!std::isfinite(value) || value <= 0.0f || denominator <= 0) {
+    return {0, 1};
+  }
+  return {std::max(1, static_cast<int>(std::lround(value * denominator))), denominator};
+}
+
+auto ExifDateTimeString(std::string value) -> std::optional<std::string> {
+  if (value.size() < 19) {
+    return std::nullopt;
+  }
+  value = value.substr(0, 19);
+  if (value[4] == '-') value[4] = ':';
+  if (value[7] == '-') value[7] = ':';
+  return value;
+}
+
+void ApplyExportMetadataToExif(Exiv2::ExifData& exif_data,
+                               const std::optional<ExifDisplayMetaData>& export_metadata) {
+  if (!export_metadata.has_value() || !HasMeaningfulExportMetadata(*export_metadata)) {
     return;
   }
 
-  const int normalized_rating = ExifDisplayMetaData::NormalizeRating(*rating);
-  exif_data["Exif.Image.Rating"] = static_cast<uint16_t>(normalized_rating);
-  try {
-    exif_data["Exif.Image.RatingPercent"] = RatingPercentFor(normalized_rating);
-  } catch (...) {
+  const ExifDisplayMetaData& metadata = *export_metadata;
+  if (!metadata.make_.empty()) {
+    try {
+      exif_data["Exif.Image.Make"] = metadata.make_;
+    } catch (...) {
+    }
+  }
+  if (!metadata.model_.empty()) {
+    try {
+      exif_data["Exif.Image.Model"] = metadata.model_;
+    } catch (...) {
+    }
+  }
+  if (!metadata.lens_.empty()) {
+    try {
+      exif_data["Exif.Photo.LensModel"] = metadata.lens_;
+    } catch (...) {
+    }
+  }
+  if (!metadata.lens_make_.empty()) {
+    try {
+      exif_data["Exif.Photo.LensMake"] = metadata.lens_make_;
+    } catch (...) {
+    }
+  }
+  if (metadata.aperture_ > 0.0f) {
+    try {
+      exif_data["Exif.Photo.FNumber"] = RationalFromFloat(metadata.aperture_, 100);
+    } catch (...) {
+    }
+  }
+  if (metadata.focal_ > 0.0f) {
+    try {
+      exif_data["Exif.Photo.FocalLength"] = RationalFromFloat(metadata.focal_, 100);
+    } catch (...) {
+    }
+  }
+  if (metadata.focal_35mm_ > 0.0f) {
+    try {
+      exif_data["Exif.Photo.FocalLengthIn35mmFilm"] =
+          static_cast<uint16_t>(std::lround(metadata.focal_35mm_));
+    } catch (...) {
+    }
+  }
+  if (metadata.focus_distance_m_ > 0.0f) {
+    try {
+      exif_data["Exif.Photo.SubjectDistance"] = RationalFromFloat(metadata.focus_distance_m_, 1000);
+    } catch (...) {
+    }
+  }
+  if (metadata.iso_ > 0) {
+    try {
+      exif_data["Exif.Photo.ISOSpeedRatings"] = static_cast<uint16_t>(
+          std::min<uint64_t>(metadata.iso_, std::numeric_limits<uint16_t>::max()));
+    } catch (...) {
+    }
+  }
+  if (metadata.shutter_speed_.first > 0 && metadata.shutter_speed_.second > 0) {
+    try {
+      exif_data["Exif.Photo.ExposureTime"] = Exiv2::Rational(metadata.shutter_speed_.first,
+                                                             metadata.shutter_speed_.second);
+    } catch (...) {
+    }
+  }
+  if (const auto exif_dt = ExifDateTimeString(metadata.date_time_str_); exif_dt.has_value()) {
+    try {
+      exif_data["Exif.Image.DateTime"] = *exif_dt;
+    } catch (...) {
+    }
+    try {
+      exif_data["Exif.Photo.DateTimeOriginal"] = *exif_dt;
+    } catch (...) {
+    }
+    try {
+      exif_data["Exif.Photo.DateTimeDigitized"] = *exif_dt;
+    } catch (...) {
+    }
+  }
+
+  const int normalized_rating = ExifDisplayMetaData::NormalizeRating(metadata.rating_);
+  if (normalized_rating > 0) {
+    try {
+      exif_data["Exif.Image.Rating"] = static_cast<uint16_t>(normalized_rating);
+    } catch (...) {
+    }
+    try {
+      exif_data["Exif.Image.RatingPercent"] = RatingPercentFor(normalized_rating);
+    } catch (...) {
+    }
   }
 }
 
@@ -306,10 +444,11 @@ auto BuildBaseJpegBytes(const cv::Mat&                  linear_rgba32f,
                         const ExportFormatOptions&      options,
                         const ExportColorProfileConfig& color_profile,
                         const std::vector<uint8_t>&     exif_bytes) -> std::vector<uint8_t> {
-  const cv::Mat                   base_rgb8 = BuildSdrBaseRgb8(linear_rgba32f);
+  const cv::Mat                   base_rgb8 =
+      BuildSdrBaseRgb8(linear_rgba32f, options.ultra_hdr_dither_enabled_);
   const TempFileGuard             temp_file(MakeTempBaseJpegPath());
   const ExportColorProfileConfig  base_profile = MakeSdrBaseColorProfile(color_profile);
-  WriteBaseJpeg(temp_file.path(), base_rgb8, options.quality_, base_profile);
+  WriteBaseJpeg(temp_file.path(), base_rgb8, options.ultra_hdr_quality_, base_profile);
   AttachExifToJpeg(temp_file.path(), exif_bytes);
   return ReadFileBytes(temp_file.path());
 }
@@ -322,7 +461,8 @@ auto UltraHdrWriter::BuildSanitizedExifData(const image_path_t& source_path, int
 }
 
 auto UltraHdrWriter::BuildSanitizedExifData(const image_path_t& source_path, int width, int height,
-                                            std::optional<int> rating) -> std::vector<uint8_t> {
+                                            const std::optional<ExifDisplayMetaData>&
+                                                export_metadata) -> std::vector<uint8_t> {
   try {
     auto image = Exiv2::ImageFactory::open(PathToUtf8(source_path));
     if (!image) {
@@ -331,12 +471,13 @@ auto UltraHdrWriter::BuildSanitizedExifData(const image_path_t& source_path, int
 
     image->readMetadata();
     Exiv2::ExifData exif_data = image->exifData();
-    if (exif_data.empty() && !rating.has_value()) {
+    if (exif_data.empty() &&
+        (!export_metadata.has_value() || !HasMeaningfulExportMetadata(*export_metadata))) {
       return {};
     }
 
     SanitizeExifData(exif_data, width, height);
-    ApplyExifRating(exif_data, rating);
+    ApplyExportMetadataToExif(exif_data, export_metadata);
 
     Exiv2::Blob blob;
     Exiv2::ByteOrder byte_order = image->byteOrder();
@@ -355,14 +496,15 @@ void UltraHdrWriter::WriteImageToPath(const image_path_t&             src_path,
                                       const cv::Mat&                  rgba32f,
                                       const ExportFormatOptions&      options,
                                       const ExportColorProfileConfig& color_profile,
-                                      std::optional<int>              rating) {
+                                      std::optional<ExifDisplayMetaData> export_metadata) {
   if (rgba32f.empty() || rgba32f.type() != CV_32FC4) {
     throw std::runtime_error("UltraHdrWriter: expected non-empty CV_32FC4 image.");
   }
 
   cv::Mat linear_rgba32f = ConvertHdrIntentToLinear(rgba32f, color_profile.encoding_eotf);
   std::vector<uint8_t> exif_bytes =
-      BuildSanitizedExifData(src_path, linear_rgba32f.cols, linear_rgba32f.rows, rating);
+      BuildSanitizedExifData(src_path, linear_rgba32f.cols, linear_rgba32f.rows,
+                             export_metadata);
   std::vector<uint8_t> base_jpeg_bytes =
       BuildBaseJpegBytes(linear_rgba32f, options, color_profile, exif_bytes);
 
@@ -402,8 +544,15 @@ void UltraHdrWriter::WriteImageToPath(const image_path_t&             src_path,
                    "uhdr_enc_set_compressed_image");
   ThrowIfUhdrError(uhdr_enc_set_output_format(encoder.get(), UHDR_CODEC_JPG),
                    "uhdr_enc_set_output_format");
-  ThrowIfUhdrError(uhdr_enc_set_quality(encoder.get(), options.quality_, UHDR_GAIN_MAP_IMG),
+  ThrowIfUhdrError(uhdr_enc_set_quality(encoder.get(), options.ultra_hdr_quality_,
+                                        UHDR_GAIN_MAP_IMG),
                    "uhdr_enc_set_quality(gainmap)");
+  ThrowIfUhdrError(
+      uhdr_enc_set_using_gainmap_dithering(encoder.get(),
+                                           options.ultra_hdr_dither_enabled_ ? 1 : 0),
+      "uhdr_enc_set_using_gainmap_dithering");
+  ThrowIfUhdrError(uhdr_enc_set_gainmap_scale_factor(encoder.get(), kUltraHdrGainMapScaleFactor),
+                   "uhdr_enc_set_gainmap_scale_factor");
   ThrowIfUhdrError(uhdr_enc_set_using_multi_channel_gainmap(encoder.get(), 1),
                    "uhdr_enc_set_using_multi_channel_gainmap");
   ThrowIfUhdrError(uhdr_enc_set_preset(encoder.get(), UHDR_USAGE_BEST_QUALITY),
