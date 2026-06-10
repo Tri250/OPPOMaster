@@ -73,6 +73,9 @@ class AlbumThumbnailModel : public QAbstractListModel {
   void updateThumbnailState(sl_element_id_t elementId, const QString& dataUrl,
                             bool loading, bool missingSource, const QString& errorText);
 
+  /// Patch rating for the currently loaded row — emits dataChanged for Rating only.
+  bool updateRating(sl_element_id_t elementId, image_id_t imageId, int rating);
+
   /// QML helper: return a QVariantMap for the row at @p index, or empty map.
   Q_INVOKABLE QVariantMap getItemAt(int index) const;
 

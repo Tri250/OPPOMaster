@@ -179,6 +179,25 @@ TEST_F(RatingTests, GetImageRating_ReflectsCurrentRatingForContextMenuState) {
   EXPECT_EQ(thumbs.front().toMap().value("rating").toInt(), 3);
 }
 
+TEST_F(RatingTests, SetImageRating_UpdatesLoadedThumbnailWithoutModelReset) {
+  const auto seeded = CreateSeededPackedProject(temp_dir_, 0);
+  ASSERT_TRUE(seeded.has_value());
+
+  AlbumBackend backend;
+  ASSERT_TRUE(LoadPackedProject(backend, seeded->packed_path_));
+
+  auto* model = qobject_cast<AlbumThumbnailModel*>(backend.ThumbnailModel());
+  ASSERT_NE(model, nullptr);
+  QSignalSpy model_reset_spy(model, SIGNAL(modelReset()));
+
+  const QVariantMap result = backend.SetImageRating(seeded->element_id_, seeded->image_id_, 4);
+  ASSERT_TRUE(result.value("success").toBool()) << result.value("message").toString().toStdString();
+
+  EXPECT_EQ(model_reset_spy.count(), 0);
+  ASSERT_EQ(model->count(), 1);
+  EXPECT_EQ(model->getItemAt(0).value("rating").toInt(), 4);
+}
+
 TEST_F(RatingTests, ImageMetadata_NormalizesRatingToFiveStarStandard) {
   ExifDisplayMetaData metadata;
   metadata.FromJson({{"Rating", 99}});

@@ -172,6 +172,41 @@ void AlbumThumbnailModel::updateThumbnailState(sl_element_id_t elementId, const 
   emit thumbnailUpdated(static_cast<uint>(elementId), dataUrl, loading, missingSource, errorText);
 }
 
+bool AlbumThumbnailModel::updateRating(sl_element_id_t elementId, image_id_t imageId, int rating) {
+  bool updated = false;
+
+  auto update_row = [&](int row) {
+    if (row < 0 || row >= static_cast<int>(rows_.size())) {
+      return;
+    }
+    auto& item = rows_[static_cast<size_t>(row)];
+    if (imageId != 0 && item.image_id != imageId) {
+      return;
+    }
+    if (item.rating == rating) {
+      return;
+    }
+
+    item.rating = rating;
+    const QModelIndex idx = index(row);
+    emit dataChanged(idx, idx, {Rating});
+    updated = true;
+  };
+
+  if (elementId != 0) {
+    update_row(rowByElementId(static_cast<uint>(elementId)));
+    return updated;
+  }
+
+  if (imageId == 0) {
+    return false;
+  }
+  for (int row = 0; row < static_cast<int>(rows_.size()); ++row) {
+    update_row(row);
+  }
+  return updated;
+}
+
 QVariantMap AlbumThumbnailModel::getItemAt(int idx) const {
   if (idx < 0 || idx >= static_cast<int>(rows_.size())) return {};
   const auto& item = rows_[static_cast<size_t>(idx)];
