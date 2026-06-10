@@ -40,6 +40,25 @@ auto PackageContainsOperator(const AdjustmentTransferPackage& package, OperatorT
   return false;
 }
 
+auto MakeCustomOdtParams() -> nlohmann::json {
+  auto params = pipeline_defaults::MakeDefaultODTParams();
+  auto& odt   = params["odt"];
+  odt["method"]                                        = "open_drt";
+  odt["encoding_space"]                                = "rec2020";
+  odt["encoding_eotf"]                                 = "st2084";
+  odt["peak_luminance"]                                = 400.0f;
+  odt["open_drt"]["look_preset"]                       = "umbra";
+  odt["open_drt"]["tonescale_preset"]                  = "aces_2_0";
+  odt["open_drt"]["creative_white"]                    = "d60";
+  odt["open_drt"]["creative_white_limit"]              = 0.42f;
+  odt["open_drt"]["display_grey_luminance"]            = 14.0f;
+  odt["open_drt"]["hdr_grey_boost"]                    = 0.25f;
+  odt["open_drt"]["hdr_purity"]                        = 0.7f;
+  odt["open_drt"]["parameters"]["tn_con"]              = 1.85f;
+  odt["open_drt"]["parameters"]["ptm_high"]            = -0.65f;
+  return params;
+}
+
 class AdjustmentTransferServiceTest : public ::testing::Test {
  protected:
   std::filesystem::path db_path_;
@@ -325,6 +344,99 @@ TEST_F(AdjustmentTransferServiceTest, VersionedApplyCreatesActiveCheckoutVersion
   EXPECT_EQ(second_active.GetDisplayName(), "Pasted Adjustments (2)");
   EXPECT_EQ(second_active.GetAllEditTransactions().size(), 2u);
   history_service.SaveHistory(second_history);
+}
+
+TEST_F(AdjustmentTransferServiceTest, VersionedApplyPersistsOutputTransformForEditorReopen) {
+  constexpr sl_element_id_t source_id = 41;
+  constexpr sl_element_id_t target_id = 42;
+
+  ProjectService         project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
+  PipelineMgmtService    pipeline_service(project.GetStorageService());
+  EditHistoryMgmtService history_service(project.GetStorageService());
+
+  {
+    auto source_pipeline = pipeline_service.LoadPipeline(source_id);
+    ASSERT_NE(source_pipeline, nullptr);
+    ASSERT_NE(source_pipeline->pipeline_, nullptr);
+    auto& global = source_pipeline->pipeline_->GetGlobalParams();
+    source_pipeline->pipeline_->GetStage(PipelineStageName::Output_Transform)
+        .SetOperator(OperatorType::ODT, MakeCustomOdtParams(), global);
+    source_pipeline->pipeline_->GetStage(PipelineStageName::Output_Transform)
+        .EnableOperator(OperatorType::ODT, true, global);
+    source_pipeline->dirty_ = true;
+    pipeline_service.SavePipeline(source_pipeline);
+  }
+
+  {
+    auto target_pipeline = pipeline_service.LoadPipeline(target_id);
+    ASSERT_NE(target_pipeline, nullptr);
+    ASSERT_NE(target_pipeline->pipeline_, nullptr);
+    target_pipeline->dirty_ = true;
+    pipeline_service.SavePipeline(target_pipeline);
+  }
+  pipeline_service.Sync();
+
+  auto source_pipeline = pipeline_service.LoadPipeline(source_id);
+  ASSERT_NE(source_pipeline, nullptr);
+  ASSERT_NE(source_pipeline->pipeline_, nullptr);
+  const auto package = AdjustmentTransferService::Capture(*source_pipeline->pipeline_);
+  ASSERT_TRUE(PackageContainsOperator(package, OperatorType::ODT));
+  pipeline_service.SavePipeline(source_pipeline);
+
+  const sl_element_id_t ids[] = {target_id};
+  const auto result = AdjustmentTransferService::Apply(
+      pipeline_service, history_service, std::span<const sl_element_id_t>(ids), package,
+      "Pasted Adjustments");
+  ASSERT_EQ(result.failures_.size(), 0u);
+  ASSERT_EQ(result.applied_ids_.size(), 1u);
+
+  auto target_pipeline = pipeline_service.LoadPipeline(target_id);
+  ASSERT_NE(target_pipeline, nullptr);
+  ASSERT_NE(target_pipeline->pipeline_, nullptr);
+  const auto live_odt =
+      OperatorParamsFor(*target_pipeline->pipeline_, PipelineStageName::Output_Transform,
+                        OperatorType::ODT);
+  EXPECT_EQ(live_odt["odt"]["encoding_space"], "rec2020");
+  EXPECT_EQ(live_odt["odt"]["encoding_eotf"], "st2084");
+  EXPECT_DOUBLE_EQ(live_odt["odt"]["peak_luminance"].get<double>(), 400.0);
+  EXPECT_EQ(live_odt["odt"]["open_drt"]["look_preset"], "umbra");
+  EXPECT_EQ(live_odt["odt"]["open_drt"]["tonescale_preset"], "aces_2_0");
+  EXPECT_EQ(live_odt["odt"]["open_drt"]["creative_white"], "d60");
+  EXPECT_NEAR(live_odt["odt"]["open_drt"]["parameters"]["tn_con"].get<double>(), 1.85, 1e-6);
+  pipeline_service.SavePipeline(target_pipeline);
+
+  auto history = history_service.LoadHistory(target_id);
+  ASSERT_NE(history, nullptr);
+  ASSERT_NE(history->history_, nullptr);
+  const auto reconstructed =
+      history->history_->ReconstructPipelineParamsForVersion(history->history_->GetActiveVersionID());
+  ASSERT_TRUE(reconstructed.has_value());
+  CPUPipelineExecutor reconstructed_pipeline;
+  reconstructed_pipeline.ImportPipelineParams(*reconstructed);
+  const auto reconstructed_odt =
+      OperatorParamsFor(reconstructed_pipeline, PipelineStageName::Output_Transform,
+                        OperatorType::ODT);
+  EXPECT_EQ(reconstructed_odt["odt"]["encoding_space"], "rec2020");
+  EXPECT_EQ(reconstructed_odt["odt"]["encoding_eotf"], "st2084");
+  EXPECT_DOUBLE_EQ(reconstructed_odt["odt"]["peak_luminance"].get<double>(), 400.0);
+  EXPECT_EQ(reconstructed_odt["odt"]["open_drt"]["look_preset"], "umbra");
+  history_service.SaveHistory(history);
+
+  pipeline_service.Sync();
+  history_service.Sync();
+
+  PipelineMgmtService reopened_pipeline_service(project.GetStorageService());
+  auto reopened_pipeline = reopened_pipeline_service.LoadPipeline(target_id);
+  ASSERT_NE(reopened_pipeline, nullptr);
+  ASSERT_NE(reopened_pipeline->pipeline_, nullptr);
+  const auto reopened_odt =
+      OperatorParamsFor(*reopened_pipeline->pipeline_, PipelineStageName::Output_Transform,
+                        OperatorType::ODT);
+  EXPECT_EQ(reopened_odt["odt"]["encoding_space"], "rec2020");
+  EXPECT_EQ(reopened_odt["odt"]["encoding_eotf"], "st2084");
+  EXPECT_DOUBLE_EQ(reopened_odt["odt"]["peak_luminance"].get<double>(), 400.0);
+  EXPECT_EQ(reopened_odt["odt"]["open_drt"]["look_preset"], "umbra");
+  reopened_pipeline_service.SavePipeline(reopened_pipeline);
 }
 
 }  // namespace

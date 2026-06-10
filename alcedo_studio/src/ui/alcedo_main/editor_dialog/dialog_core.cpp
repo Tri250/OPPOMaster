@@ -507,7 +507,12 @@ void EditorDialog::BuildToneControlPanel() {
 
   const auto default_lut_path = look_panel_ ? look_panel_->DefaultLutPath() : std::string{};
 
-  // If the pipeline already has operator params (loaded from PipelineService/storage),
+  // Seed a working version from the latest committed one (if any) before reading panel state.
+  if (history_coordinator_) {
+    history_coordinator_->SeedWorkingVersionFromActive();
+  }
+
+  // If the pipeline already has operator params (loaded from PipelineService/storage or history),
   // initialize UI state from those params rather than overwriting them.
   const bool loaded_state_from_pipeline = LoadStateFromPipelineIfPresent();
   if (!loaded_state_from_pipeline) {
@@ -516,11 +521,6 @@ void EditorDialog::BuildToneControlPanel() {
     UpdateAllCdlWheelDerivedColors(state_);
   }
   committed_state_ = state_;
-
-  // Seed a working version from the latest committed one (if any).
-  if (history_coordinator_) {
-    history_coordinator_->SeedWorkingVersionFromActive();
-  }
   ToneControlPanelWidget::Dependencies deps{
       .session                = adjustment_session_.get(),
       .panel_layout           = controls_layout_,
