@@ -12,6 +12,7 @@ using local_tone_mapping::ApplyReferenceCurve;
 using local_tone_mapping::BuildAdjustedResultCacheKey;
 using local_tone_mapping::BuildRoiAdjustedResultCacheKey;
 using local_tone_mapping::BuildSamples;
+using local_tone_mapping::CanReuseReferenceForRoi;
 using local_tone_mapping::ComputeLevelCount;
 using local_tone_mapping::ComputeMaskDimensions;
 using local_tone_mapping::DetailAlpha;

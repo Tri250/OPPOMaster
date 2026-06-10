@@ -618,9 +618,9 @@ void MetalStage::Execute(const FusedOperatorParams& params, MTL::Buffer* fused_p
       cached_key_ = reference_cache_key;
     }
   };
-  if (roi_frame_with_source_reference && reference_source_cache_valid &&
-      cached_frame_width_ == params.render_roi_reference_width_ &&
-      cached_frame_height_ == params.render_roi_reference_height_) {
+  if (CanReuseReferenceForRoi(roi_frame_with_source_reference, reference_source_cache_valid,
+                              params.render_roi_reference_width_,
+                              params.render_roi_reference_height_)) {
     const auto apply_start = std::chrono::steady_clock::now();
     ensure_reference_output();
     EncodeApplyAdjustedLFromReference(command_buffer, src, dst, fused_params_buffer);

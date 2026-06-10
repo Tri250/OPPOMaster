@@ -700,6 +700,15 @@ struct GPU_HighlightShadowLocalToneStage {
     return ::alcedo::local_tone_mapping::BuildRoiAdjustedResultCacheKey(params, base_key);
   }
 
+  static auto CanReuseReferenceForRoi(const GPUOperatorParams& params,
+                                      bool reference_source_cache_valid) -> bool {
+    return ::alcedo::local_tone_mapping::CanReuseReferenceForRoi(
+        params.render_roi_enabled_ && params.render_roi_reference_width_ > 0 &&
+            params.render_roi_reference_height_ > 0,
+        reference_source_cache_valid, params.render_roi_reference_width_,
+        params.render_roi_reference_height_);
+  }
+
   struct MaskDimensions {
     int width = 1;
     int height = 1;
@@ -964,9 +973,7 @@ struct GPU_HighlightShadowLocalToneStage {
         cached_key_ = reference_cache_key;
       }
     };
-    if (roi_frame_with_source_reference && reference_source_cache_valid &&
-        cached_frame_width_ == params.render_roi_reference_width_ &&
-        cached_frame_height_ == params.render_roi_reference_height_) {
+    if (CanReuseReferenceForRoi(params, reference_source_cache_valid)) {
       ensure_reference_output();
       HsApplyAdjustedDeltaLFromReferenceKernel<<<grid, block, 0, stream>>>(
           src, source_levels_[0], output_levels_[0], dst, width, height, pitch_elems,

@@ -100,6 +100,14 @@ inline auto BuildRoiAdjustedResultCacheKey(const Params& params, std::uint64_t b
   return key;
 }
 
+inline auto CanReuseReferenceForRoi(bool roi_frame_with_source_reference,
+                                    bool reference_source_cache_valid,
+                                    int roi_reference_width,
+                                    int roi_reference_height) -> bool {
+  return roi_frame_with_source_reference && reference_source_cache_valid &&
+         roi_reference_width > 0 && roi_reference_height > 0;
+}
+
 inline auto ComputeMaskDimensions(int width, int height, int max_long_edge) -> MaskDimensions {
   const float scale = std::min(1.0f, static_cast<float>(std::max(1, max_long_edge)) /
                                          static_cast<float>(std::max(width, height)));

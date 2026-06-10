@@ -140,6 +140,35 @@ TEST(LocalToneMappingContractTest, CacheKeysTrackAmountsFlagsAndRoi) {
   EXPECT_NE(roi_key, tone::BuildRoiAdjustedResultCacheKey(params, base));
 }
 
+TEST(LocalToneMappingContractTest, RoiReferenceReuseDoesNotRequireSamePresentationSize) {
+  EXPECT_TRUE(tone::CanReuseReferenceForRoi(
+      /*roi_frame_with_source_reference=*/true,
+      /*reference_source_cache_valid=*/true,
+      /*roi_reference_width=*/4096,
+      /*roi_reference_height=*/2731));
+  EXPECT_TRUE(tone::CanReuseReferenceForRoi(
+      /*roi_frame_with_source_reference=*/true,
+      /*reference_source_cache_valid=*/true,
+      /*roi_reference_width=*/2560,
+      /*roi_reference_height=*/1707));
+
+  EXPECT_FALSE(tone::CanReuseReferenceForRoi(
+      /*roi_frame_with_source_reference=*/true,
+      /*reference_source_cache_valid=*/false,
+      /*roi_reference_width=*/4096,
+      /*roi_reference_height=*/2731));
+  EXPECT_FALSE(tone::CanReuseReferenceForRoi(
+      /*roi_frame_with_source_reference=*/false,
+      /*reference_source_cache_valid=*/true,
+      /*roi_reference_width=*/4096,
+      /*roi_reference_height=*/2731));
+  EXPECT_FALSE(tone::CanReuseReferenceForRoi(
+      /*roi_frame_with_source_reference=*/true,
+      /*reference_source_cache_valid=*/true,
+      /*roi_reference_width=*/0,
+      /*roi_reference_height=*/2731));
+}
+
 TEST(LocalToneMappingContractTest, ShaderMirrorConstantsMatchSharedContract) {
   const auto opencl = ReadSourceFile(SourcePath("edit/pipeline/opencl_shader/tone_mapping.cl"));
   const auto metal =

@@ -408,9 +408,9 @@ void OpenClStage::Execute(const FusedOperatorParams& params, cl_mem fused_params
       cached_key_ = reference_cache_key;
     }
   };
-  if (roi_frame_with_source_reference && reference_source_cache_valid &&
-      cached_frame_width_ == params.render_roi_reference_width_ &&
-      cached_frame_height_ == params.render_roi_reference_height_) {
+  if (CanReuseReferenceForRoi(roi_frame_with_source_reference, reference_source_cache_valid,
+                              params.render_roi_reference_width_,
+                              params.render_roi_reference_height_)) {
     ensure_reference_output();
     EnqueueApplyAdjustedLFromReference(src, dst, fused_params_buffer);
     return;
