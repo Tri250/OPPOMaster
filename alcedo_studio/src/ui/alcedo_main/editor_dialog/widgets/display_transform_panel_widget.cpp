@@ -5,6 +5,7 @@
 #include "ui/alcedo_main/editor_dialog/widgets/display_transform_panel_widget.hpp"
 
 #include <QKeyEvent>
+#include <QLayout>
 #include <QSignalBlocker>
 #include <algorithm>
 #include <cmath>
@@ -192,6 +193,38 @@ class AccordionHeader final : public QFrame {
   std::function<void()> on_activated_{};
 };
 
+auto OpenDrtDetailSpinBoxStyle() -> QString {
+  const auto&  theme  = AppTheme::Instance();
+  const QColor bg     = theme.bgPanelColor();
+  const QColor text   = theme.textColor();
+  const QColor muted  = theme.textMutedColor();
+  const QColor border = theme.glassStrokeColor();
+  const QColor accent = theme.accentColor();
+  return QStringLiteral("QDoubleSpinBox {"
+                        "  background: %1;"
+                        "  color: %2;"
+                        "  border: 1px solid %3;"
+                        "  border-radius: 7px;"
+                        "  padding: 3px 7px;"
+                        "}"
+                        "QDoubleSpinBox:hover {"
+                        "  border-color: %4;"
+                        "}"
+                        "QDoubleSpinBox:focus {"
+                        "  border: 1px solid %5;"
+                        "}"
+                        "QDoubleSpinBox:disabled {"
+                        "  color: %6;"
+                        "}"
+                        "QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {"
+                        "  width: 0px;"
+                        "}")
+      .arg(bg.name(QColor::HexArgb), text.name(QColor::HexRgb), border.name(QColor::HexArgb),
+           QColor(border.red(), border.green(), border.blue(), 196).name(QColor::HexArgb),
+           QColor(accent.red(), accent.green(), accent.blue(), 224).name(QColor::HexArgb),
+           muted.name(QColor::HexRgb));
+}
+
 }  // namespace
 
 void DisplayTransformPanelWidget::Build() {
@@ -281,10 +314,9 @@ void DisplayTransformPanelWidget::Build() {
     auto* spin = new QSpinBox(this);
     spin->setRange(min, max);
     spin->setValue(value);
-    spin->setSuffix(suffix);
     spin->setStyleSheet(AppTheme::EditorSpinBoxStyle());
     AppTheme::MarkFontRole(spin, AppTheme::FontRole::DataBody);
-    spin->setFixedWidth(80);
+    spin->setFixedWidth(58);
     spin->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
 
     QObject::connect(slider, &QSlider::valueChanged, this, [this, spin, onChange](int v) {
@@ -341,6 +373,14 @@ void DisplayTransformPanelWidget::Build() {
     value_row_layout->setSpacing(8);
     value_row_layout->addWidget(slider, 1);
     value_row_layout->addWidget(spin, 0);
+    const QString unit_text = suffix.trimmed().toUpper();
+    if (!unit_text.isEmpty()) {
+      auto* unit_label = new QLabel(unit_text, value_row);
+      unit_label->setStyleSheet(AppTheme::EditorLabelStyle(AppTheme::Instance().textMutedColor()));
+      AppTheme::MarkFontRole(unit_label, AppTheme::FontRole::DataCaption);
+      unit_label->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+      value_row_layout->addWidget(unit_label, 0);
+    }
     rowLayout->addWidget(value_row, 1);
 
     deps_.panel_layout->insertWidget(deps_.panel_layout->count() - 1, row);
@@ -375,7 +415,7 @@ void DisplayTransformPanelWidget::Build() {
     spin->setSingleStep(static_cast<double>(step));
     spin->setValue(value);
     spin->setSuffix(suffix);
-    spin->setStyleSheet(AppTheme::EditorSpinBoxStyle());
+    spin->setStyleSheet(OpenDrtDetailSpinBoxStyle());
     AppTheme::MarkFontRole(spin, AppTheme::FontRole::DataCaption);
     spin->setFixedSize(82, 24);
     spin->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
@@ -507,13 +547,18 @@ void DisplayTransformPanelWidget::Build() {
       " nits");
 
   {
-    auto* frame = new QFrame(this);
-    frame->setObjectName("EditorSection");
+    auto* frame = new QWidget(this);
+    frame->setObjectName("EditorMethodSection");
+    frame->setAttribute(Qt::WA_StyledBackground, true);
+    frame->setStyleSheet(QStringLiteral("QWidget#EditorMethodSection {"
+                                        "  background: transparent;"
+                                        "  border: none;"
+                                        "}"));
     auto* layout = new QVBoxLayout(frame);
-    layout->setContentsMargins(12, 12, 12, 12);
-    layout->setSpacing(10);
+    layout->setContentsMargins(0, 8, 0, 2);
+    layout->setSpacing(8);
 
-    auto* title = NewLocalizedLabel("Rendering Method", frame);
+    auto* title = NewLocalizedLabel("Rendering Method", frame, true);
     title->setObjectName("EditorSectionTitle");
     auto* sub = NewLocalizedLabel(
         "Choose the transform family. Shared encoding settings stay above; method-specific "
@@ -523,6 +568,16 @@ void DisplayTransformPanelWidget::Build() {
     sub->setWordWrap(true);
     layout->addWidget(title, 0);
     layout->addWidget(sub, 0);
+
+    auto* divider = new QFrame(frame);
+    divider->setFrameShape(QFrame::HLine);
+    divider->setFixedHeight(1);
+    const QColor divider_color = AppTheme::Instance().dividerColor();
+    divider->setStyleSheet(
+        QStringLiteral("QFrame { background: %1; border: none; }")
+            .arg(QColor(divider_color.red(), divider_color.green(), divider_color.blue(), 110)
+                     .name(QColor::HexArgb)));
+    layout->addWidget(divider, 0);
 
     auto* cards_row    = new QWidget(frame);
     auto* cards_layout = new QVBoxLayout(cards_row);
@@ -955,8 +1010,18 @@ void DisplayTransformPanelWidget::RefreshOdtMethodUi() {
   if (odt_method_stack_) {
     odt_method_stack_->setCurrentIndex(aces_active ? 0 : 1);
     if (QWidget* current_page = odt_method_stack_->currentWidget()) {
+      current_page->ensurePolished();
+      if (QLayout* page_layout = current_page->layout()) {
+        page_layout->activate();
+      }
       current_page->adjustSize();
-      const int page_height = std::max(1, current_page->sizeHint().height());
+      int page_height =
+          std::max(current_page->sizeHint().height(), current_page->minimumSizeHint().height());
+      if (QLayout* page_layout = current_page->layout()) {
+        page_height = std::max(page_height, page_layout->sizeHint().height());
+        page_height = std::max(page_height, page_layout->minimumSize().height());
+      }
+      page_height = std::max(1, page_height + 6);
       odt_method_stack_->setMinimumHeight(page_height);
       odt_method_stack_->setMaximumHeight(page_height);
     }

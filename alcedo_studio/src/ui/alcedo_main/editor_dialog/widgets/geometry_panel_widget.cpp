@@ -292,6 +292,38 @@ auto AddGeometrySection(QWidget* parent, QVBoxLayout& layout, const char* title_
   return v;
 }
 
+auto GeometryRatioSpinStyle() -> QString {
+  const auto&  theme  = AppTheme::Instance();
+  const QColor bg     = theme.bgPanelColor();
+  const QColor text   = theme.textColor();
+  const QColor muted  = theme.textMutedColor();
+  const QColor border = theme.glassStrokeColor();
+  const QColor accent = theme.accentColor();
+  return QStringLiteral("QDoubleSpinBox {"
+                        "  background: %1;"
+                        "  color: %2;"
+                        "  border: 1px solid %3;"
+                        "  border-radius: 8px;"
+                        "  padding: 4px 8px;"
+                        "}"
+                        "QDoubleSpinBox:hover {"
+                        "  border-color: %4;"
+                        "}"
+                        "QDoubleSpinBox:focus {"
+                        "  border: 1px solid %5;"
+                        "}"
+                        "QDoubleSpinBox:disabled {"
+                        "  color: %6;"
+                        "}"
+                        "QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {"
+                        "  width: 0px;"
+                        "}")
+      .arg(bg.name(QColor::HexArgb), text.name(QColor::HexRgb), border.name(QColor::HexArgb),
+           QColor(border.red(), border.green(), border.blue(), 196).name(QColor::HexArgb),
+           QColor(accent.red(), accent.green(), accent.blue(), 224).name(QColor::HexArgb),
+           muted.name(QColor::HexRgb));
+}
+
 }  // namespace
 
 void GeometryPanelWidget::BuildCropAspectSection() {
@@ -428,7 +460,7 @@ void GeometryPanelWidget::BuildCropAspectSection() {
     spin->setValue(value);
     spin->setPrefix(prefix);
     spin->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    spin->setStyleSheet(AppTheme::EditorSpinBoxStyle());
+    spin->setStyleSheet(GeometryRatioSpinStyle());
     spin->setButtonSymbols(QAbstractSpinBox::NoButtons);
     spin->setFixedHeight(kControlHeight);
     spin->setMinimumWidth(0);
