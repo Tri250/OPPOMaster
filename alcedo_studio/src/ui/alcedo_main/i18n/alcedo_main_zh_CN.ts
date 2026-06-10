@@ -3072,6 +3072,94 @@ Original source files on disk will be kept.</source>
     </message>
 </context>
 <context>
+    <name>AdjustmentTransferDialog</name>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="108"/>
+        <source>Copy Adjustments</source>
+        <translation>复制调整</translation>
+    </message>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="108"/>
+        <source>Paste Adjustments</source>
+        <translation>粘贴调整</translation>
+    </message>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="114"/>
+        <source>Choose the adjustments to copy from %1.</source>
+        <translation>选择要从 %1 复制的调整。</translation>
+    </message>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="115"/>
+        <source>Choose the adjustments to copy.</source>
+        <translation>选择要复制的调整。</translation>
+    </message>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="117"/>
+        <source>Apply these copied adjustments to %1 selected images?</source>
+        <translation>将这些复制的调整应用到 %1 张已选图像？</translation>
+    </message>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="204"/>
+        <source>Strategy</source>
+        <translation>策略</translation>
+    </message>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="251"/>
+        <source>Merge</source>
+        <translation>合并</translation>
+    </message>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="272"/>
+        <source>Paste</source>
+        <translation>粘贴</translation>
+    </message>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="297"/>
+        <source>Merge creates a clean merged version from the target's current adjustments plus the copied adjustments, with copied values taking priority. Paste keeps the copied adjustments as new edit steps in a pasted version.</source>
+        <translation>合并会基于目标当前调整和复制来的调整创建一个干净的合并版本，复制来的同名参数优先。粘贴会把复制来的调整作为新的编辑步骤写入一个粘贴版本。</translation>
+    </message>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="406"/>
+        <source>%1 selected</source>
+        <translation>已选择 %1 项</translation>
+    </message>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="407"/>
+        <source>%1 adjustments</source>
+        <translation>%1 项调整</translation>
+    </message>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="415"/>
+        <source>Select all</source>
+        <translation>全选</translation>
+    </message>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="423"/>
+        <source>Unselect all</source>
+        <translation>取消全选</translation>
+    </message>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="429"/>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="429"/>
+        <source>No</source>
+        <translation>否</translation>
+    </message>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="439"/>
+        <source>OK</source>
+        <translation>确定</translation>
+    </message>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="439"/>
+        <source>Yes</source>
+        <translation>是</translation>
+    </message>
+</context>
+<context>
     <name>alcedo::ui::AppTheme</name>
     <message>
         <location filename="../app_theme.cpp" line="940"/>

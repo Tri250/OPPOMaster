@@ -18,6 +18,7 @@ Dialog {
     y: parent ? Math.round((parent.height - height) / 2) : 0
 
     property string mode: "copy"
+    property string pasteStrategy: "merge"
     property string sourceTitle: ""
     property int targetCount: 0
     property var adjustmentRows: []
@@ -25,7 +26,7 @@ Dialog {
     property real cornerRadius: 0
 
     signal copyAccepted(var selectedKeys)
-    signal pasteAccepted()
+    signal pasteAccepted(string strategy)
     signal pasteDiscarded()
 
     readonly property bool copyMode: mode === "copy"
@@ -37,6 +38,7 @@ Dialog {
     readonly property color textColor: appTheme.textColor
     readonly property color mutedTextColor: appTheme.textMutedColor
     readonly property color accentColor: appTheme.accentColor
+    readonly property color selectedStrategyTextColor: appTheme.bgBaseColor
     readonly property int selectedCount: {
         let count = 0
         for (let i = 0; i < adjustmentRows.length; ++i) {
@@ -58,6 +60,23 @@ Dialog {
         return keys
     }
 
+    function restoreListScroll(contentY) {
+        Qt.callLater(function() {
+            if (!listView) {
+                return
+            }
+            const minY = listView.originY
+            const maxY = Math.max(minY, listView.contentHeight - listView.height)
+            listView.contentY = Math.max(minY, Math.min(contentY, maxY))
+        })
+    }
+
+    function setRowsPreservingScroll(rows) {
+        const contentY = listView ? listView.contentY : 0
+        adjustmentRows = rows
+        restoreListScroll(contentY)
+    }
+
     function setRowChecked(index, checked) {
         if (index < 0 || index >= adjustmentRows.length) {
             return
@@ -66,7 +85,23 @@ Dialog {
         const row = Object.assign({}, next[index])
         row.checked = checked
         next[index] = row
-        adjustmentRows = next
+        setRowsPreservingScroll(next)
+    }
+
+    function setAllRowsChecked(checked) {
+        const next = []
+        let changed = false
+        for (let i = 0; i < adjustmentRows.length; ++i) {
+            const row = Object.assign({}, adjustmentRows[i])
+            if (row.checked !== checked) {
+                row.checked = checked
+                changed = true
+            }
+            next.push(row)
+        }
+        if (changed) {
+            setRowsPreservingScroll(next)
+        }
     }
 
     function titleText() {
@@ -152,6 +187,117 @@ Dialog {
                 text: dialog.subtitleText()
                 color: dialog.mutedTextColor
                 font.pixelSize: 12
+                wrapMode: Text.WordWrap
+            }
+        }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            visible: !dialog.copyMode
+            spacing: 6
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                Label {
+                    text: qsTr("Strategy")
+                    color: dialog.mutedTextColor
+                    font.pixelSize: 12
+                    Layout.alignment: Qt.AlignVCenter
+                }
+
+                Rectangle {
+                    id: strategySwitch
+                    Layout.preferredWidth: 230
+                    Layout.preferredHeight: 34
+                    radius: height / 2
+                    color: Qt.rgba(0, 0, 0, 0.18)
+                    border.width: 1
+                    border.color: dialog.borderColor
+                    clip: true
+
+                    HoverHandler {
+                        id: strategyHover
+                    }
+
+                    Rectangle {
+                        width: (strategySwitch.width - 4) / 2
+                        height: strategySwitch.height - 4
+                        x: dialog.pasteStrategy === "merge" ? 2 : strategySwitch.width / 2
+                        y: 2
+                        radius: height / 2
+                        color: dialog.accentColor
+
+                        Behavior on x {
+                            NumberAnimation {
+                                duration: 160
+                                easing.type: Easing.OutCubic
+                            }
+                        }
+                    }
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.margins: 2
+                        spacing: 0
+
+                        Item {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+
+                            Label {
+                                anchors.centerIn: parent
+                                text: qsTr("Merge")
+                                color: dialog.pasteStrategy === "merge"
+                                       ? dialog.selectedStrategyTextColor
+                                       : dialog.textColor
+                                font.pixelSize: 12
+                                font.weight: dialog.pasteStrategy === "merge" ? 700 : 500
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: dialog.pasteStrategy = "merge"
+                            }
+                        }
+
+                        Item {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+
+                            Label {
+                                anchors.centerIn: parent
+                                text: qsTr("Paste")
+                                color: dialog.pasteStrategy === "paste"
+                                       ? dialog.selectedStrategyTextColor
+                                       : dialog.textColor
+                                font.pixelSize: 12
+                                font.weight: dialog.pasteStrategy === "paste" ? 700 : 500
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: dialog.pasteStrategy = "paste"
+                            }
+                        }
+                    }
+                }
+
+                Item {
+                    Layout.fillWidth: true
+                }
+            }
+
+            Label {
+                Layout.fillWidth: true
+                visible: strategyHover.hovered
+                text: qsTr("Merge creates a clean merged version from the target's current adjustments plus the copied adjustments, with copied values taking priority. Paste keeps the copied adjustments as new edit steps in a pasted version.")
+                color: dialog.mutedTextColor
+                font.pixelSize: 11
+                lineHeight: 1.25
                 wrapMode: Text.WordWrap
             }
         }
@@ -265,6 +411,21 @@ Dialog {
             }
 
             Button {
+                visible: dialog.copyMode
+                text: qsTr("Select all")
+                enabled: dialog.adjustmentRows.length > 0
+                         && dialog.selectedCount < dialog.adjustmentRows.length
+                onClicked: dialog.setAllRowsChecked(true)
+            }
+
+            Button {
+                visible: dialog.copyMode
+                text: qsTr("Unselect all")
+                enabled: dialog.selectedCount > 0
+                onClicked: dialog.setAllRowsChecked(false)
+            }
+
+            Button {
                 text: dialog.copyMode ? qsTr("Cancel") : qsTr("No")
                 onClicked: {
                     if (!dialog.copyMode) {
@@ -281,7 +442,7 @@ Dialog {
                     if (dialog.copyMode) {
                         dialog.copyAccepted(dialog.selectedKeys())
                     } else {
-                        dialog.pasteAccepted()
+                        dialog.pasteAccepted(dialog.pasteStrategy)
                     }
                     dialog.close()
                 }

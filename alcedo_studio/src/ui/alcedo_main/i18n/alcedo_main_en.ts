@@ -2015,6 +2015,94 @@ Original source files on disk will be kept.</source>
     </message>
 </context>
 <context>
+    <name>AdjustmentTransferDialog</name>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="108"/>
+        <source>Copy Adjustments</source>
+        <translation>Copy Adjustments</translation>
+    </message>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="108"/>
+        <source>Paste Adjustments</source>
+        <translation>Paste Adjustments</translation>
+    </message>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="114"/>
+        <source>Choose the adjustments to copy from %1.</source>
+        <translation>Choose the adjustments to copy from %1.</translation>
+    </message>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="115"/>
+        <source>Choose the adjustments to copy.</source>
+        <translation>Choose the adjustments to copy.</translation>
+    </message>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="117"/>
+        <source>Apply these copied adjustments to %1 selected images?</source>
+        <translation>Apply these copied adjustments to %1 selected images?</translation>
+    </message>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="204"/>
+        <source>Strategy</source>
+        <translation>Strategy</translation>
+    </message>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="251"/>
+        <source>Merge</source>
+        <translation>Merge</translation>
+    </message>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="272"/>
+        <source>Paste</source>
+        <translation>Paste</translation>
+    </message>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="297"/>
+        <source>Merge creates a clean merged version from the target's current adjustments plus the copied adjustments, with copied values taking priority. Paste keeps the copied adjustments as new edit steps in a pasted version.</source>
+        <translation>Merge creates a clean merged version from the target's current adjustments plus the copied adjustments, with copied values taking priority. Paste keeps the copied adjustments as new edit steps in a pasted version.</translation>
+    </message>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="406"/>
+        <source>%1 selected</source>
+        <translation>%1 selected</translation>
+    </message>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="407"/>
+        <source>%1 adjustments</source>
+        <translation>%1 adjustments</translation>
+    </message>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="415"/>
+        <source>Select all</source>
+        <translation>Select all</translation>
+    </message>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="423"/>
+        <source>Unselect all</source>
+        <translation>Unselect all</translation>
+    </message>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="429"/>
+        <source>Cancel</source>
+        <translation>Cancel</translation>
+    </message>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="429"/>
+        <source>No</source>
+        <translation>No</translation>
+    </message>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="439"/>
+        <source>OK</source>
+        <translation>OK</translation>
+    </message>
+    <message>
+        <location filename="../qml/AdjustmentTransferDialog.qml" line="439"/>
+        <source>Yes</source>
+        <translation>Yes</translation>
+    </message>
+</context>
+<context>
     <name>alcedo::ui::AppTheme</name>
     <message>
         <location filename="../app_theme.cpp" line="940"/>

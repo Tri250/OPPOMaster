@@ -64,6 +64,11 @@ struct AdjustmentApplyResult {
   std::vector<AdjustmentApplyFailure> failures_;
 };
 
+enum class AdjustmentVersionApplyMode {
+  kPaste,
+  kMerge,
+};
+
 class AdjustmentTransferService final {
  public:
   AdjustmentTransferService() = delete;
@@ -92,14 +97,14 @@ class AdjustmentTransferService final {
                                   const AdjustmentTransferPackage& package)
       -> AdjustmentApplyResult;
 
-  // Creates a new active version for each changed target, appends one edit transaction per applied
-  // transfer entry, and checkouts the target image to that new version. This is the project-level
-  // paste semantic used by the album UI and external batch/CLI callers.
-  [[nodiscard]] static auto Apply(PipelineMgmtService&             pipeline_service,
-                                  EditHistoryMgmtService&          history_service,
-                                  std::span<const sl_element_id_t> target_ids,
-                                  const AdjustmentTransferPackage& package,
-                                  std::string version_display_name = "Pasted Adjustments")
+  // Creates a new active version for each changed target and checkouts the target image to that
+  // version. kPaste records one edit transaction per applied transfer entry. kMerge materializes
+  // the merged final pipeline params into a transaction-free version.
+  [[nodiscard]] static auto Apply(
+      PipelineMgmtService& pipeline_service, EditHistoryMgmtService& history_service,
+      std::span<const sl_element_id_t> target_ids, const AdjustmentTransferPackage& package,
+      std::string                version_display_name = "",
+      AdjustmentVersionApplyMode mode                 = AdjustmentVersionApplyMode::kPaste)
       -> AdjustmentApplyResult;
 };
 

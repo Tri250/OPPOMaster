@@ -346,6 +346,81 @@ TEST_F(AdjustmentTransferServiceTest, VersionedApplyCreatesActiveCheckoutVersion
   history_service.SaveHistory(second_history);
 }
 
+TEST_F(AdjustmentTransferServiceTest, VersionedMergeMaterializesCombinedParamsWithoutEdits) {
+  constexpr sl_element_id_t target_id = 42;
+
+  ProjectService         project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
+  PipelineMgmtService    pipeline_service(project.GetStorageService());
+  EditHistoryMgmtService history_service(project.GetStorageService());
+
+  const sl_element_id_t ids[] = {target_id};
+  const nlohmann::json  initial_package_json = {
+      {"schema", "alcedo.adjustment_transfer.v1"},
+      {"operators",
+       {{{"operator", "exposure"}, {"enabled", true}, {"params", {{"exposure", 0.5f}}}},
+        {{"operator", "contrast"}, {"enabled", true}, {"params", {{"contrast", 2.0f}}}},
+        {{"operator", "saturation"}, {"enabled", true}, {"params", {{"saturation", 12.0f}}}}}}};
+  const auto initial_package = AdjustmentTransferService::ImportPackage(initial_package_json);
+  const auto initial_result  = AdjustmentTransferService::Apply(
+      pipeline_service, history_service, std::span<const sl_element_id_t>(ids), initial_package,
+      "Pasted Adjustments");
+  ASSERT_EQ(initial_result.failures_.size(), 0u);
+  ASSERT_EQ(initial_result.applied_ids_.size(), 1u);
+
+  auto pasted_history = history_service.LoadHistory(target_id);
+  ASSERT_NE(pasted_history, nullptr);
+  ASSERT_NE(pasted_history->history_, nullptr);
+  const auto pasted_version_id = pasted_history->history_->GetActiveVersionID();
+  EXPECT_EQ(pasted_history->history_->GetActiveVersion().GetDisplayName(), "Pasted Adjustments");
+  EXPECT_EQ(pasted_history->history_->GetActiveVersion().GetAllEditTransactions().size(), 3u);
+  history_service.SaveHistory(pasted_history);
+
+  const nlohmann::json merge_package_json = {
+      {"schema", "alcedo.adjustment_transfer.v1"},
+      {"operators",
+       {{{"operator", "exposure"}, {"enabled", true}, {"params", {{"exposure", 1.5f}}}},
+        {{"operator", "contrast"}, {"enabled", true}, {"params", {{"contrast", -0.25f}}}}}}};
+  const auto merge_package = AdjustmentTransferService::ImportPackage(merge_package_json);
+  const auto merge_result  = AdjustmentTransferService::Apply(
+      pipeline_service, history_service, std::span<const sl_element_id_t>(ids), merge_package,
+      "Merged Adjustments", AdjustmentVersionApplyMode::kMerge);
+  ASSERT_EQ(merge_result.failures_.size(), 0u);
+  ASSERT_EQ(merge_result.applied_ids_.size(), 1u);
+
+  auto history = history_service.LoadHistory(target_id);
+  ASSERT_NE(history, nullptr);
+  ASSERT_NE(history->history_, nullptr);
+  EXPECT_EQ(history->history_->GetVersions().size(), 3u);
+
+  auto& merged = history->history_->GetActiveVersion();
+  EXPECT_EQ(merged.GetDisplayName(), "Merged Adjustments");
+  EXPECT_EQ(merged.GetAllEditTransactions().size(), 0u);
+  EXPECT_EQ(merged.GetCursor(), 0u);
+  EXPECT_EQ(merged.GetTransactionCount(), 0u);
+  EXPECT_TRUE(merged.GetFinalPipelineParams().has_value());
+
+  const auto reconstructed = history->history_->ReconstructPipelineParamsForVersion(
+      history->history_->GetActiveVersionID());
+  ASSERT_TRUE(reconstructed.has_value());
+  CPUPipelineExecutor reconstructed_pipeline;
+  reconstructed_pipeline.ImportPipelineParams(*reconstructed);
+
+  const auto exposure = OperatorParamsFor(
+      reconstructed_pipeline, PipelineStageName::Basic_Adjustment, OperatorType::EXPOSURE);
+  const auto contrast = OperatorParamsFor(
+      reconstructed_pipeline, PipelineStageName::Basic_Adjustment, OperatorType::CONTRAST);
+  const auto saturation = OperatorParamsFor(
+      reconstructed_pipeline, PipelineStageName::Color_Adjustment, OperatorType::SATURATION);
+  EXPECT_DOUBLE_EQ(exposure["exposure"].get<double>(), 1.5);
+  EXPECT_DOUBLE_EQ(contrast["contrast"].get<double>(), -0.25);
+  EXPECT_DOUBLE_EQ(saturation["saturation"].get<double>(), 12.0);
+
+  auto& pasted = history->history_->GetVersion(pasted_version_id);
+  EXPECT_EQ(pasted.GetDisplayName(), "Pasted Adjustments");
+  EXPECT_EQ(pasted.GetAllEditTransactions().size(), 3u);
+  history_service.SaveHistory(history);
+}
+
 TEST_F(AdjustmentTransferServiceTest, VersionedApplyPersistsOutputTransformForEditorReopen) {
   constexpr sl_element_id_t source_id = 41;
   constexpr sl_element_id_t target_id = 42;

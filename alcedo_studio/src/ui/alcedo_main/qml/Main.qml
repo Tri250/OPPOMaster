@@ -484,6 +484,7 @@ ApplicationWindow {
             return
         }
         adjustmentTransferDialog.mode = "paste"
+        adjustmentTransferDialog.pasteStrategy = "merge"
         adjustmentTransferDialog.sourceTitle =
                 albumBackend.adjustmentTransferController.packageSourceTitle
         adjustmentTransferDialog.targetCount = root.pendingAdjustmentPasteTargets.length
@@ -647,9 +648,10 @@ ApplicationWindow {
                 root.showSnackbar(result.message)
             }
         }
-        onPasteAccepted: {
+        onPasteAccepted: function(strategy) {
             const result = albumBackend.adjustmentTransferController.Paste(
-                root.pendingAdjustmentPasteTargets)
+                root.pendingAdjustmentPasteTargets,
+                strategy)
             if (result && result.message) {
                 root.showSnackbar(result.message)
             }

@@ -435,7 +435,8 @@ auto AdjustmentTransferController::Copy(uint elementId, const QVariantList& sele
   }
 }
 
-auto AdjustmentTransferController::Paste(const QVariantList& targetEntries) -> QVariantMap {
+auto AdjustmentTransferController::Paste(const QVariantList& targetEntries, const QString& strategy)
+    -> QVariantMap {
   if (!copied_package_.has_value()) {
     return ErrorResult(Tr("No copied adjustments."));
   }
@@ -456,9 +457,11 @@ auto AdjustmentTransferController::Paste(const QVariantList& targetEntries) -> Q
   }
 
   try {
-    const auto result = AdjustmentTransferService::Apply(
+    const bool merge_strategy = strategy != QStringLiteral("paste");
+    const auto result         = AdjustmentTransferService::Apply(
         *pipeline_service, *history_service, ids, *copied_package_,
-        Tr("Pasted Adjustments").toStdString());
+        (merge_strategy ? Tr("Merged Adjustments") : Tr("Pasted Adjustments")).toStdString(),
+        merge_strategy ? AdjustmentVersionApplyMode::kMerge : AdjustmentVersionApplyMode::kPaste);
     auto thumbnail_service = backend_.project_handler_.thumbnail_service();
     for (sl_element_id_t element_id : result.applied_ids_) {
       const auto*      item     = backend_.FindAlbumItem(element_id);
@@ -482,7 +485,8 @@ auto AdjustmentTransferController::Paste(const QVariantList& targetEntries) -> Q
                                      {"message", QString::fromStdString(failure.message_)}});
     }
 
-    QVariantMap response = SuccessResult(Tr("Adjustments pasted."));
+    QVariantMap response =
+        SuccessResult(merge_strategy ? Tr("Adjustments merged.") : Tr("Adjustments pasted."));
     response.insert("appliedCount", static_cast<int>(result.applied_ids_.size()));
     response.insert("unchangedCount", static_cast<int>(result.unchanged_ids_.size()));
     response.insert("failureCount", static_cast<int>(result.failures_.size()));
