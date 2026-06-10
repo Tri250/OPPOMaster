@@ -322,6 +322,11 @@ target_include_directories(LocalToneMappingContractTest PUBLIC ${ALCEDO_INCLUDE_
 target_link_libraries(LocalToneMappingContractTest PRIVATE GTest::gtest_main)
 gtest_discover_tests(LocalToneMappingContractTest TEST_PREFIX "LocalToneMappingContractTest.")
 
+add_executable(ToneMappingFacadeTest edit/operators/tone/tone_mapping_facade_test.cpp)
+target_include_directories(ToneMappingFacadeTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(ToneMappingFacadeTest PRIVATE GTest::gtest_main Operators)
+gtest_discover_tests(ToneMappingFacadeTest TEST_PREFIX "ToneMappingFacadeTest.")
+
 # add_executable(ContrastOPTest edit/operators/basic/contrast_op_test.cpp)
 # target_include_directories(ContrastOPTest PUBLIC ${CMAKE_SOURCE_DIR}/alcedo/src/include)
 # target_link_libraries(ContrastOPTest GTest::gtest_main Operators SleeveManager)
@@ -916,6 +921,7 @@ alcedo_assign_test_category(edit ALCEDO_BUILD_EDIT_TESTS alcedo_tests_edit
   SharedToneCurveTest
   ToneMappingOwnershipTest
   LocalToneMappingContractTest
+  ToneMappingFacadeTest
   ODTOpTest
   CropRotateOpTest
   PipelineFrameSinkTest
