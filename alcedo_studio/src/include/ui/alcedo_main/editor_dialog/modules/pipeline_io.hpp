@@ -33,7 +33,7 @@ namespace alcedo::ui::pipeline_io {
 constexpr float kBlackSliderFromGlobalScale      = 1000.0f;
 constexpr float kWhiteSliderFromGlobalScale      = 300.0f;
 constexpr float kShadowsSliderFromGlobalScale    = 80.0f / 1.5f;
-constexpr float kHighlightsSliderFromGlobalScale = 50.0f / 1.5f;
+constexpr float kHighlightsSliderFromGlobalScale = 100.0f / 1.5f;
 
 // ---------------------------------------------------------------------------
 // Low-level pipeline-stage readers.
@@ -49,6 +49,10 @@ auto ReadString(const PipelineStage& stage, OperatorType type,
                 const char* key) -> std::optional<std::string>;
 auto ReadCurvePoints(const PipelineStage& stage,
                      OperatorType type) -> std::optional<std::vector<QPointF>>;
+
+auto ResolveHighlightsSliderValue(std::optional<float> serialized_value,
+                                  std::optional<bool> enabled_value,
+                                  const OperatorParams& global_params) -> std::optional<float>;
 
 // Read the "params" sub-object from an operator in a named stage.
 auto ReadCurrentOperatorParams(CPUPipelineExecutor& exec, PipelineStageName stage_name,

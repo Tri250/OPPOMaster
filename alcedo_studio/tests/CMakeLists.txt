@@ -309,6 +309,24 @@ if(ALCEDO_CUDA_ENABLED)
   gtest_discover_tests(SharedToneCurveTest TEST_PREFIX "SharedToneCurveTest.")
 endif()
 
+add_executable(ToneMappingOwnershipTest edit/operators/tone/tone_mapping_ownership_test.cpp)
+target_compile_definitions(ToneMappingOwnershipTest
+    PRIVATE ALCEDO_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/alcedo_studio/src")
+target_link_libraries(ToneMappingOwnershipTest PRIVATE GTest::gtest_main)
+gtest_discover_tests(ToneMappingOwnershipTest TEST_PREFIX "ToneMappingOwnershipTest.")
+
+add_executable(LocalToneMappingContractTest edit/operators/tone/local_tone_mapping_contract_test.cpp)
+target_compile_definitions(LocalToneMappingContractTest
+    PRIVATE ALCEDO_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/alcedo_studio/src")
+target_include_directories(LocalToneMappingContractTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(LocalToneMappingContractTest PRIVATE GTest::gtest_main)
+gtest_discover_tests(LocalToneMappingContractTest TEST_PREFIX "LocalToneMappingContractTest.")
+
+add_executable(ToneMappingFacadeTest edit/operators/tone/tone_mapping_facade_test.cpp)
+target_include_directories(ToneMappingFacadeTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(ToneMappingFacadeTest PRIVATE GTest::gtest_main Operators)
+gtest_discover_tests(ToneMappingFacadeTest TEST_PREFIX "ToneMappingFacadeTest.")
+
 # add_executable(ContrastOPTest edit/operators/basic/contrast_op_test.cpp)
 # target_include_directories(ContrastOPTest PUBLIC ${CMAKE_SOURCE_DIR}/alcedo/src/include)
 # target_link_libraries(ContrastOPTest GTest::gtest_main Operators SleeveManager)
@@ -366,6 +384,29 @@ target_include_directories(LutCatalogTest
 )
 target_link_libraries(LutCatalogTest PRIVATE GTest::gtest_main Qt6::Core)
 gtest_discover_tests(LutCatalogTest TEST_PREFIX "LutCatalogTest.")
+
+add_executable(EditorPipelineIoTest
+    ui/editor_pipeline_io_test.cpp
+    ${ALCEDO_SRC_DIR}/ui/alcedo_main/editor_dialog/modules/pipeline_io.cpp
+    ${ALCEDO_SRC_DIR}/ui/alcedo_main/editor_dialog/modules/color_temp.cpp
+    ${ALCEDO_SRC_DIR}/ui/alcedo_main/editor_dialog/modules/color_wheel.cpp
+    ${ALCEDO_SRC_DIR}/ui/alcedo_main/editor_dialog/modules/curve.cpp
+    ${ALCEDO_SRC_DIR}/ui/alcedo_main/editor_dialog/modules/geometry.cpp
+    ${ALCEDO_SRC_DIR}/ui/alcedo_main/editor_dialog/modules/hls.cpp
+    ${ALCEDO_SRC_DIR}/ui/alcedo_main/editor_dialog/state.cpp
+)
+target_include_directories(EditorPipelineIoTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(EditorPipelineIoTest
+    PRIVATE
+        GTest::gtest_main
+        EditPipeline
+        Operators
+        JSON
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Widgets
+)
+gtest_discover_tests(EditorPipelineIoTest TEST_PREFIX "EditorPipelineIoTest.")
 
 add_executable(CropRotateOpTest edit/operators/geometry/crop_rotate_op_test.cpp)
 target_include_directories(CropRotateOpTest PUBLIC ${ALCEDO_INCLUDE_DIR})
@@ -878,6 +919,9 @@ alcedo_assign_test_category(gpu ALCEDO_BUILD_GPU_TESTS alcedo_tests_gpu
 
 alcedo_assign_test_category(edit ALCEDO_BUILD_EDIT_TESTS alcedo_tests_edit
   SharedToneCurveTest
+  ToneMappingOwnershipTest
+  LocalToneMappingContractTest
+  ToneMappingFacadeTest
   ODTOpTest
   CropRotateOpTest
   PipelineFrameSinkTest
@@ -887,6 +931,7 @@ alcedo_assign_test_category(ui ALCEDO_BUILD_UI_TESTS alcedo_tests_ui
   EditViewerLogicTest
   ToneCurveWidgetTest
   LutCatalogTest
+  EditorPipelineIoTest
   AlbumBackendImportTest
   AlbumBackendProjectTest
   AlbumBackendFolderTest
