@@ -709,7 +709,8 @@ void EditorDialog::BuildRawDecodePanel() {
       .request_render =
           [this]() {
             if (render_coordinator_) {
-              render_coordinator_->RequestRender();
+              render_coordinator_->RequestRender(/*use_viewport_region=*/true,
+                                                 /*bump_preview_generation=*/false);
             }
           },
       .load_from_pipeline =

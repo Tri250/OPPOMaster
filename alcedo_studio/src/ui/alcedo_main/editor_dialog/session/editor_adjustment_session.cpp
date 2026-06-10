@@ -5,6 +5,7 @@
 #include "ui/alcedo_main/editor_dialog/session/editor_adjustment_session.hpp"
 
 #include <exception>
+#include <mutex>
 #include <utility>
 
 #include "edit/history/edit_transaction.hpp"
@@ -44,7 +45,9 @@ auto EditorAdjustmentSession::Commit(const AdjustmentCommit& commit) -> CommitRe
 
   EditTransaction tx{tx_type, op_type, stage_name, before_params, new_params, before_enabled, true};
   try {
+    std::unique_lock<std::mutex> render_guard(exec->GetRenderLock());
     (void)tx.ApplyForward(*exec);
+    dependencies_.working_version->SetHeadPipelineParams(exec->ExportPipelineParams());
   } catch (const std::exception& e) {
     return {.status = CommitStatus::Failed, .error = QString::fromUtf8(e.what())};
   } catch (...) {
@@ -52,7 +55,6 @@ auto EditorAdjustmentSession::Commit(const AdjustmentCommit& commit) -> CommitRe
   }
 
   dependencies_.working_version->AppendEditTransaction(std::move(tx));
-  dependencies_.working_version->SetHeadPipelineParams(exec->ExportPipelineParams());
   dependencies_.pipeline_guard->dirty_ = true;
 
   CopyFieldState(commit.field, *dependencies_.state, *dependencies_.committed_state);
