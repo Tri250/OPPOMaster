@@ -41,11 +41,10 @@ clone_if_missing \
   "CMakeLists.txt" \
   "https://github.com/lensfun/lensfun.git"
 
-clone_if_missing \
-  "alcedo_studio/src/third_party/libultrahdr" \
-  "third_party/image_io/includes/image_io/base/data_segment_data_source.h" \
-  "https://github.com/google/libultrahdr.git" \
-  --recurse-submodules
+if [[ ! -e "alcedo_studio/src/third_party/libultrahdr/third_party/image_io/includes/image_io/base/data_segment_data_source.h" ]]; then
+  git submodule sync -- "alcedo_studio/src/third_party/libultrahdr"
+  git submodule update --init --recursive --depth 1 "alcedo_studio/src/third_party/libultrahdr"
+fi
 
 clone_if_missing \
   "alcedo_studio/src/third_party/metal-cpp" \

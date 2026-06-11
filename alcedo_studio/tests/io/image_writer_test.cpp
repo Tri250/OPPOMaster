@@ -8,8 +8,13 @@
 #include <gtest/gtest.h>
 
 #include <exiv2/exiv2.hpp>
+#if defined(ALCEDO_HAS_ULTRAHDR)
+#include <ultrahdr_api.h>
+#endif
 
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <opencv2/imgcodecs.hpp>
 #include <vector>
@@ -96,6 +101,14 @@ void WriteTestJpeg(const std::filesystem::path& path, const std::vector<uint8_t>
   ASSERT_TRUE(output->open(path.string(), spec));
   ASSERT_TRUE(output->write_image(TypeDesc::UINT8, rgb.data()));
   ASSERT_TRUE(output->close());
+}
+
+auto ReadFileBytes(const std::filesystem::path& path) -> std::vector<uint8_t> {
+  std::ifstream input(path, std::ios::binary);
+  if (!input.is_open()) {
+    return {};
+  }
+  return std::vector<uint8_t>(std::istreambuf_iterator<char>(input), {});
 }
 
 }  // namespace
@@ -249,6 +262,51 @@ TEST_F(ImageWriterTests, EmbeddedHdrIccModeRejectsMetadataInjectedHdrJpegExport)
   EXPECT_THROW(ImageWriter::WriteImageToPath(src_path, image_data, options, hdr_profile, metadata),
                std::runtime_error);
   EXPECT_FALSE(std::filesystem::exists(dst_path));
+}
+
+TEST_F(ImageWriterTests, UltraHdrExportSupportsGainMapDitherToggle) {
+#if !defined(ALCEDO_HAS_ULTRAHDR)
+  GTEST_SKIP() << "Ultra HDR support is not enabled in this build.";
+#else
+  const auto src_path = temp_dir_ / "ultra_hdr_source.jpg";
+  std::vector<uint8_t> source_rgb;
+  source_rgb.reserve(8 * 8 * 3);
+  for (int y = 0; y < 8; ++y) {
+    for (int x = 0; x < 8; ++x) {
+      const auto v = static_cast<uint8_t>(16 + (x + y) * 12);
+      source_rgb.insert(source_rgb.end(), {v, v, v});
+    }
+  }
+  WriteTestJpeg(src_path, source_rgb, 8, 8);
+
+  cv::Mat rgba32f(8, 8, CV_32FC4);
+  for (int y = 0; y < rgba32f.rows; ++y) {
+    for (int x = 0; x < rgba32f.cols; ++x) {
+      const float v = 0.08f + 0.025f * static_cast<float>(x + y);
+      rgba32f.at<cv::Vec4f>(y, x) = cv::Vec4f(v, v * 0.85f, v * 0.65f, 1.0f);
+    }
+  }
+  auto image_data = std::make_shared<ImageBuffer>(std::move(rgba32f));
+
+  const auto hdr_profile =
+      MakeColorProfile(ColorUtils::ColorSpace::REC2020, ColorUtils::EOTF::ST2084);
+
+  for (const bool dither_enabled : {false, true}) {
+    ExportFormatOptions options;
+    options.format_ = ImageFormatType::JPEG;
+    options.export_path_ =
+        temp_dir_ / (dither_enabled ? "ultra_hdr_dither_on.jpg" : "ultra_hdr_dither_off.jpg");
+    options.hdr_export_mode_ = ExportFormatOptions::HDR_EXPORT_MODE::ULTRA_HDR;
+    options.ultra_hdr_dither_enabled_ = dither_enabled;
+
+    ImageWriter::WriteImageToPath(src_path, image_data, options, hdr_profile);
+
+    const std::vector<uint8_t> bytes = ReadFileBytes(options.export_path_);
+    ASSERT_FALSE(bytes.empty());
+    EXPECT_EQ(is_uhdr_image(const_cast<uint8_t*>(bytes.data()), static_cast<int>(bytes.size())), 1)
+        << "dither_enabled=" << dither_enabled;
+  }
+#endif
 }
 
 TEST_F(ImageWriterTests, ExportWritesCurrentRatingMetadata) {
