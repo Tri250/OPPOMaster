@@ -9,7 +9,7 @@ endif()
 #set(CMAKE_CXX_COMPILER "clang++")
 # Compiler flags.
 
-project(alcedo VERSION 0.2.4 LANGUAGES C CXX)
+project(alcedo VERSION 0.2.5 LANGUAGES C CXX)
 
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build alcedo libraries as static by default." FORCE)
 
@@ -45,6 +45,9 @@ option(ALCEDO_MACOS_BUNDLE
 option(ALCEDO_MACDEPLOYQT_STRIP
        "Allow macdeployqt to strip binaries during macOS app deployment."
        OFF)
+option(ALCEDO_MACOS_VERIFY_BUNDLE_DEPS
+       "Fail macOS packaging when the app bundle contains dependencies that require the build machine."
+       ON)
 set(ALCEDO_MACOS_CODESIGN_IDENTITY "-"
     CACHE STRING
     "Code-sign identity for macOS bundle after deployment (use '-' for ad-hoc signing, empty to skip).")
@@ -1025,6 +1028,155 @@ if(APPLE AND ALCEDO_MACOS_BUNDLE AND TARGET ${ALCEDO_MAIN_BIN})
         message(STATUS \"Patched GCC runtime chain for macOS bundle\")
         "
     )
+
+    if(ALCEDO_MACOS_VERIFY_BUNDLE_DEPS)
+        install(CODE
+            "set(_alcedo_app_path \"\${CMAKE_INSTALL_PREFIX}/${ALCEDO_MACOS_BUNDLE_NAME}.app\")
+             set(_alcedo_fw_dir \"\${_alcedo_app_path}/Contents/Frameworks\")
+             set(_alcedo_main_bin \"\${_alcedo_app_path}/Contents/MacOS/${ALCEDO_MACOS_BUNDLE_NAME}\")
+
+             if(NOT EXISTS \"\${_alcedo_main_bin}\")
+                 message(FATAL_ERROR \"macOS bundle executable not found: \${_alcedo_main_bin}\")
+             endif()
+
+             set(_alcedo_macho_files \"\${_alcedo_main_bin}\")
+             file(GLOB_RECURSE _alcedo_bundle_dylibs
+                 \"\${_alcedo_app_path}/Contents/Frameworks/*.dylib\"
+                 \"\${_alcedo_app_path}/Contents/PlugIns/*.dylib\"
+                 \"\${_alcedo_app_path}/Contents/Resources/qml/*.dylib\")
+             file(GLOB _alcedo_bundle_framework_dirs
+                 LIST_DIRECTORIES true
+                 \"\${_alcedo_app_path}/Contents/Frameworks/*.framework\")
+             set(_alcedo_bundle_framework_bins \"\")
+             foreach(_alcedo_framework_dir IN LISTS _alcedo_bundle_framework_dirs)
+                 get_filename_component(_alcedo_framework_name \"\${_alcedo_framework_dir}\" NAME_WE)
+                 set(_alcedo_framework_candidates
+                     \"\${_alcedo_framework_dir}/\${_alcedo_framework_name}\"
+                     \"\${_alcedo_framework_dir}/Versions/Current/\${_alcedo_framework_name}\")
+                 file(GLOB _alcedo_versioned_framework_bins
+                     \"\${_alcedo_framework_dir}/Versions/*/\${_alcedo_framework_name}\")
+                 list(APPEND _alcedo_framework_candidates
+                     \${_alcedo_versioned_framework_bins})
+                 foreach(_alcedo_framework_candidate IN LISTS _alcedo_framework_candidates)
+                     if(EXISTS \"\${_alcedo_framework_candidate}\" AND
+                        NOT IS_DIRECTORY \"\${_alcedo_framework_candidate}\")
+                         list(APPEND _alcedo_bundle_framework_bins
+                             \"\${_alcedo_framework_candidate}\")
+                     endif()
+                 endforeach()
+             endforeach()
+             list(APPEND _alcedo_macho_files
+                 \${_alcedo_bundle_dylibs}
+                 \${_alcedo_bundle_framework_bins})
+             set(_alcedo_resolved_macho_files \"\")
+             foreach(_alcedo_macho_file IN LISTS _alcedo_macho_files)
+                 if(EXISTS \"\${_alcedo_macho_file}\")
+                     get_filename_component(_alcedo_resolved_macho_file
+                         \"\${_alcedo_macho_file}\" REALPATH)
+                     list(APPEND _alcedo_resolved_macho_files
+                         \"\${_alcedo_resolved_macho_file}\")
+                 endif()
+             endforeach()
+             set(_alcedo_macho_files \${_alcedo_resolved_macho_files})
+             list(REMOVE_DUPLICATES _alcedo_macho_files)
+
+             set(_alcedo_bad_deps \"\")
+             set(_alcedo_missing_rpath_deps \"\")
+             set(_alcedo_missing_relative_deps \"\")
+
+             function(_alcedo_verify_dependency _owner _dep)
+                 if(\"\${_dep}\" MATCHES \"^/System/Library/\" OR
+                    \"\${_dep}\" MATCHES \"^/usr/lib/\")
+                     return()
+                 endif()
+
+                 if(\"\${_dep}\" MATCHES \"^@rpath/(.+)$\")
+                     set(_rel \"\${CMAKE_MATCH_1}\")
+                     if(EXISTS \"\${_alcedo_fw_dir}/\${_rel}\")
+                         return()
+                     endif()
+                     list(APPEND _alcedo_missing_rpath_deps
+                         \"\${_owner} -> \${_dep}\")
+                     set(_alcedo_missing_rpath_deps \"\${_alcedo_missing_rpath_deps}\" PARENT_SCOPE)
+                     return()
+                 endif()
+
+                 if(\"\${_dep}\" MATCHES \"^@executable_path/(.+)$\")
+                     set(_rel \"\${CMAKE_MATCH_1}\")
+                     if(EXISTS \"\${_alcedo_app_path}/Contents/MacOS/\${_rel}\")
+                         return()
+                     endif()
+                     list(APPEND _alcedo_missing_relative_deps
+                         \"\${_owner} -> \${_dep}\")
+                     set(_alcedo_missing_relative_deps \"\${_alcedo_missing_relative_deps}\" PARENT_SCOPE)
+                     return()
+                 endif()
+
+                 if(\"\${_dep}\" MATCHES \"^@loader_path/(.+)$\")
+                     set(_rel \"\${CMAKE_MATCH_1}\")
+                     get_filename_component(_owner_dir \"\${_owner}\" DIRECTORY)
+                     if(EXISTS \"\${_owner_dir}/\${_rel}\")
+                         return()
+                     endif()
+                     list(APPEND _alcedo_missing_relative_deps
+                         \"\${_owner} -> \${_dep}\")
+                     set(_alcedo_missing_relative_deps \"\${_alcedo_missing_relative_deps}\" PARENT_SCOPE)
+                     return()
+                 endif()
+
+                 if(\"\${_dep}\" MATCHES \"^/\")
+                     list(APPEND _alcedo_bad_deps \"\${_owner} -> \${_dep}\")
+                     set(_alcedo_bad_deps \"\${_alcedo_bad_deps}\" PARENT_SCOPE)
+                 endif()
+             endfunction()
+
+             foreach(_alcedo_macho IN LISTS _alcedo_macho_files)
+                 if(IS_DIRECTORY \"\${_alcedo_macho}\")
+                     continue()
+                 endif()
+                 execute_process(
+                     COMMAND /usr/bin/otool -L \"\${_alcedo_macho}\"
+                     RESULT_VARIABLE _alcedo_otool_result
+                     OUTPUT_VARIABLE _alcedo_otool_output
+                     ERROR_QUIET)
+                 if(NOT _alcedo_otool_result EQUAL 0)
+                     continue()
+                 endif()
+
+                 string(REPLACE \"\\n\" \";\" _alcedo_otool_lines \"\${_alcedo_otool_output}\")
+                 foreach(_alcedo_otool_line IN LISTS _alcedo_otool_lines)
+                     string(STRIP \"\${_alcedo_otool_line}\" _alcedo_otool_line)
+                     if(\"\${_alcedo_otool_line}\" STREQUAL \"\" OR
+                        \"\${_alcedo_otool_line}\" MATCHES \":$\")
+                         continue()
+                     endif()
+                     string(REGEX MATCH \"^[^ ]+\" _alcedo_dep \"\${_alcedo_otool_line}\")
+                     _alcedo_verify_dependency(\"\${_alcedo_macho}\" \"\${_alcedo_dep}\")
+                 endforeach()
+             endforeach()
+
+             if(_alcedo_bad_deps)
+                 list(JOIN _alcedo_bad_deps \"\\n  \" _alcedo_bad_deps_text)
+                 message(FATAL_ERROR
+                     \"macOS bundle contains dependencies outside the app/system roots:\\n  \${_alcedo_bad_deps_text}\")
+             endif()
+
+             if(_alcedo_missing_rpath_deps)
+                 list(JOIN _alcedo_missing_rpath_deps \"\\n  \" _alcedo_missing_rpath_deps_text)
+                 message(FATAL_ERROR
+                     \"macOS bundle contains @rpath dependencies that are not present in Contents/Frameworks:\\n  \${_alcedo_missing_rpath_deps_text}\")
+             endif()
+
+             if(_alcedo_missing_relative_deps)
+                 list(JOIN _alcedo_missing_relative_deps \"\\n  \" _alcedo_missing_relative_deps_text)
+                 message(FATAL_ERROR
+                     \"macOS bundle contains @loader_path/@executable_path dependencies that cannot be resolved:\\n  \${_alcedo_missing_relative_deps_text}\")
+             endif()
+
+             message(STATUS \"Verified macOS bundle runtime dependencies\")
+            "
+        )
+    endif()
 
     # Sign only after all bundle mutations are complete.
     if(NOT "${ALCEDO_MACOS_CODESIGN_IDENTITY}" STREQUAL "")
