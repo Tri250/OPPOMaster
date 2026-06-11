@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.2.5] (8eed4a0..377df62) — 2026-05-30 ~ 2026-06-11
+
+### Features
+- **Highlights/Shadows local tone overhaul**: Rebuilt the Highlights and Shadows adjustment around LLF-style local tone processing, stronger shadow detail recovery, better highlight strength scaling, and more consistent CUDA/OpenCL/Metal behavior. (`2b232fc`, `1bf39fd`, `b7263e1`, `8fc7adb`, `61b4b30`, `06dcef5`)
+- **Color mixer quality upgrade**: Migrated the color adjustment path toward OKLCh, refactored HLS/chroma handling, and fused saturation work into the shared color kernels for smoother hue/saturation edits. (`892e34b`, `6d91abe`, `4ea033b`)
+- **Batch adjustment transfer**: Added copy/paste adjustment transfer from the album workflow, including merge/paste modes, clearer dialog copy, and service-level tests for preserving version history. (`3e00552`, `a010503`)
+- **HDR export overhaul**: Reworked HDR export metadata, SDR/HDR parameter handling, UltraHDR writer paths, export queue UI, and writer coverage for more reliable HDR output. (`7a3cd51`)
+
+### UI
+- **Geometry/crop panel refactor**: Reorganized crop, rotation, reset, and geometry controls into a clearer dedicated panel with updated editor/viewer interaction coverage. (`44f686d`)
+- **Preview and interaction polish**: Added point-to-point zoom preview scaling and improved tone slider settled-state handling for more stable continuous edits. (`9a09948`, `38b4046`)
+
+### Performance
+- **Local tone mapping performance**: Optimized LLF execution, Metal local tone mapping, and mask resolution bounds to reduce cost while preserving quality. (`f079b56`, `839f2e1`, `908aeee`, `9ac5d55`)
+
+### Bug Fixes
+- **Preview and cache correctness**: Fixed ROI request failures during H/S and geometry edits, LLF blending across ROI/resolution changes, simplified masking cache behavior, and corrected tone-mapping mask cache consistency. (`4001c1c`, `f4ba2c0`, `ac073cb`, `42ed19b`)
+- **Workflow state fixes**: Fixed DRT parameter loss during adjustment overwrite, album rating scroll-position resets, and light theme color LED inconsistencies. (`2e776de`, `82ffbba`, `8489e4c`)
+- **macOS and CI stability**: Fixed macOS compile issues, macOS HDR preview overexposure, third-party dependency wiring, and CI compile/test coverage. (`15b1101`, `bb29bc1`, `cdd30dd`, `dca770f`)
+
+### Documentation
+- Added merge-handoff and refactor planning documentation for the color-adjustment and tone-mapping work. (`cb70a8b`, `2237a8e`)
+
 ## [0.2.4] (f599007..a3575d39) — 2026-04-29 ~ 2026-05-30
 
 ### Features
@@ -138,6 +161,29 @@
 ---
 
 # 更新日志
+
+## [0.2.5] (8eed4a0..377df62) — 2026-05-30 ~ 2026-06-11
+
+### 新功能
+- **高光阴影局部色调重构**：围绕 LLF 风格局部色调处理重建高光/阴影调整，增强暗部细节恢复、高光力度控制，并统一 CUDA/OpenCL/Metal 路径表现。(`2b232fc`, `1bf39fd`, `b7263e1`, `8fc7adb`, `61b4b30`, `06dcef5`)
+- **混色器质量升级**：将色彩调整路径迁移到 OKLCh 思路，重构 HLS/色度处理，并把饱和度处理融合进共享色彩 kernel，改善色相与饱和度调整稳定性。(`892e34b`, `6d91abe`, `4ea033b`)
+- **批处理参数复制/粘贴**：新增相册侧调整参数复制与粘贴流程，支持 merge/paste 策略、清晰的对话框说明，以及保留版本历史的服务层测试。(`3e00552`, `a010503`)
+- **HDR 导出重构**：重做 HDR 导出元数据、SDR/HDR 参数处理、UltraHDR 写出路径、导出队列 UI 与 writer 测试覆盖，提升 HDR 输出可靠性。(`7a3cd51`)
+
+### 界面
+- **几何/裁切面板重构**：将裁切、旋转、重置与几何控制整理到更清晰的专用面板，并补充编辑器/预览交互覆盖。(`44f686d`)
+- **预览与交互打磨**：新增点对点放大预览缩放，并改进色调滑块 settled 状态处理，让连续调整更稳定。(`9a09948`, `38b4046`)
+
+### 性能优化
+- **局部色调性能优化**：优化 LLF 执行、Metal 局部色调映射与遮罩分辨率上限，在保持质量的同时降低处理成本。(`f079b56`, `839f2e1`, `908aeee`, `9ac5d55`)
+
+### 缺陷修复
+- **预览与缓存正确性**：修复高光阴影/几何调整时 ROI 请求失效、不同 ROI/分辨率下 LLF 混合不一致、遮罩缓存策略复杂化，以及 tone mapping 遮罩缓存不一致问题。(`4001c1c`, `f4ba2c0`, `ac073cb`, `42ed19b`)
+- **工作流状态修复**：修复调整参数覆盖时 DRT 参数丢失、相册评分导致滚动位置重置，以及浅色主题下颜色指示灯不一致的问题。(`2e776de`, `82ffbba`, `8489e4c`)
+- **macOS 与 CI 稳定性**：修复 macOS 编译问题、macOS HDR 预览过曝、第三方依赖管理与 CI 编译/测试覆盖问题。(`15b1101`, `bb29bc1`, `cdd30dd`, `dca770f`)
+
+### 文档
+- 补充色彩调整与 tone mapping 重构的合并交接和阶段计划文档。(`cb70a8b`, `2237a8e`)
 
 ## [0.2.4] (f599007..a3575d39) — 2026-04-29 ~ 2026-05-30
 
