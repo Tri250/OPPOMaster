@@ -38,15 +38,10 @@ void FilmGrainOp::SetParams(const nlohmann::json& params) {
 }
 
 void FilmGrainOp::SetGlobalParams(OperatorParams& params) const {
-  auto& film_grain          = params.film_grain_;
-  film_grain.strength_      = strength_scale_;
-  film_grain.samples_       = hidden_defaults_.monte_carlo_samples_;
-  film_grain.mean_radius_   = hidden_defaults_.mean_radius_;
-  film_grain.radius_stddev_ = hidden_defaults_.radius_stddev_;
-  film_grain.filter_sigma_  = hidden_defaults_.filter_sigma_;
-  film_grain.max_radius_ = hidden_defaults_.mean_radius_ + 3.0f * hidden_defaults_.radius_stddev_;
-  film_grain.cell_size_  = film_grain.max_radius_ * 2.0f;
-  film_grain.seed_       = hidden_defaults_.seed_;
+  auto& film_grain         = params.film_grain_;
+  film_grain.strength_     = strength_scale_;
+  film_grain.filter_sigma_ = hidden_defaults_.filter_sigma_;
+  film_grain.seed_         = hidden_defaults_.seed_;
 }
 
 void FilmGrainOp::EnableGlobalParams(OperatorParams& params, bool enable) {
@@ -55,7 +50,7 @@ void FilmGrainOp::EnableGlobalParams(OperatorParams& params, bool enable) {
 
 void FilmGrainOp::ComputeScale() {
   strength_       = std::clamp(strength_, 0.0f, 100.0f);
-  strength_scale_ = strength_ / 100.0f;
+  strength_scale_ = (strength_ / 100.0f) / 3.0f;
 }
 
 }  // namespace alcedo

@@ -162,21 +162,19 @@ Current serialized parameter shape:
 Current hidden defaults in `FilmGrainOp::HiddenDefaults`:
 
 ```text
-monte_carlo_samples = 32
-mean_radius         = 0.08
-radius_stddev       = 0.04
 filter_sigma        = 0.8
 seed                = 0x6a09e667f3bcc909
 ```
 
-Important current limitation:
+Current CUDA behavior:
 
-- `FilmGrainOp::SetGlobalParams(...)` and `EnableGlobalParams(...)` are intentionally no-ops.
-- No `OperatorParams` / `GPUOperatorParams` film-grain payload exists yet.
-- No CUDA render stage is wired into `pipeline_gpu_impl.cu` yet.
-
-The user's instruction for this checkpoint was: if the global params do not have a field yet, leave
-them empty. Do not invent a temporary unrelated global-param path.
+- `FilmGrainOp::SetGlobalParams(...)` writes a normalized strength reduced to one third of the
+  UI slider value (`strength / 100 / 3`).
+- `EnableGlobalParams(...)` toggles the film-grain payload.
+- The CUDA implementation uses one algorithm path: a signal-dependent Bernoulli grain field with
+  separable 7-tap Gaussian blur, implemented as two detail-style neighbor stages.
+- No extra scratch image is allocated for film grain; the stages reuse the existing ping-pong
+  buffers in the CUDA static kernel stream.
 
 ## Intended CUDA Integration
 
@@ -194,13 +192,8 @@ Minimum payload:
 ```cpp
 struct FilmGrainParams {
   bool enabled = false;
-  float strength = 0.0f;          // normalized 0..1 for CUDA
-  int samples = 32;
-  float mean_radius = 0.08f;
-  float radius_stddev = 0.04f;
-  float filter_sigma = 0.8f;
-  float max_radius = ...;         // quantile or conservative default
-  float cell_size = ...;          // paper uses a subdivision tied to mu_r
+  float strength = 0.0f;          // UI strength normalized to 0..1/3 for CUDA
+  float filter_sigma = 0.8f;      // fixed 7-tap Gaussian approximation
   std::uint64_t seed = ...;
 };
 ```
@@ -286,13 +279,25 @@ Phase 3: paper model
 - Use fixed CPU-generated or param-generated Gaussian offsets if needed, but avoid giant random
   buffers. The PRNG should generate per-cell grain data on demand.
 
-Phase 4: ROI stability
+Phase 4: ROI preview behavior
 
-- Use `render_roi_enabled_`, `render_roi_x_`, `render_roi_y_`, `render_roi_scale_x_`,
-  `render_roi_scale_y_`, `render_roi_reference_width_`, and `render_roi_reference_height_` to map
-  current output coordinates back to full-frame coordinates.
-- Add a regression test or diagnostic that renders overlapping ROI/full-frame regions and verifies
-  grain anchoring is stable.
+- Treat full-frame and ROI renders as separate grain realizations.
+- In ROI preview, use current output-buffer coordinates for grain streams instead of mapping back to
+  full-frame coordinates. This preserves apparent grain size when a small ROI is rendered large.
+- Add a regression test or diagnostic that verifies ROI preview grain matches a same-size local
+  render, not the full-frame overlap.
+
+Phase 4 result:
+
+- The earlier full-frame-anchored ROI behavior made preview grain look magnified when a small ROI
+  was rendered large. That did not match final full-resolution export grain scale.
+- Full-frame renders still use full-frame output coordinates for the grain stream.
+- ROI preview renders intentionally use current output-buffer coordinates for the grain stream, so
+  the apparent grain size stays tied to the preview/output resolution.
+- The blur footprint also remains in the current output buffer, matching the behavior of other
+  detail-stage neighbor operators.
+- `FilmGrainCudaStageTest.RoiPreviewUsesLocalOutputGrainCoordinates` compares an ROI render with a
+  same-size local render to lock the preview-scale behavior.
 
 ## Tests Already Run
 

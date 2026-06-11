@@ -27,11 +27,20 @@ TEST(FilmGrainOpTest, DefaultParamsExposeOnlyStrength) {
 TEST(FilmGrainOpTest, ReadsStrengthAndClampsToUserRange) {
   FilmGrainOp op({{"film_grain", {{"strength", 135.0f}}}});
   EXPECT_FLOAT_EQ(op.strength(), 100.0f);
-  EXPECT_FLOAT_EQ(op.strength_scale(), 1.0f);
+  EXPECT_FLOAT_EQ(op.strength_scale(), 1.0f / 3.0f);
 
   op.SetParams({{"film_grain", {{"strength", -10.0f}}}});
   EXPECT_FLOAT_EQ(op.strength(), 0.0f);
   EXPECT_FLOAT_EQ(op.strength_scale(), 0.0f);
+}
+
+TEST(FilmGrainOpTest, StrengthScaleIsReducedToOneThird) {
+  FilmGrainOp op({{"film_grain", {{"strength", 30.0f}}}});
+  EXPECT_FLOAT_EQ(op.strength(), 30.0f);
+  EXPECT_FLOAT_EQ(op.strength_scale(), 0.1f);
+
+  op.SetParams({{"film_grain", {{"strength", 50.0f}}}});
+  EXPECT_FLOAT_EQ(op.strength_scale(), 1.0f / 6.0f);
 }
 
 TEST(FilmGrainOpTest, MissingParamsStayAtNeutralDefault) {
@@ -47,13 +56,8 @@ TEST(FilmGrainOpTest, GlobalParamsWritesHiddenDefaultsAndNormalizedStrength) {
   op.SetGlobalParams(params);
 
   EXPECT_TRUE(params.film_grain_.enabled_);
-  EXPECT_FLOAT_EQ(params.film_grain_.strength_, 0.5f);
-  EXPECT_EQ(params.film_grain_.samples_, 32);
-  EXPECT_FLOAT_EQ(params.film_grain_.mean_radius_, 0.08f);
-  EXPECT_FLOAT_EQ(params.film_grain_.radius_stddev_, 0.04f);
+  EXPECT_FLOAT_EQ(params.film_grain_.strength_, 1.0f / 6.0f);
   EXPECT_FLOAT_EQ(params.film_grain_.filter_sigma_, 0.8f);
-  EXPECT_FLOAT_EQ(params.film_grain_.max_radius_, 0.2f);
-  EXPECT_FLOAT_EQ(params.film_grain_.cell_size_, 0.4f);
   EXPECT_EQ(params.film_grain_.seed_, 0x6a09e667f3bcc909ULL);
 }
 
@@ -65,13 +69,13 @@ TEST(FilmGrainOpTest, EnableGlobalParamsTogglesFilmGrainPayload) {
   op.SetGlobalParams(params);
 
   EXPECT_FALSE(params.film_grain_.enabled_);
-  EXPECT_FLOAT_EQ(params.film_grain_.strength_, 0.25f);
+  EXPECT_FLOAT_EQ(params.film_grain_.strength_, 1.0f / 12.0f);
 
   op.EnableGlobalParams(params, true);
   op.SetGlobalParams(params);
 
   EXPECT_TRUE(params.film_grain_.enabled_);
-  EXPECT_FLOAT_EQ(params.film_grain_.strength_, 0.25f);
+  EXPECT_FLOAT_EQ(params.film_grain_.strength_, 1.0f / 12.0f);
 }
 
 TEST(FilmGrainOpTest, FusedParamsCarryFilmGrainPayload) {
@@ -82,9 +86,8 @@ TEST(FilmGrainOpTest, FusedParamsCarryFilmGrainPayload) {
   const auto fused = FusedParamsConverter::ConvertFromCPU(params);
 
   EXPECT_TRUE(fused.film_grain_.enabled_);
-  EXPECT_FLOAT_EQ(fused.film_grain_.strength_, 0.75f);
-  EXPECT_EQ(fused.film_grain_.samples_, 32);
-  EXPECT_FLOAT_EQ(fused.film_grain_.mean_radius_, 0.08f);
+  EXPECT_FLOAT_EQ(fused.film_grain_.strength_, 0.25f);
+  EXPECT_FLOAT_EQ(fused.film_grain_.filter_sigma_, 0.8f);
   EXPECT_EQ(fused.film_grain_.seed_, 0x6a09e667f3bcc909ULL);
 }
 

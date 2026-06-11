@@ -24,8 +24,10 @@ using OutputOnlyStream =
     CUDA::GPU_StaticKernelStream<CUDA::GPU_PointChain<CUDA::GPU_OUTPUT_Kernel>>;
 using OutputFilmGrainStream =
     CUDA::GPU_StaticKernelStream<CUDA::GPU_PointChain<CUDA::GPU_OUTPUT_Kernel>,
-                                 CUDA::GPU_FilmGrainPixelWiseStage>;
-using DirectFilmGrainStream = CUDA::GPU_StaticKernelStream<CUDA::GPU_FilmGrainPixelWiseStage>;
+                                 CUDA::GPU_FilmGrainBlurHorizontalKernel,
+                                 CUDA::GPU_FilmGrainApplyVerticalKernel>;
+using DirectFilmGrainStream = CUDA::GPU_StaticKernelStream<CUDA::GPU_FilmGrainBlurHorizontalKernel,
+                                                           CUDA::GPU_FilmGrainApplyVerticalKernel>;
 
 auto EnsureCudaDevice() -> bool {
   const int device_count = cv::cuda::getCudaEnabledDeviceCount();
@@ -100,10 +102,28 @@ auto RunOutputWithFilmGrain(const cv::Mat& input, float strength) -> cv::Mat {
   auto                  output_buffer = std::make_shared<ImageBuffer>();
 
   OutputFilmGrainStream stream{CUDA::GPU_PointChain(CUDA::GPU_OUTPUT_Kernel()),
-                               CUDA::GPU_FilmGrainPixelWiseStage()};
+                               CUDA::GPU_FilmGrainBlurHorizontalKernel(),
+                               CUDA::GPU_FilmGrainApplyVerticalKernel()};
   CUDA::GPU_KernelLauncher<OutputFilmGrainStream> launcher(nullptr, stream);
   launcher.SetInputImage(input_buffer);
   launcher.SetParams(params);
+  launcher.SetOutputImage(output_buffer);
+  launcher.Execute();
+
+  output_buffer->SyncToCPU();
+  return output_buffer->GetCPUData().clone();
+}
+
+auto RunFilmGrainOnlyWithParams(const cv::Mat& input, const OperatorParams& params) -> cv::Mat {
+  auto                  input_buffer  = std::make_shared<ImageBuffer>(input.clone());
+  auto                  output_buffer = std::make_shared<ImageBuffer>();
+
+  DirectFilmGrainStream stream{CUDA::GPU_FilmGrainBlurHorizontalKernel(),
+                               CUDA::GPU_FilmGrainApplyVerticalKernel()};
+  CUDA::GPU_KernelLauncher<DirectFilmGrainStream> launcher(nullptr, stream);
+  launcher.SetInputImage(input_buffer);
+  auto mutable_params = params;
+  launcher.SetParams(mutable_params);
   launcher.SetOutputImage(output_buffer);
   launcher.Execute();
 
@@ -115,20 +135,8 @@ auto RunFilmGrainOnly(const cv::Mat& input, float strength,
                       std::uint64_t seed = 0x6a09e667f3bcc909ULL) -> cv::Mat {
   OperatorParams params;
   FilmGrainOp({{"film_grain", {{"strength", strength}}}}).SetGlobalParams(params);
-  params.film_grain_.seed_            = seed;
-
-  auto                  input_buffer  = std::make_shared<ImageBuffer>(input.clone());
-  auto                  output_buffer = std::make_shared<ImageBuffer>();
-
-  DirectFilmGrainStream stream{CUDA::GPU_FilmGrainPixelWiseStage()};
-  CUDA::GPU_KernelLauncher<DirectFilmGrainStream> launcher(nullptr, stream);
-  launcher.SetInputImage(input_buffer);
-  launcher.SetParams(params);
-  launcher.SetOutputImage(output_buffer);
-  launcher.Execute();
-
-  output_buffer->SyncToCPU();
-  return output_buffer->GetCPUData().clone();
+  params.film_grain_.seed_ = seed;
+  return RunFilmGrainOnlyWithParams(input, params);
 }
 
 auto MakeDisplayGrayInput(int width, int height, float value) -> cv::Mat {
@@ -230,7 +238,7 @@ TEST(FilmGrainCudaStageTest, ConstantGrayMeanStaysCloseToInputProbability) {
   EXPECT_NEAR(AverageChannel(output, 2), kGray, 0.08f);
 }
 
-TEST(FilmGrainCudaStageTest, DistinctSeedsChangeTheBooleanGrainPattern) {
+TEST(FilmGrainCudaStageTest, DistinctSeedsChangeTheGrainPattern) {
   if (!EnsureCudaDevice()) {
     GTEST_SKIP() << "No CUDA device available.";
   }
@@ -242,7 +250,7 @@ TEST(FilmGrainCudaStageTest, DistinctSeedsChangeTheBooleanGrainPattern) {
   EXPECT_GT(CountChangedRgbPixels(seed_a, seed_b), 0);
 }
 
-TEST(FilmGrainCudaStageTest, ColorChannelsUseIndependentBooleanStreams) {
+TEST(FilmGrainCudaStageTest, ColorChannelsUseIndependentGrainStreams) {
   if (!EnsureCudaDevice()) {
     GTEST_SKIP() << "No CUDA device available.";
   }
@@ -260,6 +268,46 @@ TEST(FilmGrainCudaStageTest, ColorChannelsUseIndependentBooleanStreams) {
     }
   }
   EXPECT_GT(distinct_pixels, 0);
+}
+
+TEST(FilmGrainCudaStageTest, RoiPreviewUsesLocalOutputGrainCoordinates) {
+  if (!EnsureCudaDevice()) {
+    GTEST_SKIP() << "No CUDA device available.";
+  }
+
+  constexpr int   kFullSize = 32;
+  constexpr int   kRoiSize  = 16;
+  constexpr int   kRoiX     = 8;
+  constexpr int   kRoiY     = 6;
+  constexpr float kGray     = 0.5f;
+
+  const cv::Mat   roi_input = MakeDisplayGrayInput(kRoiSize, kRoiSize, kGray);
+
+  OperatorParams  local_params;
+  FilmGrainOp({{"film_grain", {{"strength", 100.0f}}}}).SetGlobalParams(local_params);
+
+  OperatorParams roi_params               = local_params;
+  roi_params.render_roi_enabled_          = true;
+  roi_params.render_roi_x_                = kRoiX;
+  roi_params.render_roi_y_                = kRoiY;
+  roi_params.render_roi_scale_x_          = static_cast<float>(kRoiSize) / kFullSize;
+  roi_params.render_roi_scale_y_          = static_cast<float>(kRoiSize) / kFullSize;
+  roi_params.render_roi_reference_width_  = kFullSize;
+  roi_params.render_roi_reference_height_ = kFullSize;
+
+  const cv::Mat local_output              = RunFilmGrainOnlyWithParams(roi_input, local_params);
+  const cv::Mat roi_output                = RunFilmGrainOnlyWithParams(roi_input, roi_params);
+
+  for (int y = 0; y < kRoiSize; ++y) {
+    for (int x = 0; x < kRoiSize; ++x) {
+      const cv::Vec4f local_pixel = local_output.at<cv::Vec4f>(y, x);
+      const cv::Vec4f roi_pixel   = roi_output.at<cv::Vec4f>(y, x);
+      for (int channel = 0; channel < 4; ++channel) {
+        EXPECT_FLOAT_EQ(local_pixel[channel], roi_pixel[channel])
+            << "Mismatch at ROI-local (" << x << ", " << y << "), channel " << channel;
+      }
+    }
+  }
 }
 
 TEST(FilmGrainCudaStageTest, EdgeProbabilitiesAndHdrInputsStayFinite) {

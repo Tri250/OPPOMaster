@@ -31,7 +31,8 @@ class CUDA_GPUPipeline final : public GPUPipelineImpl {
     auto hls     = GPU_HLSOpKernel();
     auto lmt     = GPU_LMT_Kernel();
     auto to_out  = GPU_OUTPUT_Kernel();
-    auto grain   = GPU_FilmGrainPixelWiseStage();
+    auto grain_h = GPU_FilmGrainBlurHorizontalKernel();
+    auto grain_v = GPU_FilmGrainApplyVerticalKernel();
 
     auto sharp_h = GPU_SharpenBlurHorizontalKernel();
     auto sharp_v = GPU_SharpenApplyVerticalKernel();
@@ -39,8 +40,8 @@ class CUDA_GPUPipeline final : public GPUPipelineImpl {
     auto clar_v  = GPU_ClarityApplyVerticalKernel();
 
     return GPU_StaticKernelStream(GPU_PointChain(to_ws, exp, cont, tone), hs,
-                                  GPU_PointChain(curve, vib, wheel, hls, lmt, to_out), grain,
-                                  sharp_h, sharp_v, clar_h, clar_v);
+                                  GPU_PointChain(curve, vib, wheel, hls, lmt, to_out), grain_h,
+                                  grain_v, sharp_h, sharp_v, clar_h, clar_v);
   };
 
   using StaticKernelStreamType                                     = decltype(BuildKernelStream());
