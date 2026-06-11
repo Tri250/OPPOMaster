@@ -182,6 +182,8 @@ auto EditTransaction::OperatorTypeToString(OperatorType type) -> const char* {
       return "LENS_CALIBRATION";
     case OperatorType::COLOR_TEMP:
       return "COLOR_TEMP";
+    case OperatorType::FILM_GRAIN:
+      return "FILM_GRAIN";
     case OperatorType::UNKNOWN:
       return "UNKNOWN";
   }

@@ -100,6 +100,15 @@ def_library(CudaDriverRequirements
     SOURCES utils/cuda/cuda_driver_requirements.cpp
 )
 
+if(ALCEDO_CUDA_ENABLED)
+    def_library(CudaUtils
+        SOURCES cuda/prng.cu
+        PUBLIC_DEPS CUDA::cudart
+    )
+    set_target_properties(CudaUtils PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+    target_compile_definitions(CudaUtils PUBLIC HAVE_CUDA)
+endif()
+
 def_library(UiLocalization
     SOURCES
         include/ui/alcedo_main/i18n.hpp
@@ -541,6 +550,7 @@ set(OPERATORS_SRCS
     edit/operators/cst/aces_odt_cpu.cpp
     edit/operators/cst/open_drt_cpu.cpp
     edit/operators/cst/odt_op.cpp
+    edit/operators/cst/film_grain_op.cpp
     edit/operators/raw/raw_decode_op.cpp
     edit/operators/geometry/resize_op.cpp
     edit/operators/geometry/crop_rotate_op.cpp

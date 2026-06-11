@@ -82,7 +82,11 @@ inline auto MakeDefaultODTParams() -> nlohmann::json {
                               {"hs_r_rng", 0.6f},      {"hs_g", 0.35f},       {"hs_g_rng", 1.0f},
                               {"hs_b", 0.66f},         {"hs_b_rng", 1.0f},    {"hs_c", 0.25f},
                               {"hs_c_rng", 1.0f},      {"hs_m", 0.0f},        {"hs_m_rng", 1.0f},
-                              {"hs_y", 0.0f},          {"hs_y_rng", 1.0f}}}}}}}};
+              {"hs_y", 0.0f},          {"hs_y_rng", 1.0f}}}}}}}};
+}
+
+inline auto MakeDefaultFilmGrainParams() -> nlohmann::json {
+  return {{"film_grain", {{"strength", 0.0f}}}};
 }
 
 inline auto MakeDefaultCropRotateParams() -> nlohmann::json {
@@ -144,6 +148,7 @@ inline auto MakeCleanBaselineAdjustableParams() -> nlohmann::json {
   defaults["sharpen"] = {{"sharpen", {{"offset", 0.0f}, {"radius", 3.0f}, {"threshold", 0.0f}}}};
   defaults["clarity"] = {{"clarity", 0.0f}};
   defaults["odt"] = MakeDefaultODTParams();
+  defaults["film_grain"] = MakeDefaultFilmGrainParams();
   return defaults;
 }
 

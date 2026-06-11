@@ -61,7 +61,8 @@ enum class OperatorType : int {
   UNKNOWN,  // For unrecognized operator types or placeholders
   CROP_ROTATE,
   LENS_CALIBRATION,
-  COLOR_TEMP
+  COLOR_TEMP,
+  FILM_GRAIN
 };
 
 enum class ColorTempMode : int {

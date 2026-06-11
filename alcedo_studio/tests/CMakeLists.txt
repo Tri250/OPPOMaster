@@ -129,6 +129,12 @@ if(ALCEDO_CUDA_ENABLED AND ALCEDO_ENABLE_CUDA_IMAGE_GEOMETRY_OPS_TEST)
 endif()
 
 if(ALCEDO_CUDA_ENABLED)
+  add_executable(CudaPrngTest cuda/prng_test.cu)
+  target_include_directories(CudaPrngTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+  target_link_libraries(CudaPrngTest PRIVATE GTest::gtest_main CudaUtils CUDA::cudart)
+  set_target_properties(CudaPrngTest PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+  gtest_discover_tests(CudaPrngTest TEST_PREFIX "CudaPrngTest.")
+
   if(WIN32)
     add_executable(D3DCudaInteropUtilsTest ui/d3d_cuda_interop_utils_test.cpp)
     target_include_directories(D3DCudaInteropUtilsTest PUBLIC ${ALCEDO_INCLUDE_DIR})
@@ -374,6 +380,11 @@ add_executable(ODTOpTest edit/operators/cst/odt_op_test.cpp)
 target_include_directories(ODTOpTest PUBLIC ${ALCEDO_INCLUDE_DIR})
 target_link_libraries(ODTOpTest PRIVATE GTest::gtest_main Operators)
 gtest_discover_tests(ODTOpTest TEST_PREFIX "ODTOpTest.")
+
+add_executable(FilmGrainOpTest edit/operators/cst/film_grain_op_test.cpp)
+target_include_directories(FilmGrainOpTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(FilmGrainOpTest PRIVATE GTest::gtest_main Operators)
+gtest_discover_tests(FilmGrainOpTest TEST_PREFIX "FilmGrainOpTest.")
 
 add_executable(LutCatalogTest
     ui/lut_catalog_test.cpp
@@ -910,6 +921,7 @@ alcedo_assign_test_category(raw ALCEDO_BUILD_RAW_TESTS alcedo_tests_raw
 )
 
 alcedo_assign_test_category(gpu ALCEDO_BUILD_GPU_TESTS alcedo_tests_gpu
+  CudaPrngTest
   CudaImageGeometryOpsTest
   D3DCudaInteropUtilsTest
   CudaRawOpsTest
@@ -930,6 +942,7 @@ alcedo_assign_test_category(edit ALCEDO_BUILD_EDIT_TESTS alcedo_tests_edit
   LocalToneMappingContractTest
   ToneMappingFacadeTest
   ODTOpTest
+  FilmGrainOpTest
   CropRotateOpTest
   PipelineFrameSinkTest
 )
