@@ -656,7 +656,8 @@ endif()
 add_executable(ImageWriterTest io/image_writer_test.cpp)
 target_include_directories(ImageWriterTest PUBLIC ${ALCEDO_INCLUDE_DIR})
 target_link_libraries(ImageWriterTest PRIVATE GTest::gtest_main ImageWriter ${ALCEDO_TEST_OPENCV_MIN_DEPS})
-gtest_discover_tests(ImageWriterTest TEST_PREFIX "ImageWriterTest.")
+gtest_discover_tests(ImageWriterTest TEST_PREFIX "ImageWriterTest."
+  PROPERTIES LABELS "ci_core_flow")
 
 add_executable(MetadataExtractorTest image/metadata_extractor_test.cpp)
 target_include_directories(MetadataExtractorTest PUBLIC ${ALCEDO_INCLUDE_DIR})
@@ -735,6 +736,12 @@ target_link_libraries(CiRawWorkflowTest
 gtest_discover_tests(CiRawWorkflowTest TEST_PREFIX "CiRawWorkflowTest."
   PROPERTIES LABELS "ci_raw_flow")
 
+add_executable(SleeveFilesystemCiTest ci/sleeve_filesystem_ci_test.cpp)
+target_include_directories(SleeveFilesystemCiTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(SleeveFilesystemCiTest PRIVATE GTest::gtest_main SleeveFS StrConv)
+gtest_discover_tests(SleeveFilesystemCiTest TEST_PREFIX "SleeveFilesystemCiTest."
+  PROPERTIES LABELS "ci_core_flow")
+
 add_executable(ThumbnailAlbumQtDemo app/thumbnail_album_qt_demo.cpp)
 target_include_directories(ThumbnailAlbumQtDemo PUBLIC ${ALCEDO_INCLUDE_DIR})
 target_link_libraries(ThumbnailAlbumQtDemo PRIVATE ThumbnailService ProjectService ImportService Qt6::Widgets SleeveFilterService)
@@ -807,9 +814,9 @@ macro(def_ui_test TARGET_NAME SOURCE_FILE)
             Qt6::Core
     )
     include(GoogleTest)
-    if(ARGN)
+    if(NOT "${ARGN}" STREQUAL "")
         gtest_discover_tests(${TARGET_NAME} TEST_PREFIX "${TARGET_NAME}."
-            PROPERTIES LABELS "${ARGN}")
+            PROPERTIES LABELS ${ARGN})
     else()
         gtest_discover_tests(${TARGET_NAME} TEST_PREFIX "${TARGET_NAME}.")
     endif()
@@ -820,7 +827,7 @@ def_ui_test(AlbumBackendProjectTest  album_backend_project_test.cpp)
 def_ui_test(AlbumBackendFolderTest   album_backend_folder_test.cpp)
 def_ui_test(AlbumBackendImageDeleteTest album_backend_image_delete_test.cpp)
 def_ui_test(AlbumBackendImageDetailsTest album_backend_image_details_test.cpp)
-def_ui_test(AlbumBackendRatingTest album_backend_rating_test.cpp)
+def_ui_test(AlbumBackendRatingTest album_backend_rating_test.cpp "ci_raw_flow")
 def_ui_test(AlbumBackendThumbnailTest album_backend_thumbnail_test.cpp)
 def_ui_test(AlbumBackendI18nTest album_backend_i18n_test.cpp)
 def_ui_test(AlbumBackendCiWorkflowTest album_backend_ci_workflow_test.cpp "ci_raw_flow")
@@ -969,6 +976,8 @@ alcedo_assign_test_category(demos ALCEDO_BUILD_DEMO_TARGETS alcedo_tests_demos
 )
 
 alcedo_assign_test_category(ci_core ALCEDO_BUILD_CI_TESTS alcedo_tests_ci_core
+  ImageWriterTest
+  SleeveFilesystemCiTest
   PipelineServiceTest
   EditHistoryMgmtServiceTest
   CropRotateOpTest
@@ -976,6 +985,7 @@ alcedo_assign_test_category(ci_core ALCEDO_BUILD_CI_TESTS alcedo_tests_ci_core
 
 alcedo_assign_test_category(ci_raw ALCEDO_BUILD_CI_TESTS alcedo_tests_ci_raw
   CiRawWorkflowTest
+  AlbumBackendRatingTest
   AlbumBackendCiWorkflowTest
 )
 
