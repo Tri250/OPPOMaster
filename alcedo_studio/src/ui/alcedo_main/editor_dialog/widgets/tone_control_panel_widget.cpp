@@ -120,6 +120,7 @@ void ToneControlPanelWidget::ProjectToneStateToDialog() {
   s.saturation_   = tone_state_.saturation_;
   s.sharpen_      = tone_state_.sharpen_;
   s.clarity_      = tone_state_.clarity_;
+  s.film_grain_   = tone_state_.film_grain_;
 }
 
 void ToneControlPanelWidget::PullToneStateFromDialog() {
@@ -137,6 +138,7 @@ void ToneControlPanelWidget::PullToneStateFromDialog() {
   tone_state_.saturation_   = s.saturation_;
   tone_state_.sharpen_      = s.sharpen_;
   tone_state_.clarity_      = s.clarity_;
+  tone_state_.film_grain_   = s.film_grain_;
 }
 
 void ToneControlPanelWidget::PullCommittedToneStateFromDialog() {
@@ -154,6 +156,7 @@ void ToneControlPanelWidget::PullCommittedToneStateFromDialog() {
   committed_tone_state_.saturation_   = s.saturation_;
   committed_tone_state_.sharpen_      = s.sharpen_;
   committed_tone_state_.clarity_      = s.clarity_;
+  committed_tone_state_.film_grain_   = s.film_grain_;
 }
 
 void ToneControlPanelWidget::ProjectColorTempStateToDialog() {
@@ -235,7 +238,7 @@ void ToneControlPanelWidget::RegisterSliderReset(QSlider* slider, std::function<
   slider_reset_callbacks_[slider] = std::move(on_reset);
 }
 
-void ToneControlPanelWidget::RegisterSliderSettled(QSlider* slider,
+void ToneControlPanelWidget::RegisterSliderSettled(QSlider*              slider,
                                                    std::function<void()> on_settled) {
   if (!slider || !on_settled) {
     return;
@@ -260,7 +263,7 @@ void ToneControlPanelWidget::EnsureWheelSliderSettledTimer() {
   wheel_slider_settled_timer_ = new QTimer(this);
   wheel_slider_settled_timer_->setSingleShot(true);
   QObject::connect(wheel_slider_settled_timer_, &QTimer::timeout, this, [this]() {
-    auto* slider = pending_wheel_slider_;
+    auto* slider          = pending_wheel_slider_;
     pending_wheel_slider_ = nullptr;
     if (IsSyncing() || !slider) {
       return;
@@ -323,6 +326,7 @@ void ToneControlPanelWidget::ResetToneFieldToDefault(
   tone_defaults.saturation_   = dialog_defaults.saturation_;
   tone_defaults.sharpen_      = dialog_defaults.sharpen_;
   tone_defaults.clarity_      = dialog_defaults.clarity_;
+  tone_defaults.film_grain_   = dialog_defaults.film_grain_;
 
   apply_default(tone_defaults, dialog_defaults);
   ProjectToneStateToDialog();
@@ -1208,6 +1212,22 @@ void ToneControlPanelWidget::BuildDetailSection() {
             });
       },
       [](int v) { return QString::number(v, 'f', 2); });
+
+  film_grain_slider_ = add_slider(
+      "Film Grain", 0, 100, static_cast<int>(std::lround(tone_state_.film_grain_)),
+      [this](int v) {
+        tone_state_.film_grain_ = static_cast<float>(v);
+        PreviewToneField(AdjustmentField::FilmGrain);
+      },
+      [this]() { CommitToneField(AdjustmentField::FilmGrain); },
+      [this]() {
+        ResetToneFieldToDefault(
+            AdjustmentField::FilmGrain,
+            [this](const ToneAdjustmentState& defaults, const AdjustmentState&) {
+              tone_state_.film_grain_ = defaults.film_grain_;
+            });
+      },
+      [](int v) { return QString::number(v, 'f', 0); });
 }
 
 void ToneControlPanelWidget::SyncControlsFromDialogState() {
@@ -1247,6 +1267,9 @@ void ToneControlPanelWidget::SyncControlsFromDialogState() {
   }
   if (clarity_slider_) {
     clarity_slider_->setValue(static_cast<int>(std::lround(tone_state_.clarity_)));
+  }
+  if (film_grain_slider_) {
+    film_grain_slider_->setValue(static_cast<int>(std::lround(tone_state_.film_grain_)));
   }
   if (curve_widget_) {
     curve_widget_->SetControlPoints(tone_state_.curve_points_);

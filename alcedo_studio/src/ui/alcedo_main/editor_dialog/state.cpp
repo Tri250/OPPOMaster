@@ -12,11 +12,10 @@ namespace alcedo::ui {
 void UpdateCdlWheelDerivedColor(CdlWheelState& wheel, bool add_unity, bool invert_delta) {
   wheel.disc_position_ = color_wheel::ClampDiscPoint(wheel.disc_position_);
   wheel.strength_      = std::clamp(wheel.strength_, 0.0f, color_wheel::kStrengthDefault);
-  const auto delta     = color_wheel::DiscToCdlDelta(wheel.disc_position_, wheel.strength_);
+  const auto  delta    = color_wheel::DiscToCdlDelta(wheel.disc_position_, wheel.strength_);
   const float base     = add_unity ? 1.0f : 0.0f;
   const float sign     = invert_delta ? -1.0f : 1.0f;
-  wheel.color_offset_  = {base + sign * delta[0], base + sign * delta[1],
-                          base + sign * delta[2]};
+  wheel.color_offset_  = {base + sign * delta[0], base + sign * delta[1], base + sign * delta[2]};
 }
 
 void UpdateAllCdlWheelDerivedColors(AdjustmentState& state) {
@@ -81,8 +80,8 @@ void CopyFieldState(AdjustmentField field, const AdjustmentState& from, Adjustme
       to.raw_highlights_reconstruct_ = from.raw_highlights_reconstruct_;
       return;
     case AdjustmentField::LensCalib:
-      to.lens_calib_enabled_ = from.lens_calib_enabled_;
-      to.lens_override_make_ = from.lens_override_make_;
+      to.lens_calib_enabled_  = from.lens_calib_enabled_;
+      to.lens_override_make_  = from.lens_override_make_;
       to.lens_override_model_ = from.lens_override_model_;
       return;
     case AdjustmentField::ColorTemp:
@@ -129,6 +128,9 @@ void CopyFieldState(AdjustmentField field, const AdjustmentState& from, Adjustme
       return;
     case AdjustmentField::Clarity:
       to.clarity_ = from.clarity_;
+      return;
+    case AdjustmentField::FilmGrain:
+      to.film_grain_ = from.film_grain_;
       return;
     case AdjustmentField::Lut:
       to.lut_path_ = from.lut_path_;

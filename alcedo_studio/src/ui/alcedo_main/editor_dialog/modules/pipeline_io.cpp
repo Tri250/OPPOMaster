@@ -229,6 +229,8 @@ auto FieldSpec(AdjustmentField field) -> std::pair<PipelineStageName, OperatorTy
       return {PipelineStageName::Detail_Adjustment, OperatorType::SHARPEN};
     case AdjustmentField::Clarity:
       return {PipelineStageName::Detail_Adjustment, OperatorType::CLARITY};
+    case AdjustmentField::FilmGrain:
+      return {PipelineStageName::Output_Transform, OperatorType::FILM_GRAIN};
     case AdjustmentField::Lut:
       return {PipelineStageName::Color_Adjustment, OperatorType::LMT};
     case AdjustmentField::Odt:
@@ -397,6 +399,8 @@ auto ParamsForField(AdjustmentField field, const AdjustmentState& s, CPUPipeline
       return {{"sharpen", {{"offset", s.sharpen_}}}};
     case AdjustmentField::Clarity:
       return {{"clarity", s.clarity_}};
+    case AdjustmentField::FilmGrain:
+      return {{"film_grain", {{"strength", std::clamp(s.film_grain_, 0.0f, 100.0f)}}}};
     case AdjustmentField::Lut:
       return {{"ocio_lmt", s.lut_path_}};
     case AdjustmentField::Odt: {
@@ -680,6 +684,8 @@ auto FieldChanged(AdjustmentField field, const AdjustmentState& current,
       return !NearlyEqual(current.sharpen_, committed.sharpen_);
     case AdjustmentField::Clarity:
       return !NearlyEqual(current.clarity_, committed.clarity_);
+    case AdjustmentField::FilmGrain:
+      return !NearlyEqual(current.film_grain_, committed.film_grain_);
     case AdjustmentField::Lut:
       return current.lut_path_ != committed.lut_path_;
     case AdjustmentField::Odt:
@@ -1088,6 +1094,21 @@ auto LoadStateFromPipeline(CPUPipelineExecutor& exec, const AdjustmentState& bas
   if (const auto v = ReadFloat(detail, OperatorType::CLARITY, "clarity"); v.has_value()) {
     loaded_state.clarity_ = v.value();
     has_loaded_any        = true;
+  }
+  if (const auto film_grain_json = ReadNestedObject(output, OperatorType::FILM_GRAIN, "film_grain");
+      film_grain_json.has_value()) {
+    const auto& film_grain = *film_grain_json;
+    if (film_grain.contains("strength")) {
+      try {
+        loaded_state.film_grain_ = std::clamp(film_grain["strength"].get<float>(), 0.0f, 100.0f);
+        has_loaded_any           = true;
+      } catch (...) {
+      }
+    }
+  } else if (const auto v = ReadFloat(output, OperatorType::FILM_GRAIN, "film_grain");
+             v.has_value()) {
+    loaded_state.film_grain_ = std::clamp(v.value(), 0.0f, 100.0f);
+    has_loaded_any           = true;
   }
 
   // --- Output transform (ODT) ---

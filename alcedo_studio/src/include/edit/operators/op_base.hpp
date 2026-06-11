@@ -119,7 +119,21 @@ struct OperatorParams {
     int                          roi_reference_height_                              = 0;
   };
 
-  ToneMappingParams    tone_mapping_                                                    = {};
+  ToneMappingParams tone_mapping_ = {};
+
+  struct FilmGrainParams {
+    bool          enabled_       = true;
+    float         strength_      = 0.0f;
+    int           samples_       = 32;
+    float         mean_radius_   = 0.08f;
+    float         radius_stddev_ = 0.04f;
+    float         filter_sigma_  = 0.8f;
+    float         max_radius_    = 0.2f;
+    float         cell_size_     = 0.4f;
+    std::uint64_t seed_          = 0x6a09e667f3bcc909ULL;
+  };
+
+  FilmGrainParams      film_grain_                                                      = {};
 
   // Basic adjustment parameters
   bool                 exposure_enabled_                                                = true;

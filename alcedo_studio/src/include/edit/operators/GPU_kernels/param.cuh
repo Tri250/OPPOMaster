@@ -300,8 +300,10 @@ struct GPU_TO_OUTPUT_Params {
 
 struct GPUOperatorParams {
   using ToneMappingParams                                  = OperatorParams::ToneMappingParams;
+  using FilmGrainParams                                    = OperatorParams::FilmGrainParams;
 
   ToneMappingParams tone_mapping_                          = {};
+  FilmGrainParams   film_grain_                            = {};
 
   // Basic adjustment parameters
   bool              exposure_enabled_                      = true;
@@ -489,6 +491,8 @@ class CudaFusedParamUploader {
     CudaFusedResources resources          = orig_resources;
     resources.common_params_              = fused_params;
     GPUOperatorParams& gpu_params         = resources.uploaded_params_;
+
+    gpu_params.film_grain_                = fused_params.film_grain_;
 
     gpu_params.exposure_enabled_          = fused_params.exposure_enabled_;
     gpu_params.exposure_offset_           = fused_params.exposure_offset_;

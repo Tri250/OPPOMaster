@@ -170,8 +170,10 @@ struct Fused_TO_OUTPUT_Params {
 
 struct FusedOperatorParams {
   using ToneMappingParams                                  = OperatorParams::ToneMappingParams;
+  using FilmGrainParams                                    = OperatorParams::FilmGrainParams;
 
   ToneMappingParams tone_mapping_                          = {};
+  FilmGrainParams   film_grain_                            = {};
 
   bool              exposure_enabled_                      = true;
   float             exposure_offset_                       = 0.0f;
@@ -323,6 +325,8 @@ class FusedParamsConverter {
   static auto ConvertFromCPU(OperatorParams&            cpu_params,
                              const FusedOperatorParams& orig_params = {}) -> FusedOperatorParams {
     FusedOperatorParams fused                 = orig_params;
+
+    fused.film_grain_                         = cpu_params.film_grain_;
 
     fused.exposure_enabled_                   = cpu_params.exposure_enabled_;
     fused.exposure_offset_                    = cpu_params.exposure_offset_;

@@ -56,6 +56,7 @@ enum class AdjustmentField {
   Curve,
   Sharpen,
   Clarity,
+  FilmGrain,
   Lut,
   Odt,
   CropRotate,
@@ -104,49 +105,50 @@ struct OdtState {
 // ---------------------------------------------------------------------------
 
 struct AdjustmentState {
-  float                      exposure_                   = pipeline_defaults::kCleanBaselineExposure;
-  float                      contrast_                   = 0.0f;
-  float                      saturation_                 = pipeline_defaults::kCleanBaselineSaturation;
-  bool                       raw_highlights_reconstruct_ = true;
-  bool                       lens_calib_enabled_         = pipeline_defaults::kCleanBaselineLensCalibEnabled;
-  std::string                lens_override_make_{};
-  std::string                lens_override_model_{};
-  ColorTempMode              color_temp_mode_             = ColorTempMode::AS_SHOT;
-  float                      color_temp_custom_cct_       = 6500.0f;
-  float                      color_temp_custom_tint_      = 0.0f;
-  float                      color_temp_resolved_cct_     = 6500.0f;
-  float                      color_temp_resolved_tint_    = 0.0f;
-  bool                       color_temp_supported_        = true;
-  float                      hls_target_hue_              = 0.0f;
-  float                      hls_hue_adjust_              = 0.0f;
-  float                      hls_lightness_adjust_        = 0.0f;
-  float                      hls_saturation_adjust_       = 0.0f;
-  float                      hls_hue_range_               = hls::kDefaultHueRange;
-  CdlWheelState              lift_wheel_                  = DefaultLiftWheelState();
-  CdlWheelState              gamma_wheel_                 = DefaultGammaGainWheelState();
-  CdlWheelState              gain_wheel_                  = DefaultGammaGainWheelState();
-  hls::HlsProfileArray       hls_hue_adjust_table_        = {};
-  hls::HlsProfileArray       hls_lightness_adjust_table_  = {};
-  hls::HlsProfileArray       hls_saturation_adjust_table_ = {};
-  hls::HlsProfileArray       hls_hue_range_table_ = hls::MakeFilledArray(hls::kDefaultHueRange);
-  float                      blacks_              = 0.0f;
-  float                      whites_              = 0.0f;
-  float                      shadows_             = 0.0f;
-  float                      highlights_          = 0.0f;
-  std::vector<QPointF>       curve_points_        = curve::DefaultCurveControlPoints();
-  float                      sharpen_             = 0.0f;
-  float                      clarity_             = 0.0f;
-  OdtState                   odt_                 = {};
-  float                      rotate_degrees_      = 0.0f;
-  bool                       crop_enabled_        = true;
-  float                      crop_x_              = 0.0f;
-  float                      crop_y_              = 0.0f;
-  float                      crop_w_              = 1.0f;
-  float                      crop_h_              = 1.0f;
-  bool                       crop_expand_to_fit_  = true;
-  geometry::CropAspectPreset crop_aspect_preset_  = geometry::CropAspectPreset::Free;
-  float                      crop_aspect_width_   = 1.0f;
-  float                      crop_aspect_height_  = 1.0f;
+  float                exposure_                   = pipeline_defaults::kCleanBaselineExposure;
+  float                contrast_                   = 0.0f;
+  float                saturation_                 = pipeline_defaults::kCleanBaselineSaturation;
+  bool                 raw_highlights_reconstruct_ = true;
+  bool                 lens_calib_enabled_ = pipeline_defaults::kCleanBaselineLensCalibEnabled;
+  std::string          lens_override_make_{};
+  std::string          lens_override_model_{};
+  ColorTempMode        color_temp_mode_             = ColorTempMode::AS_SHOT;
+  float                color_temp_custom_cct_       = 6500.0f;
+  float                color_temp_custom_tint_      = 0.0f;
+  float                color_temp_resolved_cct_     = 6500.0f;
+  float                color_temp_resolved_tint_    = 0.0f;
+  bool                 color_temp_supported_        = true;
+  float                hls_target_hue_              = 0.0f;
+  float                hls_hue_adjust_              = 0.0f;
+  float                hls_lightness_adjust_        = 0.0f;
+  float                hls_saturation_adjust_       = 0.0f;
+  float                hls_hue_range_               = hls::kDefaultHueRange;
+  CdlWheelState        lift_wheel_                  = DefaultLiftWheelState();
+  CdlWheelState        gamma_wheel_                 = DefaultGammaGainWheelState();
+  CdlWheelState        gain_wheel_                  = DefaultGammaGainWheelState();
+  hls::HlsProfileArray hls_hue_adjust_table_        = {};
+  hls::HlsProfileArray hls_lightness_adjust_table_  = {};
+  hls::HlsProfileArray hls_saturation_adjust_table_ = {};
+  hls::HlsProfileArray hls_hue_range_table_         = hls::MakeFilledArray(hls::kDefaultHueRange);
+  float                blacks_                      = 0.0f;
+  float                whites_                      = 0.0f;
+  float                shadows_                     = 0.0f;
+  float                highlights_                  = 0.0f;
+  std::vector<QPointF> curve_points_                = curve::DefaultCurveControlPoints();
+  float                sharpen_                     = 0.0f;
+  float                clarity_                     = 0.0f;
+  float                film_grain_                  = 0.0f;
+  OdtState             odt_                         = {};
+  float                rotate_degrees_              = 0.0f;
+  bool                 crop_enabled_                = true;
+  float                crop_x_                      = 0.0f;
+  float                crop_y_                      = 0.0f;
+  float                crop_w_                      = 1.0f;
+  float                crop_h_                      = 1.0f;
+  bool                 crop_expand_to_fit_          = true;
+  geometry::CropAspectPreset crop_aspect_preset_    = geometry::CropAspectPreset::Free;
+  float                      crop_aspect_width_     = 1.0f;
+  float                      crop_aspect_height_    = 1.0f;
   std::string                lut_path_;
   RenderType                 type_ = RenderType::FAST_PREVIEW;
 };
