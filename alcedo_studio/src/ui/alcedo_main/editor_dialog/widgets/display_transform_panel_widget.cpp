@@ -66,7 +66,8 @@ void DisplayTransformPanelWidget::RequestPipelineRender() {
 void DisplayTransformPanelWidget::SyncViewerDisplayEncoding() {
   if (callbacks_.sync_display_encoding) {
     callbacks_.sync_display_encoding(display_state_.odt_.encoding_space_,
-                                     display_state_.odt_.encoding_eotf_);
+                                     display_state_.odt_.encoding_eotf_,
+                                     display_state_.odt_.peak_luminance_);
   }
 }
 

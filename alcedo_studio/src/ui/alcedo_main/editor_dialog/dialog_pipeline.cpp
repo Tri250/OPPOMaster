@@ -28,7 +28,8 @@ void EditorDialog::SetupPipeline() {
   auto exec                     = pipeline_guard_->pipeline_;
   controllers::EnsureLoadingOperatorDefaults(exec);
   frame_manager_.AttachExecutionStages(exec);
-  frame_manager_.SyncViewerDisplayEncoding(state_.odt_.encoding_space_, state_.odt_.encoding_eotf_);
+  frame_manager_.SyncViewerDisplayEncoding(state_.odt_.encoding_space_, state_.odt_.encoding_eotf_,
+                                           state_.odt_.peak_luminance_);
 
   // Inject pre-extracted raw metadata from the Image so downstream operators
   // (ColorTemp, LensCalib) resolve eagerly.

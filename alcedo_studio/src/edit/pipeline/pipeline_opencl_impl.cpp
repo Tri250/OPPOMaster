@@ -56,7 +56,8 @@ struct OpenClNeighborStage {
 
 auto ResolveViewerDisplayConfig(const OperatorParams& params) -> ViewerDisplayConfig {
   return ViewerDisplayConfig{params.to_output_params_.encoding_space_,
-                             params.to_output_params_.eotf_};
+                             params.to_output_params_.eotf_,
+                             params.to_output_params_.peak_luminance_};
 }
 
 auto BuildGaussianWeights(float sigma, uint32_t radius)

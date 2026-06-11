@@ -609,8 +609,10 @@ void EditorDialog::BuildDisplayTransformPanel() {
         return DefaultAdjustmentState();
       },
       .sync_display_encoding =
-          [this](ColorUtils::ColorSpace encoding_space, ColorUtils::EOTF encoding_eotf) {
-            frame_manager_.SyncViewerDisplayEncoding(encoding_space, encoding_eotf);
+          [this](ColorUtils::ColorSpace encoding_space, ColorUtils::EOTF encoding_eotf,
+                 float peak_luminance) {
+            frame_manager_.SyncViewerDisplayEncoding(encoding_space, encoding_eotf,
+                                                     peak_luminance);
           },
       .load_from_pipeline = [this](const DisplayTransformAdjustmentState& base)
           -> std::optional<DisplayTransformAdjustmentState> {

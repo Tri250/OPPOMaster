@@ -353,10 +353,12 @@ auto QtEditViewer::GetViewZoom() const -> float { return viewer_state_.GetViewZo
 auto QtEditViewer::IsViewInteractionActive() const -> bool { return view_interaction_active_; }
 
 void QtEditViewer::SetDisplayEncoding(ColorUtils::ColorSpace encoding_space,
-                                      ColorUtils::EOTF       encoding_eotf) {
+                                      ColorUtils::EOTF       encoding_eotf,
+                                      float                  peak_luminance) {
   {
     std::lock_guard<std::mutex> lock(host_frame_mutex_);
-    pending_display_config_       = ViewerDisplayConfig{encoding_space, encoding_eotf};
+    pending_display_config_       = ViewerDisplayConfig{encoding_space, encoding_eotf,
+                                                        peak_luminance};
     pending_display_config_valid_ = true;
   }
   emit RequestUpdate();

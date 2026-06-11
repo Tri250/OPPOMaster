@@ -34,7 +34,8 @@ class EditorFrameManager final {
   auto CurrentFrameSink() -> IFrameSink*;
 
   void SyncViewerDisplayEncoding(ColorUtils::ColorSpace encoding_space,
-                                 ColorUtils::EOTF       encoding_eotf);
+                                 ColorUtils::EOTF       encoding_eotf,
+                                 float                  peak_luminance);
 
   void MarkNeedsFullFramePreviewAfterGeometryCommit();
   void ClearNeedsFullFramePreviewAfterGeometryCommit();

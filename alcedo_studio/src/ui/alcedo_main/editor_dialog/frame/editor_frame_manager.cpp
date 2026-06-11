@@ -104,11 +104,12 @@ auto EditorFrameManager::CurrentFrameSink() -> IFrameSink* {
 }
 
 void EditorFrameManager::SyncViewerDisplayEncoding(ColorUtils::ColorSpace encoding_space,
-                                                   ColorUtils::EOTF       encoding_eotf) {
+                                                   ColorUtils::EOTF       encoding_eotf,
+                                                   float                  peak_luminance) {
   if (!viewer_) {
     return;
   }
-  viewer_->SetDisplayEncoding(encoding_space, encoding_eotf);
+  viewer_->SetDisplayEncoding(encoding_space, encoding_eotf, peak_luminance);
 }
 
 void EditorFrameManager::MarkNeedsFullFramePreviewAfterGeometryCommit() {

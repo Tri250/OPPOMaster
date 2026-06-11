@@ -136,7 +136,8 @@ void EditorDialog::SyncControlsFromState() {
   }
   if (viewer_) {
     frame_manager_.SyncViewerDisplayEncoding(state_.odt_.encoding_space_,
-                                             state_.odt_.encoding_eotf_);
+                                             state_.odt_.encoding_eotf_,
+                                             state_.odt_.peak_luminance_);
     const bool geometry_active = (active_panel_ == ControlPanelKind::Geometry);
     viewer_->SetCropOverlayVisible(geometry_active);
     viewer_->SetCropToolEnabled(geometry_active);
