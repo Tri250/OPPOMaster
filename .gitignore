@@ -1074,6 +1074,7 @@ alcedo_studio/src/third_party/*
 !alcedo_studio/src/third_party/CMakeLists.txt
 !alcedo_studio/src/third_party/cmake/
 !alcedo_studio/src/third_party/cmake/FindGLIB2.cmake
+!alcedo_studio/src/third_party/libultrahdr/
 !alcedo_studio/src/third_party/include/
 !alcedo_studio/src/third_party/include/alcedo/
 !alcedo_studio/src/third_party/include/alcedo/metal/
