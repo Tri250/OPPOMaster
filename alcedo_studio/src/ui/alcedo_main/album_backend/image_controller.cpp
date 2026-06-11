@@ -912,19 +912,14 @@ auto ImageController::SetImageRating(uint elementId, uint imageId, int rating) -
       return result;
     }
 
-    if (target.element_id_ != 0) {
-      if (auto* item = backend_.FindAlbumItem(target.element_id_);
-          item && item->image_id == target.image_id_) {
-        item->rating = rating;
-      }
-    } else {
-      for (auto& item : backend_.view_state_.all_images_) {
-        if (item.image_id == target.image_id_) {
-          item.rating = rating;
-        }
+    for (auto& item : backend_.view_state_.all_images_) {
+      if ((target.element_id_ != 0 && item.element_id == target.element_id_) ||
+          (target.element_id_ == 0 && item.image_id == target.image_id_)) {
+        item.rating = rating;
       }
     }
-    backend_.stats_.RebuildThumbnailView();
+    backend_.thumbnail_model_.updateRating(target.element_id_, target.image_id_, rating);
+    backend_.stats_.RefreshStats();
 
     bool save_ok = true;
     try {

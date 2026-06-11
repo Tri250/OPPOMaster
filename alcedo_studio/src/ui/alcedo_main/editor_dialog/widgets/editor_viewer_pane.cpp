@@ -44,6 +44,11 @@ EditorViewerPane::EditorViewerPane(QWidget* parent) : QWidget(parent) {}
 
 void EditorDialog::BuildViewerAndPanelShell() {
     const auto& theme = AppTheme::Instance();
+    setObjectName(QStringLiteral("EditorDialog"));
+    setAttribute(Qt::WA_StyledBackground, true);
+    setStyleSheet(QStringLiteral("QDialog#EditorDialog { background: %1; }")
+                      .arg(theme.bgCanvasColor().name(QColor::HexArgb)));
+
     const QString borderless_panel_style = QStringLiteral(
         "#EditorControlsPanel {"
         "  background: %1;"
@@ -74,10 +79,14 @@ void EditorDialog::BuildViewerAndPanelShell() {
     main_splitter->setObjectName("EditorMainSplitter");
     main_splitter->setChildrenCollapsible(false);
     main_splitter->setHandleWidth(kEditorOuterMargin);
-    main_splitter->setStyleSheet(
+    main_splitter->setStyleSheet(QStringLiteral(
+        "QSplitter#EditorMainSplitter {"
+        "  background: %1;"
+        "  border: none;"
+        "}"
         "QSplitter#EditorMainSplitter::handle {"
-        "  background: transparent;"
-        "}");
+        "  background: %1;"
+        "}").arg(theme.bgCanvasColor().name(QColor::HexArgb)));
     main_splitter_ = main_splitter;
 
     viewer_ = new QtEditViewer(this);

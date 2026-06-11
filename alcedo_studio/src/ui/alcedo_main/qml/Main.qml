@@ -278,7 +278,8 @@ ApplicationWindow {
             elementId: elementId,
             imageId: Number(row.imageId),
             fileName: row.fileName ? row.fileName : qsTr("(unnamed)"),
-            rating: Number(row.rating)
+            rating: Number(row.rating),
+            isHdr: row.isHdr === true
         }
     }
 
@@ -484,6 +485,7 @@ ApplicationWindow {
             return
         }
         adjustmentTransferDialog.mode = "paste"
+        adjustmentTransferDialog.pasteStrategy = "merge"
         adjustmentTransferDialog.sourceTitle =
                 albumBackend.adjustmentTransferController.packageSourceTitle
         adjustmentTransferDialog.targetCount = root.pendingAdjustmentPasteTargets.length
@@ -505,7 +507,7 @@ ApplicationWindow {
             return String(Number(elementId))
         }
 
-        function setImageSelected(elementId, imageId, fileName, selected) {
+        function setImageSelected(elementId, imageId, fileName, isHdr, selected) {
             const key = keyForElement(elementId)
             const already = Object.prototype.hasOwnProperty.call(selectedImagesById, key)
             if (selected === already) {
@@ -517,7 +519,8 @@ ApplicationWindow {
                 next[key] = {
                     elementId: Number(elementId),
                     imageId: Number(imageId),
-                    fileName: fileName ? fileName : qsTr("(unnamed)")
+                    fileName: fileName ? fileName : qsTr("(unnamed)"),
+                    isHdr: isHdr === true
                 }
             } else {
                 delete next[key]
@@ -537,10 +540,39 @@ ApplicationWindow {
                 next[key] = {
                     elementId: Number(item.elementId),
                     imageId: Number(item.imageId),
-                    fileName: item.fileName ? item.fileName : qsTr("(unnamed)")
+                    fileName: item.fileName ? item.fileName : qsTr("(unnamed)"),
+                    isHdr: item.isHdr === true
                 }
             }
             selectedImagesById = next
+        }
+
+        function currentSelectedItems() {
+            const rows = Object.values(selectedImagesById)
+            const items = []
+            for (let i = 0; i < rows.length; ++i) {
+                const item = rows[i]
+                const rowIndex = albumBackend.thumbnailModel.rowByElementId(Number(item.elementId))
+                if (rowIndex >= 0) {
+                    const current = albumBackend.thumbnailModel.getItemAt(rowIndex)
+                    if (current && Number(current.elementId) === Number(item.elementId)) {
+                        items.push({
+                            elementId: Number(current.elementId),
+                            imageId: Number(current.imageId),
+                            fileName: current.fileName ? current.fileName : qsTr("(unnamed)"),
+                            isHdr: current.isHdr === true
+                        })
+                        continue
+                    }
+                }
+                items.push({
+                    elementId: Number(item.elementId),
+                    imageId: Number(item.imageId),
+                    fileName: item.fileName ? item.fileName : qsTr("(unnamed)"),
+                    isHdr: item.isHdr === true
+                })
+            }
+            return items
         }
 
         function pruneDeletedElements(elementIds) {
@@ -589,25 +621,26 @@ ApplicationWindow {
         selectedCount: root.selectedCount
         exportQueueCount: root.exportQueueCount
         exportPreviewRows: root.exportPreviewRows
-        hdrExportAvailable: root.exportQueueCount > 0
-            && albumBackend.CanUseHdrExportForTargets(Object.values(root.exportQueueById))
+        hdrExportAvailable: exportQueueState.hasHdrItems()
         onAddSelectedToQueueRequested: {
-            exportQueueState.addTargets(Object.values(selectionState.selectedImagesById))
+            exportQueueState.addTargets(selectionState.currentSelectedItems())
             selectionState.clearSelectedImages()
         }
         onClearQueueRequested: exportQueueState.clearQueue()
         onEnsurePreviewRequested: exportQueueState.refreshExportPreview()
-        onStartExportRequested: function(outDir, format, hdrExportMode, resizeEnabled, maxSide, quality, bitDepth, pngLevel, tiffComp) {
-            albumBackend.StartExportWithOptionsForTargets(
+        onStartExportRequested: function(outDir, sdrResizeEnabled, sdrMaxSide, ultraHdrMaxSide, sdrFormat, sdrQuality, sdrBitDepth, sdrPngLevel, sdrTiffComp, ultraHdrQuality, ultraHdrDitherEnabled) {
+            albumBackend.StartExportWithSplitOptionsForTargets(
                 outDir,
-                format,
-                hdrExportMode,
-                resizeEnabled,
-                maxSide,
-                quality,
-                bitDepth,
-                pngLevel,
-                tiffComp,
+                sdrResizeEnabled,
+                sdrMaxSide,
+                ultraHdrMaxSide,
+                sdrFormat,
+                sdrQuality,
+                sdrBitDepth,
+                sdrPngLevel,
+                sdrTiffComp,
+                ultraHdrQuality,
+                ultraHdrDitherEnabled,
                 exportQueueState.exportQueueTargets())
         }
     }
@@ -647,9 +680,10 @@ ApplicationWindow {
                 root.showSnackbar(result.message)
             }
         }
-        onPasteAccepted: {
+        onPasteAccepted: function(strategy) {
             const result = albumBackend.adjustmentTransferController.Paste(
-                root.pendingAdjustmentPasteTargets)
+                root.pendingAdjustmentPasteTargets,
+                strategy)
             if (result && result.message) {
                 root.showSnackbar(result.message)
             }
@@ -1549,7 +1583,7 @@ ApplicationWindow {
                             scale: addSelectedBtn.hovered && enabled ? 1.03 : 1.0
                             Behavior on scale { NumberAnimation { duration: 100; easing.type: Easing.OutCubic } }
                             onClicked: {
-                                exportQueueState.addTargets(Object.values(selectionState.selectedImagesById))
+                                exportQueueState.addTargets(selectionState.currentSelectedItems())
                                 selectionState.clearSelectedImages()
                             }
                         }
@@ -2146,8 +2180,8 @@ ApplicationWindow {
             onZoomLevelChanged: root.gridZoomLevel = zoomLevel
             selectedImagesById: root.selectedImagesById
             exportQueueById: root.exportQueueById
-            onImageSelectionChanged: function(elementId, imageId, fileName, selected) {
-                selectionState.setImageSelected(elementId, imageId, fileName, selected)
+            onImageSelectionChanged: function(elementId, imageId, fileName, isHdr, selected) {
+                selectionState.setImageSelected(elementId, imageId, fileName, isHdr, selected)
             }
             onReplaceSelection: function(items) {
                 selectionState.replaceSelectedImages(items)
@@ -2163,8 +2197,8 @@ ApplicationWindow {
         ThumbnailListView {
             selectedImagesById: root.selectedImagesById
             exportQueueById: root.exportQueueById
-            onImageSelectionChanged: function(elementId, imageId, fileName, selected) {
-                selectionState.setImageSelected(elementId, imageId, fileName, selected)
+            onImageSelectionChanged: function(elementId, imageId, fileName, isHdr, selected) {
+                selectionState.setImageSelected(elementId, imageId, fileName, isHdr, selected)
             }
             onReplaceSelection: function(items) {
                 selectionState.replaceSelectedImages(items)

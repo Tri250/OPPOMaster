@@ -266,7 +266,8 @@ void ODT_Op::RebuildRuntime() {
         odt_cpu::ResolveACESODTRuntime(limiting_space_, peak_luminance_);
     to_output_params_.limit_to_display_matx_ =
         ColorUtils::RGB_TO_XYZ_f33(limiting_space_) * ColorUtils::XYZ_TO_RGB_f33(encoding_space_);
-    to_output_params_.display_linear_scale_ = 1.0f;
+    to_output_params_.display_linear_scale_ =
+        (encoding_eotf_ == ColorUtils::EOTF::ST2084) ? ColorUtils::ref_lum : 1.0f;
     return;
   }
 

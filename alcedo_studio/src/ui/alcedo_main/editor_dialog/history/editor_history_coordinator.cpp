@@ -39,6 +39,17 @@ void EditorHistoryCoordinator::SeedWorkingVersionFromActive() {
       history.SetImportPipelineParams(dependencies_.pipeline_guard->pipeline_->ExportPipelineParams());
       dependencies_.history_guard->dirty_ = true;
     }
+
+    const auto active_params =
+        history.ReconstructPipelineParamsForVersion(history.GetActiveVersionID());
+    if (active_params.has_value() &&
+        dependencies_.pipeline_guard->pipeline_->ExportPipelineParams() != *active_params) {
+      dependencies_.pipeline_guard->pipeline_->ImportPipelineParams(*active_params);
+      dependencies_.pipeline_guard->dirty_ = true;
+      if (callbacks_.after_pipeline_params_imported) {
+        callbacks_.after_pipeline_params_imported();
+      }
+    }
   }
   working_version_ =
       controllers::SeedWorkingVersionFromActive(dependencies_.element_id,

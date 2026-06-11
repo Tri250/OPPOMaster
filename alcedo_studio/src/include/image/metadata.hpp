@@ -34,6 +34,7 @@ class ExifDisplayMetaData {
 
   // Other
   int                 rating_        = 0;
+  bool                is_hdr_        = false;
 
   ExifDisplayMetaData()             = default;
   ExifDisplayMetaData(nlohmann::json exif_json);
@@ -65,6 +66,7 @@ class ExifDisplayMetaData {
     ss << "Image Size: " << width_ << " x " << height_ << "\n";
     ss << "Date Time: " << date_time_str_ << "\n";
     ss << "Rating: " << rating_ << "\n";
+    ss << "HDR: " << (is_hdr_ ? "true" : "false") << "\n";
     return ss.str();
   }
 
@@ -90,6 +92,7 @@ class ExifDisplayMetaData {
 
     // Other
     exif_json["Rating"]         = NormalizeRating(rating_);
+    exif_json["IsHDR"]          = is_hdr_;
     return exif_json;
   }
 
@@ -120,6 +123,7 @@ class ExifDisplayMetaData {
     date_time_str_ = exif_json.value("DateTimeString", "");
     // Other
     rating_        = NormalizeRating(exif_json.value("Rating", 0));
+    is_hdr_        = exif_json.value("IsHDR", false);
   }
 };
 };  // namespace alcedo

@@ -41,6 +41,7 @@ class AlbumThumbnailModel : public QAbstractListModel {
     CaptureDate,
     ImportDate,
     Rating,
+    IsHdr,
     Tags,
     Accent,
     ThumbUrl,
@@ -72,6 +73,12 @@ class AlbumThumbnailModel : public QAbstractListModel {
   /// Patch thumbnail state for a single row — emits dataChanged.
   void updateThumbnailState(sl_element_id_t elementId, const QString& dataUrl,
                             bool loading, bool missingSource, const QString& errorText);
+
+  /// Patch rating for the currently loaded row — emits dataChanged for Rating only.
+  bool updateRating(sl_element_id_t elementId, image_id_t imageId, int rating);
+
+  /// Patch HDR export marker for the currently loaded row — emits dataChanged for IsHdr only.
+  bool updateHdrFlag(sl_element_id_t elementId, image_id_t imageId, bool isHdr);
 
   /// QML helper: return a QVariantMap for the row at @p index, or empty map.
   Q_INVOKABLE QVariantMap getItemAt(int index) const;

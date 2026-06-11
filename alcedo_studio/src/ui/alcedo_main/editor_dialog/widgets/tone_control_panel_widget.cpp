@@ -31,6 +31,7 @@ namespace {
 constexpr char kLocalizedTextProperty[]      = "puerhlabI18nText";
 constexpr char kLocalizedTextUpperProperty[] = "puerhlabI18nTextUpper";
 constexpr char kLocalizedToolTipProperty[]   = "puerhlabI18nToolTip";
+constexpr int  kWheelSliderSettledMs         = 180;
 
 void           SetLocalizedText(QObject* object, const char* source, bool uppercase = false) {
   if (!object || source == nullptr) {
@@ -195,7 +196,18 @@ void ToneControlPanelWidget::PullCommittedColorTempStateFromDialog() {
 }
 
 bool ToneControlPanelWidget::eventFilter(QObject* obj, QEvent* event) {
-  if (event && event->type() == QEvent::MouseButtonDblClick) {
+  if (!event) {
+    return AdjustmentPanelWidget::eventFilter(obj, event);
+  }
+
+  if (event->type() == QEvent::Wheel) {
+    if (auto* slider = qobject_cast<QSlider*>(obj);
+        slider != nullptr && slider_settled_callbacks_.contains(slider)) {
+      ScheduleWheelSliderSettled(slider);
+    }
+  }
+
+  if (event->type() == QEvent::MouseButtonDblClick) {
     if (auto* slider = qobject_cast<QSlider*>(obj)) {
       const auto it = slider_reset_callbacks_.find(slider);
       if (it != slider_reset_callbacks_.end()) {
@@ -221,6 +233,43 @@ void ToneControlPanelWidget::RegisterSliderReset(QSlider* slider, std::function<
   }
   slider->installEventFilter(this);
   slider_reset_callbacks_[slider] = std::move(on_reset);
+}
+
+void ToneControlPanelWidget::RegisterSliderSettled(QSlider* slider,
+                                                   std::function<void()> on_settled) {
+  if (!slider || !on_settled) {
+    return;
+  }
+  slider->installEventFilter(this);
+  slider_settled_callbacks_[slider] = std::move(on_settled);
+}
+
+void ToneControlPanelWidget::ScheduleWheelSliderSettled(QSlider* slider) {
+  if (!slider || IsSyncing()) {
+    return;
+  }
+  pending_wheel_slider_ = slider;
+  EnsureWheelSliderSettledTimer();
+  wheel_slider_settled_timer_->start(kWheelSliderSettledMs);
+}
+
+void ToneControlPanelWidget::EnsureWheelSliderSettledTimer() {
+  if (wheel_slider_settled_timer_) {
+    return;
+  }
+  wheel_slider_settled_timer_ = new QTimer(this);
+  wheel_slider_settled_timer_->setSingleShot(true);
+  QObject::connect(wheel_slider_settled_timer_, &QTimer::timeout, this, [this]() {
+    auto* slider = pending_wheel_slider_;
+    pending_wheel_slider_ = nullptr;
+    if (IsSyncing() || !slider) {
+      return;
+    }
+    const auto it = slider_settled_callbacks_.find(slider);
+    if (it != slider_settled_callbacks_.end() && it->second) {
+      it->second();
+    }
+  });
 }
 
 void ToneControlPanelWidget::RegisterCurveReset(ToneCurveWidget*      widget,
@@ -555,6 +604,13 @@ void ToneControlPanelWidget::BuildToneSection() {
       on_release();
     });
 
+    RegisterSliderSettled(slider, [this, on_release]() {
+      if (IsSyncing()) {
+        return;
+      }
+      on_release();
+    });
+
     RegisterSliderReset(slider, [this, on_reset]() {
       if (IsSyncing()) {
         return;
@@ -831,6 +887,13 @@ void ToneControlPanelWidget::BuildColorSection() {
       on_release();
     });
 
+    RegisterSliderSettled(slider, [this, on_release]() {
+      if (IsSyncing()) {
+        return;
+      }
+      on_release();
+    });
+
     RegisterSliderReset(slider, [this, on_reset]() {
       if (IsSyncing()) {
         return;
@@ -1074,6 +1137,13 @@ void ToneControlPanelWidget::BuildDetailSection() {
                      });
 
     QObject::connect(slider, &QSlider::sliderReleased, parent_widget, [this, on_release]() {
+      if (IsSyncing()) {
+        return;
+      }
+      on_release();
+    });
+
+    RegisterSliderSettled(slider, [this, on_release]() {
       if (IsSyncing()) {
         return;
       }

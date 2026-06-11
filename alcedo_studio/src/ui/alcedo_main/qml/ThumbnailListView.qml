@@ -23,7 +23,8 @@ ListView {
     property var selectedImagesById: ({})
     property var exportQueueById: ({})
 
-    signal imageSelectionChanged(int elementId, int imageId, string fileName, bool selected)
+    signal imageSelectionChanged(int elementId, int imageId, string fileName, bool isHdr,
+                                 bool selected)
     signal replaceSelection(var items)
     signal contextMenuRequested(var item, real sceneX, real sceneY)
 
@@ -79,6 +80,7 @@ ListView {
         required property string focalLength
         required property string captureDate
         required property int rating
+        required property bool isHdr
         required property string tags
         required property string accent
         required property string thumbUrl
@@ -316,7 +318,8 @@ ListView {
                     elementId: elementId,
                     imageId: imageId,
                     fileName: fileName,
-                    rating: rating
+                    rating: rating,
+                    isHdr: isHdr
                 }, scenePoint.x, scenePoint.y)
             }
             onClicked: function(mouse) {
@@ -325,13 +328,14 @@ ListView {
                 }
                 if (root.hasMultiSelectModifier(mouse.modifiers)) {
                     const nextSelected = !root.isImageSelected(elementId)
-                    root.imageSelectionChanged(elementId, imageId, fileName, nextSelected)
+                    root.imageSelectionChanged(elementId, imageId, fileName, isHdr, nextSelected)
                 } else {
                     root.replaceSelection([{
                         elementId: elementId,
                         imageId: imageId,
                         fileName: fileName,
-                        rating: rating
+                        rating: rating,
+                        isHdr: isHdr
                     }])
                 }
             }

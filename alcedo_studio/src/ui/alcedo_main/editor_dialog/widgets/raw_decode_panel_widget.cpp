@@ -131,7 +131,6 @@ void RawDecodePanelWidget::PullCommittedRawStateFromDialog() {
 
 void RawDecodePanelWidget::PreviewRawField(AdjustmentField field) {
   ProjectRawStateToDialog();
-  RequestPipelineRender();
   if (!deps_.session) {
     return;
   }
@@ -146,12 +145,14 @@ void RawDecodePanelWidget::CommitRawField(AdjustmentField field) {
   ProjectRawStateToDialog();
   if (!deps_.session) {
     PullCommittedRawStateFromDialog();
+    RequestPipelineRender();
     return;
   }
 
   if (!RawPipelineAdapter::FieldChanged(field, raw_state_, committed_raw_state_)) {
     deps_.session->Commit(field);
     PullCommittedRawStateFromDialog();
+    RequestPipelineRender();
     return;
   }
 
@@ -161,6 +162,7 @@ void RawDecodePanelWidget::CommitRawField(AdjustmentField field) {
       .new_params = RawPipelineAdapter::ParamsFor(field, raw_state_),
   });
   PullCommittedRawStateFromDialog();
+  RequestPipelineRender();
 }
 
 void RawDecodePanelWidget::Build() {

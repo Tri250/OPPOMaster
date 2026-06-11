@@ -191,7 +191,7 @@ set(PUERHLAB_ULTRAHDR_SOURCE_DIR
 if(NOT EXISTS "${PUERHLAB_ULTRAHDR_SOURCE_DIR}/CMakeLists.txt")
     message(FATAL_ERROR
         "libultrahdr source was not found at ${PUERHLAB_ULTRAHDR_SOURCE_DIR}. "
-        "Run `git submodule update --init --recursive pu-erh_lab/src/third_party/libultrahdr` "
+        "Run `git submodule update --init --recursive alcedo_studio/src/third_party/libultrahdr` "
         "and re-configure.")
 endif()
 
@@ -240,7 +240,7 @@ if(EXISTS "${PUERHLAB_ULTRAHDR_IMAGE_IO_HEADER}")
 else()
     message(WARNING
         "libultrahdr checkout is incomplete: missing ${PUERHLAB_ULTRAHDR_IMAGE_IO_HEADER}. "
-        "Run `git submodule update --init --recursive pu-erh_lab/src/third_party/libultrahdr` "
+        "Run `git submodule update --init --recursive alcedo_studio/src/third_party/libultrahdr` "
         "and re-configure. Ultra HDR support will be disabled for this build.")
 endif()
 

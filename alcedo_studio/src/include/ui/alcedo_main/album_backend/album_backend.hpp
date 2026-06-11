@@ -241,6 +241,12 @@ class AlbumBackend final : public QObject {
              const QString& outputDirUrlOrPath, const QString& formatName, const QString& hdrExportMode,
              bool resizeEnabled, int maxLengthSide, int quality, int bitDepth, int pngCompressionLevel,
              const QString& tiffCompression, const QVariantList& targetEntries);
+  Q_INVOKABLE void        StartExportWithSplitOptionsForTargets(
+             const QString& outputDirUrlOrPath, bool sdrResizeEnabled, int sdrMaxLengthSide,
+             int ultraHdrMaxLengthSide,
+             const QString& sdrFormatName, int sdrQuality, int sdrBitDepth,
+             int sdrPngCompressionLevel, const QString& sdrTiffCompression,
+             int ultraHdrQuality, bool ultraHdrDitherEnabled, const QVariantList& targetEntries);
   Q_INVOKABLE void         ResetExportState();
   Q_INVOKABLE bool         CanUseHdrExportForTargets(const QVariantList& targetEntries) const;
   Q_INVOKABLE void         BrowseNikonHeConverter();
@@ -345,6 +351,8 @@ class AlbumBackend final : public QObject {
   void AddOrUpdateAlbumItem(sl_element_id_t elementId, image_id_t imageId, sl_element_id_t folderId,
                             const QString& scopeType, const file_name_t& fallbackName,
                             const std::filesystem::path& filePath);
+  void SetAlbumItemHdrFlag(sl_element_id_t elementId, image_id_t imageId, bool isHdr);
+  void PersistImageHdrFlag(sl_element_id_t elementId, image_id_t imageId, bool isHdr);
   auto FindAlbumItem(sl_element_id_t elementId) -> AlbumItem*;
   auto FindAlbumItem(sl_element_id_t elementId) const -> const AlbumItem*;
 

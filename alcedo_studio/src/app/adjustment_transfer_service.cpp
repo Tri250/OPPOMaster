@@ -337,13 +337,14 @@ auto ApplyAsTransactions(PipelineExecutor& target, WorkingVersion& working_versi
   return changed;
 }
 
-auto UniqueVersionDisplayName(const EditHistory& history, const std::string& requested_name)
-    -> std::string {
-  const std::string base_name = requested_name.empty() ? "Pasted Adjustments" : requested_name;
+auto UniqueVersionDisplayName(const EditHistory& history, const std::string& requested_name,
+                              std::string_view fallback_name) -> std::string {
+  const std::string base_name =
+      requested_name.empty() ? std::string{fallback_name} : requested_name;
   bool              base_exists = false;
   int               max_suffix  = 1;
 
-  const std::string prefix = base_name + " (";
+  const std::string prefix      = base_name + " (";
   for (const auto& node : history.GetVersions()) {
     const std::string& existing_name = node.ver_ref_.GetDisplayName();
     if (existing_name == base_name) {
@@ -360,7 +361,7 @@ auto UniqueVersionDisplayName(const EditHistory& history, const std::string& req
     try {
       const int parsed = std::stoi(suffix);
       if (parsed > 1) {
-        max_suffix = std::max(max_suffix, parsed);
+        max_suffix  = std::max(max_suffix, parsed);
         base_exists = true;
       }
     } catch (...) {
@@ -572,8 +573,8 @@ auto AdjustmentTransferService::Apply(PipelineMgmtService&             pipeline_
                                       EditHistoryMgmtService&          history_service,
                                       std::span<const sl_element_id_t> target_ids,
                                       const AdjustmentTransferPackage& package,
-                                      std::string                     version_display_name)
-    -> AdjustmentApplyResult {
+                                      std::string                      version_display_name,
+                                      AdjustmentVersionApplyMode mode) -> AdjustmentApplyResult {
   AdjustmentApplyResult result;
   if (package.Empty()) {
     result.unchanged_ids_.assign(target_ids.begin(), target_ids.end());
@@ -603,17 +604,29 @@ auto AdjustmentTransferService::Apply(PipelineMgmtService&             pipeline_
       bool changed = false;
       {
         std::unique_lock<std::mutex> render_guard(pipeline_guard->pipeline_->GetRenderLock());
-        const auto                   base_params = pipeline_guard->pipeline_->ExportPipelineParams();
-        Version pasted_version = Version::Empty(
-            target_id, UniqueVersionDisplayName(*history_guard->history_, version_display_name),
-            base_params);
-        WorkingVersion working_version{target_id, pasted_version.GetVersionID(), base_params};
+        const auto        base_params  = pipeline_guard->pipeline_->ExportPipelineParams();
+        const std::string display_name = UniqueVersionDisplayName(
+            *history_guard->history_, version_display_name,
+            mode == AdjustmentVersionApplyMode::kMerge ? "Merged Adjustments"
+                                                       : "Pasted Adjustments");
 
-        changed = ApplyAsTransactions(*pipeline_guard->pipeline_, working_version, package);
-        if (changed) {
-          pasted_version.UpdateFromWorkingVersion(working_version,
-                                                  pipeline_guard->pipeline_->ExportPipelineParams());
-          history_service.CommitVersion(history_guard, std::move(pasted_version));
+        if (mode == AdjustmentVersionApplyMode::kMerge) {
+          changed = Apply(*pipeline_guard->pipeline_, package);
+          if (changed) {
+            Version merged_version = Version::Empty(
+                target_id, display_name, pipeline_guard->pipeline_->ExportPipelineParams());
+            history_service.CommitVersion(history_guard, std::move(merged_version));
+          }
+        } else {
+          Version        pasted_version = Version::Empty(target_id, display_name, base_params);
+          WorkingVersion working_version{target_id, pasted_version.GetVersionID(), base_params};
+
+          changed = ApplyAsTransactions(*pipeline_guard->pipeline_, working_version, package);
+          if (changed) {
+            pasted_version.UpdateFromWorkingVersion(
+                working_version, pipeline_guard->pipeline_->ExportPipelineParams());
+            history_service.CommitVersion(history_guard, std::move(pasted_version));
+          }
         }
       }
 

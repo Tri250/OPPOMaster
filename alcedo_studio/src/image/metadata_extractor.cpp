@@ -22,6 +22,7 @@
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -123,6 +124,22 @@ auto ResolveCropFactorHint(float focal_mm, float focal_35mm_mm) -> float {
 auto PathToUtf8(const std::filesystem::path& path) -> std::string {
   const auto u8 = path.u8string();
   return std::string(reinterpret_cast<const char*>(u8.data()), u8.size());
+}
+
+auto ToLowerAscii(std::string value) -> std::string {
+  std::transform(value.begin(), value.end(), value.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  return value;
+}
+
+auto ContainsAny(const std::string& text, const std::initializer_list<std::string_view>& patterns)
+    -> bool {
+  for (const auto pattern : patterns) {
+    if (text.find(pattern) != std::string::npos) {
+      return true;
+    }
+  }
+  return false;
 }
 
 auto ExtractDngGeometryMetadataFromFile(const std::filesystem::path& path)
@@ -1019,6 +1036,76 @@ auto PopulateDisplayDimensionsFromOiio(const image_path_t& image_path,
   }
 }
 
+auto OiioMetadataSuggestsHdr(const ImageSpec& spec) -> bool {
+  const auto inspect = [](std::string text) {
+    text = ToLowerAscii(std::move(text));
+    return ContainsAny(text, {"ultrahdr", "ultra hdr", "hdrgm", "gainmap", "gain map",
+                              "iso 21496", "iso:ts:21496", "rec2100", "rec.2100", "bt2100",
+                              "bt.2100", "itur_2100", "itur-2100", "st2084", "st 2084",
+                              "smpte2084", "smpte 2084", "hlg"});
+  };
+
+  if (inspect(spec.get_string_attribute("oiio:ColorSpace")) ||
+      inspect(spec.get_string_attribute("colorspace")) ||
+      inspect(spec.get_string_attribute("jpeg:subimages"))) {
+    return true;
+  }
+
+  for (const auto& param : spec.extra_attribs) {
+    const std::string key = param.name().string();
+    if (inspect(key) || inspect(param.get_string(0))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+auto FileSignaturesSuggestHdr(const image_path_t& image_path) -> bool {
+  std::ifstream ifs(image_path, std::ios::binary);
+  if (!ifs.is_open()) {
+    return false;
+  }
+
+  constexpr size_t kMaxProbeBytes = 4 * 1024 * 1024;
+  std::string      bytes(kMaxProbeBytes, '\0');
+  ifs.read(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+  bytes.resize(static_cast<size_t>(std::max<std::streamsize>(0, ifs.gcount())));
+  if (bytes.empty()) {
+    return false;
+  }
+
+  const std::string text = ToLowerAscii(std::move(bytes));
+  return ContainsAny(text, {"http://ns.adobe.com/hdr-gain-map", "hdrgm:version",
+                            "hdrgm:gainmapmin", "gainmap:version", "ultrahdr",
+                            "ultra hdr", "iso 21496", "iso:ts:21496",
+                            "urn:iso:std:iso:ts:21496", "gain map"});
+}
+
+auto DetectHdrMetadata(const image_path_t& image_path, const Exiv2::Image* exif_image = nullptr)
+    -> bool {
+  if (exif_image) {
+    for (const auto& datum : exif_image->xmpData()) {
+      const std::string text = ToLowerAscii(datum.key() + " " + datum.toString());
+      if (ContainsAny(text, {"ultrahdr", "ultra hdr", "hdrgm", "gainmap", "gain map",
+                             "iso 21496", "iso:ts:21496", "rec2100", "rec.2100", "bt2100",
+                             "bt.2100", "st2084", "st 2084", "smpte2084", "smpte 2084",
+                             "hlg"})) {
+        return true;
+      }
+    }
+  }
+
+  try {
+    auto input = ImageInput::open(PathToUtf8(image_path));
+    if (input && OiioMetadataSuggestsHdr(input->spec())) {
+      return true;
+    }
+  } catch (...) {
+  }
+
+  return FileSignaturesSuggestHdr(image_path);
+}
+
 void PopulateDngMetadataHintFromOpenLibRaw(LibRaw& raw_processor, ExifDisplayMetaData& display,
                                            RawRuntimeColorContext& ctx) {
   const std::string raw_make       = TrimAscii(raw_processor.imgdata.idata.make);
@@ -1175,6 +1262,7 @@ auto ExtractDngMetadataToImageFast(const image_path_t& image_path, Image& image)
     // only as a last-resort size probe if LibRaw open_file did not expose it.
     PopulateDisplayDimensionsFromOiio(image_path, display);
   }
+  display.is_hdr_ = DetectHdrMetadata(image_path, exif_image.get());
 
   image.SetExifDisplayMetaData(std::move(display));
   image.SetRawColorContext(std::move(ctx));
@@ -1535,6 +1623,7 @@ void MetadataExtractor::ExtractEXIF_ToImage(const image_path_t& image_path, Imag
     GetDisplayMetadataFromExif(exif_data->exifData(), display_metadata);
   }
   PopulateStandardRating(*exif_data, display_metadata);
+  display_metadata.is_hdr_ = DetectHdrMetadata(image_path, exif_data.get());
   image.SetExifDisplayMetaData(std::move(display_metadata));
 }
 
@@ -1601,6 +1690,7 @@ auto MetadataExtractor::ExtractRawMetadata_ToImage(const image_path_t& image_pat
 
   ExifDisplayMetaData display{};
   PopulateDisplayMetadataFromLibRaw(*raw_processor, ctx, display);
+  display.is_hdr_ = DetectHdrMetadata(image_path);
 
   raw_processor->recycle();
 

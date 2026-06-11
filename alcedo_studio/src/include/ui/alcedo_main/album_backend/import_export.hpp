@@ -42,6 +42,14 @@ class ImportExportHandler {
                                         int bitDepth, int pngCompressionLevel,
                                         const QString& tiffCompression,
                                         const QVariantList& targetEntries);
+  void StartExportWithSplitOptionsForTargets(const QString& outputDirUrlOrPath,
+                                             bool sdrResizeEnabled, int sdrMaxLengthSide,
+                                             int ultraHdrMaxLengthSide,
+                                             const QString& sdrFormatName, int sdrQuality,
+                                             int sdrBitDepth, int sdrPngCompressionLevel,
+                                             const QString& sdrTiffCompression,
+                                             int ultraHdrQuality, bool ultraHdrDitherEnabled,
+                                             const QVariantList& targetEntries);
   void ResetExportState();
 
   void FinishImport(const ImportResult& result);
@@ -51,11 +59,12 @@ class ImportExportHandler {
   [[nodiscard]] auto CollectExportTargets(const QVariantList& targetEntries) const
       -> std::vector<ExportTarget>;
   auto BuildExportQueue(const std::vector<ExportTarget>& targets,
-                        const std::filesystem::path& outputDir, ImageFormatType format,
-                        ExportFormatOptions::HDR_EXPORT_MODE hdrExportMode, bool resizeEnabled,
-                        int maxLengthSide, int quality, ExportFormatOptions::BIT_DEPTH bitDepth,
-                        int pngCompressionLevel,
-                        ExportFormatOptions::TIFF_COMPRESS tiffCompression)
+                        const std::filesystem::path& outputDir, bool sdrResizeEnabled,
+                        int sdrMaxLengthSide, int ultraHdrMaxLengthSide,
+                        ImageFormatType sdrFormat, int sdrQuality,
+                        ExportFormatOptions::BIT_DEPTH sdrBitDepth, int sdrPngCompressionLevel,
+                        ExportFormatOptions::TIFF_COMPRESS sdrTiffCompression,
+                        int ultraHdrQuality, bool ultraHdrDitherEnabled)
       -> ExportQueueBuildResult;
 
   [[nodiscard]] bool export_inflight() const { return export_inflight_; }

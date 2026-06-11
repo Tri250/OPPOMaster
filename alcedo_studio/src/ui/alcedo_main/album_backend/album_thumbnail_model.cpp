@@ -67,6 +67,8 @@ QVariant AlbumThumbnailModel::roleValue(const AlbumItem& item, int role) const {
                                         : QStringLiteral("--");
     case Rating:
       return item.rating;
+    case IsHdr:
+      return item.is_hdr;
     case Tags:
       return item.tags;
     case Accent:
@@ -100,6 +102,7 @@ QHash<int, QByteArray> AlbumThumbnailModel::roleNames() const {
       {CaptureDate, "captureDate"},
       {ImportDate, "importDate"},
       {Rating, "rating"},
+      {IsHdr, "isHdr"},
       {Tags, "tags"},
       {Accent, "accent"},
       {ThumbUrl, "thumbUrl"},
@@ -172,6 +175,56 @@ void AlbumThumbnailModel::updateThumbnailState(sl_element_id_t elementId, const 
   emit thumbnailUpdated(static_cast<uint>(elementId), dataUrl, loading, missingSource, errorText);
 }
 
+bool AlbumThumbnailModel::updateRating(sl_element_id_t elementId, image_id_t imageId, int rating) {
+  bool updated = false;
+
+  auto update_row = [&](int row) {
+    if (row < 0 || row >= static_cast<int>(rows_.size())) {
+      return;
+    }
+    auto& item = rows_[static_cast<size_t>(row)];
+    if (imageId != 0 && item.image_id != imageId) {
+      return;
+    }
+    if (item.rating == rating) {
+      return;
+    }
+
+    item.rating = rating;
+    const QModelIndex idx = index(row);
+    emit dataChanged(idx, idx, {Rating});
+    updated = true;
+  };
+
+  if (elementId != 0) {
+    update_row(rowByElementId(static_cast<uint>(elementId)));
+    return updated;
+  }
+
+  if (imageId == 0) {
+    return false;
+  }
+  for (int row = 0; row < static_cast<int>(rows_.size()); ++row) {
+    update_row(row);
+  }
+  return updated;
+}
+
+bool AlbumThumbnailModel::updateHdrFlag(sl_element_id_t elementId, image_id_t imageId,
+                                        bool isHdr) {
+  const int row = rowByElementId(elementId);
+  if (row < 0) return false;
+
+  auto& item = rows_[static_cast<size_t>(row)];
+  if (imageId != 0 && item.image_id != imageId) return false;
+  if (item.is_hdr == isHdr) return false;
+
+  item.is_hdr = isHdr;
+  const QModelIndex idx = index(row);
+  emit dataChanged(idx, idx, {IsHdr});
+  return true;
+}
+
 QVariantMap AlbumThumbnailModel::getItemAt(int idx) const {
   if (idx < 0 || idx >= static_cast<int>(rows_.size())) return {};
   const auto& item = rows_[static_cast<size_t>(idx)];
@@ -180,6 +233,7 @@ QVariantMap AlbumThumbnailModel::getItemAt(int idx) const {
       {"imageId", static_cast<uint>(item.image_id)},
       {"fileName", item.file_name.isEmpty() ? QStringLiteral("(unnamed)") : item.file_name},
       {"rating", item.rating},
+      {"isHdr", item.is_hdr},
   };
 }
 

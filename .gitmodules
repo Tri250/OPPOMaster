@@ -12,9 +12,10 @@
 [submodule "alcedo/src/third_party/metal-cpp"]
 	path = alcedo/src/third_party/metal-cpp
 	url = https://github.com/bkaradzic/metal-cpp
-[submodule "alcedo/src/third_party/libultrahdr"]
-	path = alcedo/src/third_party/libultrahdr
-	url = https://github.com/google/libultrahdr.git
+[submodule "alcedo_studio/src/third_party/libultrahdr"]
+	path = alcedo_studio/src/third_party/libultrahdr
+	url = https://github.com/zidage/libultrahdr.git
+	branch = alcedo-v1.4.0-dither
 [submodule "alcedo_studio/third_party/dawn"]
 	path = alcedo_studio/third_party/dawn
 	url = https://dawn.googlesource.com/dawn

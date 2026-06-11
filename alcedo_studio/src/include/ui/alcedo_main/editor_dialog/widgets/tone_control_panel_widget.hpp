@@ -8,6 +8,7 @@
 #include <QEvent>
 #include <QLabel>
 #include <QSlider>
+#include <QTimer>
 #include <QVBoxLayout>
 #include <QWidget>
 #include <functional>
@@ -90,6 +91,9 @@ class ToneControlPanelWidget final : public AdjustmentPanelWidget {
   auto IsSyncing() const -> bool;
   bool eventFilter(QObject* obj, QEvent* event) override;
   void RegisterSliderReset(QSlider* slider, std::function<void()> on_reset);
+  void RegisterSliderSettled(QSlider* slider, std::function<void()> on_settled);
+  void ScheduleWheelSliderSettled(QSlider* slider);
+  void EnsureWheelSliderSettledTimer();
   void RegisterCurveReset(ToneCurveWidget* widget, std::function<void()> on_reset);
   void RequestPipelineRender();
   auto SessionPreviewParamsForTone(AdjustmentField field) -> nlohmann::json;
@@ -114,6 +118,9 @@ class ToneControlPanelWidget final : public AdjustmentPanelWidget {
   float                                     last_known_as_shot_tint_           = 0.0f;
   bool                                      has_last_known_as_shot_color_temp_ = false;
   std::map<QSlider*, std::function<void()>> slider_reset_callbacks_{};
+  std::map<QSlider*, std::function<void()>> slider_settled_callbacks_{};
+  QTimer*                                   wheel_slider_settled_timer_ = nullptr;
+  QSlider*                                  pending_wheel_slider_       = nullptr;
   std::function<void()>                     curve_reset_callback_{};
 
   QSlider*                                  exposure_slider_              = nullptr;

@@ -32,7 +32,7 @@ class AdjustmentTransferController final : public QObject {
 
   Q_INVOKABLE QVariantMap PrepareCopy(uint elementId);
   Q_INVOKABLE QVariantMap Copy(uint elementId, const QVariantList& selectedKeys);
-  Q_INVOKABLE QVariantMap Paste(const QVariantList& targetEntries);
+  Q_INVOKABLE QVariantMap Paste(const QVariantList& targetEntries, const QString& strategy);
   Q_INVOKABLE void        Discard();
 
  signals:

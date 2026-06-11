@@ -52,7 +52,8 @@ class QtEditViewer : public QWidget, public alcedo::IFrameSink {
   auto GetViewZoom() const -> float;
   auto IsViewInteractionActive() const -> bool;
   void SetDisplayEncoding(ColorUtils::ColorSpace encoding_space,
-                          ColorUtils::EOTF       encoding_eotf);
+                          ColorUtils::EOTF       encoding_eotf,
+                          float                  peak_luminance);
   void SyncPendingFrameStateForScheduling();
   void SetExpectedDetailToken(std::uint64_t preview_generation, std::uint64_t detail_serial);
   void ClearExpectedDetailToken();

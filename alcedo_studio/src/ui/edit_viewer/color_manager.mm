@@ -13,6 +13,8 @@
 #include <QtCore/qlogging.h>
 #include <QDebug>
 #include <QString>
+#include <algorithm>
+#include <cmath>
 
 namespace alcedo {
 namespace {
@@ -162,6 +164,28 @@ void LogFallbackColorSpace(const ViewerDisplayConfig& config, CFStringRef resolv
                   QString::fromStdString(ColorUtils::EOTFToString(config.encoding_eotf)));
 }
 
+auto ClampHdrPeakLuminance(float peak_luminance) -> float {
+  if (!std::isfinite(peak_luminance)) {
+    return 100.0f;
+  }
+  return std::clamp(peak_luminance, 100.0f, 10000.0f);
+}
+
+auto ResolveEDRMetadata(const ViewerDisplayConfig& config) -> CAEDRMetadata* {
+  if (@available(macOS 10.15, *)) {
+    if (config.encoding_eotf == ColorUtils::EOTF::ST2084) {
+      const float peak_luminance = ClampHdrPeakLuminance(config.peak_luminance);
+      return [CAEDRMetadata HDR10MetadataWithMinLuminance:0.0001f
+                                             maxLuminance:peak_luminance
+                                       opticalOutputScale:10000.0f];
+    }
+    if (config.encoding_eotf == ColorUtils::EOTF::HLG) {
+      return [CAEDRMetadata HLGMetadata];
+    }
+  }
+  return nil;
+}
+
 }  // namespace
 
 auto ColorManager::ApplyWindowColorSpace(void*                      native_view_or_window,
@@ -201,12 +225,20 @@ auto ColorManager::ApplyWindowColorSpace(void*                      native_view_
     return false;
   }
 
+  const bool uses_hdr_transfer = config.encoding_eotf == ColorUtils::EOTF::ST2084 ||
+                                 config.encoding_eotf == ColorUtils::EOTF::HLG;
+  metal_layer.wantsExtendedDynamicRangeContent = uses_hdr_transfer;
+  if (@available(macOS 10.15, *)) {
+    metal_layer.EDRMetadata = uses_hdr_transfer ? ResolveEDRMetadata(config) : nil;
+  }
+
   CGColorSpaceRef color_space = CGColorSpaceCreateWithName(color_name);
   if (!color_space) {
     return false;
   }
 
   metal_layer.colorspace = color_space;
+
   CGColorSpaceRelease(color_space);
 
   if (!exact_match) {

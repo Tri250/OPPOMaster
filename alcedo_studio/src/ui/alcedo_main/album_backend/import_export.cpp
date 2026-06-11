@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <thread>
+#include <tuple>
 #include <unordered_set>
 #include <utility>
 
@@ -27,14 +28,6 @@ using namespace album_util;
                               __VA_OPT__(, ) __VA_ARGS__)
 
 namespace {
-
-auto EffectiveExportFormat(ImageFormatType format,
-                           ExportFormatOptions::HDR_EXPORT_MODE hdrExportMode) -> ImageFormatType {
-  if (hdrExportMode == ExportFormatOptions::HDR_EXPORT_MODE::ULTRA_HDR) {
-    return ImageFormatType::JPEG;
-  }
-  return format;
-}
 
 auto SanitizeBitDepth(ImageFormatType format,
                       ExportFormatOptions::BIT_DEPTH requested) -> ExportFormatOptions::BIT_DEPTH {
@@ -222,8 +215,8 @@ void ImportExportHandler::CancelImport() {
 }
 
 void ImportExportHandler::StartExport(const QString& outputDirUrlOrPath) {
-  StartExportWithOptionsForTargets(outputDirUrlOrPath, "JPEG", "ULTRA_HDR", false, 4096, 95, 16,
-                                   5, "NONE", {});
+  StartExportWithSplitOptionsForTargets(outputDirUrlOrPath, false, 0, 8192, "JPEG", 95, 16, 5,
+                                        "NONE", 95, true, {});
 }
 
 void ImportExportHandler::StartExportWithOptions(const QString& outputDirUrlOrPath,
@@ -243,6 +236,17 @@ void ImportExportHandler::StartExportWithOptionsForTargets(
     bool resizeEnabled, int maxLengthSide, int quality, int bitDepth,
     int pngCompressionLevel, const QString& tiffCompression,
     const QVariantList& targetEntries) {
+  (void)hdrExportMode;
+  StartExportWithSplitOptionsForTargets(outputDirUrlOrPath, resizeEnabled, maxLengthSide, 8192,
+                                        formatName, quality, bitDepth, pngCompressionLevel,
+                                        tiffCompression, quality, true, targetEntries);
+}
+
+void ImportExportHandler::StartExportWithSplitOptionsForTargets(
+    const QString& outputDirUrlOrPath, bool sdrResizeEnabled, int sdrMaxLengthSide,
+    int ultraHdrMaxLengthSide, const QString& sdrFormatName, int sdrQuality, int sdrBitDepth,
+    int sdrPngCompressionLevel, const QString& sdrTiffCompression, int ultraHdrQuality,
+    bool ultraHdrDitherEnabled, const QVariantList& targetEntries) {
   if (backend_.project_handler_.project_loading()) {
     SetExportFailureState(PL_TEXT("Project is loading. Please wait."));
     return;
@@ -282,19 +286,24 @@ void ImportExportHandler::StartExportWithOptionsForTargets(
     return;
   }
 
-  const ImageFormatType requested_format = FormatFromName(formatName);
-  const auto            hdr_mode         = HdrExportModeFromName(hdrExportMode);
-  const int             clamped_max   = std::clamp(maxLengthSide, 256, 16384);
-  const int             clamped_q     = std::clamp(quality, 1, 100);
-  const ImageFormatType effective_format = EffectiveExportFormat(requested_format, hdr_mode);
-  const auto            bit_depth        = SanitizeBitDepth(effective_format, BitDepthFromInt(bitDepth));
-  const int             clamped_png   = std::clamp(pngCompressionLevel, 0, 9);
-  const auto            tiff_compress = TiffCompressFromName(tiffCompression);
+  const ImageFormatType sdr_format = FormatFromName(sdrFormatName);
+  const int             clamped_sdr_max =
+      sdrResizeEnabled ? std::clamp(sdrMaxLengthSide, 256, 16384) : 0;
+  const int             clamped_ultra_hdr_max =
+      std::clamp(ultraHdrMaxLengthSide > 0 ? ultraHdrMaxLengthSide : 8192, 256, 8192);
+  const int             clamped_sdr_quality = std::clamp(sdrQuality, 1, 100);
+  const int             clamped_ultra_hdr_quality = std::clamp(ultraHdrQuality, 1, 100);
+  const auto            sdr_bit_depth =
+      SanitizeBitDepth(sdr_format, BitDepthFromInt(sdrBitDepth));
+  const int             clamped_png = std::clamp(sdrPngCompressionLevel, 0, 9);
+  const auto            tiff_compress = TiffCompressFromName(sdrTiffCompression);
 
   esvc->ClearAllExportTasks();
-  const auto queue_result =
-      BuildExportQueue(targets, outDirOpt.value(), effective_format, hdr_mode, resizeEnabled, clamped_max,
-                       clamped_q, bit_depth, clamped_png, tiff_compress);
+  const auto queue_result = BuildExportQueue(
+      targets, outDirOpt.value(), sdrResizeEnabled, clamped_sdr_max, clamped_ultra_hdr_max,
+      sdr_format, clamped_sdr_quality, sdr_bit_depth, clamped_png, tiff_compress,
+      clamped_ultra_hdr_quality,
+      ultraHdrDitherEnabled);
 
   if (queue_result.queued_count_ == 0) {
     export_status_text_ = PL_TEXT("No export tasks were queued.");
@@ -480,15 +489,11 @@ void ImportExportHandler::FinishExport(
 
   int         ok   = 0;
   int         fail = 0;
-  int         ultra_hdr_fallbacks = 0;
   QStringList errors;
   if (results) {
     for (const auto& r : *results) {
       if (r.success_) {
         ++ok;
-        if (r.used_embedded_profile_fallback_) {
-          ++ultra_hdr_fallbacks;
-        }
       } else {
         ++fail;
         if (!r.message_.empty() && errors.size() < 8) {
@@ -515,16 +520,6 @@ void ImportExportHandler::FinishExport(
     export_status_text_ = PL_TEXT(
         "Export complete. Written %1/%2 image(s), failed %3. Skipped %4 invalid item(s).", ok,
         total, fail, skippedCount);
-  }
-  if (ultra_hdr_fallbacks > 0) {
-    export_status_text_ = PL_TEXT(
-        "Export complete. Written %1/%2 image(s), failed %3. %4 item(s) used embedded ICC fallback instead of Ultra HDR.",
-        ok, total, fail, ultra_hdr_fallbacks);
-    if (skippedCount > 0) {
-      export_status_text_ = PL_TEXT(
-          "Export complete. Written %1/%2 image(s), failed %3. Skipped %4 invalid item(s). %5 item(s) used embedded ICC fallback instead of Ultra HDR.",
-          ok, total, fail, skippedCount, ultra_hdr_fallbacks);
-    }
   }
   emit backend_.ExportStateChanged();
   emit backend_.exportStateChanged();
@@ -573,10 +568,11 @@ auto ImportExportHandler::CollectExportTargets(const QVariantList& targetEntries
 
 auto ImportExportHandler::BuildExportQueue(
     const std::vector<ExportTarget>& targets, const std::filesystem::path& outputDir,
-    ImageFormatType format, ExportFormatOptions::HDR_EXPORT_MODE hdrExportMode,
-    bool resizeEnabled, int maxLengthSide, int quality, ExportFormatOptions::BIT_DEPTH bitDepth,
-    int pngCompressionLevel,
-    ExportFormatOptions::TIFF_COMPRESS tiffCompression) -> ExportQueueBuildResult {
+    bool sdrResizeEnabled, int sdrMaxLengthSide, int ultraHdrMaxLengthSide,
+    ImageFormatType sdrFormat, int sdrQuality,
+    ExportFormatOptions::BIT_DEPTH sdrBitDepth, int sdrPngCompressionLevel,
+    ExportFormatOptions::TIFF_COMPRESS sdrTiffCompression, int ultraHdrQuality,
+    bool ultraHdrDitherEnabled) -> ExportQueueBuildResult {
   ExportQueueBuildResult summary;
   auto                   proj = backend_.project_handler_.project();
   const auto&            esvc = backend_.project_handler_.export_service();
@@ -591,18 +587,24 @@ auto ImportExportHandler::BuildExportQueue(
   for (const auto& [elementId, imageId] : targets) {
     try {
       const auto source_info =
-          proj->GetImagePoolService()->Read<std::pair<std::filesystem::path, std::wstring>>(
+          proj->GetImagePoolService()->Read<std::tuple<std::filesystem::path, std::wstring, bool>>(
               imageId, [](const std::shared_ptr<Image>& image) {
                 if (!image) {
-                  return std::pair<std::filesystem::path, std::wstring>{};
+                  return std::tuple<std::filesystem::path, std::wstring, bool>{};
                 }
                 std::wstring image_name = image->image_name_;
                 if (image_name.empty() && !image->image_path_.empty()) {
                   image_name = image->image_path_.filename().wstring();
                 }
-                return std::make_pair(image->image_path_, std::move(image_name));
+                bool is_hdr = image->exif_display_.is_hdr_;
+                if (!image->has_exif_display_.load() && image->has_exif_json_.load()) {
+                  ExifDisplayMetaData metadata;
+                  metadata.FromJson(image->exif_json_);
+                  is_hdr = metadata.is_hdr_;
+                }
+                return std::make_tuple(image->image_path_, std::move(image_name), is_hdr);
               });
-      const auto& srcPath = source_info.first;
+      const auto& srcPath = std::get<0>(source_info);
       if (srcPath.empty()) {
         ++summary.skipped_count_;
         if (summary.first_error_.isEmpty()) {
@@ -612,8 +614,8 @@ auto ImportExportHandler::BuildExportQueue(
       }
 
       std::filesystem::path name_source_path;
-      if (!source_info.second.empty()) {
-        name_source_path = std::filesystem::path(source_info.second).filename();
+      if (!std::get<1>(source_info).empty()) {
+        name_source_path = std::filesystem::path(std::get<1>(source_info)).filename();
       }
       if (name_source_path.empty()) {
         name_source_path = srcPath.filename();
@@ -622,7 +624,11 @@ auto ImportExportHandler::BuildExportQueue(
         name_source_path = std::filesystem::path(L"image");
       }
 
-      auto       export_path = ExportPathForOptions(name_source_path, outputDir, elementId, imageId, format);
+      const bool is_hdr_export = std::get<2>(source_info);
+
+      const ImageFormatType task_format = is_hdr_export ? ImageFormatType::JPEG : sdrFormat;
+      auto       export_path =
+          ExportPathForOptions(name_source_path, outputDir, elementId, imageId, task_format);
       const auto path_exists = [](const std::filesystem::path& p) {
         std::error_code ec;
         return std::filesystem::exists(p, ec);
@@ -646,14 +652,18 @@ auto ImportExportHandler::BuildExportQueue(
       ExportTask task;
       task.sleeve_id_                  = elementId;
       task.image_id_                   = imageId;
-      task.options_.format_            = format;
-      task.options_.resize_enabled_    = resizeEnabled;
-      task.options_.max_length_side_   = resizeEnabled ? maxLengthSide : 0;
-      task.options_.quality_           = quality;
-      task.options_.bit_depth_         = bitDepth;
-      task.options_.compression_level_ = pngCompressionLevel;
-      task.options_.tiff_compress_     = tiffCompression;
-      task.options_.hdr_export_mode_   = hdrExportMode;
+      task.options_.format_            = task_format;
+      task.options_.resize_enabled_    = is_hdr_export ? true : sdrResizeEnabled;
+      task.options_.max_length_side_ =
+          is_hdr_export ? ultraHdrMaxLengthSide : (sdrResizeEnabled ? sdrMaxLengthSide : 0);
+      task.options_.quality_           = is_hdr_export ? ultraHdrQuality : sdrQuality;
+      task.options_.bit_depth_         = is_hdr_export ? ExportFormatOptions::BIT_DEPTH::BIT_8
+                                                       : sdrBitDepth;
+      task.options_.compression_level_ = sdrPngCompressionLevel;
+      task.options_.tiff_compress_     = sdrTiffCompression;
+      task.options_.hdr_export_mode_   = ExportFormatOptions::HDR_EXPORT_MODE::ULTRA_HDR;
+      task.options_.ultra_hdr_quality_ = ultraHdrQuality;
+      task.options_.ultra_hdr_dither_enabled_ = ultraHdrDitherEnabled;
       task.options_.export_path_       = std::move(export_path);
 
       esvc->EnqueueExportTask(task);

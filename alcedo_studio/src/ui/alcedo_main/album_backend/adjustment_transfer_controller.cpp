@@ -13,6 +13,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "edit/operators/utils/color_utils.hpp"
 #include "edit/pipeline/pipeline_cpu.hpp"
 #include "ui/alcedo_main/album_backend/album_backend.hpp"
 #include "ui/alcedo_main/album_backend/path_utils.hpp"
@@ -126,6 +127,10 @@ auto OperatorEnabledFor(CPUPipelineExecutor& pipeline, const AdjustmentItemSpec&
 }
 
 auto BoolText(bool value) -> QString { return value ? Tr("On") : Tr("Off"); }
+
+auto IsHdrExportEotf(const ColorUtils::EOTF eotf) -> bool {
+  return eotf == ColorUtils::EOTF::ST2084 || eotf == ColorUtils::EOTF::HLG;
+}
 
 auto JsonNumberText(const nlohmann::json& params, const char* key, int precision = 2) -> QString {
   if (!params.contains(key) || !params[key].is_number()) {
@@ -435,7 +440,8 @@ auto AdjustmentTransferController::Copy(uint elementId, const QVariantList& sele
   }
 }
 
-auto AdjustmentTransferController::Paste(const QVariantList& targetEntries) -> QVariantMap {
+auto AdjustmentTransferController::Paste(const QVariantList& targetEntries, const QString& strategy)
+    -> QVariantMap {
   if (!copied_package_.has_value()) {
     return ErrorResult(Tr("No copied adjustments."));
   }
@@ -456,13 +462,29 @@ auto AdjustmentTransferController::Paste(const QVariantList& targetEntries) -> Q
   }
 
   try {
-    const auto result = AdjustmentTransferService::Apply(
+    const bool merge_strategy = strategy != QStringLiteral("paste");
+    const auto result         = AdjustmentTransferService::Apply(
         *pipeline_service, *history_service, ids, *copied_package_,
-        Tr("Pasted Adjustments").toStdString());
+        (merge_strategy ? Tr("Merged Adjustments") : Tr("Pasted Adjustments")).toStdString(),
+        merge_strategy ? AdjustmentVersionApplyMode::kMerge : AdjustmentVersionApplyMode::kPaste);
     auto thumbnail_service = backend_.project_handler_.thumbnail_service();
+    bool hdr_metadata_dirty = false;
     for (sl_element_id_t element_id : result.applied_ids_) {
       const auto*      item     = backend_.FindAlbumItem(element_id);
       const image_id_t image_id = item != nullptr ? item->image_id : 0;
+      if (image_id != 0) {
+        try {
+          auto guard = pipeline_service->LoadPipeline(element_id);
+          if (guard && guard->pipeline_) {
+            const bool is_hdr = IsHdrExportEotf(
+                guard->pipeline_->GetGlobalParams().to_output_params_.eotf_);
+            pipeline_service->SavePipeline(guard);
+            backend_.PersistImageHdrFlag(element_id, image_id, is_hdr);
+            hdr_metadata_dirty = true;
+          }
+        } catch (...) {
+        }
+      }
       if (thumbnail_service) {
         try {
           thumbnail_service->InvalidateThumbnail(element_id);
@@ -475,6 +497,15 @@ auto AdjustmentTransferController::Paste(const QVariantList& targetEntries) -> Q
         }
       }
     }
+    if (hdr_metadata_dirty) {
+      if (auto project = backend_.project_handler_.project()) {
+        try {
+          project->GetImagePoolService()->SyncWithStorage();
+          project->SaveProject(backend_.project_handler_.meta_path());
+        } catch (...) {
+        }
+      }
+    }
 
     QVariantList failures;
     for (const auto& failure : result.failures_) {
@@ -482,7 +513,8 @@ auto AdjustmentTransferController::Paste(const QVariantList& targetEntries) -> Q
                                      {"message", QString::fromStdString(failure.message_)}});
     }
 
-    QVariantMap response = SuccessResult(Tr("Adjustments pasted."));
+    QVariantMap response =
+        SuccessResult(merge_strategy ? Tr("Adjustments merged.") : Tr("Adjustments pasted."));
     response.insert("appliedCount", static_cast<int>(result.applied_ids_.size()));
     response.insert("unchangedCount", static_cast<int>(result.unchanged_ids_.size()));
     response.insert("failureCount", static_cast<int>(result.failures_.size()));

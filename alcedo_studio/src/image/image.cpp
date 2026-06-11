@@ -223,6 +223,19 @@ void Image::SetExifDisplayMetaData(ExifDisplayMetaData&& exif_display) {
   }
 }
 
+void Image::SetHdrDisplayMetadata(bool is_hdr) {
+  if (has_exif_json_ && exif_json_.is_object() && !has_exif_display_) {
+    exif_display_.FromJson(exif_json_);
+    has_exif_display_ = true;
+  }
+  exif_display_.is_hdr_ = is_hdr;
+  has_exif_display_    = true;
+  has_exif_json_       = false;
+  if (sync_state_.load() == ImageSyncState::SYNCED) {
+    sync_state_ = ImageSyncState::MODIFIED;
+  }
+}
+
 void Image::SetRawColorContext(RawRuntimeColorContext&& ctx) {
   raw_color_context_     = std::move(ctx);
   has_raw_color_context_ = true;

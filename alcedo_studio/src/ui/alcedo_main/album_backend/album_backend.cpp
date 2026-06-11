@@ -28,7 +28,6 @@
 
 #include "app/album_browse_service.hpp"
 #include "app/project_package_service.hpp"
-#include "edit/operators/utils/color_utils.hpp"
 #include "image/image.hpp"
 #ifdef HAVE_OPENCL
 #include "opencl/opencl_runtime.hpp"
@@ -188,10 +187,6 @@ auto FindOptionIndex(const QVariantList& options, const QString& backendKey) -> 
     }
   }
   return -1;
-}
-
-auto IsHdrExportEotf(const ColorUtils::EOTF eotf) -> bool {
-  return eotf == ColorUtils::EOTF::ST2084 || eotf == ColorUtils::EOTF::HLG;
 }
 
 auto NormalizeRecentProjectPath(const std::filesystem::path& projectPath) -> QString {
@@ -621,45 +616,33 @@ void AlbumBackend::StartExportWithOptionsForTargets(
       bitDepth, pngCompressionLevel, tiffCompression, targetEntries);
 }
 
+void AlbumBackend::StartExportWithSplitOptionsForTargets(
+    const QString& outputDirUrlOrPath, bool sdrResizeEnabled, int sdrMaxLengthSide,
+    int ultraHdrMaxLengthSide,
+    const QString& sdrFormatName, int sdrQuality, int sdrBitDepth, int sdrPngCompressionLevel,
+    const QString& sdrTiffCompression, int ultraHdrQuality, bool ultraHdrDitherEnabled,
+    const QVariantList& targetEntries) {
+  import_export_.StartExportWithSplitOptionsForTargets(
+      outputDirUrlOrPath, sdrResizeEnabled, sdrMaxLengthSide, ultraHdrMaxLengthSide, sdrFormatName,
+      sdrQuality, sdrBitDepth, sdrPngCompressionLevel, sdrTiffCompression, ultraHdrQuality,
+      ultraHdrDitherEnabled, targetEntries);
+}
+
 void AlbumBackend::ResetExportState() { import_export_.ResetExportState(); }
 bool AlbumBackend::CanUseHdrExportForTargets(const QVariantList& targetEntries) const {
-  if (project_handler_.project_loading()) {
-    return false;
-  }
-
-  const auto& psvc = project_handler_.pipeline_service();
-  auto        proj = project_handler_.project();
-  if (!psvc || !proj) {
-    return false;
-  }
-
   const auto targets = import_export_.CollectExportTargets(targetEntries);
   if (targets.empty()) {
     return false;
   }
 
   for (const auto& [elementId, imageId] : targets) {
-    (void)imageId;
-
-    bool hdr_eotf = false;
-    try {
-      auto pipeline_guard = psvc->LoadPipeline(elementId);
-      if (!pipeline_guard || !pipeline_guard->pipeline_) {
-        return false;
-      }
-      hdr_eotf =
-          IsHdrExportEotf(pipeline_guard->pipeline_->GetGlobalParams().to_output_params_.eotf_);
-      psvc->SavePipeline(pipeline_guard);
-    } catch (...) {
-      return false;
-    }
-
-    if (!hdr_eotf) {
-      return false;
+    if (const auto* item = FindAlbumItem(elementId);
+        item != nullptr && (imageId == 0 || item->image_id == imageId) && item->is_hdr) {
+      return true;
     }
   }
 
-  return true;
+  return false;
 }
 void AlbumBackend::BrowseNikonHeConverter() { nikon_he_recovery_.BrowseConverter(); }
 void AlbumBackend::StartNikonHeConversion() { nikon_he_recovery_.StartConversion(); }
@@ -1260,6 +1243,7 @@ void AlbumBackend::AddOrUpdateAlbumItem(sl_element_id_t elementId, image_id_t im
         item->aperture          = static_cast<double>(exif.aperture_);
         item->focal_length      = static_cast<double>(exif.focal_);
         item->rating            = exif.rating_;
+        item->is_hdr            = exif.is_hdr_;
         const QDate captureDate = DateFromExifString(exif.date_time_str_);
         if (captureDate.isValid()) {
           item->capture_date = captureDate;
@@ -1274,6 +1258,32 @@ void AlbumBackend::AddOrUpdateAlbumItem(sl_element_id_t elementId, image_id_t im
   }
   if (item->extension.isEmpty()) {
     item->extension = ExtensionFromFileName(item->file_name);
+  }
+}
+
+void AlbumBackend::SetAlbumItemHdrFlag(sl_element_id_t elementId, image_id_t imageId, bool isHdr) {
+  if (auto* item = FindAlbumItem(elementId);
+      item != nullptr && (imageId == 0 || item->image_id == imageId)) {
+    item->is_hdr = isHdr;
+  }
+  thumbnail_model_.updateHdrFlag(elementId, imageId, isHdr);
+}
+
+void AlbumBackend::PersistImageHdrFlag(sl_element_id_t elementId, image_id_t imageId, bool isHdr) {
+  auto proj = project_handler_.project();
+  if (!proj || imageId == 0) {
+    return;
+  }
+
+  try {
+    proj->GetImagePoolService()->Write_NoSync<void>(
+        imageId, [isHdr](const std::shared_ptr<Image>& image) {
+          if (image) {
+            image->SetHdrDisplayMetadata(isHdr);
+          }
+        });
+    SetAlbumItemHdrFlag(elementId, imageId, isHdr);
+  } catch (...) {
   }
 }
 

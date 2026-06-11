@@ -26,7 +26,8 @@ QtObject {
             next[keyForElement(item.elementId)] = {
                 elementId: Number(item.elementId),
                 imageId: Number(item.imageId),
-                fileName: item.fileName ? item.fileName : qsTr("(unnamed)")
+                fileName: item.fileName ? item.fileName : qsTr("(unnamed)"),
+                isHdr: item.isHdr === true
             }
         }
         exportQueueById = next
@@ -95,10 +96,21 @@ QtObject {
         for (let i = 0; i < rows.length; ++i) {
             targets.push({
                 elementId: rows[i].elementId,
-                imageId: rows[i].imageId
+                imageId: rows[i].imageId,
+                isHdr: rows[i].isHdr === true
             })
         }
         return targets
+    }
+
+    function hasHdrItems() {
+        const rows = Object.values(exportQueueById)
+        for (let i = 0; i < rows.length; ++i) {
+            if (rows[i].isHdr === true) {
+                return true
+            }
+        }
+        return false
     }
 
     function refreshExportPreview() {
@@ -112,7 +124,8 @@ QtObject {
             next.push({
                 statusKey: exportStatusKey(item.elementId, item.imageId),
                 summaryRow: false,
-                label: item.fileName ? item.fileName : qsTr("(unnamed)")
+                label: item.fileName ? item.fileName : qsTr("(unnamed)"),
+                isHdr: item.isHdr === true
             })
         }
         exportPreviewRows = next

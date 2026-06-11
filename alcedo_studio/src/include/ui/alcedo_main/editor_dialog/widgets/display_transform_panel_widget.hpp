@@ -39,7 +39,7 @@ class DisplayTransformPanelWidget final : public AdjustmentPanelWidget {
     std::function<bool()>                                         is_global_syncing;
     std::function<void()>                                         request_render;
     std::function<const AdjustmentState&()>                       default_adjustment_state;
-    std::function<void(ColorUtils::ColorSpace, ColorUtils::EOTF)> sync_display_encoding;
+    std::function<void(ColorUtils::ColorSpace, ColorUtils::EOTF, float)> sync_display_encoding;
     std::function<std::optional<DisplayTransformAdjustmentState>(
         const DisplayTransformAdjustmentState&)>
         load_from_pipeline;

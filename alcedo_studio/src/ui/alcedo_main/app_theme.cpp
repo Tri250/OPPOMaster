@@ -739,7 +739,7 @@ auto AppTheme::EditorCheckBoxStyle() -> QString {
 
 auto AppTheme::EditorScrollAreaStyle() -> QString {
   const auto& theme       = AppTheme::Instance();
-  const QString bg_base   = Rgba(WithAlpha(theme.bgBaseColor(), 236));
+  const QString bg_panel  = Hex(theme.bgPanelColor());
   const QString bg_canvas = Rgba(WithAlpha(theme.bgCanvasColor(), 170));
   const QString accent    = Hex(theme.accentColor());
 
@@ -760,7 +760,7 @@ auto AppTheme::EditorScrollAreaStyle() -> QString {
                         "}"
                         "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }"
                         "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }")
-      .arg(bg_base, bg_canvas, accent);
+      .arg(bg_panel, bg_canvas, accent);
 }
 
 auto AppTheme::EditorListWidgetStyle() -> QString {

@@ -7,6 +7,33 @@
 #include "ui/alcedo_main/editor_dialog/dialog_internal.hpp"
 
 namespace alcedo::ui {
+namespace {
+
+auto EditorPanelStageStyle(const QString& selector) -> QString {
+  return QStringLiteral("%1 { background: %2; border: none; }")
+      .arg(selector, AppTheme::Instance().bgPanelColor().name(QColor::HexArgb));
+}
+
+void ApplyEditorPanelStageBackground(QWidget* widget) {
+  if (!widget) {
+    return;
+  }
+  widget->setObjectName(QStringLiteral("EditorPanelStage"));
+  widget->setAttribute(Qt::WA_StyledBackground, true);
+  widget->setStyleSheet(EditorPanelStageStyle(QStringLiteral("QWidget#EditorPanelStage")));
+}
+
+void ApplyEditorScrollViewportBackground(QScrollArea* scroll_area) {
+  if (!scroll_area || !scroll_area->viewport()) {
+    return;
+  }
+  scroll_area->viewport()->setObjectName(QStringLiteral("EditorPanelViewport"));
+  scroll_area->viewport()->setAttribute(Qt::WA_StyledBackground, true);
+  scroll_area->viewport()->setStyleSheet(
+      EditorPanelStageStyle(QStringLiteral("QWidget#EditorPanelViewport")));
+}
+
+}  // namespace
 
 EditorControlPanelWidget::EditorControlPanelWidget(QWidget* parent) : QWidget(parent) {}
 
@@ -18,8 +45,10 @@ void EditorDialog::BuildLookControlPanel(EditorControlPanelWidget* controls_pane
   look_controls_scroll_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   look_controls_scroll_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
   look_controls_scroll_->setStyleSheet(scroll_style);
+  ApplyEditorScrollViewportBackground(look_controls_scroll_);
 
   look_panel_ = new LookControlPanelWidget(look_controls_scroll_);
+  ApplyEditorPanelStageBackground(look_panel_);
   look_controls_scroll_->setWidget(look_panel_);
 }
 
@@ -44,10 +73,12 @@ auto EditorDialog::BuildControlPanelShell(const QString& panel_style) -> EditorC
   tone_controls_scroll_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   tone_controls_scroll_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
   tone_controls_scroll_->setStyleSheet(scroll_style);
+  ApplyEditorScrollViewportBackground(tone_controls_scroll_);
 
   tone_panel_    = new ToneControlPanelWidget(tone_controls_scroll_);
   tone_controls_ = tone_panel_;
   controls_      = tone_controls_;
+  ApplyEditorPanelStageBackground(tone_controls_);
   tone_controls_->setMinimumWidth(0);
   tone_controls_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
   controls_layout_ = new QVBoxLayout(tone_controls_);
@@ -64,9 +95,11 @@ auto EditorDialog::BuildControlPanelShell(const QString& panel_style) -> EditorC
   drt_controls_scroll_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   drt_controls_scroll_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
   drt_controls_scroll_->setStyleSheet(scroll_style);
+  ApplyEditorScrollViewportBackground(drt_controls_scroll_);
 
   drt_panel_    = new DisplayTransformPanelWidget(drt_controls_scroll_);
   drt_controls_ = drt_panel_;
+  ApplyEditorPanelStageBackground(drt_controls_);
   drt_controls_->setMinimumWidth(0);
   drt_controls_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
   drt_controls_layout_ = new QVBoxLayout(drt_controls_);
@@ -81,9 +114,11 @@ auto EditorDialog::BuildControlPanelShell(const QString& panel_style) -> EditorC
   geometry_controls_scroll_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   geometry_controls_scroll_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
   geometry_controls_scroll_->setStyleSheet(scroll_style);
+  ApplyEditorScrollViewportBackground(geometry_controls_scroll_);
 
   geometry_panel_    = new GeometryPanelWidget(geometry_controls_scroll_);
   geometry_controls_ = geometry_panel_;
+  ApplyEditorPanelStageBackground(geometry_controls_);
   geometry_controls_->setMinimumWidth(0);
   geometry_controls_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
   geometry_controls_layout_ = new QVBoxLayout(geometry_controls_);
@@ -98,9 +133,11 @@ auto EditorDialog::BuildControlPanelShell(const QString& panel_style) -> EditorC
   raw_controls_scroll_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   raw_controls_scroll_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
   raw_controls_scroll_->setStyleSheet(scroll_style);
+  ApplyEditorScrollViewportBackground(raw_controls_scroll_);
 
   raw_panel_    = new RawDecodePanelWidget(raw_controls_scroll_);
   raw_controls_ = raw_panel_;
+  ApplyEditorPanelStageBackground(raw_controls_);
   raw_controls_->setMinimumWidth(0);
   raw_controls_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
   raw_controls_layout_ = new QVBoxLayout(raw_controls_);
@@ -110,6 +147,10 @@ auto EditorDialog::BuildControlPanelShell(const QString& panel_style) -> EditorC
   raw_controls_scroll_->setWidget(raw_controls_);
 
   control_panels_stack_ = new QStackedWidget(controls_panel);
+  control_panels_stack_->setObjectName(QStringLiteral("EditorControlPanelsStack"));
+  control_panels_stack_->setAttribute(Qt::WA_StyledBackground, true);
+  control_panels_stack_->setStyleSheet(
+      EditorPanelStageStyle(QStringLiteral("QStackedWidget#EditorControlPanelsStack")));
   control_panels_stack_->addWidget(tone_controls_scroll_);
   control_panels_stack_->addWidget(look_controls_scroll_);
   control_panels_stack_->addWidget(drt_controls_scroll_);
