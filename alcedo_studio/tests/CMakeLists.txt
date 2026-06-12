@@ -129,6 +129,12 @@ if(ALCEDO_CUDA_ENABLED AND ALCEDO_ENABLE_CUDA_IMAGE_GEOMETRY_OPS_TEST)
 endif()
 
 if(ALCEDO_CUDA_ENABLED)
+  add_executable(CudaPrngTest cuda/prng_test.cu)
+  target_include_directories(CudaPrngTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+  target_link_libraries(CudaPrngTest PRIVATE GTest::gtest_main CudaUtils CUDA::cudart)
+  set_target_properties(CudaPrngTest PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+  gtest_discover_tests(CudaPrngTest TEST_PREFIX "CudaPrngTest.")
+
   if(WIN32)
     add_executable(D3DCudaInteropUtilsTest ui/d3d_cuda_interop_utils_test.cpp)
     target_include_directories(D3DCudaInteropUtilsTest PUBLIC ${ALCEDO_INCLUDE_DIR})
@@ -220,6 +226,11 @@ if(ALCEDO_OPENCL_ENABLED)
   target_include_directories(ImageBufferOpenClTest PUBLIC ${ALCEDO_INCLUDE_DIR})
   target_link_libraries(ImageBufferOpenClTest PRIVATE GTest::gtest_main ImageBuffer ${ALCEDO_TEST_OPENCV_MIN_DEPS})
   gtest_discover_tests(ImageBufferOpenClTest TEST_PREFIX "ImageBufferOpenClTest.")
+
+  add_executable(OpenClRawOpsTest raw/opencl_raw_ops_test.cpp)
+  target_include_directories(OpenClRawOpsTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+  target_link_libraries(OpenClRawOpsTest PRIVATE GTest::gtest_main RawProcessorOp ${ALCEDO_TEST_OPENCV_MIN_DEPS})
+  gtest_discover_tests(OpenClRawOpsTest TEST_PREFIX "OpenClRawOpsTest.")
 
   add_executable(OpenCLRawPreview gui_pocs/opencl_raw_preview.cpp)
   target_include_directories(OpenCLRawPreview PUBLIC ${ALCEDO_INCLUDE_DIR})
@@ -375,6 +386,16 @@ target_include_directories(ODTOpTest PUBLIC ${ALCEDO_INCLUDE_DIR})
 target_link_libraries(ODTOpTest PRIVATE GTest::gtest_main Operators)
 gtest_discover_tests(ODTOpTest TEST_PREFIX "ODTOpTest.")
 
+add_executable(FilmGrainOpTest edit/operators/cst/film_grain_op_test.cpp)
+target_include_directories(FilmGrainOpTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(FilmGrainOpTest PRIVATE GTest::gtest_main Operators)
+gtest_discover_tests(FilmGrainOpTest TEST_PREFIX "FilmGrainOpTest.")
+
+add_executable(HalationOpTest edit/operators/cst/halation_op_test.cpp)
+target_include_directories(HalationOpTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(HalationOpTest PRIVATE GTest::gtest_main Operators)
+gtest_discover_tests(HalationOpTest TEST_PREFIX "HalationOpTest.")
+
 add_executable(LutCatalogTest
     ui/lut_catalog_test.cpp
     ${ALCEDO_SRC_DIR}/ui/alcedo_main/editor_dialog/modules/lut_catalog.cpp
@@ -420,6 +441,18 @@ if(ALCEDO_CUDA_ENABLED)
   target_link_libraries(ODTCudaSmokeTest PRIVATE GTest::gtest_main Operators ${ALCEDO_TEST_OPENCV_MIN_DEPS} CUDA::cudart)
   set_target_properties(ODTCudaSmokeTest PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
   gtest_discover_tests(ODTCudaSmokeTest TEST_PREFIX "ODTCudaSmokeTest.")
+
+  add_executable(FilmGrainCudaStageTest edit/operators/cst/film_grain_cuda_stage_test.cu)
+  target_include_directories(FilmGrainCudaStageTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+  target_link_libraries(FilmGrainCudaStageTest PRIVATE GTest::gtest_main Operators ${ALCEDO_TEST_OPENCV_MIN_DEPS} CUDA::cudart)
+  set_target_properties(FilmGrainCudaStageTest PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+  gtest_discover_tests(FilmGrainCudaStageTest TEST_PREFIX "FilmGrainCudaStageTest.")
+
+  add_executable(HalationCudaStageTest edit/operators/cst/halation_cuda_stage_test.cu)
+  target_include_directories(HalationCudaStageTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+  target_link_libraries(HalationCudaStageTest PRIVATE GTest::gtest_main Operators ${ALCEDO_TEST_OPENCV_MIN_DEPS} CUDA::cudart)
+  set_target_properties(HalationCudaStageTest PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+  gtest_discover_tests(HalationCudaStageTest TEST_PREFIX "HalationCudaStageTest.")
 
   if(ALCEDO_ENABLE_CUDA_PREVIEW_VRAM_RECLAMATION_TEST)
     add_executable(CudaPreviewVramReclamationTest edit/pipeline/cuda_preview_vram_reclamation_test.cu)
@@ -905,17 +938,21 @@ alcedo_assign_test_category(raw ALCEDO_BUILD_RAW_TESTS alcedo_tests_raw
   SingleThumbnailLoad
   RawProcessorPatternTest
   ColorTempCudaSanityTest
+  OpenClRawOpsTest
   MetalRawStagePreviewTest
   MetalFullPipelinePreviewTest
 )
 
 alcedo_assign_test_category(gpu ALCEDO_BUILD_GPU_TESTS alcedo_tests_gpu
+  CudaPrngTest
   CudaImageGeometryOpsTest
   D3DCudaInteropUtilsTest
   CudaRawOpsTest
   MetalUtilsTest
   MetalRawOpsTest
   ODTCudaSmokeTest
+  FilmGrainCudaStageTest
+  HalationCudaStageTest
   CudaPreviewVramReclamationTest
   OpenClCudaToLinearRefCompareTest
   OpenClCudaPipelineCompareTest
@@ -930,6 +967,8 @@ alcedo_assign_test_category(edit ALCEDO_BUILD_EDIT_TESTS alcedo_tests_edit
   LocalToneMappingContractTest
   ToneMappingFacadeTest
   ODTOpTest
+  FilmGrainOpTest
+  HalationOpTest
   CropRotateOpTest
   PipelineFrameSinkTest
 )

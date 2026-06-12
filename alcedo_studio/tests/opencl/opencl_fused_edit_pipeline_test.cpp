@@ -352,6 +352,24 @@ auto MakeHighlightShadowComparisonInput() -> cv::Mat {
   return input;
 }
 
+auto MakeDetailComparisonInput(int width = 128, int height = 64) -> cv::Mat {
+  cv::Mat input(height, width, CV_32FC4);
+  for (int y = 0; y < height; ++y) {
+    for (int x = 0; x < width; ++x) {
+      const float fx = static_cast<float>(x) / static_cast<float>(width - 1);
+      const float fy = static_cast<float>(y) / static_cast<float>(height - 1);
+      const float edge = (x >= width / 2) ? 0.7f : 0.3f;
+      const float spot = (std::abs(x - width * 2 / 3) < 8 && std::abs(y - height / 2) < 6)
+                             ? 0.55f
+                             : 0.0f;
+      const float base = 0.2f + 0.3f * fx + 0.1f * edge + spot;
+      input.at<cv::Vec4f>(y, x) = {base, base + 0.05f * fy,
+                                   std::max(0.0f, base - 0.03f * (1.0f - fy)), 1.0f};
+    }
+  }
+  return input;
+}
+
 auto MakeHighlightShadowComparisonParams() -> OperatorParams {
   auto params = MakeNoOpFusedParams();
   params.shadows_enabled_ = true;
@@ -666,19 +684,7 @@ TEST(OpenClFusedEditPipelineTest, DetailSharpenMatchesCuda) {
     GTEST_SKIP() << OpenClContext::Instance().LastInitializationError();
   }
 
-  constexpr int kW = 128;
-  constexpr int kH = 64;
-  cv::Mat       input(kH, kW, CV_32FC4);
-  for (int y = 0; y < kH; ++y) {
-    for (int x = 0; x < kW; ++x) {
-      const float fx            = static_cast<float>(x) / static_cast<float>(kW - 1);
-      const float fy            = static_cast<float>(y) / static_cast<float>(kH - 1);
-      const float edge          = (x >= kW / 2) ? 0.7f : 0.3f;
-      const float base          = 0.2f + 0.3f * fx + 0.1f * edge;
-      input.at<cv::Vec4f>(y, x) = {base, base + 0.05f * fy, fmax(0.0f, base - 0.03f * (1.0f - fy)),
-                                   1.0f};
-    }
-  }
+  const cv::Mat input = MakeDetailComparisonInput();
 
   // Verify sharpen modifies the image (non-identity).
   auto noop_params           = MakeNoOpFusedParams();
@@ -723,19 +729,7 @@ TEST(OpenClFusedEditPipelineTest, DetailClarityMatchesCuda) {
     GTEST_SKIP() << OpenClContext::Instance().LastInitializationError();
   }
 
-  constexpr int kW = 128;
-  constexpr int kH = 64;
-  cv::Mat       input(kH, kW, CV_32FC4);
-  for (int y = 0; y < kH; ++y) {
-    for (int x = 0; x < kW; ++x) {
-      const float fx            = static_cast<float>(x) / static_cast<float>(kW - 1);
-      const float fy            = static_cast<float>(y) / static_cast<float>(kH - 1);
-      const float edge          = (x >= kW / 2) ? 0.7f : 0.3f;
-      const float base          = 0.2f + 0.3f * fx + 0.1f * edge;
-      input.at<cv::Vec4f>(y, x) = {base, base + 0.05f * fy, fmax(0.0f, base - 0.03f * (1.0f - fy)),
-                                   1.0f};
-    }
-  }
+  const cv::Mat input = MakeDetailComparisonInput();
 
   // Verify clarity modifies the image (non-identity).
   auto          noop_params       = MakeNoOpFusedParams();
@@ -745,6 +739,8 @@ TEST(OpenClFusedEditPipelineTest, DetailClarityMatchesCuda) {
   clarity_params.clarity_enabled_ = true;
   clarity_params.clarity_offset_  = 0.3f;
   clarity_params.clarity_radius_  = 5.0f;
+  clarity_params.tone_mapping_.clarity_enabled_ = true;
+  clarity_params.tone_mapping_.clarity_amount_  = clarity_params.clarity_offset_;
   SetGaussianWeights(clarity_params, false, clarity_params.clarity_radius_,
                      clarity_params.clarity_radius_);
   const cv::Mat clarity_output = RunOpenClFusedPipeline(input, clarity_params);
@@ -776,19 +772,7 @@ TEST(OpenClFusedEditPipelineTest, DetailSharpenWithThresholdMatchesCuda) {
     GTEST_SKIP() << OpenClContext::Instance().LastInitializationError();
   }
 
-  constexpr int kW = 128;
-  constexpr int kH = 64;
-  cv::Mat       input(kH, kW, CV_32FC4);
-  for (int y = 0; y < kH; ++y) {
-    for (int x = 0; x < kW; ++x) {
-      const float fx            = static_cast<float>(x) / static_cast<float>(kW - 1);
-      const float fy            = static_cast<float>(y) / static_cast<float>(kH - 1);
-      const float edge          = (x >= kW / 2) ? 0.7f : 0.3f;
-      const float base          = 0.2f + 0.3f * fx + 0.1f * edge;
-      input.at<cv::Vec4f>(y, x) = {base, base + 0.05f * fy, fmax(0.0f, base - 0.03f * (1.0f - fy)),
-                                   1.0f};
-    }
-  }
+  const cv::Mat input = MakeDetailComparisonInput();
 
   // Verify sharpen with threshold produces different result than sharpen without.
   auto sharpen_no_thresh               = MakeNoOpFusedParams();
@@ -831,6 +815,87 @@ TEST(OpenClFusedEditPipelineTest, DetailSharpenWithThresholdMatchesCuda) {
 
   ExpectCudaOpenClDetailClose("[OpenCL fused sharpen+threshold]", cuda_output, opencl_output,
                               cuda_ms, opencl_ms);
+}
+
+TEST(OpenClFusedEditPipelineTest, DetailHalationMatchesCuda) {
+  if (!TryEnsureOpenClRuntime()) {
+    GTEST_SKIP() << OpenClContext::Instance().LastInitializationError();
+  }
+
+  const cv::Mat input = MakeDetailComparisonInput();
+
+  auto noop_params = MakeNoOpFusedParams();
+  const cv::Mat noop_output = RunOpenClFusedPipeline(input, noop_params);
+
+  auto halation_params = MakeNoOpFusedParams();
+  halation_params.halation_.enabled_ = true;
+  halation_params.halation_.strength_ = 0.75f;
+  halation_params.halation_.sigma_ = 5.0f;
+  halation_params.halation_.redshift_[0] = 1.0f;
+  halation_params.halation_.redshift_[1] = 0.05f;
+  halation_params.halation_.redshift_[2] = 0.02f;
+
+  const cv::Mat halation_output = RunOpenClFusedPipeline(input, halation_params);
+  ExpectFiniteRgba32f(halation_output);
+
+  const float diff = MaxRgbDiff(halation_output, noop_output);
+  std::cout << "[OpenCL halation standalone] max_diff_vs_noop=" << diff << "\n";
+  EXPECT_GT(diff, 1.0e-4f) << "OpenCL halation should modify the image vs no-op.";
+
+  double  cuda_ms   = 0.0;
+  double  opencl_ms = 0.0;
+  cv::Mat cuda_output;
+  cv::Mat opencl_output;
+  try {
+    auto cuda_params   = halation_params;
+    auto opencl_params = halation_params;
+    cuda_output        = RunFusedPipeline(GpuBackendKind::CUDA, input, cuda_params, &cuda_ms);
+    opencl_output      = RunFusedPipeline(GpuBackendKind::OpenCL, input, opencl_params, &opencl_ms);
+  } catch (const std::exception& e) {
+    GTEST_SKIP() << "CUDA/OpenCL halation comparison unavailable: " << e.what();
+  }
+
+  ExpectCudaOpenClDetailClose("[OpenCL fused halation]", cuda_output, opencl_output, cuda_ms,
+                              opencl_ms);
+}
+
+TEST(OpenClFusedEditPipelineTest, DetailFilmGrainMatchesCuda) {
+  if (!TryEnsureOpenClRuntime()) {
+    GTEST_SKIP() << OpenClContext::Instance().LastInitializationError();
+  }
+
+  const cv::Mat input = MakeDetailComparisonInput();
+
+  auto noop_params = MakeNoOpFusedParams();
+  const cv::Mat noop_output = RunOpenClFusedPipeline(input, noop_params);
+
+  auto grain_params = MakeNoOpFusedParams();
+  grain_params.film_grain_.enabled_ = true;
+  grain_params.film_grain_.strength_ = 0.35f;
+  grain_params.film_grain_.seed_ = 0x123456789abcdef0ULL;
+
+  const cv::Mat grain_output = RunOpenClFusedPipeline(input, grain_params);
+  ExpectFiniteRgba32f(grain_output);
+
+  const float diff = MaxRgbDiff(grain_output, noop_output);
+  std::cout << "[OpenCL film grain standalone] max_diff_vs_noop=" << diff << "\n";
+  EXPECT_GT(diff, 1.0e-4f) << "OpenCL film grain should modify the image vs no-op.";
+
+  double  cuda_ms   = 0.0;
+  double  opencl_ms = 0.0;
+  cv::Mat cuda_output;
+  cv::Mat opencl_output;
+  try {
+    auto cuda_params   = grain_params;
+    auto opencl_params = grain_params;
+    cuda_output        = RunFusedPipeline(GpuBackendKind::CUDA, input, cuda_params, &cuda_ms);
+    opencl_output      = RunFusedPipeline(GpuBackendKind::OpenCL, input, opencl_params, &opencl_ms);
+  } catch (const std::exception& e) {
+    GTEST_SKIP() << "CUDA/OpenCL film grain comparison unavailable: " << e.what();
+  }
+
+  ExpectCudaOpenClDetailClose("[OpenCL fused film grain]", cuda_output, opencl_output, cuda_ms,
+                              opencl_ms);
 }
 
 TEST(OpenClFusedEditPipelineTest, HighlightShadowLocalToneMatchesCuda) {

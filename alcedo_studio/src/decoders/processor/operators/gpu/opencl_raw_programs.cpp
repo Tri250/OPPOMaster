@@ -28,6 +28,12 @@ void RegisterOpenClRawProcessorPrograms() {
                     .required_at_startup = false,
                 },
                 OpenClProgramDescriptor{
+                    .name            = "raw_processor_xtrans",
+                    .source_paths    = {ALCEDO_OPENCL_XTRANS_INTERPOLATE_CL},
+                    .build_options   = "-cl-std=CL1.2",
+                    .required_at_startup = false,
+                },
+                OpenClProgramDescriptor{
                     .name            = "raw_processor_highlight",
                     .source_paths    = {ALCEDO_OPENCL_HIGHLIGHT_RECONSTRUCT_CL},
                     .build_options   = "-cl-std=CL1.2",

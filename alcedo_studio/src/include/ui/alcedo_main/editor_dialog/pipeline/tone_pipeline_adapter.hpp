@@ -34,6 +34,8 @@ struct TonePipelineAdapter {
     legacy.saturation_   = state.saturation_;
     legacy.sharpen_      = state.sharpen_;
     legacy.clarity_      = state.clarity_;
+    legacy.film_grain_   = state.film_grain_;
+    legacy.halation_     = state.halation_;
     return pipeline_io::ParamsForField(field, legacy, nullptr);
   }
 
@@ -50,6 +52,8 @@ struct TonePipelineAdapter {
     legacy_current.saturation_   = current.saturation_;
     legacy_current.sharpen_      = current.sharpen_;
     legacy_current.clarity_      = current.clarity_;
+    legacy_current.film_grain_   = current.film_grain_;
+    legacy_current.halation_     = current.halation_;
 
     AdjustmentState legacy_committed{};
     legacy_committed.exposure_     = committed.exposure_;
@@ -62,6 +66,8 @@ struct TonePipelineAdapter {
     legacy_committed.saturation_   = committed.saturation_;
     legacy_committed.sharpen_      = committed.sharpen_;
     legacy_committed.clarity_      = committed.clarity_;
+    legacy_committed.film_grain_   = committed.film_grain_;
+    legacy_committed.halation_     = committed.halation_;
 
     return pipeline_io::FieldChanged(field, legacy_current, legacy_committed);
   }
@@ -78,6 +84,8 @@ struct TonePipelineAdapter {
     legacy.saturation_   = tone.saturation_;
     legacy.sharpen_      = tone.sharpen_;
     legacy.clarity_      = tone.clarity_;
+    legacy.film_grain_   = tone.film_grain_;
+    legacy.halation_     = tone.halation_;
   }
 
   static auto ToneStateFromLegacy(const AdjustmentState& legacy) -> ToneAdjustmentState {
@@ -92,6 +100,8 @@ struct TonePipelineAdapter {
     tone.saturation_   = legacy.saturation_;
     tone.sharpen_      = legacy.sharpen_;
     tone.clarity_      = legacy.clarity_;
+    tone.film_grain_   = legacy.film_grain_;
+    tone.halation_     = legacy.halation_;
     return tone;
   }
 };

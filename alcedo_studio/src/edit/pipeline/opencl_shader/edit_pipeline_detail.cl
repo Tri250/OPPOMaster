@@ -5,50 +5,20 @@
 #ifndef ALCEDO_OPENCL_EDIT_PIPELINE_DETAIL_CL
 #define ALCEDO_OPENCL_EDIT_PIPELINE_DETAIL_CL
 
-#define ALCEDO_OPENCL_NEIGHBOR_MAX_TAP_COUNT 64
-#define ALCEDO_OPENCL_NEIGHBOR_OP_SHARPEN    1u
-#define ALCEDO_OPENCL_NEIGHBOR_OP_CLARITY    2u
-
-typedef struct {
-  uint  kind_;
-  uint  radius_;
-  uint  tap_count_;
-  float amount_;
-  float threshold_;
-  float weights_[ALCEDO_OPENCL_NEIGHBOR_MAX_TAP_COUNT];
-} OpenClNeighborStageParams;
-
-// === Detail helpers =============================================================
-
-static inline float opencl_detail_luminance(float4 c) {
-  // Match the CUDA implementation's COLOR_BGR2GRAY coefficients.
-  return c.x * 0.114f + c.y * 0.587f + c.z * 0.299f;
-}
-
-static inline float4 opencl_detail_read_clamped(__global const float4* src, int x, int y,
-                                                int width, int height) {
-  const int cx = clamp(x, 0, width - 1);
-  const int cy = clamp(y, 0, height - 1);
-  return src[(size_t)cy * (size_t)width + (size_t)cx];
-}
-
-static inline float opencl_detail_read_log_clamped(__global const float* src, int x, int y,
-                                                   int width, int height) {
-  const int cx = clamp(x, 0, width - 1);
-  const int cy = clamp(y, 0, height - 1);
-  return src[(size_t)cy * (size_t)width + (size_t)cx];
-}
-
-static inline float opencl_detail_smoothstep(float edge0, float edge1, float x) {
-  const float t = clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
-  return t * t * (3.0f - 2.0f * t);
-}
-
 // === Separable blur helpers =====================================================
 
 static inline float4 opencl_neighbor_blur_horizontal(__global const float4* src, int x, int y,
                                                      int width, int height,
                                                      __global const OpenClNeighborStageParams* params) {
+  if (params->enabled_ == 0u || params->amount_ == 0.0f) {
+    return opencl_detail_read_clamped(src, x, y, width, height);
+  }
+  if (params->kind_ == ALCEDO_OPENCL_NEIGHBOR_OP_HALATION) {
+    return opencl_halation_blur_horizontal(src, x, y, width, height, params);
+  }
+  if (params->kind_ == ALCEDO_OPENCL_NEIGHBOR_OP_FILM_GRAIN) {
+    return opencl_film_grain_blur_horizontal(src, x, y, width, height, params);
+  }
   if (params->tap_count_ == 0u) {
     return opencl_detail_read_clamped(src, x, y, width, height);
   }
@@ -66,6 +36,12 @@ static inline float4 opencl_neighbor_blur_horizontal(__global const float4* src,
 static inline float4 opencl_neighbor_blur_vertical(__global const float4* src, int x, int y,
                                                    int width, int height,
                                                    __global const OpenClNeighborStageParams* params) {
+  if (params->kind_ == ALCEDO_OPENCL_NEIGHBOR_OP_HALATION) {
+    return opencl_halation_blur_vertical(src, x, y, width, height, params);
+  }
+  if (params->kind_ == ALCEDO_OPENCL_NEIGHBOR_OP_FILM_GRAIN) {
+    return opencl_film_grain_blur_vertical(src, x, y, width, height);
+  }
   if (params->tap_count_ == 0u) {
     return opencl_detail_read_clamped(src, x, y, width, height);
   }
@@ -160,6 +136,12 @@ __kernel void edit_pipeline_neighbor_apply_v_rgba32f(__global const float4* src,
       break;
     case ALCEDO_OPENCL_NEIGHBOR_OP_CLARITY:
       dst[idx] = opencl_apply_clarity(px, blur, params);
+      break;
+    case ALCEDO_OPENCL_NEIGHBOR_OP_HALATION:
+      dst[idx] = opencl_apply_halation(px, blur, params);
+      break;
+    case ALCEDO_OPENCL_NEIGHBOR_OP_FILM_GRAIN:
+      dst[idx] = opencl_apply_film_grain(px, blur, params);
       break;
     default:
       dst[idx] = px;

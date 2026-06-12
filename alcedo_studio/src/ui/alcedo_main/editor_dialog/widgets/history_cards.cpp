@@ -523,6 +523,10 @@ auto MakeHistoryIconTile(OperatorType op, QWidget* parent) -> QFrame* {
             return QStringLiteral(":/history_icons/aperture.svg");
           case OperatorType::COLOR_TEMP:
             return QStringLiteral(":/history_icons/thermometer.svg");
+          case OperatorType::FILM_GRAIN:
+            return QStringLiteral(":/history_icons/scan-line.svg");
+          case OperatorType::HALATION:
+            return QStringLiteral(":/history_icons/sun.svg");
           case OperatorType::UNKNOWN:
             return QStringLiteral(":/history_icons/sliders-horizontal.svg");
         }
@@ -1105,6 +1109,10 @@ auto OperatorDisplayName(OperatorType op) -> QString {
       return QStringLiteral("Lens Profile");
     case OperatorType::COLOR_TEMP:
       return QStringLiteral("Color Temp");
+    case OperatorType::FILM_GRAIN:
+      return QStringLiteral("Grain");
+    case OperatorType::HALATION:
+      return QStringLiteral("Halation");
     case OperatorType::UNKNOWN:
       return QStringLiteral("Edit");
   }

@@ -16,6 +16,8 @@
 #include "edit/operators/color/tint_op.hpp"
 #include "edit/operators/color/vibrance_op.hpp"
 #include "edit/operators/cst/cst_op.hpp"
+#include "edit/operators/cst/film_grain_op.hpp"
+#include "edit/operators/cst/halation_op.hpp"
 #include "edit/operators/cst/lmt_op.hpp"
 #include "edit/operators/cst/odt_op.hpp"
 #include "edit/operators/curve/curve_op.hpp"
@@ -101,6 +103,16 @@ void RegisterAllOperators() {
   OperatorFactory::Instance().Register(OperatorType::ODT, [](const nlohmann::json& params) {
     return std::make_shared<ODT_Op>(params);
   });
+
+  OperatorFactory::Instance().Register(OperatorType::FILM_GRAIN,
+                                       [](const nlohmann::json& params) {
+                                         return std::make_shared<FilmGrainOp>(params);
+                                       });
+
+  OperatorFactory::Instance().Register(OperatorType::HALATION,
+                                       [](const nlohmann::json& params) {
+                                         return std::make_shared<HalationOp>(params);
+                                       });
 
   OperatorFactory::Instance().Register(OperatorType::LMT, [](const nlohmann::json& params) {
     return std::make_shared<OCIO_LMT_Transform_Op>(params);

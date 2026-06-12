@@ -300,8 +300,12 @@ struct GPU_TO_OUTPUT_Params {
 
 struct GPUOperatorParams {
   using ToneMappingParams                                  = OperatorParams::ToneMappingParams;
+  using FilmGrainParams                                    = OperatorParams::FilmGrainParams;
+  using HalationParams                                     = OperatorParams::HalationParams;
 
   ToneMappingParams tone_mapping_                          = {};
+  FilmGrainParams   film_grain_                            = {};
+  HalationParams    halation_                              = {};
 
   // Basic adjustment parameters
   bool              exposure_enabled_                      = true;
@@ -363,6 +367,8 @@ struct GPUOperatorParams {
   float         render_roi_scale_y_                             = 1.0f;
   int           render_roi_reference_width_                     = 0;
   int           render_roi_reference_height_                    = 0;
+  float         render_output_scale_x_                          = 1.0f;
+  float         render_output_scale_y_                          = 1.0f;
 
   // White and Black point adjustment parameters
   bool          white_enabled_                                  = true;
@@ -490,6 +496,9 @@ class CudaFusedParamUploader {
     resources.common_params_              = fused_params;
     GPUOperatorParams& gpu_params         = resources.uploaded_params_;
 
+    gpu_params.film_grain_                = fused_params.film_grain_;
+    gpu_params.halation_                  = fused_params.halation_;
+
     gpu_params.exposure_enabled_          = fused_params.exposure_enabled_;
     gpu_params.exposure_offset_           = fused_params.exposure_offset_;
 
@@ -557,6 +566,8 @@ class CudaFusedParamUploader {
     gpu_params.render_roi_scale_y_                = fused_params.render_roi_scale_y_;
     gpu_params.render_roi_reference_width_        = fused_params.render_roi_reference_width_;
     gpu_params.render_roi_reference_height_       = fused_params.render_roi_reference_height_;
+    gpu_params.render_output_scale_x_             = fused_params.render_output_scale_x_;
+    gpu_params.render_output_scale_y_             = fused_params.render_output_scale_y_;
 
     gpu_params.white_enabled_                     = fused_params.white_enabled_;
     gpu_params.white_point_                       = fused_params.white_point_;

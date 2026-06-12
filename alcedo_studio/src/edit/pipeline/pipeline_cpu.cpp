@@ -79,6 +79,10 @@ void SetCleanBaselineAdjustableOperators(
   set_enabled(PipelineStageName::Detail_Adjustment, OperatorType::CLARITY, baseline.at("clarity"));
 
   set_enabled(PipelineStageName::Output_Transform, OperatorType::ODT, baseline.at("odt"));
+  set_enabled(PipelineStageName::Output_Transform, OperatorType::FILM_GRAIN,
+              baseline.at("film_grain"));
+  set_enabled(PipelineStageName::Output_Transform, OperatorType::HALATION,
+              baseline.at("halation"));
 }
 
 void PrintPipelineProfile(const ProfileClock::time_point apply_start,
@@ -441,14 +445,17 @@ auto CPUPipelineExecutor::ExportPipelineParams() const -> nlohmann::json {
 
 void CPUPipelineExecutor::ImportPipelineParams(const nlohmann::json& j) {
   ResetExecutionStages();
+  ResetStages();
+  SetTemplateParams();
+  RegisterAllOperators();
   for (auto& stage : stages_) {
     std::string stage_name = stage.GetStageNameString();
     if (j.contains(stage_name)) {
       nlohmann::json stage_json = j[stage_name];
-      // When importing, stage's import function will do reset internally
-      stage.ImportStageParams(stage_json, global_params_);
+      stage.MergeStageParams(stage_json, global_params_);
     }
   }
+  SetExecutionStages();
 }
 
 void CPUPipelineExecutor::SetRenderRegion(int x, int y, float scale_factor_x,
@@ -604,6 +611,10 @@ void CPUPipelineExecutor::SetTemplateParams() {
   auto&          output_stage = GetStage(PipelineStageName::Output_Transform);
   output_params               = pipeline_defaults::MakeDefaultODTParams();
   output_stage.SetOperator(OperatorType::ODT, output_params, global_params);
+  output_stage.SetOperator(OperatorType::FILM_GRAIN, pipeline_defaults::MakeDefaultFilmGrainParams(),
+                           global_params);
+  output_stage.SetOperator(OperatorType::HALATION, pipeline_defaults::MakeDefaultHalationParams(),
+                           global_params);
 }
 
 void CPUPipelineExecutor::InitDefaultPipeline() {

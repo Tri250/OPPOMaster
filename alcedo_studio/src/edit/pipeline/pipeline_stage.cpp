@@ -26,6 +26,50 @@ namespace alcedo {
 namespace {
 using ProfileClock = std::chrono::steady_clock;
 
+struct BufferDimensions {
+  int width  = 0;
+  int height = 0;
+};
+
+auto GetBufferDimensions(const std::shared_ptr<ImageBuffer>& img) -> BufferDimensions {
+  if (!img) {
+    return {};
+  }
+  if (img->gpu_data_valid_) {
+    return {img->GetGPUWidth(), img->GetGPUHeight()};
+  }
+  if (img->cpu_data_valid_) {
+    auto& data = img->GetCPUData();
+    return {data.cols, data.rows};
+  }
+  return {};
+}
+
+auto ComputeRenderOutputScaleAxis(int input_length, int output_length, bool roi_enabled,
+                                  float roi_scale, int roi_reference_length) -> float {
+  if (input_length <= 0 || output_length <= 0) {
+    return 1.0f;
+  }
+
+  const float safe_roi_scale = std::clamp(roi_scale, 1e-4f, 1.0f);
+  const int   reference_length =
+      roi_reference_length > 0 ? roi_reference_length : std::max(input_length, 1);
+  const float content_length =
+      roi_enabled ? std::max(1.0f, static_cast<float>(reference_length) * safe_roi_scale)
+                  : static_cast<float>(std::max(input_length, 1));
+  return std::clamp(static_cast<float>(output_length) / content_length, 1e-4f, 1.0f);
+}
+
+void UpdateRenderOutputScale(OperatorParams& params, const BufferDimensions& input_dims,
+                             const BufferDimensions& output_dims) {
+  params.render_output_scale_x_ =
+      ComputeRenderOutputScaleAxis(input_dims.width, output_dims.width, params.render_roi_enabled_,
+                                   params.render_roi_scale_x_, params.render_roi_reference_width_);
+  params.render_output_scale_y_ = ComputeRenderOutputScaleAxis(
+      input_dims.height, output_dims.height, params.render_roi_enabled_, params.render_roi_scale_y_,
+      params.render_roi_reference_height_);
+}
+
 auto DurationToMs(const ProfileClock::duration duration) -> double {
   return std::chrono::duration<double, std::milli>(duration).count();
 }
@@ -73,23 +117,22 @@ auto IsResizeEffectivelyNoOp(const IOperatorBase& op, int width, int height) -> 
     return false;
   }
 
-  const auto& resize       = params["resize"];
-  const bool  enable_scale = resize.value("enable_scale", false);
-  const bool  enable_roi   = resize.value("enable_roi", false);
-  const int   maximum_edge = resize.value("maximum_edge", 2048);
+  const auto& resize            = params["resize"];
+  const bool  enable_scale      = resize.value("enable_scale", false);
+  const bool  enable_roi        = resize.value("enable_roi", false);
+  const int   maximum_edge      = resize.value("maximum_edge", 2048);
   bool        roi_is_full_frame = !enable_roi;
 
   if (enable_roi) {
     if (!resize.contains("roi") || !resize["roi"].is_object()) {
       return false;
     }
-    const auto& roi = resize["roi"];
-    const float factor = roi.value("resize_factor", 1.0f);
+    const auto& roi      = resize["roi"];
+    const float factor   = roi.value("resize_factor", 1.0f);
     const float factor_x = roi.value("resize_factor_x", factor);
     const float factor_y = roi.value("resize_factor_y", factor);
-    roi_is_full_frame =
-        roi.value("x", 0) == 0 && roi.value("y", 0) == 0 &&
-        factor_x >= (1.0f - 1e-4f) && factor_y >= (1.0f - 1e-4f);
+    roi_is_full_frame    = roi.value("x", 0) == 0 && roi.value("y", 0) == 0 &&
+                        factor_x >= (1.0f - 1e-4f) && factor_y >= (1.0f - 1e-4f);
   }
 
   if (!enable_scale && !enable_roi) {
@@ -436,20 +479,16 @@ std::shared_ptr<ImageBuffer> PipelineStage::ApplyGpuOperators(OperatorParams& gl
       return input_img_;
     }
 
-    if (stage_ == PipelineStageName::Geometry_Adjustment) {
-      int width  = 0;
-      int height = 0;
-      if (input_img_->gpu_data_valid_) {
-        width  = input_img_->GetGPUWidth();
-        height = input_img_->GetGPUHeight();
-      } else if (input_img_->cpu_data_valid_) {
-        const auto& cpu_data = input_img_->GetCPUData();
-        width                = cpu_data.cols;
-        height               = cpu_data.rows;
-      }
+    const bool             is_geometry_stage = stage_ == PipelineStageName::Geometry_Adjustment;
+    const BufferDimensions geometry_input_dims =
+        is_geometry_stage ? GetBufferDimensions(input_img_) : BufferDimensions{};
 
-      bool has_enabled = false;
-      bool all_noop    = true;
+    if (stage_ == PipelineStageName::Geometry_Adjustment) {
+      const int width       = geometry_input_dims.width;
+      const int height      = geometry_input_dims.height;
+
+      bool      has_enabled = false;
+      bool      all_noop    = true;
       for (const auto& [op_type, op_entry] : *operators_) {
         if (!op_entry.enable_ || !op_entry.op_) {
           continue;
@@ -468,6 +507,7 @@ std::shared_ptr<ImageBuffer> PipelineStage::ApplyGpuOperators(OperatorParams& gl
       // Reuse upstream cache directly to avoid holding another full-resolution GpuMat.
       if (has_enabled && all_noop) {
         profile.AddNote("geometry_noop_passthrough");
+        UpdateRenderOutputScale(global_params, geometry_input_dims, geometry_input_dims);
         return input_img_;
       }
     }
@@ -536,6 +576,9 @@ std::shared_ptr<ImageBuffer> PipelineStage::ApplyGpuOperators(OperatorParams& gl
       }
     }
     current_img->gpu_data_valid_ = true;
+    if (is_geometry_stage) {
+      UpdateRenderOutputScale(global_params, geometry_input_dims, GetBufferDimensions(current_img));
+    }
     return current_img;
   };
 
@@ -592,20 +635,16 @@ std::shared_ptr<ImageBuffer> PipelineStage::ApplyCpuOperators(OperatorParams& gl
       return input_img_;
     }
 
-    if (stage_ == PipelineStageName::Geometry_Adjustment) {
-      int width  = 0;
-      int height = 0;
-      if (input_img_->gpu_data_valid_) {
-        width  = input_img_->GetGPUWidth();
-        height = input_img_->GetGPUHeight();
-      } else if (input_img_->cpu_data_valid_) {
-        const auto& cpu_data = input_img_->GetCPUData();
-        width                = cpu_data.cols;
-        height               = cpu_data.rows;
-      }
+    const bool             is_geometry_stage = stage_ == PipelineStageName::Geometry_Adjustment;
+    const BufferDimensions geometry_input_dims =
+        is_geometry_stage ? GetBufferDimensions(input_img_) : BufferDimensions{};
 
-      bool has_enabled = false;
-      bool all_noop    = true;
+    if (stage_ == PipelineStageName::Geometry_Adjustment) {
+      const int width       = geometry_input_dims.width;
+      const int height      = geometry_input_dims.height;
+
+      bool      has_enabled = false;
+      bool      all_noop    = true;
       for (const auto& [op_type, op_entry] : *operators_) {
         if (!op_entry.enable_ || !op_entry.op_) {
           continue;
@@ -622,6 +661,7 @@ std::shared_ptr<ImageBuffer> PipelineStage::ApplyCpuOperators(OperatorParams& gl
 
       if (has_enabled && all_noop) {
         profile.AddNote("geometry_noop_passthrough");
+        UpdateRenderOutputScale(global_params, geometry_input_dims, geometry_input_dims);
         return input_img_;
       }
     }
@@ -660,6 +700,9 @@ std::shared_ptr<ImageBuffer> PipelineStage::ApplyCpuOperators(OperatorParams& gl
       for (const auto& [op_type, op_entry] : *operators_) {
         apply_cpu_operator(op_type, op_entry);
       }
+    }
+    if (is_geometry_stage) {
+      UpdateRenderOutputScale(global_params, geometry_input_dims, GetBufferDimensions(current_img));
     }
     return current_img;
   };
@@ -846,7 +889,10 @@ void PipelineStage::ImportStageParams(const nlohmann::json& j) {
 
 void PipelineStage::ImportStageParams(const nlohmann::json& j, OperatorParams& global_params) {
   ResetAll();
+  MergeStageParams(j, global_params);
+}
 
+void PipelineStage::MergeStageParams(const nlohmann::json& j, OperatorParams& global_params) {
   std::string stage_name = GetStageNameString();
   if (!j.contains(stage_name)) {
     return;

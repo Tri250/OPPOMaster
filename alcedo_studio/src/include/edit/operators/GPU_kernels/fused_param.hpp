@@ -170,8 +170,12 @@ struct Fused_TO_OUTPUT_Params {
 
 struct FusedOperatorParams {
   using ToneMappingParams                                  = OperatorParams::ToneMappingParams;
+  using FilmGrainParams                                    = OperatorParams::FilmGrainParams;
+  using HalationParams                                     = OperatorParams::HalationParams;
 
   ToneMappingParams tone_mapping_                          = {};
+  FilmGrainParams   film_grain_                            = {};
+  HalationParams    halation_                              = {};
 
   bool              exposure_enabled_                      = true;
   float             exposure_offset_                       = 0.0f;
@@ -230,6 +234,8 @@ struct FusedOperatorParams {
   float         render_roi_scale_y_                         = 1.0f;
   int           render_roi_reference_width_                 = 0;
   int           render_roi_reference_height_                = 0;
+  float         render_output_scale_x_                      = 1.0f;
+  float         render_output_scale_y_                      = 1.0f;
 
   bool          white_enabled_                              = true;
   float         white_point_                                = 1.0f;
@@ -324,6 +330,9 @@ class FusedParamsConverter {
                              const FusedOperatorParams& orig_params = {}) -> FusedOperatorParams {
     FusedOperatorParams fused                 = orig_params;
 
+    fused.film_grain_                         = cpu_params.film_grain_;
+    fused.halation_                           = cpu_params.halation_;
+
     fused.exposure_enabled_                   = cpu_params.exposure_enabled_;
     fused.exposure_offset_                    = cpu_params.exposure_offset_;
     fused.contrast_enabled_                   = cpu_params.contrast_enabled_;
@@ -395,6 +404,8 @@ class FusedParamsConverter {
     fused.render_roi_scale_y_                = cpu_params.render_roi_scale_y_;
     fused.render_roi_reference_width_        = cpu_params.render_roi_reference_width_;
     fused.render_roi_reference_height_       = cpu_params.render_roi_reference_height_;
+    fused.render_output_scale_x_             = cpu_params.render_output_scale_x_;
+    fused.render_output_scale_y_             = cpu_params.render_output_scale_y_;
     fused.white_enabled_                     = cpu_params.white_enabled_;
     fused.white_point_                       = cpu_params.white_point_;
     fused.black_enabled_                     = cpu_params.black_enabled_;

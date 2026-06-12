@@ -141,6 +141,8 @@ Alcedo Studio builds on research, open-source implementations, and community dat
 - The RCD demosaic algorithm is from [LuisSR/RCD-Demosaicing](https://github.com/LuisSR/RCD-Demosaicing).
 - OpenDRT is ported from [OpenDRT.dctl](https://github.com/jedypod/open-display-transform/blob/main/display-transforms/opendrt/OpenDRT.dctl).
 - ACES 2.0 support is ported from [aces-aswf/aces-core](https://github.com/aces-aswf/aces-core).
+- The film grain renderer is based on Alasdair Newson, Noura Faraj, Bruno Galerne, and Julie Delon's
+  [Realistic Film Grain Rendering](https://doi.org/10.5201/ipol.2017.192).
 
 ## License
 

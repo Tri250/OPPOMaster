@@ -314,6 +314,66 @@ TEST(OpenClRuntimeTest, BuiltinEditPipelineFusedParamsProgramCompiles) {
   }
 }
 
+TEST(OpenClRuntimeTest, BuiltinEditPipelineDetailProgramCompiles) {
+  auto& context = OpenClContext::Instance();
+  if (!TryEnsureOpenClContext()) {
+    GTEST_SKIP() << context.LastInitializationError();
+  }
+
+  RegisterOpenClBackendPrograms();
+  cl_program program =
+      OpenClProgramLibrary::Instance().GetProgram(OpenCL::Pipeline::kDetailProgramName);
+  ASSERT_NE(program, nullptr);
+
+  const char* detail_kernels[] = {
+      OpenCL::Pipeline::kNeighborBlurHorizontalKernelName,
+      OpenCL::Pipeline::kNeighborApplyVerticalKernelName,
+      OpenCL::Pipeline::kHsExtractLogIntensityKernelName,
+      OpenCL::Pipeline::kHsApplyAdjustedLKernelName,
+  };
+  for (const char* kernel_name : detail_kernels) {
+    cl_int    error  = CL_SUCCESS;
+    cl_kernel kernel = clCreateKernel(program, kernel_name, &error);
+    EXPECT_EQ(error, CL_SUCCESS) << kernel_name;
+    EXPECT_NE(kernel, nullptr) << kernel_name;
+    if (kernel != nullptr) {
+      clReleaseKernel(kernel);
+    }
+  }
+}
+
+TEST(OpenClRuntimeTest, BuiltinRawProcessorProgramsCompile) {
+  auto& context = OpenClContext::Instance();
+  if (!TryEnsureOpenClContext()) {
+    GTEST_SKIP() << context.LastInitializationError();
+  }
+
+  RegisterOpenClBackendPrograms();
+  struct ProgramKernel {
+    const char* program_name;
+    const char* kernel_name;
+  };
+  const ProgramKernel raw_kernels[] = {
+      {"raw_processor_core", "to_linear_ref_u16_to_f32"},
+      {"raw_processor_debayer_rcd", "rcd_init_and_vh"},
+      {"raw_processor_xtrans", "xtrans_green"},
+      {"raw_processor_highlight", "hlr_build_mask"},
+      {"raw_processor_cvt_ref_space", "apply_inverse_cam_mul_rgba32f"},
+  };
+
+  for (const auto& item : raw_kernels) {
+    cl_program program = OpenClProgramLibrary::Instance().GetProgram(item.program_name);
+    ASSERT_NE(program, nullptr) << item.program_name;
+    cl_int    error  = CL_SUCCESS;
+    cl_kernel kernel = clCreateKernel(program, item.kernel_name, &error);
+    EXPECT_EQ(error, CL_SUCCESS) << item.program_name << "." << item.kernel_name;
+    EXPECT_NE(kernel, nullptr) << item.program_name << "." << item.kernel_name;
+    if (kernel != nullptr) {
+      clReleaseKernel(kernel);
+    }
+  }
+}
+
 TEST(OpenClRuntimeTest, BuiltinGeometryProgramsCompile) {
   auto& context = OpenClContext::Instance();
   if (!TryEnsureOpenClContext()) {

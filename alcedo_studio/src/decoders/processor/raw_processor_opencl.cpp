@@ -16,6 +16,7 @@
 #include "decoders/processor/operators/gpu/opencl_debayer_rcd.hpp"
 #include "decoders/processor/operators/gpu/opencl_highlight_reconstruct.hpp"
 #include "decoders/processor/operators/gpu/opencl_to_linear_ref.hpp"
+#include "decoders/processor/operators/gpu/opencl_xtrans_interpolate.hpp"
 #include "decoders/processor/raw_processor_internal.hpp"
 #include "opencl/opencl_geometry_utils.hpp"
 
@@ -134,8 +135,10 @@ auto RawProcessor::ProcessOpenCL() -> ImageBuffer {
     LogProfileStep(deferred_log, "RAW OpenCL highlight reconstruct", stage_highlight_start);
   } else {
     if (cfa_pattern_.kind == RawCfaKind::XTrans6x6) {
-      throw std::runtime_error(
-          "RawProcessor: OpenCL X-Trans interpolation is not yet implemented.");
+      const int  passes             = params_.decode_res_ == DecodeRes::FULL ? 3 : 1;
+      const auto stage_xtrans_start = ProfileClock::now();
+      OpenCL::XTransToRGB_Ref(gpu_img, cfa_pattern_.xtrans_pattern, passes);
+      LogProfileStep(deferred_log, "RAW OpenCL xtrans interpolate", stage_xtrans_start);
     } else {
       const auto stage_debayer_start = ProfileClock::now();
       OpenCL::Bayer2x2ToRGB_RCD(gpu_img, cfa_pattern_.bayer_pattern);

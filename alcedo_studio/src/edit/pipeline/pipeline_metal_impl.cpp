@@ -8,6 +8,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -55,23 +56,41 @@ auto                  FusedPipelineMetallibPath() -> const char* {
 }
 
 enum class MetalNeighborOpKind : uint32_t {
-  Sharpen = 1,
-  Clarity = 2,
+  Sharpen   = 1,
+  Clarity   = 2,
+  Halation  = 3,
+  FilmGrain = 4,
 };
 
 struct alignas(16) MetalNeighborStageParams {
-  uint32_t                                     kind_        = 0;
-  uint32_t                                     radius_      = 0;
-  uint32_t                                     tap_count_   = 0;
-  float                                        amount_      = 0.0f;
-  float                                        threshold_   = 0.0f;
-  float                                        reserved_[3] = {};
-  std::array<float, kMetalNeighborMaxTapCount> weights_     = {};
+  uint32_t                                     kind_                 = 0;
+  uint32_t                                     radius_               = 0;
+  uint32_t                                     tap_count_            = 0;
+  float                                        amount_               = 0.0f;
+  float                                        threshold_            = 0.0f;
+  std::array<float, kMetalNeighborMaxTapCount> weights_              = {};
+  uint32_t                                     enabled_              = 0;
+  int32_t                                      eotf_                 = 0;
+  uint32_t                                     seed_lo_              = 0;
+  uint32_t                                     seed_hi_              = 0;
+  float                                        sigma_x_              = 0.0f;
+  float                                        sigma_y_              = 0.0f;
+  float                                        redshift_[3]          = {};
+  float                                        reserved_             = 0.0f;
+  uint32_t                                     roi_enabled_          = 0;
+  int32_t                                      roi_x_                = 0;
+  int32_t                                      roi_y_                = 0;
+  float                                        roi_scale_x_          = 1.0f;
+  float                                        roi_scale_y_          = 1.0f;
+  int32_t                                      roi_reference_width_  = 0;
+  int32_t                                      roi_reference_height_ = 0;
+  uint32_t                                     reserved_tail_        = 0;
 };
 
-static_assert(sizeof(MetalNeighborStageParams) ==
-                  ((3U + 5U + kMetalNeighborMaxTapCount) * sizeof(float)),
-              "MetalNeighborStageParams must stay ABI-compatible with Metal shaders.");
+static_assert(sizeof(MetalNeighborStageParams) == 352);
+static_assert(offsetof(MetalNeighborStageParams, weights_) == 5U * sizeof(float));
+static_assert(offsetof(MetalNeighborStageParams, enabled_) ==
+              (5U + kMetalNeighborMaxTapCount) * sizeof(float));
 
 struct MetalNeighborStage {
   MetalNeighborStageParams params_ = {};
@@ -207,6 +226,7 @@ auto BuildNeighborStageParams(MetalNeighborOpKind kind, float sigma, float amoun
   params.kind_      = static_cast<uint32_t>(kind);
   params.amount_    = amount;
   params.threshold_ = threshold;
+  params.enabled_   = 1U;
 
   const int clamped_tap_count =
       std::clamp(gaussian_tap_count, 0, static_cast<int>(kMetalNeighborMaxTapCount));
@@ -228,6 +248,38 @@ auto BuildNeighborStageParams(MetalNeighborOpKind kind, float sigma, float amoun
       std::clamp<uint32_t>(static_cast<uint32_t>(std::ceil(3.0f * safe_sigma)), 1U, max_radius);
   params.tap_count_ = params.radius_ + 1U;
   params.weights_   = BuildGaussianWeights(safe_sigma, params.radius_);
+  return params;
+}
+
+auto BuildHalationStageParams(const OperatorParams::HalationParams& halation, float scale_x,
+                              float scale_y, GPU_EOTF eotf) -> MetalNeighborStageParams {
+  MetalNeighborStageParams params;
+  params.kind_    = static_cast<uint32_t>(MetalNeighborOpKind::Halation);
+  params.enabled_ = halation.enabled_ ? 1U : 0U;
+  params.eotf_    = static_cast<int32_t>(eotf);
+  params.amount_  = std::clamp(halation.strength_, 0.0f, 2.0f);
+  params.sigma_x_ = halation.sigma_ * std::clamp(scale_x, 1.0e-4f, 1.0f);
+  params.sigma_y_ = halation.sigma_ * std::clamp(scale_y, 1.0e-4f, 1.0f);
+  std::copy_n(halation.redshift_, 3, params.redshift_);
+  return params;
+}
+
+auto BuildFilmGrainStageParams(const FusedOperatorParams& fused_params)
+    -> MetalNeighborStageParams {
+  const auto&              grain = fused_params.film_grain_;
+  MetalNeighborStageParams params;
+  params.kind_                 = static_cast<uint32_t>(MetalNeighborOpKind::FilmGrain);
+  params.enabled_              = grain.enabled_ ? 1U : 0U;
+  params.amount_               = std::clamp(grain.strength_, 0.0f, 1.0f);
+  params.seed_lo_              = static_cast<uint32_t>(grain.seed_ & 0xffffffffULL);
+  params.seed_hi_              = static_cast<uint32_t>((grain.seed_ >> 32U) & 0xffffffffULL);
+  params.roi_enabled_          = fused_params.render_roi_enabled_ ? 1U : 0U;
+  params.roi_x_                = fused_params.render_roi_x_;
+  params.roi_y_                = fused_params.render_roi_y_;
+  params.roi_scale_x_          = fused_params.render_roi_scale_x_;
+  params.roi_scale_y_          = fused_params.render_roi_scale_y_;
+  params.roi_reference_width_  = fused_params.render_roi_reference_width_;
+  params.roi_reference_height_ = fused_params.render_roi_reference_height_;
   return params;
 }
 
@@ -339,9 +391,19 @@ class MetalGPUPipeline final : public GPUPipelineImpl,
            fused_params_.clarity_radius_ > 0.0f;
   }
 
+  auto ShouldRunHalation() const -> bool {
+    const auto& halation = fused_params_.halation_;
+    return halation.enabled_ && std::clamp(halation.strength_, 0.0f, 2.0f) > 0.0f;
+  }
+
+  auto ShouldRunFilmGrain() const -> bool {
+    const auto& grain = fused_params_.film_grain_;
+    return grain.enabled_ && std::clamp(grain.strength_, 0.0f, 1.0f) > 0.0f;
+  }
+
   auto BuildNeighborStages() const -> std::vector<MetalNeighborStage> {
     std::vector<MetalNeighborStage> stages;
-    stages.reserve(2);
+    stages.reserve(4);
 
     if (ShouldRunSharpen()) {
       stages.push_back(MetalNeighborStage{BuildNeighborStageParams(
@@ -354,6 +416,16 @@ class MetalGPUPipeline final : public GPUPipelineImpl,
           MetalNeighborOpKind::Clarity, fused_params_.clarity_radius_,
           fused_params_.clarity_offset_, 0.0f, fused_params_.clarity_gaussian_tap_count_,
           fused_params_.clarity_gaussian_weights_)});
+    }
+    if (ShouldRunHalation()) {
+      const auto effective_eotf =
+          static_cast<GPU_EOTF>(resources_.metal_params_.to_output_params_.eotf_);
+      stages.push_back(MetalNeighborStage{
+          BuildHalationStageParams(fused_params_.halation_, fused_params_.render_output_scale_x_,
+                                   fused_params_.render_output_scale_y_, effective_eotf)});
+    }
+    if (ShouldRunFilmGrain()) {
+      stages.push_back(MetalNeighborStage{BuildFilmGrainStageParams(fused_params_)});
     }
 
     return stages;
