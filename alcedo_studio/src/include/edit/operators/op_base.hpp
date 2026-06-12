@@ -220,6 +220,8 @@ struct OperatorParams {
   float                render_roi_scale_y_                 = 1.0f;
   int                  render_roi_reference_width_         = 0;
   int                  render_roi_reference_height_        = 0;
+  float                render_output_scale_x_              = 1.0f;
+  float                render_output_scale_y_              = 1.0f;
 
   // White and Black point adjustment parameters
   bool                 white_enabled_                      = true;

@@ -234,6 +234,8 @@ struct FusedOperatorParams {
   float         render_roi_scale_y_                         = 1.0f;
   int           render_roi_reference_width_                 = 0;
   int           render_roi_reference_height_                = 0;
+  float         render_output_scale_x_                      = 1.0f;
+  float         render_output_scale_y_                      = 1.0f;
 
   bool          white_enabled_                              = true;
   float         white_point_                                = 1.0f;
@@ -402,6 +404,8 @@ class FusedParamsConverter {
     fused.render_roi_scale_y_                = cpu_params.render_roi_scale_y_;
     fused.render_roi_reference_width_        = cpu_params.render_roi_reference_width_;
     fused.render_roi_reference_height_       = cpu_params.render_roi_reference_height_;
+    fused.render_output_scale_x_             = cpu_params.render_output_scale_x_;
+    fused.render_output_scale_y_             = cpu_params.render_output_scale_y_;
     fused.white_enabled_                     = cpu_params.white_enabled_;
     fused.white_point_                       = cpu_params.white_point_;
     fused.black_enabled_                     = cpu_params.black_enabled_;

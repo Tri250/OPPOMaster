@@ -367,6 +367,8 @@ struct GPUOperatorParams {
   float         render_roi_scale_y_                             = 1.0f;
   int           render_roi_reference_width_                     = 0;
   int           render_roi_reference_height_                    = 0;
+  float         render_output_scale_x_                          = 1.0f;
+  float         render_output_scale_y_                          = 1.0f;
 
   // White and Black point adjustment parameters
   bool          white_enabled_                                  = true;
@@ -564,6 +566,8 @@ class CudaFusedParamUploader {
     gpu_params.render_roi_scale_y_                = fused_params.render_roi_scale_y_;
     gpu_params.render_roi_reference_width_        = fused_params.render_roi_reference_width_;
     gpu_params.render_roi_reference_height_       = fused_params.render_roi_reference_height_;
+    gpu_params.render_output_scale_x_             = fused_params.render_output_scale_x_;
+    gpu_params.render_output_scale_y_             = fused_params.render_output_scale_y_;
 
     gpu_params.white_enabled_                     = fused_params.white_enabled_;
     gpu_params.white_point_                       = fused_params.white_point_;

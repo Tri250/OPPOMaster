@@ -443,6 +443,12 @@ if(ALCEDO_CUDA_ENABLED)
   set_target_properties(FilmGrainCudaStageTest PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
   gtest_discover_tests(FilmGrainCudaStageTest TEST_PREFIX "FilmGrainCudaStageTest.")
 
+  add_executable(HalationCudaStageTest edit/operators/cst/halation_cuda_stage_test.cu)
+  target_include_directories(HalationCudaStageTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+  target_link_libraries(HalationCudaStageTest PRIVATE GTest::gtest_main Operators ${ALCEDO_TEST_OPENCV_MIN_DEPS} CUDA::cudart)
+  set_target_properties(HalationCudaStageTest PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+  gtest_discover_tests(HalationCudaStageTest TEST_PREFIX "HalationCudaStageTest.")
+
   if(ALCEDO_ENABLE_CUDA_PREVIEW_VRAM_RECLAMATION_TEST)
     add_executable(CudaPreviewVramReclamationTest edit/pipeline/cuda_preview_vram_reclamation_test.cu)
     target_include_directories(CudaPreviewVramReclamationTest PUBLIC ${ALCEDO_INCLUDE_DIR})
@@ -940,6 +946,7 @@ alcedo_assign_test_category(gpu ALCEDO_BUILD_GPU_TESTS alcedo_tests_gpu
   MetalRawOpsTest
   ODTCudaSmokeTest
   FilmGrainCudaStageTest
+  HalationCudaStageTest
   CudaPreviewVramReclamationTest
   OpenClCudaToLinearRefCompareTest
   OpenClCudaPipelineCompareTest

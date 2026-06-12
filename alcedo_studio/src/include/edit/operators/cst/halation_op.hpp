@@ -11,11 +11,11 @@ namespace alcedo {
 class HalationOp : public OperatorBase<HalationOp> {
  public:
   struct HiddenDefaults {
-    float low_threshold_  = 0.6f;
-    float high_threshold_ = 0.7f;
-    float sigma_          = 20.0f;
+    float low_threshold_  = 0.7f;
+    float high_threshold_ = 0.8f;
+    float sigma_          = 7.0f;
     float redshift_[3]    = {1.0f, 0.05f, 0.02f};
-    float additive_scale_ = 1.0f;
+    float additive_scale_ = 2.0f;
   };
 
   static constexpr PriorityLevel     priority_level_    = 12;
