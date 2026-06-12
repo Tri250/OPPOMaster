@@ -194,6 +194,7 @@ set(ALCEDO_QT_COMPONENTS
     QuickControls2
     QuickDialogs2
     QuickEffects
+    Network
 )
 if(ALCEDO_BUILD_TESTS)
     list(APPEND ALCEDO_QT_COMPONENTS Test)

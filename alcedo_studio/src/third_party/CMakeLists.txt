@@ -247,6 +247,90 @@ endif()
 set(PUERHLAB_ULTRAHDR_AVAILABLE "${PUERHLAB_ULTRAHDR_AVAILABLE}" CACHE INTERNAL
     "Whether the libultrahdr submodule checkout is complete enough to build.")
 
+set(PUERHLAB_PROTOBUF_SOURCE_DIR
+    "${CMAKE_CURRENT_SOURCE_DIR}/protobuf"
+    CACHE PATH
+    "Path to the protobuf submodule checkout.")
+set(PUERHLAB_GRPC_SOURCE_DIR
+    "${CMAKE_CURRENT_SOURCE_DIR}/grpc"
+    CACHE PATH
+    "Path to the gRPC submodule checkout.")
+
+if(NOT EXISTS "${PUERHLAB_PROTOBUF_SOURCE_DIR}/CMakeLists.txt")
+    message(FATAL_ERROR
+        "protobuf source was not found at ${PUERHLAB_PROTOBUF_SOURCE_DIR}. "
+        "Run `git submodule update --init --recursive alcedo_studio/src/third_party/protobuf` "
+        "and re-configure.")
+endif()
+
+if(NOT EXISTS "${PUERHLAB_GRPC_SOURCE_DIR}/CMakeLists.txt")
+    message(FATAL_ERROR
+        "gRPC source was not found at ${PUERHLAB_GRPC_SOURCE_DIR}. "
+        "Run `git submodule update --init --recursive alcedo_studio/src/third_party/grpc` "
+        "and re-configure.")
+endif()
+
+set(_puerhlab_grpc_required_paths
+    "third_party/abseil-cpp/CMakeLists.txt"
+    "third_party/boringssl-with-bazel/CMakeLists.txt"
+    "third_party/cares/cares/CMakeLists.txt"
+    "third_party/re2/CMakeLists.txt"
+    "third_party/zlib/CMakeLists.txt"
+)
+foreach(_puerhlab_grpc_required_path IN LISTS _puerhlab_grpc_required_paths)
+    if(NOT EXISTS "${PUERHLAB_GRPC_SOURCE_DIR}/${_puerhlab_grpc_required_path}")
+        message(FATAL_ERROR
+            "gRPC submodule dependency is missing: "
+            "${PUERHLAB_GRPC_SOURCE_DIR}/${_puerhlab_grpc_required_path}. "
+            "Run `git submodule update --init --recursive alcedo_studio/src/third_party/grpc` "
+            "and re-configure.")
+    endif()
+endforeach()
+
+set(protobuf_BUILD_TESTS OFF CACHE BOOL "Disable protobuf tests" FORCE)
+set(protobuf_BUILD_CONFORMANCE OFF CACHE BOOL "Disable protobuf conformance tests" FORCE)
+set(protobuf_BUILD_EXAMPLES OFF CACHE BOOL "Disable protobuf examples" FORCE)
+set(protobuf_INSTALL OFF CACHE BOOL "Disable protobuf install rules" FORCE)
+set(protobuf_WITH_ZLIB OFF CACHE BOOL "Build protobuf without zlib" FORCE)
+set(protobuf_MSVC_STATIC_RUNTIME OFF CACHE BOOL "Use the project MSVC runtime for protobuf" FORCE)
+
+set(gRPC_BUILD_TESTS OFF CACHE BOOL "Disable gRPC tests" FORCE)
+set(gRPC_BUILD_CODEGEN ON CACHE BOOL "Build gRPC code generation tools" FORCE)
+set(gRPC_DOWNLOAD_ARCHIVES OFF CACHE BOOL "Do not download missing gRPC third-party archives" FORCE)
+set(gRPC_INSTALL OFF CACHE BOOL "Disable gRPC install rules" FORCE)
+set(gRPC_PROTOBUF_PROVIDER "module" CACHE STRING "Use bundled protobuf for gRPC" FORCE)
+set(PROTOBUF_ROOT_DIR "${PUERHLAB_PROTOBUF_SOURCE_DIR}" CACHE PATH
+    "Use the sibling protobuf submodule for the bundled gRPC build." FORCE)
+set(gRPC_ABSL_PROVIDER "module" CACHE STRING "Use bundled Abseil for gRPC" FORCE)
+set(gRPC_CARES_PROVIDER "module" CACHE STRING "Use bundled c-ares for gRPC" FORCE)
+set(gRPC_RE2_PROVIDER "module" CACHE STRING "Use bundled RE2 for gRPC" FORCE)
+set(gRPC_SSL_PROVIDER "module" CACHE STRING "Use bundled BoringSSL for gRPC" FORCE)
+set(gRPC_ZLIB_PROVIDER "module" CACHE STRING "Use bundled zlib for gRPC" FORCE)
+set(gRPC_BUILD_GRPCPP_OTEL_PLUGIN OFF CACHE BOOL "Disable gRPC OpenTelemetry plugin" FORCE)
+if(MSVC)
+    set(gRPC_BUILD_MSVC_MP_COUNT 0 CACHE STRING "Inherit project-level parallelism" FORCE)
+endif()
+
+add_subdirectory(
+    "${PUERHLAB_GRPC_SOURCE_DIR}"
+    "${CMAKE_BINARY_DIR}/third_party/grpc"
+)
+
+if(NOT TARGET grpc++)
+    message(FATAL_ERROR "Bundled gRPC was configured, but target grpc++ is unavailable.")
+endif()
+if(NOT TARGET protobuf::libprotobuf)
+    message(FATAL_ERROR "Bundled protobuf was configured, but target protobuf::libprotobuf is unavailable.")
+endif()
+
+add_library(puerhlab_grpcpp INTERFACE)
+target_link_libraries(puerhlab_grpcpp INTERFACE grpc++)
+add_library(puerhlab::grpc++ ALIAS puerhlab_grpcpp)
+
+add_library(puerhlab_protobuf INTERFACE)
+target_link_libraries(puerhlab_protobuf INTERFACE protobuf::libprotobuf)
+add_library(puerhlab::protobuf ALIAS puerhlab_protobuf)
+
 set(PUERHLAB_METALCPP_SOURCE_DIR
     "${CMAKE_CURRENT_SOURCE_DIR}/metal-cpp"
     CACHE PATH

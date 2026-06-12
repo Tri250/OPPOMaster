@@ -148,6 +148,7 @@ ProjectService::ProjectService(const std::filesystem::path& db_path,
     filter_service_  = std::make_shared<SleeveFilterService>(storage_service_);
     browse_service_  = std::make_shared<AlbumBrowseService>(sleeve_service_, filter_service_);
     package_service_ = std::make_shared<ProjectPackageService>();
+    semantic_runtime_service_ = std::make_shared<SemanticRuntimeService>();
 
     project_uuid_ = GenerateProjectUUID();
   };
@@ -177,6 +178,10 @@ ProjectService::ProjectService(const std::filesystem::path& db_path,
 
 ProjectService::~ProjectService() {
   package_service_.reset();
+  if (semantic_runtime_service_) {
+    semantic_runtime_service_->StopForProjectClose();
+  }
+  semantic_runtime_service_.reset();
   browse_service_.reset();
   filter_service_.reset();
   pool_service_.reset();
@@ -296,6 +301,7 @@ void ProjectService::LoadProject(const std::filesystem::path& meta_path) {
   filter_service_  = std::make_shared<SleeveFilterService>(storage_service_);
   browse_service_  = std::make_shared<AlbumBrowseService>(sleeve_service_, filter_service_);
   package_service_ = std::make_shared<ProjectPackageService>();
+  semantic_runtime_service_ = std::make_shared<SemanticRuntimeService>();
 }
 
 void ProjectService::RecreateSleeveService(sl_element_id_t start_id) {

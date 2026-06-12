@@ -46,6 +46,16 @@ if [[ ! -e "alcedo_studio/src/third_party/libultrahdr/third_party/image_io/inclu
   git submodule update --init --recursive --depth 1 "alcedo_studio/src/third_party/libultrahdr"
 fi
 
+if [[ ! -e "alcedo_studio/src/third_party/protobuf/CMakeLists.txt" ]]; then
+  git submodule sync -- "alcedo_studio/src/third_party/protobuf"
+  git submodule update --init --recursive --depth 1 "alcedo_studio/src/third_party/protobuf"
+fi
+
+if [[ ! -e "alcedo_studio/src/third_party/grpc/third_party/abseil-cpp/CMakeLists.txt" ]]; then
+  git submodule sync -- "alcedo_studio/src/third_party/grpc"
+  git submodule update --init --recursive --depth 1 "alcedo_studio/src/third_party/grpc"
+fi
+
 clone_if_missing \
   "alcedo_studio/src/third_party/metal-cpp" \
   "Metal/Metal.hpp" \
