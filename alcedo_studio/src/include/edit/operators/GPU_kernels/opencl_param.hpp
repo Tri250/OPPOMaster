@@ -411,7 +411,7 @@ class OpenClFusedParamUploader {
     return key;
   }
   static auto BuildOpenClParams(const FusedOperatorParams&  fused_params,
-                                const OperatorParams&       cpu_params,
+                                OperatorParams&             cpu_params,
                                 const OpenClFusedResources& resources) -> OpenClFusedParams {
     OpenClFusedParams params;
     params.exposure_enabled_          = fused_params.exposure_enabled_ ? 1U : 0U;
@@ -523,10 +523,14 @@ class OpenClFusedParamUploader {
     };
     const auto& to_output_cpu = cpu_params.to_output_params_;
     auto&       to_output     = params.to_output_params_;
-    to_output.method_         = static_cast<int32_t>(to_output_cpu.method_);
-    to_output.eotf_           = static_cast<int32_t>(to_output_cpu.eotf_);
-    copy33(to_output_cpu.limit_to_display_matx_, to_output.limit_to_display_matx);
-    to_output.display_linear_scale_ = to_output_cpu.display_linear_scale_;
+    if (!cpu_params.to_output_dirty_) {
+      to_output = resources.opencl_params_.to_output_params_;
+    } else {
+      to_output.method_ = static_cast<int32_t>(to_output_cpu.method_);
+      to_output.eotf_   = static_cast<int32_t>(to_output_cpu.eotf_);
+      copy33(to_output_cpu.limit_to_display_matx_, to_output.limit_to_display_matx);
+      to_output.display_linear_scale_ = to_output_cpu.display_linear_scale_;
+    }
 
     auto copy_jmh                   = [&](const ColorUtils::JMhParams& src, OpenClJMhParams& dst) {
       copy33(src.MATRIX_RGB_to_CAM16_c_, dst.MATRIX_RGB_to_CAM16_c_);
@@ -540,156 +544,159 @@ class OpenClFusedParamUploader {
       dst.inv_A_w_J_ = src.inv_A_w_J_;
     };
 
-    const auto& odt_cpu              = to_output_cpu.aces_params_;
-    auto&       odt_opencl           = to_output.aces_params_;
-    odt_opencl.peak_luminance_       = odt_cpu.peak_luminance_;
-    odt_opencl.limit_J_max           = odt_cpu.limit_J_max_;
-    odt_opencl.model_gamma_inv       = odt_cpu.model_gamma_inv_;
-    odt_opencl.ts_.n_                = odt_cpu.ts_params_.n_;
-    odt_opencl.ts_.n_r_              = odt_cpu.ts_params_.n_r_;
-    odt_opencl.ts_.g_                = odt_cpu.ts_params_.g_;
-    odt_opencl.ts_.t_1_              = odt_cpu.ts_params_.t_1_;
-    odt_opencl.ts_.c_t_              = odt_cpu.ts_params_.c_t_;
-    odt_opencl.ts_.s_2_              = odt_cpu.ts_params_.s_2_;
-    odt_opencl.ts_.u_2_              = odt_cpu.ts_params_.u_2_;
-    odt_opencl.ts_.m_2_              = odt_cpu.ts_params_.m_2_;
-    odt_opencl.ts_.forward_limit_    = odt_cpu.ts_params_.forward_limit_;
-    odt_opencl.ts_.inverse_limit_    = odt_cpu.ts_params_.inverse_limit_;
-    odt_opencl.ts_.log_peak_         = odt_cpu.ts_params_.log_peak_;
-    odt_opencl.sat                   = odt_cpu.sat_;
-    odt_opencl.sat_thr               = odt_cpu.sat_thr_;
-    odt_opencl.compr                 = odt_cpu.compr_;
-    odt_opencl.chroma_compress_scale = odt_cpu.chroma_compress_scale_;
-    odt_opencl.mid_J                 = odt_cpu.mid_J_;
-    odt_opencl.focus_dist            = odt_cpu.focus_dist_;
-    odt_opencl.lower_hull_gamma_inv  = odt_cpu.lower_hull_gamma_inv_;
-    odt_opencl.hue_linearity_search_range[0] =
-        static_cast<int32_t>(odt_cpu.hue_linearity_search_range_(0));
-    odt_opencl.hue_linearity_search_range[1] =
-        static_cast<int32_t>(odt_cpu.hue_linearity_search_range_(1));
-    copy_jmh(odt_cpu.input_params_, odt_opencl.input_params_);
-    copy_jmh(odt_cpu.reach_params_, odt_opencl.reach_params_);
-    copy_jmh(odt_cpu.limit_params_, odt_opencl.limit_params_);
-    if (params.to_output_enabled_ != 0U &&
-        to_output_cpu.method_ == ColorUtils::ODTMethod::ACES_2_0) {
-      const bool missing_tables = (!odt_cpu.table_reach_M_) || (!odt_cpu.table_hues_) ||
-                                  (!odt_cpu.table_upper_hull_gammas_) ||
-                                  (!odt_cpu.table_gamut_cusps_);
-      if (missing_tables) {
-        std::ostringstream oss;
-        oss << "OpenCL fused params: ACES ODT tables are not initialized:";
-        if (!odt_cpu.table_reach_M_) oss << " table_reach_M_";
-        if (!odt_cpu.table_hues_) oss << " table_hues_";
-        if (!odt_cpu.table_upper_hull_gammas_) oss << " table_upper_hull_gammas_";
-        if (!odt_cpu.table_gamut_cusps_) oss << " table_gamut_cusps_";
-        throw std::runtime_error(oss.str());
+    if (cpu_params.to_output_dirty_) {
+      const auto& odt_cpu              = to_output_cpu.aces_params_;
+      auto&       odt_opencl           = to_output.aces_params_;
+      odt_opencl.peak_luminance_       = odt_cpu.peak_luminance_;
+      odt_opencl.limit_J_max           = odt_cpu.limit_J_max_;
+      odt_opencl.model_gamma_inv       = odt_cpu.model_gamma_inv_;
+      odt_opencl.ts_.n_                = odt_cpu.ts_params_.n_;
+      odt_opencl.ts_.n_r_              = odt_cpu.ts_params_.n_r_;
+      odt_opencl.ts_.g_                = odt_cpu.ts_params_.g_;
+      odt_opencl.ts_.t_1_              = odt_cpu.ts_params_.t_1_;
+      odt_opencl.ts_.c_t_              = odt_cpu.ts_params_.c_t_;
+      odt_opencl.ts_.s_2_              = odt_cpu.ts_params_.s_2_;
+      odt_opencl.ts_.u_2_              = odt_cpu.ts_params_.u_2_;
+      odt_opencl.ts_.m_2_              = odt_cpu.ts_params_.m_2_;
+      odt_opencl.ts_.forward_limit_    = odt_cpu.ts_params_.forward_limit_;
+      odt_opencl.ts_.inverse_limit_    = odt_cpu.ts_params_.inverse_limit_;
+      odt_opencl.ts_.log_peak_         = odt_cpu.ts_params_.log_peak_;
+      odt_opencl.sat                   = odt_cpu.sat_;
+      odt_opencl.sat_thr               = odt_cpu.sat_thr_;
+      odt_opencl.compr                 = odt_cpu.compr_;
+      odt_opencl.chroma_compress_scale = odt_cpu.chroma_compress_scale_;
+      odt_opencl.mid_J                 = odt_cpu.mid_J_;
+      odt_opencl.focus_dist            = odt_cpu.focus_dist_;
+      odt_opencl.lower_hull_gamma_inv  = odt_cpu.lower_hull_gamma_inv_;
+      odt_opencl.hue_linearity_search_range[0] =
+          static_cast<int32_t>(odt_cpu.hue_linearity_search_range_(0));
+      odt_opencl.hue_linearity_search_range[1] =
+          static_cast<int32_t>(odt_cpu.hue_linearity_search_range_(1));
+      copy_jmh(odt_cpu.input_params_, odt_opencl.input_params_);
+      copy_jmh(odt_cpu.reach_params_, odt_opencl.reach_params_);
+      copy_jmh(odt_cpu.limit_params_, odt_opencl.limit_params_);
+      if (params.to_output_enabled_ != 0U &&
+          to_output_cpu.method_ == ColorUtils::ODTMethod::ACES_2_0) {
+        const bool missing_tables = (!odt_cpu.table_reach_M_) || (!odt_cpu.table_hues_) ||
+                                    (!odt_cpu.table_upper_hull_gammas_) ||
+                                    (!odt_cpu.table_gamut_cusps_);
+        if (missing_tables) {
+          std::ostringstream oss;
+          oss << "OpenCL fused params: ACES ODT tables are not initialized:";
+          if (!odt_cpu.table_reach_M_) oss << " table_reach_M_";
+          if (!odt_cpu.table_hues_) oss << " table_hues_";
+          if (!odt_cpu.table_upper_hull_gammas_) oss << " table_upper_hull_gammas_";
+          if (!odt_cpu.table_gamut_cusps_) oss << " table_gamut_cusps_";
+          throw std::runtime_error(oss.str());
+        }
       }
-    }
-    if (odt_cpu.table_reach_M_) {
-      std::copy_n(odt_cpu.table_reach_M_->data(), kOpenClAcesOdtTableSize,
-                  odt_opencl.table_reach_M_);
-    }
-    if (odt_cpu.table_hues_) {
-      std::copy_n(odt_cpu.table_hues_->data(), kOpenClAcesOdtTableSize, odt_opencl.table_hues_);
-    }
-    if (odt_cpu.table_upper_hull_gammas_) {
-      std::copy_n(odt_cpu.table_upper_hull_gammas_->data(), kOpenClAcesOdtTableSize,
-                  odt_opencl.table_upper_hull_gamma_);
-    }
-    if (odt_cpu.table_gamut_cusps_) {
-      for (int i = 0; i < kOpenClAcesOdtTableSize; ++i) {
-        const auto& cusp                    = (*odt_cpu.table_gamut_cusps_)[i];
-        odt_opencl.table_gamut_cusps_[i][0] = cusp(0);
-        odt_opencl.table_gamut_cusps_[i][1] = cusp(1);
-        odt_opencl.table_gamut_cusps_[i][2] = cusp(2);
-        odt_opencl.table_gamut_cusps_[i][3] = 0.0f;
+      if (odt_cpu.table_reach_M_) {
+        std::copy_n(odt_cpu.table_reach_M_->data(), kOpenClAcesOdtTableSize,
+                    odt_opencl.table_reach_M_);
       }
-    }
+      if (odt_cpu.table_hues_) {
+        std::copy_n(odt_cpu.table_hues_->data(), kOpenClAcesOdtTableSize, odt_opencl.table_hues_);
+      }
+      if (odt_cpu.table_upper_hull_gammas_) {
+        std::copy_n(odt_cpu.table_upper_hull_gammas_->data(), kOpenClAcesOdtTableSize,
+                    odt_opencl.table_upper_hull_gamma_);
+      }
+      if (odt_cpu.table_gamut_cusps_) {
+        for (int i = 0; i < kOpenClAcesOdtTableSize; ++i) {
+          const auto& cusp                    = (*odt_cpu.table_gamut_cusps_)[i];
+          odt_opencl.table_gamut_cusps_[i][0] = cusp(0);
+          odt_opencl.table_gamut_cusps_[i][1] = cusp(1);
+          odt_opencl.table_gamut_cusps_[i][2] = cusp(2);
+          odt_opencl.table_gamut_cusps_[i][3] = 0.0f;
+        }
+      }
 
-    const auto& open_cpu        = to_output_cpu.open_drt_params_;
-    auto&       open            = to_output.open_drt_params_;
-    open.tn_hcon_enable_        = open_cpu.tn_hcon_enable_;
-    open.tn_lcon_enable_        = open_cpu.tn_lcon_enable_;
-    open.pt_enable_             = open_cpu.pt_enable_;
-    open.ptl_enable_            = open_cpu.ptl_enable_;
-    open.ptm_enable_            = open_cpu.ptm_enable_;
-    open.brl_enable_            = open_cpu.brl_enable_;
-    open.brlp_enable_           = open_cpu.brlp_enable_;
-    open.hc_enable_             = open_cpu.hc_enable_;
-    open.hs_rgb_enable_         = open_cpu.hs_rgb_enable_;
-    open.hs_cmy_enable_         = open_cpu.hs_cmy_enable_;
-    open.creative_white_        = open_cpu.creative_white_;
-    open.surround_              = open_cpu.surround_;
-    open.clamp_                 = open_cpu.clamp_;
-    open.display_gamut_         = open_cpu.display_gamut_;
-    open.display_eotf_          = open_cpu.display_eotf_;
-    open.tn_con_                = open_cpu.tn_con_;
-    open.tn_sh_                 = open_cpu.tn_sh_;
-    open.tn_toe_                = open_cpu.tn_toe_;
-    open.tn_off_                = open_cpu.tn_off_;
-    open.tn_hcon_               = open_cpu.tn_hcon_;
-    open.tn_hcon_pv_            = open_cpu.tn_hcon_pv_;
-    open.tn_hcon_st_            = open_cpu.tn_hcon_st_;
-    open.tn_lcon_               = open_cpu.tn_lcon_;
-    open.tn_lcon_w_             = open_cpu.tn_lcon_w_;
-    open.cwp_lm_                = open_cpu.cwp_lm_;
-    open.rs_sa_                 = open_cpu.rs_sa_;
-    open.rs_rw_                 = open_cpu.rs_rw_;
-    open.rs_bw_                 = open_cpu.rs_bw_;
-    open.pt_lml_                = open_cpu.pt_lml_;
-    open.pt_lml_r_              = open_cpu.pt_lml_r_;
-    open.pt_lml_g_              = open_cpu.pt_lml_g_;
-    open.pt_lml_b_              = open_cpu.pt_lml_b_;
-    open.pt_lmh_                = open_cpu.pt_lmh_;
-    open.pt_lmh_r_              = open_cpu.pt_lmh_r_;
-    open.pt_lmh_b_              = open_cpu.pt_lmh_b_;
-    open.ptl_c_                 = open_cpu.ptl_c_;
-    open.ptl_m_                 = open_cpu.ptl_m_;
-    open.ptl_y_                 = open_cpu.ptl_y_;
-    open.ptm_low_               = open_cpu.ptm_low_;
-    open.ptm_low_rng_           = open_cpu.ptm_low_rng_;
-    open.ptm_low_st_            = open_cpu.ptm_low_st_;
-    open.ptm_high_              = open_cpu.ptm_high_;
-    open.ptm_high_rng_          = open_cpu.ptm_high_rng_;
-    open.ptm_high_st_           = open_cpu.ptm_high_st_;
-    open.brl_                   = open_cpu.brl_;
-    open.brl_r_                 = open_cpu.brl_r_;
-    open.brl_g_                 = open_cpu.brl_g_;
-    open.brl_b_                 = open_cpu.brl_b_;
-    open.brl_rng_               = open_cpu.brl_rng_;
-    open.brl_st_                = open_cpu.brl_st_;
-    open.brlp_                  = open_cpu.brlp_;
-    open.brlp_r_                = open_cpu.brlp_r_;
-    open.brlp_g_                = open_cpu.brlp_g_;
-    open.brlp_b_                = open_cpu.brlp_b_;
-    open.hc_r_                  = open_cpu.hc_r_;
-    open.hc_r_rng_              = open_cpu.hc_r_rng_;
-    open.hs_r_                  = open_cpu.hs_r_;
-    open.hs_r_rng_              = open_cpu.hs_r_rng_;
-    open.hs_g_                  = open_cpu.hs_g_;
-    open.hs_g_rng_              = open_cpu.hs_g_rng_;
-    open.hs_b_                  = open_cpu.hs_b_;
-    open.hs_b_rng_              = open_cpu.hs_b_rng_;
-    open.hs_c_                  = open_cpu.hs_c_;
-    open.hs_c_rng_              = open_cpu.hs_c_rng_;
-    open.hs_m_                  = open_cpu.hs_m_;
-    open.hs_m_rng_              = open_cpu.hs_m_rng_;
-    open.hs_y_                  = open_cpu.hs_y_;
-    open.hs_y_rng_              = open_cpu.hs_y_rng_;
-    open.ts_x1_                 = open_cpu.ts_x1_;
-    open.ts_y1_                 = open_cpu.ts_y1_;
-    open.ts_x0_                 = open_cpu.ts_x0_;
-    open.ts_y0_                 = open_cpu.ts_y0_;
-    open.ts_s0_                 = open_cpu.ts_s0_;
-    open.ts_p_                  = open_cpu.ts_p_;
-    open.ts_s10_                = open_cpu.ts_s10_;
-    open.ts_m1_                 = open_cpu.ts_m1_;
-    open.ts_m2_                 = open_cpu.ts_m2_;
-    open.ts_s_                  = open_cpu.ts_s_;
-    open.ts_dsc_                = open_cpu.ts_dsc_;
-    open.pt_cmp_Lf_             = open_cpu.pt_cmp_Lf_;
-    open.s_Lp100_               = open_cpu.s_Lp100_;
-    open.ts_s1_                 = open_cpu.ts_s1_;
+      const auto& open_cpu        = to_output_cpu.open_drt_params_;
+      auto&       open            = to_output.open_drt_params_;
+      open.tn_hcon_enable_        = open_cpu.tn_hcon_enable_;
+      open.tn_lcon_enable_        = open_cpu.tn_lcon_enable_;
+      open.pt_enable_             = open_cpu.pt_enable_;
+      open.ptl_enable_            = open_cpu.ptl_enable_;
+      open.ptm_enable_            = open_cpu.ptm_enable_;
+      open.brl_enable_            = open_cpu.brl_enable_;
+      open.brlp_enable_           = open_cpu.brlp_enable_;
+      open.hc_enable_             = open_cpu.hc_enable_;
+      open.hs_rgb_enable_         = open_cpu.hs_rgb_enable_;
+      open.hs_cmy_enable_         = open_cpu.hs_cmy_enable_;
+      open.creative_white_        = open_cpu.creative_white_;
+      open.surround_              = open_cpu.surround_;
+      open.clamp_                 = open_cpu.clamp_;
+      open.display_gamut_         = open_cpu.display_gamut_;
+      open.display_eotf_          = open_cpu.display_eotf_;
+      open.tn_con_                = open_cpu.tn_con_;
+      open.tn_sh_                 = open_cpu.tn_sh_;
+      open.tn_toe_                = open_cpu.tn_toe_;
+      open.tn_off_                = open_cpu.tn_off_;
+      open.tn_hcon_               = open_cpu.tn_hcon_;
+      open.tn_hcon_pv_            = open_cpu.tn_hcon_pv_;
+      open.tn_hcon_st_            = open_cpu.tn_hcon_st_;
+      open.tn_lcon_               = open_cpu.tn_lcon_;
+      open.tn_lcon_w_             = open_cpu.tn_lcon_w_;
+      open.cwp_lm_                = open_cpu.cwp_lm_;
+      open.rs_sa_                 = open_cpu.rs_sa_;
+      open.rs_rw_                 = open_cpu.rs_rw_;
+      open.rs_bw_                 = open_cpu.rs_bw_;
+      open.pt_lml_                = open_cpu.pt_lml_;
+      open.pt_lml_r_              = open_cpu.pt_lml_r_;
+      open.pt_lml_g_              = open_cpu.pt_lml_g_;
+      open.pt_lml_b_              = open_cpu.pt_lml_b_;
+      open.pt_lmh_                = open_cpu.pt_lmh_;
+      open.pt_lmh_r_              = open_cpu.pt_lmh_r_;
+      open.pt_lmh_b_              = open_cpu.pt_lmh_b_;
+      open.ptl_c_                 = open_cpu.ptl_c_;
+      open.ptl_m_                 = open_cpu.ptl_m_;
+      open.ptl_y_                 = open_cpu.ptl_y_;
+      open.ptm_low_               = open_cpu.ptm_low_;
+      open.ptm_low_rng_           = open_cpu.ptm_low_rng_;
+      open.ptm_low_st_            = open_cpu.ptm_low_st_;
+      open.ptm_high_              = open_cpu.ptm_high_;
+      open.ptm_high_rng_          = open_cpu.ptm_high_rng_;
+      open.ptm_high_st_           = open_cpu.ptm_high_st_;
+      open.brl_                   = open_cpu.brl_;
+      open.brl_r_                 = open_cpu.brl_r_;
+      open.brl_g_                 = open_cpu.brl_g_;
+      open.brl_b_                 = open_cpu.brl_b_;
+      open.brl_rng_               = open_cpu.brl_rng_;
+      open.brl_st_                = open_cpu.brl_st_;
+      open.brlp_                  = open_cpu.brlp_;
+      open.brlp_r_                = open_cpu.brlp_r_;
+      open.brlp_g_                = open_cpu.brlp_g_;
+      open.brlp_b_                = open_cpu.brlp_b_;
+      open.hc_r_                  = open_cpu.hc_r_;
+      open.hc_r_rng_              = open_cpu.hc_r_rng_;
+      open.hs_r_                  = open_cpu.hs_r_;
+      open.hs_r_rng_              = open_cpu.hs_r_rng_;
+      open.hs_g_                  = open_cpu.hs_g_;
+      open.hs_g_rng_              = open_cpu.hs_g_rng_;
+      open.hs_b_                  = open_cpu.hs_b_;
+      open.hs_b_rng_              = open_cpu.hs_b_rng_;
+      open.hs_c_                  = open_cpu.hs_c_;
+      open.hs_c_rng_              = open_cpu.hs_c_rng_;
+      open.hs_m_                  = open_cpu.hs_m_;
+      open.hs_m_rng_              = open_cpu.hs_m_rng_;
+      open.hs_y_                  = open_cpu.hs_y_;
+      open.hs_y_rng_              = open_cpu.hs_y_rng_;
+      open.ts_x1_                 = open_cpu.ts_x1_;
+      open.ts_y1_                 = open_cpu.ts_y1_;
+      open.ts_x0_                 = open_cpu.ts_x0_;
+      open.ts_y0_                 = open_cpu.ts_y0_;
+      open.ts_s0_                 = open_cpu.ts_s0_;
+      open.ts_p_                  = open_cpu.ts_p_;
+      open.ts_s10_                = open_cpu.ts_s10_;
+      open.ts_m1_                 = open_cpu.ts_m1_;
+      open.ts_m2_                 = open_cpu.ts_m2_;
+      open.ts_s_                  = open_cpu.ts_s_;
+      open.ts_dsc_                = open_cpu.ts_dsc_;
+      open.pt_cmp_Lf_             = open_cpu.pt_cmp_Lf_;
+      open.s_Lp100_               = open_cpu.s_Lp100_;
+      open.ts_s1_                 = open_cpu.ts_s1_;
+      cpu_params.to_output_dirty_ = false;
+    }
 
     params.curve_enabled_       = fused_params.curve_enabled_ ? 1U : 0U;
     params.curve_ctrl_pts_size_ = fused_params.curve_ctrl_pts_size_;

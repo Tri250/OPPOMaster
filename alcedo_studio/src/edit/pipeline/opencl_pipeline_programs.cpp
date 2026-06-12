@@ -38,6 +38,7 @@ void RegisterOpenClEditPipelinePrograms() {
                     .name = OpenCL::Pipeline::kDetailProgramName,
                     .source_paths =
                         {
+                            ALCEDO_OPENCL_PRNG_CL,
                             ALCEDO_OPENCL_EDIT_PIPELINE_FUSED_PARAMS_CL,
                             ALCEDO_OPENCL_EDIT_PIPELINE_COMMON_CL,
                             ALCEDO_OPENCL_EDIT_PIPELINE_TONE_MAPPING_CL,
