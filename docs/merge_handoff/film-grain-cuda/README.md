@@ -173,6 +173,13 @@ Current CUDA behavior:
 - `EnableGlobalParams(...)` toggles the film-grain payload.
 - The CUDA implementation uses one algorithm path: a signal-dependent Bernoulli grain field with
   separable 7-tap Gaussian blur, implemented as two detail-style neighbor stages.
+- The final mix is modulated by a Kodak-style negative-film datasheet granularity response. The
+  photographed chart was digitized by reading, for each RGB layer, a density on the characteristic
+  curve, stepping vertically to the matching dashed granularity curve, then reading `sigma D` on the
+  logarithmic right axis. The stored values are `sigma D` (not the chart's `sigma D * 1000` rms
+  display value), normalized against `0.0075` so the existing user-facing strength scale remains in
+  the same rough range. The response changes grain amplitude only; it does not change the
+  Bernoulli probability, so constant-tone image means stay close to the source tone.
 - No extra scratch image is allocated for film grain; the stages reuse the existing ping-pong
   buffers in the CUDA static kernel stream.
 

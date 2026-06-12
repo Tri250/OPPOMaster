@@ -46,6 +46,69 @@ GPU_FUNC float4 FilmGrainReadClamped(const float4* __restrict src, int x, int y,
 
 GPU_FUNC float FilmGrainClampProbability(float value) { return fminf(fmaxf(value, 0.0f), 1.0f); }
 
+GPU_FUNC float FilmGrainLerp(float a, float b, float t) { return a + (b - a) * t; }
+
+GPU_FUNC float FilmGrainEvalDensitySigma(float density, const float* density_lut,
+                                         const float* sigma_lut, int count) {
+  if (density <= density_lut[0]) {
+    return sigma_lut[0];
+  }
+  for (int i = 0; i < count - 1; ++i) {
+    const float lo = density_lut[i];
+    const float hi = density_lut[i + 1];
+    if (density <= hi) {
+      const float t = (density - lo) / fmaxf(hi - lo, 1.0e-6f);
+      return FilmGrainLerp(sigma_lut[i], sigma_lut[i + 1], t);
+    }
+  }
+  return sigma_lut[count - 1];
+}
+
+GPU_FUNC float FilmGrainLayerDensity(float signal, int channel) {
+  const float u = FilmGrainClampProbability(signal);
+  if (channel == 0) {
+    return FilmGrainLerp(0.22f, 2.52f, u);
+  }
+  if (channel == 1) {
+    return FilmGrainLerp(0.59f, 2.69f, u);
+  }
+  return FilmGrainLerp(1.00f, 3.00f, u);
+}
+
+GPU_FUNC float FilmGrainDatasheetSigmaD(float density, int channel) {
+  constexpr int   kCount = 11;
+  constexpr float kRedDensity[kCount] = {0.22f, 0.22f, 0.25f, 0.42f, 0.78f, 1.19f,
+                                         1.58f, 1.94f, 2.26f, 2.45f, 2.52f};
+  constexpr float kRedSigma[kCount]   = {0.00594f, 0.00565f, 0.00524f, 0.01085f, 0.00844f,
+                                         0.00531f, 0.00486f, 0.00486f, 0.00445f, 0.00440f,
+                                         0.00474f};
+  constexpr float kGreenDensity[kCount] = {0.59f, 0.61f, 0.66f, 0.94f, 1.36f, 1.76f,
+                                           2.18f, 2.49f, 2.61f, 2.67f, 2.69f};
+  constexpr float kGreenSigma[kCount]   = {0.00517f, 0.00524f, 0.00625f, 0.01085f, 0.00823f,
+                                           0.00617f, 0.00625f, 0.00691f, 0.00602f, 0.00524f,
+                                           0.00445f};
+  constexpr float kBlueDensity[kCount] = {1.00f, 1.03f, 1.10f, 1.32f, 1.51f, 1.78f,
+                                          2.05f, 2.38f, 2.68f, 2.91f, 3.00f};
+  constexpr float kBlueSigma[kCount]   = {0.01185f, 0.01261f, 0.01485f, 0.01581f, 0.01200f,
+                                          0.01099f, 0.01127f, 0.01058f, 0.00844f, 0.00641f,
+                                          0.00418f};
+
+  if (channel == 0) {
+    return FilmGrainEvalDensitySigma(density, kRedDensity, kRedSigma, kCount);
+  }
+  if (channel == 1) {
+    return FilmGrainEvalDensitySigma(density, kGreenDensity, kGreenSigma, kCount);
+  }
+  return FilmGrainEvalDensitySigma(density, kBlueDensity, kBlueSigma, kCount);
+}
+
+GPU_FUNC float FilmGrainDatasheetGranularityScale(float signal, int channel) {
+  constexpr float kReferenceSigmaD = 0.0075f;
+  const float     density          = FilmGrainLayerDensity(signal, channel);
+  const float     sigma            = FilmGrainDatasheetSigmaD(density, channel);
+  return fminf(fmaxf(sigma / kReferenceSigmaD, 0.55f), 2.15f);
+}
+
 GPU_FUNC float FilmGrainSample(float probability, int ref_x, int ref_y, int channel,
                                std::uint64_t seed) {
   const std::uint64_t stream =
@@ -152,9 +215,12 @@ struct GPU_FilmGrainApplyVerticalKernel : GPUNeighborOpTag {
 
     const float4 original = dst[offset];
     const float4 blurred  = FilmGrainBlurVertical(x, y, src, width, height, pitch_elems);
-    dst[offset]           = make_float4(original.x + strength * (blurred.x - original.x),
-                                        original.y + strength * (blurred.y - original.y),
-                                        original.z + strength * (blurred.z - original.z), original.w);
+    const float red_strength   = strength * FilmGrainDatasheetGranularityScale(original.x, 0);
+    const float green_strength = strength * FilmGrainDatasheetGranularityScale(original.y, 1);
+    const float blue_strength  = strength * FilmGrainDatasheetGranularityScale(original.z, 2);
+    dst[offset] = make_float4(original.x + red_strength * (blurred.x - original.x),
+                              original.y + green_strength * (blurred.y - original.y),
+                              original.z + blue_strength * (blurred.z - original.z), original.w);
   }
 };
 

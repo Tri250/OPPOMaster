@@ -4,6 +4,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cmath>
 #include <opencv2/core.hpp>
 #include <opencv2/core/cuda.hpp>
@@ -189,7 +190,47 @@ auto CountChangedRgbPixels(const cv::Mat& lhs, const cv::Mat& rhs) -> int {
   return changed;
 }
 
+__global__ void FilmGrainDatasheetScaleProbeKernel(float signal, float* out_scales) {
+  const int channel     = threadIdx.x;
+  out_scales[channel]   = CUDA::FilmGrainDatasheetGranularityScale(signal, channel);
+}
+
+auto ReadDatasheetScales(float signal) -> std::array<float, 3> {
+  std::array<float, 3> scales = {};
+  float*              dev_scales = nullptr;
+  cudaMalloc(&dev_scales, sizeof(float) * scales.size());
+  FilmGrainDatasheetScaleProbeKernel<<<1, 3>>>(signal, dev_scales);
+  cudaDeviceSynchronize();
+  cudaMemcpy(scales.data(), dev_scales, sizeof(float) * scales.size(), cudaMemcpyDeviceToHost);
+  cudaFree(dev_scales);
+  return scales;
+}
+
 }  // namespace
+
+TEST(FilmGrainCudaStageTest, DatasheetGranularityScaleFollowsNegativeFilmShape) {
+  if (!EnsureCudaDevice()) {
+    GTEST_SKIP() << "No CUDA device available.";
+  }
+
+  const auto shadows    = ReadDatasheetScales(0.08f);
+  const auto lower_mids = ReadDatasheetScales(0.22f);
+  const auto midtones   = ReadDatasheetScales(0.50f);
+  const auto highlights = ReadDatasheetScales(0.92f);
+
+  EXPECT_GT(lower_mids[2], midtones[2]);
+  EXPECT_GT(lower_mids[1], midtones[1]);
+  EXPECT_GT(lower_mids[0], midtones[0]);
+
+  EXPECT_GT(lower_mids[2], lower_mids[1]);
+  EXPECT_GT(lower_mids[1], lower_mids[0]);
+
+  for (int channel = 0; channel < 3; ++channel) {
+    EXPECT_GT(lower_mids[channel], highlights[channel]);
+    EXPECT_GT(shadows[channel], highlights[channel]);
+    EXPECT_TRUE(std::isfinite(lower_mids[channel]));
+  }
+}
 
 TEST(FilmGrainCudaStageTest, StrengthZeroIsExactPassThroughAfterOdt) {
   if (!EnsureCudaDevice()) {
