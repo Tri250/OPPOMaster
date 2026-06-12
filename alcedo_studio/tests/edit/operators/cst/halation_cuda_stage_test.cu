@@ -271,7 +271,7 @@ TEST(HalationCudaStageTest, RunsAfterDetailAndBeforeFilmGrainInOutputTextureTail
   EXPECT_EQ(order[7], "film_grain_apply_vertical");
 }
 
-TEST(HalationCudaStageTest, ConstantFieldIsNeutralizedPassThrough) {
+TEST(HalationCudaStageTest, ConstantFieldHasNoLocalSpill) {
   if (!EnsureCudaDevice()) {
     GTEST_SKIP() << "No CUDA device available.";
   }
@@ -281,7 +281,7 @@ TEST(HalationCudaStageTest, ConstantFieldIsNeutralizedPassThrough) {
   ExpectExactMatch(input, RunHalationOnly(input, 100.0f).image);
 }
 
-TEST(HalationCudaStageTest, GammaEncodedConstantFieldIsNeutralizedInLinearLight) {
+TEST(HalationCudaStageTest, GammaEncodedConstantFieldHasNoLocalSpillInLinearLight) {
   if (!EnsureCudaDevice()) {
     GTEST_SKIP() << "No CUDA device available.";
   }
@@ -308,15 +308,41 @@ TEST(HalationCudaStageTest, BrightPointCreatesRedBiasedEdgeWithoutOrangeCore) {
   const cv::Vec4f center = output.at<cv::Vec4f>(8, 8);
   const cv::Vec4f halo   = output.at<cv::Vec4f>(8, 9);
 
-  EXPECT_LE(center[0], center[1]);
-  EXPECT_LE(center[0], center[2]);
+  EXPECT_FLOAT_EQ(center[0], 1.0f);
+  EXPECT_FLOAT_EQ(center[1], 1.0f);
+  EXPECT_FLOAT_EQ(center[2], 1.0f);
   EXPECT_GT(halo[0], 0.0f);
   EXPECT_GT(halo[0], halo[1]);
   EXPECT_GT(halo[1], halo[2]);
   EXPECT_FLOAT_EQ(halo[3], 1.0f);
 }
 
-TEST(HalationCudaStageTest, RenderOutputScaleShrinksBlurFootprintForLowerResolution) {
+TEST(HalationCudaStageTest, StrengthIncreasesEdgeEnergyWithoutWideningSigma) {
+  if (!EnsureCudaDevice()) {
+    GTEST_SKIP() << "No CUDA device available.";
+  }
+
+  const cv::Mat input = MakeDisplayPointInput(41, 1.0f);
+
+  OperatorParams weak = MakeHalationOnlyParams(25.0f, 6.0f, 1.0f, 1.0f);
+  OperatorParams strong = MakeHalationOnlyParams(100.0f, 6.0f, 1.0f, 1.0f);
+
+  const cv::Mat weak_output = RunHalationOnlyWithParams(input, weak).image;
+  const cv::Mat strong_output = RunHalationOnlyWithParams(input, strong).image;
+  const cv::Vec4f weak_halo = weak_output.at<cv::Vec4f>(20, 22);
+  const cv::Vec4f strong_halo = strong_output.at<cv::Vec4f>(20, 22);
+  const cv::Vec4f weak_far = weak_output.at<cv::Vec4f>(20, 39);
+  const cv::Vec4f strong_far = strong_output.at<cv::Vec4f>(20, 39);
+
+  EXPECT_GT(strong_halo[0], weak_halo[0]);
+  EXPECT_GT(strong_halo[1], weak_halo[1]);
+  EXPECT_GT(strong_halo[2], weak_halo[2]);
+  EXPECT_FLOAT_EQ(weak_far[0], strong_far[0]);
+  EXPECT_FLOAT_EQ(weak_far[1], strong_far[1]);
+  EXPECT_FLOAT_EQ(weak_far[2], strong_far[2]);
+}
+
+TEST(HalationCudaStageTest, RenderOutputScaleKeepsFullResolutionFootprintAcrossPreviewSizes) {
   if (!EnsureCudaDevice()) {
     GTEST_SKIP() << "No CUDA device available.";
   }

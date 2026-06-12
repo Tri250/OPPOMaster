@@ -445,14 +445,17 @@ auto CPUPipelineExecutor::ExportPipelineParams() const -> nlohmann::json {
 
 void CPUPipelineExecutor::ImportPipelineParams(const nlohmann::json& j) {
   ResetExecutionStages();
+  ResetStages();
+  SetTemplateParams();
+  RegisterAllOperators();
   for (auto& stage : stages_) {
     std::string stage_name = stage.GetStageNameString();
     if (j.contains(stage_name)) {
       nlohmann::json stage_json = j[stage_name];
-      // When importing, stage's import function will do reset internally
-      stage.ImportStageParams(stage_json, global_params_);
+      stage.MergeStageParams(stage_json, global_params_);
     }
   }
+  SetExecutionStages();
 }
 
 void CPUPipelineExecutor::SetRenderRegion(int x, int y, float scale_factor_x,

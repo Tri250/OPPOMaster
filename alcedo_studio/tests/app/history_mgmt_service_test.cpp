@@ -161,6 +161,68 @@ TEST_F(EditHistoryMgmtServiceTests, WorkingVersionUndoRedoAndRedoTruncation) {
   EXPECT_FALSE(working.RedoNextTransaction(exec));
 }
 
+TEST_F(EditHistoryMgmtServiceTests, FilmGrainAndHalationTransactionsUndoToDefaultStrength) {
+  constexpr sl_element_id_t file_id = 15;
+  EditHistory               history(file_id);
+  CPUPipelineExecutor       exec;
+
+  auto& output = exec.GetStage(PipelineStageName::Output_Transform);
+
+  auto MakeTx = [&](OperatorType op_type, nlohmann::json after_params) {
+    auto op = output.GetOperator(op_type);
+    EXPECT_TRUE(op.has_value());
+    EXPECT_NE(op.value(), nullptr);
+    return EditTransaction{TransactionType::_EDIT,
+                           op_type,
+                           PipelineStageName::Output_Transform,
+                           op.value()->op_->GetParams(),
+                           std::move(after_params),
+                           op.value()->enable_,
+                           true};
+  };
+
+  WorkingVersion working(file_id, history.GetDefaultVersionID(), exec.ExportPipelineParams());
+
+  auto grain_tx = MakeTx(OperatorType::FILM_GRAIN, {{"film_grain", {{"strength", 80.0f}}}});
+  ASSERT_TRUE(grain_tx.ApplyForward(exec));
+  working.AppendEditTransaction(std::move(grain_tx));
+
+  auto halation_tx = MakeTx(OperatorType::HALATION, {{"halation", {{"strength", 70.0f}}}});
+  ASSERT_TRUE(halation_tx.ApplyForward(exec));
+  working.AppendEditTransaction(std::move(halation_tx));
+  working.SetHeadPipelineParams(exec.ExportPipelineParams());
+
+  EXPECT_FLOAT_EQ(output.GetOperator(OperatorType::FILM_GRAIN)
+                      .value()
+                      ->op_->GetParams()["film_grain"]["strength"]
+                      .get<float>(),
+                  80.0f);
+  EXPECT_FLOAT_EQ(output.GetOperator(OperatorType::HALATION)
+                      .value()
+                      ->op_->GetParams()["halation"]["strength"]
+                      .get<float>(),
+                  70.0f);
+
+  ASSERT_TRUE(working.UndoLastTransaction(exec));
+  EXPECT_FLOAT_EQ(output.GetOperator(OperatorType::HALATION)
+                      .value()
+                      ->op_->GetParams()["halation"]["strength"]
+                      .get<float>(),
+                  0.0f);
+  EXPECT_FLOAT_EQ(output.GetOperator(OperatorType::FILM_GRAIN)
+                      .value()
+                      ->op_->GetParams()["film_grain"]["strength"]
+                      .get<float>(),
+                  80.0f);
+
+  ASSERT_TRUE(working.UndoLastTransaction(exec));
+  EXPECT_FLOAT_EQ(output.GetOperator(OperatorType::FILM_GRAIN)
+                      .value()
+                      ->op_->GetParams()["film_grain"]["strength"]
+                      .get<float>(),
+                  0.0f);
+}
+
 TEST_F(EditHistoryMgmtServiceTests, BasicHistoryRWTest) {
   constexpr sl_element_id_t file_id = 1;
   std::string               history_dump;
@@ -264,6 +326,75 @@ TEST_F(EditHistoryMgmtServiceTests, NewVersionStartsFromImportBaselineNotActiveL
   EXPECT_EQ(*fresh_params, history_guard->history_->GetImportPipelineParams());
   EXPECT_NE(*fresh_params,
             history_guard->history_->ReconstructPipelineParamsForVersion(default_id));
+}
+
+TEST_F(EditHistoryMgmtServiceTests, SwitchingVersionsDoesNotLeakFilmGrainOrHalation) {
+  constexpr sl_element_id_t file_id = 16;
+
+  EditHistory history(file_id);
+  const auto  default_id = history.GetDefaultVersionID();
+
+  const auto effects_id = history.CreateVersion("Effects");
+  auto       base_params = history.GetImportPipelineParams();
+  CPUPipelineExecutor exec;
+  exec.ImportPipelineParams(base_params);
+
+  WorkingVersion effects_working(file_id, effects_id, base_params);
+
+  auto& output = exec.GetStage(PipelineStageName::Output_Transform);
+  auto MakeTx = [&](OperatorType op_type, nlohmann::json after_params) {
+    auto op = output.GetOperator(op_type);
+    EXPECT_TRUE(op.has_value());
+    EXPECT_NE(op.value(), nullptr);
+    return EditTransaction{TransactionType::_EDIT,
+                           op_type,
+                           PipelineStageName::Output_Transform,
+                           op.value()->op_->GetParams(),
+                           std::move(after_params),
+                           op.value()->enable_,
+                           true};
+  };
+
+  auto grain_tx = MakeTx(OperatorType::FILM_GRAIN, {{"film_grain", {{"strength", 45.0f}}}});
+  ASSERT_TRUE(grain_tx.ApplyForward(exec));
+  effects_working.AppendEditTransaction(std::move(grain_tx));
+
+  auto halation_tx = MakeTx(OperatorType::HALATION, {{"halation", {{"strength", 35.0f}}}});
+  ASSERT_TRUE(halation_tx.ApplyForward(exec));
+  effects_working.AppendEditTransaction(std::move(halation_tx));
+  effects_working.SetHeadPipelineParams(exec.ExportPipelineParams());
+  history.UpdateVersionFromWorkingVersion(effects_id, effects_working, exec.ExportPipelineParams());
+
+  const auto effects_params = history.ReconstructPipelineParamsForVersion(effects_id);
+  ASSERT_TRUE(effects_params.has_value());
+  CPUPipelineExecutor effects_exec;
+  effects_exec.ImportPipelineParams(*effects_params);
+  auto& effects_output = effects_exec.GetStage(PipelineStageName::Output_Transform);
+  EXPECT_FLOAT_EQ(effects_output.GetOperator(OperatorType::FILM_GRAIN)
+                      .value()
+                      ->op_->GetParams()["film_grain"]["strength"]
+                      .get<float>(),
+                  45.0f);
+  EXPECT_FLOAT_EQ(effects_output.GetOperator(OperatorType::HALATION)
+                      .value()
+                      ->op_->GetParams()["halation"]["strength"]
+                      .get<float>(),
+                  35.0f);
+
+  const auto default_params = history.ReconstructPipelineParamsForVersion(default_id);
+  ASSERT_TRUE(default_params.has_value());
+  effects_exec.ImportPipelineParams(*default_params);
+  auto& default_output = effects_exec.GetStage(PipelineStageName::Output_Transform);
+  EXPECT_FLOAT_EQ(default_output.GetOperator(OperatorType::FILM_GRAIN)
+                      .value()
+                      ->op_->GetParams()["film_grain"]["strength"]
+                      .get<float>(),
+                  0.0f);
+  EXPECT_FLOAT_EQ(default_output.GetOperator(OperatorType::HALATION)
+                      .value()
+                      ->op_->GetParams()["halation"]["strength"]
+                      .get<float>(),
+                  0.0f);
 }
 
 TEST_F(EditHistoryMgmtServiceTests, VersionsStayIndependentAndNamesRoundTrip) {

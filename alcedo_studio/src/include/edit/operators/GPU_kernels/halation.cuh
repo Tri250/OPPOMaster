@@ -40,6 +40,9 @@ GPU_FUNC int HalationBlurRadius(float sigma) {
 }
 
 GPU_FUNC float HalationScaledSigma(float sigma, float render_output_scale) {
+  // Halation radius is authored in full-resolution image pixels. Convert it to the
+  // current render buffer so resized previews and full-resolution renders keep the
+  // same image-space footprint.
   return sigma * fminf(fmaxf(render_output_scale, 1.0e-4f), 1.0f);
 }
 
@@ -145,18 +148,21 @@ struct GPU_HalationApplyVerticalKernel : GPUNeighborOpTag {
     const float3 original_linear = HalationDecodeDisplayLinear(original, params);
     const float4 blurred    = HalationBlurVertical(x, y, src, width, height, pitch_elems, params);
 
-    // Inspired by ART's GPLv3+ smoothing halation path, which attributes the idea to
-    // hotgluebanjo/halation-dctl: add blurred light through a red-biased color vector, then
-    // neutralize by the same gain so constant highlight regions stay neutral and the color appears
-    // at local contrast edges.
+    // Inspired by hotgluebanjo/halation-dctl's red-biased blurred-light feedback, but
+    // keep only the positive local spill. This preserves flat fields and bright cores while
+    // making the halo edge energy respond to strength without widening the blur radius.
     const float  red_gain   = strength * halation.redshift_[0];
     const float  green_gain = strength * halation.redshift_[1];
     const float  blue_gain  = strength * halation.redshift_[2];
 
+    const float3 spill_linear =
+        make_float3(fmaxf(blurred.x - original_linear.x, 0.0f),
+                    fmaxf(blurred.y - original_linear.y, 0.0f),
+                    fmaxf(blurred.z - original_linear.z, 0.0f));
     const float3 result_linear =
-        make_float3((original_linear.x + blurred.x * red_gain) / (1.0f + red_gain),
-                    (original_linear.y + blurred.y * green_gain) / (1.0f + green_gain),
-                    (original_linear.z + blurred.z * blue_gain) / (1.0f + blue_gain));
+        make_float3(original_linear.x + spill_linear.x * red_gain,
+                    original_linear.y + spill_linear.y * green_gain,
+                    original_linear.z + spill_linear.z * blue_gain);
     dst[offset] = HalationEncodeDisplay(result_linear, original.w, params);
   }
 };

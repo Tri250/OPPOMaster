@@ -889,7 +889,10 @@ void PipelineStage::ImportStageParams(const nlohmann::json& j) {
 
 void PipelineStage::ImportStageParams(const nlohmann::json& j, OperatorParams& global_params) {
   ResetAll();
+  MergeStageParams(j, global_params);
+}
 
+void PipelineStage::MergeStageParams(const nlohmann::json& j, OperatorParams& global_params) {
   std::string stage_name = GetStageNameString();
   if (!j.contains(stage_name)) {
     return;

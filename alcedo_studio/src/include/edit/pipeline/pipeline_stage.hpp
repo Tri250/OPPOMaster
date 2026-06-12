@@ -291,6 +291,10 @@ class PipelineStage {
 
   void ImportStageParams(const nlohmann::json& j, OperatorParams& global_params);
 
+  /// Overlay serialized operators onto the current stage without dropping operators that
+  /// are absent from the input. Used by whole-pipeline import after installing defaults.
+  void MergeStageParams(const nlohmann::json& j, OperatorParams& global_params);
+
   auto GetLastProfileSummary() const -> const std::string& { return last_profile_summary_; }
 
  private:

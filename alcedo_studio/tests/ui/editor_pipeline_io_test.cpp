@@ -131,5 +131,29 @@ TEST(EditorPipelineIoTest, HalationLoadAcceptsLegacyNumericShape) {
   EXPECT_FLOAT_EQ(state.halation_, 27.0f);
 }
 
+TEST(EditorPipelineIoTest, ImportOldSnapshotWithoutFilmGrainAndHalationResetsThemToDefaults) {
+  alcedo::RegisterAllOperators();
+  CPUPipelineExecutor current;
+  auto&               current_output = current.GetStage(PipelineStageName::Output_Transform);
+  current_output.SetOperator(OperatorType::FILM_GRAIN,
+                             {{"film_grain", {{"strength", 66.0f}}}},
+                             current.GetGlobalParams());
+  current_output.SetOperator(OperatorType::HALATION, {{"halation", {{"strength", 55.0f}}}},
+                             current.GetGlobalParams());
+
+  CPUPipelineExecutor old_snapshot_source;
+  auto                old_snapshot = old_snapshot_source.ExportPipelineParams();
+  auto&               output_stage = old_snapshot["Output Transform"]["Output Transform"];
+  output_stage.erase("film_grain");
+  output_stage.erase("halation");
+
+  current.ImportPipelineParams(old_snapshot);
+  auto [state, has_any] = pipeline_io::LoadStateFromPipeline(current, AdjustmentState{});
+
+  EXPECT_TRUE(has_any);
+  EXPECT_FLOAT_EQ(state.film_grain_, 0.0f);
+  EXPECT_FLOAT_EQ(state.halation_, 0.0f);
+}
+
 }  // namespace
 }  // namespace alcedo::ui
