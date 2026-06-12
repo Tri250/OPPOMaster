@@ -4,6 +4,8 @@
 
 #include <gtest/gtest.h>
 
+#include "edit/operators/operator_registeration.hpp"
+#include "edit/pipeline/pipeline_cpu.hpp"
 #include "ui/alcedo_main/editor_dialog/modules/pipeline_io.hpp"
 
 namespace alcedo::ui {
@@ -59,6 +61,74 @@ TEST(EditorPipelineIoTest, FilmGrainFieldChangedAndCopyFieldStateUseFilmGrainVal
 
   EXPECT_FLOAT_EQ(committed.film_grain_, 35.0f);
   EXPECT_FALSE(pipeline_io::FieldChanged(AdjustmentField::FilmGrain, current, committed));
+}
+
+TEST(EditorPipelineIoTest, HalationFieldTargetsOutputTransformOperator) {
+  const auto [stage, op] = pipeline_io::FieldSpec(AdjustmentField::Halation);
+
+  EXPECT_EQ(stage, PipelineStageName::Output_Transform);
+  EXPECT_EQ(op, OperatorType::HALATION);
+}
+
+TEST(EditorPipelineIoTest, HalationParamsUseStrengthOnlySerializedShape) {
+  AdjustmentState state;
+  state.halation_ = 42.0f;
+
+  const auto params = pipeline_io::ParamsForField(AdjustmentField::Halation, state, nullptr);
+
+  ASSERT_TRUE(params.contains("halation"));
+  ASSERT_TRUE(params.at("halation").is_object());
+  EXPECT_EQ(params.at("halation").size(), 1U);
+  EXPECT_FLOAT_EQ(params.at("halation").at("strength").get<float>(), 42.0f);
+}
+
+TEST(EditorPipelineIoTest, HalationFieldChangedAndCopyFieldStateUseHalationValue) {
+  AdjustmentState current;
+  AdjustmentState committed;
+  current.halation_ = 35.0f;
+
+  EXPECT_TRUE(pipeline_io::FieldChanged(AdjustmentField::Halation, current, committed));
+
+  CopyFieldState(AdjustmentField::Halation, current, committed);
+
+  EXPECT_FLOAT_EQ(committed.halation_, 35.0f);
+  EXPECT_FALSE(pipeline_io::FieldChanged(AdjustmentField::Halation, current, committed));
+}
+
+TEST(EditorPipelineIoTest, HalationStrengthRoundTripsThroughPipelineLoad) {
+  alcedo::RegisterAllOperators();
+  CPUPipelineExecutor source;
+  auto&               output = source.GetStage(PipelineStageName::Output_Transform);
+  output.SetOperator(OperatorType::HALATION, {{"halation", {{"strength", 64.0f}}}},
+                     source.GetGlobalParams());
+
+  const auto exported = source.ExportPipelineParams();
+  const auto& halation =
+      exported.at("Output Transform").at("Output Transform").at("halation").at("params");
+
+  ASSERT_TRUE(halation.contains("halation"));
+  EXPECT_EQ(halation.at("halation").size(), 1U);
+  EXPECT_FLOAT_EQ(halation.at("halation").at("strength").get<float>(), 64.0f);
+
+  CPUPipelineExecutor loaded;
+  loaded.ImportPipelineParams(exported);
+
+  auto [state, has_any] = pipeline_io::LoadStateFromPipeline(loaded, AdjustmentState{});
+
+  EXPECT_TRUE(has_any);
+  EXPECT_FLOAT_EQ(state.halation_, 64.0f);
+}
+
+TEST(EditorPipelineIoTest, HalationLoadAcceptsLegacyNumericShape) {
+  alcedo::RegisterAllOperators();
+  CPUPipelineExecutor exec;
+  auto&               output = exec.GetStage(PipelineStageName::Output_Transform);
+  output.SetOperator(OperatorType::HALATION, {{"halation", 27.0f}}, exec.GetGlobalParams());
+
+  auto [state, has_any] = pipeline_io::LoadStateFromPipeline(exec, AdjustmentState{});
+
+  EXPECT_TRUE(has_any);
+  EXPECT_FLOAT_EQ(state.halation_, 27.0f);
 }
 
 }  // namespace

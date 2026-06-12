@@ -386,6 +386,11 @@ target_include_directories(FilmGrainOpTest PUBLIC ${ALCEDO_INCLUDE_DIR})
 target_link_libraries(FilmGrainOpTest PRIVATE GTest::gtest_main Operators)
 gtest_discover_tests(FilmGrainOpTest TEST_PREFIX "FilmGrainOpTest.")
 
+add_executable(HalationOpTest edit/operators/cst/halation_op_test.cpp)
+target_include_directories(HalationOpTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(HalationOpTest PRIVATE GTest::gtest_main Operators)
+gtest_discover_tests(HalationOpTest TEST_PREFIX "HalationOpTest.")
+
 add_executable(LutCatalogTest
     ui/lut_catalog_test.cpp
     ${ALCEDO_SRC_DIR}/ui/alcedo_main/editor_dialog/modules/lut_catalog.cpp
@@ -950,6 +955,7 @@ alcedo_assign_test_category(edit ALCEDO_BUILD_EDIT_TESTS alcedo_tests_edit
   ToneMappingFacadeTest
   ODTOpTest
   FilmGrainOpTest
+  HalationOpTest
   CropRotateOpTest
   PipelineFrameSinkTest
 )

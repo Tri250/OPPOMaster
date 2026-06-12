@@ -551,6 +551,7 @@ set(OPERATORS_SRCS
     edit/operators/cst/open_drt_cpu.cpp
     edit/operators/cst/odt_op.cpp
     edit/operators/cst/film_grain_op.cpp
+    edit/operators/cst/halation_op.cpp
     edit/operators/raw/raw_decode_op.cpp
     edit/operators/geometry/resize_op.cpp
     edit/operators/geometry/crop_rotate_op.cpp

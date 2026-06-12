@@ -89,6 +89,10 @@ inline auto MakeDefaultFilmGrainParams() -> nlohmann::json {
   return {{"film_grain", {{"strength", 0.0f}}}};
 }
 
+inline auto MakeDefaultHalationParams() -> nlohmann::json {
+  return {{"halation", {{"strength", 0.0f}}}};
+}
+
 inline auto MakeDefaultCropRotateParams() -> nlohmann::json {
   return {{"crop_rotate",
            {{"enabled", false},
@@ -149,6 +153,7 @@ inline auto MakeCleanBaselineAdjustableParams() -> nlohmann::json {
   defaults["clarity"] = {{"clarity", 0.0f}};
   defaults["odt"] = MakeDefaultODTParams();
   defaults["film_grain"] = MakeDefaultFilmGrainParams();
+  defaults["halation"] = MakeDefaultHalationParams();
   return defaults;
 }
 

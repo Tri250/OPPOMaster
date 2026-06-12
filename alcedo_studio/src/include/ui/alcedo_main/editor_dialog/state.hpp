@@ -57,6 +57,7 @@ enum class AdjustmentField {
   Sharpen,
   Clarity,
   FilmGrain,
+  Halation,
   Lut,
   Odt,
   CropRotate,
@@ -138,6 +139,7 @@ struct AdjustmentState {
   float                sharpen_                     = 0.0f;
   float                clarity_                     = 0.0f;
   float                film_grain_                  = 0.0f;
+  float                halation_                    = 0.0f;
   OdtState             odt_                         = {};
   float                rotate_degrees_              = 0.0f;
   bool                 crop_enabled_                = true;

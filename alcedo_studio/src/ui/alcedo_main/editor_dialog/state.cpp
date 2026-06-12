@@ -132,6 +132,9 @@ void CopyFieldState(AdjustmentField field, const AdjustmentState& from, Adjustme
     case AdjustmentField::FilmGrain:
       to.film_grain_ = from.film_grain_;
       return;
+    case AdjustmentField::Halation:
+      to.halation_ = from.halation_;
+      return;
     case AdjustmentField::Lut:
       to.lut_path_ = from.lut_path_;
       return;

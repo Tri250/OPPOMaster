@@ -64,6 +64,8 @@ inline std::string OperatorTypeToString(OperatorType type) {
       return "COLOR_TEMP";
     case OperatorType::FILM_GRAIN:
       return "FILM_GRAIN";
+    case OperatorType::HALATION:
+      return "HALATION";
     default:
       return "UNKNOWN_OPERATOR";
   }
@@ -120,6 +122,8 @@ inline OperatorType OperatorTypeFromString(const std::string& type_str) {
     return OperatorType::COLOR_TEMP;
   else if (type_str == "FILM_GRAIN")
     return OperatorType::FILM_GRAIN;
+  else if (type_str == "HALATION")
+    return OperatorType::HALATION;
   else
     return static_cast<OperatorType>(-1);  // Unknown operator
 }

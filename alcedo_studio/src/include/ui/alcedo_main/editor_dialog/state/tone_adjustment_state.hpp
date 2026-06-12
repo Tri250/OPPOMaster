@@ -23,6 +23,7 @@ struct ToneAdjustmentState {
   float                sharpen_      = 0.0f;
   float                clarity_      = 0.0f;
   float                film_grain_   = 0.0f;
+  float                halation_     = 0.0f;
 };
 
 }  // namespace alcedo::ui

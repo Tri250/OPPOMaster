@@ -138,6 +138,7 @@ class ToneControlPanelWidget final : public AdjustmentPanelWidget {
   QSlider*                                  sharpen_slider_               = nullptr;
   QSlider*                                  clarity_slider_               = nullptr;
   QSlider*                                  film_grain_slider_            = nullptr;
+  QSlider*                                  halation_slider_              = nullptr;
 };
 
 }  // namespace alcedo::ui

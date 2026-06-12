@@ -184,6 +184,8 @@ auto EditTransaction::OperatorTypeToString(OperatorType type) -> const char* {
       return "COLOR_TEMP";
     case OperatorType::FILM_GRAIN:
       return "FILM_GRAIN";
+    case OperatorType::HALATION:
+      return "HALATION";
     case OperatorType::UNKNOWN:
       return "UNKNOWN";
   }

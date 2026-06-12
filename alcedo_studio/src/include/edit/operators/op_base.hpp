@@ -62,7 +62,8 @@ enum class OperatorType : int {
   CROP_ROTATE,
   LENS_CALIBRATION,
   COLOR_TEMP,
-  FILM_GRAIN
+  FILM_GRAIN,
+  HALATION
 };
 
 enum class ColorTempMode : int {
@@ -128,7 +129,18 @@ struct OperatorParams {
     std::uint64_t seed_         = 0x6a09e667f3bcc909ULL;
   };
 
+  struct HalationParams {
+    bool  enabled_        = true;
+    float strength_       = 0.0f;
+    float low_threshold_  = 0.6f;
+    float high_threshold_ = 0.7f;
+    float sigma_          = 20.0f;
+    float redshift_[3]    = {1.0f, 0.05f, 0.02f};
+    float additive_scale_ = 1.0f;
+  };
+
   FilmGrainParams      film_grain_                                                      = {};
+  HalationParams       halation_                                                        = {};
 
   // Basic adjustment parameters
   bool                 exposure_enabled_                                                = true;

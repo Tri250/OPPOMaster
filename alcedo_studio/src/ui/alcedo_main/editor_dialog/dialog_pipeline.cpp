@@ -102,6 +102,9 @@ void EditorDialog::ApplyStateToPipeline(const AdjustmentState& render_state) {
   output.SetOperator(OperatorType::FILM_GRAIN,
                      params_for_field(AdjustmentField::FilmGrain, render_state_sanitized),
                      global_params);
+  output.SetOperator(OperatorType::HALATION,
+                     params_for_field(AdjustmentField::Halation, render_state_sanitized),
+                     global_params);
 
   // Geometry editing is overlay-only. While the geometry panel is active,
   // render the full pre-geometry frame so recropping can always expand back

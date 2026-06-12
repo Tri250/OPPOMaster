@@ -81,6 +81,8 @@ void SetCleanBaselineAdjustableOperators(
   set_enabled(PipelineStageName::Output_Transform, OperatorType::ODT, baseline.at("odt"));
   set_enabled(PipelineStageName::Output_Transform, OperatorType::FILM_GRAIN,
               baseline.at("film_grain"));
+  set_enabled(PipelineStageName::Output_Transform, OperatorType::HALATION,
+              baseline.at("halation"));
 }
 
 void PrintPipelineProfile(const ProfileClock::time_point apply_start,
@@ -607,6 +609,8 @@ void CPUPipelineExecutor::SetTemplateParams() {
   output_params               = pipeline_defaults::MakeDefaultODTParams();
   output_stage.SetOperator(OperatorType::ODT, output_params, global_params);
   output_stage.SetOperator(OperatorType::FILM_GRAIN, pipeline_defaults::MakeDefaultFilmGrainParams(),
+                           global_params);
+  output_stage.SetOperator(OperatorType::HALATION, pipeline_defaults::MakeDefaultHalationParams(),
                            global_params);
 }
 
