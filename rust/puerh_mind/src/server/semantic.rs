@@ -8,14 +8,14 @@ use tracing::info;
 use tonic::{Request, Response, Status};
 
 use crate::proto::semantic::{
-    EmbedImageRequest, EmbedTextRequest, EmbeddingResponse, PingRequest, PingResponse,
-    semantic_service_server::SemanticService,
+    EmbedImageBatchRequest, EmbedImageRequest, EmbedTextBatchRequest, EmbedTextRequest,
+    EmbeddingBatchItem, EmbeddingBatchResponse, EmbeddingResponse, GetModelInfoRequest,
+    GetModelInfoResponse, GetRuntimeStatusRequest, GetRuntimeStatusResponse, PingRequest,
+    PingResponse, semantic_service_server::SemanticService,
 };
 use crate::service::embedding::EmbeddingEngine;
 
-const IMAGE_BATCH_SIZE_CAP: usize = 512;
 const IMAGE_BATCH_QUEUE_CAPACITY: usize = 256;
-const IMAGE_BATCH_WAIT: Duration = Duration::from_millis(25);
 
 struct PendingImageRequest {
     request_id: String,
@@ -28,15 +28,26 @@ struct PendingImageRequest {
 pub struct SemanticServiceImpl {
     engine: Arc<dyn EmbeddingEngine>,
     image_batch_tx: mpsc::Sender<PendingImageRequest>,
+    image_batch_cap: usize,
+    image_batch_wait: Duration,
+    started_at: Instant,
 }
 
 impl SemanticServiceImpl {
-    pub fn new(engine: Arc<dyn EmbeddingEngine>) -> Self {
-        let image_batch_tx = Self::spawn_image_batch_worker(engine.clone());
+    pub fn new(
+        engine: Arc<dyn EmbeddingEngine>,
+        image_batch_cap: usize,
+        image_batch_wait: Duration,
+    ) -> Self {
+        let image_batch_tx =
+            Self::spawn_image_batch_worker(engine.clone(), image_batch_cap, image_batch_wait);
 
         Self {
             engine,
             image_batch_tx,
+            image_batch_cap,
+            image_batch_wait,
+            started_at: Instant::now(),
         }
     }
 
@@ -60,15 +71,17 @@ impl SemanticServiceImpl {
 
     fn spawn_image_batch_worker(
         engine: Arc<dyn EmbeddingEngine>,
+        image_batch_cap: usize,
+        image_batch_wait: Duration,
     ) -> mpsc::Sender<PendingImageRequest> {
         let (tx, mut rx) = mpsc::channel::<PendingImageRequest>(IMAGE_BATCH_QUEUE_CAPACITY);
 
         tokio::spawn(async move {
             while let Some(first) = rx.recv().await {
                 let mut batch = vec![first];
-                let deadline = TokioInstant::now() + IMAGE_BATCH_WAIT;
+                let deadline = TokioInstant::now() + image_batch_wait;
 
-                while batch.len() < IMAGE_BATCH_SIZE_CAP {
+                while batch.len() < image_batch_cap {
                     let now = TokioInstant::now();
                     if now >= deadline {
                         break;
@@ -86,6 +99,57 @@ impl SemanticServiceImpl {
         });
 
         tx
+    }
+
+    fn validate_embedding(embedding: &[f32]) -> Result<(), Status> {
+        if embedding.is_empty() {
+            return Err(Status::internal("embedding must not be empty"));
+        }
+        if embedding.iter().any(|value| !value.is_finite()) {
+            return Err(Status::internal("embedding contains non-finite values"));
+        }
+        let norm_sq = embedding
+            .iter()
+            .map(|value| (*value as f64) * (*value as f64))
+            .sum::<f64>();
+        if norm_sq == 0.0 {
+            return Err(Status::internal("embedding norm is zero"));
+        }
+        Ok(())
+    }
+
+    fn embedding_batch_item_ok(
+        request_id: String,
+        model_name: String,
+        embedding: Vec<f32>,
+        elapsed_ms: u64,
+    ) -> EmbeddingBatchItem {
+        EmbeddingBatchItem {
+            request_id,
+            dimension: embedding.len() as u32,
+            embedding,
+            model_name,
+            elapsed_ms,
+            ok: true,
+            error: String::new(),
+        }
+    }
+
+    fn embedding_batch_item_err(
+        request_id: String,
+        model_name: String,
+        error: impl Into<String>,
+        elapsed_ms: u64,
+    ) -> EmbeddingBatchItem {
+        EmbeddingBatchItem {
+            request_id,
+            embedding: Vec::new(),
+            dimension: 0,
+            model_name,
+            elapsed_ms,
+            ok: false,
+            error: error.into(),
+        }
     }
 
     fn process_image_batch(engine: &dyn EmbeddingEngine, batch: Vec<PendingImageRequest>) {
@@ -124,6 +188,10 @@ impl SemanticServiceImpl {
                     requests.into_iter().zip(embeddings)
                 {
                     let dimension = embedding.len() as u32;
+                    if let Err(status) = Self::validate_embedding(&embedding) {
+                        let _ = response_tx.send(Err(status));
+                        continue;
+                    }
                     let response = EmbeddingResponse {
                         request_id,
                         embedding,
@@ -182,6 +250,7 @@ impl SemanticService for SemanticServiceImpl {
             .engine
             .embed_text(&req.text)
             .map_err(|e| Status::internal(format!("failed to embed text: {e}")))?;
+        Self::validate_embedding(&embedding)?;
         let dimension = embedding.len() as u32;
 
         let response = EmbeddingResponse {
@@ -197,6 +266,101 @@ impl SemanticService for SemanticServiceImpl {
         };
 
         Ok(Response::new(response))
+    }
+
+    async fn embed_text_batch(
+        &self,
+        request: Request<EmbedTextBatchRequest>,
+    ) -> Result<Response<EmbeddingBatchResponse>, Status> {
+        info!("[SemanticService]: received EmbedTextBatch request");
+        let batch_start = Instant::now();
+        let req = request.into_inner();
+        if req.items.is_empty() {
+            return Err(Status::invalid_argument("text batch must not be empty"));
+        }
+
+        let mut items = Vec::with_capacity(req.items.len());
+        let mut valid_requests = Vec::new();
+        let mut valid_texts = Vec::new();
+
+        for item in req.items {
+            let item_start = Instant::now();
+            let model_name = if item.model_name.is_empty() {
+                self.engine.default_text_model_name().to_string()
+            } else {
+                item.model_name.clone()
+            };
+            if let Err(status) = self.validate_text_request(&item) {
+                items.push(Self::embedding_batch_item_err(
+                    item.request_id,
+                    model_name,
+                    status.message().to_string(),
+                    item_start.elapsed().as_millis() as u64,
+                ));
+                continue;
+            }
+
+            valid_texts.push(item.text);
+            valid_requests.push((items.len(), item.request_id, model_name, item_start));
+            items.push(EmbeddingBatchItem::default());
+        }
+
+        if !valid_texts.is_empty() {
+            let text_refs = valid_texts.iter().map(String::as_str).collect::<Vec<_>>();
+            match self.engine.embed_texts(&text_refs) {
+                Ok(embeddings) if embeddings.len() == valid_requests.len() => {
+                    for ((slot, request_id, model_name, item_start), embedding) in
+                        valid_requests.into_iter().zip(embeddings)
+                    {
+                        items[slot] = match Self::validate_embedding(&embedding) {
+                            Ok(()) => Self::embedding_batch_item_ok(
+                                request_id,
+                                model_name,
+                                embedding,
+                                item_start.elapsed().as_millis() as u64,
+                            ),
+                            Err(status) => Self::embedding_batch_item_err(
+                                request_id,
+                                model_name,
+                                status.message().to_string(),
+                                item_start.elapsed().as_millis() as u64,
+                            ),
+                        };
+                    }
+                }
+                Ok(embeddings) => {
+                    let error = format!(
+                        "text embedding count mismatch: expected {}, got {}",
+                        valid_requests.len(),
+                        embeddings.len()
+                    );
+                    for (slot, request_id, model_name, item_start) in valid_requests {
+                        items[slot] = Self::embedding_batch_item_err(
+                            request_id,
+                            model_name,
+                            error.clone(),
+                            item_start.elapsed().as_millis() as u64,
+                        );
+                    }
+                }
+                Err(err) => {
+                    let error = format!("failed to embed text batch: {err}");
+                    for (slot, request_id, model_name, item_start) in valid_requests {
+                        items[slot] = Self::embedding_batch_item_err(
+                            request_id,
+                            model_name,
+                            error.clone(),
+                            item_start.elapsed().as_millis() as u64,
+                        );
+                    }
+                }
+            }
+        }
+
+        Ok(Response::new(EmbeddingBatchResponse {
+            items,
+            elapsed_ms: batch_start.elapsed().as_millis() as u64,
+        }))
     }
 
     async fn embed_image(
@@ -228,6 +392,131 @@ impl SemanticService for SemanticServiceImpl {
 
         Ok(Response::new(response))
     }
+
+    async fn embed_image_batch(
+        &self,
+        request: Request<EmbedImageBatchRequest>,
+    ) -> Result<Response<EmbeddingBatchResponse>, Status> {
+        info!("[SemanticService]: received EmbedImageBatch request");
+        let batch_start = Instant::now();
+        let req = request.into_inner();
+        if req.items.is_empty() {
+            return Err(Status::invalid_argument("image batch must not be empty"));
+        }
+
+        let mut items = Vec::with_capacity(req.items.len());
+        let mut valid_requests = Vec::new();
+        let mut images = Vec::new();
+
+        for item in req.items {
+            let item_start = Instant::now();
+            let model_name = if item.model_name.is_empty() {
+                self.engine.default_image_model_name().to_string()
+            } else {
+                item.model_name.clone()
+            };
+
+            match self.decode_rgb8_image(&item.image_bytes) {
+                Ok(rgb) => {
+                    images.push(rgb);
+                    valid_requests.push((items.len(), item.request_id, model_name, item_start));
+                    items.push(EmbeddingBatchItem::default());
+                }
+                Err(status) => items.push(Self::embedding_batch_item_err(
+                    item.request_id,
+                    model_name,
+                    status.message().to_string(),
+                    item_start.elapsed().as_millis() as u64,
+                )),
+            }
+        }
+
+        if !images.is_empty() {
+            match self.engine.embed_images(&images) {
+                Ok(embeddings) if embeddings.len() == valid_requests.len() => {
+                    for ((slot, request_id, model_name, item_start), embedding) in
+                        valid_requests.into_iter().zip(embeddings)
+                    {
+                        items[slot] = match Self::validate_embedding(&embedding) {
+                            Ok(()) => Self::embedding_batch_item_ok(
+                                request_id,
+                                model_name,
+                                embedding,
+                                item_start.elapsed().as_millis() as u64,
+                            ),
+                            Err(status) => Self::embedding_batch_item_err(
+                                request_id,
+                                model_name,
+                                status.message().to_string(),
+                                item_start.elapsed().as_millis() as u64,
+                            ),
+                        };
+                    }
+                }
+                Ok(embeddings) => {
+                    let error = format!(
+                        "image embedding count mismatch: expected {}, got {}",
+                        valid_requests.len(),
+                        embeddings.len()
+                    );
+                    for (slot, request_id, model_name, item_start) in valid_requests {
+                        items[slot] = Self::embedding_batch_item_err(
+                            request_id,
+                            model_name,
+                            error.clone(),
+                            item_start.elapsed().as_millis() as u64,
+                        );
+                    }
+                }
+                Err(err) => {
+                    let error = format!("failed to embed image batch: {err}");
+                    for (slot, request_id, model_name, item_start) in valid_requests {
+                        items[slot] = Self::embedding_batch_item_err(
+                            request_id,
+                            model_name,
+                            error.clone(),
+                            item_start.elapsed().as_millis() as u64,
+                        );
+                    }
+                }
+            }
+        }
+
+        Ok(Response::new(EmbeddingBatchResponse {
+            items,
+            elapsed_ms: batch_start.elapsed().as_millis() as u64,
+        }))
+    }
+
+    async fn get_model_info(
+        &self,
+        _request: Request<GetModelInfoRequest>,
+    ) -> Result<Response<GetModelInfoResponse>, Status> {
+        let info = self.engine.model_info();
+        Ok(Response::new(GetModelInfoResponse {
+            model_id: info.model_id,
+            revision: info.revision,
+            embedding_dimension: info.embedding_dim,
+            image_size: info.image_size,
+            provider: info.provider,
+            model_root: info.model_root,
+            prototype_config_hash: info.prototype_config_hash,
+        }))
+    }
+
+    async fn get_runtime_status(
+        &self,
+        _request: Request<GetRuntimeStatusRequest>,
+    ) -> Result<Response<GetRuntimeStatusResponse>, Status> {
+        let info = self.engine.model_info();
+        Ok(Response::new(GetRuntimeStatusResponse {
+            state: "ready".to_string(),
+            provider: info.provider,
+            image_batch_cap: self.image_batch_cap as u32,
+            image_batch_wait_ms: self.image_batch_wait.as_millis() as u32,
+            uptime_ms: self.started_at.elapsed().as_millis() as u64,
+        }))
+    }
 }
 
 #[cfg(test)]
@@ -239,13 +528,18 @@ mod tests {
 
     use super::*;
     use crate::config::SemanticConfig;
-    use crate::service::embedding::{EmbeddingEngine, MockEmbeddingEngine};
+    use crate::service::embedding::{EmbeddingEngine, EngineModelInfo, MockEmbeddingEngine};
     use crate::service::ort_clip::OrtClipEngine;
 
     fn test_semantic_config() -> SemanticConfig {
         SemanticConfig {
             model_id: "plhery/mobileclip2-onnx:s2".to_string(),
-            model_dir: "./models/mobileclip2-s2-openclip".to_string(),
+            revision: crate::service::model_assets::MOBILECLIP2_ONNX_REVISION.to_string(),
+            model_root: "./models/mobileclip2-s2-openclip".to_string(),
+            device: "cpu".to_string(),
+            allow_download: false,
+            batch_cap: 512,
+            batch_wait_ms: 25,
         }
     }
 
@@ -253,7 +547,12 @@ mod tests {
     fn uses_configured_model_id_as_default_name() {
         let config = SemanticConfig {
             model_id: "plhery/mobileclip2-onnx:s2".to_string(),
-            model_dir: "./models/mobileclip2-s2-openclip".to_string(),
+            revision: crate::service::model_assets::MOBILECLIP2_ONNX_REVISION.to_string(),
+            model_root: "./models/mobileclip2-s2-openclip".to_string(),
+            device: "cpu".to_string(),
+            allow_download: false,
+            batch_cap: 512,
+            batch_wait_ms: 25,
         };
 
         let engine = OrtClipEngine::new(&config).expect("engine should load");
@@ -266,7 +565,7 @@ mod tests {
     async fn embeds_text_request_with_ort_engine() {
         let config = test_semantic_config();
         let engine = Arc::new(OrtClipEngine::new(&config).expect("engine should load"));
-        let service = SemanticServiceImpl::new(engine);
+        let service = SemanticServiceImpl::new(engine, 512, Duration::from_millis(25));
 
         let request = Request::new(EmbedTextRequest {
             request_id: "test-1".to_string(),
@@ -314,12 +613,20 @@ mod tests {
             fn default_image_model_name(&self) -> &str {
                 "mock-image-v1"
             }
+
+            fn model_info(&self) -> EngineModelInfo {
+                MockEmbeddingEngine.model_info()
+            }
         }
 
         let engine = Arc::new(RecordingEngine {
             batches: Mutex::new(Vec::new()),
         });
-        let service = Arc::new(SemanticServiceImpl::new(engine.clone()));
+        let service = Arc::new(SemanticServiceImpl::new(
+            engine.clone(),
+            512,
+            Duration::from_millis(25),
+        ));
         let png = {
             let image = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
                 16,
@@ -367,5 +674,166 @@ mod tests {
             engine.batches.lock().unwrap().as_slice(),
             &[TEST_REQUEST_COUNT]
         );
+    }
+
+    #[tokio::test]
+    async fn text_batch_preserves_request_order_and_item_errors() {
+        let service = SemanticServiceImpl::new(
+            Arc::new(MockEmbeddingEngine),
+            512,
+            Duration::from_millis(25),
+        );
+
+        let response = service
+            .embed_text_batch(Request::new(EmbedTextBatchRequest {
+                items: vec![
+                    EmbedTextRequest {
+                        request_id: "ok-1".to_string(),
+                        text: "tea".to_string(),
+                        model_name: String::new(),
+                    },
+                    EmbedTextRequest {
+                        request_id: "bad-1".to_string(),
+                        text: "   ".to_string(),
+                        model_name: String::new(),
+                    },
+                    EmbedTextRequest {
+                        request_id: "ok-2".to_string(),
+                        text: "cake".to_string(),
+                        model_name: "custom".to_string(),
+                    },
+                ],
+            }))
+            .await
+            .expect("batch should return")
+            .into_inner();
+
+        assert_eq!(response.items.len(), 3);
+        assert_eq!(response.items[0].request_id, "ok-1");
+        assert!(response.items[0].ok);
+        assert_eq!(response.items[1].request_id, "bad-1");
+        assert!(!response.items[1].ok);
+        assert!(response.items[1].error.contains("text must not be empty"));
+        assert_eq!(response.items[2].request_id, "ok-2");
+        assert!(response.items[2].ok);
+        assert_eq!(response.items[2].model_name, "custom");
+    }
+
+    #[tokio::test]
+    async fn image_batch_preserves_request_order_and_item_errors() {
+        let service = SemanticServiceImpl::new(
+            Arc::new(MockEmbeddingEngine),
+            512,
+            Duration::from_millis(25),
+        );
+        let png = {
+            let image = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+                16,
+                12,
+                image::Rgb([64, 128, 192]),
+            ));
+            let mut cursor = std::io::Cursor::new(Vec::new());
+            image
+                .write_to(&mut cursor, image::ImageFormat::Png)
+                .expect("png encoding should succeed");
+            cursor.into_inner()
+        };
+
+        let response = service
+            .embed_image_batch(Request::new(EmbedImageBatchRequest {
+                items: vec![
+                    EmbedImageRequest {
+                        request_id: "img-1".to_string(),
+                        image_bytes: png,
+                        image_format_hint: "png".to_string(),
+                        model_name: String::new(),
+                    },
+                    EmbedImageRequest {
+                        request_id: "img-bad".to_string(),
+                        image_bytes: b"not an image".to_vec(),
+                        image_format_hint: "png".to_string(),
+                        model_name: String::new(),
+                    },
+                ],
+            }))
+            .await
+            .expect("batch should return")
+            .into_inner();
+
+        assert_eq!(response.items.len(), 2);
+        assert_eq!(response.items[0].request_id, "img-1");
+        assert!(response.items[0].ok);
+        assert_eq!(response.items[1].request_id, "img-bad");
+        assert!(!response.items[1].ok);
+        assert!(response.items[1].error.contains("failed to decode image"));
+    }
+
+    #[tokio::test]
+    async fn rejects_non_finite_batch_embedding_as_item_error() {
+        struct NonFiniteEngine;
+
+        impl EmbeddingEngine for NonFiniteEngine {
+            fn embed_text(&self, _text: &str) -> AnyResult<Vec<f32>> {
+                Ok(vec![1.0, f32::NAN])
+            }
+
+            fn embed_image(&self, rgb: &image::RgbImage) -> AnyResult<Vec<f32>> {
+                MockEmbeddingEngine.embed_image(rgb)
+            }
+
+            fn default_text_model_name(&self) -> &str {
+                "non-finite"
+            }
+
+            fn default_image_model_name(&self) -> &str {
+                "mock-image-v1"
+            }
+
+            fn model_info(&self) -> EngineModelInfo {
+                MockEmbeddingEngine.model_info()
+            }
+        }
+
+        let service =
+            SemanticServiceImpl::new(Arc::new(NonFiniteEngine), 512, Duration::from_millis(25));
+        let response = service
+            .embed_text_batch(Request::new(EmbedTextBatchRequest {
+                items: vec![EmbedTextRequest {
+                    request_id: "bad-embedding".to_string(),
+                    text: "tea".to_string(),
+                    model_name: String::new(),
+                }],
+            }))
+            .await
+            .expect("batch should return")
+            .into_inner();
+
+        assert_eq!(response.items.len(), 1);
+        assert_eq!(response.items[0].request_id, "bad-embedding");
+        assert!(!response.items[0].ok);
+        assert!(response.items[0].error.contains("non-finite"));
+    }
+
+    #[tokio::test]
+    async fn reports_model_info_and_runtime_status() {
+        let service =
+            SemanticServiceImpl::new(Arc::new(MockEmbeddingEngine), 7, Duration::from_millis(11));
+
+        let model_info = service
+            .get_model_info(Request::new(GetModelInfoRequest {}))
+            .await
+            .expect("model info should return")
+            .into_inner();
+        assert_eq!(model_info.model_id, "mock-model-v1");
+        assert_eq!(model_info.embedding_dimension, 8);
+
+        let status = service
+            .get_runtime_status(Request::new(GetRuntimeStatusRequest {}))
+            .await
+            .expect("runtime status should return")
+            .into_inner();
+        assert_eq!(status.state, "ready");
+        assert_eq!(status.image_batch_cap, 7);
+        assert_eq!(status.image_batch_wait_ms, 11);
     }
 }
