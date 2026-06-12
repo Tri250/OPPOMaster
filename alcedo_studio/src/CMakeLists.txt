@@ -154,6 +154,9 @@ if(ALCEDO_METAL_ENABLED)
         "${CMAKE_CURRENT_SOURCE_DIR}/edit/operators/GPU_kernels/metal_shader/color.metal"
         "${CMAKE_CURRENT_SOURCE_DIR}/edit/operators/GPU_kernels/metal_shader/cst.metal"
         "${CMAKE_CURRENT_SOURCE_DIR}/edit/operators/GPU_kernels/metal_shader/detail.metal"
+        "${CMAKE_CURRENT_SOURCE_DIR}/edit/operators/GPU_kernels/metal_shader/prng.metal"
+        "${CMAKE_CURRENT_SOURCE_DIR}/edit/operators/GPU_kernels/metal_shader/film_grain.metal"
+        "${CMAKE_CURRENT_SOURCE_DIR}/edit/operators/GPU_kernels/metal_shader/halation.metal"
     )
     set(METAL_TO_LINEAR_REF_SRC "${CMAKE_CURRENT_SOURCE_DIR}/decoders/processor/operators/gpu/metal_shader/to_linear_ref.metal")
     set(METAL_TO_LINEAR_REF_AIR "${CMAKE_CURRENT_BINARY_DIR}/decoders/processor/operators/gpu/metal_shader/to_linear_ref.air")
