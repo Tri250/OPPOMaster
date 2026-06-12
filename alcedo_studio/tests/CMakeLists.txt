@@ -227,6 +227,11 @@ if(ALCEDO_OPENCL_ENABLED)
   target_link_libraries(ImageBufferOpenClTest PRIVATE GTest::gtest_main ImageBuffer ${ALCEDO_TEST_OPENCV_MIN_DEPS})
   gtest_discover_tests(ImageBufferOpenClTest TEST_PREFIX "ImageBufferOpenClTest.")
 
+  add_executable(OpenClRawOpsTest raw/opencl_raw_ops_test.cpp)
+  target_include_directories(OpenClRawOpsTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+  target_link_libraries(OpenClRawOpsTest PRIVATE GTest::gtest_main RawProcessorOp ${ALCEDO_TEST_OPENCV_MIN_DEPS})
+  gtest_discover_tests(OpenClRawOpsTest TEST_PREFIX "OpenClRawOpsTest.")
+
   add_executable(OpenCLRawPreview gui_pocs/opencl_raw_preview.cpp)
   target_include_directories(OpenCLRawPreview PUBLIC ${ALCEDO_INCLUDE_DIR})
   target_link_libraries(OpenCLRawPreview PRIVATE RawProcessor Qt6::Widgets ${ALCEDO_TEST_OPENCV_MIN_DEPS})
@@ -933,6 +938,7 @@ alcedo_assign_test_category(raw ALCEDO_BUILD_RAW_TESTS alcedo_tests_raw
   SingleThumbnailLoad
   RawProcessorPatternTest
   ColorTempCudaSanityTest
+  OpenClRawOpsTest
   MetalRawStagePreviewTest
   MetalFullPipelinePreviewTest
 )

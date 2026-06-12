@@ -48,12 +48,16 @@ if(ALCEDO_OPENCL_ENABLED)
     set(OPENCL_EDIT_PIPELINE_FUSED_PARAMS_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/fused_params.cl")
     set(OPENCL_EDIT_PIPELINE_FUSED_PARAMS_VALIDATION_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/fused_params_validation.cl")
     set(OPENCL_EDIT_PIPELINE_FUSED_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/edit_pipeline_fused.cl")
+    set(OPENCL_EDIT_PIPELINE_DETAIL_COMMON_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/detail_common.cl")
+    set(OPENCL_EDIT_PIPELINE_FILM_GRAIN_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/film_grain.cl")
+    set(OPENCL_EDIT_PIPELINE_HALATION_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/halation.cl")
     set(OPENCL_EDIT_PIPELINE_DETAIL_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/edit_pipeline_detail.cl")
     set(OPENCL_EDIT_PIPELINE_COMMON_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/common.cl")
     set(OPENCL_EDIT_PIPELINE_BASIC_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/basic.cl")
     set(OPENCL_EDIT_PIPELINE_TONE_MAPPING_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/tone_mapping.cl")
     set(OPENCL_EDIT_PIPELINE_COLOR_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/color.cl")
     set(OPENCL_EDIT_PIPELINE_CST_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/pipeline/opencl_shader/cst.cl")
+    set(OPENCL_XTRANS_INTERPOLATE_CL "${CMAKE_CURRENT_SOURCE_DIR}/decoders/processor/operators/gpu/opencl_shader/xtrans_interpolate.cl")
     set(OPENCL_GEOMETRY_UTILS_CL "${CMAKE_CURRENT_SOURCE_DIR}/opencl/opencl_shader/geometry_utils.cl")
     set(OPENCL_EDIT_GEOMETRY_LENS_CALIB_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/operators/geometry/opencl_shader/lens_calib.cl")
     set(OPENCL_SCOPE_ANALYZER_CL "${CMAKE_CURRENT_SOURCE_DIR}/edit/scope/opencl_shader/scope_analyzer.cl")
@@ -83,12 +87,16 @@ if(ALCEDO_OPENCL_ENABLED)
         ALCEDO_OPENCL_EDIT_PIPELINE_FUSED_PARAMS_CL="${OPENCL_EDIT_PIPELINE_FUSED_PARAMS_CL}"
         ALCEDO_OPENCL_EDIT_PIPELINE_FUSED_PARAMS_VALIDATION_CL="${OPENCL_EDIT_PIPELINE_FUSED_PARAMS_VALIDATION_CL}"
         ALCEDO_OPENCL_EDIT_PIPELINE_FUSED_CL="${OPENCL_EDIT_PIPELINE_FUSED_CL}"
+        ALCEDO_OPENCL_EDIT_PIPELINE_DETAIL_COMMON_CL="${OPENCL_EDIT_PIPELINE_DETAIL_COMMON_CL}"
+        ALCEDO_OPENCL_EDIT_PIPELINE_FILM_GRAIN_CL="${OPENCL_EDIT_PIPELINE_FILM_GRAIN_CL}"
+        ALCEDO_OPENCL_EDIT_PIPELINE_HALATION_CL="${OPENCL_EDIT_PIPELINE_HALATION_CL}"
         ALCEDO_OPENCL_EDIT_PIPELINE_DETAIL_CL="${OPENCL_EDIT_PIPELINE_DETAIL_CL}"
         ALCEDO_OPENCL_EDIT_PIPELINE_COMMON_CL="${OPENCL_EDIT_PIPELINE_COMMON_CL}"
         ALCEDO_OPENCL_EDIT_PIPELINE_BASIC_CL="${OPENCL_EDIT_PIPELINE_BASIC_CL}"
         ALCEDO_OPENCL_EDIT_PIPELINE_TONE_MAPPING_CL="${OPENCL_EDIT_PIPELINE_TONE_MAPPING_CL}"
         ALCEDO_OPENCL_EDIT_PIPELINE_COLOR_CL="${OPENCL_EDIT_PIPELINE_COLOR_CL}"
         ALCEDO_OPENCL_EDIT_PIPELINE_CST_CL="${OPENCL_EDIT_PIPELINE_CST_CL}"
+        ALCEDO_OPENCL_XTRANS_INTERPOLATE_CL="${OPENCL_XTRANS_INTERPOLATE_CL}"
         ALCEDO_OPENCL_GEOMETRY_UTILS_CL="${OPENCL_GEOMETRY_UTILS_CL}"
         ALCEDO_OPENCL_EDIT_GEOMETRY_LENS_CALIB_CL="${OPENCL_EDIT_GEOMETRY_LENS_CALIB_CL}"
         ALCEDO_OPENCL_SCOPE_ANALYZER_CL="${OPENCL_SCOPE_ANALYZER_CL}"
@@ -498,6 +506,7 @@ if(ALCEDO_OPENCL_ENABLED)
     list(APPEND RAW_OP_GPU_SRCS
         decoders/processor/operators/gpu/opencl_to_linear_ref.cpp
         decoders/processor/operators/gpu/opencl_debayer_rcd.cpp
+        decoders/processor/operators/gpu/opencl_xtrans_interpolate.cpp
         decoders/processor/operators/gpu/opencl_highlight_reconstruct.cpp
         decoders/processor/operators/gpu/opencl_cvt_ref_space.cpp
     )
