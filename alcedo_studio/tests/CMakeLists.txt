@@ -642,6 +642,26 @@ if(WIN32)
   endif()
 endif()
 
+add_executable(SemanticFakeRuntime app/semantic_fake_runtime_main.cpp)
+
+add_executable(SemanticRuntimeServiceTest app/semantic_runtime_service_test.cpp)
+target_include_directories(SemanticRuntimeServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_compile_definitions(SemanticRuntimeServiceTest PRIVATE
+  ALCEDO_SEMANTIC_FAKE_RUNTIME_PATH="$<TARGET_FILE:SemanticFakeRuntime>")
+target_link_libraries(SemanticRuntimeServiceTest SemanticRuntimeService ProjectService GTest::gtest_main)
+add_dependencies(SemanticRuntimeServiceTest SemanticFakeRuntime)
+gtest_discover_tests(SemanticRuntimeServiceTest TEST_PREFIX "SemanticRuntimeServiceTest."
+  PROPERTIES LABELS "ci_core_flow")
+
+add_executable(SemanticGrpcDependencySmokeTest app/semantic_grpc_dependency_smoke_test.cpp)
+target_include_directories(SemanticGrpcDependencySmokeTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(SemanticGrpcDependencySmokeTest
+  puerhlab::grpc++
+  puerhlab::protobuf
+  GTest::gtest_main)
+gtest_discover_tests(SemanticGrpcDependencySmokeTest TEST_PREFIX "SemanticGrpcDependencySmokeTest."
+  PROPERTIES LABELS "ci_core_flow")
+
 add_executable(ThumbnailServiceTest app/thumbnail_service_test.cpp)
 target_include_directories(ThumbnailServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
 target_link_libraries(ThumbnailServiceTest ThumbnailService ProjectService ImportService GTest::gtest_main)

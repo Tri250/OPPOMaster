@@ -918,13 +918,20 @@ def_library(ImagePoolService
     PUBLIC_DEPS ImagePool Image StorageService
 )
 
+def_library(SemanticRuntimeService
+    SOURCES
+        app/semantic_runtime_service.cpp
+        include/app/semantic_runtime_service.hpp
+    PUBLIC_DEPS Qt6::Core Qt6::Network
+)
+
 def_library(ProjectService
     SOURCES
         app/project_service.cpp
         app/project_package_backend.cpp
         app/project_package_service.cpp
         ui/alcedo_main/album_backend/path_utils.cpp
-    PUBLIC_DEPS FSService StorageService ImagePoolService AlbumBrowseService
+    PUBLIC_DEPS FSService StorageService ImagePoolService AlbumBrowseService SemanticRuntimeService
                 StrConv JSON xxHash stduuid
     PRIVATE_DEPS
         UiLocalization
