@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 use anyhow::{Result, bail};
@@ -12,14 +12,14 @@ use tokenizers::Tokenizer;
 use tracing::info;
 
 use crate::config::SemanticConfig;
-use crate::service::embedding::EmbeddingEngine;
+use crate::service::embedding::{EmbeddingEngine, EngineModelInfo};
 use crate::service::model_assets::ClipModelPaths;
 
 const TEXT_SEQUENCE_LENGTH: usize = 77;
 const EMBEDDING_DIM: usize = 512;
 const IMAGE_SIZE: usize = 256;
 
-const DEVICE_ERROR_MESSAGE: &str = "expected \"auto\", \"cpu\", \"directml\", \"dml\", \"directml:N\", or \"dml:N\" for ALCEDO_MIND_DEVICE with ORT backend";
+const DEVICE_ERROR_MESSAGE: &str = "expected \"auto\", \"cpu\", \"directml\", \"dml\", \"directml:N\", \"dml:N\", \"coreml\", \"coreml:all\", \"coreml:cpuandgpu\", or \"coreml:cpuonly\" for ORT backend device";
 
 static ORT_ENVIRONMENT_INIT: OnceLock<bool> = OnceLock::new();
 
@@ -28,6 +28,14 @@ enum DeviceRequest {
     Auto,
     Cpu,
     DirectMl(Option<i32>),
+    CoreMl(CoreMlMode),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CoreMlMode {
+    All,
+    CpuAndGpu,
+    CpuOnly,
 }
 
 #[derive(Debug, Clone)]
@@ -38,6 +46,9 @@ struct SessionIo {
 
 pub struct OrtClipEngine {
     model_id: String,
+    revision: String,
+    provider: String,
+    model_root: PathBuf,
     tokenizer: Tokenizer,
     text_session: Mutex<Session>,
     vision_session: Mutex<Session>,
@@ -64,6 +75,15 @@ impl OrtClipEngine {
         if value_lower == "directml" || value_lower == "dml" {
             return Ok(DeviceRequest::DirectMl(None));
         }
+        if value_lower == "coreml" || value_lower == "coreml:all" {
+            return Ok(DeviceRequest::CoreMl(CoreMlMode::All));
+        }
+        if value_lower == "coreml:cpuandgpu" {
+            return Ok(DeviceRequest::CoreMl(CoreMlMode::CpuAndGpu));
+        }
+        if value_lower == "coreml:cpuonly" {
+            return Ok(DeviceRequest::CoreMl(CoreMlMode::CpuOnly));
+        }
 
         if let Some(ordinal_text) = value_lower
             .strip_prefix("directml:")
@@ -84,6 +104,10 @@ impl OrtClipEngine {
             return Ok(DeviceRequest::DirectMl(Some(ordinal)));
         }
 
+        if value_lower.starts_with("coreml:") {
+            bail!("unsupported Core ML mode in {value:?}, {DEVICE_ERROR_MESSAGE}");
+        }
+
         if value_lower == "cuda"
             || value_lower.starts_with("cuda:")
             || value_lower == "metal"
@@ -95,14 +119,6 @@ impl OrtClipEngine {
         }
 
         bail!("unsupported ALCEDO_MIND_DEVICE value {value:?}, {DEVICE_ERROR_MESSAGE}")
-    }
-
-    fn select_device_request() -> Result<DeviceRequest> {
-        match std::env::var("ALCEDO_MIND_DEVICE") {
-            Ok(value) => Self::parse_device_request(&value),
-            Err(std::env::VarError::NotPresent) => Ok(DeviceRequest::Auto),
-            Err(err) => bail!("failed to read ALCEDO_MIND_DEVICE: {err}"),
-        }
     }
 
     fn initialize_ort_environment() -> Result<()> {
@@ -121,12 +137,15 @@ impl OrtClipEngine {
                 if cfg!(target_os = "windows") {
                     "auto (DirectML preferred, CPU fallback)".to_string()
                 } else {
-                    "auto (CPU)".to_string()
+                    "auto (CoreML preferred on macOS, CPU fallback elsewhere)".to_string()
                 }
             }
             DeviceRequest::Cpu => "cpu".to_string(),
             DeviceRequest::DirectMl(None) => "directml".to_string(),
             DeviceRequest::DirectMl(Some(ordinal)) => format!("directml:{ordinal}"),
+            DeviceRequest::CoreMl(CoreMlMode::All) => "coreml:all".to_string(),
+            DeviceRequest::CoreMl(CoreMlMode::CpuAndGpu) => "coreml:cpuandgpu".to_string(),
+            DeviceRequest::CoreMl(CoreMlMode::CpuOnly) => "coreml:cpuonly".to_string(),
         }
     }
 
@@ -138,6 +157,13 @@ impl OrtClipEngine {
                 if cfg!(target_os = "windows") {
                     Ok(vec![
                         ep::DirectML::default().build(),
+                        ep::CPU::default().build(),
+                    ])
+                } else if cfg!(target_os = "macos") {
+                    Ok(vec![
+                        ep::CoreML::default()
+                            .with_compute_units(ep::coreml::ComputeUnits::All)
+                            .build(),
                         ep::CPU::default().build(),
                     ])
                 } else {
@@ -158,6 +184,23 @@ impl OrtClipEngine {
                 };
 
                 Ok(vec![directml, ep::CPU::default().build()])
+            }
+            DeviceRequest::CoreMl(mode) => {
+                if !cfg!(target_os = "macos") {
+                    bail!(
+                        "device requests Core ML, but Core ML is only supported on macOS for the ORT backend"
+                    );
+                }
+
+                let units = match mode {
+                    CoreMlMode::All => ep::coreml::ComputeUnits::All,
+                    CoreMlMode::CpuAndGpu => ep::coreml::ComputeUnits::CPUAndGPU,
+                    CoreMlMode::CpuOnly => ep::coreml::ComputeUnits::CPUOnly,
+                };
+                Ok(vec![
+                    ep::CoreML::default().with_compute_units(units).build(),
+                    ep::CPU::default().build(),
+                ])
             }
         }
     }
@@ -507,10 +550,10 @@ impl OrtClipEngine {
     }
 
     pub fn new(config: &SemanticConfig) -> Result<Self> {
-        let device_request = Self::select_device_request()?;
+        let device_request = Self::parse_device_request(&config.device)?;
 
-        let model_paths = ClipModelPaths::from_root(&config.model_dir);
-        model_paths.ensure_present()?;
+        let model_paths = ClipModelPaths::from_root(&config.model_root);
+        model_paths.ensure_present(&config.revision, config.allow_download)?;
 
         Self::initialize_ort_environment()?;
 
@@ -533,6 +576,9 @@ impl OrtClipEngine {
 
         Ok(Self {
             model_id: config.model_id.clone(),
+            revision: config.revision.clone(),
+            provider: device_description,
+            model_root: model_paths.root,
             tokenizer,
             text_session: Mutex::new(text_session),
             vision_session: Mutex::new(vision_session),
@@ -549,6 +595,10 @@ impl EmbeddingEngine for OrtClipEngine {
             bail!("expected one text embedding row, got {}", embeddings.len());
         }
         Ok(embeddings.remove(0))
+    }
+
+    fn embed_texts(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
+        self.forward_text_embeddings(texts)
     }
 
     fn embed_image(&self, rgb: &RgbImage) -> Result<Vec<f32>> {
@@ -569,6 +619,18 @@ impl EmbeddingEngine for OrtClipEngine {
 
     fn default_image_model_name(&self) -> &str {
         &self.model_id
+    }
+
+    fn model_info(&self) -> EngineModelInfo {
+        EngineModelInfo {
+            model_id: self.model_id.clone(),
+            revision: self.revision.clone(),
+            embedding_dim: EMBEDDING_DIM as u32,
+            image_size: IMAGE_SIZE as u32,
+            provider: self.provider.clone(),
+            model_root: self.model_root.to_string_lossy().into_owned(),
+            prototype_config_hash: String::new(),
+        }
     }
 }
 
@@ -592,7 +654,12 @@ mod tests {
 
         let config = SemanticConfig {
             model_id: "plhery/mobileclip2-onnx:s2".to_string(),
-            model_dir: "./models/mobileclip2-s2-openclip".to_string(),
+            revision: crate::service::model_assets::MOBILECLIP2_ONNX_REVISION.to_string(),
+            model_root: "./models/mobileclip2-s2-openclip".to_string(),
+            device: "cpu".to_string(),
+            allow_download: false,
+            batch_cap: 512,
+            batch_wait_ms: 25,
         };
         OrtClipEngine::new(&config).expect("engine should load")
     }
@@ -627,6 +694,28 @@ mod tests {
             OrtClipEngine::parse_device_request("dml:1").unwrap(),
             DeviceRequest::DirectMl(Some(1))
         );
+    }
+
+    #[test]
+    fn parses_coreml_device_requests() {
+        assert_eq!(
+            OrtClipEngine::parse_device_request("coreml").unwrap(),
+            DeviceRequest::CoreMl(CoreMlMode::All)
+        );
+        assert_eq!(
+            OrtClipEngine::parse_device_request("coreml:cpuandgpu").unwrap(),
+            DeviceRequest::CoreMl(CoreMlMode::CpuAndGpu)
+        );
+        assert_eq!(
+            OrtClipEngine::parse_device_request("coreml:cpuonly").unwrap(),
+            DeviceRequest::CoreMl(CoreMlMode::CpuOnly)
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_coreml_mode() {
+        let err = OrtClipEngine::parse_device_request("coreml:gpuonly").unwrap_err();
+        assert!(err.to_string().contains("unsupported Core ML mode"));
     }
 
     #[test]
@@ -749,7 +838,12 @@ mod tests {
 
         let config = SemanticConfig {
             model_id: "plhery/mobileclip2-onnx:s2".to_string(),
-            model_dir: test_dir.to_string_lossy().into_owned(),
+            revision: crate::service::model_assets::MOBILECLIP2_ONNX_REVISION.to_string(),
+            model_root: test_dir.to_string_lossy().into_owned(),
+            device: "cpu".to_string(),
+            allow_download: true,
+            batch_cap: 512,
+            batch_wait_ms: 25,
         };
         let engine = OrtClipEngine::new(&config).expect("engine should download assets and load");
 

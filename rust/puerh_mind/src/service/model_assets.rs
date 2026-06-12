@@ -32,19 +32,21 @@ impl ClipModelPaths {
         }
     }
 
-    pub fn ensure_present(&self) -> anyhow::Result<()> {
-        std::fs::create_dir_all(&self.root).with_context(|| {
-            format!(
-                "failed to create model root directory {}",
-                self.root.display()
-            )
-        })?;
+    pub fn ensure_present(&self, revision: &str, allow_download: bool) -> anyhow::Result<()> {
+        if allow_download {
+            std::fs::create_dir_all(&self.root).with_context(|| {
+                format!(
+                    "failed to create model root directory {}",
+                    self.root.display()
+                )
+            })?;
+            self.download_missing_assets(revision)?;
+        }
 
-        self.download_missing_assets()?;
         self.validate()
     }
 
-    fn download_missing_assets(&self) -> anyhow::Result<()> {
+    fn download_missing_assets(&self, revision: &str) -> anyhow::Result<()> {
         let assets = [
             ("onnx/s2/text_model.onnx", &self.text_model),
             ("onnx/s2/vision_model.onnx", &self.vision_model),
@@ -66,7 +68,7 @@ impl ClipModelPaths {
         let repo = api.repo(Repo::with_revision(
             MOBILECLIP2_ONNX_REPO.to_string(),
             RepoType::Model,
-            MOBILECLIP2_ONNX_REVISION.to_string(),
+            revision.to_string(),
         ));
 
         for (remote_path, local_path) in assets {
@@ -85,7 +87,7 @@ impl ClipModelPaths {
 
             let downloaded = repo.get(remote_path).with_context(|| {
                 format!(
-                    "failed to download {remote_path} from repo {MOBILECLIP2_ONNX_REPO}@{MOBILECLIP2_ONNX_REVISION}"
+                    "failed to download {remote_path} from repo {MOBILECLIP2_ONNX_REPO}@{revision}"
                 )
             })?;
 
@@ -140,5 +142,29 @@ impl ClipModelPaths {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_only_missing_model_fails_without_creating_root() {
+        let root = std::env::temp_dir().join(format!(
+            "alcedo-mind-missing-model-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock should be valid")
+                .as_nanos()
+        ));
+        let paths = ClipModelPaths::from_root(&root);
+
+        let err = paths
+            .ensure_present(MOBILECLIP2_ONNX_REVISION, false)
+            .expect_err("validate-only missing model should fail");
+
+        assert!(err.to_string().contains("missing model root directory"));
+        assert!(!root.exists());
     }
 }

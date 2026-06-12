@@ -5,7 +5,7 @@ use crate::config::AppConfig;
 use crate::service::registry::register_services;
 
 pub async fn start_server() -> Result<(), Box<dyn std::error::Error>> {
-    let config = AppConfig::load();
+    let config = AppConfig::load()?;
     let addr = config.listen_addr().parse()?;
 
     info!("staring alcedo_mind on {}", addr);

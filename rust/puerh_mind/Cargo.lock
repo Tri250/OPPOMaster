@@ -18,6 +18,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "alcedo_mind"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hf-hub",
+ "image",
+ "mini-redis",
+ "ort",
+ "prost",
+ "prost-types",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokenizers",
+ "tokio",
+ "tonic",
+ "tonic-prost",
+ "tonic-prost-build",
+ "tonic-reflection",
+ "tracing",
+ "tracing-subscriber 0.3.23",
+]
+
+[[package]]
 name = "aligned"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1952,30 +1976,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8991c4cbdb8bc5b11f0b074ffe286c30e523de90fee5ba8132f1399f23cb3dd7"
 dependencies = [
  "prost",
-]
-
-[[package]]
-name = "alcedo_mind"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "hf-hub",
- "image",
- "mini-redis",
- "ort",
- "prost",
- "prost-types",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokenizers",
- "tokio",
- "tonic",
- "tonic-prost",
- "tonic-prost-build",
- "tonic-reflection",
- "tracing",
- "tracing-subscriber 0.3.23",
 ]
 
 [[package]]

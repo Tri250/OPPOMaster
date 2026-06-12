@@ -1,13 +1,28 @@
 use anyhow::Result;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EngineModelInfo {
+    pub model_id: String,
+    pub revision: String,
+    pub embedding_dim: u32,
+    pub image_size: u32,
+    pub provider: String,
+    pub model_root: String,
+    pub prototype_config_hash: String,
+}
+
 pub trait EmbeddingEngine: Send + Sync {
     fn embed_text(&self, text: &str) -> Result<Vec<f32>>;
+    fn embed_texts(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
+        texts.iter().map(|text| self.embed_text(text)).collect()
+    }
     fn embed_image(&self, rgb: &image::RgbImage) -> Result<Vec<f32>>;
     fn embed_images(&self, rgbs: &[image::RgbImage]) -> Result<Vec<Vec<f32>>> {
         rgbs.iter().map(|rgb| self.embed_image(rgb)).collect()
     }
     fn default_text_model_name(&self) -> &str;
     fn default_image_model_name(&self) -> &str;
+    fn model_info(&self) -> EngineModelInfo;
 }
 
 #[allow(dead_code)]
@@ -55,5 +70,17 @@ impl EmbeddingEngine for MockEmbeddingEngine {
 
     fn default_image_model_name(&self) -> &'static str {
         "mock-image-v1"
+    }
+
+    fn model_info(&self) -> EngineModelInfo {
+        EngineModelInfo {
+            model_id: "mock-model-v1".to_string(),
+            revision: "mock-revision".to_string(),
+            embedding_dim: 8,
+            image_size: 256,
+            provider: "mock".to_string(),
+            model_root: String::new(),
+            prototype_config_hash: String::new(),
+        }
     }
 }

@@ -10,15 +10,17 @@ use crate::server::semantic::SemanticServiceImpl;
 use crate::service::ort_clip::OrtClipEngine;
 
 const FILE_DESCRIPTOR_SET: &[u8] = tonic::include_file_descriptor_set!("semantic_descriptor");
-const GRPC_MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
-
 pub fn register_services(
     mut builder: Server,
     config: &AppConfig,
 ) -> anyhow::Result<tonic::transport::server::Router> {
     let health_service = HealthServiceImpl;
     let semantic_engine = Arc::new(OrtClipEngine::new(&config.semantic)?);
-    let semantic_service = SemanticServiceImpl::new(semantic_engine);
+    let semantic_service = SemanticServiceImpl::new(
+        semantic_engine,
+        config.semantic.batch_cap,
+        std::time::Duration::from_millis(config.semantic.batch_wait_ms),
+    );
 
     let reflection_service = tonic_reflection::server::Builder::configure()
         .register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET)
@@ -30,7 +32,7 @@ pub fn register_services(
         .add_service(HealthServiceServer::new(health_service))
         .add_service(
             SemanticServiceServer::new(semantic_service)
-                .max_decoding_message_size(GRPC_MAX_MESSAGE_BYTES)
-                .max_encoding_message_size(GRPC_MAX_MESSAGE_BYTES),
+                .max_decoding_message_size(config.max_message_bytes)
+                .max_encoding_message_size(config.max_message_bytes),
         ))
 }

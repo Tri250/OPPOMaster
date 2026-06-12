@@ -2,7 +2,7 @@
 
 Date: 2026-06-12
 
-Status: planning
+Status: Phase 1 complete; Phase 2 pending
 
 This document proposes how to integrate `rust/puerh_mind` into Alcedo Studio as
 project-level semantic image generation and semantic search services.
@@ -362,7 +362,7 @@ Packaging smoke tests should verify:
 
 ## Phased Rollout
 
-1. Rust runtime hardening
+1. Rust runtime hardening - complete
    - CLI config
    - validate-only model assets
    - model/status RPCs
