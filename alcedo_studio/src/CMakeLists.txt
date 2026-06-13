@@ -818,6 +818,7 @@ set(SERVICE_SRCS
     storage/controller/controller_types.cpp
     storage/controller/db_controller.cpp
     storage/controller/image/image_controller.cpp
+    storage/controller/semantic/semantic_storage_controller.cpp
     storage/controller/sleeve/element_controller.cpp
     storage/service/image/image_service.cpp
     storage/service/sleeve/base/base_service.cpp
@@ -1433,6 +1434,16 @@ if(WIN32 AND TARGET alcedo_lensfun)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "$<TARGET_FILE:alcedo_lensfun>"
             "$<TARGET_FILE_DIR:alcedo_main>/lensfun.dll"
+        VERBATIM
+    )
+endif()
+
+if(WIN32 AND ALCEDO_DUCKDB_VSS_EXTENSION)
+    add_custom_command(TARGET alcedo_main POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:alcedo_main>/duckdb_extensions"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${ALCEDO_DUCKDB_VSS_EXTENSION}"
+            "$<TARGET_FILE_DIR:alcedo_main>/duckdb_extensions/vss.duckdb_extension"
         VERBATIM
     )
 endif()
