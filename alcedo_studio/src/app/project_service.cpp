@@ -7,11 +7,10 @@
 #include <array>
 #include <fstream>
 #include <iostream>
+#include <json.hpp>
 #include <optional>
 #include <random>
 #include <stdexcept>
-
-#include <json.hpp>
 
 #include "app/project_package_backend.hpp"
 #include "app/project_package_service.hpp"
@@ -75,7 +74,7 @@ auto GenerateProjectUUID() -> std::string {
 // a strong integrity check — mismatches produce a warning, not a
 // load failure. Use data_fingerprint (L3) for semantic verification.
 auto ComputeProjectDataSummary(StorageService& storage_service) -> nlohmann::json {
-  auto guard = storage_service.GetDBController().GetConnectionGuard();
+  auto guard       = storage_service.GetDBController().GetConnectionGuard();
 
   auto query_int64 = [&](const std::string& sql) -> std::optional<int64_t> {
     duckdb_result result;
@@ -98,30 +97,40 @@ auto ComputeProjectDataSummary(StorageService& storage_service) -> nlohmann::jso
     const char* pk_column;  // nullptr if no meaningful single numeric PK
   };
   static constexpr TableInfo kTables[] = {
-      {"Sleeve", "id"},         {"Image", "id"},        {"SleeveRoot", "id"},
-      {"Element", "id"},        {"FolderContent", nullptr}, {"FileImage", "file_id"},
-      {"ComboFolder", "combo_id"}, {"Filter", "combo_id"},  {"EditHistory", "file_id"},
-      {"Version", "hash"},      {"PipelineParam", "file_id"},
+      {"Sleeve", "id"},
+      {"Image", "id"},
+      {"SleeveRoot", "id"},
+      {"Element", "id"},
+      {"FolderContent", nullptr},
+      {"FileImage", "file_id"},
+      {"ComboFolder", "combo_id"},
+      {"Filter", "combo_id"},
+      {"EditHistory", "file_id"},
+      {"Version", "hash"},
+      {"PipelineParam", "file_id"},
+      {"SemanticModel", nullptr},
+      {"SemanticImageEmbedding", "file_id"},
+      {"SemanticImageLabel", "file_id"},
+      {"SemanticLabelPrototype", nullptr},
   };
 
   nlohmann::json summary;
-  summary["version"] = 1;
+  summary["version"]    = 1;
   nlohmann::json tables = nlohmann::json::object();
 
   for (const auto& table : kTables) {
     nlohmann::json entry;
 
-    auto count = query_int64(
-        std::string("SELECT COUNT(*) FROM \"") + table.name + "\"");
+    auto           count = query_int64(std::string("SELECT COUNT(*) FROM \"") + table.name + "\"");
     if (!count.has_value()) continue;
     entry["rows"] = *count;
 
     if (table.pk_column != nullptr) {
       const std::string pk_str(table.pk_column);
-      auto min_val = query_int64(
-          std::string("SELECT MIN(\"") + pk_str + "\") FROM \"" + table.name + "\"");
-      auto max_val = query_int64(
-          std::string("SELECT MAX(\"") + pk_str + "\") FROM \"" + table.name + "\"");
+      auto              min_val =
+          query_int64(std::string("SELECT MIN(\"") + pk_str + "\") FROM \"" + table.name + "\"");
+      auto max_val =
+          query_int64(std::string("SELECT MAX(\"") + pk_str + "\") FROM \"" + table.name + "\"");
       if (min_val.has_value() && max_val.has_value()) {
         entry["min_id"] = *min_val;
         entry["max_id"] = *max_val;
@@ -138,19 +147,18 @@ auto ComputeProjectDataSummary(StorageService& storage_service) -> nlohmann::jso
 }  // namespace
 
 ProjectService::ProjectService(const std::filesystem::path& db_path,
-                               const std::filesystem::path& meta_path,
-                               ProjectOpenMode              open_mode)
+                               const std::filesystem::path& meta_path, ProjectOpenMode open_mode)
     : db_path_(db_path), meta_path_(meta_path) {
   const auto create_new_project = [this]() {
     storage_service_ = std::make_shared<StorageService>(db_path_);
     RecreateSleeveService(0);
-    pool_service_ = std::make_shared<ImagePoolService>(storage_service_, 0);
+    pool_service_    = std::make_shared<ImagePoolService>(storage_service_, 0);
     filter_service_  = std::make_shared<SleeveFilterService>(storage_service_);
     browse_service_  = std::make_shared<AlbumBrowseService>(sleeve_service_, filter_service_);
     package_service_ = std::make_shared<ProjectPackageService>();
     semantic_runtime_service_ = std::make_shared<SemanticRuntimeService>();
 
-    project_uuid_ = GenerateProjectUUID();
+    project_uuid_             = GenerateProjectUUID();
   };
 
   switch (open_mode) {
@@ -165,7 +173,7 @@ ProjectService::ProjectService(const std::filesystem::path& db_path,
   }
 
   std::error_code ec;
-  const bool meta_exists = std::filesystem::exists(meta_path, ec);
+  const bool      meta_exists = std::filesystem::exists(meta_path, ec);
   if (ec) {
     throw std::runtime_error("Failed to inspect project metadata path");
   }
@@ -197,9 +205,9 @@ void ProjectService::SaveProject(const std::filesystem::path& meta_path) {
   meta_path_ = meta_path;
 
   nlohmann::json metadata;
-  metadata["db_path"]             = conv::ToBytes(db_path_.wstring());
-  metadata["meta_path"]           = conv::ToBytes(meta_path_.wstring());
-  metadata["project_uuid"]        = project_uuid_;
+  metadata["db_path"]              = conv::ToBytes(db_path_.wstring());
+  metadata["meta_path"]            = conv::ToBytes(meta_path_.wstring());
+  metadata["project_uuid"]         = project_uuid_;
   metadata["project_file_version"] = std::string(project_pack::kProjectFileVersion);
   metadata["project_file_min_supported_version"] =
       std::string(project_pack::kMinSupportedProjectFileVersion);
@@ -289,15 +297,15 @@ void ProjectService::LoadProject(const std::filesystem::path& meta_path) {
                      "This may indicate data changes since the project was saved.\n";
       }
     } catch (const std::exception& e) {
-      std::cerr << "[Alcedo] Unable to compute project data summary for comparison: "
-                << e.what() << "\n";
+      std::cerr << "[Alcedo] Unable to compute project data summary for comparison: " << e.what()
+                << "\n";
     } catch (...) {
       std::cerr << "[Alcedo] Unable to compute project data summary for comparison.\n";
     }
   }
 
   RecreateSleeveService(start_id);
-  pool_service_ = std::make_shared<ImagePoolService>(storage_service_, image_pool_start_id);
+  pool_service_    = std::make_shared<ImagePoolService>(storage_service_, image_pool_start_id);
   filter_service_  = std::make_shared<SleeveFilterService>(storage_service_);
   browse_service_  = std::make_shared<AlbumBrowseService>(sleeve_service_, filter_service_);
   package_service_ = std::make_shared<ProjectPackageService>();

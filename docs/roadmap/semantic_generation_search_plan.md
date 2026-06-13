@@ -2,7 +2,7 @@
 
 Date: 2026-06-12
 
-Status: Phase 1 complete; Phase 2 pending
+Status: Phase 1 complete; Phase 2 complete; Phase 3 complete
 
 This document proposes how to integrate `rust/puerh_mind` into Alcedo Studio as
 project-level semantic image generation and semantic search services.
@@ -258,10 +258,36 @@ CREATE TABLE SemanticLabelPrototype (
 );
 ```
 
-Phase 1 can store normalized `float32` vectors as BLOBs and compute dot products
-in C++ for easier ORM integration. Phase 2 can migrate to DuckDB fixed-size
-`FLOAT[512]` arrays and use array cosine functions or the experimental VSS HNSW
-index for larger projects.
+Store normalized `float32` vectors in DuckDB-native list/array form rather than
+opaque BLOBs. Free-text semantic search must not fetch every stored vector into
+C++ for cosine comparison. The storage layer owns a ranked query primitive that:
+
+- validates the query vector against the active model dimension
+- reuses `ElementController::BuildScopedFileQuery` for root/folder scope
+- joins scoped files to `SemanticImageEmbedding`
+- ranks with DuckDB VSS/HNSW using `array_distance` over normalized embeddings
+- applies `ORDER BY score DESC, file_id` plus `LIMIT/OFFSET` in SQL
+
+This keeps the future `SemanticSearchProvider` thin: it embeds text through the
+runtime, then asks storage for a ranked page. The application receives only the
+page rows, not the full vector corpus.
+
+DuckDB's `vss` extension is required for semantic search. The packaged app must
+ship the matching `vss.duckdb_extension`; local DuckDB may recognize the
+extension name but still fail `LOAD vss` if the extension file has not been
+installed. Storage should therefore:
+
+- require `LOAD vss` at startup or first semantic search
+- create and maintain an HNSW index over the fixed-size embedding column
+- enable DuckDB's `hnsw_enable_experimental_persistence` setting for on-disk
+  project databases before creating the index
+- fail with an actionable storage error when the extension or index is missing
+- hide the exact-vs-ANN choice behind the storage controller API
+
+The table shape intentionally uses `FLOAT[512]` for the active MobileCLIP model
+because DuckDB's HNSW index requires a fixed-size array column. A future
+non-512-dimensional model should use a schema migration or a dimension-specific
+embedding table rather than degrading back to C++ vector scans.
 
 Required follow-up updates:
 
@@ -379,6 +405,8 @@ Packaging smoke tests should verify:
 3. Storage foundation
    - semantic tables
    - storage controller or repository wrapper
+   - DuckDB VSS/HNSW vector ranking and pagination primitive
+   - required DuckDB `vss` extension loading and index creation
    - project checksum/package integration
    - deletion cleanup
 
@@ -401,12 +429,13 @@ Packaging smoke tests should verify:
    - source mirror settings
    - Rust binary install
    - ORT dynamic library deployment
+   - DuckDB `vss` extension deployment when ANN search is enabled
    - packaged smoke test
 
 7. Performance path
-   - DuckDB `FLOAT[512]` array storage
-   - DuckDB array cosine functions
-   - optional VSS index for large catalogs
+   - tune DuckDB VSS/HNSW index parameters for large catalogs
+   - cached query embedding/result-token tables for repeated UI paging
+   - apply-to-album-grid scope tables instead of giant `IN (...)` lists
    - multi-adapter or CPU worker pool only after single-process batching is
      measured
 

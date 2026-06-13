@@ -89,6 +89,33 @@ auto RunScalarInt64(duckdb_connection conn, const std::string& sql) -> int64_t {
   duckdb_destroy_result(&result);
   return value;
 }
+
+auto JoinIds(std::span<const sl_element_id_t> ids) -> std::string {
+  std::string out;
+  for (size_t i = 0; i < ids.size(); ++i) {
+    if (i > 0) {
+      out += ",";
+    }
+    out += std::to_string(ids[i]);
+  }
+  return out;
+}
+
+void DeleteSemanticRowsForFiles(duckdb_connection conn, std::span<const sl_element_id_t> file_ids) {
+  if (file_ids.empty()) {
+    return;
+  }
+  const auto    ids = JoinIds(file_ids);
+  duckdb_result result;
+  duckdb_query(
+      conn, std::format("DELETE FROM SemanticImageEmbedding WHERE file_id IN ({});", ids).c_str(),
+      &result);
+  duckdb_destroy_result(&result);
+  duckdb_query(conn,
+               std::format("DELETE FROM SemanticImageLabel WHERE file_id IN ({});", ids).c_str(),
+               &result);
+  duckdb_destroy_result(&result);
+}
 }  // namespace
 
 /**
@@ -187,6 +214,8 @@ void ElementController::RemoveElement(const sl_element_id_t id) { element_servic
 void ElementController::RemoveElement(const std::shared_ptr<SleeveElement> element) {
   if (element->type_ == ElementType::FILE) {
     auto file = std::static_pointer_cast<SleeveFile>(element);
+    DeleteSemanticRowsForFiles(guard_.conn_,
+                               std::span<const sl_element_id_t>(&file->element_id_, 1));
     history_service_.RemoveById(file->element_id_);
     pipeline_service_.RemoveById(file->element_id_);
     file_service_.RemoveById(file->element_id_);
@@ -198,8 +227,7 @@ void ElementController::RemoveElement(const std::shared_ptr<SleeveElement> eleme
   element_service_.RemoveById(element->element_id_);
 }
 
-void ElementController::RemoveElements(
-    std::span<const std::shared_ptr<SleeveElement>> elements) {
+void ElementController::RemoveElements(std::span<const std::shared_ptr<SleeveElement>> elements) {
   if (elements.empty()) {
     return;
   }
@@ -227,6 +255,7 @@ void ElementController::RemoveElements(
   }
 
   if (!file_ids.empty()) {
+    DeleteSemanticRowsForFiles(guard_.conn_, file_ids);
     history_service_.RemoveByIds(file_ids);
     pipeline_service_.RemoveByIds(file_ids);
     file_service_.RemoveByIds(file_ids);
@@ -412,8 +441,8 @@ auto ElementController::RemovePipelineByElementId(const sl_element_id_t element_
   pipeline_service_.RemoveById(element_id);
 }
 
-auto ElementController::RemovePipelinesByElementIds(
-    std::span<const sl_element_id_t> element_ids) -> void {
+auto ElementController::RemovePipelinesByElementIds(std::span<const sl_element_id_t> element_ids)
+    -> void {
   pipeline_service_.RemoveByIds(element_ids);
 }
 
@@ -432,8 +461,8 @@ auto ElementController::RemoveEditHistoryByFileId(const sl_element_id_t file_id)
   history_service_.RemoveById(file_id);
 }
 
-auto ElementController::RemoveEditHistoriesByFileIds(
-    std::span<const sl_element_id_t> file_ids) -> void {
+auto ElementController::RemoveEditHistoriesByFileIds(std::span<const sl_element_id_t> file_ids)
+    -> void {
   history_service_.RemoveByIds(file_ids);
 }
 

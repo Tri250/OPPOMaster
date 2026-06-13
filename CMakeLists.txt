@@ -493,6 +493,17 @@ else()
   endif()
 endif()
 
+if(WIN32)
+    set(ALCEDO_DUCKDB_VSS_EXTENSION
+        "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/libduckdb-windows/extensions/vss.duckdb_extension"
+        CACHE FILEPATH "DuckDB VSS extension matching the bundled Windows DuckDB runtime.")
+    if(NOT EXISTS "${ALCEDO_DUCKDB_VSS_EXTENSION}")
+        message(FATAL_ERROR
+            "DuckDB VSS extension is required for semantic search. "
+            "Expected: ${ALCEDO_DUCKDB_VSS_EXTENSION}")
+    endif()
+endif()
+
 # Modules
 set(TEST_RES_DIR "${CMAKE_SOURCE_DIR}/alcedo_studio/tests/resources" CACHE PATH "Path to test resources")
 file(TO_CMAKE_PATH "${TEST_RES_DIR}" TEST_RES_DIR)
@@ -679,6 +690,11 @@ if(TARGET ${ALCEDO_MAIN_BIN})
                 DESTINATION "${CMAKE_INSTALL_BINDIR}/opencl/edit/scope/opencl_shader")
             install(DIRECTORY "${CMAKE_SOURCE_DIR}/alcedo_studio/src/opencl/opencl_shader/"
                 DESTINATION "${CMAKE_INSTALL_BINDIR}/opencl/opencl/opencl_shader")
+        endif()
+        if(WIN32 AND ALCEDO_DUCKDB_VSS_EXTENSION)
+            install(FILES "${ALCEDO_DUCKDB_VSS_EXTENSION}"
+                DESTINATION "${CMAKE_INSTALL_BINDIR}/duckdb_extensions"
+            )
         endif()
 
         if(APPLE AND ALCEDO_METAL_ENABLED AND ALCEDO_METAL_RUNTIME_LIBS)

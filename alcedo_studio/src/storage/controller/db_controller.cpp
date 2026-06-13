@@ -53,22 +53,35 @@ auto DBController::GetConnectionGuard() -> ConnectionGuard {
  */
 void DBController::InitializeDB() {
   // SQL query to create the necessary tables
-  
+
   std::string utf8_str = conv::ToBytes(db_path_.wstring());
   auto        state    = duckdb_open(utf8_str.c_str(), &db_);
   if (state != DuckDBSuccess) {
-    throw std::runtime_error("DB cannot be opened or created" );
+    throw std::runtime_error("DB cannot be opened or created");
   }
 
   // SQL query to create the tables
-  auto guard = GetConnectionGuard();
+  auto          guard = GetConnectionGuard();
   duckdb_result result;
   if (initialized_) {
+    if (duckdb_query(guard.conn_, semantic_table_query, &result) != DuckDBSuccess) {
+      auto error_message = duckdb_result_error(&result);
+      duckdb_destroy_result(&result);
+      throw std::runtime_error(error_message);
+    }
+    duckdb_destroy_result(&result);
     return;
   }
 
   // Run the SQL query to create the tables
   if (duckdb_query(guard.conn_, init_table_query, &result) != DuckDBSuccess) {
+    auto error_message = duckdb_result_error(&result);
+    duckdb_destroy_result(&result);
+    throw std::runtime_error(error_message);
+  }
+  duckdb_destroy_result(&result);
+
+  if (duckdb_query(guard.conn_, semantic_table_query, &result) != DuckDBSuccess) {
     auto error_message = duckdb_result_error(&result);
     duckdb_destroy_result(&result);
     throw std::runtime_error(error_message);
