@@ -694,6 +694,16 @@ if(WIN32)
   endif()
 endif()
 
+add_executable(SemanticGenerationServiceTest app/semantic_generation_service_test.cpp)
+target_include_directories(SemanticGenerationServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(SemanticGenerationServiceTest
+  SemanticGenerationService
+  ProjectService
+  ImportService
+  GTest::gtest_main)
+gtest_discover_tests(SemanticGenerationServiceTest TEST_PREFIX "SemanticGenerationServiceTest."
+  PROPERTIES LABELS "ci_core_flow")
+
 add_executable(ThumbnailServiceTest app/thumbnail_service_test.cpp)
 target_include_directories(ThumbnailServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
 target_link_libraries(ThumbnailServiceTest ThumbnailService ProjectService ImportService GTest::gtest_main)
@@ -1047,6 +1057,7 @@ alcedo_assign_test_category(app ALCEDO_BUILD_APP_TESTS alcedo_tests_app
   FilterServiceTest
   PipelineServiceTest
   EditHistoryMgmtServiceTest
+  SemanticGenerationServiceTest
   ThumbnailServiceTest
   ThumbnailDiskCacheServiceTest
   ExportServiceTest
