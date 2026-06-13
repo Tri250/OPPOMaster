@@ -2,7 +2,8 @@
 
 Date: 2026-06-12
 
-Status: Phase 1 complete; Phase 2 complete; Phase 3 complete
+Status: Phase 1 complete; Phase 2 complete; Phase 3 complete; Phase 4a
+initial scaffold complete
 
 This document proposes how to integrate `rust/puerh_mind` into Alcedo Studio as
 project-level semantic image generation and semantic search services.
@@ -410,12 +411,36 @@ Packaging smoke tests should verify:
    - project checksum/package integration
    - deletion cleanup
 
-4. Bulk generation
+4a. Bulk generation request model and thumbnail pipeline - initial scaffold
+   complete
    - thumbnail request/pin/release pipeline
-   - image embedding RPC
+   - generation job/progress/cancel/result model
+   - batch-shaped image embedding client interface with mock responses
+   - real `ThumbnailService::GetThumbnailDetailed` integration
+   - thumbnail CPU materialization into RGBA8 request payloads
+   - release pinned thumbnail after payload preparation in success, error, and
+     cancellation paths
+   - tests that import real sample images, request real thumbnails, batch mock
+     embeddings, handle thumbnail failures, and cancel during mock embedding
+
+4b. Bulk generation runtime RPC
+   - generated C++ gRPC image batch client or equivalent bridge
+   - real image embedding request/response waiting and timeout handling
+   - request-id matching and per-item partial failure mapping
+   - model-info compatibility checks before generation starts
+   - decide final image payload contract: raw `rgba8:WxH` or encoded image bytes
+
+4c. Bulk generation persistence and labels
+   - persist image embeddings through `SemanticStorageController`
    - label assignment from bundled prototypes
-   - progress/cancel/retry
+   - persist label decisions transactionally with embeddings
+   - reject bad vectors: wrong dimension, NaN/Inf, zero norm, request mismatch
+
+4d. Bulk generation workflow integration
+   - retry/force-regenerate rules
+   - skip already-valid embeddings for the active model key
    - import-finished prompt
+   - UI-facing progress/cancel/failure state
 
 5. Search integration
    - concrete `SemanticSearchProvider`

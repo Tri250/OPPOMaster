@@ -966,6 +966,13 @@ def_library(ThumbnailService
     PUBLIC_DEPS EditPipeline ThreadPool StrConv ImagePoolService PipelineMgmtService ThumbnailDiskCacheService EditHistoryMgmtService
 )
 
+def_library(SemanticGenerationService
+    SOURCES
+        app/semantic_generation_service.cpp
+        include/app/semantic_generation_service.hpp
+    PUBLIC_DEPS SemanticRuntimeService ThumbnailService opencv_core opencv_imgproc
+)
+
 def_library(ThumbnailDiskCacheService
     SOURCES app/thumbnail_disk_cache_service.cpp
     PUBLIC_DEPS ImageBuffer JSON xxHash opencv_imgcodecs OpenImageIO::OpenImageIO
