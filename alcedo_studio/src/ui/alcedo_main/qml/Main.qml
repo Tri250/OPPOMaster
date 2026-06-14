@@ -130,6 +130,7 @@ ApplicationWindow {
     readonly property var selectedImagesById: selectionState.selectedImagesById
     readonly property var exportQueueById: exportQueueState.exportQueueById
     readonly property var exportPreviewRows: exportQueueState.exportPreviewRows
+    readonly property var semanticGeneration: albumBackend.semanticGenerationController
     readonly property int selectedCount: selectionState.selectedCount
     readonly property int exportQueueCount: exportQueueState.exportQueueCount
     readonly property var languageOptions: languageManager.availableLanguages
@@ -214,7 +215,8 @@ ApplicationWindow {
         return 0
     }
 
-    function openSettingsDialog() {
+    function openSettingsDialog(category) {
+        settingsDialog.requestedCategory = category === undefined ? 0 : category
         settingsDialog.open()
     }
 
@@ -806,25 +808,25 @@ ApplicationWindow {
         id: semanticGenerationDialog
         parent: Overlay.overlay
         backgroundSource: mainContent
-        promptVisible: albumBackend.semanticGenerationPromptVisible
-        generationRunning: albumBackend.semanticGenerationRunning
-        pendingCount: albumBackend.semanticGenerationPendingCount
-        total: albumBackend.semanticGenerationTotal
-        embedded: albumBackend.semanticGenerationEmbedded
-        skipped: albumBackend.semanticGenerationSkipped
-        failed: albumBackend.semanticGenerationFailed
-        canceled: albumBackend.semanticGenerationCanceled
-        statusText: albumBackend.semanticGenerationStatus
-        onStartRequested: function(forceRegenerate) {
-            albumBackend.StartPendingSemanticGeneration(forceRegenerate)
+        promptVisible: root.semanticGeneration.promptVisible
+        generationRunning: root.semanticGeneration.running
+        pendingCount: root.semanticGeneration.pendingCount
+        total: root.semanticGeneration.total
+        embedded: root.semanticGeneration.embedded
+        skipped: root.semanticGeneration.skipped
+        failed: root.semanticGeneration.failed
+        canceled: root.semanticGeneration.canceled
+        statusText: root.semanticGeneration.statusText
+        onStartRequested: function(rememberChoice) {
+            if (rememberChoice) {
+                root.semanticGeneration.SetImportPreference("always")
+            }
+            root.semanticGeneration.StartPendingGeneration(false)
         }
-        onAlwaysStartRequested: {
-            albumBackend.SetSemanticGenerationImportPreference("always")
-            albumBackend.StartPendingSemanticGeneration(false)
+        onSkipRequested: function(rememberChoice) {
+            root.semanticGeneration.SkipPendingGeneration(rememberChoice)
         }
-        onSkipRequested: albumBackend.SkipPendingSemanticGeneration(false)
-        onNeverAskRequested: albumBackend.SkipPendingSemanticGeneration(true)
-        onCancelRequested: albumBackend.CancelSemanticGeneration()
+        onCancelRequested: root.semanticGeneration.CancelGeneration()
     }
 
     Popup {

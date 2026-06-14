@@ -1120,6 +1120,7 @@ add_library(AlbumBackendLib STATIC
     ui/alcedo_main/album_backend/image_controller.cpp
     ui/alcedo_main/album_backend/stats_engine.cpp
     ui/alcedo_main/album_backend/search_controller.cpp
+    ui/alcedo_main/album_backend/semantic_generation_controller.cpp
     ui/alcedo_main/album_backend/import_export.cpp
     ui/alcedo_main/album_backend/nikon_he_recovery_controller.cpp
     ui/alcedo_main/album_backend/editor_controller.cpp
@@ -1134,6 +1135,7 @@ add_library(AlbumBackendLib STATIC
     include/ui/alcedo_main/album_backend/image_controller.hpp
     include/ui/alcedo_main/album_backend/stats_engine.hpp
     include/ui/alcedo_main/album_backend/search_controller.hpp
+    include/ui/alcedo_main/album_backend/semantic_generation_controller.hpp
     include/ui/alcedo_main/album_backend/import_export.hpp
     include/ui/alcedo_main/album_backend/nikon_he_recovery_controller.hpp
     include/ui/alcedo_main/album_backend/nikon_he_recovery_types.hpp
@@ -1383,6 +1385,7 @@ qt_add_qml_module(alcedo_main
         ui/alcedo_main/qml/WelcomeDialog.qml
         ui/alcedo_main/qml/NikonHeRecoveryDialog.qml
         ui/alcedo_main/qml/SemanticGenerationDialog.qml
+        ui/alcedo_main/qml/SemanticGenerationSettingsPanel.qml
         ui/alcedo_main/qml/ImportProgressRing.qml
         ui/alcedo_main/qml/InspectorPanel.qml
         ui/alcedo_main/qml/CollectionsPanel.qml

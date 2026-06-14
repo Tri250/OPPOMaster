@@ -78,6 +78,7 @@ class SemanticStorageController {
                                  std::string*               error = nullptr) const -> bool;
   [[nodiscard]] auto HasModel(const std::string& model_key) const -> bool;
   [[nodiscard]] auto GetModelEmbeddingDim(const std::string& model_key) const -> std::optional<int>;
+  [[nodiscard]] auto LatestModelKey() const -> std::string;
 
   [[nodiscard]] auto UpsertImageEmbedding(const SemanticImageEmbeddingRecord& record,
                                           std::string* error = nullptr) const -> bool;
@@ -97,6 +98,8 @@ class SemanticStorageController {
                                             bool require_label = false) const -> bool;
   [[nodiscard]] auto CountImageLabelsForFile(sl_element_id_t    file_id,
                                              const std::string& model_key) const -> size_t;
+  [[nodiscard]] auto CountImageLabelsInFolder(sl_element_id_t    folder_id,
+                                              const std::string& model_key) const -> size_t;
   [[nodiscard]] auto CountLabelPrototypes(const std::string& model_key,
                                           const std::string& prompt_config_hash) const -> size_t;
   [[nodiscard]] auto CountLabelQueries(const std::string& prompt_config_hash) const -> size_t;

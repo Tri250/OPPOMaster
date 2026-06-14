@@ -8,12 +8,12 @@ Popup {
     font.family: appTheme.uiFontFamily
     modal: true
     focus: true
-    visible: promptVisible || generationRunning
-    closePolicy: generationRunning ? Popup.NoAutoClose
+    visible: promptVisible || showingGeneration
+    closePolicy: showingGeneration ? Popup.NoAutoClose
                                    : Popup.CloseOnEscape | Popup.CloseOnPressOutside
     anchors.centerIn: parent
-    width: Math.min(parent ? parent.width - 64 : 560, 560)
-    height: contentColumn.implicitHeight + 44
+    width: Math.min(parent ? parent.width - 56 : 560, 560)
+    height: contentColumn.implicitHeight + 48
     padding: 0
 
     property bool promptVisible: false
@@ -26,24 +26,35 @@ Popup {
     property int canceled: 0
     property string statusText: ""
     property Item backgroundSource: null
+    property bool startTransitionPending: false
 
-    signal startRequested(bool forceRegenerate)
-    signal alwaysStartRequested()
-    signal skipRequested()
-    signal neverAskRequested()
+    signal startRequested(bool rememberChoice)
+    signal skipRequested(bool rememberChoice)
     signal cancelRequested()
 
     readonly property int completed: embedded + skipped + failed + canceled
     readonly property real progressValue: total > 0 ? completed / total : 0
-    readonly property color modalColor: appTheme.bgPanelColor
-    readonly property color raisedColor: appTheme.bgDeepColor
-    readonly property color inputColor: appTheme.bgBaseColor
-    readonly property color hoverColor: appTheme.hoverColor
-    readonly property color accentColor: appTheme.accentColor
+    readonly property bool showingGeneration: generationRunning || startTransitionPending
+    readonly property color panelColor: appTheme.toneGraphite
+    readonly property color sectionColor: appTheme.bgBaseColor
     readonly property color textColor: appTheme.textColor
     readonly property color mutedTextColor: appTheme.textMutedColor
-    readonly property color dangerColor: appTheme.dangerColor
-    readonly property color strokeColor: appTheme.glassStrokeColor
+    readonly property color accentColor: appTheme.accentColor
+    readonly property string dataFontFamily: appTheme.dataFontFamily
+
+    onGenerationRunningChanged: {
+        if (generationRunning || !promptVisible) {
+            startTransitionPending = false
+        }
+    }
+
+    onPromptVisibleChanged: {
+        if (promptVisible) {
+            startTransitionPending = false
+        }
+    }
+
+    onClosed: startTransitionPending = false
 
     Overlay.modal: Item {
         anchors.fill: parent
@@ -67,235 +78,190 @@ Popup {
     }
 
     background: Rectangle {
-        radius: appTheme.panelRadius + 2
-        color: root.modalColor
-        border.width: 1
-        border.color: root.strokeColor
+        radius: 14
+        color: root.panelColor
+        border.width: 0
     }
 
     contentItem: ColumnLayout {
         id: contentColumn
-        spacing: 0
+        width: root.width
+        spacing: 18
 
         ColumnLayout {
             Layout.fillWidth: true
             Layout.margins: 24
-            spacing: 18
+            spacing: 6
 
-            RowLayout {
+            Label {
                 Layout.fillWidth: true
-                spacing: 12
-
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 6
-
-                    Label {
-                        Layout.fillWidth: true
-                        text: root.generationRunning
-                              ? qsTr("Generating semantic labels")
-                              : qsTr("Generate semantic labels")
-                        color: root.textColor
-                        font.family: appTheme.headlineFontFamily
-                        font.pixelSize: 24
-                        font.weight: 800
-                        wrapMode: Text.WordWrap
-                    }
-
-                    Label {
-                        Layout.fillWidth: true
-                        text: root.generationRunning
-                              ? (root.statusText.length > 0 ? root.statusText : qsTr("Preparing semantic generation..."))
-                              : qsTr("Alcedo can create embeddings and label suggestions for the %1 imported image(s).")
-                                    .arg(root.pendingCount)
-                        color: root.mutedTextColor
-                        font.pixelSize: 13
-                        font.weight: 600
-                        lineHeight: 1.25
-                        wrapMode: Text.WordWrap
-                    }
-                }
-
-                BusyIndicator {
-                    running: root.generationRunning
-                    visible: root.generationRunning
-                    implicitWidth: 30
-                    implicitHeight: 30
-                }
+                text: root.showingGeneration
+                      ? qsTr("Generating semantic labels")
+                      : qsTr("Use AI to analyze image content?")
+                color: root.textColor
+                font.family: appTheme.headlineFontFamily
+                font.pixelSize: 24
+                font.weight: 700
+                wrapMode: Text.WordWrap
             }
 
-            ColumnLayout {
+            Label {
                 Layout.fillWidth: true
-                visible: root.generationRunning
-                spacing: 10
-
-                ImportProgressRing {
-                    Layout.alignment: Qt.AlignHCenter
-                    Layout.preferredWidth: 150
-                    Layout.preferredHeight: 150
-                    ringWidth: 13
-                    trackColor: root.hoverColor
-                    fillColor: root.accentColor
-                    progress: root.progressValue
-                }
-
-                Label {
-                    Layout.alignment: Qt.AlignHCenter
-                    text: qsTr("%1 / %2").arg(root.completed).arg(root.total)
-                    color: root.textColor
-                    font.family: appTheme.dataFontFamily
-                    font.pixelSize: 26
-                    font.weight: 700
-                }
-
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 74
-                    radius: appTheme.panelRadius
-                    color: root.raisedColor
-                    border.width: 1
-                    border.color: root.strokeColor
-
-                    GridLayout {
-                        anchors.fill: parent
-                        anchors.margins: 14
-                        columns: 4
-                        rowSpacing: 3
-                        columnSpacing: 10
-
-                        Repeater {
-                            model: [
-                                { label: qsTr("Generated"), value: root.embedded },
-                                { label: qsTr("Skipped"), value: root.skipped },
-                                { label: qsTr("Failed"), value: root.failed },
-                                { label: qsTr("Canceled"), value: root.canceled }
-                            ]
-
-                            ColumnLayout {
-                                required property var modelData
-                                Layout.fillWidth: true
-                                spacing: 3
-                                Label {
-                                    Layout.alignment: Qt.AlignHCenter
-                                    text: String(modelData.value)
-                                    color: root.textColor
-                                    font.family: appTheme.dataFontFamily
-                                    font.pixelSize: 18
-                                    font.weight: 800
-                                }
-                                Label {
-                                    Layout.alignment: Qt.AlignHCenter
-                                    text: modelData.label
-                                    color: root.mutedTextColor
-                                    font.pixelSize: 11
-                                    font.weight: 700
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            ColumnLayout {
-                Layout.fillWidth: true
-                visible: !root.generationRunning
-                spacing: 10
-
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 76
-                    radius: appTheme.panelRadius
-                    color: root.raisedColor
-                    border.width: 1
-                    border.color: root.strokeColor
-
-                    Label {
-                        anchors.fill: parent
-                        anchors.margins: 14
-                        verticalAlignment: Text.AlignVCenter
-                        text: root.statusText.length > 0
-                              ? root.statusText
-                              : qsTr("Existing ready embeddings for the active model will be skipped. Failed or incomplete rows can be retried.")
-                        color: root.mutedTextColor
-                        font.pixelSize: 12
-                        font.weight: 600
-                        lineHeight: 1.25
-                        wrapMode: Text.WordWrap
-                    }
-                }
+                visible: root.showingGeneration
+                text: root.showingGeneration
+                      ? (root.statusText.length > 0
+                         ? root.statusText
+                         : qsTr("Starting semantic generation..."))
+                      : ""
+                color: root.mutedTextColor
+                font.pixelSize: 13
+                font.weight: 500
+                lineHeight: 1.25
+                wrapMode: Text.WordWrap
             }
         }
 
-        Rectangle {
+        ColumnLayout {
+            Layout.alignment: Qt.AlignHCenter
+            Layout.leftMargin: 24
+            Layout.rightMargin: 24
+            visible: root.showingGeneration
+            spacing: 12
+
+            ImportProgressRing {
+                Layout.alignment: Qt.AlignHCenter
+                Layout.preferredWidth: 132
+                Layout.preferredHeight: 132
+                ringWidth: 11
+                trackColor: Qt.rgba(1, 1, 1, 0.07)
+                fillColor: root.accentColor
+                progress: root.progressValue
+            }
+
+            Label {
+                Layout.alignment: Qt.AlignHCenter
+                text: root.total > 0
+                      ? qsTr("%1 / %2").arg(root.completed).arg(root.total)
+                      : qsTr("Preparing")
+                color: root.textColor
+                font.family: root.dataFontFamily
+                font.pixelSize: 22
+                font.weight: 700
+            }
+        }
+
+        CheckBox {
+            id: rememberChoice
+            visible: !root.showingGeneration
             Layout.fillWidth: true
-            Layout.preferredHeight: root.generationRunning ? 68 : 124
-            color: appTheme.bgCanvasColor
+            Layout.leftMargin: 24
+            Layout.rightMargin: 24
+            Layout.preferredHeight: 30
+            text: qsTr("Remember My Choice")
+            checked: false
+            spacing: 10
+            indicator: Rectangle {
+                implicitWidth: 22
+                implicitHeight: 22
+                x: 0
+                y: Math.round((parent.height - height) / 2)
+                radius: 5
+                color: rememberChoice.checked
+                       ? Qt.rgba(root.accentColor.r, root.accentColor.g, root.accentColor.b, 0.22)
+                       : Qt.rgba(1, 1, 1, 0.04)
+                border.width: 2
+                border.color: rememberChoice.checked
+                              ? root.accentColor
+                              : Qt.rgba(root.textColor.r, root.textColor.g, root.textColor.b, 0.62)
 
-            Rectangle {
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.top: parent.top
-                height: 1
-                color: appTheme.dividerColor
-            }
-
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: 18
-                spacing: 10
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    visible: !root.generationRunning
-                    spacing: 10
-
-                    Button {
-                        Layout.fillWidth: true
-                        text: qsTr("Skip")
-                        onClicked: root.skipRequested()
-                    }
-
-                    Button {
-                        Layout.fillWidth: true
-                        text: qsTr("Never ask")
-                        onClicked: root.neverAskRequested()
-                    }
-
-                    Button {
-                        Layout.fillWidth: true
-                        text: qsTr("Always start")
-                        highlighted: true
-                        onClicked: root.alwaysStartRequested()
-                    }
+                Rectangle {
+                    visible: rememberChoice.checked
+                    anchors.centerIn: parent
+                    width: 10
+                    height: 10
+                    radius: 3
+                    color: root.accentColor
                 }
+            }
+            contentItem: Label {
+                text: rememberChoice.text
+                leftPadding: rememberChoice.indicator.width + rememberChoice.spacing
+                verticalAlignment: Text.AlignVCenter
+                color: root.mutedTextColor
+                font.pixelSize: 12
+                font.weight: 600
+            }
+        }
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 10
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.leftMargin: 24
+            Layout.rightMargin: 24
+            Layout.bottomMargin: 24
+            spacing: 12
 
-                    Button {
-                        Layout.fillWidth: true
-                        visible: root.generationRunning
-                        text: qsTr("Cancel")
-                        onClicked: root.cancelRequested()
-                    }
+            Item { Layout.fillWidth: true }
 
-                    Button {
-                        Layout.fillWidth: true
-                        visible: !root.generationRunning
-                        text: qsTr("Force regenerate")
-                        onClicked: root.startRequested(true)
-                    }
-
-                    Button {
-                        Layout.fillWidth: true
-                        visible: !root.generationRunning
-                        text: qsTr("Start now")
-                        highlighted: true
-                        onClicked: root.startRequested(false)
+            AiButton {
+                Layout.preferredWidth: 142
+                text: root.showingGeneration ? qsTr("Cancel") : qsTr("Skip")
+                primary: false
+                onClicked: {
+                    if (root.showingGeneration) {
+                        root.startTransitionPending = false
+                        root.cancelRequested()
+                    } else {
+                        root.skipRequested(rememberChoice.checked)
                     }
                 }
             }
+
+            AiButton {
+                visible: !root.showingGeneration
+                Layout.preferredWidth: 168
+                text: qsTr("Generate")
+                primary: true
+                enabled: root.pendingCount > 0
+                onClicked: {
+                    root.startTransitionPending = true
+                    root.startRequested(rememberChoice.checked)
+                }
+            }
+        }
+    }
+
+    component AiButton: Button {
+        property bool primary: false
+
+        Layout.preferredHeight: 48
+        font.pixelSize: 15
+        font.weight: 800
+        hoverEnabled: true
+        contentItem: Label {
+            text: parent.text
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            color: root.textColor
+            font.pixelSize: parent.font.pixelSize
+            font.weight: parent.font.weight
+            elide: Text.ElideRight
+        }
+        background: Rectangle {
+            radius: 10
+            color: parent.primary
+                   ? (parent.down
+                      ? Qt.darker(root.accentColor, 1.16)
+                      : (parent.hovered ? Qt.lighter(root.accentColor, 1.06)
+                                        : root.accentColor))
+                   : (parent.down
+                      ? Qt.rgba(1, 1, 1, 0.07)
+                      : (parent.hovered ? Qt.rgba(1, 1, 1, 0.14)
+                                        : Qt.rgba(1, 1, 1, 0.10)))
+            border.width: 1
+            border.color: parent.primary
+                          ? Qt.rgba(root.accentColor.r, root.accentColor.g, root.accentColor.b, 0.20)
+                          : Qt.rgba(1, 1, 1, 0.10)
+            opacity: parent.enabled ? 1.0 : 0.45
         }
     }
 }
