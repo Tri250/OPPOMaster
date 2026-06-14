@@ -111,6 +111,7 @@ auto ComputeProjectDataSummary(StorageService& storage_service) -> nlohmann::jso
       {"SemanticModel", nullptr},
       {"SemanticImageEmbedding", "file_id"},
       {"SemanticImageLabel", "file_id"},
+      {"SemanticLabelQuery", nullptr},
       {"SemanticLabelPrototype", nullptr},
   };
 

@@ -6,12 +6,15 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <future>
+#include <limits>
 #include <mutex>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "app/history_mgmt_service.hpp"
@@ -24,6 +27,20 @@
 namespace alcedo {
 namespace {
 using namespace std::chrono_literals;
+
+auto MakeTextEmbeddingResult(const std::string& request_id, uint32_t dimension)
+    -> SemanticEmbeddingResult {
+  SemanticEmbeddingResult result;
+  result.request_id = request_id;
+  result.model_name = "mock/mobileclip";
+  result.dimension  = dimension;
+  result.ok         = true;
+  result.embedding.assign(dimension, 0.0F);
+  if (dimension > 0) {
+    result.embedding[0] = 1.0F;
+  }
+  return result;
+}
 
 class CountingRealThumbnailProvider final : public ISemanticThumbnailProvider {
  public:
@@ -71,6 +88,13 @@ class RecordingEmbeddingClient final : public ISemanticImageEmbeddingClient {
       info->provider            = "mock";
     }
     return true;
+  }
+
+  auto EmbedText(const std::string& request_id, const std::string& text,
+                 std::chrono::milliseconds timeout) -> SemanticEmbeddingResult override {
+    (void)text;
+    (void)timeout;
+    return MakeTextEmbeddingResult(request_id, 2);
   }
 
   void EmbedImageBatch(std::vector<SemanticImageEmbeddingInput> inputs,
@@ -124,9 +148,9 @@ class ImmediateThumbnailProvider final : public ISemanticThumbnailProvider {
                         SemanticThumbnailRequestCallback callback) override {
     request_count_.fetch_add(1);
     ThumbnailRequestResult result;
-    result.key     = ThumbnailCacheKey{item.element_id, resolution};
-    result.status  = ThumbnailRequestStatus::kReady;
-    result.guard   = std::make_shared<ThumbnailGuard>();
+    result.key    = ThumbnailCacheKey{item.element_id, resolution};
+    result.status = ThumbnailRequestStatus::kReady;
+    result.guard  = std::make_shared<ThumbnailGuard>();
     result.guard->thumbnail_buffer_ =
         std::make_unique<ImageBuffer>(cv::Mat(3, 2, CV_8UC4, cv::Scalar(10, 20, 30, 255)));
     callback(std::move(result));
@@ -164,6 +188,13 @@ class ScriptedEmbeddingClient final : public ISemanticImageEmbeddingClient {
       info->provider            = "mock";
     }
     return true;
+  }
+
+  auto EmbedText(const std::string& request_id, const std::string& text,
+                 std::chrono::milliseconds timeout) -> SemanticEmbeddingResult override {
+    (void)text;
+    (void)timeout;
+    return MakeTextEmbeddingResult(request_id, 2);
   }
 
   void EmbedImageBatch(std::vector<SemanticImageEmbeddingInput> inputs,
@@ -206,6 +237,13 @@ class NeverRespondingEmbeddingClient final : public ISemanticImageEmbeddingClien
     return true;
   }
 
+  auto EmbedText(const std::string& request_id, const std::string& text,
+                 std::chrono::milliseconds timeout) -> SemanticEmbeddingResult override {
+    (void)text;
+    (void)timeout;
+    return MakeTextEmbeddingResult(request_id, 2);
+  }
+
   void EmbedImageBatch(std::vector<SemanticImageEmbeddingInput> inputs,
                        std::chrono::milliseconds                timeout,
                        SemanticImageEmbeddingBatchCallback      callback) override {
@@ -213,6 +251,84 @@ class NeverRespondingEmbeddingClient final : public ISemanticImageEmbeddingClien
     (void)timeout;
     (void)callback;
   }
+};
+
+auto OneHot512(size_t index) -> std::vector<float> {
+  std::vector<float> embedding(kSemanticEmbeddingDim, 0.0F);
+  embedding.at(index) = 1.0F;
+  return embedding;
+}
+
+void RegisterSemanticTestModel(SemanticStorageController& semantic) {
+  std::string error;
+  ASSERT_TRUE(semantic.UpsertModel(SemanticModelRecord{.model_key_     = "mobileclip-test",
+                                                       .model_id_      = "mock/mobileclip",
+                                                       .revision_      = "mock-revision",
+                                                       .embedding_dim_ = kSemanticEmbeddingDim,
+                                                       .image_size_    = 256},
+                                   &error))
+      << error;
+}
+
+class Fixed512EmbeddingClient final : public ISemanticImageEmbeddingClient {
+ public:
+  explicit Fixed512EmbeddingClient(std::vector<float> embedding)
+      : embedding_(std::move(embedding)) {}
+
+  auto GetModelInfo(SemanticRuntimeModelInfo* info, std::string* error) -> bool override {
+    (void)error;
+    if (info) {
+      info->model_id            = "mock/mobileclip";
+      info->revision            = "mock-revision";
+      info->embedding_dimension = kSemanticEmbeddingDim;
+      info->image_size          = 256;
+      info->provider            = "mock";
+    }
+    return true;
+  }
+
+  auto EmbedText(const std::string& request_id, const std::string& text,
+                 std::chrono::milliseconds timeout) -> SemanticEmbeddingResult override {
+    (void)timeout;
+    SemanticEmbeddingResult result;
+    result.request_id = request_id;
+    result.model_name = "mock/mobileclip";
+    result.dimension  = kSemanticEmbeddingDim;
+    result.ok         = true;
+    if (text == "a street photography photo") {
+      result.embedding = OneHot512(8);
+    } else if (text == "a landscape photo") {
+      result.embedding    = OneHot512(2);
+      result.embedding[8] = 0.25F;
+    } else if (text == "a photo of a portrait") {
+      result.embedding    = OneHot512(9);
+      result.embedding[8] = 0.1F;
+    } else {
+      result.embedding = OneHot512(0);
+    }
+    return result;
+  }
+
+  void EmbedImageBatch(std::vector<SemanticImageEmbeddingInput> inputs,
+                       std::chrono::milliseconds                timeout,
+                       SemanticImageEmbeddingBatchCallback      callback) override {
+    (void)timeout;
+    std::vector<SemanticImageEmbeddingBatchResult> results;
+    results.reserve(inputs.size());
+    for (const auto& input : inputs) {
+      SemanticImageEmbeddingBatchResult result;
+      result.item                 = input.item;
+      result.embedding.request_id = input.request_id;
+      result.embedding.ok         = true;
+      result.embedding.dimension  = kSemanticEmbeddingDim;
+      result.embedding.embedding  = embedding_;
+      results.push_back(std::move(result));
+    }
+    callback(std::move(results));
+  }
+
+ private:
+  std::vector<float> embedding_;
 };
 
 template <typename Predicate>
@@ -404,20 +520,20 @@ TEST_F(SemanticGenerationServiceTest, CancelDuringMockEmbeddingDoesNotHoldRealTh
 }
 
 TEST_F(SemanticGenerationServiceTest, RejectsModelInfoMismatchBeforeRequestingThumbnails) {
-  auto thumbnails = std::make_shared<ImmediateThumbnailProvider>();
-  auto embedder   = std::make_shared<RecordingEmbeddingClient>();
+  auto                      thumbnails = std::make_shared<ImmediateThumbnailProvider>();
+  auto                      embedder   = std::make_shared<RecordingEmbeddingClient>();
   SemanticGenerationService service(thumbnails, embedder);
 
   SemanticGenerationOptions options;
-  SemanticRuntimeModelInfo expected;
-  expected.model_id = "mock/mobileclip";
-  expected.revision = "mock-revision";
+  SemanticRuntimeModelInfo  expected;
+  expected.model_id            = "mock/mobileclip";
+  expected.revision            = "mock-revision";
   expected.embedding_dimension = 512;
-  expected.image_size = 256;
-  expected.provider = "mock";
-  options.expected_model_info = expected;
+  expected.image_size          = 256;
+  expected.provider            = "mock";
+  options.expected_model_info  = expected;
 
-  auto job = service.StartGeneration({{1, 10}, {2, 20}}, options);
+  auto job                     = service.StartGeneration({{1, 10}, {2, 20}}, options);
   job->Wait();
 
   const auto progress = job->SnapshotProgress();
@@ -435,21 +551,21 @@ TEST_F(SemanticGenerationServiceTest, RejectsModelInfoMismatchBeforeRequestingTh
 }
 
 TEST_F(SemanticGenerationServiceTest, MapsPartialFailureAndRequestIdMismatchPerItem) {
-  auto thumbnails = std::make_shared<ImmediateThumbnailProvider>();
-  auto embedder   = std::make_shared<ScriptedEmbeddingClient>();
+  auto                      thumbnails = std::make_shared<ImmediateThumbnailProvider>();
+  auto                      embedder   = std::make_shared<ScriptedEmbeddingClient>();
   SemanticGenerationService service(thumbnails, embedder);
 
   SemanticGenerationOptions options;
   options.batch_size = 3;
   SemanticRuntimeModelInfo expected;
-  expected.model_id = "mock/mobileclip";
-  expected.revision = "mock-revision";
+  expected.model_id            = "mock/mobileclip";
+  expected.revision            = "mock-revision";
   expected.embedding_dimension = 2;
-  expected.image_size = 256;
-  expected.provider = "mock";
-  options.expected_model_info = expected;
+  expected.image_size          = 256;
+  expected.provider            = "mock";
+  options.expected_model_info  = expected;
 
-  auto job = service.StartGeneration({{1, 10}, {2, 20}, {3, 30}}, options);
+  auto job                     = service.StartGeneration({{1, 10}, {2, 20}, {3, 30}}, options);
   job->Wait();
 
   const auto progress = job->SnapshotProgress();
@@ -470,15 +586,15 @@ TEST_F(SemanticGenerationServiceTest, MapsPartialFailureAndRequestIdMismatchPerI
 }
 
 TEST_F(SemanticGenerationServiceTest, EmbeddingTimeoutFailsEveryPendingItem) {
-  auto thumbnails = std::make_shared<ImmediateThumbnailProvider>();
-  auto embedder   = std::make_shared<NeverRespondingEmbeddingClient>();
+  auto                      thumbnails = std::make_shared<ImmediateThumbnailProvider>();
+  auto                      embedder   = std::make_shared<NeverRespondingEmbeddingClient>();
   SemanticGenerationService service(thumbnails, embedder);
 
   SemanticGenerationOptions options;
-  options.batch_size = 2;
+  options.batch_size        = 2;
   options.embedding_timeout = 50ms;
 
-  auto job = service.StartGeneration({{1, 10}, {2, 20}}, options);
+  auto job                  = service.StartGeneration({{1, 10}, {2, 20}}, options);
   job->Wait();
 
   const auto progress = job->SnapshotProgress();
@@ -492,6 +608,94 @@ TEST_F(SemanticGenerationServiceTest, EmbeddingTimeoutFailsEveryPendingItem) {
     EXPECT_EQ(result.status, SemanticGenerationItemStatus::kError);
     EXPECT_NE(result.error.find("timed out"), std::string::npos);
   }
+}
+
+TEST_F(SemanticGenerationServiceTest, DefaultPhotographyLabelsLiveInConfigHeader) {
+  const auto& labels = DefaultSemanticPhotographyLabels();
+  EXPECT_GE(labels.size(), 40U);
+  EXPECT_NE(std::find(labels.begin(), labels.end(), "portrait"), labels.end());
+  EXPECT_NE(std::find(labels.begin(), labels.end(), "landscape"), labels.end());
+  EXPECT_NE(std::find(labels.begin(), labels.end(), "street"), labels.end());
+  EXPECT_NE(std::find(labels.begin(), labels.end(), "product"), labels.end());
+}
+
+TEST_F(SemanticGenerationServiceTest, PersistsEmbeddingsAndAssignedLabels) {
+  ProjectService project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
+  auto&          semantic = project.GetStorageService()->GetSemanticStorageController();
+  RegisterSemanticTestModel(semantic);
+
+  auto                      thumbnails = std::make_shared<ImmediateThumbnailProvider>();
+  auto                      embedder   = std::make_shared<Fixed512EmbeddingClient>(OneHot512(8));
+  SemanticGenerationService service(thumbnails, embedder);
+
+  SemanticGenerationOptions options;
+  options.expected_model_info =
+      SemanticRuntimeModelInfo{.model_id            = "mock/mobileclip",
+                               .revision            = "mock-revision",
+                               .embedding_dimension = kSemanticEmbeddingDim,
+                               .image_size          = 256,
+                               .provider            = "mock"};
+  SemanticGenerationPersistenceOptions persistence;
+  persistence.storage_controller = &semantic;
+  persistence.model_key          = "mobileclip-test";
+  options.persistence            = persistence;
+
+  std::string error;
+  auto        job = service.StartGeneration({{42, 420}}, options);
+  job->Wait();
+
+  const auto progress = job->SnapshotProgress();
+  EXPECT_EQ(progress.embedded, 1U);
+  EXPECT_EQ(progress.failed, 0U);
+  EXPECT_EQ(
+      semantic.CountLabelPrototypes("mobileclip-test", kDefaultSemanticPhotographyPromptConfigHash),
+      DefaultSemanticPhotographyLabelQueries().size());
+  EXPECT_EQ(semantic.CountImageEmbeddingsForFile(42, "mobileclip-test"), 1U);
+  EXPECT_EQ(semantic.CountImageLabelsForFile(42, "mobileclip-test"), 1U);
+
+  const auto results = job->Results();
+  ASSERT_EQ(results.size(), 1U);
+  EXPECT_EQ(results.front().status, SemanticGenerationItemStatus::kEmbedded);
+  EXPECT_TRUE(results.front().has_label);
+  EXPECT_EQ(results.front().label, "street");
+  EXPECT_TRUE(results.front().label_confident);
+
+  const auto stored_label = semantic.GetImageLabelForFile(42, "mobileclip-test", &error);
+  ASSERT_TRUE(stored_label.has_value()) << error;
+  EXPECT_EQ(stored_label->label_, "street");
+  EXPECT_EQ(stored_label->second_label_, "landscape");
+}
+
+TEST_F(SemanticGenerationServiceTest, PersistenceRejectsBadVectorsWithoutWritingRows) {
+  ProjectService project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
+  auto&          semantic = project.GetStorageService()->GetSemanticStorageController();
+  RegisterSemanticTestModel(semantic);
+
+  auto bad_embedding                   = OneHot512(3);
+  bad_embedding[5]                     = std::numeric_limits<float>::quiet_NaN();
+  auto                      thumbnails = std::make_shared<ImmediateThumbnailProvider>();
+  auto                      embedder   = std::make_shared<Fixed512EmbeddingClient>(bad_embedding);
+  SemanticGenerationService service(thumbnails, embedder);
+
+  SemanticGenerationOptions options;
+  SemanticGenerationPersistenceOptions persistence;
+  persistence.storage_controller = &semantic;
+  persistence.model_key          = "mobileclip-test";
+  options.persistence            = persistence;
+
+  auto job                       = service.StartGeneration({{77, 770}}, options);
+  job->Wait();
+
+  const auto progress = job->SnapshotProgress();
+  EXPECT_EQ(progress.embedded, 0U);
+  EXPECT_EQ(progress.failed, 1U);
+  EXPECT_EQ(semantic.CountImageEmbeddingsForFile(77, "mobileclip-test"), 0U);
+  EXPECT_EQ(semantic.CountImageLabelsForFile(77, "mobileclip-test"), 0U);
+
+  const auto results = job->Results();
+  ASSERT_EQ(results.size(), 1U);
+  EXPECT_EQ(results.front().status, SemanticGenerationItemStatus::kError);
+  EXPECT_NE(results.front().error.find("NaN"), std::string::npos);
 }
 
 }  // namespace alcedo

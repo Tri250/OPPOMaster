@@ -1003,7 +1003,8 @@ def_library(SemanticGenerationService
     SOURCES
         app/semantic_generation_service.cpp
         include/app/semantic_generation_service.hpp
-    PUBLIC_DEPS SemanticRuntimeService ThumbnailService opencv_core opencv_imgproc
+        include/storage/controller/semantic/semantic_label_config.hpp
+    PUBLIC_DEPS SemanticRuntimeService ThumbnailService StorageService opencv_core opencv_imgproc
 )
 
 def_library(ThumbnailDiskCacheService
