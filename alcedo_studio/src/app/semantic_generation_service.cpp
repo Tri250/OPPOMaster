@@ -12,6 +12,7 @@
 #include <opencv2/imgproc.hpp>
 #include <stdexcept>
 #include <thread>
+#include <unordered_map>
 #include <utility>
 
 namespace alcedo {
@@ -28,8 +29,8 @@ void DispatchProgress(const std::shared_ptr<SemanticGenerationJob>& job,
   }
 }
 
-auto EncodeThumbnailRgba8(const ThumbnailGuard& guard, std::vector<uint8_t>* encoded,
-                          std::string* format_hint, std::string* error) -> bool {
+auto MaterializeThumbnailRgba8(const ThumbnailGuard& guard, std::vector<uint8_t>* rgba8_image,
+                               std::string* format_hint, std::string* error) -> bool {
   if (!guard.thumbnail_buffer_) {
     if (error) {
       *error = "thumbnail guard does not contain an image buffer";
@@ -106,7 +107,43 @@ auto EncodeThumbnailRgba8(const ThumbnailGuard& guard, std::vector<uint8_t>* enc
   if (format_hint) {
     *format_hint = "rgba8:" + std::to_string(rgba8.cols) + "x" + std::to_string(rgba8.rows);
   }
-  *encoded = std::move(bytes);
+  *rgba8_image = std::move(bytes);
+  return true;
+}
+
+auto MatchesExpectedModelInfo(const SemanticRuntimeModelInfo& actual,
+                              const SemanticRuntimeModelInfo& expected,
+                              std::string* error) -> bool {
+  if (actual.model_id != expected.model_id) {
+    if (error) {
+      *error = "semantic runtime model id mismatch: expected " + expected.model_id + ", got " +
+               actual.model_id;
+    }
+    return false;
+  }
+  if (actual.revision != expected.revision) {
+    if (error) {
+      *error = "semantic runtime revision mismatch: expected " + expected.revision + ", got " +
+               actual.revision;
+    }
+    return false;
+  }
+  if (actual.embedding_dimension != expected.embedding_dimension) {
+    if (error) {
+      *error = "semantic runtime embedding dimension mismatch: expected " +
+               std::to_string(expected.embedding_dimension) + ", got " +
+               std::to_string(actual.embedding_dimension);
+    }
+    return false;
+  }
+  if (actual.image_size != expected.image_size) {
+    if (error) {
+      *error = "semantic runtime image size mismatch: expected " +
+               std::to_string(expected.image_size) + ", got " +
+               std::to_string(actual.image_size);
+    }
+    return false;
+  }
   return true;
 }
 
@@ -173,12 +210,62 @@ auto WaitForEmbeddingBatch(const std::shared_ptr<SemanticGenerationJob>&        
                             }
                           });
 
+  const auto deadline = std::chrono::steady_clock::now() + timeout;
   while (future.wait_for(std::chrono::milliseconds(25)) != std::future_status::ready) {
     if (job->IsCanceled()) {
       return {};
     }
+    if (std::chrono::steady_clock::now() >= deadline) {
+      throw std::runtime_error("image embedding batch timed out");
+    }
   }
   return future.get();
+}
+
+auto MapEmbeddingBatchResults(const std::vector<SemanticImageEmbeddingInput>& inputs,
+                              std::vector<SemanticImageEmbeddingBatchResult>  batch_results)
+    -> std::vector<SemanticImageEmbeddingBatchResult> {
+  std::unordered_map<std::string, SemanticImageEmbeddingBatchResult> by_request_id;
+  std::unordered_set<std::string>                                    duplicates;
+  by_request_id.reserve(batch_results.size());
+
+  for (auto& result : batch_results) {
+    const auto request_id = result.embedding.request_id;
+    if (by_request_id.contains(request_id)) {
+      duplicates.insert(request_id);
+      continue;
+    }
+    by_request_id.emplace(request_id, std::move(result));
+  }
+
+  std::vector<SemanticImageEmbeddingBatchResult> mapped;
+  mapped.reserve(inputs.size());
+  for (const auto& input : inputs) {
+    if (duplicates.contains(input.request_id)) {
+      SemanticImageEmbeddingBatchResult result;
+      result.item                 = input.item;
+      result.embedding.request_id = input.request_id;
+      result.embedding.ok         = false;
+      result.embedding.error      = "duplicate image embedding response for request id";
+      mapped.push_back(std::move(result));
+      continue;
+    }
+
+    auto found = by_request_id.find(input.request_id);
+    if (found == by_request_id.end()) {
+      SemanticImageEmbeddingBatchResult result;
+      result.item                 = input.item;
+      result.embedding.request_id = input.request_id;
+      result.embedding.ok         = false;
+      result.embedding.error      = "missing image embedding response for request id";
+      mapped.push_back(std::move(result));
+      continue;
+    }
+
+    found->second.item = input.item;
+    mapped.push_back(std::move(found->second));
+  }
+  return mapped;
 }
 
 }  // namespace
@@ -271,12 +358,12 @@ void MockSemanticImageEmbeddingClient::EmbedImageBatch(
         batch_result.embedding.embedding.resize(dim, 0.0f);
         if (dim > 0) {
           const auto byte_sum =
-              std::accumulate(input.encoded_image.begin(), input.encoded_image.end(), uint64_t{0});
+              std::accumulate(input.rgba8_image.begin(), input.rgba8_image.end(), uint64_t{0});
           batch_result.embedding.embedding[0] = static_cast<float>((byte_sum % 997) + 1) / 997.0f;
         }
         if (dim > 1) {
           batch_result.embedding.embedding[1] =
-              static_cast<float>((input.encoded_image.size() % 991) + 1) / 991.0f;
+              static_cast<float>((input.rgba8_image.size() % 991) + 1) / 991.0f;
         }
       }
       results.push_back(std::move(batch_result));
@@ -288,10 +375,105 @@ void MockSemanticImageEmbeddingClient::EmbedImageBatch(
   }).detach();
 }
 
+auto MockSemanticImageEmbeddingClient::GetModelInfo(SemanticRuntimeModelInfo* info,
+                                                    std::string* error) -> bool {
+  (void)error;
+  if (info) {
+    info->model_id            = "mock/mobileclip";
+    info->revision            = "mock-revision";
+    info->embedding_dimension = embedding_dimension_;
+    info->image_size          = 256;
+    info->provider            = "mock";
+  }
+  return true;
+}
+
 void MockSemanticImageEmbeddingClient::FailRequestIds(std::unordered_set<std::string> request_ids) {
   std::unique_lock lock(lock_);
   fail_request_ids_ = std::move(request_ids);
 }
+
+SemanticRuntimeImageEmbeddingClient::SemanticRuntimeImageEmbeddingClient(
+    std::shared_ptr<SemanticRuntimeService> runtime)
+    : runtime_(std::move(runtime)) {}
+
+auto SemanticRuntimeImageEmbeddingClient::GetModelInfo(SemanticRuntimeModelInfo* info,
+                                                       std::string* error) -> bool {
+  if (!runtime_) {
+    if (error) {
+      *error = "semantic runtime service is not available";
+    }
+    return false;
+  }
+
+  const auto status = runtime_->Status();
+  if (status.state != SemanticRuntimeState::kReady) {
+    if (error) {
+      *error = "semantic runtime is not ready";
+    }
+    return false;
+  }
+  if (!status.model_info.has_value()) {
+    if (error) {
+      *error = "semantic runtime model info is not available";
+    }
+    return false;
+  }
+  if (info) {
+    *info = *status.model_info;
+  }
+  return true;
+}
+
+void SemanticRuntimeImageEmbeddingClient::EmbedImageBatch(
+    std::vector<SemanticImageEmbeddingInput> inputs, std::chrono::milliseconds timeout,
+    SemanticImageEmbeddingBatchCallback callback) {
+  auto runtime = runtime_;
+  std::thread([runtime = std::move(runtime), inputs = std::move(inputs), timeout,
+               callback = std::move(callback)]() mutable {
+    std::vector<SemanticImageEmbeddingBatchResult> results;
+    if (!runtime) {
+      results.reserve(inputs.size());
+      for (const auto& input : inputs) {
+        SemanticImageEmbeddingBatchResult result;
+        result.item                 = input.item;
+        result.embedding.request_id = input.request_id;
+        result.embedding.ok         = false;
+        result.embedding.error      = "semantic runtime service is not available";
+        results.push_back(std::move(result));
+      }
+      if (callback) {
+        callback(std::move(results));
+      }
+      return;
+    }
+
+    std::vector<SemanticImageEmbeddingRequest> requests;
+    requests.reserve(inputs.size());
+    for (const auto& input : inputs) {
+      SemanticImageEmbeddingRequest request;
+      request.request_id  = input.request_id;
+      request.rgba8_image = input.rgba8_image;
+      request.format_hint = input.format_hint;
+      requests.push_back(std::move(request));
+    }
+
+    const auto runtime_results = runtime->EmbedImageBatch(requests, timeout);
+    results.reserve(runtime_results.size());
+    for (size_t i = 0; i < runtime_results.size(); ++i) {
+      SemanticImageEmbeddingBatchResult result;
+      if (i < inputs.size()) {
+        result.item = inputs[i].item;
+      }
+      result.embedding = runtime_results[i];
+      results.push_back(std::move(result));
+    }
+    if (callback) {
+      callback(std::move(results));
+    }
+  }).detach();
+}
+
 
 SemanticGenerationJob::~SemanticGenerationJob() {
   Cancel();
@@ -403,6 +585,29 @@ void SemanticGenerationService::RunJob(
     }
   };
 
+  if (options.expected_model_info.has_value()) {
+    SemanticRuntimeModelInfo actual_model_info;
+    std::string              model_error;
+    if (!embedding_client->GetModelInfo(&actual_model_info, &model_error) ||
+        !MatchesExpectedModelInfo(actual_model_info, *options.expected_model_info, &model_error)) {
+      for (const auto& item : items) {
+        SemanticGenerationItemResult result;
+        result.item       = item;
+        result.request_id = MakeRequestId(item);
+        result.status     = SemanticGenerationItemStatus::kError;
+        result.error      = model_error.empty() ? "semantic runtime model info is not compatible"
+                                                : model_error;
+        job->AppendResult(std::move(result));
+      }
+      job->UpdateProgress([count = items.size()](SemanticGenerationProgress& progress) {
+        progress.failed += count;
+      });
+      DispatchProgress(job, on_progress);
+      finish();
+      return;
+    }
+  }
+
   std::vector<SemanticImageEmbeddingInput> batch;
   batch.reserve(options.batch_size);
 
@@ -411,7 +616,10 @@ void SemanticGenerationService::RunJob(
       return;
     }
 
-    const auto batch_count = batch.size();
+    const auto batch_count  = batch.size();
+    auto       pending_batch = std::move(batch);
+    batch.clear();
+
     job->UpdateProgress([batch_count](SemanticGenerationProgress& progress) {
       progress.embedding_requested += batch_count;
     });
@@ -419,21 +627,23 @@ void SemanticGenerationService::RunJob(
 
     std::vector<SemanticImageEmbeddingBatchResult> batch_results;
     try {
-      batch_results =
-          WaitForEmbeddingBatch(job, embedding_client, std::move(batch), options.embedding_timeout);
+      batch_results = WaitForEmbeddingBatch(job, embedding_client, pending_batch,
+                                            options.embedding_timeout);
     } catch (const std::exception& e) {
-      for (size_t i = 0; i < batch_count; ++i) {
-        job->UpdateProgress([](SemanticGenerationProgress& progress) { progress.failed++; });
+      for (const auto& input : pending_batch) {
+        SemanticGenerationItemResult result;
+        result.item       = input.item;
+        result.request_id = input.request_id;
+        result.status     = SemanticGenerationItemStatus::kError;
+        result.error      = std::string("image embedding batch failed: ") + e.what();
+        job->AppendResult(std::move(result));
       }
-      SemanticGenerationItemResult result;
-      result.status = SemanticGenerationItemStatus::kError;
-      result.error  = std::string("image embedding batch failed: ") + e.what();
-      job->AppendResult(std::move(result));
+      job->UpdateProgress([batch_count](SemanticGenerationProgress& progress) {
+        progress.failed += batch_count;
+      });
       DispatchProgress(job, on_progress);
-      batch.clear();
       return;
     }
-    batch.clear();
 
     if (job->IsCanceled()) {
       job->UpdateProgress([batch_count](SemanticGenerationProgress& progress) {
@@ -443,6 +653,7 @@ void SemanticGenerationService::RunJob(
       return;
     }
 
+    batch_results = MapEmbeddingBatchResults(pending_batch, std::move(batch_results));
     for (auto& batch_result : batch_results) {
       SemanticGenerationItemResult item_result;
       item_result.item       = batch_result.item;
@@ -525,11 +736,12 @@ void SemanticGenerationService::RunJob(
     input.item       = item;
     input.request_id = MakeRequestId(item);
     std::string encode_error;
-    const bool  encoded = EncodeThumbnailRgba8(*thumbnail_result.guard, &input.encoded_image,
-                                               &input.format_hint, &encode_error);
+    const bool  materialized = MaterializeThumbnailRgba8(*thumbnail_result.guard,
+                                                         &input.rgba8_image, &input.format_hint,
+                                                         &encode_error);
     thumbnail_provider->ReleaseThumbnail(thumbnail_result.key);
 
-    if (!encoded) {
+    if (!materialized) {
       SemanticGenerationItemResult result;
       result.item       = item;
       result.request_id = input.request_id;
