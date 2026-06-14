@@ -292,6 +292,28 @@ auto SemanticStorageController::GetModelEmbeddingDim(const std::string& model_ke
   return static_cast<int>(*value);
 }
 
+auto SemanticStorageController::LatestModelKey() const -> std::string {
+  const auto sql =
+      "SELECT model_key FROM SemanticModel ORDER BY created_at DESC, model_key DESC LIMIT 1;";
+
+  duckdb_result result;
+  if (duckdb_query(guard_.conn_, sql, &result) != DuckDBSuccess) {
+    duckdb_destroy_result(&result);
+    return {};
+  }
+
+  std::string out;
+  if (duckdb_row_count(&result) > 0) {
+    if (char* raw = duckdb_value_varchar(&result, 0, 0)) {
+      out = raw;
+      duckdb_free(raw);
+    }
+  }
+
+  duckdb_destroy_result(&result);
+  return out;
+}
+
 auto SemanticStorageController::UpsertImageEmbedding(const SemanticImageEmbeddingRecord& record,
                                                      std::string* error) const -> bool {
   return UpsertImageEmbeddingWithLabel(record, nullptr, error);
@@ -476,6 +498,23 @@ auto SemanticStorageController::CountImageLabelsForFile(sl_element_id_t    file_
       ScalarInt64(guard_.conn_, std::format("SELECT COUNT(*) FROM SemanticImageLabel "
                                             "WHERE file_id = {} AND model_key = {};",
                                             file_id, SqlString(model_key)));
+  return count.has_value() ? static_cast<size_t>(*count) : 0U;
+}
+
+auto SemanticStorageController::CountImageLabelsInFolder(sl_element_id_t    folder_id,
+                                                         const std::string& model_key) const
+    -> size_t {
+  if (model_key.empty()) {
+    return 0;
+  }
+
+  const auto scope = BuildScopedFileQuery(folder_id);
+  const auto count = ScalarInt64(
+      guard_.conn_,
+      std::format("SELECT COUNT(*) FROM SemanticImageLabel sl "
+                  "JOIN (SELECT e.id AS file_id {}) scoped ON scoped.file_id = sl.file_id "
+                  "WHERE sl.model_key = {} AND sl.label IS NOT NULL AND sl.label <> '';",
+                  scope.from_where_, SqlString(model_key)));
   return count.has_value() ? static_cast<size_t>(*count) : 0U;
 }
 

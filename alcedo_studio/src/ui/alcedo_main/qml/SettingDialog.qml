@@ -43,20 +43,24 @@ Dialog {
     property string pendingCacheRoot: albumBackend.thumbnailDiskCacheRoot
     property int pendingCacheMaxEntries: albumBackend.thumbnailDiskCacheMaxEntries
     property int pendingCacheJpegQuality: albumBackend.thumbnailDiskCacheJpegQuality
+    property string pendingSemanticImportPreference: albumBackend.semanticGenerationController.importPreference
     property string cacheStatsSnapshot: ""
+    property int requestedCategory: 0
 
     signal messageRequested(string message)
 
     onVisibleChanged: {
         if (visible) {
             resetPendingValues()
-            currentCategory = 0
+            currentCategory = requestedCategory
         }
     }
 
     onCurrentCategoryChanged: {
         if (currentCategory === 2) {
             refreshCacheStats()
+        } else if (currentCategory === 3) {
+            albumBackend.semanticGenerationController.RefreshAlbumSummary()
         }
     }
 
@@ -73,6 +77,7 @@ Dialog {
         pendingCacheRoot = albumBackend.thumbnailDiskCacheRoot
         pendingCacheMaxEntries = albumBackend.thumbnailDiskCacheMaxEntries
         pendingCacheJpegQuality = albumBackend.thumbnailDiskCacheJpegQuality
+        pendingSemanticImportPreference = albumBackend.semanticGenerationController.importPreference
         refreshCacheStats()
     }
 
@@ -139,6 +144,9 @@ Dialog {
         }
         if (albumBackend.thumbnailDiskCacheJpegQuality !== pendingCacheJpegQuality) {
             albumBackend.SetThumbnailDiskCacheJpegQuality(pendingCacheJpegQuality)
+        }
+        if (albumBackend.semanticGenerationController.importPreference !== pendingSemanticImportPreference) {
+            albumBackend.semanticGenerationController.SetImportPreference(pendingSemanticImportPreference)
         }
         refreshCacheStats()
         messageRequested(qsTr("Settings applied"))
@@ -238,7 +246,8 @@ Dialog {
                                 model: [
                                     { label: qsTr("Language"), icon: "qrc:/panel_icons/language.svg" },
                                     { label: qsTr("Theme and color"), icon: "qrc:/panel_icons/palette.svg" },
-                                    { label: qsTr("Cache"), icon: "qrc:/panel_icons/box.svg" }
+                                    { label: qsTr("Cache"), icon: "qrc:/panel_icons/box.svg" },
+                                    { label: qsTr("AI"), icon: "qrc:/panel_icons/search.svg" }
                                 ]
 
                                 delegate: Rectangle {
@@ -317,7 +326,9 @@ Dialog {
                                       ? qsTr("Language")
                                       : (dialog.currentCategory === 1
                                          ? qsTr("Theme and color")
-                                         : qsTr("Cache"))
+                                         : (dialog.currentCategory === 2
+                                            ? qsTr("Cache")
+                                            : qsTr("AI")))
                                 color: dialog.textColor
                                 font.family: dialog.headlineFontFamily
                                 font.pixelSize: 34
@@ -703,6 +714,41 @@ Dialog {
                                             Material.foreground: dialog.textColor
                                             onClicked: dialog.refreshCacheStats()
                                         }
+                                    }
+                                }
+                            }
+                        }
+
+                        ScrollView {
+                            id: semanticScroll
+                            contentWidth: availableWidth
+                            clip: true
+
+                            ColumnLayout {
+                                width: semanticScroll.availableWidth
+                                spacing: 20
+
+                                SemanticGenerationSettingsPanel {
+                                    Layout.fillWidth: true
+                                    Layout.topMargin: 26
+                                    Layout.leftMargin: 34
+                                    Layout.rightMargin: 34
+                                    Layout.bottomMargin: 26
+                                    semanticController: albumBackend.semanticGenerationController
+                                    importPreference: dialog.pendingSemanticImportPreference
+                                    primaryAccent: dialog.primaryAccent
+                                    secondaryAccent: dialog.secondaryAccent
+                                    textColor: dialog.textColor
+                                    mutedTextColor: dialog.mutedTextColor
+                                    canvasColor: dialog.canvasColor
+                                    dividerColor: dialog.dividerColor
+                                    dangerColor: dialog.dangerColor
+                                    dataFontFamily: dialog.dataFontFamily
+                                    onImportPreferenceRequested: function(preference) {
+                                        dialog.pendingSemanticImportPreference = preference
+                                    }
+                                    onMessageRequested: function(message) {
+                                        dialog.messageRequested(message)
                                     }
                                 }
                             }
