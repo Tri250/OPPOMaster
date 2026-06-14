@@ -700,6 +700,7 @@ target_link_libraries(SemanticGenerationServiceTest
   SemanticGenerationService
   ProjectService
   ImportService
+  DuckDB
   GTest::gtest_main)
 gtest_discover_tests(SemanticGenerationServiceTest TEST_PREFIX "SemanticGenerationServiceTest."
   PROPERTIES LABELS "ci_core_flow")

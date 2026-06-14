@@ -11,10 +11,12 @@
 #include <QVariantMap>
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
+#include "app/semantic_generation_service.hpp"
 #include "edit/pipeline/pipeline_accelerator.hpp"
 #include "ui/alcedo_main/album_backend/adjustment_transfer_controller.hpp"
 #include "ui/alcedo_main/album_backend/album_thumbnail_model.hpp"
@@ -32,6 +34,8 @@
 #include "ui/alcedo_main/i18n.hpp"
 
 namespace alcedo::ui {
+
+class SemanticRuntimeSessionGuard;
 
 class AlbumBackend final : public QObject {
   Q_OBJECT
@@ -75,6 +79,15 @@ class AlbumBackend final : public QObject {
   Q_PROPERTY(int importCompleted READ ImportCompleted NOTIFY ImportStateChanged)
   Q_PROPERTY(int importFailed READ ImportFailed NOTIFY ImportStateChanged)
   Q_PROPERTY(QString importStatus READ ImportStatus NOTIFY ImportStateChanged)
+  Q_PROPERTY(bool semanticGenerationPromptVisible READ SemanticGenerationPromptVisible NOTIFY SemanticGenerationStateChanged)
+  Q_PROPERTY(bool semanticGenerationRunning READ SemanticGenerationRunning NOTIFY SemanticGenerationStateChanged)
+  Q_PROPERTY(int semanticGenerationPendingCount READ SemanticGenerationPendingCount NOTIFY SemanticGenerationStateChanged)
+  Q_PROPERTY(int semanticGenerationTotal READ SemanticGenerationTotal NOTIFY SemanticGenerationStateChanged)
+  Q_PROPERTY(int semanticGenerationEmbedded READ SemanticGenerationEmbedded NOTIFY SemanticGenerationStateChanged)
+  Q_PROPERTY(int semanticGenerationSkipped READ SemanticGenerationSkipped NOTIFY SemanticGenerationStateChanged)
+  Q_PROPERTY(int semanticGenerationFailed READ SemanticGenerationFailed NOTIFY SemanticGenerationStateChanged)
+  Q_PROPERTY(int semanticGenerationCanceled READ SemanticGenerationCanceled NOTIFY SemanticGenerationStateChanged)
+  Q_PROPERTY(QString semanticGenerationStatus READ SemanticGenerationStatus NOTIFY SemanticGenerationStateChanged)
   Q_PROPERTY(bool exportInFlight READ ExportInFlight NOTIFY ExportStateChanged)
   Q_PROPERTY(QString exportStatus READ ExportStatus NOTIFY ExportStateChanged)
   Q_PROPERTY(QVariantMap exportItemStatuses READ ExportItemStatuses NOTIFY ExportStateChanged)
@@ -167,6 +180,20 @@ class AlbumBackend final : public QObject {
   int            ImportCompleted() const { return import_export_.import_completed(); }
   int            ImportFailed() const { return import_export_.import_failed(); }
   QString        ImportStatus() const { return import_export_.import_status(); }
+  bool           SemanticGenerationPromptVisible() const {
+    return semantic_generation_prompt_pending_ && !semantic_generation_running_ &&
+           !nikon_he_recovery_.is_active();
+  }
+  bool    SemanticGenerationRunning() const { return semantic_generation_running_; }
+  int     SemanticGenerationPendingCount() const {
+    return static_cast<int>(semantic_generation_pending_items_.size());
+  }
+  int     SemanticGenerationTotal() const { return semantic_generation_total_; }
+  int     SemanticGenerationEmbedded() const { return semantic_generation_embedded_; }
+  int     SemanticGenerationSkipped() const { return semantic_generation_skipped_; }
+  int     SemanticGenerationFailed() const { return semantic_generation_failed_; }
+  int     SemanticGenerationCanceled() const { return semantic_generation_canceled_; }
+  QString SemanticGenerationStatus() const { return semantic_generation_status_text_.Render(); }
   bool           ExportInFlight() const { return import_export_.export_inflight(); }
   QString        ExportStatus() const { return import_export_.export_status(); }
   QVariantMap    ExportItemStatuses() const { return import_export_.export_item_statuses(); }
@@ -221,6 +248,10 @@ class AlbumBackend final : public QObject {
 
   Q_INVOKABLE void        StartImport(const QStringList& fileUrlsOrPaths);
   Q_INVOKABLE void        CancelImport();
+  Q_INVOKABLE void        StartPendingSemanticGeneration(bool forceRegenerate = false);
+  Q_INVOKABLE void        SkipPendingSemanticGeneration(bool neverAskAgain = false);
+  Q_INVOKABLE void        SetSemanticGenerationImportPreference(const QString& preference);
+  Q_INVOKABLE void        CancelSemanticGeneration();
   Q_INVOKABLE bool        PromptAndLoadProject();
   Q_INVOKABLE bool        PromptAndCreateProject();
   Q_INVOKABLE bool        SetAcceleratorBackend(const QString& backendKey);
@@ -301,6 +332,7 @@ class AlbumBackend final : public QObject {
   void TaskStateChanged();
   void ImportStateChanged();
   void importStateChanged();
+  void SemanticGenerationStateChanged();
   void ExportStateChanged();
   void exportStateChanged();
   void NikonHeRecoveryStateChanged();
@@ -339,6 +371,13 @@ class AlbumBackend final : public QObject {
   void ApplyAcceleratorPreferenceToServices();
   bool IsAcceleratorWarningAcknowledged() const;
   void PersistAcceleratorWarningAcknowledgement() const;
+  void QueueSemanticGenerationPrompt(std::vector<SemanticGenerationItem> items);
+  void ResumeQueuedSemanticGenerationWorkflow();
+  void UpdateSemanticGenerationProgress(const SemanticGenerationProgress& progress);
+  void FinishSemanticGeneration(std::vector<SemanticGenerationItemResult> results);
+  void ClearSemanticGenerationPrompt();
+  auto ActiveSemanticModelKey() const -> std::string;
+  auto SemanticLabelDisplayText(sl_element_id_t elementId) const -> QString;
   void LoadRecentProjectsFromSettings();
   void PersistRecentProjects() const;
   void RegisterRecentProject(const std::filesystem::path& projectPath);
@@ -388,6 +427,18 @@ class AlbumBackend final : public QObject {
   i18n::LocalizedText          task_status_text_{};
   int                          task_progress_       = 0;
   bool                         task_cancel_visible_ = false;
+  std::vector<SemanticGenerationItem> semantic_generation_pending_items_{};
+  std::shared_ptr<SemanticRuntimeSessionGuard> semantic_generation_runtime_session_{};
+  std::shared_ptr<SemanticGenerationJob> semantic_generation_job_{};
+  i18n::LocalizedText semantic_generation_status_text_{};
+  std::string semantic_generation_model_key_{};
+  bool semantic_generation_prompt_pending_ = false;
+  bool semantic_generation_running_        = false;
+  int  semantic_generation_total_          = 0;
+  int  semantic_generation_embedded_       = 0;
+  int  semantic_generation_skipped_        = 0;
+  int  semantic_generation_failed_         = 0;
+  int  semantic_generation_canceled_       = 0;
 
   // ── Phase 4: Thumbnail disk cache settings ──────────────────────────
   void LoadThumbnailDiskCacheSettings();

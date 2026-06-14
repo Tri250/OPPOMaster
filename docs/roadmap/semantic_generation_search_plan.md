@@ -3,7 +3,7 @@
 Date: 2026-06-12
 
 Status: Phase 1 complete; Phase 2 complete; Phase 3 complete; Phase 4a
-initial scaffold complete; Phase 4c complete
+initial scaffold complete; Phase 4c complete; Phase 4d complete
 
 This document proposes how to integrate `rust/puerh_mind` into Alcedo Studio as
 project-level semantic image generation and semantic search services.
@@ -455,6 +455,9 @@ Packaging smoke tests should verify:
 6. Download and packaging
    - Qt model downloader
    - source mirror settings
+   - remove the temporary development `model-root` fallback that probes
+     `rust/puerh_mind/models/mobileclip2-s2-openclip`; release builds must pass
+     a downloader/settings-resolved model root explicitly
    - Rust binary install
    - ORT dynamic library deployment
    - DuckDB `vss` extension deployment when ANN search is enabled

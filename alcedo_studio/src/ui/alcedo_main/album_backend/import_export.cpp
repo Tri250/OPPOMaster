@@ -471,6 +471,22 @@ void ImportExportHandler::FinishImport(const ImportResult& result) {
   backend_.SetTaskState(task_text, 100, false);
   backend_.ScheduleIdleTaskStateReset(1800);
 
+  std::unordered_set<sl_element_id_t> nikon_he_ids;
+  nikon_he_ids.reserve(snapshot.unsupported_nikon_he_.size());
+  for (const auto& entry : snapshot.unsupported_nikon_he_) {
+    nikon_he_ids.insert(entry.element_id_);
+  }
+  std::vector<SemanticGenerationItem> semantic_items;
+  semantic_items.reserve(snapshot.created_.size());
+  for (const auto& created : snapshot.created_) {
+    if (created.element_id_ == 0 || created.image_id_ == 0 ||
+        nikon_he_ids.contains(created.element_id_)) {
+      continue;
+    }
+    semantic_items.push_back(SemanticGenerationItem{created.element_id_, created.image_id_});
+  }
+  backend_.QueueSemanticGenerationPrompt(std::move(semantic_items));
+
   if (reimporting_nikon_he) {
     backend_.nikon_he_recovery_.HandleReimportFinished(result);
     return;

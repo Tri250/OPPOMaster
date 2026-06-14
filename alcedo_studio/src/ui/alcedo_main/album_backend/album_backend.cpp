@@ -12,6 +12,9 @@
 #include <QFileInfo>
 #include <QImage>
 #include <QInputDialog>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLineEdit>
 #include <QMetaObject>
 #include <QPointer>
@@ -20,6 +23,7 @@
 #include <QTimer>
 #include <QUrl>
 #include <algorithm>
+#include <chrono>
 #include <exception>
 #include <limits>
 #include <optional>
@@ -38,19 +42,43 @@
 namespace alcedo::ui {
 
 using namespace album_util;
+using namespace std::chrono_literals;
 
 #define PL_TEXT(text, ...)                     \
   i18n::MakeLocalizedText(ALCEDO_I18N_CONTEXT, \
                           QT_TRANSLATE_NOOP(ALCEDO_I18N_CONTEXT, text) __VA_OPT__(, ) __VA_ARGS__)
+
+class SemanticRuntimeSessionGuard final {
+ public:
+  explicit SemanticRuntimeSessionGuard(std::shared_ptr<SemanticRuntimeService> runtime)
+      : runtime_(std::move(runtime)) {}
+
+  ~SemanticRuntimeSessionGuard() {
+    if (runtime_) {
+      runtime_->Stop();
+    }
+  }
+
+  SemanticRuntimeSessionGuard(const SemanticRuntimeSessionGuard&)            = delete;
+  SemanticRuntimeSessionGuard& operator=(const SemanticRuntimeSessionGuard&) = delete;
+
+ private:
+  std::shared_ptr<SemanticRuntimeService> runtime_;
+};
 
 namespace {
 
 constexpr auto   kRecentProjectsKey                 = "projects/recent";
 constexpr auto   kAcceleratorBackendKey             = "gpu/acceleratorBackend";
 constexpr auto   kAcceleratorWarningAcknowledgedKey = "gpu/acceleratorWarningAcknowledged";
+constexpr auto   kSemanticGenerationImportPreferenceKey = "semantic/importGenerationPreference";
 constexpr int    kMaxRecentProjects                 = 12;
 constexpr size_t kAlbumMetadataPageSize             = 1000;
 constexpr size_t kSearchMetadataPageSize            = 120;
+constexpr auto   kSemanticPreferenceAsk             = "ask";
+constexpr auto   kSemanticPreferenceAlways          = "always";
+constexpr auto   kSemanticPreferenceNever           = "never";
+constexpr auto   kSemanticRuntimeStartupTimeout     = 60s;
 
 auto FormatCacheSize(size_t bytes) -> QString {
   if (bytes == 0) {
@@ -197,6 +225,22 @@ auto NormalizeRecentProjectPath(const std::filesystem::path& projectPath) -> QSt
       QFileInfo(PathToQString(projectPath.lexically_normal())).absoluteFilePath()));
 }
 
+auto SemanticModelKeyFromInfo(const SemanticRuntimeModelInfo& info) -> std::string {
+  if (info.revision.empty()) {
+    return info.model_id;
+  }
+  return info.model_id + "@" + info.revision;
+}
+
+auto NormalizedSemanticPreference(QString preference) -> QString {
+  preference = preference.trimmed().toLower();
+  if (preference == QLatin1String(kSemanticPreferenceAlways) ||
+      preference == QLatin1String(kSemanticPreferenceNever)) {
+    return preference;
+  }
+  return QString::fromLatin1(kSemanticPreferenceAsk);
+}
+
 auto BuildRecentProjectEntry(const QString& normalizedPath, qint64 lastOpenedMs) -> QVariantMap {
   const QFileInfo info(normalizedPath);
   QString         display_name = info.completeBaseName();
@@ -245,6 +289,9 @@ AlbumBackend::AlbumBackend(QObject* parent)
 
 AlbumBackend::~AlbumBackend() {
   try {
+    if (semantic_generation_job_) {
+      semantic_generation_job_->Cancel();
+    }
     search_.CancelSearchPreviewThumbnails();
     thumb_.ReleaseVisibleThumbnailPins();
     editor_.FinalizeEditorSession(true);
@@ -355,6 +402,160 @@ void AlbumBackend::StartImport(const QStringList& fileUrlsOrPaths) {
   import_export_.StartImport(fileUrlsOrPaths);
 }
 void AlbumBackend::CancelImport() { import_export_.CancelImport(); }
+
+void AlbumBackend::StartPendingSemanticGeneration(bool forceRegenerate) {
+  if (semantic_generation_running_) {
+    return;
+  }
+  if (semantic_generation_pending_items_.empty()) {
+    semantic_generation_prompt_pending_ = false;
+    semantic_generation_status_text_ = PL_TEXT("No imported images are waiting for semantic generation.");
+    emit SemanticGenerationStateChanged();
+    return;
+  }
+
+  auto project = project_handler_.project();
+  auto thumbnail_service = project_handler_.thumbnail_service();
+  if (!project || !thumbnail_service) {
+    semantic_generation_status_text_ = PL_TEXT("Semantic generation is unavailable without an open project.");
+    emit SemanticGenerationStateChanged();
+    return;
+  }
+
+  auto runtime = project->GetSemanticRuntimeService();
+  if (!runtime) {
+    semantic_generation_status_text_ = PL_TEXT("Semantic runtime service is unavailable.");
+    emit SemanticGenerationStateChanged();
+    return;
+  }
+  auto runtime_status = runtime->Status();
+  if (runtime_status.state != SemanticRuntimeState::kReady ||
+      !runtime_status.model_info.has_value()) {
+    semantic_generation_status_text_ = PL_TEXT("Starting semantic runtime...");
+    emit SemanticGenerationStateChanged();
+
+    SemanticRuntimeOptions runtime_options = runtime->Options();
+    runtime_options.startup_timeout = kSemanticRuntimeStartupTimeout;
+    if (!runtime->StartAndWait(runtime_options)) {
+      runtime_status = runtime->Status();
+      const QString message = QString::fromStdString(runtime_status.message);
+      semantic_generation_status_text_ =
+          message.isEmpty() ? PL_TEXT("Semantic runtime failed to start.")
+                            : PL_TEXT("Semantic runtime failed to start: %1", message);
+      emit SemanticGenerationStateChanged();
+      return;
+    }
+
+    runtime_status = runtime->Status();
+    if (runtime_status.state != SemanticRuntimeState::kReady ||
+        !runtime_status.model_info.has_value()) {
+      const QString message = QString::fromStdString(runtime_status.message);
+      semantic_generation_status_text_ =
+          message.isEmpty() ? PL_TEXT("Semantic runtime did not report model information.")
+                            : PL_TEXT("Semantic runtime is not ready: %1", message);
+      emit SemanticGenerationStateChanged();
+      return;
+    }
+  }
+
+  auto runtime_session = std::make_shared<SemanticRuntimeSessionGuard>(runtime);
+
+  auto& semantic = project->GetStorageService()->GetSemanticStorageController();
+  const std::string model_key = SemanticModelKeyFromInfo(*runtime_status.model_info);
+  std::string       error;
+  if (!semantic.UpsertModel(SemanticModelRecord{.model_key_     = model_key,
+                                                .model_id_      = runtime_status.model_info->model_id,
+                                                .revision_      = runtime_status.model_info->revision,
+                                                .embedding_dim_ = static_cast<int>(
+                                                    runtime_status.model_info->embedding_dimension),
+                                                .image_size_ = static_cast<int>(
+                                                    runtime_status.model_info->image_size),
+                                                .prompt_config_hash_ =
+                                                    kDefaultSemanticPhotographyPromptConfigHash},
+                            &error)) {
+    semantic_generation_status_text_ =
+        PL_TEXT("Semantic model registration failed: %1", QString::fromUtf8(error.c_str()));
+    emit SemanticGenerationStateChanged();
+    return;
+  }
+
+  semantic_generation_model_key_ = model_key;
+  semantic_generation_prompt_pending_ = false;
+  semantic_generation_running_ = true;
+  semantic_generation_total_ = static_cast<int>(semantic_generation_pending_items_.size());
+  semantic_generation_embedded_ = 0;
+  semantic_generation_skipped_ = 0;
+  semantic_generation_failed_ = 0;
+  semantic_generation_canceled_ = 0;
+  semantic_generation_status_text_ =
+      PL_TEXT("Generating semantic labels for %1 image(s)...", semantic_generation_total_);
+  emit SemanticGenerationStateChanged();
+
+  SemanticGenerationOptions options;
+  options.thumbnail_resolution = ThumbnailResolution::k256;
+  options.batch_size = 16;
+  options.expected_model_info = runtime_status.model_info;
+  options.force_regenerate = forceRegenerate;
+  SemanticGenerationPersistenceOptions persistence;
+  persistence.storage_controller = &semantic;
+  persistence.model_key = model_key;
+  options.persistence = persistence;
+
+  auto thumbnails = std::make_shared<ThumbnailServiceSemanticThumbnailProvider>(thumbnail_service);
+  auto embedder = std::make_shared<SemanticRuntimeImageEmbeddingClient>(runtime);
+  auto service = std::make_shared<SemanticGenerationService>(thumbnails, embedder);
+  QPointer<AlbumBackend> self(this);
+  auto job = service->StartGeneration(
+      semantic_generation_pending_items_, options,
+      [self](const SemanticGenerationProgress& progress) {
+        if (!self) {
+          return;
+        }
+        QMetaObject::invokeMethod(
+            self, [self, progress]() {
+              if (self) {
+                self->UpdateSemanticGenerationProgress(progress);
+              }
+            },
+            Qt::QueuedConnection);
+      },
+      [self](std::vector<SemanticGenerationItemResult> results) {
+        if (!self) {
+          return;
+        }
+        QMetaObject::invokeMethod(
+            self, [self, results = std::move(results)]() mutable {
+              if (self) {
+                self->FinishSemanticGeneration(std::move(results));
+              }
+            },
+            Qt::QueuedConnection);
+      });
+  semantic_generation_runtime_session_ = std::move(runtime_session);
+  semantic_generation_job_ = std::move(job);
+}
+
+void AlbumBackend::SkipPendingSemanticGeneration(bool neverAskAgain) {
+  if (neverAskAgain) {
+    SetSemanticGenerationImportPreference(QString::fromLatin1(kSemanticPreferenceNever));
+  }
+  ClearSemanticGenerationPrompt();
+  semantic_generation_status_text_ = PL_TEXT("Semantic generation skipped.");
+  emit SemanticGenerationStateChanged();
+}
+
+void AlbumBackend::SetSemanticGenerationImportPreference(const QString& preference) {
+  QSettings{}.setValue(QLatin1String(kSemanticGenerationImportPreferenceKey),
+                       NormalizedSemanticPreference(preference));
+}
+
+void AlbumBackend::CancelSemanticGeneration() {
+  if (semantic_generation_job_) {
+    semantic_generation_job_->Cancel();
+    semantic_generation_status_text_ = PL_TEXT("Cancelling semantic generation...");
+    emit SemanticGenerationStateChanged();
+  }
+}
 
 void AlbumBackend::SetAcceleratorPreparationState(bool preparing,
                                                   const i18n::LocalizedText& status) {
@@ -945,6 +1146,183 @@ void AlbumBackend::SetTaskState(const i18n::LocalizedText& status, int progress,
   emit TaskStateChanged();
 }
 
+void AlbumBackend::QueueSemanticGenerationPrompt(std::vector<SemanticGenerationItem> items) {
+  semantic_generation_pending_items_ = std::move(items);
+  semantic_generation_prompt_pending_ = !semantic_generation_pending_items_.empty();
+  semantic_generation_total_ = static_cast<int>(semantic_generation_pending_items_.size());
+  semantic_generation_embedded_ = 0;
+  semantic_generation_skipped_ = 0;
+  semantic_generation_failed_ = 0;
+  semantic_generation_canceled_ = 0;
+  if (semantic_generation_prompt_pending_) {
+    semantic_generation_status_text_ =
+        PL_TEXT("Generate semantic labels for %1 imported image(s)?", semantic_generation_total_);
+  }
+  emit SemanticGenerationStateChanged();
+  ResumeQueuedSemanticGenerationWorkflow();
+}
+
+void AlbumBackend::ResumeQueuedSemanticGenerationWorkflow() {
+  if (!semantic_generation_prompt_pending_ || semantic_generation_running_ ||
+      nikon_he_recovery_.is_active()) {
+    emit SemanticGenerationStateChanged();
+    return;
+  }
+
+  const QString preference =
+      NormalizedSemanticPreference(QSettings{}
+                                       .value(QLatin1String(kSemanticGenerationImportPreferenceKey),
+                                              QLatin1String(kSemanticPreferenceAsk))
+                                       .toString());
+  if (preference == QLatin1String(kSemanticPreferenceAlways)) {
+    StartPendingSemanticGeneration(false);
+    return;
+  }
+  if (preference == QLatin1String(kSemanticPreferenceNever)) {
+    ClearSemanticGenerationPrompt();
+    return;
+  }
+  emit SemanticGenerationStateChanged();
+}
+
+void AlbumBackend::UpdateSemanticGenerationProgress(const SemanticGenerationProgress& progress) {
+  semantic_generation_total_ = static_cast<int>(progress.total);
+  semantic_generation_embedded_ = static_cast<int>(progress.embedded);
+  semantic_generation_skipped_ = static_cast<int>(progress.skipped);
+  semantic_generation_failed_ = static_cast<int>(progress.failed);
+  semantic_generation_canceled_ = static_cast<int>(progress.canceled);
+  const int completed = semantic_generation_embedded_ + semantic_generation_skipped_ +
+                        semantic_generation_failed_ + semantic_generation_canceled_;
+  semantic_generation_status_text_ =
+      PL_TEXT("Generating semantic labels... %1/%2 complete", completed,
+              std::max(semantic_generation_total_, 1));
+  SetTaskState(semantic_generation_status_text_,
+               semantic_generation_total_ > 0 ? (completed * 100) / semantic_generation_total_ : 0,
+               true);
+  emit SemanticGenerationStateChanged();
+}
+
+void AlbumBackend::FinishSemanticGeneration(std::vector<SemanticGenerationItemResult> results) {
+  semantic_generation_running_ = false;
+  semantic_generation_job_.reset();
+  semantic_generation_runtime_session_.reset();
+  semantic_generation_pending_items_.clear();
+  semantic_generation_prompt_pending_ = false;
+
+  int embedded = 0;
+  int skipped = 0;
+  int failed = 0;
+  int canceled = 0;
+  for (const auto& result : results) {
+    switch (result.status) {
+      case SemanticGenerationItemStatus::kEmbedded:
+        ++embedded;
+        break;
+      case SemanticGenerationItemStatus::kSkipped:
+        ++skipped;
+        break;
+      case SemanticGenerationItemStatus::kCanceled:
+        ++canceled;
+        break;
+      case SemanticGenerationItemStatus::kError:
+        ++failed;
+        break;
+      default:
+        break;
+    }
+  }
+  semantic_generation_embedded_ = embedded;
+  semantic_generation_skipped_ = skipped;
+  semantic_generation_failed_ = failed;
+  semantic_generation_canceled_ = canceled;
+  semantic_generation_total_ = static_cast<int>(results.size());
+
+  semantic_generation_status_text_ =
+      PL_TEXT("Semantic generation complete: %1 generated, %2 skipped, %3 failed.",
+              embedded, skipped, failed + canceled);
+  SetTaskState(semantic_generation_status_text_, 100, false);
+  ScheduleIdleTaskStateReset(2200);
+  ReloadCurrentFolder();
+  if (project_handler_.PersistCurrentProjectState()) {
+    QString ignored_error;
+    (void)project_handler_.PackageCurrentProjectFiles(&ignored_error);
+  }
+  emit SemanticGenerationStateChanged();
+}
+
+void AlbumBackend::ClearSemanticGenerationPrompt() {
+  semantic_generation_pending_items_.clear();
+  semantic_generation_prompt_pending_ = false;
+  semantic_generation_total_ = 0;
+  semantic_generation_embedded_ = 0;
+  semantic_generation_skipped_ = 0;
+  semantic_generation_failed_ = 0;
+  semantic_generation_canceled_ = 0;
+}
+
+auto AlbumBackend::ActiveSemanticModelKey() const -> std::string {
+  if (!semantic_generation_model_key_.empty()) {
+    return semantic_generation_model_key_;
+  }
+  auto project = project_handler_.project();
+  if (!project) {
+    return {};
+  }
+  auto runtime = project->GetSemanticRuntimeService();
+  if (!runtime) {
+    return {};
+  }
+  const auto status = runtime->Status();
+  if (!status.model_info.has_value()) {
+    return {};
+  }
+  return SemanticModelKeyFromInfo(*status.model_info);
+}
+
+auto AlbumBackend::SemanticLabelDisplayText(sl_element_id_t elementId) const -> QString {
+  const auto model_key = ActiveSemanticModelKey();
+  if (model_key.empty()) {
+    return {};
+  }
+  auto project = project_handler_.project();
+  if (!project) {
+    return {};
+  }
+  std::string error;
+  const auto label = project->GetStorageService()
+                         ->GetSemanticStorageController()
+                         .GetImageLabelForFile(elementId, model_key, &error);
+  if (!label.has_value()) {
+    return {};
+  }
+  if (label->confident_ || label->top_scores_json_.empty()) {
+    return QString::fromUtf8(label->label_.c_str());
+  }
+
+  const QJsonDocument doc =
+      QJsonDocument::fromJson(QByteArray::fromStdString(label->top_scores_json_));
+  if (!doc.isArray()) {
+    return QString::fromUtf8(label->label_.c_str());
+  }
+  const auto array = doc.array();
+  QStringList labels;
+  const double best_score = label->score_;
+  for (const auto& value : array) {
+    const auto object = value.toObject();
+    const auto score = object.value(QStringLiteral("score")).toDouble(-1.0);
+    const auto name = object.value(QStringLiteral("label")).toString();
+    if (name.isEmpty()) {
+      continue;
+    }
+    if (labels.isEmpty() ||
+        (best_score - score) <= kDefaultSemanticLabelMarginThreshold) {
+      labels.push_back(name);
+    }
+  }
+  return labels.isEmpty() ? QString::fromUtf8(label->label_.c_str())
+                          : labels.join(QStringLiteral(", "));
+}
+
 void AlbumBackend::RefreshTranslations() {
   if (!folder_ctrl_.folder_entries().empty()) {
     folder_ctrl_.RebuildFolderView();
@@ -1259,6 +1637,7 @@ void AlbumBackend::AddOrUpdateAlbumItem(sl_element_id_t elementId, image_id_t im
   if (item->extension.isEmpty()) {
     item->extension = ExtensionFromFileName(item->file_name);
   }
+  item->tags = SemanticLabelDisplayText(elementId);
 }
 
 void AlbumBackend::SetAlbumItemHdrFlag(sl_element_id_t elementId, image_id_t imageId, bool isHdr) {

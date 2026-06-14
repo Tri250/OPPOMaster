@@ -441,6 +441,34 @@ auto SemanticStorageController::CountImageEmbeddingsForFile(sl_element_id_t    f
   return count.has_value() ? static_cast<size_t>(*count) : 0U;
 }
 
+auto SemanticStorageController::HasReadyImageEmbedding(sl_element_id_t    file_id,
+                                                       image_id_t         image_id,
+                                                       const std::string& model_key,
+                                                       bool require_label) const -> bool {
+  const auto model_dim = GetModelEmbeddingDim(model_key);
+  if (!model_dim.has_value()) {
+    return false;
+  }
+
+  std::string sql =
+      std::format("SELECT COUNT(*) FROM SemanticImageEmbedding se "
+                  "{} "
+                  "WHERE se.file_id = {} AND se.image_id = {} AND se.model_key = {} "
+                  "AND se.embedding_dim = {} AND se.status = 'ready' AND se.error IS NULL",
+                  require_label
+                      ? "JOIN SemanticImageLabel sl ON sl.file_id = se.file_id AND "
+                        "sl.model_key = se.model_key"
+                      : "",
+                  file_id, image_id, SqlString(model_key), *model_dim);
+  if (require_label) {
+    sql += " AND sl.label IS NOT NULL AND sl.label <> ''";
+  }
+  sql += ";";
+
+  const auto count = ScalarInt64(guard_.conn_, sql);
+  return count.has_value() && *count > 0;
+}
+
 auto SemanticStorageController::CountImageLabelsForFile(sl_element_id_t    file_id,
                                                         const std::string& model_key) const
     -> size_t {

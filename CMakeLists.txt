@@ -697,6 +697,16 @@ if(TARGET ${ALCEDO_MAIN_BIN})
             )
         endif()
 
+        if(WIN32 AND ALCEDO_MIND_BINARY)
+            install(CODE
+                "set(ALCEDO_MIND_BINARY \"${ALCEDO_MIND_BINARY}\")
+                 set(ALCEDO_MIND_TARGET_DIR \"${ALCEDO_MIND_TARGET_DIR}\")
+                 set(ALCEDO_MIND_DEST_DIR \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}\")
+                 include(\"${CMAKE_SOURCE_DIR}/scripts/cmake/copy_semantic_sidecar.cmake\")
+                "
+            )
+        endif()
+
         if(APPLE AND ALCEDO_METAL_ENABLED AND ALCEDO_METAL_RUNTIME_LIBS)
             install(FILES ${ALCEDO_METAL_RUNTIME_LIBS}
                 DESTINATION "${CMAKE_INSTALL_BINDIR}/metallib"
@@ -712,6 +722,12 @@ if(WIN32 AND TARGET ${ALCEDO_MAIN_BIN})
     set(ALCEDO_RUNTIME_DEP_DIRS "" CACHE STRING "Extra directories to search for runtime DLL dependencies during install.")
     set(ALCEDO_RUNTIME_EXES "$<TARGET_FILE:${ALCEDO_MAIN_BIN}>")
     set(ALCEDO_RUNTIME_SEARCH_DIRS "$<TARGET_FILE_DIR:${ALCEDO_MAIN_BIN}>")
+    if(ALCEDO_MIND_BINARY)
+        list(APPEND ALCEDO_RUNTIME_EXES "${ALCEDO_MIND_BINARY}")
+    endif()
+    if(ALCEDO_MIND_TARGET_DIR)
+        list(APPEND ALCEDO_RUNTIME_SEARCH_DIRS "${ALCEDO_MIND_TARGET_DIR}")
+    endif()
 
     set(_third_party_exiv2_bin "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/exiv2_x64-windows/bin")
     set(_third_party_duckdb_bin "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/libduckdb-windows")

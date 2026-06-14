@@ -1163,6 +1163,7 @@ target_link_libraries(AlbumBackendLib
         AdjustmentTransferService
         EditHistoryMgmtService
         ThumbnailService
+        SemanticGenerationService
         SleeveFilterService
         FSService
         EditPipeline
@@ -1381,6 +1382,7 @@ qt_add_qml_module(alcedo_main
         ui/alcedo_main/qml/SettingDialog.qml
         ui/alcedo_main/qml/WelcomeDialog.qml
         ui/alcedo_main/qml/NikonHeRecoveryDialog.qml
+        ui/alcedo_main/qml/SemanticGenerationDialog.qml
         ui/alcedo_main/qml/ImportProgressRing.qml
         ui/alcedo_main/qml/InspectorPanel.qml
         ui/alcedo_main/qml/CollectionsPanel.qml
@@ -1434,6 +1436,60 @@ if(DEFINED ALCEDO_LENSFUN_LIBRARY_DIR AND NOT "${ALCEDO_LENSFUN_LIBRARY_DIR}" ST
     set_property(TARGET alcedo_main APPEND PROPERTY BUILD_RPATH "${ALCEDO_LENSFUN_LIBRARY_DIR}")
 endif()
 
+set(ALCEDO_MIND_SOURCE_DIR "${CMAKE_SOURCE_DIR}/rust/puerh_mind"
+    CACHE INTERNAL "Alcedo semantic sidecar source directory.")
+set(ALCEDO_MIND_BUILD_PROFILE "release"
+    CACHE INTERNAL "Alcedo semantic sidecar cargo profile.")
+set(ALCEDO_MIND_TARGET_DIR "${ALCEDO_MIND_SOURCE_DIR}/target/${ALCEDO_MIND_BUILD_PROFILE}"
+    CACHE INTERNAL "Alcedo semantic sidecar cargo target directory.")
+
+if(WIN32)
+    set(ALCEDO_MIND_EXE_NAME "alcedo_mind.exe"
+        CACHE INTERNAL "Alcedo semantic sidecar executable name.")
+else()
+    set(ALCEDO_MIND_EXE_NAME "alcedo_mind"
+        CACHE INTERNAL "Alcedo semantic sidecar executable name.")
+endif()
+
+set(ALCEDO_MIND_BINARY "${ALCEDO_MIND_TARGET_DIR}/${ALCEDO_MIND_EXE_NAME}"
+    CACHE INTERNAL "Alcedo semantic sidecar executable path.")
+
+if(WIN32)
+    set(ALCEDO_MIND_CARGO_MSVC "${ALCEDO_MIND_SOURCE_DIR}/script/cargo_msvc.cmd")
+    if(NOT EXISTS "${ALCEDO_MIND_CARGO_MSVC}")
+        message(FATAL_ERROR "Semantic sidecar MSVC cargo wrapper was not found: ${ALCEDO_MIND_CARGO_MSVC}")
+    endif()
+
+    file(GLOB_RECURSE ALCEDO_MIND_RUST_SOURCES CONFIGURE_DEPENDS
+        "${ALCEDO_MIND_SOURCE_DIR}/src/*.rs"
+    )
+    file(GLOB ALCEDO_MIND_PROTO_FILES CONFIGURE_DEPENDS
+        "${ALCEDO_MIND_SOURCE_DIR}/proto/*.proto"
+    )
+
+    set(ALCEDO_MIND_BUILD_STAMP "${CMAKE_CURRENT_BINARY_DIR}/alcedo_mind_sidecar.stamp")
+    add_custom_command(
+        OUTPUT "${ALCEDO_MIND_BUILD_STAMP}"
+        COMMAND "${ALCEDO_MIND_CARGO_MSVC}" build --release
+        COMMAND ${CMAKE_COMMAND} -E touch "${ALCEDO_MIND_BUILD_STAMP}"
+        WORKING_DIRECTORY "${ALCEDO_MIND_SOURCE_DIR}"
+        DEPENDS
+            "${ALCEDO_MIND_SOURCE_DIR}/Cargo.toml"
+            "${ALCEDO_MIND_SOURCE_DIR}/Cargo.lock"
+            "${ALCEDO_MIND_SOURCE_DIR}/build.rs"
+            ${ALCEDO_MIND_RUST_SOURCES}
+            ${ALCEDO_MIND_PROTO_FILES}
+        BYPRODUCTS
+            "${ALCEDO_MIND_BINARY}"
+            "${ALCEDO_MIND_TARGET_DIR}/DirectML.dll"
+        COMMENT "Building semantic runtime sidecar"
+        VERBATIM
+        USES_TERMINAL
+    )
+    add_custom_target(alcedo_mind_sidecar DEPENDS "${ALCEDO_MIND_BUILD_STAMP}")
+    add_dependencies(alcedo_main alcedo_mind_sidecar)
+endif()
+
 set(ALCEDO_MAIN_FONT_SRC "${CMAKE_CURRENT_SOURCE_DIR}/config/fonts/main_Inter.ttf")
 set(ALCEDO_MAIN_ZH_FONT_SRC "${CMAKE_CURRENT_SOURCE_DIR}/config/fonts/main_NotoSans_zh.ttf")
 if(APPLE AND ALCEDO_MACOS_BUNDLE)
@@ -1485,6 +1541,17 @@ if(WIN32 AND ALCEDO_DUCKDB_VSS_EXTENSION)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${ALCEDO_DUCKDB_VSS_EXTENSION}"
             "$<TARGET_FILE_DIR:alcedo_main>/duckdb_extensions/vss.duckdb_extension"
+        VERBATIM
+    )
+endif()
+
+if(WIN32 AND TARGET alcedo_mind_sidecar)
+    add_custom_command(TARGET alcedo_main POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+            "-DALCEDO_MIND_BINARY=${ALCEDO_MIND_BINARY}"
+            "-DALCEDO_MIND_TARGET_DIR=${ALCEDO_MIND_TARGET_DIR}"
+            "-DALCEDO_MIND_DEST_DIR=$<TARGET_FILE_DIR:alcedo_main>"
+            -P "${CMAKE_SOURCE_DIR}/scripts/cmake/copy_semantic_sidecar.cmake"
         VERBATIM
     )
 endif()
