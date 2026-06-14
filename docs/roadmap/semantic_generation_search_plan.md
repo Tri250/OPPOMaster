@@ -3,7 +3,7 @@
 Date: 2026-06-12
 
 Status: Phase 1 complete; Phase 2 complete; Phase 3 complete; Phase 4a
-initial scaffold complete
+initial scaffold complete; Phase 4c complete
 
 This document proposes how to integrate `rust/puerh_mind` into Alcedo Studio as
 project-level semantic image generation and semantic search services.
@@ -430,9 +430,12 @@ Packaging smoke tests should verify:
    - model-info compatibility checks before generation starts
    - decide final image payload contract: raw `rgba8:WxH` or encoded image bytes
 
-4c. Bulk generation persistence and labels
+4c. Bulk generation persistence and labels - complete
    - persist image embeddings through `SemanticStorageController`
-   - label assignment from bundled prototypes
+   - seed bundled photography label query rows into new project databases
+   - generate label query embeddings once per model/config and cache them in
+     `SemanticLabelPrototype`
+   - label assignment from cached project-local prototypes
    - persist label decisions transactionally with embeddings
    - reject bad vectors: wrong dimension, NaN/Inf, zero norm, request mismatch
 

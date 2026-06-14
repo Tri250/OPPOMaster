@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "storage/controller/controller_types.hpp"
+#include "storage/controller/semantic/semantic_label_config.hpp"
 #include "type/type.hpp"
 
 namespace alcedo {
@@ -34,6 +35,31 @@ struct SemanticImageEmbeddingRecord {
   int                thumbnail_resolution_ = 256;
 };
 
+struct SemanticImageLabelRecord {
+  sl_element_id_t       file_id_ = 0;
+  std::string           model_key_{};
+  std::string           label_{};
+  double                score_ = 0.0;
+  std::string           second_label_{};
+  std::optional<double> second_score_{};
+  double                margin_    = 0.0;
+  bool                  confident_ = false;
+  std::string           top_scores_json_{};
+};
+
+struct SemanticLabelPrototypeRecord {
+  std::string        model_key_{};
+  std::string        label_{};
+  std::string        prompt_config_hash_{};
+  std::vector<float> embedding_{};
+};
+
+struct SemanticLabelQueryRecord {
+  std::string prompt_config_hash_{};
+  std::string label_{};
+  std::string query_text_{};
+};
+
 struct SemanticRankedFile {
   sl_element_id_t file_id_  = 0;
   image_id_t      image_id_ = 0;
@@ -55,10 +81,32 @@ class SemanticStorageController {
 
   [[nodiscard]] auto UpsertImageEmbedding(const SemanticImageEmbeddingRecord& record,
                                           std::string* error = nullptr) const -> bool;
+  [[nodiscard]] auto UpsertImageEmbeddingWithLabel(const SemanticImageEmbeddingRecord& record,
+                                                   const SemanticImageLabelRecord*     label,
+                                                   std::string* error = nullptr) const -> bool;
+  [[nodiscard]] auto UpsertLabelPrototype(const SemanticLabelPrototypeRecord& record,
+                                          std::string* error = nullptr) const -> bool;
+  [[nodiscard]] auto UpsertLabelPrototypes(std::span<const SemanticLabelPrototypeRecord> records,
+                                           std::string* error = nullptr) const -> bool;
   void               DeleteImageEmbeddingsForFiles(std::span<const sl_element_id_t> file_ids) const;
   [[nodiscard]] auto CountImageEmbeddings(const std::string& model_key) const -> size_t;
   [[nodiscard]] auto CountImageEmbeddingsForFile(sl_element_id_t    file_id,
                                                  const std::string& model_key) const -> size_t;
+  [[nodiscard]] auto CountImageLabelsForFile(sl_element_id_t    file_id,
+                                             const std::string& model_key) const -> size_t;
+  [[nodiscard]] auto CountLabelPrototypes(const std::string& model_key,
+                                          const std::string& prompt_config_hash) const -> size_t;
+  [[nodiscard]] auto CountLabelQueries(const std::string& prompt_config_hash) const -> size_t;
+  [[nodiscard]] auto ListLabelQueries(const std::string& prompt_config_hash,
+                                      std::string*       error = nullptr) const
+      -> std::vector<SemanticLabelQueryRecord>;
+  [[nodiscard]] auto LoadLabelPrototypes(const std::string& model_key,
+                                         const std::string& prompt_config_hash,
+                                         std::string*       error = nullptr) const
+      -> std::vector<SemanticGenerationLabelPrototype>;
+  [[nodiscard]] auto GetImageLabelForFile(sl_element_id_t file_id, const std::string& model_key,
+                                          std::string* error = nullptr) const
+      -> std::optional<SemanticImageLabelRecord>;
 
   [[nodiscard]] auto SearchImageEmbeddings(sl_element_id_t folder_id, const std::string& model_key,
                                            std::span<const float> query_embedding, size_t offset,

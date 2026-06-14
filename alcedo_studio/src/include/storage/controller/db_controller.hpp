@@ -82,12 +82,20 @@ class DBController {
       "PRIMARY KEY(file_id, model_key));"
       "CREATE INDEX IF NOT EXISTS idx_semantic_label_model_label "
       "ON SemanticImageLabel(model_key, label);"
+      "CREATE TABLE IF NOT EXISTS SemanticLabelQuery ("
+      "prompt_config_hash VARCHAR NOT NULL,"
+      "label VARCHAR NOT NULL,"
+      "query_text VARCHAR NOT NULL,"
+      "created_at TIMESTAMP DEFAULT current_timestamp,"
+      "PRIMARY KEY(prompt_config_hash, label));"
       "CREATE TABLE IF NOT EXISTS SemanticLabelPrototype ("
       "model_key VARCHAR NOT NULL,"
       "label VARCHAR NOT NULL,"
       "prompt_config_hash VARCHAR NOT NULL,"
       "embedding FLOAT[512] NOT NULL,"
       "PRIMARY KEY(model_key, label, prompt_config_hash));";
+
+  void SeedSemanticLabelQueries(duckdb_connection conn);
 
  public:
   explicit DBController(file_path_t& db_path);
