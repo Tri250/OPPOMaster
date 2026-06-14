@@ -10,9 +10,14 @@
 #include <sstream>
 #include <thread>
 
+#include <grpcpp/create_channel.h>
+#include <grpcpp/security/credentials.h>
+
 #include <QCoreApplication>
 #include <QHostAddress>
 #include <QTcpServer>
+
+#include "semantic.grpc.pb.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -41,6 +46,64 @@ auto DefaultRuntimeBinary() -> std::filesystem::path {
 #else
   return std::filesystem::path(app_dir.toStdString()) / "alcedo_mind";
 #endif
+}
+
+auto DeadlineFromNow(std::chrono::milliseconds timeout) -> std::chrono::system_clock::time_point {
+  return std::chrono::system_clock::now() + timeout;
+}
+
+auto GrpcErrorMessage(const grpc::Status& status) -> std::string {
+  if (!status.error_message().empty()) {
+    return status.error_message();
+  }
+  return "gRPC call failed with code " + std::to_string(static_cast<int>(status.error_code()));
+}
+
+auto ToRuntimeModelInfo(const semantic::GetModelInfoResponse& response)
+    -> SemanticRuntimeModelInfo {
+  SemanticRuntimeModelInfo info;
+  info.model_id              = response.model_id();
+  info.revision              = response.revision();
+  info.embedding_dimension   = response.embedding_dimension();
+  info.image_size            = response.image_size();
+  info.provider              = response.provider();
+  info.model_root            = response.model_root();
+  info.prototype_config_hash = response.prototype_config_hash();
+  return info;
+}
+
+auto ToRuntimeStatus(const semantic::GetRuntimeStatusResponse& response)
+    -> SemanticRuntimeRemoteStatus {
+  SemanticRuntimeRemoteStatus status;
+  status.state               = response.state();
+  status.provider            = response.provider();
+  status.image_batch_cap     = response.image_batch_cap();
+  status.image_batch_wait_ms = response.image_batch_wait_ms();
+  status.uptime_ms           = response.uptime_ms();
+  return status;
+}
+
+auto ToEmbeddingResult(const semantic::EmbeddingResponse& response) -> SemanticEmbeddingResult {
+  SemanticEmbeddingResult result;
+  result.request_id = response.request_id();
+  result.embedding.assign(response.embedding().begin(), response.embedding().end());
+  result.dimension  = response.dimension();
+  result.model_name = response.model_name();
+  result.elapsed_ms = response.elapsed_ms();
+  result.ok         = true;
+  return result;
+}
+
+auto ToEmbeddingResult(const semantic::EmbeddingBatchItem& response) -> SemanticEmbeddingResult {
+  SemanticEmbeddingResult result;
+  result.request_id = response.request_id();
+  result.embedding.assign(response.embedding().begin(), response.embedding().end());
+  result.dimension  = response.dimension();
+  result.model_name = response.model_name();
+  result.elapsed_ms = response.elapsed_ms();
+  result.ok         = response.ok();
+  result.error      = response.error();
+  return result;
 }
 
 }  // namespace
@@ -85,73 +148,165 @@ auto ToString(SemanticRuntimeIssue issue) -> const char* {
   return "unknown";
 }
 
-auto PlaceholderSemanticRuntimeClient::Ping(const std::string& endpoint,
-                                            std::chrono::milliseconds timeout,
-                                            std::string* error) -> bool {
-  (void)endpoint;
-  (void)timeout;
-  if (error) {
-    *error = "C++ gRPC semantic runtime client is not linked yet";
+auto GrpcSemanticRuntimeClient::Ping(const std::string& endpoint,
+                                     std::chrono::milliseconds timeout,
+                                     std::string* error) -> bool {
+  auto channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
+  auto stub    = semantic::SemanticService::NewStub(channel);
+
+  grpc::ClientContext context;
+  context.set_deadline(DeadlineFromNow(timeout));
+  semantic::PingRequest  request;
+  semantic::PingResponse response;
+  request.set_request_id("alcedo-runtime-ping");
+  const auto status = stub->Ping(&context, request, &response);
+  if (!status.ok()) {
+    if (error) {
+      *error = GrpcErrorMessage(status);
+    }
+    return false;
   }
-  return false;
+  return true;
 }
 
-auto PlaceholderSemanticRuntimeClient::GetModelInfo(const std::string& endpoint,
-                                                    std::chrono::milliseconds timeout,
-                                                    SemanticRuntimeModelInfo* info,
-                                                    std::string* error) -> bool {
-  (void)endpoint;
-  (void)timeout;
-  (void)info;
-  if (error) {
-    *error = "C++ gRPC semantic runtime client is not linked yet";
+auto GrpcSemanticRuntimeClient::GetModelInfo(const std::string& endpoint,
+                                             std::chrono::milliseconds timeout,
+                                             SemanticRuntimeModelInfo* info,
+                                             std::string* error) -> bool {
+  auto channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
+  auto stub    = semantic::SemanticService::NewStub(channel);
+
+  grpc::ClientContext context;
+  context.set_deadline(DeadlineFromNow(timeout));
+  semantic::GetModelInfoRequest  request;
+  semantic::GetModelInfoResponse response;
+  const auto status = stub->GetModelInfo(&context, request, &response);
+  if (!status.ok()) {
+    if (error) {
+      *error = GrpcErrorMessage(status);
+    }
+    return false;
   }
-  return false;
+  if (info) {
+    *info = ToRuntimeModelInfo(response);
+  }
+  return true;
 }
 
-auto PlaceholderSemanticRuntimeClient::GetRuntimeStatus(const std::string& endpoint,
-                                                        std::chrono::milliseconds timeout,
-                                                        SemanticRuntimeRemoteStatus* status,
-                                                        std::string* error) -> bool {
-  (void)endpoint;
-  (void)timeout;
-  (void)status;
-  if (error) {
-    *error = "C++ gRPC semantic runtime client is not linked yet";
+auto GrpcSemanticRuntimeClient::GetRuntimeStatus(const std::string& endpoint,
+                                                 std::chrono::milliseconds timeout,
+                                                 SemanticRuntimeRemoteStatus* status,
+                                                 std::string* error) -> bool {
+  auto channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
+  auto stub    = semantic::SemanticService::NewStub(channel);
+
+  grpc::ClientContext context;
+  context.set_deadline(DeadlineFromNow(timeout));
+  semantic::GetRuntimeStatusRequest  request;
+  semantic::GetRuntimeStatusResponse response;
+  const auto status_result = stub->GetRuntimeStatus(&context, request, &response);
+  if (!status_result.ok()) {
+    if (error) {
+      *error = GrpcErrorMessage(status_result);
+    }
+    return false;
   }
-  return false;
+  if (status) {
+    *status = ToRuntimeStatus(response);
+  }
+  return true;
 }
 
-auto PlaceholderSemanticRuntimeClient::EmbedText(const std::string& endpoint,
-                                                 const std::string& request_id,
-                                                 const std::string& text,
-                                                 std::chrono::milliseconds timeout)
+auto GrpcSemanticRuntimeClient::EmbedText(const std::string& endpoint,
+                                          const std::string& request_id,
+                                          const std::string& text,
+                                          std::chrono::milliseconds timeout)
     -> SemanticEmbeddingResult {
-  (void)endpoint;
-  (void)text;
-  (void)timeout;
+  auto channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
+  auto stub    = semantic::SemanticService::NewStub(channel);
+
+  grpc::ClientContext context;
+  context.set_deadline(DeadlineFromNow(timeout));
+  semantic::EmbedTextRequest request;
+  request.set_request_id(request_id);
+  request.set_text(text);
+  semantic::EmbeddingResponse response;
+  const auto status = stub->EmbedText(&context, request, &response);
+  if (status.ok()) {
+    return ToEmbeddingResult(response);
+  }
   SemanticEmbeddingResult result;
   result.request_id = request_id;
-  result.ok = false;
-  result.error = "C++ gRPC semantic runtime client is not linked yet";
+  result.ok         = false;
+  result.error      = GrpcErrorMessage(status);
   return result;
 }
 
-auto PlaceholderSemanticRuntimeClient::EmbedImage(const std::string& endpoint,
-                                                  const std::string& request_id,
-                                                  const std::vector<uint8_t>& encoded_image,
-                                                  const std::string& format_hint,
-                                                  std::chrono::milliseconds timeout)
+auto GrpcSemanticRuntimeClient::EmbedImage(const std::string& endpoint,
+                                           const std::string& request_id,
+                                           const std::vector<uint8_t>& rgba8_image,
+                                           const std::string& format_hint,
+                                           std::chrono::milliseconds timeout)
     -> SemanticEmbeddingResult {
-  (void)endpoint;
-  (void)encoded_image;
-  (void)format_hint;
-  (void)timeout;
+  auto channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
+  auto stub    = semantic::SemanticService::NewStub(channel);
+
+  grpc::ClientContext context;
+  context.set_deadline(DeadlineFromNow(timeout));
+  semantic::EmbedImageRequest request;
+  request.set_request_id(request_id);
+  request.set_image_bytes(reinterpret_cast<const char*>(rgba8_image.data()), rgba8_image.size());
+  request.set_image_format_hint(format_hint);
+  semantic::EmbeddingResponse response;
+  const auto status = stub->EmbedImage(&context, request, &response);
+  if (status.ok()) {
+    return ToEmbeddingResult(response);
+  }
   SemanticEmbeddingResult result;
   result.request_id = request_id;
-  result.ok = false;
-  result.error = "C++ gRPC semantic runtime client is not linked yet";
+  result.ok         = false;
+  result.error      = GrpcErrorMessage(status);
   return result;
+}
+
+auto GrpcSemanticRuntimeClient::EmbedImageBatch(
+    const std::string& endpoint, const std::vector<SemanticImageEmbeddingRequest>& requests,
+    std::chrono::milliseconds timeout) -> std::vector<SemanticEmbeddingResult> {
+  auto channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
+  auto stub    = semantic::SemanticService::NewStub(channel);
+
+  grpc::ClientContext context;
+  context.set_deadline(DeadlineFromNow(timeout));
+  semantic::EmbedImageBatchRequest request;
+  for (const auto& input : requests) {
+    auto* item = request.add_items();
+    item->set_request_id(input.request_id);
+    item->set_image_bytes(reinterpret_cast<const char*>(input.rgba8_image.data()),
+                          input.rgba8_image.size());
+    item->set_image_format_hint(input.format_hint);
+    item->set_model_name(input.model_name);
+  }
+
+  semantic::EmbeddingBatchResponse response;
+  const auto status = stub->EmbedImageBatch(&context, request, &response);
+  std::vector<SemanticEmbeddingResult> results;
+  if (!status.ok()) {
+    results.reserve(requests.size());
+    for (const auto& input : requests) {
+      SemanticEmbeddingResult result;
+      result.request_id = input.request_id;
+      result.ok         = false;
+      result.error      = GrpcErrorMessage(status);
+      results.push_back(std::move(result));
+    }
+    return results;
+  }
+
+  results.reserve(static_cast<size_t>(response.items_size()));
+  for (const auto& item : response.items()) {
+    results.push_back(ToEmbeddingResult(item));
+  }
+  return results;
 }
 
 SemanticRuntimeService::SemanticRuntimeService(std::shared_ptr<ISemanticRuntimeClient> client,
@@ -281,7 +436,7 @@ auto SemanticRuntimeService::EmbedText(const std::string& request_id, const std:
 }
 
 auto SemanticRuntimeService::EmbedImage(const std::string& request_id,
-                                        const std::vector<uint8_t>& encoded_image,
+                                        const std::vector<uint8_t>& rgba8_image,
                                         const std::string& format_hint,
                                         std::chrono::milliseconds timeout)
     -> SemanticEmbeddingResult {
@@ -292,7 +447,25 @@ auto SemanticRuntimeService::EmbedImage(const std::string& request_id,
     result.error = "semantic runtime is not ready";
     return result;
   }
-  return client_->EmbedImage(endpoint_, request_id, encoded_image, format_hint, timeout);
+  return client_->EmbedImage(endpoint_, request_id, rgba8_image, format_hint, timeout);
+}
+
+auto SemanticRuntimeService::EmbedImageBatch(
+    const std::vector<SemanticImageEmbeddingRequest>& requests, std::chrono::milliseconds timeout)
+    -> std::vector<SemanticEmbeddingResult> {
+  if (status_.state != SemanticRuntimeState::kReady || !client_) {
+    std::vector<SemanticEmbeddingResult> results;
+    results.reserve(requests.size());
+    for (const auto& request : requests) {
+      SemanticEmbeddingResult result;
+      result.request_id = request.request_id;
+      result.ok         = false;
+      result.error      = "semantic runtime is not ready";
+      results.push_back(std::move(result));
+    }
+    return results;
+  }
+  return client_->EmbedImageBatch(endpoint_, requests, timeout);
 }
 
 auto SemanticRuntimeService::StateName() const -> QString {

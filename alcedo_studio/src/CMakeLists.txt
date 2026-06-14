@@ -919,11 +919,44 @@ def_library(ImagePoolService
     PUBLIC_DEPS ImagePool Image StorageService
 )
 
+set(ALCEDO_SEMANTIC_PROTO_DIR "${CMAKE_SOURCE_DIR}/rust/puerh_mind/proto")
+set(ALCEDO_SEMANTIC_PROTO "${ALCEDO_SEMANTIC_PROTO_DIR}/semantic.proto")
+set(ALCEDO_SEMANTIC_PROTO_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/semantic")
+set(ALCEDO_SEMANTIC_PROTO_SRCS
+    "${ALCEDO_SEMANTIC_PROTO_GEN_DIR}/semantic.pb.cc"
+    "${ALCEDO_SEMANTIC_PROTO_GEN_DIR}/semantic.grpc.pb.cc"
+)
+set(ALCEDO_SEMANTIC_PROTO_HDRS
+    "${ALCEDO_SEMANTIC_PROTO_GEN_DIR}/semantic.pb.h"
+    "${ALCEDO_SEMANTIC_PROTO_GEN_DIR}/semantic.grpc.pb.h"
+)
+
+add_custom_command(
+    OUTPUT ${ALCEDO_SEMANTIC_PROTO_SRCS} ${ALCEDO_SEMANTIC_PROTO_HDRS}
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${ALCEDO_SEMANTIC_PROTO_GEN_DIR}"
+    COMMAND $<TARGET_FILE:protobuf::protoc>
+        --proto_path=${ALCEDO_SEMANTIC_PROTO_DIR}
+        --cpp_out=${ALCEDO_SEMANTIC_PROTO_GEN_DIR}
+        --grpc_out=${ALCEDO_SEMANTIC_PROTO_GEN_DIR}
+        --plugin=protoc-gen-grpc=$<TARGET_FILE:grpc_cpp_plugin>
+        "${ALCEDO_SEMANTIC_PROTO}"
+    DEPENDS
+        "${ALCEDO_SEMANTIC_PROTO}"
+        protobuf::protoc
+        grpc_cpp_plugin
+    VERBATIM
+)
+
+add_library(SemanticProto ${ALCEDO_SEMANTIC_PROTO_SRCS} ${ALCEDO_SEMANTIC_PROTO_HDRS})
+target_include_directories(SemanticProto PUBLIC "${ALCEDO_SEMANTIC_PROTO_GEN_DIR}")
+target_link_libraries(SemanticProto PUBLIC puerhlab::grpc++ puerhlab::protobuf)
+
 def_library(SemanticRuntimeService
     SOURCES
         app/semantic_runtime_service.cpp
         include/app/semantic_runtime_service.hpp
     PUBLIC_DEPS Qt6::Core Qt6::Network
+    PRIVATE_DEPS SemanticProto
 )
 
 def_library(ProjectService

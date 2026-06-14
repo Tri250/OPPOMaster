@@ -12,6 +12,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <unordered_set>
@@ -60,12 +61,13 @@ struct SemanticGenerationOptions {
   ThumbnailResolution       thumbnail_resolution = ThumbnailResolution::k256;
   size_t                    batch_size           = 16;
   std::chrono::milliseconds embedding_timeout{30000};
+  std::optional<SemanticRuntimeModelInfo> expected_model_info;
 };
 
 struct SemanticImageEmbeddingInput {
   SemanticGenerationItem item{};
   std::string            request_id;
-  std::vector<uint8_t>   encoded_image;
+  std::vector<uint8_t>   rgba8_image;
   std::string            format_hint;
 };
 
@@ -108,9 +110,23 @@ class ISemanticImageEmbeddingClient {
  public:
   virtual ~ISemanticImageEmbeddingClient()                                   = default;
 
+  virtual auto GetModelInfo(SemanticRuntimeModelInfo* info, std::string* error) -> bool = 0;
   virtual void EmbedImageBatch(std::vector<SemanticImageEmbeddingInput> inputs,
                                std::chrono::milliseconds                timeout,
                                SemanticImageEmbeddingBatchCallback      callback) = 0;
+};
+
+class SemanticRuntimeImageEmbeddingClient final : public ISemanticImageEmbeddingClient {
+ public:
+  explicit SemanticRuntimeImageEmbeddingClient(std::shared_ptr<SemanticRuntimeService> runtime);
+
+  auto GetModelInfo(SemanticRuntimeModelInfo* info, std::string* error) -> bool override;
+  void EmbedImageBatch(std::vector<SemanticImageEmbeddingInput> inputs,
+                       std::chrono::milliseconds                timeout,
+                       SemanticImageEmbeddingBatchCallback      callback) override;
+
+ private:
+  std::shared_ptr<SemanticRuntimeService> runtime_;
 };
 
 class MockSemanticImageEmbeddingClient final : public ISemanticImageEmbeddingClient {
@@ -119,6 +135,7 @@ class MockSemanticImageEmbeddingClient final : public ISemanticImageEmbeddingCli
       std::chrono::milliseconds response_delay      = std::chrono::milliseconds(0),
       uint32_t                  embedding_dimension = 2);
 
+  auto GetModelInfo(SemanticRuntimeModelInfo* info, std::string* error) -> bool override;
   void EmbedImageBatch(std::vector<SemanticImageEmbeddingInput> inputs,
                        std::chrono::milliseconds                timeout,
                        SemanticImageEmbeddingBatchCallback      callback) override;

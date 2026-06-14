@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -79,10 +80,10 @@ class FakeSemanticRuntimeClient final : public ISemanticRuntimeClient {
   }
 
   auto EmbedImage(const std::string& endpoint, const std::string& request_id,
-                  const std::vector<uint8_t>& encoded_image, const std::string& format_hint,
+                  const std::vector<uint8_t>& rgba8_image, const std::string& format_hint,
                   std::chrono::milliseconds timeout) -> SemanticEmbeddingResult override {
     (void)endpoint;
-    (void)encoded_image;
+    (void)rgba8_image;
     (void)format_hint;
     (void)timeout;
     SemanticEmbeddingResult result;
@@ -92,6 +93,26 @@ class FakeSemanticRuntimeClient final : public ISemanticRuntimeClient {
     result.model_name = "test/mobileclip";
     result.ok = true;
     return result;
+  }
+
+  auto EmbedImageBatch(const std::string& endpoint,
+                       const std::vector<SemanticImageEmbeddingRequest>& requests,
+                       std::chrono::milliseconds timeout)
+      -> std::vector<SemanticEmbeddingResult> override {
+    (void)endpoint;
+    (void)timeout;
+    std::vector<SemanticEmbeddingResult> results;
+    results.reserve(requests.size());
+    for (const auto& request : requests) {
+      SemanticEmbeddingResult result;
+      result.request_id = request.request_id;
+      result.embedding = {0.0f, 1.0f};
+      result.dimension = 2;
+      result.model_name = "test/mobileclip";
+      result.ok = true;
+      results.push_back(std::move(result));
+    }
+    return results;
   }
 
   void SetReady(bool ready) { ready_.store(ready); }
@@ -247,6 +268,59 @@ TEST(SemanticRuntimeServiceTest, ProjectServiceOwnsStoppedRuntimeService) {
 
   std::filesystem::remove(db_path);
   std::filesystem::remove(meta_path);
+}
+
+TEST(SemanticRuntimeServiceLiveTest, DefaultGrpcClientEmbedsRawRgba8AgainstRustRuntime) {
+  const char* runtime_path_env = std::getenv("ALCEDO_SEMANTIC_LIVE_RUNTIME_PATH");
+  const char* model_root_env   = std::getenv("ALCEDO_SEMANTIC_LIVE_MODEL_ROOT");
+  if (runtime_path_env == nullptr || model_root_env == nullptr) {
+    GTEST_SKIP() << "Set ALCEDO_SEMANTIC_LIVE_RUNTIME_PATH and "
+                    "ALCEDO_SEMANTIC_LIVE_MODEL_ROOT to run the live Rust runtime smoke.";
+  }
+
+  SemanticRuntimeService service;
+  SemanticRuntimeOptions options;
+  options.runtime_binary = std::filesystem::path(runtime_path_env);
+  options.model_root = std::filesystem::path(model_root_env);
+  options.model_id = "plhery/mobileclip2-onnx:s2";
+  options.revision = "ba95759a5bdbaca53e9111e2550a76ec09c8fd9e";
+  options.device = "cpu";
+  options.batch_cap = 8;
+  options.batch_wait_ms = 2;
+  options.startup_timeout = std::chrono::milliseconds(60000);
+  options.health_poll_interval = std::chrono::milliseconds(100);
+  options.graceful_stop_timeout = std::chrono::milliseconds(1000);
+  options.kill_timeout = std::chrono::milliseconds(2000);
+
+  ASSERT_TRUE(service.StartAndWait(options)) << service.Status().message;
+  const auto status = service.Status();
+  ASSERT_TRUE(status.model_info.has_value());
+  EXPECT_EQ(status.model_info->model_id, options.model_id);
+  EXPECT_EQ(status.model_info->revision, options.revision);
+  EXPECT_EQ(status.model_info->embedding_dimension, 512u);
+  EXPECT_EQ(status.model_info->image_size, 256u);
+
+  std::vector<uint8_t> rgba8(256u * 256u * 4u);
+  for (size_t i = 0; i < rgba8.size(); i += 4) {
+    rgba8[i] = 64;
+    rgba8[i + 1] = 128;
+    rgba8[i + 2] = 192;
+    rgba8[i + 3] = 255;
+  }
+
+  SemanticImageEmbeddingRequest request;
+  request.request_id = "live-rgba8-image-1";
+  request.rgba8_image = std::move(rgba8);
+  request.format_hint = "rgba8:256x256";
+
+  const auto results = service.EmbedImageBatch({request}, std::chrono::milliseconds(120000));
+  ASSERT_EQ(results.size(), 1u);
+  EXPECT_EQ(results[0].request_id, "live-rgba8-image-1");
+  EXPECT_TRUE(results[0].ok) << results[0].error;
+  EXPECT_EQ(results[0].dimension, 512u);
+  EXPECT_EQ(results[0].embedding.size(), 512u);
+
+  service.Stop();
 }
 
 }  // namespace alcedo

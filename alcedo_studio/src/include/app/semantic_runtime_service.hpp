@@ -66,6 +66,13 @@ struct SemanticEmbeddingResult {
   std::string        error;
 };
 
+struct SemanticImageEmbeddingRequest {
+  std::string          request_id;
+  std::vector<uint8_t> rgba8_image;
+  std::string          format_hint;
+  std::string          model_name;
+};
+
 struct SemanticRuntimeStatusSnapshot {
   SemanticRuntimeState                  state = SemanticRuntimeState::kStopped;
   SemanticRuntimeIssue                  issue = SemanticRuntimeIssue::kNone;
@@ -111,12 +118,16 @@ class ISemanticRuntimeClient {
                          const std::string& text, std::chrono::milliseconds timeout)
       -> SemanticEmbeddingResult = 0;
   virtual auto EmbedImage(const std::string& endpoint, const std::string& request_id,
-                          const std::vector<uint8_t>& encoded_image,
+                          const std::vector<uint8_t>& rgba8_image,
                           const std::string& format_hint, std::chrono::milliseconds timeout)
       -> SemanticEmbeddingResult = 0;
+  virtual auto EmbedImageBatch(const std::string& endpoint,
+                               const std::vector<SemanticImageEmbeddingRequest>& requests,
+                               std::chrono::milliseconds timeout)
+      -> std::vector<SemanticEmbeddingResult> = 0;
 };
 
-class PlaceholderSemanticRuntimeClient final : public ISemanticRuntimeClient {
+class GrpcSemanticRuntimeClient final : public ISemanticRuntimeClient {
  public:
   auto Ping(const std::string& endpoint, std::chrono::milliseconds timeout,
             std::string* error) -> bool override;
@@ -128,8 +139,12 @@ class PlaceholderSemanticRuntimeClient final : public ISemanticRuntimeClient {
                  const std::string& text, std::chrono::milliseconds timeout)
       -> SemanticEmbeddingResult override;
   auto EmbedImage(const std::string& endpoint, const std::string& request_id,
-                  const std::vector<uint8_t>& encoded_image, const std::string& format_hint,
+                  const std::vector<uint8_t>& rgba8_image, const std::string& format_hint,
                   std::chrono::milliseconds timeout) -> SemanticEmbeddingResult override;
+  auto EmbedImageBatch(const std::string& endpoint,
+                       const std::vector<SemanticImageEmbeddingRequest>& requests,
+                       std::chrono::milliseconds timeout)
+      -> std::vector<SemanticEmbeddingResult> override;
 };
 
 class SemanticRuntimeService final : public QObject {
@@ -142,7 +157,7 @@ class SemanticRuntimeService final : public QObject {
  public:
   explicit SemanticRuntimeService(
       std::shared_ptr<ISemanticRuntimeClient> client =
-          std::make_shared<PlaceholderSemanticRuntimeClient>(),
+          std::make_shared<GrpcSemanticRuntimeClient>(),
       QObject* parent = nullptr);
   ~SemanticRuntimeService() override;
 
@@ -157,9 +172,11 @@ class SemanticRuntimeService final : public QObject {
 
   auto EmbedText(const std::string& request_id, const std::string& text,
                  std::chrono::milliseconds timeout) -> SemanticEmbeddingResult;
-  auto EmbedImage(const std::string& request_id, const std::vector<uint8_t>& encoded_image,
+  auto EmbedImage(const std::string& request_id, const std::vector<uint8_t>& rgba8_image,
                   const std::string& format_hint, std::chrono::milliseconds timeout)
       -> SemanticEmbeddingResult;
+  auto EmbedImageBatch(const std::vector<SemanticImageEmbeddingRequest>& requests,
+                       std::chrono::milliseconds timeout) -> std::vector<SemanticEmbeddingResult>;
 
   auto StateName() const -> QString;
   auto IssueName() const -> QString;

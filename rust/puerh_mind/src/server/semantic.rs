@@ -58,15 +58,46 @@ impl SemanticServiceImpl {
         Ok(())
     }
 
-    fn decode_rgb8_image(&self, image_bytes: &[u8]) -> Result<image::RgbImage, Status> {
+    fn decode_rgb8_image(
+        &self,
+        image_bytes: &[u8],
+        image_format_hint: &str,
+    ) -> Result<image::RgbImage, Status> {
         if image_bytes.is_empty() {
             return Err(Status::invalid_argument("image_bytes must not be empty"));
         }
 
-        let image = image::load_from_memory(image_bytes)
-            .map_err(|e| Status::invalid_argument(format!("failed to decode image: {e}")))?;
+        let dimensions = image_format_hint
+            .strip_prefix("rgba8:")
+            .ok_or_else(|| Status::invalid_argument("image_format_hint must be rgba8:WxH"))?;
+        let (width_text, height_text) = dimensions
+            .split_once('x')
+            .ok_or_else(|| Status::invalid_argument("image_format_hint must be rgba8:WxH"))?;
+        let width = width_text
+            .parse::<u32>()
+            .map_err(|_| Status::invalid_argument("rgba8 width must be a positive integer"))?;
+        let height = height_text
+            .parse::<u32>()
+            .map_err(|_| Status::invalid_argument("rgba8 height must be a positive integer"))?;
+        if width == 0 || height == 0 {
+            return Err(Status::invalid_argument(
+                "rgba8 width and height must be positive",
+            ));
+        }
 
-        Ok(image.to_rgb8())
+        let expected_len = width as usize * height as usize * 4;
+        if image_bytes.len() != expected_len {
+            return Err(Status::invalid_argument(format!(
+                "rgba8 byte length mismatch: expected {expected_len}, got {}",
+                image_bytes.len()
+            )));
+        }
+
+        let mut rgb = image::RgbImage::new(width, height);
+        for (src, dst) in image_bytes.chunks_exact(4).zip(rgb.pixels_mut()) {
+            *dst = image::Rgb([src[0], src[1], src[2]]);
+        }
+        Ok(rgb)
     }
 
     fn spawn_image_batch_worker(
@@ -371,7 +402,7 @@ impl SemanticService for SemanticServiceImpl {
         let start = Instant::now();
         let req = request.into_inner();
 
-        let rgb = self.decode_rgb8_image(&req.image_bytes)?;
+        let rgb = self.decode_rgb8_image(&req.image_bytes, &req.image_format_hint)?;
         let (response_tx, response_rx) = oneshot::channel();
         let pending = PendingImageRequest {
             request_id: req.request_id,
@@ -416,7 +447,7 @@ impl SemanticService for SemanticServiceImpl {
                 item.model_name.clone()
             };
 
-            match self.decode_rgb8_image(&item.image_bytes) {
+            match self.decode_rgb8_image(&item.image_bytes, &item.image_format_hint) {
                 Ok(rgb) => {
                     images.push(rgb);
                     valid_requests.push((items.len(), item.request_id, model_name, item_start));
@@ -543,6 +574,14 @@ mod tests {
         }
     }
 
+    fn raw_rgba8_image(width: u32, height: u32, rgba: [u8; 4]) -> (Vec<u8>, String) {
+        let mut bytes = Vec::with_capacity(width as usize * height as usize * 4);
+        for _ in 0..(width * height) {
+            bytes.extend_from_slice(&rgba);
+        }
+        (bytes, format!("rgba8:{width}x{height}"))
+    }
+
     #[test]
     fn uses_configured_model_id_as_default_name() {
         let config = SemanticConfig {
@@ -627,32 +666,22 @@ mod tests {
             512,
             Duration::from_millis(25),
         ));
-        let png = {
-            let image = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
-                16,
-                12,
-                image::Rgb([64, 128, 192]),
-            ));
-            let mut cursor = std::io::Cursor::new(Vec::new());
-            image
-                .write_to(&mut cursor, image::ImageFormat::Png)
-                .expect("png encoding should succeed");
-            cursor.into_inner()
-        };
+        let (rgba8, format_hint) = raw_rgba8_image(16, 12, [64, 128, 192, 255]);
 
         let mut tasks = Vec::new();
         const TEST_REQUEST_COUNT: usize = 64;
 
         for index in 0..TEST_REQUEST_COUNT {
             let service = service.clone();
-            let png = png.clone();
+            let rgba8 = rgba8.clone();
+            let format_hint = format_hint.clone();
             tasks.push(tokio::spawn(async move {
                 let request_id = format!("img-{index}");
                 let response = service
                     .embed_image(Request::new(EmbedImageRequest {
                         request_id: request_id.clone(),
-                        image_bytes: png,
-                        image_format_hint: "png".to_string(),
+                        image_bytes: rgba8,
+                        image_format_hint: format_hint,
                         model_name: String::new(),
                     }))
                     .await
@@ -726,32 +755,21 @@ mod tests {
             512,
             Duration::from_millis(25),
         );
-        let png = {
-            let image = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
-                16,
-                12,
-                image::Rgb([64, 128, 192]),
-            ));
-            let mut cursor = std::io::Cursor::new(Vec::new());
-            image
-                .write_to(&mut cursor, image::ImageFormat::Png)
-                .expect("png encoding should succeed");
-            cursor.into_inner()
-        };
+        let (rgba8, format_hint) = raw_rgba8_image(16, 12, [64, 128, 192, 255]);
 
         let response = service
             .embed_image_batch(Request::new(EmbedImageBatchRequest {
                 items: vec![
                     EmbedImageRequest {
                         request_id: "img-1".to_string(),
-                        image_bytes: png,
-                        image_format_hint: "png".to_string(),
+                        image_bytes: rgba8,
+                        image_format_hint: format_hint,
                         model_name: String::new(),
                     },
                     EmbedImageRequest {
                         request_id: "img-bad".to_string(),
-                        image_bytes: b"not an image".to_vec(),
-                        image_format_hint: "png".to_string(),
+                        image_bytes: b"not rgba8".to_vec(),
+                        image_format_hint: "rgba8:16x12".to_string(),
                         model_name: String::new(),
                     },
                 ],
@@ -765,7 +783,11 @@ mod tests {
         assert!(response.items[0].ok);
         assert_eq!(response.items[1].request_id, "img-bad");
         assert!(!response.items[1].ok);
-        assert!(response.items[1].error.contains("failed to decode image"));
+        assert!(
+            response.items[1]
+                .error
+                .contains("rgba8 byte length mismatch")
+        );
     }
 
     #[tokio::test]
