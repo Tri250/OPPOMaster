@@ -262,6 +262,7 @@ ApplicationWindow {
                || adjustmentTransferDialog.opened
                || imageDetailsDialog.opened
                || nikonHeRecoveryDialog.opened
+               || semanticGenerationDialog.opened
                || deleteConfirmDialog.opened
                || welcomeDialog.opened
     }
@@ -799,6 +800,31 @@ ApplicationWindow {
         onBrowseRequested: albumBackend.BrowseNikonHeConverter()
         onConvertRequested: albumBackend.StartNikonHeConversion()
         onExitRequested: albumBackend.ExitNikonHeRecovery()
+    }
+
+    SemanticGenerationDialog {
+        id: semanticGenerationDialog
+        parent: Overlay.overlay
+        backgroundSource: mainContent
+        promptVisible: albumBackend.semanticGenerationPromptVisible
+        generationRunning: albumBackend.semanticGenerationRunning
+        pendingCount: albumBackend.semanticGenerationPendingCount
+        total: albumBackend.semanticGenerationTotal
+        embedded: albumBackend.semanticGenerationEmbedded
+        skipped: albumBackend.semanticGenerationSkipped
+        failed: albumBackend.semanticGenerationFailed
+        canceled: albumBackend.semanticGenerationCanceled
+        statusText: albumBackend.semanticGenerationStatus
+        onStartRequested: function(forceRegenerate) {
+            albumBackend.StartPendingSemanticGeneration(forceRegenerate)
+        }
+        onAlwaysStartRequested: {
+            albumBackend.SetSemanticGenerationImportPreference("always")
+            albumBackend.StartPendingSemanticGeneration(false)
+        }
+        onSkipRequested: albumBackend.SkipPendingSemanticGeneration(false)
+        onNeverAskRequested: albumBackend.SkipPendingSemanticGeneration(true)
+        onCancelRequested: albumBackend.CancelSemanticGeneration()
     }
 
     Popup {

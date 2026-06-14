@@ -37,6 +37,7 @@ enum class SemanticGenerationItemStatus : uint8_t {
   kThumbnailReady,
   kEmbeddingRequested,
   kEmbedded,
+  kSkipped,
   kCanceled,
   kError,
 };
@@ -62,6 +63,7 @@ struct SemanticGenerationProgress {
   size_t thumbnails_ready    = 0;
   size_t embedding_requested = 0;
   size_t embedded            = 0;
+  size_t skipped             = 0;
   size_t failed              = 0;
   size_t canceled            = 0;
 };
@@ -81,6 +83,7 @@ struct SemanticGenerationOptions {
   std::chrono::milliseconds               embedding_timeout{30000};
   std::optional<SemanticRuntimeModelInfo> expected_model_info;
   std::optional<SemanticGenerationPersistenceOptions> persistence;
+  bool                                    force_regenerate = false;
 };
 
 struct SemanticImageEmbeddingInput {

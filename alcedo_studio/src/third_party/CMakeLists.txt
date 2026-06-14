@@ -311,10 +311,41 @@ if(MSVC)
     set(gRPC_BUILD_MSVC_MP_COUNT 0 CACHE STRING "Inherit project-level parallelism" FORCE)
 endif()
 
+if(MSVC)
+    set(_puerhlab_saved_c_flags_release "${CMAKE_C_FLAGS_RELEASE}")
+    set(_puerhlab_saved_cxx_flags_release "${CMAKE_CXX_FLAGS_RELEASE}")
+    string(REPLACE "/GL" "" CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE}")
+    string(REPLACE "/GL" "" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+endif()
+
 add_subdirectory(
     "${PUERHLAB_GRPC_SOURCE_DIR}"
     "${CMAKE_BINARY_DIR}/third_party/grpc"
 )
+
+if(MSVC)
+    set(CMAKE_C_FLAGS_RELEASE "${_puerhlab_saved_c_flags_release}")
+    set(CMAKE_CXX_FLAGS_RELEASE "${_puerhlab_saved_cxx_flags_release}")
+    unset(_puerhlab_saved_c_flags_release)
+    unset(_puerhlab_saved_cxx_flags_release)
+endif()
+
+if(MSVC)
+    foreach(_puerhlab_grpc_warning_target
+            grpc
+            grpc++
+            grpc_unsecure
+            grpc++_unsecure
+            libprotobuf
+            libprotoc
+            protoc
+            grpc_cpp_plugin)
+        if(TARGET ${_puerhlab_grpc_warning_target})
+            target_compile_options(${_puerhlab_grpc_warning_target} PRIVATE /wd4789)
+        endif()
+    endforeach()
+    unset(_puerhlab_grpc_warning_target)
+endif()
 
 if(NOT TARGET grpc++)
     message(FATAL_ERROR "Bundled gRPC was configured, but target grpc++ is unavailable.")

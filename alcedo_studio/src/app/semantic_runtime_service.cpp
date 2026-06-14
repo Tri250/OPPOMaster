@@ -9,6 +9,7 @@
 #include <chrono>
 #include <sstream>
 #include <thread>
+#include <vector>
 
 #include <grpcpp/create_channel.h>
 #include <grpcpp/security/credentials.h>
@@ -27,6 +28,8 @@ namespace alcedo {
 namespace {
 
 constexpr size_t kLogTailBytes = 16 * 1024;
+constexpr auto   kSemanticModelRootEnv = "ALCEDO_MIND_MODEL_ROOT";
+constexpr auto   kMobileClipModelRoot  = "models/mobileclip2-s2-openclip";
 
 auto TailAppend(std::string* target, const QByteArray& bytes) -> void {
   target->append(bytes.constData(), static_cast<size_t>(bytes.size()));
@@ -46,6 +49,61 @@ auto DefaultRuntimeBinary() -> std::filesystem::path {
 #else
   return std::filesystem::path(app_dir.toStdString()) / "alcedo_mind";
 #endif
+}
+
+auto ExistingDirectory(const std::filesystem::path& path) -> bool {
+  std::error_code ec;
+  return std::filesystem::exists(path, ec) && !ec && std::filesystem::is_directory(path, ec) &&
+         !ec;
+}
+
+void AppendAncestorModelRoots(const std::filesystem::path& start,
+                              std::vector<std::filesystem::path>* candidates) {
+  if (start.empty()) {
+    return;
+  }
+
+  std::error_code ec;
+  auto            current = std::filesystem::absolute(start, ec);
+  if (ec) {
+    current = start;
+  }
+  while (!current.empty()) {
+    candidates->push_back(current / "rust" / "puerh_mind" / kMobileClipModelRoot);
+    const auto parent = current.parent_path();
+    if (parent == current) {
+      break;
+    }
+    current = parent;
+  }
+}
+
+auto DefaultRuntimeModelRoot() -> std::filesystem::path {
+  const QByteArray env_root = qgetenv(kSemanticModelRootEnv);
+  if (!env_root.isEmpty()) {
+    return std::filesystem::path(env_root.constData());
+  }
+
+  const auto app_dir = QCoreApplication::applicationDirPath();
+#ifdef _WIN32
+  const auto app_path = std::filesystem::path(app_dir.toStdWString());
+#else
+  const auto app_path = std::filesystem::path(app_dir.toStdString());
+#endif
+
+  std::vector<std::filesystem::path> candidates;
+  candidates.push_back(app_path / kMobileClipModelRoot);
+
+  AppendAncestorModelRoots(app_path, &candidates);
+  std::error_code ec;
+  AppendAncestorModelRoots(std::filesystem::current_path(ec), &candidates);
+
+  for (const auto& candidate : candidates) {
+    if (ExistingDirectory(candidate)) {
+      return candidate;
+    }
+  }
+  return {};
 }
 
 auto DeadlineFromNow(std::chrono::milliseconds timeout) -> std::chrono::system_clock::time_point {
@@ -342,6 +400,9 @@ auto SemanticRuntimeService::StartAndWait(const SemanticRuntimeOptions& options)
   options_ = options;
   if (options_.runtime_binary.empty()) {
     options_.runtime_binary = DefaultRuntimeBinary();
+  }
+  if (options_.model_root.empty()) {
+    options_.model_root = DefaultRuntimeModelRoot();
   }
   if (options_.port == 0) {
     options_.port = ChoosePort();

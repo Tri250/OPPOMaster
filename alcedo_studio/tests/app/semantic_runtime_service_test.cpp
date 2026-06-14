@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <string>
 #include <thread>
 
@@ -143,6 +144,39 @@ auto BaseOptions() -> SemanticRuntimeOptions {
   return options;
 }
 
+void SetModelRootEnv(const std::string& value) {
+#ifdef _WIN32
+  _putenv_s("ALCEDO_MIND_MODEL_ROOT", value.c_str());
+#else
+  if (value.empty()) {
+    unsetenv("ALCEDO_MIND_MODEL_ROOT");
+  } else {
+    setenv("ALCEDO_MIND_MODEL_ROOT", value.c_str(), 1);
+  }
+#endif
+}
+
+class ScopedModelRootEnv final {
+ public:
+  explicit ScopedModelRootEnv(const std::string& value) {
+    const char* previous = std::getenv("ALCEDO_MIND_MODEL_ROOT");
+    if (previous != nullptr) {
+      previous_value_ = previous;
+    }
+    SetModelRootEnv(value);
+  }
+
+  ~ScopedModelRootEnv() {
+    SetModelRootEnv(previous_value_.value_or(std::string{}));
+  }
+
+  ScopedModelRootEnv(const ScopedModelRootEnv&)            = delete;
+  ScopedModelRootEnv& operator=(const ScopedModelRootEnv&) = delete;
+
+ private:
+  std::optional<std::string> previous_value_;
+};
+
 }  // namespace
 
 TEST(SemanticRuntimeServiceTest, StartStopReportsReadyAndStopped) {
@@ -250,6 +284,33 @@ TEST(SemanticRuntimeServiceTest, RuntimeArgumentsCarryModelAndDeviceConfiguratio
   EXPECT_NE(args.find("--device\ndirectml:0"), std::string::npos);
   EXPECT_NE(args.find("--no-download"), std::string::npos);
   std::filesystem::remove(record_path);
+}
+
+TEST(SemanticRuntimeServiceTest, EmptyModelRootUsesEnvironmentFallback) {
+  SemanticRuntimeService service(std::make_shared<FakeSemanticRuntimeClient>());
+  const auto record_path = std::filesystem::temp_directory_path() /
+                           "semantic_runtime_env_model_args.txt";
+  const auto model_root = std::filesystem::temp_directory_path() /
+                          "semantic_runtime_env_model_root";
+  std::filesystem::remove(record_path);
+  std::filesystem::create_directories(model_root);
+
+  ScopedModelRootEnv model_root_env(model_root.string());
+
+  auto options = BaseOptions();
+  options.model_root.clear();
+  options.extra_arguments = {"--record-args", record_path.string(), "--sleep-ms", "30000"};
+
+  ASSERT_TRUE(service.StartAndWait(options));
+  service.Stop();
+
+  std::ifstream in(record_path);
+  ASSERT_TRUE(in.is_open());
+  const std::string args((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  in.close();
+  EXPECT_NE(args.find("--model-root\n" + model_root.string()), std::string::npos);
+  std::filesystem::remove(record_path);
+  std::filesystem::remove_all(model_root);
 }
 
 TEST(SemanticRuntimeServiceTest, ProjectServiceOwnsStoppedRuntimeService) {

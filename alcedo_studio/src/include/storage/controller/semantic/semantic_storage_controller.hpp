@@ -92,6 +92,9 @@ class SemanticStorageController {
   [[nodiscard]] auto CountImageEmbeddings(const std::string& model_key) const -> size_t;
   [[nodiscard]] auto CountImageEmbeddingsForFile(sl_element_id_t    file_id,
                                                  const std::string& model_key) const -> size_t;
+  [[nodiscard]] auto HasReadyImageEmbedding(sl_element_id_t file_id, image_id_t image_id,
+                                            const std::string& model_key,
+                                            bool require_label = false) const -> bool;
   [[nodiscard]] auto CountImageLabelsForFile(sl_element_id_t    file_id,
                                              const std::string& model_key) const -> size_t;
   [[nodiscard]] auto CountLabelPrototypes(const std::string& model_key,

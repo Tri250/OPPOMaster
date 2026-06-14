@@ -360,6 +360,7 @@ void NikonHeRecoveryController::ClearState() {
   active_      = false;
   busy_        = false;
   NotifyStateChanged();
+  backend_.ResumeQueuedSemanticGenerationWorkflow();
 }
 
 void NikonHeRecoveryController::HandleConverterFinished(const int exit_code, const int exit_status) {

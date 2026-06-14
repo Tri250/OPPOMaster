@@ -670,6 +670,7 @@ Item {
         required property string captureDate
         required property int rating
         required property bool isHdr
+        required property string tags
         required property string accent
         required property string thumbUrl
         required property bool thumbLoading
@@ -1026,7 +1027,9 @@ Item {
 
                 Label {
                     id: ratingLabel
-                    text: qsTr("%1 | Rating %2/5").arg(captureDate).arg(rating)
+                    text: tags.length > 0
+                          ? qsTr("%1 | %2").arg(captureDate).arg(tags)
+                          : qsTr("%1 | Rating %2/5").arg(captureDate).arg(rating)
                     color: root.cardMuted
                     font.family: appTheme.dataFontFamily
                     font.pixelSize: root.metadataFontSize
