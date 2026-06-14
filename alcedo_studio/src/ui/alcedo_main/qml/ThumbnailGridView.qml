@@ -67,6 +67,68 @@ Item {
     signal contextMenuRequested(var item, real sceneX, real sceneY)
     signal zoomChanged(int zoomLevel)
 
+    function semanticTagTitle(rawTag) {
+        const normalized = rawTag === undefined || rawTag === null
+                ? ""
+                : String(rawTag).trim().replace(/\s+/g, " ").toLowerCase()
+        if (normalized.length === 0) {
+            return ""
+        }
+
+        const displayNames = {
+            "black and white": qsTr("Black & White"),
+            "food and drink": qsTr("Food & Drink")
+        }
+        if (displayNames[normalized]) {
+            return displayNames[normalized]
+        }
+
+        const smallWords = {
+            "and": true,
+            "of": true,
+            "or": true
+        }
+        const words = normalized.split(" ")
+        for (let i = 0; i < words.length; ++i) {
+            const word = words[i]
+            if (word.length === 0) {
+                continue
+            }
+            if (i > 0 && smallWords[word]) {
+                continue
+            }
+            words[i] = word.charAt(0).toUpperCase() + word.slice(1)
+        }
+        return words.join(" ")
+    }
+
+    function semanticTagsDisplayText(rawTags) {
+        const text = rawTags === undefined || rawTags === null ? "" : String(rawTags).trim()
+        if (text.length === 0) {
+            return ""
+        }
+
+        const parts = []
+        const seen = ({})
+        const rawParts = text.split(",")
+        for (let i = 0; i < rawParts.length; ++i) {
+            const title = semanticTagTitle(rawParts[i])
+            const key = title.toLowerCase()
+            if (title.length === 0 || seen[key]) {
+                continue
+            }
+            seen[key] = true
+            parts.push(title)
+        }
+        if (parts.length === 0) {
+            return ""
+        }
+
+        const visibleCount = Math.min(3, parts.length)
+        const suffix = parts.length > visibleCount ? qsTr(" +%1").arg(parts.length - visibleCount) : ""
+        return parts.slice(0, visibleCount).join(" / ") + suffix
+    }
+
     Component.onCompleted: {
         committedZoomLevel = root.clampedZoomLevel(zoomLevel)
         _zoomReady = true
@@ -684,6 +746,7 @@ Item {
         onThumbMissingSourceChanged: liveThumbMissingSource = thumbMissingSource
         property string liveThumbErrorText: thumbErrorText
         onThumbErrorTextChanged: liveThumbErrorText = thumbErrorText
+        readonly property string displayTags: root.semanticTagsDisplayText(tags)
         property int pinnedElementId: 0
         property int pinnedImageId: 0
         property int pinnedMaxEdge: 0
@@ -1027,8 +1090,8 @@ Item {
 
                 Label {
                     id: ratingLabel
-                    text: tags.length > 0
-                          ? qsTr("%1 | %2").arg(captureDate).arg(tags)
+                    text: displayTags.length > 0
+                          ? qsTr("%1 | %2").arg(captureDate).arg(displayTags)
                           : qsTr("%1 | Rating %2/5").arg(captureDate).arg(rating)
                     color: root.cardMuted
                     font.family: appTheme.dataFontFamily

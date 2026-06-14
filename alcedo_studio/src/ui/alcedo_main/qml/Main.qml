@@ -153,6 +153,7 @@ ApplicationWindow {
     property var imageDetailsData: ({
         title: "",
         subtitle: "",
+        semanticTags: "",
         rows: []
     })
 
@@ -437,6 +438,7 @@ ApplicationWindow {
         root.imageDetailsData = {
             title: result.title ? result.title : qsTr("(unnamed)"),
             subtitle: result.subtitle ? result.subtitle : "",
+            semanticTags: result.semanticTags ? result.semanticTags : "",
             rows: result.rows ? result.rows : []
         }
         imageDetailsDialog.open()
@@ -760,6 +762,7 @@ ApplicationWindow {
         cornerRadius: root.windowCornerRadius
         titleText: root.imageDetailsData.title
         subtitleText: root.imageDetailsData.subtitle
+        semanticTags: root.imageDetailsData.semanticTags
         detailRows: root.imageDetailsData.rows
         onRowActionRequested: function(actionId, actionValue) {
             if (actionId === "open-directory") {
@@ -770,6 +773,7 @@ ApplicationWindow {
             root.imageDetailsData = {
                 title: "",
                 subtitle: "",
+                semanticTags: "",
                 rows: []
             }
         }
