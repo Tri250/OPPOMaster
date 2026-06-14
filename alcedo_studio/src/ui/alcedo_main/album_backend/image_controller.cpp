@@ -273,7 +273,8 @@ auto ParseExifDisplayJson(const std::shared_ptr<Image>& image) -> json {
   }
 }
 
-auto BuildDetailsResult(const AlbumItem* item, const std::shared_ptr<Image>& image) -> QVariantMap {
+auto BuildDetailsResult(const AlbumItem* item, const std::shared_ptr<Image>& image,
+                        const QString& semantic_tags) -> QVariantMap {
   const json                metadata         = ParseExifDisplayJson(image);
   const QString             section_capture  = Tr("Capture");
   const QString             section_gear     = Tr("Gear");
@@ -324,6 +325,7 @@ auto BuildDetailsResult(const AlbumItem* item, const std::shared_ptr<Image>& ima
                      {"message", QString{}},
                      {"title", ResolveTitle(item, image)},
                      {"subtitle", ComposeSubtitle(metadata)},
+                     {"semanticTags", semantic_tags},
                      {"rows", rows}};
 }
 }  // namespace
@@ -734,6 +736,7 @@ auto ImageController::GetImageDetails(uint elementId, uint imageId) -> QVariantM
                      {"message", QString{}},
                      {"title", QString{}},
                      {"subtitle", QString{}},
+                     {"semanticTags", QString{}},
                      {"rows", QVariantList{}}};
 
   auto&       ph = backend_.project_handler_;
@@ -754,6 +757,8 @@ auto ImageController::GetImageDetails(uint elementId, uint imageId) -> QVariantM
   const auto  resolved_element_id = static_cast<sl_element_id_t>(elementId);
   const auto* item =
       resolved_element_id != 0 ? backend_.FindAlbumItem(resolved_element_id) : nullptr;
+  const auto resolved_file_id =
+      item != nullptr && item->file_id != 0 ? item->file_id : resolved_element_id;
   if (resolved_image_id == 0 && item) {
     resolved_image_id = item->image_id;
   }
@@ -773,9 +778,13 @@ auto ImageController::GetImageDetails(uint elementId, uint imageId) -> QVariantM
   }
 
   try {
+    const QString semantic_tags =
+        resolved_file_id != 0 ? backend_.SemanticLabelDisplayText(resolved_file_id) : QString{};
     return image_pool->Read<QVariantMap>(
         resolved_image_id,
-        [item](const std::shared_ptr<Image>& image) { return BuildDetailsResult(item, image); });
+        [item, semantic_tags](const std::shared_ptr<Image>& image) {
+          return BuildDetailsResult(item, image, semantic_tags);
+        });
   } catch (const std::exception&) {
     const auto msg = PL_TEXT("Failed to load image details.");
     backend_.SetTaskState(msg, 0, false);
