@@ -1,5 +1,5 @@
 use std::{
-    fs::File,
+    fs::{File, OpenOptions},
     io::{Read, Write},
     path::{Path, PathBuf},
 };
@@ -89,6 +89,7 @@ pub struct ModelProfileSpec {
     pub embedding_dimension: u32,
     pub native_embedding_dimension: u32,
     pub image_size: u32,
+    pub embedding_transform: &'static str,
     pub assets: &'static [ModelAssetSpec],
 }
 
@@ -113,6 +114,7 @@ pub struct ResolvedModelManifest {
     pub embedding_dimension: u32,
     pub native_embedding_dimension: u32,
     pub image_size: u32,
+    pub embedding_transform: String,
     pub model_root: String,
     pub assets: Vec<ResolvedAssetManifest>,
 }
@@ -123,6 +125,19 @@ pub struct ModelProfileStatus {
     pub model_root: PathBuf,
     pub installed: bool,
     pub status: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ModelDownloadProgress {
+    pub phase: String,
+    pub current_file: String,
+    pub current_file_bytes_downloaded: u64,
+    pub current_file_bytes_total: u64,
+    pub bytes_downloaded: u64,
+    pub bytes_total: u64,
+    pub files_completed: u32,
+    pub files_total: u32,
+    pub message: String,
 }
 
 const MOBILECLIP2_ASSETS: &[ModelAssetSpec] = &[
@@ -304,6 +319,7 @@ pub const MODEL_PROFILES: &[ModelProfileSpec] = &[
         embedding_dimension: REQUIRED_EMBEDDING_DIMENSION,
         native_embedding_dimension: REQUIRED_EMBEDDING_DIMENSION,
         image_size: 256,
+        embedding_transform: "l2_normalize",
         assets: MOBILECLIP2_ASSETS,
     },
     ModelProfileSpec {
@@ -316,6 +332,7 @@ pub const MODEL_PROFILES: &[ModelProfileSpec] = &[
         embedding_dimension: REQUIRED_EMBEDDING_DIMENSION,
         native_embedding_dimension: REQUIRED_EMBEDDING_DIMENSION,
         image_size: 224,
+        embedding_transform: "l2_normalize",
         assets: CHINESE_CLIP_ASSETS,
     },
     ModelProfileSpec {
@@ -328,6 +345,7 @@ pub const MODEL_PROFILES: &[ModelProfileSpec] = &[
         embedding_dimension: REQUIRED_EMBEDDING_DIMENSION,
         native_embedding_dimension: 1024,
         image_size: 512,
+        embedding_transform: "matryoshka_truncate_then_l2_normalize",
         assets: JINA_CLIP_ASSETS,
     },
 ];
@@ -451,6 +469,7 @@ pub fn validate_model_profile(
             || stored.model_id != manifest.model_id
             || stored.revision != manifest.revision
             || stored.embedding_dimension != REQUIRED_EMBEDDING_DIMENSION
+            || stored.embedding_transform != manifest.embedding_transform
         {
             bail!(
                 "resolved model manifest mismatch for {}",
@@ -467,27 +486,171 @@ pub fn download_model_profile(
     hf_endpoint: &str,
     revision_override: Option<&str>,
 ) -> anyhow::Result<ResolvedModelManifest> {
+    download_model_profile_with_progress(profile_id, root, hf_endpoint, revision_override, |_| {
+        Ok(())
+    })
+}
+
+pub fn download_model_profile_with_progress<F>(
+    profile_id: &str,
+    root: impl AsRef<Path>,
+    hf_endpoint: &str,
+    revision_override: Option<&str>,
+    mut progress: F,
+) -> anyhow::Result<ResolvedModelManifest>
+where
+    F: FnMut(ModelDownloadProgress) -> anyhow::Result<()>,
+{
     let profile = find_profile(profile_id)?;
     validate_profile_dimension(profile)?;
-    std::fs::create_dir_all(root.as_ref()).with_context(|| {
+    let root = root.as_ref();
+    if validate_profile_assets(profile, root).is_ok() {
+        let manifest = resolved_manifest(profile, root);
+        progress(ModelDownloadProgress {
+            phase: "installed".to_string(),
+            bytes_downloaded: profile_total_bytes(profile),
+            bytes_total: profile_total_bytes(profile),
+            files_completed: profile.assets.len() as u32,
+            files_total: profile.assets.len() as u32,
+            message: "model profile is already installed".to_string(),
+            ..Default::default()
+        })?;
+        return Ok(manifest);
+    }
+
+    let staging = staging_root(root);
+    if let Some(parent) = staging.parent() {
+        std::fs::create_dir_all(parent).with_context(|| {
+            format!(
+                "failed to create model staging parent directory {}",
+                parent.display()
+            )
+        })?;
+    }
+    std::fs::create_dir_all(&staging).with_context(|| {
         format!(
-            "failed to create model root directory {}",
-            root.as_ref().display()
+            "failed to create model staging directory {}",
+            staging.display()
         )
     })?;
 
-    for asset in profile.assets {
-        download_asset(root.as_ref(), hf_endpoint, asset, revision_override)?;
+    let bytes_total = profile_total_bytes(profile);
+    let files_total = profile.assets.len() as u32;
+    let staged_bytes = completed_staging_bytes(profile, &staging);
+    let mut bytes_completed = 0u64;
+    progress(ModelDownloadProgress {
+        phase: "queued".to_string(),
+        bytes_downloaded: staged_bytes,
+        bytes_total,
+        files_total,
+        message: format!("preparing model download from {hf_endpoint}"),
+        ..Default::default()
+    })?;
+
+    for (index, asset) in profile.assets.iter().enumerate() {
+        let staging_path = staging.join(asset.local_path);
+        if staging_path.exists() && validate_asset_file(asset, &staging_path).is_ok() {
+            bytes_completed = bytes_completed.saturating_add(asset.size_bytes);
+            progress(ModelDownloadProgress {
+                phase: "reused".to_string(),
+                current_file: asset.remote_path.to_string(),
+                current_file_bytes_downloaded: asset.size_bytes,
+                current_file_bytes_total: asset.size_bytes,
+                bytes_downloaded: bytes_completed.min(bytes_total),
+                bytes_total,
+                files_completed: (index + 1) as u32,
+                files_total,
+                message: format!("reused staged {}", asset.remote_path),
+            })?;
+            continue;
+        }
+
+        let final_path = root.join(asset.local_path);
+        if final_path.exists() && validate_asset_file(asset, &final_path).is_ok() {
+            copy_asset_atomic(&final_path, &staging_path)?;
+            bytes_completed = bytes_completed.saturating_add(asset.size_bytes);
+            progress(ModelDownloadProgress {
+                phase: "reused".to_string(),
+                current_file: asset.remote_path.to_string(),
+                current_file_bytes_downloaded: asset.size_bytes,
+                current_file_bytes_total: asset.size_bytes,
+                bytes_downloaded: bytes_completed.min(bytes_total),
+                bytes_total,
+                files_completed: (index + 1) as u32,
+                files_total,
+                message: format!("reused installed {}", asset.remote_path),
+            })?;
+            continue;
+        }
+
+        let baseline_bytes = bytes_completed;
+        download_asset_to_path(
+            &staging,
+            hf_endpoint,
+            asset,
+            revision_override,
+            &mut |phase, file_bytes, message| {
+                progress(ModelDownloadProgress {
+                    phase: phase.to_string(),
+                    current_file: asset.remote_path.to_string(),
+                    current_file_bytes_downloaded: file_bytes.min(asset.size_bytes),
+                    current_file_bytes_total: asset.size_bytes,
+                    bytes_downloaded: baseline_bytes.saturating_add(file_bytes).min(bytes_total),
+                    bytes_total,
+                    files_completed: index as u32,
+                    files_total,
+                    message,
+                })
+            },
+        )?;
+        validate_asset_file(asset, &staging_path)?;
+        bytes_completed = bytes_completed.saturating_add(asset.size_bytes);
+        progress(ModelDownloadProgress {
+            phase: "validated".to_string(),
+            current_file: asset.remote_path.to_string(),
+            current_file_bytes_downloaded: asset.size_bytes,
+            current_file_bytes_total: asset.size_bytes,
+            bytes_downloaded: bytes_completed.min(bytes_total),
+            bytes_total,
+            files_completed: (index + 1) as u32,
+            files_total,
+            message: format!("validated {}", asset.remote_path),
+        })?;
     }
 
-    validate_profile_assets(profile, root.as_ref())?;
-    let manifest = resolved_manifest(profile, root.as_ref());
+    validate_profile_assets(profile, &staging)?;
+    progress(ModelDownloadProgress {
+        phase: "promoting".to_string(),
+        bytes_downloaded: bytes_total,
+        bytes_total,
+        files_completed: files_total,
+        files_total,
+        message: "promoting staged model profile".to_string(),
+        ..Default::default()
+    })?;
+    promote_staging_root(&staging, root)?;
+    validate_profile_assets(profile, root)?;
+    let manifest = resolved_manifest(profile, root);
     write_resolved_manifest(&manifest)?;
+    progress(ModelDownloadProgress {
+        phase: "installed".to_string(),
+        bytes_downloaded: bytes_total,
+        bytes_total,
+        files_completed: files_total,
+        files_total,
+        message: "model profile installed".to_string(),
+        ..Default::default()
+    })?;
     Ok(manifest)
 }
 
 pub fn delete_model_profile(profile_id: &str, root: impl AsRef<Path>) -> anyhow::Result<()> {
     let _ = find_profile(profile_id)?;
+    let staging = staging_root(root.as_ref());
+    if staging.exists() {
+        std::fs::remove_dir_all(&staging)
+            .with_context(|| format!("failed to remove {}", staging.display()))?;
+    }
     if root.as_ref().exists() {
         std::fs::remove_dir_all(root.as_ref())
             .with_context(|| format!("failed to remove {}", root.as_ref().display()))?;
@@ -555,15 +718,24 @@ fn validate_asset_file(asset: &ModelAssetSpec, local_path: &Path) -> anyhow::Res
     Ok(())
 }
 
-fn download_asset(
+fn download_asset_to_path<F>(
     root: &Path,
     hf_endpoint: &str,
     asset: &ModelAssetSpec,
     revision_override: Option<&str>,
-) -> anyhow::Result<()> {
+    progress: &mut F,
+) -> anyhow::Result<()>
+where
+    F: FnMut(&str, u64, String) -> anyhow::Result<()>,
+{
     let revision = revision_override.unwrap_or(asset.revision);
     let local_path = root.join(asset.local_path);
     if local_path.exists() && validate_asset_file(asset, &local_path).is_ok() {
+        progress(
+            "reused",
+            asset.size_bytes,
+            format!("reused {}", asset.remote_path),
+        )?;
         return Ok(());
     }
 
@@ -574,6 +746,28 @@ fn download_asset(
                 parent.display()
             )
         })?;
+    }
+
+    match download_asset_direct(
+        hf_endpoint,
+        asset.repo_id,
+        revision,
+        asset.remote_path,
+        &local_path,
+        asset.size_bytes,
+        progress,
+    ) {
+        Ok(()) => return validate_asset_file(asset, &local_path),
+        Err(direct_err) => {
+            progress(
+                "resolving",
+                partial_file_size(&local_path),
+                format!(
+                    "direct mirror download failed for {}; trying hf-hub cache fallback: {direct_err}",
+                    asset.remote_path
+                ),
+            )?;
+        }
     }
 
     let api = ApiBuilder::from_env()
@@ -592,43 +786,81 @@ fn download_asset(
 
     match repo.get(asset.remote_path) {
         Ok(downloaded) => {
-            copy_asset_atomic(&downloaded, &local_path).with_context(|| {
-                format!(
-                    "failed to copy downloaded asset {} to {}",
-                    downloaded.display(),
-                    local_path.display()
-                )
-            })?;
+            copy_asset_atomic_with_progress(&downloaded, &local_path, progress).with_context(
+                || {
+                    format!(
+                        "failed to copy downloaded asset {} to {}",
+                        downloaded.display(),
+                        local_path.display()
+                    )
+                },
+            )?;
         }
-        Err(err) => {
-            download_asset_direct(
-                hf_endpoint,
-                asset.repo_id,
-                revision,
-                asset.remote_path,
-                &local_path,
-            )
-            .with_context(|| {
-                format!(
-                    "failed fallback download for {} from repo {}@{}; hf-hub error: {err}",
-                    asset.remote_path, asset.repo_id, revision
-                )
-            })?;
-        }
+        Err(err) => bail!(
+            "failed fallback download for {} from repo {}@{}; hf-hub error: {err}",
+            asset.remote_path,
+            asset.repo_id,
+            revision
+        ),
     }
 
     validate_asset_file(asset, &local_path)
 }
 
 fn copy_asset_atomic(source: &Path, target: &Path) -> anyhow::Result<()> {
+    copy_asset_atomic_with_progress(source, target, &mut |_, _, _| Ok(()))
+}
+
+fn copy_asset_atomic_with_progress<F>(
+    source: &Path,
+    target: &Path,
+    progress: &mut F,
+) -> anyhow::Result<()>
+where
+    F: FnMut(&str, u64, String) -> anyhow::Result<()>,
+{
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent).with_context(|| {
+            format!(
+                "failed to create model asset directory {}",
+                parent.display()
+            )
+        })?;
+    }
+    let total = std::fs::metadata(source)
+        .with_context(|| format!("failed to stat {}", source.display()))?
+        .len();
     let tmp_path = target.with_extension("part");
-    std::fs::copy(source, &tmp_path).with_context(|| {
+    let mut input =
+        File::open(source).with_context(|| format!("failed to open {}", source.display()))?;
+    let mut output = File::create(&tmp_path).with_context(|| {
         format!(
-            "failed to copy {} to {}",
-            source.display(),
+            "failed to create temporary model asset {}",
             tmp_path.display()
         )
     })?;
+    let mut copied = 0u64;
+    let mut buffer = [0u8; 1024 * 1024];
+    loop {
+        let read = input
+            .read(&mut buffer)
+            .with_context(|| format!("failed to read {}", source.display()))?;
+        if read == 0 {
+            break;
+        }
+        output
+            .write_all(&buffer[..read])
+            .with_context(|| format!("failed to write {}", tmp_path.display()))?;
+        copied = copied.saturating_add(read as u64);
+        progress(
+            "copying",
+            copied.min(total),
+            format!("copying cached {}", source.display()),
+        )?;
+    }
+    output
+        .flush()
+        .with_context(|| format!("failed to flush {}", tmp_path.display()))?;
     std::fs::rename(&tmp_path, target).with_context(|| {
         format!(
             "failed to move {} to {}",
@@ -639,13 +871,18 @@ fn copy_asset_atomic(source: &Path, target: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn download_asset_direct(
+fn download_asset_direct<F>(
     hf_endpoint: &str,
     repo_id: &str,
     revision: &str,
     remote_path: &str,
     local_path: &Path,
-) -> anyhow::Result<()> {
+    expected_size: u64,
+    progress: &mut F,
+) -> anyhow::Result<()>
+where
+    F: FnMut(&str, u64, String) -> anyhow::Result<()>,
+{
     let url = format!(
         "{}/{}/resolve/{}/{}",
         hf_endpoint.trim_end_matches('/'),
@@ -653,21 +890,75 @@ fn download_asset_direct(
         revision,
         remote_path
     );
-    let mut response = ureq::get(&url)
+    let tmp_path = local_path.with_extension("part");
+    let resume_from = std::fs::metadata(&tmp_path)
+        .map(|metadata| metadata.len().min(expected_size))
+        .unwrap_or(0);
+    progress(
+        "downloading",
+        resume_from,
+        if resume_from > 0 {
+            format!("resuming {} from {} bytes", remote_path, resume_from)
+        } else {
+            format!("downloading {}", remote_path)
+        },
+    )?;
+
+    let mut request = ureq::get(&url);
+    if resume_from > 0 {
+        request = request.header("Range", format!("bytes={resume_from}-"));
+    }
+    let mut response = request
         .call()
         .with_context(|| format!("failed to GET {url}"))?;
-    let tmp_path = local_path.with_extension("part");
-    let mut output = File::create(&tmp_path).with_context(|| {
-        format!(
-            "failed to create temporary model asset {}",
-            tmp_path.display()
-        )
-    })?;
-    std::io::copy(&mut response.body_mut().as_reader(), &mut output)
-        .with_context(|| format!("failed to stream response body from {url}"))?;
+    let partial_accepted = response.status().as_u16() == 206;
+    let mut downloaded = if resume_from > 0 && partial_accepted {
+        resume_from
+    } else {
+        0
+    };
+    let mut output = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .append(downloaded > 0)
+        .truncate(downloaded == 0)
+        .open(&tmp_path)
+        .with_context(|| {
+            format!(
+                "failed to create temporary model asset {}",
+                tmp_path.display()
+            )
+        })?;
+    let mut reader = response.body_mut().as_reader();
+    let mut buffer = [0u8; 1024 * 1024];
+    loop {
+        let read = reader
+            .read(&mut buffer)
+            .with_context(|| format!("failed to stream response body from {url}"))?;
+        if read == 0 {
+            break;
+        }
+        output
+            .write_all(&buffer[..read])
+            .with_context(|| format!("failed to write {}", tmp_path.display()))?;
+        downloaded = downloaded.saturating_add(read as u64);
+        progress(
+            "downloading",
+            downloaded.min(expected_size),
+            format!("downloading {}", remote_path),
+        )?;
+    }
     output
         .flush()
         .with_context(|| format!("failed to flush {}", tmp_path.display()))?;
+    if expected_size > 0 && downloaded != expected_size {
+        bail!(
+            "{} download size mismatch: expected {} bytes, got {} bytes",
+            remote_path,
+            expected_size,
+            downloaded
+        );
+    }
     std::fs::rename(&tmp_path, local_path).with_context(|| {
         format!(
             "failed to move temporary model asset {} to {}",
@@ -688,6 +979,7 @@ fn resolved_manifest(profile: &ModelProfileSpec, root: &Path) -> ResolvedModelMa
         embedding_dimension: profile.embedding_dimension,
         native_embedding_dimension: profile.native_embedding_dimension,
         image_size: profile.image_size,
+        embedding_transform: profile.embedding_transform.to_string(),
         model_root: root.to_string_lossy().into_owned(),
         assets: profile
             .assets
@@ -703,6 +995,58 @@ fn resolved_manifest(profile: &ModelProfileSpec, root: &Path) -> ResolvedModelMa
             })
             .collect(),
     }
+}
+
+fn profile_total_bytes(profile: &ModelProfileSpec) -> u64 {
+    profile.assets.iter().map(|asset| asset.size_bytes).sum()
+}
+
+fn partial_file_size(local_path: &Path) -> u64 {
+    std::fs::metadata(local_path.with_extension("part"))
+        .map(|metadata| metadata.len())
+        .unwrap_or(0)
+}
+
+fn completed_staging_bytes(profile: &ModelProfileSpec, staging: &Path) -> u64 {
+    profile
+        .assets
+        .iter()
+        .filter_map(|asset| {
+            let local_path = staging.join(asset.local_path);
+            if local_path.exists() && validate_asset_file(asset, &local_path).is_ok() {
+                Some(asset.size_bytes)
+            } else {
+                None
+            }
+        })
+        .sum()
+}
+
+fn staging_root(root: &Path) -> PathBuf {
+    let file_name = root
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("model");
+    root.with_file_name(format!(".{file_name}.download"))
+}
+
+fn promote_staging_root(staging: &Path, root: &Path) -> anyhow::Result<()> {
+    if let Some(parent) = root.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create model root parent {}", parent.display()))?;
+    }
+    if root.exists() {
+        std::fs::remove_dir_all(root)
+            .with_context(|| format!("failed to replace old model root {}", root.display()))?;
+    }
+    std::fs::rename(staging, root).with_context(|| {
+        format!(
+            "failed to promote staged model profile {} to {}",
+            staging.display(),
+            root.display()
+        )
+    })?;
+    Ok(())
 }
 
 fn write_resolved_manifest(manifest: &ResolvedModelManifest) -> anyhow::Result<()> {
@@ -767,6 +1111,13 @@ mod tests {
             validate_profile_dimension(profile).expect("profile should satisfy dimension policy");
             assert_eq!(profile.embedding_dimension, REQUIRED_EMBEDDING_DIMENSION);
         }
+        let jina = find_profile("jina-clip-v2-int8-multilingual").expect("jina profile exists");
+        assert_eq!(jina.native_embedding_dimension, 1024);
+        assert_eq!(jina.embedding_dimension, 512);
+        assert_eq!(
+            jina.embedding_transform,
+            "matryoshka_truncate_then_l2_normalize"
+        );
     }
 
     #[test]
@@ -776,5 +1127,67 @@ mod tests {
         assert_eq!(profiles.len(), MODEL_PROFILES.len());
         assert!(profiles.iter().all(|profile| !profile.installed));
         assert!(!root.exists());
+    }
+
+    // Disabled by default because it downloads the real MobileCLIP2 profile from
+    // the Hugging Face mirror. Run manually after downloader changes to verify
+    // mirror URL handling, byte progress, final promotion, and manifest writing.
+    #[test]
+    #[ignore = "downloads real model assets from hf-mirror.com"]
+    fn ignored_downloads_mobileclip_from_mirror_with_progress() {
+        let root = unique_temp_root("alcedo-mind-real-mobileclip-download");
+        let mut saw_byte_progress = false;
+        let mut last_progress = ModelDownloadProgress::default();
+
+        let manifest = download_model_profile_with_progress(
+            MOBILECLIP2_ONNX_PROFILE,
+            &root,
+            "https://hf-mirror.com",
+            None,
+            |progress| {
+                if progress.phase == "downloading"
+                    && progress.bytes_total > 0
+                    && progress.bytes_downloaded > 0
+                {
+                    saw_byte_progress = true;
+                }
+                last_progress = progress;
+                Ok(())
+            },
+        )
+        .expect("real mirror download should complete");
+
+        assert!(saw_byte_progress);
+        assert_eq!(last_progress.phase, "installed");
+        assert_eq!(manifest.embedding_dimension, 512);
+        assert_eq!(manifest.model_root, root.to_string_lossy());
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(staging_root(&root));
+    }
+
+    // Disabled by default because it downloads the larger Jina CLIP v2 profile.
+    // Run manually to verify the profile exposes Alcedo's 512-dimensional
+    // Matryoshka output contract while preserving the model's native 1024 dims.
+    #[test]
+    #[ignore = "downloads real Jina CLIP v2 assets from hf-mirror.com"]
+    fn ignored_downloads_jina_profile_with_512_matryoshka_contract() {
+        let root = unique_temp_root("alcedo-mind-real-jina-download");
+        let manifest = download_model_profile_with_progress(
+            "jina-clip-v2-int8-multilingual",
+            &root,
+            "https://hf-mirror.com",
+            None,
+            |_| Ok(()),
+        )
+        .expect("real Jina mirror download should complete");
+
+        assert_eq!(manifest.embedding_dimension, 512);
+        assert_eq!(manifest.native_embedding_dimension, 1024);
+        assert_eq!(
+            manifest.embedding_transform,
+            "matryoshka_truncate_then_l2_normalize"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(staging_root(&root));
     }
 }

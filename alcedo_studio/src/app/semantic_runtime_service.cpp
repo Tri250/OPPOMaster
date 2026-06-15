@@ -225,6 +225,7 @@ auto ToModelProfileInfo(const semantic::ModelProfile& response) -> SemanticModel
   profile.installed                  = response.installed();
   profile.local_root                 = response.local_root();
   profile.status                     = response.status();
+  profile.embedding_transform        = response.embedding_transform();
   profile.assets.reserve(static_cast<size_t>(response.assets_size()));
   for (const auto& asset : response.assets()) {
     profile.assets.push_back(ToModelAssetInfo(asset));
@@ -243,12 +244,28 @@ auto ToResolvedModelManifest(const semantic::ResolvedModelManifest& response)
   manifest.embedding_dimension        = response.embedding_dimension();
   manifest.native_embedding_dimension = response.native_embedding_dimension();
   manifest.image_size                 = response.image_size();
+  manifest.embedding_transform        = response.embedding_transform();
   manifest.model_root                 = response.model_root();
   manifest.assets.reserve(static_cast<size_t>(response.assets_size()));
   for (const auto& asset : response.assets()) {
     manifest.assets.push_back(ToModelAssetInfo(asset));
   }
   return manifest;
+}
+
+auto ToModelDownloadProgress(const semantic::ModelDownloadProgress& response)
+    -> SemanticModelDownloadProgress {
+  SemanticModelDownloadProgress progress;
+  progress.phase                         = response.phase();
+  progress.current_file                  = response.current_file();
+  progress.current_file_bytes_downloaded = response.current_file_bytes_downloaded();
+  progress.current_file_bytes_total      = response.current_file_bytes_total();
+  progress.bytes_downloaded              = response.bytes_downloaded();
+  progress.bytes_total                   = response.bytes_total();
+  progress.files_completed               = response.files_completed();
+  progress.files_total                   = response.files_total();
+  progress.message                       = response.message();
+  return progress;
 }
 
 auto ToModelManagerResult(const semantic::ModelManagerResponse& response)
@@ -261,6 +278,9 @@ auto ToModelManagerResult(const semantic::ModelManagerResponse& response)
   result.profile = ToModelProfileInfo(response.profile());
   if (response.has_manifest()) {
     result.manifest = ToResolvedModelManifest(response.manifest());
+  }
+  if (response.has_progress()) {
+    result.progress = ToModelDownloadProgress(response.progress());
   }
   return result;
 }

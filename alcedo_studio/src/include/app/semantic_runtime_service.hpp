@@ -78,6 +78,7 @@ struct SemanticModelProfileInfo {
   bool                                installed                  = false;
   std::string                         local_root;
   std::string                         status;
+  std::string                         embedding_transform;
   std::vector<SemanticModelAssetInfo> assets;
 };
 
@@ -90,8 +91,21 @@ struct SemanticResolvedModelManifest {
   uint32_t                            embedding_dimension        = 0;
   uint32_t                            native_embedding_dimension = 0;
   uint32_t                            image_size                 = 0;
+  std::string                         embedding_transform;
   std::string                         model_root;
   std::vector<SemanticModelAssetInfo> assets;
+};
+
+struct SemanticModelDownloadProgress {
+  std::string phase;
+  std::string current_file;
+  uint64_t    current_file_bytes_downloaded = 0;
+  uint64_t    current_file_bytes_total      = 0;
+  uint64_t    bytes_downloaded              = 0;
+  uint64_t    bytes_total                   = 0;
+  uint32_t    files_completed               = 0;
+  uint32_t    files_total                   = 0;
+  std::string message;
 };
 
 struct SemanticModelManagerResult {
@@ -101,6 +115,7 @@ struct SemanticModelManagerResult {
   std::string                                  job_id;
   SemanticModelProfileInfo                     profile;
   std::optional<SemanticResolvedModelManifest> manifest;
+  std::optional<SemanticModelDownloadProgress> progress;
 };
 
 struct SemanticEmbeddingResult {

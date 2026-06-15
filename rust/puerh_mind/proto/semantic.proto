@@ -122,6 +122,7 @@ message ModelProfile {
   string local_root = 11;
   string status = 12;
   repeated ModelAsset assets = 13;
+  string embedding_transform = 14;
 }
 
 message ResolvedModelManifest {
@@ -135,6 +136,7 @@ message ResolvedModelManifest {
   uint32 image_size = 8;
   string model_root = 9;
   repeated ModelAsset assets = 10;
+  string embedding_transform = 11;
 }
 
 message ListModelProfilesRequest {
@@ -189,4 +191,17 @@ message ModelManagerResponse {
   ModelProfile profile = 4;
   ResolvedModelManifest manifest = 5;
   string job_id = 6;
+  ModelDownloadProgress progress = 7;
+}
+
+message ModelDownloadProgress {
+  string phase = 1;
+  string current_file = 2;
+  uint64 current_file_bytes_downloaded = 3;
+  uint64 current_file_bytes_total = 4;
+  uint64 bytes_downloaded = 5;
+  uint64 bytes_total = 6;
+  uint32 files_completed = 7;
+  uint32 files_total = 8;
+  string message = 9;
 }

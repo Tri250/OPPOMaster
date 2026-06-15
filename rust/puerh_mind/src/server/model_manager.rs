@@ -10,12 +10,14 @@ use crate::proto::semantic::{
     CancelModelDownloadRequest, CancelModelDownloadResponse, DeleteModelRequest,
     DownloadModelRequest, GetModelDownloadStatusRequest, ListInstalledModelsRequest,
     ListInstalledModelsResponse, ListModelProfilesRequest, ListModelProfilesResponse, ModelAsset,
-    ModelManagerResponse, ModelProfile, ResolvedModelManifest as ProtoResolvedModelManifest,
-    ValidateModelRequest, model_manager_service_server::ModelManagerService,
+    ModelDownloadProgress as ProtoModelDownloadProgress, ModelManagerResponse, ModelProfile,
+    ResolvedModelManifest as ProtoResolvedModelManifest, ValidateModelRequest,
+    model_manager_service_server::ModelManagerService,
 };
 use crate::service::model_assets::{
-    ModelAssetSpec, ModelProfileStatus, ResolvedModelManifest, delete_model_profile,
-    download_model_profile, list_installed_profiles, list_profiles, validate_model_profile,
+    ModelAssetSpec, ModelDownloadProgress, ModelProfileStatus, ResolvedModelManifest,
+    delete_model_profile, download_model_profile_with_progress, list_installed_profiles,
+    list_profiles, validate_model_profile,
 };
 
 #[derive(Debug, Clone)]
@@ -32,6 +34,7 @@ struct DownloadJob {
     state: String,
     error: String,
     manifest: Option<ResolvedModelManifest>,
+    progress: ModelDownloadProgress,
     cancel_requested: bool,
 }
 
@@ -96,6 +99,18 @@ impl ModelManagerServiceImpl {
                         })
                     }),
                     manifest: Some(manifest_to_proto(&manifest)),
+                    progress: Some(
+                        ModelDownloadProgress {
+                            phase: status.to_string(),
+                            bytes_downloaded: 0,
+                            bytes_total: 0,
+                            files_completed: 0,
+                            files_total: 0,
+                            message: status.to_string(),
+                            ..Default::default()
+                        }
+                        .into(),
+                    ),
                 }
             }
             Err(err) => ModelManagerResponse {
@@ -114,6 +129,14 @@ impl ModelManagerServiceImpl {
                         })
                     }),
                 manifest: None,
+                progress: Some(
+                    ModelDownloadProgress {
+                        phase: "error".to_string(),
+                        message: err.to_string(),
+                        ..Default::default()
+                    }
+                    .into(),
+                ),
             },
         }
     }
@@ -121,7 +144,18 @@ impl ModelManagerServiceImpl {
     fn response_from_job(job_id: &str, job: &DownloadJob) -> ModelManagerResponse {
         let profile = crate::service::model_assets::find_profile(&job.profile_id).ok();
         ModelManagerResponse {
-            ok: job.state == "installed" || job.state == "downloading" || job.state == "queued",
+            ok: matches!(
+                job.state.as_str(),
+                "queued"
+                    | "resolving"
+                    | "downloading"
+                    | "copying"
+                    | "reused"
+                    | "validated"
+                    | "promoting"
+                    | "installed"
+                    | "cancel_requested"
+            ),
             status: job.state.clone(),
             error: job.error.clone(),
             job_id: job_id.to_string(),
@@ -134,6 +168,7 @@ impl ModelManagerServiceImpl {
                 })
             }),
             manifest: job.manifest.as_ref().map(manifest_to_proto),
+            progress: Some(job.progress.clone().into()),
         }
     }
 
@@ -217,6 +252,11 @@ impl ModelManagerService for ModelManagerServiceImpl {
                     state: "queued".to_string(),
                     error: String::new(),
                     manifest: None,
+                    progress: ModelDownloadProgress {
+                        phase: "queued".to_string(),
+                        message: "download queued".to_string(),
+                        ..Default::default()
+                    },
                     cancel_requested: false,
                 },
             );
@@ -232,14 +272,40 @@ impl ModelManagerService for ModelManagerServiceImpl {
                 }
             }
 
-            let result = download_model_profile(&profile_id, &root, &endpoint, None);
+            let result = download_model_profile_with_progress(
+                &profile_id,
+                &root,
+                &endpoint,
+                None,
+                |progress| {
+                    if let Ok(mut jobs) = downloads.lock() {
+                        if let Some(job) = jobs.get_mut(&job_id_for_thread) {
+                            if job.cancel_requested {
+                                job.state = "cancel_requested".to_string();
+                                job.progress = ModelDownloadProgress {
+                                    phase: "cancel_requested".to_string(),
+                                    message: "download cancellation requested".to_string(),
+                                    ..progress
+                                };
+                                anyhow::bail!("download cancelled");
+                            }
+                            job.progress = progress;
+                            if job.state != "cancel_requested" {
+                                job.state = job.progress.phase.clone();
+                            }
+                        }
+                    }
+                    Ok(())
+                },
+            );
             if let Ok(mut jobs) = downloads.lock() {
                 if let Some(job) = jobs.get_mut(&job_id_for_thread) {
                     if job.cancel_requested {
-                        let _ = delete_model_profile(&profile_id, &root);
                         job.state = "cancelled".to_string();
                         job.error.clear();
                         job.manifest = None;
+                        job.progress.phase = "cancelled".to_string();
+                        job.progress.message = "download cancelled".to_string();
                         return;
                     }
 
@@ -248,11 +314,15 @@ impl ModelManagerService for ModelManagerServiceImpl {
                             job.state = "installed".to_string();
                             job.error.clear();
                             job.manifest = Some(manifest);
+                            job.progress.phase = "installed".to_string();
+                            job.progress.message = "model profile installed".to_string();
                         }
                         Err(err) => {
                             job.state = "failed".to_string();
                             job.error = err.to_string();
                             job.manifest = None;
+                            job.progress.phase = "failed".to_string();
+                            job.progress.message = err.to_string();
                         }
                     }
                 }
@@ -274,6 +344,7 @@ impl ModelManagerService for ModelManagerServiceImpl {
                     job_id: job_id.clone(),
                     profile: None,
                     manifest: None,
+                    progress: None,
                 })
         };
         Ok(Response::new(response))
@@ -298,6 +369,7 @@ impl ModelManagerService for ModelManagerServiceImpl {
                 job_id: req.job_id,
                 profile: None,
                 manifest: None,
+                progress: None,
             });
         Ok(Response::new(response))
     }
@@ -386,6 +458,7 @@ fn status_to_proto(status: &ModelProfileStatus) -> ModelProfile {
             .iter()
             .map(|asset| asset_to_proto(asset, &status.model_root))
             .collect(),
+        embedding_transform: status.profile.embedding_transform.to_string(),
     }
 }
 
@@ -413,6 +486,23 @@ fn manifest_to_proto(manifest: &ResolvedModelManifest) -> ProtoResolvedModelMani
                 sha256: asset.sha256.clone(),
             })
             .collect(),
+        embedding_transform: manifest.embedding_transform.clone(),
+    }
+}
+
+impl From<ModelDownloadProgress> for ProtoModelDownloadProgress {
+    fn from(progress: ModelDownloadProgress) -> Self {
+        Self {
+            phase: progress.phase,
+            current_file: progress.current_file,
+            current_file_bytes_downloaded: progress.current_file_bytes_downloaded,
+            current_file_bytes_total: progress.current_file_bytes_total,
+            bytes_downloaded: progress.bytes_downloaded,
+            bytes_total: progress.bytes_total,
+            files_completed: progress.files_completed,
+            files_total: progress.files_total,
+            message: progress.message,
+        }
     }
 }
 
@@ -450,7 +540,8 @@ mod tests {
                 .any(|profile| profile.language == "multilingual"
                     && profile.profile_id == "jina-clip-v2-int8-multilingual"
                     && profile.embedding_dimension == 512
-                    && profile.native_embedding_dimension == 1024)
+                    && profile.native_embedding_dimension == 1024
+                    && profile.embedding_transform == "matryoshka_truncate_then_l2_normalize")
         );
         assert!(response.profiles.iter().all(|profile| !profile.installed));
         assert!(!root.exists());
@@ -471,5 +562,92 @@ mod tests {
 
         assert!(!response.ok);
         assert!(response.error.contains("missing model root directory"));
+        let progress = response
+            .progress
+            .expect("validate errors should carry progress");
+        assert_eq!(progress.phase, "error");
+        assert!(progress.message.contains("missing model root directory"));
+    }
+
+    // Disabled by default because it starts a real background download from the
+    // Hugging Face mirror. Run manually after downloader changes to verify the
+    // C++ polling response can observe byte/file progress through the manager.
+    #[tokio::test]
+    #[ignore = "downloads real model assets from hf-mirror.com"]
+    async fn ignored_download_status_polls_real_mirror_progress() {
+        let root = unique_root();
+        let service = ModelManagerServiceImpl::new(&root, "https://hf-mirror.com");
+        let start = service
+            .download_model(Request::new(DownloadModelRequest {
+                profile_id: crate::service::model_assets::MOBILECLIP2_ONNX_PROFILE.to_string(),
+                model_root: root.to_string_lossy().into_owned(),
+                hf_endpoint: "https://hf-mirror.com".to_string(),
+            }))
+            .await
+            .expect("download should start")
+            .into_inner();
+
+        assert!(start.ok);
+        assert!(!start.job_id.is_empty());
+
+        let mut saw_progress = false;
+        for _ in 0..120 {
+            let status = service
+                .get_model_download_status(Request::new(GetModelDownloadStatusRequest {
+                    job_id: start.job_id.clone(),
+                }))
+                .await
+                .expect("status should poll")
+                .into_inner();
+            if let Some(progress) = status.progress {
+                saw_progress |= progress.bytes_total > 0 && progress.bytes_downloaded > 0;
+            }
+            if status.status == "installed" || status.status == "failed" {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+
+        assert!(saw_progress);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // Disabled by default because it opens a real model download before issuing
+    // cancellation. Run manually to verify cancellation remains visible through
+    // polling and does not delete an already-installed final model directory.
+    #[tokio::test]
+    #[ignore = "starts and cancels a real model download from hf-mirror.com"]
+    async fn ignored_real_download_can_be_cancelled_from_manager() {
+        let root = unique_root();
+        let service = ModelManagerServiceImpl::new(&root, "https://hf-mirror.com");
+        let start = service
+            .download_model(Request::new(DownloadModelRequest {
+                profile_id: "jina-clip-v2-int8-multilingual".to_string(),
+                model_root: root.to_string_lossy().into_owned(),
+                hf_endpoint: "https://hf-mirror.com".to_string(),
+            }))
+            .await
+            .expect("download should start")
+            .into_inner();
+
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        let cancel = service
+            .cancel_model_download(Request::new(CancelModelDownloadRequest {
+                job_id: start.job_id.clone(),
+            }))
+            .await
+            .expect("cancel should return")
+            .into_inner();
+        assert!(cancel.cancelled);
+
+        let status = service
+            .get_model_download_status(Request::new(GetModelDownloadStatusRequest {
+                job_id: start.job_id,
+            }))
+            .await
+            .expect("status should poll")
+            .into_inner();
+        assert!(status.status == "cancel_requested" || status.status == "cancelled");
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

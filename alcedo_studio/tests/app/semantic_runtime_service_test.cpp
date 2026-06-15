@@ -92,6 +92,7 @@ class FakeSemanticRuntimeClient final : public ISemanticRuntimeClient {
     multilingual.language                   = "multilingual";
     multilingual.embedding_dimension        = 512;
     multilingual.native_embedding_dimension = 1024;
+    multilingual.embedding_transform        = "matryoshka_truncate_then_l2_normalize";
     multilingual.local_root                 = model_root + "/jina-clip-v2-int8-multilingual";
     return {mobile, zh, multilingual};
   }
@@ -125,6 +126,7 @@ class FakeSemanticRuntimeClient final : public ISemanticRuntimeClient {
                            .embedding_dimension        = 512,
                            .native_embedding_dimension = 512,
                            .image_size                 = 256,
+                           .embedding_transform        = "l2_normalize",
                            .model_root                 = result.profile.local_root,
                            .assets                     = {},
     };
@@ -139,6 +141,17 @@ class FakeSemanticRuntimeClient final : public ISemanticRuntimeClient {
     result.status = "queued";
     result.job_id = "fake-download-job";
     result.manifest.reset();
+    result.progress = SemanticModelDownloadProgress{
+        .phase                         = "queued",
+        .current_file                  = "",
+        .current_file_bytes_downloaded = 0,
+        .current_file_bytes_total      = 0,
+        .bytes_downloaded              = 0,
+        .bytes_total                   = 1024,
+        .files_completed               = 0,
+        .files_total                   = 2,
+        .message                       = "download queued",
+    };
     return result;
   }
 
@@ -147,6 +160,17 @@ class FakeSemanticRuntimeClient final : public ISemanticRuntimeClient {
       -> SemanticModelManagerResult override {
     auto result   = ValidateModel(endpoint, "mobileclip2-s2-en", "C:/models", timeout);
     result.job_id = job_id;
+    result.progress = SemanticModelDownloadProgress{
+        .phase                         = "installed",
+        .current_file                  = "onnx/s2/vision_model.onnx",
+        .current_file_bytes_downloaded = 512,
+        .current_file_bytes_total      = 512,
+        .bytes_downloaded              = 1024,
+        .bytes_total                   = 1024,
+        .files_completed               = 2,
+        .files_total                   = 2,
+        .message                       = "model profile installed",
+    };
     return result;
   }
 
@@ -411,12 +435,16 @@ TEST(SemanticRuntimeServiceTest, ModelManagerUsesPolledDownloadJobs) {
   EXPECT_EQ(profiles[2].language, "multilingual");
   EXPECT_EQ(profiles[2].embedding_dimension, 512u);
   EXPECT_EQ(profiles[2].native_embedding_dimension, 1024u);
+  EXPECT_EQ(profiles[2].embedding_transform, "matryoshka_truncate_then_l2_normalize");
 
   const auto started = service.DownloadModel(
       "mobileclip2-s2-en", "C:/models", "https://hf-mirror.com", std::chrono::milliseconds(100));
   ASSERT_TRUE(started.ok) << started.error;
   EXPECT_EQ(started.status, "queued");
   ASSERT_FALSE(started.job_id.empty());
+  ASSERT_TRUE(started.progress.has_value());
+  EXPECT_EQ(started.progress->phase, "queued");
+  EXPECT_EQ(started.progress->bytes_total, 1024u);
 
   const auto polled =
       service.GetModelDownloadStatus(started.job_id, std::chrono::milliseconds(100));
@@ -424,6 +452,10 @@ TEST(SemanticRuntimeServiceTest, ModelManagerUsesPolledDownloadJobs) {
   EXPECT_EQ(polled.status, "installed");
   ASSERT_TRUE(polled.manifest.has_value());
   EXPECT_EQ(polled.manifest->embedding_dimension, 512u);
+  EXPECT_EQ(polled.manifest->embedding_transform, "l2_normalize");
+  ASSERT_TRUE(polled.progress.has_value());
+  EXPECT_EQ(polled.progress->phase, "installed");
+  EXPECT_EQ(polled.progress->bytes_downloaded, 1024u);
 
   std::string cancel_message;
   EXPECT_TRUE(
