@@ -25,6 +25,10 @@ auto EscapedSqlString(std::wstring value) -> std::wstring {
   return value;
 }
 
+auto EscapedUtf8SqlString(const std::string& value) -> std::wstring {
+  return EscapedSqlString(QString::fromUtf8(value.c_str()).toStdWString());
+}
+
 auto ToStatsRows(const std::vector<alcedo::StatsBucket>& buckets, bool uppercase_labels = false)
     -> QVariantList {
   QVariantList rows;
@@ -56,8 +60,8 @@ auto SearchCategoryLabel(const QString& category) -> QString {
   return PL_TEXT("Metadata").Render();
 }
 
-void AppendRecommendationRows(QVariantList& out, const QVariantList& buckets, const QString& category,
-                              int limit) {
+void AppendRecommendationRows(QVariantList& out, const QVariantList& buckets,
+                              const QString& category, int limit) {
   for (const auto& bucket : buckets) {
     if (out.size() >= limit) {
       return;
@@ -119,15 +123,15 @@ void StatsEngine::RefreshStats() {
     }
 
     const auto& active_search_filter_where = backend_.search_.ActiveSearchFilterWhere();
-    const auto stats = filter_service->BuildFolderStats(
-        folder_id.value(), active_search_filter_where.has_value()
-                               ? std::optional<FilterNode>{FilterNode{
-                                     .type_      = FilterNode::Type::RawSQL,
-                                     .op_        = FilterOp::AND,
-                                     .children_  = {},
-                                     .condition_ = std::nullopt,
-                                     .raw_sql_   = active_search_filter_where}}
-                               : std::nullopt);
+    const auto  stats                      = filter_service->BuildFolderStats(
+        folder_id.value(),
+        active_search_filter_where.has_value()
+                                  ? std::optional<FilterNode>{FilterNode{.type_      = FilterNode::Type::RawSQL,
+                                                                         .op_        = FilterOp::AND,
+                                                                         .children_  = {},
+                                                                         .condition_ = std::nullopt,
+                                                                         .raw_sql_   = active_search_filter_where}}
+                                  : std::nullopt);
     total_photo_count_ = stats.total_photo_count_;
     date_stats_        = ToStatsRows(stats.date_stats_);
     camera_stats_      = ToStatsRows(stats.camera_stats_);
@@ -253,11 +257,17 @@ auto StatsEngine::BuildStatsFilterWhere() const -> std::optional<std::wstring> {
   }
 
   if (!filter_label_.isEmpty()) {
-    const auto label_str = EscapedSqlString(filter_label_.toStdWString());
-    conditions.push_back(
-        L"EXISTS (SELECT 1 FROM SemanticImageLabel sl WHERE sl.file_id = e.id "
-        L"AND LOWER(sl.label) = LOWER('" +
-        label_str + L"'))");
+    const auto label_str        = EscapedSqlString(filter_label_.toStdWString());
+    const auto active_model_key = backend_.semantic_generation_.ActiveModelKey();
+    if (active_model_key.empty()) {
+      conditions.push_back(L"(1 = 0)");
+    } else {
+      conditions.push_back(
+          L"EXISTS (SELECT 1 FROM SemanticImageLabel sl WHERE sl.file_id = e.id "
+          L"AND sl.model_key = '" +
+          EscapedUtf8SqlString(active_model_key) + L"' AND LOWER(sl.label) = LOWER('" + label_str +
+          L"'))");
+    }
   }
 
   if (!filter_rating_.isEmpty()) {

@@ -210,6 +210,25 @@ auto ScalarInt64(duckdb_connection conn, const std::string& sql) -> std::optiona
   return value;
 }
 
+auto ScalarString(duckdb_connection conn, const std::string& sql) -> std::string {
+  duckdb_result result;
+  if (duckdb_query(conn, sql.c_str(), &result) != DuckDBSuccess) {
+    duckdb_destroy_result(&result);
+    return {};
+  }
+
+  std::string value;
+  if (duckdb_row_count(&result) > 0 && duckdb_column_count(&result) > 0 &&
+      !duckdb_value_is_null(&result, 0, 0)) {
+    if (char* raw = duckdb_value_varchar(&result, 0, 0)) {
+      value = raw;
+      duckdb_free(raw);
+    }
+  }
+  duckdb_destroy_result(&result);
+  return value;
+}
+
 auto ValidateEmbedding(std::span<const float> embedding, int expected_dim, std::string* error)
     -> bool {
   if (expected_dim != kSemanticEmbeddingDim) {
@@ -325,17 +344,16 @@ auto QueryAssignedLabel(duckdb_connection conn, const SemanticImageEmbeddingReco
     return std::nullopt;
   }
 
-  const auto result_limit =
-      std::max<size_t>(std::min(assignment_options.top_score_count_, kMaxSemanticImageLabelCount),
-                       2U);
-  const auto sql          = std::format(
+  const auto result_limit = std::max<size_t>(
+      std::min(assignment_options.top_score_count_, kMaxSemanticImageLabelCount), 2U);
+  const auto sql = std::format(
       "SELECT lp.label, array_inner_product(lp.embedding, se.embedding) AS score "
-               "FROM SemanticLabelPrototype lp "
-               "JOIN SemanticImageEmbedding se ON se.model_key = lp.model_key "
-               "AND se.file_id = {} AND se.image_id = {} "
-               "WHERE lp.model_key = {} AND lp.prompt_config_hash = {} "
-               "AND se.status = 'ready' AND se.error IS NULL "
-               "ORDER BY score DESC, lp.label LIMIT {};",
+      "FROM SemanticLabelPrototype lp "
+      "JOIN SemanticImageEmbedding se ON se.model_key = lp.model_key "
+      "AND se.file_id = {} AND se.image_id = {} "
+      "WHERE lp.model_key = {} AND lp.prompt_config_hash = {} "
+      "AND se.status = 'ready' AND se.error IS NULL "
+      "ORDER BY score DESC, lp.label LIMIT {};",
       record.file_id_, record.image_id_, SqlString(record.model_key_),
       SqlString(assignment_options.prompt_config_hash_), result_limit);
 
@@ -398,12 +416,28 @@ auto SemanticStorageController::UpsertModel(const SemanticModelRecord& model,
   const auto sql = std::format(
       "INSERT OR REPLACE INTO SemanticModel "
       "(model_key, model_id, revision, embedding_dim, image_size, "
-      "prompt_config_hash, asset_manifest_json) "
-      "VALUES ({}, {}, {}, {}, {}, {}, {});",
+      "engine_id, profile_id, supported_text_languages_json, "
+      "prompt_config_hash, asset_manifest_json, active) "
+      "VALUES ({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {});",
       SqlString(model.model_key_), SqlString(model.model_id_), SqlString(model.revision_),
-      model.embedding_dim_, model.image_size_, SqlNullableString(model.prompt_config_hash_),
-      SqlNullableString(model.asset_manifest_json_));
-  return RunQuery(guard_.conn_, sql, error);
+      model.embedding_dim_, model.image_size_, SqlNullableString(model.engine_id_),
+      SqlNullableString(model.profile_id_), SqlNullableString(model.supported_text_languages_json_),
+      SqlNullableString(model.prompt_config_hash_), SqlNullableString(model.asset_manifest_json_),
+      SqlBool(model.active_));
+
+  if (!model.active_) {
+    return RunQuery(guard_.conn_, sql, error);
+  }
+  if (!RunQuery(guard_.conn_, "BEGIN TRANSACTION;", error)) {
+    return false;
+  }
+  if (!RunQuery(guard_.conn_, "UPDATE SemanticModel SET active = FALSE;", error) ||
+      !RunQuery(guard_.conn_, sql, error)) {
+    std::string rollback_error;
+    RunQuery(guard_.conn_, "ROLLBACK;", &rollback_error);
+    return false;
+  }
+  return RunQuery(guard_.conn_, "COMMIT;", error);
 }
 
 auto SemanticStorageController::HasModel(const std::string& model_key) const -> bool {
@@ -420,6 +454,62 @@ auto SemanticStorageController::GetModelEmbeddingDim(const std::string& model_ke
     return std::nullopt;
   }
   return static_cast<int>(*value);
+}
+
+auto SemanticStorageController::GetModelSupportedTextLanguagesJson(
+    const std::string& model_key) const -> std::string {
+  return ScalarString(guard_.conn_,
+                      std::format("SELECT supported_text_languages_json FROM SemanticModel "
+                                  "WHERE model_key = {};",
+                                  SqlString(model_key)));
+}
+
+auto SemanticStorageController::ActiveModelKey() const -> std::string {
+  const auto sql =
+      "SELECT model_key FROM SemanticModel WHERE active = TRUE "
+      "ORDER BY created_at DESC, model_key DESC LIMIT 1;";
+
+  duckdb_result result;
+  if (duckdb_query(guard_.conn_, sql, &result) != DuckDBSuccess) {
+    duckdb_destroy_result(&result);
+    return {};
+  }
+
+  std::string out;
+  if (duckdb_row_count(&result) > 0) {
+    if (char* raw = duckdb_value_varchar(&result, 0, 0)) {
+      out = raw;
+      duckdb_free(raw);
+    }
+  }
+
+  duckdb_destroy_result(&result);
+  return out;
+}
+
+auto SemanticStorageController::SetActiveModelKey(const std::string& model_key,
+                                                  std::string*       error) const -> bool {
+  if (model_key.empty()) {
+    SetError(error, "Semantic model key is empty.");
+    return false;
+  }
+  if (!HasModel(model_key)) {
+    SetError(error, "Semantic model is not registered.");
+    return false;
+  }
+  if (!RunQuery(guard_.conn_, "BEGIN TRANSACTION;", error)) {
+    return false;
+  }
+  if (!RunQuery(guard_.conn_, "UPDATE SemanticModel SET active = FALSE;", error) ||
+      !RunQuery(guard_.conn_,
+                std::format("UPDATE SemanticModel SET active = TRUE WHERE model_key = {};",
+                            SqlString(model_key)),
+                error)) {
+    std::string rollback_error;
+    RunQuery(guard_.conn_, "ROLLBACK;", &rollback_error);
+    return false;
+  }
+  return RunQuery(guard_.conn_, "COMMIT;", error);
 }
 
 auto SemanticStorageController::LatestModelKey() const -> std::string {

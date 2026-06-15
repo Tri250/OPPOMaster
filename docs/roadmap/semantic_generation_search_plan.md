@@ -3,7 +3,8 @@
 Date: 2026-06-12
 
 Status: Phase 1 complete; Phase 2 complete; Phase 3 complete; Phase 4a
-initial scaffold complete; Phase 4c complete; Phase 4d complete
+initial scaffold complete; Phase 4c complete; Phase 4d complete; Phase 5
+deferred; Phase 6a complete; Phase 6 planning updated
 
 This document proposes how to integrate `rust/puerh_mind` into Alcedo Studio as
 project-level semantic image generation and semantic search services.
@@ -112,18 +113,34 @@ The stale Candle source files should either be removed or clearly quarantined
 outside the active build path. The integration should standardize on ONNX
 Runtime for this phase.
 
-## Model Distribution and Download
+## Model Identity, Distribution, and Download
 
 The packaged app should not bundle model weights. It should bundle:
 
 - a model manifest JSON
-- model id and pinned revision
+- Hugging Face model id and pinned revision
 - required relative files
 - expected SHA-256 and byte sizes
 - embedding dimension and image input size
 - precomputed default text-label prototypes
 
-The Qt app downloads into an application data directory, for example:
+The active Hugging Face `model_id` is the semantic data compatibility boundary.
+Image embeddings, generated labels, and cached label prototypes are valid only
+when their stored `model_id` matches the currently selected model. If the user
+switches models, old rows must not be read for generation skip logic, ordinary
+label search, semantic search, or thumbnail label display. The app should expose
+old-model rows as removable semantic data, not silently mix them with active
+model results.
+
+The Rust side owns model acquisition and local asset validation. Qt owns only
+the settings UX and job orchestration: selected model, endpoint preset/custom
+endpoint, optional Hugging Face token, target root, progress display, cancel,
+retry, delete, and active-model selection. Qt should send these values to Rust
+through explicit model-manager requests instead of implementing Hugging Face
+download logic in C++.
+
+Rust downloads into an application data directory resolved by Qt settings, for
+example:
 
 - Windows: `%LOCALAPPDATA%/AlcedoStudio/models/...`
 - macOS: `~/Library/Application Support/AlcedoStudio/models/...`
@@ -135,9 +152,16 @@ Downloader requirements:
 - resumable `.part` files where practical
 - per-file hash validation before marking the model usable
 - clear "missing", "downloading", "ready", and "corrupt" states in settings
+- request parameters for endpoint and optional Hugging Face token; tokens should
+  not be logged and should not be persisted unless a later credential-store flow
+  is deliberately added
+- model/profile-driven file manifests instead of MobileCLIP-only hardcoded
+  asset paths
 
-Rust should receive the resolved model root from C++ and validate only. For
-developer builds, the current `hf-hub` path may remain behind an opt-in flag.
+The inference runtime should still validate only when loading a model for
+generation or search. Downloading should be a separate model-manager job so a
+missing model can produce a downloader-ready state instead of preventing the
+Rust sidecar from starting.
 
 ## C++ Service Design
 
@@ -664,16 +688,98 @@ Packaging smoke tests should verify:
       - cache repeated query embeddings by normalized query + model key only
         after correctness and invalidation rules are defined
 
-6. Download and packaging
-   - Qt model downloader
-   - source mirror settings
-   - remove the temporary development `model-root` fallback that probes
-     `rust/puerh_mind/models/mobileclip2-s2-openclip`; release builds must pass
-     a downloader/settings-resolved model root explicitly
-   - Rust binary install
-   - ORT dynamic library deployment
-   - DuckDB `vss` extension deployment when ANN search is enabled
-   - packaged smoke test
+6. Model identity, Rust download manager, and packaging
+   - 6a. Model identity and storage compatibility
+     - complete: keep `model_key` as the compatibility boundary for stored
+       semantic rows. In the current implementation the key is derived from
+       `model_id@revision`, so the embedding, label, prototype, skip-check,
+       label-display, ordinary-search, semantic-search, and cleanup paths are
+       already scoped without duplicating `model_id` into every row table.
+     - complete: add an explicit active-model flag to `SemanticModel`; ordinary
+       search and label stats read generated labels only for the active model.
+       If there is no active model, generated labels are unavailable rather than
+       mixed into ordinary search.
+     - complete: extend `SemanticModel` with model/profile metadata needed for
+       multilingual CLIP models, including engine/profile id, supported text
+       languages JSON, and manifest JSON. UI can later let the user choose the
+       language when downloading/selecting a model.
+     - complete: old rows for non-active models stay stored but hidden from
+       label display, ordinary label search, and label statistics until that
+       model is activated again.
+     - complete: keep default label queries simple and reusable, while cached
+       label prototypes remain scoped by `model_key + prompt_config_hash`.
+   - 6b. Embedding dimension policy
+     - keep DuckDB VSS/HNSW as a hard requirement for semantic vector ranking;
+       do not add a C++ full-scan fallback for unsupported model dimensions
+     - support 512-dimensional multilingual CLIP models first, matching the
+       existing `FLOAT[512]` storage and HNSW index path
+     - reject non-512-dimensional models with an actionable error until
+       dimension-specific embedding/prototype tables or a migration strategy
+       are implemented
+     - validate model-reported embedding dimension before generation, label
+       prototype writes, and semantic search
+   - 6c. Rust model-manager RPC surface
+     - start the Rust sidecar even when no inference model is installed, so the
+       app can ask it to validate, download, cancel, or delete models
+     - add explicit model-management RPCs such as `ListInstalledModels`,
+       `ValidateModel`, `StartModelDownload`, `GetModelDownloadStatus`,
+       `CancelModelDownload`, `DeleteModel`, and `LoadModel` or `SelectModel`
+     - include `model_id`, `revision`, profile id, endpoint, optional HF token,
+       target root, force, and resume flags in download requests
+     - keep `hf_token` out of logs and avoid persisting it by default
+     - keep `EmbedTextBatch`, `EmbedImageBatch`, and `GetModelInfo` behind a
+       successfully loaded model, not as download side effects
+   - 6d. Rust download implementation
+     - move the current `hf-hub` download path out of inference-engine startup
+       and into the model manager
+     - replace MobileCLIP-only constants with profile-driven asset manifests for
+       text model, vision model, tokenizer, tokenizer config, preprocessing
+       config, and model config files
+     - download into a staging directory, write `.part` files where practical,
+       validate file size and SHA-256, then atomically promote to the ready
+       model directory
+     - write a local resolved manifest containing `model_id`, revision, profile
+       id, embedding dimension, image size, file list, byte sizes, hashes, and
+       validation time
+     - report `missing`, `downloading`, `ready`, `corrupt`, `canceled`, and
+       `failed` states with user-actionable error text
+   - 6e. Qt settings and runtime wiring
+     - keep download UX in Settings, but call Rust model-manager RPCs for all
+       Hugging Face network and file operations
+     - expose selected model, endpoint preset/custom endpoint, optional HF
+       token, model directory, status, progress, cancel, retry, delete, and
+       active-model selection
+     - pass the active model's resolved root, `model_id`, revision, and device
+       to `SemanticRuntimeService`; release builds should use validate-only
+       inference startup
+     - remove the temporary development `model-root` fallback that probes
+       `rust/puerh_mind/models/mobileclip2-s2-openclip`; release builds must
+       pass a settings/model-manager-resolved model root explicitly
+     - show old semantic data as generated by another model and offer delete or
+       switch actions instead of silently mixing it into active labels/search
+   - 6f. Generation and label compatibility gates
+     - before thumbnail work starts, verify runtime `GetModelInfo.model_id`,
+       revision, image size, and embedding dimension against the active model
+       record
+     - register the active model before generation writes and reject writes when
+       response model identity or vector dimension does not match
+     - make `HasReadyImageEmbedding` and force-regenerate logic check the active
+       `model_id`, not just file/image id
+     - make ordinary text search include generated labels only for the active
+       `model_id`
+     - make semantic data deletion support active-model-only cleanup and
+       old-model cleanup
+   - 6g. Packaging and smoke tests
+     - install the Rust binary next to the app executable or inside the app
+       bundle
+     - deploy ONNX Runtime dynamic libraries needed by the selected execution
+       providers
+     - deploy DuckDB `vss.duckdb_extension` when ANN search is enabled
+     - package small manifests/profiles and default label-query config, but not
+       model weights
+     - smoke-test installed runtime startup without models, model validation
+       failure, model-manager status, successful validate/load with local model
+       assets, `Ping`, and `GetModelInfo`
 
 7. Performance path
    - tune DuckDB VSS/HNSW index parameters for large catalogs
@@ -688,6 +794,10 @@ Rust tests:
 
 - CLI config parsing
 - missing-model validate-only failure
+- model-manager startup without installed model assets
+- model-manager download job status, cancellation, corrupt-file reporting, and
+  endpoint/token request handling with token redaction
+- profile-driven asset manifest validation for MobileCLIP and multilingual CLIP
 - provider parsing for DirectML/Core ML/CPU
 - batch request ordering and per-item errors
 - non-finite embedding rejection
@@ -695,10 +805,18 @@ Rust tests:
 C++ tests:
 
 - semantic table create/update/delete cleanup
+- model identity migration/registration keeps old `model_key` rows isolated
+  behind the active Hugging Face `model_id`
 - project package/checksum includes semantic tables
 - fake runtime text/image embedding paths
 - generation job progress/cancel/error handling
 - thumbnail pin released on success, failure, and cancel
+- generation skip logic ignores embeddings generated by a different `model_id`
+- label display and ordinary label search ignore labels generated by a different
+  `model_id`
+- model mismatch states expose delete/switch actions instead of reading stale
+  embeddings or labels
+- unsupported embedding dimensions fail before storage writes or vector search
 - semantic search ranking within root and folder scopes
 - label-only search without runtime
 - normal search still matches filename, element name, EXIF, camera, lens, date,
@@ -722,6 +840,10 @@ Manual smoke tests:
 
 - download model from default source
 - download model from custom mirror source
+- download model with a provided HF token and verify the token is not logged
+- switch between the default MobileCLIP model and a multilingual CLIP model, then
+  verify old embeddings and labels are hidden until switching back
+- delete semantic data for an old model without deleting active-model rows
 - start/stop runtime repeatedly
 - import images, accept semantic generation, cancel mid-run, retry
 - with semantic search off, search filename, EXIF strings, dates, generated

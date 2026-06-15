@@ -92,8 +92,8 @@ class ElementController {
                                      const sl_element_id_t              folder_id)
       -> std::vector<sl_element_id_t>;
   auto BuildFolderStats(sl_element_id_t                    folder_id,
-                        const std::optional<std::wstring>& extra_filter_where = std::nullopt)
-      -> FolderStatsView;
+                        const std::optional<std::wstring>& extra_filter_where = std::nullopt,
+                        const std::string& active_semantic_model_key = {}) -> FolderStatsView;
 
   /// Return lightweight file metadata for every live File in a folder, queried directly from DB
   /// without materializing full SleeveElement objects.

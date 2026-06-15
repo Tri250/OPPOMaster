@@ -39,13 +39,15 @@ auto OneHot(size_t index) -> std::vector<float> {
   return embedding;
 }
 
-void RegisterSemanticSearchModel(SemanticStorageController& semantic, const std::string& model_key) {
+void RegisterSemanticSearchModel(SemanticStorageController& semantic, const std::string& model_key,
+                                 bool active = true) {
   std::string error;
   ASSERT_TRUE(semantic.UpsertModel(SemanticModelRecord{.model_key_     = model_key,
                                                        .model_id_      = "mobileclip-test",
                                                        .revision_      = "test-rev",
                                                        .embedding_dim_ = kSemanticEmbeddingDim,
-                                                       .image_size_    = 256},
+                                                       .image_size_    = 256,
+                                                       .active_        = active},
                                    &error))
       << error;
 }
@@ -75,9 +77,10 @@ void StoreSemanticLabel(ProjectService& project, const std::string& model_key,
                                   .confident_       = true,
                                   .top_scores_json_ = R"([{"label":"test","score":0.91}])"};
   ASSERT_TRUE(semantic.UpsertImageEmbeddingWithLabel(
-      SemanticImageEmbeddingRecord{
-          .file_id_ = file_id, .image_id_ = image_id, .model_key_ = model_key,
-          .embedding_ = OneHot(embedding_index)},
+      SemanticImageEmbeddingRecord{.file_id_   = file_id,
+                                   .image_id_  = image_id,
+                                   .model_key_ = model_key,
+                                   .embedding_ = OneHot(embedding_index)},
       &record, &error))
       << error;
 }
@@ -427,22 +430,22 @@ TEST_F(FilterServiceTests, FuzzySearchMatchesSeparatorFoldedPhotoTerms) {
   ProjectService project(db_path_, meta_path_);
   const auto     target_id = CreateSyntheticFile(
       project,
-      SyntheticFileSpec{.file_name_    = L"DSC_01523-X-T5.RAF",
-                        .image_path_   = std::filesystem::path{L"D:/archive/fuji/DSC_01523-X-T5.RAF"},
-                        .make_         = "FUJIFILM",
-                        .camera_model_ = "FUJIFILM X-T5",
-                        .lens_         = "XF 23mm F/1.4 R LM WR",
-                        .lens_make_    = "FUJIFILM",
-                        .date_time_    = "2026-05-29 11:22:33",
-                        .rating_       = 5,
-                        .iso_          = 125,
-                        .aperture_     = 1.4f,
-                        .focal_        = 23.0f});
-  const auto     decoy_id = CreateSyntheticFile(
+      SyntheticFileSpec{.file_name_ = L"DSC_01523-X-T5.RAF",
+                            .image_path_ = std::filesystem::path{L"D:/archive/fuji/DSC_01523-X-T5.RAF"},
+                            .make_         = "FUJIFILM",
+                            .camera_model_ = "FUJIFILM X-T5",
+                            .lens_         = "XF 23mm F/1.4 R LM WR",
+                            .lens_make_    = "FUJIFILM",
+                            .date_time_    = "2026-05-29 11:22:33",
+                            .rating_       = 5,
+                            .iso_          = 125,
+                            .aperture_     = 1.4f,
+                            .focal_        = 23.0f});
+  const auto decoy_id = CreateSyntheticFile(
       project,
-      SyntheticFileSpec{.file_name_    = L"DSC_01524-X-T5.RAF",
-                        .image_path_   = std::filesystem::path{L"D:/archive/fuji/DSC_01524-X-T5.RAF"},
-                        .make_         = "FUJIFILM",
+      SyntheticFileSpec{.file_name_  = L"DSC_01524-X-T5.RAF",
+                        .image_path_ = std::filesystem::path{L"D:/archive/fuji/DSC_01524-X-T5.RAF"},
+                        .make_       = "FUJIFILM",
                         .camera_model_ = "FUJIFILM X-T5",
                         .lens_         = "XF 35mm F/2 R WR",
                         .lens_make_    = "FUJIFILM",
@@ -488,9 +491,9 @@ TEST_F(FilterServiceTests, FuzzySearchMatchesGeneratedSemanticLabelsAsOrdinaryTe
   ProjectService project(db_path_, meta_path_);
   const auto     landscape_id = CreateSyntheticFile(
       project, SyntheticFileSpec{.file_name_    = L"semantic_alpha.dng",
-                                 .image_path_   = std::filesystem::path{L"D:/photos/a.dng"},
-                                 .camera_model_ = "Neutral Body",
-                                 .lens_         = "Plain Lens"});
+                                     .image_path_   = std::filesystem::path{L"D:/photos/a.dng"},
+                                     .camera_model_ = "Neutral Body",
+                                     .lens_         = "Plain Lens"});
   const auto portrait_id = CreateSyntheticFile(
       project, SyntheticFileSpec{.file_name_    = L"semantic_beta.dng",
                                  .image_path_   = std::filesystem::path{L"D:/photos/b.dng"},
@@ -508,10 +511,12 @@ TEST_F(FilterServiceTests, FuzzySearchMatchesGeneratedSemanticLabelsAsOrdinaryTe
 
   SleeveFilterService filter_service(project.GetStorageService());
 
-  const auto landscape_rows = filter_service.SearchFolder(0, L"landscape", 0, 10);
+  const auto          landscape_rows = filter_service.SearchFolder(0, L"landscape", 0, 10);
   ASSERT_EQ(landscape_rows.size(), 1u);
   EXPECT_EQ(landscape_rows.front().file_id_, landscape_id);
   EXPECT_EQ(filter_service.CountSearchResults(0, L"landscape"), 1u);
+  EXPECT_TRUE(filter_service.SearchFolder(0, L"portrait", 0, 10).empty());
+  EXPECT_EQ(filter_service.CountSearchResults(0, L"portrait"), 0u);
 
   const auto combined_rows = filter_service.SearchFolder(0, L"landscape Neutral", 0, 10);
   ASSERT_EQ(combined_rows.size(), 1u);
@@ -529,12 +534,29 @@ TEST_F(FilterServiceTests, FuzzySearchMatchesGeneratedSemanticLabelsAsOrdinaryTe
   EXPECT_EQ(album_landscape.front().file_id_, landscape_id);
   EXPECT_TRUE(filter_service.SearchFolder(album.first->element_id_, L"portrait", 0, 10).empty());
 
-  const auto stats = filter_service.BuildFolderStats(0);
-  const auto has_label_bucket =
-      std::find_if(stats.label_stats_.begin(), stats.label_stats_.end(), [](const StatsBucket& row) {
-        return row.label_ == "landscape" && row.count_ == 1;
-      });
+  const auto stats            = filter_service.BuildFolderStats(0);
+  const auto has_label_bucket = std::find_if(
+      stats.label_stats_.begin(), stats.label_stats_.end(),
+      [](const StatsBucket& row) { return row.label_ == "landscape" && row.count_ == 1; });
   EXPECT_NE(has_label_bucket, stats.label_stats_.end());
+}
+
+TEST_F(FilterServiceTests, FuzzySearchIgnoresSemanticLabelsWhenNoModelIsActive) {
+  ProjectService project(db_path_, meta_path_);
+  const auto     landscape_id =
+      CreateSyntheticFile(project, SyntheticFileSpec{.file_name_ = L"inactive_semantic_alpha.dng",
+                                                     .camera_model_ = "Neutral Camera"});
+  ASSERT_NE(landscape_id, 0u);
+
+  auto& semantic = project.GetStorageService()->GetSemanticStorageController();
+  RegisterSemanticSearchModel(semantic, "inactive-mobileclip-test", false);
+  StoreSemanticLabel(project, "inactive-mobileclip-test", landscape_id, "landscape", 4);
+  ASSERT_TRUE(semantic.ActiveModelKey().empty());
+
+  SleeveFilterService filter_service(project.GetStorageService());
+  EXPECT_TRUE(filter_service.SearchFolder(0, L"landscape", 0, 10).empty());
+  EXPECT_EQ(filter_service.CountSearchResults(0, L"landscape"), 0u);
+  EXPECT_TRUE(filter_service.BuildFolderStats(0).label_stats_.empty());
 }
 
 TEST_F(FilterServiceTests, FuzzySearchEscapesSqlLikeWildcardsAndQuotesInWideInput) {

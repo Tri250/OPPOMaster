@@ -227,6 +227,46 @@ TEST_F(SemanticStorageControllerTest, NewProjectSeedsDefaultLabelQueries) {
             queries.end());
 }
 
+TEST_F(SemanticStorageControllerTest, ActiveModelKeyAndLanguageMetadataAreStoredPerModel) {
+  ProjectService project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
+  auto&          semantic = project.GetStorageService()->GetSemanticStorageController();
+
+  std::string    error;
+  ASSERT_TRUE(
+      semantic.UpsertModel(SemanticModelRecord{.model_key_     = "mobileclip-en",
+                                               .model_id_      = "mobileclip-test",
+                                               .revision_      = "en-rev",
+                                               .embedding_dim_ = kSemanticEmbeddingDim,
+                                               .image_size_    = 256,
+                                               .engine_id_     = "onnxruntime",
+                                               .profile_id_    = "mobileclip-s2",
+                                               .supported_text_languages_json_ = R"(["en"])",
+                                               .active_                        = true},
+                           &error))
+      << error;
+  EXPECT_EQ(semantic.ActiveModelKey(), "mobileclip-en");
+  EXPECT_EQ(semantic.GetModelSupportedTextLanguagesJson("mobileclip-en"), R"(["en"])");
+
+  ASSERT_TRUE(
+      semantic.UpsertModel(SemanticModelRecord{.model_key_     = "multilingual-clip",
+                                               .model_id_      = "multilingual-clip-test",
+                                               .revision_      = "multi-rev",
+                                               .embedding_dim_ = kSemanticEmbeddingDim,
+                                               .image_size_    = 256,
+                                               .engine_id_     = "onnxruntime",
+                                               .profile_id_    = "clip-multilingual",
+                                               .supported_text_languages_json_ = R"(["en","zh"])",
+                                               .active_                        = true},
+                           &error))
+      << error;
+  EXPECT_EQ(semantic.ActiveModelKey(), "multilingual-clip");
+  EXPECT_EQ(semantic.GetModelSupportedTextLanguagesJson("multilingual-clip"), R"(["en","zh"])");
+
+  ASSERT_TRUE(semantic.SetActiveModelKey("mobileclip-en", &error)) << error;
+  EXPECT_EQ(semantic.ActiveModelKey(), "mobileclip-en");
+  EXPECT_FALSE(semantic.SetActiveModelKey("missing-model", &error));
+}
+
 TEST_F(SemanticStorageControllerTest, PersistsEmbeddingAndLabelTransactionally) {
   ProjectService project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
   auto&          semantic = project.GetStorageService()->GetSemanticStorageController();

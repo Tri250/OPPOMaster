@@ -11,6 +11,8 @@
 #include <memory>
 #include <sstream>
 
+#include "utils/string/convert.hpp"
+
 namespace alcedo {
 namespace {
 auto FilterScopeCacheKey(filter_id_t filter_id, sl_element_id_t parent_id) -> std::uint64_t {
@@ -54,6 +56,10 @@ auto SqlStringEscape(const std::wstring& value) -> std::wstring {
     }
   }
   return out;
+}
+
+auto SqlStringLiteral(const std::string& value) -> std::wstring {
+  return L"'" + SqlStringEscape(conv::FromBytes(value)) + L"'";
 }
 
 auto LikeClause(const std::wstring& expr, const std::wstring& token) -> std::wstring {
@@ -113,10 +119,9 @@ auto StripSearchSeparators(std::wstring value) -> std::wstring {
 
 auto FoldSqlSearchSeparators(std::wstring expr) -> std::wstring {
   static constexpr std::wstring_view kSeparators[] = {
-      L" ", L"\t", L"\n", L"\r", L"_", L"-", L".", L"/", L"\\", L":",
-      L";", L",",  L"'",  L"\"", L"(", L")", L"[", L"]", L"{", L"}",
-      L"%", L"*",  L"?",  L"!",  L"@", L"#", L"$", L"&", L"+", L"=",
-      L"|", L"`",  L"~",
+      L" ", L"\t", L"\n", L"\r", L"_", L"-", L".", L"/", L"\\", L":", L";",
+      L",", L"'",  L"\"", L"(",  L")", L"[", L"]", L"{", L"}",  L"%", L"*",
+      L"?", L"!",  L"@",  L"#",  L"$", L"&", L"+", L"=", L"|",  L"`", L"~",
   };
 
   std::wstring folded = std::format(L"LOWER(COALESCE({}, ''))", expr);
@@ -127,7 +132,16 @@ auto FoldSqlSearchSeparators(std::wstring expr) -> std::wstring {
   return folded;
 }
 
-auto SearchDocumentExpr() -> std::wstring {
+auto SemanticLabelExpr(const std::string& active_model_key) -> std::wstring {
+  if (active_model_key.empty()) {
+    return L"''";
+  }
+  return L"(SELECT string_agg(sl.label, ' ') FROM SemanticImageLabel sl WHERE sl.file_id = e.id "
+         L"AND sl.model_key = " +
+         SqlStringLiteral(active_model_key) + L")";
+}
+
+auto SearchDocumentExpr(const std::string& active_model_key) -> std::wstring {
   return L"CONCAT_WS(' ', "
          L"COALESCE(e.element_name, ''), "
          L"COALESCE(i.file_name, ''), "
@@ -137,16 +151,14 @@ auto SearchDocumentExpr() -> std::wstring {
          L"COALESCE(json_extract_string(i.metadata, '$.Lens'), ''), "
          L"COALESCE(json_extract_string(i.metadata, '$.LensMake'), ''), "
          L"COALESCE(json_extract_string(i.metadata, '$.DateTimeString'), ''), "
-         L"COALESCE((SELECT string_agg(sl.label, ' ') "
-         L"FROM SemanticImageLabel sl WHERE sl.file_id = e.id), ''), "
+         L"COALESCE(" +
+         SemanticLabelExpr(active_model_key) +
+         L", ''), "
          L"COALESCE(CAST(i.metadata AS VARCHAR), ''))";
 }
 
-auto SemanticLabelExpr() -> std::wstring {
-  return L"(SELECT string_agg(sl.label, ' ') FROM SemanticImageLabel sl WHERE sl.file_id = e.id)";
-}
-
-auto FoldedDocumentClause(const std::wstring& token) -> std::optional<std::wstring> {
+auto FoldedDocumentClause(const std::wstring& token, const std::string& active_model_key)
+    -> std::optional<std::wstring> {
   if (token.find(L'%') != std::wstring::npos || token.find(L'*') != std::wstring::npos ||
       token.find(L'?') != std::wstring::npos || token.find(L'\'') != std::wstring::npos ||
       token.find(L'"') != std::wstring::npos) {
@@ -158,7 +170,7 @@ auto FoldedDocumentClause(const std::wstring& token) -> std::optional<std::wstri
     return std::nullopt;
   }
 
-  const auto folded_doc = FoldSqlSearchSeparators(SearchDocumentExpr());
+  const auto folded_doc = FoldSqlSearchSeparators(SearchDocumentExpr(active_model_key));
   const auto pattern    = std::format(L"'%{}%'", SqlLikeEscape(folded_token));
   return std::format(L"({} LIKE {} ESCAPE '~')", folded_doc, pattern);
 }
@@ -308,7 +320,8 @@ auto JoinWith(const std::vector<std::wstring>& parts, const std::wstring& sep) -
   return out;
 }
 
-auto TokenSearchClause(const std::wstring& token) -> std::wstring {
+auto TokenSearchClause(const std::wstring& token, const std::string& active_model_key)
+    -> std::wstring {
   std::vector<std::wstring> clauses{
       LikeClause(L"e.element_name", token),
       LikeClause(L"i.file_name", token),
@@ -317,26 +330,31 @@ auto TokenSearchClause(const std::wstring& token) -> std::wstring {
       LikeClause(L"json_extract_string(i.metadata, '$.Model')", token),
       LikeClause(L"json_extract_string(i.metadata, '$.Lens')", token),
       LikeClause(L"json_extract_string(i.metadata, '$.LensMake')", token),
-      LikeClause(SemanticLabelExpr(), token),
       LikeClause(L"CAST(i.metadata AS VARCHAR)", token),
       LikeClause(L"CAST(json_extract(i.metadata, '$.ISO') AS VARCHAR)", token),
       LikeClause(L"CAST(json_extract(i.metadata, '$.FocalLength') AS VARCHAR)", token),
       LikeClause(L"CAST(json_extract(i.metadata, '$.Aperture') AS VARCHAR)", token),
   };
+  if (!active_model_key.empty()) {
+    clauses.push_back(LikeClause(SemanticLabelExpr(active_model_key), token));
+  }
 
   auto date_clauses = DateMatchClauses(token);
   clauses.insert(clauses.end(), date_clauses.begin(), date_clauses.end());
 
-  if (auto folded_clause = FoldedDocumentClause(token); folded_clause.has_value()) {
+  if (auto folded_clause = FoldedDocumentClause(token, active_model_key);
+      folded_clause.has_value()) {
     clauses.push_back(*folded_clause);
   }
 
   return L"(" + JoinWith(clauses, L" OR ") + L")";
 }
 
-auto SearchDocumentClause(const std::wstring& query) -> std::wstring {
-  std::vector<std::wstring> clauses{LikeClause(SearchDocumentExpr(), query)};
-  if (auto folded_clause = FoldedDocumentClause(query); folded_clause.has_value()) {
+auto SearchDocumentClause(const std::wstring& query, const std::string& active_model_key)
+    -> std::wstring {
+  std::vector<std::wstring> clauses{LikeClause(SearchDocumentExpr(active_model_key), query)};
+  if (auto folded_clause = FoldedDocumentClause(query, active_model_key);
+      folded_clause.has_value()) {
     clauses.push_back(*folded_clause);
   }
   return L"(" + JoinWith(clauses, L" OR ") + L")";
@@ -402,8 +420,9 @@ auto SleeveFilterService::BuildFolderStats(sl_element_id_t                  pare
     }
   }
 
-  const auto storage_stats =
-      storage_service_->GetElementController().BuildFolderStats(parent_id, extra_where);
+  const auto active_model_key = storage_service_->GetSemanticStorageController().ActiveModelKey();
+  const auto storage_stats    = storage_service_->GetElementController().BuildFolderStats(
+      parent_id, extra_where, active_model_key);
 
   AlbumStatsView out;
   out.total_photo_count_ = storage_stats.total_photo_count_;
@@ -448,15 +467,19 @@ auto SleeveFilterService::BuildFuzzySearchWhere(const std::wstring& query) const
     return std::nullopt;
   }
 
+  const auto active_model_key =
+      storage_service_ ? storage_service_->GetSemanticStorageController().ActiveModelKey()
+                       : std::string{};
+
   std::vector<std::wstring> token_clauses;
   token_clauses.reserve(tokens.size());
   for (const auto& token : tokens) {
-    token_clauses.push_back(TokenSearchClause(token));
+    token_clauses.push_back(TokenSearchClause(token, active_model_key));
   }
 
   std::wstring where = L"(" + JoinWith(token_clauses, L" AND ") + L")";
   if (tokens.size() > 1) {
-    where = L"(" + where + L" OR " + SearchDocumentClause(trimmed) + L")";
+    where = L"(" + where + L" OR " + SearchDocumentClause(trimmed, active_model_key) + L")";
   }
   return where;
 }

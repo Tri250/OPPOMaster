@@ -23,8 +23,12 @@ struct SemanticModelRecord {
   std::string revision_{};
   int         embedding_dim_ = kSemanticEmbeddingDim;
   int         image_size_    = 256;
+  std::string engine_id_{};
+  std::string profile_id_{};
+  std::string supported_text_languages_json_{};
   std::string prompt_config_hash_{};
   std::string asset_manifest_json_{};
+  bool        active_ = true;
 };
 
 struct SemanticImageEmbeddingRecord {
@@ -85,6 +89,11 @@ class SemanticStorageController {
                                  std::string*               error = nullptr) const -> bool;
   [[nodiscard]] auto HasModel(const std::string& model_key) const -> bool;
   [[nodiscard]] auto GetModelEmbeddingDim(const std::string& model_key) const -> std::optional<int>;
+  [[nodiscard]] auto GetModelSupportedTextLanguagesJson(const std::string& model_key) const
+      -> std::string;
+  [[nodiscard]] auto ActiveModelKey() const -> std::string;
+  [[nodiscard]] auto SetActiveModelKey(const std::string& model_key,
+                                       std::string*       error = nullptr) const -> bool;
   [[nodiscard]] auto LatestModelKey() const -> std::string;
 
   [[nodiscard]] auto UpsertImageEmbedding(const SemanticImageEmbeddingRecord& record,

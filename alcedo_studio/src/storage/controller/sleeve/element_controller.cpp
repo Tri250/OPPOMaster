@@ -90,6 +90,20 @@ auto RunScalarInt64(duckdb_connection conn, const std::string& sql) -> int64_t {
   return value;
 }
 
+auto SqlString(const std::string& value) -> std::string {
+  std::string out;
+  out.reserve(value.size() + 2);
+  out.push_back('\'');
+  for (const char ch : value) {
+    if (ch == '\'') {
+      out.push_back('\'');
+    }
+    out.push_back(ch);
+  }
+  out.push_back('\'');
+  return out;
+}
+
 auto JoinIds(std::span<const sl_element_id_t> ids) -> std::string {
   std::string out;
   for (size_t i = 0; i < ids.size(); ++i) {
@@ -313,7 +327,8 @@ auto ElementController::GetElementIdsInFolderByFilter(const std::shared_ptr<Filt
 }
 
 auto ElementController::BuildFolderStats(sl_element_id_t                    folder_id,
-                                         const std::optional<std::wstring>& extra_filter_where)
+                                         const std::optional<std::wstring>& extra_filter_where,
+                                         const std::string& active_semantic_model_key)
     -> FolderStatsView {
   FolderStatsView out;
 
@@ -347,15 +362,17 @@ auto ElementController::BuildFolderStats(sl_element_id_t                    fold
           "GROUP BY l ORDER BY c DESC",
           base_join));
 
-  out.label_stats_ = RunGroupByQuery(
-      guard_.conn_,
-      std::format("WITH scoped AS (SELECT e.id AS file_id {}) "
-                  "SELECT sl.label AS l, COUNT(DISTINCT scoped.file_id) AS c "
-                  "FROM scoped "
-                  "JOIN SemanticImageLabel sl ON sl.file_id = scoped.file_id "
-                  "WHERE sl.label IS NOT NULL AND sl.label <> '' "
-                  "GROUP BY sl.label ORDER BY c DESC, sl.label",
-                  base_join));
+  if (!active_semantic_model_key.empty()) {
+    out.label_stats_ = RunGroupByQuery(
+        guard_.conn_,
+        std::format("WITH scoped AS (SELECT e.id AS file_id {}) "
+                    "SELECT sl.label AS l, COUNT(DISTINCT scoped.file_id) AS c "
+                    "FROM scoped "
+                    "JOIN SemanticImageLabel sl ON sl.file_id = scoped.file_id "
+                    "WHERE sl.model_key = {} AND sl.label IS NOT NULL AND sl.label <> '' "
+                    "GROUP BY sl.label ORDER BY c DESC, sl.label",
+                    base_join, SqlString(active_semantic_model_key)));
+  }
 
   out.rating_stats_ = RunGroupByQuery(
       guard_.conn_,

@@ -87,6 +87,12 @@ void DBController::InitializeDB() {
       throw std::runtime_error(error_message);
     }
     duckdb_destroy_result(&result);
+    if (duckdb_query(guard.conn_, semantic_migration_query, &result) != DuckDBSuccess) {
+      auto error_message = duckdb_result_error(&result);
+      duckdb_destroy_result(&result);
+      throw std::runtime_error(error_message);
+    }
+    duckdb_destroy_result(&result);
     SeedSemanticLabelQueries(guard.conn_);
     return;
   }
@@ -100,6 +106,12 @@ void DBController::InitializeDB() {
   duckdb_destroy_result(&result);
 
   if (duckdb_query(guard.conn_, semantic_table_query, &result) != DuckDBSuccess) {
+    auto error_message = duckdb_result_error(&result);
+    duckdb_destroy_result(&result);
+    throw std::runtime_error(error_message);
+  }
+  duckdb_destroy_result(&result);
+  if (duckdb_query(guard.conn_, semantic_migration_query, &result) != DuckDBSuccess) {
     auto error_message = duckdb_result_error(&result);
     duckdb_destroy_result(&result);
     throw std::runtime_error(error_message);

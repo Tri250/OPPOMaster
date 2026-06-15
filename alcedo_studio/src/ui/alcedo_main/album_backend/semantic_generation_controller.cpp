@@ -232,7 +232,7 @@ auto SemanticGenerationController::StoredModelKey() const -> std::string {
   if (!project) {
     return {};
   }
-  return project->GetStorageService()->GetSemanticStorageController().LatestModelKey();
+  return project->GetStorageService()->GetSemanticStorageController().ActiveModelKey();
 }
 
 auto SemanticGenerationController::ActiveModelKey() const -> std::string {
@@ -408,7 +408,11 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
               .revision_      = runtime_status.model_info->revision,
               .embedding_dim_ = static_cast<int>(runtime_status.model_info->embedding_dimension),
               .image_size_    = static_cast<int>(runtime_status.model_info->image_size),
-              .prompt_config_hash_ = kDefaultSemanticPhotographyPromptConfigHash},
+              .engine_id_     = runtime_status.model_info->provider,
+              .profile_id_    = runtime_status.model_info->model_id,
+              .supported_text_languages_json_ = R"(["en"])",
+              .prompt_config_hash_            = kDefaultSemanticPhotographyPromptConfigHash,
+              .active_                        = true},
           &error)) {
     running_ = false;
     pending_items_.clear();

@@ -52,8 +52,12 @@ class DBController {
       "revision VARCHAR NOT NULL,"
       "embedding_dim INTEGER NOT NULL,"
       "image_size INTEGER NOT NULL,"
+      "engine_id VARCHAR,"
+      "profile_id VARCHAR,"
+      "supported_text_languages_json JSON,"
       "prompt_config_hash VARCHAR,"
       "asset_manifest_json JSON,"
+      "active BOOLEAN NOT NULL DEFAULT FALSE,"
       "created_at TIMESTAMP DEFAULT current_timestamp);"
       "CREATE TABLE IF NOT EXISTS SemanticImageEmbedding ("
       "file_id BIGINT NOT NULL,"
@@ -94,6 +98,12 @@ class DBController {
       "prompt_config_hash VARCHAR NOT NULL,"
       "embedding FLOAT[512] NOT NULL,"
       "PRIMARY KEY(model_key, label, prompt_config_hash));";
+
+  constexpr static const char* semantic_migration_query =
+      "ALTER TABLE SemanticModel ADD COLUMN IF NOT EXISTS engine_id VARCHAR;"
+      "ALTER TABLE SemanticModel ADD COLUMN IF NOT EXISTS profile_id VARCHAR;"
+      "ALTER TABLE SemanticModel ADD COLUMN IF NOT EXISTS supported_text_languages_json JSON;"
+      "ALTER TABLE SemanticModel ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT FALSE;";
 
   void SeedSemanticLabelQueries(duckdb_connection conn);
 
