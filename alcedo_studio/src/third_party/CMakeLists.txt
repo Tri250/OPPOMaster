@@ -256,111 +256,177 @@ set(PUERHLAB_GRPC_SOURCE_DIR
     CACHE PATH
     "Path to the gRPC submodule checkout.")
 
-if(NOT EXISTS "${PUERHLAB_PROTOBUF_SOURCE_DIR}/CMakeLists.txt")
-    message(FATAL_ERROR
-        "protobuf source was not found at ${PUERHLAB_PROTOBUF_SOURCE_DIR}. "
-        "Run `git submodule update --init --recursive alcedo_studio/src/third_party/protobuf` "
-        "and re-configure.")
+set(PUERHLAB_USE_SYSTEM_GRPC_PROTOBUF_DEFAULT OFF)
+if(APPLE AND (NOT EXISTS "${PUERHLAB_PROTOBUF_SOURCE_DIR}/CMakeLists.txt" OR
+             NOT EXISTS "${PUERHLAB_GRPC_SOURCE_DIR}/CMakeLists.txt"))
+    set(PUERHLAB_USE_SYSTEM_GRPC_PROTOBUF_DEFAULT ON)
 endif()
+option(PUERHLAB_USE_SYSTEM_GRPC_PROTOBUF
+    "Use system-installed gRPC/protobuf packages instead of the bundled source checkouts."
+    "${PUERHLAB_USE_SYSTEM_GRPC_PROTOBUF_DEFAULT}")
 
-if(NOT EXISTS "${PUERHLAB_GRPC_SOURCE_DIR}/CMakeLists.txt")
-    message(FATAL_ERROR
-        "gRPC source was not found at ${PUERHLAB_GRPC_SOURCE_DIR}. "
-        "Run `git submodule update --init --recursive alcedo_studio/src/third_party/grpc` "
-        "and re-configure.")
-endif()
+if(PUERHLAB_USE_SYSTEM_GRPC_PROTOBUF)
+    find_package(Protobuf CONFIG REQUIRED)
+    find_package(gRPC CONFIG REQUIRED)
 
-set(_puerhlab_grpc_required_paths
-    "third_party/abseil-cpp/CMakeLists.txt"
-    "third_party/boringssl-with-bazel/CMakeLists.txt"
-    "third_party/cares/cares/CMakeLists.txt"
-    "third_party/re2/CMakeLists.txt"
-    "third_party/zlib/CMakeLists.txt"
-)
-foreach(_puerhlab_grpc_required_path IN LISTS _puerhlab_grpc_required_paths)
-    if(NOT EXISTS "${PUERHLAB_GRPC_SOURCE_DIR}/${_puerhlab_grpc_required_path}")
+    if(TARGET gRPC::grpc++)
+        set(_puerhlab_grpcpp_target gRPC::grpc++)
+    elseif(TARGET grpc++)
+        set(_puerhlab_grpcpp_target grpc++)
+    else()
         message(FATAL_ERROR
-            "gRPC submodule dependency is missing: "
-            "${PUERHLAB_GRPC_SOURCE_DIR}/${_puerhlab_grpc_required_path}. "
-            "Run `git submodule update --init --recursive alcedo_studio/src/third_party/grpc` "
-            "and re-configure.")
+            "System gRPC was found, but no grpc++ target was exported. "
+            "Install gRPC with CMake package support, for example `brew install grpc`.")
     endif()
-endforeach()
 
-set(protobuf_BUILD_TESTS OFF CACHE BOOL "Disable protobuf tests" FORCE)
-set(protobuf_BUILD_CONFORMANCE OFF CACHE BOOL "Disable protobuf conformance tests" FORCE)
-set(protobuf_BUILD_EXAMPLES OFF CACHE BOOL "Disable protobuf examples" FORCE)
-set(protobuf_INSTALL OFF CACHE BOOL "Disable protobuf install rules" FORCE)
-set(protobuf_WITH_ZLIB OFF CACHE BOOL "Build protobuf without zlib" FORCE)
-set(protobuf_MSVC_STATIC_RUNTIME OFF CACHE BOOL "Use the project MSVC runtime for protobuf" FORCE)
+    if(TARGET protobuf::libprotobuf)
+        set(_puerhlab_protobuf_target protobuf::libprotobuf)
+    elseif(TARGET libprotobuf)
+        set(_puerhlab_protobuf_target libprotobuf)
+    else()
+        message(FATAL_ERROR
+            "System protobuf was found, but no libprotobuf target was exported. "
+            "Install protobuf with CMake package support, for example `brew install protobuf`.")
+    endif()
 
-set(gRPC_BUILD_TESTS OFF CACHE BOOL "Disable gRPC tests" FORCE)
-set(gRPC_BUILD_CODEGEN ON CACHE BOOL "Build gRPC code generation tools" FORCE)
-set(gRPC_DOWNLOAD_ARCHIVES OFF CACHE BOOL "Do not download missing gRPC third-party archives" FORCE)
-set(gRPC_INSTALL OFF CACHE BOOL "Disable gRPC install rules" FORCE)
-set(gRPC_PROTOBUF_PROVIDER "module" CACHE STRING "Use bundled protobuf for gRPC" FORCE)
-set(PROTOBUF_ROOT_DIR "${PUERHLAB_PROTOBUF_SOURCE_DIR}" CACHE PATH
-    "Use the sibling protobuf submodule for the bundled gRPC build." FORCE)
-set(gRPC_ABSL_PROVIDER "module" CACHE STRING "Use bundled Abseil for gRPC" FORCE)
-set(gRPC_CARES_PROVIDER "module" CACHE STRING "Use bundled c-ares for gRPC" FORCE)
-set(gRPC_RE2_PROVIDER "module" CACHE STRING "Use bundled RE2 for gRPC" FORCE)
-set(gRPC_SSL_PROVIDER "module" CACHE STRING "Use bundled BoringSSL for gRPC" FORCE)
-set(gRPC_ZLIB_PROVIDER "module" CACHE STRING "Use bundled zlib for gRPC" FORCE)
-set(gRPC_BUILD_GRPCPP_OTEL_PLUGIN OFF CACHE BOOL "Disable gRPC OpenTelemetry plugin" FORCE)
-if(MSVC)
-    set(gRPC_BUILD_MSVC_MP_COUNT 0 CACHE STRING "Inherit project-level parallelism" FORCE)
-endif()
+    if(TARGET protobuf::protoc)
+        get_target_property(_puerhlab_protoc_executable protobuf::protoc IMPORTED_LOCATION_RELEASE)
+        if(NOT _puerhlab_protoc_executable)
+            get_target_property(_puerhlab_protoc_executable protobuf::protoc IMPORTED_LOCATION)
+        endif()
+    endif()
+    if(NOT _puerhlab_protoc_executable)
+        find_program(_puerhlab_protoc_executable NAMES protoc REQUIRED)
+    endif()
 
-if(MSVC)
-    set(_puerhlab_saved_c_flags_release "${CMAKE_C_FLAGS_RELEASE}")
-    set(_puerhlab_saved_cxx_flags_release "${CMAKE_CXX_FLAGS_RELEASE}")
-    string(REPLACE "/GL" "" CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE}")
-    string(REPLACE "/GL" "" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
-endif()
+    if(TARGET gRPC::grpc_cpp_plugin)
+        get_target_property(_puerhlab_grpc_cpp_plugin_executable
+            gRPC::grpc_cpp_plugin IMPORTED_LOCATION_RELEASE)
+        if(NOT _puerhlab_grpc_cpp_plugin_executable)
+            get_target_property(_puerhlab_grpc_cpp_plugin_executable
+                gRPC::grpc_cpp_plugin IMPORTED_LOCATION)
+        endif()
+    endif()
+    if(NOT _puerhlab_grpc_cpp_plugin_executable)
+        find_program(_puerhlab_grpc_cpp_plugin_executable NAMES grpc_cpp_plugin REQUIRED)
+    endif()
+else()
+    if(NOT EXISTS "${PUERHLAB_PROTOBUF_SOURCE_DIR}/CMakeLists.txt")
+        message(FATAL_ERROR
+            "protobuf source was not found at ${PUERHLAB_PROTOBUF_SOURCE_DIR}. "
+            "Run `git submodule update --init --recursive alcedo_studio/src/third_party/protobuf` "
+            "and re-configure, or set PUERHLAB_USE_SYSTEM_GRPC_PROTOBUF=ON.")
+    endif()
 
-add_subdirectory(
-    "${PUERHLAB_GRPC_SOURCE_DIR}"
-    "${CMAKE_BINARY_DIR}/third_party/grpc"
-)
+    if(NOT EXISTS "${PUERHLAB_GRPC_SOURCE_DIR}/CMakeLists.txt")
+        message(FATAL_ERROR
+            "gRPC source was not found at ${PUERHLAB_GRPC_SOURCE_DIR}. "
+            "Run `git submodule update --init --recursive alcedo_studio/src/third_party/grpc` "
+            "and re-configure, or set PUERHLAB_USE_SYSTEM_GRPC_PROTOBUF=ON.")
+    endif()
 
-if(MSVC)
-    set(CMAKE_C_FLAGS_RELEASE "${_puerhlab_saved_c_flags_release}")
-    set(CMAKE_CXX_FLAGS_RELEASE "${_puerhlab_saved_cxx_flags_release}")
-    unset(_puerhlab_saved_c_flags_release)
-    unset(_puerhlab_saved_cxx_flags_release)
-endif()
-
-if(MSVC)
-    foreach(_puerhlab_grpc_warning_target
-            grpc
-            grpc++
-            grpc_unsecure
-            grpc++_unsecure
-            libprotobuf
-            libprotoc
-            protoc
-            grpc_cpp_plugin)
-        if(TARGET ${_puerhlab_grpc_warning_target})
-            target_compile_options(${_puerhlab_grpc_warning_target} PRIVATE /wd4789)
+    set(_puerhlab_grpc_required_paths
+        "third_party/abseil-cpp/CMakeLists.txt"
+        "third_party/boringssl-with-bazel/CMakeLists.txt"
+        "third_party/cares/cares/CMakeLists.txt"
+        "third_party/re2/CMakeLists.txt"
+        "third_party/zlib/CMakeLists.txt"
+    )
+    foreach(_puerhlab_grpc_required_path IN LISTS _puerhlab_grpc_required_paths)
+        if(NOT EXISTS "${PUERHLAB_GRPC_SOURCE_DIR}/${_puerhlab_grpc_required_path}")
+            message(FATAL_ERROR
+                "gRPC submodule dependency is missing: "
+                "${PUERHLAB_GRPC_SOURCE_DIR}/${_puerhlab_grpc_required_path}. "
+                "Run `git submodule update --init --recursive alcedo_studio/src/third_party/grpc` "
+                "and re-configure.")
         endif()
     endforeach()
-    unset(_puerhlab_grpc_warning_target)
-endif()
 
-if(NOT TARGET grpc++)
-    message(FATAL_ERROR "Bundled gRPC was configured, but target grpc++ is unavailable.")
-endif()
-if(NOT TARGET protobuf::libprotobuf)
-    message(FATAL_ERROR "Bundled protobuf was configured, but target protobuf::libprotobuf is unavailable.")
+    set(protobuf_BUILD_TESTS OFF CACHE BOOL "Disable protobuf tests" FORCE)
+    set(protobuf_BUILD_CONFORMANCE OFF CACHE BOOL "Disable protobuf conformance tests" FORCE)
+    set(protobuf_BUILD_EXAMPLES OFF CACHE BOOL "Disable protobuf examples" FORCE)
+    set(protobuf_INSTALL OFF CACHE BOOL "Disable protobuf install rules" FORCE)
+    set(protobuf_WITH_ZLIB OFF CACHE BOOL "Build protobuf without zlib" FORCE)
+    set(protobuf_MSVC_STATIC_RUNTIME OFF CACHE BOOL "Use the project MSVC runtime for protobuf" FORCE)
+
+    set(gRPC_BUILD_TESTS OFF CACHE BOOL "Disable gRPC tests" FORCE)
+    set(gRPC_BUILD_CODEGEN ON CACHE BOOL "Build gRPC code generation tools" FORCE)
+    set(gRPC_DOWNLOAD_ARCHIVES OFF CACHE BOOL "Do not download missing gRPC third-party archives" FORCE)
+    set(gRPC_INSTALL OFF CACHE BOOL "Disable gRPC install rules" FORCE)
+    set(gRPC_PROTOBUF_PROVIDER "module" CACHE STRING "Use bundled protobuf for gRPC" FORCE)
+    set(PROTOBUF_ROOT_DIR "${PUERHLAB_PROTOBUF_SOURCE_DIR}" CACHE PATH
+        "Use the sibling protobuf submodule for the bundled gRPC build." FORCE)
+    set(gRPC_ABSL_PROVIDER "module" CACHE STRING "Use bundled Abseil for gRPC" FORCE)
+    set(gRPC_CARES_PROVIDER "module" CACHE STRING "Use bundled c-ares for gRPC" FORCE)
+    set(gRPC_RE2_PROVIDER "module" CACHE STRING "Use bundled RE2 for gRPC" FORCE)
+    set(gRPC_SSL_PROVIDER "module" CACHE STRING "Use bundled BoringSSL for gRPC" FORCE)
+    set(gRPC_ZLIB_PROVIDER "module" CACHE STRING "Use bundled zlib for gRPC" FORCE)
+    set(gRPC_BUILD_GRPCPP_OTEL_PLUGIN OFF CACHE BOOL "Disable gRPC OpenTelemetry plugin" FORCE)
+    if(MSVC)
+        set(gRPC_BUILD_MSVC_MP_COUNT 0 CACHE STRING "Inherit project-level parallelism" FORCE)
+    endif()
+
+    if(MSVC)
+        set(_puerhlab_saved_c_flags_release "${CMAKE_C_FLAGS_RELEASE}")
+        set(_puerhlab_saved_cxx_flags_release "${CMAKE_CXX_FLAGS_RELEASE}")
+        string(REPLACE "/GL" "" CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE}")
+        string(REPLACE "/GL" "" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+    endif()
+
+    add_subdirectory(
+        "${PUERHLAB_GRPC_SOURCE_DIR}"
+        "${CMAKE_BINARY_DIR}/third_party/grpc"
+    )
+
+    if(MSVC)
+        set(CMAKE_C_FLAGS_RELEASE "${_puerhlab_saved_c_flags_release}")
+        set(CMAKE_CXX_FLAGS_RELEASE "${_puerhlab_saved_cxx_flags_release}")
+        unset(_puerhlab_saved_c_flags_release)
+        unset(_puerhlab_saved_cxx_flags_release)
+    endif()
+
+    if(MSVC)
+        foreach(_puerhlab_grpc_warning_target
+                grpc
+                grpc++
+                grpc_unsecure
+                grpc++_unsecure
+                libprotobuf
+                libprotoc
+                protoc
+                grpc_cpp_plugin)
+            if(TARGET ${_puerhlab_grpc_warning_target})
+                target_compile_options(${_puerhlab_grpc_warning_target} PRIVATE /wd4789)
+            endif()
+        endforeach()
+        unset(_puerhlab_grpc_warning_target)
+    endif()
+
+    if(NOT TARGET grpc++)
+        message(FATAL_ERROR "Bundled gRPC was configured, but target grpc++ is unavailable.")
+    endif()
+    if(NOT TARGET protobuf::libprotobuf)
+        message(FATAL_ERROR "Bundled protobuf was configured, but target protobuf::libprotobuf is unavailable.")
+    endif()
+
+    set(_puerhlab_grpcpp_target grpc++)
+    set(_puerhlab_protobuf_target protobuf::libprotobuf)
+    set(_puerhlab_protoc_executable "$<TARGET_FILE:protobuf::protoc>")
+    set(_puerhlab_grpc_cpp_plugin_executable "$<TARGET_FILE:grpc_cpp_plugin>")
 endif()
 
 add_library(puerhlab_grpcpp INTERFACE)
-target_link_libraries(puerhlab_grpcpp INTERFACE grpc++)
+target_link_libraries(puerhlab_grpcpp INTERFACE ${_puerhlab_grpcpp_target})
 add_library(puerhlab::grpc++ ALIAS puerhlab_grpcpp)
 
 add_library(puerhlab_protobuf INTERFACE)
-target_link_libraries(puerhlab_protobuf INTERFACE protobuf::libprotobuf)
+target_link_libraries(puerhlab_protobuf INTERFACE ${_puerhlab_protobuf_target})
 add_library(puerhlab::protobuf ALIAS puerhlab_protobuf)
+
+set(PUERHLAB_PROTOC_EXECUTABLE "${_puerhlab_protoc_executable}" CACHE INTERNAL
+    "protoc executable used to generate Alcedo semantic protobuf sources.")
+set(PUERHLAB_GRPC_CPP_PLUGIN_EXECUTABLE "${_puerhlab_grpc_cpp_plugin_executable}" CACHE INTERNAL
+    "grpc_cpp_plugin executable used to generate Alcedo semantic gRPC sources.")
 
 set(PUERHLAB_METALCPP_SOURCE_DIR
     "${CMAKE_CURRENT_SOURCE_DIR}/metal-cpp"

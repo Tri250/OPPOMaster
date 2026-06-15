@@ -12,6 +12,7 @@ pub struct SemanticConfig {
     pub model_id: String,
     pub revision: String,
     pub model_root: String,
+    pub hf_endpoint: String,
     pub device: String,
     pub allow_download: bool,
     pub batch_cap: usize,
@@ -40,6 +41,9 @@ impl AppConfig {
                 }
                 "--model-id" => config.semantic.model_id = next_value(&mut args, "--model-id")?,
                 "--revision" => config.semantic.revision = next_value(&mut args, "--revision")?,
+                "--hf-endpoint" => {
+                    config.semantic.hf_endpoint = next_value(&mut args, "--hf-endpoint")?
+                }
                 "--device" => config.semantic.device = next_value(&mut args, "--device")?,
                 "--no-download" => config.semantic.allow_download = false,
                 "--allow-download" => config.semantic.allow_download = true,
@@ -71,6 +75,7 @@ impl AppConfig {
                     crate::service::model_assets::MOBILECLIP2_ONNX_REVISION,
                 ),
                 model_root: env_value("ALCEDO_MIND_MODEL_ROOT", "./models/mobileclip2-s2-openclip"),
+                hf_endpoint: env_value("ALCEDO_MIND_HF_ENDPOINT", "https://hf-mirror.com"),
                 device: env_value("ALCEDO_MIND_DEVICE", "auto"),
                 allow_download: parse_bool_env("ALCEDO_MIND_ALLOW_DOWNLOAD", false)?,
                 batch_cap: parse_env("ALCEDO_MIND_BATCH_CAP", 512)?,
@@ -96,6 +101,9 @@ impl AppConfig {
         if self.semantic.revision.trim().is_empty() {
             anyhow::bail!("revision must not be empty");
         }
+        if self.semantic.hf_endpoint.trim().is_empty() {
+            anyhow::bail!("hf-endpoint must not be empty");
+        }
         if self.semantic.batch_cap == 0 {
             anyhow::bail!("batch-cap must be greater than zero");
         }
@@ -106,7 +114,7 @@ impl AppConfig {
     }
 
     fn usage() -> &'static str {
-        "usage: alcedo_mind [--host HOST] [--port PORT] [--model-root PATH] [--model-id ID] [--revision REV] [--device auto|cpu|directml[:N]|coreml[:MODE]] [--no-download] [--allow-download] [--batch-cap N] [--batch-wait-ms N] [--max-message-bytes N]"
+        "usage: alcedo_mind [--host HOST] [--port PORT] [--model-root PATH] [--model-id ID] [--revision REV] [--hf-endpoint URL] [--device auto|cpu|directml[:N]|coreml[:MODE]] [--no-download] [--allow-download] [--batch-cap N] [--batch-wait-ms N] [--max-message-bytes N]"
     }
 }
 
@@ -173,6 +181,8 @@ mod tests {
             "repo/model:s2",
             "--revision",
             "abc123",
+            "--hf-endpoint",
+            "https://example.invalid",
             "--device",
             "cpu",
             "--no-download",
@@ -190,6 +200,7 @@ mod tests {
         assert_eq!(config.semantic.model_root, "C:/models/mobileclip");
         assert_eq!(config.semantic.model_id, "repo/model:s2");
         assert_eq!(config.semantic.revision, "abc123");
+        assert_eq!(config.semantic.hf_endpoint, "https://example.invalid");
         assert_eq!(config.semantic.device, "cpu");
         assert!(!config.semantic.allow_download);
         assert_eq!(config.semantic.batch_cap, 8);
@@ -201,5 +212,6 @@ mod tests {
     fn parses_explicit_download_opt_in() {
         let config = AppConfig::from_args(["--allow-download"]).expect("config should parse");
         assert!(config.semantic.allow_download);
+        assert_eq!(config.semantic.hf_endpoint, "https://hf-mirror.com");
     }
 }

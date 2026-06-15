@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{io::Read, path::PathBuf};
 
 use anyhow::{Context, bail};
 use hf_hub::{Repo, RepoType, api::sync::ApiBuilder};
@@ -32,7 +32,12 @@ impl ClipModelPaths {
         }
     }
 
-    pub fn ensure_present(&self, revision: &str, allow_download: bool) -> anyhow::Result<()> {
+    pub fn ensure_present(
+        &self,
+        revision: &str,
+        hf_endpoint: &str,
+        allow_download: bool,
+    ) -> anyhow::Result<()> {
         if allow_download {
             std::fs::create_dir_all(&self.root).with_context(|| {
                 format!(
@@ -40,13 +45,13 @@ impl ClipModelPaths {
                     self.root.display()
                 )
             })?;
-            self.download_missing_assets(revision)?;
+            self.download_missing_assets(revision, hf_endpoint)?;
         }
 
         self.validate()
     }
 
-    fn download_missing_assets(&self, revision: &str) -> anyhow::Result<()> {
+    fn download_missing_assets(&self, revision: &str, hf_endpoint: &str) -> anyhow::Result<()> {
         let assets = [
             ("onnx/s2/text_model.onnx", &self.text_model),
             ("onnx/s2/vision_model.onnx", &self.vision_model),
@@ -61,9 +66,12 @@ impl ClipModelPaths {
         }
 
         let api = ApiBuilder::from_env()
+            .with_endpoint(hf_endpoint.to_string())
             .with_progress(false)
             .build()
-            .context("failed to initialize Hugging Face API client")?;
+            .with_context(|| {
+                format!("failed to initialize Hugging Face API client for endpoint {hf_endpoint}")
+            })?;
 
         let repo = api.repo(Repo::with_revision(
             MOBILECLIP2_ONNX_REPO.to_string(),
@@ -85,21 +93,71 @@ impl ClipModelPaths {
                 })?;
             }
 
-            let downloaded = repo.get(remote_path).with_context(|| {
-                format!(
-                    "failed to download {remote_path} from repo {MOBILECLIP2_ONNX_REPO}@{revision}"
-                )
-            })?;
-
-            std::fs::copy(&downloaded, local_path).with_context(|| {
-                format!(
-                    "failed to copy downloaded asset {} to {}",
-                    downloaded.display(),
-                    local_path.display()
-                )
-            })?;
+            match repo.get(remote_path) {
+                Ok(downloaded) => {
+                    std::fs::copy(&downloaded, local_path).with_context(|| {
+                        format!(
+                            "failed to copy downloaded asset {} to {}",
+                            downloaded.display(),
+                            local_path.display()
+                        )
+                    })?;
+                }
+                Err(err) => {
+                    self.download_asset_direct(hf_endpoint, revision, remote_path, local_path)
+                        .with_context(|| {
+                            format!(
+                                "failed fallback download for {remote_path} from repo {MOBILECLIP2_ONNX_REPO}@{revision}; hf-hub error: {err}"
+                            )
+                        })?;
+                }
+            }
         }
 
+        Ok(())
+    }
+
+    fn download_asset_direct(
+        &self,
+        hf_endpoint: &str,
+        revision: &str,
+        remote_path: &str,
+        local_path: &PathBuf,
+    ) -> anyhow::Result<()> {
+        let url = format!(
+            "{}/{}/resolve/{}/{}",
+            hf_endpoint.trim_end_matches('/'),
+            MOBILECLIP2_ONNX_REPO,
+            revision,
+            remote_path
+        );
+        let mut response = ureq::get(&url)
+            .call()
+            .with_context(|| format!("failed to GET {url}"))?;
+        let mut bytes = Vec::new();
+        response
+            .body_mut()
+            .as_reader()
+            .read_to_end(&mut bytes)
+            .with_context(|| format!("failed to read response body from {url}"))?;
+        if bytes.is_empty() {
+            bail!("downloaded empty response from {url}");
+        }
+
+        let tmp_path = local_path.with_extension("part");
+        std::fs::write(&tmp_path, bytes).with_context(|| {
+            format!(
+                "failed to write temporary model asset {}",
+                tmp_path.display()
+            )
+        })?;
+        std::fs::rename(&tmp_path, local_path).with_context(|| {
+            format!(
+                "failed to move temporary model asset {} to {}",
+                tmp_path.display(),
+                local_path.display()
+            )
+        })?;
         Ok(())
     }
 
@@ -161,7 +219,7 @@ mod tests {
         let paths = ClipModelPaths::from_root(&root);
 
         let err = paths
-            .ensure_present(MOBILECLIP2_ONNX_REVISION, false)
+            .ensure_present(MOBILECLIP2_ONNX_REVISION, "https://hf-mirror.com", false)
             .expect_err("validate-only missing model should fail");
 
         assert!(err.to_string().contains("missing model root directory"));

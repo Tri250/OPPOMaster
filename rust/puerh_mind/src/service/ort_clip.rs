@@ -553,7 +553,7 @@ impl OrtClipEngine {
         let device_request = Self::parse_device_request(&config.device)?;
 
         let model_paths = ClipModelPaths::from_root(&config.model_root);
-        model_paths.ensure_present(&config.revision, config.allow_download)?;
+        model_paths.ensure_present(&config.revision, &config.hf_endpoint, config.allow_download)?;
 
         Self::initialize_ort_environment()?;
 
@@ -642,22 +642,75 @@ mod tests {
 
     static MODEL_ENGINE_LOAD_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
-    fn make_test_engine() -> OrtClipEngine {
+    fn test_model_root() -> String {
+        std::env::var("ALCEDO_MIND_TEST_MODEL_ROOT")
+            .unwrap_or_else(|_| "./models/mobileclip2-s2-openclip".to_string())
+    }
+
+    fn test_allow_download() -> bool {
+        std::env::var("ALCEDO_MIND_TEST_ALLOW_DOWNLOAD")
+            .ok()
+            .is_some_and(|value| {
+                matches!(
+                    value.to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                )
+            })
+    }
+
+    fn has_test_model_assets() -> bool {
+        ClipModelPaths::from_root(test_model_root())
+            .validate()
+            .is_ok()
+    }
+
+    fn ensure_test_model_assets() -> ClipModelPaths {
+        if !test_allow_download() && !has_test_model_assets() {
+            eprintln!(
+                "skipping ORT model test; set ALCEDO_MIND_TEST_MODEL_ROOT or ALCEDO_MIND_TEST_ALLOW_DOWNLOAD=1"
+            );
+            return ClipModelPaths::from_root(test_model_root());
+        }
+
         let _guard = MODEL_ENGINE_LOAD_LOCK
             .get_or_init(|| Mutex::new(()))
             .lock()
-            .expect("model load lock should not be poisoned");
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
 
-        unsafe {
-            std::env::set_var("ALCEDO_MIND_DEVICE", "cpu");
+        let paths = ClipModelPaths::from_root(test_model_root());
+        paths
+            .ensure_present(
+                crate::service::model_assets::MOBILECLIP2_ONNX_REVISION,
+                "https://hf-mirror.com",
+                test_allow_download(),
+            )
+            .expect("test model assets should be present");
+        paths
+    }
+
+    fn make_test_engine() -> OrtClipEngine {
+        make_test_engine_with_device("cpu")
+    }
+
+    fn make_test_engine_with_device(device: &str) -> OrtClipEngine {
+        if !test_allow_download() && !has_test_model_assets() {
+            panic!(
+                "skipping ORT model test; set ALCEDO_MIND_TEST_MODEL_ROOT or ALCEDO_MIND_TEST_ALLOW_DOWNLOAD=1"
+            );
         }
+
+        let _guard = MODEL_ENGINE_LOAD_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
 
         let config = SemanticConfig {
             model_id: "plhery/mobileclip2-onnx:s2".to_string(),
             revision: crate::service::model_assets::MOBILECLIP2_ONNX_REVISION.to_string(),
-            model_root: "./models/mobileclip2-s2-openclip".to_string(),
-            device: "cpu".to_string(),
-            allow_download: false,
+            model_root: test_model_root(),
+            hf_endpoint: "https://hf-mirror.com".to_string(),
+            device: device.to_string(),
+            allow_download: test_allow_download(),
             batch_cap: 512,
             batch_wait_ms: 25,
         };
@@ -738,8 +791,15 @@ mod tests {
 
     #[test]
     fn prepare_text_batch_rejects_empty_text() {
-        let tokenizer = Tokenizer::from_file("./models/mobileclip2-s2-openclip/tokenizer.json")
-            .expect("tokenizer should load");
+        if !test_allow_download() && !has_test_model_assets() {
+            eprintln!(
+                "skipping ORT tokenizer test; set ALCEDO_MIND_TEST_MODEL_ROOT or ALCEDO_MIND_TEST_ALLOW_DOWNLOAD=1"
+            );
+            return;
+        }
+
+        let tokenizer_path = ensure_test_model_assets().tokenizer_json;
+        let tokenizer = Tokenizer::from_file(&tokenizer_path).expect("tokenizer should load");
         let err =
             OrtClipEngine::prepare_text_batch_with_tokenizer(&tokenizer, &["  "], 77).unwrap_err();
         assert!(err.to_string().contains("must not be empty"));
@@ -747,8 +807,15 @@ mod tests {
 
     #[test]
     fn prepare_text_batch_produces_fixed_length_i64_rows() {
-        let tokenizer = Tokenizer::from_file("./models/mobileclip2-s2-openclip/tokenizer.json")
-            .expect("tokenizer should load");
+        if !test_allow_download() && !has_test_model_assets() {
+            eprintln!(
+                "skipping ORT tokenizer test; set ALCEDO_MIND_TEST_MODEL_ROOT or ALCEDO_MIND_TEST_ALLOW_DOWNLOAD=1"
+            );
+            return;
+        }
+
+        let tokenizer_path = ensure_test_model_assets().tokenizer_json;
+        let tokenizer = Tokenizer::from_file(&tokenizer_path).expect("tokenizer should load");
         let (ids, batch_size) =
             OrtClipEngine::prepare_text_batch_with_tokenizer(&tokenizer, &["dog", "cat"], 77)
                 .expect("text batch should be prepared");
@@ -772,6 +839,13 @@ mod tests {
 
     #[test]
     fn embeds_text_with_ort_model() {
+        if !test_allow_download() && !has_test_model_assets() {
+            eprintln!(
+                "skipping ORT inference test; set ALCEDO_MIND_TEST_MODEL_ROOT or ALCEDO_MIND_TEST_ALLOW_DOWNLOAD=1"
+            );
+            return;
+        }
+
         let engine = make_test_engine();
 
         let embedding = engine
@@ -789,6 +863,13 @@ mod tests {
 
     #[test]
     fn embeds_image_batch_with_ort_model() {
+        if !test_allow_download() && !has_test_model_assets() {
+            eprintln!(
+                "skipping ORT inference test; set ALCEDO_MIND_TEST_MODEL_ROOT or ALCEDO_MIND_TEST_ALLOW_DOWNLOAD=1"
+            );
+            return;
+        }
+
         let engine = make_test_engine();
         let images = vec![
             image::RgbImage::from_pixel(300, 200, image::Rgb([128, 64, 32])),
@@ -810,6 +891,31 @@ mod tests {
                 .sqrt();
             assert!((norm - 1.0).abs() < 1e-3, "norm was {norm}");
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn embeds_text_with_coreml_ort_model() {
+        if !test_allow_download() && !has_test_model_assets() {
+            eprintln!(
+                "skipping CoreML ORT inference test; set ALCEDO_MIND_TEST_MODEL_ROOT or ALCEDO_MIND_TEST_ALLOW_DOWNLOAD=1"
+            );
+            return;
+        }
+
+        let engine = make_test_engine_with_device("coreml:cpuonly");
+
+        let embedding = engine
+            .embed_text("coreml integration check")
+            .expect("CoreML text embedding should succeed");
+
+        assert_eq!(embedding.len(), EMBEDDING_DIM);
+        let norm = embedding
+            .iter()
+            .map(|value| (*value as f64) * (*value as f64))
+            .sum::<f64>()
+            .sqrt();
+        assert!((norm - 1.0).abs() < 1e-3, "norm was {norm}");
     }
 
     #[test]
@@ -834,12 +940,13 @@ mod tests {
         let _guard = MODEL_ENGINE_LOAD_LOCK
             .get_or_init(|| Mutex::new(()))
             .lock()
-            .expect("model load lock should not be poisoned");
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
 
         let config = SemanticConfig {
             model_id: "plhery/mobileclip2-onnx:s2".to_string(),
             revision: crate::service::model_assets::MOBILECLIP2_ONNX_REVISION.to_string(),
             model_root: test_dir.to_string_lossy().into_owned(),
+            hf_endpoint: "https://hf-mirror.com".to_string(),
             device: "cpu".to_string(),
             allow_download: true,
             batch_cap: 512,

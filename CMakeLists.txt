@@ -48,6 +48,9 @@ option(ALCEDO_MACDEPLOYQT_STRIP
 option(ALCEDO_MACOS_VERIFY_BUNDLE_DEPS
        "Fail macOS packaging when the app bundle contains dependencies that require the build machine."
        ON)
+option(ALCEDO_GENERATE_QMLTYPES
+       "Generate QML type metadata for the alcedo_main QML module."
+       ON)
 set(ALCEDO_MACOS_CODESIGN_IDENTITY "-"
     CACHE STRING
     "Code-sign identity for macOS bundle after deployment (use '-' for ad-hoc signing, empty to skip).")
@@ -505,7 +508,14 @@ if(WIN32)
 endif()
 
 # Modules
-set(TEST_RES_DIR "${CMAKE_SOURCE_DIR}/alcedo_studio/tests/resources" CACHE PATH "Path to test resources")
+set(ALCEDO_DEFAULT_TEST_RES_DIR "${CMAKE_SOURCE_DIR}/alcedo_studio/tests/resources")
+set(TEST_RES_DIR "${ALCEDO_DEFAULT_TEST_RES_DIR}" CACHE PATH "Path to test resources")
+if(NOT EXISTS "${TEST_RES_DIR}")
+    message(WARNING
+        "Configured TEST_RES_DIR does not exist: ${TEST_RES_DIR}. "
+        "Falling back to ${ALCEDO_DEFAULT_TEST_RES_DIR}.")
+    set(TEST_RES_DIR "${ALCEDO_DEFAULT_TEST_RES_DIR}" CACHE PATH "Path to test resources" FORCE)
+endif()
 file(TO_CMAKE_PATH "${TEST_RES_DIR}" TEST_RES_DIR)
 add_compile_definitions(
     TEST_DB_PATH=\"${TEST_RES_DIR}/temp_folder/test.db\"
@@ -697,7 +707,7 @@ if(TARGET ${ALCEDO_MAIN_BIN})
             )
         endif()
 
-        if(WIN32 AND ALCEDO_MIND_BINARY)
+        if(ALCEDO_BUILD_SEMANTIC_SIDECAR AND ALCEDO_MIND_BINARY)
             install(CODE
                 "set(ALCEDO_MIND_BINARY \"${ALCEDO_MIND_BINARY}\")
                  set(ALCEDO_MIND_TARGET_DIR \"${ALCEDO_MIND_TARGET_DIR}\")

@@ -59,6 +59,12 @@ function(alcedo_assign_test_category category option_name category_target)
         )
       endif()
       if(${option_name})
+        if(ALCEDO_BUILD_TESTS_BY_DEFAULT)
+          set_target_properties(${test_target} PROPERTIES
+            EXCLUDE_FROM_ALL FALSE
+            EXCLUDE_FROM_DEFAULT_BUILD FALSE
+          )
+        endif()
         add_dependencies(${category_target} ${test_target})
         add_dependencies(alcedo_tests_all ${test_target})
       endif()

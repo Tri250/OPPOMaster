@@ -396,17 +396,14 @@ class Fixed512EmbeddingClient final : public ISemanticImageEmbeddingClient {
     result.model_name = "mock/mobileclip";
     result.dimension  = kSemanticEmbeddingDim;
     result.ok         = true;
-    if (text == "a street photography photo") {
-      result.embedding = OneHot512(8);
-    } else if (text == "a landscape photo") {
-      result.embedding    = OneHot512(2);
-      result.embedding[8] = 0.25F;
-    } else if (text == "a photo of a portrait") {
-      result.embedding    = OneHot512(9);
-      result.embedding[8] = 0.1F;
-    } else {
-      result.embedding = OneHot512(0);
+    const auto& queries = DefaultSemanticPhotographyLabelQueries();
+    for (size_t i = 0; i < queries.size(); ++i) {
+      if (queries[i].query == text) {
+        result.embedding = OneHot512(i);
+        return result;
+      }
     }
+    result.embedding = OneHot512(0);
     return result;
   }
 
@@ -563,8 +560,10 @@ class SemanticGenerationServiceTest : public ::testing::Test {
     auto                        img_pool   = project.GetImagePoolService();
 
     std::vector<image_path_t>   paths;
-    const std::filesystem::path img_dir =
-        std::filesystem::path(TEST_IMG_PATH) / "raw" / "batch_import";
+    std::filesystem::path img_dir = std::filesystem::path(TEST_IMG_PATH) / "raw" / "batch_import";
+    if (!std::filesystem::exists(img_dir)) {
+      img_dir = std::filesystem::path(TEST_IMG_PATH) / "ci_rawfiles";
+    }
     for (const auto& entry : std::filesystem::directory_iterator(img_dir)) {
       if (entry.is_regular_file()) {
         paths.push_back(entry.path());
@@ -640,6 +639,9 @@ class SemanticGenerationServiceTest : public ::testing::Test {
     auto root = base / "cameras";
     if (!std::filesystem::exists(root)) {
       root = base / "camera";
+    }
+    if (!std::filesystem::exists(root)) {
+      root = std::filesystem::path(TEST_IMG_PATH) / "ci_rawfiles";
     }
     if (!std::filesystem::exists(root)) {
       return paths;
@@ -901,8 +903,9 @@ TEST_F(SemanticGenerationServiceTest, PersistsEmbeddingsAndAssignedLabels) {
   auto&          semantic = project.GetStorageService()->GetSemanticStorageController();
   RegisterSemanticTestModel(semantic);
 
-  auto                      thumbnails = std::make_shared<ImmediateThumbnailProvider>();
-  auto                      embedder   = std::make_shared<Fixed512EmbeddingClient>(OneHot512(8));
+  auto thumbnails = std::make_shared<ImmediateThumbnailProvider>();
+  auto embedder = std::make_shared<Fixed512EmbeddingClient>(
+      Mixed512(LabelIndex("street"), LabelIndex("landscape"), 0.25F));
   SemanticGenerationService service(thumbnails, embedder);
 
   SemanticGenerationOptions options;

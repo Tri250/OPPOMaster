@@ -16,6 +16,7 @@
 
 #include <QCoreApplication>
 #include <QHostAddress>
+#include <QStandardPaths>
 #include <QTcpServer>
 
 #include "semantic.grpc.pb.h"
@@ -28,8 +29,14 @@ namespace alcedo {
 namespace {
 
 constexpr size_t kLogTailBytes = 16 * 1024;
+constexpr auto   kSemanticRuntimeBinaryEnv = "ALCEDO_MIND_BINARY";
 constexpr auto   kSemanticModelRootEnv = "ALCEDO_MIND_MODEL_ROOT";
 constexpr auto   kMobileClipModelRoot  = "models/mobileclip2-s2-openclip";
+#ifdef _WIN32
+constexpr auto   kSemanticRuntimeBinaryName = "alcedo_mind.exe";
+#else
+constexpr auto   kSemanticRuntimeBinaryName = "alcedo_mind";
+#endif
 
 auto TailAppend(std::string* target, const QByteArray& bytes) -> void {
   target->append(bytes.constData(), static_cast<size_t>(bytes.size()));
@@ -43,12 +50,55 @@ auto BuildEndpoint(const std::string& host, uint16_t port) -> std::string {
 }
 
 auto DefaultRuntimeBinary() -> std::filesystem::path {
+  const QByteArray env_binary = qgetenv(kSemanticRuntimeBinaryEnv);
+  if (!env_binary.isEmpty()) {
+    return std::filesystem::path(env_binary.constData());
+  }
+
   const auto app_dir = QCoreApplication::applicationDirPath();
 #ifdef _WIN32
-  return std::filesystem::path(app_dir.toStdWString()) / L"alcedo_mind.exe";
+  const auto app_path = std::filesystem::path(app_dir.toStdWString());
 #else
-  return std::filesystem::path(app_dir.toStdString()) / "alcedo_mind";
+  const auto app_path = std::filesystem::path(app_dir.toStdString());
 #endif
+
+  const auto append_ancestor_runtime_binaries =
+      [](const std::filesystem::path& start, std::vector<std::filesystem::path>* candidates) {
+        if (start.empty()) {
+          return;
+        }
+
+        std::error_code ec;
+        auto            current = std::filesystem::absolute(start, ec);
+        if (ec) {
+          current = start;
+        }
+        while (!current.empty()) {
+          candidates->push_back(current / "rust" / "puerh_mind" / "target" / "release" /
+                                kSemanticRuntimeBinaryName);
+          candidates->push_back(current / "rust" / "puerh_mind" / "target" / "debug" /
+                                kSemanticRuntimeBinaryName);
+          const auto parent = current.parent_path();
+          if (parent == current) {
+            break;
+          }
+          current = parent;
+        }
+      };
+
+  std::vector<std::filesystem::path> candidates;
+  candidates.push_back(app_path / kSemanticRuntimeBinaryName);
+  append_ancestor_runtime_binaries(app_path, &candidates);
+  std::error_code ec;
+  append_ancestor_runtime_binaries(std::filesystem::current_path(ec), &candidates);
+
+  for (const auto& candidate : candidates) {
+    if (std::filesystem::exists(candidate, ec) && !ec &&
+        std::filesystem::is_regular_file(candidate, ec) && !ec) {
+      return candidate;
+    }
+  }
+  return app_path / kSemanticRuntimeBinaryName;
 }
 
 auto ExistingDirectory(const std::filesystem::path& path) -> bool {
@@ -92,6 +142,16 @@ auto DefaultRuntimeModelRoot() -> std::filesystem::path {
 #endif
 
   std::vector<std::filesystem::path> candidates;
+  const auto app_data_dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+  if (!app_data_dir.isEmpty()) {
+#ifdef _WIN32
+    const auto app_data_path = std::filesystem::path(app_data_dir.toStdWString());
+#else
+    const auto app_data_path = std::filesystem::path(app_data_dir.toStdString());
+#endif
+    candidates.push_back(app_data_path / kMobileClipModelRoot);
+  }
+
   candidates.push_back(app_path / kMobileClipModelRoot);
 
   AppendAncestorModelRoots(app_path, &candidates);
@@ -419,6 +479,12 @@ auto SemanticRuntimeService::StartAndWait(const SemanticRuntimeOptions& options)
               "Semantic runtime binary was not found: " + options_.runtime_binary.string());
     return false;
   }
+  if (options_.model_root.empty()) {
+    SetStatus(SemanticRuntimeState::kFailed, SemanticRuntimeIssue::kStartFailed,
+              "Semantic runtime model root was not configured. Set ALCEDO_MIND_MODEL_ROOT or "
+              "install/download the model assets before starting semantic generation.");
+    return false;
+  }
 
   SetStatus(SemanticRuntimeState::kStarting, SemanticRuntimeIssue::kNone,
             "Starting semantic runtime");
@@ -590,6 +656,9 @@ auto SemanticRuntimeService::BuildArguments() const -> QStringList {
   args << "--model-id" << QString::fromStdString(options_.model_id);
   if (!options_.revision.empty()) {
     args << "--revision" << QString::fromStdString(options_.revision);
+  }
+  if (!options_.hf_endpoint.empty()) {
+    args << "--hf-endpoint" << QString::fromStdString(options_.hf_endpoint);
   }
   args << "--device" << QString::fromStdString(options_.device);
   args << (options_.allow_download ? "--allow-download" : "--no-download");

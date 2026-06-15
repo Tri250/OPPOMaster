@@ -562,13 +562,36 @@ mod tests {
     use crate::service::embedding::{EmbeddingEngine, EngineModelInfo, MockEmbeddingEngine};
     use crate::service::ort_clip::OrtClipEngine;
 
+    fn test_model_root() -> String {
+        std::env::var("ALCEDO_MIND_TEST_MODEL_ROOT")
+            .unwrap_or_else(|_| "./models/mobileclip2-s2-openclip".to_string())
+    }
+
+    fn test_allow_download() -> bool {
+        std::env::var("ALCEDO_MIND_TEST_ALLOW_DOWNLOAD")
+            .ok()
+            .is_some_and(|value| {
+                matches!(
+                    value.to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                )
+            })
+    }
+
+    fn has_test_model_assets() -> bool {
+        crate::service::model_assets::ClipModelPaths::from_root(test_model_root())
+            .validate()
+            .is_ok()
+    }
+
     fn test_semantic_config() -> SemanticConfig {
         SemanticConfig {
             model_id: "plhery/mobileclip2-onnx:s2".to_string(),
             revision: crate::service::model_assets::MOBILECLIP2_ONNX_REVISION.to_string(),
-            model_root: "./models/mobileclip2-s2-openclip".to_string(),
+            model_root: test_model_root(),
+            hf_endpoint: "https://hf-mirror.com".to_string(),
             device: "cpu".to_string(),
-            allow_download: false,
+            allow_download: test_allow_download(),
             batch_cap: 512,
             batch_wait_ms: 25,
         }
@@ -584,24 +607,53 @@ mod tests {
 
     #[test]
     fn uses_configured_model_id_as_default_name() {
-        let config = SemanticConfig {
-            model_id: "plhery/mobileclip2-onnx:s2".to_string(),
-            revision: crate::service::model_assets::MOBILECLIP2_ONNX_REVISION.to_string(),
-            model_root: "./models/mobileclip2-s2-openclip".to_string(),
-            device: "cpu".to_string(),
-            allow_download: false,
-            batch_cap: 512,
-            batch_wait_ms: 25,
-        };
+        struct NamedEngine;
 
-        let engine = OrtClipEngine::new(&config).expect("engine should load");
+        impl EmbeddingEngine for NamedEngine {
+            fn embed_text(&self, text: &str) -> AnyResult<Vec<f32>> {
+                MockEmbeddingEngine.embed_text(text)
+            }
 
-        assert_eq!(engine.default_text_model_name(), config.model_id);
-        assert_eq!(engine.default_image_model_name(), config.model_id);
+            fn embed_image(&self, rgb: &image::RgbImage) -> AnyResult<Vec<f32>> {
+                MockEmbeddingEngine.embed_image(rgb)
+            }
+
+            fn default_text_model_name(&self) -> &str {
+                "plhery/mobileclip2-onnx:s2"
+            }
+
+            fn default_image_model_name(&self) -> &str {
+                "plhery/mobileclip2-onnx:s2"
+            }
+
+            fn model_info(&self) -> EngineModelInfo {
+                EngineModelInfo {
+                    model_id: "plhery/mobileclip2-onnx:s2".to_string(),
+                    ..MockEmbeddingEngine.model_info()
+                }
+            }
+        }
+
+        let engine = NamedEngine;
+        assert_eq!(
+            engine.default_text_model_name(),
+            "plhery/mobileclip2-onnx:s2"
+        );
+        assert_eq!(
+            engine.default_image_model_name(),
+            "plhery/mobileclip2-onnx:s2"
+        );
     }
 
     #[tokio::test]
     async fn embeds_text_request_with_ort_engine() {
+        if !test_allow_download() && !has_test_model_assets() {
+            eprintln!(
+                "skipping ORT service test; set ALCEDO_MIND_TEST_MODEL_ROOT or ALCEDO_MIND_TEST_ALLOW_DOWNLOAD=1"
+            );
+            return;
+        }
+
         let config = test_semantic_config();
         let engine = Arc::new(OrtClipEngine::new(&config).expect("engine should load"));
         let service = SemanticServiceImpl::new(engine, 512, Duration::from_millis(25));

@@ -76,6 +76,19 @@ class FilterServiceTests : public ::testing::Test {
     }
   }
 
+  static auto BatchFixturesAvailable() -> bool {
+    const auto batch_dir = std::filesystem::path(std::string(TEST_IMG_PATH)) / "raw" / "batch";
+    if (!std::filesystem::exists(batch_dir)) {
+      return false;
+    }
+    for (const auto& img : std::filesystem::directory_iterator(batch_dir)) {
+      if (!img.is_directory() && is_supported_file(img.path())) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   static auto LoadBatchToRoot(ProjectService& project) -> uint32_t {
     auto                           fs_service       = project.GetSleeveService();
     auto                           img_pool_service = project.GetImagePoolService();
@@ -227,6 +240,9 @@ TEST_F(FilterServiceTests, BetweenConditionSQLTest) {
 }
 
 TEST_F(FilterServiceTests, FolderIndexTest_Model) {
+  if (!BatchFixturesAvailable()) {
+    GTEST_SKIP() << "No filter RAW fixtures available in raw/batch/";
+  }
   ProjectService project(db_path_, meta_path_);
   const uint32_t imported = LoadBatchToRoot(project);
   ASSERT_GT(imported, 0u);
@@ -402,6 +418,9 @@ TEST_F(FilterServiceTests, FuzzySearchMatchesSeparatorFoldedPhotoTerms) {
 }
 
 TEST_F(FilterServiceTests, FuzzySearchMatchesRealImportedRawFilenameWithoutSeparators) {
+  if (!BatchFixturesAvailable()) {
+    GTEST_SKIP() << "No filter RAW fixtures available in raw/batch/";
+  }
   ProjectService project(db_path_, meta_path_);
   const uint32_t imported = LoadBatchToRoot(project);
   ASSERT_GT(imported, 0u);
@@ -449,6 +468,9 @@ TEST_F(FilterServiceTests, FuzzySearchEscapesSqlLikeWildcardsAndQuotesInWideInpu
 }
 
 TEST_F(FilterServiceTests, FolderIndexTest_FileExtension) {
+  if (!BatchFixturesAvailable()) {
+    GTEST_SKIP() << "No filter RAW fixtures available in raw/batch/";
+  }
   ProjectService project(db_path_, meta_path_);
   const uint32_t imported = LoadBatchToRoot(project);
   ASSERT_GT(imported, 0u);
@@ -475,6 +497,9 @@ TEST_F(FilterServiceTests, FolderIndexTest_FileExtension) {
 }
 
 TEST_F(FilterServiceTests, FolderIndexTest_Aperature) {
+  if (!BatchFixturesAvailable()) {
+    GTEST_SKIP() << "No filter RAW fixtures available in raw/batch/";
+  }
   ProjectService project(db_path_, meta_path_);
   const uint32_t imported = LoadBatchToRoot(project);
   ASSERT_GT(imported, 0u);
@@ -504,6 +529,9 @@ TEST_F(FilterServiceTests, FolderIndexTest_Aperature) {
 }
 
 TEST_F(FilterServiceTests, FolderIndexTest_ISO) {
+  if (!BatchFixturesAvailable()) {
+    GTEST_SKIP() << "No filter RAW fixtures available in raw/batch/";
+  }
   ProjectService project(db_path_, meta_path_);
   const uint32_t imported = LoadBatchToRoot(project);
   ASSERT_GT(imported, 0u);
@@ -532,6 +560,9 @@ TEST_F(FilterServiceTests, FolderIndexTest_ISO) {
 }
 
 TEST_F(FilterServiceTests, FolderIndexTest_FocalLength) {
+  if (!BatchFixturesAvailable()) {
+    GTEST_SKIP() << "No filter RAW fixtures available in raw/batch/";
+  }
   ProjectService project(db_path_, meta_path_);
   const uint32_t imported = LoadBatchToRoot(project);
   ASSERT_GT(imported, 0u);
@@ -559,6 +590,9 @@ TEST_F(FilterServiceTests, FolderIndexTest_FocalLength) {
 }
 
 TEST_F(FilterServiceTests, FolderIndexTest_Combined) {
+  if (!BatchFixturesAvailable()) {
+    GTEST_SKIP() << "No filter RAW fixtures available in raw/batch/";
+  }
   ProjectService project(db_path_, meta_path_);
   const uint32_t imported = LoadBatchToRoot(project);
   ASSERT_GT(imported, 0u);
@@ -594,6 +628,9 @@ TEST_F(FilterServiceTests, FolderIndexTest_Combined) {
 }
 
 TEST_F(FilterServiceTests, FolderIndexTest_NoMatch) {
+  if (!BatchFixturesAvailable()) {
+    GTEST_SKIP() << "No filter RAW fixtures available in raw/batch/";
+  }
   ProjectService project(db_path_, meta_path_);
   const uint32_t imported = LoadBatchToRoot(project);
   ASSERT_GT(imported, 0u);
@@ -620,6 +657,9 @@ TEST_F(FilterServiceTests, FolderIndexTest_NoMatch) {
 }
 
 TEST_F(FilterServiceTests, FolderIndexTest_DateRange) {
+  if (!BatchFixturesAvailable()) {
+    GTEST_SKIP() << "No filter RAW fixtures available in raw/batch/";
+  }
   ProjectService project(db_path_, meta_path_);
   const uint32_t imported = LoadBatchToRoot(project);
   ASSERT_GT(imported, 0u);
@@ -648,6 +688,9 @@ TEST_F(FilterServiceTests, FolderIndexTest_DateRange) {
 }
 
 TEST_F(FilterServiceTests, ListFilesInFolderByIdMatchesPathBasedList) {
+  if (!BatchFixturesAvailable()) {
+    GTEST_SKIP() << "No filter RAW fixtures available in raw/batch/";
+  }
   ProjectService project(db_path_, meta_path_);
   const uint32_t imported = LoadBatchToRoot(project);
   ASSERT_GT(imported, 0u);
@@ -675,6 +718,9 @@ TEST_F(FilterServiceTests, ListFilesInFolderByIdMatchesPathBasedList) {
 }
 
 TEST_F(FilterServiceTests, ListCountMatchesStatsCount) {
+  if (!BatchFixturesAvailable()) {
+    GTEST_SKIP() << "No filter RAW fixtures available in raw/batch/";
+  }
   ProjectService project(db_path_, meta_path_);
   const uint32_t imported = LoadBatchToRoot(project);
   ASSERT_GT(imported, 0u);

@@ -58,6 +58,35 @@ inline bool WaitForSignal(QSignalSpy& spy, int timeoutMs = 5000) {
 /// Collect RAW test images from a subdirectory under TEST_IMG_PATH.
 inline auto CollectRawTestImages(const std::string& subdir, size_t maxCount = 0)
     -> std::vector<std::filesystem::path> {
+  const auto collect_from_root = [maxCount](const std::filesystem::path& root) {
+    std::vector<std::filesystem::path> paths;
+    if (!std::filesystem::exists(root)) return paths;
+
+    for (const auto& entry : std::filesystem::recursive_directory_iterator(root)) {
+      if (entry.is_regular_file() && is_supported_file(entry.path())) {
+        paths.push_back(entry.path());
+        if (maxCount > 0 && paths.size() >= maxCount) {
+          break;
+        }
+      }
+    }
+    std::sort(paths.begin(), paths.end());
+    return paths;
+  };
+
+  const std::filesystem::path root{std::string(TEST_IMG_PATH) + "/raw/" + subdir};
+  auto paths = collect_from_root(root);
+  if (!paths.empty()) {
+    return paths;
+  }
+
+  const auto fallback_root = std::filesystem::path("/Users/zidage/Photos");
+  return collect_from_root(fallback_root);
+}
+
+/// Collect RAW test images only from a specific fixture subdirectory.
+inline auto CollectRawFixtureImages(const std::string& subdir, size_t maxCount = 0)
+    -> std::vector<std::filesystem::path> {
   const std::filesystem::path root{std::string(TEST_IMG_PATH) + "/raw/" + subdir};
   std::vector<std::filesystem::path> paths;
   if (!std::filesystem::exists(root)) return paths;
@@ -72,6 +101,10 @@ inline auto CollectRawTestImages(const std::string& subdir, size_t maxCount = 0)
     paths.resize(maxCount);
   }
   return paths;
+}
+
+inline auto HasRawTestImages(const std::string& subdir) -> bool {
+  return !CollectRawTestImages(subdir, 1).empty();
 }
 
 /// Convert a filesystem path to a QString suitable for AlbumBackend methods.

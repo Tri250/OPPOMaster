@@ -92,6 +92,7 @@ struct SemanticRuntimeOptions {
   uint16_t              port = 0;
   std::string           model_id = "plhery/mobileclip2-onnx:s2";
   std::string           revision;
+  std::string           hf_endpoint = "https://hf-mirror.com";
   std::string           device = "auto";
   uint32_t              batch_cap = 512;
   uint32_t              batch_wait_ms = 25;

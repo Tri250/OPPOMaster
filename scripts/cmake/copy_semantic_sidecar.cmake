@@ -21,3 +21,11 @@ file(GLOB _alcedo_mind_runtime_dlls "${ALCEDO_MIND_TARGET_DIR}/*.dll")
 foreach(_alcedo_mind_runtime_dll IN LISTS _alcedo_mind_runtime_dlls)
     file(COPY "${_alcedo_mind_runtime_dll}" DESTINATION "${ALCEDO_MIND_DEST_DIR}")
 endforeach()
+
+file(GLOB _alcedo_mind_runtime_shared_libs
+    "${ALCEDO_MIND_TARGET_DIR}/*.dylib"
+    "${ALCEDO_MIND_TARGET_DIR}/*.so"
+)
+foreach(_alcedo_mind_runtime_shared_lib IN LISTS _alcedo_mind_runtime_shared_libs)
+    file(COPY "${_alcedo_mind_runtime_shared_lib}" DESTINATION "${ALCEDO_MIND_DEST_DIR}")
+endforeach()

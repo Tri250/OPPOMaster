@@ -207,7 +207,8 @@ TEST_F(SemanticStorageControllerTest, NewProjectSeedsDefaultLabelQueries) {
   EXPECT_NE(std::find_if(queries.begin(), queries.end(),
                          [](const SemanticLabelQueryRecord& query) {
                            return query.label_ == "portrait" &&
-                                  query.query_text_ == "a photo of a portrait";
+                                  query.query_text_ ==
+                                      "a photograph whose main subject is one person or a close portrait";
                          }),
             queries.end());
 }

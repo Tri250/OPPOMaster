@@ -17,7 +17,9 @@
 #include <vector>
 
 #include <opencv2/core.hpp>
+#ifdef HAVE_CUDA
 #include <opencv2/core/cuda.hpp>
+#endif
 
 #include "decoders/processor/raw_processor_internal.hpp"
 #include "decoders/processor/raw_processor_pattern.hpp"
@@ -207,6 +209,7 @@ auto LeicaQ2SamplePath() -> std::filesystem::path {
          "L1010202.DNG";
 }
 
+#ifdef HAVE_CUDA
 auto EnsureCudaDevice() -> bool {
   const int device_count = cv::cuda::getCudaEnabledDeviceCount();
   if (device_count <= 0) {
@@ -358,6 +361,7 @@ auto DecodeLargeRawWithMode(const std::filesystem::path& path, const detail::Cud
   input->GetCUDAImage().download(decoded);
   return decoded;
 }
+#endif
 
 }  // namespace
 
@@ -896,6 +900,9 @@ TEST(RawProcessorPattern, LensCalibAutoScaleMatchesAlignedLensfunGeometry) {
 }
 
 TEST(RawProcessorPattern, CudaExecutionModeUsesLongEdgeThresholdForLargeBayer) {
+#ifndef HAVE_CUDA
+  GTEST_SKIP() << "CUDA is not enabled in this build.";
+#else
   RawParams params;
   params.gpu_backend_ = RawGpuBackend::GPU;
 
@@ -912,6 +919,7 @@ TEST(RawProcessorPattern, CudaExecutionModeUsesLongEdgeThresholdForLargeBayer) {
   xtrans_pattern.kind          = RawCfaKind::XTrans6x6;
   EXPECT_EQ(detail::SelectCudaExecutionMode(params, xtrans_pattern, cv::Rect(0, 0, 10240, 7680)),
             detail::CudaExecutionMode::FullFrame);
+#endif
 }
 
 TEST(RawProcessorPattern, CudaLargeBayerForcedTiledMatchesFullFrameWithoutHighlight) {
