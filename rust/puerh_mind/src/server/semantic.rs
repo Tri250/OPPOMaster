@@ -611,11 +611,16 @@ mod tests {
             model_id: "plhery/mobileclip2-onnx:s2".to_string(),
             revision: crate::service::model_assets::MOBILECLIP2_ONNX_REVISION.to_string(),
             model_root: "./models/mobileclip2-s2-openclip".to_string(),
+            hf_endpoint: "https://hf-mirror.com".to_string(),
             device: "cpu".to_string(),
             allow_download: false,
             batch_cap: 512,
             batch_wait_ms: 25,
         };
+
+        struct NamedEngine {
+            config: SemanticConfig,
+        }
 
         impl EmbeddingEngine for NamedEngine {
             fn embed_text(&self, text: &str) -> AnyResult<Vec<f32>> {
@@ -627,22 +632,24 @@ mod tests {
             }
 
             fn default_text_model_name(&self) -> &str {
-                "plhery/mobileclip2-onnx:s2"
+                &self.config.model_id
             }
 
             fn default_image_model_name(&self) -> &str {
-                "plhery/mobileclip2-onnx:s2"
+                &self.config.model_id
             }
 
             fn model_info(&self) -> EngineModelInfo {
                 EngineModelInfo {
-                    model_id: "plhery/mobileclip2-onnx:s2".to_string(),
+                    model_id: self.config.model_id.clone(),
+                    revision: self.config.revision.clone(),
+                    model_root: self.config.model_root.clone(),
                     ..MockEmbeddingEngine.model_info()
                 }
             }
         }
 
-        let engine = NamedEngine;
+        let engine = NamedEngine { config };
         assert_eq!(
             engine.default_text_model_name(),
             "plhery/mobileclip2-onnx:s2"

@@ -151,30 +151,6 @@ auto MatchesExpectedModelInfo(const SemanticRuntimeModelInfo& actual,
   return true;
 }
 
-<<<<<<< HEAD
-auto JsonString(const std::string& value) -> std::string {
-  std::string out;
-  out.reserve(value.size() + 2);
-  out.push_back('"');
-  for (const char ch : value) {
-    switch (ch) {
-      case '\\':
-        out += "\\\\";
-        break;
-      case '"':
-        out += "\\\"";
-        break;
-      default:
-        out.push_back(ch);
-        break;
-    }
-  }
-  out.push_back('"');
-  return out;
-}
-
-=======
->>>>>>> bce8b9e304c488154c8a23d051a3a45a16526088
 auto ValidateFiniteNonZeroVector(const std::vector<float>& embedding, uint32_t expected_dimension,
                                  std::string* error) -> bool {
   if (embedding.size() != expected_dimension) {
@@ -204,83 +180,6 @@ auto ValidateFiniteNonZeroVector(const std::vector<float>& embedding, uint32_t e
   return true;
 }
 
-<<<<<<< HEAD
-auto DotProduct(const std::vector<float>& lhs, const std::vector<float>& rhs) -> double {
-  double score = 0.0;
-  for (size_t i = 0; i < lhs.size(); ++i) {
-    score += static_cast<double>(lhs[i]) * static_cast<double>(rhs[i]);
-  }
-  return score;
-}
-
-auto MakeTopScoresJson(const std::vector<std::pair<std::string, double>>& scores, size_t limit)
-    -> std::string {
-  std::ostringstream out;
-  out << "[";
-  const auto count = std::min(limit, scores.size());
-  for (size_t i = 0; i < count; ++i) {
-    if (i > 0) {
-      out << ",";
-    }
-    out << "{\"label\":" << JsonString(scores[i].first) << ",\"score\":" << std::setprecision(9)
-        << scores[i].second << "}";
-  }
-  out << "]";
-  return out.str();
-}
-
-auto AssignSemanticLabel(const SemanticGenerationPersistenceOptions&          persistence,
-                         const std::vector<SemanticGenerationLabelPrototype>& prototypes,
-                         sl_element_id_t file_id, const std::vector<float>& embedding,
-                         uint32_t embedding_dimension, std::string* error)
-    -> std::optional<SemanticImageLabelRecord> {
-  if (prototypes.empty()) {
-    return std::nullopt;
-  }
-
-  std::vector<std::pair<std::string, double>> scores;
-  scores.reserve(prototypes.size());
-  for (const auto& prototype : prototypes) {
-    if (prototype.label.empty()) {
-      if (error) {
-        *error = "semantic label prototype label is empty";
-      }
-      return std::nullopt;
-    }
-    if (!ValidateFiniteNonZeroVector(prototype.embedding, embedding_dimension, error)) {
-      return std::nullopt;
-    }
-    scores.emplace_back(prototype.label, DotProduct(embedding, prototype.embedding));
-  }
-
-  std::sort(scores.begin(), scores.end(), [](const auto& lhs, const auto& rhs) {
-    if (lhs.second == rhs.second) {
-      return lhs.first < rhs.first;
-    }
-    return lhs.second > rhs.second;
-  });
-
-  if (scores.empty()) {
-    return std::nullopt;
-  }
-
-  const auto               second_score = scores.size() > 1 ? scores[1].second : 0.0;
-  SemanticImageLabelRecord label;
-  label.file_id_      = file_id;
-  label.model_key_    = persistence.model_key;
-  label.label_        = scores[0].first;
-  label.score_        = scores[0].second;
-  label.second_label_ = scores.size() > 1 ? scores[1].first : std::string{};
-  label.second_score_ = scores.size() > 1 ? std::optional<double>(scores[1].second) : std::nullopt;
-  label.margin_       = scores[0].second - second_score;
-  label.confident_    = label.score_ >= persistence.confidence_score_threshold &&
-                     label.margin_ >= persistence.confidence_margin_threshold;
-  label.top_scores_json_ = MakeTopScoresJson(scores, persistence.top_score_count);
-  return label;
-}
-
-=======
->>>>>>> bce8b9e304c488154c8a23d051a3a45a16526088
 auto EnsureCachedLabelPrototypes(const SemanticGenerationPersistenceOptions&           persistence,
                                  const std::shared_ptr<ISemanticImageEmbeddingClient>& client,
                                  std::chrono::milliseconds timeout, std::string* error) -> bool {
@@ -354,31 +253,15 @@ auto EnsureCachedLabelPrototypes(const SemanticGenerationPersistenceOptions&    
   return persistence.storage_controller->UpsertLabelPrototypes(prototypes, error);
 }
 
-<<<<<<< HEAD
-auto PersistSemanticResult(const SemanticGenerationPersistenceOptions&          persistence,
-                           const std::vector<SemanticGenerationLabelPrototype>& prototypes,
-                           const SemanticGenerationItem&                        item,
-                           ThumbnailResolution       thumbnail_resolution,
-=======
 auto PersistSemanticResult(const SemanticGenerationPersistenceOptions& persistence,
                            const SemanticGenerationItem&               item,
                            ThumbnailResolution                         thumbnail_resolution,
->>>>>>> bce8b9e304c488154c8a23d051a3a45a16526088
                            const std::vector<float>& embedding, uint32_t embedding_dimension,
                            SemanticImageLabelRecord* persisted_label, std::string* error) -> bool {
   if (!ValidateFiniteNonZeroVector(embedding, embedding_dimension, error)) {
     return false;
   }
 
-<<<<<<< HEAD
-  auto label = AssignSemanticLabel(persistence, prototypes, item.element_id, embedding,
-                                   embedding_dimension, error);
-  if (!label.has_value() && error && !error->empty()) {
-    return false;
-  }
-
-=======
->>>>>>> bce8b9e304c488154c8a23d051a3a45a16526088
   SemanticImageEmbeddingRecord record;
   record.file_id_              = item.element_id;
   record.image_id_             = item.image_id;
@@ -386,14 +269,6 @@ auto PersistSemanticResult(const SemanticGenerationPersistenceOptions& persisten
   record.embedding_            = embedding;
   record.thumbnail_resolution_ = static_cast<int>(thumbnail_resolution);
 
-<<<<<<< HEAD
-  const bool ok                = persistence.storage_controller->UpsertImageEmbeddingWithLabel(
-      record, label.has_value() ? &*label : nullptr, error);
-  if (ok && label.has_value() && persisted_label) {
-    *persisted_label = *label;
-  }
-  return ok;
-=======
   SemanticLabelAssignmentOptions assignment;
   assignment.prompt_config_hash_          = persistence.prompt_config_hash;
   assignment.confidence_score_threshold_  = persistence.confidence_score_threshold;
@@ -402,72 +277,15 @@ auto PersistSemanticResult(const SemanticGenerationPersistenceOptions& persisten
 
   return persistence.storage_controller->UpsertImageEmbeddingAndAssignLabel(record, assignment,
                                                                             persisted_label, error);
->>>>>>> bce8b9e304c488154c8a23d051a3a45a16526088
-}
-
-struct ThumbnailWaitState {
-  std::mutex              lock;
-  std::condition_variable cv;
-  ThumbnailRequestResult  result;
-  bool                    done      = false;
-  bool                    abandoned = false;
-};
-
-auto WaitForThumbnail(const std::shared_ptr<SemanticGenerationJob>&      job,
-                      const std::shared_ptr<ISemanticThumbnailProvider>& provider,
-                      const SemanticGenerationItem& item, ThumbnailResolution resolution)
-    -> ThumbnailRequestResult {
-  auto                    state = std::make_shared<ThumbnailWaitState>();
-  const ThumbnailCacheKey key{item.element_id, resolution};
-
-  provider->RequestThumbnail(item, resolution, [state, provider](ThumbnailRequestResult result) {
-    bool release_late_guard = false;
-    {
-      std::unique_lock lock(state->lock);
-      release_late_guard = state->abandoned && result.guard != nullptr;
-      state->result      = std::move(result);
-      state->done        = true;
-    }
-    if (release_late_guard) {
-      provider->ReleaseThumbnail(state->result.key);
-    }
-    state->cv.notify_all();
-  });
-
-  std::unique_lock lock(state->lock);
-  while (!state->done) {
-    if (job->IsCanceled()) {
-      state->abandoned = true;
-      lock.unlock();
-      provider->CancelThumbnail(key);
-      ThumbnailRequestResult canceled;
-      canceled.key     = key;
-      canceled.status  = ThumbnailRequestStatus::kCanceled;
-      canceled.message = "semantic generation job was canceled";
-      return canceled;
-    }
-    state->cv.wait_for(lock, std::chrono::milliseconds(25));
-  }
-
-  return std::move(state->result);
 }
 
 struct ThumbnailBatchWaitState {
-<<<<<<< HEAD
-  std::mutex                                             lock;
-  std::condition_variable                                cv;
-  std::vector<std::optional<ThumbnailRequestResult>>     results;
-  std::vector<bool>                                      done;
-  size_t                                                 remaining = 0;
-  bool                                                   abandoned = false;
-=======
   std::mutex                                         lock;
   std::condition_variable                            cv;
   std::vector<std::optional<ThumbnailRequestResult>> results;
   std::vector<bool>                                  done;
   size_t                                             remaining = 0;
   bool                                               abandoned = false;
->>>>>>> bce8b9e304c488154c8a23d051a3a45a16526088
 };
 
 auto WaitForThumbnailBatch(const std::shared_ptr<SemanticGenerationJob>&      job,
@@ -504,19 +322,11 @@ auto WaitForThumbnailBatch(const std::shared_ptr<SemanticGenerationJob>&      jo
             state->cv.notify_all();
           });
     } catch (const std::exception& e) {
-<<<<<<< HEAD
-      std::unique_lock lock(state->lock);
-      ThumbnailRequestResult result;
-      result.key     = ThumbnailCacheKey{item.element_id, resolution};
-      result.status  = ThumbnailRequestStatus::kError;
-      result.message = std::string("thumbnail request failed: ") + e.what();
-=======
       std::unique_lock       lock(state->lock);
       ThumbnailRequestResult result;
       result.key        = ThumbnailCacheKey{item.element_id, resolution};
       result.status     = ThumbnailRequestStatus::kError;
       result.message    = std::string("thumbnail request failed: ") + e.what();
->>>>>>> bce8b9e304c488154c8a23d051a3a45a16526088
       state->results[i] = std::move(result);
       state->done[i]    = true;
       if (state->remaining > 0) {
@@ -524,19 +334,11 @@ auto WaitForThumbnailBatch(const std::shared_ptr<SemanticGenerationJob>&      jo
       }
       state->cv.notify_all();
     } catch (...) {
-<<<<<<< HEAD
-      std::unique_lock lock(state->lock);
-      ThumbnailRequestResult result;
-      result.key     = ThumbnailCacheKey{item.element_id, resolution};
-      result.status  = ThumbnailRequestStatus::kError;
-      result.message = "thumbnail request failed";
-=======
       std::unique_lock       lock(state->lock);
       ThumbnailRequestResult result;
       result.key        = ThumbnailCacheKey{item.element_id, resolution};
       result.status     = ThumbnailRequestStatus::kError;
       result.message    = "thumbnail request failed";
->>>>>>> bce8b9e304c488154c8a23d051a3a45a16526088
       state->results[i] = std::move(result);
       state->done[i]    = true;
       if (state->remaining > 0) {
@@ -584,34 +386,6 @@ auto WaitForThumbnailBatch(const std::shared_ptr<SemanticGenerationJob>&      jo
     }
   }
   return results;
-}
-
-auto WaitForEmbeddingBatch(const std::shared_ptr<SemanticGenerationJob>&         job,
-                           const std::shared_ptr<ISemanticImageEmbeddingClient>& client,
-                           std::vector<SemanticImageEmbeddingInput>              inputs,
-                           std::chrono::milliseconds                             timeout)
-    -> std::vector<SemanticImageEmbeddingBatchResult> {
-  auto promise = std::make_shared<std::promise<std::vector<SemanticImageEmbeddingBatchResult>>>();
-  auto future  = promise->get_future();
-
-  client->EmbedImageBatch(std::move(inputs), timeout,
-                          [promise](std::vector<SemanticImageEmbeddingBatchResult> results) {
-                            try {
-                              promise->set_value(std::move(results));
-                            } catch (...) {
-                            }
-                          });
-
-  const auto deadline = std::chrono::steady_clock::now() + timeout;
-  while (future.wait_for(std::chrono::milliseconds(25)) != std::future_status::ready) {
-    if (job->IsCanceled()) {
-      return {};
-    }
-    if (std::chrono::steady_clock::now() >= deadline) {
-      throw std::runtime_error("image embedding batch timed out");
-    }
-  }
-  return future.get();
 }
 
 auto MapEmbeddingBatchResults(const std::vector<SemanticImageEmbeddingInput>& inputs,
@@ -979,16 +753,11 @@ auto SemanticGenerationService::StartGeneration(std::vector<SemanticGenerationIt
                                                 SemanticGenerationProgressCallback  on_progress,
                                                 SemanticGenerationFinishedCallback  on_finished)
     -> std::shared_ptr<SemanticGenerationJob> {
-<<<<<<< HEAD
-  if (options.batch_size == 0) {
-    options.batch_size = 1;
-=======
   if (options.thumbnail_batch_size == 0) {
     options.thumbnail_batch_size = 1;
   }
   if (options.embedding_batch_size == 0) {
     options.embedding_batch_size = 1;
->>>>>>> bce8b9e304c488154c8a23d051a3a45a16526088
   }
 
   auto job = std::make_shared<SemanticGenerationJob>();
@@ -1002,7 +771,7 @@ auto SemanticGenerationService::StartGeneration(std::vector<SemanticGenerationIt
        on_finished = std::move(on_finished), thumbnail_provider = std::move(thumbnail_provider),
        embedding_client = std::move(embedding_client)]() mutable {
         RunJob(job, items, options, std::move(on_progress), std::move(on_finished),
-                           std::move(thumbnail_provider), std::move(embedding_client));
+               std::move(thumbnail_provider), std::move(embedding_client));
       });
   job->SetWorkerThread(std::move(worker));
 
@@ -1077,10 +846,6 @@ void SemanticGenerationService::RunJob(
     }
   }
 
-<<<<<<< HEAD
-  std::vector<SemanticGenerationLabelPrototype> cached_label_prototypes;
-=======
->>>>>>> bce8b9e304c488154c8a23d051a3a45a16526088
   if (options.persistence.has_value()) {
     std::string label_error;
     if (!EnsureCachedLabelPrototypes(*options.persistence, embedding_client,
@@ -1101,37 +866,6 @@ void SemanticGenerationService::RunJob(
       finish();
       return;
     }
-<<<<<<< HEAD
-
-    cached_label_prototypes = options.persistence->storage_controller->LoadLabelPrototypes(
-        options.persistence->model_key, options.persistence->prompt_config_hash, &label_error);
-    if (cached_label_prototypes.empty()) {
-      for (const auto& item : pending_items) {
-        SemanticGenerationItemResult result;
-        result.item       = item;
-        result.request_id = MakeRequestId(item);
-        result.status     = SemanticGenerationItemStatus::kError;
-        result.error =
-            label_error.empty() ? "semantic label prototype cache is empty" : label_error;
-        job->AppendResult(std::move(result));
-      }
-      job->UpdateProgress([count = pending_items.size()](SemanticGenerationProgress& progress) {
-        progress.failed += count;
-      });
-      DispatchProgress(job, on_progress);
-      finish();
-      return;
-    }
-  }
-
-  std::vector<SemanticImageEmbeddingInput> batch;
-  batch.reserve(options.batch_size);
-
-  struct InFlightEmbeddingBatch {
-    std::vector<SemanticImageEmbeddingInput> inputs;
-    std::future<std::vector<SemanticImageEmbeddingBatchResult>> future;
-    std::chrono::steady_clock::time_point deadline;
-=======
   }
 
   std::vector<SemanticImageEmbeddingInput> batch;
@@ -1141,101 +875,11 @@ void SemanticGenerationService::RunJob(
     std::vector<SemanticImageEmbeddingInput>                    inputs;
     std::future<std::vector<SemanticImageEmbeddingBatchResult>> future;
     std::chrono::steady_clock::time_point                       deadline;
->>>>>>> bce8b9e304c488154c8a23d051a3a45a16526088
   };
 
   std::deque<InFlightEmbeddingBatch> in_flight_batches;
   constexpr size_t                   kMaxInFlightEmbeddingBatches = 1;
 
-<<<<<<< HEAD
-  auto append_batch_canceled_results =
-      [&](const std::vector<SemanticImageEmbeddingInput>& inputs, const std::string& message) {
-        for (const auto& input : inputs) {
-          SemanticGenerationItemResult result;
-          result.item       = input.item;
-          result.request_id = input.request_id;
-          result.status     = SemanticGenerationItemStatus::kCanceled;
-          result.error      = message;
-          job->AppendResult(std::move(result));
-        }
-        job->UpdateProgress([count = inputs.size()](SemanticGenerationProgress& progress) {
-          progress.canceled += count;
-        });
-        DispatchProgress(job, on_progress);
-      };
-
-  auto append_batch_error_results =
-      [&](const std::vector<SemanticImageEmbeddingInput>& inputs, const std::string& message) {
-        for (const auto& input : inputs) {
-          SemanticGenerationItemResult result;
-          result.item       = input.item;
-          result.request_id = input.request_id;
-          result.status     = SemanticGenerationItemStatus::kError;
-          result.error      = message;
-          job->AppendResult(std::move(result));
-        }
-        job->UpdateProgress([count = inputs.size()](SemanticGenerationProgress& progress) {
-          progress.failed += count;
-        });
-        DispatchProgress(job, on_progress);
-      };
-
-  auto process_embedding_batch =
-      [&](const std::vector<SemanticImageEmbeddingInput>& inputs,
-          std::vector<SemanticImageEmbeddingBatchResult> batch_results) {
-        if (job->IsCanceled()) {
-          append_batch_canceled_results(inputs, "semantic generation job was canceled");
-          return;
-        }
-
-        batch_results = MapEmbeddingBatchResults(inputs, std::move(batch_results));
-        for (auto& batch_result : batch_results) {
-          SemanticGenerationItemResult item_result;
-          item_result.item       = batch_result.item;
-          item_result.request_id = batch_result.embedding.request_id;
-          if (batch_result.embedding.ok) {
-            item_result.embedding_dimension = batch_result.embedding.dimension;
-            if (options.persistence.has_value()) {
-              SemanticImageLabelRecord persisted_label;
-              std::string              persist_error;
-              if (!PersistSemanticResult(
-                      *options.persistence, cached_label_prototypes, batch_result.item,
-                      options.thumbnail_resolution, batch_result.embedding.embedding,
-                      batch_result.embedding.dimension, &persisted_label, &persist_error)) {
-                item_result.status = SemanticGenerationItemStatus::kError;
-                item_result.error =
-                    persist_error.empty() ? "semantic persistence failed" : std::move(persist_error);
-                job->UpdateProgress([](SemanticGenerationProgress& progress) { progress.failed++; });
-              } else {
-                item_result.status    = SemanticGenerationItemStatus::kEmbedded;
-                item_result.embedding = std::move(batch_result.embedding.embedding);
-                if (!persisted_label.label_.empty()) {
-                  item_result.has_label          = true;
-                  item_result.label              = persisted_label.label_;
-                  item_result.label_score        = persisted_label.score_;
-                  item_result.second_label       = persisted_label.second_label_;
-                  item_result.second_label_score = persisted_label.second_score_.value_or(0.0);
-                  item_result.label_margin       = persisted_label.margin_;
-                  item_result.label_confident    = persisted_label.confident_;
-                }
-                job->UpdateProgress(
-                    [](SemanticGenerationProgress& progress) { progress.embedded++; });
-              }
-            } else {
-              item_result.status    = SemanticGenerationItemStatus::kEmbedded;
-              item_result.embedding = std::move(batch_result.embedding.embedding);
-              job->UpdateProgress([](SemanticGenerationProgress& progress) { progress.embedded++; });
-            }
-          } else {
-            item_result.status = SemanticGenerationItemStatus::kError;
-            item_result.error  = std::move(batch_result.embedding.error);
-            job->UpdateProgress([](SemanticGenerationProgress& progress) { progress.failed++; });
-          }
-          job->AppendResult(std::move(item_result));
-        }
-        DispatchProgress(job, on_progress);
-      };
-=======
   auto append_batch_canceled_results = [&](const std::vector<SemanticImageEmbeddingInput>& inputs,
                                            const std::string& message) {
     for (const auto& input : inputs) {
@@ -1321,7 +965,6 @@ void SemanticGenerationService::RunJob(
     }
     DispatchProgress(job, on_progress);
   };
->>>>>>> bce8b9e304c488154c8a23d051a3a45a16526088
 
   auto drain_embedding_batches = [&](bool wait_for_one) {
     bool drained_any = false;
@@ -1330,23 +973,14 @@ void SemanticGenerationService::RunJob(
       for (auto it = in_flight_batches.begin(); it != in_flight_batches.end();) {
         if (job->IsCanceled()) {
           append_batch_canceled_results(it->inputs, "semantic generation job was canceled");
-<<<<<<< HEAD
-          it = in_flight_batches.erase(it);
-          drained_any = true;
-=======
           it            = in_flight_batches.erase(it);
           drained_any   = true;
->>>>>>> bce8b9e304c488154c8a23d051a3a45a16526088
           made_progress = true;
           continue;
         }
 
         if (it->future.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
-<<<<<<< HEAD
-          auto inputs  = std::move(it->inputs);
-=======
           auto                                           inputs = std::move(it->inputs);
->>>>>>> bce8b9e304c488154c8a23d051a3a45a16526088
           std::vector<SemanticImageEmbeddingBatchResult> results;
           try {
             results = it->future.get();
@@ -1354,34 +988,21 @@ void SemanticGenerationService::RunJob(
             it = in_flight_batches.erase(it);
             append_batch_error_results(inputs,
                                        std::string("image embedding batch failed: ") + e.what());
-<<<<<<< HEAD
-            drained_any = true;
-=======
             drained_any   = true;
->>>>>>> bce8b9e304c488154c8a23d051a3a45a16526088
             made_progress = true;
             continue;
           }
           it = in_flight_batches.erase(it);
           process_embedding_batch(inputs, std::move(results));
-<<<<<<< HEAD
-          drained_any = true;
-=======
           drained_any   = true;
->>>>>>> bce8b9e304c488154c8a23d051a3a45a16526088
           made_progress = true;
           continue;
         }
 
         if (std::chrono::steady_clock::now() >= it->deadline) {
           append_batch_error_results(it->inputs, "image embedding batch timed out");
-<<<<<<< HEAD
-          it = in_flight_batches.erase(it);
-          drained_any = true;
-=======
           it            = in_flight_batches.erase(it);
           drained_any   = true;
->>>>>>> bce8b9e304c488154c8a23d051a3a45a16526088
           made_progress = true;
           continue;
         }
@@ -1401,13 +1022,8 @@ void SemanticGenerationService::RunJob(
         stripped.reserve(source.size());
         for (const auto& input : source) {
           SemanticImageEmbeddingInput copy;
-<<<<<<< HEAD
           copy.item       = input.item;
           copy.request_id = input.request_id;
-=======
-          copy.item        = input.item;
-          copy.request_id  = input.request_id;
->>>>>>> bce8b9e304c488154c8a23d051a3a45a16526088
           copy.format_hint = input.format_hint;
           stripped.push_back(std::move(copy));
         }
@@ -1444,18 +1060,10 @@ void SemanticGenerationService::RunJob(
           }
         });
 
-<<<<<<< HEAD
-    in_flight_batches.push_back(
-        InFlightEmbeddingBatch{.inputs   = std::move(inputs_for_result_mapping),
-                               .future   = std::move(future),
-                               .deadline = std::chrono::steady_clock::now() +
-                                           options.embedding_timeout});
-=======
     in_flight_batches.push_back(InFlightEmbeddingBatch{
         .inputs   = std::move(inputs_for_result_mapping),
         .future   = std::move(future),
         .deadline = std::chrono::steady_clock::now() + options.embedding_timeout});
->>>>>>> bce8b9e304c488154c8a23d051a3a45a16526088
   };
 
   for (size_t offset = 0; offset < pending_items.size();) {
@@ -1463,11 +1071,7 @@ void SemanticGenerationService::RunJob(
 
     if (job->IsCanceled()) {
       for (; offset < pending_items.size(); ++offset) {
-<<<<<<< HEAD
         const auto& item = pending_items[offset];
-=======
-        const auto&                  item = pending_items[offset];
->>>>>>> bce8b9e304c488154c8a23d051a3a45a16526088
         SemanticGenerationItemResult result;
         result.item       = item;
         result.request_id = MakeRequestId(item);
@@ -1479,23 +1083,14 @@ void SemanticGenerationService::RunJob(
       break;
     }
 
-<<<<<<< HEAD
-    const size_t chunk_size = std::min(options.batch_size, pending_items.size() - offset);
-=======
     const size_t chunk_size = std::min(options.thumbnail_batch_size, pending_items.size() - offset);
->>>>>>> bce8b9e304c488154c8a23d051a3a45a16526088
     std::vector<SemanticGenerationItem> thumbnail_chunk(
         pending_items.begin() + static_cast<std::ptrdiff_t>(offset),
         pending_items.begin() + static_cast<std::ptrdiff_t>(offset + chunk_size));
     offset += chunk_size;
 
-<<<<<<< HEAD
-    auto thumbnail_results =
-        WaitForThumbnailBatch(job, thumbnail_provider, thumbnail_chunk, options.thumbnail_resolution);
-=======
     auto thumbnail_results = WaitForThumbnailBatch(job, thumbnail_provider, thumbnail_chunk,
                                                    options.thumbnail_resolution);
->>>>>>> bce8b9e304c488154c8a23d051a3a45a16526088
 
     for (size_t i = 0; i < thumbnail_chunk.size(); ++i) {
       const auto& item             = thumbnail_chunk[i];
@@ -1522,13 +1117,8 @@ void SemanticGenerationService::RunJob(
         result.item       = item;
         result.request_id = MakeRequestId(item);
         result.status     = SemanticGenerationItemStatus::kError;
-<<<<<<< HEAD
-        result.error =
-            thumbnail_result.message.empty() ? "thumbnail request failed" : thumbnail_result.message;
-=======
         result.error      = thumbnail_result.message.empty() ? "thumbnail request failed"
                                                              : thumbnail_result.message;
->>>>>>> bce8b9e304c488154c8a23d051a3a45a16526088
         job->UpdateProgress([](SemanticGenerationProgress& progress) { progress.failed++; });
         job->AppendResult(std::move(result));
         DispatchProgress(job, on_progress);
@@ -1542,14 +1132,8 @@ void SemanticGenerationService::RunJob(
       input.item       = item;
       input.request_id = MakeRequestId(item);
       std::string encode_error;
-<<<<<<< HEAD
-      const bool materialized = MaterializeThumbnailRgba8(*thumbnail_result.guard,
-                                                          &input.rgba8_image, &input.format_hint,
-                                                          &encode_error);
-=======
       const bool  materialized = MaterializeThumbnailRgba8(
           *thumbnail_result.guard, &input.rgba8_image, &input.format_hint, &encode_error);
->>>>>>> bce8b9e304c488154c8a23d051a3a45a16526088
       thumbnail_provider->ReleaseThumbnail(thumbnail_result.key);
 
       if (!materialized) {
@@ -1565,16 +1149,9 @@ void SemanticGenerationService::RunJob(
       }
 
       batch.push_back(std::move(input));
-<<<<<<< HEAD
-    }
-
-    if (batch.size() >= options.batch_size) {
-      flush_batch();
-=======
       if (batch.size() >= options.embedding_batch_size) {
         flush_batch();
       }
->>>>>>> bce8b9e304c488154c8a23d051a3a45a16526088
     }
   }
 

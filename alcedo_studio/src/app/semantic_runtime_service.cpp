@@ -29,7 +29,6 @@ namespace alcedo {
 namespace {
 
 constexpr size_t kLogTailBytes = 16 * 1024;
-<<<<<<< HEAD
 constexpr auto   kSemanticRuntimeBinaryEnv = "ALCEDO_MIND_BINARY";
 constexpr auto   kSemanticModelRootEnv = "ALCEDO_MIND_MODEL_ROOT";
 constexpr auto   kMobileClipModelRoot  = "models/mobileclip2-s2-openclip";
@@ -38,10 +37,6 @@ constexpr auto   kSemanticRuntimeBinaryName = "alcedo_mind.exe";
 #else
 constexpr auto   kSemanticRuntimeBinaryName = "alcedo_mind";
 #endif
-=======
-constexpr auto   kSemanticModelRootEnv = "ALCEDO_MIND_MODEL_ROOT";
-constexpr auto   kMobileClipModelRoot  = "models/mobileclip2-s2-openclip";
->>>>>>> bce8b9e304c488154c8a23d051a3a45a16526088
 
 auto TailAppend(std::string* target, const QByteArray& bytes) -> void {
   target->append(bytes.constData(), static_cast<size_t>(bytes.size()));
@@ -55,7 +50,6 @@ auto BuildEndpoint(const std::string& host, uint16_t port) -> std::string {
 }
 
 auto DefaultRuntimeBinary() -> std::filesystem::path {
-<<<<<<< HEAD
   const QByteArray env_binary = qgetenv(kSemanticRuntimeBinaryEnv);
   if (!env_binary.isEmpty()) {
     return std::filesystem::path(env_binary.constData());
@@ -105,14 +99,6 @@ auto DefaultRuntimeBinary() -> std::filesystem::path {
     }
   }
   return app_path / kSemanticRuntimeBinaryName;
-=======
-  const auto app_dir = QCoreApplication::applicationDirPath();
-#ifdef _WIN32
-  return std::filesystem::path(app_dir.toStdWString()) / L"alcedo_mind.exe";
-#else
-  return std::filesystem::path(app_dir.toStdString()) / "alcedo_mind";
-#endif
->>>>>>> bce8b9e304c488154c8a23d051a3a45a16526088
 }
 
 auto ExistingDirectory(const std::filesystem::path& path) -> bool {
@@ -156,7 +142,6 @@ auto DefaultRuntimeModelRoot() -> std::filesystem::path {
 #endif
 
   std::vector<std::filesystem::path> candidates;
-<<<<<<< HEAD
   const auto app_data_dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
   if (!app_data_dir.isEmpty()) {
 #ifdef _WIN32
@@ -167,8 +152,6 @@ auto DefaultRuntimeModelRoot() -> std::filesystem::path {
     candidates.push_back(app_data_path / kMobileClipModelRoot);
   }
 
-=======
->>>>>>> bce8b9e304c488154c8a23d051a3a45a16526088
   candidates.push_back(app_path / kMobileClipModelRoot);
 
   AppendAncestorModelRoots(app_path, &candidates);
@@ -496,15 +479,12 @@ auto SemanticRuntimeService::StartAndWait(const SemanticRuntimeOptions& options)
               "Semantic runtime binary was not found: " + options_.runtime_binary.string());
     return false;
   }
-<<<<<<< HEAD
   if (options_.model_root.empty()) {
     SetStatus(SemanticRuntimeState::kFailed, SemanticRuntimeIssue::kStartFailed,
               "Semantic runtime model root was not configured. Set ALCEDO_MIND_MODEL_ROOT or "
               "install/download the model assets before starting semantic generation.");
     return false;
   }
-=======
->>>>>>> bce8b9e304c488154c8a23d051a3a45a16526088
 
   SetStatus(SemanticRuntimeState::kStarting, SemanticRuntimeIssue::kNone,
             "Starting semantic runtime");
@@ -677,12 +657,9 @@ auto SemanticRuntimeService::BuildArguments() const -> QStringList {
   if (!options_.revision.empty()) {
     args << "--revision" << QString::fromStdString(options_.revision);
   }
-<<<<<<< HEAD
   if (!options_.hf_endpoint.empty()) {
     args << "--hf-endpoint" << QString::fromStdString(options_.hf_endpoint);
   }
-=======
->>>>>>> bce8b9e304c488154c8a23d051a3a45a16526088
   args << "--device" << QString::fromStdString(options_.device);
   args << (options_.allow_download ? "--allow-download" : "--no-download");
   args << "--batch-cap" << QString::number(options_.batch_cap);

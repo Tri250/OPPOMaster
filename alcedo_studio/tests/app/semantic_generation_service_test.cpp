@@ -726,6 +726,7 @@ TEST_F(SemanticGenerationServiceTest, DecouplesThumbnailAndEmbeddingBatchSizes) 
   options.embedding_timeout    = 3s;
   auto job = service.StartGeneration({{1, 10}, {2, 20}, {3, 30}, {4, 40}}, options);
 
+  ASSERT_TRUE(WaitUntil([&]() { return thumbnails->MaxPendingCount() == 2U; }, 150ms));
   EXPECT_EQ(thumbnails->MaxPendingCount(), 2U);
   EXPECT_TRUE(WaitUntil([&]() { return thumbnails->RequestCount() == 4; }, 150ms));
   ASSERT_TRUE(WaitUntil([&]() { return embedder->BatchSizes().size() == 1; }, 2s));
