@@ -141,13 +141,24 @@ void SemanticGenerationController::CancelGeneration() {
 }
 
 void SemanticGenerationController::RefreshAlbumSummary() {
-  auto project = backend_.project_handler_.project();
-  auto browse  = project ? project->GetAlbumBrowseService() : nullptr;
+  const auto previous_total     = album_total_count_;
+  const auto previous_labeled   = album_labeled_count_;
+  const auto previous_unlabeled = album_unlabeled_count_;
+  const auto previous_summary   = album_summary_text_;
+
+  auto       project            = backend_.project_handler_.project();
+  auto       browse             = project ? project->GetAlbumBrowseService() : nullptr;
   if (!project || !browse) {
     album_total_count_     = 0;
     album_labeled_count_   = 0;
     album_unlabeled_count_ = 0;
     album_summary_text_    = PL_TEXT("Open a project before running AI content recognition.");
+    if (previous_total != album_total_count_ || previous_labeled != album_labeled_count_ ||
+        previous_unlabeled != album_unlabeled_count_ ||
+        previous_summary.source_ != album_summary_text_.source_ ||
+        previous_summary.args_ != album_summary_text_.args_) {
+      emit StateChanged();
+    }
     return;
   }
 
@@ -166,6 +177,12 @@ void SemanticGenerationController::RefreshAlbumSummary() {
   album_unlabeled_count_ = std::max(0, album_total_count_ - album_labeled_count_);
   album_summary_text_    = PL_TEXT("%1 image(s) total. %2 already have labels, %3 need labels.",
                                    album_total_count_, album_labeled_count_, album_unlabeled_count_);
+  if (previous_total != album_total_count_ || previous_labeled != album_labeled_count_ ||
+      previous_unlabeled != album_unlabeled_count_ ||
+      previous_summary.source_ != album_summary_text_.source_ ||
+      previous_summary.args_ != album_summary_text_.args_) {
+    emit StateChanged();
+  }
 }
 
 void SemanticGenerationController::StartAlbumGeneration(bool forceRegenerate) {

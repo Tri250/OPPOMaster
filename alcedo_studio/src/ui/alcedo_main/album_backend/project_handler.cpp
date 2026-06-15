@@ -208,6 +208,7 @@ bool ProjectHandler::InitializeServices(const std::filesystem::path& dbPath,
           self->ReloadFolderTree(preferred_folder_path);
           self->stats_.ClearFilters();
           self->ReloadCurrentFolder();
+          self->semantic_generation_.RefreshAlbumSummary();
           emit self->StatsFilterChanged();
           self->SetTaskState(PL_TEXT("No background tasks"), 0, false);
 

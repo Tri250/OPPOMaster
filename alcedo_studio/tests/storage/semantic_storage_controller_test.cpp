@@ -4,6 +4,7 @@
 
 #include "storage/controller/semantic/semantic_storage_controller.hpp"
 
+#include <duckdb.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -16,6 +17,7 @@
 #include "app/project_service.hpp"
 #include "edit/operators/operator_registeration.hpp"
 #include "sleeve/sleeve_element/sleeve_file.hpp"
+#include "storage/controller/db_controller.hpp"
 
 namespace alcedo {
 namespace {
@@ -42,6 +44,20 @@ auto CountSubstring(const std::string& text, const std::string& needle) -> size_
     pos += needle.size();
   }
   return count;
+}
+
+void RunRawSql(const std::filesystem::path& db_path, const char* sql) {
+  duckdb_database   db   = nullptr;
+  duckdb_connection conn = nullptr;
+  ASSERT_EQ(duckdb_open(db_path.string().c_str(), &db), DuckDBSuccess);
+  ASSERT_EQ(duckdb_connect(db, &conn), DuckDBSuccess);
+
+  duckdb_result result;
+  ASSERT_EQ(duckdb_query(conn, sql, &result), DuckDBSuccess)
+      << (duckdb_result_error(&result) ? duckdb_result_error(&result) : "");
+  duckdb_destroy_result(&result);
+  duckdb_disconnect(&conn);
+  duckdb_close(&db);
 }
 
 void RegisterTestModel(SemanticStorageController& semantic) {
@@ -265,6 +281,28 @@ TEST_F(SemanticStorageControllerTest, ActiveModelKeyAndLanguageMetadataAreStored
   ASSERT_TRUE(semantic.SetActiveModelKey("mobileclip-en", &error)) << error;
   EXPECT_EQ(semantic.ActiveModelKey(), "mobileclip-en");
   EXPECT_FALSE(semantic.SetActiveModelKey("missing-model", &error));
+}
+
+TEST_F(SemanticStorageControllerTest, ExistingSemanticModelWithoutActiveColumnPromotesLatestModel) {
+  RunRawSql(db_path_,
+            "CREATE TABLE SemanticModel ("
+            "model_key VARCHAR PRIMARY KEY,"
+            "model_id VARCHAR NOT NULL,"
+            "revision VARCHAR NOT NULL,"
+            "embedding_dim INTEGER NOT NULL,"
+            "image_size INTEGER NOT NULL,"
+            "prompt_config_hash VARCHAR,"
+            "asset_manifest_json JSON,"
+            "created_at TIMESTAMP DEFAULT current_timestamp);"
+            "INSERT INTO SemanticModel "
+            "(model_key, model_id, revision, embedding_dim, image_size, created_at) VALUES "
+            "('old-model', 'old/model', 'rev-a', 512, 256, TIMESTAMP '2026-01-01 00:00:00'),"
+            "('latest-model', 'latest/model', 'rev-b', 512, 256, "
+            "TIMESTAMP '2026-01-02 00:00:00');");
+
+  DBController              db_controller(db_path_);
+  SemanticStorageController semantic(db_controller.GetConnectionGuard());
+  EXPECT_EQ(semantic.ActiveModelKey(), "latest-model");
 }
 
 TEST_F(SemanticStorageControllerTest, PersistsEmbeddingAndLabelTransactionally) {

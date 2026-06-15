@@ -63,6 +63,12 @@ ColumnLayout {
         }
     }
 
+    onSemanticControllerChanged: {
+        if (panel.hasController) {
+            panel.semanticController.RefreshAlbumSummary()
+        }
+    }
+
     SettingsSection {
         Layout.fillWidth: true
         title: qsTr("AI content recognition")

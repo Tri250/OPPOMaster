@@ -103,7 +103,12 @@ class DBController {
       "ALTER TABLE SemanticModel ADD COLUMN IF NOT EXISTS engine_id VARCHAR;"
       "ALTER TABLE SemanticModel ADD COLUMN IF NOT EXISTS profile_id VARCHAR;"
       "ALTER TABLE SemanticModel ADD COLUMN IF NOT EXISTS supported_text_languages_json JSON;"
-      "ALTER TABLE SemanticModel ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT FALSE;";
+      "ALTER TABLE SemanticModel ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT FALSE;"
+      "UPDATE SemanticModel SET active = TRUE "
+      "WHERE model_key = ("
+      "SELECT model_key FROM SemanticModel "
+      "WHERE NOT EXISTS (SELECT 1 FROM SemanticModel WHERE active = TRUE) "
+      "ORDER BY created_at DESC, model_key DESC LIMIT 1);";
 
   void SeedSemanticLabelQueries(duckdb_connection conn);
 
