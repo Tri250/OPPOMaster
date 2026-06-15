@@ -54,6 +54,13 @@ struct SemanticLabelPrototypeRecord {
   std::vector<float> embedding_{};
 };
 
+struct SemanticLabelAssignmentOptions {
+  std::string prompt_config_hash_{kDefaultSemanticPhotographyPromptConfigHash};
+  double      confidence_score_threshold_{kDefaultSemanticLabelConfidenceThreshold};
+  double      confidence_margin_threshold_{kDefaultSemanticLabelMarginThreshold};
+  size_t      top_score_count_{kDefaultSemanticLabelTopScoreCount};
+};
+
 struct SemanticLabelQueryRecord {
   std::string prompt_config_hash_{};
   std::string label_{};
@@ -85,6 +92,11 @@ class SemanticStorageController {
   [[nodiscard]] auto UpsertImageEmbeddingWithLabel(const SemanticImageEmbeddingRecord& record,
                                                    const SemanticImageLabelRecord*     label,
                                                    std::string* error = nullptr) const -> bool;
+  [[nodiscard]] auto UpsertImageEmbeddingAndAssignLabel(
+      const SemanticImageEmbeddingRecord&   record,
+      const SemanticLabelAssignmentOptions& assignment_options,
+      SemanticImageLabelRecord* assigned_label = nullptr, std::string* error = nullptr) const
+      -> bool;
   [[nodiscard]] auto UpsertLabelPrototype(const SemanticLabelPrototypeRecord& record,
                                           std::string* error = nullptr) const -> bool;
   [[nodiscard]] auto UpsertLabelPrototypes(std::span<const SemanticLabelPrototypeRecord> records,
@@ -95,7 +107,7 @@ class SemanticStorageController {
                                                  const std::string& model_key) const -> size_t;
   [[nodiscard]] auto HasReadyImageEmbedding(sl_element_id_t file_id, image_id_t image_id,
                                             const std::string& model_key,
-                                            bool require_label = false) const -> bool;
+                                            bool               require_label = false) const -> bool;
   [[nodiscard]] auto CountImageLabelsForFile(sl_element_id_t    file_id,
                                              const std::string& model_key) const -> size_t;
   [[nodiscard]] auto CountImageLabelsInFolder(sl_element_id_t    folder_id,

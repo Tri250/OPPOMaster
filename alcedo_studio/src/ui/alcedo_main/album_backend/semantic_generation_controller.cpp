@@ -37,7 +37,7 @@ constexpr auto kSemanticPreferenceAlways              = "always";
 constexpr auto kSemanticPreferenceNever               = "never";
 constexpr auto kSemanticRuntimeStartupTimeout         = 60s;
 
-auto SemanticModelKeyFromInfo(const SemanticRuntimeModelInfo& info) -> std::string {
+auto           SemanticModelKeyFromInfo(const SemanticRuntimeModelInfo& info) -> std::string {
   if (info.revision.empty()) {
     return info.model_id;
   }
@@ -54,13 +54,13 @@ auto NormalizedSemanticPreference(QString preference) -> QString {
 }
 
 auto ClampToInt(size_t value) -> int {
-  return static_cast<int>(std::min<size_t>(value, static_cast<size_t>(std::numeric_limits<int>::max())));
+  return static_cast<int>(
+      std::min<size_t>(value, static_cast<size_t>(std::numeric_limits<int>::max())));
 }
 
 auto ItemsNeedingSemanticGeneration(const std::vector<SemanticGenerationItem>& items,
-                                    SemanticStorageController& semantic,
-                                    const std::string& model_key,
-                                    bool force_regenerate)
+                                    SemanticStorageController&                 semantic,
+                                    const std::string& model_key, bool force_regenerate)
     -> std::vector<SemanticGenerationItem> {
   if (force_regenerate || model_key.empty()) {
     return items;
@@ -70,7 +70,8 @@ auto ItemsNeedingSemanticGeneration(const std::vector<SemanticGenerationItem>& i
   pending.reserve(items.size());
   constexpr bool require_label = true;
   for (const auto& item : items) {
-    if (!semantic.HasReadyImageEmbedding(item.element_id, item.image_id, model_key, require_label)) {
+    if (!semantic.HasReadyImageEmbedding(item.element_id, item.image_id, model_key,
+                                         require_label)) {
       pending.push_back(item);
     }
   }
@@ -118,10 +119,11 @@ void SemanticGenerationController::SkipPendingGeneration(bool rememberChoice) {
 }
 
 QString SemanticGenerationController::ImportPreference() const {
-  return NormalizedSemanticPreference(QSettings{}
-                                          .value(QLatin1String(kSemanticGenerationImportPreferenceKey),
-                                                 QLatin1String(kSemanticPreferenceAsk))
-                                          .toString());
+  return NormalizedSemanticPreference(
+      QSettings{}
+          .value(QLatin1String(kSemanticGenerationImportPreferenceKey),
+                 QLatin1String(kSemanticPreferenceAsk))
+          .toString());
 }
 
 void SemanticGenerationController::SetImportPreference(const QString& preference) {
@@ -149,7 +151,7 @@ void SemanticGenerationController::RefreshAlbumSummary() {
     return;
   }
 
-  album_total_count_ = static_cast<int>(std::min<size_t>(
+  album_total_count_   = static_cast<int>(std::min<size_t>(
       browse->CountFilesInFolderById(0), static_cast<size_t>(std::numeric_limits<int>::max())));
 
   const auto model_key = ActiveModelKey();
@@ -162,9 +164,8 @@ void SemanticGenerationController::RefreshAlbumSummary() {
         static_cast<size_t>(std::numeric_limits<int>::max())));
   }
   album_unlabeled_count_ = std::max(0, album_total_count_ - album_labeled_count_);
-  album_summary_text_ =
-      PL_TEXT("%1 image(s) total. %2 already have labels, %3 need labels.",
-              album_total_count_, album_labeled_count_, album_unlabeled_count_);
+  album_summary_text_    = PL_TEXT("%1 image(s) total. %2 already have labels, %3 need labels.",
+                                   album_total_count_, album_labeled_count_, album_unlabeled_count_);
 }
 
 void SemanticGenerationController::StartAlbumGeneration(bool forceRegenerate) {
@@ -262,9 +263,9 @@ auto SemanticGenerationController::LabelDisplayText(sl_element_id_t elementId) c
     return {};
   }
   std::string error;
-  const auto  label = project->GetStorageService()
-                         ->GetSemanticStorageController()
-                         .GetImageLabelForFile(elementId, model_key, &error);
+  const auto  label =
+      project->GetStorageService()->GetSemanticStorageController().GetImageLabelForFile(
+          elementId, model_key, &error);
   if (!label.has_value()) {
     return {};
   }
@@ -277,8 +278,8 @@ auto SemanticGenerationController::LabelDisplayText(sl_element_id_t elementId) c
   if (!doc.isArray()) {
     return QString::fromUtf8(label->label_.c_str());
   }
-  const auto array      = doc.array();
-  const auto best_score = label->score_;
+  const auto  array      = doc.array();
+  const auto  best_score = label->score_;
   QStringList labels;
   for (const auto& value : array) {
     const auto object = value.toObject();
@@ -318,7 +319,7 @@ void SemanticGenerationController::StartGenerationForItems(
   total_          = 0;
   status_text_    = PL_TEXT("Preparing semantic generation...");
   backend_.SetTaskState(status_text_, 0, true);
-  emit StateChanged();
+  emit                                   StateChanged();
 
   QPointer<SemanticGenerationController> self(this);
   QTimer::singleShot(160, this, [self, forceRegenerate]() {
@@ -359,18 +360,17 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
   if (runtime_status.state != SemanticRuntimeState::kReady ||
       !runtime_status.model_info.has_value()) {
     status_text_ = PL_TEXT("Starting semantic runtime...");
-    emit StateChanged();
+    emit                   StateChanged();
 
     SemanticRuntimeOptions runtime_options = runtime->Options();
     runtime_options.startup_timeout        = kSemanticRuntimeStartupTimeout;
     if (!runtime->StartAndWait(runtime_options)) {
-      runtime_status      = runtime->Status();
+      runtime_status        = runtime->Status();
       const QString message = QString::fromStdString(runtime_status.message);
-      running_             = false;
+      running_              = false;
       pending_items_.clear();
-      status_text_ = message.isEmpty()
-                         ? PL_TEXT("Semantic runtime failed to start.")
-                         : PL_TEXT("Semantic runtime failed to start: %1", message);
+      status_text_ = message.isEmpty() ? PL_TEXT("Semantic runtime failed to start.")
+                                       : PL_TEXT("Semantic runtime failed to start: %1", message);
       backend_.SetTaskState(status_text_, 0, false);
       RefreshAlbumSummary();
       emit StateChanged();
@@ -383,9 +383,9 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
       const QString message = QString::fromStdString(runtime_status.message);
       running_              = false;
       pending_items_.clear();
-      status_text_ =
-          message.isEmpty() ? PL_TEXT("Semantic runtime did not report model information.")
-                            : PL_TEXT("Semantic runtime is not ready: %1", message);
+      status_text_ = message.isEmpty()
+                         ? PL_TEXT("Semantic runtime did not report model information.")
+                         : PL_TEXT("Semantic runtime is not ready: %1", message);
       backend_.SetTaskState(status_text_, 0, false);
       RefreshAlbumSummary();
       emit StateChanged();
@@ -393,21 +393,20 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
     }
   }
 
-  auto runtime_session = std::make_shared<SemanticRuntimeSessionGuard>(runtime);
+  auto              runtime_session = std::make_shared<SemanticRuntimeSessionGuard>(runtime);
 
-  auto&             semantic  = project->GetStorageService()->GetSemanticStorageController();
-  const std::string model_key = SemanticModelKeyFromInfo(*runtime_status.model_info);
+  auto&             semantic        = project->GetStorageService()->GetSemanticStorageController();
+  const std::string model_key       = SemanticModelKeyFromInfo(*runtime_status.model_info);
   std::string       error;
-  if (!semantic.UpsertModel(SemanticModelRecord{.model_key_     = model_key,
-                                                .model_id_      = runtime_status.model_info->model_id,
-                                                .revision_      = runtime_status.model_info->revision,
-                                                .embedding_dim_ = static_cast<int>(
-                                                    runtime_status.model_info->embedding_dimension),
-                                                .image_size_ = static_cast<int>(
-                                                    runtime_status.model_info->image_size),
-                                                .prompt_config_hash_ =
-                                                    kDefaultSemanticPhotographyPromptConfigHash},
-                            &error)) {
+  if (!semantic.UpsertModel(
+          SemanticModelRecord{
+              .model_key_     = model_key,
+              .model_id_      = runtime_status.model_info->model_id,
+              .revision_      = runtime_status.model_info->revision,
+              .embedding_dim_ = static_cast<int>(runtime_status.model_info->embedding_dimension),
+              .image_size_    = static_cast<int>(runtime_status.model_info->image_size),
+              .prompt_config_hash_ = kDefaultSemanticPhotographyPromptConfigHash},
+          &error)) {
     running_ = false;
     pending_items_.clear();
     status_text_ =
@@ -418,13 +417,14 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
     return;
   }
 
-  pending_items_ = ItemsNeedingSemanticGeneration(pending_items_, semantic, model_key, forceRegenerate);
-  model_key_     = model_key;
-  total_         = ClampToInt(pending_items_.size());
-  embedded_      = 0;
-  skipped_       = 0;
-  failed_        = 0;
-  canceled_      = 0;
+  pending_items_ =
+      ItemsNeedingSemanticGeneration(pending_items_, semantic, model_key, forceRegenerate);
+  model_key_ = model_key;
+  total_     = ClampToInt(pending_items_.size());
+  embedded_  = 0;
+  skipped_   = 0;
+  failed_    = 0;
+  canceled_  = 0;
   if (pending_items_.empty()) {
     running_     = false;
     status_text_ = PL_TEXT("All images already have semantic labels.");
@@ -435,11 +435,12 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
     return;
   }
   status_text_ = PL_TEXT("Generating semantic labels for %1 image(s)...", total_);
-  emit StateChanged();
+  emit                      StateChanged();
 
   SemanticGenerationOptions options;
   options.thumbnail_resolution = ThumbnailResolution::k256;
-  options.batch_size           = 16;
+  options.thumbnail_batch_size = 8;
+  options.embedding_batch_size = 64;
   options.expected_model_info  = runtime_status.model_info;
   options.force_regenerate     = forceRegenerate;
   SemanticGenerationPersistenceOptions persistence;
@@ -451,14 +452,15 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
   auto embedder   = std::make_shared<SemanticRuntimeImageEmbeddingClient>(runtime);
   auto service    = std::make_shared<SemanticGenerationService>(thumbnails, embedder);
   QPointer<SemanticGenerationController> self(this);
-  auto job = service->StartGeneration(
+  auto                                   job = service->StartGeneration(
       pending_items_, options,
       [self](const SemanticGenerationProgress& progress) {
         if (!self) {
           return;
         }
         QMetaObject::invokeMethod(
-            self, [self, progress]() {
+            self,
+            [self, progress]() {
               if (self) {
                 self->UpdateProgress(progress);
               }
@@ -470,7 +472,8 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
           return;
         }
         QMetaObject::invokeMethod(
-            self, [self, results = std::move(results)]() mutable {
+            self,
+            [self, results = std::move(results)]() mutable {
               if (self) {
                 self->Finish(std::move(results));
               }
@@ -483,11 +486,11 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
 }
 
 void SemanticGenerationController::UpdateProgress(const SemanticGenerationProgress& progress) {
-  total_    = static_cast<int>(progress.total);
-  embedded_ = static_cast<int>(progress.embedded);
-  skipped_  = static_cast<int>(progress.skipped);
-  failed_   = static_cast<int>(progress.failed);
-  canceled_ = static_cast<int>(progress.canceled);
+  total_              = static_cast<int>(progress.total);
+  embedded_           = static_cast<int>(progress.embedded);
+  skipped_            = static_cast<int>(progress.skipped);
+  failed_             = static_cast<int>(progress.failed);
+  canceled_           = static_cast<int>(progress.canceled);
   const int completed = embedded_ + skipped_ + failed_ + canceled_;
   status_text_ =
       PL_TEXT("Generating semantic labels... %1/%2 complete", completed, std::max(total_, 1));
@@ -503,10 +506,10 @@ void SemanticGenerationController::Finish(std::vector<SemanticGenerationItemResu
   pending_items_.clear();
   prompt_pending_ = false;
 
-  int embedded = 0;
-  int skipped  = 0;
-  int failed   = 0;
-  int canceled = 0;
+  int embedded    = 0;
+  int skipped     = 0;
+  int failed      = 0;
+  int canceled    = 0;
   for (const auto& result : results) {
     switch (result.status) {
       case SemanticGenerationItemStatus::kEmbedded:
@@ -525,11 +528,11 @@ void SemanticGenerationController::Finish(std::vector<SemanticGenerationItemResu
         break;
     }
   }
-  embedded_ = embedded;
-  skipped_  = skipped;
-  failed_   = failed;
-  canceled_ = canceled;
-  total_    = static_cast<int>(results.size());
+  embedded_    = embedded;
+  skipped_     = skipped;
+  failed_      = failed;
+  canceled_    = canceled;
+  total_       = static_cast<int>(results.size());
 
   status_text_ = PL_TEXT("Semantic generation complete: %1 generated, %2 skipped, %3 failed.",
                          embedded, skipped, failed + canceled);
