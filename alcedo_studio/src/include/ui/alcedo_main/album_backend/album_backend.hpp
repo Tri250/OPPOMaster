@@ -53,10 +53,12 @@ class AlbumBackend final : public QObject {
   Q_PROPERTY(QVariantList dateStats READ DateStats NOTIFY StatsChanged)
   Q_PROPERTY(QVariantList cameraStats READ CameraStats NOTIFY StatsChanged)
   Q_PROPERTY(QVariantList lensStats READ LensStats NOTIFY StatsChanged)
+  Q_PROPERTY(QVariantList labelStats READ LabelStats NOTIFY StatsChanged)
   Q_PROPERTY(int totalPhotoCount READ TotalPhotoCount NOTIFY StatsChanged)
   Q_PROPERTY(QString statsFilterDate READ StatsFilterDate NOTIFY StatsFilterChanged)
   Q_PROPERTY(QString statsFilterCamera READ StatsFilterCamera NOTIFY StatsFilterChanged)
   Q_PROPERTY(QString statsFilterLens READ StatsFilterLens NOTIFY StatsFilterChanged)
+  Q_PROPERTY(QString statsFilterLabel READ StatsFilterLabel NOTIFY StatsFilterChanged)
   Q_PROPERTY(QVariantList ratingStats READ RatingStats NOTIFY StatsChanged)
   Q_PROPERTY(QString statsFilterRating READ StatsFilterRating NOTIFY StatsFilterChanged)
   Q_PROPERTY(bool serviceReady READ ServiceReady NOTIFY ServiceStateChanged)
@@ -145,11 +147,13 @@ class AlbumBackend final : public QObject {
   QVariantList   DateStats() const { return stats_.date_stats(); }
   QVariantList   CameraStats() const { return stats_.camera_stats(); }
   QVariantList   LensStats() const { return stats_.lens_stats(); }
+  QVariantList   LabelStats() const { return stats_.label_stats(); }
   QVariantList   RatingStats() const { return stats_.rating_stats(); }
   int            TotalPhotoCount() const { return stats_.total_photo_count(); }
   const QString& StatsFilterDate() const { return stats_.filter_date(); }
   const QString& StatsFilterCamera() const { return stats_.filter_camera(); }
   const QString& StatsFilterLens() const { return stats_.filter_lens(); }
+  const QString& StatsFilterLabel() const { return stats_.filter_label(); }
   const QString& StatsFilterRating() const { return stats_.filter_rating(); }
   bool           ServiceReady() const { return service_ready_; }
   QString        ServiceMessage() const { return service_message_text_.Render(); }

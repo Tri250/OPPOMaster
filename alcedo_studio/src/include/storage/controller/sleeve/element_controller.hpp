@@ -35,6 +35,7 @@ struct FolderStatsView {
   std::vector<StorageStatsBucket> date_stats_{};
   std::vector<StorageStatsBucket> camera_stats_{};
   std::vector<StorageStatsBucket> lens_stats_{};
+  std::vector<StorageStatsBucket> label_stats_{};
   std::vector<StorageStatsBucket> rating_stats_{};
 };
 

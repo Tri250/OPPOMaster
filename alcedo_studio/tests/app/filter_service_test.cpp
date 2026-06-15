@@ -4,6 +4,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <exiv2/exiv2.hpp>
 #include <filesystem>
 #include <future>
@@ -20,6 +21,7 @@
 #include "sleeve/sleeve_element/sleeve_element.hpp"
 #include "sleeve/sleeve_element/sleeve_file.hpp"
 #include "sleeve/sleeve_filter/filter_combo.hpp"
+#include "storage/controller/semantic/semantic_storage_controller.hpp"
 #include "type/supported_file_type.hpp"
 #include "utils/clock/time_provider.hpp"
 #include "utils/string/convert.hpp"
@@ -29,6 +31,55 @@ namespace {
 auto U8(const char8_t* text) -> std::string {
   const auto* bytes = reinterpret_cast<const char*>(text);
   return std::string(bytes);
+}
+
+auto OneHot(size_t index) -> std::vector<float> {
+  std::vector<float> embedding(kSemanticEmbeddingDim, 0.0F);
+  embedding.at(index) = 1.0F;
+  return embedding;
+}
+
+void RegisterSemanticSearchModel(SemanticStorageController& semantic, const std::string& model_key) {
+  std::string error;
+  ASSERT_TRUE(semantic.UpsertModel(SemanticModelRecord{.model_key_     = model_key,
+                                                       .model_id_      = "mobileclip-test",
+                                                       .revision_      = "test-rev",
+                                                       .embedding_dim_ = kSemanticEmbeddingDim,
+                                                       .image_size_    = 256},
+                                   &error))
+      << error;
+}
+
+auto FindImageId(ProjectService& project, sl_element_id_t file_id) -> image_id_t {
+  const auto rows = project.GetStorageService()->GetElementController().ListFilesInFolder(0);
+  const auto it   = std::find_if(rows.begin(), rows.end(), [file_id](const FileListEntry& row) {
+    return row.file_id_ == file_id;
+  });
+  EXPECT_NE(it, rows.end());
+  return it != rows.end() ? it->image_id_ : 0;
+}
+
+void StoreSemanticLabel(ProjectService& project, const std::string& model_key,
+                        sl_element_id_t file_id, const std::string& label, size_t embedding_index) {
+  auto&       semantic = project.GetStorageService()->GetSemanticStorageController();
+  const auto  image_id = FindImageId(project, file_id);
+  std::string error;
+  ASSERT_NE(image_id, 0u);
+  SemanticImageLabelRecord record{.file_id_         = file_id,
+                                  .model_key_       = model_key,
+                                  .label_           = label,
+                                  .score_           = 0.91,
+                                  .second_label_    = "other",
+                                  .second_score_    = 0.12,
+                                  .margin_          = 0.79,
+                                  .confident_       = true,
+                                  .top_scores_json_ = R"([{"label":"test","score":0.91}])"};
+  ASSERT_TRUE(semantic.UpsertImageEmbeddingWithLabel(
+      SemanticImageEmbeddingRecord{
+          .file_id_ = file_id, .image_id_ = image_id, .model_key_ = model_key,
+          .embedding_ = OneHot(embedding_index)},
+      &record, &error))
+      << error;
 }
 
 struct SyntheticFileSpec {
@@ -431,6 +482,59 @@ TEST_F(FilterServiceTests, FuzzySearchMatchesRealImportedRawFilenameWithoutSepar
   ASSERT_EQ(rows.size(), 1u);
   EXPECT_EQ(rows.front().file_name_, "_DSC2296.ARW");
   EXPECT_EQ(filter_service.CountSearchResults(0, L"_DSC2296ARW"), 1u);
+}
+
+TEST_F(FilterServiceTests, FuzzySearchMatchesGeneratedSemanticLabelsAsOrdinaryText) {
+  ProjectService project(db_path_, meta_path_);
+  const auto     landscape_id = CreateSyntheticFile(
+      project, SyntheticFileSpec{.file_name_    = L"semantic_alpha.dng",
+                                 .image_path_   = std::filesystem::path{L"D:/photos/a.dng"},
+                                 .camera_model_ = "Neutral Body",
+                                 .lens_         = "Plain Lens"});
+  const auto portrait_id = CreateSyntheticFile(
+      project, SyntheticFileSpec{.file_name_    = L"semantic_beta.dng",
+                                 .image_path_   = std::filesystem::path{L"D:/photos/b.dng"},
+                                 .camera_model_ = "Neutral Body",
+                                 .lens_         = "Plain Lens"});
+  ASSERT_NE(landscape_id, 0u);
+  ASSERT_NE(portrait_id, 0u);
+
+  auto& semantic = project.GetStorageService()->GetSemanticStorageController();
+  RegisterSemanticSearchModel(semantic, "mobileclip-test-a");
+  RegisterSemanticSearchModel(semantic, "mobileclip-test-b");
+  StoreSemanticLabel(project, "mobileclip-test-a", landscape_id, "landscape", 4);
+  StoreSemanticLabel(project, "mobileclip-test-b", landscape_id, "landscape", 5);
+  StoreSemanticLabel(project, "mobileclip-test-a", portrait_id, "portrait", 6);
+
+  SleeveFilterService filter_service(project.GetStorageService());
+
+  const auto landscape_rows = filter_service.SearchFolder(0, L"landscape", 0, 10);
+  ASSERT_EQ(landscape_rows.size(), 1u);
+  EXPECT_EQ(landscape_rows.front().file_id_, landscape_id);
+  EXPECT_EQ(filter_service.CountSearchResults(0, L"landscape"), 1u);
+
+  const auto combined_rows = filter_service.SearchFolder(0, L"landscape Neutral", 0, 10);
+  ASSERT_EQ(combined_rows.size(), 1u);
+  EXPECT_EQ(combined_rows.front().file_id_, landscape_id);
+
+  auto sleeve_service = project.GetSleeveService();
+  auto album          = sleeve_service->CreateFolder(L"/", L"SemanticLabels");
+  ASSERT_TRUE(album.second.success_);
+  ASSERT_NE(album.first, nullptr);
+  ASSERT_TRUE(sleeve_service->LinkFileToFolder(landscape_id, album.first->element_id_).success_);
+
+  const auto album_landscape =
+      filter_service.SearchFolder(album.first->element_id_, L"landscape", 0, 10);
+  ASSERT_EQ(album_landscape.size(), 1u);
+  EXPECT_EQ(album_landscape.front().file_id_, landscape_id);
+  EXPECT_TRUE(filter_service.SearchFolder(album.first->element_id_, L"portrait", 0, 10).empty());
+
+  const auto stats = filter_service.BuildFolderStats(0);
+  const auto has_label_bucket =
+      std::find_if(stats.label_stats_.begin(), stats.label_stats_.end(), [](const StatsBucket& row) {
+        return row.label_ == "landscape" && row.count_ == 1;
+      });
+  EXPECT_NE(has_label_bucket, stats.label_stats_.end());
 }
 
 TEST_F(FilterServiceTests, FuzzySearchEscapesSqlLikeWildcardsAndQuotesInWideInput) {

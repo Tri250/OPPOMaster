@@ -27,6 +27,7 @@ struct AlbumStatsView {
   std::vector<StatsBucket> date_stats_{};
   std::vector<StatsBucket> camera_stats_{};
   std::vector<StatsBucket> lens_stats_{};
+  std::vector<StatsBucket> label_stats_{};
   std::vector<StatsBucket> rating_stats_{};
 };
 
@@ -34,13 +35,6 @@ struct FuzzySearchMatch {
   sl_element_id_t file_id_  = 0;
   image_id_t      image_id_ = 0;
   std::string     file_name_{};
-};
-
-struct FuzzySearchSuggestion {
-  std::string category_{};
-  std::string label_{};
-  std::string query_{};
-  int         count_ = 0;
 };
 
 class SemanticSearchProvider {
@@ -94,9 +88,6 @@ class SleeveFilterService {
       -> std::vector<FuzzySearchMatch>;
   [[nodiscard]] auto CountSearchResults(sl_element_id_t parent_id, const std::wstring& query) const
       -> size_t;
-  [[nodiscard]] auto BuildSearchSuggestions(sl_element_id_t parent_id, size_t limit = 12) const
-      -> std::vector<FuzzySearchSuggestion>;
-
   /// Invalidate all cached filter results for a specific folder scope.
   /// Call after membership changes (link / unlink / delete) that affect that folder.
   void InvalidateResultCache(sl_element_id_t folder_id);

@@ -347,6 +347,16 @@ auto ElementController::BuildFolderStats(sl_element_id_t                    fold
           "GROUP BY l ORDER BY c DESC",
           base_join));
 
+  out.label_stats_ = RunGroupByQuery(
+      guard_.conn_,
+      std::format("WITH scoped AS (SELECT e.id AS file_id {}) "
+                  "SELECT sl.label AS l, COUNT(DISTINCT scoped.file_id) AS c "
+                  "FROM scoped "
+                  "JOIN SemanticImageLabel sl ON sl.file_id = scoped.file_id "
+                  "WHERE sl.label IS NOT NULL AND sl.label <> '' "
+                  "GROUP BY sl.label ORDER BY c DESC, sl.label",
+                  base_join));
+
   out.rating_stats_ = RunGroupByQuery(
       guard_.conn_,
       std::format("SELECT json_extract(i.metadata, '$.Rating')::VARCHAR AS r, COUNT(*) AS c {} "

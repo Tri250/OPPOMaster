@@ -109,6 +109,16 @@ ScrollView {
                 onBarClicked: function(label) { albumBackend.ToggleStatsFilter("camera", label) }
             }
 
+            StatsCard {
+                Layout.fillWidth: true
+                title: qsTr("By Labels")
+                accentColor: appTheme.toneSteel
+                model: albumBackend.labelStats
+                selectedLabel: albumBackend.statsFilterLabel
+                displayMode: "chips"
+                onBarClicked: function(label) { albumBackend.ToggleStatsFilter("label", label) }
+            }
+
             StarRatingFilter {
                 Layout.fillWidth: true
                 selectedRating: albumBackend.statsFilterRating

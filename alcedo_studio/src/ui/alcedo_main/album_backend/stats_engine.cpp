@@ -18,15 +18,61 @@ namespace alcedo::ui {
                           QT_TRANSLATE_NOOP(ALCEDO_I18N_CONTEXT, text) __VA_OPT__(, ) __VA_ARGS__)
 
 namespace {
-auto ToStatsRows(const std::vector<alcedo::StatsBucket>& buckets) -> QVariantList {
+auto EscapedSqlString(std::wstring value) -> std::wstring {
+  for (size_t pos = 0; (pos = value.find(L'\'', pos)) != std::wstring::npos; pos += 2) {
+    value.insert(pos, 1, L'\'');
+  }
+  return value;
+}
+
+auto ToStatsRows(const std::vector<alcedo::StatsBucket>& buckets, bool uppercase_labels = false)
+    -> QVariantList {
   QVariantList rows;
   rows.reserve(static_cast<qsizetype>(buckets.size()));
   for (const auto& bucket : buckets) {
-    const QString label = bucket.label_.empty() ? PL_TEXT("(unknown)").Render()
-                                                : QString::fromUtf8(bucket.label_.c_str());
+    QString label = bucket.label_.empty() ? PL_TEXT("(unknown)").Render()
+                                          : QString::fromUtf8(bucket.label_.c_str());
+    if (uppercase_labels) {
+      label = label.toUpper();
+    }
     rows.push_back(QVariantMap{{"label", label}, {"count", bucket.count_}});
   }
   return rows;
+}
+
+auto SearchCategoryLabel(const QString& category) -> QString {
+  if (category == u"camera") {
+    return PL_TEXT("Camera").Render();
+  }
+  if (category == u"date") {
+    return PL_TEXT("Date").Render();
+  }
+  if (category == u"lens") {
+    return PL_TEXT("Lens").Render();
+  }
+  if (category == u"label") {
+    return PL_TEXT("Label").Render();
+  }
+  return PL_TEXT("Metadata").Render();
+}
+
+void AppendRecommendationRows(QVariantList& out, const QVariantList& buckets, const QString& category,
+                              int limit) {
+  for (const auto& bucket : buckets) {
+    if (out.size() >= limit) {
+      return;
+    }
+    const auto row   = bucket.toMap();
+    const auto label = row.value(QStringLiteral("label")).toString();
+    if (label.isEmpty() || label == PL_TEXT("(unknown)").Render()) {
+      continue;
+    }
+    out.push_back(QVariantMap{{"category", category},
+                              {"categoryLabel", SearchCategoryLabel(category)},
+                              {"label", label},
+                              {"query", label},
+                              {"count", row.value(QStringLiteral("count")).toInt()}});
+  }
 }
 }  // namespace
 
@@ -46,6 +92,7 @@ void StatsEngine::RefreshStats() {
     date_stats_.clear();
     camera_stats_.clear();
     lens_stats_.clear();
+    label_stats_.clear();
     rating_stats_.clear();
     total_photo_count_ = 0;
     emit backend_.StatsChanged();
@@ -64,6 +111,7 @@ void StatsEngine::RefreshStats() {
       date_stats_.clear();
       camera_stats_.clear();
       lens_stats_.clear();
+      label_stats_.clear();
       rating_stats_.clear();
       total_photo_count_ = 0;
       emit backend_.StatsChanged();
@@ -84,6 +132,7 @@ void StatsEngine::RefreshStats() {
     date_stats_        = ToStatsRows(stats.date_stats_);
     camera_stats_      = ToStatsRows(stats.camera_stats_);
     lens_stats_        = ToStatsRows(stats.lens_stats_);
+    label_stats_       = ToStatsRows(stats.label_stats_, true);
     rating_stats_      = ToStatsRows(stats.rating_stats_);
   } catch (...) {
     // Keep previous stats if service query failed.
@@ -132,6 +181,19 @@ auto StatsEngine::MakeThumbMap(const AlbumItem& image, int index) const -> QVari
       {"thumbErrorText", image.thumb_error_text}};
 }
 
+auto StatsEngine::BuildSearchRecommendations(int limit) const -> QVariantList {
+  QVariantList rows;
+  if (limit <= 0) {
+    return rows;
+  }
+  rows.reserve(limit);
+  AppendRecommendationRows(rows, camera_stats_, QStringLiteral("camera"), limit);
+  AppendRecommendationRows(rows, date_stats_, QStringLiteral("date"), limit);
+  AppendRecommendationRows(rows, lens_stats_, QStringLiteral("lens"), limit);
+  AppendRecommendationRows(rows, label_stats_, QStringLiteral("label"), limit);
+  return rows;
+}
+
 void StatsEngine::ToggleFilter(const QString& category, const QString& label) {
   if (category == u"date") {
     filter_date_ = (filter_date_ == label) ? QString{} : label;
@@ -139,6 +201,8 @@ void StatsEngine::ToggleFilter(const QString& category, const QString& label) {
     filter_camera_ = (filter_camera_ == label) ? QString{} : label;
   } else if (category == u"lens") {
     filter_lens_ = (filter_lens_ == label) ? QString{} : label;
+  } else if (category == u"label") {
+    filter_label_ = (filter_label_ == label) ? QString{} : label;
   } else if (category == u"rating") {
     filter_rating_ = (filter_rating_ == label) ? QString{} : label;
   }
@@ -148,12 +212,13 @@ void StatsEngine::ClearFilters() {
   filter_date_.clear();
   filter_camera_.clear();
   filter_lens_.clear();
+  filter_label_.clear();
   filter_rating_.clear();
 }
 
 bool StatsEngine::HasActiveFilter() const {
   return !filter_date_.isEmpty() || !filter_camera_.isEmpty() || !filter_lens_.isEmpty() ||
-         !filter_rating_.isEmpty();
+         !filter_label_.isEmpty() || !filter_rating_.isEmpty();
 }
 
 auto StatsEngine::BuildStatsFilterWhere() const -> std::optional<std::wstring> {
@@ -185,6 +250,14 @@ auto StatsEngine::BuildStatsFilterWhere() const -> std::optional<std::wstring> {
     conditions.push_back(
         L"COALESCE(NULLIF(json_extract_string(i.metadata, '$.Lens'), ''), '(unknown)') = '" +
         lens_str + L"'");
+  }
+
+  if (!filter_label_.isEmpty()) {
+    const auto label_str = EscapedSqlString(filter_label_.toStdWString());
+    conditions.push_back(
+        L"EXISTS (SELECT 1 FROM SemanticImageLabel sl WHERE sl.file_id = e.id "
+        L"AND LOWER(sl.label) = LOWER('" +
+        label_str + L"'))");
   }
 
   if (!filter_rating_.isEmpty()) {
@@ -234,6 +307,10 @@ bool StatsEngine::MatchesActiveFilters(const AlbumItem& image) const {
     } else {
       if (image.lens != filter_lens_) return false;
     }
+  }
+
+  if (!filter_label_.isEmpty()) {
+    if (!image.tags.contains(filter_label_, Qt::CaseInsensitive)) return false;
   }
 
   if (!filter_rating_.isEmpty()) {

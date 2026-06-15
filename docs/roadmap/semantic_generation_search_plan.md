@@ -440,15 +440,42 @@ user must be able to stop it explicitly.
 
 ## Search UI Flow
 
-Extend global search with a mode selection that can be kept compact:
+Global search should keep the existing metadata-first behavior as the default.
+The user-facing control is a visible toggle named `Semantic Search` / `语义搜索`,
+not a required mode picker. When the toggle is off, every query uses the
+traditional search path:
 
-- metadata
-- semantic text
-- label/tag
+- file name, element name, and path matching
+- EXIF/document matching, including camera, lens, date, ISO, focal length, and
+  aperture
+- generated semantic labels/tags as ordinary searchable text once labels exist
+- recommendation rows and exact-file application
 
-Direct label queries can be answered entirely from local database labels. Free
-text queries require the runtime to be started, unless a cached query embedding
-exists and is still compatible with the active model key.
+When the toggle is on, query routing is still conservative:
+
+- Empty text shows normal recommendations and does not start the semantic
+  runtime.
+- A direct label/tag query is resolved locally through the normal search path
+  and does not start the semantic runtime. This includes exact label names,
+  normalized/case-insensitive label names, and explicit tag syntax such as
+  `#portrait` if that syntax is added.
+- A query with clear metadata intent, such as a camera model, lens string, date,
+  filename fragment, or EXIF-shaped numeric token, uses normal search first.
+- Only a non-label free-text query, with the `Semantic Search` toggle enabled,
+  starts or acquires `SemanticRuntimeService`, embeds the text query, and asks
+  storage for a VSS/HNSW-ranked page.
+- If semantic routing fails because the model is missing, runtime startup fails,
+  or the VSS extension/index is unavailable, surface that semantic error
+  explicitly. Do not silently replace the semantic branch with a full-vector C++
+  scan. The user can turn the toggle off to run ordinary matching.
+
+Phase 5 should not make semantic search run on every keystroke by default.
+Traditional preview can keep its current short debounce. Semantic preview should
+run only when the user presses Enter or clicks the search button. A development
+experiment may measure debounced semantic preview with cancellation and a
+single-flight request guard, but the shippable default remains explicit-submit
+until text embedding plus HNSW paging is proven interactive with MobileCLIP on
+real catalogs.
 
 Existing preview thumbnail lifecycle should be reused. Semantic result pages
 should request thumbnails only for visible preview rows and should release them
@@ -558,12 +585,84 @@ Packaging smoke tests should verify:
    - import-finished prompt
    - UI-facing progress/cancel/failure state
 
-5. Search integration
-   - concrete `SemanticSearchProvider`
-   - tag search path
-   - text search path
-   - preview pagination/count support
-   - apply-to-album-grid path
+5. Search integration and query routing
+    - 5a. Traditional search baseline and label participation
+      - keep `SleeveFilterService::BuildFuzzySearchWhere(...)` as the default
+        path when semantic search is disabled
+      - extend the normal search document to include generated
+        `SemanticImageLabel.label` values without requiring the runtime
+      - preserve filename, element name, image path, and EXIF matching behavior
+        exactly for ordinary queries
+      - keep recommendation rows local; label/tag recommendations should be
+        backed by stored labels, not by runtime text embeddings
+      - add focused tests proving that typing a generated label name returns
+        results through the ordinary path
+    - 5b. Visible semantic-search toggle and persisted UI state
+      - add a compact `Semantic Search` / `语义搜索` toggle to
+        `GlobalSearchDialog.qml`
+      - persist the preference in `QSettings`, but default it off for existing
+        users and new projects
+      - expose the toggle through `SearchController` so QML does not decide
+        runtime behavior by itself
+      - keep ordinary preview debounced while the toggle is off
+      - add an explicit submit affordance for semantic search: Enter and a
+        search button should both call the same controller method
+    - 5c. Query intent classifier
+      - centralize routing in C++ near `SearchController` or
+        `SleeveFilterService`; QML should only pass query text and toggle state
+      - normalize query text for direct label matching against
+        `SemanticLabelQuery` and assigned `SemanticImageLabel` values
+      - treat exact label names, known synonyms, and explicit tag syntax as
+        traditional label/tag search even when the toggle is on
+      - treat EXIF-shaped tokens, dates, camera/lens strings, filenames, and
+        short structured fragments as ordinary search
+      - route only non-label natural-language text to semantic search
+      - expose the chosen route in testable data, for example
+        `traditional`, `label`, `semantic`, or `empty`
+    - 5d. Concrete semantic provider
+      - implement the concrete `SemanticSearchProvider` and register it from
+        `ProjectService` after storage and runtime services exist
+      - acquire `SemanticRuntimeService` only for the semantic route, using the
+        same ad hoc lifecycle rule as generation
+      - fetch/validate model info, derive the active model key, and reject
+        search when the model key is not registered in storage
+      - call text embedding once per submitted query, validate the returned
+        vector, then call `SemanticStorageController::SearchImageEmbeddings`
+      - keep DuckDB VSS/HNSW as the only ranked vector path; missing extension
+        or index is an actionable semantic-search error, not a C++ scan fallback
+      - return rows in the same lightweight shape as `FuzzySearchMatch` so
+        preview thumbnail handling stays shared
+    - 5e. Preview pagination, counts, and result lifecycle
+      - keep existing preview thumbnail pin/release behavior for semantic rows
+      - support paged semantic previews with `offset`/`limit`; do not fetch the
+        whole vector corpus or materialize giant result lists in QML
+      - decide count semantics explicitly: either return an approximate
+        `hasMore` response for semantic pages, or add a storage-owned count/page
+        token; do not fake a full count by scanning vectors in C++
+      - cancel or ignore stale semantic requests when a newer submitted query
+        replaces them
+      - show loading, empty, and error states in the existing search dialog
+        without closing the dialog before progress is visible
+    - 5f. Apply-to-album-grid path
+      - ordinary searches continue to apply as SQL `WHERE` filters
+      - semantic searches should apply through a storage-owned result token or
+        scoped temporary result table, not a giant `IN (...)` list in UI code
+      - tie the applied result token to folder scope, query text, model key, and
+        a generation/version marker so stale result sets can be invalidated
+      - make clearing search release the semantic result scope and restore the
+        normal album query path
+      - keep root and folder scope aligned with
+        `ElementController::BuildScopedFileQuery`
+    - 5g. Realtime-search experiment
+      - measure a debounced semantic preview behind a development flag or local
+        instrumentation only
+      - record text embedding latency, runtime startup latency, VSS query
+        latency, cancellation behavior, and UI frame impact on realistic albums
+      - only promote realtime semantic preview if repeated text embeddings are
+        compatible with the active MobileCLIP runtime and stay comfortably
+        interactive; otherwise keep Enter/button submission as product behavior
+      - cache repeated query embeddings by normalized query + model key only
+        after correctness and invalidation rules are defined
 
 6. Download and packaging
    - Qt model downloader
@@ -602,6 +701,22 @@ C++ tests:
 - thumbnail pin released on success, failure, and cancel
 - semantic search ranking within root and folder scopes
 - label-only search without runtime
+- normal search still matches filename, element name, EXIF, camera, lens, date,
+  ISO, focal length, and aperture with semantic search disabled
+- generated label names participate in ordinary search without starting the
+  semantic runtime
+- query routing classifies empty, metadata, label/tag, and natural-language
+  queries deterministically
+- when the semantic-search toggle is enabled, label/tag queries still use the
+  ordinary path and natural-language queries use the semantic provider
+- semantic provider starts/acquires the runtime only for submitted semantic
+  queries and releases it according to the ad hoc lifecycle owner
+- semantic provider surfaces missing model, runtime failure, bad embedding, and
+  missing VSS extension/index errors without falling back to C++ vector scans
+- semantic preview pagination ignores stale results after a newer submitted
+  query and keeps thumbnail pin/release behavior intact
+- applying a semantic result set to the album grid respects root/folder scope
+  and does not build a giant UI-owned `IN (...)` filter
 
 Manual smoke tests:
 
@@ -609,7 +724,16 @@ Manual smoke tests:
 - download model from custom mirror source
 - start/stop runtime repeatedly
 - import images, accept semantic generation, cancel mid-run, retry
-- search text query and label query
+- with semantic search off, search filename, EXIF strings, dates, generated
+  labels, and tag-like text
+- with semantic search on, type a generated label name and verify the runtime
+  does not start
+- with semantic search on, submit a natural-language query with Enter and with
+  the search button, then page results
+- verify typing alone does not fire semantic requests in the default product
+  path
+- if the realtime experiment flag is enabled, compare debounce latency and
+  cancellation behavior against explicit-submit semantic search
 - package/reopen project and verify semantic rows survive
 
 ## Open Decisions

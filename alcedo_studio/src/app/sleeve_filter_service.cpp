@@ -137,7 +137,13 @@ auto SearchDocumentExpr() -> std::wstring {
          L"COALESCE(json_extract_string(i.metadata, '$.Lens'), ''), "
          L"COALESCE(json_extract_string(i.metadata, '$.LensMake'), ''), "
          L"COALESCE(json_extract_string(i.metadata, '$.DateTimeString'), ''), "
+         L"COALESCE((SELECT string_agg(sl.label, ' ') "
+         L"FROM SemanticImageLabel sl WHERE sl.file_id = e.id), ''), "
          L"COALESCE(CAST(i.metadata AS VARCHAR), ''))";
+}
+
+auto SemanticLabelExpr() -> std::wstring {
+  return L"(SELECT string_agg(sl.label, ' ') FROM SemanticImageLabel sl WHERE sl.file_id = e.id)";
 }
 
 auto FoldedDocumentClause(const std::wstring& token) -> std::optional<std::wstring> {
@@ -311,6 +317,7 @@ auto TokenSearchClause(const std::wstring& token) -> std::wstring {
       LikeClause(L"json_extract_string(i.metadata, '$.Model')", token),
       LikeClause(L"json_extract_string(i.metadata, '$.Lens')", token),
       LikeClause(L"json_extract_string(i.metadata, '$.LensMake')", token),
+      LikeClause(SemanticLabelExpr(), token),
       LikeClause(L"CAST(i.metadata AS VARCHAR)", token),
       LikeClause(L"CAST(json_extract(i.metadata, '$.ISO') AS VARCHAR)", token),
       LikeClause(L"CAST(json_extract(i.metadata, '$.FocalLength') AS VARCHAR)", token),
@@ -335,19 +342,6 @@ auto SearchDocumentClause(const std::wstring& query) -> std::wstring {
   return L"(" + JoinWith(clauses, L" OR ") + L")";
 }
 
-void AppendSuggestionRows(std::vector<FuzzySearchSuggestion>& out,
-                          const std::vector<StatsBucket>& buckets, const std::string& category,
-                          size_t limit) {
-  for (const auto& bucket : buckets) {
-    if (out.size() >= limit) {
-      return;
-    }
-    if (bucket.label_.empty() || bucket.label_ == "(unknown)") {
-      continue;
-    }
-    out.push_back({category, bucket.label_, bucket.label_, bucket.count_});
-  }
-}
 }  // namespace
 
 auto SleeveFilterService::CreateFilterCombo(const FilterNode& root) -> filter_id_t {
@@ -427,6 +421,11 @@ auto SleeveFilterService::BuildFolderStats(sl_element_id_t                  pare
   out.lens_stats_.reserve(storage_stats.lens_stats_.size());
   for (const auto& bucket : storage_stats.lens_stats_) {
     out.lens_stats_.push_back({bucket.label_, bucket.count_});
+  }
+
+  out.label_stats_.reserve(storage_stats.label_stats_.size());
+  for (const auto& bucket : storage_stats.label_stats_) {
+    out.label_stats_.push_back({bucket.label_, bucket.count_});
   }
 
   out.rating_stats_.reserve(storage_stats.rating_stats_.size());
@@ -511,21 +510,6 @@ auto SleeveFilterService::CountSearchResults(sl_element_id_t     parent_id,
     return 0;
   }
   return storage_service_->GetElementController().CountFilesInFolder(parent_id, where);
-}
-
-auto SleeveFilterService::BuildSearchSuggestions(sl_element_id_t parent_id, size_t limit) const
-    -> std::vector<FuzzySearchSuggestion> {
-  std::vector<FuzzySearchSuggestion> out;
-  if (limit == 0) {
-    return out;
-  }
-
-  const auto stats = BuildFolderStats(parent_id);
-  out.reserve(limit);
-  AppendSuggestionRows(out, stats.camera_stats_, "camera", limit);
-  AppendSuggestionRows(out, stats.date_stats_, "date", limit);
-  AppendSuggestionRows(out, stats.lens_stats_, "lens", limit);
-  return out;
 }
 
 void SleeveFilterService::InvalidateResultCache(sl_element_id_t folder_id) {

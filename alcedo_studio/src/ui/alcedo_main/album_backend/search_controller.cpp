@@ -46,22 +46,6 @@ auto CurrentExceptionText(const char* fallback) -> QString {
   }
 }
 
-auto SearchCategoryLabel(const std::string& category) -> QString {
-  if (category == "camera") {
-    return Tr("Camera");
-  }
-  if (category == "date") {
-    return Tr("Date");
-  }
-  if (category == "lens") {
-    return Tr("Lens");
-  }
-  if (category == "rating") {
-    return Tr("Rating");
-  }
-  return Tr("Metadata");
-}
-
 }  // namespace
 
 SearchController::SearchController(AlbumBackend& backend) : backend_(backend) {}
@@ -77,38 +61,10 @@ auto SearchController::ActiveSearchFilterWhere() const -> const std::optional<st
 }
 
 auto SearchController::SearchRecommendations(int limit) -> QVariantList {
-  QVariantList rows;
   if (limit <= 0) {
-    return rows;
+    return {};
   }
-
-  auto proj = backend_.project_handler_.project();
-  if (!proj) {
-    return rows;
-  }
-  auto filter_service = proj->GetSleeveFilterService();
-  if (!filter_service) {
-    return rows;
-  }
-  const auto folder_id = backend_.folder_ctrl_.CurrentFolderElementId();
-  if (!folder_id.has_value()) {
-    return rows;
-  }
-
-  try {
-    const auto suggestions =
-        filter_service->BuildSearchSuggestions(folder_id.value(), static_cast<size_t>(limit));
-    rows.reserve(static_cast<qsizetype>(suggestions.size()));
-    for (const auto& suggestion : suggestions) {
-      rows.push_back(QVariantMap{{"category", QString::fromUtf8(suggestion.category_.c_str())},
-                                 {"categoryLabel", SearchCategoryLabel(suggestion.category_)},
-                                 {"label", QString::fromUtf8(suggestion.label_.c_str())},
-                                 {"query", QString::fromUtf8(suggestion.query_.c_str())},
-                                 {"count", suggestion.count_}});
-    }
-  } catch (...) {
-  }
-  return rows;
+  return backend_.stats_.BuildSearchRecommendations(limit);
 }
 
 auto SearchController::SearchPreview(const QString& query, int offset, int limit) -> QVariantMap {

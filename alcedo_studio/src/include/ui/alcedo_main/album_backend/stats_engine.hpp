@@ -29,10 +29,12 @@ class StatsEngine {
 
   [[nodiscard]] auto FormatPhotoInfo(int shown, int total) const -> QString;
   [[nodiscard]] auto MakeThumbMap(const AlbumItem& image, int index) const -> QVariantMap;
+  [[nodiscard]] auto BuildSearchRecommendations(int limit) const -> QVariantList;
 
   [[nodiscard]] auto date_stats() const -> const QVariantList& { return date_stats_; }
   [[nodiscard]] auto camera_stats() const -> const QVariantList& { return camera_stats_; }
   [[nodiscard]] auto lens_stats() const -> const QVariantList& { return lens_stats_; }
+  [[nodiscard]] auto label_stats() const -> const QVariantList& { return label_stats_; }
   [[nodiscard]] auto rating_stats() const -> const QVariantList& { return rating_stats_; }
   [[nodiscard]] int  total_photo_count() const { return total_photo_count_; }
 
@@ -49,6 +51,7 @@ class StatsEngine {
   [[nodiscard]] const QString& filter_date() const { return filter_date_; }
   [[nodiscard]] const QString& filter_camera() const { return filter_camera_; }
   [[nodiscard]] const QString& filter_lens() const { return filter_lens_; }
+  [[nodiscard]] const QString& filter_label() const { return filter_label_; }
   [[nodiscard]] const QString& filter_rating() const { return filter_rating_; }
 
   /// Build an SQL WHERE clause fragment equivalent to the active stats-bar filters.
@@ -63,6 +66,7 @@ class StatsEngine {
   QVariantList  date_stats_{};
   QVariantList  camera_stats_{};
   QVariantList  lens_stats_{};
+  QVariantList  label_stats_{};
   QVariantList  rating_stats_{};
   int           total_photo_count_ = 0;
 
@@ -70,6 +74,7 @@ class StatsEngine {
   QString       filter_date_{};
   QString       filter_camera_{};
   QString       filter_lens_{};
+  QString       filter_label_{};
   QString       filter_rating_{};
 };
 
