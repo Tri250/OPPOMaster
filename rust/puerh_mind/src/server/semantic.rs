@@ -607,7 +607,15 @@ mod tests {
 
     #[test]
     fn uses_configured_model_id_as_default_name() {
-        struct NamedEngine;
+        let config = SemanticConfig {
+            model_id: "plhery/mobileclip2-onnx:s2".to_string(),
+            revision: crate::service::model_assets::MOBILECLIP2_ONNX_REVISION.to_string(),
+            model_root: "./models/mobileclip2-s2-openclip".to_string(),
+            device: "cpu".to_string(),
+            allow_download: false,
+            batch_cap: 512,
+            batch_wait_ms: 25,
+        };
 
         impl EmbeddingEngine for NamedEngine {
             fn embed_text(&self, text: &str) -> AnyResult<Vec<f32>> {

@@ -60,6 +60,27 @@ auto SqlNullableDouble(const std::optional<double>& value) -> std::string {
 
 auto SqlBool(bool value) -> const char* { return value ? "TRUE" : "FALSE"; }
 
+auto JsonString(const std::string& value) -> std::string {
+  std::string out;
+  out.reserve(value.size() + 2);
+  out.push_back('"');
+  for (const char ch : value) {
+    switch (ch) {
+      case '\\':
+        out += "\\\\";
+        break;
+      case '"':
+        out += "\\\"";
+        break;
+      default:
+        out.push_back(ch);
+        break;
+    }
+  }
+  out.push_back('"');
+  return out;
+}
+
 auto VectorArrayLiteral(std::span<const float> values) -> std::string {
   std::ostringstream out;
   out << "CAST([";
@@ -241,6 +262,113 @@ auto ValidateLabel(const SemanticImageEmbeddingRecord& record,
   }
   return true;
 }
+
+auto MakeTopScoresJson(const std::vector<std::pair<std::string, double>>& scores, size_t limit)
+    -> std::string {
+  std::ostringstream out;
+  out << "[";
+  const auto count = std::min(limit, scores.size());
+  for (size_t i = 0; i < count; ++i) {
+    if (i > 0) {
+      out << ",";
+    }
+    out << "{\"label\":" << JsonString(scores[i].first) << ",\"score\":" << std::setprecision(9)
+        << scores[i].second << "}";
+  }
+  out << "]";
+  return out.str();
+}
+
+auto InsertSemanticLabel(duckdb_connection conn, const SemanticImageLabelRecord& label,
+                         std::string* error) -> bool {
+  const auto insert_label_sql = std::format(
+      "INSERT INTO SemanticImageLabel "
+      "(file_id, model_key, label, score, second_label, second_score, margin, confident, "
+      "top_scores) "
+      "VALUES ({}, {}, {}, {}, {}, {}, {}, {}, {});",
+      label.file_id_, SqlString(label.model_key_), SqlString(label.label_), label.score_,
+      SqlNullableString(label.second_label_), SqlNullableDouble(label.second_score_), label.margin_,
+      SqlBool(label.confident_), SqlNullableString(label.top_scores_json_));
+  return RunQuery(conn, insert_label_sql, error);
+}
+
+auto BuildAssignedLabel(sl_element_id_t file_id, const std::string& model_key,
+                        const SemanticLabelAssignmentOptions&              assignment_options,
+                        const std::vector<std::pair<std::string, double>>& scores)
+    -> SemanticImageLabelRecord {
+  const auto               second_score = scores.size() > 1 ? scores[1].second : 0.0;
+
+  SemanticImageLabelRecord label;
+  label.file_id_      = file_id;
+  label.model_key_    = model_key;
+  label.label_        = scores[0].first;
+  label.score_        = scores[0].second;
+  label.second_label_ = scores.size() > 1 ? scores[1].first : std::string{};
+  label.second_score_ = scores.size() > 1 ? std::optional<double>(scores[1].second) : std::nullopt;
+  label.margin_       = scores[0].second - second_score;
+  label.confident_    = label.score_ >= assignment_options.confidence_score_threshold_ &&
+                     label.margin_ >= assignment_options.confidence_margin_threshold_;
+  label.top_scores_json_ = MakeTopScoresJson(scores, assignment_options.top_score_count_);
+  return label;
+}
+
+auto QueryAssignedLabel(duckdb_connection conn, const SemanticImageEmbeddingRecord& record,
+                        const SemanticLabelAssignmentOptions& assignment_options,
+                        std::string* error) -> std::optional<SemanticImageLabelRecord> {
+  if (assignment_options.prompt_config_hash_.empty()) {
+    SetError(error, "Semantic label assignment prompt config hash is empty.");
+    return std::nullopt;
+  }
+  if (!std::isfinite(assignment_options.confidence_score_threshold_) ||
+      !std::isfinite(assignment_options.confidence_margin_threshold_)) {
+    SetError(error, "Semantic label assignment threshold contains NaN or infinity.");
+    return std::nullopt;
+  }
+
+  const auto result_limit = std::max<size_t>(assignment_options.top_score_count_, 2U);
+  const auto sql          = std::format(
+      "SELECT lp.label, array_inner_product(lp.embedding, se.embedding) AS score "
+               "FROM SemanticLabelPrototype lp "
+               "JOIN SemanticImageEmbedding se ON se.model_key = lp.model_key "
+               "AND se.file_id = {} AND se.image_id = {} "
+               "WHERE lp.model_key = {} AND lp.prompt_config_hash = {} "
+               "AND se.status = 'ready' AND se.error IS NULL "
+               "ORDER BY score DESC, lp.label LIMIT {};",
+      record.file_id_, record.image_id_, SqlString(record.model_key_),
+      SqlString(assignment_options.prompt_config_hash_), result_limit);
+
+  duckdb_result result;
+  if (duckdb_query(conn, sql.c_str(), &result) != DuckDBSuccess) {
+    const char* raw_error = duckdb_result_error(&result);
+    SetError(error, raw_error ? raw_error : "DuckDB semantic label assignment failed.");
+    duckdb_destroy_result(&result);
+    return std::nullopt;
+  }
+
+  std::vector<std::pair<std::string, double>> scores;
+  const auto                                  row_count = duckdb_row_count(&result);
+  scores.reserve(static_cast<size_t>(row_count));
+  for (idx_t r = 0; r < row_count; ++r) {
+    std::string label;
+    if (char* raw = duckdb_value_varchar(&result, 0, r)) {
+      label = raw;
+      duckdb_free(raw);
+    }
+    if (label.empty()) {
+      duckdb_destroy_result(&result);
+      SetError(error, "Semantic label assignment returned an empty label.");
+      return std::nullopt;
+    }
+    scores.emplace_back(std::move(label), duckdb_value_double(&result, 1, r));
+  }
+  duckdb_destroy_result(&result);
+
+  if (scores.empty()) {
+    SetError(error, "Semantic label prototype cache is empty.");
+    return std::nullopt;
+  }
+  return BuildAssignedLabel(record.file_id_, record.model_key_, assignment_options, scores);
+}
 }  // namespace
 
 SemanticStorageController::SemanticStorageController(ConnectionGuard&& guard)
@@ -368,21 +496,77 @@ auto SemanticStorageController::UpsertImageEmbeddingWithLabel(
     return false;
   }
   if (label) {
-    const auto insert_label_sql = std::format(
-        "INSERT INTO SemanticImageLabel "
-        "(file_id, model_key, label, score, second_label, second_score, margin, confident, "
-        "top_scores) "
-        "VALUES ({}, {}, {}, {}, {}, {}, {}, {}, {});",
-        label->file_id_, SqlString(label->model_key_), SqlString(label->label_), label->score_,
-        SqlNullableString(label->second_label_), SqlNullableDouble(label->second_score_),
-        label->margin_, SqlBool(label->confident_), SqlNullableString(label->top_scores_json_));
-    if (!RunQuery(guard_.conn_, insert_label_sql, error)) {
+    if (!InsertSemanticLabel(guard_.conn_, *label, error)) {
       std::string rollback_error;
       RunQuery(guard_.conn_, "ROLLBACK;", &rollback_error);
       return false;
     }
   }
   return RunQuery(guard_.conn_, "COMMIT;", error);
+}
+
+auto SemanticStorageController::UpsertImageEmbeddingAndAssignLabel(
+    const SemanticImageEmbeddingRecord&   record,
+    const SemanticLabelAssignmentOptions& assignment_options,
+    SemanticImageLabelRecord* assigned_label, std::string* error) const -> bool {
+  if (record.file_id_ == 0) {
+    SetError(error, "Semantic embedding file id is zero.");
+    return false;
+  }
+  if (record.model_key_.empty()) {
+    SetError(error, "Semantic embedding model key is empty.");
+    return false;
+  }
+  const auto model_dim = GetModelEmbeddingDim(record.model_key_);
+  if (!model_dim.has_value()) {
+    SetError(error, "Semantic model is not registered.");
+    return false;
+  }
+  if (!ValidateEmbedding(record.embedding_, *model_dim, error)) {
+    return false;
+  }
+
+  const auto embedding_sql = VectorArrayLiteral(record.embedding_);
+  const auto delete_sql =
+      std::format("DELETE FROM SemanticImageEmbedding WHERE file_id = {} AND model_key = {};",
+                  record.file_id_, SqlString(record.model_key_));
+  const auto delete_label_sql =
+      std::format("DELETE FROM SemanticImageLabel WHERE file_id = {} AND model_key = {};",
+                  record.file_id_, SqlString(record.model_key_));
+  const auto insert_sql = std::format(
+      "INSERT INTO SemanticImageEmbedding "
+      "(file_id, image_id, model_key, embedding, embedding_dim, "
+      "thumbnail_resolution, status, error) "
+      "VALUES ({}, {}, {}, {}, {}, {}, 'ready', NULL);",
+      record.file_id_, record.image_id_, SqlString(record.model_key_), embedding_sql, *model_dim,
+      record.thumbnail_resolution_);
+
+  if (!RunQuery(guard_.conn_, "BEGIN TRANSACTION;", error)) {
+    return false;
+  }
+  if (!RunQuery(guard_.conn_, delete_sql, error) ||
+      !RunQuery(guard_.conn_, delete_label_sql, error) ||
+      !RunQuery(guard_.conn_, insert_sql, error)) {
+    std::string rollback_error;
+    RunQuery(guard_.conn_, "ROLLBACK;", &rollback_error);
+    return false;
+  }
+
+  auto label = QueryAssignedLabel(guard_.conn_, record, assignment_options, error);
+  if (!label.has_value() || !ValidateLabel(record, &*label, error) ||
+      !InsertSemanticLabel(guard_.conn_, *label, error)) {
+    std::string rollback_error;
+    RunQuery(guard_.conn_, "ROLLBACK;", &rollback_error);
+    return false;
+  }
+
+  if (!RunQuery(guard_.conn_, "COMMIT;", error)) {
+    return false;
+  }
+  if (assigned_label) {
+    *assigned_label = std::move(*label);
+  }
+  return true;
 }
 
 auto SemanticStorageController::UpsertLabelPrototype(const SemanticLabelPrototypeRecord& record,
@@ -463,8 +647,7 @@ auto SemanticStorageController::CountImageEmbeddingsForFile(sl_element_id_t    f
   return count.has_value() ? static_cast<size_t>(*count) : 0U;
 }
 
-auto SemanticStorageController::HasReadyImageEmbedding(sl_element_id_t    file_id,
-                                                       image_id_t         image_id,
+auto SemanticStorageController::HasReadyImageEmbedding(sl_element_id_t file_id, image_id_t image_id,
                                                        const std::string& model_key,
                                                        bool require_label) const -> bool {
   const auto model_dim = GetModelEmbeddingDim(model_key);
@@ -472,16 +655,15 @@ auto SemanticStorageController::HasReadyImageEmbedding(sl_element_id_t    file_i
     return false;
   }
 
-  std::string sql =
-      std::format("SELECT COUNT(*) FROM SemanticImageEmbedding se "
-                  "{} "
-                  "WHERE se.file_id = {} AND se.image_id = {} AND se.model_key = {} "
-                  "AND se.embedding_dim = {} AND se.status = 'ready' AND se.error IS NULL",
-                  require_label
-                      ? "JOIN SemanticImageLabel sl ON sl.file_id = se.file_id AND "
-                        "sl.model_key = se.model_key"
-                      : "",
-                  file_id, image_id, SqlString(model_key), *model_dim);
+  std::string sql = std::format(
+      "SELECT COUNT(*) FROM SemanticImageEmbedding se "
+      "{} "
+      "WHERE se.file_id = {} AND se.image_id = {} AND se.model_key = {} "
+      "AND se.embedding_dim = {} AND se.status = 'ready' AND se.error IS NULL",
+      require_label ? "JOIN SemanticImageLabel sl ON sl.file_id = se.file_id AND "
+                      "sl.model_key = se.model_key"
+                    : "",
+      file_id, image_id, SqlString(model_key), *model_dim);
   if (require_label) {
     sql += " AND sl.label IS NOT NULL AND sl.label <> ''";
   }

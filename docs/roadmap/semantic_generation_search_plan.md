@@ -298,6 +298,119 @@ Required follow-up updates:
 - include semantic tables in project save/load/package workflows
 - add storage tests for create, update, delete cleanup, and package integrity
 
+## Current Database Interaction Notes
+
+This section describes the implementation that exists through Phase 4c, plus
+the DB-facing hooks that Phase 4d now calls. It is meant to document behavior,
+not necessarily endorse every choice.
+
+### Project open and storage lifetime
+
+- `StorageService` owns one `DBController` plus one long-lived
+  `SemanticStorageController`; the semantic controller keeps its own DuckDB
+  connection guard for the lifetime of the storage service.
+- `DBController::InitializeDB()` runs on both new and existing project
+  databases. For existing projects it only runs the semantic schema string,
+  then seeds default label query rows.
+- The semantic schema uses `CREATE TABLE IF NOT EXISTS` and normal secondary
+  indexes for model/file and label lookup. It does not create the HNSW index at
+  project open.
+- Default label queries are seeded on every project open inside one transaction
+  using `INSERT OR REPLACE INTO SemanticLabelQuery`. At the current default
+  config this rewrites the small bundled photography label set, not the image
+  embedding corpus.
+- `SemanticLabelQuery` is project-local seed/config data. It is not passed into
+  generation jobs as a per-job input.
+
+### Semantic model registration
+
+- Before a generation workflow starts, the album semantic controller asks the
+  runtime for model info, builds a model key from that info, then calls
+  `SemanticStorageController::UpsertModel(...)`.
+- Model registration is an `INSERT OR REPLACE` into `SemanticModel`.
+  Re-running generation for the same model key refreshes that row rather than
+  creating a new model row.
+- The storage layer currently accepts only 512-dimensional embeddings because
+  `SemanticImageEmbedding.embedding` and `SemanticLabelPrototype.embedding` are
+  `FLOAT[512]` columns for DuckDB HNSW compatibility.
+
+### Label prototype creation and cache behavior
+
+- At the start of a persistent generation job,
+  `EnsureCachedLabelPrototypes(...)` counts label query rows for
+  `prompt_config_hash`, then counts existing prototype rows for
+  `model_key + prompt_config_hash`.
+- If `prototype_count >= query_count`, the job does not call `EmbedText` and
+  does not rewrite prototype rows. It proceeds without loading prototype vectors
+  into the app process.
+- If prototypes are missing, the job reads all label query rows ordered by
+  label, embeds each query text via the runtime, validates each returned vector,
+  and writes all prototypes through `UpsertLabelPrototypes(...)`.
+- `UpsertLabelPrototypes(...)` wraps the group write in one transaction, but
+  each row still goes through `UpsertLabelPrototype(...)`, which validates the
+  registered model and emits an `INSERT OR REPLACE` for that label.
+- After the ensure step, the generation job does not load prototype vectors into
+  app memory. Label assignment is deferred to the storage transaction that
+  writes each image embedding.
+
+### Per-image generation persistence
+
+- Both the UI controller and `SemanticGenerationService::RunJob()` check
+  `HasReadyImageEmbedding(file_id, image_id, model_key, require_label=true)`
+  when force-regenerate is false. This causes per-candidate DB reads before
+  thumbnail and runtime work.
+- Image embedding RPCs are batched, but persistence is per item after each
+  batch result is mapped back to its request id.
+- For each successful image embedding, the service validates the vector and
+  calls `UpsertImageEmbeddingAndAssignLabel(...)`; it does not receive or keep
+  prototype vectors.
+- `UpsertImageEmbeddingAndAssignLabel(...)` validates the model exists,
+  validates the vector dimension and finite/non-zero values, then opens a DuckDB
+  transaction.
+- The per-image transaction deletes the existing
+  `SemanticImageEmbedding(file_id, model_key)` row, deletes the matching
+  `SemanticImageLabel(file_id, model_key)` row, inserts the new ready embedding,
+  ranks `SemanticLabelPrototype` rows for `model_key + prompt_config_hash` with
+  DuckDB's exact `array_inner_product`, writes the top/second/top-N label result
+  row, and commits.
+- Label assignment intentionally does not use HNSW. The prototype table is tiny,
+  and exact DB-side dot product keeps classification deterministic while still
+  leaving vector storage and page residency to DuckDB.
+- There is no explicit "pending" or "failed" row written for failed/canceled
+  generation items. Failed/canceled state is reported through the job result,
+  not persisted in the semantic tables.
+
+### Search and vector index behavior
+
+- `SemanticStorageController::SearchImageEmbeddings(...)` validates the query
+  vector and calls `EnsureVectorSearchIndex(model_key)` before running the
+  ranked query.
+- `EnsureVectorSearchIndex(...)` loads DuckDB `vss` lazily, first trying the
+  `ALCEDO_DUCKDB_VSS_EXTENSION` path, then packaged executable-adjacent paths,
+  then `LOAD vss`.
+- On each ensure call it sets
+  `hnsw_enable_experimental_persistence = true` and runs
+  `CREATE INDEX IF NOT EXISTS idx_semantic_image_embedding_hnsw` on
+  `SemanticImageEmbedding USING HNSW (embedding)`.
+- The search query ranks in SQL using `array_distance` and limits the nearest
+  candidate set to `max(offset + limit, 256)` before joining to the folder
+  scope from `BuildScopedFileQuery(folder_id)`.
+- At this point `SleeveFilterService` only has a provider hook for semantic
+  search; no concrete provider is wired in this file set, so the storage search
+  primitive can exist without being reachable from normal search UI.
+
+### Cleanup and packaging participation
+
+- Project data summaries include the semantic tables, so semantic row counts
+  participate in the lightweight project summary/check path.
+- `DeleteImageEmbeddingsForFiles(...)` exists and deletes embedding and label
+  rows for a file-id list, but the current production grep only finds the
+  method definition and tests. The normal delete/sync path should be audited
+  before assuming semantic rows are always cleaned when files are removed.
+- Prototype rows are project/model/config cache data. There is no automatic
+  pruning of old `SemanticLabelPrototype` rows when a model key or prompt config
+  is superseded.
+
 ## Import and UI Flow
 
 Generation should not be silent.

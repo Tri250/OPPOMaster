@@ -192,9 +192,8 @@ class BatchGateThumbnailProvider final : public ISemanticThumbnailProvider {
     {
       std::unique_lock lock(lock_);
       request_count_++;
-      pending_.push_back(PendingRequest{.item = item,
-                                        .resolution = resolution,
-                                        .callback = std::move(callback)});
+      pending_.push_back(
+          PendingRequest{.item = item, .resolution = resolution, .callback = std::move(callback)});
       max_pending_ = std::max(max_pending_, pending_.size());
       if (pending_.size() >= release_batch_size_) {
         ready = std::move(pending_);
@@ -334,8 +333,8 @@ class NeverRespondingEmbeddingClient final : public ISemanticImageEmbeddingClien
   }
 
  private:
-  std::mutex                                         lock_;
-  std::vector<SemanticImageEmbeddingBatchCallback>   callbacks_;
+  std::mutex                                       lock_;
+  std::vector<SemanticImageEmbeddingBatchCallback> callbacks_;
 };
 
 auto OneHot512(size_t index) -> std::vector<float> {
@@ -345,7 +344,7 @@ auto OneHot512(size_t index) -> std::vector<float> {
 }
 
 auto Mixed512(size_t primary, size_t secondary, float secondary_score) -> std::vector<float> {
-  auto embedding = OneHot512(primary);
+  auto embedding          = OneHot512(primary);
   embedding.at(secondary) = secondary_score;
   return embedding;
 }
@@ -396,14 +395,24 @@ class Fixed512EmbeddingClient final : public ISemanticImageEmbeddingClient {
     result.model_name = "mock/mobileclip";
     result.dimension  = kSemanticEmbeddingDim;
     result.ok         = true;
-    const auto& queries = DefaultSemanticPhotographyLabelQueries();
-    for (size_t i = 0; i < queries.size(); ++i) {
-      if (queries[i].query == text) {
-        result.embedding = OneHot512(i);
-        return result;
+    std::string label;
+    for (const auto& query : DefaultSemanticPhotographyLabelQueries()) {
+      if (query.query == text) {
+        label = query.label;
+        break;
       }
     }
-    result.embedding = OneHot512(0);
+    if (label == "street") {
+      result.embedding = OneHot512(8);
+    } else if (label == "landscape") {
+      result.embedding    = OneHot512(2);
+      result.embedding[8] = 0.25F;
+    } else if (label == "portrait") {
+      result.embedding    = OneHot512(9);
+      result.embedding[8] = 0.1F;
+    } else {
+      result.embedding = OneHot512(0);
+    }
     return result;
   }
 
@@ -468,8 +477,8 @@ class Routed512EmbeddingClient final : public ISemanticImageEmbeddingClient {
     result.model_name = "mock/mobileclip";
     result.dimension  = kSemanticEmbeddingDim;
     result.ok         = true;
-    const auto found = query_to_index_.find(text);
-    result.embedding = OneHot512(found == query_to_index_.end() ? 0 : found->second);
+    const auto found  = query_to_index_.find(text);
+    result.embedding  = OneHot512(found == query_to_index_.end() ? 0 : found->second);
     return result;
   }
 
@@ -512,7 +521,7 @@ auto RawScalarInt64(duckdb_connection connection, const std::string& sql) -> int
   duckdb_result result;
   if (duckdb_query(connection, sql.c_str(), &result) != DuckDBSuccess) {
     const char* raw_error = duckdb_result_error(&result);
-    std::string message = raw_error ? raw_error : "raw DuckDB query failed";
+    std::string message   = raw_error ? raw_error : "raw DuckDB query failed";
     duckdb_destroy_result(&result);
     throw std::runtime_error(message);
   }
@@ -560,10 +569,8 @@ class SemanticGenerationServiceTest : public ::testing::Test {
     auto                        img_pool   = project.GetImagePoolService();
 
     std::vector<image_path_t>   paths;
-    std::filesystem::path img_dir = std::filesystem::path(TEST_IMG_PATH) / "raw" / "batch_import";
-    if (!std::filesystem::exists(img_dir)) {
-      img_dir = std::filesystem::path(TEST_IMG_PATH) / "ci_rawfiles";
-    }
+    const std::filesystem::path img_dir =
+        std::filesystem::path(TEST_IMG_PATH) / "raw" / "batch_import";
     for (const auto& entry : std::filesystem::directory_iterator(img_dir)) {
       if (entry.is_regular_file()) {
         paths.push_back(entry.path());
@@ -602,8 +609,8 @@ class SemanticGenerationServiceTest : public ::testing::Test {
 
   auto ImportPaths(ProjectService& project, const std::vector<image_path_t>& paths)
       -> std::vector<SemanticGenerationItem> {
-    auto fs_service = project.GetSleeveService();
-    auto img_pool = project.GetImagePoolService();
+    auto                       fs_service = project.GetSleeveService();
+    auto                       img_pool   = project.GetImagePoolService();
 
     ImportServiceImpl          import_service(fs_service, img_pool);
     auto                       import_job = std::make_shared<ImportJob>();
@@ -611,7 +618,7 @@ class SemanticGenerationServiceTest : public ::testing::Test {
     auto                       future = done.get_future();
     import_job->on_finished_ = [&done](const ImportResult& result) { done.set_value(result); };
 
-    import_job = import_service.ImportToFolder(paths, L"", {}, import_job);
+    import_job               = import_service.ImportToFolder(paths, L"", {}, import_job);
     EXPECT_NE(import_job, nullptr);
     EXPECT_EQ(future.wait_for(300s), std::future_status::ready);
     const auto result = future.get();
@@ -635,13 +642,10 @@ class SemanticGenerationServiceTest : public ::testing::Test {
 
   auto CollectCameraSampleImages() const -> std::vector<image_path_t> {
     std::vector<image_path_t> paths;
-    const auto base = std::filesystem::path(TEST_IMG_PATH) / "raw";
-    auto root = base / "cameras";
+    const auto                base = std::filesystem::path(TEST_IMG_PATH) / "raw";
+    auto                      root = base / "cameras";
     if (!std::filesystem::exists(root)) {
       root = base / "camera";
-    }
-    if (!std::filesystem::exists(root)) {
-      root = std::filesystem::path(TEST_IMG_PATH) / "ci_rawfiles";
     }
     if (!std::filesystem::exists(root)) {
       return paths;
@@ -681,7 +685,8 @@ TEST_F(SemanticGenerationServiceTest, UsesRealThumbnailServiceAndBatchesMockEmbe
 
   SemanticGenerationOptions options;
   options.thumbnail_resolution = ThumbnailResolution::k256;
-  options.batch_size           = 2;
+  options.thumbnail_batch_size = 2;
+  options.embedding_batch_size = 2;
 
   auto job                     = service.StartGeneration(items, options);
   job->Wait();
@@ -710,19 +715,20 @@ TEST_F(SemanticGenerationServiceTest, UsesRealThumbnailServiceAndBatchesMockEmbe
   pipeline_service->Sync();
 }
 
-TEST_F(SemanticGenerationServiceTest, RequestsThumbnailBatchesWhileEmbeddingPreviousBatch) {
-  auto thumbnails = std::make_shared<BatchGateThumbnailProvider>(2);
-  auto embedder   = std::make_shared<RecordingEmbeddingClient>(500ms);
+TEST_F(SemanticGenerationServiceTest, DecouplesThumbnailAndEmbeddingBatchSizes) {
+  auto                      thumbnails = std::make_shared<BatchGateThumbnailProvider>(2);
+  auto                      embedder   = std::make_shared<RecordingEmbeddingClient>(500ms);
   SemanticGenerationService service(thumbnails, embedder);
 
   SemanticGenerationOptions options;
-  options.batch_size = 2;
-  options.embedding_timeout = 3s;
+  options.thumbnail_batch_size = 2;
+  options.embedding_batch_size = 4;
+  options.embedding_timeout    = 3s;
   auto job = service.StartGeneration({{1, 10}, {2, 20}, {3, 30}, {4, 40}}, options);
 
-  ASSERT_TRUE(WaitUntil([&]() { return embedder->BatchSizes().size() == 1; }, 2s));
   EXPECT_EQ(thumbnails->MaxPendingCount(), 2U);
   EXPECT_TRUE(WaitUntil([&]() { return thumbnails->RequestCount() == 4; }, 150ms));
+  ASSERT_TRUE(WaitUntil([&]() { return embedder->BatchSizes().size() == 1; }, 2s));
 
   job->Wait();
 
@@ -731,7 +737,7 @@ TEST_F(SemanticGenerationServiceTest, RequestsThumbnailBatchesWhileEmbeddingPrev
   EXPECT_EQ(progress.embedded, 4U);
   EXPECT_EQ(thumbnails->ReleaseCount(), 4);
 
-  const std::vector<size_t> expected_batches{2, 2};
+  const std::vector<size_t> expected_batches{4};
   EXPECT_EQ(embedder->BatchSizes(), expected_batches);
 }
 
@@ -751,7 +757,8 @@ TEST_F(SemanticGenerationServiceTest, RealThumbnailFailureSkipsMockEmbeddingForT
 
   SemanticGenerationOptions options;
   options.thumbnail_resolution = ThumbnailResolution::k256;
-  options.batch_size           = 8;
+  options.thumbnail_batch_size = 8;
+  options.embedding_batch_size = 8;
 
   auto job                     = service.StartGeneration(items, options);
   job->Wait();
@@ -835,7 +842,7 @@ TEST_F(SemanticGenerationServiceTest, MapsPartialFailureAndRequestIdMismatchPerI
   SemanticGenerationService service(thumbnails, embedder);
 
   SemanticGenerationOptions options;
-  options.batch_size = 3;
+  options.embedding_batch_size = 3;
   SemanticRuntimeModelInfo expected;
   expected.model_id            = "mock/mobileclip";
   expected.revision            = "mock-revision";
@@ -870,10 +877,10 @@ TEST_F(SemanticGenerationServiceTest, EmbeddingTimeoutFailsEveryPendingItem) {
   SemanticGenerationService service(thumbnails, embedder);
 
   SemanticGenerationOptions options;
-  options.batch_size        = 2;
-  options.embedding_timeout = 50ms;
+  options.embedding_batch_size = 2;
+  options.embedding_timeout    = 50ms;
 
-  auto job                  = service.StartGeneration({{1, 10}, {2, 20}}, options);
+  auto job                     = service.StartGeneration({{1, 10}, {2, 20}}, options);
   job->Wait();
 
   const auto progress = job->SnapshotProgress();
@@ -903,9 +910,8 @@ TEST_F(SemanticGenerationServiceTest, PersistsEmbeddingsAndAssignedLabels) {
   auto&          semantic = project.GetStorageService()->GetSemanticStorageController();
   RegisterSemanticTestModel(semantic);
 
-  auto thumbnails = std::make_shared<ImmediateThumbnailProvider>();
-  auto embedder = std::make_shared<Fixed512EmbeddingClient>(
-      Mixed512(LabelIndex("street"), LabelIndex("landscape"), 0.25F));
+  auto                      thumbnails = std::make_shared<ImmediateThumbnailProvider>();
+  auto                      embedder   = std::make_shared<Fixed512EmbeddingClient>(OneHot512(8));
   SemanticGenerationService service(thumbnails, embedder);
 
   SemanticGenerationOptions options;
@@ -952,16 +958,16 @@ TEST_F(SemanticGenerationServiceTest, SkipsReadyEmbeddingsUnlessForceRegenerate)
   RegisterSemanticTestModel(semantic);
 
   auto thumbnails = std::make_shared<ImmediateThumbnailProvider>();
-  auto embedder = std::make_shared<Fixed512EmbeddingClient>(OneHot512(LabelIndex("street")));
-  SemanticGenerationService service(thumbnails, embedder);
+  auto embedder   = std::make_shared<Fixed512EmbeddingClient>(OneHot512(LabelIndex("street")));
+  SemanticGenerationService            service(thumbnails, embedder);
 
-  SemanticGenerationOptions options;
+  SemanticGenerationOptions            options;
   SemanticGenerationPersistenceOptions persistence;
   persistence.storage_controller = &semantic;
-  persistence.model_key = "mobileclip-test";
-  options.persistence = persistence;
+  persistence.model_key          = "mobileclip-test";
+  options.persistence            = persistence;
 
-  auto first = service.StartGeneration({{42, 420}}, options);
+  auto first                     = service.StartGeneration({{42, 420}}, options);
   first->Wait();
   EXPECT_EQ(first->SnapshotProgress().embedded, 1U);
   EXPECT_EQ(thumbnails->RequestCount(), 1);
@@ -978,7 +984,7 @@ TEST_F(SemanticGenerationServiceTest, SkipsReadyEmbeddingsUnlessForceRegenerate)
   EXPECT_EQ(retry->Results().front().status, SemanticGenerationItemStatus::kSkipped);
 
   options.force_regenerate = true;
-  auto forced = service.StartGeneration({{42, 420}}, options);
+  auto forced              = service.StartGeneration({{42, 420}}, options);
   forced->Wait();
   EXPECT_EQ(forced->SnapshotProgress().embedded, 1U);
   EXPECT_EQ(thumbnails->RequestCount(), 2);
@@ -1000,7 +1006,7 @@ TEST_F(SemanticGenerationServiceTest, GeneratesLabelsForRecursiveCameraSampleDat
   routes.reserve(items.size());
   for (size_t i = 0; i < items.size(); ++i) {
     const auto& item = items[i];
-    const auto path = project.GetImagePoolService()->Read<std::filesystem::path>(
+    const auto  path = project.GetImagePoolService()->Read<std::filesystem::path>(
         item.image_id, [](const std::shared_ptr<Image>& image) {
           return image ? image->image_path_ : std::filesystem::path{};
         });
@@ -1015,19 +1021,20 @@ TEST_F(SemanticGenerationServiceTest, GeneratesLabelsForRecursiveCameraSampleDat
     }
   }
 
-  auto pipeline_service = std::make_shared<PipelineMgmtService>(project.GetStorageService());
-  auto history_service = std::make_shared<EditHistoryMgmtService>(project.GetStorageService());
+  auto pipeline_service  = std::make_shared<PipelineMgmtService>(project.GetStorageService());
+  auto history_service   = std::make_shared<EditHistoryMgmtService>(project.GetStorageService());
   auto thumbnail_service = std::make_shared<ThumbnailService>(
       project.GetSleeveService(), project.GetImagePoolService(), pipeline_service, history_service,
       project.GetProjectUUID());
   auto thumbnails = std::make_shared<CountingRealThumbnailProvider>(thumbnail_service);
-  auto embedder = std::make_shared<Routed512EmbeddingClient>(std::move(routes));
+  auto embedder   = std::make_shared<Routed512EmbeddingClient>(std::move(routes));
   SemanticGenerationService service(thumbnails, embedder);
 
   SemanticGenerationOptions options;
   options.thumbnail_resolution = ThumbnailResolution::k256;
-  options.batch_size = 8;
-  options.embedding_timeout = 300s;
+  options.thumbnail_batch_size = 8;
+  options.embedding_batch_size = 64;
+  options.embedding_timeout    = 300s;
   options.expected_model_info =
       SemanticRuntimeModelInfo{.model_id            = "mock/mobileclip",
                                .revision            = "mock-revision",
@@ -1036,10 +1043,10 @@ TEST_F(SemanticGenerationServiceTest, GeneratesLabelsForRecursiveCameraSampleDat
                                .provider            = "mock"};
   SemanticGenerationPersistenceOptions persistence;
   persistence.storage_controller = &semantic;
-  persistence.model_key = "mobileclip-test";
-  options.persistence = persistence;
+  persistence.model_key          = "mobileclip-test";
+  options.persistence            = persistence;
 
-  auto job = service.StartGeneration(items, options);
+  auto job                       = service.StartGeneration(items, options);
   job->Wait();
 
   const auto progress = job->SnapshotProgress();
@@ -1053,20 +1060,24 @@ TEST_F(SemanticGenerationServiceTest, GeneratesLabelsForRecursiveCameraSampleDat
 
   const auto item_count = static_cast<int64_t>(items.size());
   auto       sql_guard  = project.GetStorageService()->GetDBController().GetConnectionGuard();
-  EXPECT_EQ(RawScalarInt64(sql_guard.conn_, "SELECT COUNT(*) FROM SemanticImageEmbedding "
-                                            "WHERE model_key = 'mobileclip-test' AND status = 'ready';"),
+  EXPECT_EQ(RawScalarInt64(sql_guard.conn_,
+                           "SELECT COUNT(*) FROM SemanticImageEmbedding "
+                           "WHERE model_key = 'mobileclip-test' AND status = 'ready';"),
             item_count);
-  EXPECT_EQ(RawScalarInt64(sql_guard.conn_, "SELECT COUNT(*) FROM SemanticImageLabel "
-                                            "WHERE model_key = 'mobileclip-test';"),
+  EXPECT_EQ(RawScalarInt64(sql_guard.conn_,
+                           "SELECT COUNT(*) FROM SemanticImageLabel "
+                           "WHERE model_key = 'mobileclip-test';"),
             item_count);
-  EXPECT_GT(RawScalarInt64(sql_guard.conn_, "SELECT COUNT(*) FROM SemanticImageLabel "
-                                            "WHERE model_key = 'mobileclip-test' "
-                                            "AND label IN ('product', 'street', 'architecture');"),
+  EXPECT_GT(RawScalarInt64(sql_guard.conn_,
+                           "SELECT COUNT(*) FROM SemanticImageLabel "
+                           "WHERE model_key = 'mobileclip-test' "
+                           "AND label IN ('product', 'street', 'architecture');"),
             0);
-  EXPECT_GT(RawScalarInt64(sql_guard.conn_, "SELECT COUNT(*) FROM SemanticImageLabel "
-                                            "WHERE model_key = 'mobileclip-test' "
-                                            "AND confident = FALSE "
-                                            "AND top_scores::VARCHAR LIKE '%landscape%';"),
+  EXPECT_GT(RawScalarInt64(sql_guard.conn_,
+                           "SELECT COUNT(*) FROM SemanticImageLabel "
+                           "WHERE model_key = 'mobileclip-test' "
+                           "AND confident = FALSE "
+                           "AND top_scores::VARCHAR LIKE '%landscape%';"),
             0);
 }
 

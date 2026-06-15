@@ -946,7 +946,10 @@ mod tests {
             model_id: "plhery/mobileclip2-onnx:s2".to_string(),
             revision: crate::service::model_assets::MOBILECLIP2_ONNX_REVISION.to_string(),
             model_root: test_dir.to_string_lossy().into_owned(),
+<<<<<<< HEAD
             hf_endpoint: "https://hf-mirror.com".to_string(),
+=======
+>>>>>>> bce8b9e304c488154c8a23d051a3a45a16526088
             device: "cpu".to_string(),
             allow_download: true,
             batch_cap: 512,

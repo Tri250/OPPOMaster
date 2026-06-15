@@ -144,37 +144,36 @@ auto BaseOptions() -> SemanticRuntimeOptions {
   return options;
 }
 
-void SetEnv(const char* name, const std::string& value) {
+void SetModelRootEnv(const std::string& value) {
 #ifdef _WIN32
-  _putenv_s(name, value.c_str());
+  _putenv_s("ALCEDO_MIND_MODEL_ROOT", value.c_str());
 #else
   if (value.empty()) {
-    unsetenv(name);
+    unsetenv("ALCEDO_MIND_MODEL_ROOT");
   } else {
-    setenv(name, value.c_str(), 1);
+    setenv("ALCEDO_MIND_MODEL_ROOT", value.c_str(), 1);
   }
 #endif
 }
 
-class ScopedEnv final {
+class ScopedModelRootEnv final {
  public:
-  ScopedEnv(const char* name, const std::string& value) : name_(name) {
-    const char* previous = std::getenv(name_.c_str());
+  explicit ScopedModelRootEnv(const std::string& value) {
+    const char* previous = std::getenv("ALCEDO_MIND_MODEL_ROOT");
     if (previous != nullptr) {
       previous_value_ = previous;
     }
-    SetEnv(name_.c_str(), value);
+    SetModelRootEnv(value);
   }
 
-  ~ScopedEnv() {
-    SetEnv(name_.c_str(), previous_value_.value_or(std::string{}));
+  ~ScopedModelRootEnv() {
+    SetModelRootEnv(previous_value_.value_or(std::string{}));
   }
 
-  ScopedEnv(const ScopedEnv&)            = delete;
-  ScopedEnv& operator=(const ScopedEnv&) = delete;
+  ScopedModelRootEnv(const ScopedModelRootEnv&)            = delete;
+  ScopedModelRootEnv& operator=(const ScopedModelRootEnv&) = delete;
 
  private:
-  std::string                name_;
   std::optional<std::string> previous_value_;
 };
 
@@ -296,7 +295,7 @@ TEST(SemanticRuntimeServiceTest, EmptyModelRootUsesEnvironmentFallback) {
   std::filesystem::remove(record_path);
   std::filesystem::create_directories(model_root);
 
-  ScopedEnv model_root_env("ALCEDO_MIND_MODEL_ROOT", model_root.string());
+  ScopedModelRootEnv model_root_env(model_root.string());
 
   auto options = BaseOptions();
   options.model_root.clear();
@@ -310,41 +309,6 @@ TEST(SemanticRuntimeServiceTest, EmptyModelRootUsesEnvironmentFallback) {
   const std::string args((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
   in.close();
   EXPECT_NE(args.find("--model-root\n" + model_root.string()), std::string::npos);
-  std::filesystem::remove(record_path);
-  std::filesystem::remove_all(model_root);
-}
-
-TEST(SemanticRuntimeServiceTest, EmptyRuntimeOptionsUseConfiguredSidecarDefaults) {
-  SemanticRuntimeService service(std::make_shared<FakeSemanticRuntimeClient>());
-  const auto record_path = std::filesystem::temp_directory_path() /
-                           "semantic_runtime_default_args.txt";
-  const auto model_root = std::filesystem::temp_directory_path() /
-                          "semantic_runtime_default_model_root";
-  std::filesystem::remove(record_path);
-  std::filesystem::create_directories(model_root);
-
-  ScopedEnv runtime_binary_env("ALCEDO_MIND_BINARY", FakeRuntimePath().string());
-  ScopedEnv model_root_env("ALCEDO_MIND_MODEL_ROOT", model_root.string());
-
-  SemanticRuntimeOptions options;
-  options.device = "coreml:cpuonly";
-  options.startup_timeout = std::chrono::milliseconds(1000);
-  options.health_poll_interval = std::chrono::milliseconds(20);
-  options.graceful_stop_timeout = std::chrono::milliseconds(100);
-  options.kill_timeout = std::chrono::milliseconds(1000);
-  options.extra_arguments = {"--record-args", record_path.string(), "--sleep-ms", "30000"};
-
-  ASSERT_TRUE(service.StartAndWait(options));
-  service.Stop();
-
-  std::ifstream in(record_path);
-  ASSERT_TRUE(in.is_open());
-  const std::string args((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-  in.close();
-  EXPECT_NE(args.find("--model-root\n" + model_root.string()), std::string::npos);
-  EXPECT_NE(args.find("--model-id\nplhery/mobileclip2-onnx:s2"), std::string::npos);
-  EXPECT_NE(args.find("--hf-endpoint\nhttps://hf-mirror.com"), std::string::npos);
-  EXPECT_NE(args.find("--device\ncoreml:cpuonly"), std::string::npos);
   std::filesystem::remove(record_path);
   std::filesystem::remove_all(model_root);
 }

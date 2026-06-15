@@ -204,11 +204,15 @@ TEST_F(SemanticStorageControllerTest, NewProjectSeedsDefaultLabelQueries) {
   const auto  queries =
       semantic.ListLabelQueries(kDefaultSemanticPhotographyPromptConfigHash, &error);
   ASSERT_EQ(queries.size(), DefaultSemanticPhotographyLabelQueries().size()) << error;
+  const auto& default_queries = DefaultSemanticPhotographyLabelQueries();
+  const auto  default_portrait =
+      std::find_if(default_queries.begin(), default_queries.end(),
+                   [](const SemanticLabelQueryConfig& query) { return query.label == "portrait"; });
+  ASSERT_NE(default_portrait, default_queries.end());
   EXPECT_NE(std::find_if(queries.begin(), queries.end(),
-                         [](const SemanticLabelQueryRecord& query) {
-                           return query.label_ == "portrait" &&
-                                  query.query_text_ ==
-                                      "a photograph whose main subject is one person or a close portrait";
+                         [default_portrait](const SemanticLabelQueryRecord& query) {
+                           return query.label_ == default_portrait->label &&
+                                  query.query_text_ == default_portrait->query;
                          }),
             queries.end());
 }
@@ -266,6 +270,63 @@ TEST_F(SemanticStorageControllerTest, PersistsEmbeddingAndLabelTransactionally) 
   EXPECT_EQ(stored_label->second_label_, "portrait");
   EXPECT_TRUE(stored_label->confident_);
   EXPECT_NEAR(stored_label->margin_, 0.79, 1.0e-6);
+}
+
+TEST_F(SemanticStorageControllerTest, AssignsLabelInDatabaseTransaction) {
+  ProjectService project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
+  auto&          semantic = project.GetStorageService()->GetSemanticStorageController();
+  RegisterTestModel(semantic);
+
+  const auto file_id = CreateSyntheticFile(project, L"db_labeled.raf");
+  const auto rows    = project.GetStorageService()->GetElementController().ListFilesInFolder(0);
+  ASSERT_EQ(rows.size(), 1U);
+  const auto                                image_id = rows.front().image_id_;
+
+  std::string                               error;
+  std::vector<SemanticLabelPrototypeRecord> prototypes{
+      SemanticLabelPrototypeRecord{.model_key_          = kModelKey,
+                                   .label_              = "landscape",
+                                   .prompt_config_hash_ = "test-prompts",
+                                   .embedding_          = OneHot(4)},
+      SemanticLabelPrototypeRecord{.model_key_          = kModelKey,
+                                   .label_              = "portrait",
+                                   .prompt_config_hash_ = "test-prompts",
+                                   .embedding_          = OneHot(5)}};
+  ASSERT_TRUE(semantic.UpsertLabelPrototypes(prototypes, &error)) << error;
+
+  SemanticImageEmbeddingRecord   embedding{.file_id_   = file_id,
+                                           .image_id_  = image_id,
+                                           .model_key_ = kModelKey,
+                                           .embedding_ = MixedQuery(4, 5)};
+  SemanticLabelAssignmentOptions missing_options;
+  missing_options.prompt_config_hash_ = "missing-prompts";
+  EXPECT_FALSE(
+      semantic.UpsertImageEmbeddingAndAssignLabel(embedding, missing_options, nullptr, &error));
+  EXPECT_EQ(semantic.CountImageEmbeddingsForFile(file_id, kModelKey), 0U);
+  EXPECT_EQ(semantic.CountImageLabelsForFile(file_id, kModelKey), 0U);
+
+  SemanticLabelAssignmentOptions assignment_options;
+  assignment_options.prompt_config_hash_          = "test-prompts";
+  assignment_options.confidence_score_threshold_  = 0.5;
+  assignment_options.confidence_margin_threshold_ = 0.1;
+  assignment_options.top_score_count_             = 2;
+
+  SemanticImageLabelRecord assigned_label;
+  ASSERT_TRUE(semantic.UpsertImageEmbeddingAndAssignLabel(embedding, assignment_options,
+                                                          &assigned_label, &error))
+      << error;
+  EXPECT_EQ(semantic.CountImageEmbeddingsForFile(file_id, kModelKey), 1U);
+  EXPECT_EQ(semantic.CountImageLabelsForFile(file_id, kModelKey), 1U);
+  EXPECT_EQ(assigned_label.label_, "landscape");
+  EXPECT_EQ(assigned_label.second_label_, "portrait");
+  EXPECT_TRUE(assigned_label.confident_);
+  EXPECT_NE(assigned_label.top_scores_json_.find("landscape"), std::string::npos);
+
+  const auto stored_label = semantic.GetImageLabelForFile(file_id, kModelKey, &error);
+  ASSERT_TRUE(stored_label.has_value()) << error;
+  EXPECT_EQ(stored_label->label_, "landscape");
+  EXPECT_EQ(stored_label->second_label_, "portrait");
+  EXPECT_TRUE(stored_label->confident_);
 }
 
 TEST_F(SemanticStorageControllerTest, DeletingFileRemovesSemanticRows) {

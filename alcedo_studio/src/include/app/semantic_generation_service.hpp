@@ -79,11 +79,12 @@ struct SemanticGenerationPersistenceOptions {
 
 struct SemanticGenerationOptions {
   ThumbnailResolution                     thumbnail_resolution = ThumbnailResolution::k256;
-  size_t                                  batch_size           = 16;
+  size_t                                  thumbnail_batch_size = 32;
+  size_t                                  embedding_batch_size = 64;
   std::chrono::milliseconds               embedding_timeout{30000};
   std::optional<SemanticRuntimeModelInfo> expected_model_info;
   std::optional<SemanticGenerationPersistenceOptions> persistence;
-  bool                                    force_regenerate = false;
+  bool                                                force_regenerate = false;
 };
 
 struct SemanticImageEmbeddingInput {
