@@ -14,7 +14,8 @@ inline constexpr const char* kDefaultSemanticPhotographyPromptConfigHash =
     "photography-labels-v3";
 inline constexpr double kDefaultSemanticLabelConfidenceThreshold = 0.20;
 inline constexpr double kDefaultSemanticLabelMarginThreshold     = 0.03;
-inline constexpr size_t kDefaultSemanticLabelTopScoreCount       = 5;
+inline constexpr size_t kMaxSemanticImageLabelCount              = 3;
+inline constexpr size_t kDefaultSemanticLabelTopScoreCount       = kMaxSemanticImageLabelCount;
 
 struct SemanticLabelQueryConfig {
   std::string label{};

@@ -124,9 +124,7 @@ Item {
             return ""
         }
 
-        const visibleCount = Math.min(3, parts.length)
-        const suffix = parts.length > visibleCount ? qsTr(" +%1").arg(parts.length - visibleCount) : ""
-        return parts.slice(0, visibleCount).join(" / ") + suffix
+        return parts.slice(0, 3).join(" / ")
     }
 
     Component.onCompleted: {

@@ -34,6 +34,16 @@ auto MixedQuery(size_t primary, size_t secondary) -> std::vector<float> {
   return embedding;
 }
 
+auto CountSubstring(const std::string& text, const std::string& needle) -> size_t {
+  size_t count = 0;
+  size_t pos   = 0;
+  while ((pos = text.find(needle, pos)) != std::string::npos) {
+    ++count;
+    pos += needle.size();
+  }
+  return count;
+}
+
 void RegisterTestModel(SemanticStorageController& semantic) {
   std::string error;
   ASSERT_TRUE(semantic.UpsertModel(SemanticModelRecord{.model_key_     = kModelKey,
@@ -291,7 +301,19 @@ TEST_F(SemanticStorageControllerTest, AssignsLabelInDatabaseTransaction) {
       SemanticLabelPrototypeRecord{.model_key_          = kModelKey,
                                    .label_              = "portrait",
                                    .prompt_config_hash_ = "test-prompts",
-                                   .embedding_          = OneHot(5)}};
+                                   .embedding_          = OneHot(5)},
+      SemanticLabelPrototypeRecord{.model_key_          = kModelKey,
+                                   .label_              = "architecture",
+                                   .prompt_config_hash_ = "test-prompts",
+                                   .embedding_          = OneHot(6)},
+      SemanticLabelPrototypeRecord{.model_key_          = kModelKey,
+                                   .label_              = "street",
+                                   .prompt_config_hash_ = "test-prompts",
+                                   .embedding_          = OneHot(7)},
+      SemanticLabelPrototypeRecord{.model_key_          = kModelKey,
+                                   .label_              = "product",
+                                   .prompt_config_hash_ = "test-prompts",
+                                   .embedding_          = OneHot(8)}};
   ASSERT_TRUE(semantic.UpsertLabelPrototypes(prototypes, &error)) << error;
 
   SemanticImageEmbeddingRecord   embedding{.file_id_   = file_id,
@@ -309,7 +331,7 @@ TEST_F(SemanticStorageControllerTest, AssignsLabelInDatabaseTransaction) {
   assignment_options.prompt_config_hash_          = "test-prompts";
   assignment_options.confidence_score_threshold_  = 0.5;
   assignment_options.confidence_margin_threshold_ = 0.1;
-  assignment_options.top_score_count_             = 2;
+  assignment_options.top_score_count_             = 8;
 
   SemanticImageLabelRecord assigned_label;
   ASSERT_TRUE(semantic.UpsertImageEmbeddingAndAssignLabel(embedding, assignment_options,
@@ -321,6 +343,8 @@ TEST_F(SemanticStorageControllerTest, AssignsLabelInDatabaseTransaction) {
   EXPECT_EQ(assigned_label.second_label_, "portrait");
   EXPECT_TRUE(assigned_label.confident_);
   EXPECT_NE(assigned_label.top_scores_json_.find("landscape"), std::string::npos);
+  EXPECT_EQ(CountSubstring(assigned_label.top_scores_json_, "\"label\""),
+            kMaxSemanticImageLabelCount);
 
   const auto stored_label = semantic.GetImageLabelForFile(file_id, kModelKey, &error);
   ASSERT_TRUE(stored_label.has_value()) << error;

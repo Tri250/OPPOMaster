@@ -290,6 +290,9 @@ auto SemanticGenerationController::LabelDisplayText(sl_element_id_t elementId) c
     }
     if (labels.isEmpty() || (best_score - score) <= kDefaultSemanticLabelMarginThreshold) {
       labels.push_back(name);
+      if (labels.size() >= static_cast<qsizetype>(kMaxSemanticImageLabelCount)) {
+        break;
+      }
     }
   }
   return labels.isEmpty() ? QString::fromUtf8(label->label_.c_str())

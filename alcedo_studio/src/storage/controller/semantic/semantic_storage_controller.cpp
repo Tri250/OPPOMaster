@@ -267,7 +267,7 @@ auto MakeTopScoresJson(const std::vector<std::pair<std::string, double>>& scores
     -> std::string {
   std::ostringstream out;
   out << "[";
-  const auto count = std::min(limit, scores.size());
+  const auto count = std::min({limit, kMaxSemanticImageLabelCount, scores.size()});
   for (size_t i = 0; i < count; ++i) {
     if (i > 0) {
       out << ",";
@@ -325,7 +325,9 @@ auto QueryAssignedLabel(duckdb_connection conn, const SemanticImageEmbeddingReco
     return std::nullopt;
   }
 
-  const auto result_limit = std::max<size_t>(assignment_options.top_score_count_, 2U);
+  const auto result_limit =
+      std::max<size_t>(std::min(assignment_options.top_score_count_, kMaxSemanticImageLabelCount),
+                       2U);
   const auto sql          = std::format(
       "SELECT lp.label, array_inner_product(lp.embedding, se.embedding) AS score "
                "FROM SemanticLabelPrototype lp "
