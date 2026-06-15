@@ -4,6 +4,9 @@
 
 #pragma once
 
+#include <QObject>
+#include <QProcess>
+#include <QString>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -11,10 +14,6 @@
 #include <optional>
 #include <string>
 #include <vector>
-
-#include <QObject>
-#include <QProcess>
-#include <QString>
 
 namespace alcedo {
 
@@ -42,7 +41,7 @@ struct SemanticRuntimeModelInfo {
   std::string model_id;
   std::string revision;
   uint32_t    embedding_dimension = 0;
-  uint32_t    image_size           = 0;
+  uint32_t    image_size          = 0;
   std::string provider;
   std::string model_root;
   std::string prototype_config_hash;
@@ -51,18 +50,66 @@ struct SemanticRuntimeModelInfo {
 struct SemanticRuntimeRemoteStatus {
   std::string state;
   std::string provider;
-  uint32_t    image_batch_cap      = 0;
-  uint32_t    image_batch_wait_ms  = 0;
-  uint64_t    uptime_ms            = 0;
+  uint32_t    image_batch_cap     = 0;
+  uint32_t    image_batch_wait_ms = 0;
+  uint64_t    uptime_ms           = 0;
+};
+
+struct SemanticModelAssetInfo {
+  std::string role;
+  std::string repo_id;
+  std::string revision;
+  std::string remote_path;
+  std::string local_path;
+  uint64_t    size_bytes = 0;
+  std::string sha256;
+};
+
+struct SemanticModelProfileInfo {
+  std::string                         profile_id;
+  std::string                         display_name;
+  std::string                         model_id;
+  std::string                         revision;
+  std::string                         engine_profile_id;
+  std::string                         language;
+  uint32_t                            embedding_dimension        = 0;
+  uint32_t                            native_embedding_dimension = 0;
+  uint32_t                            image_size                 = 0;
+  bool                                installed                  = false;
+  std::string                         local_root;
+  std::string                         status;
+  std::vector<SemanticModelAssetInfo> assets;
+};
+
+struct SemanticResolvedModelManifest {
+  std::string                         profile_id;
+  std::string                         model_id;
+  std::string                         revision;
+  std::string                         engine_profile_id;
+  std::string                         language;
+  uint32_t                            embedding_dimension        = 0;
+  uint32_t                            native_embedding_dimension = 0;
+  uint32_t                            image_size                 = 0;
+  std::string                         model_root;
+  std::vector<SemanticModelAssetInfo> assets;
+};
+
+struct SemanticModelManagerResult {
+  bool                                         ok = false;
+  std::string                                  status;
+  std::string                                  error;
+  std::string                                  job_id;
+  SemanticModelProfileInfo                     profile;
+  std::optional<SemanticResolvedModelManifest> manifest;
 };
 
 struct SemanticEmbeddingResult {
   std::string        request_id;
   std::vector<float> embedding;
-  uint32_t           dimension     = 0;
+  uint32_t           dimension = 0;
   std::string        model_name;
-  uint64_t           elapsed_ms    = 0;
-  bool               ok            = false;
+  uint64_t           elapsed_ms = 0;
+  bool               ok         = false;
   std::string        error;
 };
 
@@ -74,77 +121,119 @@ struct SemanticImageEmbeddingRequest {
 };
 
 struct SemanticRuntimeStatusSnapshot {
-  SemanticRuntimeState                  state = SemanticRuntimeState::kStopped;
-  SemanticRuntimeIssue                  issue = SemanticRuntimeIssue::kNone;
-  std::string                           message;
-  std::string                           endpoint;
-  int64_t                               process_id = 0;
-  std::string                           stdout_tail;
-  std::string                           stderr_tail;
-  std::optional<SemanticRuntimeModelInfo> model_info;
+  SemanticRuntimeState                       state = SemanticRuntimeState::kStopped;
+  SemanticRuntimeIssue                       issue = SemanticRuntimeIssue::kNone;
+  std::string                                message;
+  std::string                                endpoint;
+  int64_t                                    process_id = 0;
+  std::string                                stdout_tail;
+  std::string                                stderr_tail;
+  std::optional<SemanticRuntimeModelInfo>    model_info;
   std::optional<SemanticRuntimeRemoteStatus> remote_status;
 };
 
 struct SemanticRuntimeOptions {
-  std::filesystem::path runtime_binary;
-  std::filesystem::path model_root;
-  std::string           host = "127.0.0.1";
-  uint16_t              port = 0;
-  std::string           model_id = "plhery/mobileclip2-onnx:s2";
-  std::string           revision;
-  std::string           hf_endpoint = "https://hf-mirror.com";
-  std::string           device = "auto";
-  uint32_t              batch_cap = 512;
-  uint32_t              batch_wait_ms = 25;
-  uint32_t              max_message_bytes = 16 * 1024 * 1024;
-  bool                  allow_download = false;
+  std::filesystem::path     runtime_binary;
+  std::filesystem::path     model_root;
+  std::string               host     = "127.0.0.1";
+  uint16_t                  port     = 0;
+  std::string               model_id = "plhery/mobileclip2-onnx:s2";
+  std::string               revision;
+  std::string               hf_endpoint       = "https://hf-mirror.com";
+  std::string               device            = "auto";
+  uint32_t                  batch_cap         = 512;
+  uint32_t                  batch_wait_ms     = 25;
+  uint32_t                  max_message_bytes = 16 * 1024 * 1024;
+  bool                      allow_download    = false;
   std::chrono::milliseconds startup_timeout{5000};
   std::chrono::milliseconds health_poll_interval{50};
   std::chrono::milliseconds graceful_stop_timeout{1000};
   std::chrono::milliseconds kill_timeout{1000};
-  std::vector<std::string>   extra_arguments;
+  std::vector<std::string>  extra_arguments;
 };
 
 class ISemanticRuntimeClient {
  public:
-  virtual ~ISemanticRuntimeClient() = default;
+  virtual ~ISemanticRuntimeClient()                                                     = default;
 
   virtual auto Ping(const std::string& endpoint, std::chrono::milliseconds timeout,
-                    std::string* error) -> bool = 0;
+                    std::string* error) -> bool                                         = 0;
   virtual auto GetModelInfo(const std::string& endpoint, std::chrono::milliseconds timeout,
                             SemanticRuntimeModelInfo* info, std::string* error) -> bool = 0;
   virtual auto GetRuntimeStatus(const std::string& endpoint, std::chrono::milliseconds timeout,
-                                SemanticRuntimeRemoteStatus* status, std::string* error) -> bool = 0;
+                                SemanticRuntimeRemoteStatus* status, std::string* error)
+      -> bool = 0;
+  virtual auto ListModelProfiles(const std::string& endpoint, const std::string& model_root,
+                                 std::chrono::milliseconds timeout, std::string* error)
+      -> std::vector<SemanticModelProfileInfo> = 0;
+  virtual auto ListInstalledModels(const std::string& endpoint, const std::string& model_root,
+                                   std::chrono::milliseconds timeout, std::string* error)
+      -> std::vector<SemanticModelProfileInfo> = 0;
+  virtual auto ValidateModel(const std::string& endpoint, const std::string& profile_id,
+                             const std::string& model_root, std::chrono::milliseconds timeout)
+      -> SemanticModelManagerResult                                                           = 0;
+  virtual auto DownloadModel(const std::string& endpoint, const std::string& profile_id,
+                             const std::string& model_root, const std::string& hf_endpoint,
+                             std::chrono::milliseconds timeout) -> SemanticModelManagerResult = 0;
+  virtual auto GetModelDownloadStatus(const std::string& endpoint, const std::string& job_id,
+                                      std::chrono::milliseconds timeout)
+      -> SemanticModelManagerResult = 0;
+  virtual auto CancelModelDownload(const std::string& endpoint, const std::string& job_id,
+                                   std::chrono::milliseconds timeout, std::string* message)
+      -> bool = 0;
+  virtual auto DeleteModel(const std::string& endpoint, const std::string& profile_id,
+                           const std::string& model_root, std::chrono::milliseconds timeout)
+      -> SemanticModelManagerResult = 0;
   virtual auto EmbedText(const std::string& endpoint, const std::string& request_id,
                          const std::string& text, std::chrono::milliseconds timeout)
-      -> SemanticEmbeddingResult = 0;
+      -> SemanticEmbeddingResult                                                        = 0;
   virtual auto EmbedImage(const std::string& endpoint, const std::string& request_id,
-                          const std::vector<uint8_t>& rgba8_image,
-                          const std::string& format_hint, std::chrono::milliseconds timeout)
-      -> SemanticEmbeddingResult = 0;
-  virtual auto EmbedImageBatch(const std::string& endpoint,
+                          const std::vector<uint8_t>& rgba8_image, const std::string& format_hint,
+                          std::chrono::milliseconds timeout) -> SemanticEmbeddingResult = 0;
+  virtual auto EmbedImageBatch(const std::string&                                endpoint,
                                const std::vector<SemanticImageEmbeddingRequest>& requests,
-                               std::chrono::milliseconds timeout)
+                               std::chrono::milliseconds                         timeout)
       -> std::vector<SemanticEmbeddingResult> = 0;
 };
 
 class GrpcSemanticRuntimeClient final : public ISemanticRuntimeClient {
  public:
-  auto Ping(const std::string& endpoint, std::chrono::milliseconds timeout,
-            std::string* error) -> bool override;
+  auto Ping(const std::string& endpoint, std::chrono::milliseconds timeout, std::string* error)
+      -> bool override;
   auto GetModelInfo(const std::string& endpoint, std::chrono::milliseconds timeout,
                     SemanticRuntimeModelInfo* info, std::string* error) -> bool override;
   auto GetRuntimeStatus(const std::string& endpoint, std::chrono::milliseconds timeout,
                         SemanticRuntimeRemoteStatus* status, std::string* error) -> bool override;
+  auto ListModelProfiles(const std::string& endpoint, const std::string& model_root,
+                         std::chrono::milliseconds timeout, std::string* error)
+      -> std::vector<SemanticModelProfileInfo> override;
+  auto ListInstalledModels(const std::string& endpoint, const std::string& model_root,
+                           std::chrono::milliseconds timeout, std::string* error)
+      -> std::vector<SemanticModelProfileInfo> override;
+  auto ValidateModel(const std::string& endpoint, const std::string& profile_id,
+                     const std::string& model_root, std::chrono::milliseconds timeout)
+      -> SemanticModelManagerResult override;
+  auto DownloadModel(const std::string& endpoint, const std::string& profile_id,
+                     const std::string& model_root, const std::string& hf_endpoint,
+                     std::chrono::milliseconds timeout) -> SemanticModelManagerResult override;
+  auto GetModelDownloadStatus(const std::string& endpoint, const std::string& job_id,
+                              std::chrono::milliseconds timeout)
+      -> SemanticModelManagerResult override;
+  auto CancelModelDownload(const std::string& endpoint, const std::string& job_id,
+                           std::chrono::milliseconds timeout, std::string* message)
+      -> bool override;
+  auto DeleteModel(const std::string& endpoint, const std::string& profile_id,
+                   const std::string& model_root, std::chrono::milliseconds timeout)
+      -> SemanticModelManagerResult override;
   auto EmbedText(const std::string& endpoint, const std::string& request_id,
                  const std::string& text, std::chrono::milliseconds timeout)
       -> SemanticEmbeddingResult override;
   auto EmbedImage(const std::string& endpoint, const std::string& request_id,
                   const std::vector<uint8_t>& rgba8_image, const std::string& format_hint,
                   std::chrono::milliseconds timeout) -> SemanticEmbeddingResult override;
-  auto EmbedImageBatch(const std::string& endpoint,
+  auto EmbedImageBatch(const std::string&                                endpoint,
                        const std::vector<SemanticImageEmbeddingRequest>& requests,
-                       std::chrono::milliseconds timeout)
+                       std::chrono::milliseconds                         timeout)
       -> std::vector<SemanticEmbeddingResult> override;
 };
 
@@ -156,10 +245,9 @@ class SemanticRuntimeService final : public QObject {
   Q_PROPERTY(QString endpoint READ EndpointQString NOTIFY statusChanged)
 
  public:
-  explicit SemanticRuntimeService(
-      std::shared_ptr<ISemanticRuntimeClient> client =
-          std::make_shared<GrpcSemanticRuntimeClient>(),
-      QObject* parent = nullptr);
+  explicit SemanticRuntimeService(std::shared_ptr<ISemanticRuntimeClient> client =
+                                      std::make_shared<GrpcSemanticRuntimeClient>(),
+                                  QObject* parent = nullptr);
   ~SemanticRuntimeService() override;
 
   auto StartAndWait(const SemanticRuntimeOptions& options) -> bool;
@@ -170,6 +258,22 @@ class SemanticRuntimeService final : public QObject {
   auto Options() const -> const SemanticRuntimeOptions& { return options_; }
   auto IsRunning() -> bool;
   auto Endpoint() const -> std::string { return endpoint_; }
+
+  auto ListModelProfiles(const std::string& model_root, std::chrono::milliseconds timeout,
+                         std::string* error) -> std::vector<SemanticModelProfileInfo>;
+  auto ListInstalledModels(const std::string& model_root, std::chrono::milliseconds timeout,
+                           std::string* error) -> std::vector<SemanticModelProfileInfo>;
+  auto ValidateModel(const std::string& profile_id, const std::string& model_root,
+                     std::chrono::milliseconds timeout) -> SemanticModelManagerResult;
+  auto DownloadModel(const std::string& profile_id, const std::string& model_root,
+                     const std::string& hf_endpoint, std::chrono::milliseconds timeout)
+      -> SemanticModelManagerResult;
+  auto GetModelDownloadStatus(const std::string& job_id, std::chrono::milliseconds timeout)
+      -> SemanticModelManagerResult;
+  auto CancelModelDownload(const std::string& job_id, std::chrono::milliseconds timeout,
+                           std::string* message) -> bool;
+  auto DeleteModel(const std::string& profile_id, const std::string& model_root,
+                   std::chrono::milliseconds timeout) -> SemanticModelManagerResult;
 
   auto EmbedText(const std::string& request_id, const std::string& text,
                  std::chrono::milliseconds timeout) -> SemanticEmbeddingResult;
@@ -204,7 +308,7 @@ class SemanticRuntimeService final : public QObject {
   SemanticRuntimeStatusSnapshot           status_;
   std::string                             endpoint_;
 #ifdef _WIN32
-  void*                                   job_object_ = nullptr;
+  void* job_object_ = nullptr;
 #endif
 };
 

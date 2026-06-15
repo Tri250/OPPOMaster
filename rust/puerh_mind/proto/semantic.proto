@@ -12,6 +12,16 @@ service SemanticService {
   rpc GetRuntimeStatus(GetRuntimeStatusRequest) returns (GetRuntimeStatusResponse);
 }
 
+service ModelManagerService {
+  rpc ListModelProfiles(ListModelProfilesRequest) returns (ListModelProfilesResponse);
+  rpc ListInstalledModels(ListInstalledModelsRequest) returns (ListInstalledModelsResponse);
+  rpc ValidateModel(ValidateModelRequest) returns (ModelManagerResponse);
+  rpc DownloadModel(DownloadModelRequest) returns (ModelManagerResponse);
+  rpc GetModelDownloadStatus(GetModelDownloadStatusRequest) returns (ModelManagerResponse);
+  rpc CancelModelDownload(CancelModelDownloadRequest) returns (CancelModelDownloadResponse);
+  rpc DeleteModel(DeleteModelRequest) returns (ModelManagerResponse);
+}
+
 message PingRequest {
   string request_id = 1;
 }
@@ -86,4 +96,97 @@ message GetRuntimeStatusResponse {
   uint32 image_batch_cap = 3;
   uint32 image_batch_wait_ms = 4;
   uint64 uptime_ms = 5;
+}
+
+message ModelAsset {
+  string role = 1;
+  string repo_id = 2;
+  string revision = 3;
+  string remote_path = 4;
+  string local_path = 5;
+  uint64 size_bytes = 6;
+  string sha256 = 7;
+}
+
+message ModelProfile {
+  string profile_id = 1;
+  string display_name = 2;
+  string model_id = 3;
+  string revision = 4;
+  string engine_profile_id = 5;
+  string language = 6; // en, zh, or multilingual
+  uint32 embedding_dimension = 7;
+  uint32 native_embedding_dimension = 8;
+  uint32 image_size = 9;
+  bool installed = 10;
+  string local_root = 11;
+  string status = 12;
+  repeated ModelAsset assets = 13;
+}
+
+message ResolvedModelManifest {
+  string profile_id = 1;
+  string model_id = 2;
+  string revision = 3;
+  string engine_profile_id = 4;
+  string language = 5;
+  uint32 embedding_dimension = 6;
+  uint32 native_embedding_dimension = 7;
+  uint32 image_size = 8;
+  string model_root = 9;
+  repeated ModelAsset assets = 10;
+}
+
+message ListModelProfilesRequest {
+  string model_root = 1;
+}
+
+message ListModelProfilesResponse {
+  repeated ModelProfile profiles = 1;
+}
+
+message ListInstalledModelsRequest {
+  string model_root = 1;
+}
+
+message ListInstalledModelsResponse {
+  repeated ModelProfile profiles = 1;
+}
+
+message ValidateModelRequest {
+  string profile_id = 1;
+  string model_root = 2;
+}
+
+message DownloadModelRequest {
+  string profile_id = 1;
+  string model_root = 2;
+  string hf_endpoint = 3;
+}
+
+message CancelModelDownloadRequest {
+  string job_id = 1;
+}
+
+message GetModelDownloadStatusRequest {
+  string job_id = 1;
+}
+
+message CancelModelDownloadResponse {
+  bool cancelled = 1;
+  string message = 2;
+}
+
+message DeleteModelRequest {
+  string profile_id = 1;
+  string model_root = 2;
+}
+
+message ModelManagerResponse {
+  bool ok = 1;
+  string status = 2;
+  string error = 3;
+  ModelProfile profile = 4;
+  ResolvedModelManifest manifest = 5;
+  string job_id = 6;
 }

@@ -2,6 +2,8 @@
 //  SPDX-License-Identifier: GPL-3.0-only
 //  Additional permission under GPLv3 section 7 applies; see the LICENSE file.
 
+#include "app/semantic_runtime_service.hpp"
+
 #include <gtest/gtest.h>
 
 #include <atomic>
@@ -14,7 +16,6 @@
 #include <thread>
 
 #include "app/project_service.hpp"
-#include "app/semantic_runtime_service.hpp"
 
 namespace alcedo {
 namespace {
@@ -23,8 +24,8 @@ class FakeSemanticRuntimeClient final : public ISemanticRuntimeClient {
  public:
   explicit FakeSemanticRuntimeClient(bool ready = true) : ready_(ready) {}
 
-  auto Ping(const std::string& endpoint, std::chrono::milliseconds timeout,
-            std::string* error) -> bool override {
+  auto Ping(const std::string& endpoint, std::chrono::milliseconds timeout, std::string* error)
+      -> bool override {
     (void)endpoint;
     (void)timeout;
     ping_count_.fetch_add(1);
@@ -42,12 +43,12 @@ class FakeSemanticRuntimeClient final : public ISemanticRuntimeClient {
     (void)endpoint;
     (void)timeout;
     (void)error;
-    info->model_id = "test/mobileclip";
-    info->revision = "rev-a";
-    info->embedding_dimension = 512;
-    info->image_size = 256;
-    info->provider = "fake";
-    info->model_root = "test-model-root";
+    info->model_id              = "test/mobileclip";
+    info->revision              = "rev-a";
+    info->embedding_dimension   = 512;
+    info->image_size            = 256;
+    info->provider              = "fake";
+    info->model_root            = "test-model-root";
     info->prototype_config_hash = "hash-a";
     return true;
   }
@@ -57,12 +58,121 @@ class FakeSemanticRuntimeClient final : public ISemanticRuntimeClient {
     (void)endpoint;
     (void)timeout;
     (void)error;
-    status->state = "ready";
-    status->provider = "fake";
-    status->image_batch_cap = 8;
+    status->state               = "ready";
+    status->provider            = "fake";
+    status->image_batch_cap     = 8;
     status->image_batch_wait_ms = 2;
-    status->uptime_ms = 42;
+    status->uptime_ms           = 42;
     return true;
+  }
+
+  auto ListModelProfiles(const std::string& endpoint, const std::string& model_root,
+                         std::chrono::milliseconds timeout, std::string* error)
+      -> std::vector<SemanticModelProfileInfo> override {
+    (void)endpoint;
+    (void)timeout;
+    (void)error;
+    SemanticModelProfileInfo mobile;
+    mobile.profile_id          = "mobileclip2-s2-en";
+    mobile.model_id            = "plhery/mobileclip2-onnx:s2";
+    mobile.language            = "en";
+    mobile.embedding_dimension = 512;
+    mobile.local_root          = model_root + "/mobileclip2-s2-en";
+
+    SemanticModelProfileInfo zh;
+    zh.profile_id          = "chinese-clip-vit-base-patch16-zh";
+    zh.model_id            = "felixdu/chinese-clip-vit-base-patch16-onnx";
+    zh.language            = "zh";
+    zh.embedding_dimension = 512;
+    zh.local_root          = model_root + "/chinese-clip-vit-base-patch16-zh";
+
+    SemanticModelProfileInfo multilingual;
+    multilingual.profile_id                 = "jina-clip-v2-int8-multilingual";
+    multilingual.model_id                   = "jinaai/jina-clip-v2";
+    multilingual.language                   = "multilingual";
+    multilingual.embedding_dimension        = 512;
+    multilingual.native_embedding_dimension = 1024;
+    multilingual.local_root                 = model_root + "/jina-clip-v2-int8-multilingual";
+    return {mobile, zh, multilingual};
+  }
+
+  auto ListInstalledModels(const std::string& endpoint, const std::string& model_root,
+                           std::chrono::milliseconds timeout, std::string* error)
+      -> std::vector<SemanticModelProfileInfo> override {
+    auto profiles = ListModelProfiles(endpoint, model_root, timeout, error);
+    profiles.resize(1);
+    profiles[0].installed = true;
+    return profiles;
+  }
+
+  auto ValidateModel(const std::string& endpoint, const std::string& profile_id,
+                     const std::string& model_root, std::chrono::milliseconds timeout)
+      -> SemanticModelManagerResult override {
+    (void)endpoint;
+    (void)timeout;
+    SemanticModelManagerResult result;
+    result.ok                          = true;
+    result.status                      = "installed";
+    result.profile.profile_id          = profile_id;
+    result.profile.local_root          = model_root + "/" + profile_id;
+    result.profile.embedding_dimension = 512;
+    result.manifest                    = SemanticResolvedModelManifest{
+                           .profile_id                 = profile_id,
+                           .model_id                   = "test/mobileclip",
+                           .revision                   = "rev-a",
+                           .engine_profile_id          = "mobileclip2-openclip",
+                           .language                   = "en",
+                           .embedding_dimension        = 512,
+                           .native_embedding_dimension = 512,
+                           .image_size                 = 256,
+                           .model_root                 = result.profile.local_root,
+                           .assets                     = {},
+    };
+    return result;
+  }
+
+  auto DownloadModel(const std::string& endpoint, const std::string& profile_id,
+                     const std::string& model_root, const std::string& hf_endpoint,
+                     std::chrono::milliseconds timeout) -> SemanticModelManagerResult override {
+    (void)hf_endpoint;
+    auto result   = ValidateModel(endpoint, profile_id, model_root, timeout);
+    result.status = "queued";
+    result.job_id = "fake-download-job";
+    result.manifest.reset();
+    return result;
+  }
+
+  auto GetModelDownloadStatus(const std::string& endpoint, const std::string& job_id,
+                              std::chrono::milliseconds timeout)
+      -> SemanticModelManagerResult override {
+    auto result   = ValidateModel(endpoint, "mobileclip2-s2-en", "C:/models", timeout);
+    result.job_id = job_id;
+    return result;
+  }
+
+  auto CancelModelDownload(const std::string& endpoint, const std::string& job_id,
+                           std::chrono::milliseconds timeout, std::string* message)
+      -> bool override {
+    (void)endpoint;
+    (void)job_id;
+    (void)timeout;
+    if (message) {
+      *message = "download cancellation requested";
+    }
+    return true;
+  }
+
+  auto DeleteModel(const std::string& endpoint, const std::string& profile_id,
+                   const std::string& model_root, std::chrono::milliseconds timeout)
+      -> SemanticModelManagerResult override {
+    (void)endpoint;
+    (void)model_root;
+    (void)timeout;
+    SemanticModelManagerResult result;
+    result.ok                 = true;
+    result.status             = "deleted";
+    result.profile.profile_id = profile_id;
+    return result;
   }
 
   auto EmbedText(const std::string& endpoint, const std::string& request_id,
@@ -73,10 +183,10 @@ class FakeSemanticRuntimeClient final : public ISemanticRuntimeClient {
     (void)timeout;
     SemanticEmbeddingResult result;
     result.request_id = request_id;
-    result.embedding = {1.0f, 0.0f};
-    result.dimension = 2;
+    result.embedding  = {1.0f, 0.0f};
+    result.dimension  = 2;
     result.model_name = "test/mobileclip";
-    result.ok = true;
+    result.ok         = true;
     return result;
   }
 
@@ -89,16 +199,16 @@ class FakeSemanticRuntimeClient final : public ISemanticRuntimeClient {
     (void)timeout;
     SemanticEmbeddingResult result;
     result.request_id = request_id;
-    result.embedding = {0.0f, 1.0f};
-    result.dimension = 2;
+    result.embedding  = {0.0f, 1.0f};
+    result.dimension  = 2;
     result.model_name = "test/mobileclip";
-    result.ok = true;
+    result.ok         = true;
     return result;
   }
 
-  auto EmbedImageBatch(const std::string& endpoint,
+  auto EmbedImageBatch(const std::string&                                endpoint,
                        const std::vector<SemanticImageEmbeddingRequest>& requests,
-                       std::chrono::milliseconds timeout)
+                       std::chrono::milliseconds                         timeout)
       -> std::vector<SemanticEmbeddingResult> override {
     (void)endpoint;
     (void)timeout;
@@ -107,10 +217,10 @@ class FakeSemanticRuntimeClient final : public ISemanticRuntimeClient {
     for (const auto& request : requests) {
       SemanticEmbeddingResult result;
       result.request_id = request.request_id;
-      result.embedding = {0.0f, 1.0f};
-      result.dimension = 2;
+      result.embedding  = {0.0f, 1.0f};
+      result.dimension  = 2;
       result.model_name = "test/mobileclip";
-      result.ok = true;
+      result.ok         = true;
       results.push_back(std::move(result));
     }
     return results;
@@ -130,17 +240,17 @@ auto FakeRuntimePath() -> std::filesystem::path {
 
 auto BaseOptions() -> SemanticRuntimeOptions {
   SemanticRuntimeOptions options;
-  options.runtime_binary = FakeRuntimePath();
-  options.model_root = std::filesystem::temp_directory_path() / "semantic_runtime_test_model";
-  options.model_id = "test/mobileclip";
-  options.revision = "rev-a";
-  options.device = "cpu";
-  options.batch_cap = 8;
-  options.batch_wait_ms = 2;
+  options.runtime_binary  = FakeRuntimePath();
+  options.model_root      = std::filesystem::temp_directory_path() / "semantic_runtime_test_model";
+  options.model_id        = "test/mobileclip";
+  options.revision        = "rev-a";
+  options.device          = "cpu";
+  options.batch_cap       = 8;
+  options.batch_wait_ms   = 2;
   options.startup_timeout = std::chrono::milliseconds(1000);
-  options.health_poll_interval = std::chrono::milliseconds(20);
+  options.health_poll_interval  = std::chrono::milliseconds(20);
   options.graceful_stop_timeout = std::chrono::milliseconds(100);
-  options.kill_timeout = std::chrono::milliseconds(1000);
+  options.kill_timeout          = std::chrono::milliseconds(1000);
   return options;
 }
 
@@ -166,9 +276,7 @@ class ScopedModelRootEnv final {
     SetModelRootEnv(value);
   }
 
-  ~ScopedModelRootEnv() {
-    SetModelRootEnv(previous_value_.value_or(std::string{}));
-  }
+  ~ScopedModelRootEnv() { SetModelRootEnv(previous_value_.value_or(std::string{})); }
 
   ScopedModelRootEnv(const ScopedModelRootEnv&)            = delete;
   ScopedModelRootEnv& operator=(const ScopedModelRootEnv&) = delete;
@@ -180,11 +288,11 @@ class ScopedModelRootEnv final {
 }  // namespace
 
 TEST(SemanticRuntimeServiceTest, StartStopReportsReadyAndStopped) {
-  auto client = std::make_shared<FakeSemanticRuntimeClient>();
+  auto                   client = std::make_shared<FakeSemanticRuntimeClient>();
   SemanticRuntimeService service(client);
 
-  auto options = BaseOptions();
-  options.extra_arguments = {"--sleep-ms", "30000"};
+  auto                   options = BaseOptions();
+  options.extra_arguments        = {"--sleep-ms", "30000"};
 
   ASSERT_TRUE(service.StartAndWait(options));
   auto status = service.Status();
@@ -211,7 +319,7 @@ TEST(SemanticRuntimeServiceTest, StartStopReportsReadyAndStopped) {
 
 TEST(SemanticRuntimeServiceTest, MissingBinaryFailsBeforeProcessStart) {
   SemanticRuntimeService service(std::make_shared<FakeSemanticRuntimeClient>());
-  auto options = BaseOptions();
+  auto                   options = BaseOptions();
   options.runtime_binary = std::filesystem::temp_directory_path() / "missing_alcedo_mind.exe";
 
   EXPECT_FALSE(service.StartAndWait(options));
@@ -222,8 +330,8 @@ TEST(SemanticRuntimeServiceTest, MissingBinaryFailsBeforeProcessStart) {
 
 TEST(SemanticRuntimeServiceTest, RuntimeExitBeforeReadyIsReported) {
   SemanticRuntimeService service(std::make_shared<FakeSemanticRuntimeClient>(false));
-  auto options = BaseOptions();
-  options.extra_arguments = {"--exit-now", "--exit-code", "7"};
+  auto                   options = BaseOptions();
+  options.extra_arguments        = {"--exit-now", "--exit-code", "7"};
 
   EXPECT_FALSE(service.StartAndWait(options));
   const auto status = service.Status();
@@ -234,8 +342,8 @@ TEST(SemanticRuntimeServiceTest, RuntimeExitBeforeReadyIsReported) {
 
 TEST(SemanticRuntimeServiceTest, ReadyRuntimeSelfExitBecomesUiVisibleFailure) {
   SemanticRuntimeService service(std::make_shared<FakeSemanticRuntimeClient>());
-  auto options = BaseOptions();
-  options.extra_arguments = {"--exit-after-ms", "100", "--exit-code", "9"};
+  auto                   options = BaseOptions();
+  options.extra_arguments        = {"--exit-after-ms", "100", "--exit-code", "9"};
 
   ASSERT_TRUE(service.StartAndWait(options));
   std::this_thread::sleep_for(std::chrono::milliseconds(250));
@@ -247,10 +355,10 @@ TEST(SemanticRuntimeServiceTest, ReadyRuntimeSelfExitBecomesUiVisibleFailure) {
 
 TEST(SemanticRuntimeServiceTest, StopKillsHungRuntime) {
   SemanticRuntimeService service(std::make_shared<FakeSemanticRuntimeClient>());
-  auto options = BaseOptions();
-  options.extra_arguments = {"--ignore-terminate", "--sleep-ms", "30000"};
-  options.graceful_stop_timeout = std::chrono::milliseconds(1);
-  options.kill_timeout = std::chrono::milliseconds(1000);
+  auto                   options = BaseOptions();
+  options.extra_arguments        = {"--ignore-terminate", "--sleep-ms", "30000"};
+  options.graceful_stop_timeout  = std::chrono::milliseconds(1);
+  options.kill_timeout           = std::chrono::milliseconds(1000);
 
   ASSERT_TRUE(service.StartAndWait(options));
   service.Stop();
@@ -264,11 +372,11 @@ TEST(SemanticRuntimeServiceTest, RuntimeArgumentsCarryModelAndDeviceConfiguratio
   const auto record_path = std::filesystem::temp_directory_path() / "semantic_runtime_args.txt";
   std::filesystem::remove(record_path);
 
-  auto options = BaseOptions();
-  options.model_root = std::filesystem::path("C:/models/mobileclip");
-  options.model_id = "repo/model:s2";
-  options.revision = "abc123";
-  options.device = "directml:0";
+  auto options            = BaseOptions();
+  options.model_root      = std::filesystem::path("C:/models/mobileclip");
+  options.model_id        = "repo/model:s2";
+  options.revision        = "abc123";
+  options.device          = "directml:0";
   options.extra_arguments = {"--record-args", record_path.string(), "--sleep-ms", "30000"};
 
   ASSERT_TRUE(service.StartAndWait(options));
@@ -286,18 +394,57 @@ TEST(SemanticRuntimeServiceTest, RuntimeArgumentsCarryModelAndDeviceConfiguratio
   std::filesystem::remove(record_path);
 }
 
+TEST(SemanticRuntimeServiceTest, ModelManagerUsesPolledDownloadJobs) {
+  auto                   client = std::make_shared<FakeSemanticRuntimeClient>();
+  SemanticRuntimeService service(client);
+
+  auto                   options = BaseOptions();
+  options.extra_arguments        = {"--sleep-ms", "30000"};
+
+  ASSERT_TRUE(service.StartAndWait(options));
+
+  std::string error;
+  const auto  profiles =
+      service.ListModelProfiles("C:/models", std::chrono::milliseconds(100), &error);
+  ASSERT_EQ(profiles.size(), 3u) << error;
+  EXPECT_EQ(profiles[2].profile_id, "jina-clip-v2-int8-multilingual");
+  EXPECT_EQ(profiles[2].language, "multilingual");
+  EXPECT_EQ(profiles[2].embedding_dimension, 512u);
+  EXPECT_EQ(profiles[2].native_embedding_dimension, 1024u);
+
+  const auto started = service.DownloadModel(
+      "mobileclip2-s2-en", "C:/models", "https://hf-mirror.com", std::chrono::milliseconds(100));
+  ASSERT_TRUE(started.ok) << started.error;
+  EXPECT_EQ(started.status, "queued");
+  ASSERT_FALSE(started.job_id.empty());
+
+  const auto polled =
+      service.GetModelDownloadStatus(started.job_id, std::chrono::milliseconds(100));
+  ASSERT_TRUE(polled.ok) << polled.error;
+  EXPECT_EQ(polled.status, "installed");
+  ASSERT_TRUE(polled.manifest.has_value());
+  EXPECT_EQ(polled.manifest->embedding_dimension, 512u);
+
+  std::string cancel_message;
+  EXPECT_TRUE(
+      service.CancelModelDownload(started.job_id, std::chrono::milliseconds(100), &cancel_message));
+  EXPECT_NE(cancel_message.find("cancellation requested"), std::string::npos);
+
+  service.Stop();
+}
+
 TEST(SemanticRuntimeServiceTest, EmptyModelRootUsesEnvironmentFallback) {
   SemanticRuntimeService service(std::make_shared<FakeSemanticRuntimeClient>());
-  const auto record_path = std::filesystem::temp_directory_path() /
-                           "semantic_runtime_env_model_args.txt";
-  const auto model_root = std::filesystem::temp_directory_path() /
-                          "semantic_runtime_env_model_root";
+  const auto             record_path =
+      std::filesystem::temp_directory_path() / "semantic_runtime_env_model_args.txt";
+  const auto model_root =
+      std::filesystem::temp_directory_path() / "semantic_runtime_env_model_root";
   std::filesystem::remove(record_path);
   std::filesystem::create_directories(model_root);
 
   ScopedModelRootEnv model_root_env(model_root.string());
 
-  auto options = BaseOptions();
+  auto               options = BaseOptions();
   options.model_root.clear();
   options.extra_arguments = {"--record-args", record_path.string(), "--sleep-ms", "30000"};
 
@@ -314,14 +461,14 @@ TEST(SemanticRuntimeServiceTest, EmptyModelRootUsesEnvironmentFallback) {
 }
 
 TEST(SemanticRuntimeServiceTest, ProjectServiceOwnsStoppedRuntimeService) {
-  const auto db_path = std::filesystem::temp_directory_path() / "semantic_runtime_project.db";
+  const auto db_path   = std::filesystem::temp_directory_path() / "semantic_runtime_project.db";
   const auto meta_path = std::filesystem::temp_directory_path() / "semantic_runtime_project.json";
   std::filesystem::remove(db_path);
   std::filesystem::remove(meta_path);
 
   {
     ProjectService project(db_path, meta_path, ProjectOpenMode::kCreateNew);
-    auto runtime = project.GetSemanticRuntimeService();
+    auto           runtime = project.GetSemanticRuntimeService();
     ASSERT_NE(runtime, nullptr);
     const auto status = runtime->Status();
     EXPECT_EQ(status.state, SemanticRuntimeState::kStopped);
@@ -341,17 +488,17 @@ TEST(SemanticRuntimeServiceLiveTest, DefaultGrpcClientEmbedsRawRgba8AgainstRustR
 
   SemanticRuntimeService service;
   SemanticRuntimeOptions options;
-  options.runtime_binary = std::filesystem::path(runtime_path_env);
-  options.model_root = std::filesystem::path(model_root_env);
-  options.model_id = "plhery/mobileclip2-onnx:s2";
-  options.revision = "ba95759a5bdbaca53e9111e2550a76ec09c8fd9e";
-  options.device = "cpu";
-  options.batch_cap = 8;
-  options.batch_wait_ms = 2;
-  options.startup_timeout = std::chrono::milliseconds(60000);
-  options.health_poll_interval = std::chrono::milliseconds(100);
+  options.runtime_binary        = std::filesystem::path(runtime_path_env);
+  options.model_root            = std::filesystem::path(model_root_env);
+  options.model_id              = "plhery/mobileclip2-onnx:s2";
+  options.revision              = "ba95759a5bdbaca53e9111e2550a76ec09c8fd9e";
+  options.device                = "cpu";
+  options.batch_cap             = 8;
+  options.batch_wait_ms         = 2;
+  options.startup_timeout       = std::chrono::milliseconds(60000);
+  options.health_poll_interval  = std::chrono::milliseconds(100);
   options.graceful_stop_timeout = std::chrono::milliseconds(1000);
-  options.kill_timeout = std::chrono::milliseconds(2000);
+  options.kill_timeout          = std::chrono::milliseconds(2000);
 
   ASSERT_TRUE(service.StartAndWait(options)) << service.Status().message;
   const auto status = service.Status();
@@ -363,18 +510,18 @@ TEST(SemanticRuntimeServiceLiveTest, DefaultGrpcClientEmbedsRawRgba8AgainstRustR
 
   std::vector<uint8_t> rgba8(256u * 256u * 4u);
   for (size_t i = 0; i < rgba8.size(); i += 4) {
-    rgba8[i] = 64;
+    rgba8[i]     = 64;
     rgba8[i + 1] = 128;
     rgba8[i + 2] = 192;
     rgba8[i + 3] = 255;
   }
 
   SemanticImageEmbeddingRequest request;
-  request.request_id = "live-rgba8-image-1";
+  request.request_id  = "live-rgba8-image-1";
   request.rgba8_image = std::move(rgba8);
   request.format_hint = "rgba8:256x256";
 
-  const auto results = service.EmbedImageBatch({request}, std::chrono::milliseconds(120000));
+  const auto results  = service.EmbedImageBatch({request}, std::chrono::milliseconds(120000));
   ASSERT_EQ(results.size(), 1u);
   EXPECT_EQ(results[0].request_id, "live-rgba8-image-1");
   EXPECT_TRUE(results[0].ok) << results[0].error;

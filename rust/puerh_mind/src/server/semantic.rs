@@ -523,6 +523,14 @@ impl SemanticService for SemanticServiceImpl {
         &self,
         _request: Request<GetModelInfoRequest>,
     ) -> Result<Response<GetModelInfoResponse>, Status> {
+        if !self.engine.is_ready() {
+            return Err(Status::failed_precondition(
+                self.engine
+                    .unavailable_reason()
+                    .unwrap_or("semantic model is unavailable")
+                    .to_string(),
+            ));
+        }
         let info = self.engine.model_info();
         Ok(Response::new(GetModelInfoResponse {
             model_id: info.model_id,
@@ -541,7 +549,11 @@ impl SemanticService for SemanticServiceImpl {
     ) -> Result<Response<GetRuntimeStatusResponse>, Status> {
         let info = self.engine.model_info();
         Ok(Response::new(GetRuntimeStatusResponse {
-            state: "ready".to_string(),
+            state: if self.engine.is_ready() {
+                "ready".to_string()
+            } else {
+                "model_unavailable".to_string()
+            },
             provider: info.provider,
             image_batch_cap: self.image_batch_cap as u32,
             image_batch_wait_ms: self.image_batch_wait.as_millis() as u32,

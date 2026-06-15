@@ -708,41 +708,64 @@ Packaging smoke tests should verify:
        model is activated again.
      - complete: keep default label queries simple and reusable, while cached
        label prototypes remain scoped by `model_key + prompt_config_hash`.
+     - design decision: generated label storage should use stable canonical
+       English label ids/text plus a UI-localized display mapping, even for the
+       multilingual profile. This keeps legacy fuzzy/ordinary search simple,
+       keeps stored labels valid when the user changes the application language,
+       and avoids regenerating labels for a UI-language switch. Multilingual
+       semantic search should accept user query text in any supported language
+       and route through embeddings instead of requiring a query-language gate.
    - 6b. Embedding dimension policy
-     - keep DuckDB VSS/HNSW as a hard requirement for semantic vector ranking;
-       do not add a C++ full-scan fallback for unsupported model dimensions
-     - support 512-dimensional multilingual CLIP models first, matching the
-       existing `FLOAT[512]` storage and HNSW index path
-     - reject non-512-dimensional models with an actionable error until
-       dimension-specific embedding/prototype tables or a migration strategy
-       are implemented
-     - validate model-reported embedding dimension before generation, label
-       prototype writes, and semantic search
-   - 6c. Rust model-manager RPC surface
-     - start the Rust sidecar even when no inference model is installed, so the
-       app can ask it to validate, download, cancel, or delete models
-     - add explicit model-management RPCs such as `ListInstalledModels`,
-       `ValidateModel`, `StartModelDownload`, `GetModelDownloadStatus`,
-       `CancelModelDownload`, `DeleteModel`, and `LoadModel` or `SelectModel`
-     - include `model_id`, `revision`, profile id, endpoint, optional HF token,
-       target root, force, and resume flags in download requests
-     - keep `hf_token` out of logs and avoid persisting it by default
-     - keep `EmbedTextBatch`, `EmbedImageBatch`, and `GetModelInfo` behind a
-       successfully loaded model, not as download side effects
+     - complete: this is folded into the model-manager profile contract rather
+       than implemented as an independent schema expansion. DuckDB VSS/HNSW
+       remains the only semantic vector-ranking path, and the active storage
+       shape remains `FLOAT[512]`.
+     - complete: Rust model profiles must expose `embedding_dimension = 512`.
+       Non-512 profiles are rejected before being marked usable. Jina CLIP v2 is
+       tracked as `native_embedding_dimension = 1024` but exposed to Alcedo as a
+       512-dimensional Matryoshka profile; the eventual inference engine must
+       truncate/normalize to that profile dimension before returning vectors.
+     - still required in downstream generation/search wiring: validate
+       model-reported embedding dimension before generation, label prototype
+       writes, and semantic search.
+   - 6c. Rust model-manager RPC surface - complete
+     - the Rust sidecar now starts even when the configured inference model is
+       missing; embedding RPCs and `GetModelInfo` report model-unavailable
+       errors while model-manager RPCs remain available.
+     - added fixed public model profiles for English MobileCLIP2 S2, Chinese
+       CLIP ViT-B/16 ONNX, and multilingual Jina CLIP v2 INT8 ONNX. The current
+       fixed list intentionally does not require `hf_token`.
+     - added model-management RPCs for `ListModelProfiles`,
+       `ListInstalledModels`, `ValidateModel`, `DownloadModel`,
+       `GetModelDownloadStatus`, `CancelModelDownload`, and `DeleteModel`.
+     - `DownloadModel` starts a background job and returns `job_id`
+       immediately. Qt/C++ must poll `GetModelDownloadStatus(job_id)` rather
+       than relying on a long gRPC deadline for the whole download.
+     - C++ `SemanticRuntimeService` exposes the same model-manager surface and
+       structured profile/manifest metadata; Qt does not implement Hugging Face
+       downloading itself.
+     - `EmbedTextBatch`, `EmbedImageBatch`, and `GetModelInfo` remain tied to a
+       successfully loaded inference model, not to download completion side
+       effects.
    - 6d. Rust download implementation
-     - move the current `hf-hub` download path out of inference-engine startup
-       and into the model manager
-     - replace MobileCLIP-only constants with profile-driven asset manifests for
-       text model, vision model, tokenizer, tokenizer config, preprocessing
-       config, and model config files
-     - download into a staging directory, write `.part` files where practical,
-       validate file size and SHA-256, then atomically promote to the ready
-       model directory
-     - write a local resolved manifest containing `model_id`, revision, profile
-       id, embedding dimension, image size, file list, byte sizes, hashes, and
-       validation time
-     - report `missing`, `downloading`, `ready`, `corrupt`, `canceled`, and
-       `failed` states with user-actionable error text
+     - complete: move the active `hf-hub` download path out of inference-engine
+       startup and into the model manager. Inference startup is validate-only
+       unless explicitly told to download for development compatibility.
+     - complete: replace MobileCLIP-only download constants with profile-driven
+       asset manifests for text model, vision/multimodal model, tokenizer,
+       tokenizer config or vocab, preprocessing config, and model config files.
+     - complete: validate file size for every asset and SHA-256 for large model
+       assets where Hugging Face exposes a stable LFS hash; write a local
+       resolved manifest containing model identity, profile id, language,
+       512-dimensional compatibility, native dimension, image size, and file
+       list.
+     - remaining: expose byte-level progress/resume metadata for the Settings
+       UI. The current job surface reports `queued`, `downloading`,
+       `installed`, `failed`, `cancel_requested`, and `cancelled`, but does not
+       yet stream per-file progress.
+     - remaining: promote the whole profile from a staging directory in one
+       final move. Current downloads use per-asset `.part` files and validate
+       before marking the job installed.
    - 6e. Qt settings and runtime wiring
      - keep download UX in Settings, but call Rust model-manager RPCs for all
        Hugging Face network and file operations

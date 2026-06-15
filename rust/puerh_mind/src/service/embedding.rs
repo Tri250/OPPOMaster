@@ -12,6 +12,12 @@ pub struct EngineModelInfo {
 }
 
 pub trait EmbeddingEngine: Send + Sync {
+    fn is_ready(&self) -> bool {
+        true
+    }
+    fn unavailable_reason(&self) -> Option<&str> {
+        None
+    }
     fn embed_text(&self, text: &str) -> Result<Vec<f32>>;
     fn embed_texts(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
         texts.iter().map(|text| self.embed_text(text)).collect()
@@ -23,6 +29,51 @@ pub trait EmbeddingEngine: Send + Sync {
     fn default_text_model_name(&self) -> &str;
     fn default_image_model_name(&self) -> &str;
     fn model_info(&self) -> EngineModelInfo;
+}
+
+#[allow(dead_code)]
+pub struct UnavailableEmbeddingEngine {
+    model_info: EngineModelInfo,
+    reason: String,
+}
+
+impl UnavailableEmbeddingEngine {
+    pub fn new(model_info: EngineModelInfo, reason: impl Into<String>) -> Self {
+        Self {
+            model_info,
+            reason: reason.into(),
+        }
+    }
+}
+
+impl EmbeddingEngine for UnavailableEmbeddingEngine {
+    fn is_ready(&self) -> bool {
+        false
+    }
+
+    fn unavailable_reason(&self) -> Option<&str> {
+        Some(&self.reason)
+    }
+
+    fn embed_text(&self, _text: &str) -> Result<Vec<f32>> {
+        anyhow::bail!("semantic model is unavailable: {}", self.reason)
+    }
+
+    fn embed_image(&self, _rgb: &image::RgbImage) -> Result<Vec<f32>> {
+        anyhow::bail!("semantic model is unavailable: {}", self.reason)
+    }
+
+    fn default_text_model_name(&self) -> &str {
+        &self.model_info.model_id
+    }
+
+    fn default_image_model_name(&self) -> &str {
+        &self.model_info.model_id
+    }
+
+    fn model_info(&self) -> EngineModelInfo {
+        self.model_info.clone()
+    }
 }
 
 #[allow(dead_code)]

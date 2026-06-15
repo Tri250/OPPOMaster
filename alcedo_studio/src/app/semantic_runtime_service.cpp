@@ -4,13 +4,6 @@
 
 #include "app/semantic_runtime_service.hpp"
 
-#include <algorithm>
-#include <array>
-#include <chrono>
-#include <sstream>
-#include <thread>
-#include <vector>
-
 #include <grpcpp/create_channel.h>
 #include <grpcpp/security/credentials.h>
 
@@ -18,6 +11,12 @@
 #include <QHostAddress>
 #include <QStandardPaths>
 #include <QTcpServer>
+#include <algorithm>
+#include <array>
+#include <chrono>
+#include <sstream>
+#include <thread>
+#include <vector>
 
 #include "semantic.grpc.pb.h"
 
@@ -28,14 +27,14 @@
 namespace alcedo {
 namespace {
 
-constexpr size_t kLogTailBytes = 16 * 1024;
+constexpr size_t kLogTailBytes             = 16 * 1024;
 constexpr auto   kSemanticRuntimeBinaryEnv = "ALCEDO_MIND_BINARY";
-constexpr auto   kSemanticModelRootEnv = "ALCEDO_MIND_MODEL_ROOT";
-constexpr auto   kMobileClipModelRoot  = "models/mobileclip2-s2-openclip";
+constexpr auto   kSemanticModelRootEnv     = "ALCEDO_MIND_MODEL_ROOT";
+constexpr auto   kMobileClipModelRoot      = "models/mobileclip2-s2-openclip";
 #ifdef _WIN32
-constexpr auto   kSemanticRuntimeBinaryName = "alcedo_mind.exe";
+constexpr auto kSemanticRuntimeBinaryName = "alcedo_mind.exe";
 #else
-constexpr auto   kSemanticRuntimeBinaryName = "alcedo_mind";
+constexpr auto kSemanticRuntimeBinaryName = "alcedo_mind";
 #endif
 
 auto TailAppend(std::string* target, const QByteArray& bytes) -> void {
@@ -62,29 +61,29 @@ auto DefaultRuntimeBinary() -> std::filesystem::path {
   const auto app_path = std::filesystem::path(app_dir.toStdString());
 #endif
 
-  const auto append_ancestor_runtime_binaries =
-      [](const std::filesystem::path& start, std::vector<std::filesystem::path>* candidates) {
-        if (start.empty()) {
-          return;
-        }
+  const auto append_ancestor_runtime_binaries = [](const std::filesystem::path&        start,
+                                                   std::vector<std::filesystem::path>* candidates) {
+    if (start.empty()) {
+      return;
+    }
 
-        std::error_code ec;
-        auto            current = std::filesystem::absolute(start, ec);
-        if (ec) {
-          current = start;
-        }
-        while (!current.empty()) {
-          candidates->push_back(current / "rust" / "puerh_mind" / "target" / "release" /
-                                kSemanticRuntimeBinaryName);
-          candidates->push_back(current / "rust" / "puerh_mind" / "target" / "debug" /
-                                kSemanticRuntimeBinaryName);
-          const auto parent = current.parent_path();
-          if (parent == current) {
-            break;
-          }
-          current = parent;
-        }
-      };
+    std::error_code ec;
+    auto            current = std::filesystem::absolute(start, ec);
+    if (ec) {
+      current = start;
+    }
+    while (!current.empty()) {
+      candidates->push_back(current / "rust" / "puerh_mind" / "target" / "release" /
+                            kSemanticRuntimeBinaryName);
+      candidates->push_back(current / "rust" / "puerh_mind" / "target" / "debug" /
+                            kSemanticRuntimeBinaryName);
+      const auto parent = current.parent_path();
+      if (parent == current) {
+        break;
+      }
+      current = parent;
+    }
+  };
 
   std::vector<std::filesystem::path> candidates;
   candidates.push_back(app_path / kSemanticRuntimeBinaryName);
@@ -103,11 +102,10 @@ auto DefaultRuntimeBinary() -> std::filesystem::path {
 
 auto ExistingDirectory(const std::filesystem::path& path) -> bool {
   std::error_code ec;
-  return std::filesystem::exists(path, ec) && !ec && std::filesystem::is_directory(path, ec) &&
-         !ec;
+  return std::filesystem::exists(path, ec) && !ec && std::filesystem::is_directory(path, ec) && !ec;
 }
 
-void AppendAncestorModelRoots(const std::filesystem::path& start,
+void AppendAncestorModelRoots(const std::filesystem::path&        start,
                               std::vector<std::filesystem::path>* candidates) {
   if (start.empty()) {
     return;
@@ -201,6 +199,72 @@ auto ToRuntimeStatus(const semantic::GetRuntimeStatusResponse& response)
   return status;
 }
 
+auto ToModelAssetInfo(const semantic::ModelAsset& response) -> SemanticModelAssetInfo {
+  SemanticModelAssetInfo asset;
+  asset.role        = response.role();
+  asset.repo_id     = response.repo_id();
+  asset.revision    = response.revision();
+  asset.remote_path = response.remote_path();
+  asset.local_path  = response.local_path();
+  asset.size_bytes  = response.size_bytes();
+  asset.sha256      = response.sha256();
+  return asset;
+}
+
+auto ToModelProfileInfo(const semantic::ModelProfile& response) -> SemanticModelProfileInfo {
+  SemanticModelProfileInfo profile;
+  profile.profile_id                 = response.profile_id();
+  profile.display_name               = response.display_name();
+  profile.model_id                   = response.model_id();
+  profile.revision                   = response.revision();
+  profile.engine_profile_id          = response.engine_profile_id();
+  profile.language                   = response.language();
+  profile.embedding_dimension        = response.embedding_dimension();
+  profile.native_embedding_dimension = response.native_embedding_dimension();
+  profile.image_size                 = response.image_size();
+  profile.installed                  = response.installed();
+  profile.local_root                 = response.local_root();
+  profile.status                     = response.status();
+  profile.assets.reserve(static_cast<size_t>(response.assets_size()));
+  for (const auto& asset : response.assets()) {
+    profile.assets.push_back(ToModelAssetInfo(asset));
+  }
+  return profile;
+}
+
+auto ToResolvedModelManifest(const semantic::ResolvedModelManifest& response)
+    -> SemanticResolvedModelManifest {
+  SemanticResolvedModelManifest manifest;
+  manifest.profile_id                 = response.profile_id();
+  manifest.model_id                   = response.model_id();
+  manifest.revision                   = response.revision();
+  manifest.engine_profile_id          = response.engine_profile_id();
+  manifest.language                   = response.language();
+  manifest.embedding_dimension        = response.embedding_dimension();
+  manifest.native_embedding_dimension = response.native_embedding_dimension();
+  manifest.image_size                 = response.image_size();
+  manifest.model_root                 = response.model_root();
+  manifest.assets.reserve(static_cast<size_t>(response.assets_size()));
+  for (const auto& asset : response.assets()) {
+    manifest.assets.push_back(ToModelAssetInfo(asset));
+  }
+  return manifest;
+}
+
+auto ToModelManagerResult(const semantic::ModelManagerResponse& response)
+    -> SemanticModelManagerResult {
+  SemanticModelManagerResult result;
+  result.ok      = response.ok();
+  result.status  = response.status();
+  result.error   = response.error();
+  result.job_id  = response.job_id();
+  result.profile = ToModelProfileInfo(response.profile());
+  if (response.has_manifest()) {
+    result.manifest = ToResolvedModelManifest(response.manifest());
+  }
+  return result;
+}
+
 auto ToEmbeddingResult(const semantic::EmbeddingResponse& response) -> SemanticEmbeddingResult {
   SemanticEmbeddingResult result;
   result.request_id = response.request_id();
@@ -266,11 +330,10 @@ auto ToString(SemanticRuntimeIssue issue) -> const char* {
   return "unknown";
 }
 
-auto GrpcSemanticRuntimeClient::Ping(const std::string& endpoint,
-                                     std::chrono::milliseconds timeout,
+auto GrpcSemanticRuntimeClient::Ping(const std::string& endpoint, std::chrono::milliseconds timeout,
                                      std::string* error) -> bool {
-  auto channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
-  auto stub    = semantic::SemanticService::NewStub(channel);
+  auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
+  auto                stub    = semantic::SemanticService::NewStub(channel);
 
   grpc::ClientContext context;
   context.set_deadline(DeadlineFromNow(timeout));
@@ -287,18 +350,18 @@ auto GrpcSemanticRuntimeClient::Ping(const std::string& endpoint,
   return true;
 }
 
-auto GrpcSemanticRuntimeClient::GetModelInfo(const std::string& endpoint,
+auto GrpcSemanticRuntimeClient::GetModelInfo(const std::string&        endpoint,
                                              std::chrono::milliseconds timeout,
-                                             SemanticRuntimeModelInfo* info,
-                                             std::string* error) -> bool {
-  auto channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
-  auto stub    = semantic::SemanticService::NewStub(channel);
+                                             SemanticRuntimeModelInfo* info, std::string* error)
+    -> bool {
+  auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
+  auto                stub    = semantic::SemanticService::NewStub(channel);
 
   grpc::ClientContext context;
   context.set_deadline(DeadlineFromNow(timeout));
   semantic::GetModelInfoRequest  request;
   semantic::GetModelInfoResponse response;
-  const auto status = stub->GetModelInfo(&context, request, &response);
+  const auto                     status = stub->GetModelInfo(&context, request, &response);
   if (!status.ok()) {
     if (error) {
       *error = GrpcErrorMessage(status);
@@ -311,12 +374,12 @@ auto GrpcSemanticRuntimeClient::GetModelInfo(const std::string& endpoint,
   return true;
 }
 
-auto GrpcSemanticRuntimeClient::GetRuntimeStatus(const std::string& endpoint,
-                                                 std::chrono::milliseconds timeout,
+auto GrpcSemanticRuntimeClient::GetRuntimeStatus(const std::string&           endpoint,
+                                                 std::chrono::milliseconds    timeout,
                                                  SemanticRuntimeRemoteStatus* status,
-                                                 std::string* error) -> bool {
-  auto channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
-  auto stub    = semantic::SemanticService::NewStub(channel);
+                                                 std::string*                 error) -> bool {
+  auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
+  auto                stub    = semantic::SemanticService::NewStub(channel);
 
   grpc::ClientContext context;
   context.set_deadline(DeadlineFromNow(timeout));
@@ -335,13 +398,194 @@ auto GrpcSemanticRuntimeClient::GetRuntimeStatus(const std::string& endpoint,
   return true;
 }
 
+auto GrpcSemanticRuntimeClient::ListModelProfiles(const std::string&        endpoint,
+                                                  const std::string&        model_root,
+                                                  std::chrono::milliseconds timeout,
+                                                  std::string*              error)
+    -> std::vector<SemanticModelProfileInfo> {
+  auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
+  auto                stub    = semantic::ModelManagerService::NewStub(channel);
+
+  grpc::ClientContext context;
+  context.set_deadline(DeadlineFromNow(timeout));
+  semantic::ListModelProfilesRequest  request;
+  semantic::ListModelProfilesResponse response;
+  request.set_model_root(model_root);
+  const auto status = stub->ListModelProfiles(&context, request, &response);
+  if (!status.ok()) {
+    if (error) {
+      *error = GrpcErrorMessage(status);
+    }
+    return {};
+  }
+  std::vector<SemanticModelProfileInfo> profiles;
+  profiles.reserve(static_cast<size_t>(response.profiles_size()));
+  for (const auto& profile : response.profiles()) {
+    profiles.push_back(ToModelProfileInfo(profile));
+  }
+  return profiles;
+}
+
+auto GrpcSemanticRuntimeClient::ListInstalledModels(const std::string&        endpoint,
+                                                    const std::string&        model_root,
+                                                    std::chrono::milliseconds timeout,
+                                                    std::string*              error)
+    -> std::vector<SemanticModelProfileInfo> {
+  auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
+  auto                stub    = semantic::ModelManagerService::NewStub(channel);
+
+  grpc::ClientContext context;
+  context.set_deadline(DeadlineFromNow(timeout));
+  semantic::ListInstalledModelsRequest  request;
+  semantic::ListInstalledModelsResponse response;
+  request.set_model_root(model_root);
+  const auto status = stub->ListInstalledModels(&context, request, &response);
+  if (!status.ok()) {
+    if (error) {
+      *error = GrpcErrorMessage(status);
+    }
+    return {};
+  }
+  std::vector<SemanticModelProfileInfo> profiles;
+  profiles.reserve(static_cast<size_t>(response.profiles_size()));
+  for (const auto& profile : response.profiles()) {
+    profiles.push_back(ToModelProfileInfo(profile));
+  }
+  return profiles;
+}
+
+auto GrpcSemanticRuntimeClient::ValidateModel(const std::string&        endpoint,
+                                              const std::string&        profile_id,
+                                              const std::string&        model_root,
+                                              std::chrono::milliseconds timeout)
+    -> SemanticModelManagerResult {
+  auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
+  auto                stub    = semantic::ModelManagerService::NewStub(channel);
+
+  grpc::ClientContext context;
+  context.set_deadline(DeadlineFromNow(timeout));
+  semantic::ValidateModelRequest request;
+  request.set_profile_id(profile_id);
+  request.set_model_root(model_root);
+  semantic::ModelManagerResponse response;
+  const auto                     status = stub->ValidateModel(&context, request, &response);
+  if (status.ok()) {
+    return ToModelManagerResult(response);
+  }
+  SemanticModelManagerResult result;
+  result.ok     = false;
+  result.status = "error";
+  result.error  = GrpcErrorMessage(status);
+  return result;
+}
+
+auto GrpcSemanticRuntimeClient::DownloadModel(const std::string&        endpoint,
+                                              const std::string&        profile_id,
+                                              const std::string&        model_root,
+                                              const std::string&        hf_endpoint,
+                                              std::chrono::milliseconds timeout)
+    -> SemanticModelManagerResult {
+  auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
+  auto                stub    = semantic::ModelManagerService::NewStub(channel);
+
+  grpc::ClientContext context;
+  context.set_deadline(DeadlineFromNow(timeout));
+  semantic::DownloadModelRequest request;
+  request.set_profile_id(profile_id);
+  request.set_model_root(model_root);
+  request.set_hf_endpoint(hf_endpoint);
+  semantic::ModelManagerResponse response;
+  const auto                     status = stub->DownloadModel(&context, request, &response);
+  if (status.ok()) {
+    return ToModelManagerResult(response);
+  }
+  SemanticModelManagerResult result;
+  result.ok     = false;
+  result.status = "error";
+  result.error  = GrpcErrorMessage(status);
+  return result;
+}
+
+auto GrpcSemanticRuntimeClient::GetModelDownloadStatus(const std::string&        endpoint,
+                                                       const std::string&        job_id,
+                                                       std::chrono::milliseconds timeout)
+    -> SemanticModelManagerResult {
+  auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
+  auto                stub    = semantic::ModelManagerService::NewStub(channel);
+
+  grpc::ClientContext context;
+  context.set_deadline(DeadlineFromNow(timeout));
+  semantic::GetModelDownloadStatusRequest request;
+  request.set_job_id(job_id);
+  semantic::ModelManagerResponse response;
+  const auto status = stub->GetModelDownloadStatus(&context, request, &response);
+  if (status.ok()) {
+    return ToModelManagerResult(response);
+  }
+  SemanticModelManagerResult result;
+  result.ok     = false;
+  result.status = "error";
+  result.error  = GrpcErrorMessage(status);
+  result.job_id = job_id;
+  return result;
+}
+
+auto GrpcSemanticRuntimeClient::CancelModelDownload(const std::string&        endpoint,
+                                                    const std::string&        job_id,
+                                                    std::chrono::milliseconds timeout,
+                                                    std::string*              message) -> bool {
+  auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
+  auto                stub    = semantic::ModelManagerService::NewStub(channel);
+
+  grpc::ClientContext context;
+  context.set_deadline(DeadlineFromNow(timeout));
+  semantic::CancelModelDownloadRequest request;
+  request.set_job_id(job_id);
+  semantic::CancelModelDownloadResponse response;
+  const auto status = stub->CancelModelDownload(&context, request, &response);
+  if (!status.ok()) {
+    if (message) {
+      *message = GrpcErrorMessage(status);
+    }
+    return false;
+  }
+  if (message) {
+    *message = response.message();
+  }
+  return response.cancelled();
+}
+
+auto GrpcSemanticRuntimeClient::DeleteModel(const std::string&        endpoint,
+                                            const std::string&        profile_id,
+                                            const std::string&        model_root,
+                                            std::chrono::milliseconds timeout)
+    -> SemanticModelManagerResult {
+  auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
+  auto                stub    = semantic::ModelManagerService::NewStub(channel);
+
+  grpc::ClientContext context;
+  context.set_deadline(DeadlineFromNow(timeout));
+  semantic::DeleteModelRequest request;
+  request.set_profile_id(profile_id);
+  request.set_model_root(model_root);
+  semantic::ModelManagerResponse response;
+  const auto                     status = stub->DeleteModel(&context, request, &response);
+  if (status.ok()) {
+    return ToModelManagerResult(response);
+  }
+  SemanticModelManagerResult result;
+  result.ok     = false;
+  result.status = "error";
+  result.error  = GrpcErrorMessage(status);
+  return result;
+}
+
 auto GrpcSemanticRuntimeClient::EmbedText(const std::string& endpoint,
-                                          const std::string& request_id,
-                                          const std::string& text,
+                                          const std::string& request_id, const std::string& text,
                                           std::chrono::milliseconds timeout)
     -> SemanticEmbeddingResult {
-  auto channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
-  auto stub    = semantic::SemanticService::NewStub(channel);
+  auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
+  auto                stub    = semantic::SemanticService::NewStub(channel);
 
   grpc::ClientContext context;
   context.set_deadline(DeadlineFromNow(timeout));
@@ -349,7 +593,7 @@ auto GrpcSemanticRuntimeClient::EmbedText(const std::string& endpoint,
   request.set_request_id(request_id);
   request.set_text(text);
   semantic::EmbeddingResponse response;
-  const auto status = stub->EmbedText(&context, request, &response);
+  const auto                  status = stub->EmbedText(&context, request, &response);
   if (status.ok()) {
     return ToEmbeddingResult(response);
   }
@@ -360,14 +604,14 @@ auto GrpcSemanticRuntimeClient::EmbedText(const std::string& endpoint,
   return result;
 }
 
-auto GrpcSemanticRuntimeClient::EmbedImage(const std::string& endpoint,
-                                           const std::string& request_id,
+auto GrpcSemanticRuntimeClient::EmbedImage(const std::string&          endpoint,
+                                           const std::string&          request_id,
                                            const std::vector<uint8_t>& rgba8_image,
-                                           const std::string& format_hint,
-                                           std::chrono::milliseconds timeout)
+                                           const std::string&          format_hint,
+                                           std::chrono::milliseconds   timeout)
     -> SemanticEmbeddingResult {
-  auto channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
-  auto stub    = semantic::SemanticService::NewStub(channel);
+  auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
+  auto                stub    = semantic::SemanticService::NewStub(channel);
 
   grpc::ClientContext context;
   context.set_deadline(DeadlineFromNow(timeout));
@@ -376,7 +620,7 @@ auto GrpcSemanticRuntimeClient::EmbedImage(const std::string& endpoint,
   request.set_image_bytes(reinterpret_cast<const char*>(rgba8_image.data()), rgba8_image.size());
   request.set_image_format_hint(format_hint);
   semantic::EmbeddingResponse response;
-  const auto status = stub->EmbedImage(&context, request, &response);
+  const auto                  status = stub->EmbedImage(&context, request, &response);
   if (status.ok()) {
     return ToEmbeddingResult(response);
   }
@@ -390,8 +634,8 @@ auto GrpcSemanticRuntimeClient::EmbedImage(const std::string& endpoint,
 auto GrpcSemanticRuntimeClient::EmbedImageBatch(
     const std::string& endpoint, const std::vector<SemanticImageEmbeddingRequest>& requests,
     std::chrono::milliseconds timeout) -> std::vector<SemanticEmbeddingResult> {
-  auto channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
-  auto stub    = semantic::SemanticService::NewStub(channel);
+  auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
+  auto                stub    = semantic::SemanticService::NewStub(channel);
 
   grpc::ClientContext context;
   context.set_deadline(DeadlineFromNow(timeout));
@@ -405,8 +649,8 @@ auto GrpcSemanticRuntimeClient::EmbedImageBatch(
     item->set_model_name(input.model_name);
   }
 
-  semantic::EmbeddingBatchResponse response;
-  const auto status = stub->EmbedImageBatch(&context, request, &response);
+  semantic::EmbeddingBatchResponse     response;
+  const auto                           status = stub->EmbedImageBatch(&context, request, &response);
   std::vector<SemanticEmbeddingResult> results;
   if (!status.ok()) {
     results.reserve(requests.size());
@@ -428,18 +672,16 @@ auto GrpcSemanticRuntimeClient::EmbedImageBatch(
 }
 
 SemanticRuntimeService::SemanticRuntimeService(std::shared_ptr<ISemanticRuntimeClient> client,
-                                               QObject* parent)
+                                               QObject*                                parent)
     : QObject(parent), client_(std::move(client)) {
-  status_.state = SemanticRuntimeState::kStopped;
-  status_.issue = SemanticRuntimeIssue::kNone;
+  status_.state   = SemanticRuntimeState::kStopped;
+  status_.issue   = SemanticRuntimeIssue::kNone;
   status_.message = "Semantic runtime is stopped";
 
-  connect(&process_, &QProcess::readyReadStandardOutput, this, [this]() {
-    AppendStdout(process_.readAllStandardOutput());
-  });
-  connect(&process_, &QProcess::readyReadStandardError, this, [this]() {
-    AppendStderr(process_.readAllStandardError());
-  });
+  connect(&process_, &QProcess::readyReadStandardOutput, this,
+          [this]() { AppendStdout(process_.readAllStandardOutput()); });
+  connect(&process_, &QProcess::readyReadStandardError, this,
+          [this]() { AppendStderr(process_.readAllStandardError()); });
   connect(&process_, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
     if (error == QProcess::FailedToStart) {
       SetStatus(SemanticRuntimeState::kFailed, SemanticRuntimeIssue::kStartFailed,
@@ -448,9 +690,7 @@ SemanticRuntimeService::SemanticRuntimeService(std::shared_ptr<ISemanticRuntimeC
   });
 }
 
-SemanticRuntimeService::~SemanticRuntimeService() {
-  StopForProjectClose();
-}
+SemanticRuntimeService::~SemanticRuntimeService() { StopForProjectClose(); }
 
 auto SemanticRuntimeService::StartAndWait(const SemanticRuntimeOptions& options) -> bool {
   if (IsRunning()) {
@@ -479,13 +719,6 @@ auto SemanticRuntimeService::StartAndWait(const SemanticRuntimeOptions& options)
               "Semantic runtime binary was not found: " + options_.runtime_binary.string());
     return false;
   }
-  if (options_.model_root.empty()) {
-    SetStatus(SemanticRuntimeState::kFailed, SemanticRuntimeIssue::kStartFailed,
-              "Semantic runtime model root was not configured. Set ALCEDO_MIND_MODEL_ROOT or "
-              "install/download the model assets before starting semantic generation.");
-    return false;
-  }
-
   SetStatus(SemanticRuntimeState::kStarting, SemanticRuntimeIssue::kNone,
             "Starting semantic runtime");
   process_.setProgram(QString::fromStdString(options_.runtime_binary.string()));
@@ -528,9 +761,7 @@ void SemanticRuntimeService::Stop() {
             "Semantic runtime is stopped");
 }
 
-void SemanticRuntimeService::StopForProjectClose() {
-  Stop();
-}
+void SemanticRuntimeService::StopForProjectClose() { Stop(); }
 
 auto SemanticRuntimeService::Status() -> SemanticRuntimeStatusSnapshot {
   RefreshProcessExit();
@@ -549,29 +780,124 @@ auto SemanticRuntimeService::IsRunning() -> bool {
   return process_.state() != QProcess::NotRunning;
 }
 
+auto SemanticRuntimeService::ListModelProfiles(const std::string&        model_root,
+                                               std::chrono::milliseconds timeout,
+                                               std::string*              error)
+    -> std::vector<SemanticModelProfileInfo> {
+  if (status_.state != SemanticRuntimeState::kReady || !client_) {
+    if (error) {
+      *error = "semantic runtime is not ready";
+    }
+    return {};
+  }
+  return client_->ListModelProfiles(endpoint_, model_root, timeout, error);
+}
+
+auto SemanticRuntimeService::ListInstalledModels(const std::string&        model_root,
+                                                 std::chrono::milliseconds timeout,
+                                                 std::string*              error)
+    -> std::vector<SemanticModelProfileInfo> {
+  if (status_.state != SemanticRuntimeState::kReady || !client_) {
+    if (error) {
+      *error = "semantic runtime is not ready";
+    }
+    return {};
+  }
+  return client_->ListInstalledModels(endpoint_, model_root, timeout, error);
+}
+
+auto SemanticRuntimeService::ValidateModel(const std::string&        profile_id,
+                                           const std::string&        model_root,
+                                           std::chrono::milliseconds timeout)
+    -> SemanticModelManagerResult {
+  if (status_.state != SemanticRuntimeState::kReady || !client_) {
+    SemanticModelManagerResult result;
+    result.ok     = false;
+    result.status = "error";
+    result.error  = "semantic runtime is not ready";
+    return result;
+  }
+  return client_->ValidateModel(endpoint_, profile_id, model_root, timeout);
+}
+
+auto SemanticRuntimeService::DownloadModel(const std::string&        profile_id,
+                                           const std::string&        model_root,
+                                           const std::string&        hf_endpoint,
+                                           std::chrono::milliseconds timeout)
+    -> SemanticModelManagerResult {
+  if (status_.state != SemanticRuntimeState::kReady || !client_) {
+    SemanticModelManagerResult result;
+    result.ok     = false;
+    result.status = "error";
+    result.error  = "semantic runtime is not ready";
+    return result;
+  }
+  return client_->DownloadModel(endpoint_, profile_id, model_root, hf_endpoint, timeout);
+}
+
+auto SemanticRuntimeService::GetModelDownloadStatus(const std::string&        job_id,
+                                                    std::chrono::milliseconds timeout)
+    -> SemanticModelManagerResult {
+  if (status_.state != SemanticRuntimeState::kReady || !client_) {
+    SemanticModelManagerResult result;
+    result.ok     = false;
+    result.status = "error";
+    result.error  = "semantic runtime is not ready";
+    result.job_id = job_id;
+    return result;
+  }
+  return client_->GetModelDownloadStatus(endpoint_, job_id, timeout);
+}
+
+auto SemanticRuntimeService::CancelModelDownload(const std::string&        job_id,
+                                                 std::chrono::milliseconds timeout,
+                                                 std::string*              message) -> bool {
+  if (status_.state != SemanticRuntimeState::kReady || !client_) {
+    if (message) {
+      *message = "semantic runtime is not ready";
+    }
+    return false;
+  }
+  return client_->CancelModelDownload(endpoint_, job_id, timeout, message);
+}
+
+auto SemanticRuntimeService::DeleteModel(const std::string&        profile_id,
+                                         const std::string&        model_root,
+                                         std::chrono::milliseconds timeout)
+    -> SemanticModelManagerResult {
+  if (status_.state != SemanticRuntimeState::kReady || !client_) {
+    SemanticModelManagerResult result;
+    result.ok     = false;
+    result.status = "error";
+    result.error  = "semantic runtime is not ready";
+    return result;
+  }
+  return client_->DeleteModel(endpoint_, profile_id, model_root, timeout);
+}
+
 auto SemanticRuntimeService::EmbedText(const std::string& request_id, const std::string& text,
                                        std::chrono::milliseconds timeout)
     -> SemanticEmbeddingResult {
   if (status_.state != SemanticRuntimeState::kReady || !client_) {
     SemanticEmbeddingResult result;
     result.request_id = request_id;
-    result.ok = false;
-    result.error = "semantic runtime is not ready";
+    result.ok         = false;
+    result.error      = "semantic runtime is not ready";
     return result;
   }
   return client_->EmbedText(endpoint_, request_id, text, timeout);
 }
 
-auto SemanticRuntimeService::EmbedImage(const std::string& request_id,
+auto SemanticRuntimeService::EmbedImage(const std::string&          request_id,
                                         const std::vector<uint8_t>& rgba8_image,
-                                        const std::string& format_hint,
-                                        std::chrono::milliseconds timeout)
+                                        const std::string&          format_hint,
+                                        std::chrono::milliseconds   timeout)
     -> SemanticEmbeddingResult {
   if (status_.state != SemanticRuntimeState::kReady || !client_) {
     SemanticEmbeddingResult result;
     result.request_id = request_id;
-    result.ok = false;
-    result.error = "semantic runtime is not ready";
+    result.ok         = false;
+    result.error      = "semantic runtime is not ready";
     return result;
   }
   return client_->EmbedImage(endpoint_, request_id, rgba8_image, format_hint, timeout);
@@ -605,9 +931,9 @@ auto SemanticRuntimeService::IssueName() const -> QString {
 
 void SemanticRuntimeService::SetStatus(SemanticRuntimeState state, SemanticRuntimeIssue issue,
                                        std::string message) {
-  status_.state = state;
-  status_.issue = issue;
-  status_.message = std::move(message);
+  status_.state    = state;
+  status_.issue    = issue;
+  status_.message  = std::move(message);
   status_.endpoint = endpoint_;
   emit statusChanged();
 }
@@ -641,8 +967,7 @@ void SemanticRuntimeService::RefreshProcessExit() {
   std::ostringstream message;
   message << "Semantic runtime exited with code " << process_.exitCode();
   SetStatus(SemanticRuntimeState::kFailed,
-            crashed ? SemanticRuntimeIssue::kRuntimeCrashed
-                    : SemanticRuntimeIssue::kRuntimeExited,
+            crashed ? SemanticRuntimeIssue::kRuntimeCrashed : SemanticRuntimeIssue::kRuntimeExited,
             message.str());
 }
 
@@ -682,7 +1007,7 @@ auto SemanticRuntimeService::ChoosePort() const -> uint16_t {
 }
 
 auto SemanticRuntimeService::WaitForReadiness() -> bool {
-  const auto deadline = std::chrono::steady_clock::now() + options_.startup_timeout;
+  const auto  deadline = std::chrono::steady_clock::now() + options_.startup_timeout;
   std::string last_error;
   while (std::chrono::steady_clock::now() < deadline) {
     process_.waitForReadyRead(static_cast<int>(options_.health_poll_interval.count()));
@@ -732,9 +1057,8 @@ void SemanticRuntimeService::AttachChildTreeCleanup() {
     CloseHandle(job);
     return;
   }
-  HANDLE process_handle =
-      OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, FALSE,
-                  static_cast<DWORD>(process_.processId()));
+  HANDLE process_handle = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, FALSE,
+                                      static_cast<DWORD>(process_.processId()));
   if (process_handle == nullptr) {
     CloseHandle(job);
     return;
