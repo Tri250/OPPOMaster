@@ -13,11 +13,13 @@ use tracing::info;
 
 use crate::config::SemanticConfig;
 use crate::service::embedding::{EmbeddingEngine, EngineModelInfo};
-use crate::service::model_assets::ClipModelPaths;
+use crate::service::model_assets::{
+    AssetRole, ClipModelPaths, ModelProfileSpec, find_profile, profile_asset_path,
+    validate_model_profile,
+};
 
 const TEXT_SEQUENCE_LENGTH: usize = 77;
 const EMBEDDING_DIM: usize = 512;
-const IMAGE_SIZE: usize = 256;
 
 const DEVICE_ERROR_MESSAGE: &str = "expected \"auto\", \"cpu\", \"directml\", \"dml\", \"directml:N\", \"dml:N\", \"coreml\", \"coreml:all\", \"coreml:cpuandgpu\", or \"coreml:cpuonly\" for ORT backend device";
 
@@ -44,9 +46,41 @@ struct SessionIo {
     output_name: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EngineProfileAdapter {
+    MobileClipOpenClip,
+    ChineseClipVitBasePatch16,
+    JinaClipV2OnnxInt8,
+}
+
+impl EngineProfileAdapter {
+    fn from_profile(profile: &ModelProfileSpec) -> Result<Self> {
+        match profile.engine_profile_id {
+            "mobileclip2-openclip" => Ok(Self::MobileClipOpenClip),
+            "chinese-clip-vit-base-patch16" => Ok(Self::ChineseClipVitBasePatch16),
+            "jina-clip-v2-onnx-int8" => Ok(Self::JinaClipV2OnnxInt8),
+            other => bail!(
+                "semantic model profile {} requests unsupported engine adapter {other:?}",
+                profile.profile_id
+            ),
+        }
+    }
+
+    fn supports_current_onnx_loader(self) -> bool {
+        matches!(self, Self::MobileClipOpenClip)
+    }
+}
+
 pub struct OrtClipEngine {
+    profile_id: String,
     model_id: String,
     revision: String,
+    engine_profile_id: String,
+    language: String,
+    embedding_dim: usize,
+    native_embedding_dim: usize,
+    image_size: usize,
+    embedding_transform: String,
     provider: String,
     model_root: PathBuf,
     tokenizer: Tokenizer,
@@ -221,7 +255,11 @@ impl OrtClipEngine {
             .map_err(|e| anyhow::anyhow!("failed to load ONNX model {}: {e}", path.display()))
     }
 
-    fn validate_text_session(session: &Session) -> Result<SessionIo> {
+    fn validate_text_session(
+        session: &Session,
+        seq_len: usize,
+        native_embedding_dim: usize,
+    ) -> Result<SessionIo> {
         if session.inputs().len() != 1 {
             bail!(
                 "unexpected text model input count {}, expected 1",
@@ -251,11 +289,11 @@ impl OrtClipEngine {
                 input_type
             );
         }
-        if input_shape.len() != 2 || input_shape[1] != TEXT_SEQUENCE_LENGTH as i64 {
+        if input_shape.len() != 2 || input_shape[1] != seq_len as i64 {
             bail!(
                 "unexpected text input shape {:?}, expected [batch, {}]",
                 input_shape,
-                TEXT_SEQUENCE_LENGTH
+                seq_len
             );
         }
 
@@ -275,11 +313,11 @@ impl OrtClipEngine {
                 output_type
             );
         }
-        if output_shape.len() != 2 || output_shape[1] != EMBEDDING_DIM as i64 {
+        if output_shape.len() != 2 || output_shape[1] != native_embedding_dim as i64 {
             bail!(
                 "unexpected text output shape {:?}, expected [batch, {}]",
                 output_shape,
-                EMBEDDING_DIM
+                native_embedding_dim
             );
         }
 
@@ -289,7 +327,11 @@ impl OrtClipEngine {
         })
     }
 
-    fn validate_vision_session(session: &Session) -> Result<SessionIo> {
+    fn validate_vision_session(
+        session: &Session,
+        image_size: usize,
+        native_embedding_dim: usize,
+    ) -> Result<SessionIo> {
         if session.inputs().len() != 1 {
             bail!(
                 "unexpected vision model input count {}, expected 1",
@@ -321,14 +363,14 @@ impl OrtClipEngine {
         }
         if input_shape.len() != 4
             || input_shape[1] != 3
-            || input_shape[2] != IMAGE_SIZE as i64
-            || input_shape[3] != IMAGE_SIZE as i64
+            || input_shape[2] != image_size as i64
+            || input_shape[3] != image_size as i64
         {
             bail!(
                 "unexpected vision input shape {:?}, expected [batch, 3, {}, {}]",
                 input_shape,
-                IMAGE_SIZE,
-                IMAGE_SIZE
+                image_size,
+                image_size
             );
         }
 
@@ -348,11 +390,11 @@ impl OrtClipEngine {
                 output_type
             );
         }
-        if output_shape.len() != 2 || output_shape[1] != EMBEDDING_DIM as i64 {
+        if output_shape.len() != 2 || output_shape[1] != native_embedding_dim as i64 {
             bail!(
                 "unexpected vision output shape {:?}, expected [batch, {}]",
                 output_shape,
-                EMBEDDING_DIM
+                native_embedding_dim
             );
         }
 
@@ -444,9 +486,12 @@ impl OrtClipEngine {
             bail!("image batch must not be empty");
         }
 
-        let mut batch_data = Vec::with_capacity(rgbs.len() * 3 * IMAGE_SIZE * IMAGE_SIZE);
+        let mut batch_data = Vec::with_capacity(rgbs.len() * 3 * self.image_size * self.image_size);
         for rgb in rgbs {
-            batch_data.extend(Self::prepare_image_tensor_data_for_size(rgb, IMAGE_SIZE)?);
+            batch_data.extend(Self::prepare_image_tensor_data_for_size(
+                rgb,
+                self.image_size,
+            )?);
         }
 
         Ok((batch_data, rgbs.len()))
@@ -473,6 +518,55 @@ impl OrtClipEngine {
         Ok(embedding)
     }
 
+    fn apply_embedding_transform(&self, mut embedding: Vec<f32>) -> Result<Vec<f32>> {
+        if embedding.len() != self.native_embedding_dim {
+            bail!(
+                "unexpected native embedding length {}, expected {} for profile {}",
+                embedding.len(),
+                self.native_embedding_dim,
+                self.profile_id
+            );
+        }
+
+        match self.embedding_transform.as_str() {
+            "l2_normalize" => {
+                if self.embedding_dim != self.native_embedding_dim {
+                    bail!(
+                        "profile {} uses l2_normalize but output dim {} differs from native dim {}",
+                        self.profile_id,
+                        self.embedding_dim,
+                        self.native_embedding_dim
+                    );
+                }
+            }
+            "matryoshka_truncate_then_l2_normalize" => {
+                if self.embedding_dim > self.native_embedding_dim {
+                    bail!(
+                        "profile {} cannot truncate native dim {} to larger output dim {}",
+                        self.profile_id,
+                        self.native_embedding_dim,
+                        self.embedding_dim
+                    );
+                }
+                embedding.truncate(self.embedding_dim);
+            }
+            other => bail!(
+                "profile {} requests unsupported embedding transform {other:?}",
+                self.profile_id
+            ),
+        }
+
+        if embedding.len() != self.embedding_dim {
+            bail!(
+                "transformed embedding length {}, expected {} for profile {}",
+                embedding.len(),
+                self.embedding_dim,
+                self.profile_id
+            );
+        }
+        Self::l2_normalize(embedding)
+    }
+
     pub fn forward_text_embeddings(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
         let (input_ids, batch_size) = self.prepare_text_batch(texts)?;
         let input_tensor = Tensor::from_array(([batch_size, TEXT_SEQUENCE_LENGTH], input_ids))
@@ -495,25 +589,27 @@ impl OrtClipEngine {
             .try_extract_tensor::<f32>()
             .map_err(|e| anyhow::anyhow!("failed to extract text output tensor: {e}"))?;
 
-        if values.len() != batch_size * EMBEDDING_DIM {
+        if values.len() != batch_size * self.native_embedding_dim {
             bail!(
                 "unexpected text embedding output length {}, expected {}",
                 values.len(),
-                batch_size * EMBEDDING_DIM
+                batch_size * self.native_embedding_dim
             );
         }
 
         values
-            .chunks(EMBEDDING_DIM)
-            .map(|row| Self::l2_normalize(row.to_vec()))
+            .chunks(self.native_embedding_dim)
+            .map(|row| self.apply_embedding_transform(row.to_vec()))
             .collect()
     }
 
     pub fn forward_image_embeddings(&self, rgbs: &[RgbImage]) -> Result<Vec<Vec<f32>>> {
         let (pixel_values, batch_size) = self.prepare_image_batch_tensor_data(rgbs)?;
-        let input_tensor =
-            Tensor::from_array(([batch_size, 3, IMAGE_SIZE, IMAGE_SIZE], pixel_values))
-                .map_err(|e| anyhow::anyhow!("failed to build image input tensor: {e}"))?;
+        let input_tensor = Tensor::from_array((
+            [batch_size, 3, self.image_size, self.image_size],
+            pixel_values,
+        ))
+        .map_err(|e| anyhow::anyhow!("failed to build image input tensor: {e}"))?;
 
         let mut session = self
             .vision_session
@@ -535,50 +631,93 @@ impl OrtClipEngine {
             .try_extract_tensor::<f32>()
             .map_err(|e| anyhow::anyhow!("failed to extract image output tensor: {e}"))?;
 
-        if values.len() != batch_size * EMBEDDING_DIM {
+        if values.len() != batch_size * self.native_embedding_dim {
             bail!(
                 "unexpected image embedding output length {}, expected {}",
                 values.len(),
-                batch_size * EMBEDDING_DIM
+                batch_size * self.native_embedding_dim
             );
         }
 
         values
-            .chunks(EMBEDDING_DIM)
-            .map(|row| Self::l2_normalize(row.to_vec()))
+            .chunks(self.native_embedding_dim)
+            .map(|row| self.apply_embedding_transform(row.to_vec()))
             .collect()
     }
 
     pub fn new(config: &SemanticConfig) -> Result<Self> {
         let device_request = Self::parse_device_request(&config.device)?;
 
-        let model_paths = ClipModelPaths::from_root(&config.model_root);
-        model_paths.ensure_present(&config.revision, &config.hf_endpoint, config.allow_download)?;
+        if config.allow_download {
+            let profile = find_profile(&config.model_id)?;
+            crate::service::model_assets::download_model_profile(
+                profile.profile_id,
+                &config.model_root,
+                &config.hf_endpoint,
+                Some(&config.revision),
+            )?;
+        }
+        let manifest = validate_model_profile(&config.model_id, &config.model_root)?;
+        if manifest.revision != config.revision {
+            bail!(
+                "configured semantic model revision {} does not match resolved profile revision {} for {}",
+                config.revision,
+                manifest.revision,
+                manifest.profile_id
+            );
+        }
+        let profile = find_profile(&manifest.profile_id)?;
+        let adapter = EngineProfileAdapter::from_profile(profile)?;
+        if !adapter.supports_current_onnx_loader() {
+            bail!(
+                "semantic model profile {} uses adapter {} which is not yet wired for ONNX inference",
+                profile.profile_id,
+                profile.engine_profile_id
+            );
+        }
 
         Self::initialize_ort_environment()?;
 
         let device_description = Self::describe_device_request(device_request);
         info!(
-            "loading ORT clip model {} from {} on {}",
-            config.model_id,
-            model_paths.root.display(),
-            device_description,
+            "loading ORT clip profile {} ({}) from {} on {}",
+            profile.profile_id, profile.engine_profile_id, config.model_root, device_description,
         );
 
-        let tokenizer = Tokenizer::from_file(&model_paths.tokenizer_json)
+        let tokenizer_path = profile_asset_path(profile, &config.model_root, AssetRole::Tokenizer)
+            .or_else(|_| profile_asset_path(profile, &config.model_root, AssetRole::Vocab))?;
+        let tokenizer = Tokenizer::from_file(&tokenizer_path)
             .map_err(|e| anyhow::anyhow!("failed to load tokenizer: {e}"))?;
 
-        let text_session = Self::load_session(&model_paths.text_model, device_request)?;
-        let text_io = Self::validate_text_session(&text_session)?;
+        let text_model = profile_asset_path(profile, &config.model_root, AssetRole::TextModel)?;
+        let vision_model = profile_asset_path(profile, &config.model_root, AssetRole::VisionModel)?;
 
-        let vision_session = Self::load_session(&model_paths.vision_model, device_request)?;
-        let vision_io = Self::validate_vision_session(&vision_session)?;
+        let text_session = Self::load_session(&text_model, device_request)?;
+        let text_io = Self::validate_text_session(
+            &text_session,
+            TEXT_SEQUENCE_LENGTH,
+            manifest.native_embedding_dimension as usize,
+        )?;
+
+        let vision_session = Self::load_session(&vision_model, device_request)?;
+        let vision_io = Self::validate_vision_session(
+            &vision_session,
+            manifest.image_size as usize,
+            manifest.native_embedding_dimension as usize,
+        )?;
 
         Ok(Self {
-            model_id: config.model_id.clone(),
-            revision: config.revision.clone(),
+            profile_id: manifest.profile_id,
+            model_id: manifest.model_id,
+            revision: manifest.revision,
+            engine_profile_id: manifest.engine_profile_id,
+            language: manifest.language,
+            embedding_dim: manifest.embedding_dimension as usize,
+            native_embedding_dim: manifest.native_embedding_dimension as usize,
+            image_size: manifest.image_size as usize,
+            embedding_transform: manifest.embedding_transform,
             provider: device_description,
-            model_root: model_paths.root,
+            model_root: PathBuf::from(manifest.model_root),
             tokenizer,
             text_session: Mutex::new(text_session),
             vision_session: Mutex::new(vision_session),
@@ -623,10 +762,15 @@ impl EmbeddingEngine for OrtClipEngine {
 
     fn model_info(&self) -> EngineModelInfo {
         EngineModelInfo {
+            profile_id: self.profile_id.clone(),
             model_id: self.model_id.clone(),
             revision: self.revision.clone(),
-            embedding_dim: EMBEDDING_DIM as u32,
-            image_size: IMAGE_SIZE as u32,
+            engine_profile_id: self.engine_profile_id.clone(),
+            language: self.language.clone(),
+            embedding_dim: self.embedding_dim as u32,
+            native_embedding_dim: self.native_embedding_dim as u32,
+            image_size: self.image_size as u32,
+            embedding_transform: self.embedding_transform.clone(),
             provider: self.provider.clone(),
             model_root: self.model_root.to_string_lossy().into_owned(),
             prototype_config_hash: String::new(),
@@ -643,8 +787,13 @@ mod tests {
     static MODEL_ENGINE_LOAD_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
     fn test_model_root() -> String {
-        std::env::var("ALCEDO_MIND_TEST_MODEL_ROOT")
-            .unwrap_or_else(|_| "./models/mobileclip2-s2-openclip".to_string())
+        std::env::var("ALCEDO_MIND_TEST_MODEL_ROOT").unwrap_or_else(|_| {
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("models")
+                .join("mobileclip2-s2-openclip")
+                .to_string_lossy()
+                .into_owned()
+        })
     }
 
     fn test_allow_download() -> bool {
@@ -891,6 +1040,74 @@ mod tests {
                 .sqrt();
             assert!((norm - 1.0).abs() < 1e-3, "norm was {norm}");
         }
+    }
+
+    #[test]
+    fn real_repo_image_embeddings_are_reasonable_for_english_and_chinese_queries() {
+        if !test_allow_download() && !has_test_model_assets() {
+            eprintln!(
+                "skipping real-image ORT semantic test; set ALCEDO_MIND_TEST_MODEL_ROOT or ALCEDO_MIND_TEST_ALLOW_DOWNLOAD=1"
+            );
+            return;
+        }
+
+        let image_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("docs")
+            .join("demo")
+            .join("album.png");
+        if !image_path.exists() {
+            eprintln!(
+                "skipping real-image ORT semantic test; missing {}",
+                image_path.display()
+            );
+            return;
+        }
+
+        let engine = make_test_engine();
+        let image = image::open(&image_path)
+            .expect("real demo image should decode")
+            .to_rgb8();
+        let image_embedding = engine
+            .embed_image(&image)
+            .expect("real demo image embedding should succeed");
+
+        let english_match = engine
+            .embed_text("a screenshot of photo editing software")
+            .expect("English text embedding should succeed");
+        let english_mismatch = engine
+            .embed_text("a close-up photo of a sandwich")
+            .expect("English mismatch text embedding should succeed");
+        let chinese_match = engine
+            .embed_text("照片编辑软件的截图")
+            .expect("Chinese text embedding should succeed");
+        let chinese_mismatch = engine
+            .embed_text("一张三明治的特写照片")
+            .expect("Chinese mismatch text embedding should succeed");
+
+        fn dot(a: &[f32], b: &[f32]) -> f32 {
+            a.iter().zip(b).map(|(x, y)| x * y).sum()
+        }
+
+        let en_score = dot(&image_embedding, &english_match);
+        let en_bad = dot(&image_embedding, &english_mismatch);
+        let zh_score = dot(&image_embedding, &chinese_match);
+        let zh_bad = dot(&image_embedding, &chinese_mismatch);
+
+        eprintln!(
+            "real-image semantic scores: en_match={en_score:.4}, en_mismatch={en_bad:.4}, zh_match={zh_score:.4}, zh_mismatch={zh_bad:.4}"
+        );
+
+        assert_eq!(image_embedding.len(), EMBEDDING_DIM);
+        assert!(en_score.is_finite());
+        assert!(en_bad.is_finite());
+        assert!(zh_score.is_finite());
+        assert!(zh_bad.is_finite());
+        assert!(
+            en_score > en_bad,
+            "English query should be closer to the real app screenshot than the unrelated prompt"
+        );
     }
 
     #[cfg(target_os = "macos")]

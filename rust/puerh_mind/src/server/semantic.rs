@@ -540,6 +540,11 @@ impl SemanticService for SemanticServiceImpl {
             provider: info.provider,
             model_root: info.model_root,
             prototype_config_hash: info.prototype_config_hash,
+            profile_id: info.profile_id,
+            engine_profile_id: info.engine_profile_id,
+            language: info.language,
+            native_embedding_dimension: info.native_embedding_dim,
+            embedding_transform: info.embedding_transform,
         }))
     }
 
@@ -575,8 +580,13 @@ mod tests {
     use crate::service::ort_clip::OrtClipEngine;
 
     fn test_model_root() -> String {
-        std::env::var("ALCEDO_MIND_TEST_MODEL_ROOT")
-            .unwrap_or_else(|_| "./models/mobileclip2-s2-openclip".to_string())
+        std::env::var("ALCEDO_MIND_TEST_MODEL_ROOT").unwrap_or_else(|_| {
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("models")
+                .join("mobileclip2-s2-openclip")
+                .to_string_lossy()
+                .into_owned()
+        })
     }
 
     fn test_allow_download() -> bool {
@@ -926,7 +936,12 @@ mod tests {
             .expect("model info should return")
             .into_inner();
         assert_eq!(model_info.model_id, "mock-model-v1");
+        assert_eq!(model_info.profile_id, "mock-profile-v1");
+        assert_eq!(model_info.engine_profile_id, "mock-engine");
+        assert_eq!(model_info.language, "en");
         assert_eq!(model_info.embedding_dimension, 8);
+        assert_eq!(model_info.native_embedding_dimension, 8);
+        assert_eq!(model_info.embedding_transform, "l2_normalize");
 
         let status = service
             .get_runtime_status(Request::new(GetRuntimeStatusRequest {}))

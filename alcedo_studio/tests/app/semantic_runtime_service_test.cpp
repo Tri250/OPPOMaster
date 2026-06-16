@@ -43,13 +43,18 @@ class FakeSemanticRuntimeClient final : public ISemanticRuntimeClient {
     (void)endpoint;
     (void)timeout;
     (void)error;
-    info->model_id              = "test/mobileclip";
-    info->revision              = "rev-a";
-    info->embedding_dimension   = 512;
-    info->image_size            = 256;
-    info->provider              = "fake";
-    info->model_root            = "test-model-root";
-    info->prototype_config_hash = "hash-a";
+    info->profile_id                 = "mobileclip2-s2-en";
+    info->model_id                   = "test/mobileclip";
+    info->revision                   = "rev-a";
+    info->engine_profile_id          = "mobileclip2-openclip";
+    info->language                   = "en";
+    info->embedding_dimension        = 512;
+    info->native_embedding_dimension = 512;
+    info->image_size                 = 256;
+    info->embedding_transform        = "l2_normalize";
+    info->provider                   = "fake";
+    info->model_root                 = "test-model-root";
+    info->prototype_config_hash      = "hash-a";
     return true;
   }
 
@@ -325,7 +330,10 @@ TEST(SemanticRuntimeServiceTest, StartStopReportsReadyAndStopped) {
   EXPECT_FALSE(status.endpoint.empty());
   EXPECT_GT(status.process_id, 0);
   ASSERT_TRUE(status.model_info.has_value());
+  EXPECT_EQ(status.model_info->profile_id, "mobileclip2-s2-en");
   EXPECT_EQ(status.model_info->embedding_dimension, 512U);
+  EXPECT_EQ(status.model_info->native_embedding_dimension, 512U);
+  EXPECT_EQ(status.model_info->embedding_transform, "l2_normalize");
   ASSERT_TRUE(status.remote_status.has_value());
   EXPECT_EQ(status.remote_status->provider, "fake");
 

@@ -129,13 +129,18 @@ auto GrpcErrorMessage(const grpc::Status& status) -> std::string {
 auto ToRuntimeModelInfo(const semantic::GetModelInfoResponse& response)
     -> SemanticRuntimeModelInfo {
   SemanticRuntimeModelInfo info;
-  info.model_id              = response.model_id();
-  info.revision              = response.revision();
-  info.embedding_dimension   = response.embedding_dimension();
-  info.image_size            = response.image_size();
-  info.provider              = response.provider();
-  info.model_root            = response.model_root();
-  info.prototype_config_hash = response.prototype_config_hash();
+  info.profile_id                 = response.profile_id();
+  info.model_id                   = response.model_id();
+  info.revision                   = response.revision();
+  info.engine_profile_id          = response.engine_profile_id();
+  info.language                   = response.language();
+  info.embedding_dimension        = response.embedding_dimension();
+  info.native_embedding_dimension = response.native_embedding_dimension();
+  info.image_size                 = response.image_size();
+  info.embedding_transform        = response.embedding_transform();
+  info.provider                   = response.provider();
+  info.model_root                 = response.model_root();
+  info.prototype_config_hash      = response.prototype_config_hash();
   return info;
 }
 

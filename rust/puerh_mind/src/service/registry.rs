@@ -28,10 +28,15 @@ pub fn register_services(
             );
             Arc::new(UnavailableEmbeddingEngine::new(
                 EngineModelInfo {
+                    profile_id: config.semantic.model_id.clone(),
                     model_id: config.semantic.model_id.clone(),
                     revision: config.semantic.revision.clone(),
+                    engine_profile_id: String::new(),
+                    language: String::new(),
                     embedding_dim: REQUIRED_EMBEDDING_DIMENSION,
+                    native_embedding_dim: REQUIRED_EMBEDDING_DIMENSION,
                     image_size: 0,
+                    embedding_transform: String::new(),
                     provider: "unavailable".to_string(),
                     model_root: config.semantic.model_root.clone(),
                     prototype_config_hash: String::new(),

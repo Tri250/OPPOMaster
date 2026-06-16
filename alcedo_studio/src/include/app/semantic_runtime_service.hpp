@@ -38,10 +38,15 @@ enum class SemanticRuntimeIssue : uint8_t {
 };
 
 struct SemanticRuntimeModelInfo {
+  std::string profile_id;
   std::string model_id;
   std::string revision;
+  std::string engine_profile_id;
+  std::string language;
   uint32_t    embedding_dimension = 0;
+  uint32_t    native_embedding_dimension = 0;
   uint32_t    image_size          = 0;
+  std::string embedding_transform;
   std::string provider;
   std::string model_root;
   std::string prototype_config_hash;

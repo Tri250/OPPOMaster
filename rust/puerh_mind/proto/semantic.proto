@@ -86,6 +86,11 @@ message GetModelInfoResponse {
   string provider = 5;
   string model_root = 6;
   string prototype_config_hash = 7;
+  string profile_id = 8;
+  string engine_profile_id = 9;
+  string language = 10;
+  uint32 native_embedding_dimension = 11;
+  string embedding_transform = 12;
 }
 
 message GetRuntimeStatusRequest {}

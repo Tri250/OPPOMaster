@@ -2,10 +2,15 @@ use anyhow::Result;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EngineModelInfo {
+    pub profile_id: String,
     pub model_id: String,
     pub revision: String,
+    pub engine_profile_id: String,
+    pub language: String,
     pub embedding_dim: u32,
+    pub native_embedding_dim: u32,
     pub image_size: u32,
+    pub embedding_transform: String,
     pub provider: String,
     pub model_root: String,
     pub prototype_config_hash: String,
@@ -125,10 +130,15 @@ impl EmbeddingEngine for MockEmbeddingEngine {
 
     fn model_info(&self) -> EngineModelInfo {
         EngineModelInfo {
+            profile_id: "mock-profile-v1".to_string(),
             model_id: "mock-model-v1".to_string(),
             revision: "mock-revision".to_string(),
+            engine_profile_id: "mock-engine".to_string(),
+            language: "en".to_string(),
             embedding_dim: 8,
+            native_embedding_dim: 8,
             image_size: 256,
+            embedding_transform: "l2_normalize".to_string(),
             provider: "mock".to_string(),
             model_root: String::new(),
             prototype_config_hash: String::new(),

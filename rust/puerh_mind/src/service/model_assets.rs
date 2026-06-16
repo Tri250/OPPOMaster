@@ -427,6 +427,33 @@ pub fn find_profile(profile_id: &str) -> anyhow::Result<&'static ModelProfileSpe
         .ok_or_else(|| anyhow::anyhow!("unknown semantic model profile {profile_id:?}"))
 }
 
+pub fn find_profile_asset(
+    profile: &ModelProfileSpec,
+    role: AssetRole,
+) -> anyhow::Result<&'static ModelAssetSpec> {
+    profile
+        .assets
+        .iter()
+        .find(|asset| asset.role == role)
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "semantic model profile {} does not define a {} asset",
+                profile.profile_id,
+                role.as_str()
+            )
+        })
+}
+
+pub fn profile_asset_path(
+    profile: &ModelProfileSpec,
+    root: impl AsRef<Path>,
+    role: AssetRole,
+) -> anyhow::Result<PathBuf> {
+    Ok(root
+        .as_ref()
+        .join(find_profile_asset(profile, role)?.local_path))
+}
+
 pub fn profile_status(
     profile: &'static ModelProfileSpec,
     root: impl AsRef<Path>,
@@ -482,7 +509,10 @@ pub fn validate_model_profile(
         if stored.profile_id != manifest.profile_id
             || stored.model_id != manifest.model_id
             || stored.revision != manifest.revision
+            || stored.engine_profile_id != manifest.engine_profile_id
             || stored.embedding_dimension != REQUIRED_EMBEDDING_DIMENSION
+            || stored.native_embedding_dimension != manifest.native_embedding_dimension
+            || stored.image_size != manifest.image_size
             || stored.embedding_transform != manifest.embedding_transform
         {
             bail!(
