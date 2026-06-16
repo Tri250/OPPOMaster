@@ -26,6 +26,10 @@ ColumnLayout {
     readonly property int albumLabeledCount: hasController ? semanticController.albumLabeledCount : 0
     readonly property int albumUnlabeledCount: hasController ? semanticController.albumUnlabeledCount : 0
     readonly property bool generationRunning: hasController ? semanticController.running : false
+    readonly property bool modelTaskRunning: hasController
+                                             ? semanticController.modelDownloadRunning
+                                               || semanticController.modelActivationRunning
+                                             : false
     readonly property string activeModelName: hasController ? semanticController.activeModelDisplayName : qsTr("No active model")
     readonly property string activeModelKey: hasController ? semanticController.activeModelKey : ""
     readonly property int progressTotal: hasController ? semanticController.total : 0
@@ -335,7 +339,7 @@ ColumnLayout {
                 id: modelBox
                 Layout.fillWidth: true
                 Layout.preferredHeight: 44
-                enabled: panel.hasController && !panel.semanticController.modelDownloadRunning
+                enabled: panel.hasController && !panel.modelTaskRunning
                 model: panel.hasController ? panel.semanticController.modelProfileOptions : []
                 textRole: "label"
                 currentIndex: panel.hasController
@@ -400,7 +404,7 @@ ColumnLayout {
                           : Qt.rgba(1, 1, 1, 0.07))
                 border.width: 1
                 border.color: Qt.rgba(panel.textColor.r, panel.textColor.g, panel.textColor.b, 0.14)
-                opacity: panel.hasController && !panel.semanticController.modelDownloadRunning ? 1 : 0.45
+                opacity: panel.hasController && !panel.modelTaskRunning ? 1 : 0.45
 
                 Image {
                     anchors.centerIn: parent
@@ -415,7 +419,7 @@ ColumnLayout {
                 MouseArea {
                     id: modelBrowseMouse
                     anchors.fill: parent
-                    enabled: panel.hasController && !panel.semanticController.modelDownloadRunning
+                    enabled: panel.hasController && !panel.modelTaskRunning
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: modelFolderDialog.open()
@@ -439,7 +443,7 @@ ColumnLayout {
                 id: endpointBox
                 Layout.preferredWidth: 210
                 Layout.preferredHeight: 44
-                enabled: panel.hasController && !panel.semanticController.modelDownloadRunning
+                enabled: panel.hasController && !panel.modelTaskRunning
                 model: [
                     qsTr("HF Mirror"),
                     qsTr("Hugging Face"),
@@ -459,7 +463,7 @@ ColumnLayout {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 44
                 visible: panel.hasController && panel.semanticController.modelEndpointPreset === "custom"
-                enabled: panel.hasController && !panel.semanticController.modelDownloadRunning
+                enabled: panel.hasController && !panel.modelTaskRunning
                 text: panel.hasController ? panel.semanticController.customModelEndpoint : ""
                 placeholderText: qsTr("https://example.com")
                 color: panel.textColor
@@ -486,14 +490,14 @@ ColumnLayout {
             }
 
             ProgressBar {
-                visible: panel.hasController && panel.semanticController.modelDownloadRunning
+                visible: panel.hasController && panel.modelTaskRunning
                 Layout.fillWidth: true
                 Layout.preferredHeight: 8
                 from: 0
                 to: 100
                 value: panel.hasController ? panel.semanticController.modelDownloadProgress : 0
                 indeterminate: panel.hasController
-                               && panel.semanticController.modelDownloadRunning
+                               && panel.modelTaskRunning
                                && panel.semanticController.modelDownloadProgress <= 0
             }
 
@@ -504,7 +508,7 @@ ColumnLayout {
                 Button {
                     Layout.preferredHeight: 42
                     text: qsTr("Check")
-                    enabled: panel.hasController && !panel.semanticController.modelDownloadRunning
+                    enabled: panel.hasController && !panel.modelTaskRunning
                     Material.foreground: panel.textColor
                     onClicked: panel.semanticController.RefreshSelectedModelStatus()
                 }
@@ -514,7 +518,7 @@ ColumnLayout {
                     text: panel.hasController && panel.semanticController.modelDownloadRunning
                           ? qsTr("Cancel")
                           : qsTr("Download")
-                    enabled: panel.hasController
+                    enabled: panel.hasController && !panel.semanticController.modelActivationRunning
                     Material.foreground: panel.textColor
                     onClicked: {
                         if (panel.semanticController.modelDownloadRunning) {
@@ -528,7 +532,7 @@ ColumnLayout {
                 Button {
                     Layout.preferredHeight: 42
                     text: qsTr("Delete")
-                    enabled: panel.hasController && !panel.semanticController.modelDownloadRunning
+                    enabled: panel.hasController && !panel.modelTaskRunning
                     Material.foreground: panel.dangerColor
                     onClicked: panel.semanticController.DeleteSelectedModel()
                 }
@@ -538,6 +542,7 @@ ColumnLayout {
                     text: qsTr("Activate")
                     enabled: panel.hasController
                              && !panel.semanticController.modelDownloadRunning
+                             && !panel.semanticController.modelActivationRunning
                     Material.foreground: panel.textColor
                     onClicked: panel.semanticController.ActivateSelectedModel()
                 }

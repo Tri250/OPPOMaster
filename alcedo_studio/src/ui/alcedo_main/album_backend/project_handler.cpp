@@ -202,6 +202,10 @@ bool ProjectHandler::InitializeServices(const std::filesystem::path& dbPath,
           ph.project_package_path_  = std::move(result->package_path_);
           ph.project_workspace_dir_ = std::move(result->workspace_dir_);
 
+          if (ph.project_) {
+            (void)ph.project_->GetSemanticRuntimeService();
+          }
+
           const auto preferred_folder_path = self->folder_ctrl_.current_folder_path();
           ph.ClearProjectData();
           self->import_export_.ResetExportState();

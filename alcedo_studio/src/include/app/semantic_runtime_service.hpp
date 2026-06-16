@@ -43,9 +43,9 @@ struct SemanticRuntimeModelInfo {
   std::string revision;
   std::string engine_profile_id;
   std::string language;
-  uint32_t    embedding_dimension = 0;
+  uint32_t    embedding_dimension        = 0;
   uint32_t    native_embedding_dimension = 0;
-  uint32_t    image_size          = 0;
+  uint32_t    image_size                 = 0;
   std::string embedding_transform;
   std::string provider;
   std::string model_root;
@@ -133,6 +133,12 @@ struct SemanticEmbeddingResult {
   std::string        error;
 };
 
+struct SemanticTextEmbeddingRequest {
+  std::string request_id;
+  std::string text;
+  std::string model_name;
+};
+
 struct SemanticImageEmbeddingRequest {
   std::string          request_id;
   std::vector<uint8_t> rgba8_image;
@@ -159,12 +165,12 @@ struct SemanticRuntimeOptions {
   uint16_t                  port     = 0;
   std::string               model_id = "plhery/mobileclip2-onnx:s2";
   std::string               revision;
-  std::string               hf_endpoint       = "https://hf-mirror.com";
-  std::string               device            = "auto";
-  uint32_t                  batch_cap         = 512;
-  uint32_t                  batch_wait_ms     = 25;
-  uint32_t                  max_message_bytes = 16 * 1024 * 1024;
-  bool                      allow_download    = false;
+  std::string               hf_endpoint        = "https://hf-mirror.com";
+  std::string               device             = "auto";
+  uint32_t                  batch_cap          = 512;
+  uint32_t                  batch_wait_ms      = 25;
+  uint32_t                  max_message_bytes  = 16 * 1024 * 1024;
+  bool                      allow_download     = false;
   bool                      require_model_info = true;
   std::chrono::milliseconds startup_timeout{5000};
   std::chrono::milliseconds health_poll_interval{50};
@@ -207,7 +213,11 @@ class ISemanticRuntimeClient {
       -> SemanticModelManagerResult = 0;
   virtual auto EmbedText(const std::string& endpoint, const std::string& request_id,
                          const std::string& text, std::chrono::milliseconds timeout)
-      -> SemanticEmbeddingResult                                                        = 0;
+      -> SemanticEmbeddingResult = 0;
+  virtual auto EmbedTextBatch(const std::string&                               endpoint,
+                              const std::vector<SemanticTextEmbeddingRequest>& requests,
+                              std::chrono::milliseconds                        timeout)
+      -> std::vector<SemanticEmbeddingResult>;
   virtual auto EmbedImage(const std::string& endpoint, const std::string& request_id,
                           const std::vector<uint8_t>& rgba8_image, const std::string& format_hint,
                           std::chrono::milliseconds timeout) -> SemanticEmbeddingResult = 0;
@@ -249,6 +259,10 @@ class GrpcSemanticRuntimeClient final : public ISemanticRuntimeClient {
   auto EmbedText(const std::string& endpoint, const std::string& request_id,
                  const std::string& text, std::chrono::milliseconds timeout)
       -> SemanticEmbeddingResult override;
+  auto EmbedTextBatch(const std::string&                               endpoint,
+                      const std::vector<SemanticTextEmbeddingRequest>& requests,
+                      std::chrono::milliseconds                        timeout)
+      -> std::vector<SemanticEmbeddingResult> override;
   auto EmbedImage(const std::string& endpoint, const std::string& request_id,
                   const std::vector<uint8_t>& rgba8_image, const std::string& format_hint,
                   std::chrono::milliseconds timeout) -> SemanticEmbeddingResult override;
@@ -298,6 +312,8 @@ class SemanticRuntimeService final : public QObject {
 
   auto EmbedText(const std::string& request_id, const std::string& text,
                  std::chrono::milliseconds timeout) -> SemanticEmbeddingResult;
+  auto EmbedTextBatch(const std::vector<SemanticTextEmbeddingRequest>& requests,
+                      std::chrono::milliseconds timeout) -> std::vector<SemanticEmbeddingResult>;
   auto EmbedImage(const std::string& request_id, const std::vector<uint8_t>& rgba8_image,
                   const std::string& format_hint, std::chrono::milliseconds timeout)
       -> SemanticEmbeddingResult;

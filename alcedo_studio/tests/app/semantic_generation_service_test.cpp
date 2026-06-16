@@ -14,6 +14,7 @@
 #include <future>
 #include <limits>
 #include <mutex>
+#include <numeric>
 #include <stdexcept>
 #include <thread>
 #include <unordered_map>
@@ -383,18 +384,17 @@ void RegisterSemanticTestModel(SemanticStorageController& semantic) {
 void RegisterChineseSemanticTestModel(SemanticStorageController& semantic) {
   std::string error;
   ASSERT_TRUE(semantic.UpsertModel(
-      SemanticModelRecord{
-          .model_key_                     = "chinese-clip-test",
-          .model_id_                      = "felixdu/chinese-clip-vit-base-patch16-onnx",
-          .revision_                      = "mock-zh-revision",
-          .embedding_dim_                 = kSemanticEmbeddingDim,
-          .image_size_                    = 224,
-          .engine_id_                     = "chinese-clip-vit-base-patch16",
-          .profile_id_                    = "chinese-clip-vit-base-patch16-zh",
-          .supported_text_languages_json_ = SemanticSupportedTextLanguagesJson(
-              SemanticLabelLanguage::kChinese),
-          .prompt_config_hash_ = kDefaultSemanticPhotographyZhPromptConfigHash,
-          .active_             = true},
+      SemanticModelRecord{.model_key_     = "chinese-clip-test",
+                          .model_id_      = "felixdu/chinese-clip-vit-base-patch16-onnx",
+                          .revision_      = "mock-zh-revision",
+                          .embedding_dim_ = kSemanticEmbeddingDim,
+                          .image_size_    = 224,
+                          .engine_id_     = "chinese-clip-vit-base-patch16",
+                          .profile_id_    = "chinese-clip-vit-base-patch16-zh",
+                          .supported_text_languages_json_ =
+                              SemanticSupportedTextLanguagesJson(SemanticLabelLanguage::kChinese),
+                          .prompt_config_hash_ = kDefaultSemanticPhotographyZhPromptConfigHash,
+                          .active_             = true},
       &error))
       << error;
 }
@@ -445,6 +445,21 @@ class Fixed512EmbeddingClient final : public ISemanticImageEmbeddingClient {
     return result;
   }
 
+  auto EmbedTextBatch(const std::vector<SemanticTextEmbeddingRequest>& requests,
+                      std::chrono::milliseconds                        timeout)
+      -> std::vector<SemanticEmbeddingResult> override {
+    {
+      std::unique_lock lock(lock_);
+      text_batch_sizes_.push_back(requests.size());
+    }
+    std::vector<SemanticEmbeddingResult> results;
+    results.reserve(requests.size());
+    for (const auto& request : requests) {
+      results.push_back(EmbedText(request.request_id, request.text, timeout));
+    }
+    return results;
+  }
+
   void EmbedImageBatch(std::vector<SemanticImageEmbeddingInput> inputs,
                        std::chrono::milliseconds                timeout,
                        SemanticImageEmbeddingBatchCallback      callback) override {
@@ -467,11 +482,17 @@ class Fixed512EmbeddingClient final : public ISemanticImageEmbeddingClient {
 
   auto ImageBatchCallCount() const -> int { return image_batch_call_count_.load(); }
   auto ImageItemCount() const -> int { return image_item_count_.load(); }
+  auto TextBatchSizes() const -> std::vector<size_t> {
+    std::unique_lock lock(lock_);
+    return text_batch_sizes_;
+  }
 
  private:
-  std::vector<float> embedding_;
-  std::atomic<int>   image_batch_call_count_{0};
-  std::atomic<int>   image_item_count_{0};
+  std::vector<float>  embedding_;
+  std::atomic<int>    image_batch_call_count_{0};
+  std::atomic<int>    image_item_count_{0};
+  mutable std::mutex  lock_;
+  std::vector<size_t> text_batch_sizes_;
 };
 
 class Routed512EmbeddingClient final : public ISemanticImageEmbeddingClient {
@@ -603,9 +624,9 @@ class Localized512EmbeddingClient final : public ISemanticImageEmbeddingClient {
   }
 
  private:
-  SemanticLabelLanguage                         language_;
-  std::string                                   image_label_;
-  std::unordered_map<std::string, size_t>       query_to_index_;
+  SemanticLabelLanguage                   language_;
+  std::string                             image_label_;
+  std::unordered_map<std::string, size_t> query_to_index_;
 };
 
 auto RawScalarInt64(duckdb_connection connection, const std::string& sql) -> int64_t {
@@ -1014,9 +1035,10 @@ TEST_F(SemanticGenerationServiceTest, PersistsEmbeddingsAndAssignedLabels) {
                                .image_size          = 256,
                                .provider            = "mock"};
   SemanticGenerationPersistenceOptions persistence;
-  persistence.storage_controller = &semantic;
-  persistence.model_key          = "mobileclip-test";
-  options.persistence            = persistence;
+  persistence.storage_controller         = &semantic;
+  persistence.model_key                  = "mobileclip-test";
+  persistence.label_prototype_batch_size = 7;
+  options.persistence                    = persistence;
 
   std::string error;
   auto        job = service.StartGeneration({{42, 420}}, options);
@@ -1028,6 +1050,11 @@ TEST_F(SemanticGenerationServiceTest, PersistsEmbeddingsAndAssignedLabels) {
   EXPECT_EQ(
       semantic.CountLabelPrototypes("mobileclip-test", kDefaultSemanticPhotographyPromptConfigHash),
       DefaultSemanticPhotographyLabelQueries().size());
+  const auto text_batch_sizes = embedder->TextBatchSizes();
+  ASSERT_GT(text_batch_sizes.size(), 1U);
+  EXPECT_EQ(text_batch_sizes.front(), 7U);
+  EXPECT_EQ(std::accumulate(text_batch_sizes.begin(), text_batch_sizes.end(), size_t{0}),
+            DefaultSemanticPhotographyLabelQueries().size());
   EXPECT_EQ(semantic.CountImageEmbeddingsForFile(42, "mobileclip-test"), 1U);
   EXPECT_EQ(semantic.CountImageLabelsForFile(42, "mobileclip-test"), 1U);
 
@@ -1051,7 +1078,7 @@ TEST_F(SemanticGenerationServiceTest, PersistsChineseClipLabelsAndMapsDisplayTex
 
   auto thumbnails = std::make_shared<ImmediateThumbnailProvider>();
   auto embedder   = std::make_shared<Localized512EmbeddingClient>(SemanticLabelLanguage::kChinese,
-                                                                 "\xE9\xA3\x8E\xE6\x99\xAF");
+                                                                  "\xE9\xA3\x8E\xE6\x99\xAF");
   SemanticGenerationService service(thumbnails, embedder);
 
   SemanticGenerationOptions options;

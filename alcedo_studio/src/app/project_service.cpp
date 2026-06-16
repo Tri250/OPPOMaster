@@ -4,6 +4,8 @@
 
 #include "app/project_service.hpp"
 
+#include <QMetaObject>
+#include <QThread>
 #include <array>
 #include <fstream>
 #include <iostream>
@@ -67,6 +69,22 @@ auto GenerateProjectUUID() -> std::string {
   std::mt19937       generator(seed);
   uuids::uuid_random_generator uuid_gen(generator);
   return uuids::to_string(uuid_gen());
+}
+
+auto MakeSemanticRuntimeService() -> std::shared_ptr<SemanticRuntimeService> {
+  return std::shared_ptr<SemanticRuntimeService>(
+      new SemanticRuntimeService(), [](SemanticRuntimeService* runtime) {
+        if (runtime == nullptr) {
+          return;
+        }
+        runtime->StopForProjectClose();
+        if (QThread::currentThread() == runtime->thread()) {
+          delete runtime;
+          return;
+        }
+        QMetaObject::invokeMethod(
+            runtime, [runtime]() { delete runtime; }, Qt::BlockingQueuedConnection);
+      });
 }
 
 // Collects lightweight diagnostic summary of the project database:
@@ -157,7 +175,6 @@ ProjectService::ProjectService(const std::filesystem::path& db_path,
     filter_service_  = std::make_shared<SleeveFilterService>(storage_service_);
     browse_service_  = std::make_shared<AlbumBrowseService>(sleeve_service_, filter_service_);
     package_service_ = std::make_shared<ProjectPackageService>();
-    semantic_runtime_service_ = std::make_shared<SemanticRuntimeService>();
 
     project_uuid_             = GenerateProjectUUID();
   };
@@ -187,10 +204,15 @@ ProjectService::ProjectService(const std::filesystem::path& db_path,
 
 ProjectService::~ProjectService() {
   package_service_.reset();
-  if (semantic_runtime_service_) {
-    semantic_runtime_service_->StopForProjectClose();
+  std::shared_ptr<SemanticRuntimeService> runtime;
+  {
+    std::lock_guard lock(semantic_runtime_mutex_);
+    runtime = std::move(semantic_runtime_service_);
   }
-  semantic_runtime_service_.reset();
+  if (runtime) {
+    runtime->StopForProjectClose();
+    runtime.reset();
+  }
   browse_service_.reset();
   filter_service_.reset();
   pool_service_.reset();
@@ -227,6 +249,16 @@ void ProjectService::SaveProject(const std::filesystem::path& meta_path) {
 }
 
 void ProjectService::LoadProject(const std::filesystem::path& meta_path) {
+  std::shared_ptr<SemanticRuntimeService> previous_runtime;
+  {
+    std::lock_guard lock(semantic_runtime_mutex_);
+    previous_runtime = std::move(semantic_runtime_service_);
+  }
+  if (previous_runtime) {
+    previous_runtime->StopForProjectClose();
+    previous_runtime.reset();
+  }
+
   std::ifstream file(meta_path);
   if (!file.is_open()) {
     throw std::runtime_error("Failed to open meta file for reading");
@@ -310,7 +342,6 @@ void ProjectService::LoadProject(const std::filesystem::path& meta_path) {
   filter_service_  = std::make_shared<SleeveFilterService>(storage_service_);
   browse_service_  = std::make_shared<AlbumBrowseService>(sleeve_service_, filter_service_);
   package_service_ = std::make_shared<ProjectPackageService>();
-  semantic_runtime_service_ = std::make_shared<SemanticRuntimeService>();
 }
 
 void ProjectService::RecreateSleeveService(sl_element_id_t start_id) {
@@ -318,5 +349,13 @@ void ProjectService::RecreateSleeveService(sl_element_id_t start_id) {
     throw std::runtime_error("StorageService is not initialized");
   }
   sleeve_service_ = std::make_shared<SleeveServiceImpl>(storage_service_, db_path_, start_id);
+}
+
+auto ProjectService::GetSemanticRuntimeService() const -> std::shared_ptr<SemanticRuntimeService> {
+  std::lock_guard lock(semantic_runtime_mutex_);
+  if (!semantic_runtime_service_) {
+    semantic_runtime_service_ = MakeSemanticRuntimeService();
+  }
+  return semantic_runtime_service_;
 }
 };  // namespace alcedo

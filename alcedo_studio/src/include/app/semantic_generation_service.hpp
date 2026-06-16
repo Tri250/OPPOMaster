@@ -72,6 +72,7 @@ struct SemanticGenerationPersistenceOptions {
   SemanticStorageController* storage_controller = nullptr;
   std::string                model_key;
   std::string                prompt_config_hash = kDefaultSemanticPhotographyPromptConfigHash;
+  size_t                     label_prototype_batch_size  = 64;
   double                     confidence_score_threshold  = kDefaultSemanticLabelConfidenceThreshold;
   double                     confidence_margin_threshold = kDefaultSemanticLabelMarginThreshold;
   size_t                     top_score_count             = kDefaultSemanticLabelTopScoreCount;
@@ -136,9 +137,12 @@ class ISemanticImageEmbeddingClient {
   virtual auto GetModelInfo(SemanticRuntimeModelInfo* info, std::string* error) -> bool = 0;
   virtual auto EmbedText(const std::string& request_id, const std::string& text,
                          std::chrono::milliseconds timeout) -> SemanticEmbeddingResult  = 0;
+  virtual auto EmbedTextBatch(const std::vector<SemanticTextEmbeddingRequest>& requests,
+                              std::chrono::milliseconds                        timeout)
+      -> std::vector<SemanticEmbeddingResult>;
   virtual void EmbedImageBatch(std::vector<SemanticImageEmbeddingInput> inputs,
                                std::chrono::milliseconds                timeout,
-                               SemanticImageEmbeddingBatchCallback      callback)            = 0;
+                               SemanticImageEmbeddingBatchCallback      callback) = 0;
 };
 
 class SemanticRuntimeImageEmbeddingClient final : public ISemanticImageEmbeddingClient {
@@ -148,6 +152,9 @@ class SemanticRuntimeImageEmbeddingClient final : public ISemanticImageEmbedding
   auto GetModelInfo(SemanticRuntimeModelInfo* info, std::string* error) -> bool override;
   auto EmbedText(const std::string& request_id, const std::string& text,
                  std::chrono::milliseconds timeout) -> SemanticEmbeddingResult override;
+  auto EmbedTextBatch(const std::vector<SemanticTextEmbeddingRequest>& requests,
+                      std::chrono::milliseconds                        timeout)
+      -> std::vector<SemanticEmbeddingResult> override;
   void EmbedImageBatch(std::vector<SemanticImageEmbeddingInput> inputs,
                        std::chrono::milliseconds                timeout,
                        SemanticImageEmbeddingBatchCallback      callback) override;
@@ -214,10 +221,14 @@ class SemanticGenerationService final {
   SemanticGenerationService(std::shared_ptr<ISemanticThumbnailProvider>    thumbnail_provider,
                             std::shared_ptr<ISemanticImageEmbeddingClient> embedding_client);
 
-  auto StartGeneration(std::vector<SemanticGenerationItem> items,
-                       SemanticGenerationOptions           options     = {},
-                       SemanticGenerationProgressCallback  on_progress = {},
-                       SemanticGenerationFinishedCallback  on_finished = {})
+  static auto EnsureLabelPrototypes(const SemanticGenerationPersistenceOptions& persistence,
+                                    const std::shared_ptr<ISemanticImageEmbeddingClient>& client,
+                                    std::chrono::milliseconds timeout, std::string* error) -> bool;
+
+  auto        StartGeneration(std::vector<SemanticGenerationItem> items,
+                              SemanticGenerationOptions           options     = {},
+                              SemanticGenerationProgressCallback  on_progress = {},
+                              SemanticGenerationFinishedCallback  on_finished = {})
       -> std::shared_ptr<SemanticGenerationJob>;
 
  private:

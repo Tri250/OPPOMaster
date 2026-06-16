@@ -22,8 +22,8 @@ class AlbumBackend;
 class SemanticRuntimeSessionGuard;
 
 namespace detail {
-auto LoadLocalResolvedModelManifestForActivation(const QString& profileId, const QString& baseDirectory,
-                                                 QString* error)
+auto LoadLocalResolvedModelManifestForActivation(const QString& profileId,
+                                                 const QString& baseDirectory, QString* error)
     -> std::optional<SemanticResolvedModelManifest>;
 }  // namespace detail
 
@@ -54,6 +54,7 @@ class SemanticGenerationController final : public QObject {
   Q_PROPERTY(QString effectiveModelEndpoint READ EffectiveModelEndpoint NOTIFY StateChanged)
   Q_PROPERTY(QString modelDownloadStatusText READ ModelDownloadStatusText NOTIFY StateChanged)
   Q_PROPERTY(bool modelDownloadRunning READ ModelDownloadRunning NOTIFY StateChanged)
+  Q_PROPERTY(bool modelActivationRunning READ ModelActivationRunning NOTIFY StateChanged)
   Q_PROPERTY(int modelDownloadProgress READ ModelDownloadProgress NOTIFY StateChanged)
 
  public:
@@ -84,6 +85,7 @@ class SemanticGenerationController final : public QObject {
   QString          EffectiveModelEndpoint() const;
   QString          ModelDownloadStatusText() const { return model_download_status_text_.Render(); }
   bool             ModelDownloadRunning() const { return model_download_running_; }
+  bool             ModelActivationRunning() const { return model_activation_running_; }
   int              ModelDownloadProgress() const { return model_download_progress_; }
 
   Q_INVOKABLE void StartPendingGeneration(bool forceRegenerate = false);
@@ -135,18 +137,19 @@ class SemanticGenerationController final : public QObject {
   i18n::LocalizedText                          model_download_status_text_{};
   std::string                                  model_key_{};
   QString                                      model_download_job_id_{};
-  bool                                         model_download_running_  = false;
-  int                                          model_download_progress_ = 0;
-  bool                                         prompt_pending_          = false;
-  bool                                         running_                 = false;
-  int                                          total_                   = 0;
-  int                                          embedded_                = 0;
-  int                                          skipped_                 = 0;
-  int                                          failed_                  = 0;
-  int                                          canceled_                = 0;
-  int                                          album_total_count_       = 0;
-  int                                          album_labeled_count_     = 0;
-  int                                          album_unlabeled_count_   = 0;
+  bool                                         model_download_running_   = false;
+  bool                                         model_activation_running_ = false;
+  int                                          model_download_progress_  = 0;
+  bool                                         prompt_pending_           = false;
+  bool                                         running_                  = false;
+  int                                          total_                    = 0;
+  int                                          embedded_                 = 0;
+  int                                          skipped_                  = 0;
+  int                                          failed_                   = 0;
+  int                                          canceled_                 = 0;
+  int                                          album_total_count_        = 0;
+  int                                          album_labeled_count_      = 0;
+  int                                          album_unlabeled_count_    = 0;
 };
 
 }  // namespace alcedo::ui

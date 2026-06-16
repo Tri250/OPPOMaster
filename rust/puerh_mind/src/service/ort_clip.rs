@@ -5,7 +5,7 @@ use anyhow::{Result, bail};
 use image::RgbImage;
 use ort::{
     ep,
-    session::{Session, builder::GraphOptimizationLevel},
+    session::{OutputSelector, RunOptions, Session, builder::GraphOptimizationLevel},
     value::{Tensor, TensorElementType},
 };
 use tokenizers::{
@@ -921,11 +921,17 @@ impl OrtClipEngine {
                 .ok_or_else(|| anyhow::anyhow!("multimodal session is not initialized"))?
                 .lock()
                 .map_err(|err| anyhow::anyhow!("multimodal session lock poisoned: {err}"))?;
+            let run_options = RunOptions::new()
+                .map_err(|e| anyhow::anyhow!("failed to build multimodal run options: {e}"))?
+                .with_outputs(OutputSelector::no_default().with(io.text_output_name.clone()));
             let outputs = session
-                .run(ort::inputs! {
-                    io.text_input_name.as_str() => input_tensor,
-                    io.image_input_name.as_str() => pixel_tensor,
-                })
+                .run_with_options(
+                    ort::inputs! {
+                        io.text_input_name.as_str() => input_tensor,
+                        io.image_input_name.as_str() => pixel_tensor,
+                    },
+                    &run_options,
+                )
                 .map_err(|e| anyhow::anyhow!("failed to run multimodal text ONNX model: {e}"))?;
             return self.extract_embeddings_from_outputs(
                 &outputs,
@@ -999,11 +1005,17 @@ impl OrtClipEngine {
                 .ok_or_else(|| anyhow::anyhow!("multimodal session is not initialized"))?
                 .lock()
                 .map_err(|err| anyhow::anyhow!("multimodal session lock poisoned: {err}"))?;
+            let run_options = RunOptions::new()
+                .map_err(|e| anyhow::anyhow!("failed to build multimodal run options: {e}"))?
+                .with_outputs(OutputSelector::no_default().with(io.image_output_name.clone()));
             let outputs = session
-                .run(ort::inputs! {
-                    io.text_input_name.as_str() => text_tensor,
-                    io.image_input_name.as_str() => input_tensor,
-                })
+                .run_with_options(
+                    ort::inputs! {
+                        io.text_input_name.as_str() => text_tensor,
+                        io.image_input_name.as_str() => input_tensor,
+                    },
+                    &run_options,
+                )
                 .map_err(|e| anyhow::anyhow!("failed to run multimodal image ONNX model: {e}"))?;
             return self.extract_embeddings_from_outputs(
                 &outputs,

@@ -6,6 +6,7 @@
 
 #include <gtest/gtest.h>
 
+#include <QThread>
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
@@ -168,8 +169,8 @@ class FakeSemanticRuntimeClient final : public ISemanticRuntimeClient {
   auto GetModelDownloadStatus(const std::string& endpoint, const std::string& job_id,
                               std::chrono::milliseconds timeout)
       -> SemanticModelManagerResult override {
-    auto result   = ValidateModel(endpoint, "mobileclip2-s2-en", "C:/models", timeout);
-    result.job_id = job_id;
+    auto result     = ValidateModel(endpoint, "mobileclip2-s2-en", "C:/models", timeout);
+    result.job_id   = job_id;
     result.progress = SemanticModelDownloadProgress{
         .phase                         = "installed",
         .current_file                  = "onnx/s2/vision_model.onnx",
@@ -348,6 +349,15 @@ TEST(SemanticRuntimeServiceTest, StartStopReportsReadyAndStopped) {
       service.EmbedText("text-1", "a quiet portrait", std::chrono::milliseconds(100));
   EXPECT_TRUE(text_result.ok);
   EXPECT_EQ(text_result.request_id, "text-1");
+  const auto text_batch = service.EmbedTextBatch(
+      {SemanticTextEmbeddingRequest{.request_id = "text-a", .text = "a quiet portrait"},
+       SemanticTextEmbeddingRequest{.request_id = "text-b", .text = "a city street"}},
+      std::chrono::milliseconds(100));
+  ASSERT_EQ(text_batch.size(), 2U);
+  EXPECT_TRUE(text_batch[0].ok);
+  EXPECT_EQ(text_batch[0].request_id, "text-a");
+  EXPECT_TRUE(text_batch[1].ok);
+  EXPECT_EQ(text_batch[1].request_id, "text-b");
 
   service.Stop();
   status = service.Status();
@@ -561,6 +571,30 @@ TEST(SemanticRuntimeServiceTest, ProjectServiceOwnsStoppedRuntimeService) {
   std::filesystem::remove(meta_path);
 }
 
+TEST(SemanticRuntimeServiceTest, ProjectServiceCreatesRuntimeOnCallerThreadAfterBackgroundLoad) {
+  const auto db_path   = std::filesystem::temp_directory_path() / "semantic_runtime_thread.db";
+  const auto meta_path = std::filesystem::temp_directory_path() / "semantic_runtime_thread.json";
+  std::filesystem::remove(db_path);
+  std::filesystem::remove(meta_path);
+
+  std::shared_ptr<ProjectService> project;
+  std::thread                     loader([&project, &db_path, &meta_path]() {
+    project = std::make_shared<ProjectService>(db_path, meta_path, ProjectOpenMode::kCreateNew);
+  });
+  loader.join();
+
+  ASSERT_NE(project, nullptr);
+  auto runtime = project->GetSemanticRuntimeService();
+  ASSERT_NE(runtime, nullptr);
+  ASSERT_EQ(runtime->thread(), QThread::currentThread());
+  const auto status = runtime->Status();
+  EXPECT_EQ(status.state, SemanticRuntimeState::kStopped);
+
+  project.reset();
+  std::filesystem::remove(db_path);
+  std::filesystem::remove(meta_path);
+}
+
 TEST(SemanticRuntimeServiceLiveTest, DefaultGrpcClientEmbedsRawRgba8AgainstRustRuntime) {
   const char* runtime_path_env = std::getenv("ALCEDO_SEMANTIC_LIVE_RUNTIME_PATH");
   const char* model_root_env   = std::getenv("ALCEDO_SEMANTIC_LIVE_MODEL_ROOT");
@@ -582,10 +616,9 @@ TEST(SemanticRuntimeServiceLiveTest, DefaultGrpcClientEmbedsRawRgba8AgainstRustR
   };
 
   const auto model_id = env_or("ALCEDO_SEMANTIC_LIVE_MODEL_ID", "plhery/mobileclip2-onnx:s2");
-  const auto revision = env_or("ALCEDO_SEMANTIC_LIVE_REVISION",
-                               "ba95759a5bdbaca53e9111e2550a76ec09c8fd9e");
-  const auto expected_image_size =
-      env_u32_or("ALCEDO_SEMANTIC_LIVE_EXPECTED_IMAGE_SIZE", 256u);
+  const auto revision =
+      env_or("ALCEDO_SEMANTIC_LIVE_REVISION", "ba95759a5bdbaca53e9111e2550a76ec09c8fd9e");
+  const auto expected_image_size = env_u32_or("ALCEDO_SEMANTIC_LIVE_EXPECTED_IMAGE_SIZE", 256u);
 
   SemanticRuntimeService service;
   SemanticRuntimeOptions options;
