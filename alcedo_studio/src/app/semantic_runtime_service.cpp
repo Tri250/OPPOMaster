@@ -9,7 +9,6 @@
 
 #include <QCoreApplication>
 #include <QHostAddress>
-#include <QStandardPaths>
 #include <QTcpServer>
 #include <algorithm>
 #include <array>
@@ -30,7 +29,7 @@ namespace {
 constexpr size_t kLogTailBytes             = 16 * 1024;
 constexpr auto   kSemanticRuntimeBinaryEnv = "ALCEDO_MIND_BINARY";
 constexpr auto   kSemanticModelRootEnv     = "ALCEDO_MIND_MODEL_ROOT";
-constexpr auto   kMobileClipModelRoot      = "models/mobileclip2-s2-openclip";
+constexpr auto   kDefaultModelDirectory    = "model";
 #ifdef _WIN32
 constexpr auto kSemanticRuntimeBinaryName = "alcedo_mind.exe";
 #else
@@ -100,32 +99,6 @@ auto DefaultRuntimeBinary() -> std::filesystem::path {
   return app_path / kSemanticRuntimeBinaryName;
 }
 
-auto ExistingDirectory(const std::filesystem::path& path) -> bool {
-  std::error_code ec;
-  return std::filesystem::exists(path, ec) && !ec && std::filesystem::is_directory(path, ec) && !ec;
-}
-
-void AppendAncestorModelRoots(const std::filesystem::path&        start,
-                              std::vector<std::filesystem::path>* candidates) {
-  if (start.empty()) {
-    return;
-  }
-
-  std::error_code ec;
-  auto            current = std::filesystem::absolute(start, ec);
-  if (ec) {
-    current = start;
-  }
-  while (!current.empty()) {
-    candidates->push_back(current / "rust" / "puerh_mind" / kMobileClipModelRoot);
-    const auto parent = current.parent_path();
-    if (parent == current) {
-      break;
-    }
-    current = parent;
-  }
-}
-
 auto DefaultRuntimeModelRoot() -> std::filesystem::path {
   const QByteArray env_root = qgetenv(kSemanticModelRootEnv);
   if (!env_root.isEmpty()) {
@@ -139,29 +112,7 @@ auto DefaultRuntimeModelRoot() -> std::filesystem::path {
   const auto app_path = std::filesystem::path(app_dir.toStdString());
 #endif
 
-  std::vector<std::filesystem::path> candidates;
-  const auto app_data_dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-  if (!app_data_dir.isEmpty()) {
-#ifdef _WIN32
-    const auto app_data_path = std::filesystem::path(app_data_dir.toStdWString());
-#else
-    const auto app_data_path = std::filesystem::path(app_data_dir.toStdString());
-#endif
-    candidates.push_back(app_data_path / kMobileClipModelRoot);
-  }
-
-  candidates.push_back(app_path / kMobileClipModelRoot);
-
-  AppendAncestorModelRoots(app_path, &candidates);
-  std::error_code ec;
-  AppendAncestorModelRoots(std::filesystem::current_path(ec), &candidates);
-
-  for (const auto& candidate : candidates) {
-    if (ExistingDirectory(candidate)) {
-      return candidate;
-    }
-  }
-  return {};
+  return app_path / kDefaultModelDirectory;
 }
 
 auto DeadlineFromNow(std::chrono::milliseconds timeout) -> std::chrono::system_clock::time_point {
