@@ -54,14 +54,10 @@ constexpr auto   kSemanticModelDownloadPollIntervalMs   = 650;
 constexpr auto   kMobileClipProfileId                   = "mobileclip2-s2-en";
 constexpr auto   kMobileClipModelId                     = "plhery/mobileclip2-onnx:s2";
 constexpr auto   kMobileClipRevision   = "ba95759a5bdbaca53e9111e2550a76ec09c8fd9e";
-constexpr auto   kChineseClipProfileId = "chinese-clip-vit-base-patch16-zh";
-constexpr auto   kChineseClipModelId   = "felixdu/chinese-clip-vit-base-patch16-onnx";
-constexpr auto   kChineseClipRevision  = "47080d16c631d8416d2e6b155c59f8fd2c322e98";
 constexpr auto   kJinaClipProfileId    = "jina-clip-v2-int8-multilingual";
 constexpr auto   kJinaClipModelId      = "jinaai/jina-clip-v2";
 constexpr auto   kJinaClipRevision     = "e10d47f5691d0454a0fb5d13f46f2199b74cb436";
 constexpr size_t kMobileClipBatchSize  = 64;
-constexpr size_t kChineseClipBatchSize = 8;
 constexpr size_t kJinaClipBatchSize    = 4;
 
 struct SemanticModelProfileUiInfo {
@@ -77,8 +73,6 @@ struct SemanticModelProfileUiInfo {
 constexpr SemanticModelProfileUiInfo kSemanticModelProfiles[] = {
     {kMobileClipProfileId, "MobileCLIP2 S2 English", kMobileClipModelId, kMobileClipRevision, "en",
      256, 512},
-    {kChineseClipProfileId, "Chinese-CLIP ViT-B/16", kChineseClipModelId, kChineseClipRevision,
-     "zh", 224, 512},
     {kJinaClipProfileId, "Jina CLIP v2 INT8 Multilingual", kJinaClipModelId, kJinaClipRevision,
      "multilingual", 512, 1024},
 };
@@ -161,9 +155,6 @@ auto ModelLabelLanguage(const SemanticResolvedModelManifest& manifest) -> Semant
 
 auto EmbeddingBatchSizeForProfile(const SemanticRuntimeModelInfo& info) -> size_t {
   const auto profile_id = info.profile_id.empty() ? info.model_id : info.profile_id;
-  if (profile_id == kChineseClipProfileId) {
-    return kChineseClipBatchSize;
-  }
   if (profile_id == kJinaClipProfileId) {
     return kJinaClipBatchSize;
   }
@@ -182,7 +173,7 @@ auto LabelPrototypeBatchSizeForProfile(const SemanticResolvedModelManifest& mani
 
 auto EmbeddingTimeoutForProfile(const SemanticRuntimeModelInfo& info) -> std::chrono::milliseconds {
   const auto profile_id = info.profile_id.empty() ? info.model_id : info.profile_id;
-  if (profile_id == kChineseClipProfileId || profile_id == kJinaClipProfileId) {
+  if (profile_id == kJinaClipProfileId) {
     return 120s;
   }
   return 30s;

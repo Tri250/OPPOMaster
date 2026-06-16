@@ -211,58 +211,6 @@ const MOBILECLIP2_ASSETS: &[ModelAssetSpec] = &[
     },
 ];
 
-const CHINESE_CLIP_MODEL_REPO: &str = "felixdu/chinese-clip-vit-base-patch16-onnx";
-const CHINESE_CLIP_MODEL_REVISION: &str = "47080d16c631d8416d2e6b155c59f8fd2c322e98";
-const CHINESE_CLIP_BASE_REPO: &str = "OFA-Sys/chinese-clip-vit-base-patch16";
-const CHINESE_CLIP_BASE_REVISION: &str = "36e679e65c2a2fead755ae21162091293ad37834";
-const CHINESE_CLIP_ASSETS: &[ModelAssetSpec] = &[
-    ModelAssetSpec {
-        role: AssetRole::TextModel,
-        repo_id: CHINESE_CLIP_MODEL_REPO,
-        revision: CHINESE_CLIP_MODEL_REVISION,
-        remote_path: "cn_clip_text.onnx",
-        local_path: "cn_clip_text.onnx",
-        size_bytes: 409_585_120,
-        sha256: Some("5ddc2d8971b09acda8063048003d18cca9b587f089a1c0a4df7d35624bd0fcea"),
-    },
-    ModelAssetSpec {
-        role: AssetRole::VisionModel,
-        repo_id: CHINESE_CLIP_MODEL_REPO,
-        revision: CHINESE_CLIP_MODEL_REVISION,
-        remote_path: "cn_clip_vision.onnx",
-        local_path: "cn_clip_vision.onnx",
-        size_bytes: 345_839_119,
-        sha256: Some("980020bf226e528a202de26c6a6186df125b74c612b09cfcd797a082e046b628"),
-    },
-    ModelAssetSpec {
-        role: AssetRole::ModelConfig,
-        repo_id: CHINESE_CLIP_BASE_REPO,
-        revision: CHINESE_CLIP_BASE_REVISION,
-        remote_path: "config.json",
-        local_path: "base/config.json",
-        size_bytes: 3_008,
-        sha256: None,
-    },
-    ModelAssetSpec {
-        role: AssetRole::PreprocessConfig,
-        repo_id: CHINESE_CLIP_BASE_REPO,
-        revision: CHINESE_CLIP_BASE_REVISION,
-        remote_path: "preprocessor_config.json",
-        local_path: "base/preprocessor_config.json",
-        size_bytes: 342,
-        sha256: None,
-    },
-    ModelAssetSpec {
-        role: AssetRole::Vocab,
-        repo_id: CHINESE_CLIP_BASE_REPO,
-        revision: CHINESE_CLIP_BASE_REVISION,
-        remote_path: "vocab.txt",
-        local_path: "base/vocab.txt",
-        size_bytes: 109_540,
-        sha256: None,
-    },
-];
-
 const JINA_CLIP_REPO: &str = "jinaai/jina-clip-v2";
 const JINA_CLIP_REVISION: &str = "e10d47f5691d0454a0fb5d13f46f2199b74cb436";
 const JINA_CLIP_ASSETS: &[ModelAssetSpec] = &[
@@ -335,19 +283,6 @@ pub const MODEL_PROFILES: &[ModelProfileSpec] = &[
         image_size: 256,
         embedding_transform: "l2_normalize",
         assets: MOBILECLIP2_ASSETS,
-    },
-    ModelProfileSpec {
-        profile_id: "chinese-clip-vit-base-patch16-zh",
-        display_name: "Chinese-CLIP ViT-B/16",
-        model_id: CHINESE_CLIP_MODEL_REPO,
-        revision: CHINESE_CLIP_MODEL_REVISION,
-        engine_profile_id: "chinese-clip-vit-base-patch16",
-        language: ModelLanguage::Zh,
-        embedding_dimension: REQUIRED_EMBEDDING_DIMENSION,
-        native_embedding_dimension: REQUIRED_EMBEDDING_DIMENSION,
-        image_size: 224,
-        embedding_transform: "l2_normalize",
-        assets: CHINESE_CLIP_ASSETS,
     },
     ModelProfileSpec {
         profile_id: "jina-clip-v2-int8-multilingual",

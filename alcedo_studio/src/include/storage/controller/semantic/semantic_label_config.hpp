@@ -61,8 +61,7 @@ inline auto SemanticLabelLanguageForModel(std::string_view profile_id, std::stri
   };
   const auto profile = lower(profile_id);
   const auto lang    = lower(language);
-  if (lang == "zh" || lang == "zh-cn" || profile.ends_with("-zh") ||
-      profile.find("chinese-clip") != std::string::npos) {
+  if (lang == "zh" || lang == "zh-cn" || profile.ends_with("-zh")) {
     return SemanticLabelLanguage::kChinese;
   }
   return SemanticLabelLanguage::kEnglish;

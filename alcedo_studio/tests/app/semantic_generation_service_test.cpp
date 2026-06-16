@@ -381,16 +381,16 @@ void RegisterSemanticTestModel(SemanticStorageController& semantic) {
       << error;
 }
 
-void RegisterChineseSemanticTestModel(SemanticStorageController& semantic) {
+void RegisterLocalizedSemanticTestModel(SemanticStorageController& semantic) {
   std::string error;
   ASSERT_TRUE(semantic.UpsertModel(
-      SemanticModelRecord{.model_key_     = "chinese-clip-test",
-                          .model_id_      = "felixdu/chinese-clip-vit-base-patch16-onnx",
+      SemanticModelRecord{.model_key_     = "localized-zh-test",
+                          .model_id_      = "mock/localized-zh",
                           .revision_      = "mock-zh-revision",
                           .embedding_dim_ = kSemanticEmbeddingDim,
-                          .image_size_    = 224,
-                          .engine_id_     = "chinese-clip-vit-base-patch16",
-                          .profile_id_    = "chinese-clip-vit-base-patch16-zh",
+                          .image_size_    = 256,
+                          .engine_id_     = "mock-localized",
+                          .profile_id_    = "mock-localized-zh",
                           .supported_text_languages_json_ =
                               SemanticSupportedTextLanguagesJson(SemanticLabelLanguage::kChinese),
                           .prompt_config_hash_ = kDefaultSemanticPhotographyZhPromptConfigHash,
@@ -580,11 +580,11 @@ class Localized512EmbeddingClient final : public ISemanticImageEmbeddingClient {
   auto GetModelInfo(SemanticRuntimeModelInfo* info, std::string* error) -> bool override {
     (void)error;
     if (info) {
-      info->profile_id          = "chinese-clip-vit-base-patch16-zh";
-      info->model_id            = "felixdu/chinese-clip-vit-base-patch16-onnx";
+      info->profile_id          = "mock-localized-zh";
+      info->model_id            = "mock/localized-zh";
       info->revision            = "mock-zh-revision";
       info->embedding_dimension = kSemanticEmbeddingDim;
-      info->image_size          = 224;
+      info->image_size          = 256;
       info->provider            = "mock";
       info->language            = "zh";
     }
@@ -596,7 +596,7 @@ class Localized512EmbeddingClient final : public ISemanticImageEmbeddingClient {
     (void)timeout;
     SemanticEmbeddingResult result;
     result.request_id = request_id;
-    result.model_name = "mock/chinese-clip";
+    result.model_name = "mock/localized-zh";
     result.dimension  = kSemanticEmbeddingDim;
     result.ok         = true;
     const auto found  = query_to_index_.find(text);
@@ -1071,10 +1071,10 @@ TEST_F(SemanticGenerationServiceTest, PersistsEmbeddingsAndAssignedLabels) {
   EXPECT_EQ(stored_label->second_label_, "landscape");
 }
 
-TEST_F(SemanticGenerationServiceTest, PersistsChineseClipLabelsAndMapsDisplayText) {
+TEST_F(SemanticGenerationServiceTest, PersistsLocalizedChineseLabelsAndMapsDisplayText) {
   ProjectService project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
   auto&          semantic = project.GetStorageService()->GetSemanticStorageController();
-  RegisterChineseSemanticTestModel(semantic);
+  RegisterLocalizedSemanticTestModel(semantic);
 
   auto thumbnails = std::make_shared<ImmediateThumbnailProvider>();
   auto embedder   = std::make_shared<Localized512EmbeddingClient>(SemanticLabelLanguage::kChinese,
@@ -1083,16 +1083,16 @@ TEST_F(SemanticGenerationServiceTest, PersistsChineseClipLabelsAndMapsDisplayTex
 
   SemanticGenerationOptions options;
   options.expected_model_info =
-      SemanticRuntimeModelInfo{.profile_id          = "chinese-clip-vit-base-patch16-zh",
-                               .model_id            = "felixdu/chinese-clip-vit-base-patch16-onnx",
+      SemanticRuntimeModelInfo{.profile_id          = "mock-localized-zh",
+                               .model_id            = "mock/localized-zh",
                                .revision            = "mock-zh-revision",
                                .language            = "zh",
                                .embedding_dimension = kSemanticEmbeddingDim,
-                               .image_size          = 224,
+                               .image_size          = 256,
                                .provider            = "mock"};
   SemanticGenerationPersistenceOptions persistence;
   persistence.storage_controller = &semantic;
-  persistence.model_key          = "chinese-clip-test";
+  persistence.model_key          = "localized-zh-test";
   persistence.prompt_config_hash = kDefaultSemanticPhotographyZhPromptConfigHash;
   options.persistence            = persistence;
 
@@ -1103,10 +1103,10 @@ TEST_F(SemanticGenerationServiceTest, PersistsChineseClipLabelsAndMapsDisplayTex
   const auto progress = job->SnapshotProgress();
   EXPECT_EQ(progress.embedded, 1U);
   EXPECT_EQ(progress.failed, 0U);
-  EXPECT_EQ(semantic.CountLabelPrototypes("chinese-clip-test",
+  EXPECT_EQ(semantic.CountLabelPrototypes("localized-zh-test",
                                           kDefaultSemanticPhotographyZhPromptConfigHash),
             DefaultSemanticPhotographyLabelQueries(SemanticLabelLanguage::kChinese).size());
-  EXPECT_EQ(semantic.CountImageLabelsForFile(42, "chinese-clip-test"), 1U);
+  EXPECT_EQ(semantic.CountImageLabelsForFile(42, "localized-zh-test"), 1U);
 
   const auto results = job->Results();
   ASSERT_EQ(results.size(), 1U);
@@ -1114,7 +1114,7 @@ TEST_F(SemanticGenerationServiceTest, PersistsChineseClipLabelsAndMapsDisplayTex
   EXPECT_TRUE(results.front().has_label);
   EXPECT_EQ(results.front().label, "\xE9\xA3\x8E\xE6\x99\xAF");
 
-  const auto stored_label = semantic.GetImageLabelForFile(42, "chinese-clip-test", &error);
+  const auto stored_label = semantic.GetImageLabelForFile(42, "localized-zh-test", &error);
   ASSERT_TRUE(stored_label.has_value()) << error;
   EXPECT_EQ(stored_label->label_, "\xE9\xA3\x8E\xE6\x99\xAF");
   EXPECT_EQ(SemanticLabelDisplayText(stored_label->label_, SemanticLabelLanguage::kEnglish),

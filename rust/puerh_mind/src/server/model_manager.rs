@@ -538,7 +538,7 @@ mod tests {
             .expect("list should succeed")
             .into_inner();
 
-        assert_eq!(response.profiles.len(), 3);
+        assert_eq!(response.profiles.len(), 2);
         assert!(
             response
                 .profiles

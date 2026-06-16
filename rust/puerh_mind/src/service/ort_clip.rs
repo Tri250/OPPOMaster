@@ -8,12 +8,7 @@ use ort::{
     session::{OutputSelector, RunOptions, Session, builder::GraphOptimizationLevel},
     value::{Tensor, TensorElementType},
 };
-use tokenizers::{
-    PaddingParams, PaddingStrategy, Tokenizer, TruncationParams, TruncationStrategy,
-    decoders::wordpiece::WordPiece as WordPieceDecoder, models::wordpiece::WordPiece,
-    normalizers::bert::BertNormalizer, pre_tokenizers::bert::BertPreTokenizer,
-    processors::template::TemplateProcessing,
-};
+use tokenizers::Tokenizer;
 use tracing::info;
 
 use crate::config::SemanticConfig;
@@ -25,7 +20,6 @@ use crate::service::model_assets::{
 };
 
 const TEXT_SEQUENCE_LENGTH: usize = 77;
-const CHINESE_CLIP_TEXT_SEQUENCE_LENGTH: usize = 52;
 #[cfg(test)]
 const EMBEDDING_DIM: usize = 512;
 
@@ -64,13 +58,11 @@ struct MultimodalSessionIo {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ImageResizeMode {
     ShortestEdgeCenterCrop,
-    Stretch,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum EngineProfileAdapter {
     MobileClipOpenClip,
-    ChineseClipVitBasePatch16,
     JinaClipV2OnnxInt8,
 }
 
@@ -78,7 +70,6 @@ impl EngineProfileAdapter {
     fn from_profile(profile: &ModelProfileSpec) -> Result<Self> {
         match profile.engine_profile_id {
             "mobileclip2-openclip" => Ok(Self::MobileClipOpenClip),
-            "chinese-clip-vit-base-patch16" => Ok(Self::ChineseClipVitBasePatch16),
             "jina-clip-v2-onnx-int8" => Ok(Self::JinaClipV2OnnxInt8),
             other => bail!(
                 "semantic model profile {} requests unsupported engine adapter {other:?}",
@@ -88,27 +79,21 @@ impl EngineProfileAdapter {
     }
 
     fn supports_current_onnx_loader(self) -> bool {
-        matches!(
-            self,
-            Self::MobileClipOpenClip | Self::ChineseClipVitBasePatch16 | Self::JinaClipV2OnnxInt8
-        )
+        matches!(self, Self::MobileClipOpenClip | Self::JinaClipV2OnnxInt8)
     }
 
     fn text_sequence_length(self) -> usize {
-        match self {
-            Self::ChineseClipVitBasePatch16 => CHINESE_CLIP_TEXT_SEQUENCE_LENGTH,
-            Self::MobileClipOpenClip | Self::JinaClipV2OnnxInt8 => TEXT_SEQUENCE_LENGTH,
-        }
+        TEXT_SEQUENCE_LENGTH
     }
 
     fn requires_attention_mask(self) -> bool {
-        matches!(self, Self::ChineseClipVitBasePatch16)
+        false
     }
 
     fn image_mean_std(self) -> ([f32; 3], [f32; 3]) {
         match self {
             Self::MobileClipOpenClip => ([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]),
-            Self::ChineseClipVitBasePatch16 | Self::JinaClipV2OnnxInt8 => (
+            Self::JinaClipV2OnnxInt8 => (
                 [0.48145466, 0.4578275, 0.40821073],
                 [0.26862954, 0.26130258, 0.27577711],
             ),
@@ -117,7 +102,6 @@ impl EngineProfileAdapter {
 
     fn image_resize_mode(self) -> ImageResizeMode {
         match self {
-            Self::ChineseClipVitBasePatch16 => ImageResizeMode::Stretch,
             Self::MobileClipOpenClip | Self::JinaClipV2OnnxInt8 => {
                 ImageResizeMode::ShortestEdgeCenterCrop
             }
@@ -131,14 +115,14 @@ impl EngineProfileAdapter {
     fn preferred_text_output_name(self) -> &'static str {
         match self {
             Self::JinaClipV2OnnxInt8 => "l2norm_text_embeddings",
-            Self::MobileClipOpenClip | Self::ChineseClipVitBasePatch16 => "",
+            Self::MobileClipOpenClip => "",
         }
     }
 
     fn preferred_image_output_name(self) -> &'static str {
         match self {
             Self::JinaClipV2OnnxInt8 => "l2norm_image_embeddings",
-            Self::MobileClipOpenClip | Self::ChineseClipVitBasePatch16 => "",
+            Self::MobileClipOpenClip => "",
         }
     }
 }
@@ -630,45 +614,7 @@ impl OrtClipEngine {
     }
 
     fn tokenizer_for_profile(profile: &ModelProfileSpec, model_root: &str) -> Result<Tokenizer> {
-        let adapter = EngineProfileAdapter::from_profile(profile)?;
-        if adapter == EngineProfileAdapter::ChineseClipVitBasePatch16 {
-            let vocab_path = profile_asset_path(profile, model_root, AssetRole::Vocab)?;
-            let wordpiece = WordPiece::from_file(vocab_path.to_string_lossy().as_ref())
-                .unk_token("[UNK]".to_string())
-                .build()
-                .map_err(|e| anyhow::anyhow!("failed to build Chinese-CLIP tokenizer: {e}"))?;
-            let mut tokenizer = Tokenizer::new(wordpiece);
-            tokenizer.with_normalizer(Some(BertNormalizer::default()));
-            tokenizer.with_pre_tokenizer(Some(BertPreTokenizer));
-            tokenizer.with_post_processor(Some(
-                TemplateProcessing::builder()
-                    .try_single("[CLS] $0 [SEP]")
-                    .map_err(|e| {
-                        anyhow::anyhow!("failed to configure Chinese-CLIP post processor: {e}")
-                    })?
-                    .special_tokens(vec![("[CLS]", 101), ("[SEP]", 102)])
-                    .build()
-                    .map_err(|e| {
-                        anyhow::anyhow!("failed to build Chinese-CLIP post processor: {e}")
-                    })?,
-            ));
-            tokenizer.with_decoder(Some(WordPieceDecoder::default()));
-            tokenizer
-                .with_truncation(Some(TruncationParams {
-                    max_length: CHINESE_CLIP_TEXT_SEQUENCE_LENGTH,
-                    strategy: TruncationStrategy::LongestFirst,
-                    ..Default::default()
-                }))
-                .map_err(|e| anyhow::anyhow!("failed to configure Chinese-CLIP truncation: {e}"))?;
-            tokenizer.with_padding(Some(PaddingParams {
-                strategy: PaddingStrategy::Fixed(CHINESE_CLIP_TEXT_SEQUENCE_LENGTH),
-                pad_id: 0,
-                pad_type_id: 0,
-                pad_token: "[PAD]".to_string(),
-                ..Default::default()
-            }));
-            return Ok(tokenizer);
-        }
+        let _ = EngineProfileAdapter::from_profile(profile)?;
 
         let tokenizer_path = profile_asset_path(profile, model_root, AssetRole::Tokenizer)
             .or_else(|_| profile_asset_path(profile, model_root, AssetRole::Vocab))?;
@@ -761,9 +707,6 @@ impl OrtClipEngine {
                 let crop_x = (resized_w - target) / 2;
                 let crop_y = (resized_h - target) / 2;
                 image::imageops::crop_imm(&resized, crop_x, crop_y, target, target).to_image()
-            }
-            ImageResizeMode::Stretch => {
-                image::imageops::resize(rgb, target, target, image::imageops::FilterType::Triangle)
             }
         };
 
@@ -1470,30 +1413,6 @@ mod tests {
     }
 
     #[test]
-    fn chinese_clip_preprocess_stretches_to_square() {
-        let image = image::RgbImage::from_fn(80, 40, |x, _| {
-            if x < 40 {
-                image::Rgb([255, 0, 0])
-            } else {
-                image::Rgb([0, 0, 255])
-            }
-        });
-        let (mean, std) = EngineProfileAdapter::ChineseClipVitBasePatch16.image_mean_std();
-
-        let data = OrtClipEngine::prepare_image_tensor_data_for_size(
-            &image,
-            16,
-            ImageResizeMode::Stretch,
-            mean,
-            std,
-        )
-        .expect("image tensor data should be prepared");
-
-        assert_eq!(data.len(), 3 * 16 * 16);
-        assert!(data.iter().all(|value| value.is_finite()));
-    }
-
-    #[test]
     fn embeds_text_with_ort_model() {
         if !test_allow_download() && !has_test_model_assets() {
             eprintln!(
@@ -1546,68 +1465,6 @@ mod tests {
                 .sum::<f64>()
                 .sqrt();
             assert!((norm - 1.0).abs() < 1e-3, "norm was {norm}");
-        }
-    }
-
-    #[test]
-    fn embeds_text_and_image_with_chinese_clip_profile() {
-        let Ok(model_root) = std::env::var("ALCEDO_MIND_TEST_CHINESE_CLIP_ROOT") else {
-            eprintln!(
-                "skipping Chinese-CLIP ORT inference test; set ALCEDO_MIND_TEST_CHINESE_CLIP_ROOT"
-            );
-            return;
-        };
-
-        let engine = make_profile_test_engine_with_root(
-            "chinese-clip-vit-base-patch16-zh",
-            "47080d16c631d8416d2e6b155c59f8fd2c322e98",
-            model_root,
-            "cpu",
-        );
-        let zh = engine
-            .embed_text("一张风景照片")
-            .expect("Chinese-CLIP text embedding should succeed");
-        let image = image::RgbImage::from_fn(320, 240, |x, y| {
-            image::Rgb([(x % 256) as u8, (y % 256) as u8, ((x + y) % 256) as u8])
-        });
-        let image_embedding = engine
-            .embed_image(&image)
-            .expect("Chinese-CLIP image embedding should succeed");
-        assert_eq!(zh.len(), EMBEDDING_DIM);
-        assert_eq!(image_embedding.len(), EMBEDDING_DIM);
-
-        let real_image_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("..")
-            .join("..")
-            .join("alcedo_studio")
-            .join("src")
-            .join("sleeve")
-            .join("sleeve_filter")
-            .join("vectorization")
-            .join("example.jpg");
-        if real_image_path.exists() {
-            let real_image = image::open(&real_image_path)
-                .expect("real test image should decode")
-                .to_rgb8();
-            let real_image_embedding = engine
-                .embed_image(&real_image)
-                .expect("Chinese-CLIP real image embedding should succeed");
-            let match_text = engine
-                .embed_text("一张城市列车和铁轨的照片")
-                .expect("Chinese-CLIP matching text embedding should succeed");
-            let mismatch_text = engine
-                .embed_text("一张三明治的特写照片")
-                .expect("Chinese-CLIP mismatch text embedding should succeed");
-            let dot = |a: &[f32], b: &[f32]| a.iter().zip(b).map(|(x, y)| x * y).sum::<f32>();
-            let match_score = dot(&real_image_embedding, &match_text);
-            let mismatch_score = dot(&real_image_embedding, &mismatch_text);
-            eprintln!(
-                "Chinese-CLIP real-image semantic scores: match={match_score:.4}, mismatch={mismatch_score:.4}"
-            );
-            assert!(
-                match_score > mismatch_score,
-                "Chinese city-train prompt should be closer to the real photo than the unrelated sandwich prompt"
-            );
         }
     }
 

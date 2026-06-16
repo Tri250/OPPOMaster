@@ -90,13 +90,6 @@ class FakeSemanticRuntimeClient final : public ISemanticRuntimeClient {
     mobile.embedding_dimension = 512;
     mobile.local_root          = model_root + "/mobileclip2-s2-en";
 
-    SemanticModelProfileInfo zh;
-    zh.profile_id          = "chinese-clip-vit-base-patch16-zh";
-    zh.model_id            = "felixdu/chinese-clip-vit-base-patch16-onnx";
-    zh.language            = "zh";
-    zh.embedding_dimension = 512;
-    zh.local_root          = model_root + "/chinese-clip-vit-base-patch16-zh";
-
     SemanticModelProfileInfo multilingual;
     multilingual.profile_id                 = "jina-clip-v2-int8-multilingual";
     multilingual.model_id                   = "jinaai/jina-clip-v2";
@@ -105,7 +98,7 @@ class FakeSemanticRuntimeClient final : public ISemanticRuntimeClient {
     multilingual.native_embedding_dimension = 1024;
     multilingual.embedding_transform        = "matryoshka_truncate_then_l2_normalize";
     multilingual.local_root                 = model_root + "/jina-clip-v2-int8-multilingual";
-    return {mobile, zh, multilingual};
+    return {mobile, multilingual};
   }
 
   auto ListInstalledModels(const std::string& endpoint, const std::string& model_root,
@@ -491,12 +484,12 @@ TEST(SemanticRuntimeServiceTest, ModelManagerUsesPolledDownloadJobs) {
   std::string error;
   const auto  profiles =
       service.ListModelProfiles("C:/models", std::chrono::milliseconds(100), &error);
-  ASSERT_EQ(profiles.size(), 3u) << error;
-  EXPECT_EQ(profiles[2].profile_id, "jina-clip-v2-int8-multilingual");
-  EXPECT_EQ(profiles[2].language, "multilingual");
-  EXPECT_EQ(profiles[2].embedding_dimension, 512u);
-  EXPECT_EQ(profiles[2].native_embedding_dimension, 1024u);
-  EXPECT_EQ(profiles[2].embedding_transform, "matryoshka_truncate_then_l2_normalize");
+  ASSERT_EQ(profiles.size(), 2u) << error;
+  EXPECT_EQ(profiles[1].profile_id, "jina-clip-v2-int8-multilingual");
+  EXPECT_EQ(profiles[1].language, "multilingual");
+  EXPECT_EQ(profiles[1].embedding_dimension, 512u);
+  EXPECT_EQ(profiles[1].native_embedding_dimension, 1024u);
+  EXPECT_EQ(profiles[1].embedding_transform, "matryoshka_truncate_then_l2_normalize");
 
   const auto started = service.DownloadModel(
       "mobileclip2-s2-en", "C:/models", "https://hf-mirror.com", std::chrono::milliseconds(100));

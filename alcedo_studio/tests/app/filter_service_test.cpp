@@ -544,12 +544,15 @@ TEST_F(FilterServiceTests, FuzzySearchMatchesGeneratedSemanticLabelsAsOrdinaryTe
       [](const StatsBucket& row) { return row.label_ == "landscape" && row.count_ == 1; });
   EXPECT_NE(has_label_bucket, stats.label_stats_.end());
 
-  RegisterSemanticSearchModel(semantic, "chinese-clip-test");
-  StoreSemanticLabel(project, "chinese-clip-test", portrait_id, U8(u8"\u4EBA\u50CF"), 7);
+  RegisterSemanticSearchModel(semantic, "jina-multilingual-test");
+  StoreSemanticLabel(project, "jina-multilingual-test", portrait_id, "portrait", 7);
   EXPECT_TRUE(filter_service.SearchFolder(0, L"landscape", 0, 10).empty());
   const auto en_portrait_rows = filter_service.SearchFolder(0, L"portrait", 0, 10);
   ASSERT_EQ(en_portrait_rows.size(), 1u);
   EXPECT_EQ(en_portrait_rows.front().file_id_, portrait_id);
+  const auto zh_portrait_rows = filter_service.SearchFolder(0, L"\u4EBA\u50CF", 0, 10);
+  ASSERT_EQ(zh_portrait_rows.size(), 1u);
+  EXPECT_EQ(zh_portrait_rows.front().file_id_, portrait_id);
 }
 
 TEST_F(FilterServiceTests, FuzzySearchIgnoresSemanticLabelsWhenNoModelIsActive) {

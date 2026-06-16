@@ -9,6 +9,7 @@
 #include <cwctype>
 #include <format>
 #include <memory>
+#include <optional>
 #include <sstream>
 
 #include "storage/controller/semantic/semantic_label_config.hpp"
@@ -65,6 +66,14 @@ auto SqlStringLiteral(const std::string& value) -> std::wstring {
 
 auto SqlStringLiteral(const std::wstring& value) -> std::wstring {
   return L"'" + SqlStringEscape(value) + L"'";
+}
+
+auto WStringToUtf8(const std::wstring& value) -> std::optional<std::string> {
+  try {
+    return conv::ToBytes(value);
+  } catch (...) {
+    return std::nullopt;
+  }
 }
 
 auto LikeClause(const std::wstring& expr, const std::wstring& token) -> std::wstring {
@@ -143,12 +152,16 @@ auto SemanticLabelExpr(const std::string& active_model_key) -> std::wstring {
   }
   std::wstring alias_case = L"CASE";
   for (const auto& label : DefaultSemanticPhotographyLabelDefinitions()) {
+    const auto canonical = conv::FromBytes(label.canonical_label);
     const auto en = conv::FromBytes(label.english_label);
     const auto zh = conv::FromBytes(label.chinese_label);
+    const auto aliases = SqlStringLiteral(canonical + L" " + en + L" " + zh);
+    alias_case += L" WHEN LOWER(sl.label) = LOWER(" + SqlStringLiteral(canonical) + L") THEN " +
+                  aliases;
     alias_case += L" WHEN LOWER(sl.label) = LOWER(" + SqlStringLiteral(en) + L") THEN " +
-                  SqlStringLiteral(en + L" " + zh);
+                  aliases;
     alias_case += L" WHEN LOWER(sl.label) = LOWER(" + SqlStringLiteral(zh) + L") THEN " +
-                  SqlStringLiteral(en + L" " + zh);
+                  aliases;
   }
   alias_case += L" ELSE sl.label END";
   return L"(SELECT string_agg(" + alias_case +
@@ -338,6 +351,22 @@ auto JoinWith(const std::vector<std::wstring>& parts, const std::wstring& sep) -
 
 auto TokenSearchClause(const std::wstring& token, const std::string& active_model_key)
     -> std::wstring {
+  std::vector<std::wstring> search_terms{token};
+  if (const auto token_u8 = WStringToUtf8(token); token_u8.has_value()) {
+    if (const auto canonical = CanonicalSemanticLabel(*token_u8); canonical.has_value()) {
+      const auto canonical_w = conv::FromBytes(*canonical);
+      if (std::ranges::find(search_terms, canonical_w) == search_terms.end()) {
+        search_terms.push_back(canonical_w);
+      }
+      for (const auto& alias : SemanticLabelAliases(*canonical)) {
+        const auto alias_w = conv::FromBytes(alias);
+        if (std::ranges::find(search_terms, alias_w) == search_terms.end()) {
+          search_terms.push_back(alias_w);
+        }
+      }
+    }
+  }
+
   std::vector<std::wstring> clauses{
       LikeClause(L"e.element_name", token),
       LikeClause(L"i.file_name", token),
@@ -352,7 +381,9 @@ auto TokenSearchClause(const std::wstring& token, const std::string& active_mode
       LikeClause(L"CAST(json_extract(i.metadata, '$.Aperture') AS VARCHAR)", token),
   };
   if (!active_model_key.empty()) {
-    clauses.push_back(LikeClause(SemanticLabelExpr(active_model_key), token));
+    for (const auto& term : search_terms) {
+      clauses.push_back(LikeClause(SemanticLabelExpr(active_model_key), term));
+    }
   }
 
   auto date_clauses = DateMatchClauses(token);
