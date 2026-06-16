@@ -11,6 +11,7 @@
 #include <memory>
 #include <sstream>
 
+#include "storage/controller/semantic/semantic_label_config.hpp"
 #include "utils/string/convert.hpp"
 
 namespace alcedo {
@@ -60,6 +61,10 @@ auto SqlStringEscape(const std::wstring& value) -> std::wstring {
 
 auto SqlStringLiteral(const std::string& value) -> std::wstring {
   return L"'" + SqlStringEscape(conv::FromBytes(value)) + L"'";
+}
+
+auto SqlStringLiteral(const std::wstring& value) -> std::wstring {
+  return L"'" + SqlStringEscape(value) + L"'";
 }
 
 auto LikeClause(const std::wstring& expr, const std::wstring& token) -> std::wstring {
@@ -136,7 +141,18 @@ auto SemanticLabelExpr(const std::string& active_model_key) -> std::wstring {
   if (active_model_key.empty()) {
     return L"''";
   }
-  return L"(SELECT string_agg(sl.label, ' ') FROM SemanticImageLabel sl WHERE sl.file_id = e.id "
+  std::wstring alias_case = L"CASE";
+  for (const auto& label : DefaultSemanticPhotographyLabelDefinitions()) {
+    const auto en = conv::FromBytes(label.english_label);
+    const auto zh = conv::FromBytes(label.chinese_label);
+    alias_case += L" WHEN LOWER(sl.label) = LOWER(" + SqlStringLiteral(en) + L") THEN " +
+                  SqlStringLiteral(en + L" " + zh);
+    alias_case += L" WHEN LOWER(sl.label) = LOWER(" + SqlStringLiteral(zh) + L") THEN " +
+                  SqlStringLiteral(en + L" " + zh);
+  }
+  alias_case += L" ELSE sl.label END";
+  return L"(SELECT string_agg(" + alias_case +
+         L", ' ') FROM SemanticImageLabel sl WHERE sl.file_id = e.id "
          L"AND sl.model_key = " +
          SqlStringLiteral(active_model_key) + L")";
 }

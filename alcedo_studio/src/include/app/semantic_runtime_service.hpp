@@ -165,6 +165,7 @@ struct SemanticRuntimeOptions {
   uint32_t                  batch_wait_ms     = 25;
   uint32_t                  max_message_bytes = 16 * 1024 * 1024;
   bool                      allow_download    = false;
+  bool                      require_model_info = true;
   std::chrono::milliseconds startup_timeout{5000};
   std::chrono::milliseconds health_poll_interval{50};
   std::chrono::milliseconds graceful_stop_timeout{1000};

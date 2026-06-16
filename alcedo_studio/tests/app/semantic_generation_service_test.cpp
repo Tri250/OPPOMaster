@@ -359,6 +359,16 @@ auto LabelIndex(const std::string& label) -> size_t {
   return 0;
 }
 
+auto LabelIndex(SemanticLabelLanguage language, const std::string& label) -> size_t {
+  const auto& queries = DefaultSemanticPhotographyLabelQueries(language);
+  for (size_t i = 0; i < queries.size(); ++i) {
+    if (queries[i].label == label) {
+      return i;
+    }
+  }
+  return 0;
+}
+
 void RegisterSemanticTestModel(SemanticStorageController& semantic) {
   std::string error;
   ASSERT_TRUE(semantic.UpsertModel(SemanticModelRecord{.model_key_     = "mobileclip-test",
@@ -367,6 +377,25 @@ void RegisterSemanticTestModel(SemanticStorageController& semantic) {
                                                        .embedding_dim_ = kSemanticEmbeddingDim,
                                                        .image_size_    = 256},
                                    &error))
+      << error;
+}
+
+void RegisterChineseSemanticTestModel(SemanticStorageController& semantic) {
+  std::string error;
+  ASSERT_TRUE(semantic.UpsertModel(
+      SemanticModelRecord{
+          .model_key_                     = "chinese-clip-test",
+          .model_id_                      = "felixdu/chinese-clip-vit-base-patch16-onnx",
+          .revision_                      = "mock-zh-revision",
+          .embedding_dim_                 = kSemanticEmbeddingDim,
+          .image_size_                    = 224,
+          .engine_id_                     = "chinese-clip-vit-base-patch16",
+          .profile_id_                    = "chinese-clip-vit-base-patch16-zh",
+          .supported_text_languages_json_ = SemanticSupportedTextLanguagesJson(
+              SemanticLabelLanguage::kChinese),
+          .prompt_config_hash_ = kDefaultSemanticPhotographyZhPromptConfigHash,
+          .active_             = true},
+      &error))
       << error;
 }
 
@@ -515,6 +544,68 @@ class Routed512EmbeddingClient final : public ISemanticImageEmbeddingClient {
   std::unordered_map<std::string, size_t>                 label_to_index_;
   std::unordered_map<std::string, size_t>                 query_to_index_;
   std::atomic<int>                                        image_item_count_{0};
+};
+
+class Localized512EmbeddingClient final : public ISemanticImageEmbeddingClient {
+ public:
+  Localized512EmbeddingClient(SemanticLabelLanguage language, std::string image_label)
+      : language_(language), image_label_(std::move(image_label)) {
+    size_t index = 0;
+    for (const auto& query : DefaultSemanticPhotographyLabelQueries(language_)) {
+      query_to_index_.emplace(query.query, index++);
+    }
+  }
+
+  auto GetModelInfo(SemanticRuntimeModelInfo* info, std::string* error) -> bool override {
+    (void)error;
+    if (info) {
+      info->profile_id          = "chinese-clip-vit-base-patch16-zh";
+      info->model_id            = "felixdu/chinese-clip-vit-base-patch16-onnx";
+      info->revision            = "mock-zh-revision";
+      info->embedding_dimension = kSemanticEmbeddingDim;
+      info->image_size          = 224;
+      info->provider            = "mock";
+      info->language            = "zh";
+    }
+    return true;
+  }
+
+  auto EmbedText(const std::string& request_id, const std::string& text,
+                 std::chrono::milliseconds timeout) -> SemanticEmbeddingResult override {
+    (void)timeout;
+    SemanticEmbeddingResult result;
+    result.request_id = request_id;
+    result.model_name = "mock/chinese-clip";
+    result.dimension  = kSemanticEmbeddingDim;
+    result.ok         = true;
+    const auto found  = query_to_index_.find(text);
+    result.embedding  = OneHot512(found == query_to_index_.end() ? 0 : found->second);
+    return result;
+  }
+
+  void EmbedImageBatch(std::vector<SemanticImageEmbeddingInput> inputs,
+                       std::chrono::milliseconds                timeout,
+                       SemanticImageEmbeddingBatchCallback      callback) override {
+    (void)timeout;
+    std::vector<SemanticImageEmbeddingBatchResult> results;
+    results.reserve(inputs.size());
+    const auto image_index = LabelIndex(language_, image_label_);
+    for (const auto& input : inputs) {
+      SemanticImageEmbeddingBatchResult result;
+      result.item                 = input.item;
+      result.embedding.request_id = input.request_id;
+      result.embedding.ok         = true;
+      result.embedding.dimension  = kSemanticEmbeddingDim;
+      result.embedding.embedding  = OneHot512(image_index);
+      results.push_back(std::move(result));
+    }
+    callback(std::move(results));
+  }
+
+ private:
+  SemanticLabelLanguage                         language_;
+  std::string                                   image_label_;
+  std::unordered_map<std::string, size_t>       query_to_index_;
 };
 
 auto RawScalarInt64(duckdb_connection connection, const std::string& sql) -> int64_t {
@@ -951,6 +1042,58 @@ TEST_F(SemanticGenerationServiceTest, PersistsEmbeddingsAndAssignedLabels) {
   ASSERT_TRUE(stored_label.has_value()) << error;
   EXPECT_EQ(stored_label->label_, "street");
   EXPECT_EQ(stored_label->second_label_, "landscape");
+}
+
+TEST_F(SemanticGenerationServiceTest, PersistsChineseClipLabelsAndMapsDisplayText) {
+  ProjectService project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
+  auto&          semantic = project.GetStorageService()->GetSemanticStorageController();
+  RegisterChineseSemanticTestModel(semantic);
+
+  auto thumbnails = std::make_shared<ImmediateThumbnailProvider>();
+  auto embedder   = std::make_shared<Localized512EmbeddingClient>(SemanticLabelLanguage::kChinese,
+                                                                 "\xE9\xA3\x8E\xE6\x99\xAF");
+  SemanticGenerationService service(thumbnails, embedder);
+
+  SemanticGenerationOptions options;
+  options.expected_model_info =
+      SemanticRuntimeModelInfo{.profile_id          = "chinese-clip-vit-base-patch16-zh",
+                               .model_id            = "felixdu/chinese-clip-vit-base-patch16-onnx",
+                               .revision            = "mock-zh-revision",
+                               .language            = "zh",
+                               .embedding_dimension = kSemanticEmbeddingDim,
+                               .image_size          = 224,
+                               .provider            = "mock"};
+  SemanticGenerationPersistenceOptions persistence;
+  persistence.storage_controller = &semantic;
+  persistence.model_key          = "chinese-clip-test";
+  persistence.prompt_config_hash = kDefaultSemanticPhotographyZhPromptConfigHash;
+  options.persistence            = persistence;
+
+  std::string error;
+  auto        job = service.StartGeneration({{42, 420}}, options);
+  job->Wait();
+
+  const auto progress = job->SnapshotProgress();
+  EXPECT_EQ(progress.embedded, 1U);
+  EXPECT_EQ(progress.failed, 0U);
+  EXPECT_EQ(semantic.CountLabelPrototypes("chinese-clip-test",
+                                          kDefaultSemanticPhotographyZhPromptConfigHash),
+            DefaultSemanticPhotographyLabelQueries(SemanticLabelLanguage::kChinese).size());
+  EXPECT_EQ(semantic.CountImageLabelsForFile(42, "chinese-clip-test"), 1U);
+
+  const auto results = job->Results();
+  ASSERT_EQ(results.size(), 1U);
+  EXPECT_EQ(results.front().status, SemanticGenerationItemStatus::kEmbedded);
+  EXPECT_TRUE(results.front().has_label);
+  EXPECT_EQ(results.front().label, "\xE9\xA3\x8E\xE6\x99\xAF");
+
+  const auto stored_label = semantic.GetImageLabelForFile(42, "chinese-clip-test", &error);
+  ASSERT_TRUE(stored_label.has_value()) << error;
+  EXPECT_EQ(stored_label->label_, "\xE9\xA3\x8E\xE6\x99\xAF");
+  EXPECT_EQ(SemanticLabelDisplayText(stored_label->label_, SemanticLabelLanguage::kEnglish),
+            "landscape");
+  EXPECT_EQ(SemanticLabelDisplayText(stored_label->label_, SemanticLabelLanguage::kChinese),
+            "\xE9\xA3\x8E\xE6\x99\xAF");
 }
 
 TEST_F(SemanticGenerationServiceTest, SkipsReadyEmbeddingsUnlessForceRegenerate) {

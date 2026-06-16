@@ -464,6 +464,63 @@ auto SemanticStorageController::GetModelSupportedTextLanguagesJson(
                                   SqlString(model_key)));
 }
 
+auto SemanticStorageController::GetModel(const std::string& model_key, std::string* error) const
+    -> std::optional<SemanticModelRecord> {
+  const auto sql = std::format(
+      "SELECT model_key, model_id, revision, embedding_dim, image_size, "
+      "engine_id, profile_id, supported_text_languages_json, prompt_config_hash, "
+      "asset_manifest_json, active "
+      "FROM SemanticModel WHERE model_key = {} LIMIT 1;",
+      SqlString(model_key));
+
+  duckdb_result result;
+  if (duckdb_query(guard_.conn_, sql.c_str(), &result) != DuckDBSuccess) {
+    const char* raw_error = duckdb_result_error(&result);
+    SetError(error, raw_error ? raw_error : "DuckDB semantic model query failed.");
+    duckdb_destroy_result(&result);
+    return std::nullopt;
+  }
+  if (duckdb_row_count(&result) == 0) {
+    duckdb_destroy_result(&result);
+    return std::nullopt;
+  }
+
+  auto read_string = [&](idx_t column) {
+    std::string value;
+    if (!duckdb_value_is_null(&result, column, 0)) {
+      if (char* raw = duckdb_value_varchar(&result, column, 0)) {
+        value = raw;
+        duckdb_free(raw);
+      }
+    }
+    return value;
+  };
+
+  SemanticModelRecord record;
+  record.model_key_                     = read_string(0);
+  record.model_id_                      = read_string(1);
+  record.revision_                      = read_string(2);
+  record.embedding_dim_                 = static_cast<int>(duckdb_value_int32(&result, 3, 0));
+  record.image_size_                    = static_cast<int>(duckdb_value_int32(&result, 4, 0));
+  record.engine_id_                     = read_string(5);
+  record.profile_id_                    = read_string(6);
+  record.supported_text_languages_json_ = read_string(7);
+  record.prompt_config_hash_            = read_string(8);
+  record.asset_manifest_json_           = read_string(9);
+  record.active_                        = duckdb_value_boolean(&result, 10, 0);
+  duckdb_destroy_result(&result);
+  return record;
+}
+
+auto SemanticStorageController::ActiveModel(std::string* error) const
+    -> std::optional<SemanticModelRecord> {
+  const auto key = ActiveModelKey();
+  if (key.empty()) {
+    return std::nullopt;
+  }
+  return GetModel(key, error);
+}
+
 auto SemanticStorageController::ActiveModelKey() const -> std::string {
   const auto sql =
       "SELECT model_key FROM SemanticModel WHERE active = TRUE "

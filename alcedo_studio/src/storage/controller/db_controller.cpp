@@ -130,22 +130,27 @@ void DBController::SeedSemanticLabelQueries(duckdb_connection conn) {
   }
   duckdb_destroy_result(&result);
 
-  for (const auto& label_query : DefaultSemanticPhotographyLabelQueries()) {
-    const auto sql =
-        "INSERT OR REPLACE INTO SemanticLabelQuery "
-        "(prompt_config_hash, label, query_text) VALUES (" +
-        SqlString(kDefaultSemanticPhotographyPromptConfigHash) + ", " +
-        SqlString(label_query.label) + ", " + SqlString(label_query.query) + ");";
-    if (duckdb_query(conn, sql.c_str(), &result) != DuckDBSuccess) {
-      std::string error_message = duckdb_result_error(&result);
+  const auto seed_queries = [&](SemanticLabelLanguage language) {
+    const auto* prompt_hash = SemanticPromptConfigHashForLanguage(language);
+    for (const auto& label_query : DefaultSemanticPhotographyLabelQueries(language)) {
+      const auto sql =
+          "INSERT OR REPLACE INTO SemanticLabelQuery "
+          "(prompt_config_hash, label, query_text) VALUES (" +
+          SqlString(prompt_hash) + ", " + SqlString(label_query.label) + ", " +
+          SqlString(label_query.query) + ");";
+      if (duckdb_query(conn, sql.c_str(), &result) != DuckDBSuccess) {
+        std::string error_message = duckdb_result_error(&result);
+        duckdb_destroy_result(&result);
+        duckdb_result rollback_result;
+        duckdb_query(conn, "ROLLBACK;", &rollback_result);
+        duckdb_destroy_result(&rollback_result);
+        throw std::runtime_error(error_message);
+      }
       duckdb_destroy_result(&result);
-      duckdb_result rollback_result;
-      duckdb_query(conn, "ROLLBACK;", &rollback_result);
-      duckdb_destroy_result(&rollback_result);
-      throw std::runtime_error(error_message);
     }
-    duckdb_destroy_result(&result);
-  }
+  };
+  seed_queries(SemanticLabelLanguage::kEnglish);
+  seed_queries(SemanticLabelLanguage::kChinese);
 
   if (duckdb_query(conn, "COMMIT;", &result) != DuckDBSuccess) {
     std::string error_message = duckdb_result_error(&result);

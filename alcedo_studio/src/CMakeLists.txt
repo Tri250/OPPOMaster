@@ -1565,12 +1565,15 @@ if(WIN32 AND ALCEDO_DUCKDB_VSS_EXTENSION)
 endif()
 
 if(ALCEDO_BUILD_SEMANTIC_SIDECAR AND TARGET alcedo_mind_sidecar)
-    add_custom_command(TARGET alcedo_main POST_BUILD
+    add_custom_target(alcedo_mind_sidecar_runtime_copy ALL
         COMMAND ${CMAKE_COMMAND}
             "-DALCEDO_MIND_BINARY=${ALCEDO_MIND_BINARY}"
             "-DALCEDO_MIND_TARGET_DIR=${ALCEDO_MIND_TARGET_DIR}"
             "-DALCEDO_MIND_DEST_DIR=$<TARGET_FILE_DIR:alcedo_main>"
             -P "${CMAKE_SOURCE_DIR}/scripts/cmake/copy_semantic_sidecar.cmake"
+        DEPENDS alcedo_mind_sidecar
+        COMMENT "Copying semantic runtime sidecar next to alcedo_main"
         VERBATIM
     )
+    add_dependencies(alcedo_main alcedo_mind_sidecar_runtime_copy)
 endif()

@@ -9,7 +9,9 @@
 
 #include <QCoreApplication>
 #include <QHostAddress>
+#include <QMetaObject>
 #include <QTcpServer>
+#include <QThread>
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -669,8 +671,24 @@ SemanticRuntimeService::SemanticRuntimeService(std::shared_ptr<ISemanticRuntimeC
 SemanticRuntimeService::~SemanticRuntimeService() { StopForProjectClose(); }
 
 auto SemanticRuntimeService::StartAndWait(const SemanticRuntimeOptions& options) -> bool {
+  if (QThread::currentThread() != thread()) {
+    bool result = false;
+    QMetaObject::invokeMethod(
+        this, [this, options, &result]() { result = StartAndWait(options); },
+        Qt::BlockingQueuedConnection);
+    return result;
+  }
+
   if (IsRunning()) {
-    return true;
+    const auto requested_root =
+        options.model_root.empty() ? DefaultRuntimeModelRoot() : options.model_root;
+    if (options_.model_id == options.model_id && options_.revision == options.revision &&
+        options_.model_root == requested_root && options_.device == options.device &&
+        options_.allow_download == options.allow_download &&
+        options_.require_model_info == options.require_model_info) {
+      return true;
+    }
+    Stop();
   }
 
   options_ = options;
@@ -714,6 +732,11 @@ auto SemanticRuntimeService::StartAndWait(const SemanticRuntimeOptions& options)
 }
 
 void SemanticRuntimeService::Stop() {
+  if (QThread::currentThread() != thread()) {
+    QMetaObject::invokeMethod(this, [this]() { Stop(); }, Qt::BlockingQueuedConnection);
+    return;
+  }
+
   if (!IsRunning()) {
     SetStatus(SemanticRuntimeState::kStopped, SemanticRuntimeIssue::kNone,
               "Semantic runtime is stopped");
@@ -740,6 +763,13 @@ void SemanticRuntimeService::Stop() {
 void SemanticRuntimeService::StopForProjectClose() { Stop(); }
 
 auto SemanticRuntimeService::Status() -> SemanticRuntimeStatusSnapshot {
+  if (QThread::currentThread() != thread()) {
+    SemanticRuntimeStatusSnapshot snapshot;
+    QMetaObject::invokeMethod(
+        this, [this, &snapshot]() { snapshot = Status(); }, Qt::BlockingQueuedConnection);
+    return snapshot;
+  }
+
   RefreshProcessExit();
   if (status_.state == SemanticRuntimeState::kReady && client_) {
     SemanticRuntimeRemoteStatus remote;
@@ -752,6 +782,13 @@ auto SemanticRuntimeService::Status() -> SemanticRuntimeStatusSnapshot {
 }
 
 auto SemanticRuntimeService::IsRunning() -> bool {
+  if (QThread::currentThread() != thread()) {
+    bool result = false;
+    QMetaObject::invokeMethod(
+        this, [this, &result]() { result = IsRunning(); }, Qt::BlockingQueuedConnection);
+    return result;
+  }
+
   RefreshProcessExit();
   return process_.state() != QProcess::NotRunning;
 }
@@ -996,12 +1033,19 @@ auto SemanticRuntimeService::WaitForReadiness() -> bool {
       std::string              info_error;
       if (client_->GetModelInfo(endpoint_, std::chrono::milliseconds(500), &info, &info_error)) {
         status_.model_info = info;
+        SetStatus(SemanticRuntimeState::kReady, SemanticRuntimeIssue::kNone,
+                  "Semantic runtime is ready");
+        return true;
+      } else if (!options_.require_model_info) {
+        SetStatus(SemanticRuntimeState::kReady, SemanticRuntimeIssue::kNone,
+                  "Semantic model manager is ready");
+        return true;
       } else if (!info_error.empty()) {
+        last_error      = info_error;
         status_.message = info_error;
+      } else {
+        last_error = "Semantic runtime responded but semantic model is not ready";
       }
-      SetStatus(SemanticRuntimeState::kReady, SemanticRuntimeIssue::kNone,
-                "Semantic runtime is ready");
-      return true;
     }
     std::this_thread::sleep_for(options_.health_poll_interval);
   }

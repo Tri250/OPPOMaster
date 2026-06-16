@@ -91,6 +91,10 @@ class SemanticStorageController {
   [[nodiscard]] auto GetModelEmbeddingDim(const std::string& model_key) const -> std::optional<int>;
   [[nodiscard]] auto GetModelSupportedTextLanguagesJson(const std::string& model_key) const
       -> std::string;
+  [[nodiscard]] auto GetModel(const std::string& model_key, std::string* error = nullptr) const
+      -> std::optional<SemanticModelRecord>;
+  [[nodiscard]] auto ActiveModel(std::string* error = nullptr) const
+      -> std::optional<SemanticModelRecord>;
   [[nodiscard]] auto ActiveModelKey() const -> std::string;
   [[nodiscard]] auto SetActiveModelKey(const std::string& model_key,
                                        std::string*       error = nullptr) const -> bool;

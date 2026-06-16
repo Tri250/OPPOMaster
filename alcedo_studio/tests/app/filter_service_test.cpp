@@ -515,6 +515,10 @@ TEST_F(FilterServiceTests, FuzzySearchMatchesGeneratedSemanticLabelsAsOrdinaryTe
   ASSERT_EQ(landscape_rows.size(), 1u);
   EXPECT_EQ(landscape_rows.front().file_id_, landscape_id);
   EXPECT_EQ(filter_service.CountSearchResults(0, L"landscape"), 1u);
+  const auto zh_landscape_rows = filter_service.SearchFolder(0, L"\u98CE\u666F", 0, 10);
+  ASSERT_EQ(zh_landscape_rows.size(), 1u);
+  EXPECT_EQ(zh_landscape_rows.front().file_id_, landscape_id);
+  EXPECT_EQ(filter_service.CountSearchResults(0, L"\u98CE\u666F"), 1u);
   EXPECT_TRUE(filter_service.SearchFolder(0, L"portrait", 0, 10).empty());
   EXPECT_EQ(filter_service.CountSearchResults(0, L"portrait"), 0u);
 
@@ -539,6 +543,13 @@ TEST_F(FilterServiceTests, FuzzySearchMatchesGeneratedSemanticLabelsAsOrdinaryTe
       stats.label_stats_.begin(), stats.label_stats_.end(),
       [](const StatsBucket& row) { return row.label_ == "landscape" && row.count_ == 1; });
   EXPECT_NE(has_label_bucket, stats.label_stats_.end());
+
+  RegisterSemanticSearchModel(semantic, "chinese-clip-test");
+  StoreSemanticLabel(project, "chinese-clip-test", portrait_id, U8(u8"\u4EBA\u50CF"), 7);
+  EXPECT_TRUE(filter_service.SearchFolder(0, L"landscape", 0, 10).empty());
+  const auto en_portrait_rows = filter_service.SearchFolder(0, L"portrait", 0, 10);
+  ASSERT_EQ(en_portrait_rows.size(), 1u);
+  EXPECT_EQ(en_portrait_rows.front().file_id_, portrait_id);
 }
 
 TEST_F(FilterServiceTests, FuzzySearchIgnoresSemanticLabelsWhenNoModelIsActive) {

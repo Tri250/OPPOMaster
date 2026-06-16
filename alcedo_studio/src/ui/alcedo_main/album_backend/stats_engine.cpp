@@ -4,10 +4,13 @@
 
 #include "ui/alcedo_main/album_backend/stats_engine.hpp"
 
+#include <QLocale>
+#include <QSettings>
 #include <optional>
 #include <string>
 #include <vector>
 
+#include "storage/controller/semantic/semantic_label_config.hpp"
 #include "ui/alcedo_main/album_backend/album_backend.hpp"
 #include "ui/alcedo_main/album_backend/path_utils.hpp"
 
@@ -29,13 +32,24 @@ auto EscapedUtf8SqlString(const std::string& value) -> std::wstring {
   return EscapedSqlString(QString::fromUtf8(value.c_str()).toStdWString());
 }
 
-auto ToStatsRows(const std::vector<alcedo::StatsBucket>& buckets, bool uppercase_labels = false)
-    -> QVariantList {
+auto ToStatsRows(const std::vector<alcedo::StatsBucket>& buckets, bool uppercase_labels = false,
+                 bool semantic_labels = false) -> QVariantList {
+  QString code =
+      QSettings{}.value(QStringLiteral("ui/language"), QStringLiteral("system")).toString();
+  if (code.compare(QStringLiteral("system"), Qt::CaseInsensitive) == 0) {
+    code = QLocale::system().bcp47Name();
+  }
+  const auto   label_language = code.startsWith(QStringLiteral("zh"), Qt::CaseInsensitive)
+                                    ? SemanticLabelLanguage::kChinese
+                                    : SemanticLabelLanguage::kEnglish;
   QVariantList rows;
   rows.reserve(static_cast<qsizetype>(buckets.size()));
   for (const auto& bucket : buckets) {
-    QString label = bucket.label_.empty() ? PL_TEXT("(unknown)").Render()
-                                          : QString::fromUtf8(bucket.label_.c_str());
+    QString label =
+        bucket.label_.empty() ? PL_TEXT("(unknown)").Render()
+        : semantic_labels
+            ? QString::fromUtf8(SemanticLabelDisplayText(bucket.label_, label_language).c_str())
+            : QString::fromUtf8(bucket.label_.c_str());
     if (uppercase_labels) {
       label = label.toUpper();
     }
@@ -136,7 +150,7 @@ void StatsEngine::RefreshStats() {
     date_stats_        = ToStatsRows(stats.date_stats_);
     camera_stats_      = ToStatsRows(stats.camera_stats_);
     lens_stats_        = ToStatsRows(stats.lens_stats_);
-    label_stats_       = ToStatsRows(stats.label_stats_, true);
+    label_stats_       = ToStatsRows(stats.label_stats_, true, true);
     rating_stats_      = ToStatsRows(stats.rating_stats_);
   } catch (...) {
     // Keep previous stats if service query failed.
@@ -257,16 +271,22 @@ auto StatsEngine::BuildStatsFilterWhere() const -> std::optional<std::wstring> {
   }
 
   if (!filter_label_.isEmpty()) {
-    const auto label_str        = EscapedSqlString(filter_label_.toStdWString());
     const auto active_model_key = backend_.semantic_generation_.ActiveModelKey();
     if (active_model_key.empty()) {
       conditions.push_back(L"(1 = 0)");
     } else {
+      const auto   aliases = SemanticLabelAliases(filter_label_.toUtf8().toStdString());
+      std::wstring label_match;
+      for (size_t i = 0; i < aliases.size(); ++i) {
+        if (i > 0) {
+          label_match += L" OR ";
+        }
+        label_match += L"LOWER(sl.label) = LOWER('" + EscapedUtf8SqlString(aliases[i]) + L"')";
+      }
       conditions.push_back(
           L"EXISTS (SELECT 1 FROM SemanticImageLabel sl WHERE sl.file_id = e.id "
           L"AND sl.model_key = '" +
-          EscapedUtf8SqlString(active_model_key) + L"' AND LOWER(sl.label) = LOWER('" + label_str +
-          L"'))");
+          EscapedUtf8SqlString(active_model_key) + L"' AND (" + label_match + L"))");
     }
   }
 

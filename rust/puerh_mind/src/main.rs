@@ -23,11 +23,13 @@ fn main() -> anyhow::Result<()> {
 
 fn run_server() -> anyhow::Result<()> {
     logging::init_logging();
+    let config = config::AppConfig::load()?;
+    let semantic_engine = service::registry::build_semantic_engine(&config);
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .context("failed to initialize alcedo_mind tokio runtime")?;
     runtime
-        .block_on(bootstrap::start_server())
+        .block_on(bootstrap::start_server(config, semantic_engine))
         .map_err(|err| anyhow!("{err}"))
 }

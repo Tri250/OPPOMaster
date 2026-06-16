@@ -26,6 +26,8 @@ ColumnLayout {
     readonly property int albumLabeledCount: hasController ? semanticController.albumLabeledCount : 0
     readonly property int albumUnlabeledCount: hasController ? semanticController.albumUnlabeledCount : 0
     readonly property bool generationRunning: hasController ? semanticController.running : false
+    readonly property string activeModelName: hasController ? semanticController.activeModelDisplayName : qsTr("No active model")
+    readonly property string activeModelKey: hasController ? semanticController.activeModelKey : ""
     readonly property int progressTotal: hasController ? semanticController.total : 0
     readonly property int progressCompleted: hasController
                                            ? semanticController.embedded
@@ -189,7 +191,7 @@ ColumnLayout {
 
             Button {
                 id: generateButton
-                Layout.preferredWidth: 168
+                Layout.preferredWidth: 148
                 Layout.preferredHeight: 48
                 text: panel.generationRunning ? qsTr("Cancel") : qsTr("Generate")
                 enabled: panel.hasController
@@ -222,6 +224,33 @@ ColumnLayout {
                     opacity: generateButton.enabled ? 1.0 : 0.45
                 }
             }
+
+            Button {
+                id: regenerateButton
+                visible: !panel.generationRunning
+                Layout.preferredWidth: 148
+                Layout.preferredHeight: 48
+                text: qsTr("Regenerate")
+                enabled: panel.hasController && panel.albumTotalCount > 0
+                font.pixelSize: 15
+                font.weight: 800
+                Material.foreground: panel.textColor
+                onClicked: panel.semanticController.StartAlbumGeneration(true)
+                background: Rectangle {
+                    radius: 10
+                    color: regenerateButton.down
+                           ? Qt.rgba(1, 1, 1, 0.08)
+                           : (regenerateButton.hovered
+                              ? Qt.rgba(1, 1, 1, 0.14)
+                              : Qt.rgba(1, 1, 1, 0.09))
+                    border.width: 1
+                    border.color: Qt.rgba(panel.textColor.r,
+                                          panel.textColor.g,
+                                          panel.textColor.b,
+                                          0.16)
+                    opacity: regenerateButton.enabled ? 1.0 : 0.45
+                }
+            }
         }
     }
 
@@ -231,6 +260,64 @@ ColumnLayout {
         textColor: panel.textColor
         mutedTextColor: panel.mutedTextColor
         dividerColor: panel.dividerColor
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 16
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                Label {
+                    text: qsTr("Active model")
+                    color: panel.textColor
+                    font.pixelSize: 15
+                    font.weight: 600
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 58
+                    radius: 8
+                    color: Qt.rgba(1, 1, 1, 0.10)
+                    border.width: 1
+                    border.color: Qt.rgba(panel.secondaryAccent.r,
+                                          panel.secondaryAccent.g,
+                                          panel.secondaryAccent.b,
+                                          0.22)
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 14
+                        anchors.rightMargin: 14
+                        anchors.topMargin: 8
+                        anchors.bottomMargin: 8
+                        spacing: 2
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: panel.activeModelName
+                            color: panel.textColor
+                            font.pixelSize: 14
+                            font.weight: 800
+                            elide: Text.ElideRight
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: panel.activeModelKey.length > 0
+                                  ? panel.activeModelKey
+                                  : qsTr("Generated labels are hidden until a model is activated.")
+                            color: panel.mutedTextColor
+                            font.family: panel.dataFontFamily
+                            font.pixelSize: 11
+                            elide: Text.ElideMiddle
+                        }
+                    }
+                }
+            }
+        }
 
         RowLayout {
             Layout.fillWidth: true
@@ -451,7 +538,6 @@ ColumnLayout {
                     text: qsTr("Activate")
                     enabled: panel.hasController
                              && !panel.semanticController.modelDownloadRunning
-                             && panel.semanticController.selectedModelProfileId === panel.semanticController.activeModelProfileId
                     Material.foreground: panel.textColor
                     onClicked: panel.semanticController.ActivateSelectedModel()
                 }

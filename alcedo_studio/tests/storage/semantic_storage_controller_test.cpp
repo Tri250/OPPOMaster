@@ -225,6 +225,8 @@ TEST_F(SemanticStorageControllerTest, NewProjectSeedsDefaultLabelQueries) {
 
   EXPECT_EQ(semantic.CountLabelQueries(kDefaultSemanticPhotographyPromptConfigHash),
             DefaultSemanticPhotographyLabelQueries().size());
+  EXPECT_EQ(semantic.CountLabelQueries(kDefaultSemanticPhotographyZhPromptConfigHash),
+            DefaultSemanticPhotographyLabelQueries(SemanticLabelLanguage::kChinese).size());
 
   std::string error;
   const auto  queries =
@@ -241,6 +243,20 @@ TEST_F(SemanticStorageControllerTest, NewProjectSeedsDefaultLabelQueries) {
                                   query.query_text_ == default_portrait->query;
                          }),
             queries.end());
+
+  const auto zh_queries =
+      semantic.ListLabelQueries(kDefaultSemanticPhotographyZhPromptConfigHash, &error);
+  ASSERT_EQ(zh_queries.size(),
+            DefaultSemanticPhotographyLabelQueries(SemanticLabelLanguage::kChinese).size())
+      << error;
+  EXPECT_NE(std::find_if(zh_queries.begin(), zh_queries.end(),
+                         [](const SemanticLabelQueryRecord& query) {
+                           return query.label_ == "\xE4\xBA\xBA\xE5\x83\x8F";
+                         }),
+            zh_queries.end());
+  EXPECT_EQ(CanonicalSemanticLabel("\xE9\xA3\x8E\xE6\x99\xAF").value_or(""), "landscape");
+  EXPECT_EQ(SemanticLabelDisplayText("landscape", SemanticLabelLanguage::kChinese),
+            "\xE9\xA3\x8E\xE6\x99\xAF");
 }
 
 TEST_F(SemanticStorageControllerTest, ActiveModelKeyAndLanguageMetadataAreStoredPerModel) {

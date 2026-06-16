@@ -42,7 +42,12 @@ class FakeSemanticRuntimeClient final : public ISemanticRuntimeClient {
                     SemanticRuntimeModelInfo* info, std::string* error) -> bool override {
     (void)endpoint;
     (void)timeout;
-    (void)error;
+    if (!model_info_ready_.load()) {
+      if (error) {
+        *error = "fake semantic model is unavailable";
+      }
+      return false;
+    }
     info->profile_id                 = "mobileclip2-s2-en";
     info->model_id                   = "test/mobileclip";
     info->revision                   = "rev-a";
@@ -256,10 +261,12 @@ class FakeSemanticRuntimeClient final : public ISemanticRuntimeClient {
   }
 
   void SetReady(bool ready) { ready_.store(ready); }
+  void SetModelInfoReady(bool ready) { model_info_ready_.store(ready); }
   auto PingCount() const -> int { return ping_count_.load(); }
 
  private:
   std::atomic<bool> ready_;
+  std::atomic<bool> model_info_ready_{true};
   std::atomic<int>  ping_count_{0};
 };
 
@@ -370,6 +377,42 @@ TEST(SemanticRuntimeServiceTest, RuntimeExitBeforeReadyIsReported) {
   EXPECT_EQ(status.state, SemanticRuntimeState::kFailed);
   EXPECT_EQ(status.issue, SemanticRuntimeIssue::kRuntimeCrashed);
   EXPECT_NE(status.stderr_tail.find(""), std::string::npos);
+}
+
+TEST(SemanticRuntimeServiceTest, PingWithoutModelInfoDoesNotBecomeReady) {
+  auto client = std::make_shared<FakeSemanticRuntimeClient>();
+  client->SetModelInfoReady(false);
+  SemanticRuntimeService service(client);
+
+  auto                   options = BaseOptions();
+  options.extra_arguments        = {"--sleep-ms", "30000"};
+  options.startup_timeout        = std::chrono::milliseconds(120);
+  options.health_poll_interval   = std::chrono::milliseconds(20);
+
+  EXPECT_FALSE(service.StartAndWait(options));
+  const auto status = service.Status();
+  EXPECT_EQ(status.state, SemanticRuntimeState::kFailed);
+  EXPECT_EQ(status.issue, SemanticRuntimeIssue::kReadinessTimeout);
+  EXPECT_NE(status.message.find("fake semantic model is unavailable"), std::string::npos);
+  EXPECT_FALSE(status.model_info.has_value());
+}
+
+TEST(SemanticRuntimeServiceTest, ModelManagerRuntimeCanStartWithoutModelInfo) {
+  auto client = std::make_shared<FakeSemanticRuntimeClient>();
+  client->SetModelInfoReady(false);
+  SemanticRuntimeService service(client);
+
+  auto                   options = BaseOptions();
+  options.extra_arguments        = {"--sleep-ms", "30000"};
+  options.require_model_info     = false;
+
+  ASSERT_TRUE(service.StartAndWait(options));
+  const auto status = service.Status();
+  EXPECT_EQ(status.state, SemanticRuntimeState::kReady);
+  EXPECT_EQ(status.issue, SemanticRuntimeIssue::kNone);
+  EXPECT_FALSE(status.model_info.has_value());
+  EXPECT_NE(status.message.find("model manager"), std::string::npos);
+  service.Stop();
 }
 
 TEST(SemanticRuntimeServiceTest, ReadyRuntimeSelfExitBecomesUiVisibleFailure) {
@@ -526,16 +569,34 @@ TEST(SemanticRuntimeServiceLiveTest, DefaultGrpcClientEmbedsRawRgba8AgainstRustR
                     "ALCEDO_SEMANTIC_LIVE_MODEL_ROOT to run the live Rust runtime smoke.";
   }
 
+  const auto env_or = [](const char* name, const char* fallback) -> std::string {
+    const char* value = std::getenv(name);
+    return value != nullptr && value[0] != '\0' ? std::string(value) : std::string(fallback);
+  };
+  const auto env_u32_or = [](const char* name, uint32_t fallback) -> uint32_t {
+    const char* value = std::getenv(name);
+    if (value == nullptr || value[0] == '\0') {
+      return fallback;
+    }
+    return static_cast<uint32_t>(std::stoul(value));
+  };
+
+  const auto model_id = env_or("ALCEDO_SEMANTIC_LIVE_MODEL_ID", "plhery/mobileclip2-onnx:s2");
+  const auto revision = env_or("ALCEDO_SEMANTIC_LIVE_REVISION",
+                               "ba95759a5bdbaca53e9111e2550a76ec09c8fd9e");
+  const auto expected_image_size =
+      env_u32_or("ALCEDO_SEMANTIC_LIVE_EXPECTED_IMAGE_SIZE", 256u);
+
   SemanticRuntimeService service;
   SemanticRuntimeOptions options;
   options.runtime_binary        = std::filesystem::path(runtime_path_env);
   options.model_root            = std::filesystem::path(model_root_env);
-  options.model_id              = "plhery/mobileclip2-onnx:s2";
-  options.revision              = "ba95759a5bdbaca53e9111e2550a76ec09c8fd9e";
+  options.model_id              = model_id;
+  options.revision              = revision;
   options.device                = "cpu";
   options.batch_cap             = 8;
   options.batch_wait_ms         = 2;
-  options.startup_timeout       = std::chrono::milliseconds(60000);
+  options.startup_timeout       = std::chrono::milliseconds(120000);
   options.health_poll_interval  = std::chrono::milliseconds(100);
   options.graceful_stop_timeout = std::chrono::milliseconds(1000);
   options.kill_timeout          = std::chrono::milliseconds(2000);
@@ -546,7 +607,7 @@ TEST(SemanticRuntimeServiceLiveTest, DefaultGrpcClientEmbedsRawRgba8AgainstRustR
   EXPECT_EQ(status.model_info->model_id, options.model_id);
   EXPECT_EQ(status.model_info->revision, options.revision);
   EXPECT_EQ(status.model_info->embedding_dimension, 512u);
-  EXPECT_EQ(status.model_info->image_size, 256u);
+  EXPECT_EQ(status.model_info->image_size, expected_image_size);
 
   std::vector<uint8_t> rgba8(256u * 256u * 4u);
   for (size_t i = 0; i < rgba8.size(); i += 4) {

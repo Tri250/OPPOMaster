@@ -6,9 +6,11 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLocale>
 #include <QMetaObject>
 #include <QPointer>
 #include <QSettings>
@@ -16,8 +18,10 @@
 #include <QUrl>
 #include <algorithm>
 #include <chrono>
+#include <filesystem>
 #include <limits>
 #include <string>
+#include <system_error>
 #include <utility>
 
 #include "app/album_browse_service.hpp"
@@ -42,6 +46,7 @@ constexpr auto kSemanticCustomEndpointKey             = "semantic/customModelEnd
 constexpr auto kSemanticPreferenceAsk                 = "ask";
 constexpr auto kSemanticPreferenceAlways              = "always";
 constexpr auto kSemanticPreferenceNever               = "never";
+constexpr auto kSemanticResolvedManifestFile          = "alcedo_model_manifest.json";
 constexpr auto kSemanticRuntimeStartupTimeout         = 60s;
 constexpr auto kSemanticModelManagerTimeout           = 3s;
 constexpr auto kSemanticModelDownloadPollIntervalMs   = 650;
@@ -63,16 +68,15 @@ struct SemanticModelProfileUiInfo {
   const char* language;
   int         image_size;
   int         native_embedding_dim;
-  bool        activatable;
 };
 
 constexpr SemanticModelProfileUiInfo kSemanticModelProfiles[] = {
     {kMobileClipProfileId, "MobileCLIP2 S2 English", kMobileClipModelId, kMobileClipRevision, "en",
-     256, 512, true},
+     256, 512},
     {kChineseClipProfileId, "Chinese-CLIP ViT-B/16", kChineseClipModelId, kChineseClipRevision,
-     "zh", 224, 512, false},
+     "zh", 224, 512},
     {kJinaClipProfileId, "Jina CLIP v2 INT8 Multilingual", kJinaClipModelId, kJinaClipRevision,
-     "multilingual", 512, 1024, false},
+     "multilingual", 512, 1024},
 };
 
 auto SemanticModelKeyFromInfo(const SemanticRuntimeModelInfo& info) -> std::string {
@@ -120,6 +124,53 @@ auto FindProfile(const QString& profile_id) -> const SemanticModelProfileUiInfo*
   return &kSemanticModelProfiles[0];
 }
 
+auto FindProfileByModel(const std::string& profile_id, const std::string& model_id)
+    -> const SemanticModelProfileUiInfo* {
+  for (const auto& profile : kSemanticModelProfiles) {
+    if (profile_id == profile.profile_id || model_id == profile.model_id) {
+      return &profile;
+    }
+  }
+  return nullptr;
+}
+
+auto CurrentUiSemanticLabelLanguage() -> SemanticLabelLanguage {
+  QString code =
+      QSettings{}.value(QStringLiteral("ui/language"), QStringLiteral("system")).toString();
+  if (code.compare(QStringLiteral("system"), Qt::CaseInsensitive) == 0) {
+    code = QLocale::system().bcp47Name();
+  }
+  return code.startsWith(QStringLiteral("zh"), Qt::CaseInsensitive)
+             ? SemanticLabelLanguage::kChinese
+             : SemanticLabelLanguage::kEnglish;
+}
+
+auto ModelLabelLanguage(const SemanticRuntimeModelInfo& info) -> SemanticLabelLanguage {
+  return SemanticLabelLanguageForModel(info.profile_id.empty() ? info.model_id : info.profile_id,
+                                       info.language);
+}
+
+auto ModelLabelLanguage(const SemanticResolvedModelManifest& manifest) -> SemanticLabelLanguage {
+  return SemanticLabelLanguageForModel(
+      manifest.profile_id.empty() ? manifest.model_id : manifest.profile_id, manifest.language);
+}
+
+auto EmbeddingBatchSizeForProfile(const SemanticRuntimeModelInfo& info) -> size_t {
+  const auto profile_id = info.profile_id.empty() ? info.model_id : info.profile_id;
+  if (profile_id == kChineseClipProfileId || profile_id == kJinaClipProfileId) {
+    return 1;
+  }
+  return 64;
+}
+
+auto EmbeddingTimeoutForProfile(const SemanticRuntimeModelInfo& info) -> std::chrono::milliseconds {
+  const auto profile_id = info.profile_id.empty() ? info.model_id : info.profile_id;
+  if (profile_id == kChineseClipProfileId || profile_id == kJinaClipProfileId) {
+    return 120s;
+  }
+  return 30s;
+}
+
 auto ProfileRootPath(const QString& base_directory, const QString& profile_id) -> QString {
   return QDir(base_directory).filePath(NormalizedProfileId(profile_id));
 }
@@ -138,6 +189,133 @@ auto PathString(const QString& value) -> std::string {
 #else
   return value.toStdString();
 #endif
+}
+
+auto PathExists(const std::filesystem::path& path) -> bool {
+  std::error_code ec;
+  return std::filesystem::exists(path, ec) && !ec;
+}
+
+auto FirstPathElementIsParent(const std::filesystem::path& path) -> bool {
+  auto it = path.begin();
+  return it != path.end() && *it == "..";
+}
+
+auto LoadLocalResolvedModelManifestImpl(const QString& profile_id, const QString& base_directory,
+                                        QString* error)
+    -> std::optional<SemanticResolvedModelManifest> {
+  const auto* profile = FindProfile(profile_id);
+  const auto  root    = ProfileRootPath(base_directory, QString::fromLatin1(profile->profile_id));
+  const auto  path    = QDir(root).filePath(QString::fromLatin1(kSemanticResolvedManifestFile));
+  QFile       file(path);
+  if (!file.open(QIODevice::ReadOnly)) {
+    if (error) {
+      *error = PL_TEXT("Model manifest was not found at %1", path).Render();
+    }
+    return std::nullopt;
+  }
+
+  QJsonParseError parse_error;
+  const auto      document = QJsonDocument::fromJson(file.readAll(), &parse_error);
+  if (parse_error.error != QJsonParseError::NoError || !document.isObject()) {
+    if (error) {
+      *error = PL_TEXT("Model manifest is invalid: %1", parse_error.errorString()).Render();
+    }
+    return std::nullopt;
+  }
+
+  const auto object = document.object();
+  const auto read_string = [&object](const char* key) {
+    return object.value(QString::fromLatin1(key)).toString().toStdString();
+  };
+  const auto read_u32 = [&object](const char* key) {
+    return static_cast<uint32_t>(object.value(QString::fromLatin1(key)).toInt());
+  };
+
+  SemanticResolvedModelManifest manifest;
+  manifest.profile_id                 = read_string("profile_id");
+  manifest.model_id                   = read_string("model_id");
+  manifest.revision                   = read_string("revision");
+  manifest.engine_profile_id          = read_string("engine_profile_id");
+  manifest.language                   = read_string("language");
+  manifest.embedding_dimension        = read_u32("embedding_dimension");
+  manifest.native_embedding_dimension = read_u32("native_embedding_dimension");
+  manifest.image_size                 = read_u32("image_size");
+  manifest.embedding_transform        = read_string("embedding_transform");
+  const auto stored_model_root        = read_string("model_root");
+  manifest.model_root                 = PathString(root);
+
+  const auto assets = object.value(QStringLiteral("assets")).toArray();
+  manifest.assets.reserve(static_cast<size_t>(assets.size()));
+  for (const auto& value : assets) {
+    const auto asset_object = value.toObject();
+    SemanticModelAssetInfo asset;
+    const auto read_asset_string = [&asset_object](const char* key) {
+      return asset_object.value(QString::fromLatin1(key)).toString().toStdString();
+    };
+    asset.role        = read_asset_string("role");
+    asset.repo_id     = read_asset_string("repo_id");
+    asset.revision    = read_asset_string("revision");
+    asset.remote_path = read_asset_string("remote_path");
+    asset.local_path  = read_asset_string("local_path");
+    asset.size_bytes =
+        static_cast<uint64_t>(asset_object.value(QStringLiteral("size_bytes")).toDouble());
+    asset.sha256 = read_asset_string("sha256");
+    manifest.assets.push_back(std::move(asset));
+  }
+
+  if (manifest.profile_id != profile->profile_id || manifest.model_id != profile->model_id ||
+      manifest.revision != profile->revision ||
+      manifest.engine_profile_id.empty() || manifest.embedding_dimension == 0 ||
+      manifest.native_embedding_dimension == 0 || manifest.image_size == 0 ||
+      manifest.embedding_transform.empty()) {
+    if (error) {
+      *error = PL_TEXT("Model manifest does not match the selected model.").Render();
+    }
+    return std::nullopt;
+  }
+  if (manifest.assets.empty()) {
+    if (error) {
+      *error = PL_TEXT("Model manifest does not list any model files.").Render();
+    }
+    return std::nullopt;
+  }
+
+  const auto current_root = QStringToPath(root);
+  const auto old_root = stored_model_root.empty()
+                            ? std::filesystem::path{}
+                            : QStringToPath(QString::fromStdString(stored_model_root));
+  for (const auto& asset : manifest.assets) {
+    if (asset.local_path.empty()) {
+      if (error) {
+        *error = PL_TEXT("Model manifest contains an asset without a local path.").Render();
+      }
+      return std::nullopt;
+    }
+
+    const auto local_path = QStringToPath(QString::fromStdString(asset.local_path));
+    bool       exists     = PathExists(local_path);
+    if (!exists && local_path.is_absolute() && !old_root.empty()) {
+      const auto relative = local_path.lexically_relative(old_root);
+      if (!relative.empty() && !FirstPathElementIsParent(relative)) {
+        exists = PathExists(current_root / relative);
+      }
+    }
+    if (!exists && !local_path.is_absolute()) {
+      exists = PathExists(current_root / local_path);
+    }
+    if (!exists) {
+      if (error) {
+        *error = PL_TEXT("Model file is missing: %1",
+                         QString::fromStdString(asset.local_path.empty() ? asset.remote_path
+                                                                         : asset.local_path))
+                     .Render();
+      }
+      return std::nullopt;
+    }
+  }
+
+  return manifest;
 }
 
 auto NormalizedEndpointPreset(QString preset) -> QString {
@@ -188,6 +366,16 @@ auto ItemsNeedingSemanticGeneration(const std::vector<SemanticGenerationItem>& i
 }
 
 }  // namespace
+
+namespace detail {
+
+auto LoadLocalResolvedModelManifestForActivation(const QString& profileId,
+                                                 const QString& baseDirectory, QString* error)
+    -> std::optional<SemanticResolvedModelManifest> {
+  return LoadLocalResolvedModelManifestImpl(profileId, baseDirectory, error);
+}
+
+}  // namespace detail
 
 class SemanticRuntimeSessionGuard final {
  public:
@@ -257,7 +445,7 @@ QVariantList SemanticGenerationController::ModelProfileOptions() const {
     entry.insert(QStringLiteral("language"), QString::fromLatin1(profile.language));
     entry.insert(QStringLiteral("imageSize"), profile.image_size);
     entry.insert(QStringLiteral("nativeEmbeddingDim"), profile.native_embedding_dim);
-    entry.insert(QStringLiteral("activatable"), profile.activatable);
+    entry.insert(QStringLiteral("activatable"), true);
     options.push_back(entry);
   }
   return options;
@@ -271,7 +459,38 @@ QString SemanticGenerationController::SelectedModelProfileId() const {
 }
 
 QString SemanticGenerationController::ActiveModelProfileId() const {
-  return QString::fromLatin1(kMobileClipProfileId);
+  auto project = backend_.project_handler_.project();
+  if (!project) {
+    return {};
+  }
+  std::string error;
+  const auto  model =
+      project->GetStorageService()->GetSemanticStorageController().ActiveModel(&error);
+  if (!model.has_value()) {
+    return {};
+  }
+  return QString::fromStdString(model->profile_id_.empty() ? model->model_id_ : model->profile_id_);
+}
+
+QString SemanticGenerationController::ActiveModelDisplayName() const {
+  auto project = backend_.project_handler_.project();
+  if (!project) {
+    return PL_TEXT("No active model").Render();
+  }
+  std::string error;
+  const auto  model =
+      project->GetStorageService()->GetSemanticStorageController().ActiveModel(&error);
+  if (!model.has_value()) {
+    return PL_TEXT("No active model").Render();
+  }
+  if (const auto* profile = FindProfileByModel(model->profile_id_, model->model_id_)) {
+    return QString::fromLatin1(profile->display_name);
+  }
+  return QString::fromStdString(model->model_id_);
+}
+
+QString SemanticGenerationController::ActiveModelKeyQString() const {
+  return QString::fromStdString(ActiveModelKey());
 }
 
 QString SemanticGenerationController::ModelDownloadDirectory() const {
@@ -436,25 +655,14 @@ void SemanticGenerationController::DeleteSelectedModel() {
 
 void SemanticGenerationController::ActivateSelectedModel() {
   const QString profile_id = SelectedModelProfileId();
-  if (profile_id != QLatin1String(kMobileClipProfileId)) {
-    model_download_status_text_ = PL_TEXT("Only MobileCLIP2 S2 can be activated in this build.");
-    emit StateChanged();
-    return;
-  }
 
-  auto runtime = EnsureModelManagerRuntime();
-  if (!runtime) {
-    emit StateChanged();
-    return;
-  }
-  const auto result = runtime->ValidateModel(
-      profile_id.toStdString(), PathString(ModelDownloadDirectory()), kSemanticModelManagerTimeout);
-  if (!result.ok || !result.manifest.has_value()) {
-    const QString message =
-        QString::fromStdString(result.error.empty() ? result.status : result.error);
-    model_download_status_text_ = message.isEmpty()
-                                      ? PL_TEXT("Install MobileCLIP2 S2 before activating it.")
-                                      : PL_TEXT("Cannot activate model: %1", message);
+  QString    manifest_error;
+  const auto manifest = detail::LoadLocalResolvedModelManifestForActivation(
+      profile_id, ModelDownloadDirectory(), &manifest_error);
+  if (!manifest.has_value()) {
+    model_download_status_text_ = manifest_error.isEmpty()
+                                      ? PL_TEXT("Install the selected model before activating it.")
+                                      : PL_TEXT("Cannot activate model: %1", manifest_error);
     emit StateChanged();
     return;
   }
@@ -466,28 +674,30 @@ void SemanticGenerationController::ActivateSelectedModel() {
     return;
   }
   auto&             semantic = project->GetStorageService()->GetSemanticStorageController();
-  const auto&       manifest = *result.manifest;
   const std::string model_key =
-      manifest.revision.empty() ? manifest.model_id : manifest.model_id + "@" + manifest.revision;
+      manifest->revision.empty() ? manifest->model_id : manifest->model_id + "@" + manifest->revision;
+  const auto  label_language = ModelLabelLanguage(*manifest);
   std::string error;
   if (!semantic.UpsertModel(
-          SemanticModelRecord{.model_key_     = model_key,
-                              .model_id_      = manifest.model_id,
-                              .revision_      = manifest.revision,
-                              .embedding_dim_ = static_cast<int>(manifest.embedding_dimension),
-                              .image_size_    = static_cast<int>(manifest.image_size),
-                              .engine_id_     = manifest.engine_profile_id,
-                              .profile_id_    = manifest.profile_id,
-                              .supported_text_languages_json_ = R"(["en"])",
-                              .prompt_config_hash_  = kDefaultSemanticPhotographyPromptConfigHash,
-                              .asset_manifest_json_ = {},
-                              .active_              = true},
+          SemanticModelRecord{
+              .model_key_                     = model_key,
+              .model_id_                      = manifest->model_id,
+              .revision_                      = manifest->revision,
+              .embedding_dim_                 = static_cast<int>(manifest->embedding_dimension),
+              .image_size_                    = static_cast<int>(manifest->image_size),
+              .engine_id_                     = manifest->engine_profile_id,
+              .profile_id_                    = manifest->profile_id,
+              .supported_text_languages_json_ = SemanticSupportedTextLanguagesJson(label_language),
+              .prompt_config_hash_            = SemanticPromptConfigHashForLanguage(label_language),
+              .asset_manifest_json_           = {},
+              .active_                        = true},
           &error)) {
     model_download_status_text_ =
         PL_TEXT("Semantic model activation failed: %1", QString::fromUtf8(error.c_str()));
   } else {
-    model_key_                  = model_key;
-    model_download_status_text_ = PL_TEXT("MobileCLIP2 S2 is active for this project.");
+    model_key_ = model_key;
+    model_download_status_text_ =
+        PL_TEXT("%1 is active for this project.", ActiveModelDisplayName());
     RefreshAlbumSummary();
     backend_.ReloadCurrentFolder();
   }
@@ -615,21 +825,11 @@ auto SemanticGenerationController::StoredModelKey() const -> std::string {
 }
 
 auto SemanticGenerationController::ActiveModelKey() const -> std::string {
-  if (!model_key_.empty()) {
-    return model_key_;
+  const auto stored = StoredModelKey();
+  if (!stored.empty()) {
+    return stored;
   }
-  auto project = backend_.project_handler_.project();
-  if (!project) {
-    return {};
-  }
-  auto runtime = project->GetSemanticRuntimeService();
-  if (runtime) {
-    const auto status = runtime->Status();
-    if (status.model_info.has_value()) {
-      return SemanticModelKeyFromInfo(*status.model_info);
-    }
-  }
-  return StoredModelKey();
+  return model_key_;
 }
 
 auto SemanticGenerationController::LabelDisplayText(sl_element_id_t elementId) const -> QString {
@@ -648,14 +848,18 @@ auto SemanticGenerationController::LabelDisplayText(sl_element_id_t elementId) c
   if (!label.has_value()) {
     return {};
   }
+  const auto display_language = CurrentUiSemanticLabelLanguage();
+  const auto display_label    = [&](const std::string& value) {
+    return QString::fromUtf8(::alcedo::SemanticLabelDisplayText(value, display_language).c_str());
+  };
   if (label->confident_ || label->top_scores_json_.empty()) {
-    return QString::fromUtf8(label->label_.c_str());
+    return display_label(label->label_);
   }
 
   const QJsonDocument doc =
       QJsonDocument::fromJson(QByteArray::fromStdString(label->top_scores_json_));
   if (!doc.isArray()) {
-    return QString::fromUtf8(label->label_.c_str());
+    return display_label(label->label_);
   }
   const auto  array      = doc.array();
   const auto  best_score = label->score_;
@@ -668,14 +872,13 @@ auto SemanticGenerationController::LabelDisplayText(sl_element_id_t elementId) c
       continue;
     }
     if (labels.isEmpty() || (best_score - score) <= kDefaultSemanticLabelMarginThreshold) {
-      labels.push_back(name);
+      labels.push_back(display_label(name.toStdString()));
       if (labels.size() >= static_cast<qsizetype>(kMaxSemanticImageLabelCount)) {
         break;
       }
     }
   }
-  return labels.isEmpty() ? QString::fromUtf8(label->label_.c_str())
-                          : labels.join(QStringLiteral(", "));
+  return labels.isEmpty() ? display_label(label->label_) : labels.join(QStringLiteral(", "));
 }
 
 void SemanticGenerationController::StartGenerationForItems(
@@ -738,9 +941,12 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
     emit StateChanged();
     return;
   }
-  SemanticRuntimeOptions runtime_options =
-      RuntimeOptionsForProfile(QString::fromLatin1(kMobileClipProfileId), true);
-  auto runtime_status = runtime->Status();
+  QString active_profile_id = ActiveModelProfileId();
+  if (active_profile_id.isEmpty()) {
+    active_profile_id = SelectedModelProfileId();
+  }
+  SemanticRuntimeOptions runtime_options = RuntimeOptionsForProfile(active_profile_id, true);
+  auto                   runtime_status  = runtime->Status();
   if (runtime_status.state == SemanticRuntimeState::kReady &&
       runtime_status.model_info.has_value() &&
       (runtime_status.model_info->model_id != runtime_options.model_id ||
@@ -787,6 +993,7 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
 
   auto&             semantic        = project->GetStorageService()->GetSemanticStorageController();
   const std::string model_key       = SemanticModelKeyFromInfo(*runtime_status.model_info);
+  const auto        label_language  = ModelLabelLanguage(*runtime_status.model_info);
   std::string       error;
   if (!semantic.UpsertModel(
           SemanticModelRecord{
@@ -796,9 +1003,9 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
               .embedding_dim_ = static_cast<int>(runtime_status.model_info->embedding_dimension),
               .image_size_    = static_cast<int>(runtime_status.model_info->image_size),
               .engine_id_     = runtime_status.model_info->provider,
-              .profile_id_    = runtime_status.model_info->model_id,
-              .supported_text_languages_json_ = R"(["en"])",
-              .prompt_config_hash_            = kDefaultSemanticPhotographyPromptConfigHash,
+              .profile_id_    = runtime_status.model_info->profile_id,
+              .supported_text_languages_json_ = SemanticSupportedTextLanguagesJson(label_language),
+              .prompt_config_hash_            = SemanticPromptConfigHashForLanguage(label_language),
               .active_                        = true},
           &error)) {
     running_ = false;
@@ -834,12 +1041,14 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
   SemanticGenerationOptions options;
   options.thumbnail_resolution = ThumbnailResolution::k256;
   options.thumbnail_batch_size = 8;
-  options.embedding_batch_size = 64;
+  options.embedding_batch_size = EmbeddingBatchSizeForProfile(*runtime_status.model_info);
+  options.embedding_timeout    = EmbeddingTimeoutForProfile(*runtime_status.model_info);
   options.expected_model_info  = runtime_status.model_info;
   options.force_regenerate     = forceRegenerate;
   SemanticGenerationPersistenceOptions persistence;
   persistence.storage_controller = &semantic;
   persistence.model_key          = model_key;
+  persistence.prompt_config_hash = SemanticPromptConfigHashForLanguage(label_language);
   options.persistence            = persistence;
 
   auto thumbnails = std::make_shared<ThumbnailServiceSemanticThumbnailProvider>(thumbnail_service);
@@ -921,6 +1130,7 @@ auto SemanticGenerationController::RuntimeOptionsForProfile(const QString& profi
   options.revision        = profile->revision;
   options.hf_endpoint     = EffectiveModelEndpoint().toStdString();
   options.allow_download  = false;
+  options.require_model_info = profileRoot;
   options.startup_timeout = kSemanticRuntimeStartupTimeout;
   return options;
 }

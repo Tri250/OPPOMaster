@@ -9,6 +9,7 @@
 #include <QTimer>
 #include <QVariantList>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -19,6 +20,12 @@ namespace alcedo::ui {
 
 class AlbumBackend;
 class SemanticRuntimeSessionGuard;
+
+namespace detail {
+auto LoadLocalResolvedModelManifestForActivation(const QString& profileId, const QString& baseDirectory,
+                                                 QString* error)
+    -> std::optional<SemanticResolvedModelManifest>;
+}  // namespace detail
 
 class SemanticGenerationController final : public QObject {
   Q_OBJECT
@@ -39,6 +46,8 @@ class SemanticGenerationController final : public QObject {
   Q_PROPERTY(QVariantList modelProfileOptions READ ModelProfileOptions CONSTANT)
   Q_PROPERTY(QString selectedModelProfileId READ SelectedModelProfileId NOTIFY StateChanged)
   Q_PROPERTY(QString activeModelProfileId READ ActiveModelProfileId NOTIFY StateChanged)
+  Q_PROPERTY(QString activeModelDisplayName READ ActiveModelDisplayName NOTIFY StateChanged)
+  Q_PROPERTY(QString activeModelKey READ ActiveModelKeyQString NOTIFY StateChanged)
   Q_PROPERTY(QString modelDownloadDirectory READ ModelDownloadDirectory NOTIFY StateChanged)
   Q_PROPERTY(QString modelEndpointPreset READ ModelEndpointPreset NOTIFY StateChanged)
   Q_PROPERTY(QString customModelEndpoint READ CustomModelEndpoint NOTIFY StateChanged)
@@ -67,6 +76,8 @@ class SemanticGenerationController final : public QObject {
   QVariantList     ModelProfileOptions() const;
   QString          SelectedModelProfileId() const;
   QString          ActiveModelProfileId() const;
+  QString          ActiveModelDisplayName() const;
+  QString          ActiveModelKeyQString() const;
   QString          ModelDownloadDirectory() const;
   QString          ModelEndpointPreset() const;
   QString          CustomModelEndpoint() const;

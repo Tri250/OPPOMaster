@@ -8,17 +8,25 @@ use ort::{
     session::{Session, builder::GraphOptimizationLevel},
     value::{Tensor, TensorElementType},
 };
-use tokenizers::Tokenizer;
+use tokenizers::{
+    PaddingParams, PaddingStrategy, Tokenizer, TruncationParams, TruncationStrategy,
+    decoders::wordpiece::WordPiece as WordPieceDecoder, models::wordpiece::WordPiece,
+    normalizers::bert::BertNormalizer, pre_tokenizers::bert::BertPreTokenizer,
+    processors::template::TemplateProcessing,
+};
 use tracing::info;
 
 use crate::config::SemanticConfig;
 use crate::service::embedding::{EmbeddingEngine, EngineModelInfo};
+#[cfg(test)]
+use crate::service::model_assets::ClipModelPaths;
 use crate::service::model_assets::{
-    AssetRole, ClipModelPaths, ModelProfileSpec, find_profile, profile_asset_path,
-    validate_model_profile,
+    AssetRole, ModelProfileSpec, find_profile, profile_asset_path, validate_model_profile,
 };
 
 const TEXT_SEQUENCE_LENGTH: usize = 77;
+const CHINESE_CLIP_TEXT_SEQUENCE_LENGTH: usize = 52;
+#[cfg(test)]
 const EMBEDDING_DIM: usize = 512;
 
 const DEVICE_ERROR_MESSAGE: &str = "expected \"auto\", \"cpu\", \"directml\", \"dml\", \"directml:N\", \"dml:N\", \"coreml\", \"coreml:all\", \"coreml:cpuandgpu\", or \"coreml:cpuonly\" for ORT backend device";
@@ -32,7 +40,6 @@ enum DeviceRequest {
     DirectMl(Option<i32>),
     CoreMl(CoreMlMode),
 }
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CoreMlMode {
     All,
@@ -44,6 +51,20 @@ enum CoreMlMode {
 struct SessionIo {
     input_name: String,
     output_name: String,
+}
+
+#[derive(Debug, Clone)]
+struct MultimodalSessionIo {
+    text_input_name: String,
+    image_input_name: String,
+    text_output_name: String,
+    image_output_name: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ImageResizeMode {
+    ShortestEdgeCenterCrop,
+    Stretch,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,7 +88,58 @@ impl EngineProfileAdapter {
     }
 
     fn supports_current_onnx_loader(self) -> bool {
-        matches!(self, Self::MobileClipOpenClip)
+        matches!(
+            self,
+            Self::MobileClipOpenClip | Self::ChineseClipVitBasePatch16 | Self::JinaClipV2OnnxInt8
+        )
+    }
+
+    fn text_sequence_length(self) -> usize {
+        match self {
+            Self::ChineseClipVitBasePatch16 => CHINESE_CLIP_TEXT_SEQUENCE_LENGTH,
+            Self::MobileClipOpenClip | Self::JinaClipV2OnnxInt8 => TEXT_SEQUENCE_LENGTH,
+        }
+    }
+
+    fn requires_attention_mask(self) -> bool {
+        matches!(self, Self::ChineseClipVitBasePatch16)
+    }
+
+    fn image_mean_std(self) -> ([f32; 3], [f32; 3]) {
+        match self {
+            Self::MobileClipOpenClip => ([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]),
+            Self::ChineseClipVitBasePatch16 | Self::JinaClipV2OnnxInt8 => (
+                [0.48145466, 0.4578275, 0.40821073],
+                [0.26862954, 0.26130258, 0.27577711],
+            ),
+        }
+    }
+
+    fn image_resize_mode(self) -> ImageResizeMode {
+        match self {
+            Self::ChineseClipVitBasePatch16 => ImageResizeMode::Stretch,
+            Self::MobileClipOpenClip | Self::JinaClipV2OnnxInt8 => {
+                ImageResizeMode::ShortestEdgeCenterCrop
+            }
+        }
+    }
+
+    fn uses_multimodal_session(self) -> bool {
+        matches!(self, Self::JinaClipV2OnnxInt8)
+    }
+
+    fn preferred_text_output_name(self) -> &'static str {
+        match self {
+            Self::JinaClipV2OnnxInt8 => "l2norm_text_embeddings",
+            Self::MobileClipOpenClip | Self::ChineseClipVitBasePatch16 => "",
+        }
+    }
+
+    fn preferred_image_output_name(self) -> &'static str {
+        match self {
+            Self::JinaClipV2OnnxInt8 => "l2norm_image_embeddings",
+            Self::MobileClipOpenClip | Self::ChineseClipVitBasePatch16 => "",
+        }
     }
 }
 
@@ -84,10 +156,13 @@ pub struct OrtClipEngine {
     provider: String,
     model_root: PathBuf,
     tokenizer: Tokenizer,
-    text_session: Mutex<Session>,
-    vision_session: Mutex<Session>,
-    text_io: SessionIo,
-    vision_io: SessionIo,
+    adapter: EngineProfileAdapter,
+    text_session: Option<Mutex<Session>>,
+    vision_session: Option<Mutex<Session>>,
+    multimodal_session: Option<Mutex<Session>>,
+    text_io: Option<SessionIo>,
+    vision_io: Option<SessionIo>,
+    multimodal_io: Option<MultimodalSessionIo>,
 }
 
 impl OrtClipEngine {
@@ -259,11 +334,14 @@ impl OrtClipEngine {
         session: &Session,
         seq_len: usize,
         native_embedding_dim: usize,
+        requires_attention_mask: bool,
     ) -> Result<SessionIo> {
-        if session.inputs().len() != 1 {
+        let expected_input_count = if requires_attention_mask { 2 } else { 1 };
+        if session.inputs().len() != expected_input_count {
             bail!(
-                "unexpected text model input count {}, expected 1",
-                session.inputs().len()
+                "unexpected text model input count {}, expected {}",
+                session.inputs().len(),
+                expected_input_count
             );
         }
         if session.outputs().len() != 1 {
@@ -273,7 +351,11 @@ impl OrtClipEngine {
             );
         }
 
-        let input = &session.inputs()[0];
+        let input = session
+            .inputs()
+            .iter()
+            .find(|input| input.name() == "input_ids")
+            .unwrap_or(&session.inputs()[0]);
         let input_shape = input
             .dtype()
             .tensor_shape()
@@ -295,6 +377,35 @@ impl OrtClipEngine {
                 input_shape,
                 seq_len
             );
+        }
+
+        if requires_attention_mask {
+            let mask = session
+                .inputs()
+                .iter()
+                .find(|input| input.name() == "attention_mask")
+                .ok_or_else(|| anyhow::anyhow!("text model is missing attention_mask input"))?;
+            let mask_shape = mask
+                .dtype()
+                .tensor_shape()
+                .ok_or_else(|| anyhow::anyhow!("attention_mask input is not a tensor"))?;
+            let mask_type = mask
+                .dtype()
+                .tensor_type()
+                .ok_or_else(|| anyhow::anyhow!("attention_mask input is not a tensor"))?;
+            if mask_type != TensorElementType::Int64 {
+                bail!(
+                    "unexpected attention_mask tensor type {:?}, expected Int64",
+                    mask_type
+                );
+            }
+            if mask_shape.len() != 2 || mask_shape[1] != seq_len as i64 {
+                bail!(
+                    "unexpected attention_mask shape {:?}, expected [batch, {}]",
+                    mask_shape,
+                    seq_len
+                );
+            }
         }
 
         let output = &session.outputs()[0];
@@ -404,16 +515,178 @@ impl OrtClipEngine {
         })
     }
 
+    fn validate_multimodal_session(
+        session: &Session,
+        image_size: usize,
+        native_embedding_dim: usize,
+        adapter: EngineProfileAdapter,
+    ) -> Result<MultimodalSessionIo> {
+        let text_input = session
+            .inputs()
+            .iter()
+            .find(|input| input.name() == "input_ids")
+            .ok_or_else(|| anyhow::anyhow!("multimodal model is missing input_ids input"))?;
+        let image_input = session
+            .inputs()
+            .iter()
+            .find(|input| input.name() == "pixel_values")
+            .ok_or_else(|| anyhow::anyhow!("multimodal model is missing pixel_values input"))?;
+
+        let text_input_type = text_input
+            .dtype()
+            .tensor_type()
+            .ok_or_else(|| anyhow::anyhow!("input_ids input is not a tensor"))?;
+        if text_input_type != TensorElementType::Int64 {
+            bail!(
+                "unexpected input_ids tensor type {:?}, expected Int64",
+                text_input_type
+            );
+        }
+        let text_shape = text_input
+            .dtype()
+            .tensor_shape()
+            .ok_or_else(|| anyhow::anyhow!("input_ids input is not a tensor"))?;
+        if text_shape.len() != 2 {
+            bail!(
+                "unexpected input_ids shape {:?}, expected [batch, sequence]",
+                text_shape
+            );
+        }
+
+        let image_input_type = image_input
+            .dtype()
+            .tensor_type()
+            .ok_or_else(|| anyhow::anyhow!("pixel_values input is not a tensor"))?;
+        if image_input_type != TensorElementType::Float32 {
+            bail!(
+                "unexpected pixel_values tensor type {:?}, expected Float32",
+                image_input_type
+            );
+        }
+        let image_shape = image_input
+            .dtype()
+            .tensor_shape()
+            .ok_or_else(|| anyhow::anyhow!("pixel_values input is not a tensor"))?;
+        if image_shape.len() != 4
+            || image_shape[1] != 3
+            || image_shape[2] != image_size as i64
+            || image_shape[3] != image_size as i64
+        {
+            bail!(
+                "unexpected pixel_values shape {:?}, expected [batch, 3, {}, {}]",
+                image_shape,
+                image_size,
+                image_size
+            );
+        }
+
+        let text_output_name = adapter.preferred_text_output_name();
+        let image_output_name = adapter.preferred_image_output_name();
+        let text_output = session
+            .outputs()
+            .iter()
+            .find(|output| output.name() == text_output_name)
+            .ok_or_else(|| {
+                anyhow::anyhow!("multimodal model is missing {text_output_name:?} output")
+            })?;
+        let image_output = session
+            .outputs()
+            .iter()
+            .find(|output| output.name() == image_output_name)
+            .ok_or_else(|| {
+                anyhow::anyhow!("multimodal model is missing {image_output_name:?} output")
+            })?;
+
+        for output in [text_output, image_output] {
+            let output_type = output
+                .dtype()
+                .tensor_type()
+                .ok_or_else(|| anyhow::anyhow!("multimodal output is not a tensor"))?;
+            if output_type != TensorElementType::Float32 {
+                bail!(
+                    "unexpected multimodal output tensor type {:?}, expected Float32",
+                    output_type
+                );
+            }
+            let output_shape = output
+                .dtype()
+                .tensor_shape()
+                .ok_or_else(|| anyhow::anyhow!("multimodal output is not a tensor"))?;
+            if output_shape.len() != 2 || output_shape[1] != native_embedding_dim as i64 {
+                bail!(
+                    "unexpected multimodal output shape {:?}, expected [batch, {}]",
+                    output_shape,
+                    native_embedding_dim
+                );
+            }
+        }
+
+        Ok(MultimodalSessionIo {
+            text_input_name: text_input.name().to_string(),
+            image_input_name: image_input.name().to_string(),
+            text_output_name: text_output.name().to_string(),
+            image_output_name: image_output.name().to_string(),
+        })
+    }
+
+    fn tokenizer_for_profile(profile: &ModelProfileSpec, model_root: &str) -> Result<Tokenizer> {
+        let adapter = EngineProfileAdapter::from_profile(profile)?;
+        if adapter == EngineProfileAdapter::ChineseClipVitBasePatch16 {
+            let vocab_path = profile_asset_path(profile, model_root, AssetRole::Vocab)?;
+            let wordpiece = WordPiece::from_file(vocab_path.to_string_lossy().as_ref())
+                .unk_token("[UNK]".to_string())
+                .build()
+                .map_err(|e| anyhow::anyhow!("failed to build Chinese-CLIP tokenizer: {e}"))?;
+            let mut tokenizer = Tokenizer::new(wordpiece);
+            tokenizer.with_normalizer(Some(BertNormalizer::default()));
+            tokenizer.with_pre_tokenizer(Some(BertPreTokenizer));
+            tokenizer.with_post_processor(Some(
+                TemplateProcessing::builder()
+                    .try_single("[CLS] $0 [SEP]")
+                    .map_err(|e| {
+                        anyhow::anyhow!("failed to configure Chinese-CLIP post processor: {e}")
+                    })?
+                    .special_tokens(vec![("[CLS]", 101), ("[SEP]", 102)])
+                    .build()
+                    .map_err(|e| {
+                        anyhow::anyhow!("failed to build Chinese-CLIP post processor: {e}")
+                    })?,
+            ));
+            tokenizer.with_decoder(Some(WordPieceDecoder::default()));
+            tokenizer
+                .with_truncation(Some(TruncationParams {
+                    max_length: CHINESE_CLIP_TEXT_SEQUENCE_LENGTH,
+                    strategy: TruncationStrategy::LongestFirst,
+                    ..Default::default()
+                }))
+                .map_err(|e| anyhow::anyhow!("failed to configure Chinese-CLIP truncation: {e}"))?;
+            tokenizer.with_padding(Some(PaddingParams {
+                strategy: PaddingStrategy::Fixed(CHINESE_CLIP_TEXT_SEQUENCE_LENGTH),
+                pad_id: 0,
+                pad_type_id: 0,
+                pad_token: "[PAD]".to_string(),
+                ..Default::default()
+            }));
+            return Ok(tokenizer);
+        }
+
+        let tokenizer_path = profile_asset_path(profile, model_root, AssetRole::Tokenizer)
+            .or_else(|_| profile_asset_path(profile, model_root, AssetRole::Vocab))?;
+        Tokenizer::from_file(&tokenizer_path)
+            .map_err(|e| anyhow::anyhow!("failed to load tokenizer: {e}"))
+    }
+
     fn prepare_text_batch_with_tokenizer(
         tokenizer: &Tokenizer,
         texts: &[&str],
         seq_len: usize,
-    ) -> Result<(Vec<i64>, usize)> {
+    ) -> Result<(Vec<i64>, Option<Vec<i64>>, usize)> {
         if texts.is_empty() {
             bail!("text batch must not be empty");
         }
 
         let mut flattened = Vec::with_capacity(texts.len() * seq_len);
+        let mut attention_masks = Vec::with_capacity(texts.len() * seq_len);
         for (index, text) in texts.iter().enumerate() {
             if text.trim().is_empty() {
                 bail!("text at batch index {index} must not be empty");
@@ -432,48 +705,74 @@ impl OrtClipEngine {
             row.truncate(seq_len);
             row.resize(seq_len, 0);
             flattened.extend(row);
+
+            let mut mask = encoding
+                .get_attention_mask()
+                .iter()
+                .copied()
+                .map(i64::from)
+                .collect::<Vec<_>>();
+            mask.truncate(seq_len);
+            mask.resize(seq_len, 0);
+            attention_masks.extend(mask);
         }
 
-        Ok((flattened, texts.len()))
+        Ok((flattened, Some(attention_masks), texts.len()))
     }
 
-    fn prepare_text_batch(&self, texts: &[&str]) -> Result<(Vec<i64>, usize)> {
-        Self::prepare_text_batch_with_tokenizer(&self.tokenizer, texts, TEXT_SEQUENCE_LENGTH)
+    fn prepare_text_batch(&self, texts: &[&str]) -> Result<(Vec<i64>, Option<Vec<i64>>, usize)> {
+        Self::prepare_text_batch_with_tokenizer(
+            &self.tokenizer,
+            texts,
+            self.adapter.text_sequence_length(),
+        )
     }
 
-    fn prepare_image_tensor_data_for_size(rgb: &RgbImage, image_size: usize) -> Result<Vec<f32>> {
+    fn prepare_image_tensor_data_for_size(
+        rgb: &RgbImage,
+        image_size: usize,
+        resize_mode: ImageResizeMode,
+        mean: [f32; 3],
+        std: [f32; 3],
+    ) -> Result<Vec<f32>> {
         let target = image_size as u32;
         let (src_w, src_h) = rgb.dimensions();
         if src_w == 0 || src_h == 0 {
             bail!("image must not be empty");
         }
 
-        let scale = if src_w < src_h {
-            target as f32 / src_w as f32
-        } else {
-            target as f32 / src_h as f32
+        let prepared = match resize_mode {
+            ImageResizeMode::ShortestEdgeCenterCrop => {
+                let scale = if src_w < src_h {
+                    target as f32 / src_w as f32
+                } else {
+                    target as f32 / src_h as f32
+                };
+
+                let resized_w = ((src_w as f32) * scale).round().max(target as f32) as u32;
+                let resized_h = ((src_h as f32) * scale).round().max(target as f32) as u32;
+                let resized = image::imageops::resize(
+                    rgb,
+                    resized_w,
+                    resized_h,
+                    image::imageops::FilterType::Triangle,
+                );
+
+                let crop_x = (resized_w - target) / 2;
+                let crop_y = (resized_h - target) / 2;
+                image::imageops::crop_imm(&resized, crop_x, crop_y, target, target).to_image()
+            }
+            ImageResizeMode::Stretch => {
+                image::imageops::resize(rgb, target, target, image::imageops::FilterType::Triangle)
+            }
         };
-
-        let resized_w = ((src_w as f32) * scale).round() as u32;
-        let resized_h = ((src_h as f32) * scale).round() as u32;
-        let resized = image::imageops::resize(
-            rgb,
-            resized_w,
-            resized_h,
-            image::imageops::FilterType::Triangle,
-        );
-
-        let crop_x = (resized_w - target) / 2;
-        let crop_y = (resized_h - target) / 2;
-        let cropped =
-            image::imageops::crop_imm(&resized, crop_x, crop_y, target, target).to_image();
 
         let mut data = Vec::with_capacity((3 * target * target) as usize);
         for channel in 0..3usize {
             for y in 0..target {
                 for x in 0..target {
-                    let pixel = cropped.get_pixel(x, y);
-                    data.push(pixel[channel] as f32 / 255.0);
+                    let pixel = prepared.get_pixel(x, y);
+                    data.push(((pixel[channel] as f32 / 255.0) - mean[channel]) / std[channel]);
                 }
             }
         }
@@ -487,14 +786,46 @@ impl OrtClipEngine {
         }
 
         let mut batch_data = Vec::with_capacity(rgbs.len() * 3 * self.image_size * self.image_size);
+        let (mean, std) = self.adapter.image_mean_std();
         for rgb in rgbs {
             batch_data.extend(Self::prepare_image_tensor_data_for_size(
                 rgb,
                 self.image_size,
+                self.adapter.image_resize_mode(),
+                mean,
+                std,
             )?);
         }
 
         Ok((batch_data, rgbs.len()))
+    }
+
+    fn extract_embeddings_from_outputs(
+        &self,
+        outputs: &ort::session::SessionOutputs<'_>,
+        output_name: &str,
+        batch_size: usize,
+        modality: &str,
+    ) -> Result<Vec<Vec<f32>>> {
+        let output = outputs
+            .get(output_name)
+            .ok_or_else(|| anyhow::anyhow!("missing {modality} output tensor {output_name:?}"))?;
+        let (_shape, values) = output
+            .try_extract_tensor::<f32>()
+            .map_err(|e| anyhow::anyhow!("failed to extract {modality} output tensor: {e}"))?;
+
+        if values.len() != batch_size * self.native_embedding_dim {
+            bail!(
+                "unexpected {modality} embedding output length {}, expected {}",
+                values.len(),
+                batch_size * self.native_embedding_dim
+            );
+        }
+
+        values
+            .chunks(self.native_embedding_dim)
+            .map(|row| self.apply_embedding_transform(row.to_vec()))
+            .collect()
     }
 
     fn l2_normalize(mut embedding: Vec<f32>) -> Result<Vec<f32>> {
@@ -568,39 +899,81 @@ impl OrtClipEngine {
     }
 
     pub fn forward_text_embeddings(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
-        let (input_ids, batch_size) = self.prepare_text_batch(texts)?;
-        let input_tensor = Tensor::from_array(([batch_size, TEXT_SEQUENCE_LENGTH], input_ids))
+        let (input_ids, attention_mask, batch_size) = self.prepare_text_batch(texts)?;
+        let seq_len = self.adapter.text_sequence_length();
+        let input_tensor = Tensor::from_array(([batch_size, seq_len], input_ids))
             .map_err(|e| anyhow::anyhow!("failed to build text input tensor: {e}"))?;
 
-        let mut session = self
-            .text_session
-            .lock()
-            .map_err(|err| anyhow::anyhow!("text session lock poisoned: {err}"))?;
-        let outputs = session
-            .run(ort::inputs! { self.text_io.input_name.as_str() => input_tensor })
-            .map_err(|e| anyhow::anyhow!("failed to run text ONNX model: {e}"))?;
-
-        let output = outputs
-            .get(self.text_io.output_name.as_str())
-            .ok_or_else(|| {
-                anyhow::anyhow!("missing text output tensor {:?}", self.text_io.output_name)
-            })?;
-        let (_shape, values) = output
-            .try_extract_tensor::<f32>()
-            .map_err(|e| anyhow::anyhow!("failed to extract text output tensor: {e}"))?;
-
-        if values.len() != batch_size * self.native_embedding_dim {
-            bail!(
-                "unexpected text embedding output length {}, expected {}",
-                values.len(),
-                batch_size * self.native_embedding_dim
+        if self.adapter.uses_multimodal_session() {
+            let io = self
+                .multimodal_io
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("multimodal session IO is not initialized"))?;
+            let dummy_pixels = vec![0.0f32; batch_size * 3 * self.image_size * self.image_size];
+            let pixel_tensor = Tensor::from_array((
+                [batch_size, 3, self.image_size, self.image_size],
+                dummy_pixels,
+            ))
+            .map_err(|e| anyhow::anyhow!("failed to build dummy image input tensor: {e}"))?;
+            let mut session = self
+                .multimodal_session
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("multimodal session is not initialized"))?
+                .lock()
+                .map_err(|err| anyhow::anyhow!("multimodal session lock poisoned: {err}"))?;
+            let outputs = session
+                .run(ort::inputs! {
+                    io.text_input_name.as_str() => input_tensor,
+                    io.image_input_name.as_str() => pixel_tensor,
+                })
+                .map_err(|e| anyhow::anyhow!("failed to run multimodal text ONNX model: {e}"))?;
+            return self.extract_embeddings_from_outputs(
+                &outputs,
+                io.text_output_name.as_str(),
+                batch_size,
+                "text",
             );
         }
 
-        values
-            .chunks(self.native_embedding_dim)
-            .map(|row| self.apply_embedding_transform(row.to_vec()))
-            .collect()
+        let attention_mask_tensor = if self.adapter.requires_attention_mask() {
+            Some(
+                Tensor::from_array((
+                    [batch_size, seq_len],
+                    attention_mask.ok_or_else(|| anyhow::anyhow!("missing attention mask"))?,
+                ))
+                .map_err(|e| anyhow::anyhow!("failed to build attention mask tensor: {e}"))?,
+            )
+        } else {
+            None
+        };
+
+        let text_io = self
+            .text_io
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("text session IO is not initialized"))?;
+        let mut session = self
+            .text_session
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("text session is not initialized"))?
+            .lock()
+            .map_err(|err| anyhow::anyhow!("text session lock poisoned: {err}"))?;
+        let outputs = if let Some(mask_tensor) = attention_mask_tensor {
+            session
+                .run(ort::inputs! {text_io.input_name.as_str() => input_tensor,
+                "attention_mask"                 => mask_tensor})
+                .map_err(|e| anyhow::anyhow!("failed to run text ONNX model: {e}"))?
+        } else {
+            session
+                .run(ort::inputs! {text_io.input_name.as_str() => input_tensor})
+                .map_err(|e| anyhow::anyhow!("failed to run text ONNX model: {e}"))?
+        };
+
+        self.extract_embeddings_from_outputs(
+            &outputs,
+            text_io.output_name.as_str(),
+            batch_size,
+            "text",
+        )
     }
 
     pub fn forward_image_embeddings(&self, rgbs: &[RgbImage]) -> Result<Vec<Vec<f32>>> {
@@ -611,38 +984,55 @@ impl OrtClipEngine {
         ))
         .map_err(|e| anyhow::anyhow!("failed to build image input tensor: {e}"))?;
 
-        let mut session = self
-            .vision_session
-            .lock()
-            .map_err(|err| anyhow::anyhow!("vision session lock poisoned: {err}"))?;
-        let outputs = session
-            .run(ort::inputs! { self.vision_io.input_name.as_str() => input_tensor })
-            .map_err(|e| anyhow::anyhow!("failed to run image ONNX model: {e}"))?;
-
-        let output = outputs
-            .get(self.vision_io.output_name.as_str())
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "missing image output tensor {:?}",
-                    self.vision_io.output_name
-                )
-            })?;
-        let (_shape, values) = output
-            .try_extract_tensor::<f32>()
-            .map_err(|e| anyhow::anyhow!("failed to extract image output tensor: {e}"))?;
-
-        if values.len() != batch_size * self.native_embedding_dim {
-            bail!(
-                "unexpected image embedding output length {}, expected {}",
-                values.len(),
-                batch_size * self.native_embedding_dim
+        if self.adapter.uses_multimodal_session() {
+            let io = self
+                .multimodal_io
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("multimodal session IO is not initialized"))?;
+            let seq_len = self.adapter.text_sequence_length();
+            let input_ids = vec![0i64; batch_size * seq_len];
+            let text_tensor = Tensor::from_array(([batch_size, seq_len], input_ids))
+                .map_err(|e| anyhow::anyhow!("failed to build dummy text input tensor: {e}"))?;
+            let mut session = self
+                .multimodal_session
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("multimodal session is not initialized"))?
+                .lock()
+                .map_err(|err| anyhow::anyhow!("multimodal session lock poisoned: {err}"))?;
+            let outputs = session
+                .run(ort::inputs! {
+                    io.text_input_name.as_str() => text_tensor,
+                    io.image_input_name.as_str() => input_tensor,
+                })
+                .map_err(|e| anyhow::anyhow!("failed to run multimodal image ONNX model: {e}"))?;
+            return self.extract_embeddings_from_outputs(
+                &outputs,
+                io.image_output_name.as_str(),
+                batch_size,
+                "image",
             );
         }
 
-        values
-            .chunks(self.native_embedding_dim)
-            .map(|row| self.apply_embedding_transform(row.to_vec()))
-            .collect()
+        let vision_io = self
+            .vision_io
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("vision session IO is not initialized"))?;
+        let mut session = self
+            .vision_session
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("vision session is not initialized"))?
+            .lock()
+            .map_err(|err| anyhow::anyhow!("vision session lock poisoned: {err}"))?;
+        let outputs = session
+            .run(ort::inputs! {vision_io.input_name.as_str() => input_tensor})
+            .map_err(|e| anyhow::anyhow!("failed to run image ONNX model: {e}"))?;
+
+        self.extract_embeddings_from_outputs(
+            &outputs,
+            vision_io.output_name.as_str(),
+            batch_size,
+            "image",
+        )
     }
 
     pub fn new(config: &SemanticConfig) -> Result<Self> {
@@ -684,27 +1074,49 @@ impl OrtClipEngine {
             profile.profile_id, profile.engine_profile_id, config.model_root, device_description,
         );
 
-        let tokenizer_path = profile_asset_path(profile, &config.model_root, AssetRole::Tokenizer)
-            .or_else(|_| profile_asset_path(profile, &config.model_root, AssetRole::Vocab))?;
-        let tokenizer = Tokenizer::from_file(&tokenizer_path)
-            .map_err(|e| anyhow::anyhow!("failed to load tokenizer: {e}"))?;
+        let tokenizer = Self::tokenizer_for_profile(profile, &config.model_root)?;
 
-        let text_model = profile_asset_path(profile, &config.model_root, AssetRole::TextModel)?;
-        let vision_model = profile_asset_path(profile, &config.model_root, AssetRole::VisionModel)?;
+        let (text_session, vision_session, multimodal_session, text_io, vision_io, multimodal_io) =
+            if adapter.uses_multimodal_session() {
+                let multimodal_model =
+                    profile_asset_path(profile, &config.model_root, AssetRole::MultimodalModel)?;
+                let session = Self::load_session(&multimodal_model, device_request)?;
+                let io = Self::validate_multimodal_session(
+                    &session,
+                    manifest.image_size as usize,
+                    manifest.native_embedding_dimension as usize,
+                    adapter,
+                )?;
+                (None, None, Some(Mutex::new(session)), None, None, Some(io))
+            } else {
+                let text_model =
+                    profile_asset_path(profile, &config.model_root, AssetRole::TextModel)?;
+                let vision_model =
+                    profile_asset_path(profile, &config.model_root, AssetRole::VisionModel)?;
 
-        let text_session = Self::load_session(&text_model, device_request)?;
-        let text_io = Self::validate_text_session(
-            &text_session,
-            TEXT_SEQUENCE_LENGTH,
-            manifest.native_embedding_dimension as usize,
-        )?;
+                let text_session = Self::load_session(&text_model, device_request)?;
+                let text_io = Self::validate_text_session(
+                    &text_session,
+                    adapter.text_sequence_length(),
+                    manifest.native_embedding_dimension as usize,
+                    adapter.requires_attention_mask(),
+                )?;
 
-        let vision_session = Self::load_session(&vision_model, device_request)?;
-        let vision_io = Self::validate_vision_session(
-            &vision_session,
-            manifest.image_size as usize,
-            manifest.native_embedding_dimension as usize,
-        )?;
+                let vision_session = Self::load_session(&vision_model, device_request)?;
+                let vision_io = Self::validate_vision_session(
+                    &vision_session,
+                    manifest.image_size as usize,
+                    manifest.native_embedding_dimension as usize,
+                )?;
+                (
+                    Some(Mutex::new(text_session)),
+                    Some(Mutex::new(vision_session)),
+                    None,
+                    Some(text_io),
+                    Some(vision_io),
+                    None,
+                )
+            };
 
         Ok(Self {
             profile_id: manifest.profile_id,
@@ -719,10 +1131,13 @@ impl OrtClipEngine {
             provider: device_description,
             model_root: PathBuf::from(manifest.model_root),
             tokenizer,
-            text_session: Mutex::new(text_session),
-            vision_session: Mutex::new(vision_session),
+            adapter,
+            text_session,
+            vision_session,
+            multimodal_session,
             text_io,
             vision_io,
+            multimodal_io,
         })
     }
 }
@@ -866,6 +1281,30 @@ mod tests {
         OrtClipEngine::new(&config).expect("engine should load")
     }
 
+    fn make_profile_test_engine_with_root(
+        profile_id: &str,
+        revision: &str,
+        model_root: String,
+        device: &str,
+    ) -> OrtClipEngine {
+        let _guard = MODEL_ENGINE_LOAD_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        let config = SemanticConfig {
+            model_id: profile_id.to_string(),
+            revision: revision.to_string(),
+            model_root,
+            hf_endpoint: "https://hf-mirror.com".to_string(),
+            device: device.to_string(),
+            allow_download: false,
+            batch_cap: 512,
+            batch_wait_ms: 25,
+        };
+        OrtClipEngine::new(&config).expect("profile engine should load")
+    }
+
     #[test]
     fn parses_auto_device_request() {
         assert_eq!(
@@ -965,12 +1404,16 @@ mod tests {
 
         let tokenizer_path = ensure_test_model_assets().tokenizer_json;
         let tokenizer = Tokenizer::from_file(&tokenizer_path).expect("tokenizer should load");
-        let (ids, batch_size) =
+        let (ids, attention_mask, batch_size) =
             OrtClipEngine::prepare_text_batch_with_tokenizer(&tokenizer, &["dog", "cat"], 77)
                 .expect("text batch should be prepared");
 
         assert_eq!(batch_size, 2);
         assert_eq!(ids.len(), 2 * 77);
+        assert_eq!(
+            attention_mask.expect("attention mask should exist").len(),
+            2 * 77
+        );
     }
 
     #[test]
@@ -979,11 +1422,63 @@ mod tests {
             image::Rgb([(x % 256) as u8, (y % 256) as u8, ((x + y) % 256) as u8])
         });
 
-        let data = OrtClipEngine::prepare_image_tensor_data_for_size(&image, 256)
-            .expect("image tensor data should be prepared");
+        let data = OrtClipEngine::prepare_image_tensor_data_for_size(
+            &image,
+            256,
+            ImageResizeMode::ShortestEdgeCenterCrop,
+            [0.48145466, 0.4578275, 0.40821073],
+            [0.26862954, 0.26130258, 0.27577711],
+        )
+        .expect("image tensor data should be prepared");
 
         assert_eq!(data.len(), 3 * 256 * 256);
-        assert!(data.iter().all(|value| *value >= 0.0 && *value <= 1.0));
+        assert!(data.iter().all(|value| value.is_finite()));
+    }
+
+    #[test]
+    fn mobile_clip_preprocess_uses_unit_range_without_clip_normalization() {
+        let image = image::RgbImage::from_pixel(32, 48, image::Rgb([128, 64, 255]));
+        let (mean, std) = EngineProfileAdapter::MobileClipOpenClip.image_mean_std();
+
+        let data = OrtClipEngine::prepare_image_tensor_data_for_size(
+            &image,
+            16,
+            ImageResizeMode::ShortestEdgeCenterCrop,
+            mean,
+            std,
+        )
+        .expect("image tensor data should be prepared");
+
+        assert_eq!(data.len(), 3 * 16 * 16);
+        assert!(data.iter().all(|value| (0.0..=1.0).contains(value)));
+        assert!(
+            data.iter()
+                .any(|value| (*value - (255.0 / 255.0)).abs() < 1e-6)
+        );
+    }
+
+    #[test]
+    fn chinese_clip_preprocess_stretches_to_square() {
+        let image = image::RgbImage::from_fn(80, 40, |x, _| {
+            if x < 40 {
+                image::Rgb([255, 0, 0])
+            } else {
+                image::Rgb([0, 0, 255])
+            }
+        });
+        let (mean, std) = EngineProfileAdapter::ChineseClipVitBasePatch16.image_mean_std();
+
+        let data = OrtClipEngine::prepare_image_tensor_data_for_size(
+            &image,
+            16,
+            ImageResizeMode::Stretch,
+            mean,
+            std,
+        )
+        .expect("image tensor data should be prepared");
+
+        assert_eq!(data.len(), 3 * 16 * 16);
+        assert!(data.iter().all(|value| value.is_finite()));
     }
 
     #[test]
@@ -1043,6 +1538,103 @@ mod tests {
     }
 
     #[test]
+    fn embeds_text_and_image_with_chinese_clip_profile() {
+        let Ok(model_root) = std::env::var("ALCEDO_MIND_TEST_CHINESE_CLIP_ROOT") else {
+            eprintln!(
+                "skipping Chinese-CLIP ORT inference test; set ALCEDO_MIND_TEST_CHINESE_CLIP_ROOT"
+            );
+            return;
+        };
+
+        let engine = make_profile_test_engine_with_root(
+            "chinese-clip-vit-base-patch16-zh",
+            "47080d16c631d8416d2e6b155c59f8fd2c322e98",
+            model_root,
+            "cpu",
+        );
+        let zh = engine
+            .embed_text("一张风景照片")
+            .expect("Chinese-CLIP text embedding should succeed");
+        let image = image::RgbImage::from_fn(320, 240, |x, y| {
+            image::Rgb([(x % 256) as u8, (y % 256) as u8, ((x + y) % 256) as u8])
+        });
+        let image_embedding = engine
+            .embed_image(&image)
+            .expect("Chinese-CLIP image embedding should succeed");
+        assert_eq!(zh.len(), EMBEDDING_DIM);
+        assert_eq!(image_embedding.len(), EMBEDDING_DIM);
+
+        let real_image_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("alcedo_studio")
+            .join("src")
+            .join("sleeve")
+            .join("sleeve_filter")
+            .join("vectorization")
+            .join("example.jpg");
+        if real_image_path.exists() {
+            let real_image = image::open(&real_image_path)
+                .expect("real test image should decode")
+                .to_rgb8();
+            let real_image_embedding = engine
+                .embed_image(&real_image)
+                .expect("Chinese-CLIP real image embedding should succeed");
+            let match_text = engine
+                .embed_text("一张城市列车和铁轨的照片")
+                .expect("Chinese-CLIP matching text embedding should succeed");
+            let mismatch_text = engine
+                .embed_text("一张三明治的特写照片")
+                .expect("Chinese-CLIP mismatch text embedding should succeed");
+            let dot = |a: &[f32], b: &[f32]| a.iter().zip(b).map(|(x, y)| x * y).sum::<f32>();
+            let match_score = dot(&real_image_embedding, &match_text);
+            let mismatch_score = dot(&real_image_embedding, &mismatch_text);
+            eprintln!(
+                "Chinese-CLIP real-image semantic scores: match={match_score:.4}, mismatch={mismatch_score:.4}"
+            );
+            assert!(
+                match_score > mismatch_score,
+                "Chinese city-train prompt should be closer to the real photo than the unrelated sandwich prompt"
+            );
+        }
+    }
+
+    #[test]
+    fn embeds_text_and_image_with_jina_clip_profile() {
+        let Ok(model_root) = std::env::var("ALCEDO_MIND_TEST_JINA_CLIP_ROOT") else {
+            eprintln!("skipping Jina CLIP ORT inference test; set ALCEDO_MIND_TEST_JINA_CLIP_ROOT");
+            return;
+        };
+
+        let engine = make_profile_test_engine_with_root(
+            "jina-clip-v2-int8-multilingual",
+            "e10d47f5691d0454a0fb5d13f46f2199b74cb436",
+            model_root,
+            "cpu",
+        );
+        let info = engine.model_info();
+        assert_eq!(info.profile_id, "jina-clip-v2-int8-multilingual");
+        assert_eq!(info.embedding_dim, EMBEDDING_DIM as u32);
+        assert_eq!(info.native_embedding_dim, 1024);
+
+        let text = engine
+            .embed_text("a city train photograph with railway tracks and buildings")
+            .expect("Jina text embedding should succeed");
+        let zh = engine
+            .embed_text("一张城市列车和铁轨的照片")
+            .expect("Jina Chinese text embedding should succeed");
+        let image = image::RgbImage::from_fn(640, 480, |x, y| {
+            image::Rgb([(x % 256) as u8, (y % 256) as u8, ((x + y) % 256) as u8])
+        });
+        let image_embedding = engine
+            .embed_image(&image)
+            .expect("Jina image embedding should succeed");
+        assert_eq!(text.len(), EMBEDDING_DIM);
+        assert_eq!(zh.len(), EMBEDDING_DIM);
+        assert_eq!(image_embedding.len(), EMBEDDING_DIM);
+    }
+
+    #[test]
     fn real_repo_image_embeddings_are_reasonable_for_english_and_chinese_queries() {
         if !test_allow_download() && !has_test_model_assets() {
             eprintln!(
@@ -1054,9 +1646,12 @@ mod tests {
         let image_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("..")
             .join("..")
-            .join("docs")
-            .join("demo")
-            .join("album.png");
+            .join("alcedo_studio")
+            .join("src")
+            .join("sleeve")
+            .join("sleeve_filter")
+            .join("vectorization")
+            .join("example.jpg");
         if !image_path.exists() {
             eprintln!(
                 "skipping real-image ORT semantic test; missing {}",
@@ -1074,13 +1669,13 @@ mod tests {
             .expect("real demo image embedding should succeed");
 
         let english_match = engine
-            .embed_text("a screenshot of photo editing software")
+            .embed_text("a city train photograph with railway tracks and buildings")
             .expect("English text embedding should succeed");
         let english_mismatch = engine
             .embed_text("a close-up photo of a sandwich")
             .expect("English mismatch text embedding should succeed");
         let chinese_match = engine
-            .embed_text("照片编辑软件的截图")
+            .embed_text("一张城市列车和铁轨的照片")
             .expect("Chinese text embedding should succeed");
         let chinese_mismatch = engine
             .embed_text("一张三明治的特写照片")
