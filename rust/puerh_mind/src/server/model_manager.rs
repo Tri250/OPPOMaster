@@ -20,6 +20,8 @@ use crate::service::model_assets::{
     list_profiles, validate_model_profile,
 };
 
+const MODEL_DOWNLOAD_THREAD_STACK_BYTES: usize = 64 * 1024 * 1024;
+
 #[derive(Debug, Clone)]
 pub struct ModelManagerServiceImpl {
     default_model_root: PathBuf,
@@ -265,69 +267,73 @@ impl ModelManagerService for ModelManagerServiceImpl {
         let downloads = self.downloads.clone();
         let profile_id = req.profile_id.clone();
         let job_id_for_thread = job_id.clone();
-        std::thread::spawn(move || {
-            if let Ok(mut jobs) = downloads.lock() {
-                if let Some(job) = jobs.get_mut(&job_id_for_thread) {
-                    job.state = "downloading".to_string();
+        std::thread::Builder::new()
+            .name(format!("model-download-{job_id_for_thread}"))
+            .stack_size(MODEL_DOWNLOAD_THREAD_STACK_BYTES)
+            .spawn(move || {
+                if let Ok(mut jobs) = downloads.lock() {
+                    if let Some(job) = jobs.get_mut(&job_id_for_thread) {
+                        job.state = "downloading".to_string();
+                    }
                 }
-            }
 
-            let result = download_model_profile_with_progress(
-                &profile_id,
-                &root,
-                &endpoint,
-                None,
-                |progress| {
-                    if let Ok(mut jobs) = downloads.lock() {
-                        if let Some(job) = jobs.get_mut(&job_id_for_thread) {
-                            if job.cancel_requested {
-                                job.state = "cancel_requested".to_string();
-                                job.progress = ModelDownloadProgress {
-                                    phase: "cancel_requested".to_string(),
-                                    message: "download cancellation requested".to_string(),
-                                    ..progress
-                                };
-                                anyhow::bail!("download cancelled");
-                            }
-                            job.progress = progress;
-                            if job.state != "cancel_requested" {
-                                job.state = job.progress.phase.clone();
+                let result = download_model_profile_with_progress(
+                    &profile_id,
+                    &root,
+                    &endpoint,
+                    None,
+                    |progress| {
+                        if let Ok(mut jobs) = downloads.lock() {
+                            if let Some(job) = jobs.get_mut(&job_id_for_thread) {
+                                if job.cancel_requested {
+                                    job.state = "cancel_requested".to_string();
+                                    job.progress = ModelDownloadProgress {
+                                        phase: "cancel_requested".to_string(),
+                                        message: "download cancellation requested".to_string(),
+                                        ..progress
+                                    };
+                                    anyhow::bail!("download cancelled");
+                                }
+                                job.progress = progress;
+                                if job.state != "cancel_requested" {
+                                    job.state = job.progress.phase.clone();
+                                }
                             }
                         }
-                    }
-                    Ok(())
-                },
-            );
-            if let Ok(mut jobs) = downloads.lock() {
-                if let Some(job) = jobs.get_mut(&job_id_for_thread) {
-                    if job.cancel_requested {
-                        job.state = "cancelled".to_string();
-                        job.error.clear();
-                        job.manifest = None;
-                        job.progress.phase = "cancelled".to_string();
-                        job.progress.message = "download cancelled".to_string();
-                        return;
-                    }
-
-                    match result {
-                        Ok(manifest) => {
-                            job.state = "installed".to_string();
+                        Ok(())
+                    },
+                );
+                if let Ok(mut jobs) = downloads.lock() {
+                    if let Some(job) = jobs.get_mut(&job_id_for_thread) {
+                        if job.cancel_requested {
+                            job.state = "cancelled".to_string();
                             job.error.clear();
-                            job.manifest = Some(manifest);
-                            job.progress.phase = "installed".to_string();
-                            job.progress.message = "model profile installed".to_string();
-                        }
-                        Err(err) => {
-                            job.state = "failed".to_string();
-                            job.error = err.to_string();
                             job.manifest = None;
-                            job.progress.phase = "failed".to_string();
-                            job.progress.message = err.to_string();
+                            job.progress.phase = "cancelled".to_string();
+                            job.progress.message = "download cancelled".to_string();
+                            return;
+                        }
+
+                        match result {
+                            Ok(manifest) => {
+                                job.state = "installed".to_string();
+                                job.error.clear();
+                                job.manifest = Some(manifest);
+                                job.progress.phase = "installed".to_string();
+                                job.progress.message = "model profile installed".to_string();
+                            }
+                            Err(err) => {
+                                job.state = "failed".to_string();
+                                job.error = err.to_string();
+                                job.manifest = None;
+                                job.progress.phase = "failed".to_string();
+                                job.progress.message = err.to_string();
+                            }
                         }
                     }
                 }
-            }
-        });
+            })
+            .map_err(|err| Status::internal(format!("failed to spawn download thread: {err}")))?;
 
         let response = {
             let downloads = self

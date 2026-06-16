@@ -751,9 +751,9 @@ Packaging smoke tests should verify:
        successfully loaded inference model, not to download completion side
        effects.
    - 6d. Rust download implementation
-     - complete: move the active `hf-hub` download path out of inference-engine
-       startup and into the model manager. Inference startup is validate-only
-       unless explicitly told to download for development compatibility.
+     - complete: move model acquisition out of inference-engine startup and
+       into the model manager. Inference startup is validate-only unless
+       explicitly told to download for development compatibility.
      - complete: replace MobileCLIP-only download constants with profile-driven
        asset manifests for text model, vision/multimodal model, tokenizer,
        tokenizer config or vocab, preprocessing config, and model config files.
@@ -764,23 +764,30 @@ Packaging smoke tests should verify:
        list.
      - complete: default downloads use the domestic mirror endpoint
        `https://hf-mirror.com`, with a request-level override for custom mirror
-       endpoints. The direct mirror streaming path is the primary path so byte
-       progress does not depend on whether `hf-hub` prints a terminal progress
-       bar.
+       endpoints. The Rust downloader resolves the configured endpoint to the
+       actual active source, follows redirects, and reports both the configured
+       source and active source in progress messages so UI can warn when a
+       mirror/proxy path is really downloading from `huggingface.co`.
+     - complete: for fixed manifest assets, avoid generic Hub cache clients in
+       the shippable path. Large files download through a controlled HTTP Range
+       downloader with up to eight ranged connections by default
+       (`ALCEDO_MIND_DOWNLOAD_THREADS`, capped at sixteen), while small files
+       and non-Range servers use a resumable single-stream fallback.
      - complete: expose byte-level progress/resume metadata through
        `GetModelDownloadStatus(job_id)`, including phase, current file,
        per-file bytes, total bytes, completed file count, and a short status
        message that C++ polling can show in Settings.
      - complete: use a profile-level staging directory and promote the whole
        profile to the final model root after all files validate. Per-asset
-       `.part` files are kept in staging so interrupted downloads can resume
-       where the server and mirror support HTTP range requests.
+       `.part` files and ranged `.part.N` chunk files are kept in staging so
+       interrupted downloads can resume where the server and mirror support HTTP
+       range requests.
    - 6e. Qt settings and runtime wiring
      - keep download UX in Settings, but call Rust model-manager RPCs for all
        Hugging Face network and file operations
      - expose selected model, endpoint preset/custom endpoint, optional HF
-       token, model directory, status, progress, cancel, retry, delete, and
-       active-model selection
+       token, model directory, configured source, active source, status,
+       progress, cancel, retry, delete, and active-model selection
      - pass the active model's resolved root, `model_id`, revision, and device
        to `SemanticRuntimeService`; release builds should use validate-only
        inference startup

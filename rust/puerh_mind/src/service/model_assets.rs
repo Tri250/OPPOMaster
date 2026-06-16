@@ -2,12 +2,26 @@ use std::{
     fs::{File, OpenOptions},
     io::{Read, Write},
     path::{Path, PathBuf},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
+    time::Duration,
 };
 
 use anyhow::{Context, bail};
-use hf_hub::{Repo, RepoType, api::sync::ApiBuilder};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+
+const DIRECT_DOWNLOAD_MAX_ATTEMPTS: usize = 5;
+const DIRECT_DOWNLOAD_MAX_REDIRECTS: usize = 10;
+const DIRECT_DOWNLOAD_DEFAULT_THREADS: usize = 8;
+const DIRECT_DOWNLOAD_MAX_THREADS: usize = 16;
+const DIRECT_DOWNLOAD_WORKER_STACK_BYTES: usize = 16 * 1024 * 1024;
+const DIRECT_DOWNLOAD_MIN_CHUNK_BYTES: u64 = 8 * 1024 * 1024;
+const DIRECT_DOWNLOAD_PARALLEL_THRESHOLD_BYTES: u64 = 32 * 1024 * 1024;
+const DIRECT_DOWNLOAD_PROGRESS_POLL_MS: u64 = 100;
 
 pub const MOBILECLIP2_ONNX_REPO: &str = "plhery/mobileclip2-onnx";
 pub const MOBILECLIP2_ONNX_REVISION: &str = "ba95759a5bdbaca53e9111e2550a76ec09c8fd9e";
@@ -628,6 +642,7 @@ where
         message: "promoting staged model profile".to_string(),
         ..Default::default()
     })?;
+    cleanup_staging_download_partials(profile, &staging)?;
     promote_staging_root(&staging, root)?;
     validate_profile_assets(profile, root)?;
     let manifest = resolved_manifest(profile, root);
@@ -748,63 +763,647 @@ where
         })?;
     }
 
-    match download_asset_direct(
-        hf_endpoint,
-        asset.repo_id,
-        revision,
-        asset.remote_path,
-        &local_path,
-        asset.size_bytes,
-        progress,
-    ) {
-        Ok(()) => return validate_asset_file(asset, &local_path),
-        Err(direct_err) => {
-            progress(
-                "resolving",
-                partial_file_size(&local_path),
-                format!(
-                    "direct mirror download failed for {}; trying hf-hub cache fallback: {direct_err}",
-                    asset.remote_path
-                ),
-            )?;
-        }
-    }
-
-    let api = ApiBuilder::from_env()
-        .with_endpoint(hf_endpoint.to_string())
-        .with_progress(false)
-        .build()
-        .with_context(|| {
-            format!("failed to initialize Hugging Face API client for endpoint {hf_endpoint}")
-        })?;
-
-    let repo = api.repo(Repo::with_revision(
-        asset.repo_id.to_string(),
-        RepoType::Model,
-        revision.to_string(),
-    ));
-
-    match repo.get(asset.remote_path) {
-        Ok(downloaded) => {
-            copy_asset_atomic_with_progress(&downloaded, &local_path, progress).with_context(
-                || {
-                    format!(
-                        "failed to copy downloaded asset {} to {}",
-                        downloaded.display(),
-                        local_path.display()
-                    )
-                },
-            )?;
-        }
-        Err(err) => bail!(
-            "failed fallback download for {} from repo {}@{}; hf-hub error: {err}",
-            asset.remote_path,
-            asset.repo_id,
-            revision
+    progress(
+        "resolving",
+        0,
+        format!(
+            "resolving {} from configured endpoint {}",
+            asset.remote_path, hf_endpoint
         ),
-    }
+    )?;
+    let resolved = resolve_hf_asset_url(hf_endpoint, asset.repo_id, revision, asset.remote_path)?;
+    progress(
+        "resolving",
+        0,
+        format!(
+            "resolved {}: configured source {}, active source {}",
+            asset.remote_path, resolved.configured_source, resolved.active_source
+        ),
+    )?;
+    download_asset_direct_to_path(&resolved, asset, &local_path, progress)?;
 
     validate_asset_file(asset, &local_path)
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedAssetUrl {
+    url: String,
+    configured_source: String,
+    active_source: String,
+    supports_ranges: bool,
+}
+
+fn resolve_hf_asset_url(
+    hf_endpoint: &str,
+    repo_id: &str,
+    revision: &str,
+    remote_path: &str,
+) -> anyhow::Result<ResolvedAssetUrl> {
+    let configured_source = classify_download_source(hf_endpoint);
+    let mut active_source = configured_source.clone();
+    let mut url = format!(
+        "{}/{}/resolve/{}/{}",
+        hf_endpoint.trim_end_matches('/'),
+        repo_id,
+        revision,
+        remote_path
+    );
+    let agent = direct_download_agent(0);
+
+    for _ in 0..=DIRECT_DOWNLOAD_MAX_REDIRECTS {
+        let mut response = agent
+            .get(&url)
+            .header("Range", "bytes=0-0")
+            .call()
+            .with_context(|| format!("failed to resolve model asset URL {url}"))?;
+
+        if response.status().is_redirection() {
+            let location = response
+                .headers()
+                .get("Location")
+                .and_then(|value| value.to_str().ok())
+                .with_context(|| format!("redirect from {url} did not include Location"))?;
+            url = join_redirect_url(&url, location)?;
+            let redirected_source = classify_download_source(&url);
+            if redirected_source == "huggingface.co" || active_source != "huggingface.co" {
+                active_source = redirected_source;
+            }
+            continue;
+        }
+
+        if !response.status().is_success() {
+            bail!(
+                "failed to resolve model asset URL {}: HTTP {}",
+                url,
+                response.status()
+            );
+        }
+
+        let supports_ranges = response.status().as_u16() == 206
+            || response
+                .headers()
+                .get("Accept-Ranges")
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(|value| value.eq_ignore_ascii_case("bytes"))
+            || response
+                .headers()
+                .get("Content-Range")
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(|value| value.to_ascii_lowercase().starts_with("bytes "));
+        if active_source != "huggingface.co" {
+            active_source = classify_download_source(&url);
+        }
+        let _ = response.body_mut().as_reader();
+        return Ok(ResolvedAssetUrl {
+            url,
+            configured_source,
+            active_source,
+            supports_ranges,
+        });
+    }
+
+    bail!(
+        "too many redirects while resolving {} from {}",
+        remote_path,
+        hf_endpoint
+    )
+}
+
+fn download_asset_direct_to_path<F>(
+    resolved: &ResolvedAssetUrl,
+    asset: &ModelAssetSpec,
+    local_path: &Path,
+    progress: &mut F,
+) -> anyhow::Result<()>
+where
+    F: FnMut(&str, u64, String) -> anyhow::Result<()>,
+{
+    let parallelism = download_parallelism(asset.size_bytes, resolved.supports_ranges);
+    if parallelism <= 1 {
+        return download_asset_single_stream(resolved, asset, local_path, progress);
+    }
+
+    download_asset_parallel_ranges(resolved, asset, local_path, parallelism, progress)
+}
+
+fn download_asset_single_stream<F>(
+    resolved: &ResolvedAssetUrl,
+    asset: &ModelAssetSpec,
+    local_path: &Path,
+    progress: &mut F,
+) -> anyhow::Result<()>
+where
+    F: FnMut(&str, u64, String) -> anyhow::Result<()>,
+{
+    let part_path = local_path.with_extension("part");
+    let mut existing = partial_file_size(&part_path);
+    if existing > asset.size_bytes || (!resolved.supports_ranges && existing > 0) {
+        let _ = std::fs::remove_file(&part_path);
+        existing = 0;
+    }
+
+    for attempt in 1..=DIRECT_DOWNLOAD_MAX_ATTEMPTS {
+        let mut request =
+            direct_download_agent(DIRECT_DOWNLOAD_MAX_REDIRECTS as u32).get(&resolved.url);
+        if resolved.supports_ranges && existing > 0 {
+            request = request.header("Range", format!("bytes={existing}-"));
+        }
+
+        match request.call() {
+            Ok(mut response) => {
+                if existing > 0 && response.status().as_u16() != 206 {
+                    let _ = std::fs::remove_file(&part_path);
+                    existing = 0;
+                    continue;
+                }
+                if !response.status().is_success() {
+                    bail!(
+                        "failed to download {} from {}: HTTP {}",
+                        asset.remote_path,
+                        resolved.active_source,
+                        response.status()
+                    );
+                }
+
+                let mut output = OpenOptions::new()
+                    .create(true)
+                    .append(existing > 0)
+                    .write(true)
+                    .truncate(existing == 0)
+                    .open(&part_path)
+                    .with_context(|| format!("failed to open {}", part_path.display()))?;
+                let mut downloaded = existing;
+                progress(
+                    "downloading",
+                    downloaded,
+                    format!(
+                        "downloading {} from {}",
+                        asset.remote_path, resolved.active_source
+                    ),
+                )?;
+                let mut reader = response.body_mut().as_reader();
+                let mut buffer = [0u8; 1024 * 1024];
+                loop {
+                    let read = reader
+                        .read(&mut buffer)
+                        .with_context(|| format!("failed to read {}", asset.remote_path))?;
+                    if read == 0 {
+                        break;
+                    }
+                    output
+                        .write_all(&buffer[..read])
+                        .with_context(|| format!("failed to write {}", part_path.display()))?;
+                    downloaded = downloaded.saturating_add(read as u64);
+                    progress(
+                        "downloading",
+                        downloaded.min(asset.size_bytes),
+                        format!(
+                            "downloading {} from {}",
+                            asset.remote_path, resolved.active_source
+                        ),
+                    )?;
+                }
+                output
+                    .flush()
+                    .with_context(|| format!("failed to flush {}", part_path.display()))?;
+                if downloaded != asset.size_bytes {
+                    bail!(
+                        "{} incomplete: expected {} bytes, got {} bytes",
+                        asset.remote_path,
+                        asset.size_bytes,
+                        downloaded
+                    );
+                }
+                std::fs::rename(&part_path, local_path).with_context(|| {
+                    format!(
+                        "failed to move {} to {}",
+                        part_path.display(),
+                        local_path.display()
+                    )
+                })?;
+                return Ok(());
+            }
+            Err(err) if attempt < DIRECT_DOWNLOAD_MAX_ATTEMPTS => {
+                existing = partial_file_size(&part_path);
+                progress(
+                    "downloading",
+                    existing.min(asset.size_bytes),
+                    format!(
+                        "retrying {} from {} after attempt {} failed: {}",
+                        asset.remote_path, resolved.active_source, attempt, err
+                    ),
+                )?;
+            }
+            Err(err) => {
+                bail!(
+                    "failed to download {} from {} after {} attempts: {}",
+                    asset.remote_path,
+                    resolved.active_source,
+                    DIRECT_DOWNLOAD_MAX_ATTEMPTS,
+                    err
+                );
+            }
+        }
+    }
+
+    unreachable!("download attempts should return or bail")
+}
+
+#[derive(Debug, Clone)]
+struct DownloadChunk {
+    index: usize,
+    start: u64,
+    end: u64,
+    part_path: PathBuf,
+}
+
+#[derive(Debug)]
+enum ChunkEvent {
+    Progress(u64),
+    Done { index: usize, error: Option<String> },
+}
+
+fn download_asset_parallel_ranges<F>(
+    resolved: &ResolvedAssetUrl,
+    asset: &ModelAssetSpec,
+    local_path: &Path,
+    parallelism: usize,
+    progress: &mut F,
+) -> anyhow::Result<()>
+where
+    F: FnMut(&str, u64, String) -> anyhow::Result<()>,
+{
+    let chunks = plan_download_chunks(local_path, asset.size_bytes, parallelism);
+    let already_downloaded = chunks
+        .iter()
+        .map(|chunk| partial_file_size(&chunk.part_path).min(chunk_len(chunk)))
+        .sum::<u64>();
+    progress(
+        "downloading",
+        already_downloaded.min(asset.size_bytes),
+        format!(
+            "downloading {} from {} with {} ranged connections",
+            asset.remote_path, resolved.active_source, parallelism
+        ),
+    )?;
+
+    let (event_tx, event_rx) = mpsc::channel();
+    let abort_requested = Arc::new(AtomicBool::new(false));
+    let mut handles = Vec::new();
+    for chunk in chunks.clone() {
+        if partial_file_size(&chunk.part_path) == chunk_len(&chunk) {
+            continue;
+        }
+        let event_tx = event_tx.clone();
+        let abort_requested = Arc::clone(&abort_requested);
+        let url = resolved.url.clone();
+        let remote_path = asset.remote_path.to_string();
+        let source = resolved.active_source.clone();
+        handles.push(
+            std::thread::Builder::new()
+                .name(format!("model-download-{}", chunk.index))
+                .stack_size(DIRECT_DOWNLOAD_WORKER_STACK_BYTES)
+                .spawn(move || {
+                    let result = download_chunk_with_retries(
+                        &url,
+                        &remote_path,
+                        &source,
+                        &chunk,
+                        Arc::clone(&abort_requested),
+                        event_tx.clone(),
+                    );
+                    let _ = event_tx.send(ChunkEvent::Done {
+                        index: chunk.index,
+                        error: result.err().map(|err| err.to_string()),
+                    });
+                })
+                .context("failed to spawn model download worker")?,
+        );
+    }
+    drop(event_tx);
+
+    let mut downloaded = already_downloaded;
+    let mut done = 0usize;
+    let mut first_error = None;
+    while done < handles.len() {
+        match event_rx.recv_timeout(Duration::from_millis(DIRECT_DOWNLOAD_PROGRESS_POLL_MS)) {
+            Ok(ChunkEvent::Progress(delta)) => {
+                downloaded = downloaded.saturating_add(delta).min(asset.size_bytes);
+                if first_error.is_none()
+                    && let Err(err) = progress(
+                        "downloading",
+                        downloaded,
+                        format!(
+                            "downloading {} from {} with {} ranged connections",
+                            asset.remote_path, resolved.active_source, parallelism
+                        ),
+                    )
+                {
+                    abort_requested.store(true, Ordering::SeqCst);
+                    first_error = Some(err.to_string());
+                }
+            }
+            Ok(ChunkEvent::Done { index, error }) => {
+                let _ = index;
+                done += 1;
+                if let Some(error) = error
+                    && first_error.is_none()
+                {
+                    abort_requested.store(true, Ordering::SeqCst);
+                    first_error = Some(error);
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+
+    for handle in handles {
+        handle
+            .join()
+            .map_err(|payload| panic_payload_to_anyhow(payload, "download worker panicked"))?;
+    }
+
+    if let Some(error) = first_error {
+        bail!("{error}");
+    }
+
+    combine_download_chunks(&chunks, local_path)?;
+    progress(
+        "copying",
+        asset.size_bytes,
+        format!("assembled {}", asset.remote_path),
+    )?;
+    Ok(())
+}
+
+fn download_chunk_with_retries(
+    url: &str,
+    remote_path: &str,
+    active_source: &str,
+    chunk: &DownloadChunk,
+    abort_requested: Arc<AtomicBool>,
+    event_tx: mpsc::Sender<ChunkEvent>,
+) -> anyhow::Result<()> {
+    for attempt in 1..=DIRECT_DOWNLOAD_MAX_ATTEMPTS {
+        if abort_requested.load(Ordering::SeqCst) {
+            bail!("download cancelled");
+        }
+        match download_chunk_once(
+            url,
+            remote_path,
+            chunk,
+            Arc::clone(&abort_requested),
+            event_tx.clone(),
+        ) {
+            Ok(()) => return Ok(()),
+            Err(err) if attempt < DIRECT_DOWNLOAD_MAX_ATTEMPTS => {
+                let _ = event_tx.send(ChunkEvent::Progress(0));
+                std::thread::sleep(Duration::from_millis(250 * attempt as u64));
+                let _ = err;
+            }
+            Err(err) => {
+                bail!(
+                    "failed ranged download for {} chunk {} from {} after {} attempts: {}",
+                    remote_path,
+                    chunk.index,
+                    active_source,
+                    DIRECT_DOWNLOAD_MAX_ATTEMPTS,
+                    err
+                );
+            }
+        }
+    }
+
+    unreachable!("download attempts should return or bail")
+}
+
+fn download_chunk_once(
+    url: &str,
+    remote_path: &str,
+    chunk: &DownloadChunk,
+    abort_requested: Arc<AtomicBool>,
+    event_tx: mpsc::Sender<ChunkEvent>,
+) -> anyhow::Result<()> {
+    let expected_len = chunk_len(chunk);
+    let existing = partial_file_size(&chunk.part_path);
+    if existing == expected_len {
+        return Ok(());
+    }
+    if existing > expected_len {
+        std::fs::remove_file(&chunk.part_path)
+            .with_context(|| format!("failed to remove {}", chunk.part_path.display()))?;
+    }
+    let existing = partial_file_size(&chunk.part_path);
+    let start = chunk.start.saturating_add(existing);
+    let range = format!("bytes={}-{}", start, chunk.end);
+    let mut response = direct_download_agent(0)
+        .get(url)
+        .header("Range", range)
+        .call()
+        .with_context(|| format!("failed to request range for {remote_path}"))?;
+    if response.status().as_u16() != 206 {
+        bail!(
+            "{} range request returned HTTP {}; expected 206",
+            remote_path,
+            response.status()
+        );
+    }
+
+    let mut output = OpenOptions::new()
+        .create(true)
+        .append(existing > 0)
+        .write(true)
+        .truncate(existing == 0)
+        .open(&chunk.part_path)
+        .with_context(|| format!("failed to open {}", chunk.part_path.display()))?;
+    let mut written = existing;
+    let mut reader = response.body_mut().as_reader();
+    let mut buffer = [0u8; 1024 * 1024];
+    loop {
+        if abort_requested.load(Ordering::SeqCst) {
+            bail!("download cancelled");
+        }
+        let read = reader
+            .read(&mut buffer)
+            .with_context(|| format!("failed to read range for {remote_path}"))?;
+        if read == 0 {
+            break;
+        }
+        output
+            .write_all(&buffer[..read])
+            .with_context(|| format!("failed to write {}", chunk.part_path.display()))?;
+        written = written.saturating_add(read as u64);
+        let _ = event_tx.send(ChunkEvent::Progress(read as u64));
+    }
+    output
+        .flush()
+        .with_context(|| format!("failed to flush {}", chunk.part_path.display()))?;
+    if written != expected_len {
+        bail!(
+            "{} chunk {} incomplete: expected {} bytes, got {} bytes",
+            remote_path,
+            chunk.index,
+            expected_len,
+            written
+        );
+    }
+    Ok(())
+}
+
+fn combine_download_chunks(chunks: &[DownloadChunk], local_path: &Path) -> anyhow::Result<()> {
+    let tmp_path = local_path.with_extension("part");
+    let mut output = File::create(&tmp_path)
+        .with_context(|| format!("failed to create {}", tmp_path.display()))?;
+    let mut buffer = [0u8; 1024 * 1024];
+    for chunk in chunks {
+        let mut input = File::open(&chunk.part_path)
+            .with_context(|| format!("failed to open {}", chunk.part_path.display()))?;
+        loop {
+            let read = input
+                .read(&mut buffer)
+                .with_context(|| format!("failed to read {}", chunk.part_path.display()))?;
+            if read == 0 {
+                break;
+            }
+            output
+                .write_all(&buffer[..read])
+                .with_context(|| format!("failed to write {}", tmp_path.display()))?;
+        }
+    }
+    output
+        .flush()
+        .with_context(|| format!("failed to flush {}", tmp_path.display()))?;
+    std::fs::rename(&tmp_path, local_path).with_context(|| {
+        format!(
+            "failed to move {} to {}",
+            tmp_path.display(),
+            local_path.display()
+        )
+    })?;
+    for chunk in chunks {
+        let _ = std::fs::remove_file(&chunk.part_path);
+    }
+    Ok(())
+}
+
+fn plan_download_chunks(
+    local_path: &Path,
+    size_bytes: u64,
+    parallelism: usize,
+) -> Vec<DownloadChunk> {
+    let chunk_count = parallelism.max(1).min(DIRECT_DOWNLOAD_MAX_THREADS);
+    let base = size_bytes / chunk_count as u64;
+    let mut remainder = size_bytes % chunk_count as u64;
+    let mut start = 0u64;
+    let mut chunks = Vec::with_capacity(chunk_count);
+    for index in 0..chunk_count {
+        let mut len = base;
+        if remainder > 0 {
+            len += 1;
+            remainder -= 1;
+        }
+        let end = start + len - 1;
+        chunks.push(DownloadChunk {
+            index,
+            start,
+            end,
+            part_path: chunk_part_path(local_path, index),
+        });
+        start = end + 1;
+    }
+    chunks
+}
+
+fn chunk_len(chunk: &DownloadChunk) -> u64 {
+    chunk.end - chunk.start + 1
+}
+
+fn chunk_part_path(local_path: &Path, index: usize) -> PathBuf {
+    let file_name = local_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("asset");
+    local_path.with_file_name(format!("{file_name}.part.{index}"))
+}
+
+fn download_parallelism(size_bytes: u64, supports_ranges: bool) -> usize {
+    if !supports_ranges || size_bytes < DIRECT_DOWNLOAD_PARALLEL_THRESHOLD_BYTES {
+        return 1;
+    }
+    let requested = std::env::var("ALCEDO_MIND_DOWNLOAD_THREADS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(DIRECT_DOWNLOAD_DEFAULT_THREADS)
+        .clamp(1, DIRECT_DOWNLOAD_MAX_THREADS);
+    let useful = size_bytes.div_ceil(DIRECT_DOWNLOAD_MIN_CHUNK_BYTES) as usize;
+    requested.min(useful.max(1))
+}
+
+fn direct_download_agent(max_redirects: u32) -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .max_redirects(max_redirects)
+        .max_redirects_will_error(false)
+        .timeout_connect(Some(Duration::from_secs(30)))
+        .timeout_recv_response(Some(Duration::from_secs(60)))
+        .timeout_recv_body(Some(Duration::from_secs(60)))
+        .build()
+        .into()
+}
+
+fn partial_file_size(path: &Path) -> u64 {
+    std::fs::metadata(path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0)
+}
+
+fn classify_download_source(url_or_endpoint: &str) -> String {
+    let value = url_or_endpoint
+        .trim()
+        .trim_end_matches('/')
+        .to_ascii_lowercase();
+    if value.starts_with("https://huggingface.co") || value.starts_with("http://huggingface.co") {
+        "huggingface.co".to_string()
+    } else if value.starts_with("https://hf-mirror.com")
+        || value.starts_with("http://hf-mirror.com")
+    {
+        "hf-mirror.com".to_string()
+    } else {
+        value
+    }
+}
+
+fn join_redirect_url(current_url: &str, location: &str) -> anyhow::Result<String> {
+    if location.starts_with("http://") || location.starts_with("https://") {
+        return Ok(location.to_string());
+    }
+    if location.starts_with('/') {
+        let scheme_end = current_url
+            .find("://")
+            .with_context(|| format!("cannot parse redirect base URL {current_url}"))?;
+        let rest = &current_url[scheme_end + 3..];
+        let host_end = rest.find('/').unwrap_or(rest.len());
+        let origin = &current_url[..scheme_end + 3 + host_end];
+        return Ok(format!("{origin}{location}"));
+    }
+    let base = current_url
+        .rsplit_once('/')
+        .map(|(base, _)| base)
+        .unwrap_or(current_url);
+    Ok(format!("{base}/{location}"))
+}
+
+fn panic_payload_to_anyhow(
+    payload: Box<dyn std::any::Any + Send>,
+    fallback: &str,
+) -> anyhow::Error {
+    if let Some(message) = payload.downcast_ref::<String>() {
+        anyhow::anyhow!("{message}")
+    } else if let Some(message) = payload.downcast_ref::<&'static str>() {
+        anyhow::anyhow!("{message}")
+    } else {
+        anyhow::anyhow!("{fallback}")
+    }
 }
 
 fn copy_asset_atomic(source: &Path, target: &Path) -> anyhow::Result<()> {
@@ -871,104 +1470,6 @@ where
     Ok(())
 }
 
-fn download_asset_direct<F>(
-    hf_endpoint: &str,
-    repo_id: &str,
-    revision: &str,
-    remote_path: &str,
-    local_path: &Path,
-    expected_size: u64,
-    progress: &mut F,
-) -> anyhow::Result<()>
-where
-    F: FnMut(&str, u64, String) -> anyhow::Result<()>,
-{
-    let url = format!(
-        "{}/{}/resolve/{}/{}",
-        hf_endpoint.trim_end_matches('/'),
-        repo_id,
-        revision,
-        remote_path
-    );
-    let tmp_path = local_path.with_extension("part");
-    let resume_from = std::fs::metadata(&tmp_path)
-        .map(|metadata| metadata.len().min(expected_size))
-        .unwrap_or(0);
-    progress(
-        "downloading",
-        resume_from,
-        if resume_from > 0 {
-            format!("resuming {} from {} bytes", remote_path, resume_from)
-        } else {
-            format!("downloading {}", remote_path)
-        },
-    )?;
-
-    let mut request = ureq::get(&url);
-    if resume_from > 0 {
-        request = request.header("Range", format!("bytes={resume_from}-"));
-    }
-    let mut response = request
-        .call()
-        .with_context(|| format!("failed to GET {url}"))?;
-    let partial_accepted = response.status().as_u16() == 206;
-    let mut downloaded = if resume_from > 0 && partial_accepted {
-        resume_from
-    } else {
-        0
-    };
-    let mut output = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .append(downloaded > 0)
-        .truncate(downloaded == 0)
-        .open(&tmp_path)
-        .with_context(|| {
-            format!(
-                "failed to create temporary model asset {}",
-                tmp_path.display()
-            )
-        })?;
-    let mut reader = response.body_mut().as_reader();
-    let mut buffer = [0u8; 1024 * 1024];
-    loop {
-        let read = reader
-            .read(&mut buffer)
-            .with_context(|| format!("failed to stream response body from {url}"))?;
-        if read == 0 {
-            break;
-        }
-        output
-            .write_all(&buffer[..read])
-            .with_context(|| format!("failed to write {}", tmp_path.display()))?;
-        downloaded = downloaded.saturating_add(read as u64);
-        progress(
-            "downloading",
-            downloaded.min(expected_size),
-            format!("downloading {}", remote_path),
-        )?;
-    }
-    output
-        .flush()
-        .with_context(|| format!("failed to flush {}", tmp_path.display()))?;
-    if expected_size > 0 && downloaded != expected_size {
-        bail!(
-            "{} download size mismatch: expected {} bytes, got {} bytes",
-            remote_path,
-            expected_size,
-            downloaded
-        );
-    }
-    std::fs::rename(&tmp_path, local_path).with_context(|| {
-        format!(
-            "failed to move temporary model asset {} to {}",
-            tmp_path.display(),
-            local_path.display()
-        )
-    })?;
-    Ok(())
-}
-
 fn resolved_manifest(profile: &ModelProfileSpec, root: &Path) -> ResolvedModelManifest {
     ResolvedModelManifest {
         profile_id: profile.profile_id.to_string(),
@@ -1001,12 +1502,6 @@ fn profile_total_bytes(profile: &ModelProfileSpec) -> u64 {
     profile.assets.iter().map(|asset| asset.size_bytes).sum()
 }
 
-fn partial_file_size(local_path: &Path) -> u64 {
-    std::fs::metadata(local_path.with_extension("part"))
-        .map(|metadata| metadata.len())
-        .unwrap_or(0)
-}
-
 fn completed_staging_bytes(profile: &ModelProfileSpec, staging: &Path) -> u64 {
     profile
         .assets
@@ -1028,6 +1523,28 @@ fn staging_root(root: &Path) -> PathBuf {
         .and_then(|name| name.to_str())
         .unwrap_or("model");
     root.with_file_name(format!(".{file_name}.download"))
+}
+
+fn cleanup_staging_download_partials(
+    profile: &ModelProfileSpec,
+    root: &Path,
+) -> anyhow::Result<()> {
+    for asset in profile.assets {
+        let local_path = root.join(asset.local_path);
+        let single_part = local_path.with_extension("part");
+        if single_part.exists() {
+            std::fs::remove_file(&single_part)
+                .with_context(|| format!("failed to remove {}", single_part.display()))?;
+        }
+        for index in 0..DIRECT_DOWNLOAD_MAX_THREADS {
+            let chunk_part = chunk_part_path(&local_path, index);
+            if chunk_part.exists() {
+                std::fs::remove_file(&chunk_part)
+                    .with_context(|| format!("failed to remove {}", chunk_part.display()))?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn promote_staging_root(staging: &Path, root: &Path) -> anyhow::Result<()> {
@@ -1082,6 +1599,8 @@ fn sha256_file(path: &Path) -> anyhow::Result<String> {
 mod tests {
     use super::*;
 
+    const TEST_DOWNLOAD_THREAD_STACK_BYTES: usize = 64 * 1024 * 1024;
+
     fn unique_temp_root(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
             "{name}-{}",
@@ -1090,6 +1609,20 @@ mod tests {
                 .expect("system clock should be valid")
                 .as_nanos()
         ))
+    }
+
+    fn run_download_on_large_stack<T, F>(f: F) -> T
+    where
+        T: Send + 'static,
+        F: FnOnce() -> T + Send + 'static,
+    {
+        std::thread::Builder::new()
+            .name("model-assets-real-download-test".to_string())
+            .stack_size(TEST_DOWNLOAD_THREAD_STACK_BYTES)
+            .spawn(f)
+            .expect("real download test thread should spawn")
+            .join()
+            .expect("real download test thread should not panic")
     }
 
     #[test]
@@ -1121,6 +1654,68 @@ mod tests {
     }
 
     #[test]
+    fn download_source_classifier_reports_mirror_and_official_sources() {
+        assert_eq!(
+            classify_download_source("https://hf-mirror.com/plhery/mobileclip2-onnx"),
+            "hf-mirror.com"
+        );
+        assert_eq!(
+            classify_download_source("https://huggingface.co/plhery/mobileclip2-onnx"),
+            "huggingface.co"
+        );
+        assert_eq!(
+            classify_download_source("https://models.example.invalid/cache"),
+            "https://models.example.invalid/cache"
+        );
+    }
+
+    #[test]
+    fn redirect_join_handles_absolute_root_relative_and_file_relative_locations() {
+        assert_eq!(
+            join_redirect_url(
+                "https://hf-mirror.com/repo/resolve/rev/model.onnx",
+                "https://huggingface.co/repo/resolve/rev/model.onnx"
+            )
+            .expect("absolute redirect should parse"),
+            "https://huggingface.co/repo/resolve/rev/model.onnx"
+        );
+        assert_eq!(
+            join_redirect_url(
+                "https://hf-mirror.com/repo/resolve/rev/model.onnx",
+                "/repo/resolve/rev/model.onnx"
+            )
+            .expect("root-relative redirect should parse"),
+            "https://hf-mirror.com/repo/resolve/rev/model.onnx"
+        );
+        assert_eq!(
+            join_redirect_url(
+                "https://hf-mirror.com/repo/resolve/rev/model.onnx",
+                "model-v2.onnx"
+            )
+            .expect("file-relative redirect should parse"),
+            "https://hf-mirror.com/repo/resolve/rev/model-v2.onnx"
+        );
+    }
+
+    #[test]
+    fn large_range_downloads_are_split_into_stable_chunks() {
+        let local_path = PathBuf::from("model.onnx");
+        let chunks = plan_download_chunks(&local_path, 400 * 1024 * 1024, 8);
+        assert_eq!(chunks.len(), 8);
+        assert_eq!(chunks.first().expect("first chunk").start, 0);
+        assert_eq!(
+            chunks.last().expect("last chunk").end,
+            400 * 1024 * 1024 - 1
+        );
+        assert_eq!(chunks.iter().map(chunk_len).sum::<u64>(), 400 * 1024 * 1024);
+        assert!(
+            chunks
+                .iter()
+                .all(|chunk| chunk.part_path.to_string_lossy().contains(".part."))
+        );
+    }
+
+    #[test]
     fn profile_listing_reports_missing_models_without_downloading() {
         let root = unique_temp_root("alcedo-mind-profile-list");
         let profiles = list_profiles(Some(&root));
@@ -1136,26 +1731,29 @@ mod tests {
     #[ignore = "downloads real model assets from hf-mirror.com"]
     fn ignored_downloads_mobileclip_from_mirror_with_progress() {
         let root = unique_temp_root("alcedo-mind-real-mobileclip-download");
-        let mut saw_byte_progress = false;
-        let mut last_progress = ModelDownloadProgress::default();
-
-        let manifest = download_model_profile_with_progress(
-            MOBILECLIP2_ONNX_PROFILE,
-            &root,
-            "https://hf-mirror.com",
-            None,
-            |progress| {
-                if progress.phase == "downloading"
-                    && progress.bytes_total > 0
-                    && progress.bytes_downloaded > 0
-                {
-                    saw_byte_progress = true;
-                }
-                last_progress = progress;
-                Ok(())
-            },
-        )
-        .expect("real mirror download should complete");
+        let root_for_thread = root.clone();
+        let (manifest, saw_byte_progress, last_progress) = run_download_on_large_stack(move || {
+            let mut saw_byte_progress = false;
+            let mut last_progress = ModelDownloadProgress::default();
+            let manifest = download_model_profile_with_progress(
+                MOBILECLIP2_ONNX_PROFILE,
+                &root_for_thread,
+                "https://hf-mirror.com",
+                None,
+                |progress| {
+                    if progress.phase == "downloading"
+                        && progress.bytes_total > 0
+                        && progress.bytes_downloaded > 0
+                    {
+                        saw_byte_progress = true;
+                    }
+                    last_progress = progress;
+                    Ok(())
+                },
+            )
+            .expect("real mirror download should complete");
+            (manifest, saw_byte_progress, last_progress)
+        });
 
         assert!(saw_byte_progress);
         assert_eq!(last_progress.phase, "installed");
@@ -1172,14 +1770,17 @@ mod tests {
     #[ignore = "downloads real Jina CLIP v2 assets from hf-mirror.com"]
     fn ignored_downloads_jina_profile_with_512_matryoshka_contract() {
         let root = unique_temp_root("alcedo-mind-real-jina-download");
-        let manifest = download_model_profile_with_progress(
-            "jina-clip-v2-int8-multilingual",
-            &root,
-            "https://hf-mirror.com",
-            None,
-            |_| Ok(()),
-        )
-        .expect("real Jina mirror download should complete");
+        let root_for_thread = root.clone();
+        let manifest = run_download_on_large_stack(move || {
+            download_model_profile_with_progress(
+                "jina-clip-v2-int8-multilingual",
+                &root_for_thread,
+                "https://hf-mirror.com",
+                None,
+                |_| Ok(()),
+            )
+            .expect("real Jina mirror download should complete")
+        });
 
         assert_eq!(manifest.embedding_dimension, 512);
         assert_eq!(manifest.native_embedding_dimension, 1024);
