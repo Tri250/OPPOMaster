@@ -27,6 +27,8 @@ Popup {
     property string statusText: ""
     property Item backgroundSource: null
     property bool startTransitionPending: false
+    property real elapsedSecs: 0
+    property var generationStart: null
 
     signal startRequested(bool rememberChoice)
     signal skipRequested(bool rememberChoice)
@@ -35,6 +37,12 @@ Popup {
     readonly property int completed: embedded + skipped + failed + canceled
     readonly property real progressValue: total > 0 ? completed / total : 0
     readonly property bool showingGeneration: generationRunning || startTransitionPending
+    // Rough ETA: batch size is fixed (64 or 4), so once the first batch lands the
+    // completion rate stabilizes and remaining time = remaining / rate.
+    readonly property real processingRate: (elapsedSecs > 0 && completed > 0)
+                                           ? completed / elapsedSecs : 0
+    readonly property real remainingSecs: processingRate > 0
+                                          ? (total - completed) / processingRate : 0
     readonly property color panelColor: appTheme.toneGraphite
     readonly property color sectionColor: appTheme.bgBaseColor
     readonly property color textColor: appTheme.textColor
@@ -46,6 +54,14 @@ Popup {
         if (generationRunning || !promptVisible) {
             startTransitionPending = false
         }
+        if (generationRunning) {
+            generationStart = Date.now()
+            elapsedSecs = 0
+            etaTimer.start()
+        } else {
+            etaTimer.stop()
+            generationStart = null
+        }
     }
 
     onPromptVisibleChanged: {
@@ -55,6 +71,32 @@ Popup {
     }
 
     onClosed: startTransitionPending = false
+
+    function _pad2(n) {
+        n = Math.floor(n)
+        return n < 10 ? "0" + n : "" + n
+    }
+
+    function formatDuration(secs) {
+        var s = Math.max(0, Math.floor(secs))
+        var h = Math.floor(s / 3600)
+        var m = Math.floor((s % 3600) / 60)
+        if (h > 0) {
+            return h + ":" + _pad2(m) + ":" + _pad2(s % 60)
+        }
+        return _pad2(m) + ":" + _pad2(s % 60)
+    }
+
+    Timer {
+        id: etaTimer
+        interval: 1000
+        repeat: true
+        onTriggered: {
+            if (root.generationStart !== null) {
+                root.elapsedSecs = Math.max(0, (Date.now() - root.generationStart) / 1000)
+            }
+        }
+    }
 
     Overlay.modal: Item {
         anchors.fill: parent
@@ -147,6 +189,22 @@ Popup {
                 font.family: root.dataFontFamily
                 font.pixelSize: 22
                 font.weight: 700
+            }
+
+            Label {
+                Layout.alignment: Qt.AlignHCenter
+                visible: root.generationRunning && root.generationStart !== null
+                text: {
+                    var elapsed = root.formatDuration(root.elapsedSecs)
+                    if (root.completed > 0 && root.processingRate > 0) {
+                        var rem = root.formatDuration(root.remainingSecs)
+                        return qsTr("Elapsed %1 · ~%2 remaining").arg(elapsed).arg(rem)
+                    }
+                    return qsTr("Elapsed %1 · estimating…").arg(elapsed)
+                }
+                color: root.mutedTextColor
+                font.pixelSize: 12
+                font.weight: 500
             }
         }
 

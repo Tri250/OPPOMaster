@@ -40,6 +40,52 @@ ColumnLayout {
                                              + semanticController.canceled
                                            : 0
     readonly property real progressValue: progressTotal > 0 ? progressCompleted / progressTotal : 0
+    property real elapsedSecs: 0
+    property var generationStart: null
+    // Rough ETA: batch size is fixed (64 or 4), so once the first batch lands the
+    // completion rate stabilizes and remaining time = remaining / rate.
+    readonly property real processingRate: (elapsedSecs > 0 && progressCompleted > 0)
+                                           ? progressCompleted / elapsedSecs : 0
+    readonly property real remainingSecs: processingRate > 0
+                                          ? (progressTotal - progressCompleted) / processingRate
+                                          : 0
+
+    onGenerationRunningChanged: {
+        if (generationRunning) {
+            generationStart = Date.now()
+            elapsedSecs = 0
+            etaTimer.start()
+        } else {
+            etaTimer.stop()
+            generationStart = null
+        }
+    }
+
+    function _pad2(n) {
+        n = Math.floor(n)
+        return n < 10 ? "0" + n : "" + n
+    }
+
+    function formatDuration(secs) {
+        var s = Math.max(0, Math.floor(secs))
+        var h = Math.floor(s / 3600)
+        var m = Math.floor((s % 3600) / 60)
+        if (h > 0) {
+            return h + ":" + _pad2(m) + ":" + _pad2(s % 60)
+        }
+        return _pad2(m) + ":" + _pad2(s % 60)
+    }
+
+    Timer {
+        id: etaTimer
+        interval: 1000
+        repeat: true
+        onTriggered: {
+            if (panel.generationStart !== null) {
+                panel.elapsedSecs = Math.max(0, (Date.now() - panel.generationStart) / 1000)
+            }
+        }
+    }
 
     width: parent ? parent.width : implicitWidth
     spacing: 20
@@ -190,6 +236,21 @@ ColumnLayout {
                     font.family: panel.dataFontFamily
                     font.pixelSize: 13
                     font.weight: 700
+                }
+
+                Label {
+                    visible: panel.generationRunning && panel.generationStart !== null
+                    text: {
+                        var elapsed = panel.formatDuration(panel.elapsedSecs)
+                        if (panel.progressCompleted > 0 && panel.processingRate > 0) {
+                            var rem = panel.formatDuration(panel.remainingSecs)
+                            return qsTr("Elapsed %1 · ~%2 remaining").arg(elapsed).arg(rem)
+                        }
+                        return qsTr("Elapsed %1 · estimating…").arg(elapsed)
+                    }
+                    color: panel.mutedTextColor
+                    font.pixelSize: 12
+                    font.weight: 500
                 }
             }
 
