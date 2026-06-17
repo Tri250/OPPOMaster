@@ -127,8 +127,11 @@ ColumnLayout {
         if (preset === "huggingface") {
             return 1
         }
-        if (preset === "custom") {
+        if (preset === "sufy") {
             return 2
+        }
+        if (preset === "custom") {
+            return 3
         }
         return 0
     }
@@ -138,6 +141,9 @@ ColumnLayout {
             return "huggingface"
         }
         if (index === 2) {
+            return "sufy"
+        }
+        if (index === 3) {
             return "custom"
         }
         return "mirror"
@@ -508,6 +514,7 @@ ColumnLayout {
                 model: [
                     qsTr("HF Mirror"),
                     qsTr("Hugging Face"),
+                    qsTr("Sufy CDN"),
                     qsTr("Custom")
                 ]
                 currentIndex: panel.hasController

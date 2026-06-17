@@ -333,7 +333,8 @@ auto LoadLocalResolvedModelManifestImpl(const QString& profile_id, const QString
 
 auto NormalizedEndpointPreset(QString preset) -> QString {
   preset = preset.trimmed().toLower();
-  if (preset == QLatin1String("huggingface") || preset == QLatin1String("custom")) {
+  if (preset == QLatin1String("huggingface") || preset == QLatin1String("sufy")
+      || preset == QLatin1String("custom")) {
     return preset;
   }
   return QStringLiteral("mirror");
@@ -343,6 +344,9 @@ auto EndpointForPreset(const QString& preset, const QString& custom_endpoint) ->
   const QString normalized = NormalizedEndpointPreset(preset);
   if (normalized == QLatin1String("huggingface")) {
     return QStringLiteral("https://huggingface.co");
+  }
+  if (normalized == QLatin1String("sufy")) {
+    return QStringLiteral("https://hf-cdn.sufy.com");
   }
   if (normalized == QLatin1String("custom") && !custom_endpoint.trimmed().isEmpty()) {
     return custom_endpoint.trimmed();

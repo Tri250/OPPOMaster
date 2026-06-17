@@ -222,7 +222,17 @@ class ModelDownloadWorker final : public QObject {
          << QString::number(port) << QStringLiteral("--rpc-secret") << secret
          << QStringLiteral("--rpc-allow-origin-all") << QStringLiteral("--quiet")
          << QStringLiteral("--max-concurrent-downloads=1") << QStringLiteral("--max-tries=5")
-         << QStringLiteral("--retry-wait=2") << QStringLiteral("--file-allocation=none");
+         << QStringLiteral("--retry-wait=2") << QStringLiteral("--file-allocation=none")
+         // HF mirrors (hf-mirror.com, hf-cdn.sufy.com) routinely let individual
+         // TCP connections stall mid-transfer without closing or erroring — the
+         // socket just goes silent. Without the three options below aria2 waits
+         // on those stalled segments forever, so completedLength freezes (e.g.
+         // at 62% of a large .onnx) and the download hangs in "active" state
+         // indefinitely. --lowest-speed-limit turns a stall into a retryable
+         // failure; --timeout/--connect-timeout bound the wait so max-tries can
+         // eventually kick in and surface a real error.
+         << QStringLiteral("--connect-timeout=30") << QStringLiteral("--timeout=60")
+         << QStringLiteral("--lowest-speed-limit=10K");
     process.setProgram(QString::fromStdString(binary.string()));
     process.setArguments(args);
     process.start();
@@ -232,7 +242,10 @@ class ModelDownloadWorker final : public QObject {
     }
 
     Aria2Rpc rpc;
-    const QUrl rpc_url(QStringLiteral("ws://127.0.0.1:%1/jsonrpc").arg(port));
+    // aria2's /jsonrpc endpoint is served over plain HTTP (it also speaks
+    // WebSocket, but we POST JSON-RPC via QNetworkAccessManager, which only
+    // understands http/https — ws:// would fail at the transport layer).
+    const QUrl rpc_url(QStringLiteral("http://127.0.0.1:%1/jsonrpc").arg(port));
     if (!WaitForRpc(rpc, rpc_url, secret)) {
       StopProcessOnly(process);
       emit Finished(false, QStringLiteral("aria2c RPC did not become ready"));
@@ -389,6 +402,13 @@ class ModelDownloadWorker final : public QObject {
     const QJsonArray status_keys{QStringLiteral("status"), QStringLiteral("totalLength"),
                                  QStringLiteral("completedLength"), QStringLiteral("errorCode"),
                                  QStringLiteral("errorMessage")};
+    // Backstop stall guard: even with aria2's --lowest-speed-limit, a mirror
+    // can leave every segment simultaneously stalled. Track the last time
+    // completedLength actually advanced and bail out (with a retryable-looking
+    // error) if it goes silent for too long, so we never spin forever.
+    constexpr int kStallTimeoutMs = 120000;
+    std::uint64_t            last_completed   = 0;
+    auto                     last_progress_at = std::chrono::steady_clock::now();
     while (true) {
       if (cancel_flag_.load()) {
         rpc.call(QStringLiteral("aria2.remove"), QJsonArray{rpc.secret(), gid}, 2000);
@@ -404,6 +424,10 @@ class ModelDownloadWorker final : public QObject {
       const std::uint64_t completed =
           status.value(QStringLiteral("completedLength")).toString().toULongLong();
       const std::uint64_t clamped = std::min(completed, asset.size_bytes);
+      if (completed != last_completed) {
+        last_completed   = completed;
+        last_progress_at = std::chrono::steady_clock::now();
+      }
 
       EmitProgress(rpc, profile, "downloading", asset.remote_path,
                    bytes_before + clamped, bytes_total, static_cast<std::uint32_t>(index),
@@ -418,6 +442,13 @@ class ModelDownloadWorker final : public QObject {
         return QStringLiteral("aria2 failed to download %1: %2")
             .arg(QString::fromLatin1(asset.remote_path))
             .arg(msg.isEmpty() ? state : msg);
+      }
+      if (std::chrono::steady_clock::now() - last_progress_at
+          > std::chrono::milliseconds(kStallTimeoutMs)) {
+        rpc.call(QStringLiteral("aria2.remove"), QJsonArray{rpc.secret(), gid}, 2000);
+        return QStringLiteral("download of %1 stalled (no progress for %2 s); mirror may be throttling")
+            .arg(QString::fromLatin1(asset.remote_path))
+            .arg(kStallTimeoutMs / 1000);
       }
       QThread::msleep(kAria2ProgressPollMs);
     }
