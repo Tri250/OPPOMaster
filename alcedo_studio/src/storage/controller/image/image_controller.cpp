@@ -53,6 +53,10 @@ void ImageController::CaptureImagePool(std::shared_ptr<ImagePoolManager> image_p
  */
 void ImageController::AddImage(std::shared_ptr<Image> image) { service_.Insert(image); }
 
+void ImageController::AddImages(std::span<const std::shared_ptr<Image>> images) {
+  service_.InsertBatch(images);
+}
+
 /**
  * @brief Remove an image by its ID.
  *
@@ -84,6 +88,11 @@ void ImageController::RemoveImageByPath(const std::wstring& path) {
 
 void ImageController::UpdateImage(const std::shared_ptr<Image> image) {
   service_.Update(image, image->image_id_);
+}
+
+void ImageController::UpdateImages(
+    std::span<const std::pair<image_id_t, std::shared_ptr<Image>>> updates) {
+  service_.UpdateBatch(updates);
 }
 
 /**

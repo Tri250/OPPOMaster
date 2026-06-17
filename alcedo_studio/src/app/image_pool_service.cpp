@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <utility>
 #include <vector>
 
 #include "image/image.hpp"
@@ -81,34 +82,73 @@ void ImagePoolService::RemoveBatch(std::span<const image_id_t> image_ids) {
 }
 
 auto ImagePoolService::SyncWithStorage() -> ImagePoolSyncStatus {
-  std::unique_lock        lock(pool_lock_);
-  auto&                   img_ctrl = storage_service_->GetImageController();
+  std::unique_lock lock(pool_lock_);
+  auto&            img_ctrl = storage_service_->GetImageController();
 
-  std::vector<image_id_t> to_remove;
-  ImagePoolSyncStatus     status;
+  // Classify the pool first so each sync state can be flushed as one batched
+  // transaction instead of one autocommit transaction per image.
+  std::vector<std::shared_ptr<Image>>                        to_insert;
+  std::vector<std::pair<image_id_t, std::shared_ptr<Image>>> to_update;
+  std::vector<image_id_t>                                    to_remove;
   for (auto& [id, img] : pool_manager_->GetPool()) {
-    if (img->GetSyncState() == ImageSyncState::UNSYNCED) {
-      try {
-        img_ctrl.AddImage(img);
+    switch (img->GetSyncState()) {
+      case ImageSyncState::UNSYNCED:
+        to_insert.push_back(img);
+        break;
+      case ImageSyncState::MODIFIED:
+        to_update.emplace_back(id, img);
+        break;
+      case ImageSyncState::DELETED:
+        to_remove.push_back(id);
+        break;
+      default:
+        break;
+    }
+  }
+
+  ImagePoolSyncStatus status;
+
+  // Insert the whole batch in a single transaction. If the batch fails (for example
+  // one row violates a constraint), fall back to per-row inserts so the individual
+  // failure is isolated and the remaining valid images still persist.
+  if (!to_insert.empty()) {
+    try {
+      img_ctrl.AddImages(to_insert);
+      for (auto& img : to_insert) {
+        img->MarkSyncState(ImageSyncState::SYNCED);
+        status.synced_images_.push_back(img->image_id_);
+      }
+    } catch (const std::exception&) {
+      for (auto& img : to_insert) {
+        try {
+          img_ctrl.AddImage(img);
+          img->MarkSyncState(ImageSyncState::SYNCED);
+          status.synced_images_.push_back(img->image_id_);
+        } catch (const std::exception& e) {
+          status.failed_images_.push_back({img->image_id_, e.what()});
+        }
+      }
+    }
+  }
+
+  // Update the whole batch in a single transaction, with the same per-row fallback.
+  if (!to_update.empty()) {
+    try {
+      img_ctrl.UpdateImages(to_update);
+      for (auto& [id, img] : to_update) {
         img->MarkSyncState(ImageSyncState::SYNCED);
         status.synced_images_.push_back(id);
-      } catch (std::exception& e) {
-        // TODO: Log the error
-        status.failed_images_.push_back({id, e.what()});
-        continue;
       }
-    } else if (img->GetSyncState() == ImageSyncState::MODIFIED) {
-      try {
-        img_ctrl.UpdateImage(img);
-        img->MarkSyncState(ImageSyncState::SYNCED);
-        status.synced_images_.push_back(id);
-      } catch (std::exception& e) {
-        // TODO: Log the error
-        status.failed_images_.push_back({id, e.what()});
-        continue;
+    } catch (const std::exception&) {
+      for (auto& [id, img] : to_update) {
+        try {
+          img_ctrl.UpdateImage(img);
+          img->MarkSyncState(ImageSyncState::SYNCED);
+          status.synced_images_.push_back(id);
+        } catch (const std::exception& e) {
+          status.failed_images_.push_back({id, e.what()});
+        }
       }
-    } else if (img->GetSyncState() == ImageSyncState::DELETED) {
-      to_remove.push_back(id);
     }
   }
 

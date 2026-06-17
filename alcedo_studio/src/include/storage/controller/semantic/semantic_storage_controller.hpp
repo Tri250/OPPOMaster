@@ -110,6 +110,17 @@ class SemanticStorageController {
       const SemanticLabelAssignmentOptions& assignment_options,
       SemanticImageLabelRecord* assigned_label = nullptr, std::string* error = nullptr) const
       -> bool;
+  // Batched variant: persists a whole embedding-batch worth of records in a single
+  // DuckDB transaction using the Appender bulk-insert path, and assigns labels for
+  // every record with one windowed SQL query. `assigned_labels` (if provided) is
+  // resized to `records.size()` and filled in input order. Per-row transactions are
+  // the dominant cost for DuckDB, so callers with more than one record should prefer
+  // this over the single-row upsert.
+  [[nodiscard]] auto UpsertImageEmbeddingsAndAssignLabels(
+      std::span<const SemanticImageEmbeddingRecord>   records,
+      const SemanticLabelAssignmentOptions&           assignment_options,
+      std::vector<SemanticImageLabelRecord>* assigned_labels = nullptr,
+      std::string* error = nullptr) const -> bool;
   [[nodiscard]] auto UpsertLabelPrototype(const SemanticLabelPrototypeRecord& record,
                                           std::string* error = nullptr) const -> bool;
   [[nodiscard]] auto UpsertLabelPrototypes(std::span<const SemanticLabelPrototypeRecord> records,

@@ -17,6 +17,7 @@
 #include "sleeve/sleeve_element/sleeve_element.hpp"
 #include "sleeve/sleeve_element/sleeve_file.hpp"
 #include "sleeve/sleeve_element/sleeve_folder.hpp"
+#include "storage/mapper/duckorm/duckdb_orm.hpp"
 #include "type/type.hpp"
 #include "utils/string/convert.hpp"
 
@@ -152,6 +153,11 @@ ElementController::ElementController(ConnectionGuard&& guard)
  * @param element
  */
 void ElementController::AddElement(const std::shared_ptr<SleeveElement> element) {
+  InsertElementRows(element);
+  element->sync_flag_ = SyncFlag::SYNCED;
+}
+
+void ElementController::InsertElementRows(const std::shared_ptr<SleeveElement>& element) {
   element_service_.Insert(element);
   if (element->type_ == ElementType::FILE) {
     auto file = std::static_pointer_cast<SleeveFile>(element);
@@ -167,7 +173,25 @@ void ElementController::AddElement(const std::shared_ptr<SleeveElement> element)
       folder_service_.Insert({folder->element_id_, content_id});
     }
   }
-  element->sync_flag_ = SyncFlag::SYNCED;
+}
+
+void ElementController::AddElements(std::span<const std::shared_ptr<SleeveElement>> elements) {
+  if (elements.empty()) {
+    return;
+  }
+  duckorm::begin_transaction(guard_.conn_);
+  try {
+    for (const auto& element : elements) {
+      InsertElementRows(element);
+    }
+    duckorm::commit_transaction(guard_.conn_);
+  } catch (...) {
+    duckorm::rollback_transaction(guard_.conn_);
+    throw;
+  }
+  for (const auto& element : elements) {
+    element->sync_flag_ = SyncFlag::SYNCED;
+  }
 }
 
 /**
@@ -289,6 +313,11 @@ void ElementController::RemoveElements(std::span<const std::shared_ptr<SleeveEle
  * @param element
  */
 void ElementController::UpdateElement(const std::shared_ptr<SleeveElement> element) {
+  UpdateElementRows(element);
+  element->sync_flag_ = SyncFlag::SYNCED;
+}
+
+void ElementController::UpdateElementRows(const std::shared_ptr<SleeveElement>& element) {
   element_service_.Update(element, element->element_id_);
   if (element->type_ == ElementType::FILE) {
     auto file = std::static_pointer_cast<SleeveFile>(element);
@@ -303,7 +332,25 @@ void ElementController::UpdateElement(const std::shared_ptr<SleeveElement> eleme
       AddFolderContent(folder->element_id_, content_id);
     }
   }
-  element->sync_flag_ = SyncFlag::SYNCED;
+}
+
+void ElementController::UpdateElements(std::span<const std::shared_ptr<SleeveElement>> elements) {
+  if (elements.empty()) {
+    return;
+  }
+  duckorm::begin_transaction(guard_.conn_);
+  try {
+    for (const auto& element : elements) {
+      UpdateElementRows(element);
+    }
+    duckorm::commit_transaction(guard_.conn_);
+  } catch (...) {
+    duckorm::rollback_transaction(guard_.conn_);
+    throw;
+  }
+  for (const auto& element : elements) {
+    element->sync_flag_ = SyncFlag::SYNCED;
+  }
 }
 
 auto ElementController::GetElementsInFolderByFilter(const std::shared_ptr<FilterCombo> filter,

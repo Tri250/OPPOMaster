@@ -128,7 +128,10 @@
       "PowerShell(cmd /c scripts\\\\msvc_env.cmd --build --preset win_debug --parallel 4 --target ThumbnailService 2>&1)",
       "PowerShell(cmd /c scripts\\\\msvc_env.cmd --build --preset win_debug --parallel 4 --target ThumbnailServiceTest 2>&1)",
       "Bash(git diff *)",
-      "PowerShell(Get-Content *)"
+      "PowerShell(Get-Content *)",
+      "WebFetch(domain:duckdb.org)",
+      "WebSearch",
+      "Bash(ninja -j4 alcedo_studio/src/CMakeFiles/StorageService.dir/storage/controller/semantic/semantic_storage_controller.cpp.obj alcedo_studio/src/CMakeFiles/SemanticGenerationService.dir/app/semantic_generation_service.cpp.obj)"
     ]
   }
 }
