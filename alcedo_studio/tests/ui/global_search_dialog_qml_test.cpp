@@ -576,9 +576,8 @@ TEST_F(GlobalSearchDialogQmlTests, SearchControllerClassifiesAndRoutesBySemantic
   EXPECT_TRUE(
       QSettings{}.value(QStringLiteral("search/semanticEnabled"), false).toBool());
 
-  // SubmitSearch routing: semantic route surfaces an unavailable state when no
-  // provider is registered (5D wires the concrete provider); it must not fall
-  // back to a C++ vector scan.
+  // SubmitSearch routing: semantic route surfaces an unavailable state when the
+  // active model/runtime path is not ready; it must not fall back to a C++ vector scan.
   const auto semanticResp = searchController->SubmitSearch(
       QStringLiteral("sunset over the mountains"), 0, kPageSize);
   EXPECT_EQ(semanticResp.value("route").toString().toStdString(), "semantic");

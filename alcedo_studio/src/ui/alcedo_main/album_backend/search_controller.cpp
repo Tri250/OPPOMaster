@@ -13,7 +13,9 @@
 #include <algorithm>
 #include <exception>
 #include <limits>
+#include <memory>
 #include <thread>
+#include <utility>
 
 #include "app/thumbnail_service.hpp"
 #include "app/search_query_classifier.hpp"
@@ -59,6 +61,83 @@ auto MakeEmptyResponse(int offset, int limit, const std::string& route_name) -> 
                     {"total", 0},
                     {"hasMore", false},
                     {"route", QString::fromStdString(route_name)}};
+}
+
+struct SearchTask {
+  QString                              query;
+  std::wstring                         query_w;
+  int                                  offset = 0;
+  int                                  limit  = 0;
+  bool                                 submit = false;
+  SearchQueryClassification            classification;
+  std::string                          route_name;
+  std::optional<sl_element_id_t>       folder_id;
+  std::shared_ptr<SleeveFilterService> semantic_filter_service;
+};
+
+struct SearchCoreResult {
+  QVariantMap                   response;
+  std::vector<FuzzySearchMatch> matches;
+};
+
+auto ExecuteSearchTask(const SearchTask& task) -> SearchCoreResult {
+  SearchCoreResult result{MakeEmptyResponse(task.offset, task.limit, task.route_name), {}};
+
+  if (task.classification.route_ == SearchQueryRoute::Empty) {
+    if (task.submit) {
+      result.response["recommendations"] = true;
+    }
+    return result;
+  }
+
+  if (!task.submit && task.classification.route_ == SearchQueryRoute::Semantic) {
+    result.response["awaitingSubmit"] = true;
+    return result;
+  }
+
+  if (task.limit <= 0) {
+    return result;
+  }
+  if (task.classification.route_ != SearchQueryRoute::Semantic) {
+    result.response["semanticUnavailable"] = true;
+    return result;
+  }
+
+  if (!task.folder_id.has_value()) {
+    result.response["semanticUnavailable"] = true;
+    return result;
+  }
+
+  if (task.classification.too_long_) {
+    result.response["tooLong"] = true;
+    return result;
+  }
+  if (!task.semantic_filter_service ||
+      !task.semantic_filter_service->HasSemanticSearchProvider()) {
+    result.response["semanticUnavailable"] = true;
+    return result;
+  }
+
+  try {
+    const auto safe_offset = static_cast<size_t>(std::max(0, task.offset));
+    const auto safe_limit  = static_cast<size_t>(std::max(0, task.limit));
+    result.matches = task.semantic_filter_service->SearchFolderSemantic(
+        task.folder_id.value(), task.query_w, safe_offset, safe_limit);
+    const bool has_more = safe_limit > 0 && result.matches.size() == safe_limit;
+    const auto approximate_total =
+        safe_offset + result.matches.size() + (has_more ? static_cast<size_t>(1) : 0U);
+    result.response["offset"]  = std::max(0, task.offset);
+    result.response["limit"]   = std::max(0, task.limit);
+    result.response["total"]   = static_cast<int>(std::min<size_t>(
+        approximate_total, static_cast<size_t>(std::numeric_limits<int>::max())));
+    result.response["hasMore"] = has_more;
+  } catch (const std::exception& e) {
+    result.response["semanticUnavailable"] = true;
+    result.response["semanticErrorText"]   = QString::fromUtf8(e.what());
+  } catch (...) {
+    result.response["semanticUnavailable"] = true;
+  }
+  return result;
 }
 
 }  // namespace
@@ -225,8 +304,7 @@ auto SearchController::SubmitSearch(const QString& query, int offset, int limit)
 
   // Semantic route: the only path that may reach the semantic provider. Guard
   // the prompt length before embedding, and surface a clean unavailable state
-  // when no provider is registered (5D wires the concrete provider) rather than
-  // silently falling back to a C++ vector scan.
+  // instead of silently falling back to a C++ vector scan.
   if (classification.too_long_) {
     auto response  = MakeEmptyResponse(offset, limit, route_name);
     response["tooLong"] = true;
@@ -249,14 +327,84 @@ auto SearchController::SubmitSearch(const QString& query, int offset, int limit)
     const auto safe_limit  = static_cast<size_t>(std::max(0, limit));
     const auto matches     = filter_service->SearchFolderSemantic(
         folder_id.value(), trimmed.toStdWString(), safe_offset, safe_limit);
+    const bool has_more = safe_limit > 0 && matches.size() == safe_limit;
+    const auto approximate_total =
+        safe_offset + matches.size() + (has_more ? static_cast<size_t>(1) : static_cast<size_t>(0));
     response["offset"]  = std::max(0, offset);
     response["limit"]   = std::max(0, limit);
-    response["hasMore"] = safe_limit > 0 && matches.size() == safe_limit;
+    response["total"]   = static_cast<int>(std::min<size_t>(
+        approximate_total, static_cast<size_t>(std::numeric_limits<int>::max())));
+    response["hasMore"] = has_more;
     rows                = BuildResultRows(matches);
+  } catch (const std::exception& e) {
+    response["semanticUnavailable"] = true;
+    response["semanticErrorText"]   = QString::fromUtf8(e.what());
   } catch (...) {
+    response["semanticUnavailable"] = true;
   }
   response["rows"] = rows;
   return response;
+}
+
+auto SearchController::RequestSubmitSearch(const QString& query, int offset, int limit,
+                                           const QString& mode) -> qulonglong {
+  return RequestSearch(query, offset, limit, mode, true);
+}
+
+auto SearchController::RequestSearch(const QString& query, int offset, int limit,
+                                     const QString& mode, bool submit) -> qulonglong {
+  const auto request_id = static_cast<qulonglong>(++search_response_request_sequence_);
+  const auto trimmed    = query.trimmed();
+  const auto classification = ClassifySearchQuery(trimmed.toStdWString(), semantic_search_enabled_);
+
+  if (!submit || classification.route_ != SearchQueryRoute::Semantic) {
+    auto response = submit ? SubmitSearch(trimmed, offset, limit)
+                           : SearchPreview(trimmed, offset, limit);
+    QMetaObject::invokeMethod(
+        this,
+        [this, request_id, mode, response = std::move(response)]() {
+          emit SearchResponseReady(request_id, mode, response);
+          emit searchResponseReady(request_id, mode, response);
+        },
+        Qt::QueuedConnection);
+    return request_id;
+  }
+
+  auto       task       = SearchTask{
+            .query          = trimmed,
+            .query_w        = trimmed.toStdWString(),
+            .offset         = offset,
+            .limit          = limit,
+            .submit         = submit,
+            .classification = classification,
+  };
+  task.route_name = std::string(SearchQueryRouteName(task.classification.route_));
+
+  if (auto project = backend_.project_handler_.project()) {
+    task.semantic_filter_service = project->GetSleeveFilterService();
+  }
+  task.folder_id = backend_.folder_ctrl_.CurrentFolderElementId();
+
+  QPointer<SearchController> self(this);
+  std::thread([self, request_id, mode, task = std::move(task)]() mutable {
+    auto result = std::make_shared<SearchCoreResult>(ExecuteSearchTask(task));
+    if (!self) {
+      return;
+    }
+    QMetaObject::invokeMethod(
+        self,
+        [self, request_id, mode, result]() {
+          if (!self) {
+            return;
+          }
+          result->response["rows"] = self->BuildResultRows(result->matches);
+          emit self->SearchResponseReady(request_id, mode, result->response);
+          emit self->searchResponseReady(request_id, mode, result->response);
+        },
+        Qt::QueuedConnection);
+  }).detach();
+
+  return request_id;
 }
 
 auto SearchController::ClassifyQuery(const QString& query) const -> QString {

@@ -40,6 +40,9 @@ class SearchController final : public QObject {
   /// route this is the only path that may reach the semantic provider; typing
   /// (SearchPreview) never does.
   Q_INVOKABLE QVariantMap  SubmitSearch(const QString& query, int offset = 0, int limit = 24);
+  Q_INVOKABLE qulonglong   RequestSubmitSearch(const QString& query, int offset = 0,
+                                                int limit = 24,
+                                                const QString& mode = QStringLiteral("replace"));
   /// Stable route name for the current toggle: "empty"|"traditional"|"label"|
   /// "semantic". Centralizes routing in C++ so QML never decides runtime behavior.
   Q_INVOKABLE QString      ClassifyQuery(const QString& query) const;
@@ -59,6 +62,8 @@ class SearchController final : public QObject {
                                      bool missingSource, const QString& errorText);
   void searchPreviewThumbnailUpdated(uint elementId, const QString& dataUrl, bool loading,
                                      bool missingSource, const QString& errorText);
+  void SearchResponseReady(qulonglong requestId, const QString& mode, const QVariantMap& response);
+  void searchResponseReady(qulonglong requestId, const QString& mode, const QVariantMap& response);
 
  private:
   void RequestSearchPreviewThumbnail(uint elementId, uint imageId, uint maxEdge = 192);
@@ -70,11 +75,14 @@ class SearchController final : public QObject {
   /// Build enriched preview rows (thumbnails/EXIF) shared by the traditional and
   /// semantic preview paths.
   QVariantList BuildResultRows(const std::vector<alcedo::FuzzySearchMatch>& matches);
+  qulonglong   RequestSearch(const QString& query, int offset, int limit, const QString& mode,
+                              bool submit);
 
   AlbumBackend& backend_;
   QString       active_search_query_{};
   std::optional<std::wstring> active_search_filter_where_{};
   bool          semantic_search_enabled_ = false;
+  std::uint64_t search_response_request_sequence_ = 0;
   std::uint64_t search_preview_generation_       = 0;
   std::uint64_t search_preview_request_sequence_ = 0;
   std::unordered_map<ThumbnailCacheKey, image_id_t> search_preview_visible_thumbnails_{};

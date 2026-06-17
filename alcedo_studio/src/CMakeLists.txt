@@ -908,9 +908,15 @@ def_library(FSService
     PUBLIC_DEPS SleeveFS EditHistory
 )
 
+def_library(SleeveFilterService
+    SOURCES app/sleeve_filter_service.cpp
+            app/search_query_classifier.cpp
+    PUBLIC_DEPS SleeveElement StorageService SleeveFilter StrConv
+)
+
 def_library(AlbumBrowseService
     SOURCES app/album_browse_service.cpp
-    PUBLIC_DEPS FSService SleeveElement
+    PUBLIC_DEPS FSService SleeveElement SleeveFilterService
 )
 
 
@@ -963,7 +969,8 @@ def_library(ProjectService
         app/project_package_backend.cpp
         app/project_package_service.cpp
         ui/alcedo_main/album_backend/path_utils.cpp
-    PUBLIC_DEPS FSService StorageService ImagePoolService AlbumBrowseService SemanticRuntimeService
+    PUBLIC_DEPS FSService StorageService ImagePoolService AlbumBrowseService SleeveFilterService
+                SemanticRuntimeService
                 StrConv JSON xxHash stduuid
     PRIVATE_DEPS
         UiLocalization
@@ -1013,12 +1020,6 @@ def_library(ThumbnailDiskCacheService
 def_library(ExportService
     SOURCES app/export_service.cpp
     PUBLIC_DEPS ImageWriter ImageLoader ImagePoolService PipelineMgmtService PipelineScheduler ThreadPool
-)
-
-def_library(SleeveFilterService
-    SOURCES app/sleeve_filter_service.cpp
-            app/search_query_classifier.cpp
-    PUBLIC_DEPS SleeveElement StorageService SleeveFilter StrConv
 )
 
 # ==============================================================================

@@ -13,6 +13,8 @@
 #include <filesystem>
 #include <format>
 #include <iomanip>
+#include <limits>
+#include <locale>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -36,6 +38,13 @@
 
 namespace alcedo {
 namespace {
+constexpr size_t kSemanticSearchMinCandidatePool     = 512;
+constexpr size_t kSemanticSearchCutoffSampleLimit    = 256;
+constexpr double kSemanticFlatScoreSpanRatio         = 0.08;
+constexpr double kSemanticFallbackScoreSpanKeepRatio = 0.35;
+constexpr double kSemanticElbowGapToSpanRatio        = 0.18;
+constexpr double kSemanticElbowGapToMedianRatio      = 3.0;
+
 auto SqlString(const std::string& value) -> std::string {
   std::string out;
   out.reserve(value.size() + 2);
@@ -84,6 +93,85 @@ auto IdList(std::span<const sl_element_id_t> ids) -> std::string {
     out << ids[i];
   }
   return out.str();
+}
+
+auto RequestedCandidateLimit(size_t offset, size_t limit) -> size_t {
+  const auto max_size      = std::numeric_limits<size_t>::max();
+  const auto requested_end = offset > max_size - limit ? max_size : offset + limit;
+  return std::max(requested_end, kSemanticSearchMinCandidatePool);
+}
+
+auto SqlFloatArrayLiteral(std::span<const float> values) -> std::string {
+  std::ostringstream out;
+  out.imbue(std::locale::classic());
+  out << '[';
+  for (size_t i = 0; i < values.size(); ++i) {
+    if (i > 0) {
+      out << ',';
+    }
+    out << std::setprecision(9) << values[i];
+  }
+  out << "]::FLOAT[" << values.size() << ']';
+  return out.str();
+}
+
+auto SemanticSearchScoreCutoff(std::span<const SemanticRankedFile> ranked) -> double {
+  if (ranked.empty()) {
+    return 0.0;
+  }
+  if (ranked.size() <= 2) {
+    return ranked.back().score_;
+  }
+
+  const auto   sample_count = std::min(ranked.size(), kSemanticSearchCutoffSampleLimit);
+  const double top_score    = ranked.front().score_;
+  const double tail_score   = ranked[sample_count - 1].score_;
+  const double score_span   = top_score - tail_score;
+  if (score_span <= std::abs(top_score) * kSemanticFlatScoreSpanRatio) {
+    return tail_score;
+  }
+
+  std::vector<double> gaps;
+  gaps.reserve(sample_count - 1);
+  double best_gap   = 0.0;
+  size_t best_index = 0;
+  for (size_t i = 0; i + 1 < sample_count; ++i) {
+    const double gap = ranked[i].score_ - ranked[i + 1].score_;
+    gaps.push_back(gap);
+    if (gap > best_gap) {
+      best_gap   = gap;
+      best_index = i;
+    }
+  }
+
+  auto sorted_gaps = gaps;
+  std::sort(sorted_gaps.begin(), sorted_gaps.end());
+  const double median_gap = sorted_gaps[sorted_gaps.size() / 2];
+  const bool   has_clear_elbow =
+      best_gap >= score_span * kSemanticElbowGapToSpanRatio &&
+      best_gap >= median_gap * kSemanticElbowGapToMedianRatio;
+  if (has_clear_elbow) {
+    return (ranked[best_index].score_ + ranked[best_index + 1].score_) / 2.0;
+  }
+
+  return top_score - (score_span * kSemanticFallbackScoreSpanKeepRatio);
+}
+
+auto FilterAndPageSemanticCandidates(std::vector<SemanticRankedFile> candidates, size_t offset,
+                                     size_t limit) -> std::vector<SemanticRankedFile> {
+  const double cutoff = SemanticSearchScoreCutoff(candidates);
+  candidates.erase(std::remove_if(candidates.begin(), candidates.end(),
+                                  [cutoff](const SemanticRankedFile& row) {
+                                    return row.score_ < cutoff;
+                                  }),
+                   candidates.end());
+  if (offset >= candidates.size()) {
+    return {};
+  }
+  const auto first          = candidates.begin() + static_cast<std::ptrdiff_t>(offset);
+  const auto remaining_rows = static_cast<size_t>(std::distance(first, candidates.end()));
+  const auto count          = std::min(limit, remaining_rows);
+  return {first, first + static_cast<std::ptrdiff_t>(count)};
 }
 
 auto ExecutableDirectory() -> std::filesystem::path {
@@ -172,28 +260,6 @@ auto UpsertLabelPrototypePrepared(duckdb_connection                   conn,
       FIELD_AS(SemanticLabelPrototypeRecord, embedding_, "embedding", FLOAT_ARRAY)};
   try {
     duckorm::insert_or_replace(conn, "SemanticLabelPrototype", &record, fields, fields.size());
-    return true;
-  } catch (const std::exception& e) {
-    SetError(error, e.what());
-    return false;
-  }
-}
-
-auto StoreQueryEmbeddingTempTable(duckdb_connection conn, std::span<const float> query_embedding,
-                                  std::string* error) -> bool {
-  struct QueryEmbeddingRow {
-    std::vector<float> embedding_;
-  };
-  static constexpr std::array<duckorm::DuckFieldDesc, 1> fields = {
-      FIELD_AS(QueryEmbeddingRow, embedding_, "embedding", FLOAT_ARRAY)};
-  const QueryEmbeddingRow row{{query_embedding.begin(), query_embedding.end()}};
-  if (!RunQuery(conn, "CREATE OR REPLACE TEMP TABLE SemanticQueryEmbedding(embedding FLOAT[512]);",
-                error)) {
-    return false;
-  }
-  try {
-    duckorm::insert_by_query(conn, "INSERT INTO SemanticQueryEmbedding VALUES (?);", &row, fields,
-                             fields.size());
     return true;
   } catch (const std::exception& e) {
     SetError(error, e.what());
@@ -1478,33 +1544,34 @@ auto SemanticStorageController::SearchImageEmbeddings(
   if (!EnsureVectorSearchIndex(model_key, error)) {
     return out;
   }
-  if (!StoreQueryEmbeddingTempTable(guard_.conn_, query_embedding, error)) {
-    return out;
-  }
 
   const auto scope           = BuildScopedFileQuery(folder_id);
-  const auto candidate_limit = std::max<size_t>(offset + limit, 256U);
+  const auto query_literal   = SqlFloatArrayLiteral(query_embedding);
+  const auto candidate_limit = RequestedCandidateLimit(offset, limit);
   const auto sql             = std::format(
       "WITH nearest AS ("
                   "SELECT se.file_id, se.image_id, "
-                  "array_distance(se.embedding, query.embedding) AS distance "
+                  "array_distance(se.embedding, {}) AS distance "
                   "FROM SemanticImageEmbedding se "
-                  "CROSS JOIN SemanticQueryEmbedding query "
                   "WHERE se.model_key = {} AND se.status = 'ready' AND se.embedding_dim = {} "
-                  "ORDER BY distance ASC "
+                  "ORDER BY array_distance(se.embedding, {}) ASC "
                   "LIMIT {}"
                   "), "
                   "scoped AS ("
                   "SELECT e.id AS file_id, fi.image_id AS image_id, e.element_name AS file_name "
-                  "{}) "
+                  "{}), "
+                  "ranked AS ("
                   "SELECT scoped.file_id, scoped.image_id, scoped.file_name, "
                   "1.0 - ((nearest.distance * nearest.distance) / 2.0) AS score "
                   "FROM nearest "
                   "JOIN scoped ON scoped.file_id = nearest.file_id "
                   "AND scoped.image_id = nearest.image_id "
-                  "ORDER BY nearest.distance ASC, scoped.file_id "
-                  "LIMIT {} OFFSET {};",
-      SqlString(model_key), *model_dim, candidate_limit, scope.from_where_, limit, offset);
+                  ") "
+                  "SELECT file_id, image_id, file_name, score "
+                  "FROM ranked "
+                  "ORDER BY score DESC, file_id;",
+      query_literal, SqlString(model_key), *model_dim, query_literal, candidate_limit,
+      scope.from_where_);
 
   duckdb_result result;
   if (duckdb_query(guard_.conn_, sql.c_str(), &result) != DuckDBSuccess) {
@@ -1515,7 +1582,8 @@ auto SemanticStorageController::SearchImageEmbeddings(
   }
 
   const auto row_count = duckdb_row_count(&result);
-  out.reserve(static_cast<size_t>(row_count));
+  std::vector<SemanticRankedFile> candidates;
+  candidates.reserve(static_cast<size_t>(row_count));
   for (idx_t r = 0; r < row_count; ++r) {
     SemanticRankedFile row;
     row.file_id_   = static_cast<sl_element_id_t>(duckdb_value_int64(&result, 0, r));
@@ -1526,11 +1594,11 @@ auto SemanticStorageController::SearchImageEmbeddings(
       duckdb_free(name_raw);
     }
     row.score_ = duckdb_value_double(&result, 3, r);
-    out.push_back(std::move(row));
+    candidates.push_back(std::move(row));
   }
 
   duckdb_destroy_result(&result);
-  return out;
+  return FilterAndPageSemanticCandidates(std::move(candidates), offset, limit);
 }
 
 auto SemanticStorageController::EnsureVectorSearchIndex(const std::string& model_key,

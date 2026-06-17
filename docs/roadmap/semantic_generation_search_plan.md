@@ -4,7 +4,8 @@ Date: 2026-06-12
 
 Status: Phase 1 complete; Phase 2 complete; Phase 3 complete; Phase 4a
 initial scaffold complete; Phase 4c complete; Phase 4d complete; Phase 5a
-complete; Phase 5b complete; Phase 5c complete; Phase 5d-g deferred; Phase 6a
+complete; Phase 5b complete; Phase 5c complete; Phase 5d complete; Phase 5e
+complete; Phase 5f complete; Phase 5g deferred; Phase 6a
 complete; Phase 6e Qt wiring complete; Phase 6 planning updated
 
 This document proposes how to integrate `rust/puerh_mind` into Alcedo Studio as
@@ -292,7 +293,8 @@ C++ for cosine comparison. The storage layer owns a ranked query primitive that:
 - reuses `ElementController::BuildScopedFileQuery` for root/folder scope
 - joins scoped files to `SemanticImageEmbedding`
 - ranks with DuckDB VSS/HNSW using `array_distance` over normalized embeddings
-- applies `ORDER BY score DESC, file_id` plus `LIMIT/OFFSET` in SQL
+- fetches a bounded VSS candidate pool, applies query-local relevance cutoff,
+  then pages over the filtered matches
 
 This keeps the future `SemanticSearchProvider` thin: it embeds text through the
 runtime, then asks storage for a ranked page. The application receives only the
@@ -417,12 +419,19 @@ not necessarily endorse every choice.
   `hnsw_enable_experimental_persistence = true` and runs
   `CREATE INDEX IF NOT EXISTS idx_semantic_image_embedding_hnsw` on
   `SemanticImageEmbedding USING HNSW (embedding)`.
-- The search query ranks in SQL using `array_distance` and limits the nearest
-  candidate set to `max(offset + limit, 256)` before joining to the folder
+- The search query passes the user prompt embedding as a fixed `FLOAT[512]`
+  vector literal, asks DuckDB VSS/HNSW for the nearest ready image embeddings
+  with `array_distance`, then joins those ranked candidates to the folder/root
   scope from `BuildScopedFileQuery(folder_id)`.
-- At this point `SleeveFilterService` only has a provider hook for semantic
-  search; no concrete provider is wired in this file set, so the storage search
-  primitive can exist without being reachable from normal search UI.
+- Ranked candidates are filtered in storage before paging. The cutoff is
+  query-local: it first looks for a score-curve elbow between strong matches and
+  the weak tail, then falls back to a relative span from the top score to the
+  sampled candidate background. This avoids a fixed model-specific score floor
+  while making weak one-term matches less likely to leak into later pages.
+- `ProjectService` registers a concrete `SemanticSearchProvider` for each
+  project. The provider starts/acquires the semantic runtime only for submitted
+  semantic queries, embeds the user prompt once, validates the returned vector
+  against the active model, then calls `SearchImageEmbeddings(...)`.
 
 ### Cleanup and packaging participation
 
@@ -644,7 +653,7 @@ Packaging smoke tests should verify:
       - route only non-label natural-language text to semantic search
       - expose the chosen route in testable data, for example
         `traditional`, `label`, `semantic`, or `empty`
-    - 5d. Concrete semantic provider
+    - 5d. Concrete semantic provider — complete
       - implement the concrete `SemanticSearchProvider` and register it from
         `ProjectService` after storage and runtime services exist
       - acquire `SemanticRuntimeService` only for the semantic route, using the
@@ -657,7 +666,7 @@ Packaging smoke tests should verify:
         or index is an actionable semantic-search error, not a C++ scan fallback
       - return rows in the same lightweight shape as `FuzzySearchMatch` so
         preview thumbnail handling stays shared
-    - 5e. Preview pagination, counts, and result lifecycle
+    - 5e. Preview pagination, counts, and result lifecycle — complete
       - keep existing preview thumbnail pin/release behavior for semantic rows
       - support paged semantic previews with `offset`/`limit`; do not fetch the
         whole vector corpus or materialize giant result lists in QML
@@ -668,7 +677,11 @@ Packaging smoke tests should verify:
         replaces them
       - show loading, empty, and error states in the existing search dialog
         without closing the dialog before progress is visible
-    - 5f. Apply-to-album-grid path
+      - schedule preview, submit, and page requests through a pending loading
+        state; semantic submit/page requests run off the QML thread, while
+        ordinary preview keeps the legacy search path and still paints loading
+        feedback before execution
+    - 5f. Apply-to-album-grid path — complete
       - ordinary searches continue to apply as SQL `WHERE` filters
       - semantic searches should apply through a storage-owned result token or
         scoped temporary result table, not a giant `IN (...)` list in UI code

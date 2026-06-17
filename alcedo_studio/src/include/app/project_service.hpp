@@ -57,6 +57,7 @@ class ProjectService {
 
  private:
   void                                  RecreateSleeveService(sl_element_id_t start_id);
+  void                                  RegisterSemanticSearchProvider();
 
   std::filesystem::path                 db_path_;
   std::filesystem::path                 meta_path_;

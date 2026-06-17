@@ -36,6 +36,21 @@ auto MixedQuery(size_t primary, size_t secondary) -> std::vector<float> {
   return embedding;
 }
 
+auto ClosePairQuery(size_t first, size_t second) -> std::vector<float> {
+  std::vector<float> embedding(kSemanticEmbeddingDim, 0.0F);
+  embedding.at(first)  = 0.72F;
+  embedding.at(second) = 0.69F;
+  return embedding;
+}
+
+auto UnitVectorWithSimilarity(size_t primary, size_t auxiliary, float similarity)
+    -> std::vector<float> {
+  std::vector<float> embedding(kSemanticEmbeddingDim, 0.0F);
+  embedding.at(primary)   = similarity;
+  embedding.at(auxiliary) = std::sqrt(std::max(0.0F, 1.0F - (similarity * similarity)));
+  return embedding;
+}
+
 auto CountSubstring(const std::string& text, const std::string& needle) -> size_t {
   size_t count = 0;
   size_t pos   = 0;
@@ -153,8 +168,8 @@ TEST_F(SemanticStorageControllerTest, VssSearchRanksWithinRootAndFolderScope) {
   ASSERT_TRUE(semantic.EnsureVectorSearchIndex(kModelKey, &error)) << error;
 
   const auto root_results =
-      semantic.SearchImageEmbeddings(0, kModelKey, MixedQuery(1, 2), 0, 3, &error);
-  ASSERT_GE(root_results.size(), 3U) << error;
+      semantic.SearchImageEmbeddings(0, kModelKey, ClosePairQuery(1, 2), 0, 3, &error);
+  ASSERT_EQ(root_results.size(), 2U) << error;
   EXPECT_EQ(root_results[0].file_id_, beach_id);
   EXPECT_EQ(root_results[1].file_id_, portrait_id);
 
@@ -165,9 +180,52 @@ TEST_F(SemanticStorageControllerTest, VssSearchRanksWithinRootAndFolderScope) {
   ASSERT_TRUE(sleeve->LinkFileToFolder(portrait_id, album.first->element_id_).success_);
 
   const auto scoped_results = semantic.SearchImageEmbeddings(album.first->element_id_, kModelKey,
-                                                             MixedQuery(1, 2), 0, 3, &error);
+                                                             ClosePairQuery(1, 2), 0, 3, &error);
   ASSERT_EQ(scoped_results.size(), 1U) << error;
   EXPECT_EQ(scoped_results[0].file_id_, portrait_id);
+}
+
+TEST_F(SemanticStorageControllerTest, VssSearchCutsOffWeakTailBeforePaging) {
+  ProjectService project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
+  auto&          semantic = project.GetStorageService()->GetSemanticStorageController();
+  RegisterTestModel(semantic);
+
+  const auto strong_id      = CreateSyntheticFile(project, L"strong_match.raf");
+  const auto near_id        = CreateSyntheticFile(project, L"near_match.raf");
+  const auto weak_id        = CreateSyntheticFile(project, L"weak_term_match.raf");
+  const auto weak_second_id = CreateSyntheticFile(project, L"weak_term_match_2.raf");
+
+  const auto rows = project.GetStorageService()->GetElementController().ListFilesInFolder(0);
+  ASSERT_EQ(rows.size(), 4U);
+  for (const auto& row : rows) {
+    if (row.file_id_ == strong_id) {
+      StoreEmbedding(semantic, row.file_id_, row.image_id_,
+                     UnitVectorWithSimilarity(0, 10, 0.94F));
+    } else if (row.file_id_ == near_id) {
+      StoreEmbedding(semantic, row.file_id_, row.image_id_,
+                     UnitVectorWithSimilarity(0, 11, 0.91F));
+    } else if (row.file_id_ == weak_id) {
+      StoreEmbedding(semantic, row.file_id_, row.image_id_,
+                     UnitVectorWithSimilarity(0, 12, 0.62F));
+    } else if (row.file_id_ == weak_second_id) {
+      StoreEmbedding(semantic, row.file_id_, row.image_id_,
+                     UnitVectorWithSimilarity(0, 13, 0.60F));
+    }
+  }
+
+  std::string error;
+  ASSERT_TRUE(semantic.EnsureVectorSearchIndex(kModelKey, &error)) << error;
+
+  const auto first_page = semantic.SearchImageEmbeddings(0, kModelKey, OneHot(0), 0, 1, &error);
+  ASSERT_EQ(first_page.size(), 1U) << error;
+  EXPECT_EQ(first_page[0].file_id_, strong_id);
+
+  const auto second_page = semantic.SearchImageEmbeddings(0, kModelKey, OneHot(0), 1, 1, &error);
+  ASSERT_EQ(second_page.size(), 1U) << error;
+  EXPECT_EQ(second_page[0].file_id_, near_id);
+
+  const auto weak_tail = semantic.SearchImageEmbeddings(0, kModelKey, OneHot(0), 2, 10, &error);
+  EXPECT_TRUE(weak_tail.empty()) << error;
 }
 
 TEST_F(SemanticStorageControllerTest, RejectsInvalidVectorsBeforeStorageOrSearch) {
