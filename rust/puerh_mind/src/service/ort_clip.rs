@@ -993,15 +993,9 @@ impl OrtClipEngine {
     pub fn new(config: &SemanticConfig) -> Result<Self> {
         let device_request = Self::parse_device_request(&config.device)?;
 
-        if config.allow_download {
-            let profile = find_profile(&config.model_id)?;
-            crate::service::model_assets::download_model_profile(
-                profile.profile_id,
-                &config.model_root,
-                &config.hf_endpoint,
-                Some(&config.revision),
-            )?;
-        }
+        // Model asset downloading is handled by the C++ application layer (via
+        // aria2). The Rust runtime only validates that the requested profile is
+        // present on disk before loading it for inference.
         let manifest = validate_model_profile(&config.model_id, &config.model_root)?;
         if manifest.revision != config.revision {
             bail!(
@@ -1597,52 +1591,5 @@ mod tests {
             .sum::<f64>()
             .sqrt();
         assert!((norm - 1.0).abs() < 1e-3, "norm was {norm}");
-    }
-
-    #[test]
-    fn downloads_missing_assets_when_opted_in() {
-        if std::env::var("ALCEDO_MIND_RUN_DOWNLOAD_TESTS")
-            .ok()
-            .as_deref()
-            != Some("1")
-        {
-            eprintln!("skipping download test; set ALCEDO_MIND_RUN_DOWNLOAD_TESTS=1 to enable");
-            return;
-        }
-
-        let unique = format!(
-            "mobileclip2-onnx-test-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system clock should be valid")
-                .as_nanos()
-        );
-        let test_dir = std::env::temp_dir().join(unique);
-        let _guard = MODEL_ENGINE_LOAD_LOCK
-            .get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-
-        let config = SemanticConfig {
-            model_id: "plhery/mobileclip2-onnx:s2".to_string(),
-            revision: crate::service::model_assets::MOBILECLIP2_ONNX_REVISION.to_string(),
-            model_root: test_dir.to_string_lossy().into_owned(),
-            hf_endpoint: "https://hf-mirror.com".to_string(),
-            device: "cpu".to_string(),
-            allow_download: true,
-            batch_cap: 512,
-            batch_wait_ms: 25,
-        };
-        let engine = OrtClipEngine::new(&config).expect("engine should download assets and load");
-
-        let model_paths = ClipModelPaths::from_root(&test_dir);
-        assert!(model_paths.text_model.exists());
-        assert!(model_paths.vision_model.exists());
-        assert!(model_paths.tokenizer_json.exists());
-
-        let embedding = engine
-            .embed_text("integration check")
-            .expect("inference should succeed after download");
-        assert_eq!(embedding.len(), EMBEDDING_DIM);
     }
 }

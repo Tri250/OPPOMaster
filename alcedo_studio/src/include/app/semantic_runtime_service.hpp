@@ -101,26 +101,12 @@ struct SemanticResolvedModelManifest {
   std::vector<SemanticModelAssetInfo> assets;
 };
 
-struct SemanticModelDownloadProgress {
-  std::string phase;
-  std::string current_file;
-  uint64_t    current_file_bytes_downloaded = 0;
-  uint64_t    current_file_bytes_total      = 0;
-  uint64_t    bytes_downloaded              = 0;
-  uint64_t    bytes_total                   = 0;
-  uint32_t    files_completed               = 0;
-  uint32_t    files_total                   = 0;
-  std::string message;
-};
-
 struct SemanticModelManagerResult {
   bool                                         ok = false;
   std::string                                  status;
   std::string                                  error;
-  std::string                                  job_id;
   SemanticModelProfileInfo                     profile;
   std::optional<SemanticResolvedModelManifest> manifest;
-  std::optional<SemanticModelDownloadProgress> progress;
 };
 
 struct SemanticEmbeddingResult {
@@ -199,15 +185,6 @@ class ISemanticRuntimeClient {
   virtual auto ValidateModel(const std::string& endpoint, const std::string& profile_id,
                              const std::string& model_root, std::chrono::milliseconds timeout)
       -> SemanticModelManagerResult                                                           = 0;
-  virtual auto DownloadModel(const std::string& endpoint, const std::string& profile_id,
-                             const std::string& model_root, const std::string& hf_endpoint,
-                             std::chrono::milliseconds timeout) -> SemanticModelManagerResult = 0;
-  virtual auto GetModelDownloadStatus(const std::string& endpoint, const std::string& job_id,
-                                      std::chrono::milliseconds timeout)
-      -> SemanticModelManagerResult = 0;
-  virtual auto CancelModelDownload(const std::string& endpoint, const std::string& job_id,
-                                   std::chrono::milliseconds timeout, std::string* message)
-      -> bool = 0;
   virtual auto DeleteModel(const std::string& endpoint, const std::string& profile_id,
                            const std::string& model_root, std::chrono::milliseconds timeout)
       -> SemanticModelManagerResult = 0;
@@ -244,15 +221,6 @@ class GrpcSemanticRuntimeClient final : public ISemanticRuntimeClient {
   auto ValidateModel(const std::string& endpoint, const std::string& profile_id,
                      const std::string& model_root, std::chrono::milliseconds timeout)
       -> SemanticModelManagerResult override;
-  auto DownloadModel(const std::string& endpoint, const std::string& profile_id,
-                     const std::string& model_root, const std::string& hf_endpoint,
-                     std::chrono::milliseconds timeout) -> SemanticModelManagerResult override;
-  auto GetModelDownloadStatus(const std::string& endpoint, const std::string& job_id,
-                              std::chrono::milliseconds timeout)
-      -> SemanticModelManagerResult override;
-  auto CancelModelDownload(const std::string& endpoint, const std::string& job_id,
-                           std::chrono::milliseconds timeout, std::string* message)
-      -> bool override;
   auto DeleteModel(const std::string& endpoint, const std::string& profile_id,
                    const std::string& model_root, std::chrono::milliseconds timeout)
       -> SemanticModelManagerResult override;
@@ -300,13 +268,6 @@ class SemanticRuntimeService final : public QObject {
                            std::string* error) -> std::vector<SemanticModelProfileInfo>;
   auto ValidateModel(const std::string& profile_id, const std::string& model_root,
                      std::chrono::milliseconds timeout) -> SemanticModelManagerResult;
-  auto DownloadModel(const std::string& profile_id, const std::string& model_root,
-                     const std::string& hf_endpoint, std::chrono::milliseconds timeout)
-      -> SemanticModelManagerResult;
-  auto GetModelDownloadStatus(const std::string& job_id, std::chrono::milliseconds timeout)
-      -> SemanticModelManagerResult;
-  auto CancelModelDownload(const std::string& job_id, std::chrono::milliseconds timeout,
-                           std::string* message) -> bool;
   auto DeleteModel(const std::string& profile_id, const std::string& model_root,
                    std::chrono::milliseconds timeout) -> SemanticModelManagerResult;
 

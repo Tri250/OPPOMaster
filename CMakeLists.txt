@@ -717,6 +717,15 @@ if(TARGET ${ALCEDO_MAIN_BIN})
             )
         endif()
 
+        if(ALCEDO_ARIA2C_BINARY)
+            install(FILES "${ALCEDO_ARIA2C_BINARY}"
+                DESTINATION "${CMAKE_INSTALL_BINDIR}"
+                PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
+                            GROUP_READ GROUP_EXECUTE
+                            WORLD_READ WORLD_EXECUTE
+            )
+        endif()
+
         if(APPLE AND ALCEDO_METAL_ENABLED AND ALCEDO_METAL_RUNTIME_LIBS)
             install(FILES ${ALCEDO_METAL_RUNTIME_LIBS}
                 DESTINATION "${CMAKE_INSTALL_BINDIR}/metallib"

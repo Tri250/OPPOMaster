@@ -377,6 +377,7 @@ class AlbumBackend final : public QObject {
   ImageController              image_ctrl_;
   StatsEngine                  stats_;
   SearchController             search_;
+  alcedo::ModelDownloadService model_download_service_;
   SemanticGenerationController semantic_generation_;
   ImportExportHandler          import_export_;
   NikonHeRecoveryController    nikon_he_recovery_;

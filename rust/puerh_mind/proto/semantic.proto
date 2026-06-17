@@ -16,9 +16,6 @@ service ModelManagerService {
   rpc ListModelProfiles(ListModelProfilesRequest) returns (ListModelProfilesResponse);
   rpc ListInstalledModels(ListInstalledModelsRequest) returns (ListInstalledModelsResponse);
   rpc ValidateModel(ValidateModelRequest) returns (ModelManagerResponse);
-  rpc DownloadModel(DownloadModelRequest) returns (ModelManagerResponse);
-  rpc GetModelDownloadStatus(GetModelDownloadStatusRequest) returns (ModelManagerResponse);
-  rpc CancelModelDownload(CancelModelDownloadRequest) returns (CancelModelDownloadResponse);
   rpc DeleteModel(DeleteModelRequest) returns (ModelManagerResponse);
 }
 
@@ -165,25 +162,6 @@ message ValidateModelRequest {
   string model_root = 2;
 }
 
-message DownloadModelRequest {
-  string profile_id = 1;
-  string model_root = 2;
-  string hf_endpoint = 3;
-}
-
-message CancelModelDownloadRequest {
-  string job_id = 1;
-}
-
-message GetModelDownloadStatusRequest {
-  string job_id = 1;
-}
-
-message CancelModelDownloadResponse {
-  bool cancelled = 1;
-  string message = 2;
-}
-
 message DeleteModelRequest {
   string profile_id = 1;
   string model_root = 2;
@@ -195,18 +173,4 @@ message ModelManagerResponse {
   string error = 3;
   ModelProfile profile = 4;
   ResolvedModelManifest manifest = 5;
-  string job_id = 6;
-  ModelDownloadProgress progress = 7;
-}
-
-message ModelDownloadProgress {
-  string phase = 1;
-  string current_file = 2;
-  uint64 current_file_bytes_downloaded = 3;
-  uint64 current_file_bytes_total = 4;
-  uint64 bytes_downloaded = 5;
-  uint64 bytes_total = 6;
-  uint32 files_completed = 7;
-  uint32 files_total = 8;
-  string message = 9;
 }

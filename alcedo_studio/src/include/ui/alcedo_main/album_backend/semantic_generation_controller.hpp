@@ -6,7 +6,6 @@
 
 #include <QObject>
 #include <QString>
-#include <QTimer>
 #include <QVariantList>
 #include <memory>
 #include <optional>
@@ -14,6 +13,7 @@
 #include <vector>
 
 #include "app/semantic_generation_service.hpp"
+#include "app/model_download_service.hpp"
 #include "ui/alcedo_main/i18n.hpp"
 
 namespace alcedo::ui {
@@ -125,18 +125,15 @@ class SemanticGenerationController final : public QObject {
   auto EnsureModelManagerRuntime() -> std::shared_ptr<SemanticRuntimeService>;
   [[nodiscard]] auto RuntimeOptionsForProfile(const QString& profileId, bool profileRoot) const
       -> SemanticRuntimeOptions;
-  void                                         PollModelDownloadStatus();
 
   AlbumBackend&                                backend_;
   std::vector<SemanticGenerationItem>          pending_items_{};
   std::shared_ptr<SemanticRuntimeSessionGuard> runtime_session_{};
   std::shared_ptr<SemanticGenerationJob>       job_{};
-  QTimer                                       model_download_timer_;
   i18n::LocalizedText                          status_text_{};
   i18n::LocalizedText                          album_summary_text_{};
   i18n::LocalizedText                          model_download_status_text_{};
   std::string                                  model_key_{};
-  QString                                      model_download_job_id_{};
   bool                                         model_download_running_   = false;
   bool                                         model_activation_running_ = false;
   int                                          model_download_progress_  = 0;

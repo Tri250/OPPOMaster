@@ -50,7 +50,6 @@ constexpr auto   kSemanticPreferenceNever               = "never";
 constexpr auto   kSemanticResolvedManifestFile          = "alcedo_model_manifest.json";
 constexpr auto   kSemanticRuntimeStartupTimeout         = 60s;
 constexpr auto   kSemanticModelManagerTimeout           = 3s;
-constexpr auto   kSemanticModelDownloadPollIntervalMs   = 650;
 constexpr auto   kMobileClipProfileId                   = "mobileclip2-s2-en";
 constexpr auto   kMobileClipModelId                     = "plhery/mobileclip2-onnx:s2";
 constexpr auto   kMobileClipRevision   = "ba95759a5bdbaca53e9111e2550a76ec09c8fd9e";
@@ -352,11 +351,18 @@ auto EndpointForPreset(const QString& preset, const QString& custom_endpoint) ->
 }
 
 auto ProgressPercent(const SemanticModelManagerResult& result) -> int {
-  if (!result.progress.has_value() || result.progress->bytes_total == 0) {
-    return result.ok && result.status == "installed" ? 100 : 0;
+  // Model downloads no longer flow through the gRPC ModelManagerResult (they
+  // are driven by ModelDownloadService). Validate/delete results only need a
+  // binary "installed or not" progress value.
+  return (result.ok && result.status == "installed") ? 100 : 0;
+}
+
+auto DownloadProgressPercent(const alcedo::ModelDownloadProgress& progress) -> int {
+  if (progress.bytes_total == 0) {
+    return progress.phase == "installed" ? 100 : 0;
   }
-  return static_cast<int>(std::min<uint64_t>(
-      100, (result.progress->bytes_downloaded * 100) / result.progress->bytes_total));
+  return static_cast<int>(
+      std::min<uint64_t>(100, (progress.bytes_downloaded * 100) / progress.bytes_total));
 }
 
 auto ItemsNeedingSemanticGeneration(const std::vector<SemanticGenerationItem>& items,
@@ -410,11 +416,33 @@ class SemanticRuntimeSessionGuard final {
 };
 
 SemanticGenerationController::SemanticGenerationController(AlbumBackend& backend, QObject* parent)
-    : QObject(parent), backend_(backend), model_download_timer_(this) {
+    : QObject(parent), backend_(backend) {
   model_download_status_text_ = PL_TEXT("Model status has not been checked.");
-  model_download_timer_.setInterval(kSemanticModelDownloadPollIntervalMs);
-  connect(&model_download_timer_, &QTimer::timeout, this,
-          &SemanticGenerationController::PollModelDownloadStatus);
+
+  connect(&backend_.model_download_service_, &alcedo::ModelDownloadService::ProgressChanged, this,
+          [this](const alcedo::ModelDownloadProgress& progress) {
+            model_download_progress_ = DownloadProgressPercent(progress);
+            const QString message    = QString::fromStdString(progress.message);
+            model_download_status_text_ =
+                message.isEmpty()
+                    ? PL_TEXT("Downloading model... %1%", model_download_progress_)
+                    : PL_TEXT("%1 (%2%)", message, model_download_progress_);
+            emit StateChanged();
+          });
+  connect(&backend_.model_download_service_, &alcedo::ModelDownloadService::Finished, this,
+          [this](bool ok, const QString& error) {
+            model_download_running_ = false;
+            if (ok) {
+              model_download_progress_    = 100;
+              model_download_status_text_ = PL_TEXT("Model download complete.");
+            } else {
+              model_download_progress_ = 0;
+              model_download_status_text_ =
+                  error.isEmpty() ? PL_TEXT("Model download failed.")
+                                  : PL_TEXT("Model download failed: %1", error);
+            }
+            emit StateChanged();
+          });
 }
 
 bool SemanticGenerationController::PromptVisible() const {
@@ -590,56 +618,40 @@ void SemanticGenerationController::RefreshSelectedModelStatus() {
 }
 
 void SemanticGenerationController::StartSelectedModelDownload() {
-  if (model_download_running_) {
+  if (model_download_running_ || backend_.model_download_service_.IsRunning()) {
     return;
   }
-  auto runtime = EnsureModelManagerRuntime();
-  if (!runtime) {
+
+  const auto profile_id = SelectedModelProfileId();
+  const auto endpoint   = EffectiveModelEndpoint().toStdString();
+  const bool started    = backend_.model_download_service_.StartDownload(
+      profile_id.toStdString(), QStringToPath(ModelDownloadDirectory()), endpoint);
+  if (!started) {
+    model_download_status_text_ = PL_TEXT("Model download failed to start.");
     emit StateChanged();
     return;
   }
 
-  const auto result = runtime->DownloadModel(
-      SelectedModelProfileId().toStdString(), PathString(ModelDownloadDirectory()),
-      EffectiveModelEndpoint().toStdString(), kSemanticModelManagerTimeout);
-  if (!result.ok || result.job_id.empty()) {
-    const QString message =
-        QString::fromStdString(result.error.empty() ? result.status : result.error);
-    model_download_status_text_ = message.isEmpty() ? PL_TEXT("Model download failed to start.")
-                                                    : PL_TEXT("Model download failed: %1", message);
-    model_download_running_     = false;
-    model_download_progress_    = ProgressPercent(result);
-    emit StateChanged();
-    return;
-  }
-
-  model_download_job_id_      = QString::fromStdString(result.job_id);
   model_download_running_     = true;
-  model_download_progress_    = ProgressPercent(result);
+  model_download_progress_    = 0;
   model_download_status_text_ = PL_TEXT("Model download queued from %1", EffectiveModelEndpoint());
-  model_download_timer_.start();
   emit StateChanged();
 }
 
 void SemanticGenerationController::CancelSelectedModelDownload() {
-  if (model_download_job_id_.isEmpty()) {
+  if (!model_download_running_ && !backend_.model_download_service_.IsRunning()) {
     return;
   }
-  auto project = backend_.project_handler_.project();
-  auto runtime = project ? project->GetSemanticRuntimeService() : nullptr;
-  if (!runtime) {
+  if (!backend_.model_download_service_.IsRunning()) {
+    // No active worker will emit Finished; clear local state immediately.
+    model_download_running_     = false;
+    model_download_progress_    = 0;
+    model_download_status_text_ = PL_TEXT("Model download cancelled.");
+    emit StateChanged();
     return;
   }
-
-  std::string message;
-  const bool  cancelled = runtime->CancelModelDownload(model_download_job_id_.toStdString(),
-                                                       kSemanticModelManagerTimeout, &message);
-  model_download_timer_.stop();
-  model_download_running_     = false;
-  model_download_progress_    = 0;
-  model_download_status_text_ = cancelled ? PL_TEXT("Model download cancelled.")
-                                          : PL_TEXT("Model download cancellation failed: %1",
-                                                    QString::fromStdString(message));
+  backend_.model_download_service_.CancelDownload();
+  model_download_status_text_ = PL_TEXT("Cancelling model download...");
   emit StateChanged();
 }
 
@@ -1267,50 +1279,6 @@ auto SemanticGenerationController::RuntimeOptionsForProfile(const QString& profi
   options.require_model_info = profileRoot;
   options.startup_timeout    = kSemanticRuntimeStartupTimeout;
   return options;
-}
-
-void SemanticGenerationController::PollModelDownloadStatus() {
-  if (model_download_job_id_.isEmpty()) {
-    model_download_timer_.stop();
-    model_download_running_ = false;
-    emit StateChanged();
-    return;
-  }
-  auto project = backend_.project_handler_.project();
-  auto runtime = project ? project->GetSemanticRuntimeService() : nullptr;
-  if (!runtime) {
-    model_download_timer_.stop();
-    model_download_running_     = false;
-    model_download_status_text_ = PL_TEXT("Semantic runtime service is unavailable.");
-    emit StateChanged();
-    return;
-  }
-
-  const auto result        = runtime->GetModelDownloadStatus(model_download_job_id_.toStdString(),
-                                                             kSemanticModelManagerTimeout);
-  model_download_progress_ = ProgressPercent(result);
-  if (result.progress.has_value()) {
-    const QString message = QString::fromStdString(result.progress->message);
-    model_download_status_text_ =
-        message.isEmpty() ? PL_TEXT("Downloading model... %1%", model_download_progress_)
-                          : PL_TEXT("%1 (%2%)", message, model_download_progress_);
-  }
-  if (!result.ok || result.status == "installed" || result.status == "cancelled" ||
-      result.status == "error") {
-    model_download_timer_.stop();
-    model_download_running_ = false;
-    if (result.ok && result.status == "installed") {
-      model_download_progress_    = 100;
-      model_download_status_text_ = PL_TEXT("Model download complete.");
-    } else if (!result.ok || result.status == "error") {
-      const QString message =
-          QString::fromStdString(result.error.empty() ? result.status : result.error);
-      model_download_status_text_ = message.isEmpty()
-                                        ? PL_TEXT("Model download failed.")
-                                        : PL_TEXT("Model download failed: %1", message);
-    }
-  }
-  emit StateChanged();
 }
 
 void SemanticGenerationController::UpdateProgress(const SemanticGenerationProgress& progress) {
