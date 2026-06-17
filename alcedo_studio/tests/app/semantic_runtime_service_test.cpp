@@ -234,9 +234,9 @@ class FakeSemanticRuntimeClient final : public ISemanticRuntimeClient {
     return result;
   }
 
-  auto EmbedImageBatch(const std::string&                                endpoint,
-                       const std::vector<SemanticImageEmbeddingRequest>& requests,
-                       std::chrono::milliseconds                         timeout)
+  auto EmbedImageBatch(const std::string&                         endpoint,
+                       std::vector<SemanticImageEmbeddingRequest> requests,
+                       std::chrono::milliseconds                  timeout)
       -> std::vector<SemanticEmbeddingResult> override {
     (void)endpoint;
     (void)timeout;

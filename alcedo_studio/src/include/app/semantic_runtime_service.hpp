@@ -221,9 +221,9 @@ class ISemanticRuntimeClient {
   virtual auto EmbedImage(const std::string& endpoint, const std::string& request_id,
                           const std::vector<uint8_t>& rgba8_image, const std::string& format_hint,
                           std::chrono::milliseconds timeout) -> SemanticEmbeddingResult = 0;
-  virtual auto EmbedImageBatch(const std::string&                                endpoint,
-                               const std::vector<SemanticImageEmbeddingRequest>& requests,
-                               std::chrono::milliseconds                         timeout)
+  virtual auto EmbedImageBatch(const std::string&                         endpoint,
+                               std::vector<SemanticImageEmbeddingRequest> requests,
+                               std::chrono::milliseconds                  timeout)
       -> std::vector<SemanticEmbeddingResult> = 0;
 };
 
@@ -266,9 +266,9 @@ class GrpcSemanticRuntimeClient final : public ISemanticRuntimeClient {
   auto EmbedImage(const std::string& endpoint, const std::string& request_id,
                   const std::vector<uint8_t>& rgba8_image, const std::string& format_hint,
                   std::chrono::milliseconds timeout) -> SemanticEmbeddingResult override;
-  auto EmbedImageBatch(const std::string&                                endpoint,
-                       const std::vector<SemanticImageEmbeddingRequest>& requests,
-                       std::chrono::milliseconds                         timeout)
+  auto EmbedImageBatch(const std::string&                         endpoint,
+                       std::vector<SemanticImageEmbeddingRequest> requests,
+                       std::chrono::milliseconds                  timeout)
       -> std::vector<SemanticEmbeddingResult> override;
 };
 
@@ -317,7 +317,7 @@ class SemanticRuntimeService final : public QObject {
   auto EmbedImage(const std::string& request_id, const std::vector<uint8_t>& rgba8_image,
                   const std::string& format_hint, std::chrono::milliseconds timeout)
       -> SemanticEmbeddingResult;
-  auto EmbedImageBatch(const std::vector<SemanticImageEmbeddingRequest>& requests,
+  auto EmbedImageBatch(std::vector<SemanticImageEmbeddingRequest> requests,
                        std::chrono::milliseconds timeout) -> std::vector<SemanticEmbeddingResult>;
 
   auto StateName() const -> QString;

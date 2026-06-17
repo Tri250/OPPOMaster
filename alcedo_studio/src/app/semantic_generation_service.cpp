@@ -10,7 +10,6 @@
 #include <deque>
 #include <exception>
 #include <future>
-#include <iomanip>
 #include <numeric>
 #include <opencv2/imgproc.hpp>
 #include <optional>
@@ -281,9 +280,9 @@ auto EnsureCachedLabelPrototypes(const SemanticGenerationPersistenceOptions&    
 
 auto PersistSemanticResult(const SemanticGenerationPersistenceOptions& persistence,
                            const SemanticGenerationItem&               item,
-                           ThumbnailResolution                         thumbnail_resolution,
-                           const std::vector<float>& embedding, uint32_t embedding_dimension,
-                           SemanticImageLabelRecord* persisted_label, std::string* error) -> bool {
+                           ThumbnailResolution thumbnail_resolution, std::vector<float> embedding,
+                           uint32_t embedding_dimension, SemanticImageLabelRecord* persisted_label,
+                           std::vector<float>* persisted_embedding, std::string* error) -> bool {
   if (!ValidateFiniteNonZeroVector(embedding, embedding_dimension, error)) {
     return false;
   }
@@ -292,7 +291,7 @@ auto PersistSemanticResult(const SemanticGenerationPersistenceOptions& persisten
   record.file_id_              = item.element_id;
   record.image_id_             = item.image_id;
   record.model_key_            = persistence.model_key;
-  record.embedding_            = embedding;
+  record.embedding_            = std::move(embedding);
   record.thumbnail_resolution_ = static_cast<int>(thumbnail_resolution);
 
   SemanticLabelAssignmentOptions assignment;
@@ -301,8 +300,12 @@ auto PersistSemanticResult(const SemanticGenerationPersistenceOptions& persisten
   assignment.confidence_margin_threshold_ = persistence.confidence_margin_threshold;
   assignment.top_score_count_             = persistence.top_score_count;
 
-  return persistence.storage_controller->UpsertImageEmbeddingAndAssignLabel(record, assignment,
-                                                                            persisted_label, error);
+  const bool ok = persistence.storage_controller->UpsertImageEmbeddingAndAssignLabel(
+      record, assignment, persisted_label, error);
+  if (ok && persisted_embedding) {
+    *persisted_embedding = std::move(record.embedding_);
+  }
+  return ok;
 }
 
 struct ThumbnailBatchWaitState {
@@ -710,15 +713,15 @@ void SemanticRuntimeImageEmbeddingClient::EmbedImageBatch(
 
     std::vector<SemanticImageEmbeddingRequest> requests;
     requests.reserve(inputs.size());
-    for (const auto& input : inputs) {
+    for (auto& input : inputs) {
       SemanticImageEmbeddingRequest request;
-      request.request_id  = input.request_id;
-      request.rgba8_image = input.rgba8_image;
-      request.format_hint = input.format_hint;
+      request.request_id  = std::move(input.request_id);
+      request.rgba8_image = std::move(input.rgba8_image);
+      request.format_hint = std::move(input.format_hint);
       requests.push_back(std::move(request));
     }
 
-    const auto runtime_results = runtime->EmbedImageBatch(requests, timeout);
+    const auto runtime_results = runtime->EmbedImageBatch(std::move(requests), timeout);
     results.reserve(runtime_results.size());
     for (size_t i = 0; i < runtime_results.size(); ++i) {
       SemanticImageEmbeddingBatchResult result;
@@ -999,18 +1002,20 @@ void SemanticGenerationService::RunJob(
         item_result.embedding_dimension = batch_result.embedding.dimension;
         if (options.persistence.has_value()) {
           SemanticImageLabelRecord persisted_label;
+          std::vector<float>       persisted_embedding;
           std::string              persist_error;
+          auto                     embedding = std::move(batch_result.embedding.embedding);
           if (!PersistSemanticResult(*options.persistence, batch_result.item,
-                                     options.thumbnail_resolution, batch_result.embedding.embedding,
+                                     options.thumbnail_resolution, std::move(embedding),
                                      batch_result.embedding.dimension, &persisted_label,
-                                     &persist_error)) {
+                                     &persisted_embedding, &persist_error)) {
             item_result.status = SemanticGenerationItemStatus::kError;
             item_result.error =
                 persist_error.empty() ? "semantic persistence failed" : std::move(persist_error);
             job->UpdateProgress([](SemanticGenerationProgress& progress) { progress.failed++; });
           } else {
             item_result.status    = SemanticGenerationItemStatus::kEmbedded;
-            item_result.embedding = std::move(batch_result.embedding.embedding);
+            item_result.embedding = std::move(persisted_embedding);
             if (!persisted_label.label_.empty()) {
               item_result.has_label          = true;
               item_result.label              = persisted_label.label_;

@@ -19,6 +19,12 @@ duckdb_state rollback_transaction(duckdb_connection& conn);
 duckdb_state insert(duckdb_connection& conn, const char* table, const void* obj,
                     std::span<const DuckFieldDesc> fields, size_t field_count);
 
+duckdb_state insert_or_replace(duckdb_connection& conn, const char* table, const void* obj,
+                               std::span<const DuckFieldDesc> fields, size_t field_count);
+
+duckdb_state insert_by_query(duckdb_connection& conn, const std::string& sql, const void* obj,
+                             std::span<const DuckFieldDesc> fields, size_t field_count);
+
 duckdb_state update(duckdb_connection& conn, const char* table, const void* obj,
                     std::span<const DuckFieldDesc> fields, size_t field_count,
                     const char* where_clause);

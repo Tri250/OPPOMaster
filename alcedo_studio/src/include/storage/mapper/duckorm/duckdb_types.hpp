@@ -23,6 +23,10 @@ enum class DuckDBType : uint8_t {
   JSON,
   BOOLEAN,
   TIMESTAMP,
+  STRING,
+  NULLABLE_STRING,
+  NULLABLE_DOUBLE,
+  FLOAT_ARRAY,
 };
 
 /**
@@ -60,6 +64,9 @@ struct DuckFieldDesc {
 // Macro to define a field descriptor for a specific type and field.
 #define FIELD(type, field, field_type) \
   duckorm::DuckFieldDesc { #field, duckorm::DuckDBType::field_type, offsetof(type, field) }
+
+#define FIELD_AS(type, field, column, field_type) \
+  duckorm::DuckFieldDesc { column, duckorm::DuckDBType::field_type, offsetof(type, field) }
 
 // brief Type alias for a variant that can hold various DuckDB-supported types.
 using VarTypes =

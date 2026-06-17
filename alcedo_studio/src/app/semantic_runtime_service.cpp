@@ -658,9 +658,10 @@ auto GrpcSemanticRuntimeClient::EmbedImage(const std::string&          endpoint,
   return result;
 }
 
-auto GrpcSemanticRuntimeClient::EmbedImageBatch(
-    const std::string& endpoint, const std::vector<SemanticImageEmbeddingRequest>& requests,
-    std::chrono::milliseconds timeout) -> std::vector<SemanticEmbeddingResult> {
+auto GrpcSemanticRuntimeClient::EmbedImageBatch(const std::string&                         endpoint,
+                                                std::vector<SemanticImageEmbeddingRequest> requests,
+                                                std::chrono::milliseconds                  timeout)
+    -> std::vector<SemanticEmbeddingResult> {
   auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
   auto                stub    = semantic::SemanticService::NewStub(channel);
 
@@ -983,8 +984,8 @@ auto SemanticRuntimeService::EmbedImage(const std::string&          request_id,
   return client_->EmbedImage(endpoint_, request_id, rgba8_image, format_hint, timeout);
 }
 
-auto SemanticRuntimeService::EmbedImageBatch(
-    const std::vector<SemanticImageEmbeddingRequest>& requests, std::chrono::milliseconds timeout)
+auto SemanticRuntimeService::EmbedImageBatch(std::vector<SemanticImageEmbeddingRequest> requests,
+                                             std::chrono::milliseconds                  timeout)
     -> std::vector<SemanticEmbeddingResult> {
   if (status_.state != SemanticRuntimeState::kReady || !client_) {
     std::vector<SemanticEmbeddingResult> results;
@@ -998,7 +999,7 @@ auto SemanticRuntimeService::EmbedImageBatch(
     }
     return results;
   }
-  return client_->EmbedImageBatch(endpoint_, requests, timeout);
+  return client_->EmbedImageBatch(endpoint_, std::move(requests), timeout);
 }
 
 auto SemanticRuntimeService::StateName() const -> QString {
