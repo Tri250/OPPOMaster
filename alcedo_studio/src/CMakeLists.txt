@@ -1017,6 +1017,7 @@ def_library(ExportService
 
 def_library(SleeveFilterService
     SOURCES app/sleeve_filter_service.cpp
+            app/search_query_classifier.cpp
     PUBLIC_DEPS SleeveElement StorageService SleeveFilter StrConv
 )
 

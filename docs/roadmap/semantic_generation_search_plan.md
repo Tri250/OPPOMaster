@@ -3,9 +3,9 @@
 Date: 2026-06-12
 
 Status: Phase 1 complete; Phase 2 complete; Phase 3 complete; Phase 4a
-initial scaffold complete; Phase 4c complete; Phase 4d complete; Phase 5
-deferred; Phase 6a complete; Phase 6e Qt wiring complete; Phase 6 planning
-updated
+initial scaffold complete; Phase 4c complete; Phase 4d complete; Phase 5a
+complete; Phase 5b complete; Phase 5c complete; Phase 5d-g deferred; Phase 6a
+complete; Phase 6e Qt wiring complete; Phase 6 planning updated
 
 This document proposes how to integrate `rust/puerh_mind` into Alcedo Studio as
 project-level semantic image generation and semantic search services.
@@ -622,7 +622,7 @@ Packaging smoke tests should verify:
         backed by stored labels, not by runtime text embeddings
       - add focused tests proving that typing a generated label name returns
         results through the ordinary path
-    - 5b. Visible semantic-search toggle and persisted UI state
+    - 5b. Visible semantic-search toggle and persisted UI state — complete
       - add a compact `Semantic Search` / `语义搜索` toggle to
         `GlobalSearchDialog.qml`
       - persist the preference in `QSettings`, but default it off for existing
@@ -632,7 +632,7 @@ Packaging smoke tests should verify:
       - keep ordinary preview debounced while the toggle is off
       - add an explicit submit affordance for semantic search: Enter and a
         search button should both call the same controller method
-    - 5c. Query intent classifier
+    - 5c. Query intent classifier — complete
       - centralize routing in C++ near `SearchController` or
         `SleeveFilterService`; QML should only pass query text and toggle state
       - normalize query text for direct label matching against

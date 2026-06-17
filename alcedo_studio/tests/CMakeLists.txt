@@ -564,6 +564,11 @@ target_include_directories(FilterServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
 target_link_libraries(FilterServiceTest ImportService ProjectService SleeveFilterService GTest::gtest_main)
 gtest_discover_tests(FilterServiceTest TEST_PREFIX "FilterServiceTest.")
 
+add_executable(SearchQueryClassifierTest app/search_query_classifier_test.cpp)
+target_include_directories(SearchQueryClassifierTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(SearchQueryClassifierTest SleeveFilterService GTest::gtest_main)
+gtest_discover_tests(SearchQueryClassifierTest TEST_PREFIX "SearchQueryClassifierTest.")
+
 if(WIN32)
   target_link_libraries(FilterServiceTest)
 endif()

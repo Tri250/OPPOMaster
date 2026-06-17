@@ -26,6 +26,12 @@ Dialog {
     property bool searchHasPrevious: false
     property bool searchLoading: false
     property bool previewSyncForcePending: false
+    // Semantic-search control-layer state (5B). The toggle itself lives on
+    // searchController; these track the in-dialog preview lifecycle so QML only
+    // reflects state and never decides runtime behavior.
+    property bool semanticPreviewActive: false
+    property string currentRoute: ""
+    property string semanticStatusText: ""
     property Item blurSource: null
     property real cornerRadius: 0
 
@@ -76,6 +82,9 @@ Dialog {
         previewThumbs = ({})
         lastWindowDropCount = 0
         lastWindowPrependCount = 0
+        semanticPreviewActive = false
+        currentRoute = ""
+        semanticStatusText = ""
     }
 
     function openFromCollection() {
@@ -203,6 +212,8 @@ Dialog {
         }
         const query = searchField.text.trim()
         lastQuery = query
+        semanticPreviewActive = false
+        semanticStatusText = ""
         searchController.CancelSearchPreviewThumbnails()
         previewThumbs = ({})
         resultWindowStart = 0
@@ -213,13 +224,72 @@ Dialog {
         searchHasMore = false
         searchHasPrevious = false
         if (query.length === 0) {
+            currentRoute = "empty"
             results = []
             recommendations = searchController.SearchRecommendations(12)
             return
         }
         searchLoading = true
         const response = searchController.SearchPreview(query, 0, resultPageSize)
+        currentRoute = response && response.route ? String(response.route) : ""
+        if (response && response.awaitingSubmit === true) {
+            semanticStatusText = qsTr("Press Enter or click Search for semantic search")
+        }
         readPreviewResponse(response, "replace")
+        searchLoading = false
+    }
+
+    // Unified submit entry for Enter and the Search button (5B). Routing is
+    // decided in C++ (ClassifyQuery); QML only branches on the returned route.
+    function handleSearchSubmit() {
+        if (!searchController) {
+            return
+        }
+        const query = searchField.text.trim()
+        if (query.length === 0) {
+            return
+        }
+        if (searchController.semanticSearchEnabled
+                && searchController.ClassifyQuery(query) === "semantic") {
+            runSemanticSubmit(0, "replace")
+        } else {
+            applyBroadSearch()
+        }
+    }
+
+    function runSemanticSubmit(offset, mode) {
+        if (!searchController) {
+            return
+        }
+        const query = searchField.text.trim()
+        if (query.length === 0) {
+            return
+        }
+        lastQuery = query
+        semanticPreviewActive = true
+        semanticStatusText = ""
+        searchController.CancelSearchPreviewThumbnails()
+        if (mode === "replace") {
+            previewThumbs = ({})
+            resultWindowStart = 0
+            lastWindowDropCount = 0
+            lastWindowPrependCount = 0
+            searchOffset = 0
+            searchTotal = 0
+            searchHasMore = false
+            searchHasPrevious = false
+        }
+        searchLoading = true
+        const response = searchController.SubmitSearch(query, offset, resultPageSize)
+        currentRoute = response && response.route ? String(response.route) : "semantic"
+        if (response && response.tooLong === true) {
+            semanticStatusText = qsTr("Query is too long for semantic search")
+        } else if (response && response.semanticUnavailable === true) {
+            semanticStatusText = qsTr("Semantic search is not available yet")
+        } else if (response && response.awaitingSubmit === true) {
+            semanticStatusText = qsTr("Press Enter or click Search for semantic search")
+        }
+        readPreviewResponse(response, mode)
         searchLoading = false
     }
 
@@ -232,7 +302,9 @@ Dialog {
             return
         }
         searchLoading = true
-        const response = searchController.SearchPreview(query, searchOffset, resultPageSize)
+        const response = semanticPreviewActive
+            ? searchController.SubmitSearch(query, searchOffset, resultPageSize)
+            : searchController.SearchPreview(query, searchOffset, resultPageSize)
         readPreviewResponse(response, "append")
         if (lastWindowDropCount > 0) {
             const droppedHeight = lastWindowDropCount * 82
@@ -259,7 +331,9 @@ Dialog {
             return
         }
         searchLoading = true
-        const response = searchController.SearchPreview(query, nextOffset, nextLimit)
+        const response = semanticPreviewActive
+            ? searchController.SubmitSearch(query, nextOffset, nextLimit)
+            : searchController.SearchPreview(query, nextOffset, nextLimit)
         readPreviewResponse(response, "prepend")
         if (lastWindowPrependCount > 0) {
             const prependedHeight = lastWindowPrependCount * 82
@@ -371,7 +445,6 @@ Dialog {
             Rectangle {
                 anchors.fill: parent
                 color: dialog.overlayColor
-                opacity: dialog.blurSource !== null ? 0.66 : 0.90
             }
         }
 
@@ -389,13 +462,11 @@ Dialog {
 
         Rectangle {
             id: shell
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.top: parent.top
-            anchors.topMargin: Math.max(28, Math.round(parent.height * 0.075))
+            anchors.centerIn: parent
             width: Math.min(parent.width - 56, 1120)
             height: Math.min(parent.height - 72, 710)
             radius: 16
-            color: Qt.rgba(dialog.panelColor.r, dialog.panelColor.g, dialog.panelColor.b, 0.96)
+            color: Qt.rgba(dialog.panelColor.r, dialog.panelColor.g, dialog.panelColor.b, 0.94)
             border.width: 1
             border.color: dialog.withAlpha(dialog.textColor, 0.09)
             clip: true
@@ -467,8 +538,51 @@ Dialog {
                                 font.weight: 600
                                 verticalAlignment: TextInput.AlignVCenter
                                 onTextChanged: previewTimer.restart()
-                                onAccepted: dialog.applyBroadSearch()
+                                onAccepted: dialog.handleSearchSubmit()
                                 Keys.onEscapePressed: dialog.close()
+                            }
+                        }
+
+                        Switch {
+                            Layout.preferredHeight: 40
+                            text: qsTr("Semantic")
+                            checked: searchController ? searchController.semanticSearchEnabled : false
+                            onToggled: {
+                                if (searchController) {
+                                    searchController.SetSemanticSearchEnabled(checked)
+                                    // Re-run the typed query so the preview reflects the new route.
+                                    previewTimer.restart()
+                                }
+                            }
+                            Material.foreground: dialog.withAlpha(dialog.textColor, 0.78)
+                            Material.accent: dialog.accentColor
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("语义搜索 — use natural-language search via the CLIP model (Enter or Search button to run)")
+                        }
+
+                        Button {
+                            Layout.preferredHeight: 40
+                            text: qsTr("Search")
+                            enabled: searchField.text.trim().length > 0
+                            onClicked: dialog.handleSearchSubmit()
+                            Material.foreground: dialog.textColor
+                            contentItem: Text {
+                                text: parent.text
+                                color: parent.enabled ? dialog.textColor
+                                                      : dialog.withAlpha(dialog.textColor, 0.4)
+                                font.family: dialog.dataFontFamily
+                                font.pixelSize: 14
+                                font.weight: 660
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            background: Rectangle {
+                                radius: 8
+                                color: parent.down
+                                       ? dialog.withAlpha(dialog.accentColor, 0.55)
+                                       : (parent.hovered
+                                              ? dialog.withAlpha(dialog.accentColor, 0.34)
+                                              : dialog.withAlpha(dialog.accentColor, 0.22))
                             }
                         }
 
@@ -667,9 +781,14 @@ Dialog {
                         Label {
                             anchors.centerIn: parent
                             visible: resultList.count === 0 && searchField.text.trim().length > 0
-                            text: qsTr("No matches")
+                            text: semanticStatusText.length > 0
+                                  ? semanticStatusText
+                                  : qsTr("No matches")
                             color: dialog.withAlpha(dialog.textColor, 0.48)
                             font.pixelSize: 13
+                            horizontalAlignment: Text.AlignHCenter
+                            wrapMode: Text.WordWrap
+                            width: parent.width - 120
                         }
 
                         footer: Item {

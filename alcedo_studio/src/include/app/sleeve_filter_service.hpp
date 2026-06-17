@@ -83,6 +83,7 @@ class SleeveFilterService {
                                   size_t offset = 0, size_t limit = 48) const
       -> std::vector<FuzzySearchMatch>;
   void               SetSemanticSearchProvider(std::shared_ptr<SemanticSearchProvider> provider);
+  [[nodiscard]] auto HasSemanticSearchProvider() const -> bool;
   [[nodiscard]] auto SearchFolderSemantic(sl_element_id_t parent_id, const std::wstring& query,
                                           size_t offset = 0, size_t limit = 48) const
       -> std::vector<FuzzySearchMatch>;

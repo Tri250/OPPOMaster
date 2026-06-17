@@ -9,12 +9,14 @@
 #include <QImage>
 #include <QMetaObject>
 #include <QPointer>
+#include <QSettings>
 #include <algorithm>
 #include <exception>
 #include <limits>
 #include <thread>
 
 #include "app/thumbnail_service.hpp"
+#include "app/search_query_classifier.hpp"
 #include "image/image.hpp"
 #include "ui/alcedo_main/album_backend/album_backend.hpp"
 #include "ui/alcedo_main/album_backend/path_utils.hpp"
@@ -29,6 +31,10 @@ namespace {
 #define SEARCH_TEXT(text, ...)                 \
   i18n::MakeLocalizedText(ALCEDO_I18N_CONTEXT, \
                           QT_TRANSLATE_NOOP(ALCEDO_I18N_CONTEXT, text) __VA_OPT__(, ) __VA_ARGS__)
+
+// QSettings key for the semantic-search toggle. Default is off for both new and
+// existing users (see roadmap 5b).
+constexpr auto kSemanticSearchEnabledKey = "search/semanticEnabled";
 
 auto SearchPreviewThumbnailResolution(uint maxEdge) -> ThumbnailResolution {
   return maxEdge <= 256   ? ThumbnailResolution::k256
@@ -46,9 +52,21 @@ auto CurrentExceptionText(const char* fallback) -> QString {
   }
 }
 
+auto MakeEmptyResponse(int offset, int limit, const std::string& route_name) -> QVariantMap {
+  return QVariantMap{{"rows", QVariantList{}},
+                    {"offset", std::max(0, offset)},
+                    {"limit", std::max(0, limit)},
+                    {"total", 0},
+                    {"hasMore", false},
+                    {"route", QString::fromStdString(route_name)}};
+}
+
 }  // namespace
 
-SearchController::SearchController(AlbumBackend& backend) : backend_(backend) {}
+SearchController::SearchController(AlbumBackend& backend) : backend_(backend) {
+  semantic_search_enabled_ =
+      QSettings{}.value(QLatin1String(kSemanticSearchEnabledKey), false).toBool();
+}
 
 SearchController::~SearchController() { CancelSearchPreviewThumbnails(); }
 
@@ -68,12 +86,28 @@ auto SearchController::SearchRecommendations(int limit) -> QVariantList {
 }
 
 auto SearchController::SearchPreview(const QString& query, int offset, int limit) -> QVariantMap {
-  QVariantMap   response{{"rows", QVariantList{}},
-                         {"offset", std::max(0, offset)},
-                         {"limit", std::max(0, limit)},
-                         {"total", 0},
-                         {"hasMore", false}};
-  QVariantList  rows;
+  const QString trimmed = query.trimmed();
+  const auto    classification =
+      ClassifySearchQuery(trimmed.toStdWString(), semantic_search_enabled_);
+  const auto route_name = std::string(SearchQueryRouteName(classification.route_));
+
+  // Semantic preview must not run on every keystroke. Typing only signals that
+  // an explicit submit (Enter / Search button) is required.
+  if (classification.route_ == SearchQueryRoute::Semantic) {
+    auto response   = MakeEmptyResponse(offset, limit, route_name);
+    response["awaitingSubmit"] = true;
+    return response;
+  }
+  if (classification.route_ == SearchQueryRoute::Empty || limit <= 0) {
+    return MakeEmptyResponse(offset, limit, route_name);
+  }
+  return RunTraditionalPreview(trimmed, offset, limit, route_name);
+}
+
+auto SearchController::RunTraditionalPreview(const QString& query, int offset, int limit,
+                                             const std::string& route_name) -> QVariantMap {
+  auto response = MakeEmptyResponse(offset, limit, route_name);
+  QVariantList rows;
   const QString trimmed = query.trimmed();
   if (trimmed.isEmpty() || limit <= 0) {
     response["rows"] = rows;
@@ -109,29 +143,41 @@ auto SearchController::SearchPreview(const QString& query, int offset, int limit
     response["total"]   = static_cast<int>(std::min<size_t>(
         total, static_cast<size_t>(std::numeric_limits<int>::max())));
     response["hasMore"] = static_cast<size_t>(safe_offset) + matches.size() < total;
+    rows                = BuildResultRows(matches);
+  } catch (...) {
+  }
+  response["rows"] = rows;
+  return response;
+}
 
-    rows.reserve(static_cast<qsizetype>(matches.size()));
-    for (const auto& match : matches) {
-      QVariantMap row{{"elementId", static_cast<uint>(match.file_id_)},
-                      {"fileId", static_cast<uint>(match.file_id_)},
-                      {"imageId", static_cast<uint>(match.image_id_)},
-                      {"fileName", QString::fromUtf8(match.file_name_.c_str())},
-                      {"cameraModel", SEARCH_TEXT("Unknown").Render()},
-                      {"lens", QString{}},
-                      {"captureDate", QStringLiteral("--")},
-                      {"rating", 0},
-                      {"thumbUrl", QString{}},
-                      {"thumbLoading", false},
-                      {"thumbMissingSource", false},
-                      {"thumbErrorText", QString{}}};
+auto SearchController::BuildResultRows(const std::vector<alcedo::FuzzySearchMatch>& matches)
+    -> QVariantList {
+  QVariantList rows;
+  rows.reserve(static_cast<qsizetype>(matches.size()));
 
-      if (const auto* item = backend_.FindAlbumItem(match.file_id_); item != nullptr) {
-        row["thumbUrl"]           = item->thumb_data_url;
-        row["thumbLoading"]       = item->thumb_loading;
-        row["thumbMissingSource"] = item->thumb_missing_source;
-        row["thumbErrorText"]     = item->thumb_error_text;
-      }
+  auto proj = backend_.project_handler_.project();
+  for (const auto& match : matches) {
+    QVariantMap row{{"elementId", static_cast<uint>(match.file_id_)},
+                    {"fileId", static_cast<uint>(match.file_id_)},
+                    {"imageId", static_cast<uint>(match.image_id_)},
+                    {"fileName", QString::fromUtf8(match.file_name_.c_str())},
+                    {"cameraModel", SEARCH_TEXT("Unknown").Render()},
+                    {"lens", QString{}},
+                    {"captureDate", QStringLiteral("--")},
+                    {"rating", 0},
+                    {"thumbUrl", QString{}},
+                    {"thumbLoading", false},
+                    {"thumbMissingSource", false},
+                    {"thumbErrorText", QString{}}};
 
+    if (const auto* item = backend_.FindAlbumItem(match.file_id_); item != nullptr) {
+      row["thumbUrl"]           = item->thumb_data_url;
+      row["thumbLoading"]       = item->thumb_loading;
+      row["thumbMissingSource"] = item->thumb_missing_source;
+      row["thumbErrorText"]     = item->thumb_error_text;
+    }
+
+    if (proj) {
       try {
         proj->GetImagePoolService()->Read<void>(
             match.image_id_, [&row](std::shared_ptr<Image> image) {
@@ -154,13 +200,79 @@ auto SearchController::SearchPreview(const QString& query, int offset, int limit
             });
       } catch (...) {
       }
-
-      rows.push_back(std::move(row));
     }
+
+    rows.push_back(std::move(row));
+  }
+  return rows;
+}
+
+auto SearchController::SubmitSearch(const QString& query, int offset, int limit) -> QVariantMap {
+  const QString trimmed = query.trimmed();
+  const auto    classification =
+      ClassifySearchQuery(trimmed.toStdWString(), semantic_search_enabled_);
+  const auto route_name = std::string(SearchQueryRouteName(classification.route_));
+
+  if (classification.route_ == SearchQueryRoute::Empty) {
+    auto response      = MakeEmptyResponse(offset, limit, route_name);
+    response["recommendations"] = true;
+    return response;
+  }
+  // Label and Traditional routes use the ordinary SQL path.
+  if (classification.route_ != SearchQueryRoute::Semantic) {
+    return RunTraditionalPreview(trimmed, offset, limit, route_name);
+  }
+
+  // Semantic route: the only path that may reach the semantic provider. Guard
+  // the prompt length before embedding, and surface a clean unavailable state
+  // when no provider is registered (5D wires the concrete provider) rather than
+  // silently falling back to a C++ vector scan.
+  if (classification.too_long_) {
+    auto response  = MakeEmptyResponse(offset, limit, route_name);
+    response["tooLong"] = true;
+    return response;
+  }
+
+  auto proj = backend_.project_handler_.project();
+  auto filter_service = proj ? proj->GetSleeveFilterService() : nullptr;
+  const auto folder_id = backend_.folder_ctrl_.CurrentFolderElementId();
+  if (!filter_service || !filter_service->HasSemanticSearchProvider() || !folder_id.has_value()) {
+    auto response            = MakeEmptyResponse(offset, limit, route_name);
+    response["semanticUnavailable"] = true;
+    return response;
+  }
+
+  auto response = MakeEmptyResponse(offset, limit, route_name);
+  QVariantList rows;
+  try {
+    const auto safe_offset = static_cast<size_t>(std::max(0, offset));
+    const auto safe_limit  = static_cast<size_t>(std::max(0, limit));
+    const auto matches     = filter_service->SearchFolderSemantic(
+        folder_id.value(), trimmed.toStdWString(), safe_offset, safe_limit);
+    response["offset"]  = std::max(0, offset);
+    response["limit"]   = std::max(0, limit);
+    response["hasMore"] = safe_limit > 0 && matches.size() == safe_limit;
+    rows                = BuildResultRows(matches);
   } catch (...) {
   }
   response["rows"] = rows;
   return response;
+}
+
+auto SearchController::ClassifyQuery(const QString& query) const -> QString {
+  const auto classification =
+      ClassifySearchQuery(query.trimmed().toStdWString(), semantic_search_enabled_);
+  return QString::fromUtf8(SearchQueryRouteName(classification.route_).data(),
+                           static_cast<int>(SearchQueryRouteName(classification.route_).size()));
+}
+
+void SearchController::SetSemanticSearchEnabled(bool enabled) {
+  if (semantic_search_enabled_ == enabled) {
+    return;
+  }
+  semantic_search_enabled_ = enabled;
+  QSettings{}.setValue(QLatin1String(kSemanticSearchEnabledKey), enabled);
+  emit SearchStateChanged();
 }
 
 void SearchController::ApplyFuzzySearch(const QString& query) {

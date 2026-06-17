@@ -1085,4 +1085,93 @@ TEST_F(FilterServiceTests, AutoInvalidationOnLink) {
   EXPECT_EQ(result_after->front(), file_id);
 }
 
+// A fake SemanticSearchProvider that records its calls and returns a fixed
+// result set, used to verify the semantic-search seam (5B/5C) without starting
+// the Rust runtime. The concrete provider is 5D.
+class FakeSemanticSearchProvider : public SemanticSearchProvider {
+ public:
+  std::vector<FuzzySearchMatch> matches_{};
+  mutable bool                  was_called_           = false;
+  mutable std::wstring          last_query_           = {};
+  mutable sl_element_id_t       last_folder_id_       = 0;
+  mutable size_t                last_offset_          = 0;
+  mutable size_t                last_limit_           = 0;
+
+  [[nodiscard]] auto Search(sl_element_id_t folder_id, const std::wstring& query, size_t offset,
+                            size_t limit) const -> std::vector<FuzzySearchMatch> override {
+    was_called_     = true;
+    last_query_     = query;
+    last_folder_id_ = folder_id;
+    last_offset_    = offset;
+    last_limit_     = limit;
+    return matches_;
+  }
+};
+
+TEST_F(FilterServiceTests, SemanticSearchProviderDelegatesWhenRegistered) {
+  ProjectService project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
+  ASSERT_NE(CreateSyntheticFile(project, L"semantic_seam.dng", "Nikon D850"), 0u);
+
+  SleeveFilterService filter_service(project.GetStorageService());
+
+  // No provider registered: the seam reports unavailable and returns nothing.
+  EXPECT_FALSE(filter_service.HasSemanticSearchProvider());
+  EXPECT_TRUE(filter_service.SearchFolderSemantic(0, L"sunset over mountains", 0, 10).empty());
+
+  auto fake = std::make_shared<FakeSemanticSearchProvider>();
+  fake->matches_.push_back(FuzzySearchMatch{.file_id_   = 4242,
+                                            .image_id_  = 7,
+                                            .file_name_ = "semantic_hit.dng"});
+  filter_service.SetSemanticSearchProvider(fake);
+
+  EXPECT_TRUE(filter_service.HasSemanticSearchProvider());
+  const auto rows = filter_service.SearchFolderSemantic(0, L"sunset over mountains", 0, 10);
+  ASSERT_EQ(rows.size(), 1u);
+  EXPECT_EQ(rows.front().file_id_, 4242u);
+  EXPECT_EQ(rows.front().image_id_, 7u);
+  EXPECT_EQ(rows.front().file_name_, "semantic_hit.dng");
+  EXPECT_TRUE(fake->was_called_);
+  EXPECT_EQ(fake->last_query_, L"sunset over mountains");
+  EXPECT_EQ(fake->last_offset_, 0u);
+  EXPECT_EQ(fake->last_limit_, 10u);
+
+  // Clearing the provider restores the unavailable state.
+  filter_service.SetSemanticSearchProvider(nullptr);
+  EXPECT_FALSE(filter_service.HasSemanticSearchProvider());
+  EXPECT_TRUE(filter_service.SearchFolderSemantic(0, L"sunset over mountains", 0, 10).empty());
+}
+
+TEST_F(FilterServiceTests, LabelQueryUsesOrdinaryPathNotSemanticProvider) {
+  ProjectService project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
+  const auto     landscape_id = CreateSyntheticFile(
+      project, SyntheticFileSpec{.file_name_    = L"semantic_route.dng",
+                                     .image_path_   = std::filesystem::path{L"D:/photos/r.dng"},
+                                     .camera_model_ = "Neutral Body",
+                                     .lens_         = "Plain Lens"});
+  ASSERT_NE(landscape_id, 0u);
+
+  auto& semantic = project.GetStorageService()->GetSemanticStorageController();
+  RegisterSemanticSearchModel(semantic, "mobileclip-route-test");
+  StoreSemanticLabel(project, "mobileclip-route-test", landscape_id, "landscape", 4);
+
+  SleeveFilterService filter_service(project.GetStorageService());
+
+  // Register a provider that would record any accidental semantic call.
+  auto fake = std::make_shared<FakeSemanticSearchProvider>();
+  filter_service.SetSemanticSearchProvider(fake);
+
+  // A label query must resolve through the ordinary SQL path (5A) and reach the
+  // stored label, without invoking the semantic provider.
+  const auto rows = filter_service.SearchFolder(0, L"landscape", 0, 10);
+  ASSERT_EQ(rows.size(), 1u);
+  EXPECT_EQ(rows.front().file_id_, landscape_id);
+  EXPECT_FALSE(fake->was_called_);
+
+  // The Chinese surface form of the same label also uses the ordinary path.
+  const auto zh_rows = filter_service.SearchFolder(0, L"风景", 0, 10);
+  ASSERT_EQ(zh_rows.size(), 1u);
+  EXPECT_EQ(zh_rows.front().file_id_, landscape_id);
+  EXPECT_FALSE(fake->was_called_);
+}
+
 }  // namespace alcedo

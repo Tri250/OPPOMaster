@@ -561,6 +561,10 @@ void SleeveFilterService::SetSemanticSearchProvider(
   semantic_search_provider_ = std::move(provider);
 }
 
+auto SleeveFilterService::HasSemanticSearchProvider() const -> bool {
+  return semantic_search_provider_ != nullptr;
+}
+
 auto SleeveFilterService::SearchFolderSemantic(sl_element_id_t parent_id, const std::wstring& query,
                                                size_t offset, size_t limit) const
     -> std::vector<FuzzySearchMatch> {
