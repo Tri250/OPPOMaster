@@ -6,15 +6,15 @@ import './style.css';
 const translations = {
   zh: {
     'meta.title': 'Alcedo Studio — AI 驱动的开源专业级 RAW 图像处理软件',
-    'meta.desc': 'Alcedo Studio 是一款 AI 驱动、开源免费的 RAW 图像处理软件，支持 Windows/CUDA 和 macOS/Metal，提供专业级色彩科学、AI 内容识别与自然语言检索及高性能处理引擎。',
+    'meta.desc': 'Alcedo Studio 是一款 AI 驱动、开源免费的 RAW 图像处理软件，支持 Windows (x64) 与 macOS (Apple Silicon)，提供专业级色彩科学、AI 内容识别与自然语言检索及高性能处理引擎。',
     'nav.ai': 'AI 智能',
     'nav.features': '功能特性',
     'nav.films': '胶片模拟',
     'nav.download': '下载',
     'hero.badge1': 'AI 驱动 · 开源免费',
-    'hero.badge2': 'Windows / macOS',
+    'hero.badge2': 'Windows (x64) · macOS (ARM)',
     'hero.subtitle': '<span class="text-gold">AI 驱动</span>的专业级 RAW 图像处理，不该被价格束缚',
-    'hero.desc': 'AI 驱动、开源免费的 RAW 图像处理软件，支持 Windows/CUDA 与 macOS/Metal 双平台。AI 内容识别、自然语言检索、丰富的胶片模拟与调整工具、高性能处理引擎、强大的影像管理——为摄影师与创作者而生。',
+    'hero.desc': 'AI 驱动、开源免费的 RAW 图像处理软件，支持 Windows (x64) 与 macOS (Apple Silicon) 双平台。Windows 借 CUDA / OpenCL 驱动各类显卡加速，macOS 由 Metal 全力驱动。AI 内容识别、自然语言检索、丰富的胶片模拟与调整工具、高性能处理引擎、强大的影像管理——为摄影师与创作者而生。',
     'hero.download': '免费下载',
     'ai.label': 'AI POWERED',
     'ai.title': '让 AI 成为你的<br/><span class="text-gradient">影像助理</span>',
@@ -82,23 +82,25 @@ const translations = {
     'cta.title': '准备好开始创作了吗？',
     'cta.desc': 'Alcedo Studio 完全开源免费，无需订阅，没有功能限制。下载即可使用全部专业功能，包括 AI 内容识别与自然语言检索。',
     'cta.win': 'Windows 版下载',
+    'cta.win.sub': 'x64',
     'cta.mac': 'macOS 版下载',
+    'cta.mac.sub': 'Apple Silicon (ARM)',
     'cta.baidu': '网盘分流',
-    'cta.note': '支持 CUDA (NVIDIA) 与 Metal (Apple Silicon) GPU 加速',
+    'cta.note': 'Windows (x64) · 多显卡 GPU 加速 (CUDA / OpenCL) · macOS Apple Silicon (ARM) · Metal',
     'footer.tagline': 'AI 驱动，自由创作，从 Alcedo 开始',
     'footer.copy': '© 2026 Alcedo Studio. 开源软件，自由使用。'
   },
   en: {
     'meta.title': 'Alcedo Studio — AI-Powered Open-Source Professional RAW Image Processor',
-    'meta.desc': 'Alcedo Studio is an AI-powered, free and open-source RAW image processor supporting Windows/CUDA and macOS/Metal, with professional color science, AI content recognition, natural-language search, and a high-performance engine.',
+    'meta.desc': 'Alcedo Studio is an AI-powered, free and open-source RAW image processor supporting Windows (x64) and macOS (Apple Silicon), with professional color science, AI content recognition, natural-language search, and a high-performance engine.',
     'nav.ai': 'AI',
     'nav.features': 'Features',
     'nav.films': 'Film',
     'nav.download': 'Download',
     'hero.badge1': 'AI-Powered · Open Source',
-    'hero.badge2': 'Windows / macOS',
+    'hero.badge2': 'Windows (x64) · macOS (ARM)',
     'hero.subtitle': '<span class="text-gold">AI-powered</span> professional RAW processing should not be held back by price',
-    'hero.desc': 'An AI-powered, free and open-source RAW processor for both Windows/CUDA and macOS/Metal. AI content recognition, natural-language search, rich film simulations, a high-performance engine, and powerful asset management — built for photographers and creators.',
+    'hero.desc': 'An AI-powered, free and open-source RAW processor for both Windows (x64) and macOS (Apple Silicon). On Windows, CUDA and OpenCL drive a wide range of GPUs; on macOS, Metal powers the pipeline. AI content recognition, natural-language search, rich film simulations, a high-performance engine, and powerful asset management — built for photographers and creators.',
     'hero.download': 'Free Download',
     'ai.label': 'AI POWERED',
     'ai.title': 'Let AI Be Your<br/><span class="text-gradient">Photo Assistant</span>',
@@ -166,9 +168,11 @@ const translations = {
     'cta.title': 'Ready to Create?',
     'cta.desc': 'Alcedo Studio is completely free and open-source. No subscription, no feature limits. Download and access all professional features immediately, including AI content recognition and natural-language search.',
     'cta.win': 'Download for Windows',
+    'cta.win.sub': 'x64',
     'cta.mac': 'Download for macOS',
+    'cta.mac.sub': 'Apple Silicon (ARM)',
     'cta.baidu': 'Baidu Wangpan',
-    'cta.note': 'Accelerated by CUDA (NVIDIA) and Metal (Apple Silicon)',
+    'cta.note': 'Windows (x64) · Multi-GPU acceleration (CUDA / OpenCL) · macOS Apple Silicon (ARM) · Metal',
     'footer.tagline': 'AI-powered. Create freely, start with Alcedo.',
     'footer.copy': '© 2026 Alcedo Studio. Open source, free to use.'
   }
@@ -389,5 +393,61 @@ document.addEventListener('DOMContentLoaded', () => {
   // ========================================
   document.querySelectorAll('.feature-item').forEach((item, index) => {
     item.style.transitionDelay = `${index * 60}ms`;
+  });
+
+  // ========================================
+  // Screenshot lightbox — click any .zoomable
+  // image to view it full-size. Screenshots are
+  // dense app UIs, so the inline display is a
+  // preview; the full 4K frame opens here.
+  // ========================================
+  const lightbox = document.createElement('div');
+  lightbox.className = 'lightbox';
+  lightbox.setAttribute('aria-hidden', 'true');
+  lightbox.innerHTML =
+    '<button class="lightbox-close" aria-label="Close">' +
+    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>' +
+    '</button>' +
+    '<img class="lightbox-img" alt="" />' +
+    '<span class="lightbox-caption"></span>';
+  document.body.appendChild(lightbox);
+
+  const lbImg = lightbox.querySelector('.lightbox-img');
+  const lbCaption = lightbox.querySelector('.lightbox-caption');
+  let lbLastFocused = null;
+
+  function openLightbox(img) {
+    lbLastFocused = document.activeElement;
+    lbImg.src = (img.currentSrc && img.currentSrc !== img.src) ? img.currentSrc : img.src;
+    lbImg.alt = img.alt || '';
+    lbCaption.textContent = img.alt || '';
+    lightbox.classList.add('open');
+    lightbox.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+    lightbox.querySelector('.lightbox-close').focus();
+  }
+
+  function closeLightbox() {
+    lightbox.classList.remove('open');
+    lightbox.setAttribute('aria-hidden', 'true');
+    document.body.style.overflow = '';
+    if (lbLastFocused && typeof lbLastFocused.focus === 'function') lbLastFocused.focus();
+    // Drop the src once the fade-out begins so the heavy image isn't held.
+    window.setTimeout(() => { if (!lightbox.classList.contains('open')) lbImg.src = ''; }, 320);
+  }
+
+  document.querySelectorAll('img.zoomable').forEach(img => {
+    img.addEventListener('click', () => openLightbox(img));
+  });
+
+  lightbox.addEventListener('click', (e) => {
+    // Click on backdrop, the image itself, or the close button all dismiss.
+    if (e.target === lightbox || e.target === lbImg || e.target.closest('.lightbox-close')) {
+      closeLightbox();
+    }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && lightbox.classList.contains('open')) closeLightbox();
   });
 });

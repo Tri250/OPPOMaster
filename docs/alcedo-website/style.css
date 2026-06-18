@@ -61,7 +61,91 @@
   --font-headline: 'Manrope', 'Noto Sans SC', 'Inter', sans-serif;
   --font-data: 'IBM Plex Sans', 'Inter', 'Noto Sans SC', sans-serif;
 
-  --container: 1200px;
+  --container: 1280px;
+}
+
+/* ========================================
+   SCREENSHOT ZOOM + LIGHTBOX
+   App screenshots are dense UIs — let users
+   see them at full size on click.
+   ======================================== */
+.zoomable { cursor: zoom-in; }
+
+.zoom-media { position: relative; }
+.zoom-media::after {
+  content: '';
+  position: absolute;
+  bottom: 12px; right: 12px;
+  width: 38px; height: 38px;
+  background-color: rgba(18, 18, 18, 0.85);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23E0E0E0' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cline x1='11' y1='8' x2='11' y2='14'/%3E%3Cline x1='8' y1='11' x2='14' y2='11'/%3E%3Cline x1='16.5' y1='16.5' x2='21' y2='21'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 18px;
+  border: 1px solid var(--glass-stroke-strong);
+  border-radius: 50%;
+  backdrop-filter: blur(6px);
+  opacity: 0;
+  transform: scale(0.8);
+  transition: opacity var(--transition-base), transform var(--transition-base);
+  pointer-events: none;
+  z-index: 2;
+}
+.zoom-media:hover::after { opacity: 1; transform: scale(1); }
+
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  background: rgba(8, 8, 8, 0.94);
+  backdrop-filter: blur(10px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-base);
+}
+.lightbox.open { opacity: 1; pointer-events: all; }
+.lightbox-img {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-stroke-strong);
+  box-shadow: var(--shadow-lg);
+  transform: scale(0.97);
+  transition: transform var(--transition-base);
+  cursor: zoom-out;
+}
+.lightbox.open .lightbox-img { transform: scale(1); }
+.lightbox-close {
+  position: absolute;
+  top: 24px; right: 24px;
+  width: 46px; height: 46px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(26, 26, 26, 0.8);
+  border: 1px solid var(--glass-stroke-strong);
+  border-radius: 50%;
+  color: var(--text);
+  cursor: pointer;
+  transition: background var(--transition-fast), transform var(--transition-fast);
+}
+.lightbox-close:hover { background: var(--wine); transform: rotate(90deg); }
+.lightbox-caption {
+  position: absolute;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 18px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  background: rgba(18, 18, 18, 0.8);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--glass-stroke);
+  border-radius: 100px;
+  max-width: 80vw;
+  text-align: center;
 }
 
 *, *::before, *::after {
@@ -452,7 +536,7 @@ body {
 .caption-btn.caption-close:hover { background: var(--wine); color: #fff; }
 .caption-btn svg { width: 11px; height: 11px; }
 
-.window-body { background: var(--bg-canvas); line-height: 0; }
+.window-body { position: relative; background: var(--bg-canvas); line-height: 0; }
 .window-body img { width: 100%; height: auto; display: block; }
 
 @media (max-width: 768px) {
@@ -515,6 +599,16 @@ body {
 
 .btn-large { padding: 14px 30px; font-size: 1rem; }
 
+/* Two-line button label: title + architecture subtitle */
+.btn-text { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.18; }
+.btn-sub {
+  font-size: 0.72rem;
+  font-weight: 500;
+  opacity: 0.72;
+  letter-spacing: 0.01em;
+  margin-top: 1px;
+}
+
 /* ========================================
    SECTIONS
    ======================================== */
@@ -573,94 +667,86 @@ body {
 /* ========================================
    AI SECTION
    ======================================== */
+/* ========================================
+   AI SECTION — large stacked showcases
+   (full, uncropped screenshots so the dense
+   UI panels are actually legible)
+   ======================================== */
 .ai-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
 }
 
 .ai-card {
   position: relative;
   background: var(--bg-panel);
   border: 1px solid var(--glass-stroke);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl);
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  transition: transform var(--transition-base), border-color var(--transition-base), box-shadow var(--transition-base);
+  transition: border-color var(--transition-base), box-shadow var(--transition-base), transform var(--transition-base);
 }
 .ai-card:hover {
-  transform: translateY(-6px);
   border-color: rgba(233, 196, 106, 0.28);
   box-shadow: var(--shadow-md), var(--shadow-glow-gold);
 }
 
 .ai-card-media {
   position: relative;
-  aspect-ratio: 16 / 10;
-  overflow: hidden;
-  background: var(--bg-base);
+  padding: 20px;
+  background:
+    radial-gradient(ellipse 60% 80% at 50% 0%, rgba(233, 196, 106, 0.05) 0%, transparent 60%),
+    var(--bg-base);
   border-bottom: 1px solid var(--glass-stroke);
+  display: flex;
+  justify-content: center;
 }
 .ai-card-media img {
-  width: 100%; height: 100%;
-  object-fit: cover;
+  width: 100%;
+  max-width: 1020px;
+  height: auto;
   display: block;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
   transition: transform var(--transition-slow);
 }
-.ai-card:hover .ai-card-media img { transform: scale(1.04); }
-.ai-card-badge {
-  position: absolute;
-  top: 12px; left: 12px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 11px;
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  color: var(--gold);
-  background: rgba(18, 18, 18, 0.78);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(233, 196, 106, 0.3);
-  border-radius: 100px;
-}
-.ai-card-badge .badge-dot {
-  width: 6px; height: 6px; border-radius: 50%;
-  background: var(--gold);
-  box-shadow: 0 0 8px var(--gold);
-}
+.ai-card:hover .ai-card-media img { transform: scale(1.005); }
 
 .ai-card-body {
-  padding: 24px 24px 28px;
+  padding: 34px 40px 42px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  flex: 1;
+  gap: 14px;
+  max-width: 780px;
+  margin: 0 auto;
+  text-align: center;
+  align-items: center;
 }
 .ai-card-title {
   font-family: var(--font-headline);
-  font-size: 1.32rem;
+  font-size: 1.55rem;
   font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1.25;
 }
 .ai-card-desc {
-  font-size: 0.96rem;
+  font-size: 1rem;
   color: var(--text-muted);
-  line-height: 1.7;
+  line-height: 1.75;
 }
 .ai-card-tags {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 7px;
-  margin-top: auto;
-  padding-top: 4px;
+  margin-top: 6px;
 }
 .ai-card-tags li {
   list-style: none;
-  padding: 4px 11px;
-  font-size: 0.76rem;
+  padding: 4px 12px;
+  font-size: 0.78rem;
   font-weight: 500;
   color: var(--text-muted);
   background: var(--bg-base);
@@ -669,7 +755,10 @@ body {
 }
 
 @media (max-width: 980px) {
-  .ai-grid { grid-template-columns: 1fr; max-width: 560px; margin: 0 auto; }
+  .ai-grid { max-width: 680px; margin: 0 auto; }
+  .ai-card-media { padding: 14px; }
+  .ai-card-media img { max-width: 100%; }
+  .ai-card-body { padding: 28px 24px 34px; }
 }
 
 /* ========================================
@@ -683,17 +772,20 @@ body {
 
 .feature-item {
   display: grid;
-  grid-template-columns: 1fr 1.15fr;
-  gap: 56px;
+  grid-template-columns: 1fr 1.7fr;
+  gap: 48px;
   align-items: center;
   background: var(--bg-panel);
   border: 1px solid var(--glass-stroke);
   border-radius: var(--radius-xl);
-  padding: 48px;
+  padding: 44px;
   transition: border-color var(--transition-base), transform var(--transition-base);
 }
 .feature-item:hover { border-color: var(--glass-stroke-strong); }
 
+/* Reverse: media on the left — swap the column track so the
+   screenshot column stays the wide one in both directions. */
+.feature-item.feature-reverse { grid-template-columns: 1.7fr 1fr; }
 .feature-item.feature-reverse .feature-text { order: 2; }
 .feature-item.feature-reverse .feature-media { order: 1; }
 
@@ -772,13 +864,13 @@ body {
    ======================================== */
 .film-showcase {
   display: grid;
-  grid-template-columns: 1.3fr 1fr;
-  gap: 56px;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 52px;
   align-items: center;
   background: var(--bg-panel);
   border: 1px solid var(--glass-stroke);
   border-radius: var(--radius-xl);
-  padding: 48px;
+  padding: 44px;
   margin-bottom: 24px;
 }
 .film-showcase-img {
@@ -818,13 +910,13 @@ body {
 /* Grain & halation feature block */
 .film-grain {
   display: grid;
-  grid-template-columns: 1fr 1.3fr;
-  gap: 56px;
+  grid-template-columns: 1.5fr 1fr;
+  gap: 52px;
   align-items: center;
   background: var(--bg-panel);
   border: 1px solid var(--glass-stroke);
   border-radius: var(--radius-xl);
-  padding: 48px;
+  padding: 44px;
 }
 .film-grain .feature-media { order: 1; }
 .film-grain .film-grain-text { order: 2; }
