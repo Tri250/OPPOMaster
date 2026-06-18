@@ -59,6 +59,12 @@ function(alcedo_assign_test_category category option_name category_target)
         )
       endif()
       if(${option_name})
+        if(ALCEDO_BUILD_TESTS_BY_DEFAULT)
+          set_target_properties(${test_target} PROPERTIES
+            EXCLUDE_FROM_ALL FALSE
+            EXCLUDE_FROM_DEFAULT_BUILD FALSE
+          )
+        endif()
         add_dependencies(${category_target} ${test_target})
         add_dependencies(alcedo_tests_all ${test_target})
       endif()
@@ -558,6 +564,11 @@ target_include_directories(FilterServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
 target_link_libraries(FilterServiceTest ImportService ProjectService SleeveFilterService GTest::gtest_main)
 gtest_discover_tests(FilterServiceTest TEST_PREFIX "FilterServiceTest.")
 
+add_executable(SearchQueryClassifierTest app/search_query_classifier_test.cpp)
+target_include_directories(SearchQueryClassifierTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(SearchQueryClassifierTest SleeveFilterService GTest::gtest_main)
+gtest_discover_tests(SearchQueryClassifierTest TEST_PREFIX "SearchQueryClassifierTest.")
+
 if(WIN32)
   target_link_libraries(FilterServiceTest)
 endif()
@@ -641,6 +652,69 @@ if(WIN32)
       VERBATIM)
   endif()
 endif()
+
+add_executable(SemanticFakeRuntime app/semantic_fake_runtime_main.cpp)
+
+add_executable(SemanticRuntimeServiceTest app/semantic_runtime_service_test.cpp)
+target_include_directories(SemanticRuntimeServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_compile_definitions(SemanticRuntimeServiceTest PRIVATE
+  ALCEDO_SEMANTIC_FAKE_RUNTIME_PATH="$<TARGET_FILE:SemanticFakeRuntime>")
+target_link_libraries(SemanticRuntimeServiceTest SemanticRuntimeService ProjectService GTest::gtest_main)
+add_dependencies(SemanticRuntimeServiceTest SemanticFakeRuntime)
+gtest_discover_tests(SemanticRuntimeServiceTest TEST_PREFIX "SemanticRuntimeServiceTest."
+  PROPERTIES LABELS "ci_core_flow")
+
+add_executable(SemanticGrpcDependencySmokeTest app/semantic_grpc_dependency_smoke_test.cpp)
+target_include_directories(SemanticGrpcDependencySmokeTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(SemanticGrpcDependencySmokeTest
+  puerhlab::grpc++
+  puerhlab::protobuf
+  GTest::gtest_main)
+gtest_discover_tests(SemanticGrpcDependencySmokeTest TEST_PREFIX "SemanticGrpcDependencySmokeTest."
+  PROPERTIES LABELS "ci_core_flow")
+
+add_executable(SemanticStorageControllerTest storage/semantic_storage_controller_test.cpp)
+target_include_directories(SemanticStorageControllerTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(SemanticStorageControllerTest ProjectService GTest::gtest_main)
+gtest_discover_tests(SemanticStorageControllerTest TEST_PREFIX "SemanticStorageControllerTest."
+  PROPERTIES LABELS "ci_core_flow")
+if(WIN32)
+  target_link_libraries(SemanticStorageControllerTest)
+  if(TARGET alcedo_lensfun)
+    add_custom_command(TARGET SemanticStorageControllerTest POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "$<TARGET_FILE:alcedo_lensfun>"
+              "$<TARGET_FILE_DIR:SemanticStorageControllerTest>/lensfun.dll"
+      VERBATIM)
+  endif()
+  if(EXISTS "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/libduckdb-windows/duckdb.dll")
+    add_custom_command(TARGET SemanticStorageControllerTest POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/libduckdb-windows/duckdb.dll"
+              "$<TARGET_FILE_DIR:SemanticStorageControllerTest>/duckdb.dll"
+      VERBATIM)
+  endif()
+  if(ALCEDO_DUCKDB_VSS_EXTENSION)
+    add_custom_command(TARGET SemanticStorageControllerTest POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E make_directory
+              "$<TARGET_FILE_DIR:SemanticStorageControllerTest>/duckdb_extensions"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${ALCEDO_DUCKDB_VSS_EXTENSION}"
+              "$<TARGET_FILE_DIR:SemanticStorageControllerTest>/duckdb_extensions/vss.duckdb_extension"
+      VERBATIM)
+  endif()
+endif()
+
+add_executable(SemanticGenerationServiceTest app/semantic_generation_service_test.cpp)
+target_include_directories(SemanticGenerationServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(SemanticGenerationServiceTest
+  SemanticGenerationService
+  ProjectService
+  ImportService
+  DuckDB
+  GTest::gtest_main)
+gtest_discover_tests(SemanticGenerationServiceTest TEST_PREFIX "SemanticGenerationServiceTest."
+  PROPERTIES LABELS "ci_raw_flow")
 
 add_executable(ThumbnailServiceTest app/thumbnail_service_test.cpp)
 target_include_directories(ThumbnailServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
@@ -995,6 +1069,7 @@ alcedo_assign_test_category(app ALCEDO_BUILD_APP_TESTS alcedo_tests_app
   FilterServiceTest
   PipelineServiceTest
   EditHistoryMgmtServiceTest
+  SemanticGenerationServiceTest
   ThumbnailServiceTest
   ThumbnailDiskCacheServiceTest
   ExportServiceTest
@@ -1020,12 +1095,16 @@ alcedo_assign_test_category(ci_core ALCEDO_BUILD_CI_TESTS alcedo_tests_ci_core
   PipelineServiceTest
   EditHistoryMgmtServiceTest
   CropRotateOpTest
+  SemanticGrpcDependencySmokeTest
+  SemanticRuntimeServiceTest
+  SemanticStorageControllerTest
 )
 
 alcedo_assign_test_category(ci_raw ALCEDO_BUILD_CI_TESTS alcedo_tests_ci_raw
   CiRawWorkflowTest
   AlbumBackendRatingTest
   AlbumBackendCiWorkflowTest
+  SemanticGenerationServiceTest
 )
 
 alcedo_assign_test_category(ci_metal ALCEDO_BUILD_CI_TESTS alcedo_tests_ci_metal

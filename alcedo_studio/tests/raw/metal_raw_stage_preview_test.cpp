@@ -41,23 +41,31 @@ auto ReadFileToBuffer(const std::filesystem::path& path) -> std::vector<uint8_t>
 }
 
 auto CiRawFixturePath() -> std::filesystem::path {
-  const auto root = std::filesystem::path(TEST_IMG_PATH) / "ci_rawfiles";
-  if (!std::filesystem::exists(root)) {
-    return {};
-  }
+  const auto collect_first = [](const std::filesystem::path& root) {
+    if (!std::filesystem::exists(root)) {
+      return std::filesystem::path{};
+    }
 
-  std::vector<std::filesystem::path> paths;
-  for (const auto& entry : std::filesystem::directory_iterator(root)) {
-    if (entry.is_regular_file()) {
-      const auto ext = entry.path().extension().string();
-      if (ext == ".ARW" || ext == ".arw" || ext == ".DNG" || ext == ".dng" || ext == ".NEF" ||
-          ext == ".nef") {
-        paths.push_back(entry.path());
+    std::vector<std::filesystem::path> paths;
+    for (const auto& entry : std::filesystem::recursive_directory_iterator(root)) {
+      if (entry.is_regular_file()) {
+        const auto ext = entry.path().extension().string();
+        if (ext == ".ARW" || ext == ".arw" || ext == ".DNG" || ext == ".dng" ||
+            ext == ".NEF" || ext == ".nef" || ext == ".RW2" || ext == ".rw2" ||
+            ext == ".CR2" || ext == ".cr2" || ext == ".ORF" || ext == ".orf") {
+          paths.push_back(entry.path());
+        }
       }
     }
+    std::sort(paths.begin(), paths.end());
+    return paths.empty() ? std::filesystem::path{} : paths.front();
+  };
+
+  if (auto path = collect_first(std::filesystem::path(TEST_IMG_PATH) / "ci_rawfiles");
+      !path.empty()) {
+    return path;
   }
-  std::sort(paths.begin(), paths.end());
-  return paths.empty() ? std::filesystem::path{} : paths.front();
+  return collect_first(std::filesystem::path("/Users/zidage/Photos"));
 }
 
 }  // namespace
@@ -67,7 +75,9 @@ TEST(MetalRawStagePreview, DecodeStillLifeWithRawStageOnly) {
   GTEST_SKIP() << "Metal is not enabled in this build.";
 #else
   const auto raw_path = CiRawFixturePath();
-  ASSERT_FALSE(raw_path.empty()) << "CI RAW fixtures missing under TEST_IMG_PATH/ci_rawfiles";
+  if (raw_path.empty()) {
+    GTEST_SKIP() << "CI RAW fixtures missing under TEST_IMG_PATH/ci_rawfiles and /Users/zidage/Photos";
+  }
   ASSERT_TRUE(std::filesystem::exists(raw_path)) << raw_path.string();
 
   auto raw_bytes = ReadFileToBuffer(raw_path);

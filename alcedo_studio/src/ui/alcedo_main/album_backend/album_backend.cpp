@@ -20,6 +20,7 @@
 #include <QTimer>
 #include <QUrl>
 #include <algorithm>
+#include <chrono>
 #include <exception>
 #include <limits>
 #include <optional>
@@ -38,7 +39,6 @@
 namespace alcedo::ui {
 
 using namespace album_util;
-
 #define PL_TEXT(text, ...)                     \
   i18n::MakeLocalizedText(ALCEDO_I18N_CONTEXT, \
                           QT_TRANSLATE_NOOP(ALCEDO_I18N_CONTEXT, text) __VA_OPT__(, ) __VA_ARGS__)
@@ -227,6 +227,7 @@ AlbumBackend::AlbumBackend(QObject* parent)
       image_ctrl_(*this),
       stats_(*this),
       search_(*this),
+      semantic_generation_(*this),
       import_export_(*this),
       nikon_he_recovery_(*this),
       editor_(*this),
@@ -245,6 +246,7 @@ AlbumBackend::AlbumBackend(QObject* parent)
 
 AlbumBackend::~AlbumBackend() {
   try {
+    semantic_generation_.CancelGeneration();
     search_.CancelSearchPreviewThumbnails();
     thumb_.ReleaseVisibleThumbnailPins();
     editor_.FinalizeEditorSession(true);
@@ -945,6 +947,22 @@ void AlbumBackend::SetTaskState(const i18n::LocalizedText& status, int progress,
   emit TaskStateChanged();
 }
 
+void AlbumBackend::QueueSemanticGenerationPrompt(std::vector<SemanticGenerationItem> items) {
+  semantic_generation_.QueuePrompt(std::move(items));
+}
+
+void AlbumBackend::ResumeQueuedSemanticGenerationWorkflow() {
+  semantic_generation_.ResumeQueuedWorkflow();
+}
+
+auto AlbumBackend::ActiveSemanticModelKey() const -> std::string {
+  return semantic_generation_.ActiveModelKey();
+}
+
+auto AlbumBackend::SemanticLabelDisplayText(sl_element_id_t elementId) const -> QString {
+  return semantic_generation_.LabelDisplayText(elementId);
+}
+
 void AlbumBackend::RefreshTranslations() {
   if (!folder_ctrl_.folder_entries().empty()) {
     folder_ctrl_.RebuildFolderView();
@@ -1259,6 +1277,7 @@ void AlbumBackend::AddOrUpdateAlbumItem(sl_element_id_t elementId, image_id_t im
   if (item->extension.isEmpty()) {
     item->extension = ExtensionFromFileName(item->file_name);
   }
+  item->tags = SemanticLabelDisplayText(elementId);
 }
 
 void AlbumBackend::SetAlbumItemHdrFlag(sl_element_id_t elementId, image_id_t imageId, bool isHdr) {

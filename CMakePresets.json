@@ -78,7 +78,8 @@
         "ALCEDO_ENABLE_CUDA": "OFF",
         "ALCEDO_ENABLE_OPENGL_EDITOR": "OFF",
         "ALCEDO_BUILD_TESTS": "OFF",
-        "ALCEDO_MACOS_BUNDLE": "OFF"
+        "ALCEDO_MACOS_BUNDLE": "OFF",
+        "PUERHLAB_USE_SYSTEM_GRPC_PROTOBUF": "ON"
       }
     },
     {
@@ -93,7 +94,11 @@
         "ALCEDO_ENABLE_CUDA": "OFF",
         "ALCEDO_ENABLE_OPENGL_EDITOR": "OFF",
         "ALCEDO_BUILD_TESTS": "ON",
-        "ALCEDO_MACOS_BUNDLE": "OFF"
+        "ALCEDO_BUILD_TESTS_BY_DEFAULT": "ON",
+        "ALCEDO_BUILD_CI_TESTS": "ON",
+        "ALCEDO_MACOS_BUNDLE": "OFF",
+        "ALCEDO_GENERATE_QMLTYPES": "OFF",
+        "PUERHLAB_USE_SYSTEM_GRPC_PROTOBUF": "ON"
       }
     },
     {
@@ -113,6 +118,8 @@
         "ALCEDO_BUILD_TESTS_BY_DEFAULT": "OFF",
         "ALCEDO_BUILD_CI_TESTS": "ON",
         "ALCEDO_MACOS_BUNDLE": "OFF",
+        "ALCEDO_GENERATE_QMLTYPES": "OFF",
+        "PUERHLAB_USE_SYSTEM_GRPC_PROTOBUF": "ON",
         "CMAKE_OSX_DEPLOYMENT_TARGET": "13.3"
       }
     },
@@ -131,6 +138,7 @@
         "ALCEDO_MACOS_BUNDLE": "ON",
         "CMAKE_OSX_DEPLOYMENT_TARGET": "13.3",
         "ALCEDO_QT_PREFIX": "/Users/zidage/Qt/6.9.3/macos",
+        "PUERHLAB_USE_SYSTEM_GRPC_PROTOBUF": "ON",
         "CMAKE_INSTALL_PREFIX": "${sourceDir}/build/install"
       }
     }
@@ -180,7 +188,10 @@
     {
       "name": "macos_debug_tests",
       "configurePreset": "macos_debug_tests",
-      "jobs": 8
+      "jobs": 8,
+      "targets": [
+        "alcedo_tests_all"
+      ]
     },
     {
       "name": "macos_arm_metal_ci",

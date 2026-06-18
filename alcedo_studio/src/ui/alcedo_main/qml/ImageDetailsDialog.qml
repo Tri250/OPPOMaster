@@ -17,6 +17,7 @@ Dialog {
 
     property string titleText: ""
     property string subtitleText: ""
+    property string semanticTags: ""
     property var detailRows: []
     property Item blurSource: null
     property real cornerRadius: 0
@@ -94,6 +95,84 @@ Dialog {
                 label: exposure[0].label + " · " + exposure[1].label,
                 value: exposure[0].value + " · " + exposure[1].value,
                 mono: true
+            })
+        }
+        return cards
+    }
+
+    function semanticTagTitle(rawTag) {
+        const normalized = rawTag === undefined || rawTag === null
+                ? ""
+                : String(rawTag).trim().replace(/\s+/g, " ").toLowerCase()
+        if (normalized.length === 0) {
+            return ""
+        }
+
+        const displayNames = {
+            "black and white": qsTr("Black & White"),
+            "food and drink": qsTr("Food & Drink")
+        }
+        if (displayNames[normalized]) {
+            return displayNames[normalized]
+        }
+
+        const smallWords = {
+            "and": true,
+            "of": true,
+            "or": true
+        }
+        const words = normalized.split(" ")
+        for (let i = 0; i < words.length; ++i) {
+            const word = words[i]
+            if (word.length === 0) {
+                continue
+            }
+            if (i > 0 && smallWords[word]) {
+                continue
+            }
+            words[i] = word.charAt(0).toUpperCase() + word.slice(1)
+        }
+        return words.join(" ")
+    }
+
+    function semanticTagParts(rawTags) {
+        const text = rawTags === undefined || rawTags === null ? "" : String(rawTags).trim()
+        if (text.length === 0) {
+            return []
+        }
+
+        const parts = []
+        const seen = ({})
+        const rawParts = text.split(",")
+        for (let i = 0; i < rawParts.length; ++i) {
+            const title = semanticTagTitle(rawParts[i])
+            const key = title.toLowerCase()
+            if (title.length === 0 || seen[key]) {
+                continue
+            }
+            seen[key] = true
+            parts.push(title)
+        }
+        return parts
+    }
+
+    readonly property var semanticCards: {
+        const tags = root.semanticTagParts(root.semanticTags)
+        if (tags.length === 0) {
+            return []
+        }
+
+        const labels = [
+            qsTr("Primary"),
+            qsTr("Related"),
+            qsTr("Also Matched")
+        ]
+        const cards = []
+        for (let i = 0; i < 3; ++i) {
+            cards.push({
+                label: labels[i],
+                value: i < tags.length ? tags[i] : "\u2014",
+                active: i < tags.length
             })
         }
         return cards
@@ -221,6 +300,59 @@ Dialog {
                             color: root.textColor
                             font.family: modelData.mono ? root.dataFontFamily : root.font.family
                             font.pixelSize: 18
+                            font.weight: 600
+                            elide: Text.ElideRight
+                        }
+                    }
+                }
+            }
+        }
+
+        GridLayout {
+            id: semanticGrid
+            Layout.fillWidth: true
+            visible: root.semanticCards.length > 0
+            columns: 3
+            rowSpacing: 8
+            columnSpacing: 8
+
+            Repeater {
+                model: root.semanticCards
+
+                delegate: Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 68
+                    radius: 10
+                    color: root.summaryCardColor
+                    border.width: 1
+                    border.color: root.summaryCardBorder
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 14
+                        anchors.rightMargin: 14
+                        anchors.topMargin: 12
+                        anchors.bottomMargin: 12
+                        spacing: 4
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: modelData.label
+                            color: root.mutedTextColor
+                            font.pixelSize: 10
+                            font.weight: 500
+                            font.letterSpacing: 1.2
+                            font.capitalization: Font.AllUppercase
+                            elide: Text.ElideRight
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignVCenter
+                            text: modelData.value
+                            color: modelData.active ? root.textColor : root.mutedTextColor
+                            opacity: modelData.active ? 1.0 : 0.55
+                            font.pixelSize: 16
                             font.weight: 600
                             elide: Text.ElideRight
                         }

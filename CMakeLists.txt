@@ -48,6 +48,9 @@ option(ALCEDO_MACDEPLOYQT_STRIP
 option(ALCEDO_MACOS_VERIFY_BUNDLE_DEPS
        "Fail macOS packaging when the app bundle contains dependencies that require the build machine."
        ON)
+option(ALCEDO_GENERATE_QMLTYPES
+       "Generate QML type metadata for the alcedo_main QML module."
+       ON)
 set(ALCEDO_MACOS_CODESIGN_IDENTITY "-"
     CACHE STRING
     "Code-sign identity for macOS bundle after deployment (use '-' for ad-hoc signing, empty to skip).")
@@ -194,6 +197,7 @@ set(ALCEDO_QT_COMPONENTS
     QuickControls2
     QuickDialogs2
     QuickEffects
+    Network
 )
 if(ALCEDO_BUILD_TESTS)
     list(APPEND ALCEDO_QT_COMPONENTS Test)
@@ -492,8 +496,26 @@ else()
   endif()
 endif()
 
+if(WIN32)
+    set(ALCEDO_DUCKDB_VSS_EXTENSION
+        "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/libduckdb-windows/extensions/vss.duckdb_extension"
+        CACHE FILEPATH "DuckDB VSS extension matching the bundled Windows DuckDB runtime.")
+    if(NOT EXISTS "${ALCEDO_DUCKDB_VSS_EXTENSION}")
+        message(FATAL_ERROR
+            "DuckDB VSS extension is required for semantic search. "
+            "Expected: ${ALCEDO_DUCKDB_VSS_EXTENSION}")
+    endif()
+endif()
+
 # Modules
-set(TEST_RES_DIR "${CMAKE_SOURCE_DIR}/alcedo_studio/tests/resources" CACHE PATH "Path to test resources")
+set(ALCEDO_DEFAULT_TEST_RES_DIR "${CMAKE_SOURCE_DIR}/alcedo_studio/tests/resources")
+set(TEST_RES_DIR "${ALCEDO_DEFAULT_TEST_RES_DIR}" CACHE PATH "Path to test resources")
+if(NOT EXISTS "${TEST_RES_DIR}")
+    message(WARNING
+        "Configured TEST_RES_DIR does not exist: ${TEST_RES_DIR}. "
+        "Falling back to ${ALCEDO_DEFAULT_TEST_RES_DIR}.")
+    set(TEST_RES_DIR "${ALCEDO_DEFAULT_TEST_RES_DIR}" CACHE PATH "Path to test resources" FORCE)
+endif()
 file(TO_CMAKE_PATH "${TEST_RES_DIR}" TEST_RES_DIR)
 add_compile_definitions(
     TEST_DB_PATH=\"${TEST_RES_DIR}/temp_folder/test.db\"
@@ -679,6 +701,30 @@ if(TARGET ${ALCEDO_MAIN_BIN})
             install(DIRECTORY "${CMAKE_SOURCE_DIR}/alcedo_studio/src/opencl/opencl_shader/"
                 DESTINATION "${CMAKE_INSTALL_BINDIR}/opencl/opencl/opencl_shader")
         endif()
+        if(WIN32 AND ALCEDO_DUCKDB_VSS_EXTENSION)
+            install(FILES "${ALCEDO_DUCKDB_VSS_EXTENSION}"
+                DESTINATION "${CMAKE_INSTALL_BINDIR}/duckdb_extensions"
+            )
+        endif()
+
+        if(ALCEDO_BUILD_SEMANTIC_SIDECAR AND ALCEDO_MIND_BINARY)
+            install(CODE
+                "set(ALCEDO_MIND_BINARY \"${ALCEDO_MIND_BINARY}\")
+                 set(ALCEDO_MIND_TARGET_DIR \"${ALCEDO_MIND_TARGET_DIR}\")
+                 set(ALCEDO_MIND_DEST_DIR \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}\")
+                 include(\"${CMAKE_SOURCE_DIR}/scripts/cmake/copy_semantic_sidecar.cmake\")
+                "
+            )
+        endif()
+
+        if(ALCEDO_ARIA2C_BINARY)
+            install(FILES "${ALCEDO_ARIA2C_BINARY}"
+                DESTINATION "${CMAKE_INSTALL_BINDIR}"
+                PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
+                            GROUP_READ GROUP_EXECUTE
+                            WORLD_READ WORLD_EXECUTE
+            )
+        endif()
 
         if(APPLE AND ALCEDO_METAL_ENABLED AND ALCEDO_METAL_RUNTIME_LIBS)
             install(FILES ${ALCEDO_METAL_RUNTIME_LIBS}
@@ -695,6 +741,12 @@ if(WIN32 AND TARGET ${ALCEDO_MAIN_BIN})
     set(ALCEDO_RUNTIME_DEP_DIRS "" CACHE STRING "Extra directories to search for runtime DLL dependencies during install.")
     set(ALCEDO_RUNTIME_EXES "$<TARGET_FILE:${ALCEDO_MAIN_BIN}>")
     set(ALCEDO_RUNTIME_SEARCH_DIRS "$<TARGET_FILE_DIR:${ALCEDO_MAIN_BIN}>")
+    if(ALCEDO_MIND_BINARY)
+        list(APPEND ALCEDO_RUNTIME_EXES "${ALCEDO_MIND_BINARY}")
+    endif()
+    if(ALCEDO_MIND_TARGET_DIR)
+        list(APPEND ALCEDO_RUNTIME_SEARCH_DIRS "${ALCEDO_MIND_TARGET_DIR}")
+    endif()
 
     set(_third_party_exiv2_bin "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/exiv2_x64-windows/bin")
     set(_third_party_duckdb_bin "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/libduckdb-windows")

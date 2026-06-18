@@ -6,9 +6,11 @@
 
 #include <filesystem>
 #include <memory>
+#include <mutex>
 #include <string>
 
 #include "app/album_browse_service.hpp"
+#include "app/semantic_runtime_service.hpp"
 #include "app/sleeve_service.hpp"
 #include "app/sleeve_filter_service.hpp"
 #include "image_pool_service.hpp"
@@ -47,6 +49,7 @@ class ProjectService {
   auto GetProjectPackageService() const -> std::shared_ptr<ProjectPackageService> {
     return package_service_;
   }
+  auto GetSemanticRuntimeService() const -> std::shared_ptr<SemanticRuntimeService>;
 
   auto GetDBPath() const -> const std::filesystem::path& { return db_path_; }
   auto GetMetaPath() const -> const std::filesystem::path& { return meta_path_; }
@@ -54,6 +57,7 @@ class ProjectService {
 
  private:
   void                                  RecreateSleeveService(sl_element_id_t start_id);
+  void                                  RegisterSemanticSearchProvider();
 
   std::filesystem::path                 db_path_;
   std::filesystem::path                 meta_path_;
@@ -65,5 +69,7 @@ class ProjectService {
   std::shared_ptr<SleeveFilterService>   filter_service_;
   std::shared_ptr<AlbumBrowseService>    browse_service_;
   std::shared_ptr<ProjectPackageService> package_service_;
+  mutable std::mutex                     semantic_runtime_mutex_;
+  mutable std::shared_ptr<SemanticRuntimeService> semantic_runtime_service_;
 };
 };  // namespace alcedo

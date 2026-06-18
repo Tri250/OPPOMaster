@@ -27,6 +27,7 @@
 #include "app/project_package_backend.hpp"
 #include "app/project_service.hpp"
 #include "sleeve/storage_service.hpp"
+#include "ui/alcedo_main/album_backend/semantic_generation_controller.hpp"
 
 namespace alcedo::ui::test {
 namespace {
@@ -122,6 +123,55 @@ TEST_F(ProjectTests, CreateProject_EmptyName_Fails) {
     // still be reasonable.
     ProcessEvents(200);
   }
+}
+
+TEST_F(ProjectTests, SemanticActivationManifestRequiresListedFilesOnDisk) {
+  const auto base_dir   = temp_dir_ / "model";
+  const auto model_dir  = base_dir / "mobileclip2-s2-en";
+  const auto asset_path = model_dir / "tokenizer.json";
+  std::filesystem::create_directories(model_dir);
+  {
+    std::ofstream asset(asset_path);
+    asset << "{}";
+  }
+
+  nlohmann::json manifest;
+  manifest["profile_id"]                 = "mobileclip2-s2-en";
+  manifest["model_id"]                   = "plhery/mobileclip2-onnx:s2";
+  manifest["revision"]                   = "ba95759a5bdbaca53e9111e2550a76ec09c8fd9e";
+  manifest["engine_profile_id"]          = "mobileclip2-openclip";
+  manifest["language"]                   = "en";
+  manifest["embedding_dimension"]        = 512;
+  manifest["native_embedding_dimension"] = 512;
+  manifest["image_size"]                 = 256;
+  manifest["embedding_transform"]        = "l2_normalize";
+  manifest["model_root"]                 = model_dir.string();
+  manifest["assets"]                     = nlohmann::json::array(
+      {{{"role", "tokenizer"},
+        {"repo_id", "plhery/mobileclip2-onnx"},
+        {"revision", "ba95759a5bdbaca53e9111e2550a76ec09c8fd9e"},
+        {"remote_path", "tokenizer.json"},
+        {"local_path", asset_path.string()},
+        {"size_bytes", 2},
+        {"sha256", ""}}});
+
+  {
+    std::ofstream out(model_dir / "alcedo_model_manifest.json");
+    out << manifest.dump(2);
+  }
+
+  QString error;
+  auto    loaded = detail::LoadLocalResolvedModelManifestForActivation(
+      QStringLiteral("mobileclip2-s2-en"), PathToQString(base_dir), &error);
+  ASSERT_TRUE(loaded.has_value()) << error.toStdString();
+
+  std::filesystem::remove(asset_path);
+  error.clear();
+  loaded = detail::LoadLocalResolvedModelManifestForActivation(
+      QStringLiteral("mobileclip2-s2-en"), PathToQString(base_dir), &error);
+  EXPECT_FALSE(loaded.has_value());
+  EXPECT_TRUE(error.contains(QStringLiteral("missing"), Qt::CaseInsensitive))
+      << error.toStdString();
 }
 
 // ── Create project while "loading" — second call rejected ──────────────────

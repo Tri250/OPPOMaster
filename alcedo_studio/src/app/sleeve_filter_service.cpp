@@ -9,7 +9,11 @@
 #include <cwctype>
 #include <format>
 #include <memory>
+#include <optional>
 #include <sstream>
+
+#include "storage/controller/semantic/semantic_label_config.hpp"
+#include "utils/string/convert.hpp"
 
 namespace alcedo {
 namespace {
@@ -54,6 +58,22 @@ auto SqlStringEscape(const std::wstring& value) -> std::wstring {
     }
   }
   return out;
+}
+
+auto SqlStringLiteral(const std::string& value) -> std::wstring {
+  return L"'" + SqlStringEscape(conv::FromBytes(value)) + L"'";
+}
+
+auto SqlStringLiteral(const std::wstring& value) -> std::wstring {
+  return L"'" + SqlStringEscape(value) + L"'";
+}
+
+auto WStringToUtf8(const std::wstring& value) -> std::optional<std::string> {
+  try {
+    return conv::ToBytes(value);
+  } catch (...) {
+    return std::nullopt;
+  }
 }
 
 auto LikeClause(const std::wstring& expr, const std::wstring& token) -> std::wstring {
@@ -113,10 +133,9 @@ auto StripSearchSeparators(std::wstring value) -> std::wstring {
 
 auto FoldSqlSearchSeparators(std::wstring expr) -> std::wstring {
   static constexpr std::wstring_view kSeparators[] = {
-      L" ", L"\t", L"\n", L"\r", L"_", L"-", L".", L"/", L"\\", L":",
-      L";", L",",  L"'",  L"\"", L"(", L")", L"[", L"]", L"{", L"}",
-      L"%", L"*",  L"?",  L"!",  L"@", L"#", L"$", L"&", L"+", L"=",
-      L"|", L"`",  L"~",
+      L" ", L"\t", L"\n", L"\r", L"_", L"-", L".", L"/", L"\\", L":", L";",
+      L",", L"'",  L"\"", L"(",  L")", L"[", L"]", L"{", L"}",  L"%", L"*",
+      L"?", L"!",  L"@",  L"#",  L"$", L"&", L"+", L"=", L"|",  L"`", L"~",
   };
 
   std::wstring folded = std::format(L"LOWER(COALESCE({}, ''))", expr);
@@ -127,7 +146,31 @@ auto FoldSqlSearchSeparators(std::wstring expr) -> std::wstring {
   return folded;
 }
 
-auto SearchDocumentExpr() -> std::wstring {
+auto SemanticLabelExpr(const std::string& active_model_key) -> std::wstring {
+  if (active_model_key.empty()) {
+    return L"''";
+  }
+  std::wstring alias_case = L"CASE";
+  for (const auto& label : DefaultSemanticPhotographyLabelDefinitions()) {
+    const auto canonical = conv::FromBytes(label.canonical_label);
+    const auto en = conv::FromBytes(label.english_label);
+    const auto zh = conv::FromBytes(label.chinese_label);
+    const auto aliases = SqlStringLiteral(canonical + L" " + en + L" " + zh);
+    alias_case += L" WHEN LOWER(sl.label) = LOWER(" + SqlStringLiteral(canonical) + L") THEN " +
+                  aliases;
+    alias_case += L" WHEN LOWER(sl.label) = LOWER(" + SqlStringLiteral(en) + L") THEN " +
+                  aliases;
+    alias_case += L" WHEN LOWER(sl.label) = LOWER(" + SqlStringLiteral(zh) + L") THEN " +
+                  aliases;
+  }
+  alias_case += L" ELSE sl.label END";
+  return L"(SELECT string_agg(" + alias_case +
+         L", ' ') FROM SemanticImageLabel sl WHERE sl.file_id = e.id "
+         L"AND sl.model_key = " +
+         SqlStringLiteral(active_model_key) + L")";
+}
+
+auto SearchDocumentExpr(const std::string& active_model_key) -> std::wstring {
   return L"CONCAT_WS(' ', "
          L"COALESCE(e.element_name, ''), "
          L"COALESCE(i.file_name, ''), "
@@ -137,10 +180,14 @@ auto SearchDocumentExpr() -> std::wstring {
          L"COALESCE(json_extract_string(i.metadata, '$.Lens'), ''), "
          L"COALESCE(json_extract_string(i.metadata, '$.LensMake'), ''), "
          L"COALESCE(json_extract_string(i.metadata, '$.DateTimeString'), ''), "
+         L"COALESCE(" +
+         SemanticLabelExpr(active_model_key) +
+         L", ''), "
          L"COALESCE(CAST(i.metadata AS VARCHAR), ''))";
 }
 
-auto FoldedDocumentClause(const std::wstring& token) -> std::optional<std::wstring> {
+auto FoldedDocumentClause(const std::wstring& token, const std::string& active_model_key)
+    -> std::optional<std::wstring> {
   if (token.find(L'%') != std::wstring::npos || token.find(L'*') != std::wstring::npos ||
       token.find(L'?') != std::wstring::npos || token.find(L'\'') != std::wstring::npos ||
       token.find(L'"') != std::wstring::npos) {
@@ -152,7 +199,7 @@ auto FoldedDocumentClause(const std::wstring& token) -> std::optional<std::wstri
     return std::nullopt;
   }
 
-  const auto folded_doc = FoldSqlSearchSeparators(SearchDocumentExpr());
+  const auto folded_doc = FoldSqlSearchSeparators(SearchDocumentExpr(active_model_key));
   const auto pattern    = std::format(L"'%{}%'", SqlLikeEscape(folded_token));
   return std::format(L"({} LIKE {} ESCAPE '~')", folded_doc, pattern);
 }
@@ -302,7 +349,24 @@ auto JoinWith(const std::vector<std::wstring>& parts, const std::wstring& sep) -
   return out;
 }
 
-auto TokenSearchClause(const std::wstring& token) -> std::wstring {
+auto TokenSearchClause(const std::wstring& token, const std::string& active_model_key)
+    -> std::wstring {
+  std::vector<std::wstring> search_terms{token};
+  if (const auto token_u8 = WStringToUtf8(token); token_u8.has_value()) {
+    if (const auto canonical = CanonicalSemanticLabel(*token_u8); canonical.has_value()) {
+      const auto canonical_w = conv::FromBytes(*canonical);
+      if (std::ranges::find(search_terms, canonical_w) == search_terms.end()) {
+        search_terms.push_back(canonical_w);
+      }
+      for (const auto& alias : SemanticLabelAliases(*canonical)) {
+        const auto alias_w = conv::FromBytes(alias);
+        if (std::ranges::find(search_terms, alias_w) == search_terms.end()) {
+          search_terms.push_back(alias_w);
+        }
+      }
+    }
+  }
+
   std::vector<std::wstring> clauses{
       LikeClause(L"e.element_name", token),
       LikeClause(L"i.file_name", token),
@@ -316,38 +380,33 @@ auto TokenSearchClause(const std::wstring& token) -> std::wstring {
       LikeClause(L"CAST(json_extract(i.metadata, '$.FocalLength') AS VARCHAR)", token),
       LikeClause(L"CAST(json_extract(i.metadata, '$.Aperture') AS VARCHAR)", token),
   };
+  if (!active_model_key.empty()) {
+    for (const auto& term : search_terms) {
+      clauses.push_back(LikeClause(SemanticLabelExpr(active_model_key), term));
+    }
+  }
 
   auto date_clauses = DateMatchClauses(token);
   clauses.insert(clauses.end(), date_clauses.begin(), date_clauses.end());
 
-  if (auto folded_clause = FoldedDocumentClause(token); folded_clause.has_value()) {
+  if (auto folded_clause = FoldedDocumentClause(token, active_model_key);
+      folded_clause.has_value()) {
     clauses.push_back(*folded_clause);
   }
 
   return L"(" + JoinWith(clauses, L" OR ") + L")";
 }
 
-auto SearchDocumentClause(const std::wstring& query) -> std::wstring {
-  std::vector<std::wstring> clauses{LikeClause(SearchDocumentExpr(), query)};
-  if (auto folded_clause = FoldedDocumentClause(query); folded_clause.has_value()) {
+auto SearchDocumentClause(const std::wstring& query, const std::string& active_model_key)
+    -> std::wstring {
+  std::vector<std::wstring> clauses{LikeClause(SearchDocumentExpr(active_model_key), query)};
+  if (auto folded_clause = FoldedDocumentClause(query, active_model_key);
+      folded_clause.has_value()) {
     clauses.push_back(*folded_clause);
   }
   return L"(" + JoinWith(clauses, L" OR ") + L")";
 }
 
-void AppendSuggestionRows(std::vector<FuzzySearchSuggestion>& out,
-                          const std::vector<StatsBucket>& buckets, const std::string& category,
-                          size_t limit) {
-  for (const auto& bucket : buckets) {
-    if (out.size() >= limit) {
-      return;
-    }
-    if (bucket.label_.empty() || bucket.label_ == "(unknown)") {
-      continue;
-    }
-    out.push_back({category, bucket.label_, bucket.label_, bucket.count_});
-  }
-}
 }  // namespace
 
 auto SleeveFilterService::CreateFilterCombo(const FilterNode& root) -> filter_id_t {
@@ -408,8 +467,9 @@ auto SleeveFilterService::BuildFolderStats(sl_element_id_t                  pare
     }
   }
 
-  const auto storage_stats =
-      storage_service_->GetElementController().BuildFolderStats(parent_id, extra_where);
+  const auto active_model_key = storage_service_->GetSemanticStorageController().ActiveModelKey();
+  const auto storage_stats    = storage_service_->GetElementController().BuildFolderStats(
+      parent_id, extra_where, active_model_key);
 
   AlbumStatsView out;
   out.total_photo_count_ = storage_stats.total_photo_count_;
@@ -427,6 +487,11 @@ auto SleeveFilterService::BuildFolderStats(sl_element_id_t                  pare
   out.lens_stats_.reserve(storage_stats.lens_stats_.size());
   for (const auto& bucket : storage_stats.lens_stats_) {
     out.lens_stats_.push_back({bucket.label_, bucket.count_});
+  }
+
+  out.label_stats_.reserve(storage_stats.label_stats_.size());
+  for (const auto& bucket : storage_stats.label_stats_) {
+    out.label_stats_.push_back({bucket.label_, bucket.count_});
   }
 
   out.rating_stats_.reserve(storage_stats.rating_stats_.size());
@@ -449,15 +514,19 @@ auto SleeveFilterService::BuildFuzzySearchWhere(const std::wstring& query) const
     return std::nullopt;
   }
 
+  const auto active_model_key =
+      storage_service_ ? storage_service_->GetSemanticStorageController().ActiveModelKey()
+                       : std::string{};
+
   std::vector<std::wstring> token_clauses;
   token_clauses.reserve(tokens.size());
   for (const auto& token : tokens) {
-    token_clauses.push_back(TokenSearchClause(token));
+    token_clauses.push_back(TokenSearchClause(token, active_model_key));
   }
 
   std::wstring where = L"(" + JoinWith(token_clauses, L" AND ") + L")";
   if (tokens.size() > 1) {
-    where = L"(" + where + L" OR " + SearchDocumentClause(trimmed) + L")";
+    where = L"(" + where + L" OR " + SearchDocumentClause(trimmed, active_model_key) + L")";
   }
   return where;
 }
@@ -492,6 +561,10 @@ void SleeveFilterService::SetSemanticSearchProvider(
   semantic_search_provider_ = std::move(provider);
 }
 
+auto SleeveFilterService::HasSemanticSearchProvider() const -> bool {
+  return semantic_search_provider_ != nullptr;
+}
+
 auto SleeveFilterService::SearchFolderSemantic(sl_element_id_t parent_id, const std::wstring& query,
                                                size_t offset, size_t limit) const
     -> std::vector<FuzzySearchMatch> {
@@ -511,21 +584,6 @@ auto SleeveFilterService::CountSearchResults(sl_element_id_t     parent_id,
     return 0;
   }
   return storage_service_->GetElementController().CountFilesInFolder(parent_id, where);
-}
-
-auto SleeveFilterService::BuildSearchSuggestions(sl_element_id_t parent_id, size_t limit) const
-    -> std::vector<FuzzySearchSuggestion> {
-  std::vector<FuzzySearchSuggestion> out;
-  if (limit == 0) {
-    return out;
-  }
-
-  const auto stats = BuildFolderStats(parent_id);
-  out.reserve(limit);
-  AppendSuggestionRows(out, stats.camera_stats_, "camera", limit);
-  AppendSuggestionRows(out, stats.date_stats_, "date", limit);
-  AppendSuggestionRows(out, stats.lens_stats_, "lens", limit);
-  return out;
 }
 
 void SleeveFilterService::InvalidateResultCache(sl_element_id_t folder_id) {

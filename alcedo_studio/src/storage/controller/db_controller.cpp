@@ -10,10 +10,27 @@
 #include <iterator>
 #include <stdexcept>
 
+#include "storage/controller/semantic/semantic_label_config.hpp"
 #include "utf8/checked.h"
 #include "utils/string/convert.hpp"
 
 namespace alcedo {
+namespace {
+auto SqlString(const std::string& value) -> std::string {
+  std::string out;
+  out.reserve(value.size() + 2);
+  out.push_back('\'');
+  for (const char ch : value) {
+    if (ch == '\'') {
+      out.push_back('\'');
+    }
+    out.push_back(ch);
+  }
+  out.push_back('\'');
+  return out;
+}
+}  // namespace
+
 /**
  * @brief Construct a new DBController::DBController object
  *
@@ -53,17 +70,30 @@ auto DBController::GetConnectionGuard() -> ConnectionGuard {
  */
 void DBController::InitializeDB() {
   // SQL query to create the necessary tables
-  
+
   std::string utf8_str = conv::ToBytes(db_path_.wstring());
   auto        state    = duckdb_open(utf8_str.c_str(), &db_);
   if (state != DuckDBSuccess) {
-    throw std::runtime_error("DB cannot be opened or created" );
+    throw std::runtime_error("DB cannot be opened or created");
   }
 
   // SQL query to create the tables
-  auto guard = GetConnectionGuard();
+  auto          guard = GetConnectionGuard();
   duckdb_result result;
   if (initialized_) {
+    if (duckdb_query(guard.conn_, semantic_table_query, &result) != DuckDBSuccess) {
+      auto error_message = duckdb_result_error(&result);
+      duckdb_destroy_result(&result);
+      throw std::runtime_error(error_message);
+    }
+    duckdb_destroy_result(&result);
+    if (duckdb_query(guard.conn_, semantic_migration_query, &result) != DuckDBSuccess) {
+      auto error_message = duckdb_result_error(&result);
+      duckdb_destroy_result(&result);
+      throw std::runtime_error(error_message);
+    }
+    duckdb_destroy_result(&result);
+    SeedSemanticLabelQueries(guard.conn_);
     return;
   }
 
@@ -74,7 +104,60 @@ void DBController::InitializeDB() {
     throw std::runtime_error(error_message);
   }
   duckdb_destroy_result(&result);
+
+  if (duckdb_query(guard.conn_, semantic_table_query, &result) != DuckDBSuccess) {
+    auto error_message = duckdb_result_error(&result);
+    duckdb_destroy_result(&result);
+    throw std::runtime_error(error_message);
+  }
+  duckdb_destroy_result(&result);
+  if (duckdb_query(guard.conn_, semantic_migration_query, &result) != DuckDBSuccess) {
+    auto error_message = duckdb_result_error(&result);
+    duckdb_destroy_result(&result);
+    throw std::runtime_error(error_message);
+  }
+  duckdb_destroy_result(&result);
+  SeedSemanticLabelQueries(guard.conn_);
   initialized_ = true;
+}
+
+void DBController::SeedSemanticLabelQueries(duckdb_connection conn) {
+  duckdb_result result;
+  if (duckdb_query(conn, "BEGIN TRANSACTION;", &result) != DuckDBSuccess) {
+    std::string error_message = duckdb_result_error(&result);
+    duckdb_destroy_result(&result);
+    throw std::runtime_error(error_message);
+  }
+  duckdb_destroy_result(&result);
+
+  const auto seed_queries = [&](SemanticLabelLanguage language) {
+    const auto* prompt_hash = SemanticPromptConfigHashForLanguage(language);
+    for (const auto& label_query : DefaultSemanticPhotographyLabelQueries(language)) {
+      const auto sql =
+          "INSERT OR REPLACE INTO SemanticLabelQuery "
+          "(prompt_config_hash, label, query_text) VALUES (" +
+          SqlString(prompt_hash) + ", " + SqlString(label_query.label) + ", " +
+          SqlString(label_query.query) + ");";
+      if (duckdb_query(conn, sql.c_str(), &result) != DuckDBSuccess) {
+        std::string error_message = duckdb_result_error(&result);
+        duckdb_destroy_result(&result);
+        duckdb_result rollback_result;
+        duckdb_query(conn, "ROLLBACK;", &rollback_result);
+        duckdb_destroy_result(&rollback_result);
+        throw std::runtime_error(error_message);
+      }
+      duckdb_destroy_result(&result);
+    }
+  };
+  seed_queries(SemanticLabelLanguage::kEnglish);
+  seed_queries(SemanticLabelLanguage::kChinese);
+
+  if (duckdb_query(conn, "COMMIT;", &result) != DuckDBSuccess) {
+    std::string error_message = duckdb_result_error(&result);
+    duckdb_destroy_result(&result);
+    throw std::runtime_error(error_message);
+  }
+  duckdb_destroy_result(&result);
 }
 
 };  // namespace alcedo

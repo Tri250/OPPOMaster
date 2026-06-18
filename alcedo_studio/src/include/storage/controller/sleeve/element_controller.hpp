@@ -35,6 +35,7 @@ struct FolderStatsView {
   std::vector<StorageStatsBucket> date_stats_{};
   std::vector<StorageStatsBucket> camera_stats_{};
   std::vector<StorageStatsBucket> lens_stats_{};
+  std::vector<StorageStatsBucket> label_stats_{};
   std::vector<StorageStatsBucket> rating_stats_{};
 };
 
@@ -68,10 +69,24 @@ class ElementController {
   PipelineService    pipeline_service_;
   EditHistoryService edit_history_service_;
 
+  // Insert the element row plus its child rows (file binding / folder content /
+  // edit history). Does not touch sync_flag_ and does not manage a transaction, so
+  // it can run either autocommit (AddElement) or inside a shared transaction
+  // (AddElements).
+  void InsertElementRows(const std::shared_ptr<SleeveElement>& element);
+  // Update the element row plus its child rows. Same transaction-neutrality contract
+  // as InsertElementRows.
+  void UpdateElementRows(const std::shared_ptr<SleeveElement>& element);
+
  public:
   ElementController(ConnectionGuard&& guard);
 
   void AddElement(const std::shared_ptr<SleeveElement> element);
+  // Bulk-insert a batch of elements (and their file/folder-content/edit-history child
+  // rows) in a single transaction. Import sync should prefer this over the per-row
+  // AddElement loop: one transaction for N elements instead of one autocommit
+  // transaction per element.
+  void AddElements(std::span<const std::shared_ptr<SleeveElement>> elements);
 
   void AddFolderContent(sl_element_id_t folder_id, sl_element_id_t content_id);
   void RemoveFolderContent(sl_element_id_t folder_id, sl_element_id_t content_id);
@@ -81,6 +96,8 @@ class ElementController {
   void RemoveElement(const std::shared_ptr<SleeveElement> element);
   void RemoveElements(std::span<const std::shared_ptr<SleeveElement>> elements);
   void UpdateElement(const std::shared_ptr<SleeveElement> element);
+  // Bulk-update a batch of elements in a single transaction.
+  void UpdateElements(std::span<const std::shared_ptr<SleeveElement>> elements);
   auto GetElementById(const sl_element_id_t id) -> std::shared_ptr<SleeveElement>;
 
   auto GetElementsInFolderByFilter(const std::shared_ptr<FilterCombo> filter,
@@ -91,8 +108,8 @@ class ElementController {
                                      const sl_element_id_t              folder_id)
       -> std::vector<sl_element_id_t>;
   auto BuildFolderStats(sl_element_id_t                    folder_id,
-                        const std::optional<std::wstring>& extra_filter_where = std::nullopt)
-      -> FolderStatsView;
+                        const std::optional<std::wstring>& extra_filter_where = std::nullopt,
+                        const std::string& active_semantic_model_key = {}) -> FolderStatsView;
 
   /// Return lightweight file metadata for every live File in a folder, queried directly from DB
   /// without materializing full SleeveElement objects.

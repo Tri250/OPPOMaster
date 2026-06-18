@@ -20,22 +20,6 @@ void WaitForImportFinished(AlbumBackend& backend, int timeoutMs = 30000) {
   ProcessEvents(600);
 }
 
-auto CreateDirectProject(AlbumBackend& backend, const std::filesystem::path& dbPath,
-                         const std::filesystem::path& metaPath) -> bool {
-  {
-    ProjectService project(dbPath, metaPath, ProjectOpenMode::kCreateNew);
-    project.SaveProject(metaPath);
-  }
-
-  QSignalSpy projectSpy(&backend, &AlbumBackend::ProjectChanged);
-  if (!backend.LoadProject(PathToQString(metaPath))) {
-    return false;
-  }
-  WaitForSignal(projectSpy, 15000);
-  ProcessEvents(500);
-  return backend.ServiceReady();
-}
-
 auto FindRowValue(const QVariantList& rows, const QString& label) -> QString {
   for (const QVariant& rowVar : rows) {
     const QVariantMap row = rowVar.toMap();
@@ -58,7 +42,7 @@ auto FindRow(const QVariantList& rows, const QString& label) -> QVariantMap {
 
 TEST_F(ImageDetailsTests, GetImageDetails_ReturnsStructuredExifSummary) {
   AlbumBackend backend;
-  ASSERT_TRUE(CreateDirectProject(backend, db_path_, meta_path_));
+  ASSERT_TRUE(CreateTestProject(backend, "image_details"));
 
   auto images = CollectRawTestImages("airplane", 1);
   if (images.empty()) {
@@ -94,7 +78,7 @@ TEST_F(ImageDetailsTests, GetImageDetails_ReturnsStructuredExifSummary) {
 
 TEST_F(ImageDetailsTests, GetImageDetails_RejectsInvalidIds) {
   AlbumBackend backend;
-  ASSERT_TRUE(CreateDirectProject(backend, db_path_, meta_path_));
+  ASSERT_TRUE(CreateTestProject(backend, "image_details_invalid_ids"));
 
   const QVariantMap result = backend.GetImageDetails(0, 0);
   EXPECT_FALSE(result.value("success").toBool());

@@ -818,6 +818,7 @@ set(SERVICE_SRCS
     storage/controller/controller_types.cpp
     storage/controller/db_controller.cpp
     storage/controller/image/image_controller.cpp
+    storage/controller/semantic/semantic_storage_controller.cpp
     storage/controller/sleeve/element_controller.cpp
     storage/service/image/image_service.cpp
     storage/service/sleeve/base/base_service.cpp
@@ -907,9 +908,15 @@ def_library(FSService
     PUBLIC_DEPS SleeveFS EditHistory
 )
 
+def_library(SleeveFilterService
+    SOURCES app/sleeve_filter_service.cpp
+            app/search_query_classifier.cpp
+    PUBLIC_DEPS SleeveElement StorageService SleeveFilter StrConv
+)
+
 def_library(AlbumBrowseService
     SOURCES app/album_browse_service.cpp
-    PUBLIC_DEPS FSService SleeveElement
+    PUBLIC_DEPS FSService SleeveElement SleeveFilterService
 )
 
 
@@ -918,13 +925,61 @@ def_library(ImagePoolService
     PUBLIC_DEPS ImagePool Image StorageService
 )
 
+set(ALCEDO_SEMANTIC_PROTO_DIR "${CMAKE_SOURCE_DIR}/rust/puerh_mind/proto")
+set(ALCEDO_SEMANTIC_PROTO "${ALCEDO_SEMANTIC_PROTO_DIR}/semantic.proto")
+set(ALCEDO_SEMANTIC_PROTO_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/semantic")
+set(ALCEDO_SEMANTIC_PROTO_SRCS
+    "${ALCEDO_SEMANTIC_PROTO_GEN_DIR}/semantic.pb.cc"
+    "${ALCEDO_SEMANTIC_PROTO_GEN_DIR}/semantic.grpc.pb.cc"
+)
+set(ALCEDO_SEMANTIC_PROTO_HDRS
+    "${ALCEDO_SEMANTIC_PROTO_GEN_DIR}/semantic.pb.h"
+    "${ALCEDO_SEMANTIC_PROTO_GEN_DIR}/semantic.grpc.pb.h"
+)
+
+add_custom_command(
+    OUTPUT ${ALCEDO_SEMANTIC_PROTO_SRCS} ${ALCEDO_SEMANTIC_PROTO_HDRS}
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${ALCEDO_SEMANTIC_PROTO_GEN_DIR}"
+    COMMAND ${PUERHLAB_PROTOC_EXECUTABLE}
+        --proto_path=${ALCEDO_SEMANTIC_PROTO_DIR}
+        --cpp_out=${ALCEDO_SEMANTIC_PROTO_GEN_DIR}
+        --grpc_out=${ALCEDO_SEMANTIC_PROTO_GEN_DIR}
+        --plugin=protoc-gen-grpc=${PUERHLAB_GRPC_CPP_PLUGIN_EXECUTABLE}
+        "${ALCEDO_SEMANTIC_PROTO}"
+    DEPENDS
+        "${ALCEDO_SEMANTIC_PROTO}"
+    VERBATIM
+)
+
+add_library(SemanticProto ${ALCEDO_SEMANTIC_PROTO_SRCS} ${ALCEDO_SEMANTIC_PROTO_HDRS})
+target_include_directories(SemanticProto PUBLIC "${ALCEDO_SEMANTIC_PROTO_GEN_DIR}")
+target_link_libraries(SemanticProto PUBLIC puerhlab::grpc++ puerhlab::protobuf)
+
+def_library(SemanticRuntimeService
+    SOURCES
+        app/semantic_runtime_service.cpp
+        include/app/semantic_runtime_service.hpp
+    PUBLIC_DEPS Qt6::Core Qt6::Network
+    PRIVATE_DEPS SemanticProto
+)
+
+def_library(ModelDownloadService
+    SOURCES
+        app/model_download_service.cpp
+        app/model_asset_catalog.cpp
+        include/app/model_download_service.hpp
+        include/app/model_asset_catalog.hpp
+    PUBLIC_DEPS Qt6::Core Qt6::Network
+)
+
 def_library(ProjectService
     SOURCES
         app/project_service.cpp
         app/project_package_backend.cpp
         app/project_package_service.cpp
         ui/alcedo_main/album_backend/path_utils.cpp
-    PUBLIC_DEPS FSService StorageService ImagePoolService AlbumBrowseService
+    PUBLIC_DEPS FSService StorageService ImagePoolService AlbumBrowseService SleeveFilterService
+                SemanticRuntimeService ModelDownloadService
                 StrConv JSON xxHash stduuid
     PRIVATE_DEPS
         UiLocalization
@@ -958,6 +1013,14 @@ def_library(ThumbnailService
     PUBLIC_DEPS EditPipeline ThreadPool StrConv ImagePoolService PipelineMgmtService ThumbnailDiskCacheService EditHistoryMgmtService
 )
 
+def_library(SemanticGenerationService
+    SOURCES
+        app/semantic_generation_service.cpp
+        include/app/semantic_generation_service.hpp
+        include/storage/controller/semantic/semantic_label_config.hpp
+    PUBLIC_DEPS SemanticRuntimeService ThumbnailService StorageService opencv_core opencv_imgproc
+)
+
 def_library(ThumbnailDiskCacheService
     SOURCES app/thumbnail_disk_cache_service.cpp
     PUBLIC_DEPS ImageBuffer JSON xxHash opencv_imgcodecs OpenImageIO::OpenImageIO
@@ -966,11 +1029,6 @@ def_library(ThumbnailDiskCacheService
 def_library(ExportService
     SOURCES app/export_service.cpp
     PUBLIC_DEPS ImageWriter ImageLoader ImagePoolService PipelineMgmtService PipelineScheduler ThreadPool
-)
-
-def_library(SleeveFilterService
-    SOURCES app/sleeve_filter_service.cpp
-    PUBLIC_DEPS SleeveElement StorageService SleeveFilter StrConv
 )
 
 # ==============================================================================
@@ -1071,6 +1129,7 @@ add_library(AlbumBackendLib STATIC
     ui/alcedo_main/album_backend/image_controller.cpp
     ui/alcedo_main/album_backend/stats_engine.cpp
     ui/alcedo_main/album_backend/search_controller.cpp
+    ui/alcedo_main/album_backend/semantic_generation_controller.cpp
     ui/alcedo_main/album_backend/import_export.cpp
     ui/alcedo_main/album_backend/nikon_he_recovery_controller.cpp
     ui/alcedo_main/album_backend/editor_controller.cpp
@@ -1085,6 +1144,7 @@ add_library(AlbumBackendLib STATIC
     include/ui/alcedo_main/album_backend/image_controller.hpp
     include/ui/alcedo_main/album_backend/stats_engine.hpp
     include/ui/alcedo_main/album_backend/search_controller.hpp
+    include/ui/alcedo_main/album_backend/semantic_generation_controller.hpp
     include/ui/alcedo_main/album_backend/import_export.hpp
     include/ui/alcedo_main/album_backend/nikon_he_recovery_controller.hpp
     include/ui/alcedo_main/album_backend/nikon_he_recovery_types.hpp
@@ -1114,6 +1174,8 @@ target_link_libraries(AlbumBackendLib
         AdjustmentTransferService
         EditHistoryMgmtService
         ThumbnailService
+        SemanticGenerationService
+        ModelDownloadService
         SleeveFilterService
         FSService
         EditPipeline
@@ -1320,9 +1382,15 @@ if(WIN32 AND ALCEDO_OPENCL_ENABLED)
     target_link_libraries(alcedo_main PRIVATE OpenGL::GL)
 endif()
 
+set(ALCEDO_MAIN_QML_MODULE_OPTIONS)
+if(NOT ALCEDO_GENERATE_QMLTYPES)
+    list(APPEND ALCEDO_MAIN_QML_MODULE_OPTIONS NO_GENERATE_QMLTYPES)
+endif()
+
 qt_add_qml_module(alcedo_main
     URI Alcedo.Main
     VERSION 1.0
+    ${ALCEDO_MAIN_QML_MODULE_OPTIONS}
     QML_FILES
         ui/alcedo_main/qml/Main.qml
         ui/alcedo_main/qml/ExportQueueState.qml
@@ -1332,6 +1400,8 @@ qt_add_qml_module(alcedo_main
         ui/alcedo_main/qml/SettingDialog.qml
         ui/alcedo_main/qml/WelcomeDialog.qml
         ui/alcedo_main/qml/NikonHeRecoveryDialog.qml
+        ui/alcedo_main/qml/SemanticGenerationDialog.qml
+        ui/alcedo_main/qml/SemanticGenerationSettingsPanel.qml
         ui/alcedo_main/qml/ImportProgressRing.qml
         ui/alcedo_main/qml/InspectorPanel.qml
         ui/alcedo_main/qml/CollectionsPanel.qml
@@ -1385,6 +1455,72 @@ if(DEFINED ALCEDO_LENSFUN_LIBRARY_DIR AND NOT "${ALCEDO_LENSFUN_LIBRARY_DIR}" ST
     set_property(TARGET alcedo_main APPEND PROPERTY BUILD_RPATH "${ALCEDO_LENSFUN_LIBRARY_DIR}")
 endif()
 
+set(ALCEDO_MIND_SOURCE_DIR "${CMAKE_SOURCE_DIR}/rust/puerh_mind"
+    CACHE INTERNAL "Alcedo semantic sidecar source directory.")
+set(ALCEDO_MIND_BUILD_PROFILE "release"
+    CACHE INTERNAL "Alcedo semantic sidecar cargo profile.")
+set(ALCEDO_MIND_TARGET_DIR "${ALCEDO_MIND_SOURCE_DIR}/target/${ALCEDO_MIND_BUILD_PROFILE}"
+    CACHE INTERNAL "Alcedo semantic sidecar cargo target directory.")
+option(ALCEDO_BUILD_SEMANTIC_SIDECAR
+    "Build and copy the Rust semantic runtime sidecar next to alcedo_main."
+    ON)
+
+if(WIN32)
+    set(ALCEDO_MIND_EXE_NAME "alcedo_mind.exe"
+        CACHE INTERNAL "Alcedo semantic sidecar executable name.")
+else()
+    set(ALCEDO_MIND_EXE_NAME "alcedo_mind"
+        CACHE INTERNAL "Alcedo semantic sidecar executable name.")
+endif()
+
+set(ALCEDO_MIND_BINARY "${ALCEDO_MIND_TARGET_DIR}/${ALCEDO_MIND_EXE_NAME}"
+    CACHE INTERNAL "Alcedo semantic sidecar executable path.")
+
+if(ALCEDO_BUILD_SEMANTIC_SIDECAR)
+    set(ALCEDO_MIND_CARGO_MSVC "${ALCEDO_MIND_SOURCE_DIR}/script/cargo_msvc.cmd")
+    if(WIN32)
+        if(NOT EXISTS "${ALCEDO_MIND_CARGO_MSVC}")
+            message(FATAL_ERROR "Semantic sidecar MSVC cargo wrapper was not found: ${ALCEDO_MIND_CARGO_MSVC}")
+        endif()
+        set(ALCEDO_MIND_CARGO_COMMAND "${ALCEDO_MIND_CARGO_MSVC}" build --release)
+    else()
+        find_program(ALCEDO_CARGO_EXECUTABLE NAMES cargo REQUIRED)
+        set(ALCEDO_MIND_CARGO_COMMAND "${ALCEDO_CARGO_EXECUTABLE}" build --release)
+    endif()
+
+    file(GLOB_RECURSE ALCEDO_MIND_RUST_SOURCES CONFIGURE_DEPENDS
+        "${ALCEDO_MIND_SOURCE_DIR}/src/*.rs"
+    )
+    file(GLOB ALCEDO_MIND_PROTO_FILES CONFIGURE_DEPENDS
+        "${ALCEDO_MIND_SOURCE_DIR}/proto/*.proto"
+    )
+
+    set(ALCEDO_MIND_BYPRODUCTS "${ALCEDO_MIND_BINARY}")
+    if(WIN32)
+        list(APPEND ALCEDO_MIND_BYPRODUCTS "${ALCEDO_MIND_TARGET_DIR}/DirectML.dll")
+    endif()
+
+    set(ALCEDO_MIND_BUILD_STAMP "${CMAKE_CURRENT_BINARY_DIR}/alcedo_mind_sidecar.stamp")
+    add_custom_command(
+        OUTPUT "${ALCEDO_MIND_BUILD_STAMP}"
+        COMMAND ${ALCEDO_MIND_CARGO_COMMAND}
+        COMMAND ${CMAKE_COMMAND} -E touch "${ALCEDO_MIND_BUILD_STAMP}"
+        WORKING_DIRECTORY "${ALCEDO_MIND_SOURCE_DIR}"
+        DEPENDS
+            "${ALCEDO_MIND_SOURCE_DIR}/Cargo.toml"
+            "${ALCEDO_MIND_SOURCE_DIR}/Cargo.lock"
+            "${ALCEDO_MIND_SOURCE_DIR}/build.rs"
+            ${ALCEDO_MIND_RUST_SOURCES}
+            ${ALCEDO_MIND_PROTO_FILES}
+        BYPRODUCTS ${ALCEDO_MIND_BYPRODUCTS}
+        COMMENT "Building semantic runtime sidecar"
+        VERBATIM
+        USES_TERMINAL
+    )
+    add_custom_target(alcedo_mind_sidecar DEPENDS "${ALCEDO_MIND_BUILD_STAMP}")
+    add_dependencies(alcedo_main alcedo_mind_sidecar)
+endif()
+
 set(ALCEDO_MAIN_FONT_SRC "${CMAKE_CURRENT_SOURCE_DIR}/config/fonts/main_Inter.ttf")
 set(ALCEDO_MAIN_ZH_FONT_SRC "${CMAKE_CURRENT_SOURCE_DIR}/config/fonts/main_NotoSans_zh.ttf")
 if(APPLE AND ALCEDO_MACOS_BUNDLE)
@@ -1428,4 +1564,49 @@ if(WIN32 AND TARGET alcedo_lensfun)
             "$<TARGET_FILE_DIR:alcedo_main>/lensfun.dll"
         VERBATIM
     )
+endif()
+
+if(WIN32 AND ALCEDO_DUCKDB_VSS_EXTENSION)
+    add_custom_command(TARGET alcedo_main POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:alcedo_main>/duckdb_extensions"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${ALCEDO_DUCKDB_VSS_EXTENSION}"
+            "$<TARGET_FILE_DIR:alcedo_main>/duckdb_extensions/vss.duckdb_extension"
+        VERBATIM
+    )
+endif()
+
+if(ALCEDO_BUILD_SEMANTIC_SIDECAR AND TARGET alcedo_mind_sidecar)
+    add_custom_target(alcedo_mind_sidecar_runtime_copy ALL
+        COMMAND ${CMAKE_COMMAND}
+            "-DALCEDO_MIND_BINARY=${ALCEDO_MIND_BINARY}"
+            "-DALCEDO_MIND_TARGET_DIR=${ALCEDO_MIND_TARGET_DIR}"
+            "-DALCEDO_MIND_DEST_DIR=$<TARGET_FILE_DIR:alcedo_main>"
+            -P "${CMAKE_SOURCE_DIR}/scripts/cmake/copy_semantic_sidecar.cmake"
+        DEPENDS alcedo_mind_sidecar
+        COMMENT "Copying semantic runtime sidecar next to alcedo_main"
+        VERBATIM
+    )
+    add_dependencies(alcedo_main alcedo_mind_sidecar_runtime_copy)
+endif()
+
+# ── aria2c: bundled next to alcedo_main for accelerated model downloads ──
+include("${CMAKE_SOURCE_DIR}/scripts/cmake/fetch_aria2.cmake")
+if(ALCEDO_ARIA2C_BINARY AND TARGET alcedo_main)
+    if(APPLE AND ALCEDO_MACOS_BUNDLE)
+        set(_aria2c_dest_dir "$<TARGET_BUNDLE_CONTENT_DIR:alcedo_main>/MacOS")
+    else()
+        set(_aria2c_dest_dir "$<TARGET_FILE_DIR:alcedo_main>")
+    endif()
+    add_custom_command(TARGET alcedo_main POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${_aria2c_dest_dir}"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${ALCEDO_ARIA2C_BINARY}" "${_aria2c_dest_dir}"
+        VERBATIM
+    )
+    if(NOT WIN32)
+        add_custom_command(TARGET alcedo_main POST_BUILD
+            COMMAND chmod +x "${_aria2c_dest_dir}/aria2c"
+            VERBATIM
+        )
+    endif()
 endif()

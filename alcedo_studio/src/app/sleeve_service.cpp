@@ -101,18 +101,20 @@ auto SleeveServiceImpl::Sync() -> SyncResult {
     skip_modified_ids.insert(unsynced_ids.begin(), unsynced_ids.end());
     RemoveIdsFrom(modified_elements, skip_modified_ids);
 
-    // Sync unsynced elements first
+    // Sync unsynced elements first, batched into a single transaction instead of
+    // one autocommit transaction per element.
     for (auto& element : unsynced_elements) {
       LogSyncElement("Unsynced", element);
-      element_ctrl.AddElement(element);
-      result.elements_synced_++;
     }
-    // Then sync modified elements
+    element_ctrl.AddElements(unsynced_elements);
+    result.elements_synced_ += static_cast<uint32_t>(unsynced_elements.size());
+
+    // Then sync modified elements, also batched into a single transaction.
     for (auto& element : modified_elements) {
       LogSyncElement("Modified", element);
-      element_ctrl.UpdateElement(element);
-      result.elements_synced_++;
     }
+    element_ctrl.UpdateElements(modified_elements);
+    result.elements_synced_ += static_cast<uint32_t>(modified_elements.size());
 
     // Finally, delete the deleted elements.
     // TODO: This should be done periodically instead of every sync.

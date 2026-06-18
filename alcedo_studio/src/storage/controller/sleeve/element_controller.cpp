@@ -17,6 +17,7 @@
 #include "sleeve/sleeve_element/sleeve_element.hpp"
 #include "sleeve/sleeve_element/sleeve_file.hpp"
 #include "sleeve/sleeve_element/sleeve_folder.hpp"
+#include "storage/mapper/duckorm/duckdb_orm.hpp"
 #include "type/type.hpp"
 #include "utils/string/convert.hpp"
 
@@ -89,6 +90,52 @@ auto RunScalarInt64(duckdb_connection conn, const std::string& sql) -> int64_t {
   duckdb_destroy_result(&result);
   return value;
 }
+
+auto SqlString(const std::string& value) -> std::string {
+  std::string out;
+  out.reserve(value.size() + 2);
+  out.push_back('\'');
+  for (const char ch : value) {
+    if (ch == '\'') {
+      out.push_back('\'');
+    }
+    out.push_back(ch);
+  }
+  out.push_back('\'');
+  return out;
+}
+
+auto JoinIds(std::span<const sl_element_id_t> ids) -> std::string {
+  std::string out;
+  for (size_t i = 0; i < ids.size(); ++i) {
+    if (i > 0) {
+      out += ",";
+    }
+    out += std::to_string(ids[i]);
+  }
+  return out;
+}
+
+void DeleteSemanticRowsForFiles(duckdb_connection conn, std::span<const sl_element_id_t> file_ids) {
+  if (file_ids.empty()) {
+    return;
+  }
+  const auto    ids = JoinIds(file_ids);
+  duckdb_result result;
+  duckdb_query(
+      conn, std::format("DELETE FROM SemanticImageEmbedding WHERE file_id IN ({});", ids).c_str(),
+      &result);
+  duckdb_destroy_result(&result);
+  duckdb_query(
+      conn,
+      std::format("DELETE FROM SemanticImageEmbedding768 WHERE file_id IN ({});", ids).c_str(),
+      &result);
+  duckdb_destroy_result(&result);
+  duckdb_query(conn,
+               std::format("DELETE FROM SemanticImageLabel WHERE file_id IN ({});", ids).c_str(),
+               &result);
+  duckdb_destroy_result(&result);
+}
 }  // namespace
 
 /**
@@ -111,6 +158,11 @@ ElementController::ElementController(ConnectionGuard&& guard)
  * @param element
  */
 void ElementController::AddElement(const std::shared_ptr<SleeveElement> element) {
+  InsertElementRows(element);
+  element->sync_flag_ = SyncFlag::SYNCED;
+}
+
+void ElementController::InsertElementRows(const std::shared_ptr<SleeveElement>& element) {
   element_service_.Insert(element);
   if (element->type_ == ElementType::FILE) {
     auto file = std::static_pointer_cast<SleeveFile>(element);
@@ -126,7 +178,25 @@ void ElementController::AddElement(const std::shared_ptr<SleeveElement> element)
       folder_service_.Insert({folder->element_id_, content_id});
     }
   }
-  element->sync_flag_ = SyncFlag::SYNCED;
+}
+
+void ElementController::AddElements(std::span<const std::shared_ptr<SleeveElement>> elements) {
+  if (elements.empty()) {
+    return;
+  }
+  duckorm::begin_transaction(guard_.conn_);
+  try {
+    for (const auto& element : elements) {
+      InsertElementRows(element);
+    }
+    duckorm::commit_transaction(guard_.conn_);
+  } catch (...) {
+    duckorm::rollback_transaction(guard_.conn_);
+    throw;
+  }
+  for (const auto& element : elements) {
+    element->sync_flag_ = SyncFlag::SYNCED;
+  }
 }
 
 /**
@@ -187,6 +257,8 @@ void ElementController::RemoveElement(const sl_element_id_t id) { element_servic
 void ElementController::RemoveElement(const std::shared_ptr<SleeveElement> element) {
   if (element->type_ == ElementType::FILE) {
     auto file = std::static_pointer_cast<SleeveFile>(element);
+    DeleteSemanticRowsForFiles(guard_.conn_,
+                               std::span<const sl_element_id_t>(&file->element_id_, 1));
     history_service_.RemoveById(file->element_id_);
     pipeline_service_.RemoveById(file->element_id_);
     file_service_.RemoveById(file->element_id_);
@@ -198,8 +270,7 @@ void ElementController::RemoveElement(const std::shared_ptr<SleeveElement> eleme
   element_service_.RemoveById(element->element_id_);
 }
 
-void ElementController::RemoveElements(
-    std::span<const std::shared_ptr<SleeveElement>> elements) {
+void ElementController::RemoveElements(std::span<const std::shared_ptr<SleeveElement>> elements) {
   if (elements.empty()) {
     return;
   }
@@ -227,6 +298,7 @@ void ElementController::RemoveElements(
   }
 
   if (!file_ids.empty()) {
+    DeleteSemanticRowsForFiles(guard_.conn_, file_ids);
     history_service_.RemoveByIds(file_ids);
     pipeline_service_.RemoveByIds(file_ids);
     file_service_.RemoveByIds(file_ids);
@@ -246,6 +318,11 @@ void ElementController::RemoveElements(
  * @param element
  */
 void ElementController::UpdateElement(const std::shared_ptr<SleeveElement> element) {
+  UpdateElementRows(element);
+  element->sync_flag_ = SyncFlag::SYNCED;
+}
+
+void ElementController::UpdateElementRows(const std::shared_ptr<SleeveElement>& element) {
   element_service_.Update(element, element->element_id_);
   if (element->type_ == ElementType::FILE) {
     auto file = std::static_pointer_cast<SleeveFile>(element);
@@ -260,7 +337,25 @@ void ElementController::UpdateElement(const std::shared_ptr<SleeveElement> eleme
       AddFolderContent(folder->element_id_, content_id);
     }
   }
-  element->sync_flag_ = SyncFlag::SYNCED;
+}
+
+void ElementController::UpdateElements(std::span<const std::shared_ptr<SleeveElement>> elements) {
+  if (elements.empty()) {
+    return;
+  }
+  duckorm::begin_transaction(guard_.conn_);
+  try {
+    for (const auto& element : elements) {
+      UpdateElementRows(element);
+    }
+    duckorm::commit_transaction(guard_.conn_);
+  } catch (...) {
+    duckorm::rollback_transaction(guard_.conn_);
+    throw;
+  }
+  for (const auto& element : elements) {
+    element->sync_flag_ = SyncFlag::SYNCED;
+  }
 }
 
 auto ElementController::GetElementsInFolderByFilter(const std::shared_ptr<FilterCombo> filter,
@@ -284,7 +379,8 @@ auto ElementController::GetElementIdsInFolderByFilter(const std::shared_ptr<Filt
 }
 
 auto ElementController::BuildFolderStats(sl_element_id_t                    folder_id,
-                                         const std::optional<std::wstring>& extra_filter_where)
+                                         const std::optional<std::wstring>& extra_filter_where,
+                                         const std::string& active_semantic_model_key)
     -> FolderStatsView {
   FolderStatsView out;
 
@@ -317,6 +413,18 @@ auto ElementController::BuildFolderStats(sl_element_id_t                    fold
           "AS l, COUNT(*) AS c {} "
           "GROUP BY l ORDER BY c DESC",
           base_join));
+
+  if (!active_semantic_model_key.empty()) {
+    out.label_stats_ = RunGroupByQuery(
+        guard_.conn_,
+        std::format("WITH scoped AS (SELECT e.id AS file_id {}) "
+                    "SELECT sl.label AS l, COUNT(DISTINCT scoped.file_id) AS c "
+                    "FROM scoped "
+                    "JOIN SemanticImageLabel sl ON sl.file_id = scoped.file_id "
+                    "WHERE sl.model_key = {} AND sl.label IS NOT NULL AND sl.label <> '' "
+                    "GROUP BY sl.label ORDER BY c DESC, sl.label",
+                    base_join, SqlString(active_semantic_model_key)));
+  }
 
   out.rating_stats_ = RunGroupByQuery(
       guard_.conn_,
@@ -412,8 +520,8 @@ auto ElementController::RemovePipelineByElementId(const sl_element_id_t element_
   pipeline_service_.RemoveById(element_id);
 }
 
-auto ElementController::RemovePipelinesByElementIds(
-    std::span<const sl_element_id_t> element_ids) -> void {
+auto ElementController::RemovePipelinesByElementIds(std::span<const sl_element_id_t> element_ids)
+    -> void {
   pipeline_service_.RemoveByIds(element_ids);
 }
 
@@ -432,8 +540,8 @@ auto ElementController::RemoveEditHistoryByFileId(const sl_element_id_t file_id)
   history_service_.RemoveById(file_id);
 }
 
-auto ElementController::RemoveEditHistoriesByFileIds(
-    std::span<const sl_element_id_t> file_ids) -> void {
+auto ElementController::RemoveEditHistoriesByFileIds(std::span<const sl_element_id_t> file_ids)
+    -> void {
   history_service_.RemoveByIds(file_ids);
 }
 

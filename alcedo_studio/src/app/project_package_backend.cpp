@@ -569,9 +569,10 @@ auto WritePackedProject(const std::filesystem::path& packedPath,
 
   // Build the fixed-width header prefix for checksum computation:
   //   magic (8B) || version (4B LE) || meta_size (8B LE) || db_size (8B LE)
-  // The checksum covers this prefix plus meta_bytes, but not db_bytes.
+  // The checksum covers this prefix plus both payloads.
   std::string hash_input;
-  hash_input.reserve(kPackedProjectMagic.size() + 4 + 8 + 8 + meta_bytes.size());
+  hash_input.reserve(kPackedProjectMagic.size() + 4 + 8 + 8 + meta_bytes.size() +
+                     db_bytes.size());
   hash_input.append(kPackedProjectMagic.data(), kPackedProjectMagic.size());
   {
     std::array<unsigned char, 4> bytes{};
@@ -596,6 +597,7 @@ auto WritePackedProject(const std::filesystem::path& packedPath,
     hash_input.append(reinterpret_cast<const char*>(bytes.data()), bytes.size());
   }
   hash_input.append(meta_bytes);
+  hash_input.append(db_bytes);
   const uint64_t checksum = XXH3_64bits(hash_input.data(), hash_input.size());
 
   if (!album_util::EnsureDirectoryExists(packedPath.parent_path())) {
@@ -744,9 +746,11 @@ auto ReadPackedProject(const std::filesystem::path& packedPath,
   }
 
   // Rebuild the same hash input used during WritePackedProject:
-  //   magic (8B) || version (4B LE) || meta_size (8B LE) || db_size (8B LE) || meta_bytes
+  //   magic (8B) || version (4B LE) || meta_size (8B LE) || db_size (8B LE)
+  //   || meta_bytes || db_bytes
   std::string hash_input;
-  hash_input.reserve(kPackedProjectMagic.size() + 4 + 8 + 8 + metaBytes->size());
+  hash_input.reserve(kPackedProjectMagic.size() + 4 + 8 + 8 + metaBytes->size() +
+                     dbBytes->size());
   hash_input.append(magic.data(), magic.size());
   {
     std::array<unsigned char, 4> bytes{};
@@ -771,6 +775,7 @@ auto ReadPackedProject(const std::filesystem::path& packedPath,
     hash_input.append(reinterpret_cast<const char*>(bytes.data()), bytes.size());
   }
   hash_input.append(*metaBytes);
+  hash_input.append(*dbBytes);
 
   if (XXH3_64bits(hash_input.data(), hash_input.size()) != checksum) {
     if (errorOut) {

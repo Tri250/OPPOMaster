@@ -4,21 +4,30 @@ use tonic::transport::Server;
 
 use crate::config::AppConfig;
 use crate::proto::common::health_service_server::HealthServiceServer;
+use crate::proto::semantic::model_manager_service_server::ModelManagerServiceServer;
 use crate::proto::semantic::semantic_service_server::SemanticServiceServer;
 use crate::server::health::HealthServiceImpl;
+use crate::server::model_manager::ModelManagerServiceImpl;
 use crate::server::semantic::SemanticServiceImpl;
+use crate::service::embedding::{EmbeddingEngine, EngineModelInfo, UnavailableEmbeddingEngine};
+use crate::service::model_assets::{REQUIRED_EMBEDDING_DIMENSION, find_profile};
 use crate::service::ort_clip::OrtClipEngine;
+use tracing::warn;
 
 const FILE_DESCRIPTOR_SET: &[u8] = tonic::include_file_descriptor_set!("semantic_descriptor");
-const GRPC_MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
-
 pub fn register_services(
     mut builder: Server,
     config: &AppConfig,
+    semantic_engine: Arc<dyn EmbeddingEngine>,
 ) -> anyhow::Result<tonic::transport::server::Router> {
     let health_service = HealthServiceImpl;
-    let semantic_engine = Arc::new(OrtClipEngine::new(&config.semantic)?);
-    let semantic_service = SemanticServiceImpl::new(semantic_engine);
+    let semantic_service = SemanticServiceImpl::new(
+        semantic_engine,
+        config.semantic.batch_cap,
+        std::time::Duration::from_millis(config.semantic.batch_wait_ms),
+    );
+    let model_manager_service =
+        ModelManagerServiceImpl::new(&config.semantic.model_root, &config.semantic.hf_endpoint);
 
     let reflection_service = tonic_reflection::server::Builder::configure()
         .register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET)
@@ -28,9 +37,58 @@ pub fn register_services(
     Ok(builder
         .add_service(reflection_service)
         .add_service(HealthServiceServer::new(health_service))
+        .add_service(ModelManagerServiceServer::new(model_manager_service))
         .add_service(
             SemanticServiceServer::new(semantic_service)
-                .max_decoding_message_size(GRPC_MAX_MESSAGE_BYTES)
-                .max_encoding_message_size(GRPC_MAX_MESSAGE_BYTES),
+                .max_decoding_message_size(config.max_message_bytes)
+                .max_encoding_message_size(config.max_message_bytes),
         ))
+}
+
+pub fn build_semantic_engine(config: &AppConfig) -> Arc<dyn EmbeddingEngine> {
+    let semantic_engine: Arc<dyn EmbeddingEngine> = match OrtClipEngine::new(&config.semantic) {
+        Ok(engine) => Arc::new(engine),
+        Err(err) => {
+            warn!(
+                "semantic inference model is unavailable; model-manager RPCs remain available: {err}"
+            );
+            let profile = find_profile(&config.semantic.model_id).ok();
+            Arc::new(UnavailableEmbeddingEngine::new(
+                EngineModelInfo {
+                    profile_id: profile
+                        .map(|profile| profile.profile_id.to_string())
+                        .unwrap_or_else(|| config.semantic.model_id.clone()),
+                    model_id: profile
+                        .map(|profile| profile.model_id.to_string())
+                        .unwrap_or_else(|| config.semantic.model_id.clone()),
+                    revision: profile
+                        .map(|profile| profile.revision.to_string())
+                        .unwrap_or_else(|| config.semantic.revision.clone()),
+                    engine_profile_id: profile
+                        .map(|profile| profile.engine_profile_id.to_string())
+                        .unwrap_or_default(),
+                    language: profile
+                        .map(|profile| profile.language.as_str().to_string())
+                        .unwrap_or_default(),
+                    embedding_dim: profile
+                        .map(|profile| profile.embedding_dimension)
+                        .unwrap_or(REQUIRED_EMBEDDING_DIMENSION),
+                    native_embedding_dim: profile
+                        .map(|profile| profile.native_embedding_dimension)
+                        .unwrap_or(REQUIRED_EMBEDDING_DIMENSION),
+                    image_size: profile
+                        .map(|profile| profile.image_size)
+                        .unwrap_or_default(),
+                    embedding_transform: profile
+                        .map(|profile| profile.embedding_transform.to_string())
+                        .unwrap_or_default(),
+                    provider: "unavailable".to_string(),
+                    model_root: config.semantic.model_root.clone(),
+                    prototype_config_hash: String::new(),
+                },
+                err.to_string(),
+            ))
+        }
+    };
+    semantic_engine
 }

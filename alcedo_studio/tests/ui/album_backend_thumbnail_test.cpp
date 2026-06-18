@@ -168,7 +168,9 @@ TEST_F(ThumbnailTests, MetalThumbnailGridLifecycleWithGeometryOperatorsProducesD
   if (images.empty()) {
     images = CollectRawTestImages("airplane", 1);
   }
-  ASSERT_FALSE(images.empty()) << "No RAW test image available for thumbnail regression.";
+  if (images.empty()) {
+    GTEST_SKIP() << "No RAW test image available for thumbnail regression.";
+  }
 
   backend.StartImport(PathsToQStringList(images));
   WaitForImportFinished(backend);
@@ -255,7 +257,9 @@ TEST_F(ThumbnailTests, MissingSourceThumbnailStopsLoadingAndSetsMissingFlag) {
   if (images.empty()) {
     images = CollectRawTestImages("still_life", 1);
   }
-  ASSERT_FALSE(images.empty()) << "No RAW test image available for missing-source thumbnail test.";
+  if (images.empty()) {
+    GTEST_SKIP() << "No RAW test image available for missing-source thumbnail test.";
+  }
 
   const auto copied_image = temp_dir_ / images.front().filename();
   std::filesystem::copy_file(images.front(), copied_image,
@@ -307,7 +311,9 @@ TEST_F(ThumbnailTests, VisibleThumbnailRerequestsWhenMaxEdgeChanges) {
   if (images.empty()) {
     images = CollectRawTestImages("still_life", 1);
   }
-  ASSERT_FALSE(images.empty()) << "No RAW test image available for zoom-tier thumbnail test.";
+  if (images.empty()) {
+    GTEST_SKIP() << "No RAW test image available for zoom-tier thumbnail test.";
+  }
 
   backend.StartImport(PathsToQStringList(images));
   WaitForImportFinished(backend);

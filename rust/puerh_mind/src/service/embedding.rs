@@ -1,13 +1,84 @@
 use anyhow::Result;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EngineModelInfo {
+    pub profile_id: String,
+    pub model_id: String,
+    pub revision: String,
+    pub engine_profile_id: String,
+    pub language: String,
+    pub embedding_dim: u32,
+    pub native_embedding_dim: u32,
+    pub image_size: u32,
+    pub embedding_transform: String,
+    pub provider: String,
+    pub model_root: String,
+    pub prototype_config_hash: String,
+}
+
 pub trait EmbeddingEngine: Send + Sync {
+    fn is_ready(&self) -> bool {
+        true
+    }
+    fn unavailable_reason(&self) -> Option<&str> {
+        None
+    }
     fn embed_text(&self, text: &str) -> Result<Vec<f32>>;
+    fn embed_texts(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
+        texts.iter().map(|text| self.embed_text(text)).collect()
+    }
     fn embed_image(&self, rgb: &image::RgbImage) -> Result<Vec<f32>>;
     fn embed_images(&self, rgbs: &[image::RgbImage]) -> Result<Vec<Vec<f32>>> {
         rgbs.iter().map(|rgb| self.embed_image(rgb)).collect()
     }
     fn default_text_model_name(&self) -> &str;
     fn default_image_model_name(&self) -> &str;
+    fn model_info(&self) -> EngineModelInfo;
+}
+
+#[allow(dead_code)]
+pub struct UnavailableEmbeddingEngine {
+    model_info: EngineModelInfo,
+    reason: String,
+}
+
+impl UnavailableEmbeddingEngine {
+    pub fn new(model_info: EngineModelInfo, reason: impl Into<String>) -> Self {
+        Self {
+            model_info,
+            reason: reason.into(),
+        }
+    }
+}
+
+impl EmbeddingEngine for UnavailableEmbeddingEngine {
+    fn is_ready(&self) -> bool {
+        false
+    }
+
+    fn unavailable_reason(&self) -> Option<&str> {
+        Some(&self.reason)
+    }
+
+    fn embed_text(&self, _text: &str) -> Result<Vec<f32>> {
+        anyhow::bail!("semantic model is unavailable: {}", self.reason)
+    }
+
+    fn embed_image(&self, _rgb: &image::RgbImage) -> Result<Vec<f32>> {
+        anyhow::bail!("semantic model is unavailable: {}", self.reason)
+    }
+
+    fn default_text_model_name(&self) -> &str {
+        &self.model_info.model_id
+    }
+
+    fn default_image_model_name(&self) -> &str {
+        &self.model_info.model_id
+    }
+
+    fn model_info(&self) -> EngineModelInfo {
+        self.model_info.clone()
+    }
 }
 
 #[allow(dead_code)]
@@ -55,5 +126,22 @@ impl EmbeddingEngine for MockEmbeddingEngine {
 
     fn default_image_model_name(&self) -> &'static str {
         "mock-image-v1"
+    }
+
+    fn model_info(&self) -> EngineModelInfo {
+        EngineModelInfo {
+            profile_id: "mock-profile-v1".to_string(),
+            model_id: "mock-model-v1".to_string(),
+            revision: "mock-revision".to_string(),
+            engine_profile_id: "mock-engine".to_string(),
+            language: "en".to_string(),
+            embedding_dim: 8,
+            native_embedding_dim: 8,
+            image_size: 256,
+            embedding_transform: "l2_normalize".to_string(),
+            provider: "mock".to_string(),
+            model_root: String::new(),
+            prototype_config_hash: String::new(),
+        }
     }
 }

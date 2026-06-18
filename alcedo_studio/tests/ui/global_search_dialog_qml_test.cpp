@@ -14,6 +14,7 @@
 #include <QQmlContext>
 #include <QQuickItem>
 #include <QQuickStyle>
+#include <QSettings>
 #include <QSignalSpy>
 #include <QUrl>
 
@@ -531,6 +532,149 @@ TEST_F(GlobalSearchDialogQmlTests,
 
   EXPECT_GT(SearchPreviewReadySignalCount(previewSpy), readySignalCountBeforeReopen)
       << "Reopening the dialog did not emit any new ready preview updates.";
+}
+
+TEST_F(GlobalSearchDialogQmlTests, SearchControllerClassifiesAndRoutesBySemanticToggle) {
+  // QSettings is inert until an organization/application name is set (the real
+  // app sets this in main.cpp). Use a test-scoped identity so the persistence
+  // assertion is meaningful and isolated, then clean up the key.
+  QCoreApplication::setOrganizationName(QStringLiteral("PuerhLabTest"));
+  QCoreApplication::setApplicationName(QStringLiteral("GlobalSearchDialogQmlTest"));
+  QSettings{}.remove(QStringLiteral("search/semanticEnabled"));
+
+  AlbumBackend backend;
+  ASSERT_TRUE(CreateTestProject(backend));
+
+  auto* searchController = qobject_cast<SearchController*>(backend.SearchControllerObject());
+  ASSERT_NE(searchController, nullptr);
+
+  // Deterministic start state (QSettings persists across runs).
+  searchController->SetSemanticSearchEnabled(false);
+  ASSERT_FALSE(searchController->semantic_search_enabled());
+
+  EXPECT_EQ(searchController->ClassifyQuery(QString()).toStdString(), "empty");
+  EXPECT_EQ(searchController->ClassifyQuery(QStringLiteral("portrait")).toStdString(), "label");
+  EXPECT_EQ(searchController->ClassifyQuery(QStringLiteral("人像")).toStdString(), "label");
+  EXPECT_EQ(searchController->ClassifyQuery(QStringLiteral("Canon")).toStdString(), "traditional");
+  EXPECT_EQ(searchController->ClassifyQuery(QStringLiteral("2024-03-01")).toStdString(),
+            "traditional");
+  // Toggle off: natural language stays on the ordinary path.
+  EXPECT_EQ(searchController->ClassifyQuery(QStringLiteral("sunset over the mountains"))
+                .toStdString(),
+            "traditional");
+
+  searchController->SetSemanticSearchEnabled(true);
+  ASSERT_TRUE(searchController->semantic_search_enabled());
+  // Toggle on: label and metadata routes are unchanged; only NL goes semantic.
+  EXPECT_EQ(searchController->ClassifyQuery(QStringLiteral("portrait")).toStdString(), "label");
+  EXPECT_EQ(searchController->ClassifyQuery(QStringLiteral("Canon")).toStdString(), "traditional");
+  EXPECT_EQ(searchController->ClassifyQuery(QStringLiteral("sunset over the mountains"))
+                .toStdString(),
+            "semantic");
+
+  // Persistence: the toggle writes through to QSettings.
+  EXPECT_TRUE(
+      QSettings{}.value(QStringLiteral("search/semanticEnabled"), false).toBool());
+
+  // SubmitSearch routing: semantic route surfaces an unavailable state when the
+  // active model/runtime path is not ready; it must not fall back to a C++ vector scan.
+  const auto semanticResp = searchController->SubmitSearch(
+      QStringLiteral("sunset over the mountains"), 0, kPageSize);
+  EXPECT_EQ(semanticResp.value("route").toString().toStdString(), "semantic");
+  EXPECT_TRUE(semanticResp.value("semanticUnavailable").toBool());
+  EXPECT_TRUE(semanticResp.value("rows").toList().empty());
+
+  // Typing (SearchPreview) on a semantic route must NOT call the provider: it
+  // returns an awaiting-submit stub.
+  const auto typingResp =
+      searchController->SearchPreview(QStringLiteral("sunset over the mountains"), 0, kPageSize);
+  EXPECT_EQ(typingResp.value("route").toString().toStdString(), "semantic");
+  EXPECT_TRUE(typingResp.value("awaitingSubmit").toBool());
+  EXPECT_TRUE(typingResp.value("rows").toList().empty());
+
+  // Label and empty submit routes carry their route name on the response.
+  EXPECT_EQ(searchController->SubmitSearch(QStringLiteral("portrait"), 0, kPageSize)
+                .value("route")
+                .toString()
+                .toStdString(),
+            "label");
+  EXPECT_EQ(searchController->SubmitSearch(QString(), 0, kPageSize)
+                .value("route")
+                .toString()
+                .toStdString(),
+            "empty");
+
+  // Restore default to avoid polluting other tests / future runs.
+  searchController->SetSemanticSearchEnabled(false);
+  QSettings{}.remove(QStringLiteral("search/semanticEnabled"));
+}
+
+TEST_F(GlobalSearchDialogQmlTests, SemanticTypingShowsAwaitingSubmitAndLabelUsesOrdinaryPath) {
+  auto* app = qobject_cast<QApplication*>(QCoreApplication::instance());
+  ASSERT_NE(app, nullptr);
+
+  QQuickStyle::setStyle(QStringLiteral("Material"));
+  AppTheme::RegisterFonts();
+  AppTheme::ApplyApplicationFont(*app);
+
+  AlbumBackend backend;
+  ASSERT_TRUE(CreateTestProject(backend));
+
+  auto* searchController = qobject_cast<SearchController*>(backend.SearchControllerObject());
+  ASSERT_NE(searchController, nullptr);
+  searchController->SetSemanticSearchEnabled(true);
+
+  QQmlApplicationEngine engine;
+  engine.addImportPath(QStringLiteral("qrc:/"));
+  engine.rootContext()->setContextProperty(QStringLiteral("albumBackend"), &backend);
+  engine.rootContext()->setContextProperty(QStringLiteral("appTheme"), &AppTheme::Instance());
+  engine.rootContext()->setContextProperty(QStringLiteral("dialogSourceUrl"),
+                                           GlobalSearchDialogFileUrl());
+  engine.loadData(QByteArray{kHarnessQml},
+                  QUrl(QStringLiteral("file:///GlobalSearchDialogSemanticHarness.qml")));
+
+  ASSERT_FALSE(engine.rootObjects().empty()) << "QML harness failed to load.";
+  QObject* windowRoot = engine.rootObjects().front();
+  ASSERT_NE(windowRoot, nullptr);
+
+  QObject* dialog = nullptr;
+  ASSERT_TRUE(WaitUntil([&]() {
+    dialog = qvariant_cast<QObject*>(windowRoot->property("dialog"));
+    return dialog != nullptr;
+  }, 10000));
+  ASSERT_TRUE(QMetaObject::invokeMethod(dialog, "openFromCollection"));
+  ASSERT_TRUE(WaitUntil([&]() { return dialog->property("visible").toBool(); }, 5000));
+
+  QObject* searchField = nullptr;
+  ASSERT_TRUE(WaitUntil([&]() {
+    searchField = FindSearchField(windowRoot);
+    return searchField != nullptr;
+  }, 5000));
+
+  // A natural-language query with the toggle on must not run the semantic net
+  // on typing: the preview stays empty and signals an explicit submit is needed.
+  searchField->setProperty("text", QStringLiteral("sunset over the mountains"));
+  ASSERT_TRUE(QMetaObject::invokeMethod(dialog, "refreshPreview"));
+  ProcessEvents(200);
+  EXPECT_EQ(dialog->property("currentRoute").toString().toStdString(), "semantic");
+  EXPECT_TRUE(dialog->property("results").toList().empty());
+  EXPECT_FALSE(dialog->property("semanticStatusText").toString().isEmpty());
+
+  // A label query still uses the ordinary path on typing even with the toggle on.
+  searchField->setProperty("text", QStringLiteral("portrait"));
+  ASSERT_TRUE(QMetaObject::invokeMethod(dialog, "refreshPreview"));
+  ProcessEvents(200);
+  EXPECT_EQ(dialog->property("currentRoute").toString().toStdString(), "label");
+  EXPECT_FALSE(dialog->property("semanticPreviewActive").toBool());
+
+  // Turning the toggle off restores ordinary routing for natural language.
+  searchController->SetSemanticSearchEnabled(false);
+  searchField->setProperty("text", QStringLiteral("sunset over the mountains"));
+  ASSERT_TRUE(QMetaObject::invokeMethod(dialog, "refreshPreview"));
+  ProcessEvents(200);
+  EXPECT_EQ(dialog->property("currentRoute").toString().toStdString(), "traditional");
+
+  ASSERT_TRUE(QMetaObject::invokeMethod(dialog, "close"));
 }
 
 }  // namespace alcedo::ui::test

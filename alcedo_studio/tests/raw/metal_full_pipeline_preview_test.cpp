@@ -109,7 +109,9 @@ TEST(MetalFullPipelinePreview, DecodeGeometryAndMergedStageStillLife) {
     GTEST_SKIP() << "Metal device is unavailable in this environment.";
   }
   const auto raw_path = CiRawFixturePath();
-  ASSERT_FALSE(raw_path.empty()) << "CI RAW fixtures missing under TEST_IMG_PATH/ci_rawfiles";
+  if (raw_path.empty()) {
+    GTEST_SKIP() << "CI RAW fixtures missing under TEST_IMG_PATH/ci_rawfiles";
+  }
   ASSERT_TRUE(std::filesystem::exists(raw_path)) << raw_path.string();
 
   auto raw_bytes = ReadFileToBuffer(raw_path);
@@ -143,7 +145,9 @@ TEST(MetalFullPipelinePreview, FastPreviewSchedulerStillProducesImage) {
     GTEST_SKIP() << "Metal device is unavailable in this environment.";
   }
   const auto raw_path = CiRawFixturePath();
-  ASSERT_FALSE(raw_path.empty()) << "CI RAW fixtures missing under TEST_IMG_PATH/ci_rawfiles";
+  if (raw_path.empty()) {
+    GTEST_SKIP() << "CI RAW fixtures missing under TEST_IMG_PATH/ci_rawfiles";
+  }
   ASSERT_TRUE(std::filesystem::exists(raw_path)) << raw_path.string();
 
   RegisterAllOperators();
@@ -170,7 +174,9 @@ TEST(MetalFullPipelinePreview, ThumbnailSchedulerStillProducesImage) {
     GTEST_SKIP() << "Metal device is unavailable in this environment.";
   }
   const auto raw_path = CiRawFixturePath();
-  ASSERT_FALSE(raw_path.empty()) << "CI RAW fixtures missing under TEST_IMG_PATH/ci_rawfiles";
+  if (raw_path.empty()) {
+    GTEST_SKIP() << "CI RAW fixtures missing under TEST_IMG_PATH/ci_rawfiles";
+  }
   ASSERT_TRUE(std::filesystem::exists(raw_path)) << raw_path.string();
 
   RegisterAllOperators();

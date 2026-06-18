@@ -130,6 +130,7 @@ ApplicationWindow {
     readonly property var selectedImagesById: selectionState.selectedImagesById
     readonly property var exportQueueById: exportQueueState.exportQueueById
     readonly property var exportPreviewRows: exportQueueState.exportPreviewRows
+    readonly property var semanticGeneration: albumBackend.semanticGenerationController
     readonly property int selectedCount: selectionState.selectedCount
     readonly property int exportQueueCount: exportQueueState.exportQueueCount
     readonly property var languageOptions: languageManager.availableLanguages
@@ -152,6 +153,7 @@ ApplicationWindow {
     property var imageDetailsData: ({
         title: "",
         subtitle: "",
+        semanticTags: "",
         rows: []
     })
 
@@ -214,7 +216,8 @@ ApplicationWindow {
         return 0
     }
 
-    function openSettingsDialog() {
+    function openSettingsDialog(category) {
+        settingsDialog.requestedCategory = category === undefined ? 0 : category
         settingsDialog.open()
     }
 
@@ -262,6 +265,7 @@ ApplicationWindow {
                || adjustmentTransferDialog.opened
                || imageDetailsDialog.opened
                || nikonHeRecoveryDialog.opened
+               || semanticGenerationDialog.opened
                || deleteConfirmDialog.opened
                || welcomeDialog.opened
     }
@@ -434,6 +438,7 @@ ApplicationWindow {
         root.imageDetailsData = {
             title: result.title ? result.title : qsTr("(unnamed)"),
             subtitle: result.subtitle ? result.subtitle : "",
+            semanticTags: result.semanticTags ? result.semanticTags : "",
             rows: result.rows ? result.rows : []
         }
         imageDetailsDialog.open()
@@ -757,6 +762,7 @@ ApplicationWindow {
         cornerRadius: root.windowCornerRadius
         titleText: root.imageDetailsData.title
         subtitleText: root.imageDetailsData.subtitle
+        semanticTags: root.imageDetailsData.semanticTags
         detailRows: root.imageDetailsData.rows
         onRowActionRequested: function(actionId, actionValue) {
             if (actionId === "open-directory") {
@@ -767,6 +773,7 @@ ApplicationWindow {
             root.imageDetailsData = {
                 title: "",
                 subtitle: "",
+                semanticTags: "",
                 rows: []
             }
         }
@@ -799,6 +806,31 @@ ApplicationWindow {
         onBrowseRequested: albumBackend.BrowseNikonHeConverter()
         onConvertRequested: albumBackend.StartNikonHeConversion()
         onExitRequested: albumBackend.ExitNikonHeRecovery()
+    }
+
+    SemanticGenerationDialog {
+        id: semanticGenerationDialog
+        parent: Overlay.overlay
+        backgroundSource: mainContent
+        promptVisible: root.semanticGeneration.promptVisible
+        generationRunning: root.semanticGeneration.running
+        pendingCount: root.semanticGeneration.pendingCount
+        total: root.semanticGeneration.total
+        embedded: root.semanticGeneration.embedded
+        skipped: root.semanticGeneration.skipped
+        failed: root.semanticGeneration.failed
+        canceled: root.semanticGeneration.canceled
+        statusText: root.semanticGeneration.statusText
+        onStartRequested: function(rememberChoice) {
+            if (rememberChoice) {
+                root.semanticGeneration.SetImportPreference("always")
+            }
+            root.semanticGeneration.StartPendingGeneration(false)
+        }
+        onSkipRequested: function(rememberChoice) {
+            root.semanticGeneration.SkipPendingGeneration(rememberChoice)
+        }
+        onCancelRequested: root.semanticGeneration.CancelGeneration()
     }
 
     Popup {

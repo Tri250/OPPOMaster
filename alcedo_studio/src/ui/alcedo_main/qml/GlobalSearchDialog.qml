@@ -25,7 +25,21 @@ Dialog {
     property bool searchHasMore: false
     property bool searchHasPrevious: false
     property bool searchLoading: false
+    property int searchRequestGeneration: 0
+    property string pendingSearchKind: ""
+    property string pendingSearchQuery: ""
+    property int pendingSearchOffset: 0
+    property int pendingSearchLimit: 0
+    property string pendingSearchMode: "replace"
+    property int pendingSearchGeneration: 0
+    property var activeSearchRequestId: 0
     property bool previewSyncForcePending: false
+    // Semantic-search control-layer state (5B). The toggle itself lives on
+    // searchController; these track the in-dialog preview lifecycle so QML only
+    // reflects state and never decides runtime behavior.
+    property bool semanticPreviewActive: false
+    property string currentRoute: ""
+    property string semanticStatusText: ""
     property Item blurSource: null
     property real cornerRadius: 0
 
@@ -70,12 +84,21 @@ Dialog {
 
     function resetPreviewState() {
         previewTimer.stop()
+        searchExecutionTimer.stop()
+        searchRequestGeneration += 1
         if (searchController) {
             searchController.CancelSearchPreviewThumbnails()
         }
         previewThumbs = ({})
         lastWindowDropCount = 0
         lastWindowPrependCount = 0
+        semanticPreviewActive = false
+        currentRoute = ""
+        semanticStatusText = ""
+        pendingSearchKind = ""
+        pendingSearchQuery = ""
+        activeSearchRequestId = 0
+        searchLoading = false
     }
 
     function openFromCollection() {
@@ -181,7 +204,9 @@ Dialog {
         searchOffset = resultWindowStart + results.length
         searchTotal = response && response.total !== undefined ? Number(response.total) : results.length
         searchHasPrevious = resultWindowStart > 0
-        searchHasMore = searchOffset < searchTotal
+        searchHasMore = response && response.hasMore !== undefined
+                ? response.hasMore === true
+                : searchOffset < searchTotal
         scheduleVisiblePreviewSync(true)
     }
 
@@ -203,6 +228,8 @@ Dialog {
         }
         const query = searchField.text.trim()
         lastQuery = query
+        semanticPreviewActive = false
+        semanticStatusText = ""
         searchController.CancelSearchPreviewThumbnails()
         previewThumbs = ({})
         resultWindowStart = 0
@@ -213,14 +240,140 @@ Dialog {
         searchHasMore = false
         searchHasPrevious = false
         if (query.length === 0) {
+            searchRequestGeneration += 1
+            searchExecutionTimer.stop()
+            currentRoute = "empty"
             results = []
             recommendations = searchController.SearchRecommendations(12)
+            searchLoading = false
             return
         }
+        beginSearchRequest("preview", query, 0, resultPageSize, "replace")
+    }
+
+    // Unified submit entry for Enter and the Search button (5B). Routing is
+    // decided in C++ (ClassifyQuery); QML only branches on the returned route.
+    function handleSearchSubmit() {
+        if (!searchController) {
+            return
+        }
+        const query = searchField.text.trim()
+        if (query.length === 0) {
+            return
+        }
+        if (searchController.semanticSearchEnabled
+                && searchController.ClassifyQuery(query) === "semantic") {
+            runSemanticSubmit(0, "replace")
+        } else {
+            applyBroadSearch()
+        }
+    }
+
+    function runSemanticSubmit(offset, mode) {
+        if (!searchController) {
+            return
+        }
+        const query = searchField.text.trim()
+        if (query.length === 0) {
+            return
+        }
+        lastQuery = query
+        semanticPreviewActive = true
+        semanticStatusText = ""
+        searchController.CancelSearchPreviewThumbnails()
+        if (mode === "replace") {
+            previewThumbs = ({})
+            resultWindowStart = 0
+            lastWindowDropCount = 0
+            lastWindowPrependCount = 0
+            searchOffset = 0
+            searchTotal = 0
+            searchHasMore = false
+            searchHasPrevious = false
+        }
+        beginSearchRequest("submit", query, offset, resultPageSize, mode)
+    }
+
+    function beginSearchRequest(kind, query, offset, limit, mode) {
+        searchRequestGeneration += 1
+        pendingSearchKind = kind
+        pendingSearchQuery = query
+        pendingSearchOffset = offset
+        pendingSearchLimit = limit
+        pendingSearchMode = mode
+        pendingSearchGeneration = searchRequestGeneration
+        activeSearchRequestId = 0
         searchLoading = true
-        const response = searchController.SearchPreview(query, 0, resultPageSize)
-        readPreviewResponse(response, "replace")
-        searchLoading = false
+        searchExecutionTimer.restart()
+    }
+
+    function finishSearchRequest(generation) {
+        if (generation === searchRequestGeneration) {
+            pendingSearchKind = ""
+            searchLoading = false
+        }
+    }
+
+    function executePendingSearch() {
+        if (!searchController || pendingSearchKind.length === 0) {
+            finishSearchRequest(pendingSearchGeneration)
+            return
+        }
+        if (pendingSearchKind === "submit") {
+            activeSearchRequestId = searchController.RequestSubmitSearch(pendingSearchQuery,
+                                                                         pendingSearchOffset,
+                                                                         pendingSearchLimit,
+                                                                         pendingSearchMode)
+            return
+        }
+
+        const generation = pendingSearchGeneration
+        const query = pendingSearchQuery
+        const mode = pendingSearchMode
+        const response = searchController.SearchPreview(query, pendingSearchOffset,
+                                                        pendingSearchLimit)
+        if (generation !== searchRequestGeneration || query !== lastQuery) {
+            return
+        }
+        applySearchResponse(activeSearchRequestId, mode, response)
+    }
+
+    function applySearchResponse(requestId, mode, response) {
+        if ((Number(activeSearchRequestId) !== 0
+             && Number(requestId) !== Number(activeSearchRequestId))
+                || pendingSearchGeneration !== searchRequestGeneration
+                || pendingSearchQuery !== lastQuery) {
+            return
+        }
+        const generation = pendingSearchGeneration
+        currentRoute = response && response.route ? String(response.route) : "semantic"
+        if (response && response.tooLong === true) {
+            semanticStatusText = qsTr("Query is too long for semantic search")
+        } else if (response && response.semanticUnavailable === true) {
+            semanticStatusText = response.semanticErrorText
+                    ? String(response.semanticErrorText)
+                    : qsTr("Semantic search is not available yet")
+        } else if (response && response.awaitingSubmit === true) {
+            semanticStatusText = qsTr("Press Enter or click Search for semantic search")
+        }
+        readPreviewResponse(response, mode)
+        if (mode === "append" && lastWindowDropCount > 0) {
+            const droppedHeight = lastWindowDropCount * 82
+            Qt.callLater(function() {
+                resultList.contentY = Math.max(0, resultList.contentY - droppedHeight)
+                dialog.finishSearchRequest(generation)
+            })
+            return
+        }
+        if (mode === "prepend" && lastWindowPrependCount > 0) {
+            const prependedHeight = lastWindowPrependCount * 82
+            Qt.callLater(function() {
+                resultList.contentY = resultList.contentY + prependedHeight
+                dialog.finishSearchRequest(generation)
+            })
+            return
+        }
+        finishSearchRequest(generation)
     }
 
     function loadMorePreview() {
@@ -231,18 +384,8 @@ Dialog {
         if (query.length === 0 || query !== lastQuery) {
             return
         }
-        searchLoading = true
-        const response = searchController.SearchPreview(query, searchOffset, resultPageSize)
-        readPreviewResponse(response, "append")
-        if (lastWindowDropCount > 0) {
-            const droppedHeight = lastWindowDropCount * 82
-            Qt.callLater(function() {
-                resultList.contentY = Math.max(0, resultList.contentY - droppedHeight)
-                dialog.searchLoading = false
-            })
-            return
-        }
-        searchLoading = false
+        beginSearchRequest(semanticPreviewActive ? "submit" : "preview", query, searchOffset,
+                           resultPageSize, "append")
     }
 
     function loadPreviousPreview() {
@@ -258,18 +401,8 @@ Dialog {
         if (nextLimit <= 0) {
             return
         }
-        searchLoading = true
-        const response = searchController.SearchPreview(query, nextOffset, nextLimit)
-        readPreviewResponse(response, "prepend")
-        if (lastWindowPrependCount > 0) {
-            const prependedHeight = lastWindowPrependCount * 82
-            Qt.callLater(function() {
-                resultList.contentY = resultList.contentY + prependedHeight
-                dialog.searchLoading = false
-            })
-            return
-        }
-        searchLoading = false
+        beginSearchRequest(semanticPreviewActive ? "submit" : "preview", query, nextOffset,
+                           nextLimit, "prepend")
     }
 
     function applyBroadSearch() {
@@ -316,6 +449,10 @@ Dialog {
             }
             dialog.previewThumbs = next
         }
+
+        function onSearchResponseReady(requestId, mode, response) {
+            dialog.applySearchResponse(requestId, mode, response)
+        }
     }
 
     Timer {
@@ -334,6 +471,13 @@ Dialog {
             dialog.previewSyncForcePending = false
             dialog.refreshVisiblePreviewDelegates(force)
         }
+    }
+
+    Timer {
+        id: searchExecutionTimer
+        interval: 24
+        repeat: false
+        onTriggered: dialog.executePendingSearch()
     }
 
     Overlay.modal: Item {
@@ -371,7 +515,6 @@ Dialog {
             Rectangle {
                 anchors.fill: parent
                 color: dialog.overlayColor
-                opacity: dialog.blurSource !== null ? 0.66 : 0.90
             }
         }
 
@@ -389,13 +532,11 @@ Dialog {
 
         Rectangle {
             id: shell
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.top: parent.top
-            anchors.topMargin: Math.max(28, Math.round(parent.height * 0.075))
+            anchors.centerIn: parent
             width: Math.min(parent.width - 56, 1120)
             height: Math.min(parent.height - 72, 710)
             radius: 16
-            color: Qt.rgba(dialog.panelColor.r, dialog.panelColor.g, dialog.panelColor.b, 0.96)
+            color: Qt.rgba(dialog.panelColor.r, dialog.panelColor.g, dialog.panelColor.b, 0.94)
             border.width: 1
             border.color: dialog.withAlpha(dialog.textColor, 0.09)
             clip: true
@@ -467,8 +608,51 @@ Dialog {
                                 font.weight: 600
                                 verticalAlignment: TextInput.AlignVCenter
                                 onTextChanged: previewTimer.restart()
-                                onAccepted: dialog.applyBroadSearch()
+                                onAccepted: dialog.handleSearchSubmit()
                                 Keys.onEscapePressed: dialog.close()
+                            }
+                        }
+
+                        Switch {
+                            Layout.preferredHeight: 40
+                            text: qsTr("Semantic")
+                            checked: searchController ? searchController.semanticSearchEnabled : false
+                            onToggled: {
+                                if (searchController) {
+                                    searchController.SetSemanticSearchEnabled(checked)
+                                    // Re-run the typed query so the preview reflects the new route.
+                                    previewTimer.restart()
+                                }
+                            }
+                            Material.foreground: dialog.withAlpha(dialog.textColor, 0.78)
+                            Material.accent: dialog.accentColor
+                            ToolTip.visible: hovered
+                            ToolTip.text: qsTr("语义搜索 — use natural-language search via the CLIP model (Enter or Search button to run)")
+                        }
+
+                        Button {
+                            Layout.preferredHeight: 40
+                            text: qsTr("Search")
+                            enabled: searchField.text.trim().length > 0 && !dialog.searchLoading
+                            onClicked: dialog.handleSearchSubmit()
+                            Material.foreground: dialog.textColor
+                            contentItem: Text {
+                                text: parent.text
+                                color: parent.enabled ? dialog.textColor
+                                                      : dialog.withAlpha(dialog.textColor, 0.4)
+                                font.family: dialog.dataFontFamily
+                                font.pixelSize: 14
+                                font.weight: 660
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            background: Rectangle {
+                                radius: 8
+                                color: parent.down
+                                       ? dialog.withAlpha(dialog.accentColor, 0.55)
+                                       : (parent.hovered
+                                              ? dialog.withAlpha(dialog.accentColor, 0.34)
+                                              : dialog.withAlpha(dialog.accentColor, 0.22))
                             }
                         }
 
@@ -525,6 +709,13 @@ Dialog {
                             font.family: dialog.dataFontFamily
                             font.pixelSize: 12
                             font.weight: 600
+                        }
+
+                        BusyIndicator {
+                            Layout.preferredWidth: 18
+                            Layout.preferredHeight: 18
+                            running: visible
+                            visible: dialog.searchLoading && searchField.text.trim().length > 0
                         }
 
                         Item {
@@ -616,11 +807,19 @@ Dialog {
                             width: resultList.width
                             height: dialog.searchHasPrevious ? 54 : 10
 
+                            BusyIndicator {
+                                anchors.centerIn: parent
+                                width: 24
+                                height: 24
+                                running: visible
+                                visible: dialog.searchHasPrevious && dialog.searchLoading
+                            }
+
                             Button {
                                 anchors.centerIn: parent
-                                visible: dialog.searchHasPrevious
+                                visible: dialog.searchHasPrevious && !dialog.searchLoading
                                 enabled: !dialog.searchLoading
-                                text: dialog.searchLoading ? qsTr("Loading...") : qsTr("Load previous")
+                                text: qsTr("Load previous")
                                 onClicked: dialog.loadPreviousPreview()
                             }
                         }
@@ -666,21 +865,44 @@ Dialog {
 
                         Label {
                             anchors.centerIn: parent
-                            visible: resultList.count === 0 && searchField.text.trim().length > 0
-                            text: qsTr("No matches")
+                            visible: !dialog.searchLoading && resultList.count === 0
+                                     && searchField.text.trim().length > 0
+                            text: semanticStatusText.length > 0
+                                  ? semanticStatusText
+                                  : qsTr("No matches")
                             color: dialog.withAlpha(dialog.textColor, 0.48)
                             font.pixelSize: 13
+                            horizontalAlignment: Text.AlignHCenter
+                            wrapMode: Text.WordWrap
+                            width: parent.width - 120
+                        }
+
+                        BusyIndicator {
+                            anchors.centerIn: parent
+                            width: 34
+                            height: 34
+                            running: visible
+                            visible: dialog.searchLoading && resultList.count === 0
+                                     && searchField.text.trim().length > 0
                         }
 
                         footer: Item {
                             width: resultList.width
                             height: dialog.searchHasMore ? 54 : 10
 
+                            BusyIndicator {
+                                anchors.centerIn: parent
+                                width: 24
+                                height: 24
+                                running: visible
+                                visible: dialog.searchHasMore && dialog.searchLoading
+                            }
+
                             Button {
                                 anchors.centerIn: parent
-                                visible: dialog.searchHasMore
+                                visible: dialog.searchHasMore && !dialog.searchLoading
                                 enabled: !dialog.searchLoading
-                                text: dialog.searchLoading ? qsTr("Loading...") : qsTr("Load more")
+                                text: qsTr("Load more")
                                 onClicked: dialog.loadMorePreview()
                             }
                         }

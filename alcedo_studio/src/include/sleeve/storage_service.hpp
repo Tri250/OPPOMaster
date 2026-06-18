@@ -12,6 +12,7 @@
 #include "sleeve/sleeve_element/sleeve_folder.hpp"
 #include "storage/controller/db_controller.hpp"
 #include "storage/controller/image/image_controller.hpp"
+#include "storage/controller/semantic/semantic_storage_controller.hpp"
 #include "storage/controller/sleeve/element_controller.hpp"
 #include "type/type.hpp"
 
@@ -36,12 +37,13 @@ class NodeStorageHandler {
 
 class StorageService {
  private:
-  DBController      db_ctrl_;
-  ElementController el_ctrl_;
-  ImageController   img_ctrl_;
-  std::mutex        live_state_lock_;
+  DBController                                                              db_ctrl_;
+  ElementController                                                         el_ctrl_;
+  ImageController                                                           img_ctrl_;
+  SemanticStorageController                                                 semantic_ctrl_;
+  std::mutex                                                                live_state_lock_;
 
-  std::unordered_map<sl_element_id_t, std::weak_ptr<EditHistory>>        live_histories_;
+  std::unordered_map<sl_element_id_t, std::weak_ptr<EditHistory>>           live_histories_;
   std::unordered_map<sl_element_id_t, std::shared_ptr<CPUPipelineExecutor>> live_pipelines_;
 
  public:
@@ -50,12 +52,14 @@ class StorageService {
   auto GetDBController() -> DBController&;
   auto GetElementController() -> ElementController&;
   auto GetImageController() -> ImageController&;
+  auto GetSemanticStorageController() -> SemanticStorageController&;
 
-  void RememberLiveEditHistory(sl_element_id_t file_id, const std::shared_ptr<EditHistory>& history);
+  void RememberLiveEditHistory(sl_element_id_t                     file_id,
+                               const std::shared_ptr<EditHistory>& history);
   auto GetLiveEditHistory(sl_element_id_t file_id) -> std::shared_ptr<EditHistory>;
   void ForgetLiveEditHistory(sl_element_id_t file_id);
 
-  void RememberLivePipeline(sl_element_id_t file_id,
+  void RememberLivePipeline(sl_element_id_t                             file_id,
                             const std::shared_ptr<CPUPipelineExecutor>& pipeline);
   auto GetLivePipeline(sl_element_id_t file_id) -> std::shared_ptr<CPUPipelineExecutor>;
   void ForgetLivePipeline(sl_element_id_t file_id);

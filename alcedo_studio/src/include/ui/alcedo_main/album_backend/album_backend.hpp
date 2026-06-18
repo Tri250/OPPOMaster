@@ -11,10 +11,12 @@
 #include <QVariantMap>
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
+#include "app/semantic_generation_service.hpp"
 #include "edit/pipeline/pipeline_accelerator.hpp"
 #include "ui/alcedo_main/album_backend/adjustment_transfer_controller.hpp"
 #include "ui/alcedo_main/album_backend/album_thumbnail_model.hpp"
@@ -27,6 +29,7 @@
 #include "ui/alcedo_main/album_backend/nikon_he_recovery_types.hpp"
 #include "ui/alcedo_main/album_backend/project_handler.hpp"
 #include "ui/alcedo_main/album_backend/search_controller.hpp"
+#include "ui/alcedo_main/album_backend/semantic_generation_controller.hpp"
 #include "ui/alcedo_main/album_backend/stats_engine.hpp"
 #include "ui/alcedo_main/album_backend/thumbnail_manager.hpp"
 #include "ui/alcedo_main/i18n.hpp"
@@ -38,6 +41,7 @@ class AlbumBackend final : public QObject {
   Q_PROPERTY(QVariantList thumbnails READ Thumbnails NOTIFY ThumbnailsChanged)
   Q_PROPERTY(QObject* thumbnailModel READ ThumbnailModel CONSTANT)
   Q_PROPERTY(QObject* adjustmentTransferController READ AdjustmentTransferControllerObject CONSTANT)
+  Q_PROPERTY(QObject* semanticGenerationController READ SemanticGenerationControllerObject CONSTANT)
   Q_PROPERTY(QVariantList folders READ Folders NOTIFY FoldersChanged)
   Q_PROPERTY(uint currentFolderId READ CurrentFolderId NOTIFY FolderSelectionChanged)
   Q_PROPERTY(QString currentFolderPath READ CurrentFolderPath NOTIFY FolderSelectionChanged)
@@ -49,10 +53,12 @@ class AlbumBackend final : public QObject {
   Q_PROPERTY(QVariantList dateStats READ DateStats NOTIFY StatsChanged)
   Q_PROPERTY(QVariantList cameraStats READ CameraStats NOTIFY StatsChanged)
   Q_PROPERTY(QVariantList lensStats READ LensStats NOTIFY StatsChanged)
+  Q_PROPERTY(QVariantList labelStats READ LabelStats NOTIFY StatsChanged)
   Q_PROPERTY(int totalPhotoCount READ TotalPhotoCount NOTIFY StatsChanged)
   Q_PROPERTY(QString statsFilterDate READ StatsFilterDate NOTIFY StatsFilterChanged)
   Q_PROPERTY(QString statsFilterCamera READ StatsFilterCamera NOTIFY StatsFilterChanged)
   Q_PROPERTY(QString statsFilterLens READ StatsFilterLens NOTIFY StatsFilterChanged)
+  Q_PROPERTY(QString statsFilterLabel READ StatsFilterLabel NOTIFY StatsFilterChanged)
   Q_PROPERTY(QVariantList ratingStats READ RatingStats NOTIFY StatsChanged)
   Q_PROPERTY(QString statsFilterRating READ StatsFilterRating NOTIFY StatsFilterChanged)
   Q_PROPERTY(bool serviceReady READ ServiceReady NOTIFY ServiceStateChanged)
@@ -129,6 +135,7 @@ class AlbumBackend final : public QObject {
   QVariantList Thumbnails() const;
   QObject*     ThumbnailModel() { return &thumbnail_model_; }
   QObject*     AdjustmentTransferControllerObject() { return &adjustment_transfer_; }
+  QObject*     SemanticGenerationControllerObject() { return &semantic_generation_; }
   QVariantList Folders() const { return folder_ctrl_.folders(); }
   uint CurrentFolderId() const { return static_cast<uint>(folder_ctrl_.current_folder_id()); }
   const QString& CurrentFolderPath() const { return folder_ctrl_.current_folder_path_text(); }
@@ -140,11 +147,13 @@ class AlbumBackend final : public QObject {
   QVariantList   DateStats() const { return stats_.date_stats(); }
   QVariantList   CameraStats() const { return stats_.camera_stats(); }
   QVariantList   LensStats() const { return stats_.lens_stats(); }
+  QVariantList   LabelStats() const { return stats_.label_stats(); }
   QVariantList   RatingStats() const { return stats_.rating_stats(); }
   int            TotalPhotoCount() const { return stats_.total_photo_count(); }
   const QString& StatsFilterDate() const { return stats_.filter_date(); }
   const QString& StatsFilterCamera() const { return stats_.filter_camera(); }
   const QString& StatsFilterLens() const { return stats_.filter_lens(); }
+  const QString& StatsFilterLabel() const { return stats_.filter_label(); }
   const QString& StatsFilterRating() const { return stats_.filter_rating(); }
   bool           ServiceReady() const { return service_ready_; }
   QString        ServiceMessage() const { return service_message_text_.Render(); }
@@ -322,6 +331,7 @@ class AlbumBackend final : public QObject {
   friend class ImageController;
   friend class StatsEngine;
   friend class SearchController;
+  friend class SemanticGenerationController;
   friend class ImportExportHandler;
   friend class NikonHeRecoveryController;
   friend class EditorController;
@@ -339,6 +349,10 @@ class AlbumBackend final : public QObject {
   void ApplyAcceleratorPreferenceToServices();
   bool IsAcceleratorWarningAcknowledged() const;
   void PersistAcceleratorWarningAcknowledgement() const;
+  void QueueSemanticGenerationPrompt(std::vector<SemanticGenerationItem> items);
+  void ResumeQueuedSemanticGenerationWorkflow();
+  auto ActiveSemanticModelKey() const -> std::string;
+  auto SemanticLabelDisplayText(sl_element_id_t elementId) const -> QString;
   void LoadRecentProjectsFromSettings();
   void PersistRecentProjects() const;
   void RegisterRecentProject(const std::filesystem::path& projectPath);
@@ -363,6 +377,8 @@ class AlbumBackend final : public QObject {
   ImageController              image_ctrl_;
   StatsEngine                  stats_;
   SearchController             search_;
+  alcedo::ModelDownloadService model_download_service_;
+  SemanticGenerationController semantic_generation_;
   ImportExportHandler          import_export_;
   NikonHeRecoveryController    nikon_he_recovery_;
   EditorController             editor_;
@@ -388,7 +404,6 @@ class AlbumBackend final : public QObject {
   i18n::LocalizedText          task_status_text_{};
   int                          task_progress_       = 0;
   bool                         task_cancel_visible_ = false;
-
   // ── Phase 4: Thumbnail disk cache settings ──────────────────────────
   void LoadThumbnailDiskCacheSettings();
   void SaveThumbnailDiskCacheSettings();

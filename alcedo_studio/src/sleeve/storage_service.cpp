@@ -67,15 +67,20 @@ void NodeStorageHandler::GarbageCollect() {
 StorageService::StorageService(std::filesystem::path db_path)
     : db_ctrl_(db_path),
       el_ctrl_(db_ctrl_.GetConnectionGuard()),
-      img_ctrl_(db_ctrl_.GetConnectionGuard()) {}
+      img_ctrl_(db_ctrl_.GetConnectionGuard()),
+      semantic_ctrl_(db_ctrl_.GetConnectionGuard()) {}
 
 auto StorageService::GetElementController() -> ElementController& { return el_ctrl_; }
 
 auto StorageService::GetImageController() -> ImageController& { return img_ctrl_; }
 
+auto StorageService::GetSemanticStorageController() -> SemanticStorageController& {
+  return semantic_ctrl_;
+}
+
 auto StorageService::GetDBController() -> DBController& { return db_ctrl_; }
 
-void StorageService::RememberLiveEditHistory(const sl_element_id_t                file_id,
+void StorageService::RememberLiveEditHistory(const sl_element_id_t               file_id,
                                              const std::shared_ptr<EditHistory>& history) {
   std::lock_guard<std::mutex> lock(live_state_lock_);
   if (!history) {
@@ -85,7 +90,8 @@ void StorageService::RememberLiveEditHistory(const sl_element_id_t              
   live_histories_[file_id] = history;
 }
 
-auto StorageService::GetLiveEditHistory(const sl_element_id_t file_id) -> std::shared_ptr<EditHistory> {
+auto StorageService::GetLiveEditHistory(const sl_element_id_t file_id)
+    -> std::shared_ptr<EditHistory> {
   std::lock_guard<std::mutex> lock(live_state_lock_);
   const auto                  it = live_histories_.find(file_id);
   if (it == live_histories_.end()) {
@@ -104,7 +110,7 @@ void StorageService::ForgetLiveEditHistory(const sl_element_id_t file_id) {
   live_histories_.erase(file_id);
 }
 
-void StorageService::RememberLivePipeline(const sl_element_id_t                        file_id,
+void StorageService::RememberLivePipeline(const sl_element_id_t                       file_id,
                                           const std::shared_ptr<CPUPipelineExecutor>& pipeline) {
   std::lock_guard<std::mutex> lock(live_state_lock_);
   if (!pipeline) {
