@@ -27,8 +27,9 @@ constexpr const char* kHsPyrDownPackedKernelName           = "metal_hs_pyr_down_
 constexpr const char* kHsSelectInterpolatedLevelKernelName = "metal_hs_select_interpolated_level";
 constexpr const char* kHsSelectInterpolatedLevelPackedKernelName =
     "metal_hs_select_interpolated_level_packed";
-constexpr const char* kHsCollapseLevelKernelName  = "metal_hs_collapse_level";
-constexpr const char* kHsApplyAdjustedLKernelName = "metal_hs_apply_adjusted_l_rgba32f";
+constexpr const char* kHsCollapseLevelKernelName = "metal_hs_collapse_level";
+constexpr const char* kHsApplyAdjustedLKernelName =
+    "metal_hs_apply_adjusted_l_with_reference_rgba32f";
 constexpr const char* kHsApplyAdjustedLFromFrameKernelName =
     "metal_hs_apply_adjusted_l_from_frame_rgba32f";
 constexpr const char* kHsApplyAdjustedLFromReferenceKernelName =
@@ -256,7 +257,7 @@ void MetalStage::EnsurePyramidBuffers(int32_t width, int32_t height, float radiu
     layout_matches =
         level_widths_[level] == new_widths[level] && level_heights_[level] == new_heights[level] &&
         source_levels_[level].get() != nullptr && remap_a_levels_[level].get() != nullptr &&
-        sample_levels_[level].get() != nullptr && output_levels_[level].get() != nullptr;
+        output_levels_[level].get() != nullptr;
   }
   if (layout_matches) {
     return;
@@ -271,7 +272,6 @@ void MetalStage::EnsurePyramidBuffers(int32_t width, int32_t height, float radiu
     const size_t bytes     = elems * sizeof(float);
     source_levels_[level]  = MakeDeviceBuffer(bytes);
     remap_a_levels_[level] = MakeDeviceBuffer(bytes);
-    sample_levels_[level]  = MakeDeviceBuffer(bytes);
     output_levels_[level]  = MakeDeviceBuffer(bytes);
   }
 }
@@ -280,7 +280,24 @@ void MetalStage::EnsureSamplePyramidBuffers(int32_t sample_count) {
   if (sample_count < 2 || sample_count > kMaxSamples) {
     throw std::runtime_error("Metal H/S local tone: invalid sample count.");
   }
+
+  bool layout_matches = sample_count_ == sample_count && level_count_ > 0;
+  for (int level = 0; layout_matches && level < level_count_; ++level) {
+    layout_matches = sample_levels_[level].get() != nullptr;
+  }
+  if (layout_matches) {
+    return;
+  }
+
+  for (auto& buffer : sample_levels_) {
+    buffer = nullptr;
+  }
   sample_count_ = sample_count;
+  for (int level = 0; level < level_count_; ++level) {
+    const size_t elems = HsLevelElems(level_widths_[level], level_heights_[level]);
+    sample_levels_[level] =
+        MakeDeviceBuffer(elems * static_cast<size_t>(sample_count_) * sizeof(float));
+  }
 }
 
 void MetalStage::EncodeExtractLogIntensity(MTL::CommandBuffer*      command_buffer,
@@ -422,64 +439,39 @@ void MetalStage::BuildOutputPyramid(MTL::CommandBuffer*           command_buffer
   EnsureSamplePyramidBuffers(static_cast<int32_t>(samples.size()));
 
   const auto remap_start = std::chrono::steady_clock::now();
-  BuildRemapPyramid(command_buffer, samples.front(), remap_a_levels_);
-  BuildRemapPyramid(command_buffer, samples[1], sample_levels_);
+  BuildPackedSamplePyramids(command_buffer, samples);
   const auto remap_end = std::chrono::steady_clock::now();
   if (stats != nullptr) {
     stats->hs_remap_encode_ms +=
         std::chrono::duration<double, std::milli>(remap_end - remap_start).count();
   }
 
-  auto blit = NS::RetainPtr(command_buffer->blitCommandEncoder());
-  for (int level = 0; level < level_count_; ++level) {
-    const size_t elems =
-        static_cast<size_t>(level_widths_[level]) * static_cast<size_t>(level_heights_[level]);
-    blit->fillBuffer(output_levels_[level].get(), NS::Range::Make(0, elems * sizeof(float)), 0);
-  }
-  blit->endEncoding();
-
   const auto select_start = std::chrono::steady_clock::now();
-  for (size_t pair_index = 0; pair_index + 1 < samples.size(); ++pair_index) {
-    for (int level = 0; level < level_count_; ++level) {
-      auto*                     pipeline  = EnsurePipeline(select_level_pipeline_);
-      const bool                top_level = level == (level_count_ - 1);
-      const MetalHsSelectParams params{level_widths_[level],
-                                       level_heights_[level],
-                                       top_level ? 1 : level_widths_[level + 1],
-                                       top_level ? 1 : level_heights_[level + 1],
-                                       samples[pair_index].gamma_,
-                                       samples[pair_index + 1].gamma_,
-                                       pair_index == 0 ? 1 : 0,
-                                       pair_index + 2 == samples.size() ? 1 : 0,
-                                       top_level ? 1 : 0,
-                                       {0, 0, 0}};
-      auto                      encoder = NS::RetainPtr(command_buffer->computeCommandEncoder());
-      encoder->setComputePipelineState(pipeline);
-      encoder->setBuffer(source_levels_[level].get(), 0, 0);
-      encoder->setBuffer(remap_a_levels_[level].get(), 0, 1);
-      encoder->setBuffer(
-          top_level ? remap_a_levels_[level].get() : remap_a_levels_[level + 1].get(), 0, 2);
-      encoder->setBuffer(sample_levels_[level].get(), 0, 3);
-      encoder->setBuffer(top_level ? sample_levels_[level].get() : sample_levels_[level + 1].get(),
-                         0, 4);
-      encoder->setBuffer(output_levels_[level].get(), 0, 5);
-      encoder->setBytes(&params, sizeof(params), 6);
-      DispatchThreads(encoder.get(), pipeline, static_cast<uint32_t>(level_widths_[level]),
-                      static_cast<uint32_t>(level_heights_[level]));
-      encoder->endEncoding();
+  auto* select_pipeline = EnsurePipeline(select_level_packed_pipeline_);
+  for (int level = 0; level < level_count_; ++level) {
+    const bool                top_level = level == (level_count_ - 1);
+    MetalHsSelectPackedParams params;
+    params.width_         = level_widths_[level];
+    params.height_        = level_heights_[level];
+    params.coarse_width_  = top_level ? 1 : level_widths_[level + 1];
+    params.coarse_height_ = top_level ? 1 : level_heights_[level + 1];
+    params.sample_count_  = static_cast<int32_t>(samples.size());
+    params.top_level_     = top_level ? 1 : 0;
+    for (size_t i = 0; i < samples.size(); ++i) {
+      params.gammas_[i] = samples[i].gamma_;
     }
 
-    if (pair_index + 2 < samples.size()) {
-      std::swap(remap_a_levels_, sample_levels_);
-      const auto rolling_remap_start = std::chrono::steady_clock::now();
-      BuildRemapPyramid(command_buffer, samples[pair_index + 2], sample_levels_);
-      const auto rolling_remap_end = std::chrono::steady_clock::now();
-      if (stats != nullptr) {
-        stats->hs_remap_encode_ms +=
-            std::chrono::duration<double, std::milli>(rolling_remap_end - rolling_remap_start)
-                .count();
-      }
-    }
+    auto encoder = NS::RetainPtr(command_buffer->computeCommandEncoder());
+    encoder->setComputePipelineState(select_pipeline);
+    encoder->setBuffer(source_levels_[level].get(), 0, 0);
+    encoder->setBuffer(sample_levels_[level].get(), 0, 1);
+    encoder->setBuffer(top_level ? sample_levels_[level].get() : sample_levels_[level + 1].get(),
+                       0, 2);
+    encoder->setBuffer(output_levels_[level].get(), 0, 3);
+    encoder->setBytes(&params, sizeof(params), 4);
+    DispatchThreads(encoder.get(), select_pipeline, static_cast<uint32_t>(level_widths_[level]),
+                    static_cast<uint32_t>(level_heights_[level]));
+    encoder->endEncoding();
   }
   const auto select_end = std::chrono::steady_clock::now();
   if (stats != nullptr) {
@@ -520,14 +512,16 @@ void MetalStage::EncodeApplyAdjustedL(MTL::CommandBuffer*      command_buffer,
   auto* pipeline = EnsurePipeline(apply_adjusted_l_pipeline_);
   dst.Create(src.Width(), src.Height(), src.Format(), true, true, false);
   const MetalHsPlaneApplyParams params{static_cast<int32_t>(src.Width()),
-                                       static_cast<int32_t>(src.Height()), cached_width_,
+                                       static_cast<int32_t>(src.Height()),
+                                       cached_width_,
                                        cached_height_};
   auto                          encoder = NS::RetainPtr(command_buffer->computeCommandEncoder());
   encoder->setComputePipelineState(pipeline);
   encoder->setTexture(src.Texture(), 0);
-  encoder->setBuffer(output_levels_[0].get(), 0, 0);
+  encoder->setBuffer(source_levels_[0].get(), 0, 0);
+  encoder->setBuffer(output_levels_[0].get(), 0, 1);
   encoder->setTexture(dst.Texture(), 1);
-  encoder->setBytes(&params, sizeof(params), 1);
+  encoder->setBytes(&params, sizeof(params), 2);
   DispatchThreads(encoder.get(), pipeline, src.Width(), src.Height());
   encoder->endEncoding();
 }
@@ -538,7 +532,8 @@ void MetalStage::EncodeApplyAdjustedLFromFrame(MTL::CommandBuffer*      command_
   auto* pipeline = EnsurePipeline(apply_adjusted_l_from_frame_pipeline_);
   dst.Create(src.Width(), src.Height(), src.Format(), true, true, false);
   const MetalHsPlaneApplyParams params{static_cast<int32_t>(src.Width()),
-                                       static_cast<int32_t>(src.Height()), cached_width_,
+                                       static_cast<int32_t>(src.Height()),
+                                       cached_width_,
                                        cached_height_};
   auto                          encoder = NS::RetainPtr(command_buffer->computeCommandEncoder());
   encoder->setComputePipelineState(pipeline);
@@ -558,7 +553,8 @@ void MetalStage::EncodeApplyAdjustedLFromReference(MTL::CommandBuffer*      comm
   auto* pipeline = EnsurePipeline(apply_adjusted_l_from_reference_pipeline_);
   dst.Create(src.Width(), src.Height(), src.Format(), true, true, false);
   const MetalHsPlaneApplyParams params{static_cast<int32_t>(src.Width()),
-                                       static_cast<int32_t>(src.Height()), cached_width_,
+                                       static_cast<int32_t>(src.Height()),
+                                       cached_width_,
                                        cached_height_};
   auto                          encoder = NS::RetainPtr(command_buffer->computeCommandEncoder());
   encoder->setComputePipelineState(pipeline);
@@ -589,7 +585,8 @@ void MetalStage::Execute(const FusedOperatorParams& params, MTL::Buffer* fused_p
                                                params.render_roi_reference_width_ > 0 &&
                                                params.render_roi_reference_height_ > 0;
   const bool preserve_source_detail  = params.render_hs_preserve_source_detail_;
-  const int  reference_max_long_edge = std::max(1, params.render_hs_reference_max_long_edge_);
+  const int  reference_max_long_edge =
+      std::max(1, std::min(params.render_hs_reference_max_long_edge_, kReferenceMaskMaxLongEdge));
   const MaskDimensions current_reference_dims = ComputeMaskDimensions(
       static_cast<int32_t>(src.Width()), static_cast<int32_t>(src.Height()),
       roi_frame_with_source_reference
@@ -658,7 +655,8 @@ void MetalStage::Execute(const FusedOperatorParams& params, MTL::Buffer* fused_p
                            cached_frame_width_ == static_cast<int32_t>(src.Width()) &&
                            cached_frame_height_ == static_cast<int32_t>(src.Height()) &&
                            cached_width_ == mask_dims.width_ &&
-                           cached_height_ == mask_dims.height_ && cached_pitch_ == level_widths_[0];
+                           cached_height_ == mask_dims.height_ &&
+                           cached_pitch_ == level_widths_[0];
   if (!cache_valid) {
     const auto samples      = BuildSamples(shadow_amount, highlight_amount);
     const auto source_start = std::chrono::steady_clock::now();

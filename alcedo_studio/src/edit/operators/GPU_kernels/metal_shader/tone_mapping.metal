@@ -143,8 +143,8 @@ static inline float metal_hs_llf_remap_delta(float delta_l, float sigma_r, float
   return sign * (sigma_r + beta * (abs_delta - sigma_r));
 }
 
-static inline float4 metal_hs_apply_adjusted_l_pixel(float4 px, float adjusted_l) {
-  const float3 source_ap1 = metal_hls_acescc_to_ap1(px.xyz);
+static inline float4 metal_hs_apply_adjusted_l_pixel_from_ap1(float4 px, float3 source_ap1,
+                                                              float adjusted_l) {
   const float source_intensity = fmax(metal_hs_ap1_luminance(source_ap1), 1.0e-5f);
   const float adjusted_intensity = metal_hls_acescc_decode(adjusted_l);
   const float ratio = clamp(adjusted_intensity / source_intensity, 0.0f, 32.0f);
@@ -155,10 +155,32 @@ static inline float4 metal_hs_apply_adjusted_l_pixel(float4 px, float adjusted_l
   return float4(metal_hls_ap1_to_acescc(output_ap1), px.w);
 }
 
+static inline float4 metal_hs_apply_adjusted_l_pixel(float4 px, float adjusted_l) {
+  return metal_hs_apply_adjusted_l_pixel_from_ap1(px, metal_hls_acescc_to_ap1(px.xyz),
+                                                  adjusted_l);
+}
+
+static inline bool metal_hs_can_apply_delta_in_acescc(float4 px, float delta_l) {
+  constexpr float kDenormThreshold = (-15.0f + 9.72f) / 17.52f;
+  constexpr float kMaxRatioDelta = 5.0f / 17.52f;
+  const float3 shifted = px.xyz + delta_l;
+  return isfinite(delta_l) && delta_l <= kMaxRatioDelta && all(isfinite(px.xyz)) &&
+         all(isfinite(shifted)) && all(px.xyz > float3(kDenormThreshold)) &&
+         all(shifted > float3(kDenormThreshold));
+}
+
 static inline float4 metal_hs_apply_adjusted_l_delta_pixel(float4 px, float reference_l,
                                                            float adjusted_l) {
-  const float source_l = metal_hs_log_intensity_from_acescc(px);
-  return metal_hs_apply_adjusted_l_pixel(px, source_l + (adjusted_l - reference_l));
+  const float delta_l = adjusted_l - reference_l;
+  if (metal_hs_can_apply_delta_in_acescc(px, delta_l)) {
+    return float4(px.xyz + delta_l, px.w);
+  }
+
+  const float3 source_ap1 = metal_hls_acescc_to_ap1(px.xyz);
+  const float source_l = metal_hls_acescc_encode(fmax(metal_hs_ap1_luminance(source_ap1),
+                                                      1.0e-6f));
+  return metal_hs_apply_adjusted_l_pixel_from_ap1(px, source_ap1,
+                                                  source_l + delta_l);
 }
 
 static inline float metal_hs_shadow_upper_pivot(constant MetalFusedParams& params) {

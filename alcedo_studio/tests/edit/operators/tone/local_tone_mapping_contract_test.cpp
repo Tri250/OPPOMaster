@@ -55,6 +55,41 @@ auto ExtractFloatLiteral(const std::string& source, const std::string& symbol) -
   return std::stof(match[1].str());
 }
 
+auto AcesccDecode(float acescc) -> float {
+  constexpr float kLog2Min      = -15.0f;
+  constexpr float kLog2Denorm   = -16.0f;
+  constexpr float kDenormOffset = 0.00001525878906f;
+  constexpr float kA            = 9.72f;
+  constexpr float kB            = 17.52f;
+
+  const float encode_floor     = (kLog2Denorm + kA) / kB;
+  const float denorm_threshold = (kLog2Min + kA) / kB;
+  if (acescc < encode_floor) {
+    return acescc - encode_floor;
+  }
+  if (acescc <= denorm_threshold) {
+    return (std::exp2(acescc * kB - kA) - kDenormOffset) * 2.0f;
+  }
+  return std::exp2(acescc * kB - kA);
+}
+
+auto AcesccEncode(float linear_ap1) -> float {
+  constexpr float kLog2Denorm   = -16.0f;
+  constexpr float kDenormTrans  = 0.00003051757812f;
+  constexpr float kDenormOffset = 0.00001525878906f;
+  constexpr float kA            = 9.72f;
+  constexpr float kB            = 17.52f;
+
+  const float encode_floor = (kLog2Denorm + kA) / kB;
+  if (linear_ap1 <= 0.0f) {
+    return encode_floor + linear_ap1;
+  }
+  if (linear_ap1 < kDenormTrans) {
+    return (std::log2(kDenormOffset + linear_ap1 * 0.5f) + kA) / kB;
+  }
+  return (std::log2(linear_ap1) + kA) / kB;
+}
+
 }  // namespace
 
 TEST(LocalToneMappingContractTest, CompatibilityHeaderExportsSharedContract) {
@@ -167,6 +202,38 @@ TEST(LocalToneMappingContractTest, RoiReferenceReuseDoesNotRequireSamePresentati
       /*reference_source_cache_valid=*/true,
       /*roi_reference_width=*/0,
       /*roi_reference_height=*/2731));
+}
+
+TEST(LocalToneMappingContractTest, AcesccDeltaFastPathMatchesLinearRatioInNormalRange) {
+  constexpr float kDenormThreshold = (-15.0f + 9.72f) / 17.52f;
+  const float     rgb[][3]         = {
+          {0.34f, 0.38f, 0.42f},
+          {0.48f, 0.50f, 0.53f},
+          {0.58f, 0.62f, 0.66f},
+  };
+  const float deltas[] = {-0.12f, -0.03f, 0.04f, 0.18f};
+
+  for (const auto& px : rgb) {
+    const float source_ap1[3] = {AcesccDecode(px[0]), AcesccDecode(px[1]), AcesccDecode(px[2])};
+    const float source_luma =
+        0.27222872f * source_ap1[0] + 0.67408177f * source_ap1[1] +
+        0.05368952f * source_ap1[2];
+    ASSERT_GT(AcesccEncode(source_luma), kDenormThreshold);
+
+    for (const float delta : deltas) {
+      for (int channel = 0; channel < 3; ++channel) {
+        ASSERT_GT(px[channel], kDenormThreshold);
+        ASSERT_GT(px[channel] + delta, kDenormThreshold);
+      }
+
+      const float ratio = std::exp2(delta * 17.52f);
+      for (int channel = 0; channel < 3; ++channel) {
+        const float via_ratio = AcesccEncode(source_ap1[channel] * ratio);
+        const float via_delta = px[channel] + delta;
+        EXPECT_NEAR(via_ratio, via_delta, 2.0e-6f);
+      }
+    }
+  }
 }
 
 TEST(LocalToneMappingContractTest, ShaderMirrorConstantsMatchSharedContract) {

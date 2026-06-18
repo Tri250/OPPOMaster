@@ -433,7 +433,8 @@ kernel void metal_hs_extract_log_intensity_resampled_rgba32f(
   const float src_x = ((static_cast<float>(gid.x) + 0.5f) * static_cast<float>(params.src_width_) /
                        fmax(static_cast<float>(params.dst_width_), 1.0f)) -
                       0.5f;
-  const float src_y = ((static_cast<float>(gid.y) + 0.5f) * static_cast<float>(params.src_height_) /
+  const float src_y = ((static_cast<float>(gid.y) + 0.5f) *
+                       static_cast<float>(params.src_height_) /
                        fmax(static_cast<float>(params.dst_height_), 1.0f)) -
                       0.5f;
   const size_t offset = static_cast<size_t>(gid.y) * static_cast<size_t>(params.dst_width_) +
@@ -450,10 +451,13 @@ kernel void metal_hs_build_remapped_sample(device const float*          source_l
     return;
   }
 
+  const size_t dst_offset = static_cast<size_t>(params.dst_offset_) +
+                            static_cast<size_t>(gid.y) * static_cast<size_t>(params.width_) +
+                            static_cast<size_t>(gid.x);
   const size_t offset =
       static_cast<size_t>(gid.y) * static_cast<size_t>(params.width_) + static_cast<size_t>(gid.x);
   const float source_value = source_l[offset];
-  remapped_l[static_cast<size_t>(params.dst_offset_) + offset] =
+  remapped_l[dst_offset] =
       params.target_ + metal_hs_llf_remap_delta(source_value - params.gamma_, params.sigma_r_,
                                                 params.alpha_, params.beta_);
 }
@@ -558,8 +562,8 @@ kernel void metal_hs_select_interpolated_level(device const float* source_level 
       static_cast<size_t>(gid.y) * static_cast<size_t>(params.width_) + static_cast<size_t>(gid.x);
   const float g           = source_level[offset];
   const bool  in_interval = (params.first_pair_ != 0 && g <= params.gamma_hi_) ||
-                           (params.last_pair_ != 0 && g >= params.gamma_lo_) ||
-                           (g >= params.gamma_lo_ && g < params.gamma_hi_);
+                             (params.last_pair_ != 0 && g >= params.gamma_lo_) ||
+                             (g >= params.gamma_lo_ && g < params.gamma_hi_);
   if (!in_interval) {
     return;
   }
@@ -602,6 +606,7 @@ kernel void metal_hs_select_interpolated_level_packed(
       static_cast<size_t>(gid.y) * static_cast<size_t>(params.width_) + static_cast<size_t>(gid.x);
   const float g = source_level[offset];
   if (isnan(g)) {
+    output_level[offset] = 0.0f;
     return;
   }
 
@@ -673,6 +678,21 @@ kernel void metal_hs_apply_adjusted_l_rgba32f(texture2d<float, access::read> src
   const size_t offset =
       static_cast<size_t>(gid.y) * static_cast<size_t>(params.width_) + static_cast<size_t>(gid.x);
   dst.write(metal_hs_apply_adjusted_l_pixel(src.read(gid), adjusted_l[offset]), gid);
+}
+
+kernel void metal_hs_apply_adjusted_l_with_reference_rgba32f(
+    texture2d<float, access::read> src [[texture(0)]], device const float* reference_l [[buffer(0)]],
+    device const float* adjusted_l [[buffer(1)]], texture2d<float, access::write> dst [[texture(1)]],
+    constant MetalHsPlaneApplyParams& params [[buffer(2)]], uint2 gid [[thread_position_in_grid]]) {
+  if (gid.x >= static_cast<uint>(params.width_) || gid.y >= static_cast<uint>(params.height_)) {
+    return;
+  }
+
+  const size_t offset =
+      static_cast<size_t>(gid.y) * static_cast<size_t>(params.width_) + static_cast<size_t>(gid.x);
+  dst.write(metal_hs_apply_adjusted_l_delta_pixel(src.read(gid), reference_l[offset],
+                                                  adjusted_l[offset]),
+            gid);
 }
 
 kernel void metal_hs_apply_adjusted_l_from_frame_rgba32f(
