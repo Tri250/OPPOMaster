@@ -1,5 +1,6 @@
 use std::env;
 
+#[derive(Debug)]
 pub struct AppConfig {
     pub host: String,
     pub port: u16,
@@ -213,5 +214,42 @@ mod tests {
         let config = AppConfig::from_args(["--allow-download"]).expect("config should parse");
         assert!(config.semantic.allow_download);
         assert_eq!(config.semantic.hf_endpoint, "https://hf-mirror.com");
+    }
+
+    #[test]
+    fn rejects_empty_host() {
+        let err = AppConfig::from_args(["--host", "  "]).expect_err("empty host rejected");
+        assert!(err.to_string().contains("host must not be empty"));
+    }
+
+    #[test]
+    fn rejects_empty_model_root() {
+        let err = AppConfig::from_args(["--model-root", ""]).expect_err("empty model-root rejected");
+        assert!(err.to_string().contains("model-root must not be empty"));
+    }
+
+    #[test]
+    fn rejects_unknown_argument() {
+        let err = AppConfig::from_args(["--nonsense"]).expect_err("unknown arg rejected");
+        assert!(err.to_string().contains("unknown argument"));
+    }
+
+    #[test]
+    fn rejects_missing_value_after_flag() {
+        let err = AppConfig::from_args(["--port"]).expect_err("missing value rejected");
+        assert!(err.to_string().contains("missing value after --port"));
+    }
+
+    #[test]
+    fn rejects_non_numeric_port() {
+        let err = AppConfig::from_args(["--port", "not-a-port"])
+            .expect_err("non-numeric port rejected");
+        assert!(err.to_string().contains("failed to parse --port"));
+    }
+
+    #[test]
+    fn rejects_zero_batch_cap() {
+        let err = AppConfig::from_args(["--batch-cap", "0"]).expect_err("zero batch-cap rejected");
+        assert!(err.to_string().contains("batch-cap must be greater than zero"));
     }
 }

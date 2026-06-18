@@ -35,7 +35,9 @@ jobs:
       - name: Install dependencies
         run: |
           brew update
-          brew install cmake ninja qt opencv opencolorio duckdb exiv2 glib libraw little-cms2 highway openimageio pkg-config xxhash eigen libomp
+          # grpc + protobuf: required by the semantic search proto codegen under
+          # PUERHLAB_USE_SYSTEM_GRPC_PROTOBUF=ON (see alcedo_studio/src/third_party/CMakeLists.txt).
+          brew install cmake ninja qt opencv opencolorio duckdb exiv2 glib libraw little-cms2 highway openimageio pkg-config xxhash eigen libomp grpc protobuf
 
       - name: Configure
         run: cmake --preset macos_arm_metal_ci

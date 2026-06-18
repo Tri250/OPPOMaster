@@ -689,4 +689,74 @@ mod tests {
         let profile = find_profile(MOBILECLIP2_ONNX_PROFILE).expect("profile exists");
         assert_eq!(completed_staging_bytes(profile, &staging), 0);
     }
+
+    #[test]
+    fn find_profile_resolves_by_model_id_alias() {
+        // find_profile accepts both profile_id and model_id; the Jina profile's
+        // model_id is the bare repo id, distinct from its profile_id.
+        let by_model_id = find_profile(JINA_CLIP_REPO).expect("profile resolves by model_id");
+        assert_eq!(by_model_id.profile_id, "jina-clip-v2-int8-multilingual");
+        let by_profile_id =
+            find_profile("jina-clip-v2-int8-multilingual").expect("profile resolves by profile_id");
+        assert_eq!(by_model_id.profile_id, by_profile_id.profile_id);
+    }
+
+    #[test]
+    fn find_profile_unknown_returns_error() {
+        let err = find_profile("no-such-profile").expect_err("unknown profile should error");
+        assert!(err.to_string().contains("unknown semantic model profile"));
+    }
+
+    #[test]
+    fn find_profile_asset_missing_role_returns_error() {
+        let profile = find_profile(MOBILECLIP2_ONNX_PROFILE).expect("profile exists");
+        // MobileCLIP2 has no MultimodalModel asset.
+        let err = find_profile_asset(profile, AssetRole::MultimodalModel)
+            .expect_err("missing role should error");
+        assert!(err.to_string().contains("does not define a"));
+    }
+
+    #[test]
+    fn delete_model_profile_removes_root_and_staging() {
+        let root = unique_temp_root("alcedo-mind-delete-profile");
+        std::fs::create_dir_all(&root).expect("create model root");
+        let staging = staging_root(&root);
+        std::fs::create_dir_all(&staging).expect("create staging dir");
+        assert!(root.exists() && staging.exists());
+
+        delete_model_profile(MOBILECLIP2_ONNX_PROFILE, &root).expect("delete should succeed");
+        assert!(!root.exists(), "model root should be removed");
+        assert!(!staging.exists(), "staging dir should be removed");
+    }
+
+    #[test]
+    fn delete_model_profile_unknown_profile_returns_error() {
+        let root = unique_temp_root("alcedo-mind-delete-unknown");
+        let err = delete_model_profile("no-such-profile", &root).expect_err("unknown profile error");
+        assert!(err.to_string().contains("unknown semantic model profile"));
+    }
+
+    #[test]
+    fn resolved_manifest_round_trips_through_serde() {
+        let profile = find_profile(MOBILECLIP2_ONNX_PROFILE).expect("profile exists");
+        let root = PathBuf::from("/tmp/alcedo/mobileclip2-s2-en");
+        let manifest = resolved_manifest(profile, &root);
+
+        let json = serde_json::to_string(&manifest).expect("manifest serializes");
+        let restored: ResolvedModelManifest =
+            serde_json::from_str(&json).expect("manifest deserializes");
+        assert_eq!(manifest, restored);
+        assert_eq!(restored.profile_id, MOBILECLIP2_ONNX_PROFILE);
+        assert_eq!(restored.assets.len(), profile.assets.len());
+        assert_eq!(restored.embedding_dimension, REQUIRED_EMBEDDING_DIMENSION);
+    }
+
+    #[test]
+    fn validate_model_profile_missing_root_reports_path() {
+        let root = unique_temp_root("alcedo-mind-validate-missing-root");
+        let err = validate_model_profile(MOBILECLIP2_ONNX_PROFILE, &root)
+            .expect_err("missing root should error");
+        assert!(err.to_string().contains("missing model root directory"));
+        assert!(!root.exists(), "validate must not create the root");
+    }
 }

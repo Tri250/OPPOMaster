@@ -714,7 +714,7 @@ target_link_libraries(SemanticGenerationServiceTest
   DuckDB
   GTest::gtest_main)
 gtest_discover_tests(SemanticGenerationServiceTest TEST_PREFIX "SemanticGenerationServiceTest."
-  PROPERTIES LABELS "ci_core_flow")
+  PROPERTIES LABELS "ci_raw_flow")
 
 add_executable(ThumbnailServiceTest app/thumbnail_service_test.cpp)
 target_include_directories(ThumbnailServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
@@ -1095,12 +1095,16 @@ alcedo_assign_test_category(ci_core ALCEDO_BUILD_CI_TESTS alcedo_tests_ci_core
   PipelineServiceTest
   EditHistoryMgmtServiceTest
   CropRotateOpTest
+  SemanticGrpcDependencySmokeTest
+  SemanticRuntimeServiceTest
+  SemanticStorageControllerTest
 )
 
 alcedo_assign_test_category(ci_raw ALCEDO_BUILD_CI_TESTS alcedo_tests_ci_raw
   CiRawWorkflowTest
   AlbumBackendRatingTest
   AlbumBackendCiWorkflowTest
+  SemanticGenerationServiceTest
 )
 
 alcedo_assign_test_category(ci_metal ALCEDO_BUILD_CI_TESTS alcedo_tests_ci_metal

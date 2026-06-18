@@ -137,58 +137,9 @@ class FakeSemanticRuntimeClient final : public ISemanticRuntimeClient {
     return result;
   }
 
-  auto DownloadModel(const std::string& endpoint, const std::string& profile_id,
-                     const std::string& model_root, const std::string& hf_endpoint,
-                     std::chrono::milliseconds timeout) -> SemanticModelManagerResult override {
-    (void)hf_endpoint;
-    auto result   = ValidateModel(endpoint, profile_id, model_root, timeout);
-    result.status = "queued";
-    result.job_id = "fake-download-job";
-    result.manifest.reset();
-    result.progress = SemanticModelDownloadProgress{
-        .phase                         = "queued",
-        .current_file                  = "",
-        .current_file_bytes_downloaded = 0,
-        .current_file_bytes_total      = 0,
-        .bytes_downloaded              = 0,
-        .bytes_total                   = 1024,
-        .files_completed               = 0,
-        .files_total                   = 2,
-        .message                       = "download queued",
-    };
-    return result;
-  }
-
-  auto GetModelDownloadStatus(const std::string& endpoint, const std::string& job_id,
-                              std::chrono::milliseconds timeout)
-      -> SemanticModelManagerResult override {
-    auto result     = ValidateModel(endpoint, "mobileclip2-s2-en", "C:/models", timeout);
-    result.job_id   = job_id;
-    result.progress = SemanticModelDownloadProgress{
-        .phase                         = "installed",
-        .current_file                  = "onnx/s2/vision_model.onnx",
-        .current_file_bytes_downloaded = 512,
-        .current_file_bytes_total      = 512,
-        .bytes_downloaded              = 1024,
-        .bytes_total                   = 1024,
-        .files_completed               = 2,
-        .files_total                   = 2,
-        .message                       = "model profile installed",
-    };
-    return result;
-  }
-
-  auto CancelModelDownload(const std::string& endpoint, const std::string& job_id,
-                           std::chrono::milliseconds timeout, std::string* message)
-      -> bool override {
-    (void)endpoint;
-    (void)job_id;
-    (void)timeout;
-    if (message) {
-      *message = "download cancellation requested";
-    }
-    return true;
-  }
+  // NOTE: Model download (DownloadModel / GetModelDownloadStatus / CancelModelDownload)
+  // was moved off the gRPC runtime service into the C++ aria2c layer; the runtime
+  // service no longer exposes a download API, so the fake client does not either.
 
   auto DeleteModel(const std::string& endpoint, const std::string& profile_id,
                    const std::string& model_root, std::chrono::milliseconds timeout)
@@ -472,7 +423,7 @@ TEST(SemanticRuntimeServiceTest, RuntimeArgumentsCarryModelAndDeviceConfiguratio
   std::filesystem::remove(record_path);
 }
 
-TEST(SemanticRuntimeServiceTest, ModelManagerUsesPolledDownloadJobs) {
+TEST(SemanticRuntimeServiceTest, ModelManagerListsProfilesViaRuntimeService) {
   auto                   client = std::make_shared<FakeSemanticRuntimeClient>();
   SemanticRuntimeService service(client);
 
@@ -490,31 +441,6 @@ TEST(SemanticRuntimeServiceTest, ModelManagerUsesPolledDownloadJobs) {
   EXPECT_EQ(profiles[1].embedding_dimension, 512u);
   EXPECT_EQ(profiles[1].native_embedding_dimension, 1024u);
   EXPECT_EQ(profiles[1].embedding_transform, "matryoshka_truncate_then_l2_normalize");
-
-  const auto started = service.DownloadModel(
-      "mobileclip2-s2-en", "C:/models", "https://hf-mirror.com", std::chrono::milliseconds(100));
-  ASSERT_TRUE(started.ok) << started.error;
-  EXPECT_EQ(started.status, "queued");
-  ASSERT_FALSE(started.job_id.empty());
-  ASSERT_TRUE(started.progress.has_value());
-  EXPECT_EQ(started.progress->phase, "queued");
-  EXPECT_EQ(started.progress->bytes_total, 1024u);
-
-  const auto polled =
-      service.GetModelDownloadStatus(started.job_id, std::chrono::milliseconds(100));
-  ASSERT_TRUE(polled.ok) << polled.error;
-  EXPECT_EQ(polled.status, "installed");
-  ASSERT_TRUE(polled.manifest.has_value());
-  EXPECT_EQ(polled.manifest->embedding_dimension, 512u);
-  EXPECT_EQ(polled.manifest->embedding_transform, "l2_normalize");
-  ASSERT_TRUE(polled.progress.has_value());
-  EXPECT_EQ(polled.progress->phase, "installed");
-  EXPECT_EQ(polled.progress->bytes_downloaded, 1024u);
-
-  std::string cancel_message;
-  EXPECT_TRUE(
-      service.CancelModelDownload(started.job_id, std::chrono::milliseconds(100), &cancel_message));
-  EXPECT_NE(cancel_message.find("cancellation requested"), std::string::npos);
 
   service.Stop();
 }

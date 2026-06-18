@@ -169,6 +169,64 @@ pub struct OrtClipEngine {
     multimodal_io: Option<MultimodalSessionIo>,
 }
 
+/// Apply a profile's embedding transform (truncate for matryoshka profiles, then
+/// L2-normalize) to a single native-dimension embedding row. Extracted as a free
+/// function so the math is unit-testable without loading an ONNX model.
+fn transform_embedding(
+    mut embedding: Vec<f32>,
+    native_embedding_dim: usize,
+    embedding_dim: usize,
+    embedding_transform: &str,
+    profile_id: &str,
+) -> Result<Vec<f32>> {
+    if embedding.len() != native_embedding_dim {
+        bail!(
+            "unexpected native embedding length {}, expected {} for profile {}",
+            embedding.len(),
+            native_embedding_dim,
+            profile_id
+        );
+    }
+
+    match embedding_transform {
+        "l2_normalize" => {
+            if embedding_dim != native_embedding_dim {
+                bail!(
+                    "profile {} uses l2_normalize but output dim {} differs from native dim {}",
+                    profile_id,
+                    embedding_dim,
+                    native_embedding_dim
+                );
+            }
+        }
+        "matryoshka_truncate_then_l2_normalize" => {
+            if embedding_dim > native_embedding_dim {
+                bail!(
+                    "profile {} cannot truncate native dim {} to larger output dim {}",
+                    profile_id,
+                    native_embedding_dim,
+                    embedding_dim
+                );
+            }
+            embedding.truncate(embedding_dim);
+        }
+        other => bail!(
+            "profile {} requests unsupported embedding transform {other:?}",
+            profile_id
+        ),
+    }
+
+    if embedding.len() != embedding_dim {
+        bail!(
+            "transformed embedding length {}, expected {} for profile {}",
+            embedding.len(),
+            embedding_dim,
+            profile_id
+        );
+    }
+    OrtClipEngine::l2_normalize(embedding)
+}
+
 impl OrtClipEngine {
     fn parse_device_request(value: &str) -> Result<DeviceRequest> {
         let value = value.trim();
@@ -834,53 +892,14 @@ impl OrtClipEngine {
         Ok(embedding)
     }
 
-    fn apply_embedding_transform(&self, mut embedding: Vec<f32>) -> Result<Vec<f32>> {
-        if embedding.len() != self.native_embedding_dim {
-            bail!(
-                "unexpected native embedding length {}, expected {} for profile {}",
-                embedding.len(),
-                self.native_embedding_dim,
-                self.profile_id
-            );
-        }
-
-        match self.embedding_transform.as_str() {
-            "l2_normalize" => {
-                if self.embedding_dim != self.native_embedding_dim {
-                    bail!(
-                        "profile {} uses l2_normalize but output dim {} differs from native dim {}",
-                        self.profile_id,
-                        self.embedding_dim,
-                        self.native_embedding_dim
-                    );
-                }
-            }
-            "matryoshka_truncate_then_l2_normalize" => {
-                if self.embedding_dim > self.native_embedding_dim {
-                    bail!(
-                        "profile {} cannot truncate native dim {} to larger output dim {}",
-                        self.profile_id,
-                        self.native_embedding_dim,
-                        self.embedding_dim
-                    );
-                }
-                embedding.truncate(self.embedding_dim);
-            }
-            other => bail!(
-                "profile {} requests unsupported embedding transform {other:?}",
-                self.profile_id
-            ),
-        }
-
-        if embedding.len() != self.embedding_dim {
-            bail!(
-                "transformed embedding length {}, expected {} for profile {}",
-                embedding.len(),
-                self.embedding_dim,
-                self.profile_id
-            );
-        }
-        Self::l2_normalize(embedding)
+    fn apply_embedding_transform(&self, embedding: Vec<f32>) -> Result<Vec<f32>> {
+        transform_embedding(
+            embedding,
+            self.native_embedding_dim,
+            self.embedding_dim,
+            &self.embedding_transform,
+            &self.profile_id,
+        )
     }
 
     pub fn forward_text_embeddings(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
@@ -1305,6 +1324,108 @@ mod tests {
             batch_wait_ms: 25,
         };
         OrtClipEngine::new(&config).expect("profile engine should load")
+    }
+
+    #[test]
+    fn l2_normalize_produces_unit_vector() {
+        let normalized = OrtClipEngine::l2_normalize(vec![3.0, 0.0, 0.0]).expect("should normalize");
+        assert_eq!(normalized.len(), 3);
+        let norm_sq: f64 = normalized.iter().map(|v| (*v as f64) * (*v as f64)).sum();
+        assert!((norm_sq - 1.0).abs() < 1e-5, "expected unit norm, got {norm_sq}");
+        assert!((normalized[0] - 1.0).abs() < 1e-5);
+        assert!(normalized[1].abs() < 1e-5);
+        assert!(normalized[2].abs() < 1e-5);
+    }
+
+    #[test]
+    fn l2_normalize_preserves_direction_for_non_axis_vector() {
+        let input = vec![1.0, 2.0, 2.0];
+        let normalized = OrtClipEngine::l2_normalize(input.clone()).expect("should normalize");
+        // |[1,2,2]| = 3, so each component divides by 3.
+        for (original, value) in input.iter().zip(normalized.iter()) {
+            assert!((original / 3.0 - value).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn l2_normalize_rejects_non_finite_values() {
+        let err = OrtClipEngine::l2_normalize(vec![1.0, f32::NAN, 0.0])
+            .expect_err("NaN should be rejected");
+        assert!(err.to_string().contains("non-finite"));
+        let err = OrtClipEngine::l2_normalize(vec![1.0, f32::INFINITY, 0.0])
+            .expect_err("Inf should be rejected");
+        assert!(err.to_string().contains("non-finite"));
+    }
+
+    #[test]
+    fn l2_normalize_rejects_zero_norm_vector() {
+        let err = OrtClipEngine::l2_normalize(vec![0.0, 0.0, 0.0]).expect_err("zero norm rejected");
+        assert!(err.to_string().contains("norm is zero"));
+    }
+
+    #[test]
+    fn transform_l2_normalize_keeps_full_length_and_normalizes() {
+        let out = transform_embedding(
+            vec![3.0, 0.0, 0.0, 0.0],
+            4,
+            4,
+            "l2_normalize",
+            "test-profile",
+        )
+        .expect("l2_normalize transform should succeed");
+        assert_eq!(out.len(), 4);
+        assert!((out[0] - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn transform_matryoshka_truncates_then_normalizes() {
+        // Native 1024 → 512 mirrors the Jina CLIP v2 profile.
+        let native: Vec<f32> = (0..1024).map(|i| (i as f32) + 1.0).collect();
+        let out = transform_embedding(
+            native,
+            1024,
+            512,
+            "matryoshka_truncate_then_l2_normalize",
+            "jina-clip-v2-int8-multilingual",
+        )
+        .expect("matryoshka transform should succeed");
+        assert_eq!(out.len(), 512, "embedding must be truncated to output dim");
+        let norm_sq: f64 = out.iter().map(|v| (*v as f64) * (*v as f64)).sum();
+        assert!((norm_sq - 1.0).abs() < 1e-4, "truncated embedding must be unit norm");
+    }
+
+    #[test]
+    fn transform_rejects_native_length_mismatch() {
+        let err = transform_embedding(vec![1.0, 0.0], 4, 4, "l2_normalize", "p")
+            .expect_err("length mismatch should be rejected");
+        assert!(err.to_string().contains("unexpected native embedding length"));
+    }
+
+    #[test]
+    fn transform_rejects_l2_normalize_with_mismatched_dims() {
+        let err = transform_embedding(vec![1.0, 0.0, 0.0, 0.0], 4, 3, "l2_normalize", "p")
+            .expect_err("dim mismatch under l2_normalize should be rejected");
+        assert!(err.to_string().contains("differs from native dim"));
+    }
+
+    #[test]
+    fn transform_rejects_matryoshka_truncate_to_larger_dim() {
+        let err = transform_embedding(
+            vec![1.0, 0.0],
+            2,
+            4,
+            "matryoshka_truncate_then_l2_normalize",
+            "p",
+        )
+        .expect_err("truncating to a larger dim should be rejected");
+        assert!(err.to_string().contains("cannot truncate native dim"));
+    }
+
+    #[test]
+    fn transform_rejects_unknown_transform_name() {
+        let err = transform_embedding(vec![1.0, 0.0], 2, 2, "cosine_quantize", "p")
+            .expect_err("unknown transform should be rejected");
+        assert!(err.to_string().contains("unsupported embedding transform"));
     }
 
     #[test]
