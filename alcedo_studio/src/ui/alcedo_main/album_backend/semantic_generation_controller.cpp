@@ -40,51 +40,23 @@ using namespace std::chrono_literals;
 
 namespace {
 
-constexpr auto kSemanticGenerationImportPreferenceKey = "semantic/importGenerationPreference";
-constexpr auto kSemanticModelProfileKey               = "semantic/modelProfileId";
-constexpr auto kSemanticModelDirectoryKey             = "semantic/modelDirectory";
-constexpr auto kSemanticEndpointPresetKey             = "semantic/modelEndpointPreset";
-constexpr auto kSemanticCustomEndpointKey             = "semantic/customModelEndpoint";
-constexpr auto kSemanticPreferenceAsk                 = "ask";
-constexpr auto kSemanticPreferenceAlways              = "always";
-constexpr auto kSemanticPreferenceNever               = "never";
-constexpr auto kSemanticResolvedManifestFile          = "alcedo_model_manifest.json";
-constexpr auto kSemanticRuntimeStartupTimeout         = 60s;
-constexpr auto kMobileClipProfileId                   = "mobileclip2-s2-en";
-constexpr auto kMobileClipModelId                     = "plhery/mobileclip2-onnx:s2";
-constexpr auto kMobileClipRevision                    = "ba95759a5bdbaca53e9111e2550a76ec09c8fd9e";
-constexpr auto kJinaClipProfileId                     = "jina-clip-v2-int8-multilingual";
-constexpr auto kJinaClipModelId                       = "jinaai/jina-clip-v2";
-constexpr auto kJinaClipRevision                      = "e10d47f5691d0454a0fb5d13f46f2199b74cb436";
-// The Jina CLIP v2 export precision is platform-selected: FP16 on macOS
-// (the INT8 export is numerically broken on CoreML GPU/ANE), INT8 on Windows.
-// The profile id is a stable key; only the display label differs.
-#if defined(__APPLE__)
-constexpr auto kJinaClipDisplayName = "Jina CLIP v2 FP16 Multilingual";
-#else
-constexpr auto kJinaClipDisplayName = "Jina CLIP v2 INT8 Multilingual";
-#endif
-constexpr size_t kMobileClipBatchSize = 64;
-constexpr size_t kJinaClipBatchSize   = 4;
+constexpr auto   kSemanticGenerationImportPreferenceKey = "semantic/importGenerationPreference";
+constexpr auto   kSemanticModelProfileKey               = "semantic/modelProfileId";
+constexpr auto   kSemanticModelDirectoryKey             = "semantic/modelDirectory";
+constexpr auto   kSemanticEndpointPresetKey             = "semantic/modelEndpointPreset";
+constexpr auto   kSemanticCustomEndpointKey             = "semantic/customModelEndpoint";
+constexpr auto   kSemanticPreferenceAsk                 = "ask";
+constexpr auto   kSemanticPreferenceAlways              = "always";
+constexpr auto   kSemanticPreferenceNever               = "never";
+constexpr auto   kSemanticResolvedManifestFile          = "alcedo_model_manifest.json";
+constexpr auto   kSemanticRuntimeStartupTimeout         = 60s;
+constexpr auto   kJinaClipProfileId                     = "jina-clip-v2-int8-multilingual";
+constexpr auto   kSiglip2ProfileId                      = "siglip2-b32-256-multilingual";
+constexpr size_t kMobileClipBatchSize                   = 64;
+constexpr size_t kJinaClipBatchSize                     = 4;
+constexpr size_t kSiglip2BatchSize                      = 8;
 
-struct SemanticModelProfileUiInfo {
-  const char* profile_id;
-  const char* display_name;
-  const char* model_id;
-  const char* revision;
-  const char* language;
-  int         image_size;
-  int         native_embedding_dim;
-};
-
-constexpr SemanticModelProfileUiInfo kSemanticModelProfiles[] = {
-    {kMobileClipProfileId, "MobileCLIP2 S2 English", kMobileClipModelId, kMobileClipRevision, "en",
-     256, 512},
-    {kJinaClipProfileId, kJinaClipDisplayName, kJinaClipModelId, kJinaClipRevision, "multilingual",
-     512, 1024},
-};
-
-auto SemanticModelKeyFromInfo(const SemanticRuntimeModelInfo& info) -> std::string {
+auto             SemanticModelKeyFromInfo(const SemanticRuntimeModelInfo& info) -> std::string {
   if (info.revision.empty()) {
     return info.model_id;
   }
@@ -111,27 +83,27 @@ auto DefaultSemanticModelDirectory() -> QString {
 
 auto NormalizedProfileId(QString profile_id) -> QString {
   profile_id = profile_id.trimmed();
-  for (const auto& profile : kSemanticModelProfiles) {
+  for (const auto& profile : SemanticModelProfiles()) {
     if (profile_id == QLatin1String(profile.profile_id)) {
       return profile_id;
     }
   }
-  return QString::fromLatin1(kMobileClipProfileId);
+  return QString::fromLatin1(SemanticModelProfiles().front().profile_id);
 }
 
-auto FindProfile(const QString& profile_id) -> const SemanticModelProfileUiInfo* {
+auto FindProfile(const QString& profile_id) -> const ModelProfileSpec* {
   const QString normalized = NormalizedProfileId(profile_id);
-  for (const auto& profile : kSemanticModelProfiles) {
+  for (const auto& profile : SemanticModelProfiles()) {
     if (normalized == QLatin1String(profile.profile_id)) {
       return &profile;
     }
   }
-  return &kSemanticModelProfiles[0];
+  return &SemanticModelProfiles().front();
 }
 
 auto FindProfileByModel(const std::string& profile_id, const std::string& model_id)
-    -> const SemanticModelProfileUiInfo* {
-  for (const auto& profile : kSemanticModelProfiles) {
+    -> const ModelProfileSpec* {
+  for (const auto& profile : SemanticModelProfiles()) {
     if (profile_id == profile.profile_id || model_id == profile.model_id) {
       return &profile;
     }
@@ -165,6 +137,9 @@ auto EmbeddingBatchSizeForProfile(const SemanticRuntimeModelInfo& info) -> size_
   if (profile_id == kJinaClipProfileId) {
     return kJinaClipBatchSize;
   }
+  if (profile_id == kSiglip2ProfileId) {
+    return kSiglip2BatchSize;
+  }
   return kMobileClipBatchSize;
 }
 
@@ -182,6 +157,9 @@ auto EmbeddingTimeoutForProfile(const SemanticRuntimeModelInfo& info) -> std::ch
   const auto profile_id = info.profile_id.empty() ? info.model_id : info.profile_id;
   if (profile_id == kJinaClipProfileId) {
     return 120s;
+  }
+  if (profile_id == kSiglip2ProfileId) {
+    return 60s;
   }
   return 30s;
 }
@@ -636,15 +614,16 @@ void SemanticGenerationController::SetImportPreference(const QString& preference
 
 QVariantList SemanticGenerationController::ModelProfileOptions() const {
   QVariantList options;
-  for (const auto& profile : kSemanticModelProfiles) {
+  for (const auto& profile : SemanticModelProfiles()) {
     QVariantMap entry;
     entry.insert(QStringLiteral("profileId"), QString::fromLatin1(profile.profile_id));
     entry.insert(QStringLiteral("label"), QString::fromLatin1(profile.display_name));
     entry.insert(QStringLiteral("modelId"), QString::fromLatin1(profile.model_id));
     entry.insert(QStringLiteral("revision"), QString::fromLatin1(profile.revision));
-    entry.insert(QStringLiteral("language"), QString::fromLatin1(profile.language));
-    entry.insert(QStringLiteral("imageSize"), profile.image_size);
-    entry.insert(QStringLiteral("nativeEmbeddingDim"), profile.native_embedding_dim);
+    entry.insert(QStringLiteral("language"), QString::fromLatin1(ToString(profile.language)));
+    entry.insert(QStringLiteral("imageSize"), static_cast<int>(profile.image_size));
+    entry.insert(QStringLiteral("nativeEmbeddingDim"),
+                 static_cast<int>(profile.native_embedding_dimension));
     entry.insert(QStringLiteral("activatable"), true);
     options.push_back(entry);
   }
@@ -652,10 +631,11 @@ QVariantList SemanticGenerationController::ModelProfileOptions() const {
 }
 
 QString SemanticGenerationController::SelectedModelProfileId() const {
-  return NormalizedProfileId(
-      QSettings{}
-          .value(QLatin1String(kSemanticModelProfileKey), QLatin1String(kMobileClipProfileId))
-          .toString());
+  const auto& profiles = SemanticModelProfiles();
+  return NormalizedProfileId(QSettings{}
+                                 .value(QLatin1String(kSemanticModelProfileKey),
+                                        QLatin1String(profiles.front().profile_id))
+                                 .toString());
 }
 
 QString SemanticGenerationController::ActiveModelProfileId() const {

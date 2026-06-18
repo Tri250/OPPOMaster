@@ -21,12 +21,21 @@
 
 namespace alcedo {
 namespace {
-constexpr const char* kModelKey = "mobileclip-test";
+constexpr const char* kModelKey       = "mobileclip-test";
+constexpr const char* kSiglipModelKey = "siglip2-test";
 
-auto                  OneHot(size_t index) -> std::vector<float> {
-  std::vector<float> embedding(kSemanticEmbeddingDim, 0.0F);
+auto                  OneHotForDim(size_t dim, size_t index) -> std::vector<float> {
+  std::vector<float> embedding(dim, 0.0F);
   embedding.at(index) = 1.0F;
   return embedding;
+}
+
+auto OneHot(size_t index) -> std::vector<float> {
+  return OneHotForDim(kSemanticEmbeddingDim, index);
+}
+
+auto OneHot768(size_t index) -> std::vector<float> {
+  return OneHotForDim(kSemanticEmbeddingDim768, index);
 }
 
 auto MixedQuery(size_t primary, size_t secondary) -> std::vector<float> {
@@ -81,6 +90,17 @@ void RegisterTestModel(SemanticStorageController& semantic) {
                                                        .model_id_      = "mobileclip-test",
                                                        .revision_      = "test-rev",
                                                        .embedding_dim_ = kSemanticEmbeddingDim,
+                                                       .image_size_    = 256},
+                                   &error))
+      << error;
+}
+
+void RegisterSiglipTestModel(SemanticStorageController& semantic) {
+  std::string error;
+  ASSERT_TRUE(semantic.UpsertModel(SemanticModelRecord{.model_key_     = kSiglipModelKey,
+                                                       .model_id_      = "siglip2-test",
+                                                       .revision_      = "test-rev",
+                                                       .embedding_dim_ = kSemanticEmbeddingDim768,
                                                        .image_size_    = 256},
                                    &error))
       << error;
@@ -199,17 +219,13 @@ TEST_F(SemanticStorageControllerTest, VssSearchCutsOffWeakTailBeforePaging) {
   ASSERT_EQ(rows.size(), 4U);
   for (const auto& row : rows) {
     if (row.file_id_ == strong_id) {
-      StoreEmbedding(semantic, row.file_id_, row.image_id_,
-                     UnitVectorWithSimilarity(0, 10, 0.94F));
+      StoreEmbedding(semantic, row.file_id_, row.image_id_, UnitVectorWithSimilarity(0, 10, 0.94F));
     } else if (row.file_id_ == near_id) {
-      StoreEmbedding(semantic, row.file_id_, row.image_id_,
-                     UnitVectorWithSimilarity(0, 11, 0.91F));
+      StoreEmbedding(semantic, row.file_id_, row.image_id_, UnitVectorWithSimilarity(0, 11, 0.91F));
     } else if (row.file_id_ == weak_id) {
-      StoreEmbedding(semantic, row.file_id_, row.image_id_,
-                     UnitVectorWithSimilarity(0, 12, 0.62F));
+      StoreEmbedding(semantic, row.file_id_, row.image_id_, UnitVectorWithSimilarity(0, 12, 0.62F));
     } else if (row.file_id_ == weak_second_id) {
-      StoreEmbedding(semantic, row.file_id_, row.image_id_,
-                     UnitVectorWithSimilarity(0, 13, 0.60F));
+      StoreEmbedding(semantic, row.file_id_, row.image_id_, UnitVectorWithSimilarity(0, 13, 0.60F));
     }
   }
 
@@ -275,6 +291,66 @@ TEST_F(SemanticStorageControllerTest, RejectsInvalidVectorsBeforeStorageOrSearch
   const auto results = semantic.SearchImageEmbeddings(0, kModelKey, wrong_dim, 0, 10, &error);
   EXPECT_TRUE(results.empty());
   EXPECT_FALSE(error.empty());
+}
+
+TEST_F(SemanticStorageControllerTest, Supports768DimensionalModelStorageAndSearch) {
+  ProjectService project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
+  auto&          semantic = project.GetStorageService()->GetSemanticStorageController();
+  RegisterSiglipTestModel(semantic);
+
+  const auto landscape_id = CreateSyntheticFile(project, L"siglip_landscape.raf");
+  const auto portrait_id  = CreateSyntheticFile(project, L"siglip_portrait.raf");
+  ASSERT_NE(landscape_id, portrait_id);
+  const auto rows = project.GetStorageService()->GetElementController().ListFilesInFolder(0);
+  ASSERT_EQ(rows.size(), 2U);
+
+  std::string                               error;
+  std::vector<SemanticLabelPrototypeRecord> prototypes{
+      SemanticLabelPrototypeRecord{.model_key_          = kSiglipModelKey,
+                                   .label_              = "landscape",
+                                   .prompt_config_hash_ = "siglip-prompts",
+                                   .embedding_          = OneHot768(12)},
+      SemanticLabelPrototypeRecord{.model_key_          = kSiglipModelKey,
+                                   .label_              = "portrait",
+                                   .prompt_config_hash_ = "siglip-prompts",
+                                   .embedding_          = OneHot768(13)}};
+  ASSERT_TRUE(semantic.UpsertLabelPrototypes(prototypes, &error)) << error;
+  EXPECT_EQ(semantic.CountLabelPrototypes(kSiglipModelKey, "siglip-prompts"), 2U);
+
+  const auto loaded_prototypes =
+      semantic.LoadLabelPrototypes(kSiglipModelKey, "siglip-prompts", &error);
+  ASSERT_EQ(loaded_prototypes.size(), 2U) << error;
+  EXPECT_EQ(loaded_prototypes.front().embedding.size(),
+            static_cast<size_t>(kSemanticEmbeddingDim768));
+
+  for (const auto& row : rows) {
+    const auto embedding = row.file_id_ == landscape_id ? OneHot768(12) : OneHot768(13);
+    SemanticImageEmbeddingRecord record{.file_id_   = row.file_id_,
+                                        .image_id_  = row.image_id_,
+                                        .model_key_ = kSiglipModelKey,
+                                        .embedding_ = embedding};
+    if (row.file_id_ == landscape_id) {
+      SemanticLabelAssignmentOptions assignment_options;
+      assignment_options.prompt_config_hash_          = "siglip-prompts";
+      assignment_options.confidence_score_threshold_  = 0.5;
+      assignment_options.confidence_margin_threshold_ = 0.1;
+      SemanticImageLabelRecord assigned_label;
+      ASSERT_TRUE(semantic.UpsertImageEmbeddingAndAssignLabel(record, assignment_options,
+                                                              &assigned_label, &error))
+          << error;
+      EXPECT_EQ(assigned_label.label_, "landscape");
+    } else {
+      ASSERT_TRUE(semantic.UpsertImageEmbedding(record, &error)) << error;
+    }
+  }
+  EXPECT_EQ(semantic.CountImageEmbeddings(kSiglipModelKey), 2U);
+  EXPECT_EQ(semantic.CountImageLabelsForFile(landscape_id, kSiglipModelKey), 1U);
+
+  ASSERT_TRUE(semantic.EnsureVectorSearchIndex(kSiglipModelKey, &error)) << error;
+  const auto results =
+      semantic.SearchImageEmbeddings(0, kSiglipModelKey, OneHot768(12), 0, 2, &error);
+  ASSERT_FALSE(results.empty()) << error;
+  EXPECT_EQ(results.front().file_id_, landscape_id);
 }
 
 TEST_F(SemanticStorageControllerTest, NewProjectSeedsDefaultLabelQueries) {

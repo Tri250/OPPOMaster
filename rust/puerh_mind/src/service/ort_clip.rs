@@ -8,11 +8,11 @@ use ort::{
     value::{Tensor, TensorElementType},
 };
 use tokenizers::Tokenizer;
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::config::SemanticConfig;
 use crate::service::embedding::{EmbeddingEngine, EngineModelInfo};
-use crate::service::model_adapters::{EngineProfileAdapter, ImageResizeMode};
+use crate::service::model_adapters::{EngineProfileAdapter, ImageResizeMode, TextInputElementType};
 #[cfg(test)]
 use crate::service::model_assets::ClipModelPaths;
 use crate::service::model_assets::{
@@ -29,6 +29,7 @@ const EMBEDDING_DIM: usize = 512;
 struct SessionIo {
     input_name: String,
     output_name: String,
+    fixed_batch_size: Option<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -39,95 +40,12 @@ struct MultimodalSessionIo {
     image_output_name: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ImageResizeMode {
-    ShortestEdgeCenterCrop,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum EngineProfileAdapter {
-    MobileClipOpenClip,
-    JinaClipV2OnnxInt8,
-    JinaClipV2OnnxFp16,
-}
-
-impl EngineProfileAdapter {
-    fn from_profile(profile: &ModelProfileSpec) -> Result<Self> {
-        match profile.engine_profile_id {
-            "mobileclip2-openclip" => Ok(Self::MobileClipOpenClip),
-            "jina-clip-v2-onnx-int8" => Ok(Self::JinaClipV2OnnxInt8),
-            "jina-clip-v2-onnx-fp16" => Ok(Self::JinaClipV2OnnxFp16),
-            other => bail!(
-                "semantic model profile {} requests unsupported engine adapter {other:?}",
-                profile.profile_id
-            ),
-        }
-    }
-
-    fn supports_current_onnx_loader(self) -> bool {
-        matches!(
-            self,
-            Self::MobileClipOpenClip | Self::JinaClipV2OnnxInt8 | Self::JinaClipV2OnnxFp16
-        )
-    }
-
-    fn text_sequence_length(self) -> usize {
-        TEXT_SEQUENCE_LENGTH
-    }
-
-    fn requires_attention_mask(self) -> bool {
-        false
-    }
-
-    fn image_mean_std(self) -> ([f32; 3], [f32; 3]) {
+impl TextInputElementType {
+    fn tensor_element_type(self) -> TensorElementType {
         match self {
-            Self::MobileClipOpenClip => ([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]),
-            Self::JinaClipV2OnnxInt8 | Self::JinaClipV2OnnxFp16 => (
-                [0.48145466, 0.4578275, 0.40821073],
-                [0.26862954, 0.26130258, 0.27577711],
-            ),
+            Self::Int32 => TensorElementType::Int32,
+            Self::Int64 => TensorElementType::Int64,
         }
-    }
-
-    fn image_resize_mode(self) -> ImageResizeMode {
-        match self {
-            Self::MobileClipOpenClip
-            | Self::JinaClipV2OnnxInt8
-            | Self::JinaClipV2OnnxFp16 => ImageResizeMode::ShortestEdgeCenterCrop,
-        }
-    }
-
-    fn uses_multimodal_session(self) -> bool {
-        matches!(
-            self,
-            Self::JinaClipV2OnnxInt8 | Self::JinaClipV2OnnxFp16
-        )
-    }
-
-    fn preferred_text_output_name(self) -> &'static str {
-        match self {
-            Self::JinaClipV2OnnxInt8 | Self::JinaClipV2OnnxFp16 => "l2norm_text_embeddings",
-            Self::MobileClipOpenClip => "",
-        }
-    }
-
-    fn preferred_image_output_name(self) -> &'static str {
-        match self {
-            Self::JinaClipV2OnnxInt8 | Self::JinaClipV2OnnxFp16 => "l2norm_image_embeddings",
-            Self::MobileClipOpenClip => "",
-        }
-    }
-
-    /// Whether this profile must run CoreML on CPU-only compute units on macOS.
-    ///
-    /// The Jina CLIP v2 INT8 (quantized) ONNX export produces non-finite
-    /// (NaN) embeddings — for both the text and image branches — when CoreML
-    /// schedules its subgraphs onto the GPU/ANE (`All` / `CPUAndGPU`); only
-    /// the CPU path is numerically correct. The FP16 export is non-quantized
-    /// and runs correctly on the full CoreML compute-unit range, so macOS
-    /// uses it instead. MobileCLIP2 is likewise unaffected.
-    fn requires_coreml_cpu_only(self) -> bool {
-        matches!(self, Self::JinaClipV2OnnxInt8)
     }
 }
 
@@ -153,64 +71,6 @@ pub struct OrtClipEngine {
     multimodal_io: Option<MultimodalSessionIo>,
 }
 
-/// Apply a profile's embedding transform (truncate for matryoshka profiles, then
-/// L2-normalize) to a single native-dimension embedding row. Extracted as a free
-/// function so the math is unit-testable without loading an ONNX model.
-fn transform_embedding(
-    mut embedding: Vec<f32>,
-    native_embedding_dim: usize,
-    embedding_dim: usize,
-    embedding_transform: &str,
-    profile_id: &str,
-) -> Result<Vec<f32>> {
-    if embedding.len() != native_embedding_dim {
-        bail!(
-            "unexpected native embedding length {}, expected {} for profile {}",
-            embedding.len(),
-            native_embedding_dim,
-            profile_id
-        );
-    }
-
-    match embedding_transform {
-        "l2_normalize" => {
-            if embedding_dim != native_embedding_dim {
-                bail!(
-                    "profile {} uses l2_normalize but output dim {} differs from native dim {}",
-                    profile_id,
-                    embedding_dim,
-                    native_embedding_dim
-                );
-            }
-        }
-        "matryoshka_truncate_then_l2_normalize" => {
-            if embedding_dim > native_embedding_dim {
-                bail!(
-                    "profile {} cannot truncate native dim {} to larger output dim {}",
-                    profile_id,
-                    native_embedding_dim,
-                    embedding_dim
-                );
-            }
-            embedding.truncate(embedding_dim);
-        }
-        other => bail!(
-            "profile {} requests unsupported embedding transform {other:?}",
-            profile_id
-        ),
-    }
-
-    if embedding.len() != embedding_dim {
-        bail!(
-            "transformed embedding length {}, expected {} for profile {}",
-            embedding.len(),
-            embedding_dim,
-            profile_id
-        );
-    }
-    OrtClipEngine::l2_normalize(embedding)
-}
-
 impl OrtClipEngine {
     fn parse_device_request(value: &str) -> Result<DeviceRequest> {
         crate::service::ort_runtime::parse_device_request(value)
@@ -220,11 +80,18 @@ impl OrtClipEngine {
         crate::service::ort_runtime::describe_device_request(device_request)
     }
 
+    fn fixed_batch_size_from_shape(shape: &[i64]) -> Option<usize> {
+        shape
+            .first()
+            .and_then(|dim| (*dim > 0).then_some(*dim as usize))
+    }
+
     fn validate_text_session(
         session: &Session,
         seq_len: usize,
         native_embedding_dim: usize,
         requires_attention_mask: bool,
+        expected_input_type: TextInputElementType,
     ) -> Result<SessionIo> {
         let expected_input_count = if requires_attention_mask { 2 } else { 1 };
         if session.inputs().len() != expected_input_count {
@@ -255,10 +122,11 @@ impl OrtClipEngine {
             .tensor_type()
             .ok_or_else(|| anyhow::anyhow!("text model input is not a tensor"))?;
 
-        if input_type != TensorElementType::Int64 {
+        if input_type != expected_input_type.tensor_element_type() {
             bail!(
-                "unexpected text input tensor type {:?}, expected Int64",
-                input_type
+                "unexpected text input tensor type {:?}, expected {:?}",
+                input_type,
+                expected_input_type.tensor_element_type()
             );
         }
         if input_shape.len() != 2 || input_shape[1] != seq_len as i64 {
@@ -283,10 +151,11 @@ impl OrtClipEngine {
                 .dtype()
                 .tensor_type()
                 .ok_or_else(|| anyhow::anyhow!("attention_mask input is not a tensor"))?;
-            if mask_type != TensorElementType::Int64 {
+            if mask_type != expected_input_type.tensor_element_type() {
                 bail!(
-                    "unexpected attention_mask tensor type {:?}, expected Int64",
-                    mask_type
+                    "unexpected attention_mask tensor type {:?}, expected {:?}",
+                    mask_type,
+                    expected_input_type.tensor_element_type()
                 );
             }
             if mask_shape.len() != 2 || mask_shape[1] != seq_len as i64 {
@@ -325,6 +194,7 @@ impl OrtClipEngine {
         Ok(SessionIo {
             input_name: input.name().to_string(),
             output_name: output.name().to_string(),
+            fixed_batch_size: Self::fixed_batch_size_from_shape(&input_shape),
         })
     }
 
@@ -402,6 +272,7 @@ impl OrtClipEngine {
         Ok(SessionIo {
             input_name: input.name().to_string(),
             output_name: output.name().to_string(),
+            fixed_batch_size: Self::fixed_batch_size_from_shape(&input_shape),
         })
     }
 
@@ -614,6 +485,9 @@ impl OrtClipEngine {
                 let crop_y = (resized_h - target) / 2;
                 image::imageops::crop_imm(&resized, crop_x, crop_y, target, target).to_image()
             }
+            ImageResizeMode::Squash => {
+                image::imageops::resize(rgb, target, target, image::imageops::FilterType::Triangle)
+            }
         };
 
         let mut data = Vec::with_capacity((3 * target * target) as usize);
@@ -688,8 +562,86 @@ impl OrtClipEngine {
     }
 
     pub fn forward_text_embeddings(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
+        if !self.adapter.uses_multimodal_session() {
+            if let Some(max_batch_size) = self
+                .text_io
+                .as_ref()
+                .and_then(|io| io.fixed_batch_size)
+                .filter(|max_batch_size| texts.len() > *max_batch_size)
+            {
+                let mut embeddings = Vec::with_capacity(texts.len());
+                for chunk in texts.chunks(max_batch_size) {
+                    embeddings.extend(self.forward_text_embeddings(chunk)?);
+                }
+                return Ok(embeddings);
+            }
+        }
+
         let (input_ids, attention_mask, batch_size) = self.prepare_text_batch(texts)?;
         let seq_len = self.adapter.text_sequence_length();
+
+        if self.adapter.text_input_element_type() == TextInputElementType::Int32 {
+            return self.forward_text_embeddings_i32(
+                input_ids,
+                attention_mask,
+                batch_size,
+                seq_len,
+            );
+        }
+
+        self.forward_text_embeddings_i64(input_ids, attention_mask, batch_size, seq_len)
+    }
+
+    fn forward_text_embeddings_i32(
+        &self,
+        input_ids: Vec<i64>,
+        attention_mask: Option<Vec<i64>>,
+        batch_size: usize,
+        seq_len: usize,
+    ) -> Result<Vec<Vec<f32>>> {
+        let input_ids = input_ids
+            .into_iter()
+            .map(|value| {
+                i32::try_from(value)
+                    .map_err(|_| anyhow::anyhow!("text input token id {value} does not fit Int32"))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let attention_mask = attention_mask
+            .map(|mask| {
+                mask.into_iter()
+                    .map(|value| {
+                        i32::try_from(value).map_err(|_| {
+                            anyhow::anyhow!("attention_mask value {value} does not fit Int32")
+                        })
+                    })
+                    .collect::<Result<Vec<_>>>()
+            })
+            .transpose()?;
+        let input_tensor = Tensor::from_array(([batch_size, seq_len], input_ids))
+            .map_err(|e| anyhow::anyhow!("failed to build text input tensor: {e}"))?;
+
+        let attention_mask_tensor = if self.adapter.requires_attention_mask() {
+            Some(
+                Tensor::from_array((
+                    [batch_size, seq_len],
+                    attention_mask.ok_or_else(|| anyhow::anyhow!("missing attention mask"))?,
+                ))
+                .map_err(|e| anyhow::anyhow!("failed to build attention mask tensor: {e}"))?,
+            )
+        } else {
+            None
+        };
+
+        self.run_text_session(input_tensor, attention_mask_tensor, batch_size)
+    }
+
+    fn forward_text_embeddings_i64(
+        &self,
+        input_ids: Vec<i64>,
+        attention_mask: Option<Vec<i64>>,
+        batch_size: usize,
+        seq_len: usize,
+    ) -> Result<Vec<Vec<f32>>> {
         let input_tensor = Tensor::from_array(([batch_size, seq_len], input_ids))
             .map_err(|e| anyhow::anyhow!("failed to build text input tensor: {e}"))?;
 
@@ -742,6 +694,17 @@ impl OrtClipEngine {
             None
         };
 
+        self.run_text_session(input_tensor, attention_mask_tensor, batch_size)
+    }
+
+    fn run_text_session<
+        T: ort::value::IntoTensorElementType + std::fmt::Debug + Clone + Send + Sync + 'static,
+    >(
+        &self,
+        input_tensor: Tensor<T>,
+        attention_mask_tensor: Option<Tensor<T>>,
+        batch_size: usize,
+    ) -> Result<Vec<Vec<f32>>> {
         let text_io = self
             .text_io
             .as_ref()
@@ -772,6 +735,21 @@ impl OrtClipEngine {
     }
 
     pub fn forward_image_embeddings(&self, rgbs: &[RgbImage]) -> Result<Vec<Vec<f32>>> {
+        if !self.adapter.uses_multimodal_session() {
+            if let Some(max_batch_size) = self
+                .vision_io
+                .as_ref()
+                .and_then(|io| io.fixed_batch_size)
+                .filter(|max_batch_size| rgbs.len() > *max_batch_size)
+            {
+                let mut embeddings = Vec::with_capacity(rgbs.len());
+                for chunk in rgbs.chunks(max_batch_size) {
+                    embeddings.extend(self.forward_image_embeddings(chunk)?);
+                }
+                return Ok(embeddings);
+            }
+        }
+
         let (pixel_values, batch_size) = self.prepare_image_batch_tensor_data(rgbs)?;
         let input_tensor = Tensor::from_array((
             [batch_size, 3, self.image_size, self.image_size],
@@ -863,18 +841,7 @@ impl OrtClipEngine {
 
         crate::service::ort_runtime::initialize_ort_environment()?;
 
-        let effective_device_request =
-            Self::resolve_effective_device_request(adapter, device_request);
-        if effective_device_request != device_request {
-            warn!(
-                "CoreML GPU/ANE compute units produce non-finite embeddings for the quantized {} profile; downgrading {} to {} for correctness",
-                profile.profile_id,
-                Self::describe_device_request(device_request),
-                Self::describe_device_request(effective_device_request),
-            );
-        }
-
-        let device_description = Self::describe_device_request(effective_device_request);
+        let device_description = Self::describe_device_request(device_request);
         info!(
             "loading ORT clip profile {} ({}) from {} on {}",
             profile.profile_id, profile.engine_profile_id, config.model_root, device_description,
@@ -908,6 +875,7 @@ impl OrtClipEngine {
                     adapter.text_sequence_length(),
                     manifest.native_embedding_dimension as usize,
                     adapter.requires_attention_mask(),
+                    adapter.text_input_element_type(),
                 )?;
 
                 let vision_session =
@@ -1006,6 +974,7 @@ impl EmbeddingEngine for OrtClipEngine {
 mod tests {
     use super::*;
     use crate::config::SemanticConfig;
+    use crate::service::model_adapters::{apply_embedding_transform, l2_normalize};
     use std::sync::OnceLock;
 
     static MODEL_ENGINE_LOAD_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -1116,10 +1085,13 @@ mod tests {
 
     #[test]
     fn l2_normalize_produces_unit_vector() {
-        let normalized = OrtClipEngine::l2_normalize(vec![3.0, 0.0, 0.0]).expect("should normalize");
+        let normalized = l2_normalize(vec![3.0, 0.0, 0.0]).expect("should normalize");
         assert_eq!(normalized.len(), 3);
         let norm_sq: f64 = normalized.iter().map(|v| (*v as f64) * (*v as f64)).sum();
-        assert!((norm_sq - 1.0).abs() < 1e-5, "expected unit norm, got {norm_sq}");
+        assert!(
+            (norm_sq - 1.0).abs() < 1e-5,
+            "expected unit norm, got {norm_sq}"
+        );
         assert!((normalized[0] - 1.0).abs() < 1e-5);
         assert!(normalized[1].abs() < 1e-5);
         assert!(normalized[2].abs() < 1e-5);
@@ -1128,7 +1100,7 @@ mod tests {
     #[test]
     fn l2_normalize_preserves_direction_for_non_axis_vector() {
         let input = vec![1.0, 2.0, 2.0];
-        let normalized = OrtClipEngine::l2_normalize(input.clone()).expect("should normalize");
+        let normalized = l2_normalize(input.clone()).expect("should normalize");
         // |[1,2,2]| = 3, so each component divides by 3.
         for (original, value) in input.iter().zip(normalized.iter()) {
             assert!((original / 3.0 - value).abs() < 1e-5);
@@ -1137,28 +1109,26 @@ mod tests {
 
     #[test]
     fn l2_normalize_rejects_non_finite_values() {
-        let err = OrtClipEngine::l2_normalize(vec![1.0, f32::NAN, 0.0])
-            .expect_err("NaN should be rejected");
+        let err = l2_normalize(vec![1.0, f32::NAN, 0.0]).expect_err("NaN should be rejected");
         assert!(err.to_string().contains("non-finite"));
-        let err = OrtClipEngine::l2_normalize(vec![1.0, f32::INFINITY, 0.0])
-            .expect_err("Inf should be rejected");
+        let err = l2_normalize(vec![1.0, f32::INFINITY, 0.0]).expect_err("Inf should be rejected");
         assert!(err.to_string().contains("non-finite"));
     }
 
     #[test]
     fn l2_normalize_rejects_zero_norm_vector() {
-        let err = OrtClipEngine::l2_normalize(vec![0.0, 0.0, 0.0]).expect_err("zero norm rejected");
+        let err = l2_normalize(vec![0.0, 0.0, 0.0]).expect_err("zero norm rejected");
         assert!(err.to_string().contains("norm is zero"));
     }
 
     #[test]
     fn transform_l2_normalize_keeps_full_length_and_normalizes() {
-        let out = transform_embedding(
-            vec![3.0, 0.0, 0.0, 0.0],
+        let out = apply_embedding_transform(
+            "test-profile",
             4,
             4,
             "l2_normalize",
-            "test-profile",
+            vec![3.0, 0.0, 0.0, 0.0],
         )
         .expect("l2_normalize transform should succeed");
         assert_eq!(out.len(), 4);
@@ -1169,41 +1139,47 @@ mod tests {
     fn transform_matryoshka_truncates_then_normalizes() {
         // Native 1024 → 512 mirrors the Jina CLIP v2 profile.
         let native: Vec<f32> = (0..1024).map(|i| (i as f32) + 1.0).collect();
-        let out = transform_embedding(
-            native,
-            1024,
-            512,
-            "matryoshka_truncate_then_l2_normalize",
+        let out = apply_embedding_transform(
             "jina-clip-v2-int8-multilingual",
+            512,
+            1024,
+            "matryoshka_truncate_then_l2_normalize",
+            native,
         )
         .expect("matryoshka transform should succeed");
         assert_eq!(out.len(), 512, "embedding must be truncated to output dim");
         let norm_sq: f64 = out.iter().map(|v| (*v as f64) * (*v as f64)).sum();
-        assert!((norm_sq - 1.0).abs() < 1e-4, "truncated embedding must be unit norm");
+        assert!(
+            (norm_sq - 1.0).abs() < 1e-4,
+            "truncated embedding must be unit norm"
+        );
     }
 
     #[test]
     fn transform_rejects_native_length_mismatch() {
-        let err = transform_embedding(vec![1.0, 0.0], 4, 4, "l2_normalize", "p")
+        let err = apply_embedding_transform("p", 4, 4, "l2_normalize", vec![1.0, 0.0])
             .expect_err("length mismatch should be rejected");
-        assert!(err.to_string().contains("unexpected native embedding length"));
+        assert!(
+            err.to_string()
+                .contains("unexpected native embedding length")
+        );
     }
 
     #[test]
     fn transform_rejects_l2_normalize_with_mismatched_dims() {
-        let err = transform_embedding(vec![1.0, 0.0, 0.0, 0.0], 4, 3, "l2_normalize", "p")
+        let err = apply_embedding_transform("p", 3, 4, "l2_normalize", vec![1.0, 0.0, 0.0, 0.0])
             .expect_err("dim mismatch under l2_normalize should be rejected");
         assert!(err.to_string().contains("differs from native dim"));
     }
 
     #[test]
     fn transform_rejects_matryoshka_truncate_to_larger_dim() {
-        let err = transform_embedding(
-            vec![1.0, 0.0],
-            2,
-            4,
-            "matryoshka_truncate_then_l2_normalize",
+        let err = apply_embedding_transform(
             "p",
+            4,
+            2,
+            "matryoshka_truncate_then_l2_normalize",
+            vec![1.0, 0.0],
         )
         .expect_err("truncating to a larger dim should be rejected");
         assert!(err.to_string().contains("cannot truncate native dim"));
@@ -1211,9 +1187,18 @@ mod tests {
 
     #[test]
     fn transform_rejects_unknown_transform_name() {
-        let err = transform_embedding(vec![1.0, 0.0], 2, 2, "cosine_quantize", "p")
+        let err = apply_embedding_transform("p", 2, 2, "cosine_quantize", vec![1.0, 0.0])
             .expect_err("unknown transform should be rejected");
         assert!(err.to_string().contains("unsupported embedding transform"));
+    }
+
+    #[test]
+    fn fixed_batch_size_detects_static_batch_dimension() {
+        assert_eq!(OrtClipEngine::fixed_batch_size_from_shape(&[1, 64]), Some(1));
+        assert_eq!(OrtClipEngine::fixed_batch_size_from_shape(&[8, 3, 256, 256]), Some(8));
+        assert_eq!(OrtClipEngine::fixed_batch_size_from_shape(&[-1, 64]), None);
+        assert_eq!(OrtClipEngine::fixed_batch_size_from_shape(&[0, 64]), None);
+        assert_eq!(OrtClipEngine::fixed_batch_size_from_shape(&[]), None);
     }
 
     #[test]
@@ -1459,53 +1444,6 @@ mod tests {
         assert_eq!(image_embedding.len(), EMBEDDING_DIM);
     }
 
-    /// Regression guard: the FP16 Jina CLIP v2 export must run on the full
-    /// CoreML compute-unit range (`auto` -> GPU/ANE) and produce finite
-    /// embeddings for both modalities. The INT8 export yields non-finite
-    /// (NaN) embeddings on CoreML GPU/ANE, which is why macOS ships the FP16
-    /// export instead.
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn jina_clip_auto_device_produces_finite_embeddings_on_macos() {
-        let Ok(model_root) = std::env::var("ALCEDO_MIND_TEST_JINA_CLIP_ROOT") else {
-            eprintln!("skipping Jina CLIP CoreML regression test; set ALCEDO_MIND_TEST_JINA_CLIP_ROOT");
-            return;
-        };
-
-        let engine = make_profile_test_engine_with_root(
-            "jina-clip-v2-int8-multilingual",
-            "e10d47f5691d0454a0fb5d13f46f2199b74cb436",
-            model_root,
-            "auto",
-        );
-        // FP16 is non-quantized, so `auto` must NOT be downgraded to
-        // CoreML CPU-only — it should run on the full GPU/ANE range.
-        assert_ne!(
-            engine.provider, "coreml:cpuonly",
-            "FP16 Jina CLIP v2 must not be downgraded to CoreML CPU-only on macOS"
-        );
-
-        let text = engine
-            .embed_text("a city train photograph with railway tracks and buildings")
-            .expect("Jina text embedding should succeed");
-        assert!(
-            text.iter().all(|value| value.is_finite()),
-            "Jina FP16 text embedding must be finite on macOS auto device"
-        );
-
-        let image = image::RgbImage::from_fn(640, 480, |x, y| {
-            image::Rgb([(x % 256) as u8, (y % 256) as u8, ((x + y) % 256) as u8])
-        });
-        let image_embedding = engine
-            .embed_image(&image)
-            .expect("Jina image embedding should succeed");
-        assert!(
-            image_embedding.iter().all(|value| value.is_finite()),
-            "Jina FP16 image embedding must be finite on macOS auto device"
-        );
-        assert_eq!(image_embedding.len(), EMBEDDING_DIM);
-    }
-
     #[test]
     fn real_repo_image_embeddings_are_reasonable_for_english_and_chinese_queries() {
         if !test_allow_download() && !has_test_model_assets() {
@@ -1574,68 +1512,6 @@ mod tests {
         assert!(
             en_score > en_bad,
             "English query should be closer to the real app screenshot than the unrelated prompt"
-        );
-    }
-
-    #[test]
-    fn jina_adapter_requires_coreml_cpu_only_on_macos() {
-        assert!(
-            EngineProfileAdapter::JinaClipV2OnnxInt8.requires_coreml_cpu_only(),
-            "quantized Jina CLIP v2 INT8 must pin CoreML to CPU-only"
-        );
-        assert!(
-            !EngineProfileAdapter::JinaClipV2OnnxFp16.requires_coreml_cpu_only(),
-            "non-quantized Jina CLIP v2 FP16 should keep the full CoreML compute-unit range"
-        );
-        assert!(
-            !EngineProfileAdapter::MobileClipOpenClip.requires_coreml_cpu_only(),
-            "non-quantized MobileCLIP2 should keep the full CoreML compute-unit range"
-        );
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn effective_device_downgrades_jina_coreml_to_cpu_only() {
-        let jina = EngineProfileAdapter::JinaClipV2OnnxInt8;
-        assert_eq!(
-            OrtClipEngine::resolve_effective_device_request(jina, DeviceRequest::Auto),
-            DeviceRequest::CoreMl(CoreMlMode::CpuOnly)
-        );
-        assert_eq!(
-            OrtClipEngine::resolve_effective_device_request(
-                jina,
-                DeviceRequest::CoreMl(CoreMlMode::All)
-            ),
-            DeviceRequest::CoreMl(CoreMlMode::CpuOnly)
-        );
-        assert_eq!(
-            OrtClipEngine::resolve_effective_device_request(
-                jina,
-                DeviceRequest::CoreMl(CoreMlMode::CpuAndGpu)
-            ),
-            DeviceRequest::CoreMl(CoreMlMode::CpuOnly)
-        );
-        // An explicit CPU request is left untouched (the CPU EP already runs on CPU).
-        assert_eq!(
-            OrtClipEngine::resolve_effective_device_request(jina, DeviceRequest::Cpu),
-            DeviceRequest::Cpu
-        );
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn effective_device_keeps_mobileclip_coreml_range() {
-        let mobileclip = EngineProfileAdapter::MobileClipOpenClip;
-        assert_eq!(
-            OrtClipEngine::resolve_effective_device_request(
-                mobileclip,
-                DeviceRequest::CoreMl(CoreMlMode::All)
-            ),
-            DeviceRequest::CoreMl(CoreMlMode::All)
-        );
-        assert_eq!(
-            OrtClipEngine::resolve_effective_device_request(mobileclip, DeviceRequest::Auto),
-            DeviceRequest::Auto
         );
     }
 

@@ -7,12 +7,20 @@ pub(crate) const TEXT_SEQUENCE_LENGTH: usize = 77;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ImageResizeMode {
     ShortestEdgeCenterCrop,
+    Squash,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TextInputElementType {
+    Int32,
+    Int64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EngineProfileAdapter {
     MobileClipOpenClip,
     JinaClipV2OnnxInt8,
+    Siglip2OpenClip,
 }
 
 impl EngineProfileAdapter {
@@ -20,6 +28,7 @@ impl EngineProfileAdapter {
         match profile.engine_profile_id {
             "mobileclip2-openclip" => Ok(Self::MobileClipOpenClip),
             "jina-clip-v2-onnx-int8" => Ok(Self::JinaClipV2OnnxInt8),
+            "siglip2-openclip" => Ok(Self::Siglip2OpenClip),
             other => bail!(
                 "semantic model profile {} requests unsupported engine adapter {other:?}",
                 profile.profile_id
@@ -28,15 +37,28 @@ impl EngineProfileAdapter {
     }
 
     pub(crate) fn supports_current_onnx_loader(self) -> bool {
-        matches!(self, Self::MobileClipOpenClip | Self::JinaClipV2OnnxInt8)
+        matches!(
+            self,
+            Self::MobileClipOpenClip | Self::JinaClipV2OnnxInt8 | Self::Siglip2OpenClip
+        )
     }
 
     pub(crate) fn text_sequence_length(self) -> usize {
-        TEXT_SEQUENCE_LENGTH
+        match self {
+            Self::Siglip2OpenClip => 64,
+            Self::MobileClipOpenClip | Self::JinaClipV2OnnxInt8 => TEXT_SEQUENCE_LENGTH,
+        }
     }
 
     pub(crate) fn requires_attention_mask(self) -> bool {
         false
+    }
+
+    pub(crate) fn text_input_element_type(self) -> TextInputElementType {
+        match self {
+            Self::Siglip2OpenClip => TextInputElementType::Int32,
+            Self::MobileClipOpenClip | Self::JinaClipV2OnnxInt8 => TextInputElementType::Int64,
+        }
     }
 
     pub(crate) fn image_mean_std(self) -> ([f32; 3], [f32; 3]) {
@@ -46,6 +68,7 @@ impl EngineProfileAdapter {
                 [0.48145466, 0.4578275, 0.40821073],
                 [0.26862954, 0.26130258, 0.27577711],
             ),
+            Self::Siglip2OpenClip => ([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]),
         }
     }
 
@@ -54,6 +77,7 @@ impl EngineProfileAdapter {
             Self::MobileClipOpenClip | Self::JinaClipV2OnnxInt8 => {
                 ImageResizeMode::ShortestEdgeCenterCrop
             }
+            Self::Siglip2OpenClip => ImageResizeMode::Squash,
         }
     }
 
@@ -64,14 +88,14 @@ impl EngineProfileAdapter {
     pub(crate) fn preferred_text_output_name(self) -> &'static str {
         match self {
             Self::JinaClipV2OnnxInt8 => "l2norm_text_embeddings",
-            Self::MobileClipOpenClip => "",
+            Self::MobileClipOpenClip | Self::Siglip2OpenClip => "",
         }
     }
 
     pub(crate) fn preferred_image_output_name(self) -> &'static str {
         match self {
             Self::JinaClipV2OnnxInt8 => "l2norm_image_embeddings",
-            Self::MobileClipOpenClip => "",
+            Self::MobileClipOpenClip | Self::Siglip2OpenClip => "",
         }
     }
 }
@@ -150,4 +174,25 @@ pub(crate) fn apply_embedding_transform(
         );
     }
     l2_normalize(embedding)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn siglip2_uses_int32_text_inputs() {
+        assert_eq!(
+            EngineProfileAdapter::Siglip2OpenClip.text_input_element_type(),
+            TextInputElementType::Int32
+        );
+        assert_eq!(
+            EngineProfileAdapter::MobileClipOpenClip.text_input_element_type(),
+            TextInputElementType::Int64
+        );
+        assert_eq!(
+            EngineProfileAdapter::JinaClipV2OnnxInt8.text_input_element_type(),
+            TextInputElementType::Int64
+        );
+    }
 }

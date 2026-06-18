@@ -126,6 +126,11 @@ void DeleteSemanticRowsForFiles(duckdb_connection conn, std::span<const sl_eleme
       conn, std::format("DELETE FROM SemanticImageEmbedding WHERE file_id IN ({});", ids).c_str(),
       &result);
   duckdb_destroy_result(&result);
+  duckdb_query(
+      conn,
+      std::format("DELETE FROM SemanticImageEmbedding768 WHERE file_id IN ({});", ids).c_str(),
+      &result);
+  duckdb_destroy_result(&result);
   duckdb_query(conn,
                std::format("DELETE FROM SemanticImageLabel WHERE file_id IN ({});", ids).c_str(),
                &result);

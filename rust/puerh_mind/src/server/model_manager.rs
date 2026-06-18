@@ -1,6 +1,4 @@
-use std::{
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use tonic::{Request, Response, Status};
 
@@ -147,8 +145,7 @@ impl ModelManagerService for ModelManagerServiceImpl {
             validate_model_profile(&req.profile_id, &root)
                 .map_err(|_| anyhow::anyhow!("model profile deleted"))
         });
-        let mut response =
-            Self::response_from_result("deleted", &req.profile_id, &root, result);
+        let mut response = Self::response_from_result("deleted", &req.profile_id, &root, result);
         if !response.ok && response.error == "model profile deleted" {
             response.ok = true;
             response.status = "deleted".to_string();
@@ -237,7 +234,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn lists_fixed_model_profiles_with_512_policy() {
+    async fn lists_fixed_model_profiles_with_dimension_policy() {
         let root = unique_root();
         let service = ModelManagerServiceImpl::new(&root, "https://hf-mirror.com");
         let response = service
@@ -248,7 +245,7 @@ mod tests {
             .expect("list should succeed")
             .into_inner();
 
-        assert_eq!(response.profiles.len(), 2);
+        assert_eq!(response.profiles.len(), 3);
         assert!(
             response
                 .profiles
@@ -258,6 +255,16 @@ mod tests {
                     && profile.embedding_dimension == 512
                     && profile.native_embedding_dimension == 1024
                     && profile.embedding_transform == "matryoshka_truncate_then_l2_normalize")
+        );
+        assert!(
+            response
+                .profiles
+                .iter()
+                .any(|profile| profile.language == "multilingual"
+                    && profile.profile_id == "siglip2-b32-256-multilingual"
+                    && profile.embedding_dimension == 768
+                    && profile.native_embedding_dimension == 768
+                    && profile.embedding_transform == "l2_normalize")
         );
         assert!(response.profiles.iter().all(|profile| !profile.installed));
         assert!(!root.exists());

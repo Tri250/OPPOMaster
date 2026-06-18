@@ -17,8 +17,9 @@ namespace alcedo {
 // files to fetch from Hugging Face, verify them, and write the resolved
 // manifest. Keep the data here in sync with the Rust catalog.
 
-constexpr uint32_t kSemanticRequiredEmbeddingDimension = 512;
-constexpr const char* kSemanticResolvedManifestFile = "alcedo_model_manifest.json";
+constexpr uint32_t    kSemanticRequiredEmbeddingDimension = 512;
+constexpr uint32_t    kSemanticSiglip2EmbeddingDimension  = 768;
+constexpr const char* kSemanticResolvedManifestFile       = "alcedo_model_manifest.json";
 
 enum class ModelAssetRole : uint8_t {
   kTextModel,
@@ -50,23 +51,22 @@ struct ModelAssetSpec {
 };
 
 struct ModelProfileSpec {
-  const char*                  profile_id;
-  const char*                  display_name;
-  const char*                  model_id;
-  const char*                  revision;
-  const char*                  engine_profile_id;
-  ModelLanguage                language;
-  uint32_t                     embedding_dimension        = 0;
-  uint32_t                     native_embedding_dimension = 0;
-  uint32_t                     image_size                 = 0;
-  const char*                  embedding_transform;
+  const char*                 profile_id;
+  const char*                 display_name;
+  const char*                 model_id;
+  const char*                 revision;
+  const char*                 engine_profile_id;
+  ModelLanguage               language;
+  uint32_t                    embedding_dimension        = 0;
+  uint32_t                    native_embedding_dimension = 0;
+  uint32_t                    image_size                 = 0;
+  const char*                 embedding_transform;
   std::vector<ModelAssetSpec> assets;
 };
 
-// Returns the canonical semantic model profiles (MobileCLIP2 S2 English and
-// Jina CLIP v2 Multilingual). The Jina export precision is platform-selected
-// (FP16 on macOS, INT8 elsewhere). Backed by a function-local static so the
-// returned reference is stable and initialization order is well-defined.
+// Returns the canonical semantic model profiles. Backed by a function-local
+// static so the returned reference is stable and initialization order is
+// well-defined.
 auto SemanticModelProfiles() -> const std::vector<ModelProfileSpec>&;
 
 // Looks up a profile by profile_id or model_id. Returns nullptr if unknown.

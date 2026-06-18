@@ -21,6 +21,7 @@
 #include <random>
 #include <stdexcept>
 
+#include "app/model_asset_catalog.hpp"
 #include "app/project_package_backend.hpp"
 #include "app/project_package_service.hpp"
 #include "utils/string/convert.hpp"
@@ -35,25 +36,10 @@ constexpr auto kSemanticModelDirectoryKey     = "semantic/modelDirectory";
 constexpr auto kSemanticEndpointPresetKey     = "semantic/modelEndpointPreset";
 constexpr auto kSemanticCustomEndpointKey     = "semantic/customModelEndpoint";
 constexpr auto kSemanticRuntimeStartupTimeout = 60s;
-constexpr auto kMobileClipProfileId           = "mobileclip2-s2-en";
-constexpr auto kMobileClipModelId             = "plhery/mobileclip2-onnx:s2";
-constexpr auto kMobileClipRevision            = "ba95759a5bdbaca53e9111e2550a76ec09c8fd9e";
 constexpr auto kJinaClipProfileId             = "jina-clip-v2-int8-multilingual";
-constexpr auto kJinaClipModelId               = "jinaai/jina-clip-v2";
-constexpr auto kJinaClipRevision              = "e10d47f5691d0454a0fb5d13f46f2199b74cb436";
+constexpr auto kSiglip2ProfileId              = "siglip2-b32-256-multilingual";
 
-struct SemanticRuntimeProfile {
-  const char* profile_id;
-  const char* model_id;
-  const char* revision;
-};
-
-constexpr SemanticRuntimeProfile kSemanticRuntimeProfiles[] = {
-    {kMobileClipProfileId, kMobileClipModelId, kMobileClipRevision},
-    {kJinaClipProfileId, kJinaClipModelId, kJinaClipRevision},
-};
-
-auto DefaultSemanticModelDirectory() -> QString {
+auto           DefaultSemanticModelDirectory() -> QString {
   return QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("model"));
 }
 
@@ -67,8 +53,8 @@ auto QStringToPath(const QString& value) -> std::filesystem::path {
 
 auto NormalizedEndpointPreset(QString preset) -> QString {
   preset = preset.trimmed().toLower();
-  if (preset == QLatin1String("huggingface") || preset == QLatin1String("sufy")
-      || preset == QLatin1String("custom")) {
+  if (preset == QLatin1String("huggingface") || preset == QLatin1String("sufy") ||
+      preset == QLatin1String("custom")) {
     return preset;
   }
   return QStringLiteral("mirror");
@@ -101,7 +87,7 @@ auto SemanticModelKeyFromInfo(const SemanticRuntimeModelInfo& info) -> std::stri
 }
 
 auto ProfileIdForModel(const SemanticModelRecord& model) -> std::string {
-  for (const auto& profile : kSemanticRuntimeProfiles) {
+  for (const auto& profile : SemanticModelProfiles()) {
     if (model.profile_id_ == profile.profile_id || model.model_id_ == profile.model_id) {
       return profile.profile_id;
     }
@@ -114,8 +100,11 @@ auto ProfileIdForModel(const SemanticModelRecord& model) -> std::string {
 
 auto EmbeddingTimeoutForModel(const SemanticModelRecord& model) -> std::chrono::milliseconds {
   const auto profile_id = ProfileIdForModel(model);
-  if (profile_id == kJinaClipProfileId || model.model_id_ == kJinaClipModelId) {
+  if (profile_id == kJinaClipProfileId) {
     return 120s;
+  }
+  if (profile_id == kSiglip2ProfileId) {
+    return 60s;
   }
   return 30s;
 }
@@ -394,9 +383,11 @@ auto ComputeProjectDataSummary(StorageService& storage_service) -> nlohmann::jso
       {"PipelineParam", "file_id"},
       {"SemanticModel", nullptr},
       {"SemanticImageEmbedding", "file_id"},
+      {"SemanticImageEmbedding768", "file_id"},
       {"SemanticImageLabel", "file_id"},
       {"SemanticLabelQuery", nullptr},
       {"SemanticLabelPrototype", nullptr},
+      {"SemanticLabelPrototype768", nullptr},
   };
 
   nlohmann::json summary;

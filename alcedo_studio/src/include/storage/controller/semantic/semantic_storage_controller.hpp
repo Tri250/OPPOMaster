@@ -15,7 +15,8 @@
 #include "type/type.hpp"
 
 namespace alcedo {
-inline constexpr int kSemanticEmbeddingDim = 512;
+inline constexpr int kSemanticEmbeddingDim    = 512;
+inline constexpr int kSemanticEmbeddingDim768 = 768;
 
 struct SemanticModelRecord {
   std::string model_key_{};
@@ -117,10 +118,10 @@ class SemanticStorageController {
   // the dominant cost for DuckDB, so callers with more than one record should prefer
   // this over the single-row upsert.
   [[nodiscard]] auto UpsertImageEmbeddingsAndAssignLabels(
-      std::span<const SemanticImageEmbeddingRecord>   records,
-      const SemanticLabelAssignmentOptions&           assignment_options,
-      std::vector<SemanticImageLabelRecord>* assigned_labels = nullptr,
-      std::string* error = nullptr) const -> bool;
+      std::span<const SemanticImageEmbeddingRecord> records,
+      const SemanticLabelAssignmentOptions&         assignment_options,
+      std::vector<SemanticImageLabelRecord>*        assigned_labels = nullptr,
+      std::string*                                  error           = nullptr) const -> bool;
   [[nodiscard]] auto UpsertLabelPrototype(const SemanticLabelPrototypeRecord& record,
                                           std::string* error = nullptr) const -> bool;
   [[nodiscard]] auto UpsertLabelPrototypes(std::span<const SemanticLabelPrototypeRecord> records,

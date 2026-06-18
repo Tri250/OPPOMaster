@@ -10,7 +10,7 @@ use crate::server::health::HealthServiceImpl;
 use crate::server::model_manager::ModelManagerServiceImpl;
 use crate::server::semantic::SemanticServiceImpl;
 use crate::service::embedding::{EmbeddingEngine, EngineModelInfo, UnavailableEmbeddingEngine};
-use crate::service::model_assets::REQUIRED_EMBEDDING_DIMENSION;
+use crate::service::model_assets::{REQUIRED_EMBEDDING_DIMENSION, find_profile};
 use crate::service::ort_clip::OrtClipEngine;
 use tracing::warn;
 
@@ -52,17 +52,36 @@ pub fn build_semantic_engine(config: &AppConfig) -> Arc<dyn EmbeddingEngine> {
             warn!(
                 "semantic inference model is unavailable; model-manager RPCs remain available: {err}"
             );
+            let profile = find_profile(&config.semantic.model_id).ok();
             Arc::new(UnavailableEmbeddingEngine::new(
                 EngineModelInfo {
-                    profile_id: config.semantic.model_id.clone(),
-                    model_id: config.semantic.model_id.clone(),
-                    revision: config.semantic.revision.clone(),
-                    engine_profile_id: String::new(),
-                    language: String::new(),
-                    embedding_dim: REQUIRED_EMBEDDING_DIMENSION,
-                    native_embedding_dim: REQUIRED_EMBEDDING_DIMENSION,
-                    image_size: 0,
-                    embedding_transform: String::new(),
+                    profile_id: profile
+                        .map(|profile| profile.profile_id.to_string())
+                        .unwrap_or_else(|| config.semantic.model_id.clone()),
+                    model_id: profile
+                        .map(|profile| profile.model_id.to_string())
+                        .unwrap_or_else(|| config.semantic.model_id.clone()),
+                    revision: profile
+                        .map(|profile| profile.revision.to_string())
+                        .unwrap_or_else(|| config.semantic.revision.clone()),
+                    engine_profile_id: profile
+                        .map(|profile| profile.engine_profile_id.to_string())
+                        .unwrap_or_default(),
+                    language: profile
+                        .map(|profile| profile.language.as_str().to_string())
+                        .unwrap_or_default(),
+                    embedding_dim: profile
+                        .map(|profile| profile.embedding_dimension)
+                        .unwrap_or(REQUIRED_EMBEDDING_DIMENSION),
+                    native_embedding_dim: profile
+                        .map(|profile| profile.native_embedding_dimension)
+                        .unwrap_or(REQUIRED_EMBEDDING_DIMENSION),
+                    image_size: profile
+                        .map(|profile| profile.image_size)
+                        .unwrap_or_default(),
+                    embedding_transform: profile
+                        .map(|profile| profile.embedding_transform.to_string())
+                        .unwrap_or_default(),
                     provider: "unavailable".to_string(),
                     model_root: config.semantic.model_root.clone(),
                     prototype_config_hash: String::new(),
