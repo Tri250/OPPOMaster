@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "app/project_service.hpp"
+#include "app/project_package_backend.hpp"
 #include "edit/operators/operator_registeration.hpp"
 #include "sleeve/sleeve_element/sleeve_file.hpp"
 #include "storage/controller/db_controller.hpp"
@@ -213,6 +214,35 @@ TEST_F(SemanticStorageControllerTest, VssSearchRanksWithinRootAndFolderScope) {
                                                              ClosePairQuery(1, 2), 0, 3, &error);
   ASSERT_EQ(scoped_results.size(), 1U) << error;
   EXPECT_EQ(scoped_results[0].file_id_, portrait_id);
+}
+
+TEST_F(SemanticStorageControllerTest, PackedSnapshotSucceedsAfterVectorSearchIndex) {
+  {
+    ProjectService project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
+    auto&          semantic = project.GetStorageService()->GetSemanticStorageController();
+    RegisterTestModel(semantic);
+
+    const auto file_id = CreateSyntheticFile(project, L"indexed.raf");
+    const auto rows    = project.GetStorageService()->GetElementController().ListFilesInFolder(0);
+    ASSERT_EQ(rows.size(), 1U);
+    StoreEmbedding(semantic, file_id, rows.front().image_id_, OneHot(0));
+
+    std::string error;
+    ASSERT_TRUE(semantic.EnsureVectorSearchIndex(kModelKey, &error)) << error;
+    project.SaveProject(meta_path_);
+  }
+
+  std::filesystem::path snapshot_path;
+  ASSERT_TRUE(project_pack::BuildTempDbSnapshotPath(&snapshot_path, nullptr));
+  QString snapshot_error;
+  auto    reopened = std::make_shared<ProjectService>(db_path_, meta_path_,
+                                                       ProjectOpenMode::kLoadExisting);
+  EXPECT_TRUE(project_pack::CreateLiveDbSnapshot(
+      reopened, snapshot_path, &snapshot_error))
+      << snapshot_error.toStdString();
+
+  std::error_code ec;
+  std::filesystem::remove(snapshot_path, ec);
 }
 
 TEST_F(SemanticStorageControllerTest, VssSearchCutsOffWeakTailBeforePaging) {

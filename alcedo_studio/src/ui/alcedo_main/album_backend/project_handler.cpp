@@ -62,13 +62,16 @@ bool ProjectHandler::InitializeServices(const std::filesystem::path& dbPath,
 
   auto old_project   = project_;
   auto old_pipeline  = pipeline_service_;
+  auto old_history   = history_service_;
+  auto old_thumbnail = thumbnail_service_;
   auto old_meta      = meta_path_;
   auto old_package   = project_package_path_;
   auto old_workspace = project_workspace_dir_;
 
   QPointer<AlbumBackend> self(&backend_);
   std::thread([self, request_id, old_project = std::move(old_project),
-               old_pipeline = std::move(old_pipeline), old_meta = std::move(old_meta),
+               old_pipeline = std::move(old_pipeline), old_history = std::move(old_history),
+               old_thumbnail = std::move(old_thumbnail), old_meta = std::move(old_meta),
                old_package = std::move(old_package), old_workspace = std::move(old_workspace),
                dbPath, metaPath, packagePath, workspaceDir, recentProjectPath, openMode,
                accelerator_preference]() mutable {
@@ -94,6 +97,15 @@ bool ProjectHandler::InitializeServices(const std::filesystem::path& dbPath,
     try {
       if (old_pipeline) {
         old_pipeline->Sync();
+      }
+      if (old_history) {
+        old_history->Sync();
+      }
+      if (old_thumbnail) {
+        auto stats = old_thumbnail->GetDiskCacheStats();
+        if (stats.enabled) {
+          old_thumbnail->FlushDiskCacheMetadata();
+        }
       }
 
       if (old_project && !old_meta.empty()) {
