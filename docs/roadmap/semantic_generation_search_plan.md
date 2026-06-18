@@ -998,3 +998,130 @@ Import snapshot / Settings full album list
 → SemanticImageEmbedding + SemanticImageLabel
 → RefreshAlbumSummary + ReloadCurrentFolder
 → grid/stats/details 重新按 active model 读标签。
+
+## Review Result - Delete Cleanup
+这轮追的是“图片/文件删除时，语义标签和 embedding 是否一起删掉”。结论先说：
+
+当前真正删除 file identity 的路径会删除 per-image semantic rows，包括
+`SemanticImageEmbedding`、`SemanticImageEmbedding768` 和 `SemanticImageLabel`。
+从 album 文件夹里移除图片、删除 album 文件夹本身不会删 semantic rows；这是刻意的，
+因为这些操作只是移除 membership，不删除 root/library 里的图片实体。
+
+1. UI 图片删除入口
+中间 grid 或 Nikon HE recovery 走 `AlbumBackend::DeleteImages()`，最终进
+`ImageController::DeleteTargets()`。这里先看当前 folder scope：如果当前是 root
+folder (`folder_id == 0`)，就是“从 library 删除”；如果当前是 album folder，就是
+“从这个 album 移除”。见
+[image_controller.cpp (line 511)](D:/Projects/pu-erh_lab/alcedo_studio/src/ui/alcedo_main/album_backend/image_controller.cpp:511)
+和
+[image_controller.cpp (line 605)](D:/Projects/pu-erh_lab/alcedo_studio/src/ui/alcedo_main/album_backend/image_controller.cpp:605)。
+
+`DeleteTargets()` 调的是
+`AlbumBrowseService::DeleteFilesInFolderByElementIds(folder_id, ids)`。这个函数在
+`folder_id == 0` 时调用 `SleeveServiceImpl::DeleteFilesEverywhere()`；否则调用
+`SleeveServiceImpl::DeleteFilesFromFolder()`。见
+[album_browse_service.cpp (line 277)](D:/Projects/pu-erh_lab/alcedo_studio/src/app/album_browse_service.cpp:277)
+和
+[album_browse_service.cpp (line 299)](D:/Projects/pu-erh_lab/alcedo_studio/src/app/album_browse_service.cpp:299)。
+
+2. root/library 删除路径
+root 删除的核心链路是：
+
+`ImageController::DeleteTargets()`
+→ `AlbumBrowseService::DeleteFilesInFolderByElementIds(0, ids)`
+→ `SleeveServiceImpl::DeleteFilesEverywhere(ids)`
+→ `FileSystem::DeleteFilesEverywhere(ids)`
+→ `SleeveServiceImpl::Sync()`
+→ `ElementController::RemoveElements(garbage_elements)`
+→ `DeleteSemanticRowsForFiles(file_ids)`.
+
+`FileSystem::DeleteFilesEverywhere()` 会把 file 从所有已加载 folder membership 里移除，
+然后把 file 标成 `SyncFlag::DELETED`。真正落库删除发生在后面的 `Sync()`：它取
+`fs_->GetDeletedElements()`，调用 `element_ctrl.RemoveElements(garbage_elements)`。
+见
+[sleeve_filesystem.cpp (line 260)](D:/Projects/pu-erh_lab/alcedo_studio/src/sleeve/sleeve_filesystem.cpp:260)
+和
+[sleeve_service.cpp (line 128)](D:/Projects/pu-erh_lab/alcedo_studio/src/app/sleeve_service.cpp:128)。
+
+`ElementController::RemoveElements()` 会先收集所有被删 file 的 `element_id`，然后调用
+`DeleteSemanticRowsForFiles(file_ids)`。这个 helper 执行三条 SQL：
+
+- `DELETE FROM SemanticImageEmbedding WHERE file_id IN (...)`
+- `DELETE FROM SemanticImageEmbedding768 WHERE file_id IN (...)`
+- `DELETE FROM SemanticImageLabel WHERE file_id IN (...)`
+
+见
+[element_controller.cpp (line 119)](D:/Projects/pu-erh_lab/alcedo_studio/src/storage/controller/sleeve/element_controller.cpp:119)
+和
+[element_controller.cpp (line 301)](D:/Projects/pu-erh_lab/alcedo_studio/src/storage/controller/sleeve/element_controller.cpp:301)。
+
+所以，按当前 schema，图片删除时 per-image 的 512/768 embedding 和最终标签都会清掉，
+而且是不按 model_key 过滤，所有模型版本下这个 file_id 的 embedding/label 都删。
+
+3. album unlink 和 folder 删除为什么不清 semantic rows
+从 album 中删除图片时，走的是 `DeleteFilesFromFolder()` /
+`FileSystem::UnlinkFilesFromFolder()`。它只删 `FolderContent` membership，file 仍然在
+root/library 里，所以语义数据应当保留。测试也明确覆盖了这个语义：
+`AddToAlbumThenDeleteFromAlbum_KeepsRootFile`。见
+[sleeve_filesystem.cpp (line 134)](D:/Projects/pu-erh_lab/alcedo_studio/src/sleeve/sleeve_filesystem.cpp:134)
+和
+[album_backend_image_delete_test.cpp (line 220)](D:/Projects/pu-erh_lab/alcedo_studio/tests/ui/album_backend_image_delete_test.cpp:220)。
+
+删除 album folder 也不是删除里面的图片。`FileSystem::Delete(path)` 删除 folder 时，
+代码注释明确写了 album membership 不拥有 file，移除 folder 只影响 folder-tree
+identity；file children remain live library files。见
+[sleeve_filesystem.cpp (line 364)](D:/Projects/pu-erh_lab/alcedo_studio/src/sleeve/sleeve_filesystem.cpp:364)。
+
+因此：如果用户删除一个 album/folder，semantic rows 不删是正确的；如果用户从 root
+删除图片，semantic rows 应该被清掉。
+
+4. 哪些 semantic 表不会随图片删除
+不会被 root 图片删除清掉的表是：
+
+- `SemanticModel`
+- `SemanticLabelQuery`
+- `SemanticLabelPrototype`
+- `SemanticLabelPrototype768`
+
+原因是它们不是单张图片的数据。`SemanticModel` 是模型身份；`SemanticLabelQuery` 是固定
+label prompt 配置；`SemanticLabelPrototype*` 是 model + prompt 的文本原型缓存，供所有
+图片共享。单张图片删除不应该删这些表，否则会影响同一模型下其他图片的生成/搜索。schema
+见
+[db_controller.hpp (line 48)](D:/Projects/pu-erh_lab/alcedo_studio/src/include/storage/controller/db_controller.hpp:48)。
+
+5. 生成覆盖旧标签时也会先删旧行
+除了图片删除，重新生成同一 file/model 的 embedding 时也会先删旧 embedding 和旧 label，
+再插入新 row。单张写入走 `UpsertImageEmbeddingAndAssignLabel()`，batch 写入走
+`UpsertImageEmbeddingsAndAssignLabels()`；两者都先 delete 再 insert。见
+[semantic_storage_controller.cpp (line 1167)](D:/Projects/pu-erh_lab/alcedo_studio/src/storage/controller/semantic/semantic_storage_controller.cpp:1167)
+和
+[semantic_storage_controller.cpp (line 1225)](D:/Projects/pu-erh_lab/alcedo_studio/src/storage/controller/semantic/semantic_storage_controller.cpp:1225)。
+
+6. 测试覆盖
+已有一个直接覆盖语义清理的测试：
+`SemanticStorageControllerTest.DeletingFileRemovesSemanticRows`。它创建两个文件，给两个
+文件都写 semantic embedding，然后 `DeleteFileEverywhere(delete_id)`，最后断言被删文件
+的 embedding count 变 0、保留文件仍为 1，并且 semantic search 只返回保留文件。见
+[semantic_storage_controller_test.cpp (line 668)](D:/Projects/pu-erh_lab/alcedo_studio/tests/storage/semantic_storage_controller_test.cpp:668)。
+
+UI 层也覆盖了 root 删除会从所有 album 中级联移除 membership：
+`DeleteFromRootCascadesOutOfAlbums`。这个测试没有插 semantic rows，但它覆盖了 UI root
+删除是否真的到达 `DeleteFilesEverywhere()` 这条 file identity 删除路径。见
+[album_backend_image_delete_test.cpp (line 337)](D:/Projects/pu-erh_lab/alcedo_studio/tests/ui/album_backend_image_delete_test.cpp:337)。
+
+7. 仍然值得补的风险点
+有两个小风险：
+
+- `ElementController` 里还有一个 `RemoveElement(sl_element_id_t id)` overload，它只删
+  `Element` 表，不清 file child rows，也不清 semantic rows。目前我没有看到删除路径调用
+  这个 overload；真实路径用的是 `RemoveElement(shared_ptr)` 或 `RemoveElements(span)`。
+  但这个 overload 是潜在 footgun，后续最好删除、私有化，或改成完整清理。
+- `DeleteSemanticRowsForFiles()` 是同步删除流程里的 helper，但它没有包在同一个显式事务里，
+  也没有把 DuckDB error 往外抛。正常情况下没问题；如果将来 schema 迁移失败或表损坏，
+  可能出现 file row 删除成功但 semantic row 留下的情况。更稳的做法是把
+  `RemoveElements()` 的 semantic/file/history/pipeline/folder/element 删除放进一个
+  transaction，并让语义删除失败时阻止 commit。
+
+最后还有一个数据库文件大小层面的点：这些 `DELETE` 会让 row 不再被查询到，也会让空间有
+机会被数据库复用；但 DuckDB 文件不一定因为删除几行就立刻变小。如果关心 `.db` 物理文件
+回收，需要另看 checkpoint/VACUUM 或项目打包快照是否会压实数据库文件。
