@@ -963,6 +963,15 @@ def_library(SemanticRuntimeService
     PRIVATE_DEPS SemanticProto
 )
 
+def_library(ModelDownloadService
+    SOURCES
+        app/model_download_service.cpp
+        app/model_asset_catalog.cpp
+        include/app/model_download_service.hpp
+        include/app/model_asset_catalog.hpp
+    PUBLIC_DEPS Qt6::Core Qt6::Network
+)
+
 def_library(ProjectService
     SOURCES
         app/project_service.cpp
@@ -1166,6 +1175,7 @@ target_link_libraries(AlbumBackendLib
         EditHistoryMgmtService
         ThumbnailService
         SemanticGenerationService
+        ModelDownloadService
         SleeveFilterService
         FSService
         EditPipeline
@@ -1578,4 +1588,25 @@ if(ALCEDO_BUILD_SEMANTIC_SIDECAR AND TARGET alcedo_mind_sidecar)
         VERBATIM
     )
     add_dependencies(alcedo_main alcedo_mind_sidecar_runtime_copy)
+endif()
+
+# ── aria2c: bundled next to alcedo_main for accelerated model downloads ──
+include("${CMAKE_SOURCE_DIR}/scripts/cmake/fetch_aria2.cmake")
+if(ALCEDO_ARIA2C_BINARY AND TARGET alcedo_main)
+    if(APPLE AND ALCEDO_MACOS_BUNDLE)
+        set(_aria2c_dest_dir "$<TARGET_BUNDLE_CONTENT_DIR:alcedo_main>/MacOS")
+    else()
+        set(_aria2c_dest_dir "$<TARGET_FILE_DIR:alcedo_main>")
+    endif()
+    add_custom_command(TARGET alcedo_main POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${_aria2c_dest_dir}"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${ALCEDO_ARIA2C_BINARY}" "${_aria2c_dest_dir}"
+        VERBATIM
+    )
+    if(NOT WIN32)
+        add_custom_command(TARGET alcedo_main POST_BUILD
+            COMMAND chmod +x "${_aria2c_dest_dir}/aria2c"
+            VERBATIM
+        )
+    endif()
 endif()

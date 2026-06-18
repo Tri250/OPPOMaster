@@ -211,34 +211,15 @@ auto ToResolvedModelManifest(const semantic::ResolvedModelManifest& response)
   return manifest;
 }
 
-auto ToModelDownloadProgress(const semantic::ModelDownloadProgress& response)
-    -> SemanticModelDownloadProgress {
-  SemanticModelDownloadProgress progress;
-  progress.phase                         = response.phase();
-  progress.current_file                  = response.current_file();
-  progress.current_file_bytes_downloaded = response.current_file_bytes_downloaded();
-  progress.current_file_bytes_total      = response.current_file_bytes_total();
-  progress.bytes_downloaded              = response.bytes_downloaded();
-  progress.bytes_total                   = response.bytes_total();
-  progress.files_completed               = response.files_completed();
-  progress.files_total                   = response.files_total();
-  progress.message                       = response.message();
-  return progress;
-}
-
 auto ToModelManagerResult(const semantic::ModelManagerResponse& response)
     -> SemanticModelManagerResult {
   SemanticModelManagerResult result;
   result.ok      = response.ok();
   result.status  = response.status();
   result.error   = response.error();
-  result.job_id  = response.job_id();
   result.profile = ToModelProfileInfo(response.profile());
   if (response.has_manifest()) {
     result.manifest = ToResolvedModelManifest(response.manifest());
-  }
-  if (response.has_progress()) {
-    result.progress = ToModelDownloadProgress(response.progress());
   }
   return result;
 }
@@ -455,82 +436,6 @@ auto GrpcSemanticRuntimeClient::ValidateModel(const std::string&        endpoint
   result.status = "error";
   result.error  = GrpcErrorMessage(status);
   return result;
-}
-
-auto GrpcSemanticRuntimeClient::DownloadModel(const std::string&        endpoint,
-                                              const std::string&        profile_id,
-                                              const std::string&        model_root,
-                                              const std::string&        hf_endpoint,
-                                              std::chrono::milliseconds timeout)
-    -> SemanticModelManagerResult {
-  auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
-  auto                stub    = semantic::ModelManagerService::NewStub(channel);
-
-  grpc::ClientContext context;
-  context.set_deadline(DeadlineFromNow(timeout));
-  semantic::DownloadModelRequest request;
-  request.set_profile_id(profile_id);
-  request.set_model_root(model_root);
-  request.set_hf_endpoint(hf_endpoint);
-  semantic::ModelManagerResponse response;
-  const auto                     status = stub->DownloadModel(&context, request, &response);
-  if (status.ok()) {
-    return ToModelManagerResult(response);
-  }
-  SemanticModelManagerResult result;
-  result.ok     = false;
-  result.status = "error";
-  result.error  = GrpcErrorMessage(status);
-  return result;
-}
-
-auto GrpcSemanticRuntimeClient::GetModelDownloadStatus(const std::string&        endpoint,
-                                                       const std::string&        job_id,
-                                                       std::chrono::milliseconds timeout)
-    -> SemanticModelManagerResult {
-  auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
-  auto                stub    = semantic::ModelManagerService::NewStub(channel);
-
-  grpc::ClientContext context;
-  context.set_deadline(DeadlineFromNow(timeout));
-  semantic::GetModelDownloadStatusRequest request;
-  request.set_job_id(job_id);
-  semantic::ModelManagerResponse response;
-  const auto status = stub->GetModelDownloadStatus(&context, request, &response);
-  if (status.ok()) {
-    return ToModelManagerResult(response);
-  }
-  SemanticModelManagerResult result;
-  result.ok     = false;
-  result.status = "error";
-  result.error  = GrpcErrorMessage(status);
-  result.job_id = job_id;
-  return result;
-}
-
-auto GrpcSemanticRuntimeClient::CancelModelDownload(const std::string&        endpoint,
-                                                    const std::string&        job_id,
-                                                    std::chrono::milliseconds timeout,
-                                                    std::string*              message) -> bool {
-  auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
-  auto                stub    = semantic::ModelManagerService::NewStub(channel);
-
-  grpc::ClientContext context;
-  context.set_deadline(DeadlineFromNow(timeout));
-  semantic::CancelModelDownloadRequest request;
-  request.set_job_id(job_id);
-  semantic::CancelModelDownloadResponse response;
-  const auto status = stub->CancelModelDownload(&context, request, &response);
-  if (!status.ok()) {
-    if (message) {
-      *message = GrpcErrorMessage(status);
-    }
-    return false;
-  }
-  if (message) {
-    *message = response.message();
-  }
-  return response.cancelled();
 }
 
 auto GrpcSemanticRuntimeClient::DeleteModel(const std::string&        endpoint,
@@ -881,47 +786,6 @@ auto SemanticRuntimeService::ValidateModel(const std::string&        profile_id,
     return result;
   }
   return client_->ValidateModel(endpoint_, profile_id, model_root, timeout);
-}
-
-auto SemanticRuntimeService::DownloadModel(const std::string&        profile_id,
-                                           const std::string&        model_root,
-                                           const std::string&        hf_endpoint,
-                                           std::chrono::milliseconds timeout)
-    -> SemanticModelManagerResult {
-  if (status_.state != SemanticRuntimeState::kReady || !client_) {
-    SemanticModelManagerResult result;
-    result.ok     = false;
-    result.status = "error";
-    result.error  = "semantic runtime is not ready";
-    return result;
-  }
-  return client_->DownloadModel(endpoint_, profile_id, model_root, hf_endpoint, timeout);
-}
-
-auto SemanticRuntimeService::GetModelDownloadStatus(const std::string&        job_id,
-                                                    std::chrono::milliseconds timeout)
-    -> SemanticModelManagerResult {
-  if (status_.state != SemanticRuntimeState::kReady || !client_) {
-    SemanticModelManagerResult result;
-    result.ok     = false;
-    result.status = "error";
-    result.error  = "semantic runtime is not ready";
-    result.job_id = job_id;
-    return result;
-  }
-  return client_->GetModelDownloadStatus(endpoint_, job_id, timeout);
-}
-
-auto SemanticRuntimeService::CancelModelDownload(const std::string&        job_id,
-                                                 std::chrono::milliseconds timeout,
-                                                 std::string*              message) -> bool {
-  if (status_.state != SemanticRuntimeState::kReady || !client_) {
-    if (message) {
-      *message = "semantic runtime is not ready";
-    }
-    return false;
-  }
-  return client_->CancelModelDownload(endpoint_, job_id, timeout, message);
 }
 
 auto SemanticRuntimeService::DeleteModel(const std::string&        profile_id,

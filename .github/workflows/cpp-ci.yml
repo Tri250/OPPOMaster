@@ -35,7 +35,31 @@ jobs:
       - name: Install dependencies
         run: |
           brew update
-          brew install cmake ninja qt opencv opencolorio duckdb exiv2 glib libraw little-cms2 highway openimageio pkg-config xxhash eigen libomp
+          # grpc + protobuf: required by the semantic search proto codegen under
+          # PUERHLAB_USE_SYSTEM_GRPC_PROTOBUF=ON (see alcedo_studio/src/third_party/CMakeLists.txt).
+          brew install cmake ninja qt opencv opencolorio duckdb exiv2 glib libraw little-cms2 highway openimageio pkg-config xxhash eigen libomp grpc protobuf
+
+      - name: Pre-install DuckDB VSS extension
+        # Semantic search needs DuckDB's `vss` extension. On a fresh runner the
+        # extension is not cached, so the runtime `LOAD vss;` auto-download path
+        # (used by SemanticStorageControllerTest) fails with "extension not found".
+        # Install vss into a throwaway directory now and point the loader at the
+        # file via ALCEDO_DUCKDB_VSS_EXTENSION — LoadVssExtension() loads that
+        # path directly with `LOAD '<path>';`, bypassing the flaky auto-download.
+        # See alcedo_studio/src/storage/controller/semantic/semantic_storage_controller.cpp.
+        run: |
+          set -euo pipefail
+          vss_dir="$(mktemp -d)"
+          duckdb -c "SET extension_directory='${vss_dir}'; INSTALL vss;"
+          vss_path="$(find "${vss_dir}" -name 'vss.duckdb_extension' -type f | head -n1)"
+          if [ -z "${vss_path}" ]; then
+            echo "Failed to locate installed vss.duckdb_extension under ${vss_dir}" >&2
+            find "${vss_dir}" -type f >&2 || true
+            exit 1
+          fi
+          echo "Resolved VSS extension: ${vss_path}"
+          # Persist for the later Configure/Test steps (each `run:` is a fresh shell).
+          echo "ALCEDO_DUCKDB_VSS_EXTENSION=${vss_path}" >> "$GITHUB_ENV"
 
       - name: Configure
         run: cmake --preset macos_arm_metal_ci

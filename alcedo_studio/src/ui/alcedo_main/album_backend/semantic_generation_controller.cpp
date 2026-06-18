@@ -26,6 +26,7 @@
 #include <utility>
 
 #include "app/album_browse_service.hpp"
+#include "app/model_asset_catalog.hpp"
 #include "storage/controller/semantic/semantic_label_config.hpp"
 #include "ui/alcedo_main/album_backend/album_backend.hpp"
 
@@ -39,26 +40,32 @@ using namespace std::chrono_literals;
 
 namespace {
 
-constexpr auto   kSemanticGenerationImportPreferenceKey = "semantic/importGenerationPreference";
-constexpr auto   kSemanticModelProfileKey               = "semantic/modelProfileId";
-constexpr auto   kSemanticModelDirectoryKey             = "semantic/modelDirectory";
-constexpr auto   kSemanticEndpointPresetKey             = "semantic/modelEndpointPreset";
-constexpr auto   kSemanticCustomEndpointKey             = "semantic/customModelEndpoint";
-constexpr auto   kSemanticPreferenceAsk                 = "ask";
-constexpr auto   kSemanticPreferenceAlways              = "always";
-constexpr auto   kSemanticPreferenceNever               = "never";
-constexpr auto   kSemanticResolvedManifestFile          = "alcedo_model_manifest.json";
-constexpr auto   kSemanticRuntimeStartupTimeout         = 60s;
-constexpr auto   kSemanticModelManagerTimeout           = 3s;
-constexpr auto   kSemanticModelDownloadPollIntervalMs   = 650;
-constexpr auto   kMobileClipProfileId                   = "mobileclip2-s2-en";
-constexpr auto   kMobileClipModelId                     = "plhery/mobileclip2-onnx:s2";
-constexpr auto   kMobileClipRevision   = "ba95759a5bdbaca53e9111e2550a76ec09c8fd9e";
-constexpr auto   kJinaClipProfileId    = "jina-clip-v2-int8-multilingual";
-constexpr auto   kJinaClipModelId      = "jinaai/jina-clip-v2";
-constexpr auto   kJinaClipRevision     = "e10d47f5691d0454a0fb5d13f46f2199b74cb436";
-constexpr size_t kMobileClipBatchSize  = 64;
-constexpr size_t kJinaClipBatchSize    = 4;
+constexpr auto kSemanticGenerationImportPreferenceKey = "semantic/importGenerationPreference";
+constexpr auto kSemanticModelProfileKey               = "semantic/modelProfileId";
+constexpr auto kSemanticModelDirectoryKey             = "semantic/modelDirectory";
+constexpr auto kSemanticEndpointPresetKey             = "semantic/modelEndpointPreset";
+constexpr auto kSemanticCustomEndpointKey             = "semantic/customModelEndpoint";
+constexpr auto kSemanticPreferenceAsk                 = "ask";
+constexpr auto kSemanticPreferenceAlways              = "always";
+constexpr auto kSemanticPreferenceNever               = "never";
+constexpr auto kSemanticResolvedManifestFile          = "alcedo_model_manifest.json";
+constexpr auto kSemanticRuntimeStartupTimeout         = 60s;
+constexpr auto kMobileClipProfileId                   = "mobileclip2-s2-en";
+constexpr auto kMobileClipModelId                     = "plhery/mobileclip2-onnx:s2";
+constexpr auto kMobileClipRevision                    = "ba95759a5bdbaca53e9111e2550a76ec09c8fd9e";
+constexpr auto kJinaClipProfileId                     = "jina-clip-v2-int8-multilingual";
+constexpr auto kJinaClipModelId                       = "jinaai/jina-clip-v2";
+constexpr auto kJinaClipRevision                      = "e10d47f5691d0454a0fb5d13f46f2199b74cb436";
+// The Jina CLIP v2 export precision is platform-selected: FP16 on macOS
+// (the INT8 export is numerically broken on CoreML GPU/ANE), INT8 on Windows.
+// The profile id is a stable key; only the display label differs.
+#if defined(__APPLE__)
+constexpr auto kJinaClipDisplayName = "Jina CLIP v2 FP16 Multilingual";
+#else
+constexpr auto kJinaClipDisplayName = "Jina CLIP v2 INT8 Multilingual";
+#endif
+constexpr size_t kMobileClipBatchSize = 64;
+constexpr size_t kJinaClipBatchSize   = 4;
 
 struct SemanticModelProfileUiInfo {
   const char* profile_id;
@@ -73,8 +80,8 @@ struct SemanticModelProfileUiInfo {
 constexpr SemanticModelProfileUiInfo kSemanticModelProfiles[] = {
     {kMobileClipProfileId, "MobileCLIP2 S2 English", kMobileClipModelId, kMobileClipRevision, "en",
      256, 512},
-    {kJinaClipProfileId, "Jina CLIP v2 INT8 Multilingual", kJinaClipModelId, kJinaClipRevision,
-     "multilingual", 512, 1024},
+    {kJinaClipProfileId, kJinaClipDisplayName, kJinaClipModelId, kJinaClipRevision, "multilingual",
+     512, 1024},
 };
 
 auto SemanticModelKeyFromInfo(const SemanticRuntimeModelInfo& info) -> std::string {
@@ -211,9 +218,152 @@ auto PathExists(const std::filesystem::path& path) -> bool {
   return std::filesystem::exists(path, ec) && !ec;
 }
 
+auto ModelRootForProfile(const QString& profile_id, const QString& base_directory)
+    -> std::filesystem::path {
+  return QStringToPath(ProfileRootPath(base_directory, profile_id));
+}
+
 auto FirstPathElementIsParent(const std::filesystem::path& path) -> bool {
   auto it = path.begin();
   return it != path.end() && *it == "..";
+}
+
+auto ManifestAssetRelativePath(const std::filesystem::path& local_path,
+                               const std::filesystem::path& model_root,
+                               const std::filesystem::path& stored_model_root)
+    -> std::filesystem::path {
+  if (!local_path.is_absolute()) {
+    return local_path;
+  }
+  auto relative = local_path.lexically_relative(model_root);
+  if (!relative.empty() && !FirstPathElementIsParent(relative)) {
+    return relative;
+  }
+  if (!stored_model_root.empty()) {
+    relative = local_path.lexically_relative(stored_model_root);
+    if (!relative.empty() && !FirstPathElementIsParent(relative)) {
+      return relative;
+    }
+  }
+  return {};
+}
+
+auto ValidateCatalogAssetPresence(const ModelAssetSpec&        asset,
+                                  const std::filesystem::path& local_path)
+    -> std::optional<QString> {
+  std::error_code ec;
+  if (!std::filesystem::exists(local_path, ec)) {
+    return PL_TEXT("missing file: %1", QString::fromStdString(local_path.string())).Render();
+  }
+  const auto size = std::filesystem::file_size(local_path, ec);
+  if (ec) {
+    return PL_TEXT("failed to stat %1: %2", QString::fromStdString(local_path.string()),
+                   QString::fromStdString(ec.message()))
+        .Render();
+  }
+  if (size != asset.size_bytes) {
+    return PL_TEXT("%1 size mismatch: expected %2 bytes, got %3 bytes",
+                   QString::fromLatin1(asset.local_path),
+                   QString::number(static_cast<qulonglong>(asset.size_bytes)),
+                   QString::number(static_cast<qulonglong>(size)))
+        .Render();
+  }
+  return std::nullopt;
+}
+
+auto ValidateLocalCatalogModelProfile(const ModelProfileSpec&      profile,
+                                      const std::filesystem::path& root) -> std::optional<QString> {
+  std::error_code ec;
+  if (!std::filesystem::exists(root, ec)) {
+    return PL_TEXT("missing model root directory: %1", QString::fromStdString(root.string()))
+        .Render();
+  }
+
+  for (const auto& asset : profile.assets) {
+    const auto asset_path = root / asset.local_path;
+    if (auto error = ValidateCatalogAssetPresence(asset, asset_path); error.has_value()) {
+      return error;
+    }
+  }
+
+  const auto manifest_path = root / kSemanticResolvedManifestFile;
+  QFile      file(QString::fromStdString(manifest_path.string()));
+  if (!file.open(QIODevice::ReadOnly)) {
+    return PL_TEXT("Model manifest was not found at %1",
+                   QString::fromStdString(manifest_path.string()))
+        .Render();
+  }
+
+  QJsonParseError parse_error;
+  const auto      document = QJsonDocument::fromJson(file.readAll(), &parse_error);
+  if (parse_error.error != QJsonParseError::NoError || !document.isObject()) {
+    return PL_TEXT("Model manifest is invalid: %1", parse_error.errorString()).Render();
+  }
+
+  const auto object      = document.object();
+  const auto read_string = [&object](const char* key) {
+    return object.value(QString::fromLatin1(key)).toString().toStdString();
+  };
+  const auto read_u32 = [&object](const char* key) {
+    return static_cast<uint32_t>(object.value(QString::fromLatin1(key)).toInt());
+  };
+
+  if (read_string("profile_id") != profile.profile_id ||
+      read_string("model_id") != profile.model_id || read_string("revision") != profile.revision ||
+      read_string("engine_profile_id") != profile.engine_profile_id ||
+      read_string("language") != ToString(profile.language) ||
+      read_u32("embedding_dimension") != profile.embedding_dimension ||
+      read_u32("native_embedding_dimension") != profile.native_embedding_dimension ||
+      read_u32("image_size") != profile.image_size ||
+      read_string("embedding_transform") != profile.embedding_transform) {
+    return PL_TEXT("Model manifest does not match the selected model.").Render();
+  }
+
+  const auto assets = object.value(QStringLiteral("assets")).toArray();
+  if (assets.size() != static_cast<qsizetype>(profile.assets.size())) {
+    return PL_TEXT("Model manifest lists %1 file(s), but the selected model expects %2.",
+                   assets.size(), static_cast<int>(profile.assets.size()))
+        .Render();
+  }
+
+  const auto stored_model_root_text = read_string("model_root");
+  const auto stored_model_root =
+      stored_model_root_text.empty()
+          ? std::filesystem::path{}
+          : QStringToPath(QString::fromStdString(stored_model_root_text));
+  for (qsizetype i = 0; i < assets.size(); ++i) {
+    const auto& expected    = profile.assets[static_cast<size_t>(i)];
+    const auto  actual      = assets.at(i).toObject();
+    const auto  actual_role = actual.value(QStringLiteral("role")).toString().toStdString();
+    const auto  actual_remote_path =
+        actual.value(QStringLiteral("remote_path")).toString().toStdString();
+    const auto actual_local_path =
+        actual.value(QStringLiteral("local_path")).toString().toStdString();
+    const auto actual_size =
+        static_cast<uint64_t>(actual.value(QStringLiteral("size_bytes")).toDouble());
+    const auto actual_sha256 = actual.value(QStringLiteral("sha256")).toString().toStdString();
+
+    if (actual_role != ToString(expected.role) || actual_remote_path != expected.remote_path ||
+        actual_size != expected.size_bytes ||
+        actual_sha256 != (expected.sha256 == nullptr ? std::string{} : expected.sha256)) {
+      return PL_TEXT("Model manifest asset mismatch: expected %1, found %2.",
+                     QString::fromLatin1(expected.remote_path),
+                     QString::fromStdString(actual_remote_path.empty() ? actual_local_path
+                                                                       : actual_remote_path))
+          .Render();
+    }
+
+    const auto relative_local = ManifestAssetRelativePath(
+        QStringToPath(QString::fromStdString(actual_local_path)), root, stored_model_root);
+    if (relative_local.empty() || relative_local.generic_string() != expected.local_path) {
+      return PL_TEXT("Model manifest file path mismatch: expected %1, found %2.",
+                     QString::fromLatin1(expected.local_path),
+                     QString::fromStdString(actual_local_path))
+          .Render();
+    }
+  }
+
+  return std::nullopt;
 }
 
 auto LoadLocalResolvedModelManifestImpl(const QString& profile_id, const QString& base_directory,
@@ -221,8 +371,19 @@ auto LoadLocalResolvedModelManifestImpl(const QString& profile_id, const QString
     -> std::optional<SemanticResolvedModelManifest> {
   const auto* profile = FindProfile(profile_id);
   const auto  root    = ProfileRootPath(base_directory, QString::fromLatin1(profile->profile_id));
-  const auto  path    = QDir(root).filePath(QString::fromLatin1(kSemanticResolvedManifestFile));
-  QFile       file(path);
+  if (const auto* catalog_profile = FindSemanticProfile(profile->profile_id);
+      catalog_profile != nullptr) {
+    const auto catalog_error =
+        ValidateLocalCatalogModelProfile(*catalog_profile, QStringToPath(root));
+    if (catalog_error.has_value()) {
+      if (error) {
+        *error = *catalog_error;
+      }
+      return std::nullopt;
+    }
+  }
+  const auto path = QDir(root).filePath(QString::fromLatin1(kSemanticResolvedManifestFile));
+  QFile      file(path);
   if (!file.open(QIODevice::ReadOnly)) {
     if (error) {
       *error = PL_TEXT("Model manifest was not found at %1", path).Render();
@@ -334,7 +495,8 @@ auto LoadLocalResolvedModelManifestImpl(const QString& profile_id, const QString
 
 auto NormalizedEndpointPreset(QString preset) -> QString {
   preset = preset.trimmed().toLower();
-  if (preset == QLatin1String("huggingface") || preset == QLatin1String("custom")) {
+  if (preset == QLatin1String("huggingface") || preset == QLatin1String("sufy") ||
+      preset == QLatin1String("custom")) {
     return preset;
   }
   return QStringLiteral("mirror");
@@ -345,18 +507,21 @@ auto EndpointForPreset(const QString& preset, const QString& custom_endpoint) ->
   if (normalized == QLatin1String("huggingface")) {
     return QStringLiteral("https://huggingface.co");
   }
+  if (normalized == QLatin1String("sufy")) {
+    return QStringLiteral("https://hf-cdn.sufy.com");
+  }
   if (normalized == QLatin1String("custom") && !custom_endpoint.trimmed().isEmpty()) {
     return custom_endpoint.trimmed();
   }
   return QStringLiteral("https://hf-mirror.com");
 }
 
-auto ProgressPercent(const SemanticModelManagerResult& result) -> int {
-  if (!result.progress.has_value() || result.progress->bytes_total == 0) {
-    return result.ok && result.status == "installed" ? 100 : 0;
+auto DownloadProgressPercent(const alcedo::ModelDownloadProgress& progress) -> int {
+  if (progress.bytes_total == 0) {
+    return progress.phase == "installed" ? 100 : 0;
   }
-  return static_cast<int>(std::min<uint64_t>(
-      100, (result.progress->bytes_downloaded * 100) / result.progress->bytes_total));
+  return static_cast<int>(
+      std::min<uint64_t>(100, (progress.bytes_downloaded * 100) / progress.bytes_total));
 }
 
 auto ItemsNeedingSemanticGeneration(const std::vector<SemanticGenerationItem>& items,
@@ -410,11 +575,32 @@ class SemanticRuntimeSessionGuard final {
 };
 
 SemanticGenerationController::SemanticGenerationController(AlbumBackend& backend, QObject* parent)
-    : QObject(parent), backend_(backend), model_download_timer_(this) {
+    : QObject(parent), backend_(backend) {
   model_download_status_text_ = PL_TEXT("Model status has not been checked.");
-  model_download_timer_.setInterval(kSemanticModelDownloadPollIntervalMs);
-  connect(&model_download_timer_, &QTimer::timeout, this,
-          &SemanticGenerationController::PollModelDownloadStatus);
+
+  connect(&backend_.model_download_service_, &alcedo::ModelDownloadService::ProgressChanged, this,
+          [this](const alcedo::ModelDownloadProgress& progress) {
+            model_download_progress_ = DownloadProgressPercent(progress);
+            const QString message    = QString::fromStdString(progress.message);
+            model_download_status_text_ =
+                message.isEmpty() ? PL_TEXT("Downloading model... %1%", model_download_progress_)
+                                  : PL_TEXT("%1 (%2%)", message, model_download_progress_);
+            emit StateChanged();
+          });
+  connect(&backend_.model_download_service_, &alcedo::ModelDownloadService::Finished, this,
+          [this](bool ok, const QString& error) {
+            model_download_running_ = false;
+            if (ok) {
+              model_download_progress_    = 100;
+              model_download_status_text_ = PL_TEXT("Model download complete.");
+            } else {
+              model_download_progress_    = 0;
+              model_download_status_text_ = error.isEmpty()
+                                                ? PL_TEXT("Model download failed.")
+                                                : PL_TEXT("Model download failed: %1", error);
+            }
+            emit StateChanged();
+          });
 }
 
 bool SemanticGenerationController::PromptVisible() const {
@@ -565,81 +751,64 @@ void SemanticGenerationController::ResetModelDownloadDirectory() {
 }
 
 void SemanticGenerationController::RefreshSelectedModelStatus() {
-  auto runtime = EnsureModelManagerRuntime();
-  if (!runtime) {
+  const auto  profile_id = SelectedModelProfileId();
+  const auto* profile    = FindSemanticProfile(profile_id.toStdString());
+  if (profile == nullptr) {
+    model_download_progress_    = 0;
+    model_download_status_text_ = PL_TEXT("Unknown semantic model profile: %1", profile_id);
     emit StateChanged();
     return;
   }
 
-  const auto profile_id = SelectedModelProfileId();
-  const auto result     = runtime->ValidateModel(
-      profile_id.toStdString(), PathString(ModelDownloadDirectory()), kSemanticModelManagerTimeout);
-  model_download_progress_ = ProgressPercent(result);
-  if (result.ok) {
+  const auto root  = ModelRootForProfile(profile_id, ModelDownloadDirectory());
+  const auto error = ValidateLocalCatalogModelProfile(*profile, root);
+  if (!error.has_value()) {
+    model_download_progress_ = 100;
     model_download_status_text_ =
-        PL_TEXT("Model is installed at %1",
-                QString::fromStdString(
-                    result.manifest.value_or(SemanticResolvedModelManifest{}).model_root));
+        PL_TEXT("Model is installed at %1", QString::fromStdString(root.string()));
   } else {
-    const QString message =
-        QString::fromStdString(result.error.empty() ? result.status : result.error);
-    model_download_status_text_ = message.isEmpty() ? PL_TEXT("Model is not installed.")
-                                                    : PL_TEXT("Model missing: %1", message);
+    model_download_progress_    = 0;
+    model_download_status_text_ = error->isEmpty() ? PL_TEXT("Model is not installed.")
+                                                   : PL_TEXT("Model missing: %1", *error);
   }
   emit StateChanged();
 }
 
 void SemanticGenerationController::StartSelectedModelDownload() {
-  if (model_download_running_) {
+  if (model_download_running_ || backend_.model_download_service_.IsRunning()) {
     return;
   }
-  auto runtime = EnsureModelManagerRuntime();
-  if (!runtime) {
+
+  const auto profile_id = SelectedModelProfileId();
+  const auto endpoint   = EffectiveModelEndpoint().toStdString();
+  const bool started    = backend_.model_download_service_.StartDownload(
+      profile_id.toStdString(), QStringToPath(ModelDownloadDirectory()), endpoint);
+  if (!started) {
+    model_download_status_text_ = PL_TEXT("Model download failed to start.");
     emit StateChanged();
     return;
   }
 
-  const auto result = runtime->DownloadModel(
-      SelectedModelProfileId().toStdString(), PathString(ModelDownloadDirectory()),
-      EffectiveModelEndpoint().toStdString(), kSemanticModelManagerTimeout);
-  if (!result.ok || result.job_id.empty()) {
-    const QString message =
-        QString::fromStdString(result.error.empty() ? result.status : result.error);
-    model_download_status_text_ = message.isEmpty() ? PL_TEXT("Model download failed to start.")
-                                                    : PL_TEXT("Model download failed: %1", message);
-    model_download_running_     = false;
-    model_download_progress_    = ProgressPercent(result);
-    emit StateChanged();
-    return;
-  }
-
-  model_download_job_id_      = QString::fromStdString(result.job_id);
   model_download_running_     = true;
-  model_download_progress_    = ProgressPercent(result);
+  model_download_progress_    = 0;
   model_download_status_text_ = PL_TEXT("Model download queued from %1", EffectiveModelEndpoint());
-  model_download_timer_.start();
   emit StateChanged();
 }
 
 void SemanticGenerationController::CancelSelectedModelDownload() {
-  if (model_download_job_id_.isEmpty()) {
+  if (!model_download_running_ && !backend_.model_download_service_.IsRunning()) {
     return;
   }
-  auto project = backend_.project_handler_.project();
-  auto runtime = project ? project->GetSemanticRuntimeService() : nullptr;
-  if (!runtime) {
+  if (!backend_.model_download_service_.IsRunning()) {
+    // No active worker will emit Finished; clear local state immediately.
+    model_download_running_     = false;
+    model_download_progress_    = 0;
+    model_download_status_text_ = PL_TEXT("Model download cancelled.");
+    emit StateChanged();
     return;
   }
-
-  std::string message;
-  const bool  cancelled = runtime->CancelModelDownload(model_download_job_id_.toStdString(),
-                                                       kSemanticModelManagerTimeout, &message);
-  model_download_timer_.stop();
-  model_download_running_     = false;
-  model_download_progress_    = 0;
-  model_download_status_text_ = cancelled ? PL_TEXT("Model download cancelled.")
-                                          : PL_TEXT("Model download cancellation failed: %1",
-                                                    QString::fromStdString(message));
+  backend_.model_download_service_.CancelDownload();
+  model_download_status_text_ = PL_TEXT("Cancelling model download...");
   emit StateChanged();
 }
 
@@ -647,22 +816,22 @@ void SemanticGenerationController::DeleteSelectedModel() {
   if (model_download_running_) {
     CancelSelectedModelDownload();
   }
-  auto runtime = EnsureModelManagerRuntime();
-  if (!runtime) {
-    emit StateChanged();
-    return;
+  const auto      profile_id = SelectedModelProfileId();
+  const auto      root       = ModelRootForProfile(profile_id, ModelDownloadDirectory());
+  const auto      staging    = StagingRoot(root);
+  std::error_code ec;
+  if (std::filesystem::exists(staging, ec)) {
+    std::filesystem::remove_all(staging, ec);
   }
-  const auto result =
-      runtime->DeleteModel(SelectedModelProfileId().toStdString(),
-                           PathString(ModelDownloadDirectory()), kSemanticModelManagerTimeout);
+  if (!ec && std::filesystem::exists(root, ec)) {
+    std::filesystem::remove_all(root, ec);
+  }
   model_download_progress_ = 0;
-  if (result.ok) {
+  if (!ec) {
     model_download_status_text_ = PL_TEXT("Model files deleted.");
   } else {
-    const QString message =
-        QString::fromStdString(result.error.empty() ? result.status : result.error);
-    model_download_status_text_ = message.isEmpty() ? PL_TEXT("Model delete failed.")
-                                                    : PL_TEXT("Model delete failed: %1", message);
+    model_download_status_text_ =
+        PL_TEXT("Model delete failed: %1", QString::fromStdString(ec.message()));
   }
   emit StateChanged();
 }
@@ -1222,35 +1391,6 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
   job_             = std::move(job);
 }
 
-auto SemanticGenerationController::EnsureModelManagerRuntime()
-    -> std::shared_ptr<SemanticRuntimeService> {
-  auto project = backend_.project_handler_.project();
-  if (!project) {
-    model_download_status_text_ =
-        PL_TEXT("Open a project before managing semantic model downloads.");
-    return nullptr;
-  }
-  auto runtime = project->GetSemanticRuntimeService();
-  if (!runtime) {
-    model_download_status_text_ = PL_TEXT("Semantic runtime service is unavailable.");
-    return nullptr;
-  }
-  if (runtime->Status().state == SemanticRuntimeState::kReady) {
-    return runtime;
-  }
-
-  SemanticRuntimeOptions options = RuntimeOptionsForProfile(SelectedModelProfileId(), false);
-  if (!runtime->StartAndWait(options)) {
-    const auto    status        = runtime->Status();
-    const QString message       = QString::fromStdString(status.message);
-    model_download_status_text_ = message.isEmpty()
-                                      ? PL_TEXT("Semantic runtime failed to start.")
-                                      : PL_TEXT("Semantic runtime failed to start: %1", message);
-    return nullptr;
-  }
-  return runtime;
-}
-
 auto SemanticGenerationController::RuntimeOptionsForProfile(const QString& profileId,
                                                             bool           profileRoot) const
     -> SemanticRuntimeOptions {
@@ -1267,50 +1407,6 @@ auto SemanticGenerationController::RuntimeOptionsForProfile(const QString& profi
   options.require_model_info = profileRoot;
   options.startup_timeout    = kSemanticRuntimeStartupTimeout;
   return options;
-}
-
-void SemanticGenerationController::PollModelDownloadStatus() {
-  if (model_download_job_id_.isEmpty()) {
-    model_download_timer_.stop();
-    model_download_running_ = false;
-    emit StateChanged();
-    return;
-  }
-  auto project = backend_.project_handler_.project();
-  auto runtime = project ? project->GetSemanticRuntimeService() : nullptr;
-  if (!runtime) {
-    model_download_timer_.stop();
-    model_download_running_     = false;
-    model_download_status_text_ = PL_TEXT("Semantic runtime service is unavailable.");
-    emit StateChanged();
-    return;
-  }
-
-  const auto result        = runtime->GetModelDownloadStatus(model_download_job_id_.toStdString(),
-                                                             kSemanticModelManagerTimeout);
-  model_download_progress_ = ProgressPercent(result);
-  if (result.progress.has_value()) {
-    const QString message = QString::fromStdString(result.progress->message);
-    model_download_status_text_ =
-        message.isEmpty() ? PL_TEXT("Downloading model... %1%", model_download_progress_)
-                          : PL_TEXT("%1 (%2%)", message, model_download_progress_);
-  }
-  if (!result.ok || result.status == "installed" || result.status == "cancelled" ||
-      result.status == "error") {
-    model_download_timer_.stop();
-    model_download_running_ = false;
-    if (result.ok && result.status == "installed") {
-      model_download_progress_    = 100;
-      model_download_status_text_ = PL_TEXT("Model download complete.");
-    } else if (!result.ok || result.status == "error") {
-      const QString message =
-          QString::fromStdString(result.error.empty() ? result.status : result.error);
-      model_download_status_text_ = message.isEmpty()
-                                        ? PL_TEXT("Model download failed.")
-                                        : PL_TEXT("Model download failed: %1", message);
-    }
-  }
-  emit StateChanged();
 }
 
 void SemanticGenerationController::UpdateProgress(const SemanticGenerationProgress& progress) {

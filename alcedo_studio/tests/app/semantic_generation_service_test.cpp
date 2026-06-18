@@ -11,11 +11,13 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <future>
 #include <limits>
 #include <mutex>
 #include <numeric>
 #include <stdexcept>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <utility>
@@ -658,6 +660,85 @@ auto WaitUntil(Predicate predicate, std::chrono::milliseconds timeout = 120s) ->
   return predicate();
 }
 
+// Collects RAW fixture paths for the real-import generation tests.
+//
+// CI pulls a curated RAW set via git-lfs under TEST_IMG_PATH/ci_rawfiles, and
+// that is the only fixture directory guaranteed to exist there. Local dev may
+// keep larger samples under raw/batch_import (flat) or raw/cameras (recursive),
+// so those are used as fallbacks when present. Returns an empty vector when no
+// fixtures are available; callers are expected to GTEST_SKIP() in that case.
+//
+// git-lfs pointer files (a ~130-byte text stub) have the right extension but
+// are not decodable RAW, so a checkout whose LFS objects were not pulled would
+// otherwise make libraw fail mid-test. Such pointers are filtered out here; if
+// every fixture is an unpulled pointer, the result is empty and callers skip.
+auto IsLfsPointer(const std::filesystem::path& path) -> bool {
+  std::ifstream file(path, std::ios::binary);
+  if (!file.is_open()) {
+    return false;
+  }
+  char magic[32] = {0};
+  file.read(magic, sizeof(magic) - 1);
+  return std::string_view(magic).starts_with("version https://git-lfs");
+}
+
+auto CollectSemanticRawFixturePaths(size_t max_count, bool recursive) -> std::vector<image_path_t> {
+  const auto try_collect = [&](const std::filesystem::path& dir) -> std::vector<image_path_t> {
+    std::vector<image_path_t> paths;
+    if (!std::filesystem::exists(dir)) {
+      return paths;
+    }
+    if (recursive) {
+      for (const auto& entry : std::filesystem::recursive_directory_iterator(dir)) {
+        if (!entry.is_regular_file() || !is_supported_file(entry.path())) {
+          continue;
+        }
+        if (IsLfsPointer(entry.path())) {
+          continue;
+        }
+        paths.push_back(entry.path());
+        if (max_count != 0 && paths.size() >= max_count) {
+          break;
+        }
+      }
+    } else {
+      for (const auto& entry : std::filesystem::directory_iterator(dir)) {
+        if (!entry.is_regular_file() || !is_supported_file(entry.path())) {
+          continue;
+        }
+        if (IsLfsPointer(entry.path())) {
+          continue;
+        }
+        paths.push_back(entry.path());
+        if (max_count != 0 && paths.size() >= max_count) {
+          break;
+        }
+      }
+    }
+    std::sort(paths.begin(), paths.end());
+    return paths;
+  };
+
+  auto paths = try_collect(std::filesystem::path(TEST_IMG_PATH) / "ci_rawfiles");
+  if (!paths.empty()) {
+    return paths;
+  }
+  if (recursive) {
+    for (const auto* name : {"cameras", "camera"}) {
+      paths = try_collect(std::filesystem::path(TEST_IMG_PATH) / "raw" / name);
+      if (!paths.empty()) {
+        return paths;
+      }
+    }
+  } else {
+    paths = try_collect(std::filesystem::path(TEST_IMG_PATH) / "raw" / "batch_import");
+    if (!paths.empty()) {
+      return paths;
+    }
+  }
+  return paths;
+}
+
 class SemanticGenerationServiceTest : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -677,21 +758,16 @@ class SemanticGenerationServiceTest : public ::testing::Test {
   }
 
   auto ImportItems(ProjectService& project, size_t count) -> std::vector<SemanticGenerationItem> {
-    auto                        fs_service = project.GetSleeveService();
-    auto                        img_pool   = project.GetImagePoolService();
+    auto                      fs_service = project.GetSleeveService();
+    auto                      img_pool   = project.GetImagePoolService();
 
-    std::vector<image_path_t>   paths;
-    const std::filesystem::path img_dir =
-        std::filesystem::path(TEST_IMG_PATH) / "raw" / "batch_import";
-    for (const auto& entry : std::filesystem::directory_iterator(img_dir)) {
-      if (entry.is_regular_file()) {
-        paths.push_back(entry.path());
-      }
-      if (paths.size() >= count) {
-        break;
-      }
+    std::vector<image_path_t> paths = CollectSemanticRawFixturePaths(count, /*recursive=*/false);
+    if (paths.size() < count) {
+      // Fixtures missing — return empty so the caller GTEST_SKIP()s from the test
+      // body. GTEST_SKIP() expands to a `return`, so it can only short-circuit a
+      // void test body, not this vector-returning helper.
+      return {};
     }
-    EXPECT_GE(paths.size(), count);
 
     ImportServiceImpl          import_service(fs_service, img_pool);
     auto                       import_job = std::make_shared<ImportJob>();
@@ -753,25 +829,7 @@ class SemanticGenerationServiceTest : public ::testing::Test {
   }
 
   auto CollectCameraSampleImages() const -> std::vector<image_path_t> {
-    std::vector<image_path_t> paths;
-    const auto                base = std::filesystem::path(TEST_IMG_PATH) / "raw";
-    auto                      root = base / "cameras";
-    if (!std::filesystem::exists(root)) {
-      root = base / "camera";
-    }
-    if (!std::filesystem::exists(root)) {
-      return paths;
-    }
-    for (const auto& entry : std::filesystem::recursive_directory_iterator(root)) {
-      if (!entry.is_regular_file()) {
-        continue;
-      }
-      if (is_supported_file(entry.path())) {
-        paths.push_back(entry.path());
-      }
-    }
-    std::sort(paths.begin(), paths.end());
-    return paths;
+    return CollectSemanticRawFixturePaths(/*max_count=*/0, /*recursive=*/true);
   }
 
   std::filesystem::path db_path_;
@@ -783,7 +841,10 @@ class SemanticGenerationServiceTest : public ::testing::Test {
 TEST_F(SemanticGenerationServiceTest, UsesRealThumbnailServiceAndBatchesMockEmbedding) {
   ProjectService project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
   auto           items = ImportItems(project, 3);
-  ASSERT_EQ(items.size(), 3u);
+  if (items.size() < 3) {
+    GTEST_SKIP() << "CI RAW fixtures missing under TEST_IMG_PATH/ci_rawfiles; pull the "
+                    "git-lfs fixtures to exercise real-import semantic generation";
+  }
 
   auto pipeline_service  = std::make_shared<PipelineMgmtService>(project.GetStorageService());
   auto history_service   = std::make_shared<EditHistoryMgmtService>(project.GetStorageService());
@@ -857,7 +918,10 @@ TEST_F(SemanticGenerationServiceTest, DecouplesThumbnailAndEmbeddingBatchSizes) 
 TEST_F(SemanticGenerationServiceTest, RealThumbnailFailureSkipsMockEmbeddingForThatItem) {
   ProjectService project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
   auto           items = ImportItems(project, 1);
-  ASSERT_EQ(items.size(), 1u);
+  if (items.empty()) {
+    GTEST_SKIP() << "CI RAW fixtures missing under TEST_IMG_PATH/ci_rawfiles; pull the "
+                    "git-lfs fixtures to exercise real-import semantic generation";
+  }
   items.push_back(SemanticGenerationItem{999999u, 999999u});
 
   auto pipeline_service  = std::make_shared<PipelineMgmtService>(project.GetStorageService());
@@ -893,7 +957,10 @@ TEST_F(SemanticGenerationServiceTest, RealThumbnailFailureSkipsMockEmbeddingForT
 TEST_F(SemanticGenerationServiceTest, CancelDuringMockEmbeddingDoesNotHoldRealThumbnailPin) {
   ProjectService project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
   auto           items = ImportItems(project, 1);
-  ASSERT_EQ(items.size(), 1u);
+  if (items.empty()) {
+    GTEST_SKIP() << "CI RAW fixtures missing under TEST_IMG_PATH/ci_rawfiles; pull the "
+                    "git-lfs fixtures to exercise real-import semantic generation";
+  }
 
   auto pipeline_service  = std::make_shared<PipelineMgmtService>(project.GetStorageService());
   auto thumbnail_service = std::make_shared<ThumbnailService>(
@@ -1164,6 +1231,10 @@ TEST_F(SemanticGenerationServiceTest, SkipsReadyEmbeddingsUnlessForceRegenerate)
 
 TEST_F(SemanticGenerationServiceTest, GeneratesLabelsForRecursiveCameraSampleDatabaseAndSqlChecks) {
   const auto paths = CollectCameraSampleImages();
+  if (paths.empty()) {
+    GTEST_SKIP() << "CI RAW fixtures missing under TEST_IMG_PATH/ci_rawfiles; pull the "
+                    "git-lfs fixtures to exercise recursive real-import semantic generation";
+  }
   ASSERT_GT(paths.size(), 0U);
 
   ProjectService project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
