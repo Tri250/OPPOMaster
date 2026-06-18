@@ -1,11 +1,10 @@
-use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::path::PathBuf;
+use std::sync::Mutex;
 
 use anyhow::{Result, bail};
 use image::RgbImage;
 use ort::{
-    ep,
-    session::{OutputSelector, RunOptions, Session, builder::GraphOptimizationLevel},
+    session::{OutputSelector, RunOptions, Session},
     value::{Tensor, TensorElementType},
 };
 use tokenizers::Tokenizer;
@@ -13,33 +12,18 @@ use tracing::info;
 
 use crate::config::SemanticConfig;
 use crate::service::embedding::{EmbeddingEngine, EngineModelInfo};
+use crate::service::model_adapters::{EngineProfileAdapter, ImageResizeMode};
 #[cfg(test)]
 use crate::service::model_assets::ClipModelPaths;
 use crate::service::model_assets::{
     AssetRole, ModelProfileSpec, find_profile, profile_asset_path, validate_model_profile,
 };
+#[cfg(test)]
+use crate::service::ort_runtime::CoreMlMode;
+use crate::service::ort_runtime::DeviceRequest;
 
-const TEXT_SEQUENCE_LENGTH: usize = 77;
 #[cfg(test)]
 const EMBEDDING_DIM: usize = 512;
-
-const DEVICE_ERROR_MESSAGE: &str = "expected \"auto\", \"cpu\", \"directml\", \"dml\", \"directml:N\", \"dml:N\", \"coreml\", \"coreml:all\", \"coreml:cpuandgpu\", or \"coreml:cpuonly\" for ORT backend device";
-
-static ORT_ENVIRONMENT_INIT: OnceLock<bool> = OnceLock::new();
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DeviceRequest {
-    Auto,
-    Cpu,
-    DirectMl(Option<i32>),
-    CoreMl(CoreMlMode),
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CoreMlMode {
-    All,
-    CpuAndGpu,
-    CpuOnly,
-}
 
 #[derive(Debug, Clone)]
 struct SessionIo {
@@ -53,78 +37,6 @@ struct MultimodalSessionIo {
     image_input_name: String,
     text_output_name: String,
     image_output_name: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ImageResizeMode {
-    ShortestEdgeCenterCrop,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum EngineProfileAdapter {
-    MobileClipOpenClip,
-    JinaClipV2OnnxInt8,
-}
-
-impl EngineProfileAdapter {
-    fn from_profile(profile: &ModelProfileSpec) -> Result<Self> {
-        match profile.engine_profile_id {
-            "mobileclip2-openclip" => Ok(Self::MobileClipOpenClip),
-            "jina-clip-v2-onnx-int8" => Ok(Self::JinaClipV2OnnxInt8),
-            other => bail!(
-                "semantic model profile {} requests unsupported engine adapter {other:?}",
-                profile.profile_id
-            ),
-        }
-    }
-
-    fn supports_current_onnx_loader(self) -> bool {
-        matches!(self, Self::MobileClipOpenClip | Self::JinaClipV2OnnxInt8)
-    }
-
-    fn text_sequence_length(self) -> usize {
-        TEXT_SEQUENCE_LENGTH
-    }
-
-    fn requires_attention_mask(self) -> bool {
-        false
-    }
-
-    fn image_mean_std(self) -> ([f32; 3], [f32; 3]) {
-        match self {
-            Self::MobileClipOpenClip => ([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]),
-            Self::JinaClipV2OnnxInt8 => (
-                [0.48145466, 0.4578275, 0.40821073],
-                [0.26862954, 0.26130258, 0.27577711],
-            ),
-        }
-    }
-
-    fn image_resize_mode(self) -> ImageResizeMode {
-        match self {
-            Self::MobileClipOpenClip | Self::JinaClipV2OnnxInt8 => {
-                ImageResizeMode::ShortestEdgeCenterCrop
-            }
-        }
-    }
-
-    fn uses_multimodal_session(self) -> bool {
-        matches!(self, Self::JinaClipV2OnnxInt8)
-    }
-
-    fn preferred_text_output_name(self) -> &'static str {
-        match self {
-            Self::JinaClipV2OnnxInt8 => "l2norm_text_embeddings",
-            Self::MobileClipOpenClip => "",
-        }
-    }
-
-    fn preferred_image_output_name(self) -> &'static str {
-        match self {
-            Self::JinaClipV2OnnxInt8 => "l2norm_image_embeddings",
-            Self::MobileClipOpenClip => "",
-        }
-    }
 }
 
 pub struct OrtClipEngine {
@@ -151,167 +63,11 @@ pub struct OrtClipEngine {
 
 impl OrtClipEngine {
     fn parse_device_request(value: &str) -> Result<DeviceRequest> {
-        let value = value.trim();
-        if value.is_empty() {
-            bail!("unsupported ALCEDO_MIND_DEVICE value {value:?}, {DEVICE_ERROR_MESSAGE}");
-        }
-
-        let value_lower = value.to_ascii_lowercase();
-
-        if value_lower == "auto" {
-            return Ok(DeviceRequest::Auto);
-        }
-        if value_lower == "cpu" {
-            return Ok(DeviceRequest::Cpu);
-        }
-
-        if value_lower == "directml" || value_lower == "dml" {
-            return Ok(DeviceRequest::DirectMl(None));
-        }
-        if value_lower == "coreml" || value_lower == "coreml:all" {
-            return Ok(DeviceRequest::CoreMl(CoreMlMode::All));
-        }
-        if value_lower == "coreml:cpuandgpu" {
-            return Ok(DeviceRequest::CoreMl(CoreMlMode::CpuAndGpu));
-        }
-        if value_lower == "coreml:cpuonly" {
-            return Ok(DeviceRequest::CoreMl(CoreMlMode::CpuOnly));
-        }
-
-        if let Some(ordinal_text) = value_lower
-            .strip_prefix("directml:")
-            .or_else(|| value_lower.strip_prefix("dml:"))
-        {
-            if ordinal_text.is_empty() {
-                bail!("missing directml device ordinal in {value:?}");
-            }
-
-            let ordinal = ordinal_text.parse::<i32>().map_err(|_| {
-                anyhow::anyhow!("invalid directml device ordinal {ordinal_text:?} in {value:?}")
-            })?;
-
-            if ordinal < 0 {
-                bail!("directml device ordinal must be >= 0 in {value:?}");
-            }
-
-            return Ok(DeviceRequest::DirectMl(Some(ordinal)));
-        }
-
-        if value_lower.starts_with("coreml:") {
-            bail!("unsupported Core ML mode in {value:?}, {DEVICE_ERROR_MESSAGE}");
-        }
-
-        if value_lower == "cuda"
-            || value_lower.starts_with("cuda:")
-            || value_lower == "metal"
-            || value_lower.starts_with("metal:")
-        {
-            bail!(
-                "ALCEDO_MIND_DEVICE={value:?} is not supported by the ORT backend; use \"directml\"/\"dml\" on Windows or \"cpu\""
-            );
-        }
-
-        bail!("unsupported ALCEDO_MIND_DEVICE value {value:?}, {DEVICE_ERROR_MESSAGE}")
-    }
-
-    fn initialize_ort_environment() -> Result<()> {
-        let _ = ORT_ENVIRONMENT_INIT.get_or_init(|| {
-            ort::init()
-                .with_execution_providers([ep::CPU::default().build()])
-                .commit()
-        });
-
-        Ok(())
+        crate::service::ort_runtime::parse_device_request(value)
     }
 
     fn describe_device_request(device_request: DeviceRequest) -> String {
-        match device_request {
-            DeviceRequest::Auto => {
-                if cfg!(target_os = "windows") {
-                    "auto (DirectML preferred, CPU fallback)".to_string()
-                } else {
-                    "auto (CoreML preferred on macOS, CPU fallback elsewhere)".to_string()
-                }
-            }
-            DeviceRequest::Cpu => "cpu".to_string(),
-            DeviceRequest::DirectMl(None) => "directml".to_string(),
-            DeviceRequest::DirectMl(Some(ordinal)) => format!("directml:{ordinal}"),
-            DeviceRequest::CoreMl(CoreMlMode::All) => "coreml:all".to_string(),
-            DeviceRequest::CoreMl(CoreMlMode::CpuAndGpu) => "coreml:cpuandgpu".to_string(),
-            DeviceRequest::CoreMl(CoreMlMode::CpuOnly) => "coreml:cpuonly".to_string(),
-        }
-    }
-
-    fn execution_providers_for_device_request(
-        device_request: DeviceRequest,
-    ) -> Result<Vec<ep::ExecutionProviderDispatch>> {
-        match device_request {
-            DeviceRequest::Auto => {
-                if cfg!(target_os = "windows") {
-                    Ok(vec![
-                        ep::DirectML::default().build(),
-                        ep::CPU::default().build(),
-                    ])
-                } else if cfg!(target_os = "macos") {
-                    Ok(vec![
-                        ep::CoreML::default()
-                            .with_compute_units(ep::coreml::ComputeUnits::All)
-                            .build(),
-                        ep::CPU::default().build(),
-                    ])
-                } else {
-                    Ok(vec![ep::CPU::default().build()])
-                }
-            }
-            DeviceRequest::Cpu => Ok(vec![ep::CPU::default().build()]),
-            DeviceRequest::DirectMl(device_id) => {
-                if !cfg!(target_os = "windows") {
-                    bail!(
-                        "ALCEDO_MIND_DEVICE requests DirectML, but DirectML is only supported on Windows for the ORT backend"
-                    );
-                }
-
-                let directml = match device_id {
-                    Some(ordinal) => ep::DirectML::default().with_device_id(ordinal).build(),
-                    None => ep::DirectML::default().build(),
-                };
-
-                Ok(vec![directml, ep::CPU::default().build()])
-            }
-            DeviceRequest::CoreMl(mode) => {
-                if !cfg!(target_os = "macos") {
-                    bail!(
-                        "device requests Core ML, but Core ML is only supported on macOS for the ORT backend"
-                    );
-                }
-
-                let units = match mode {
-                    CoreMlMode::All => ep::coreml::ComputeUnits::All,
-                    CoreMlMode::CpuAndGpu => ep::coreml::ComputeUnits::CPUAndGPU,
-                    CoreMlMode::CpuOnly => ep::coreml::ComputeUnits::CPUOnly,
-                };
-                Ok(vec![
-                    ep::CoreML::default().with_compute_units(units).build(),
-                    ep::CPU::default().build(),
-                ])
-            }
-        }
-    }
-
-    fn load_session(path: &Path, device_request: DeviceRequest) -> Result<Session> {
-        let builder = Session::builder()
-            .map_err(|e| anyhow::anyhow!("failed to create ORT session builder: {e}"))?;
-        let builder = builder
-            .with_optimization_level(GraphOptimizationLevel::Level3)
-            .map_err(|e| anyhow::anyhow!("failed to set ORT optimization level: {e}"))?;
-        let execution_providers = Self::execution_providers_for_device_request(device_request)?;
-        let mut builder = builder
-            .with_execution_providers(execution_providers)
-            .map_err(|e| anyhow::anyhow!("failed to configure ORT execution providers: {e}"))?;
-
-        builder
-            .commit_from_file(path)
-            .map_err(|e| anyhow::anyhow!("failed to load ONNX model {}: {e}", path.display()))
+        crate::service::ort_runtime::describe_device_request(device_request)
     }
 
     fn validate_text_session(
@@ -771,74 +527,14 @@ impl OrtClipEngine {
             .collect()
     }
 
-    fn l2_normalize(mut embedding: Vec<f32>) -> Result<Vec<f32>> {
-        if embedding.iter().any(|value| !value.is_finite()) {
-            bail!("embedding contains non-finite values");
-        }
-
-        let norm = embedding
-            .iter()
-            .map(|value| (*value as f64) * (*value as f64))
-            .sum::<f64>()
-            .sqrt();
-
-        if norm == 0.0 {
-            bail!("embedding norm is zero");
-        }
-
-        for value in &mut embedding {
-            *value = (*value as f64 / norm) as f32;
-        }
-        Ok(embedding)
-    }
-
-    fn apply_embedding_transform(&self, mut embedding: Vec<f32>) -> Result<Vec<f32>> {
-        if embedding.len() != self.native_embedding_dim {
-            bail!(
-                "unexpected native embedding length {}, expected {} for profile {}",
-                embedding.len(),
-                self.native_embedding_dim,
-                self.profile_id
-            );
-        }
-
-        match self.embedding_transform.as_str() {
-            "l2_normalize" => {
-                if self.embedding_dim != self.native_embedding_dim {
-                    bail!(
-                        "profile {} uses l2_normalize but output dim {} differs from native dim {}",
-                        self.profile_id,
-                        self.embedding_dim,
-                        self.native_embedding_dim
-                    );
-                }
-            }
-            "matryoshka_truncate_then_l2_normalize" => {
-                if self.embedding_dim > self.native_embedding_dim {
-                    bail!(
-                        "profile {} cannot truncate native dim {} to larger output dim {}",
-                        self.profile_id,
-                        self.native_embedding_dim,
-                        self.embedding_dim
-                    );
-                }
-                embedding.truncate(self.embedding_dim);
-            }
-            other => bail!(
-                "profile {} requests unsupported embedding transform {other:?}",
-                self.profile_id
-            ),
-        }
-
-        if embedding.len() != self.embedding_dim {
-            bail!(
-                "transformed embedding length {}, expected {} for profile {}",
-                embedding.len(),
-                self.embedding_dim,
-                self.profile_id
-            );
-        }
-        Self::l2_normalize(embedding)
+    fn apply_embedding_transform(&self, embedding: Vec<f32>) -> Result<Vec<f32>> {
+        crate::service::model_adapters::apply_embedding_transform(
+            &self.profile_id,
+            self.embedding_dim,
+            self.native_embedding_dim,
+            &self.embedding_transform,
+            embedding,
+        )
     }
 
     pub fn forward_text_embeddings(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
@@ -1021,7 +717,7 @@ impl OrtClipEngine {
             );
         }
 
-        Self::initialize_ort_environment()?;
+        crate::service::ort_runtime::initialize_ort_environment()?;
 
         let device_description = Self::describe_device_request(device_request);
         info!(
@@ -1035,7 +731,8 @@ impl OrtClipEngine {
             if adapter.uses_multimodal_session() {
                 let multimodal_model =
                     profile_asset_path(profile, &config.model_root, AssetRole::MultimodalModel)?;
-                let session = Self::load_session(&multimodal_model, device_request)?;
+                let session =
+                    crate::service::ort_runtime::load_session(&multimodal_model, device_request)?;
                 let io = Self::validate_multimodal_session(
                     &session,
                     manifest.image_size as usize,
@@ -1049,7 +746,8 @@ impl OrtClipEngine {
                 let vision_model =
                     profile_asset_path(profile, &config.model_root, AssetRole::VisionModel)?;
 
-                let text_session = Self::load_session(&text_model, device_request)?;
+                let text_session =
+                    crate::service::ort_runtime::load_session(&text_model, device_request)?;
                 let text_io = Self::validate_text_session(
                     &text_session,
                     adapter.text_sequence_length(),
@@ -1057,7 +755,8 @@ impl OrtClipEngine {
                     adapter.requires_attention_mask(),
                 )?;
 
-                let vision_session = Self::load_session(&vision_model, device_request)?;
+                let vision_session =
+                    crate::service::ort_runtime::load_session(&vision_model, device_request)?;
                 let vision_io = Self::validate_vision_session(
                     &vision_session,
                     manifest.image_size as usize,
