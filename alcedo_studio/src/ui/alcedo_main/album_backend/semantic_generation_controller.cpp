@@ -1133,30 +1133,26 @@ auto SemanticGenerationController::LabelDisplayText(sl_element_id_t elementId) c
   const auto display_label    = [&](const std::string& value) {
     return QString::fromUtf8(::alcedo::SemanticLabelDisplayText(value, display_language).c_str());
   };
-  if (label->confident_ || label->top_scores_json_.empty()) {
-    return display_label(label->label_);
-  }
-
+  // top_scores_json_ is already elbow-truncated at assignment time, so it holds exactly
+  // the tags worth showing for this image (a single entry when top-1 dominates, several
+  // when the score distribution supports them). Display them as-is rather than
+  // re-filtering against a fixed margin here.
   const QJsonDocument doc =
       QJsonDocument::fromJson(QByteArray::fromStdString(label->top_scores_json_));
   if (!doc.isArray()) {
     return display_label(label->label_);
   }
-  const auto  array      = doc.array();
-  const auto  best_score = label->score_;
+  const auto  array = doc.array();
   QStringList labels;
   for (const auto& value : array) {
     const auto object = value.toObject();
-    const auto score  = object.value(QStringLiteral("score")).toDouble(-1.0);
     const auto name   = object.value(QStringLiteral("label")).toString();
     if (name.isEmpty()) {
       continue;
     }
-    if (labels.isEmpty() || (best_score - score) <= kDefaultSemanticLabelMarginThreshold) {
-      labels.push_back(display_label(name.toStdString()));
-      if (labels.size() >= static_cast<qsizetype>(kMaxSemanticImageLabelCount)) {
-        break;
-      }
+    labels.push_back(display_label(name.toStdString()));
+    if (labels.size() >= static_cast<qsizetype>(kMaxSemanticImageLabelCount)) {
+      break;
     }
   }
   return labels.isEmpty() ? display_label(label->label_) : labels.join(QStringLiteral(", "));

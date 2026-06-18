@@ -979,7 +979,7 @@ def_library(ProjectService
         app/project_package_service.cpp
         ui/alcedo_main/album_backend/path_utils.cpp
     PUBLIC_DEPS FSService StorageService ImagePoolService AlbumBrowseService SleeveFilterService
-                SemanticRuntimeService
+                SemanticRuntimeService ModelDownloadService
                 StrConv JSON xxHash stduuid
     PRIVATE_DEPS
         UiLocalization

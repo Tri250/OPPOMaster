@@ -24,6 +24,10 @@ inline constexpr double kDefaultSemanticLabelConfidenceThreshold = 0.20;
 inline constexpr double kDefaultSemanticLabelMarginThreshold     = 0.03;
 inline constexpr size_t kMaxSemanticImageLabelCount              = 3;
 inline constexpr size_t kDefaultSemanticLabelTopScoreCount       = kMaxSemanticImageLabelCount;
+// How many label prototypes to rank per image before the elbow decides which to keep.
+// Analog of kSemanticSearchMinCandidatePool on the search side: large enough for the
+// elbow to see a knee in the score distribution, independent of the display cap.
+inline constexpr size_t kSemanticLabelCandidatePoolSize          = 10;
 
 enum class SemanticLabelLanguage : uint8_t {
   kEnglish = 0,

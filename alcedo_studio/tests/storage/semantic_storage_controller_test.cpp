@@ -52,6 +52,16 @@ auto ClosePairQuery(size_t first, size_t second) -> std::vector<float> {
   return embedding;
 }
 
+// Caller-controlled weights per axis, so a fixture can craft a precise descending score
+// shape (a close top group followed by a cliff) for the elbow to cut after.
+auto WeightedQuery(const std::vector<std::pair<size_t, float>>& weights) -> std::vector<float> {
+  std::vector<float> embedding(kSemanticEmbeddingDim, 0.0F);
+  for (const auto& [index, weight] : weights) {
+    embedding.at(index) = weight;
+  }
+  return embedding;
+}
+
 auto UnitVectorWithSimilarity(size_t primary, size_t auxiliary, float similarity)
     -> std::vector<float> {
   std::vector<float> embedding(kSemanticEmbeddingDim, 0.0F);
@@ -568,17 +578,91 @@ TEST_F(SemanticStorageControllerTest, AssignsLabelInDatabaseTransaction) {
   EXPECT_EQ(semantic.CountImageEmbeddingsForFile(file_id, kModelKey), 1U);
   EXPECT_EQ(semantic.CountImageLabelsForFile(file_id, kModelKey), 1U);
   EXPECT_EQ(assigned_label.label_, "landscape");
-  EXPECT_EQ(assigned_label.second_label_, "portrait");
+  // MixedQuery(4,5) scores [0.95, 0.05, 0, 0, 0]: a cliff after the top match. The elbow
+  // keeps only one label, so the 0.05 runner-up is dropped rather than assigned as a
+  // spurious second tag.
+  EXPECT_TRUE(assigned_label.second_label_.empty());
   EXPECT_TRUE(assigned_label.confident_);
   EXPECT_NE(assigned_label.top_scores_json_.find("landscape"), std::string::npos);
-  EXPECT_EQ(CountSubstring(assigned_label.top_scores_json_, "\"label\""),
-            kMaxSemanticImageLabelCount);
+  EXPECT_EQ(CountSubstring(assigned_label.top_scores_json_, "\"label\""), 1U);
 
   const auto stored_label = semantic.GetImageLabelForFile(file_id, kModelKey, &error);
   ASSERT_TRUE(stored_label.has_value()) << error;
   EXPECT_EQ(stored_label->label_, "landscape");
-  EXPECT_EQ(stored_label->second_label_, "portrait");
+  EXPECT_TRUE(stored_label->second_label_.empty());
   EXPECT_TRUE(stored_label->confident_);
+}
+
+TEST_F(SemanticStorageControllerTest, AssignsElbowTruncatedLabelsByScoreDistribution) {
+  ProjectService project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
+  auto&          semantic = project.GetStorageService()->GetSemanticStorageController();
+  RegisterTestModel(semantic);
+
+  std::vector<SemanticLabelPrototypeRecord> prototypes{
+      SemanticLabelPrototypeRecord{.model_key_ = kModelKey, .label_ = "landscape",
+                                   .prompt_config_hash_ = "test-prompts", .embedding_ = OneHot(4)},
+      SemanticLabelPrototypeRecord{.model_key_ = kModelKey, .label_ = "portrait",
+                                   .prompt_config_hash_ = "test-prompts", .embedding_ = OneHot(5)},
+      SemanticLabelPrototypeRecord{.model_key_ = kModelKey, .label_ = "architecture",
+                                   .prompt_config_hash_ = "test-prompts", .embedding_ = OneHot(6)},
+      SemanticLabelPrototypeRecord{.model_key_ = kModelKey, .label_ = "street",
+                                   .prompt_config_hash_ = "test-prompts", .embedding_ = OneHot(7)},
+      SemanticLabelPrototypeRecord{.model_key_ = kModelKey, .label_ = "product",
+                                   .prompt_config_hash_ = "test-prompts", .embedding_ = OneHot(8)}};
+  std::string error;
+  ASSERT_TRUE(semantic.UpsertLabelPrototypes(prototypes, &error)) << error;
+
+  SemanticLabelAssignmentOptions assignment_options;
+  assignment_options.prompt_config_hash_ = "test-prompts";
+
+  // Two close top matches (0.72 / 0.69) then a cliff to zero: the elbow keeps both, so a
+  // genuine runner-up survives as a second tag instead of being clipped by a hard top-1.
+  {
+    const auto file_id = CreateSyntheticFile(project, L"db_pair.raf");
+    const auto rows    = project.GetStorageService()->GetElementController().ListFilesInFolder(0);
+    ASSERT_EQ(rows.size(), 1U);
+    SemanticImageEmbeddingRecord embedding{.file_id_   = file_id,
+                                            .image_id_  = rows.front().image_id_,
+                                            .model_key_ = kModelKey,
+                                            .embedding_ = ClosePairQuery(4, 5)};
+    SemanticImageLabelRecord     assigned;
+    ASSERT_TRUE(semantic.UpsertImageEmbeddingAndAssignLabel(embedding, assignment_options,
+                                                            &assigned, &error))
+        << error;
+    EXPECT_EQ(assigned.label_, "landscape");
+    EXPECT_EQ(assigned.second_label_, "portrait");
+    EXPECT_EQ(CountSubstring(assigned.top_scores_json_, "\"label\""), 2U);
+  }
+
+  // Three close top matches (1.0 / 0.9 / 0.8) then a cliff: the elbow keeps all three,
+  // hitting the kMaxSemanticImageLabelCount display cap.
+  {
+    const auto file_id = CreateSyntheticFile(project, L"db_triple.raf");
+    const auto rows    = project.GetStorageService()->GetElementController().ListFilesInFolder(0);
+    ASSERT_EQ(rows.size(), 2U);
+    uint32_t image_id = 0;
+    for (const auto& row : rows) {
+      if (row.file_id_ == file_id) {
+        image_id = row.image_id_;
+        break;
+      }
+    }
+    ASSERT_NE(image_id, 0U);
+    SemanticImageEmbeddingRecord embedding{
+        .file_id_   = file_id,
+        .image_id_  = image_id,
+        .model_key_ = kModelKey,
+        .embedding_ = WeightedQuery({{4, 1.0F}, {5, 0.9F}, {6, 0.8F}})};
+    SemanticImageLabelRecord assigned;
+    ASSERT_TRUE(semantic.UpsertImageEmbeddingAndAssignLabel(embedding, assignment_options,
+                                                            &assigned, &error))
+        << error;
+    EXPECT_EQ(assigned.label_, "landscape");
+    EXPECT_EQ(assigned.second_label_, "portrait");
+    EXPECT_EQ(CountSubstring(assigned.top_scores_json_, "\"label\""),
+              kMaxSemanticImageLabelCount);
+    EXPECT_NE(assigned.top_scores_json_.find("architecture"), std::string::npos);
+  }
 }
 
 TEST_F(SemanticStorageControllerTest, DeletingFileRemovesSemanticRows) {

@@ -1135,7 +1135,10 @@ TEST_F(SemanticGenerationServiceTest, PersistsEmbeddingsAndAssignedLabels) {
   const auto stored_label = semantic.GetImageLabelForFile(42, "mobileclip-test", &error);
   ASSERT_TRUE(stored_label.has_value()) << error;
   EXPECT_EQ(stored_label->label_, "street");
-  EXPECT_EQ(stored_label->second_label_, "landscape");
+  // The image is a pure one-hot "street" vector; every other prototype scores at most 0.25
+  // (landscape shares the street axis synthetically). The elbow sees a cliff after the top
+  // match and keeps only one label, so no spurious second tag is assigned.
+  EXPECT_TRUE(stored_label->second_label_.empty());
 }
 
 TEST_F(SemanticGenerationServiceTest, PersistsLocalizedChineseLabelsAndMapsDisplayText) {
@@ -1315,11 +1318,13 @@ TEST_F(SemanticGenerationServiceTest, GeneratesLabelsForRecursiveCameraSampleDat
                            "WHERE model_key = 'mobileclip-test' "
                            "AND label IN ('product', 'street', 'architecture');"),
             0);
+  // The Mixed512(street, landscape, 0.985) route yields a near-tied top-2 (landscape then
+  // street), so the elbow keeps both: at least one stored row carries more than one tag in
+  // its top_scores JSON (entries are separated by "},{").
   EXPECT_GT(RawScalarInt64(sql_guard.conn_,
                            "SELECT COUNT(*) FROM SemanticImageLabel "
                            "WHERE model_key = 'mobileclip-test' "
-                           "AND confident = FALSE "
-                           "AND top_scores::VARCHAR LIKE '%landscape%';"),
+                           "AND top_scores::VARCHAR LIKE '%},{%';"),
             0);
 }
 

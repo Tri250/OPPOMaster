@@ -16,6 +16,7 @@
 #include <limits>
 #include <locale>
 #include <optional>
+#include <span>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -115,17 +116,20 @@ auto SqlFloatArrayLiteral(std::span<const float> values) -> std::string {
   return out.str();
 }
 
-auto SemanticSearchScoreCutoff(std::span<const SemanticRankedFile> ranked) -> double {
-  if (ranked.empty()) {
+// Elbow/knee cutoff over a pre-sorted descending score sequence. Score-only so it
+// can be shared by semantic search (over many files) and label assignment (over a
+// handful of prototypes). Returns a cutoff score: every item at or above it is kept.
+auto ElbowScoreCutoffCore(std::span<const double> scores_desc) -> double {
+  if (scores_desc.empty()) {
     return 0.0;
   }
-  if (ranked.size() <= 2) {
-    return ranked.back().score_;
+  if (scores_desc.size() <= 2) {
+    return scores_desc.back();
   }
 
-  const auto   sample_count = std::min(ranked.size(), kSemanticSearchCutoffSampleLimit);
-  const double top_score    = ranked.front().score_;
-  const double tail_score   = ranked[sample_count - 1].score_;
+  const auto   sample_count = std::min(scores_desc.size(), kSemanticSearchCutoffSampleLimit);
+  const double top_score    = scores_desc.front();
+  const double tail_score   = scores_desc[sample_count - 1];
   const double score_span   = top_score - tail_score;
   if (score_span <= std::abs(top_score) * kSemanticFlatScoreSpanRatio) {
     return tail_score;
@@ -136,7 +140,7 @@ auto SemanticSearchScoreCutoff(std::span<const SemanticRankedFile> ranked) -> do
   double best_gap   = 0.0;
   size_t best_index = 0;
   for (size_t i = 0; i + 1 < sample_count; ++i) {
-    const double gap = ranked[i].score_ - ranked[i + 1].score_;
+    const double gap = scores_desc[i] - scores_desc[i + 1];
     gaps.push_back(gap);
     if (gap > best_gap) {
       best_gap   = gap;
@@ -150,10 +154,53 @@ auto SemanticSearchScoreCutoff(std::span<const SemanticRankedFile> ranked) -> do
   const bool   has_clear_elbow = best_gap >= score_span * kSemanticElbowGapToSpanRatio &&
                                best_gap >= median_gap * kSemanticElbowGapToMedianRatio;
   if (has_clear_elbow) {
-    return (ranked[best_index].score_ + ranked[best_index + 1].score_) / 2.0;
+    return (scores_desc[best_index] + scores_desc[best_index + 1]) / 2.0;
   }
 
   return top_score - (score_span * kSemanticFallbackScoreSpanKeepRatio);
+}
+
+auto SemanticSearchScoreCutoff(std::span<const SemanticRankedFile> ranked) -> double {
+  std::vector<double> scores;
+  scores.reserve(ranked.size());
+  for (const auto& row : ranked) {
+    scores.push_back(row.score_);
+  }
+  return ElbowScoreCutoffCore(scores);
+}
+
+// Decides how many label candidates to keep for one image from its ranked (label, score)
+// list, which is sorted by score descending. Mirrors the small-N short-circuit of the
+// elbow core (keep everything when there are at most two candidates), then keeps every
+// candidate at or above the elbow cutoff, clamped to ``ceiling`` (the display cap).
+auto ElbowLabelKeepCount(const std::vector<std::pair<std::string, double>>& scores, size_t ceiling)
+    -> size_t {
+  if (scores.empty()) {
+    return 0;
+  }
+  const size_t effective_ceiling = std::max<size_t>(1, ceiling);
+  if (scores.size() <= 2) {
+    return std::min(scores.size(), effective_ceiling);
+  }
+
+  std::vector<double> score_values;
+  score_values.reserve(scores.size());
+  for (const auto& [label, score] : scores) {
+    (void)label;
+    score_values.push_back(score);
+  }
+  const double cutoff = ElbowScoreCutoffCore(score_values);
+
+  size_t keep = 0;
+  for (const auto& [label, score] : scores) {
+    (void)label;
+    if (score >= cutoff) {
+      ++keep;
+    } else {
+      break;  // scores are sorted descending; nothing past the first miss can qualify
+    }
+  }
+  return std::clamp(keep, size_t{1}, effective_ceiling);
 }
 
 auto FilterAndPageSemanticCandidates(std::vector<SemanticRankedFile> candidates, size_t offset,
@@ -479,19 +526,31 @@ auto BuildAssignedLabel(sl_element_id_t file_id, const std::string& model_key,
                         const SemanticLabelAssignmentOptions&              assignment_options,
                         const std::vector<std::pair<std::string, double>>& scores)
     -> SemanticImageLabelRecord {
-  const auto               second_score = scores.size() > 1 ? scores[1].second : 0.0;
+  // The elbow decides how many of the ranked candidates are genuinely relevant for this
+  // image; the rest are noise and are dropped before they reach the stored JSON. The
+  // display ceiling (top_score_count_, capped at kMaxSemanticImageLabelCount) bounds k.
+  const size_t ceiling = std::min(assignment_options.top_score_count_, kMaxSemanticImageLabelCount);
+  const size_t keep    = ElbowLabelKeepCount(scores, ceiling);
+  // margin_ always measures the gap to the true nearest competitor (scores[1]), independent
+  // of how many labels the elbow kept, so confident_ still reflects whether top-1 dominates.
+  const double second_score = scores.size() > 1 ? scores[1].second : 0.0;
 
   SemanticImageLabelRecord label;
-  label.file_id_      = file_id;
-  label.model_key_    = model_key;
-  label.label_        = scores[0].first;
-  label.score_        = scores[0].second;
-  label.second_label_ = scores.size() > 1 ? scores[1].first : std::string{};
-  label.second_score_ = scores.size() > 1 ? std::optional<double>(scores[1].second) : std::nullopt;
-  label.margin_       = scores[0].second - second_score;
-  label.confident_    = label.score_ >= assignment_options.confidence_score_threshold_ &&
+  label.file_id_   = file_id;
+  label.model_key_ = model_key;
+  label.label_     = scores[0].first;
+  label.score_     = scores[0].second;
+  if (keep >= 2 && scores.size() > 1) {
+    label.second_label_ = scores[1].first;
+    label.second_score_ = std::optional<double>(scores[1].second);
+  } else {
+    label.second_label_ = std::string{};
+    label.second_score_ = std::nullopt;
+  }
+  label.margin_ = scores[0].second - second_score;
+  label.confident_ = label.score_ >= assignment_options.confidence_score_threshold_ &&
                      label.margin_ >= assignment_options.confidence_margin_threshold_;
-  label.top_scores_json_ = MakeTopScoresJson(scores, assignment_options.top_score_count_);
+  label.top_scores_json_ = MakeTopScoresJson(scores, keep);
   return label;
 }
 
@@ -508,8 +567,9 @@ auto QueryAssignedLabel(duckdb_connection conn, const SemanticImageEmbeddingReco
     return std::nullopt;
   }
 
-  const auto result_limit = std::max<size_t>(
-      std::min(assignment_options.top_score_count_, kMaxSemanticImageLabelCount), 2U);
+  // Rank enough prototypes for the elbow to find a knee; the display cap is applied
+  // later in BuildAssignedLabel, not here.
+  const auto result_limit = kSemanticLabelCandidatePoolSize;
   const auto sql = std::format(
       "SELECT lp.label, array_inner_product(lp.embedding, se.embedding) AS score "
       "FROM {} lp "
@@ -771,8 +831,9 @@ auto QueryAssignedLabelsBatch(duckdb_connection                             conn
     index_by_file.emplace(records[i].file_id_, i);
   }
 
-  const auto result_limit = std::max<size_t>(
-      std::min(assignment_options.top_score_count_, kMaxSemanticImageLabelCount), 2U);
+  // Rank enough prototypes for the elbow to find a knee; the display cap is applied
+  // later in BuildAssignedLabel, not here.
+  const auto result_limit = kSemanticLabelCandidatePoolSize;
   const auto sql = std::format(
       "WITH scored AS ("
       "SELECT se.file_id AS file_id, lp.label AS label, "
