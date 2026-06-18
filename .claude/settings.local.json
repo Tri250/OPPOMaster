@@ -138,7 +138,8 @@
       "Read(//private/tmp/**)",
       "Bash(rm -rf aria2-ws-src)",
       "Bash(gh api *)",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(gh release *)"
     ]
   }
 }

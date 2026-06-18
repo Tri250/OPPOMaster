@@ -5,16 +5,35 @@ import './style.css';
 // ========================================
 const translations = {
   zh: {
-    'meta.title': 'Alcedo Studio — 免费开源的专业级 RAW 图像处理软件',
-    'meta.desc': 'Alcedo Studio 是一款开源免费的 RAW 图像处理软件，支持 Windows/CUDA 和 macOS/Metal，提供专业级色彩科学与高性能处理引擎。',
+    'meta.title': 'Alcedo Studio — AI 驱动的开源专业级 RAW 图像处理软件',
+    'meta.desc': 'Alcedo Studio 是一款 AI 驱动、开源免费的 RAW 图像处理软件，支持 Windows/CUDA 和 macOS/Metal，提供专业级色彩科学、AI 内容识别与自然语言检索及高性能处理引擎。',
+    'nav.ai': 'AI 智能',
     'nav.features': '功能特性',
-    'nav.films': '胶片预设',
+    'nav.films': '胶片模拟',
     'nav.download': '下载',
-    'hero.badge1': '开源免费',
+    'hero.badge1': 'AI 驱动 · 开源免费',
     'hero.badge2': 'Windows / macOS',
-    'hero.subtitle': '专业级 RAW 图像处理，不该被价格束缚',
-    'hero.desc': '开源免费的 RAW 图像处理软件，支持 Windows/CUDA 与 macOS/Metal 双平台。丰富的调整工具、高性能处理引擎、强大的影像管理——为摄影师与创作者而生。',
+    'hero.subtitle': '<span class="text-gold">AI 驱动</span>的专业级 RAW 图像处理，不该被价格束缚',
+    'hero.desc': 'AI 驱动、开源免费的 RAW 图像处理软件，支持 Windows/CUDA 与 macOS/Metal 双平台。AI 内容识别、自然语言检索、丰富的胶片模拟与调整工具、高性能处理引擎、强大的影像管理——为摄影师与创作者而生。',
     'hero.download': '免费下载',
+    'ai.label': 'AI POWERED',
+    'ai.title': '让 AI 成为你的<br/><span class="text-gradient">影像助理</span>',
+    'ai.desc': '从内容识别到自然语言检索，Alcedo Studio 将 AI 深度融入影像管理流程，让你用最自然的方式找到、筛选与组织照片。',
+    'ai.f1.title': 'AI 内容识别',
+    'ai.f1.desc': '导入即自动分析画面内容，为每张照片生成语义标签——场景、主体、风格、情绪一应俱全。无需手动关键字，海量图库也能被精准理解与组织。',
+    'ai.f1.tag1': '自动语义标注',
+    'ai.f1.tag2': '场景 / 主体识别',
+    'ai.f1.tag3': '导入即生成',
+    'ai.f2.title': 'AI 内容过滤',
+    'ai.f2.desc': '基于语义标签的智能筛选器，一键过滤“人像”“日落”“街拍”等内容主题。从成千上万张照片中秒速定位目标，让筛选从体力活变成一键操作。',
+    'ai.f2.tag1': '语义主题筛选',
+    'ai.f2.tag2': '一键过滤',
+    'ai.f2.tag3': '与 EXIF 叠加',
+    'ai.f3.title': 'AI 自然语言搜索',
+    'ai.f3.desc': '用一句话描述你要找的照片——“海边日落的人像”“雨夜街头的霓虹”——AI 理解你的意图并跨整个图库精准匹配。找图，从未如此直观。',
+    'ai.f3.tag1': '自然语言理解',
+    'ai.f3.tag2': '语义向量检索',
+    'ai.f3.tag3': '全库即时匹配',
     'features.label': 'FEATURES',
     'features.title': '为创作而生的<br/><span class="text-gradient">强大工具集</span>',
     'features.desc': '从色彩科学到几何校正，从基础调整到智能管理——每一步都经过精心打磨',
@@ -48,51 +67,62 @@ const translations = {
     'features.f6.tag1': 'HDR 导出',
     'features.f6.tag2': 'ICC 色彩配置嵌入',
     'features.f6.tag3': '多格式输出',
-    'features.f7.title': '智能影像筛选',
-    'features.f7.desc': '基于拍摄日期、相机型号、镜头型号的多维度高级筛选，帮你从成千上万张照片中秒速定位目标。未来还将支持基于 AI 图像内容的智能识别筛选。',
-    'features.f7.tag1': 'EXIF 多维度筛选',
-    'features.f7.tag2': '日期 / 机身 / 镜头',
-    'features.f7.tag3': 'AI 内容识别（即将到来）',
-    'films.label': 'FILM PRESETS',
+    'films.label': 'FILM SIMULATION',
     'films.title': '经典胶片风格<br/><span class="text-gradient">一键直出</span>',
-    'films.desc': '基于真实胶片特性数字复刻的 LUT 预设，从黑白经典到彩色负片，让数字影像拥有胶片般的质感与灵魂',
-    'films.f1.tag': '高饱和 · 鲜艳',
-    'films.f1.desc': '色彩最鲜艳的彩色负片，红与蓝极具张力，适合风光与街拍。',
-    'films.f2.tag': '电影感 · 柔和',
-    'films.f2.desc': '富士电影胶片，低对比、低饱和，自带温润的电影叙事感。',
-    'films.f3.tag': '人像 · 细腻',
-    'films.f3.desc': '人像摄影标杆，肤色还原极其细腻自然，影调柔和优雅。',
-    'films.f4.tag': '真实 · 自然',
-    'films.f4.desc': '追求真实还原的负片，色彩中性自然，适合记录日常。',
-    'films.f5.tag': '日光 · 电影',
-    'films.f5.desc': '好莱坞日光电影胶片，宽容度惊人， daylight 下的影调层次丰富。',
-    'films.f6.tag': '钨丝灯 · 电影',
-    'films.f6.desc': '经典钨丝灯电影胶片，夜景与室内光源下呈现迷人的冷暖对比。',
+    'films.desc': '基于真实胶片特性数字复刻的 LUT 预设，搭配胶片颗粒与 Halation 光晕模拟，让数字影像拥有胶片般的质感与灵魂',
+    'films.showcase.tag': '人像 · 细腻',
+    'films.showcase.desc': '人像摄影标杆，肤色还原极其细腻自然，影调柔和优雅。400 度的高感光度让它在多变光线下游刃有余，是日常与人像创作的可靠之选。',
+    'films.grain.title': '胶片颗粒与 Halation 光晕模拟',
+    'films.grain.desc': '不止于色彩还原。Alcedo Studio 复刻真实胶片的物理特性：可调颗粒大小与强度的胶片颗粒、高光溢出形成的 Halation 光晕、以及边缘柔化等暗房效果。从干净数字到粗粝胶片，质感尽在掌控。',
+    'films.grain.tag1': '可调胶片颗粒',
+    'films.grain.tag2': 'Halation 光晕',
+    'films.grain.tag3': '暗房质感还原',
+    'films.stocks.label': 'SUPPORTED FILM STOCKS',
+    'cta.version': '最新版本',
     'cta.title': '准备好开始创作了吗？',
-    'cta.desc': 'Alcedo Studio 完全开源免费，无需订阅，没有功能限制。下载即可使用全部专业功能。',
+    'cta.desc': 'Alcedo Studio 完全开源免费，无需订阅，没有功能限制。下载即可使用全部专业功能，包括 AI 内容识别与自然语言检索。',
     'cta.win': 'Windows 版下载',
     'cta.mac': 'macOS 版下载',
     'cta.baidu': '网盘分流',
     'cta.note': '支持 CUDA (NVIDIA) 与 Metal (Apple Silicon) GPU 加速',
-    'footer.tagline': '自由创作，从 Alcedo 开始',
-    'footer.copy': ' Alcedo Studio. 开源软件，自由使用。'
+    'footer.tagline': 'AI 驱动，自由创作，从 Alcedo 开始',
+    'footer.copy': '© 2026 Alcedo Studio. 开源软件，自由使用。'
   },
   en: {
-    'meta.title': 'Alcedo Studio — Free & Open-Source Professional RAW Image Processor',
-    'meta.desc': 'Alcedo Studio is a free, open-source RAW image processing software supporting Windows/CUDA and macOS/Metal, with professional color science and a high-performance processing engine.',
+    'meta.title': 'Alcedo Studio — AI-Powered Open-Source Professional RAW Image Processor',
+    'meta.desc': 'Alcedo Studio is an AI-powered, free and open-source RAW image processor supporting Windows/CUDA and macOS/Metal, with professional color science, AI content recognition, natural-language search, and a high-performance engine.',
+    'nav.ai': 'AI',
     'nav.features': 'Features',
-    'nav.films': 'Film Presets',
+    'nav.films': 'Film',
     'nav.download': 'Download',
-    'hero.badge1': 'Open Source & Free',
+    'hero.badge1': 'AI-Powered · Open Source',
     'hero.badge2': 'Windows / macOS',
-    'hero.subtitle': 'Professional RAW processing should not be held back by price',
-    'hero.desc': 'A free, open-source RAW image processor supporting both Windows/CUDA and macOS/Metal. Rich adjustment tools, a high-performance engine, and powerful asset management — built for photographers and creators.',
+    'hero.subtitle': '<span class="text-gold">AI-powered</span> professional RAW processing should not be held back by price',
+    'hero.desc': 'An AI-powered, free and open-source RAW processor for both Windows/CUDA and macOS/Metal. AI content recognition, natural-language search, rich film simulations, a high-performance engine, and powerful asset management — built for photographers and creators.',
     'hero.download': 'Free Download',
+    'ai.label': 'AI POWERED',
+    'ai.title': 'Let AI Be Your<br/><span class="text-gradient">Photo Assistant</span>',
+    'ai.desc': 'From content recognition to natural-language search, Alcedo Studio weaves AI deep into the asset workflow — so you find, filter, and organize photos the natural way.',
+    'ai.f1.title': 'AI Content Recognition',
+    'ai.f1.desc': 'Imports are analyzed automatically, generating semantic tags for every photo — scene, subject, style, and mood. No manual keywords needed; even massive libraries are precisely understood and organized.',
+    'ai.f1.tag1': 'Auto semantic tagging',
+    'ai.f1.tag2': 'Scene / subject detection',
+    'ai.f1.tag3': 'Generated on import',
+    'ai.f2.title': 'AI Content Filtering',
+    'ai.f2.desc': 'Smart filters driven by semantic tags — one click to filter by “portrait”, “sunset”, “street”. Instantly locate targets among thousands of photos. Filtering becomes a one-click action, not a chore.',
+    'ai.f2.tag1': 'Semantic topic filter',
+    'ai.f2.tag2': 'One-click filtering',
+    'ai.f2.tag3': 'Stacks with EXIF',
+    'ai.f3.title': 'AI Natural-Language Search',
+    'ai.f3.desc': 'Describe the photo in a sentence — “portrait by the sea at sunset”, “neon on a rainy night” — and AI understands your intent, matching precisely across your entire library. Finding photos has never been this intuitive.',
+    'ai.f3.tag1': 'Natural-language understanding',
+    'ai.f3.tag2': 'Semantic vector search',
+    'ai.f3.tag3': 'Instant library-wide match',
     'features.label': 'FEATURES',
     'features.title': 'A Powerful Toolkit<br/><span class="text-gradient">Built for Creation</span>',
     'features.desc': 'From color science to geometry correction, from basic adjustments to smart management — every step is carefully crafted',
     'features.f1.title': 'Blazing-Fast Asset Management',
-    'features.f1.desc': 'A responsive, low-resource image management system supporting the vast majority of RAW formats on the market. Browse, filter, and rate in one seamless flow.',
+    'features.f1.desc': 'A responsive, low-resource image management system supporting the vast majority of RAW formats. Browse, filter, and rate in one seamless flow.',
     'features.f1.tag1': 'Multi-format RAW support',
     'features.f1.tag2': 'Low resource usage',
     'features.f1.tag3': 'Fast preview',
@@ -121,34 +151,26 @@ const translations = {
     'features.f6.tag1': 'HDR export',
     'features.f6.tag2': 'ICC profile embedding',
     'features.f6.tag3': 'Multi-format output',
-    'features.f7.title': 'Smart Image Filtering',
-    'features.f7.desc': 'Multi-dimensional advanced filtering by capture date, camera model, and lens model. Instantly locate targets among thousands of photos. AI content recognition coming soon.',
-    'features.f7.tag1': 'EXIF multi-filter',
-    'features.f7.tag2': 'Date / Body / Lens',
-    'features.f7.tag3': 'AI recognition (coming soon)',
-    'films.label': 'FILM PRESETS',
+    'films.label': 'FILM SIMULATION',
     'films.title': 'Classic Film Looks<br/><span class="text-gradient">One Click Away</span>',
-    'films.desc': 'Digitally recreated LUT presets based on real film characteristics, from monochrome classics to color negatives — giving digital images the texture and soul of film.',
-    'films.f1.tag': 'High Saturation · Vivid',
-    'films.f1.desc': 'The most vibrant color negative film. Reds and blues are extremely punchy — ideal for landscapes and street photography.',
-    'films.f2.tag': 'Cinematic · Soft',
-    'films.f2.desc': 'Fujifilm motion picture stock. Low contrast, low saturation, with a warm cinematic narrative feel.',
-    'films.f3.tag': 'Portrait · Delicate',
-    'films.f3.desc': 'The portrait photography benchmark. Extremely delicate and natural skin tone reproduction with soft, elegant tonality.',
-    'films.f4.tag': 'True · Natural',
-    'films.f4.desc': 'A negative film that pursues faithful reproduction. Neutral and natural colors, perfect for everyday documentation.',
-    'films.f5.tag': 'Daylight · Cinema',
-    'films.f5.desc': 'Hollywood daylight motion picture stock. Amazing latitude with rich tonal layers under daylight.',
-    'films.f6.tag': 'Tungsten · Cinema',
-    'films.f6.desc': 'Classic tungsten motion picture stock. Captures mesmerizing warm-cool contrasts under night and indoor lighting.',
+    'films.desc': 'Digitally recreated LUT presets based on real film characteristics, paired with film grain and Halation bloom simulation — giving digital images the texture and soul of film.',
+    'films.showcase.tag': 'Portrait · Delicate',
+    'films.showcase.desc': 'The portrait photography benchmark. Extremely delicate and natural skin tone reproduction with soft, elegant tonality. Its ISO 400 speed handles variable light with ease — a reliable choice for everyday and portrait work.',
+    'films.grain.title': 'Film Grain & Halation Simulation',
+    'films.grain.desc': 'Beyond color reproduction. Alcedo Studio recreates the physical traits of real film: adjustable grain size and intensity, highlight bloom forming Halation, and darkroom edge-softening effects. From clean digital to gritty film, texture is yours to control.',
+    'films.grain.tag1': 'Adjustable film grain',
+    'films.grain.tag2': 'Halation bloom',
+    'films.grain.tag3': 'Darkroom texture',
+    'films.stocks.label': 'SUPPORTED FILM STOCKS',
+    'cta.version': 'Latest release',
     'cta.title': 'Ready to Create?',
-    'cta.desc': 'Alcedo Studio is completely free and open-source. No subscription, no feature limits. Download and access all professional features immediately.',
+    'cta.desc': 'Alcedo Studio is completely free and open-source. No subscription, no feature limits. Download and access all professional features immediately, including AI content recognition and natural-language search.',
     'cta.win': 'Download for Windows',
     'cta.mac': 'Download for macOS',
-    'cta.baidu': 'Baidu Wangpan Download ',
+    'cta.baidu': 'Baidu Wangpan',
     'cta.note': 'Accelerated by CUDA (NVIDIA) and Metal (Apple Silicon)',
-    'footer.tagline': 'Create freely, start with Alcedo',
-    'footer.copy': ' Alcedo Studio. Open source, free to use.'
+    'footer.tagline': 'AI-powered. Create freely, start with Alcedo.',
+    'footer.copy': '© 2026 Alcedo Studio. Open source, free to use.'
   }
 };
 
@@ -188,6 +210,72 @@ function setLanguage(lang) {
   document.querySelectorAll('.lang-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.lang === lang);
   });
+
+  // Re-stamp version label after i18n, preserving the version tag if resolved.
+  stampVersionLabel();
+}
+
+// ========================================
+// Dynamic latest release download
+// Fetches the GitHub API "latest" release and points the
+// Windows / macOS buttons at the real asset URLs + version tag.
+// Falls back to the /releases/latest page if the API is unreachable.
+// ========================================
+const GITHUB_REPO = 'zidage/AlcedoStudio';
+const FALLBACK_TAG = 'v0.2.5';
+let resolvedVersion = null;
+
+async function resolveLatestRelease() {
+  const winBtn = document.getElementById('downloadWin');
+  const macBtn = document.getElementById('downloadMac');
+  if (!winBtn || !macBtn) return;
+
+  const fallbackBase = `https://github.com/${GITHUB_REPO}/releases/download/${FALLBACK_TAG}`;
+  const fallbackWin = `${fallbackBase}/AlcedoStudio-0.2.5-Windows-AMD64.exe`;
+  const fallbackMac = `${fallbackBase}/AlcedoStudio-0.2.5-Darwin-arm64.dmg`;
+
+  try {
+    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+      headers: { Accept: 'application/vnd.github+json' }
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    const tag = data.tag_name || FALLBACK_TAG;
+    resolvedVersion = tag;
+    // Asset filenames embed the bare version (e.g. 0.2.5), derive from tag.
+    const bare = tag.replace(/^v/, '');
+
+    let winUrl = null;
+    let macUrl = null;
+    for (const asset of (data.assets || [])) {
+      const name = String(asset.name || '').toLowerCase();
+      const url = asset.browser_download_url;
+      if (!winUrl && name.endsWith('.exe') && name.includes('windows')) winUrl = url;
+      else if (!winUrl && name.endsWith('.exe')) winUrl = url;
+      if (!macUrl && (name.endsWith('.dmg') || name.endsWith('.zip')) && (name.includes('darwin') || name.includes('mac') || name.includes('osx'))) macUrl = url;
+      else if (!macUrl && name.endsWith('.dmg')) macUrl = url;
+    }
+
+    winBtn.href = winUrl || fallbackWin;
+    macBtn.href = macUrl || fallbackMac;
+  } catch (err) {
+    // Network / rate-limit / offline — keep pointing at the latest page.
+    resolvedVersion = null;
+    winBtn.href = `https://github.com/${GITHUB_REPO}/releases/latest`;
+    macBtn.href = `https://github.com/${GITHUB_REPO}/releases/latest`;
+  }
+
+  stampVersionLabel();
+}
+
+function stampVersionLabel() {
+  const el = document.getElementById('ctaVersion');
+  if (!el) return;
+  // Rebuild so i18n label + resolved tag coexist.
+  const label = (translations[currentLang] && translations[currentLang]['cta.version']) || 'Latest release';
+  el.innerHTML = '<span class="cta-version-dot"></span><span>' +
+    (resolvedVersion ? `${label} · ${resolvedVersion}` : label) + '</span>';
 }
 
 // ========================================
@@ -209,20 +297,20 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  // Resolve latest release (non-blocking)
+  resolveLatestRelease();
+
   // ========================================
   // Navbar scroll effect
   // ========================================
   const navbar = document.getElementById('navbar');
-  let lastScroll = 0;
 
   function updateNavbar() {
-    const currentScroll = window.scrollY;
-    if (currentScroll > 50) {
+    if (window.scrollY > 40) {
       navbar.classList.add('scrolled');
     } else {
       navbar.classList.remove('scrolled');
     }
-    lastScroll = currentScroll;
   }
 
   window.addEventListener('scroll', updateNavbar, { passive: true });
@@ -240,7 +328,6 @@ document.addEventListener('DOMContentLoaded', () => {
       navMenu.classList.toggle('open');
     });
 
-    // Close menu when clicking a link
     navMenu.querySelectorAll('.nav-link').forEach(link => {
       link.addEventListener('click', () => {
         navToggle.classList.remove('active');
@@ -280,71 +367,27 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('a[href^="#"]').forEach(anchor => {
     anchor.addEventListener('click', function (e) {
       const href = this.getAttribute('href');
-      if (href === '#') return;
+      if (href === '#' || href.length <= 1) return;
       const target = document.querySelector(href);
       if (target) {
         e.preventDefault();
-        const offsetTop = target.getBoundingClientRect().top + window.scrollY - 80;
-        window.scrollTo({
-          top: offsetTop,
-          behavior: 'smooth'
-        });
+        const offsetTop = target.getBoundingClientRect().top + window.scrollY - 90;
+        window.scrollTo({ top: offsetTop, behavior: 'smooth' });
       }
     });
   });
 
   // ========================================
-  // Parallax effect for hero background
+  // Stagger delay for AI cards
   // ========================================
-  const heroBgImg = document.querySelector('.hero-bg-img');
-  if (heroBgImg) {
-    window.addEventListener('scroll', () => {
-      const scrollY = window.scrollY;
-      const heroHeight = document.querySelector('.hero').offsetHeight;
-      if (scrollY < heroHeight) {
-        const progress = scrollY / heroHeight;
-        heroBgImg.style.transform = `scale(${1.05 + progress * 0.1}) translateY(${scrollY * 0.3}px)`;
-        heroBgImg.style.opacity = 1 - progress * 0.8;
-      }
-    }, { passive: true });
-  }
-
-  // ========================================
-  // Feature image tilt effect (subtle)
-  // ========================================
-  const featureWrappers = document.querySelectorAll('.feature-img-wrapper');
-
-  featureWrappers.forEach(wrapper => {
-    wrapper.addEventListener('mousemove', (e) => {
-      const rect = wrapper.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-      const centerX = rect.width / 2;
-      const centerY = rect.height / 2;
-      const rotateX = (y - centerY) / centerY * -2;
-      const rotateY = (x - centerX) / centerX * 2;
-
-      wrapper.style.transform = `translateY(-6px) scale(1.01) perspective(1000px) rotateX(${rotateX}deg) rotateY(${rotateY}deg)`;
-    });
-
-    wrapper.addEventListener('mouseleave', () => {
-      wrapper.style.transform = '';
-    });
-  });
-
-  // ========================================
-  // Stagger delay for film cards
-  // ========================================
-  const filmCards = document.querySelectorAll('.film-card');
-  filmCards.forEach((card, index) => {
-    card.style.transitionDelay = `${index * 80}ms`;
+  document.querySelectorAll('.ai-card').forEach((card, index) => {
+    card.style.transitionDelay = `${index * 90}ms`;
   });
 
   // ========================================
   // Stagger delay for feature items
   // ========================================
-  const featureItems = document.querySelectorAll('.feature-item');
-  featureItems.forEach((item, index) => {
-    item.style.transitionDelay = `${index * 100}ms`;
+  document.querySelectorAll('.feature-item').forEach((item, index) => {
+    item.style.transitionDelay = `${index * 60}ms`;
   });
 });
