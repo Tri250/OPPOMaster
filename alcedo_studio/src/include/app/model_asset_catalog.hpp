@@ -64,7 +64,8 @@ struct ModelProfileSpec {
 };
 
 // Returns the canonical semantic model profiles (MobileCLIP2 S2 English and
-// Jina CLIP v2 INT8 Multilingual). Backed by a function-local static so the
+// Jina CLIP v2 Multilingual). The Jina export precision is platform-selected
+// (FP16 on macOS, INT8 elsewhere). Backed by a function-local static so the
 // returned reference is stable and initialization order is well-defined.
 auto SemanticModelProfiles() -> const std::vector<ModelProfileSpec>&;
 

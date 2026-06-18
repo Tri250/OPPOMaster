@@ -12,8 +12,8 @@
 #include <string>
 #include <vector>
 
-#include "app/semantic_generation_service.hpp"
 #include "app/model_download_service.hpp"
+#include "app/semantic_generation_service.hpp"
 #include "ui/alcedo_main/i18n.hpp"
 
 namespace alcedo::ui {
@@ -122,7 +122,6 @@ class SemanticGenerationController final : public QObject {
   void Finish(std::vector<SemanticGenerationItemResult> results);
   void ClearPrompt();
   void ResetCounters();
-  auto EnsureModelManagerRuntime() -> std::shared_ptr<SemanticRuntimeService>;
   [[nodiscard]] auto RuntimeOptionsForProfile(const QString& profileId, bool profileRoot) const
       -> SemanticRuntimeOptions;
 

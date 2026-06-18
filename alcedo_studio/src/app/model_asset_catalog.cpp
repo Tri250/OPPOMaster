@@ -23,7 +23,31 @@ constexpr const char* kMobileClipModelId  = "plhery/mobileclip2-onnx:s2";
 
 constexpr const char* kJinaClipRepo     = "jinaai/jina-clip-v2";
 constexpr const char* kJinaClipRevision = "e10d47f5691d0454a0fb5d13f46f2199b74cb436";
-constexpr const char* kJinaClipProfile  = "jina-clip-v2-int8-multilingual";
+// `kJinaClipProfile` is a stable internal key (persisted in user settings and
+// used for batch-size/timeout lookups); the underlying precision is selected
+// per platform below. The INT8 (quantized) export yields non-finite (NaN)
+// embeddings on CoreML's GPU/ANE path, so macOS downloads the FP16 export,
+// which is numerically correct on the full CoreML compute-unit range.
+// Windows keeps the smaller INT8 export, which runs correctly under DirectML.
+constexpr const char* kJinaClipProfile = "jina-clip-v2-int8-multilingual";
+
+#if defined(__APPLE__)
+constexpr const char* kJinaClipEngineProfileId = "jina-clip-v2-onnx-fp16";
+constexpr const char* kJinaClipDisplayName     = "Jina CLIP v2 FP16 Multilingual";
+constexpr const char* kJinaClipOnnxRemotePath  = "onnx/model_fp16.onnx";
+constexpr const char* kJinaClipOnnxLocalPath   = "onnx/model_fp16.onnx";
+constexpr uint64_t    kJinaClipOnnxSize   = 1'728'814'880ULL;
+constexpr const char* kJinaClipOnnxSha256 =
+    "746a78209096d1cd52891b70d752903b8bf86088ba847bd0c56c03fb29256801";
+#else
+constexpr const char* kJinaClipEngineProfileId = "jina-clip-v2-onnx-int8";
+constexpr const char* kJinaClipDisplayName     = "Jina CLIP v2 INT8 Multilingual";
+constexpr const char* kJinaClipOnnxRemotePath  = "onnx/model_int8.onnx";
+constexpr const char* kJinaClipOnnxLocalPath   = "onnx/model_int8.onnx";
+constexpr uint64_t    kJinaClipOnnxSize   = 874'350'932ULL;
+constexpr const char* kJinaClipOnnxSha256 =
+    "21b8b77a009865faecaa29f076ee55d6334ea42699a9efa14d542ce8d3938a3f";
+#endif
 
 auto BuildProfiles() -> std::vector<ModelProfileSpec> {
   std::vector<ModelProfileSpec> profiles;
@@ -59,19 +83,18 @@ auto BuildProfiles() -> std::vector<ModelProfileSpec> {
 
   ModelProfileSpec jina{};
   jina.profile_id                 = kJinaClipProfile;
-  jina.display_name               = "Jina CLIP v2 INT8 Multilingual";
+  jina.display_name               = kJinaClipDisplayName;
   jina.model_id                   = kJinaClipRepo;
   jina.revision                   = kJinaClipRevision;
-  jina.engine_profile_id          = "jina-clip-v2-onnx-int8";
+  jina.engine_profile_id          = kJinaClipEngineProfileId;
   jina.language                   = ModelLanguage::kMultilingual;
   jina.embedding_dimension        = kSemanticRequiredEmbeddingDimension;
   jina.native_embedding_dimension = 1024;
   jina.image_size                 = 512;
   jina.embedding_transform        = "matryoshka_truncate_then_l2_normalize";
   jina.assets = {
-      {ModelAssetRole::kMultimodalModel, kJinaClipRepo, kJinaClipRevision, "onnx/model_int8.onnx",
-       "onnx/model_int8.onnx", 874'350'932,
-       "21b8b77a009865faecaa29f076ee55d6334ea42699a9efa14d542ce8d3938a3f"},
+      {ModelAssetRole::kMultimodalModel, kJinaClipRepo, kJinaClipRevision, kJinaClipOnnxRemotePath,
+       kJinaClipOnnxLocalPath, kJinaClipOnnxSize, kJinaClipOnnxSha256},
       {ModelAssetRole::kModelConfig, kJinaClipRepo, kJinaClipRevision, "config.json",
        "config.json", 2'152, nullptr},
       {ModelAssetRole::kPreprocessConfig, kJinaClipRepo, kJinaClipRevision,

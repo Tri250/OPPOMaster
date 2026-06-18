@@ -186,16 +186,46 @@ const MOBILECLIP2_ASSETS: &[ModelAssetSpec] = &[
 
 const JINA_CLIP_REPO: &str = "jinaai/jina-clip-v2";
 const JINA_CLIP_REVISION: &str = "e10d47f5691d0454a0fb5d13f46f2199b74cb436";
+
+// The Jina CLIP v2 export precision is platform-selected. The INT8 (quantized)
+// export produces non-finite (NaN) embeddings on CoreML's GPU/ANE path, so
+// macOS downloads the FP16 export instead, which is numerically correct on the
+// full CoreML compute-unit range. Windows keeps the smaller INT8 export, which
+// runs correctly under DirectML. The shared tokenizer/preprocessor assets are
+// identical across both exports (same repo revision).
+#[cfg(target_os = "macos")]
+const JINA_CLIP_MULTIMODAL_ASSET: ModelAssetSpec = ModelAssetSpec {
+    role: AssetRole::MultimodalModel,
+    repo_id: JINA_CLIP_REPO,
+    revision: JINA_CLIP_REVISION,
+    remote_path: "onnx/model_fp16.onnx",
+    local_path: "onnx/model_fp16.onnx",
+    size_bytes: 1_728_814_880,
+    sha256: Some("746a78209096d1cd52891b70d752903b8bf86088ba847bd0c56c03fb29256801"),
+};
+#[cfg(not(target_os = "macos"))]
+const JINA_CLIP_MULTIMODAL_ASSET: ModelAssetSpec = ModelAssetSpec {
+    role: AssetRole::MultimodalModel,
+    repo_id: JINA_CLIP_REPO,
+    revision: JINA_CLIP_REVISION,
+    remote_path: "onnx/model_int8.onnx",
+    local_path: "onnx/model_int8.onnx",
+    size_bytes: 874_350_932,
+    sha256: Some("21b8b77a009865faecaa29f076ee55d6334ea42699a9efa14d542ce8d3938a3f"),
+};
+
+#[cfg(target_os = "macos")]
+const JINA_CLIP_ENGINE_PROFILE_ID: &str = "jina-clip-v2-onnx-fp16";
+#[cfg(not(target_os = "macos"))]
+const JINA_CLIP_ENGINE_PROFILE_ID: &str = "jina-clip-v2-onnx-int8";
+
+#[cfg(target_os = "macos")]
+const JINA_CLIP_DISPLAY_NAME: &str = "Jina CLIP v2 FP16 Multilingual";
+#[cfg(not(target_os = "macos"))]
+const JINA_CLIP_DISPLAY_NAME: &str = "Jina CLIP v2 INT8 Multilingual";
+
 const JINA_CLIP_ASSETS: &[ModelAssetSpec] = &[
-    ModelAssetSpec {
-        role: AssetRole::MultimodalModel,
-        repo_id: JINA_CLIP_REPO,
-        revision: JINA_CLIP_REVISION,
-        remote_path: "onnx/model_int8.onnx",
-        local_path: "onnx/model_int8.onnx",
-        size_bytes: 874_350_932,
-        sha256: Some("21b8b77a009865faecaa29f076ee55d6334ea42699a9efa14d542ce8d3938a3f"),
-    },
+    JINA_CLIP_MULTIMODAL_ASSET,
     ModelAssetSpec {
         role: AssetRole::ModelConfig,
         repo_id: JINA_CLIP_REPO,
@@ -257,12 +287,15 @@ pub const MODEL_PROFILES: &[ModelProfileSpec] = &[
         embedding_transform: "l2_normalize",
         assets: MOBILECLIP2_ASSETS,
     },
+    // `profile_id` is a stable internal key (it persists in user settings and
+    // keys batch-size/timeout lookups); the underlying precision is selected
+    // per platform via `JINA_CLIP_ENGINE_PROFILE_ID` / `JINA_CLIP_ASSETS`.
     ModelProfileSpec {
         profile_id: "jina-clip-v2-int8-multilingual",
-        display_name: "Jina CLIP v2 INT8 Multilingual",
+        display_name: JINA_CLIP_DISPLAY_NAME,
         model_id: JINA_CLIP_REPO,
         revision: JINA_CLIP_REVISION,
-        engine_profile_id: "jina-clip-v2-onnx-int8",
+        engine_profile_id: JINA_CLIP_ENGINE_PROFILE_ID,
         language: ModelLanguage::Multilingual,
         embedding_dimension: REQUIRED_EMBEDDING_DIMENSION,
         native_embedding_dimension: 1024,

@@ -9,7 +9,7 @@ use ort::{
     value::{Tensor, TensorElementType},
 };
 use tokenizers::Tokenizer;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::config::SemanticConfig;
 use crate::service::embedding::{EmbeddingEngine, EngineModelInfo};
@@ -64,6 +64,7 @@ enum ImageResizeMode {
 enum EngineProfileAdapter {
     MobileClipOpenClip,
     JinaClipV2OnnxInt8,
+    JinaClipV2OnnxFp16,
 }
 
 impl EngineProfileAdapter {
@@ -71,6 +72,7 @@ impl EngineProfileAdapter {
         match profile.engine_profile_id {
             "mobileclip2-openclip" => Ok(Self::MobileClipOpenClip),
             "jina-clip-v2-onnx-int8" => Ok(Self::JinaClipV2OnnxInt8),
+            "jina-clip-v2-onnx-fp16" => Ok(Self::JinaClipV2OnnxFp16),
             other => bail!(
                 "semantic model profile {} requests unsupported engine adapter {other:?}",
                 profile.profile_id
@@ -79,7 +81,10 @@ impl EngineProfileAdapter {
     }
 
     fn supports_current_onnx_loader(self) -> bool {
-        matches!(self, Self::MobileClipOpenClip | Self::JinaClipV2OnnxInt8)
+        matches!(
+            self,
+            Self::MobileClipOpenClip | Self::JinaClipV2OnnxInt8 | Self::JinaClipV2OnnxFp16
+        )
     }
 
     fn text_sequence_length(self) -> usize {
@@ -93,7 +98,7 @@ impl EngineProfileAdapter {
     fn image_mean_std(self) -> ([f32; 3], [f32; 3]) {
         match self {
             Self::MobileClipOpenClip => ([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]),
-            Self::JinaClipV2OnnxInt8 => (
+            Self::JinaClipV2OnnxInt8 | Self::JinaClipV2OnnxFp16 => (
                 [0.48145466, 0.4578275, 0.40821073],
                 [0.26862954, 0.26130258, 0.27577711],
             ),
@@ -102,28 +107,43 @@ impl EngineProfileAdapter {
 
     fn image_resize_mode(self) -> ImageResizeMode {
         match self {
-            Self::MobileClipOpenClip | Self::JinaClipV2OnnxInt8 => {
-                ImageResizeMode::ShortestEdgeCenterCrop
-            }
+            Self::MobileClipOpenClip
+            | Self::JinaClipV2OnnxInt8
+            | Self::JinaClipV2OnnxFp16 => ImageResizeMode::ShortestEdgeCenterCrop,
         }
     }
 
     fn uses_multimodal_session(self) -> bool {
-        matches!(self, Self::JinaClipV2OnnxInt8)
+        matches!(
+            self,
+            Self::JinaClipV2OnnxInt8 | Self::JinaClipV2OnnxFp16
+        )
     }
 
     fn preferred_text_output_name(self) -> &'static str {
         match self {
-            Self::JinaClipV2OnnxInt8 => "l2norm_text_embeddings",
+            Self::JinaClipV2OnnxInt8 | Self::JinaClipV2OnnxFp16 => "l2norm_text_embeddings",
             Self::MobileClipOpenClip => "",
         }
     }
 
     fn preferred_image_output_name(self) -> &'static str {
         match self {
-            Self::JinaClipV2OnnxInt8 => "l2norm_image_embeddings",
+            Self::JinaClipV2OnnxInt8 | Self::JinaClipV2OnnxFp16 => "l2norm_image_embeddings",
             Self::MobileClipOpenClip => "",
         }
+    }
+
+    /// Whether this profile must run CoreML on CPU-only compute units on macOS.
+    ///
+    /// The Jina CLIP v2 INT8 (quantized) ONNX export produces non-finite
+    /// (NaN) embeddings — for both the text and image branches — when CoreML
+    /// schedules its subgraphs onto the GPU/ANE (`All` / `CPUAndGPU`); only
+    /// the CPU path is numerically correct. The FP16 export is non-quantized
+    /// and runs correctly on the full CoreML compute-unit range, so macOS
+    /// uses it instead. MobileCLIP2 is likewise unaffected.
+    fn requires_coreml_cpu_only(self) -> bool {
+        matches!(self, Self::JinaClipV2OnnxInt8)
     }
 }
 
@@ -239,6 +259,28 @@ impl OrtClipEngine {
             DeviceRequest::CoreMl(CoreMlMode::All) => "coreml:all".to_string(),
             DeviceRequest::CoreMl(CoreMlMode::CpuAndGpu) => "coreml:cpuandgpu".to_string(),
             DeviceRequest::CoreMl(CoreMlMode::CpuOnly) => "coreml:cpuonly".to_string(),
+        }
+    }
+
+    /// Resolves the device actually used for inference for a given adapter.
+    ///
+    /// Quantized profiles that are numerically broken on the CoreML GPU/ANE
+    /// path are downgraded to CoreML CPU-only on macOS so embeddings stay
+    /// finite. On other platforms (or for unaffected adapters) the request is
+    /// returned unchanged.
+    fn resolve_effective_device_request(
+        adapter: EngineProfileAdapter,
+        device_request: DeviceRequest,
+    ) -> DeviceRequest {
+        if !adapter.requires_coreml_cpu_only() || !cfg!(target_os = "macos") {
+            return device_request;
+        }
+
+        match device_request {
+            DeviceRequest::Auto | DeviceRequest::CoreMl(_) => {
+                DeviceRequest::CoreMl(CoreMlMode::CpuOnly)
+            }
+            other => other,
         }
     }
 
@@ -1017,7 +1059,18 @@ impl OrtClipEngine {
 
         Self::initialize_ort_environment()?;
 
-        let device_description = Self::describe_device_request(device_request);
+        let effective_device_request =
+            Self::resolve_effective_device_request(adapter, device_request);
+        if effective_device_request != device_request {
+            warn!(
+                "CoreML GPU/ANE compute units produce non-finite embeddings for the quantized {} profile; downgrading {} to {} for correctness",
+                profile.profile_id,
+                Self::describe_device_request(device_request),
+                Self::describe_device_request(effective_device_request),
+            );
+        }
+
+        let device_description = Self::describe_device_request(effective_device_request);
         info!(
             "loading ORT clip profile {} ({}) from {} on {}",
             profile.profile_id, profile.engine_profile_id, config.model_root, device_description,
@@ -1029,7 +1082,7 @@ impl OrtClipEngine {
             if adapter.uses_multimodal_session() {
                 let multimodal_model =
                     profile_asset_path(profile, &config.model_root, AssetRole::MultimodalModel)?;
-                let session = Self::load_session(&multimodal_model, device_request)?;
+                let session = Self::load_session(&multimodal_model, effective_device_request)?;
                 let io = Self::validate_multimodal_session(
                     &session,
                     manifest.image_size as usize,
@@ -1043,7 +1096,7 @@ impl OrtClipEngine {
                 let vision_model =
                     profile_asset_path(profile, &config.model_root, AssetRole::VisionModel)?;
 
-                let text_session = Self::load_session(&text_model, device_request)?;
+                let text_session = Self::load_session(&text_model, effective_device_request)?;
                 let text_io = Self::validate_text_session(
                     &text_session,
                     adapter.text_sequence_length(),
@@ -1051,7 +1104,7 @@ impl OrtClipEngine {
                     adapter.requires_attention_mask(),
                 )?;
 
-                let vision_session = Self::load_session(&vision_model, device_request)?;
+                let vision_session = Self::load_session(&vision_model, effective_device_request)?;
                 let vision_io = Self::validate_vision_session(
                     &vision_session,
                     manifest.image_size as usize,
@@ -1497,6 +1550,53 @@ mod tests {
         assert_eq!(image_embedding.len(), EMBEDDING_DIM);
     }
 
+    /// Regression guard: the FP16 Jina CLIP v2 export must run on the full
+    /// CoreML compute-unit range (`auto` -> GPU/ANE) and produce finite
+    /// embeddings for both modalities. The INT8 export yields non-finite
+    /// (NaN) embeddings on CoreML GPU/ANE, which is why macOS ships the FP16
+    /// export instead.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn jina_clip_auto_device_produces_finite_embeddings_on_macos() {
+        let Ok(model_root) = std::env::var("ALCEDO_MIND_TEST_JINA_CLIP_ROOT") else {
+            eprintln!("skipping Jina CLIP CoreML regression test; set ALCEDO_MIND_TEST_JINA_CLIP_ROOT");
+            return;
+        };
+
+        let engine = make_profile_test_engine_with_root(
+            "jina-clip-v2-int8-multilingual",
+            "e10d47f5691d0454a0fb5d13f46f2199b74cb436",
+            model_root,
+            "auto",
+        );
+        // FP16 is non-quantized, so `auto` must NOT be downgraded to
+        // CoreML CPU-only — it should run on the full GPU/ANE range.
+        assert_ne!(
+            engine.provider, "coreml:cpuonly",
+            "FP16 Jina CLIP v2 must not be downgraded to CoreML CPU-only on macOS"
+        );
+
+        let text = engine
+            .embed_text("a city train photograph with railway tracks and buildings")
+            .expect("Jina text embedding should succeed");
+        assert!(
+            text.iter().all(|value| value.is_finite()),
+            "Jina FP16 text embedding must be finite on macOS auto device"
+        );
+
+        let image = image::RgbImage::from_fn(640, 480, |x, y| {
+            image::Rgb([(x % 256) as u8, (y % 256) as u8, ((x + y) % 256) as u8])
+        });
+        let image_embedding = engine
+            .embed_image(&image)
+            .expect("Jina image embedding should succeed");
+        assert!(
+            image_embedding.iter().all(|value| value.is_finite()),
+            "Jina FP16 image embedding must be finite on macOS auto device"
+        );
+        assert_eq!(image_embedding.len(), EMBEDDING_DIM);
+    }
+
     #[test]
     fn real_repo_image_embeddings_are_reasonable_for_english_and_chinese_queries() {
         if !test_allow_download() && !has_test_model_assets() {
@@ -1565,6 +1665,68 @@ mod tests {
         assert!(
             en_score > en_bad,
             "English query should be closer to the real app screenshot than the unrelated prompt"
+        );
+    }
+
+    #[test]
+    fn jina_adapter_requires_coreml_cpu_only_on_macos() {
+        assert!(
+            EngineProfileAdapter::JinaClipV2OnnxInt8.requires_coreml_cpu_only(),
+            "quantized Jina CLIP v2 INT8 must pin CoreML to CPU-only"
+        );
+        assert!(
+            !EngineProfileAdapter::JinaClipV2OnnxFp16.requires_coreml_cpu_only(),
+            "non-quantized Jina CLIP v2 FP16 should keep the full CoreML compute-unit range"
+        );
+        assert!(
+            !EngineProfileAdapter::MobileClipOpenClip.requires_coreml_cpu_only(),
+            "non-quantized MobileCLIP2 should keep the full CoreML compute-unit range"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn effective_device_downgrades_jina_coreml_to_cpu_only() {
+        let jina = EngineProfileAdapter::JinaClipV2OnnxInt8;
+        assert_eq!(
+            OrtClipEngine::resolve_effective_device_request(jina, DeviceRequest::Auto),
+            DeviceRequest::CoreMl(CoreMlMode::CpuOnly)
+        );
+        assert_eq!(
+            OrtClipEngine::resolve_effective_device_request(
+                jina,
+                DeviceRequest::CoreMl(CoreMlMode::All)
+            ),
+            DeviceRequest::CoreMl(CoreMlMode::CpuOnly)
+        );
+        assert_eq!(
+            OrtClipEngine::resolve_effective_device_request(
+                jina,
+                DeviceRequest::CoreMl(CoreMlMode::CpuAndGpu)
+            ),
+            DeviceRequest::CoreMl(CoreMlMode::CpuOnly)
+        );
+        // An explicit CPU request is left untouched (the CPU EP already runs on CPU).
+        assert_eq!(
+            OrtClipEngine::resolve_effective_device_request(jina, DeviceRequest::Cpu),
+            DeviceRequest::Cpu
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn effective_device_keeps_mobileclip_coreml_range() {
+        let mobileclip = EngineProfileAdapter::MobileClipOpenClip;
+        assert_eq!(
+            OrtClipEngine::resolve_effective_device_request(
+                mobileclip,
+                DeviceRequest::CoreMl(CoreMlMode::All)
+            ),
+            DeviceRequest::CoreMl(CoreMlMode::All)
+        );
+        assert_eq!(
+            OrtClipEngine::resolve_effective_device_request(mobileclip, DeviceRequest::Auto),
+            DeviceRequest::Auto
         );
     }
 
