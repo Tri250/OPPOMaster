@@ -138,7 +138,12 @@
       "Read(//private/tmp/**)",
       "Bash(rm -rf aria2-ws-src)",
       "Bash(gh api *)",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(gh release *)",
+      "Bash(node -e \"const{execSync}=require\\('child_process'\\);try{require\\('image-size'\\)}catch\\(e\\){execSync\\('npm i image-size --no-save',{stdio:'inherit'}\\)}\")",
+      "Bash(node -e ' *)",
+      "Bash(node -e \"let s='';process.stdin.on\\('data',d=>s+=d\\).on\\('end',\\(\\)=>{const p=JSON.parse\\(s\\);console.log\\(JSON.stringify\\(p.scripts,null,2\\)\\)}\\)\")",
+      "Bash(npm run *)"
     ]
   }
 }
