@@ -319,6 +319,20 @@ TEST_F(ProjectTests, SaveProject_AfterCreate_Succeeds) {
   EXPECT_TRUE(ok);
 }
 
+TEST_F(ProjectTests, CreateProjectWhileProjectOpen_CompletesSwitch) {
+  AlbumBackend backend;
+  ASSERT_TRUE(CreateTestProject(backend, "first_project"));
+
+  QSignalSpy project_spy(&backend, &AlbumBackend::ProjectChanged);
+  ASSERT_TRUE(backend.CreateProjectInFolderNamed(PathToQString(temp_dir_), "second_project"));
+  ASSERT_TRUE(WaitForProjectLoadToFinish(backend, 15000));
+  ProcessEvents(500);
+
+  EXPECT_TRUE(backend.ServiceReady());
+  EXPECT_FALSE(backend.ProjectLoading());
+  EXPECT_GE(project_spy.count(), 1);
+}
+
 // ── Stderr capture for warning verification ─────────────────────────────────
 
 class ScopedStderrCapture {

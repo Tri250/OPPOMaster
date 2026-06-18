@@ -11,6 +11,7 @@
 #include <QStandardPaths>
 
 #include <algorithm>
+#include <cstdlib>
 #include <cwctype>
 #include <fstream>
 #include <iomanip>
@@ -21,6 +22,18 @@
 #include <duckdb.h>
 #include <json.hpp>
 #include <xxhash.h>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#else
+#include <limits.h>
+#include <unistd.h>
+#endif
 
 #include "app/project_service.hpp"
 #include "ui/alcedo_main/album_backend/path_utils.hpp"
@@ -396,6 +409,108 @@ auto RunDuckDbQuery(duckdb_connection conn, const std::string& sql,
   return true;
 }
 
+auto ExecutableDirectory() -> std::filesystem::path {
+#ifdef _WIN32
+  std::wstring buffer(MAX_PATH, L'\0');
+  DWORD        size = 0;
+  while (true) {
+    size = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+    if (size == 0) {
+      return {};
+    }
+    if (size < buffer.size() - 1) {
+      buffer.resize(size);
+      return std::filesystem::path(buffer).parent_path();
+    }
+    buffer.resize(buffer.size() * 2);
+  }
+#elif defined(__APPLE__)
+  uint32_t size = 0;
+  _NSGetExecutablePath(nullptr, &size);
+  std::string buffer(size, '\0');
+  if (_NSGetExecutablePath(buffer.data(), &size) != 0) {
+    return {};
+  }
+  return std::filesystem::weakly_canonical(std::filesystem::path(buffer.c_str())).parent_path();
+#else
+  std::string buffer(PATH_MAX, '\0');
+  const auto  size = readlink("/proc/self/exe", buffer.data(), buffer.size() - 1);
+  if (size <= 0) {
+    return {};
+  }
+  buffer.resize(static_cast<size_t>(size));
+  return std::filesystem::path(buffer).parent_path();
+#endif
+}
+
+auto QueryHasHnswIndex(duckdb_connection conn, bool* hasHnswIndexOut,
+                       QString* errorOut) -> bool {
+  duckdb_result result;
+  static constexpr const char* kQuery =
+      "SELECT COUNT(*) FROM duckdb_indexes() "
+      "WHERE lower(COALESCE(sql, '')) LIKE '%using hnsw%';";
+  if (duckdb_query(conn, kQuery, &result) != DuckDBSuccess) {
+    const char* err_msg = duckdb_result_error(&result);
+    if (errorOut) {
+      *errorOut = Tr("DuckDB query HNSW indexes failed: %1")
+                      .arg(QString::fromUtf8(err_msg ? err_msg : ""));
+    }
+    duckdb_destroy_result(&result);
+    return false;
+  }
+
+  const bool has_value = duckdb_row_count(&result) > 0 && duckdb_column_count(&result) > 0 &&
+                         !duckdb_value_is_null(&result, 0, 0);
+  *hasHnswIndexOut = has_value && duckdb_value_int64(&result, 0, 0) > 0;
+  duckdb_destroy_result(&result);
+  return true;
+}
+
+auto LoadVssExtensionForSnapshot(duckdb_connection conn, QString* errorOut) -> bool {
+  std::vector<std::filesystem::path> candidates;
+  if (const char* env_path = std::getenv("ALCEDO_DUCKDB_VSS_EXTENSION")) {
+    if (*env_path != '\0') {
+      candidates.emplace_back(env_path);
+    }
+  }
+
+  const auto exe_dir = ExecutableDirectory();
+  if (!exe_dir.empty()) {
+    candidates.push_back(exe_dir / "duckdb_extensions" / "vss.duckdb_extension");
+    candidates.push_back(exe_dir / "extensions" / "vss.duckdb_extension");
+  }
+
+  QString load_errors;
+  for (const auto& candidate : candidates) {
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(candidate, ec) || ec) {
+      continue;
+    }
+
+    const std::string path_utf8 = candidate.generic_string();
+    QString           candidate_error;
+    if (RunDuckDbQuery(conn,
+                       "LOAD '" + album_util::EscapeSqlStringLiteral(path_utf8) + "';",
+                       "load vss extension", &candidate_error)) {
+      return true;
+    }
+    load_errors += Tr("\nPackaged extension load failed from %1: %2")
+                       .arg(album_util::PathToQString(candidate))
+                       .arg(candidate_error);
+  }
+
+  QString load_error;
+  if (RunDuckDbQuery(conn, "LOAD vss;", "load vss extension", &load_error)) {
+    return true;
+  }
+  load_errors += Tr("\nDuckDB extension load failed by name: %1").arg(load_error);
+  if (errorOut) {
+    *errorOut = Tr("DuckDB snapshot requires the VSS extension for existing HNSW indexes.%1")
+                    .arg(load_errors);
+  }
+  return false;
+}
+
 auto QueryCurrentCatalog(duckdb_connection conn, std::string* catalogOut,
                          QString* errorOut) -> bool {
   duckdb_result result;
@@ -497,6 +612,13 @@ auto CreateLiveDbSnapshot(const std::shared_ptr<ProjectService>& project,
 
     std::error_code ec;
     std::filesystem::remove(snapshotPath, ec);
+
+    bool has_hnsw_index = false;
+    if (!QueryHasHnswIndex(guard.conn_, &has_hnsw_index, errorOut) ||
+        (has_hnsw_index && !LoadVssExtensionForSnapshot(guard.conn_, errorOut))) {
+      std::filesystem::remove(snapshotPath, ec);
+      return false;
+    }
 
     const std::string path_utf8 = conv::ToBytes(snapshotPath.generic_wstring());
     const std::string escaped   = album_util::EscapeSqlStringLiteral(path_utf8);

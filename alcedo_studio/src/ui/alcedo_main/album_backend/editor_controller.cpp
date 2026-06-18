@@ -119,7 +119,10 @@ void EditorController::OpenEditor(sl_element_id_t elementId, image_id_t imageId)
           elementId, imageId,
           IsHdrExportEotf(pipeline_guard->pipeline_->GetGlobalParams().to_output_params_.eotf_));
       proj->GetImagePoolService()->SyncWithStorage();
-      proj->SaveProject(backend_.project_handler_.meta_path());
+      QString ignored_error;
+      if (backend_.project_handler_.PersistCurrentProjectState()) {
+        (void)backend_.project_handler_.PackageCurrentProjectFiles(&ignored_error);
+      }
 
       const auto& tsvc = backend_.project_handler_.thumbnail_service();
       if (tsvc) {
@@ -575,7 +578,10 @@ void EditorController::FinalizeEditorSession(bool persistChanges) {
         backend_.PersistImageHdrFlag(finishedElement, finishedImage, is_hdr_export);
       }
       proj->GetImagePoolService()->SyncWithStorage();
-      proj->SaveProject(backend_.project_handler_.meta_path());
+      QString ignored_error;
+      if (backend_.project_handler_.PersistCurrentProjectState()) {
+        (void)backend_.project_handler_.PackageCurrentProjectFiles(&ignored_error);
+      }
     } catch (...) {
     }
   }

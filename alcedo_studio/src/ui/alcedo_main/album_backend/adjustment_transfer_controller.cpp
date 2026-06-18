@@ -501,7 +501,10 @@ auto AdjustmentTransferController::Paste(const QVariantList& targetEntries, cons
       if (auto project = backend_.project_handler_.project()) {
         try {
           project->GetImagePoolService()->SyncWithStorage();
-          project->SaveProject(backend_.project_handler_.meta_path());
+          QString ignored_error;
+          if (backend_.project_handler_.PersistCurrentProjectState()) {
+            (void)backend_.project_handler_.PackageCurrentProjectFiles(&ignored_error);
+          }
         } catch (...) {
         }
       }
