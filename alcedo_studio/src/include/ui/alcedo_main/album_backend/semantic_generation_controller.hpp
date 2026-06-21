@@ -8,11 +8,9 @@
 #include <QString>
 #include <QVariantList>
 #include <memory>
-#include <optional>
 #include <string>
 #include <vector>
 
-#include "app/model_download_service.hpp"
 #include "app/semantic_generation_service.hpp"
 #include "ui/alcedo_main/i18n.hpp"
 
@@ -21,12 +19,12 @@ namespace alcedo::ui {
 class AlbumBackend;
 class SemanticRuntimeSessionGuard;
 
-namespace detail {
-auto LoadLocalResolvedModelManifestForActivation(const QString& profileId,
-                                                 const QString& baseDirectory, QString* error)
-    -> std::optional<SemanticResolvedModelManifest>;
-}  // namespace detail
-
+// Drives semantic (AI content) label generation and model activation. Owns the
+// generation pipeline state (progress, prompt, album summary) and the
+// active-model surface. Model download / install / settings live in
+// ModelDownloadController; this controller consumes the install state (via
+// AlbumBackend::model_download_controller_) only to activate a model and to
+// derive the `selectedModelActive` badge.
 class SemanticGenerationController final : public QObject {
   Q_OBJECT
   Q_PROPERTY(bool promptVisible READ PromptVisible NOTIFY StateChanged)
@@ -43,19 +41,11 @@ class SemanticGenerationController final : public QObject {
   Q_PROPERTY(int albumUnlabeledCount READ AlbumUnlabeledCount NOTIFY StateChanged)
   Q_PROPERTY(QString albumSummaryText READ AlbumSummaryText NOTIFY StateChanged)
   Q_PROPERTY(QString importPreference READ ImportPreference NOTIFY StateChanged)
-  Q_PROPERTY(QVariantList modelProfileOptions READ ModelProfileOptions CONSTANT)
-  Q_PROPERTY(QString selectedModelProfileId READ SelectedModelProfileId NOTIFY StateChanged)
   Q_PROPERTY(QString activeModelProfileId READ ActiveModelProfileId NOTIFY StateChanged)
   Q_PROPERTY(QString activeModelDisplayName READ ActiveModelDisplayName NOTIFY StateChanged)
   Q_PROPERTY(QString activeModelKey READ ActiveModelKeyQString NOTIFY StateChanged)
-  Q_PROPERTY(QString modelDownloadDirectory READ ModelDownloadDirectory NOTIFY StateChanged)
-  Q_PROPERTY(QString modelEndpointPreset READ ModelEndpointPreset NOTIFY StateChanged)
-  Q_PROPERTY(QString customModelEndpoint READ CustomModelEndpoint NOTIFY StateChanged)
-  Q_PROPERTY(QString effectiveModelEndpoint READ EffectiveModelEndpoint NOTIFY StateChanged)
-  Q_PROPERTY(QString modelDownloadStatusText READ ModelDownloadStatusText NOTIFY StateChanged)
-  Q_PROPERTY(bool modelDownloadRunning READ ModelDownloadRunning NOTIFY StateChanged)
   Q_PROPERTY(bool modelActivationRunning READ ModelActivationRunning NOTIFY StateChanged)
-  Q_PROPERTY(int modelDownloadProgress READ ModelDownloadProgress NOTIFY StateChanged)
+  Q_PROPERTY(bool selectedModelActive READ SelectedModelActive NOTIFY StateChanged)
 
  public:
   explicit SemanticGenerationController(AlbumBackend& backend, QObject* parent = nullptr);
@@ -74,32 +64,15 @@ class SemanticGenerationController final : public QObject {
   int              AlbumUnlabeledCount() const { return album_unlabeled_count_; }
   QString          AlbumSummaryText() const { return album_summary_text_.Render(); }
   QString          ImportPreference() const;
-  QVariantList     ModelProfileOptions() const;
-  QString          SelectedModelProfileId() const;
   QString          ActiveModelProfileId() const;
   QString          ActiveModelDisplayName() const;
   QString          ActiveModelKeyQString() const;
-  QString          ModelDownloadDirectory() const;
-  QString          ModelEndpointPreset() const;
-  QString          CustomModelEndpoint() const;
-  QString          EffectiveModelEndpoint() const;
-  QString          ModelDownloadStatusText() const { return model_download_status_text_.Render(); }
-  bool             ModelDownloadRunning() const { return model_download_running_; }
   bool             ModelActivationRunning() const { return model_activation_running_; }
-  int              ModelDownloadProgress() const { return model_download_progress_; }
+  bool             SelectedModelActive() const { return selected_model_active_; }
 
   Q_INVOKABLE void StartPendingGeneration(bool forceRegenerate = false);
   Q_INVOKABLE void SkipPendingGeneration(bool rememberChoice = false);
   Q_INVOKABLE void SetImportPreference(const QString& preference);
-  Q_INVOKABLE void SetSelectedModelProfileId(const QString& profileId);
-  Q_INVOKABLE void SetModelDownloadDirectory(const QString& directory);
-  Q_INVOKABLE void SetModelEndpointPreset(const QString& preset);
-  Q_INVOKABLE void SetCustomModelEndpoint(const QString& endpoint);
-  Q_INVOKABLE void ResetModelDownloadDirectory();
-  Q_INVOKABLE void RefreshSelectedModelStatus();
-  Q_INVOKABLE void StartSelectedModelDownload();
-  Q_INVOKABLE void CancelSelectedModelDownload();
-  Q_INVOKABLE void DeleteSelectedModel();
   Q_INVOKABLE void ActivateSelectedModel();
   Q_INVOKABLE void CancelGeneration();
   Q_INVOKABLE void RefreshAlbumSummary();
@@ -122,6 +95,10 @@ class SemanticGenerationController final : public QObject {
   void Finish(std::vector<SemanticGenerationItemResult> results);
   void ClearPrompt();
   void ResetCounters();
+  // Recomputes selected_model_active_ from the download controller's install
+  // state and the project's active-model record. Does not emit StateChanged;
+  // callers emit.
+  void RecomputeSelectedModelActive();
   [[nodiscard]] auto RuntimeOptionsForProfile(const QString& profileId, bool profileRoot) const
       -> SemanticRuntimeOptions;
 
@@ -131,11 +108,9 @@ class SemanticGenerationController final : public QObject {
   std::shared_ptr<SemanticGenerationJob>       job_{};
   i18n::LocalizedText                          status_text_{};
   i18n::LocalizedText                          album_summary_text_{};
-  i18n::LocalizedText                          model_download_status_text_{};
   std::string                                  model_key_{};
-  bool                                         model_download_running_   = false;
   bool                                         model_activation_running_ = false;
-  int                                          model_download_progress_  = 0;
+  bool                                         selected_model_active_    = false;
   bool                                         prompt_pending_           = false;
   bool                                         running_                  = false;
   int                                          total_                    = 0;

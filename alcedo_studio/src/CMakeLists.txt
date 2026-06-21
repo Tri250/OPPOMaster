@@ -106,6 +106,13 @@ endif()
 
 def_library(TimeProvider SOURCES utils/clock/time_provider.cpp)
 
+def_library(AppDiagnostics
+    SOURCES
+        utils/diagnostics/app_logging.cpp
+        include/utils/diagnostics/app_logging.hpp
+    PUBLIC_DEPS Qt6::Core
+)
+
 def_library(CudaDriverRequirements
     SOURCES utils/cuda/cuda_driver_requirements.cpp
 )
@@ -834,6 +841,7 @@ set(SERVICE_SRCS
 def_library(StorageService
     SOURCES ${SERVICE_SRCS}
     PUBLIC_DEPS DuckDB DuckORM SleeveMapper StrConv PipelineScheduler
+    PRIVATE_DEPS AppDiagnostics
 )
 
 # ==============================================================================
@@ -960,7 +968,7 @@ def_library(SemanticRuntimeService
         app/semantic_runtime_service.cpp
         include/app/semantic_runtime_service.hpp
     PUBLIC_DEPS Qt6::Core Qt6::Network
-    PRIVATE_DEPS SemanticProto
+    PRIVATE_DEPS SemanticProto AppDiagnostics
 )
 
 def_library(ModelDownloadService
@@ -983,6 +991,7 @@ def_library(ProjectService
                 StrConv JSON xxHash stduuid
     PRIVATE_DEPS
         UiLocalization
+        AppDiagnostics
         Qt6::Core
         Qt6::Gui
         opencv_core
@@ -1019,6 +1028,7 @@ def_library(SemanticGenerationService
         include/app/semantic_generation_service.hpp
         include/storage/controller/semantic/semantic_label_config.hpp
     PUBLIC_DEPS SemanticRuntimeService ThumbnailService StorageService opencv_core opencv_imgproc
+    PRIVATE_DEPS AppDiagnostics
 )
 
 def_library(ThumbnailDiskCacheService
@@ -1130,6 +1140,7 @@ add_library(AlbumBackendLib STATIC
     ui/alcedo_main/album_backend/stats_engine.cpp
     ui/alcedo_main/album_backend/search_controller.cpp
     ui/alcedo_main/album_backend/semantic_generation_controller.cpp
+    ui/alcedo_main/album_backend/model_download_controller.cpp
     ui/alcedo_main/album_backend/import_export.cpp
     ui/alcedo_main/album_backend/nikon_he_recovery_controller.cpp
     ui/alcedo_main/album_backend/editor_controller.cpp
@@ -1145,6 +1156,7 @@ add_library(AlbumBackendLib STATIC
     include/ui/alcedo_main/album_backend/stats_engine.hpp
     include/ui/alcedo_main/album_backend/search_controller.hpp
     include/ui/alcedo_main/album_backend/semantic_generation_controller.hpp
+    include/ui/alcedo_main/album_backend/model_download_controller.hpp
     include/ui/alcedo_main/album_backend/import_export.hpp
     include/ui/alcedo_main/album_backend/nikon_he_recovery_controller.hpp
     include/ui/alcedo_main/album_backend/nikon_he_recovery_types.hpp
@@ -1368,6 +1380,7 @@ target_include_directories(alcedo_main
 target_link_libraries(alcedo_main
     PRIVATE
         AlbumBackendLib
+        AppDiagnostics
         UiLocalization
         Qt6::Quick
         Qt6::Qml
