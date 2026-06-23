@@ -245,7 +245,10 @@ mod tests {
             .expect("list should succeed")
             .into_inner();
 
-        assert_eq!(response.profiles.len(), 3);
+        assert_eq!(
+            response.profiles.len(),
+            crate::service::model_assets::supported_model_profiles().count()
+        );
         assert!(
             response
                 .profiles
@@ -266,6 +269,22 @@ mod tests {
                     && profile.native_embedding_dimension == 768
                     && profile.embedding_transform == "l2_normalize")
         );
+        let has_coreml = response.profiles.iter().any(|profile| {
+            profile.language == "multilingual"
+                && profile.profile_id == "siglip2-base-256-coreml-macos"
+                && profile.engine_profile_id == "siglip2-coreml-native"
+                && profile.embedding_dimension == 768
+                && profile.native_embedding_dimension == 768
+                && profile.embedding_transform == "l2_normalize"
+        });
+        if cfg!(target_os = "macos") {
+            assert!(has_coreml);
+        } else {
+            assert!(!has_coreml);
+        }
+        assert!(response.profiles.iter().all(|profile| profile.profile_id
+            != "siglip2-base-256-coreml-macos"
+            || cfg!(target_os = "macos")));
         assert!(response.profiles.iter().all(|profile| !profile.installed));
         assert!(!root.exists());
     }

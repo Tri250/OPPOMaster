@@ -491,7 +491,7 @@ TEST_F(SemanticStorageControllerTest, ExistingSemanticModelWithoutActiveColumnPr
             "TIMESTAMP '2026-01-02 00:00:00');");
 
   DBController              db_controller(db_path_);
-  SemanticStorageController semantic(db_controller.GetConnectionGuard());
+  SemanticStorageController semantic(db_controller);
   EXPECT_EQ(semantic.ActiveModelKey(), "latest-model");
 }
 

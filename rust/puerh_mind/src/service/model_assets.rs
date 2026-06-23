@@ -23,11 +23,15 @@ pub const SUPPORTED_EMBEDDING_DIMENSIONS: &[u32] = &[512, 768];
 pub enum AssetRole {
     TextModel,
     VisionModel,
+    CoreMlTextModel,
+    CoreMlVisionModel,
     MultimodalModel,
     OnnxConfig,
     ModelConfig,
+    CoreMlManifest,
     PreprocessConfig,
     Tokenizer,
+    TokenizerArchive,
     TokenizerConfig,
     Vocab,
     SpecialTokens,
@@ -38,11 +42,15 @@ impl AssetRole {
         match self {
             AssetRole::TextModel => "text_model",
             AssetRole::VisionModel => "vision_model",
+            AssetRole::CoreMlTextModel => "coreml_text_model",
+            AssetRole::CoreMlVisionModel => "coreml_vision_model",
             AssetRole::MultimodalModel => "multimodal_model",
             AssetRole::OnnxConfig => "onnx_config",
             AssetRole::ModelConfig => "model_config",
+            AssetRole::CoreMlManifest => "coreml_manifest",
             AssetRole::PreprocessConfig => "preprocess_config",
             AssetRole::Tokenizer => "tokenizer",
+            AssetRole::TokenizerArchive => "tokenizer_archive",
             AssetRole::TokenizerConfig => "tokenizer_config",
             AssetRole::Vocab => "vocab",
             AssetRole::SpecialTokens => "special_tokens",
@@ -68,6 +76,29 @@ impl ModelLanguage {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InferenceBackend {
+    OnnxRuntime,
+    NativeCoreMl,
+}
+
+impl InferenceBackend {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            InferenceBackend::OnnxRuntime => "onnx_runtime",
+            InferenceBackend::NativeCoreMl => "native_coreml",
+        }
+    }
+
+    pub fn is_supported_on_current_platform(self) -> bool {
+        match self {
+            InferenceBackend::OnnxRuntime => true,
+            InferenceBackend::NativeCoreMl => cfg!(target_os = "macos"),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ModelAssetSpec {
     pub role: AssetRole,
@@ -86,6 +117,7 @@ pub struct ModelProfileSpec {
     pub model_id: &'static str,
     pub revision: &'static str,
     pub engine_profile_id: &'static str,
+    pub inference_backend: InferenceBackend,
     pub language: ModelLanguage,
     pub embedding_dimension: u32,
     pub native_embedding_dimension: u32,
@@ -320,6 +352,49 @@ const SIGLIP2_B32_ASSETS: &[ModelAssetSpec] = &[
     },
 ];
 
+const SIGLIP2_COREML_REPO: &str = "zidage/siglip2-base-coreml-macos";
+const SIGLIP2_COREML_REVISION: &str = "5419f7d827b15c5d7e6e0fe947c25620e1c24a7e";
+const SIGLIP2_COREML_PROFILE: &str = "siglip2-base-256-coreml-macos";
+
+const SIGLIP2_COREML_ASSETS: &[ModelAssetSpec] = &[
+    ModelAssetSpec {
+        role: AssetRole::CoreMlVisionModel,
+        repo_id: SIGLIP2_COREML_REPO,
+        revision: SIGLIP2_COREML_REVISION,
+        remote_path: "ImageEncoder.mlmodelc.zip",
+        local_path: "ImageEncoder.mlmodelc.zip",
+        size_bytes: 91_698_362,
+        sha256: Some("f3255dad62bda6c50021b4eac3bf764423dd52b198005480273e800faa1babb8"),
+    },
+    ModelAssetSpec {
+        role: AssetRole::CoreMlTextModel,
+        repo_id: SIGLIP2_COREML_REPO,
+        revision: SIGLIP2_COREML_REVISION,
+        remote_path: "TextEncoder.mlmodelc.zip",
+        local_path: "TextEncoder.mlmodelc.zip",
+        size_bytes: 258_591_067,
+        sha256: Some("ba64d0cac0695b5c0cd18c898382a5455ed74ac666c27421ee94047a3561a72e"),
+    },
+    ModelAssetSpec {
+        role: AssetRole::TokenizerArchive,
+        repo_id: SIGLIP2_COREML_REPO,
+        revision: SIGLIP2_COREML_REVISION,
+        remote_path: "tokenizer.zip",
+        local_path: "tokenizer.zip",
+        size_bytes: 5_460_173,
+        sha256: Some("c37f2a8e8555d8561109564c4f60ee962b0072abddcfcfd599d321469d6d1ef5"),
+    },
+    ModelAssetSpec {
+        role: AssetRole::CoreMlManifest,
+        repo_id: SIGLIP2_COREML_REPO,
+        revision: SIGLIP2_COREML_REVISION,
+        remote_path: "manifest.json",
+        local_path: "manifest.json",
+        size_bytes: 669,
+        sha256: Some("5dd52b1bb33595d78da3377f6f974c2f195fc628a2554f9d09c232bfd35fb397"),
+    },
+];
+
 pub const MODEL_PROFILES: &[ModelProfileSpec] = &[
     ModelProfileSpec {
         profile_id: MOBILECLIP2_ONNX_PROFILE,
@@ -327,6 +402,7 @@ pub const MODEL_PROFILES: &[ModelProfileSpec] = &[
         model_id: MOBILECLIP2_ONNX_MODEL_ID,
         revision: MOBILECLIP2_ONNX_REVISION,
         engine_profile_id: "mobileclip2-openclip",
+        inference_backend: InferenceBackend::OnnxRuntime,
         language: ModelLanguage::En,
         embedding_dimension: REQUIRED_EMBEDDING_DIMENSION,
         native_embedding_dimension: REQUIRED_EMBEDDING_DIMENSION,
@@ -340,6 +416,7 @@ pub const MODEL_PROFILES: &[ModelProfileSpec] = &[
         model_id: JINA_CLIP_REPO,
         revision: JINA_CLIP_REVISION,
         engine_profile_id: JINA_CLIP_ENGINE_PROFILE_ID,
+        inference_backend: InferenceBackend::OnnxRuntime,
         language: ModelLanguage::Multilingual,
         embedding_dimension: REQUIRED_EMBEDDING_DIMENSION,
         native_embedding_dimension: 1024,
@@ -353,12 +430,27 @@ pub const MODEL_PROFILES: &[ModelProfileSpec] = &[
         model_id: SIGLIP2_B32_REPO,
         revision: SIGLIP2_B32_REVISION,
         engine_profile_id: "siglip2-openclip",
+        inference_backend: InferenceBackend::OnnxRuntime,
         language: ModelLanguage::Multilingual,
         embedding_dimension: 768,
         native_embedding_dimension: 768,
         image_size: 256,
         embedding_transform: "l2_normalize",
         assets: SIGLIP2_B32_ASSETS,
+    },
+    ModelProfileSpec {
+        profile_id: SIGLIP2_COREML_PROFILE,
+        display_name: "SigLIP2 Base CoreML macOS",
+        model_id: SIGLIP2_COREML_REPO,
+        revision: SIGLIP2_COREML_REVISION,
+        engine_profile_id: "siglip2-coreml-native",
+        inference_backend: InferenceBackend::NativeCoreMl,
+        language: ModelLanguage::Multilingual,
+        embedding_dimension: 768,
+        native_embedding_dimension: 768,
+        image_size: 256,
+        embedding_transform: "l2_normalize",
+        assets: SIGLIP2_COREML_ASSETS,
     },
 ];
 
@@ -424,6 +516,24 @@ pub fn find_profile(profile_id: &str) -> anyhow::Result<&'static ModelProfileSpe
         .ok_or_else(|| anyhow::anyhow!("unknown semantic model profile {profile_id:?}"))
 }
 
+pub fn supported_model_profiles() -> impl Iterator<Item = &'static ModelProfileSpec> {
+    MODEL_PROFILES
+        .iter()
+        .filter(|profile| profile.inference_backend.is_supported_on_current_platform())
+}
+
+pub fn ensure_profile_supported(profile: &ModelProfileSpec) -> anyhow::Result<()> {
+    if profile.inference_backend.is_supported_on_current_platform() {
+        return Ok(());
+    }
+    bail!(
+        "semantic model profile {} uses {} inference, which is not supported on {}",
+        profile.profile_id,
+        profile.inference_backend.as_str(),
+        current_platform_name()
+    );
+}
+
 pub fn find_profile_asset(
     profile: &ModelProfileSpec,
     role: AssetRole,
@@ -455,7 +565,9 @@ pub fn profile_status(
     profile: &'static ModelProfileSpec,
     root: impl AsRef<Path>,
 ) -> ModelProfileStatus {
-    match validate_profile_assets(profile, root.as_ref()) {
+    match ensure_profile_supported(profile)
+        .and_then(|_| validate_profile_assets(profile, root.as_ref()))
+    {
         Ok(()) => ModelProfileStatus {
             profile,
             model_root: root.as_ref().to_path_buf(),
@@ -472,8 +584,7 @@ pub fn profile_status(
 }
 
 pub fn list_profiles(root: Option<&Path>) -> Vec<ModelProfileStatus> {
-    MODEL_PROFILES
-        .iter()
+    supported_model_profiles()
         .map(|profile| {
             let model_root = root
                 .map(|base| base.join(profile.profile_id))
@@ -495,6 +606,7 @@ pub fn validate_model_profile(
     root: impl AsRef<Path>,
 ) -> anyhow::Result<ResolvedModelManifest> {
     let profile = find_profile(profile_id)?;
+    ensure_profile_supported(profile)?;
     validate_profile_assets(profile, root.as_ref())?;
     let manifest = resolved_manifest(profile, root.as_ref());
     let manifest_path = root.as_ref().join(RESOLVED_MANIFEST_FILE);
@@ -545,6 +657,18 @@ fn validate_profile_dimension(profile: &ModelProfileSpec) -> anyhow::Result<()> 
         );
     }
     Ok(())
+}
+
+fn current_platform_name() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "macOS"
+    } else if cfg!(target_os = "windows") {
+        "Windows"
+    } else if cfg!(target_os = "linux") {
+        "Linux"
+    } else {
+        "this platform"
+    }
 }
 
 fn validate_profile_assets(profile: &ModelProfileSpec, root: &Path) -> anyhow::Result<()> {
@@ -706,6 +830,7 @@ mod tests {
         let jina = find_profile("jina-clip-v2-int8-multilingual").expect("jina profile exists");
         assert_eq!(jina.native_embedding_dimension, 1024);
         assert_eq!(jina.embedding_dimension, 512);
+        assert_eq!(jina.inference_backend, InferenceBackend::OnnxRuntime);
         assert_eq!(
             jina.embedding_transform,
             "matryoshka_truncate_then_l2_normalize"
@@ -714,6 +839,37 @@ mod tests {
         assert_eq!(siglip.native_embedding_dimension, 768);
         assert_eq!(siglip.embedding_dimension, 768);
         assert_eq!(siglip.engine_profile_id, "siglip2-openclip");
+        assert_eq!(siglip.inference_backend, InferenceBackend::OnnxRuntime);
+
+        let siglip_coreml =
+            find_profile(SIGLIP2_COREML_PROFILE).expect("siglip coreml profile exists");
+        assert_eq!(siglip_coreml.native_embedding_dimension, 768);
+        assert_eq!(siglip_coreml.embedding_dimension, 768);
+        assert_eq!(siglip_coreml.engine_profile_id, "siglip2-coreml-native");
+        assert_eq!(
+            siglip_coreml.inference_backend,
+            InferenceBackend::NativeCoreMl
+        );
+        assert_eq!(siglip_coreml.embedding_transform, "l2_normalize");
+    }
+
+    #[test]
+    fn supported_profile_list_filters_native_coreml_off_non_macos() {
+        let supported: Vec<_> = supported_model_profiles().collect();
+        assert!(
+            supported
+                .iter()
+                .all(|profile| profile.inference_backend.is_supported_on_current_platform())
+        );
+
+        let has_coreml = supported
+            .iter()
+            .any(|profile| profile.profile_id == SIGLIP2_COREML_PROFILE);
+        if cfg!(target_os = "macos") {
+            assert!(has_coreml);
+        } else {
+            assert!(!has_coreml);
+        }
     }
 
     #[test]
@@ -729,9 +885,19 @@ mod tests {
     fn profile_listing_reports_missing_models_without_downloading() {
         let root = unique_temp_root("alcedo-mind-profile-list");
         let profiles = list_profiles(Some(&root));
-        assert_eq!(profiles.len(), MODEL_PROFILES.len());
+        assert_eq!(profiles.len(), supported_model_profiles().count());
         assert!(profiles.iter().all(|profile| !profile.installed));
         assert!(!root.exists());
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn validate_native_coreml_profile_fails_on_non_macos() {
+        let root = unique_temp_root("alcedo-mind-coreml-unsupported");
+        let err = validate_model_profile(SIGLIP2_COREML_PROFILE, &root)
+            .expect_err("native CoreML profile should not validate off macOS");
+        assert!(err.to_string().contains("native_coreml"));
+        assert!(err.to_string().contains(current_platform_name()));
     }
 
     #[test]

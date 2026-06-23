@@ -35,6 +35,9 @@ constexpr const char* kJinaClipOnnxSha256 =
 constexpr const char* kSiglip2Repo     = "immich-app/ViT-B-32-SigLIP2-256__webli";
 constexpr const char* kSiglip2Revision = "762c736d366fc253e9453021144f9fe71789b075";
 constexpr const char* kSiglip2Profile  = "siglip2-b32-256-multilingual";
+constexpr const char* kSiglip2CoreMlRepo     = "zidage/siglip2-base-coreml-macos";
+constexpr const char* kSiglip2CoreMlRevision = "5419f7d827b15c5d7e6e0fe947c25620e1c24a7e";
+constexpr const char* kSiglip2CoreMlProfile  = "siglip2-base-256-coreml-macos";
 
 auto                  BuildProfiles() -> std::vector<ModelProfileSpec> {
   std::vector<ModelProfileSpec> profiles;
@@ -45,6 +48,7 @@ auto                  BuildProfiles() -> std::vector<ModelProfileSpec> {
   mobileclip.model_id                   = kMobileClipModelId;
   mobileclip.revision                   = kMobileClipRevision;
   mobileclip.engine_profile_id          = "mobileclip2-openclip";
+  mobileclip.inference_backend          = ModelInferenceBackend::kOnnxRuntime;
   mobileclip.language                   = ModelLanguage::kEn;
   mobileclip.embedding_dimension        = kSemanticRequiredEmbeddingDimension;
   mobileclip.native_embedding_dimension = kSemanticRequiredEmbeddingDimension;
@@ -74,6 +78,7 @@ auto                  BuildProfiles() -> std::vector<ModelProfileSpec> {
   jina.model_id                   = kJinaClipRepo;
   jina.revision                   = kJinaClipRevision;
   jina.engine_profile_id          = kJinaClipEngineProfileId;
+  jina.inference_backend          = ModelInferenceBackend::kOnnxRuntime;
   jina.language                   = ModelLanguage::kMultilingual;
   jina.embedding_dimension        = kSemanticRequiredEmbeddingDimension;
   jina.native_embedding_dimension = 1024;
@@ -102,6 +107,7 @@ auto                  BuildProfiles() -> std::vector<ModelProfileSpec> {
   siglip.model_id                   = kSiglip2Repo;
   siglip.revision                   = kSiglip2Revision;
   siglip.engine_profile_id          = "siglip2-openclip";
+  siglip.inference_backend          = ModelInferenceBackend::kOnnxRuntime;
   siglip.language                   = ModelLanguage::kMultilingual;
   siglip.embedding_dimension        = kSemanticSiglip2EmbeddingDimension;
   siglip.native_embedding_dimension = kSemanticSiglip2EmbeddingDimension;
@@ -128,6 +134,36 @@ auto                  BuildProfiles() -> std::vector<ModelProfileSpec> {
   };
   profiles.push_back(std::move(siglip));
 
+  ModelProfileSpec siglip_coreml{};
+  siglip_coreml.profile_id                 = kSiglip2CoreMlProfile;
+  siglip_coreml.display_name               = "SigLIP2 Base CoreML macOS";
+  siglip_coreml.model_id                   = kSiglip2CoreMlRepo;
+  siglip_coreml.revision                   = kSiglip2CoreMlRevision;
+  siglip_coreml.engine_profile_id          = "siglip2-coreml-native";
+  siglip_coreml.inference_backend          = ModelInferenceBackend::kNativeCoreMl;
+  siglip_coreml.language                   = ModelLanguage::kMultilingual;
+  siglip_coreml.embedding_dimension        = kSemanticSiglip2EmbeddingDimension;
+  siglip_coreml.native_embedding_dimension = kSemanticSiglip2EmbeddingDimension;
+  siglip_coreml.image_size                 = 256;
+  siglip_coreml.embedding_transform        = "l2_normalize";
+  siglip_coreml.assets                     = {
+      {ModelAssetRole::kCoreMlVisionModel, kSiglip2CoreMlRepo, kSiglip2CoreMlRevision,
+                                            "ImageEncoder.mlmodelc.zip",
+                                            "ImageEncoder.mlmodelc.zip", 91'698'362,
+                                            "f3255dad62bda6c50021b4eac3bf764423dd52b198005480273e800faa1babb8"},
+      {ModelAssetRole::kCoreMlTextModel, kSiglip2CoreMlRepo, kSiglip2CoreMlRevision,
+                                            "TextEncoder.mlmodelc.zip",
+                                            "TextEncoder.mlmodelc.zip", 258'591'067,
+                                            "ba64d0cac0695b5c0cd18c898382a5455ed74ac666c27421ee94047a3561a72e"},
+      {ModelAssetRole::kTokenizerArchive, kSiglip2CoreMlRepo, kSiglip2CoreMlRevision,
+                                            "tokenizer.zip", "tokenizer.zip", 5'460'173,
+                                            "c37f2a8e8555d8561109564c4f60ee962b0072abddcfcfd599d321469d6d1ef5"},
+      {ModelAssetRole::kCoreMlManifest, kSiglip2CoreMlRepo, kSiglip2CoreMlRevision,
+                                            "manifest.json", "manifest.json", 669,
+                                            "5dd52b1bb33595d78da3377f6f974c2f195fc628a2554f9d09c232bfd35fb397"},
+  };
+  profiles.push_back(std::move(siglip_coreml));
+
   return profiles;
 }
 
@@ -139,16 +175,24 @@ auto ToString(ModelAssetRole role) -> const char* {
       return "text_model";
     case ModelAssetRole::kVisionModel:
       return "vision_model";
+    case ModelAssetRole::kCoreMlTextModel:
+      return "coreml_text_model";
+    case ModelAssetRole::kCoreMlVisionModel:
+      return "coreml_vision_model";
     case ModelAssetRole::kMultimodalModel:
       return "multimodal_model";
     case ModelAssetRole::kOnnxConfig:
       return "onnx_config";
     case ModelAssetRole::kModelConfig:
       return "model_config";
+    case ModelAssetRole::kCoreMlManifest:
+      return "coreml_manifest";
     case ModelAssetRole::kPreprocessConfig:
       return "preprocess_config";
     case ModelAssetRole::kTokenizer:
       return "tokenizer";
+    case ModelAssetRole::kTokenizerArchive:
+      return "tokenizer_archive";
     case ModelAssetRole::kTokenizerConfig:
       return "tokenizer_config";
     case ModelAssetRole::kVocab:
@@ -171,8 +215,40 @@ auto ToString(ModelLanguage language) -> const char* {
   return "multilingual";
 }
 
+auto ToString(ModelInferenceBackend backend) -> const char* {
+  switch (backend) {
+    case ModelInferenceBackend::kOnnxRuntime:
+      return "onnx_runtime";
+    case ModelInferenceBackend::kNativeCoreMl:
+      return "native_coreml";
+  }
+  return "onnx_runtime";
+}
+
+auto IsModelProfileSupportedOnCurrentPlatform(const ModelProfileSpec& profile) -> bool {
+  switch (profile.inference_backend) {
+    case ModelInferenceBackend::kOnnxRuntime:
+      return true;
+    case ModelInferenceBackend::kNativeCoreMl:
+#ifdef Q_OS_MACOS
+      return true;
+#else
+      return false;
+#endif
+  }
+  return false;
+}
+
 auto SemanticModelProfiles() -> const std::vector<ModelProfileSpec>& {
-  static const std::vector<ModelProfileSpec> kProfiles = BuildProfiles();
+  static const std::vector<ModelProfileSpec> kProfiles = [] {
+    std::vector<ModelProfileSpec> profiles;
+    for (const auto& profile : BuildProfiles()) {
+      if (IsModelProfileSupportedOnCurrentPlatform(profile)) {
+        profiles.push_back(profile);
+      }
+    }
+    return profiles;
+  }();
   return kProfiles;
 }
 
