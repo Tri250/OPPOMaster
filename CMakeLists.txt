@@ -9,7 +9,7 @@ endif()
 #set(CMAKE_CXX_COMPILER "clang++")
 # Compiler flags.
 
-project(alcedo VERSION 0.2.5 LANGUAGES C CXX)
+project(alcedo VERSION 0.2.6 LANGUAGES C CXX)
 
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build alcedo libraries as static by default." FORCE)
 
@@ -796,7 +796,8 @@ if(WIN32 AND TARGET ${ALCEDO_MAIN_BIN})
              endif()
          endif()
          if(_unresolved)
-             message(WARNING \"[alcedo] Unresolved runtime deps: \${_unresolved}\")
+             list(JOIN _unresolved \"\\n  \" _unresolved_text)
+             message(FATAL_ERROR \"[alcedo] Unresolved runtime deps:\\n  \${_unresolved_text}\")
          endif()
          if(NOT \"${_third_party_dawn_bin}\" STREQUAL \"\")
              # Explicitly copy bundled Dawn DLLs even if they are not direct linker dependencies

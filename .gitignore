@@ -1112,3 +1112,6 @@ vcpkg
 
 # Ignore agent guidance files
 AGENTS.md
+
+# Social media publish materials (not tracked)
+/docs/social_media_pub/
