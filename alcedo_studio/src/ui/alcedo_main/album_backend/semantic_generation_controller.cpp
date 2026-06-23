@@ -267,6 +267,13 @@ void SemanticGenerationController::RecomputeSelectedModelActive() {
       && active_profile == backend_.model_download_controller_.SelectedModelProfileId();
 }
 
+void SemanticGenerationController::RefreshSemanticState() {
+  backend_.model_download_controller_.RefreshInstallState();
+  RecomputeSelectedModelActive();
+  RefreshAlbumSummary();
+  emit StateChanged();
+}
+
 void SemanticGenerationController::ActivateSelectedModel() {
   if (running_) {
     backend_.model_download_controller_.SetStatusText(

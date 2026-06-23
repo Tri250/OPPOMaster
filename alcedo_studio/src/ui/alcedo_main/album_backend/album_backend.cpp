@@ -259,6 +259,9 @@ AlbumBackend::~AlbumBackend() {
     if (psvc) {
       psvc->Sync();
     }
+    // Drop DB rows for models no longer installed locally before the final save
+    // so the packed .alcd stays lean. No UI refresh — the app is closing.
+    (void)project_handler_.PurgeUninstalledSemanticModels();
     if (project_handler_.PersistCurrentProjectState()) {
       QString ignored_error;
       (void)project_handler_.PackageCurrentProjectFiles(&ignored_error);
@@ -887,6 +890,12 @@ bool AlbumBackend::SaveProject() {
 
   if (editor_.editor_active()) {
     editor_.FinalizeEditorSession(true);
+  }
+
+  // Drop DB rows for models no longer installed locally before the metadata
+  // save + packaging, then refresh the badge/counts so the open app reflects it.
+  if (project_handler_.PurgeUninstalledSemanticModels()) {
+    semantic_generation_.RefreshSemanticState();
   }
 
   if (!project_handler_.PersistCurrentProjectState()) {

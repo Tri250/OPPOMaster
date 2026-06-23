@@ -82,6 +82,12 @@ class SemanticGenerationController final : public QObject {
 
   [[nodiscard]] auto ActiveModelKey() const -> std::string;
   [[nodiscard]] auto LabelDisplayText(sl_element_id_t elementId) const -> QString;
+  // Full post-open / post-purge refresh: fresh on-disk install state, a
+  // recomputed selectedModelActive badge, album counts, and an unconditional
+  // StateChanged so live DB bindings (activeModelName/activeModelKey) refresh
+  // even when the counts are unchanged. Called on project open and after a
+  // save-time purge.
+  void RefreshSemanticState();
 
  signals:
   void StateChanged();

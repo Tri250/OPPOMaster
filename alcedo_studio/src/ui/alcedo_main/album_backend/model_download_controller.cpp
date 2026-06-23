@@ -721,6 +721,21 @@ void ModelDownloadController::RefreshSelectedModelStatus() {
   emit StateChanged();
 }
 
+void ModelDownloadController::RefreshInstallState() {
+  RecomputeSelectedModelState();
+  emit StateChanged();
+}
+
+bool ModelDownloadController::ShouldKeepSemanticModelData(const QString& profileId) const {
+  const auto* profile = FindSemanticProfile(profileId.toStdString());
+  if (profile == nullptr) {
+    // Unknown to the catalog — install state is indeterminate, so keep the rows
+    // rather than risk irreversible label loss if the profile is ever re-added.
+    return true;
+  }
+  return !ValidateLocalCatalogModelProfile(*profile, ModelRootForProfile(profileId)).has_value();
+}
+
 void ModelDownloadController::StartSelectedModelDownload() {
   if (model_download_running_ || backend_.model_download_service_.IsRunning()) {
     return;
