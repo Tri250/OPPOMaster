@@ -32,6 +32,25 @@ ThreadPool::~ThreadPool() {
   }
 }
 
+void ThreadPool::Shutdown() {
+  {
+    std::unique_lock<std::mutex> lock(mtx_);
+    stop_ = true;
+    // Drop queued tasks that have not started yet. They capture state that may
+    // be destroyed before this pool's owner; running them during teardown is
+    // the use-after-free we are avoiding. In-flight tasks (already popped by a
+    // worker) are unaffected and finish on their own.
+    std::queue<std::function<void()>> empty;
+    tasks_.swap(empty);
+  }
+  condition_.notify_all();
+  for (std::thread& worker : workers_) {
+    if (worker.joinable()) {
+      worker.join();
+    }
+  }
+}
+
 void ThreadPool::Submit(std::function<void()> task) {
   {
     std::lock_guard<std::mutex> lock(mtx_);

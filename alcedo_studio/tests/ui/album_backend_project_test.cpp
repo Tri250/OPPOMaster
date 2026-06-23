@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstdlib>
 #include <fstream>
 #include <memory>
 #include <optional>
@@ -28,6 +29,7 @@
 #include "app/project_package_backend.hpp"
 #include "app/project_service.hpp"
 #include "sleeve/storage_service.hpp"
+#include "ui/alcedo_main/album_backend/album_thumbnail_model.hpp"
 #include "ui/alcedo_main/album_backend/model_download_controller.hpp"
 
 namespace alcedo::ui::test {
@@ -320,6 +322,84 @@ TEST_F(ProjectTests, LoadProject_ValidPackedProject_Succeeds) {
   ProcessEvents(500);
 
   EXPECT_TRUE(backend.ServiceReady());
+}
+
+TEST_F(ProjectTests, LoadProject_ExternalPackedProjectFromEnv_Succeeds) {
+  const char* raw_path = std::getenv("ALCEDO_TEST_PACKED_PROJECT_PATH");
+  if (raw_path == nullptr || raw_path[0] == '\0') {
+    GTEST_SKIP() << "Set ALCEDO_TEST_PACKED_PROJECT_PATH to load a real .alcd project.";
+  }
+
+  AlbumBackend backend;
+  QSignalSpy   projectSpy(&backend, &AlbumBackend::ProjectChanged);
+  ASSERT_TRUE(backend.LoadProject(QString::fromLocal8Bit(raw_path)));
+  ASSERT_TRUE(WaitForSignal(projectSpy, 30000));
+  ProcessEvents(500);
+
+  EXPECT_TRUE(backend.ServiceReady()) << backend.ServiceMessage().toStdString();
+}
+
+TEST_F(ProjectTests, LoadProject_ExternalPackedProjectFromEnv_RequestsThumbnails) {
+  const char* raw_path = std::getenv("ALCEDO_TEST_PACKED_PROJECT_PATH");
+  if (raw_path == nullptr || raw_path[0] == '\0') {
+    GTEST_SKIP() << "Set ALCEDO_TEST_PACKED_PROJECT_PATH to load a real .alcd project.";
+  }
+
+  AlbumBackend backend;
+  QSignalSpy   projectSpy(&backend, &AlbumBackend::ProjectChanged);
+  ASSERT_TRUE(backend.LoadProject(QString::fromLocal8Bit(raw_path)));
+  ASSERT_TRUE(WaitForSignal(projectSpy, 30000));
+  ProcessEvents(500);
+  ASSERT_TRUE(backend.ServiceReady()) << backend.ServiceMessage().toStdString();
+
+  auto* model = qobject_cast<AlbumThumbnailModel*>(backend.ThumbnailModel());
+  ASSERT_NE(model, nullptr);
+  ASSERT_GT(model->count(), 0);
+
+  QSignalSpy thumbnailSpy(&backend, &AlbumBackend::ThumbnailUpdated);
+  for (int i = 0; i < model->count(); ++i) {
+    const QVariantMap row = model->getItemAt(i);
+    backend.SetThumbnailVisible(row.value(QStringLiteral("elementId")).toUInt(),
+                                row.value(QStringLiteral("imageId")).toUInt(), true, 512);
+  }
+
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+  while (thumbnailSpy.count() < model->count() && std::chrono::steady_clock::now() < deadline) {
+    ProcessEvents(100);
+  }
+  EXPECT_GE(thumbnailSpy.count(), model->count());
+}
+
+TEST_F(ProjectTests, LoadProject_ExternalPackedProjectFromEnv_StartsSemanticGeneration) {
+  const char* raw_path = std::getenv("ALCEDO_TEST_PACKED_PROJECT_PATH");
+  if (raw_path == nullptr || raw_path[0] == '\0') {
+    GTEST_SKIP() << "Set ALCEDO_TEST_PACKED_PROJECT_PATH to load a real .alcd project.";
+  }
+
+  AlbumBackend backend;
+  QSignalSpy   projectSpy(&backend, &AlbumBackend::ProjectChanged);
+  ASSERT_TRUE(backend.LoadProject(QString::fromLocal8Bit(raw_path)));
+  ASSERT_TRUE(WaitForSignal(projectSpy, 30000));
+  ProcessEvents(500);
+  ASSERT_TRUE(backend.ServiceReady()) << backend.ServiceMessage().toStdString();
+
+  auto* semantic = qobject_cast<SemanticGenerationController*>(
+      backend.SemanticGenerationControllerObject());
+  ASSERT_NE(semantic, nullptr);
+  semantic->RefreshAlbumSummary();
+  if (semantic->AlbumTotalCount() <= 0) {
+    GTEST_SKIP() << "The external project has no images.";
+  }
+
+  QSignalSpy stateSpy(semantic, &SemanticGenerationController::StateChanged);
+  semantic->StartAlbumGeneration(true);
+
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::minutes(3);
+  while (semantic->Running() && std::chrono::steady_clock::now() < deadline) {
+    ProcessEvents(250);
+  }
+  EXPECT_FALSE(semantic->Running()) << semantic->StatusText().toStdString();
+  EXPECT_FALSE(stateSpy.isEmpty());
 }
 
 // ── Save project — no project loaded ───────────────────────────────────────

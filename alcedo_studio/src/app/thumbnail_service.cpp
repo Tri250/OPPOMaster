@@ -246,6 +246,17 @@ struct ThumbnailService::State {
 
     return {};
   }
+
+  // The pool is declared before cache_lock_/pending_/thumbnail_cache_data_
+  // (members above), so the compiler-generated destructor destroys those first
+  // and the pool last — but ThreadPool::~ThreadPool DRAINS queued tasks, which
+  // access exactly those already-destroyed members (use-after-free). Stop the
+  // pool here, while every member is still alive, so the queued disk-read tasks
+  // are dropped and in-flight ones finish against live state. The pool's own
+  // destructor then drains an empty queue (no-op).
+  ~State() {
+    disk_read_thread_pool_.Shutdown();
+  }
 };
 
 ThumbnailService::ThumbnailService(std::shared_ptr<SleeveServiceImpl>    sleeve_service,
