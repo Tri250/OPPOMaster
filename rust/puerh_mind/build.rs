@@ -1,6 +1,8 @@
 use std::{env, path::PathBuf};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    emit_macos_swift_runtime_rpath();
+
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
     let descriptor_path = out_dir.join("semantic_descriptor.bin");
 
@@ -13,3 +15,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+#[cfg(target_os = "macos")]
+fn emit_macos_swift_runtime_rpath() {
+    println!("cargo:rustc-link-arg=-Wl,-rpath,/usr/lib/swift");
+}
+
+#[cfg(not(target_os = "macos"))]
+fn emit_macos_swift_runtime_rpath() {}
