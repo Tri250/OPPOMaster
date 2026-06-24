@@ -21,6 +21,7 @@ class AppTheme final : public QObject {
   Q_PROPERTY(QString headlineFontFamily READ headlineFontFamily NOTIFY UiFontFamilyChanged)
   Q_PROPERTY(QString dataFontFamily READ dataFontFamily CONSTANT)
   Q_PROPERTY(QString monoFontFamily READ monoFontFamily CONSTANT)
+  Q_PROPERTY(QString appVersion READ appVersion CONSTANT)
   Q_PROPERTY(QColor toneGold READ toneGold NOTIFY ThemeChanged)
   Q_PROPERTY(QColor toneWine READ toneWine NOTIFY ThemeChanged)
   Q_PROPERTY(QColor toneSteel READ toneSteel NOTIFY ThemeChanged)
@@ -102,6 +103,7 @@ class AppTheme final : public QObject {
   auto headlineFontFamily() const -> QString;
   auto dataFontFamily() const -> QString;
   auto monoFontFamily() const -> QString;
+  auto appVersion() const -> QString;
 
   auto toneGold() const -> QColor;
   auto toneWine() const -> QColor;

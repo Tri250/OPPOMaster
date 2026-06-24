@@ -1418,6 +1418,7 @@ qt_add_qml_module(alcedo_main
         ui/alcedo_main/qml/SemanticGenerationDialog.qml
         ui/alcedo_main/qml/ActivateModelDialog.qml
         ui/alcedo_main/qml/SemanticGenerationSettingsPanel.qml
+        ui/alcedo_main/qml/AboutPage.qml
         ui/alcedo_main/qml/ImportProgressRing.qml
         ui/alcedo_main/qml/InspectorPanel.qml
         ui/alcedo_main/qml/CollectionsPanel.qml
@@ -1465,7 +1466,10 @@ elseif(COMMAND qt_finalize_executable)
     qt_finalize_executable(alcedo_main)
 endif()
 
-target_compile_definitions(alcedo_main PRIVATE ALCEDO_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_compile_definitions(alcedo_main PRIVATE
+    ALCEDO_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    ALCEDO_APP_VERSION="${PROJECT_VERSION}"
+)
 
 if(DEFINED ALCEDO_LENSFUN_LIBRARY_DIR AND NOT "${ALCEDO_LENSFUN_LIBRARY_DIR}" STREQUAL "")
     set_property(TARGET alcedo_main APPEND PROPERTY BUILD_RPATH "${ALCEDO_LENSFUN_LIBRARY_DIR}")

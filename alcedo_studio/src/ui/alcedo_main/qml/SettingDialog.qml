@@ -247,7 +247,8 @@ Dialog {
                                     { label: qsTr("Language"), icon: "qrc:/panel_icons/language.svg" },
                                     { label: qsTr("Theme and color"), icon: "qrc:/panel_icons/palette.svg" },
                                     { label: qsTr("Cache"), icon: "qrc:/panel_icons/box.svg" },
-                                    { label: qsTr("AI"), icon: "qrc:/panel_icons/search.svg" }
+                                    { label: qsTr("AI"), icon: "qrc:/panel_icons/search.svg" },
+                                    { label: qsTr("About"), icon: "qrc:/panel_icons/aperture.svg" }
                                 ]
 
                                 delegate: Rectangle {
@@ -328,7 +329,9 @@ Dialog {
                                          ? qsTr("Theme and color")
                                          : (dialog.currentCategory === 2
                                             ? qsTr("Cache")
-                                            : qsTr("AI")))
+                                            : (dialog.currentCategory === 3
+                                               ? qsTr("AI")
+                                               : qsTr("About"))))
                                 color: dialog.textColor
                                 font.family: dialog.headlineFontFamily
                                 font.pixelSize: 34
@@ -752,6 +755,25 @@ Dialog {
                                         dialog.messageRequested(message)
                                     }
                                 }
+                            }
+                        }
+
+                        ScrollView {
+                            id: aboutScroll
+                            contentWidth: availableWidth
+                            clip: true
+
+                            AboutPage {
+                                Layout.fillWidth: true
+                                primaryAccent: dialog.primaryAccent
+                                secondaryAccent: dialog.secondaryAccent
+                                textColor: dialog.textColor
+                                mutedTextColor: dialog.mutedTextColor
+                                canvasColor: dialog.canvasColor
+                                panelColor: dialog.panelColor
+                                dividerColor: dialog.dividerColor
+                                dangerColor: dialog.dangerColor
+                                headlineFontFamily: dialog.headlineFontFamily
                             }
                         }
                     }
