@@ -122,6 +122,11 @@ add_executable(ColorTempCudaSanityTest raw/color_temp_cuda_sanity_test.cpp)
 target_include_directories(ColorTempCudaSanityTest PUBLIC ${ALCEDO_INCLUDE_DIR})
 target_link_libraries(ColorTempCudaSanityTest PRIVATE GTest::gtest_main Operators RawProcessor)
 
+add_executable(RawProcessorCropTest raw/raw_processor_crop_test.cpp)
+target_include_directories(RawProcessorCropTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(RawProcessorCropTest PRIVATE GTest::gtest_main RawProcessor ${ALCEDO_TEST_OPENCV_MIN_DEPS})
+gtest_discover_tests(RawProcessorCropTest TEST_PREFIX "RawProcessorCropTest.")
+
 if(ALCEDO_CUDA_ENABLED AND ALCEDO_ENABLE_CUDA_IMAGE_GEOMETRY_OPS_TEST)
   add_executable(CudaImageGeometryOpsTest raw/cuda_image_geometry_ops_test.cpp)
   target_include_directories(CudaImageGeometryOpsTest PUBLIC ${ALCEDO_INCLUDE_DIR})
@@ -1006,6 +1011,7 @@ alcedo_assign_test_category(raw ALCEDO_BUILD_RAW_TESTS alcedo_tests_raw
   SingleRawLoad
   SingleThumbnailLoad
   ColorTempCudaSanityTest
+  RawProcessorCropTest
   OpenClRawOpsTest
   MetalRawStagePreviewTest
   MetalFullPipelinePreviewTest

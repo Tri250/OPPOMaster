@@ -4,13 +4,13 @@
 
 #pragma once
 
+#include <libraw/libraw.h>
+
 #include <algorithm>
 #include <cstdint>
+#include <opencv2/core.hpp>
 #include <optional>
 #include <stdexcept>
-
-#include <libraw/libraw.h>
-#include <opencv2/core.hpp>
 
 #include "decoders/processor/raw_processor.hpp"
 
@@ -24,8 +24,9 @@ enum class CudaExecutionMode {
 inline constexpr int kCudaTileThresholdLongEdge = 9000;
 inline constexpr int kCudaTileInnerSize         = 1024;
 inline constexpr int kCudaTileHaloSize          = 16;
+inline constexpr int kRcdDebayerCropRadius      = 4;
 
-inline auto DecodeResScaleDivisor(const DecodeRes decode_res) -> int {
+inline auto          DecodeResScaleDivisor(const DecodeRes decode_res) -> int {
   switch (decode_res) {
     case DecodeRes::FULL:
       return 1;
@@ -69,42 +70,52 @@ inline auto BuildActiveAreaRect(const libraw_image_sizes_t& sizes, const cv::Siz
   return {left, top, width, height};
 }
 
-inline auto BuildDefaultCropRect(const libraw_image_sizes_t& sizes, const ushort default_crop[4],
-                                 const cv::Size& image_size, const int scale_divisor = 1)
-    -> cv::Rect {
-  const cv::Rect active_rect = BuildActiveAreaRect(sizes, image_size, scale_divisor);
+inline auto HasValidDefaultCrop(const libraw_image_sizes_t& sizes, const ushort default_crop[4])
+    -> bool {
+  const int raw_width       = std::max(static_cast<int>(sizes.raw_width), 0);
+  const int raw_height      = std::max(static_cast<int>(sizes.raw_height), 0);
 
-  const int raw_width  = std::max(static_cast<int>(sizes.raw_width), 0);
-  const int raw_height = std::max(static_cast<int>(sizes.raw_height), 0);
-
-  const int raw_active_left   = std::clamp(static_cast<int>(sizes.left_margin), 0, raw_width);
-  const int raw_active_top    = std::clamp(static_cast<int>(sizes.top_margin), 0, raw_height);
-  const int raw_active_right  =
+  const int raw_active_left = std::clamp(static_cast<int>(sizes.left_margin), 0, raw_width);
+  const int raw_active_top  = std::clamp(static_cast<int>(sizes.top_margin), 0, raw_height);
+  const int raw_active_right =
       std::clamp(raw_active_left + static_cast<int>(sizes.width), raw_active_left, raw_width);
   const int raw_active_bottom =
       std::clamp(raw_active_top + static_cast<int>(sizes.height), raw_active_top, raw_height);
 
-  // DNG DefaultCrop* uses raw-image coordinates. If the file does not provide a valid crop,
-  // keep the broader active area instead.
   const int raw_crop_left   = static_cast<int>(default_crop[0]);
   const int raw_crop_top    = static_cast<int>(default_crop[1]);
   const int raw_crop_width  = static_cast<int>(default_crop[2]);
   const int raw_crop_height = static_cast<int>(default_crop[3]);
   if (raw_crop_width <= 0 || raw_crop_height <= 0) {
+    return false;
+  }
+
+  const int raw_crop_right  = raw_crop_left + raw_crop_width;
+  const int raw_crop_bottom = raw_crop_top + raw_crop_height;
+  return raw_crop_left >= raw_active_left && raw_crop_top >= raw_active_top &&
+         raw_crop_right <= raw_active_right && raw_crop_bottom <= raw_active_bottom;
+}
+
+inline auto BuildDefaultCropRect(const libraw_image_sizes_t& sizes, const ushort default_crop[4],
+                                 const cv::Size& image_size, const int scale_divisor = 1)
+    -> cv::Rect {
+  const cv::Rect active_rect     = BuildActiveAreaRect(sizes, image_size, scale_divisor);
+
+  // DNG DefaultCrop* uses raw-image coordinates. If the file does not provide a valid crop,
+  // keep the broader active area instead.
+  const int      raw_crop_left   = static_cast<int>(default_crop[0]);
+  const int      raw_crop_top    = static_cast<int>(default_crop[1]);
+  const int      raw_crop_width  = static_cast<int>(default_crop[2]);
+  const int      raw_crop_height = static_cast<int>(default_crop[3]);
+  if (!HasValidDefaultCrop(sizes, default_crop)) {
     return active_rect;
   }
 
   const int raw_crop_right  = raw_crop_left + raw_crop_width;
   const int raw_crop_bottom = raw_crop_top + raw_crop_height;
-  if (raw_crop_left < raw_active_left || raw_crop_top < raw_active_top ||
-      raw_crop_right > raw_active_right || raw_crop_bottom > raw_active_bottom) {
-    return active_rect;
-  }
 
-  const int left =
-      std::clamp(ScaleCoordFloor(raw_crop_left, scale_divisor), 0, image_size.width);
-  const int top =
-      std::clamp(ScaleCoordFloor(raw_crop_top, scale_divisor), 0, image_size.height);
+  const int left = std::clamp(ScaleCoordFloor(raw_crop_left, scale_divisor), 0, image_size.width);
+  const int top  = std::clamp(ScaleCoordFloor(raw_crop_top, scale_divisor), 0, image_size.height);
   const int right =
       std::clamp(ScaleCoordCeil(raw_crop_right, scale_divisor), left, image_size.width);
   const int bottom =
@@ -122,6 +133,32 @@ inline auto BuildDecodeCropRect(const libraw_image_sizes_t& sizes, const ushort 
                                 const cv::Size& image_size, const DecodeRes decode_res)
     -> cv::Rect {
   return BuildDefaultCropRect(sizes, default_crop, image_size, DecodeResScaleDivisor(decode_res));
+}
+
+inline auto BuildRcdDecodeCropRect(const libraw_image_sizes_t& sizes, const ushort default_crop[4],
+                                   const cv::Size& rcd_output_size, const DecodeRes decode_res,
+                                   const int rcd_radius = kRcdDebayerCropRadius) -> cv::Rect {
+  if (rcd_radius <= 0) {
+    return BuildDecodeCropRect(sizes, default_crop, rcd_output_size, decode_res);
+  }
+
+  const cv::Size source_size(rcd_output_size.width + 2 * rcd_radius,
+                             rcd_output_size.height + 2 * rcd_radius);
+  const cv::Rect source_crop = BuildDecodeCropRect(sizes, default_crop, source_size, decode_res);
+
+  // GPU RCD removes a radius-wide border and maps source (radius, radius) to output (0, 0).
+  // Inset LibRaw's chosen image crop by the same radius before translating it to post-RCD space.
+  const int      left        = std::clamp(source_crop.x, 0, rcd_output_size.width);
+  const int      top         = std::clamp(source_crop.y, 0, rcd_output_size.height);
+  const int      right =
+      std::clamp(source_crop.x + source_crop.width - 2 * rcd_radius, left, rcd_output_size.width);
+  const int bottom =
+      std::clamp(source_crop.y + source_crop.height - 2 * rcd_radius, top, rcd_output_size.height);
+
+  if (right <= left || bottom <= top) {
+    throw std::runtime_error("RawProcessor: decode crop is too small for RCD radius.");
+  }
+  return {left, top, right - left, bottom - top};
 }
 
 inline auto IsFullImageRect(const cv::Rect& rect, const cv::Size& image_size) -> bool {

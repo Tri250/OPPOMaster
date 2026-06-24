@@ -58,9 +58,9 @@ auto RawProcessor::ProcessMetal() -> ImageBuffer {
 
   if (cfa_pattern_.kind == RawCfaKind::Bayer2x2 && params_.highlights_reconstruct_) {
     metal::Bayer2x2ToRGB_RCD(gpu_img, cfa_pattern_.bayer_pattern);
-    const cv::Rect crop_rect =
-        detail::BuildDecodeCropRect(raw_data_.sizes, default_crop_,
-                                    cv::Size(gpu_img.Width(), gpu_img.Height()), params_.decode_res_);
+    const cv::Rect crop_rect = detail::BuildRcdDecodeCropRect(
+        raw_data_.sizes, default_crop_, cv::Size(gpu_img.Width(), gpu_img.Height()),
+        params_.decode_res_);
     if (!detail::IsFullImageRect(crop_rect, cv::Size(gpu_img.Width(), gpu_img.Height()))) {
       metal::MetalImage cropped;
       gpu_img.CropTo(cropped, crop_rect);
@@ -75,9 +75,12 @@ auto RawProcessor::ProcessMetal() -> ImageBuffer {
     } else {
       metal::Bayer2x2ToRGB_RCD(gpu_img, cfa_pattern_.bayer_pattern);
     }
-    const cv::Rect crop_rect =
-        detail::BuildDecodeCropRect(raw_data_.sizes, default_crop_,
-                                    cv::Size(gpu_img.Width(), gpu_img.Height()), params_.decode_res_);
+    const cv::Size crop_size(gpu_img.Width(), gpu_img.Height());
+    const cv::Rect crop_rect = cfa_pattern_.kind == RawCfaKind::Bayer2x2
+                                   ? detail::BuildRcdDecodeCropRect(raw_data_.sizes, default_crop_,
+                                                                    crop_size, params_.decode_res_)
+                                   : detail::BuildDecodeCropRect(raw_data_.sizes, default_crop_,
+                                                                 crop_size, params_.decode_res_);
     if (!detail::IsFullImageRect(crop_rect, cv::Size(gpu_img.Width(), gpu_img.Height()))) {
       metal::MetalImage cropped;
       gpu_img.CropTo(cropped, crop_rect);
@@ -89,7 +92,7 @@ auto RawProcessor::ProcessMetal() -> ImageBuffer {
   if (dng_warp_rectilinear_.has_value()) {
     metal::MetalImage warped;
     metal::utils::WarpRectilinearTexture(gpu_img, warped, *dng_warp_rectilinear_);
-    gpu_img = std::move(warped);
+    gpu_img                                              = std::move(warped);
     runtime_color_context_.dng_warp_rectilinear_applied_ = true;
   }
   runtime_color_context_.output_in_camera_space_ = true;
