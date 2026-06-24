@@ -54,6 +54,12 @@ option(ALCEDO_GENERATE_QMLTYPES
 set(ALCEDO_MACOS_CODESIGN_IDENTITY "-"
     CACHE STRING
     "Code-sign identity for macOS bundle after deployment (use '-' for ad-hoc signing, empty to skip).")
+set(ALCEDO_MACOS_CODESIGN_OPTIONS "--options;runtime"
+    CACHE STRING
+    "Semicolon-separated extra options passed to codesign for macOS bundle signing.")
+option(ALCEDO_MACOS_CODESIGN_TIMESTAMP
+       "Request a trusted timestamp when signing the macOS bundle (recommended for Developer ID notarization)."
+       OFF)
 set(ALCEDO_QT_PREFIX ""
     CACHE PATH
     "Optional Qt installation prefix for macOS packaging builds (contains bin/, lib/cmake/Qt6, plugins/, and qml/).")
@@ -556,6 +562,12 @@ if(TARGET ${ALCEDO_MAIN_BIN})
         set(_bundle_macos_dest "${_alcedo_macos_app_bundle}/Contents/MacOS")
         set(_bundle_resources_dest "${_alcedo_macos_app_bundle}/Contents/Resources")
         set(_bundle_frameworks_dest "${_alcedo_macos_app_bundle}/Contents/Frameworks")
+        # The build-tree .app can accumulate downloaded runtime models while
+        # testing. Do not ship that cache in release packages; models are
+        # downloaded per user through the app.
+        install(CODE
+            "file(REMOVE_RECURSE \"\${CMAKE_INSTALL_PREFIX}/${_bundle_macos_dest}/model\")"
+        )
         install(DIRECTORY "${_config_dir}/fonts/" DESTINATION "${_bundle_macos_dest}/fonts")
         install(DIRECTORY "${_config_dir}/icc/" DESTINATION "${_bundle_macos_dest}/config/icc")
         install(DIRECTORY "${_config_dir}/lens_calib/" DESTINATION "${_bundle_macos_dest}/config/lens_calib")
@@ -576,6 +588,20 @@ if(TARGET ${ALCEDO_MAIN_BIN})
         if(ALCEDO_METAL_ENABLED AND ALCEDO_METAL_RUNTIME_LIBS)
             install(FILES ${ALCEDO_METAL_RUNTIME_LIBS}
                 DESTINATION "${_bundle_resources_dest}/metallib"
+            )
+        endif()
+        if(ALCEDO_BUILD_SEMANTIC_SIDECAR AND ALCEDO_MIND_BINARY)
+            install(CODE
+                "set(ALCEDO_MIND_BINARY \"${ALCEDO_MIND_BINARY}\")
+                 set(ALCEDO_MIND_TARGET_DIR \"${ALCEDO_MIND_TARGET_DIR}\")
+                 set(ALCEDO_MIND_DEST_DIR \"\${CMAKE_INSTALL_PREFIX}/${_bundle_macos_dest}\")
+                 include(\"${CMAKE_SOURCE_DIR}/scripts/cmake/copy_semantic_sidecar.cmake\")
+                "
+            )
+        endif()
+        if(ALCEDO_ARIA2C_BINARY)
+            install(PROGRAMS "${ALCEDO_ARIA2C_BINARY}"
+                DESTINATION "${_bundle_macos_dest}"
             )
         endif()
         if(DEFINED ALCEDO_LENSFUN_LIBRARY_DIR AND NOT "${ALCEDO_LENSFUN_LIBRARY_DIR}" STREQUAL "")
@@ -1061,6 +1087,7 @@ if(APPLE AND ALCEDO_MACOS_BUNDLE AND TARGET ${ALCEDO_MAIN_BIN})
              set(_alcedo_fw_dir \"\${_alcedo_app_path}/Contents/Frameworks\")
              set(_alcedo_main_bin \"\${_alcedo_app_path}/Contents/MacOS/${ALCEDO_MACOS_BUNDLE_NAME}\")
              set(_alcedo_mind_bin \"\${_alcedo_app_path}/Contents/MacOS/alcedo_mind\")
+             set(_alcedo_aria2c_bin \"\${_alcedo_app_path}/Contents/MacOS/aria2c\")
 
              if(NOT EXISTS \"\${_alcedo_main_bin}\")
                  message(FATAL_ERROR \"macOS bundle executable not found: \${_alcedo_main_bin}\")
@@ -1070,7 +1097,11 @@ if(APPLE AND ALCEDO_MACOS_BUNDLE AND TARGET ${ALCEDO_MAIN_BIN})
              if(EXISTS \"\${_alcedo_mind_bin}\")
                  list(APPEND _alcedo_macho_files \"\${_alcedo_mind_bin}\")
              endif()
+             if(EXISTS \"\${_alcedo_aria2c_bin}\")
+                 list(APPEND _alcedo_macho_files \"\${_alcedo_aria2c_bin}\")
+             endif()
              file(GLOB_RECURSE _alcedo_bundle_dylibs
+                 \"\${_alcedo_app_path}/Contents/MacOS/*.dylib\"
                  \"\${_alcedo_app_path}/Contents/Frameworks/*.dylib\"
                  \"\${_alcedo_app_path}/Contents/PlugIns/*.dylib\"
                  \"\${_alcedo_app_path}/Contents/Resources/qml/*.dylib\")
@@ -1123,6 +1154,9 @@ if(APPLE AND ALCEDO_MACOS_BUNDLE AND TARGET ${ALCEDO_MAIN_BIN})
                  if(\"\${_dep}\" MATCHES \"^@rpath/(.+)$\")
                      set(_rel \"\${CMAKE_MATCH_1}\")
                      if(EXISTS \"\${_alcedo_fw_dir}/\${_rel}\")
+                         return()
+                     endif()
+                     if(EXISTS \"\${_alcedo_app_path}/Contents/MacOS/\${_rel}\")
                          return()
                      endif()
                      if(\"\${_rel}\" MATCHES \"^libswift.*\\\\.dylib$\")
@@ -1225,12 +1259,19 @@ if(APPLE AND ALCEDO_MACOS_BUNDLE AND TARGET ${ALCEDO_MAIN_BIN})
             "set(_alcedo_app_path \"\${CMAKE_INSTALL_PREFIX}/${ALCEDO_MACOS_BUNDLE_NAME}.app\")
              if(EXISTS \"\${_alcedo_app_path}\")
                  if(EXISTS \"/usr/bin/codesign\")
+                     set(_alcedo_codesign_options \"${ALCEDO_MACOS_CODESIGN_OPTIONS}\")
+                     if(${ALCEDO_MACOS_CODESIGN_TIMESTAMP})
+                         set(_alcedo_codesign_timestamp --timestamp)
+                     else()
+                         set(_alcedo_codesign_timestamp --timestamp=none)
+                     endif()
                      execute_process(
                          COMMAND /usr/bin/codesign
                                  --force
                                  --deep
+                                 \${_alcedo_codesign_options}
                                  --sign \"${ALCEDO_MACOS_CODESIGN_IDENTITY}\"
-                                 --timestamp=none
+                                 \${_alcedo_codesign_timestamp}
                                  \"\${_alcedo_app_path}\"
                          RESULT_VARIABLE _alcedo_codesign_result
                      )
@@ -1388,6 +1429,9 @@ include(CPack)
 if(APPLE AND ALCEDO_MACOS_BUNDLE AND TARGET ${ALCEDO_MAIN_BIN})
     add_custom_target(macos_package
         COMMAND "${CMAKE_COMMAND}" --install "${CMAKE_BINARY_DIR}"
+        COMMAND "${CMAKE_SOURCE_DIR}/scripts/verify_macos_install_tree.sh"
+                --install-dir "${CMAKE_INSTALL_PREFIX}"
+                --bundle-name "${ALCEDO_MACOS_BUNDLE_NAME}"
         COMMAND "${CMAKE_CPACK_COMMAND}" --config "${CMAKE_BINARY_DIR}/CPackConfig.cmake" -B "${CMAKE_INSTALL_PREFIX}"
         DEPENDS ${ALCEDO_MAIN_BIN}
         WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
