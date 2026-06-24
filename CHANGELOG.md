@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.2.6] (8399448..c4cf768) — 2026-06-11 ~ 2026-06-24
+
+### Features
+- **Film grain and halation effects**: Added film grain density/granularity controls and halation operators, wired them into edit history, and brought the effect pipeline across CPU/CUDA/OpenCL/Metal paths with backend alignment work. (`514a667`, `5803529`, `e943264`, `c0b3043`, `6c19966`, `15d9228`, `6f24a66`, `f614dae`, `c84016b`, `bac945c`, `97778e7`)
+- **Semantic AI generation and search**: Added semantic image content detection, AI label generation with multiple model support, multilingual/Jina CLIP handling, label search/filter, semantic search dispatching, VSS/HNSW storage, better label prompts, label assignment improvements, and pruning for unused model labels. (`0304551`, `ee94c48`, `84ad809`, `9d13093`, `c152e86`, `529e587`, `7a3b3ea`, `3745126`, `4e06e46`, `3baaad7`, `6b24957`)
+- **Model download and activation workflow**: Added the model downloader UI, aria2c-based download service, ETA display during generation, model download/activation UX improvements, activation prompts, and a dedicated activation dialog. (`a20a1ba`, `100a4a8`, `157eb5`, `70af466`, `882ce4b`, `0444a80`, `b0029c`)
+- **RAW and camera compatibility**: Added Nikon HE/HE* support through a patched LibRaw path, updated the LibRaw submodule, and added native CoreML model support on macOS. (`419fb74`, `3880f2c`, `5f7e288`, `631fb11`, `b7d50a1`)
+- **Editor productivity polish**: Added LUT favorites, collapsible edit sections, and an About panel for the application. (`9570898`, `0d41c03`, `81ea7d6`)
+
+### UI
+- **AI workflow polish**: Improved AI label generation UI, tag display, file information display, model switching clarity, model activation prompts, and generation/download feedback. (`aa53477`, `223c24d`, `3bd23ce`, `c41b24a`, `70af466`, `0444a80`, `b0029c`)
+- **Website refresh**: Updated website design, copy, screenshots, and release information for the 0.2.6 cycle. (`0028db6`, `a0d4c01`)
+
+### Performance
+- **Semantic data and model pipeline speedups**: Improved async model execution, optimized database insertion, removed redundant data copies, and refactored backend paths for better multimodel support. (`bce8b9e`, `9c800f9`, `f1ec59f`, `99be227`)
+- **GPU processing optimizations**: Optimized Metal Highlights/Shadows adjustment performance and improved the film grain algorithm. (`7206724`, `97778e7`)
+
+### Bug Fixes
+- **Release and packaging stability**: Fixed macOS install dependency resolution and verification, HNSW project packaging, CI compile failures, missing VSS setup, Windows/macOS model packaging scope, Windows install script preparation, and process exit-code reporting. (`9cc06a3`, `60faf7e`, `8a688cd`, `66c306e`, `8493f02`, `4878464`, `c4cf768`)
+- **RAW, editor, and GPU stability**: Fixed CUDA highlight reconstruction runtime-switch failures, editor deadlocks/freezes, random illegal memory access, LibRaw-related segmentation faults, and incorrect crop offsets for some cameras. (`9cc0da9`, `48bf884`, `7cf756c`, `5aea74b`, `2d4ca5a`, `3880f2c`, `4262737`)
+- **AI/model correctness**: Fixed AI panel generation timing, aria2c retry handling, model-name display inconsistencies, excessive label counts, DB connection ownership, and merge-conflict regressions in the semantic branch. (`60255ae`, `622c06d`, `102e4d5`, `2936946`, `cf5a823`, `6a756c5`, `bb0852f`)
+
+### Documentation
+- Added semantic generation/search planning, CUDA halation/film-grain merge handoff notes, website text updates, sponsorship metadata, and release engineering scripts for macOS/Windows install-tree verification. (`7b045c2`, `8f0004a`, `0028db6`, `a0d4c01`, `5ef4433`, `4878464`)
+
 ## [0.2.5] (8eed4a0..377df62) — 2026-05-30 ~ 2026-06-11
 
 ### Features
@@ -161,6 +186,31 @@
 ---
 
 # 更新日志
+
+## [0.2.6] (8399448..c4cf768) — 2026-06-11 ~ 2026-06-24
+
+### 新功能
+- **胶片颗粒与 Halation 效果**：新增胶片颗粒密度/粒度控制和 Halation 算子，接入编辑历史，并将效果流水线扩展到 CPU/CUDA/OpenCL/Metal 路径，补齐多后端一致性。(`514a667`, `5803529`, `e943264`, `c0b3043`, `6c19966`, `15d9228`, `6f24a66`, `f614dae`, `c84016b`, `bac945c`, `97778e7`)
+- **语义 AI 生成与搜索**：新增图像内容识别、AI 标签生成、多模型支持、多语言/Jina CLIP 路径、标签搜索/过滤、语义搜索分发、VSS/HNSW 存储、标签提示词优化、标签分配逻辑优化，以及未使用模型标签清理。(`0304551`, `ee94c48`, `84ad809`, `9d13093`, `c152e86`, `529e587`, `7a3b3ea`, `3745126`, `4e06e46`, `3baaad7`, `6b24957`)
+- **模型下载与激活流程**：新增模型下载器 UI、基于 aria2c 的下载服务、生成 ETA 显示、下载/激活体验优化、模型激活提示，以及专用的激活对话框。(`a20a1ba`, `100a4a8`, `157eb5`, `70af466`, `882ce4b`, `0444a80`, `b0029c`)
+- **RAW 与相机兼容性**：通过 patched LibRaw 路径加入 Nikon HE/HE* 支持，更新 LibRaw submodule，并为 macOS 加入原生 CoreML 模型支持。(`419fb74`, `3880f2c`, `5f7e288`, `631fb11`, `b7d50a1`)
+- **编辑器效率改进**：新增 LUT 收藏、可折叠编辑分区，以及应用 About 面板。(`9570898`, `0d41c03`, `81ea7d6`)
+
+### 界面
+- **AI 工作流打磨**：改进 AI 标签生成界面、标签展示、文件信息展示、模型切换说明、模型激活提示，以及生成/下载反馈。(`aa53477`, `223c24d`, `3bd23ce`, `c41b24a`, `70af466`, `0444a80`, `b0029c`)
+- **网站更新**：更新网站设计、文案、截图和 0.2.6 发布信息。(`0028db6`, `a0d4c01`)
+
+### 性能优化
+- **语义数据与模型流水线提速**：改进异步模型执行，优化数据库插入，移除冗余数据复制，并重构后端路径以更好支持多模型。(`bce8b9e`, `9c800f9`, `f1ec59f`, `99be227`)
+- **GPU 处理优化**：优化 Metal 高光/阴影调整性能，并改进胶片颗粒算法。(`7206724`, `97778e7`)
+
+### 缺陷修复
+- **发布与打包稳定性**：修复 macOS 安装依赖解析与校验、包含 HNSW 的项目包保存、CI 编译失败、VSS 配置缺失、Windows/macOS 模型打包范围、Windows 安装脚本准备，以及进程退出码上报问题。(`9cc06a3`, `60faf7e`, `8a688cd`, `66c306e`, `8493f02`, `4878464`, `c4cf768`)
+- **RAW、编辑器与 GPU 稳定性**：修复 CUDA 高光恢复运行时切换失败、编辑器死锁/卡死、随机非法内存访问、LibRaw 相关段错误，以及部分相机裁切偏移错误。(`9cc0da9`, `48bf884`, `7cf756c`, `5aea74b`, `2d4ca5a`, `3880f2c`, `4262737`)
+- **AI/模型正确性**：修复 AI 面板生成时机、aria2c 重试逻辑、模型名称显示不一致、标签数量过多、数据库连接所有权，以及语义分支合并冲突引入的回归。(`60255ae`, `622c06d`, `102e4d5`, `2936946`, `cf5a823`, `6a756c5`, `bb0852f`)
+
+### 文档
+- 新增语义生成/搜索规划、CUDA Halation/胶片颗粒合并交接说明、网站文案更新、赞助元数据，以及 macOS/Windows 安装树校验相关发布工程脚本。(`7b045c2`, `8f0004a`, `0028db6`, `a0d4c01`, `5ef4433`, `4878464`)
 
 ## [0.2.5] (8eed4a0..377df62) — 2026-05-30 ~ 2026-06-11
 
