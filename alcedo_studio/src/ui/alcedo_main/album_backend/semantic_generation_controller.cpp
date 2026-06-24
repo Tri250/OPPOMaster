@@ -200,7 +200,12 @@ SemanticGenerationController::SemanticGenerationController(AlbumBackend& backend
 }
 
 bool SemanticGenerationController::PromptVisible() const {
-  return prompt_pending_ && !running_ && !backend_.nikon_he_recovery_.is_active();
+  return prompt_pending_ && !activate_prompt_pending_ && !running_
+         && !backend_.nikon_he_recovery_.is_active();
+}
+
+bool SemanticGenerationController::ActivatePromptVisible() const {
+  return activate_prompt_pending_ && !running_;
 }
 
 void SemanticGenerationController::StartPendingGeneration(bool forceRegenerate) {
@@ -213,6 +218,15 @@ void SemanticGenerationController::SkipPendingGeneration(bool rememberChoice) {
   }
   ClearPrompt();
   status_text_ = PL_TEXT("Semantic generation skipped.");
+  emit StateChanged();
+}
+
+void SemanticGenerationController::DismissActivatePrompt() {
+  activate_prompt_pending_ = false;
+  // The queued import batch is dropped: if the user later generates from the
+  // Settings panel, its "Generate" action covers all unlabeled images in the
+  // album, including the just-imported ones.
+  ClearPrompt();
   emit StateChanged();
 }
 
@@ -615,12 +629,24 @@ void SemanticGenerationController::ResumeQueuedWorkflow() {
                                        .value(QLatin1String(kSemanticGenerationImportPreferenceKey),
                                               QLatin1String(kSemanticPreferenceAsk))
                                        .toString());
-  if (preference == QLatin1String(kSemanticPreferenceAlways)) {
-    StartPendingGeneration(false);
+  // "never" suppresses both the generate prompt and the activate-model prompt —
+  // users who opt out of AI features never see either.
+  if (preference == QLatin1String(kSemanticPreferenceNever)) {
+    activate_prompt_pending_ = false;
+    ClearPrompt();
     return;
   }
-  if (preference == QLatin1String(kSemanticPreferenceNever)) {
-    ClearPrompt();
+  // A fresh project (no model registered) can't generate labels yet. Route to
+  // the activate-model dialog instead, for both "ask" and "always" — "always"
+  // can only take effect once a model exists.
+  if (IsFreshProject()) {
+    activate_prompt_pending_ = true;
+    emit StateChanged();
+    return;
+  }
+  activate_prompt_pending_ = false;
+  if (preference == QLatin1String(kSemanticPreferenceAlways)) {
+    StartPendingGeneration(false);
     return;
   }
   emit StateChanged();
@@ -632,6 +658,14 @@ auto SemanticGenerationController::StoredModelKey() const -> std::string {
     return {};
   }
   return project->GetStorageService()->GetSemanticStorageController().ActiveModelKey();
+}
+
+bool SemanticGenerationController::IsFreshProject() const {
+  auto project = backend_.project_handler_.project();
+  if (!project) {
+    return false;
+  }
+  return project->GetStorageService()->GetSemanticStorageController().ListModels().empty();
 }
 
 auto SemanticGenerationController::ActiveModelKey() const -> std::string {

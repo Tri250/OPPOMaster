@@ -27,6 +27,7 @@ class AlbumBackend;
 class SemanticGenerationController final : public QObject {
   Q_OBJECT
   Q_PROPERTY(bool promptVisible READ PromptVisible NOTIFY StateChanged)
+  Q_PROPERTY(bool activatePromptVisible READ ActivatePromptVisible NOTIFY StateChanged)
   Q_PROPERTY(bool running READ Running NOTIFY StateChanged)
   Q_PROPERTY(int pendingCount READ PendingCount NOTIFY StateChanged)
   Q_PROPERTY(int total READ Total NOTIFY StateChanged)
@@ -50,6 +51,7 @@ class SemanticGenerationController final : public QObject {
   explicit SemanticGenerationController(AlbumBackend& backend, QObject* parent = nullptr);
 
   bool             PromptVisible() const;
+  bool             ActivatePromptVisible() const;
   bool             Running() const { return running_; }
   int              PendingCount() const { return static_cast<int>(pending_items_.size()); }
   int              Total() const { return total_; }
@@ -71,6 +73,7 @@ class SemanticGenerationController final : public QObject {
 
   Q_INVOKABLE void StartPendingGeneration(bool forceRegenerate = false);
   Q_INVOKABLE void SkipPendingGeneration(bool rememberChoice = false);
+  Q_INVOKABLE void DismissActivatePrompt();
   Q_INVOKABLE void SetImportPreference(const QString& preference);
   Q_INVOKABLE void ActivateSelectedModel();
   Q_INVOKABLE void CancelGeneration();
@@ -94,6 +97,10 @@ class SemanticGenerationController final : public QObject {
 
  private:
   [[nodiscard]] auto StoredModelKey() const -> std::string;
+  // A project is "fresh" w.r.t. the semantic feature when no model has ever
+  // been registered in its DB (no SemanticModel rows). That also implies no
+  // active model and no embeddings, since both require a registered model.
+  [[nodiscard]] bool IsFreshProject() const;
   void StartGenerationForItems(std::vector<SemanticGenerationItem> items, bool forceRegenerate);
   void ContinueGenerationForItems(bool forceRegenerate);
   void UpdateProgress(const SemanticGenerationProgress& progress);
@@ -123,6 +130,7 @@ class SemanticGenerationController final : public QObject {
   bool                                         model_activation_running_ = false;
   bool                                         selected_model_active_    = false;
   bool                                         prompt_pending_           = false;
+  bool                                         activate_prompt_pending_  = false;
   bool                                         running_                  = false;
   int                                          total_                    = 0;
   int                                          embedded_                 = 0;
