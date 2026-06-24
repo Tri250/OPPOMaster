@@ -54,9 +54,9 @@ option(ALCEDO_GENERATE_QMLTYPES
 set(ALCEDO_MACOS_CODESIGN_IDENTITY "-"
     CACHE STRING
     "Code-sign identity for macOS bundle after deployment (use '-' for ad-hoc signing, empty to skip).")
-set(ALCEDO_MACOS_CODESIGN_OPTIONS "--options;runtime"
+set(ALCEDO_MACOS_CODESIGN_OPTIONS ""
     CACHE STRING
-    "Semicolon-separated extra options passed to codesign for macOS bundle signing.")
+    "Semicolon-separated extra options passed to codesign for macOS bundle signing. Use '--options;runtime' with a Developer ID identity for notarized distribution; ad-hoc signing must leave this empty.")
 option(ALCEDO_MACOS_CODESIGN_TIMESTAMP
        "Request a trusted timestamp when signing the macOS bundle (recommended for Developer ID notarization)."
        OFF)

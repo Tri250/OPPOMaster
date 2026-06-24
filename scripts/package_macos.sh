@@ -12,6 +12,11 @@ bundle_name="AlcedoStudio"
 jobs="8"
 qt_prefix=""
 require_metal_assets=1
+codesign_identity="-"
+codesign_options=""
+codesign_options_set=0
+codesign_timestamp="OFF"
+codesign_timestamp_set=0
 
 usage() {
   cat <<USAGE
@@ -26,6 +31,10 @@ Options:
   --package-out-dir PATH     CPack output directory (default: build/macos-release/package)
   --bundle-name NAME         App bundle/executable name (default: AlcedoStudio)
   --qt-prefix PATH           Qt prefix containing bin/, lib/cmake/Qt6, plugins/, qml/
+  --codesign-identity ID     macOS signing identity (default: '-' for ad-hoc; empty disables signing)
+  --codesign-options VALUE   Semicolon-separated codesign options (default: empty for ad-hoc)
+  --codesign-timestamp       Request a trusted timestamp when signing
+  --no-codesign              Disable bundle signing
   --jobs N                   Parallel build jobs (default: 8)
   --skip-metal-asset-check   Do not require Metal metallib assets in verification
   -h, --help                 Show this help
@@ -58,6 +67,24 @@ while [[ $# -gt 0 ]]; do
       qt_prefix="$2"
       shift 2
       ;;
+    --codesign-identity)
+      codesign_identity="$2"
+      shift 2
+      ;;
+    --codesign-options)
+      codesign_options="$2"
+      codesign_options_set=1
+      shift 2
+      ;;
+    --codesign-timestamp)
+      codesign_timestamp="ON"
+      codesign_timestamp_set=1
+      shift
+      ;;
+    --no-codesign)
+      codesign_identity=""
+      shift
+      ;;
     --jobs)
       jobs="$2"
       shift 2
@@ -78,6 +105,15 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ -n "$codesign_identity" && "$codesign_identity" != "-" ]]; then
+  if [[ "$codesign_options_set" -eq 0 ]]; then
+    codesign_options="--options;runtime"
+  fi
+  if [[ "$codesign_timestamp_set" -eq 0 ]]; then
+    codesign_timestamp="ON"
+  fi
+fi
+
 echo "========================================"
 echo "  Alcedo Studio macOS Packager"
 echo "========================================"
@@ -89,6 +125,9 @@ configure_args=(
   "-DCMAKE_INSTALL_PREFIX=${install_dir}"
   "-DALCEDO_MACOS_BUNDLE=ON"
   "-DALCEDO_MACOS_BUNDLE_NAME=${bundle_name}"
+  "-DALCEDO_MACOS_CODESIGN_IDENTITY=${codesign_identity}"
+  "-DALCEDO_MACOS_CODESIGN_OPTIONS=${codesign_options}"
+  "-DALCEDO_MACOS_CODESIGN_TIMESTAMP=${codesign_timestamp}"
 )
 if [[ -n "$qt_prefix" ]]; then
   configure_args+=("-DALCEDO_QT_PREFIX=${qt_prefix}")
@@ -128,6 +167,23 @@ printf '> cpack'
 printf ' %q' "${cpack_args[@]}"
 printf '\n'
 cpack "${cpack_args[@]}"
+
+staging_root="${package_out_dir}/_CPack_Packages"
+if [[ -d "$staging_root" ]]; then
+  echo
+  echo "Verifying CPack staging apps ..."
+  while IFS= read -r -d '' staged_app; do
+    staged_install_dir="$(dirname "$staged_app")"
+    staged_verify_args=(
+      --install-dir "$staged_install_dir"
+      --bundle-name "$bundle_name"
+    )
+    if [[ "$require_metal_assets" -eq 0 ]]; then
+      staged_verify_args+=(--skip-metal-asset-check)
+    fi
+    "${script_dir}/verify_macos_install_tree.sh" "${staged_verify_args[@]}"
+  done < <(find "$staging_root" -name "${bundle_name}.app" -type d -print0)
+fi
 
 echo
 echo "========================================"

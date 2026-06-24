@@ -126,6 +126,14 @@ if otool -L "$mind_exe" | grep -q '@rpath/libswift'; then
   fi
 fi
 
+if command -v codesign >/dev/null 2>&1; then
+  main_codesign_details="$(codesign -dv --verbose=4 "$main_exe" 2>&1 || true)"
+  if grep -q 'Signature=adhoc' <<<"$main_codesign_details" &&
+     grep -q 'flags=.*runtime' <<<"$main_codesign_details"; then
+    fail "main executable is ad-hoc signed with hardened runtime; this can fail at launch when loading bundled Qt/framework dylibs. Use empty ALCEDO_MACOS_CODESIGN_OPTIONS for ad-hoc builds, or sign the full bundle with a Developer ID identity."
+  fi
+fi
+
 declare -a macho_files=("$main_exe" "$mind_exe" "$aria2c_exe")
 while IFS= read -r -d '' file; do
   macho_files+=("$file")
