@@ -32,7 +32,9 @@ class ThreadPool {
   // destructor drains the queue (runs every queued task), which is unsafe if
   // the captured state is destroyed before the pool (member destruction is
   // reverse-declaration order). Calling Shutdown() first empties the queue
-  // under the lock so the subsequent destructor drain is a no-op.
+  // under the lock and joins the workers, so the subsequent destructor is a
+  // safe no-op — the destructor guards each join with joinable() and therefore
+  // tolerates workers that Shutdown() already joined.
   void Shutdown();
 
   template <typename F>

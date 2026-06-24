@@ -28,7 +28,13 @@ ThreadPool::~ThreadPool() {
   }
   condition_.notify_all();
   for (std::thread& worker : workers_) {
-    worker.join();
+    // Guard with joinable(): owners that called Shutdown() first have already
+    // joined these workers (making them non-joinable). An unguarded join() on a
+    // non-joinable thread throws std::system_error(_Not_joinable); since this
+    // destructor is implicitly noexcept, that throw terminates the process.
+    if (worker.joinable()) {
+      worker.join();
+    }
   }
 }
 
