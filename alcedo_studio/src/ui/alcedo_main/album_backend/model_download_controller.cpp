@@ -662,6 +662,7 @@ void ModelDownloadController::SetSelectedModelProfileId(const QString& profileId
   model_download_files_done_  = 0;
   model_download_files_total_ = 0;
   RecomputeSelectedModelState();
+  emit SelectedModelProfileChanged();
   emit StateChanged();
 }
 
@@ -719,6 +720,21 @@ void ModelDownloadController::RefreshSelectedModelStatus() {
                                                    : PL_TEXT("Model missing: %1", *error);
   }
   emit StateChanged();
+}
+
+void ModelDownloadController::RefreshInstallState() {
+  RecomputeSelectedModelState();
+  emit StateChanged();
+}
+
+bool ModelDownloadController::ShouldKeepSemanticModelData(const QString& profileId) const {
+  const auto* profile = FindSemanticProfile(profileId.toStdString());
+  if (profile == nullptr) {
+    // Unknown to the catalog — install state is indeterminate, so keep the rows
+    // rather than risk irreversible label loss if the profile is ever re-added.
+    return true;
+  }
+  return !ValidateLocalCatalogModelProfile(*profile, ModelRootForProfile(profileId)).has_value();
 }
 
 void ModelDownloadController::StartSelectedModelDownload() {

@@ -124,7 +124,7 @@ auto RawProcessor::ProcessOpenCL() -> ImageBuffer {
     LogProfileStep(deferred_log, "RAW OpenCL debayer", stage_debayer_start);
 
     const auto     stage_crop_start = ProfileClock::now();
-    const cv::Rect crop_rect        = detail::BuildDecodeCropRect(
+    const cv::Rect crop_rect        = detail::BuildRcdDecodeCropRect(
         raw_data_.sizes, default_crop_, cv::Size(gpu_img.Width(), gpu_img.Height()),
         params_.decode_res_);
     CropOpenClImage(gpu_img, crop_rect);
@@ -146,9 +146,12 @@ auto RawProcessor::ProcessOpenCL() -> ImageBuffer {
     }
 
     const auto     stage_crop_start = ProfileClock::now();
-    const cv::Rect crop_rect        = detail::BuildDecodeCropRect(
-        raw_data_.sizes, default_crop_, cv::Size(gpu_img.Width(), gpu_img.Height()),
-        params_.decode_res_);
+    const cv::Size crop_size(gpu_img.Width(), gpu_img.Height());
+    const cv::Rect crop_rect = cfa_pattern_.kind == RawCfaKind::Bayer2x2
+                                   ? detail::BuildRcdDecodeCropRect(raw_data_.sizes, default_crop_,
+                                                                    crop_size, params_.decode_res_)
+                                   : detail::BuildDecodeCropRect(raw_data_.sizes, default_crop_,
+                                                                 crop_size, params_.decode_res_);
     CropOpenClImage(gpu_img, crop_rect);
     LogProfileStep(deferred_log, "RAW OpenCL crop", stage_crop_start);
   }

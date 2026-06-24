@@ -28,7 +28,32 @@ ThreadPool::~ThreadPool() {
   }
   condition_.notify_all();
   for (std::thread& worker : workers_) {
-    worker.join();
+    // Guard with joinable(): owners that called Shutdown() first have already
+    // joined these workers (making them non-joinable). An unguarded join() on a
+    // non-joinable thread throws std::system_error(_Not_joinable); since this
+    // destructor is implicitly noexcept, that throw terminates the process.
+    if (worker.joinable()) {
+      worker.join();
+    }
+  }
+}
+
+void ThreadPool::Shutdown() {
+  {
+    std::unique_lock<std::mutex> lock(mtx_);
+    stop_ = true;
+    // Drop queued tasks that have not started yet. They capture state that may
+    // be destroyed before this pool's owner; running them during teardown is
+    // the use-after-free we are avoiding. In-flight tasks (already popped by a
+    // worker) are unaffected and finish on their own.
+    std::queue<std::function<void()>> empty;
+    tasks_.swap(empty);
+  }
+  condition_.notify_all();
+  for (std::thread& worker : workers_) {
+    if (worker.joinable()) {
+      worker.join();
+    }
   }
 }
 

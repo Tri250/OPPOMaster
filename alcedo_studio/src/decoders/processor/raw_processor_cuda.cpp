@@ -237,8 +237,9 @@ auto RawProcessor::ProcessCudaFullFrame() -> ImageBuffer {
     cv::cuda::GpuMat debayer_r = rcd_workspace.r;
     cv::cuda::GpuMat debayer_g = rcd_workspace.g;
     cv::cuda::GpuMat debayer_b = rcd_workspace.b;
-    const cv::Rect crop_rect = detail::BuildDecodeCropRect(
-        raw_data_.sizes, default_crop_, debayer_r.size(), params_.decode_res_);
+    const cv::Rect crop_rect =
+        detail::BuildRcdDecodeCropRect(raw_data_.sizes, default_crop_, debayer_r.size(),
+                                       params_.decode_res_, kRcdOutputCropRadius);
     const auto stage_crop_start = ProfileClock::now();
     if (!detail::IsFullImageRect(crop_rect, debayer_r.size())) {
       debayer_r = debayer_r(crop_rect);
@@ -293,8 +294,12 @@ auto RawProcessor::ProcessCudaFullFrame() -> ImageBuffer {
       LogCudaProfileStep(stream, "RAW CUDA FullFrame debayer", stage_debayer_start);
     }
 
-    const cv::Rect crop_rect = detail::BuildDecodeCropRect(
-        raw_data_.sizes, default_crop_, gpu_img.size(), params_.decode_res_);
+    const cv::Rect crop_rect =
+        cfa_pattern_.kind == RawCfaKind::Bayer2x2
+            ? detail::BuildRcdDecodeCropRect(raw_data_.sizes, default_crop_, gpu_img.size(),
+                                             params_.decode_res_, kRcdOutputCropRadius)
+            : detail::BuildDecodeCropRect(raw_data_.sizes, default_crop_, gpu_img.size(),
+                                          params_.decode_res_);
     const auto stage_crop_start = ProfileClock::now();
     if (!detail::IsFullImageRect(crop_rect, gpu_img.size())) {
       gpu_img = gpu_img(crop_rect);
@@ -353,8 +358,9 @@ auto RawProcessor::ProcessCudaTiled() -> ImageBuffer {
   if (rcd_output_size.width <= 0 || rcd_output_size.height <= 0) {
     throw std::runtime_error("RawProcessor: CUDA tiled RCD input is too small.");
   }
-  const cv::Rect active_rect = detail::BuildDecodeCropRect(
-      raw_data_.sizes, default_crop_, rcd_output_size, params_.decode_res_);
+  const cv::Rect active_rect =
+      detail::BuildRcdDecodeCropRect(raw_data_.sizes, default_crop_, rcd_output_size,
+                                     params_.decode_res_, kRcdOutputCropRadius);
   const cv::Rect tile_active_rect =
       ShiftRect(active_rect, kRcdOutputCropRadius, kRcdOutputCropRadius);
   auto jobs = BuildTileJobs(tile_active_rect, linear_raw.size());

@@ -833,6 +833,18 @@ ApplicationWindow {
         onCancelRequested: root.semanticGeneration.CancelGeneration()
     }
 
+    ActivateModelDialog {
+        id: activateModelDialog
+        parent: Overlay.overlay
+        backgroundSource: mainContent
+        promptVisible: root.semanticGeneration.activatePromptVisible
+        onOpenSettingsRequested: {
+            root.semanticGeneration.DismissActivatePrompt()
+            root.openSettingsDialog(3) // 3 == "AI" category (model install/activate)
+        }
+        onDismissed: root.semanticGeneration.DismissActivatePrompt()
+    }
+
     Popup {
         id: deleteConfirmDialog
         modal: true

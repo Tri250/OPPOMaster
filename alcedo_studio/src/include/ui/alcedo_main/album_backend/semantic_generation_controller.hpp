@@ -27,6 +27,7 @@ class AlbumBackend;
 class SemanticGenerationController final : public QObject {
   Q_OBJECT
   Q_PROPERTY(bool promptVisible READ PromptVisible NOTIFY StateChanged)
+  Q_PROPERTY(bool activatePromptVisible READ ActivatePromptVisible NOTIFY StateChanged)
   Q_PROPERTY(bool running READ Running NOTIFY StateChanged)
   Q_PROPERTY(int pendingCount READ PendingCount NOTIFY StateChanged)
   Q_PROPERTY(int total READ Total NOTIFY StateChanged)
@@ -50,6 +51,7 @@ class SemanticGenerationController final : public QObject {
   explicit SemanticGenerationController(AlbumBackend& backend, QObject* parent = nullptr);
 
   bool             PromptVisible() const;
+  bool             ActivatePromptVisible() const;
   bool             Running() const { return running_; }
   int              PendingCount() const { return static_cast<int>(pending_items_.size()); }
   int              Total() const { return total_; }
@@ -71,6 +73,7 @@ class SemanticGenerationController final : public QObject {
 
   Q_INVOKABLE void StartPendingGeneration(bool forceRegenerate = false);
   Q_INVOKABLE void SkipPendingGeneration(bool rememberChoice = false);
+  Q_INVOKABLE void DismissActivatePrompt();
   Q_INVOKABLE void SetImportPreference(const QString& preference);
   Q_INVOKABLE void ActivateSelectedModel();
   Q_INVOKABLE void CancelGeneration();
@@ -82,12 +85,22 @@ class SemanticGenerationController final : public QObject {
 
   [[nodiscard]] auto ActiveModelKey() const -> std::string;
   [[nodiscard]] auto LabelDisplayText(sl_element_id_t elementId) const -> QString;
+  // Full post-open / post-purge refresh: fresh on-disk install state, a
+  // recomputed selectedModelActive badge, album counts, and an unconditional
+  // StateChanged so live DB bindings (activeModelName/activeModelKey) refresh
+  // even when the counts are unchanged. Called on project open and after a
+  // save-time purge.
+  void RefreshSemanticState();
 
  signals:
   void StateChanged();
 
  private:
   [[nodiscard]] auto StoredModelKey() const -> std::string;
+  // A project is "fresh" w.r.t. the semantic feature when no model has ever
+  // been registered in its DB (no SemanticModel rows). That also implies no
+  // active model and no embeddings, since both require a registered model.
+  [[nodiscard]] bool IsFreshProject() const;
   void StartGenerationForItems(std::vector<SemanticGenerationItem> items, bool forceRegenerate);
   void ContinueGenerationForItems(bool forceRegenerate);
   void UpdateProgress(const SemanticGenerationProgress& progress);
@@ -98,6 +111,13 @@ class SemanticGenerationController final : public QObject {
   // state and the project's active-model record. Does not emit StateChanged;
   // callers emit.
   void RecomputeSelectedModelActive();
+  // Recomputes the selectedModelActive badge, then - if the selected model is
+  // installed, not already active, and already has label prototypes cached ("warm") -
+  // flips the project's active model to it so routing and label caching switch
+  // instantly without pressing Activate. No-op for cold models (the user must
+  // Activate to generate the cache). Idempotent and guarded; safe to call from the
+  // selection signal and from RefreshSemanticState (project open).
+  void TryAutoActivateSelectedModel();
   [[nodiscard]] auto RuntimeOptionsForProfile(const QString& profileId, bool profileRoot) const
       -> SemanticRuntimeOptions;
 
@@ -110,6 +130,7 @@ class SemanticGenerationController final : public QObject {
   bool                                         model_activation_running_ = false;
   bool                                         selected_model_active_    = false;
   bool                                         prompt_pending_           = false;
+  bool                                         activate_prompt_pending_  = false;
   bool                                         running_                  = false;
   int                                          total_                    = 0;
   int                                          embedded_                 = 0;

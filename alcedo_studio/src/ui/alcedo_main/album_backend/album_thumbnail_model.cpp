@@ -157,7 +157,14 @@ void AlbumThumbnailModel::updateThumbnailState(sl_element_id_t elementId, const 
                                                bool loading, bool missingSource,
                                                const QString& errorText) {
   const int row = rowByElementId(elementId);
-  if (row < 0) return;
+  if (row < 0 || row >= static_cast<int>(rows_.size())) {
+    // A stale element_id_to_row_ entry (queued update arriving after a
+    // resetModel/appendPage that restructured rows_) would otherwise index out
+    // of bounds and corrupt the heap. updateRating/updateHdrFlag already guard
+    // this; mirror them here — this is exactly the line the 0xc0000374 crash
+    // surfaced on.
+    return;
+  }
 
   auto& item = rows_[static_cast<size_t>(row)];
   if (item.thumb_data_url == dataUrl && item.thumb_loading == loading &&

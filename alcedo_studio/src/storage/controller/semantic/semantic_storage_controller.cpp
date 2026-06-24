@@ -48,6 +48,35 @@ constexpr double kSemanticFallbackScoreSpanKeepRatio = 0.35;
 constexpr double kSemanticElbowGapToSpanRatio        = 0.18;
 constexpr double kSemanticElbowGapToMedianRatio      = 3.0;
 
+// Maps one SemanticModel result row to a SemanticModelRecord. Shared by GetModel
+// (single row) and ListModels (all rows) so the column order stays in sync.
+auto ReadSemanticModelRow(duckdb_result& result, idx_t row) -> SemanticModelRecord {
+  auto read_string = [&result, row](idx_t column) {
+    std::string value;
+    if (!duckdb_value_is_null(&result, column, row)) {
+      if (char* raw = duckdb_value_varchar(&result, column, row)) {
+        value = raw;
+        duckdb_free(raw);
+      }
+    }
+    return value;
+  };
+
+  SemanticModelRecord record;
+  record.model_key_                     = read_string(0);
+  record.model_id_                      = read_string(1);
+  record.revision_                      = read_string(2);
+  record.embedding_dim_                 = static_cast<int>(duckdb_value_int32(&result, 3, row));
+  record.image_size_                    = static_cast<int>(duckdb_value_int32(&result, 4, row));
+  record.engine_id_                     = read_string(5);
+  record.profile_id_                    = read_string(6);
+  record.supported_text_languages_json_ = read_string(7);
+  record.prompt_config_hash_            = read_string(8);
+  record.asset_manifest_json_           = read_string(9);
+  record.active_                        = duckdb_value_boolean(&result, 10, row);
+  return record;
+}
+
 auto             SqlString(const std::string& value) -> std::string {
   std::string out;
   out.reserve(value.size() + 2);
@@ -1029,29 +1058,7 @@ auto SemanticStorageController::GetModel(const std::string& model_key, std::stri
     return std::nullopt;
   }
 
-  auto read_string = [&](idx_t column) {
-    std::string value;
-    if (!duckdb_value_is_null(&result, column, 0)) {
-      if (char* raw = duckdb_value_varchar(&result, column, 0)) {
-        value = raw;
-        duckdb_free(raw);
-      }
-    }
-    return value;
-  };
-
-  SemanticModelRecord record;
-  record.model_key_                     = read_string(0);
-  record.model_id_                      = read_string(1);
-  record.revision_                      = read_string(2);
-  record.embedding_dim_                 = static_cast<int>(duckdb_value_int32(&result, 3, 0));
-  record.image_size_                    = static_cast<int>(duckdb_value_int32(&result, 4, 0));
-  record.engine_id_                     = read_string(5);
-  record.profile_id_                    = read_string(6);
-  record.supported_text_languages_json_ = read_string(7);
-  record.prompt_config_hash_            = read_string(8);
-  record.asset_manifest_json_           = read_string(9);
-  record.active_                        = duckdb_value_boolean(&result, 10, 0);
+  SemanticModelRecord record = ReadSemanticModelRow(result, 0);
   duckdb_destroy_result(&result);
   return record;
 }
@@ -1088,6 +1095,64 @@ auto SemanticStorageController::ActiveModelKey() const -> std::string {
 
   duckdb_destroy_result(&result);
   return out;
+}
+
+auto SemanticStorageController::ListModels(std::string* error) const
+    -> std::vector<SemanticModelRecord> {
+  auto       guard   = db_ctrl_.GetConnectionGuard();
+  auto       db_lock = guard.Lock();
+  const auto sql =
+      "SELECT model_key, model_id, revision, embedding_dim, image_size, "
+      "engine_id, profile_id, supported_text_languages_json, prompt_config_hash, "
+      "asset_manifest_json, active "
+      "FROM SemanticModel ORDER BY created_at DESC, model_key DESC;";
+
+  duckdb_result result;
+  if (duckdb_query(guard.conn_, sql, &result) != DuckDBSuccess) {
+    const char* raw_error = duckdb_result_error(&result);
+    SetError(error, raw_error ? raw_error : "DuckDB semantic model list query failed.");
+    duckdb_destroy_result(&result);
+    return {};
+  }
+
+  std::vector<SemanticModelRecord> models;
+  const idx_t                      row_count = duckdb_row_count(&result);
+  models.reserve(row_count);
+  for (idx_t row = 0; row < row_count; ++row) {
+    models.push_back(ReadSemanticModelRow(result, row));
+  }
+  duckdb_destroy_result(&result);
+  return models;
+}
+
+auto SemanticStorageController::PurgeModel(const std::string& model_key, std::string* error) const
+    -> bool {
+  auto guard   = db_ctrl_.GetConnectionGuard();
+  auto db_lock = guard.Lock();
+  if (model_key.empty()) {
+    SetError(error, "Semantic model key is empty.");
+    return false;
+  }
+  const auto key = SqlString(model_key);
+  if (!RunQuery(guard.conn_, "BEGIN TRANSACTION;", error)) {
+    return false;
+  }
+  // Embedding/prototype tables are dimension-sharded (512 vs 768); a given
+  // model_key lives in only one of each pair, so deleting from both is a safe
+  // no-op on the empty shard. SemanticModel holds the registry row itself.
+  const std::array<const char*, 6> tables = {
+      "SemanticImageEmbedding",    "SemanticImageEmbedding768",  "SemanticImageLabel",
+      "SemanticLabelPrototype",    "SemanticLabelPrototype768", "SemanticModel",
+  };
+  for (const auto* table : tables) {
+    if (!RunQuery(guard.conn_, std::format("DELETE FROM {} WHERE model_key = {};", table, key),
+                  error)) {
+      std::string rollback_error;
+      RunQuery(guard.conn_, "ROLLBACK;", &rollback_error);
+      return false;
+    }
+  }
+  return RunQuery(guard.conn_, "COMMIT;", error);
 }
 
 auto SemanticStorageController::SetActiveModelKey(const std::string& model_key,

@@ -100,6 +100,17 @@ class SemanticStorageController {
   [[nodiscard]] auto SetActiveModelKey(const std::string& model_key,
                                        std::string*       error = nullptr) const -> bool;
   [[nodiscard]] auto LatestModelKey() const -> std::string;
+  // Enumerates every registered SemanticModel row (regardless of the active flag),
+  // newest first. Used by the purge path to find models whose rows should be
+  // dropped because the profile is no longer installed locally.
+  [[nodiscard]] auto ListModels(std::string* error = nullptr) const
+      -> std::vector<SemanticModelRecord>;
+  // Deletes every row keyed by `model_key` across the embedding, image-label,
+  // label-prototype, and SemanticModel tables (both the 512- and 768-dim shards).
+  // A no-op for a model_key with no rows; returns false only on a transaction
+  // failure. If the purged model was the active one, no active row remains.
+  [[nodiscard]] auto PurgeModel(const std::string& model_key, std::string* error = nullptr) const
+      -> bool;
 
   [[nodiscard]] auto UpsertImageEmbedding(const SemanticImageEmbeddingRecord& record,
                                           std::string* error = nullptr) const -> bool;

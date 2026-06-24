@@ -315,11 +315,11 @@ void AppTheme::RegisterFonts() {
                                         QStringLiteral("Noto Sans SC"));
   families.data =
       RegisterFontResource(QStringLiteral(":/fonts/main_IBM.ttf"), QStringLiteral("IBM Plex Sans"));
-  const QString registered_headline_zh =
-      RegisterFontResource(QStringLiteral(":/fonts/header_dingliesongtypeface.ttf"), QString());
-  if (!registered_headline_zh.isEmpty()) {
-    families.ui_headline_zh = registered_headline_zh;
-  }
+  // Chinese fallback for the Manrope headline font. The struct default is
+  // "Noto Sans SC" (same family used for the rest of the UI's Chinese text);
+  // we intentionally do NOT override it with the decorative Dinglie Song
+  // Typeface, so Chinese headlines render in Noto Sans SC like everything
+  // else. The art font stays bundled in resources but is no longer loaded.
   const QString registered_headline =
       RegisterFontResource(QStringLiteral(":/fonts/main_Manrope.ttf"), QStringLiteral("Manrope"));
   if (!registered_headline.isEmpty()) {
@@ -896,6 +896,16 @@ auto AppTheme::dataFontFamily() const -> QString {
 auto AppTheme::monoFontFamily() const -> QString {
   RegisterFonts();
   return FontState().mono;
+}
+auto AppTheme::appVersion() const -> QString {
+  // Fed by the ALCEDO_APP_VERSION compile definition (set from PROJECT_VERSION
+  // in alcedo_studio/src/CMakeLists.txt). Fallback keeps the symbol linkable
+  // for any consumer built without that define.
+#ifdef ALCEDO_APP_VERSION
+  return QStringLiteral(ALCEDO_APP_VERSION);
+#else
+  return QStringLiteral("0.0.0");
+#endif
 }
 
 auto AppTheme::toneGold() const -> QColor { return GetTheme(current_theme_index_).tone_gold; }

@@ -63,6 +63,14 @@ class ProjectHandler {
   }
 
  private:
+  friend class AlbumBackend;
+  // Drops DuckDB embeddings/labels/prototypes and the SemanticModel registry row
+  // for every registered model whose profile is no longer installed locally.
+  // Keeps rows for still-installed models (so switching back stays free) and for
+  // profiles absent from the catalog (install state indeterminate). Returns true
+  // if any rows were purged.
+  bool PurgeUninstalledSemanticModels();
+
   AlbumBackend& backend_;
 
   std::shared_ptr<ProjectService>        project_{};

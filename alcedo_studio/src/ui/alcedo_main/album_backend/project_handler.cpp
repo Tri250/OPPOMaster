@@ -224,7 +224,7 @@ bool ProjectHandler::InitializeServices(const std::filesystem::path& dbPath,
           self->ReloadFolderTree(preferred_folder_path);
           self->stats_.ClearFilters();
           self->ReloadCurrentFolder();
-          self->semantic_generation_.RefreshAlbumSummary();
+          self->semantic_generation_.RefreshSemanticState();
           emit self->StatsFilterChanged();
           self->SetTaskState(PL_TEXT("No background tasks"), 0, false);
 
@@ -254,6 +254,31 @@ bool ProjectHandler::InitializeServices(const std::filesystem::path& dbPath,
   }).detach();
 
   return true;
+}
+
+bool ProjectHandler::PurgeUninstalledSemanticModels() {
+  if (!project_) {
+    return false;
+  }
+  auto&      semantic = project_->GetStorageService()->GetSemanticStorageController();
+  std::string err;
+  const auto  models = semantic.ListModels(&err);
+  bool        changed = false;
+  for (const auto& model : models) {
+    const auto lookup = model.profile_id_.empty() ? model.model_id_ : model.profile_id_;
+    if (backend_.model_download_controller_.ShouldKeepSemanticModelData(
+            QString::fromStdString(lookup))) {
+      continue;  // still installed (or unknown to the catalog) — keep its rows
+    }
+    // If this was the active model, deleting its SemanticModel row leaves no
+    // active row; the runtime child process (if still holding it in memory)
+    // self-cleans on the next activation. Nothing queries the runtime with the
+    // stale key between now and then.
+    if (semantic.PurgeModel(model.model_key_, &err)) {
+      changed = true;
+    }
+  }
+  return changed;
 }
 
 bool ProjectHandler::PersistCurrentProjectState() {

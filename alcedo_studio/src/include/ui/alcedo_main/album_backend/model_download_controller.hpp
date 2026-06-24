@@ -105,6 +105,17 @@ class ModelDownloadController final : public QObject {
   // card — bound to this controller's modelDownloadStatusText — reflects
   // activation state too. Emits StateChanged.
   void SetStatusText(const i18n::LocalizedText& text);
+  // Recomputes selected_model_installed_ from disk + catalog and emits StateChanged
+  // (and SelectedModelInstallChanged on a flip), but — unlike RefreshSelectedModelStatus —
+  // does not touch model_download_status_text_. Used on project open so the
+  // selectedModelActive badge refreshes without clobbering the status card text.
+  void RefreshInstallState();
+  // Returns true if semantic data for `profileId` should be kept: the profile is
+  // installed on disk, OR its install state is indeterminate (the profile is no
+  // longer in the catalog). Returns false only when the profile is known to the
+  // catalog and confirmed missing/incomplete on disk — the sole case in which the
+  // caller (the save-time purge) drops its DB rows.
+  bool ShouldKeepSemanticModelData(const QString& profileId) const;
 
  signals:
   // Coarse notify for all Q_PROPERTYs above (mirrors the existing controller
@@ -115,6 +126,11 @@ class ModelDownloadController final : public QObject {
   // 250 ms progress tick. SemanticGenerationController listens to this to
   // recompute its `selectedModelActive` badge without churning on progress.
   void SelectedModelInstallChanged();
+  // Emitted when the user picks a different profile in the combo box
+  // (SetSelectedModelProfileId). SemanticGenerationController listens to refresh the
+  // selectedModelActive badge and to auto-activate the model when it is already warm
+  // (label prototypes cached), so the user need not press Activate again.
+  void SelectedModelProfileChanged();
 
  private:
   // Recomputes selected_model_installed_ from disk + catalog. Does not emit;

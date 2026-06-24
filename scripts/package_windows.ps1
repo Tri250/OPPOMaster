@@ -13,7 +13,8 @@ param(
     [string]$BuildDir = "$PSScriptRoot\..\build\release",
     [string]$Preset = "win_release",
     [string]$QtPrefix = "D:/Qt/6.9.3/msvc2022_64/lib/cmake",
-    [string]$PackageOutDir = "$PSScriptRoot\..\build\release\package"
+    [string]$PackageOutDir = "$PSScriptRoot\..\build\release\package",
+    [bool]$RequireOpenCLAssets = $true
 )
 
 $ErrorActionPreference = 'Stop'
@@ -52,7 +53,26 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # ------------------------------------------------------------------
-# 3. Run CPack
+# 3. Verify install tree
+# ------------------------------------------------------------------
+Write-Host "Verifying install tree ..." -ForegroundColor Yellow
+$verifyScript = Join-Path $repoRoot "scripts\verify_windows_install_tree.ps1"
+$installDir = Join-Path $repoRoot "build\install"
+$verifyArgs = @(
+    '-ExecutionPolicy', 'Bypass',
+    '-File', $verifyScript,
+    '-InstallDir', $installDir
+)
+if (-not $RequireOpenCLAssets) {
+    $verifyArgs += '-SkipOpenCLAssetCheck'
+}
+& powershell @verifyArgs
+if ($LASTEXITCODE -ne 0) {
+    throw "Install tree verification failed."
+}
+
+# ------------------------------------------------------------------
+# 4. Run CPack
 # ------------------------------------------------------------------
 New-Item -ItemType Directory -Force -Path $PackageOutDir | Out-Null
 Write-Host "Running CPack ..." -ForegroundColor Yellow
@@ -64,7 +84,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # ------------------------------------------------------------------
-# 4. Report results
+# 5. Report results
 # ------------------------------------------------------------------
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Green
@@ -84,7 +104,7 @@ if ($packages) {
 Write-Host ""
 
 # ------------------------------------------------------------------
-# 5. Tooling hints
+# 6. Tooling hints
 # ------------------------------------------------------------------
 $hasWix = (Test-CommandAvailable "candle.exe") -and (Test-CommandAvailable "light.exe")
 $hasNsis = Test-CommandAvailable "makensis.exe"

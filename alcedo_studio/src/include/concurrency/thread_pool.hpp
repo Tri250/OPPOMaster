@@ -26,6 +26,17 @@ class ThreadPool {
 
   void Submit(std::function<void()> task);
 
+  // Stop the pool, discarding any queued tasks that have not started yet, and
+  // join all worker threads. In-flight tasks run to completion. Use this when
+  // owned state the queued tasks capture is about to be destroyed: the default
+  // destructor drains the queue (runs every queued task), which is unsafe if
+  // the captured state is destroyed before the pool (member destruction is
+  // reverse-declaration order). Calling Shutdown() first empties the queue
+  // under the lock and joins the workers, so the subsequent destructor is a
+  // safe no-op — the destructor guards each join with joinable() and therefore
+  // tolerates workers that Shutdown() already joined.
+  void Shutdown();
+
   template <typename F>
   void Submit(F&& task) {
     using TaskT = std::decay_t<F>;

@@ -2896,6 +2896,10 @@ Original source files on disk will be kept.</source>
         <source>Done</source>
         <translation>完成</translation>
     </message>
+    <message>
+        <source>About</source>
+        <translation>关于</translation>
+    </message>
 </context>
 <context>
     <name>WelcomeDialog</name>
@@ -3170,6 +3174,113 @@ Original source files on disk will be kept.</source>
         <location filename="../app_theme.cpp" line="941"/>
         <source>Classic</source>
         <translation>经典</translation>
+    </message>
+</context>
+<context>
+    <name>AboutPage</name>
+    <message>
+        <source>New to Alcedo Studio?</source>
+        <translation>初次使用 Alcedo Studio？</translation>
+    </message>
+    <message>
+        <source>The documentation website is the best place to learn how this software works — how to import, edit, and manage your photos, step by step. It is the tutorial for Alcedo Studio, and it is kept up to date with each release.</source>
+        <translation>文档网站是了解本软件工作原理的最佳去处——循序渐进地学习如何导入、编辑和管理你的照片。它是 Alcedo Studio 的教程，并随每个版本保持更新。</translation>
+    </message>
+    <message>
+        <source>Open documentation</source>
+        <translation>打开文档</translation>
+    </message>
+    <message>
+        <source>About</source>
+        <translation>关于</translation>
+    </message>
+    <message>
+        <source>Alcedo Studio</source>
+        <translation>Alcedo Studio</translation>
+    </message>
+    <message>
+        <source>An open-source RAW photo editor and digital asset management (DAM) project, built for a lightweight, high-performance, industry-compatible photography workflow.</source>
+        <translation>一个开源的 RAW 照片编辑器与数字资产管理（DAM）项目，为轻量、高性能、与行业兼容的摄影工作流而打造。</translation>
+    </message>
+    <message>
+        <source>Version</source>
+        <translation>版本</translation>
+    </message>
+    <message>
+        <source>Unavailable</source>
+        <translation>不可用</translation>
+    </message>
+    <message>
+        <source>Copyright © 2026 Yurun Zi</source>
+        <translation>版权所有 © 2026 Yurun Zi</translation>
+    </message>
+    <message>
+        <source>Licensed under GPL-3.0-only, with an additional permission under GPLv3 section 7 for combining and distributing the required NVIDIA CUDA components.</source>
+        <translation>基于 GPL-3.0-only 许可，并依据 GPLv3 第 7 条附加许可，允许组合与分发所需的 NVIDIA CUDA 组件。</translation>
+    </message>
+    <message>
+        <source>Links</source>
+        <translation>链接</translation>
+    </message>
+    <message>
+        <source>Documentation (tutorial)</source>
+        <translation>文档（教程）</translation>
+    </message>
+    <message>
+        <source>GitHub repository</source>
+        <translation>GitHub 仓库</translation>
+    </message>
+    <message>
+        <source>Acknowledgements</source>
+        <translation>致谢</translation>
+    </message>
+    <message>
+        <source>Alcedo Studio builds on research, open-source implementations, and community data from the wider imaging ecosystem:</source>
+        <translation>Alcedo Studio 建立在更广泛的成像生态中的研究、开源实现与社区数据之上：</translation>
+    </message>
+    <message>
+        <source>Film-emulation LUTs — JanLohse/spectral_film_lut</source>
+        <translation>胶片模拟 LUT — JanLohse/spectral_film_lut</translation>
+    </message>
+    <message>
+        <source>Camera color matrices — AcademySoftwareFoundation/rawtoaces-data</source>
+        <translation>相机色彩矩阵 — AcademySoftwareFoundation/rawtoaces-data</translation>
+    </message>
+    <message>
+        <source>Highlight reconstruction — RawTherapee hilite_recon.cc</source>
+        <translation>高光重建 — RawTherapee hilite_recon.cc</translation>
+    </message>
+    <message>
+        <source>RCD demosaic — LuisSR/RCD-Demosaicing</source>
+        <translation>RCD 去马赛克 — LuisSR/RCD-Demosaicing</translation>
+    </message>
+    <message>
+        <source>OpenDRT — jedypod/open-display-transform</source>
+        <translation>OpenDRT — jedypod/open-display-transform</translation>
+    </message>
+    <message>
+        <source>ACES 2.0 — aces-aswf/aces-core</source>
+        <translation>ACES 2.0 — aces-aswf/aces-core</translation>
+    </message>
+    <message>
+        <source>Film grain renderer — Newson, Faraj, Galerne, Delon (IPOL 2017)</source>
+        <translation>胶片颗粒渲染器 — Newson、Faraj、Galerne、Delon（IPOL 2017）</translation>
+    </message>
+    <message>
+        <source>Third-party licenses</source>
+        <translation>第三方许可证</translation>
+    </message>
+    <message>
+        <source>This software bundles open-source third-party libraries. Their licenses are reproduced in the third_party_licenses/ folder of the source tree; the summary below lists each library and its license.</source>
+        <translation>本软件包含开源的第三方库。其许可证原文可在源代码树的 third_party_licenses/ 文件夹中找到；下方摘要列出了每个库及其对应的许可证。</translation>
+    </message>
+    <message>
+        <source>Collapse</source>
+        <translation>收起</translation>
+    </message>
+    <message>
+        <source>View all %1 licenses</source>
+        <translation>查看全部 %1 项许可证</translation>
     </message>
 </context>
 </TS>
