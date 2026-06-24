@@ -126,6 +126,11 @@ class ModelDownloadController final : public QObject {
   // 250 ms progress tick. SemanticGenerationController listens to this to
   // recompute its `selectedModelActive` badge without churning on progress.
   void SelectedModelInstallChanged();
+  // Emitted when the user picks a different profile in the combo box
+  // (SetSelectedModelProfileId). SemanticGenerationController listens to refresh the
+  // selectedModelActive badge and to auto-activate the model when it is already warm
+  // (label prototypes cached), so the user need not press Activate again.
+  void SelectedModelProfileChanged();
 
  private:
   // Recomputes selected_model_installed_ from disk + catalog. Does not emit;

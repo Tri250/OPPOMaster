@@ -662,6 +662,7 @@ void ModelDownloadController::SetSelectedModelProfileId(const QString& profileId
   model_download_files_done_  = 0;
   model_download_files_total_ = 0;
   RecomputeSelectedModelState();
+  emit SelectedModelProfileChanged();
   emit StateChanged();
 }
 

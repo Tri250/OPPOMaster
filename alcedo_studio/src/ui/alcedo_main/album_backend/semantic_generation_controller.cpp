@@ -192,6 +192,11 @@ SemanticGenerationController::SemanticGenerationController(AlbumBackend& backend
             RecomputeSelectedModelActive();
             emit StateChanged();
           });
+  // When the user picks a different model in the combo box, refresh the badge and
+  // auto-activate it when its label prototypes are already cached, so the user does
+  // not have to press Activate again for a model that was previously activated.
+  connect(&backend_.model_download_controller_, &ModelDownloadController::SelectedModelProfileChanged,
+          this, [this]() { TryAutoActivateSelectedModel(); });
 }
 
 bool SemanticGenerationController::PromptVisible() const {
@@ -271,6 +276,71 @@ void SemanticGenerationController::RefreshSemanticState() {
   backend_.model_download_controller_.RefreshInstallState();
   RecomputeSelectedModelActive();
   RefreshAlbumSummary();
+  // On project open / after a purge, also activate the persisted selected model if
+  // it is already warm, so the model the user last picked is the one in use.
+  TryAutoActivateSelectedModel();
+  emit StateChanged();
+}
+
+void SemanticGenerationController::TryAutoActivateSelectedModel() {
+  // Always recompute first so the badge is honest (this is the fix for the stale
+  // "Active" that appeared after selecting a different installed model).
+  RecomputeSelectedModelActive();
+  emit StateChanged();
+
+  if (selected_model_active_) {
+    return;  // already the active model
+  }
+  if (running_ || model_activation_running_) {
+    return;  // don't fight a running generation or activation
+  }
+  if (!backend_.model_download_controller_.SelectedModelInstalled()) {
+    return;
+  }
+  auto project = backend_.project_handler_.project();
+  if (!project) {
+    return;
+  }
+
+  // Only auto-switch when the selected model is already "warm" - its label
+  // prototypes are cached. A cold model must be activated manually (Activate
+  // generates the cache), because there is no data to route to yet.
+  QString       manifest_error;
+  const auto    manifest =
+      backend_.model_download_controller_.LoadSelectedResolvedManifest(&manifest_error);
+  if (!manifest.has_value()) {
+    return;
+  }
+  const std::string model_key      = manifest->revision.empty()
+                                         ? manifest->model_id
+                                         : manifest->model_id + "@" + manifest->revision;
+  const auto        label_language = ModelLabelLanguage(*manifest);
+  const auto        prompt_hash    = SemanticPromptConfigHashForLanguage(label_language);
+
+  auto&      semantic        = project->GetStorageService()->GetSemanticStorageController();
+  const auto query_count     = semantic.CountLabelQueries(prompt_hash);
+  if (query_count == 0) {
+    return;
+  }
+  const auto prototype_count = semantic.CountLabelPrototypes(model_key, prompt_hash);
+  if (prototype_count < query_count) {
+    return;  // cold -> user must press Activate to generate the label cache
+  }
+
+  // SetActiveModelKey is HasModel-guarded: it returns false before touching the
+  // active flag if the model row isn't registered, so a missing row can't leave the
+  // project with no active model. Warm implies a prior Activate registered the row.
+  std::string error;
+  if (!semantic.SetActiveModelKey(model_key, &error)) {
+    return;
+  }
+  model_key_ = model_key;
+  RecomputeSelectedModelActive();
+  RefreshAlbumSummary();
+  backend_.ReloadCurrentFolder();  // routing changed -> refresh album view + labels
+  backend_.model_download_controller_.SetStatusText(
+      PL_TEXT("%1 is active for this project. Label prompts are ready.",
+              ActiveModelDisplayName()));
   emit StateChanged();
 }
 

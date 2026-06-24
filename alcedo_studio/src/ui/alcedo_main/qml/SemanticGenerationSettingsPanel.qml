@@ -713,7 +713,7 @@ ColumnLayout {
                 return qsTr("Active")
             }
             if (card.isInstalled) {
-                return qsTr("Installed · not active")
+                return qsTr("Activate to generate labels")
             }
             return qsTr("Not downloaded")
         }

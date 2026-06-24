@@ -104,6 +104,13 @@ class SemanticGenerationController final : public QObject {
   // state and the project's active-model record. Does not emit StateChanged;
   // callers emit.
   void RecomputeSelectedModelActive();
+  // Recomputes the selectedModelActive badge, then - if the selected model is
+  // installed, not already active, and already has label prototypes cached ("warm") -
+  // flips the project's active model to it so routing and label caching switch
+  // instantly without pressing Activate. No-op for cold models (the user must
+  // Activate to generate the cache). Idempotent and guarded; safe to call from the
+  // selection signal and from RefreshSemanticState (project open).
+  void TryAutoActivateSelectedModel();
   [[nodiscard]] auto RuntimeOptionsForProfile(const QString& profileId, bool profileRoot) const
       -> SemanticRuntimeOptions;
 
