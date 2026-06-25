@@ -653,15 +653,15 @@ if(WIN32)
   endif()
 endif()
 
-add_executable(SemanticFakeRuntime app/semantic_fake_runtime_main.cpp)
+add_executable(AiSidecarFakeRuntime app/ai_sidecar_fake_runtime_main.cpp)
 
-add_executable(SemanticRuntimeServiceTest app/semantic_runtime_service_test.cpp)
-target_include_directories(SemanticRuntimeServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
-target_compile_definitions(SemanticRuntimeServiceTest PRIVATE
-  ALCEDO_SEMANTIC_FAKE_RUNTIME_PATH="$<TARGET_FILE:SemanticFakeRuntime>")
-target_link_libraries(SemanticRuntimeServiceTest SemanticRuntimeService ProjectService GTest::gtest_main)
-add_dependencies(SemanticRuntimeServiceTest SemanticFakeRuntime)
-gtest_discover_tests(SemanticRuntimeServiceTest TEST_PREFIX "SemanticRuntimeServiceTest."
+add_executable(AiSidecarRuntimeServiceTest app/ai_sidecar_runtime_service_test.cpp)
+target_include_directories(AiSidecarRuntimeServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_compile_definitions(AiSidecarRuntimeServiceTest PRIVATE
+  ALCEDO_AI_SIDECAR_FAKE_RUNTIME_PATH="$<TARGET_FILE:AiSidecarFakeRuntime>")
+target_link_libraries(AiSidecarRuntimeServiceTest AiSidecarRuntimeService ProjectService GTest::gtest_main)
+add_dependencies(AiSidecarRuntimeServiceTest AiSidecarFakeRuntime)
+gtest_discover_tests(AiSidecarRuntimeServiceTest TEST_PREFIX "AiSidecarRuntimeServiceTest."
   PROPERTIES LABELS "ci_core_flow")
 
 add_executable(SemanticGrpcDependencySmokeTest app/semantic_grpc_dependency_smoke_test.cpp)
@@ -1096,7 +1096,7 @@ alcedo_assign_test_category(ci_core ALCEDO_BUILD_CI_TESTS alcedo_tests_ci_core
   EditHistoryMgmtServiceTest
   CropRotateOpTest
   SemanticGrpcDependencySmokeTest
-  SemanticRuntimeServiceTest
+  AiSidecarRuntimeServiceTest
   SemanticStorageControllerTest
 )
 

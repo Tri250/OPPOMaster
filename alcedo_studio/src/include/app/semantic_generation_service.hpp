@@ -18,7 +18,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "app/semantic_runtime_service.hpp"
+#include "app/ai_sidecar_runtime_service.hpp"
 #include "app/thumbnail_service.hpp"
 #include "app/thumbnail_types.hpp"
 #include "storage/controller/semantic/semantic_label_config.hpp"
@@ -83,7 +83,7 @@ struct SemanticGenerationOptions {
   size_t                                  thumbnail_batch_size = 32;
   size_t                                  embedding_batch_size = 64;
   std::chrono::milliseconds               embedding_timeout{30000};
-  std::optional<SemanticRuntimeModelInfo> expected_model_info;
+  std::optional<AiSidecarRuntimeModelInfo> expected_model_info;
   std::optional<SemanticGenerationPersistenceOptions> persistence;
   bool                                                force_regenerate = false;
 };
@@ -134,7 +134,7 @@ class ISemanticImageEmbeddingClient {
  public:
   virtual ~ISemanticImageEmbeddingClient()                                              = default;
 
-  virtual auto GetModelInfo(SemanticRuntimeModelInfo* info, std::string* error) -> bool = 0;
+  virtual auto GetModelInfo(AiSidecarRuntimeModelInfo* info, std::string* error) -> bool = 0;
   virtual auto EmbedText(const std::string& request_id, const std::string& text,
                          std::chrono::milliseconds timeout) -> SemanticEmbeddingResult  = 0;
   virtual auto EmbedTextBatch(const std::vector<SemanticTextEmbeddingRequest>& requests,
@@ -145,11 +145,11 @@ class ISemanticImageEmbeddingClient {
                                SemanticImageEmbeddingBatchCallback      callback) = 0;
 };
 
-class SemanticRuntimeImageEmbeddingClient final : public ISemanticImageEmbeddingClient {
+class AiSidecarRuntimeImageEmbeddingClient final : public ISemanticImageEmbeddingClient {
  public:
-  explicit SemanticRuntimeImageEmbeddingClient(std::shared_ptr<SemanticRuntimeService> runtime);
+  explicit AiSidecarRuntimeImageEmbeddingClient(std::shared_ptr<AiSidecarRuntimeService> runtime);
 
-  auto GetModelInfo(SemanticRuntimeModelInfo* info, std::string* error) -> bool override;
+  auto GetModelInfo(AiSidecarRuntimeModelInfo* info, std::string* error) -> bool override;
   auto EmbedText(const std::string& request_id, const std::string& text,
                  std::chrono::milliseconds timeout) -> SemanticEmbeddingResult override;
   auto EmbedTextBatch(const std::vector<SemanticTextEmbeddingRequest>& requests,
@@ -160,7 +160,7 @@ class SemanticRuntimeImageEmbeddingClient final : public ISemanticImageEmbedding
                        SemanticImageEmbeddingBatchCallback      callback) override;
 
  private:
-  std::shared_ptr<SemanticRuntimeService> runtime_;
+  std::shared_ptr<AiSidecarRuntimeService> runtime_;
 };
 
 class MockSemanticImageEmbeddingClient final : public ISemanticImageEmbeddingClient {
@@ -169,7 +169,7 @@ class MockSemanticImageEmbeddingClient final : public ISemanticImageEmbeddingCli
       std::chrono::milliseconds response_delay      = std::chrono::milliseconds(0),
       uint32_t                  embedding_dimension = 2);
 
-  auto GetModelInfo(SemanticRuntimeModelInfo* info, std::string* error) -> bool override;
+  auto GetModelInfo(AiSidecarRuntimeModelInfo* info, std::string* error) -> bool override;
   auto EmbedText(const std::string& request_id, const std::string& text,
                  std::chrono::milliseconds timeout) -> SemanticEmbeddingResult override;
   void EmbedImageBatch(std::vector<SemanticImageEmbeddingInput> inputs,

@@ -17,7 +17,7 @@
 
 namespace alcedo {
 
-enum class SemanticRuntimeState : uint8_t {
+enum class AiSidecarRuntimeState : uint8_t {
   kStopped = 0,
   kStarting,
   kReady,
@@ -25,7 +25,7 @@ enum class SemanticRuntimeState : uint8_t {
   kFailed,
 };
 
-enum class SemanticRuntimeIssue : uint8_t {
+enum class AiSidecarRuntimeIssue : uint8_t {
   kNone = 0,
   kBinaryMissing,
   kStartFailed,
@@ -37,7 +37,7 @@ enum class SemanticRuntimeIssue : uint8_t {
   kClientError,
 };
 
-struct SemanticRuntimeModelInfo {
+struct AiSidecarRuntimeModelInfo {
   std::string profile_id;
   std::string model_id;
   std::string revision;
@@ -52,7 +52,7 @@ struct SemanticRuntimeModelInfo {
   std::string prototype_config_hash;
 };
 
-struct SemanticRuntimeRemoteStatus {
+struct AiSidecarRuntimeRemoteStatus {
   std::string state;
   std::string provider;
   uint32_t    image_batch_cap     = 0;
@@ -132,19 +132,33 @@ struct SemanticImageEmbeddingRequest {
   std::string          model_name;
 };
 
-struct SemanticRuntimeStatusSnapshot {
-  SemanticRuntimeState                       state = SemanticRuntimeState::kStopped;
-  SemanticRuntimeIssue                       issue = SemanticRuntimeIssue::kNone;
+struct AiSidecarRuntimeStatusSnapshot {
+  AiSidecarRuntimeState                       state = AiSidecarRuntimeState::kStopped;
+  AiSidecarRuntimeIssue                       issue = AiSidecarRuntimeIssue::kNone;
   std::string                                message;
   std::string                                endpoint;
   int64_t                                    process_id = 0;
   std::string                                stdout_tail;
   std::string                                stderr_tail;
-  std::optional<SemanticRuntimeModelInfo>    model_info;
-  std::optional<SemanticRuntimeRemoteStatus> remote_status;
+  std::optional<AiSidecarRuntimeModelInfo>    model_info;
+  std::optional<AiSidecarRuntimeRemoteStatus> remote_status;
 };
 
-struct SemanticRuntimeOptions {
+// Host-side mirror of `alcedo::ai::AiCapability` (proto/ai_common.proto). Plain struct so the
+// header stays free of generated-proto includes; the .cpp hand-maps the proto fields here.
+struct AiSidecarCapability {
+  std::string             task_id;
+  std::string             provider_id;
+  std::string             model_id;
+  std::vector<int>        input_kinds;   // alcedo::ai::AiInputKind values
+  std::vector<int>        output_kinds;  // alcedo::ai::AiOutputKind values
+  bool                    supports_batch      = false;
+  bool                    supports_cancel     = false;
+  bool                    requires_credential = false;
+  int64_t                 max_payload_bytes   = 0;
+};
+
+struct AiSidecarRuntimeOptions {
   std::filesystem::path     runtime_binary;
   std::filesystem::path     model_root;
   std::string               host     = "127.0.0.1";
@@ -165,17 +179,24 @@ struct SemanticRuntimeOptions {
   std::vector<std::string>  extra_arguments;
 };
 
-class ISemanticRuntimeClient {
+class IAiSidecarRuntimeClient {
  public:
-  virtual ~ISemanticRuntimeClient()                                                     = default;
+  virtual ~IAiSidecarRuntimeClient()                                                     = default;
 
   virtual auto Ping(const std::string& endpoint, std::chrono::milliseconds timeout,
                     std::string* error) -> bool                                         = 0;
   virtual auto GetModelInfo(const std::string& endpoint, std::chrono::milliseconds timeout,
-                            SemanticRuntimeModelInfo* info, std::string* error) -> bool = 0;
+                            AiSidecarRuntimeModelInfo* info, std::string* error) -> bool = 0;
   virtual auto GetRuntimeStatus(const std::string& endpoint, std::chrono::milliseconds timeout,
-                                SemanticRuntimeRemoteStatus* status, std::string* error)
+                                AiSidecarRuntimeRemoteStatus* status, std::string* error)
       -> bool = 0;
+  // Queries the sidecar's `AiRuntimeService::ListCapabilities` (proto/ai_runtime.proto). Fills
+  // `capabilities` with the host-side DTOs. task_id/credential_ref/timeout_ms are documented as
+  // ignored by the server for this RPC (Phase 0 §3.1) but the client fills a header for uniform
+  // request correlation.
+  virtual auto ListCapabilities(const std::string& endpoint, std::chrono::milliseconds timeout,
+                                std::vector<AiSidecarCapability>* capabilities,
+                                std::string* error) -> bool                                = 0;
   virtual auto ListModelProfiles(const std::string& endpoint, const std::string& model_root,
                                  std::chrono::milliseconds timeout, std::string* error)
       -> std::vector<SemanticModelProfileInfo> = 0;
@@ -204,14 +225,17 @@ class ISemanticRuntimeClient {
       -> std::vector<SemanticEmbeddingResult> = 0;
 };
 
-class GrpcSemanticRuntimeClient final : public ISemanticRuntimeClient {
+class GrpcAiSidecarRuntimeClient final : public IAiSidecarRuntimeClient {
  public:
   auto Ping(const std::string& endpoint, std::chrono::milliseconds timeout, std::string* error)
       -> bool override;
   auto GetModelInfo(const std::string& endpoint, std::chrono::milliseconds timeout,
-                    SemanticRuntimeModelInfo* info, std::string* error) -> bool override;
+                    AiSidecarRuntimeModelInfo* info, std::string* error) -> bool override;
   auto GetRuntimeStatus(const std::string& endpoint, std::chrono::milliseconds timeout,
-                        SemanticRuntimeRemoteStatus* status, std::string* error) -> bool override;
+                        AiSidecarRuntimeRemoteStatus* status, std::string* error) -> bool override;
+  auto ListCapabilities(const std::string& endpoint, std::chrono::milliseconds timeout,
+                        std::vector<AiSidecarCapability>* capabilities,
+                        std::string* error) -> bool override;
   auto ListModelProfiles(const std::string& endpoint, const std::string& model_root,
                          std::chrono::milliseconds timeout, std::string* error)
       -> std::vector<SemanticModelProfileInfo> override;
@@ -240,7 +264,7 @@ class GrpcSemanticRuntimeClient final : public ISemanticRuntimeClient {
       -> std::vector<SemanticEmbeddingResult> override;
 };
 
-class SemanticRuntimeService final : public QObject {
+class AiSidecarRuntimeService final : public QObject {
   Q_OBJECT
   Q_PROPERTY(QString state READ StateName NOTIFY statusChanged)
   Q_PROPERTY(QString issue READ IssueName NOTIFY statusChanged)
@@ -248,20 +272,22 @@ class SemanticRuntimeService final : public QObject {
   Q_PROPERTY(QString endpoint READ EndpointQString NOTIFY statusChanged)
 
  public:
-  explicit SemanticRuntimeService(std::shared_ptr<ISemanticRuntimeClient> client =
-                                      std::make_shared<GrpcSemanticRuntimeClient>(),
+  explicit AiSidecarRuntimeService(std::shared_ptr<IAiSidecarRuntimeClient> client =
+                                      std::make_shared<GrpcAiSidecarRuntimeClient>(),
                                   QObject* parent = nullptr);
-  ~SemanticRuntimeService() override;
+  ~AiSidecarRuntimeService() override;
 
-  auto StartAndWait(const SemanticRuntimeOptions& options) -> bool;
+  auto StartAndWait(const AiSidecarRuntimeOptions& options) -> bool;
   void Stop();
   void StopForProjectClose();
 
-  auto Status() -> SemanticRuntimeStatusSnapshot;
-  auto Options() const -> const SemanticRuntimeOptions& { return options_; }
+  auto Status() -> AiSidecarRuntimeStatusSnapshot;
+  auto Options() const -> const AiSidecarRuntimeOptions& { return options_; }
   auto IsRunning() -> bool;
   auto Endpoint() const -> std::string { return endpoint_; }
 
+  auto ListCapabilities(std::chrono::milliseconds timeout, std::string* error)
+      -> std::vector<AiSidecarCapability>;
   auto ListModelProfiles(const std::string& model_root, std::chrono::milliseconds timeout,
                          std::string* error) -> std::vector<SemanticModelProfileInfo>;
   auto ListInstalledModels(const std::string& model_root, std::chrono::milliseconds timeout,
@@ -290,7 +316,7 @@ class SemanticRuntimeService final : public QObject {
   void statusChanged();
 
  private:
-  void SetStatus(SemanticRuntimeState state, SemanticRuntimeIssue issue, std::string message);
+  void SetStatus(AiSidecarRuntimeState state, AiSidecarRuntimeIssue issue, std::string message);
   void AppendStdout(const QByteArray& bytes);
   void AppendStderr(const QByteArray& bytes);
   void RefreshProcessExit();
@@ -300,17 +326,17 @@ class SemanticRuntimeService final : public QObject {
   void AttachChildTreeCleanup();
   void ReleaseChildTreeCleanup();
 
-  std::shared_ptr<ISemanticRuntimeClient> client_;
+  std::shared_ptr<IAiSidecarRuntimeClient> client_;
   QProcess                                process_;
-  SemanticRuntimeOptions                  options_;
-  SemanticRuntimeStatusSnapshot           status_;
+  AiSidecarRuntimeOptions                  options_;
+  AiSidecarRuntimeStatusSnapshot           status_;
   std::string                             endpoint_;
 #ifdef _WIN32
   void* job_object_ = nullptr;
 #endif
 };
 
-auto ToString(SemanticRuntimeState state) -> const char*;
-auto ToString(SemanticRuntimeIssue issue) -> const char*;
+auto ToString(AiSidecarRuntimeState state) -> const char*;
+auto ToString(AiSidecarRuntimeIssue issue) -> const char*;
 
 }  // namespace alcedo

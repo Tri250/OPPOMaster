@@ -86,7 +86,7 @@ class RecordingEmbeddingClient final : public ISemanticImageEmbeddingClient {
  public:
   explicit RecordingEmbeddingClient(std::chrono::milliseconds delay = 0ms) : delay_(delay) {}
 
-  auto GetModelInfo(SemanticRuntimeModelInfo* info, std::string* error) -> bool override {
+  auto GetModelInfo(AiSidecarRuntimeModelInfo* info, std::string* error) -> bool override {
     (void)error;
     if (info) {
       info->model_id            = "mock/mobileclip";
@@ -260,7 +260,7 @@ class BatchGateThumbnailProvider final : public ISemanticThumbnailProvider {
 
 class ScriptedEmbeddingClient final : public ISemanticImageEmbeddingClient {
  public:
-  auto GetModelInfo(SemanticRuntimeModelInfo* info, std::string* error) -> bool override {
+  auto GetModelInfo(AiSidecarRuntimeModelInfo* info, std::string* error) -> bool override {
     (void)error;
     if (info) {
       info->model_id            = "mock/mobileclip";
@@ -308,7 +308,7 @@ class ScriptedEmbeddingClient final : public ISemanticImageEmbeddingClient {
 
 class NeverRespondingEmbeddingClient final : public ISemanticImageEmbeddingClient {
  public:
-  auto GetModelInfo(SemanticRuntimeModelInfo* info, std::string* error) -> bool override {
+  auto GetModelInfo(AiSidecarRuntimeModelInfo* info, std::string* error) -> bool override {
     (void)error;
     if (info) {
       info->model_id            = "mock/mobileclip";
@@ -406,7 +406,7 @@ class Fixed512EmbeddingClient final : public ISemanticImageEmbeddingClient {
   explicit Fixed512EmbeddingClient(std::vector<float> embedding)
       : embedding_(std::move(embedding)) {}
 
-  auto GetModelInfo(SemanticRuntimeModelInfo* info, std::string* error) -> bool override {
+  auto GetModelInfo(AiSidecarRuntimeModelInfo* info, std::string* error) -> bool override {
     (void)error;
     if (info) {
       info->model_id            = "mock/mobileclip";
@@ -509,7 +509,7 @@ class Routed512EmbeddingClient final : public ISemanticImageEmbeddingClient {
     }
   }
 
-  auto GetModelInfo(SemanticRuntimeModelInfo* info, std::string* error) -> bool override {
+  auto GetModelInfo(AiSidecarRuntimeModelInfo* info, std::string* error) -> bool override {
     (void)error;
     if (info) {
       info->model_id            = "mock/mobileclip";
@@ -579,7 +579,7 @@ class Localized512EmbeddingClient final : public ISemanticImageEmbeddingClient {
     }
   }
 
-  auto GetModelInfo(SemanticRuntimeModelInfo* info, std::string* error) -> bool override {
+  auto GetModelInfo(AiSidecarRuntimeModelInfo* info, std::string* error) -> bool override {
     (void)error;
     if (info) {
       info->profile_id          = "mock-localized-zh";
@@ -991,7 +991,7 @@ TEST_F(SemanticGenerationServiceTest, RejectsModelInfoMismatchBeforeRequestingTh
   SemanticGenerationService service(thumbnails, embedder);
 
   SemanticGenerationOptions options;
-  SemanticRuntimeModelInfo  expected;
+  AiSidecarRuntimeModelInfo  expected;
   expected.model_id            = "mock/mobileclip";
   expected.revision            = "mock-revision";
   expected.embedding_dimension = 512;
@@ -1023,7 +1023,7 @@ TEST_F(SemanticGenerationServiceTest, MapsPartialFailureAndRequestIdMismatchPerI
 
   SemanticGenerationOptions options;
   options.embedding_batch_size = 3;
-  SemanticRuntimeModelInfo expected;
+  AiSidecarRuntimeModelInfo expected;
   expected.model_id            = "mock/mobileclip";
   expected.revision            = "mock-revision";
   expected.embedding_dimension = 2;
@@ -1096,7 +1096,7 @@ TEST_F(SemanticGenerationServiceTest, PersistsEmbeddingsAndAssignedLabels) {
 
   SemanticGenerationOptions options;
   options.expected_model_info =
-      SemanticRuntimeModelInfo{.model_id            = "mock/mobileclip",
+      AiSidecarRuntimeModelInfo{.model_id            = "mock/mobileclip",
                                .revision            = "mock-revision",
                                .embedding_dimension = kSemanticEmbeddingDim,
                                .image_size          = 256,
@@ -1153,7 +1153,7 @@ TEST_F(SemanticGenerationServiceTest, PersistsLocalizedChineseLabelsAndMapsDispl
 
   SemanticGenerationOptions options;
   options.expected_model_info =
-      SemanticRuntimeModelInfo{.profile_id          = "mock-localized-zh",
+      AiSidecarRuntimeModelInfo{.profile_id          = "mock-localized-zh",
                                .model_id            = "mock/localized-zh",
                                .revision            = "mock-zh-revision",
                                .language            = "zh",
@@ -1281,7 +1281,7 @@ TEST_F(SemanticGenerationServiceTest, GeneratesLabelsForRecursiveCameraSampleDat
   options.embedding_batch_size = 64;
   options.embedding_timeout    = 300s;
   options.expected_model_info =
-      SemanticRuntimeModelInfo{.model_id            = "mock/mobileclip",
+      AiSidecarRuntimeModelInfo{.model_id            = "mock/mobileclip",
                                .revision            = "mock-revision",
                                .embedding_dimension = kSemanticEmbeddingDim,
                                .image_size          = 256,

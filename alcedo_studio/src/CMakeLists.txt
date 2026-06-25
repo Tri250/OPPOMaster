@@ -1031,12 +1031,12 @@ add_library(AiProto ${ALCEDO_AI_PROTO_SRCS} ${ALCEDO_AI_PROTO_HDRS})
 target_include_directories(AiProto PUBLIC "${ALCEDO_AI_PROTO_GEN_DIR}")
 target_link_libraries(AiProto PUBLIC puerhlab::grpc++ puerhlab::protobuf)
 
-def_library(SemanticRuntimeService
+def_library(AiSidecarRuntimeService
     SOURCES
-        app/semantic_runtime_service.cpp
-        include/app/semantic_runtime_service.hpp
+        app/ai_sidecar_runtime_service.cpp
+        include/app/ai_sidecar_runtime_service.hpp
     PUBLIC_DEPS Qt6::Core Qt6::Network
-    PRIVATE_DEPS SemanticProto AppDiagnostics
+    PRIVATE_DEPS SemanticProto AiProto AppDiagnostics
 )
 
 def_library(ModelDownloadService
@@ -1055,7 +1055,7 @@ def_library(ProjectService
         app/project_package_service.cpp
         ui/alcedo_main/album_backend/path_utils.cpp
     PUBLIC_DEPS FSService StorageService ImagePoolService AlbumBrowseService SleeveFilterService
-                SemanticRuntimeService ModelDownloadService
+                AiSidecarRuntimeService ModelDownloadService
                 StrConv JSON xxHash stduuid
     PRIVATE_DEPS
         UiLocalization
@@ -1095,7 +1095,7 @@ def_library(SemanticGenerationService
         app/semantic_generation_service.cpp
         include/app/semantic_generation_service.hpp
         include/storage/controller/semantic/semantic_label_config.hpp
-    PUBLIC_DEPS SemanticRuntimeService ThumbnailService StorageService opencv_core opencv_imgproc
+    PUBLIC_DEPS AiSidecarRuntimeService ThumbnailService StorageService opencv_core opencv_imgproc
     PRIVATE_DEPS AppDiagnostics
 )
 

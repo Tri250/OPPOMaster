@@ -2,7 +2,7 @@
 //  SPDX-License-Identifier: GPL-3.0-only
 //  Additional permission under GPLv3 section 7 applies; see the LICENSE file.
 
-#include "app/semantic_runtime_service.hpp"
+#include "app/ai_sidecar_runtime_service.hpp"
 
 #include <grpcpp/create_channel.h>
 #include <grpcpp/security/credentials.h>
@@ -21,6 +21,8 @@
 #include <vector>
 
 #include "semantic.grpc.pb.h"
+#include "ai_common.pb.h"
+#include "ai_runtime.grpc.pb.h"
 #include "utils/diagnostics/app_logging.hpp"
 
 #ifdef _WIN32
@@ -31,13 +33,13 @@ namespace alcedo {
 namespace {
 
 constexpr size_t kLogTailBytes             = 16 * 1024;
-constexpr auto   kSemanticRuntimeBinaryEnv = "ALCEDO_MIND_BINARY";
+constexpr auto   kAiSidecarRuntimeBinaryEnv = "ALCEDO_MIND_BINARY";
 constexpr auto   kSemanticModelRootEnv     = "ALCEDO_MIND_MODEL_ROOT";
 constexpr auto   kDefaultModelDirectory    = "model";
 #ifdef _WIN32
-constexpr auto kSemanticRuntimeBinaryName = "alcedo_mind.exe";
+constexpr auto kAiSidecarRuntimeBinaryName = "alcedo_mind.exe";
 #else
-constexpr auto kSemanticRuntimeBinaryName = "alcedo_mind";
+constexpr auto kAiSidecarRuntimeBinaryName = "alcedo_mind";
 #endif
 
 auto TailAppend(std::string* target, const QByteArray& bytes) -> void {
@@ -52,7 +54,7 @@ auto BuildEndpoint(const std::string& host, uint16_t port) -> std::string {
 }
 
 auto DefaultRuntimeBinary() -> std::filesystem::path {
-  const QByteArray env_binary = qgetenv(kSemanticRuntimeBinaryEnv);
+  const QByteArray env_binary = qgetenv(kAiSidecarRuntimeBinaryEnv);
   if (!env_binary.isEmpty()) {
     return std::filesystem::path(env_binary.constData());
   }
@@ -77,9 +79,9 @@ auto DefaultRuntimeBinary() -> std::filesystem::path {
     }
     while (!current.empty()) {
       candidates->push_back(current / "rust" / "puerh_mind" / "target" / "release" /
-                            kSemanticRuntimeBinaryName);
+                            kAiSidecarRuntimeBinaryName);
       candidates->push_back(current / "rust" / "puerh_mind" / "target" / "debug" /
-                            kSemanticRuntimeBinaryName);
+                            kAiSidecarRuntimeBinaryName);
       const auto parent = current.parent_path();
       if (parent == current) {
         break;
@@ -89,7 +91,7 @@ auto DefaultRuntimeBinary() -> std::filesystem::path {
   };
 
   std::vector<std::filesystem::path> candidates;
-  candidates.push_back(app_path / kSemanticRuntimeBinaryName);
+  candidates.push_back(app_path / kAiSidecarRuntimeBinaryName);
   append_ancestor_runtime_binaries(app_path, &candidates);
   std::error_code ec;
   append_ancestor_runtime_binaries(std::filesystem::current_path(ec), &candidates);
@@ -100,7 +102,7 @@ auto DefaultRuntimeBinary() -> std::filesystem::path {
       return candidate;
     }
   }
-  return app_path / kSemanticRuntimeBinaryName;
+  return app_path / kAiSidecarRuntimeBinaryName;
 }
 
 auto DefaultRuntimeModelRoot() -> std::filesystem::path {
@@ -160,8 +162,8 @@ auto GrpcErrorMessage(const grpc::Status& status) -> std::string {
 }
 
 auto ToRuntimeModelInfo(const semantic::GetModelInfoResponse& response)
-    -> SemanticRuntimeModelInfo {
-  SemanticRuntimeModelInfo info;
+    -> AiSidecarRuntimeModelInfo {
+  AiSidecarRuntimeModelInfo info;
   info.profile_id                 = response.profile_id();
   info.model_id                   = response.model_id();
   info.revision                   = response.revision();
@@ -178,14 +180,34 @@ auto ToRuntimeModelInfo(const semantic::GetModelInfoResponse& response)
 }
 
 auto ToRuntimeStatus(const semantic::GetRuntimeStatusResponse& response)
-    -> SemanticRuntimeRemoteStatus {
-  SemanticRuntimeRemoteStatus status;
+    -> AiSidecarRuntimeRemoteStatus {
+  AiSidecarRuntimeRemoteStatus status;
   status.state               = response.state();
   status.provider            = response.provider();
   status.image_batch_cap     = response.image_batch_cap();
   status.image_batch_wait_ms = response.image_batch_wait_ms();
   status.uptime_ms           = response.uptime_ms();
   return status;
+}
+
+auto ToAiSidecarCapability(const alcedo::ai::AiCapability& capability) -> AiSidecarCapability {
+  AiSidecarCapability out;
+  out.task_id              = capability.task_id();
+  out.provider_id          = capability.provider_id();
+  out.model_id             = capability.model_id();
+  out.input_kinds.reserve(static_cast<size_t>(capability.input_kinds_size()));
+  for (const auto kind : capability.input_kinds()) {
+    out.input_kinds.push_back(static_cast<int>(kind));
+  }
+  out.output_kinds.reserve(static_cast<size_t>(capability.output_kinds_size()));
+  for (const auto kind : capability.output_kinds()) {
+    out.output_kinds.push_back(static_cast<int>(kind));
+  }
+  out.supports_batch      = capability.supports_batch();
+  out.supports_cancel     = capability.supports_cancel();
+  out.requires_credential = capability.requires_credential();
+  out.max_payload_bytes   = capability.max_payload_bytes();
+  return out;
 }
 
 auto ToModelAssetInfo(const semantic::ModelAsset& response) -> SemanticModelAssetInfo {
@@ -280,47 +302,47 @@ auto ToEmbeddingResult(const semantic::EmbeddingBatchItem& response) -> Semantic
 
 }  // namespace
 
-auto ToString(SemanticRuntimeState state) -> const char* {
+auto ToString(AiSidecarRuntimeState state) -> const char* {
   switch (state) {
-    case SemanticRuntimeState::kStopped:
+    case AiSidecarRuntimeState::kStopped:
       return "stopped";
-    case SemanticRuntimeState::kStarting:
+    case AiSidecarRuntimeState::kStarting:
       return "starting";
-    case SemanticRuntimeState::kReady:
+    case AiSidecarRuntimeState::kReady:
       return "ready";
-    case SemanticRuntimeState::kStopping:
+    case AiSidecarRuntimeState::kStopping:
       return "stopping";
-    case SemanticRuntimeState::kFailed:
+    case AiSidecarRuntimeState::kFailed:
       return "failed";
   }
   return "unknown";
 }
 
-auto ToString(SemanticRuntimeIssue issue) -> const char* {
+auto ToString(AiSidecarRuntimeIssue issue) -> const char* {
   switch (issue) {
-    case SemanticRuntimeIssue::kNone:
+    case AiSidecarRuntimeIssue::kNone:
       return "none";
-    case SemanticRuntimeIssue::kBinaryMissing:
+    case AiSidecarRuntimeIssue::kBinaryMissing:
       return "binary_missing";
-    case SemanticRuntimeIssue::kStartFailed:
+    case AiSidecarRuntimeIssue::kStartFailed:
       return "start_failed";
-    case SemanticRuntimeIssue::kReadinessTimeout:
+    case AiSidecarRuntimeIssue::kReadinessTimeout:
       return "readiness_timeout";
-    case SemanticRuntimeIssue::kRuntimeExited:
+    case AiSidecarRuntimeIssue::kRuntimeExited:
       return "runtime_exited";
-    case SemanticRuntimeIssue::kRuntimeCrashed:
+    case AiSidecarRuntimeIssue::kRuntimeCrashed:
       return "runtime_crashed";
-    case SemanticRuntimeIssue::kStopTimedOut:
+    case AiSidecarRuntimeIssue::kStopTimedOut:
       return "stop_timed_out";
-    case SemanticRuntimeIssue::kClientUnavailable:
+    case AiSidecarRuntimeIssue::kClientUnavailable:
       return "client_unavailable";
-    case SemanticRuntimeIssue::kClientError:
+    case AiSidecarRuntimeIssue::kClientError:
       return "client_error";
   }
   return "unknown";
 }
 
-auto GrpcSemanticRuntimeClient::Ping(const std::string& endpoint, std::chrono::milliseconds timeout,
+auto GrpcAiSidecarRuntimeClient::Ping(const std::string& endpoint, std::chrono::milliseconds timeout,
                                      std::string* error) -> bool {
   auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
   auto                stub    = semantic::SemanticService::NewStub(channel);
@@ -340,9 +362,9 @@ auto GrpcSemanticRuntimeClient::Ping(const std::string& endpoint, std::chrono::m
   return true;
 }
 
-auto GrpcSemanticRuntimeClient::GetModelInfo(const std::string&        endpoint,
+auto GrpcAiSidecarRuntimeClient::GetModelInfo(const std::string&        endpoint,
                                              std::chrono::milliseconds timeout,
-                                             SemanticRuntimeModelInfo* info, std::string* error)
+                                             AiSidecarRuntimeModelInfo* info, std::string* error)
     -> bool {
   auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
   auto                stub    = semantic::SemanticService::NewStub(channel);
@@ -364,9 +386,9 @@ auto GrpcSemanticRuntimeClient::GetModelInfo(const std::string&        endpoint,
   return true;
 }
 
-auto GrpcSemanticRuntimeClient::GetRuntimeStatus(const std::string&           endpoint,
+auto GrpcAiSidecarRuntimeClient::GetRuntimeStatus(const std::string&           endpoint,
                                                  std::chrono::milliseconds    timeout,
-                                                 SemanticRuntimeRemoteStatus* status,
+                                                 AiSidecarRuntimeRemoteStatus* status,
                                                  std::string*                 error) -> bool {
   auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
   auto                stub    = semantic::SemanticService::NewStub(channel);
@@ -388,7 +410,40 @@ auto GrpcSemanticRuntimeClient::GetRuntimeStatus(const std::string&           en
   return true;
 }
 
-auto GrpcSemanticRuntimeClient::ListModelProfiles(const std::string&        endpoint,
+auto GrpcAiSidecarRuntimeClient::ListCapabilities(const std::string&             endpoint,
+                                                  std::chrono::milliseconds      timeout,
+                                                  std::vector<AiSidecarCapability>* capabilities,
+                                                  std::string*                   error) -> bool {
+  auto channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
+  auto stub    = alcedo::ai::AiRuntimeService::NewStub(channel);
+
+  grpc::ClientContext context;
+  context.set_deadline(DeadlineFromNow(timeout));
+  alcedo::ai::ListCapabilitiesRequest  request;
+  auto* header = request.mutable_header();
+  header->set_request_id("alcedo-sidecar-list-capabilities");
+  header->set_task_id("ai_runtime.list_capabilities");
+  header->set_timeout_ms(
+      std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count());
+  alcedo::ai::ListCapabilitiesResponse response;
+  const auto status = stub->ListCapabilities(&context, request, &response);
+  if (!status.ok()) {
+    if (error) {
+      *error = GrpcErrorMessage(status);
+    }
+    return false;
+  }
+  if (capabilities) {
+    capabilities->clear();
+    capabilities->reserve(static_cast<size_t>(response.capabilities_size()));
+    for (const auto& capability : response.capabilities()) {
+      capabilities->push_back(ToAiSidecarCapability(capability));
+    }
+  }
+  return true;
+}
+
+auto GrpcAiSidecarRuntimeClient::ListModelProfiles(const std::string&        endpoint,
                                                   const std::string&        model_root,
                                                   std::chrono::milliseconds timeout,
                                                   std::string*              error)
@@ -416,7 +471,7 @@ auto GrpcSemanticRuntimeClient::ListModelProfiles(const std::string&        endp
   return profiles;
 }
 
-auto GrpcSemanticRuntimeClient::ListInstalledModels(const std::string&        endpoint,
+auto GrpcAiSidecarRuntimeClient::ListInstalledModels(const std::string&        endpoint,
                                                     const std::string&        model_root,
                                                     std::chrono::milliseconds timeout,
                                                     std::string*              error)
@@ -444,7 +499,7 @@ auto GrpcSemanticRuntimeClient::ListInstalledModels(const std::string&        en
   return profiles;
 }
 
-auto GrpcSemanticRuntimeClient::ValidateModel(const std::string&        endpoint,
+auto GrpcAiSidecarRuntimeClient::ValidateModel(const std::string&        endpoint,
                                               const std::string&        profile_id,
                                               const std::string&        model_root,
                                               std::chrono::milliseconds timeout)
@@ -469,7 +524,7 @@ auto GrpcSemanticRuntimeClient::ValidateModel(const std::string&        endpoint
   return result;
 }
 
-auto GrpcSemanticRuntimeClient::DeleteModel(const std::string&        endpoint,
+auto GrpcAiSidecarRuntimeClient::DeleteModel(const std::string&        endpoint,
                                             const std::string&        profile_id,
                                             const std::string&        model_root,
                                             std::chrono::milliseconds timeout)
@@ -494,7 +549,7 @@ auto GrpcSemanticRuntimeClient::DeleteModel(const std::string&        endpoint,
   return result;
 }
 
-auto ISemanticRuntimeClient::EmbedTextBatch(
+auto IAiSidecarRuntimeClient::EmbedTextBatch(
     const std::string& endpoint, const std::vector<SemanticTextEmbeddingRequest>& requests,
     std::chrono::milliseconds timeout) -> std::vector<SemanticEmbeddingResult> {
   std::vector<SemanticEmbeddingResult> results;
@@ -505,7 +560,7 @@ auto ISemanticRuntimeClient::EmbedTextBatch(
   return results;
 }
 
-auto GrpcSemanticRuntimeClient::EmbedText(const std::string& endpoint,
+auto GrpcAiSidecarRuntimeClient::EmbedText(const std::string& endpoint,
                                           const std::string& request_id, const std::string& text,
                                           std::chrono::milliseconds timeout)
     -> SemanticEmbeddingResult {
@@ -529,7 +584,7 @@ auto GrpcSemanticRuntimeClient::EmbedText(const std::string& endpoint,
   return result;
 }
 
-auto GrpcSemanticRuntimeClient::EmbedTextBatch(
+auto GrpcAiSidecarRuntimeClient::EmbedTextBatch(
     const std::string& endpoint, const std::vector<SemanticTextEmbeddingRequest>& requests,
     std::chrono::milliseconds timeout) -> std::vector<SemanticEmbeddingResult> {
   diag::TraceScope trace(diag::semanticRpcLog(), QStringLiteral("semantic.rpc.embed_text_batch"),
@@ -582,7 +637,7 @@ auto GrpcSemanticRuntimeClient::EmbedTextBatch(
   return results;
 }
 
-auto GrpcSemanticRuntimeClient::EmbedImage(const std::string&          endpoint,
+auto GrpcAiSidecarRuntimeClient::EmbedImage(const std::string&          endpoint,
                                            const std::string&          request_id,
                                            const std::vector<uint8_t>& rgba8_image,
                                            const std::string&          format_hint,
@@ -609,7 +664,7 @@ auto GrpcSemanticRuntimeClient::EmbedImage(const std::string&          endpoint,
   return result;
 }
 
-auto GrpcSemanticRuntimeClient::EmbedImageBatch(const std::string&                         endpoint,
+auto GrpcAiSidecarRuntimeClient::EmbedImageBatch(const std::string&                         endpoint,
                                                 std::vector<SemanticImageEmbeddingRequest> requests,
                                                 std::chrono::milliseconds                  timeout)
     -> std::vector<SemanticEmbeddingResult> {
@@ -665,11 +720,11 @@ auto GrpcSemanticRuntimeClient::EmbedImageBatch(const std::string&              
   return results;
 }
 
-SemanticRuntimeService::SemanticRuntimeService(std::shared_ptr<ISemanticRuntimeClient> client,
+AiSidecarRuntimeService::AiSidecarRuntimeService(std::shared_ptr<IAiSidecarRuntimeClient> client,
                                                QObject*                                parent)
     : QObject(parent), client_(std::move(client)) {
-  status_.state   = SemanticRuntimeState::kStopped;
-  status_.issue   = SemanticRuntimeIssue::kNone;
+  status_.state   = AiSidecarRuntimeState::kStopped;
+  status_.issue   = AiSidecarRuntimeIssue::kNone;
   status_.message = "Semantic runtime is stopped";
 
   connect(&process_, &QProcess::readyReadStandardOutput, this,
@@ -678,15 +733,15 @@ SemanticRuntimeService::SemanticRuntimeService(std::shared_ptr<ISemanticRuntimeC
           [this]() { AppendStderr(process_.readAllStandardError()); });
   connect(&process_, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
     if (error == QProcess::FailedToStart) {
-      SetStatus(SemanticRuntimeState::kFailed, SemanticRuntimeIssue::kStartFailed,
+      SetStatus(AiSidecarRuntimeState::kFailed, AiSidecarRuntimeIssue::kStartFailed,
                 process_.errorString().toStdString());
     }
   });
 }
 
-SemanticRuntimeService::~SemanticRuntimeService() { StopForProjectClose(); }
+AiSidecarRuntimeService::~AiSidecarRuntimeService() { StopForProjectClose(); }
 
-auto SemanticRuntimeService::StartAndWait(const SemanticRuntimeOptions& options) -> bool {
+auto AiSidecarRuntimeService::StartAndWait(const AiSidecarRuntimeOptions& options) -> bool {
   if (QThread::currentThread() != thread()) {
     bool result = false;
     QMetaObject::invokeMethod(
@@ -725,7 +780,7 @@ auto SemanticRuntimeService::StartAndWait(const SemanticRuntimeOptions& options)
 
   std::error_code ec;
   if (!std::filesystem::exists(options_.runtime_binary, ec) || ec) {
-    SetStatus(SemanticRuntimeState::kFailed, SemanticRuntimeIssue::kBinaryMissing,
+    SetStatus(AiSidecarRuntimeState::kFailed, AiSidecarRuntimeIssue::kBinaryMissing,
               "Semantic runtime binary was not found: " + options_.runtime_binary.string());
     return false;
   }
@@ -737,7 +792,7 @@ auto SemanticRuntimeService::StartAndWait(const SemanticRuntimeOptions& options)
                   QString::fromStdString(options_.revision),
                   QString::fromStdString(options_.model_root.string()),
                   QString::fromStdString(options_.device));
-  SetStatus(SemanticRuntimeState::kStarting, SemanticRuntimeIssue::kNone,
+  SetStatus(AiSidecarRuntimeState::kStarting, AiSidecarRuntimeIssue::kNone,
             "Starting semantic runtime");
   process_.setProgram(QString::fromStdString(options_.runtime_binary.string()));
   process_.setArguments(BuildArguments());
@@ -745,7 +800,7 @@ auto SemanticRuntimeService::StartAndWait(const SemanticRuntimeOptions& options)
   process_.start();
 
   if (!process_.waitForStarted(static_cast<int>(options_.startup_timeout.count()))) {
-    SetStatus(SemanticRuntimeState::kFailed, SemanticRuntimeIssue::kStartFailed,
+    SetStatus(AiSidecarRuntimeState::kFailed, AiSidecarRuntimeIssue::kStartFailed,
               process_.errorString().toStdString());
     return false;
   }
@@ -759,19 +814,19 @@ auto SemanticRuntimeService::StartAndWait(const SemanticRuntimeOptions& options)
   return WaitForReadiness();
 }
 
-void SemanticRuntimeService::Stop() {
+void AiSidecarRuntimeService::Stop() {
   if (QThread::currentThread() != thread()) {
     QMetaObject::invokeMethod(this, [this]() { Stop(); }, Qt::BlockingQueuedConnection);
     return;
   }
 
   if (!IsRunning()) {
-    SetStatus(SemanticRuntimeState::kStopped, SemanticRuntimeIssue::kNone,
+    SetStatus(AiSidecarRuntimeState::kStopped, AiSidecarRuntimeIssue::kNone,
               "Semantic runtime is stopped");
     return;
   }
 
-  SetStatus(SemanticRuntimeState::kStopping, SemanticRuntimeIssue::kNone,
+  SetStatus(AiSidecarRuntimeState::kStopping, AiSidecarRuntimeIssue::kNone,
             "Stopping semantic runtime");
   qCInfo(diag::semanticLog).noquote()
       << QStringLiteral("semantic.runtime.stop pid=%1 endpoint=%2")
@@ -781,30 +836,30 @@ void SemanticRuntimeService::Stop() {
   if (!process_.waitForFinished(static_cast<int>(options_.graceful_stop_timeout.count()))) {
     process_.kill();
     if (!process_.waitForFinished(static_cast<int>(options_.kill_timeout.count()))) {
-      SetStatus(SemanticRuntimeState::kFailed, SemanticRuntimeIssue::kStopTimedOut,
+      SetStatus(AiSidecarRuntimeState::kFailed, AiSidecarRuntimeIssue::kStopTimedOut,
                 "Semantic runtime did not exit after kill request");
       return;
     }
   }
   ReleaseChildTreeCleanup();
   status_.process_id = 0;
-  SetStatus(SemanticRuntimeState::kStopped, SemanticRuntimeIssue::kNone,
+  SetStatus(AiSidecarRuntimeState::kStopped, AiSidecarRuntimeIssue::kNone,
             "Semantic runtime is stopped");
 }
 
-void SemanticRuntimeService::StopForProjectClose() { Stop(); }
+void AiSidecarRuntimeService::StopForProjectClose() { Stop(); }
 
-auto SemanticRuntimeService::Status() -> SemanticRuntimeStatusSnapshot {
+auto AiSidecarRuntimeService::Status() -> AiSidecarRuntimeStatusSnapshot {
   if (QThread::currentThread() != thread()) {
-    SemanticRuntimeStatusSnapshot snapshot;
+    AiSidecarRuntimeStatusSnapshot snapshot;
     QMetaObject::invokeMethod(
         this, [this, &snapshot]() { snapshot = Status(); }, Qt::BlockingQueuedConnection);
     return snapshot;
   }
 
   RefreshProcessExit();
-  if (status_.state == SemanticRuntimeState::kReady && client_) {
-    SemanticRuntimeRemoteStatus remote;
+  if (status_.state == AiSidecarRuntimeState::kReady && client_) {
+    AiSidecarRuntimeRemoteStatus remote;
     std::string                 error;
     if (client_->GetRuntimeStatus(endpoint_, std::chrono::milliseconds(250), &remote, &error)) {
       status_.remote_status = remote;
@@ -813,7 +868,7 @@ auto SemanticRuntimeService::Status() -> SemanticRuntimeStatusSnapshot {
   return status_;
 }
 
-auto SemanticRuntimeService::IsRunning() -> bool {
+auto AiSidecarRuntimeService::IsRunning() -> bool {
   if (QThread::currentThread() != thread()) {
     bool result = false;
     QMetaObject::invokeMethod(
@@ -825,11 +880,11 @@ auto SemanticRuntimeService::IsRunning() -> bool {
   return process_.state() != QProcess::NotRunning;
 }
 
-auto SemanticRuntimeService::ListModelProfiles(const std::string&        model_root,
+auto AiSidecarRuntimeService::ListModelProfiles(const std::string&        model_root,
                                                std::chrono::milliseconds timeout,
                                                std::string*              error)
     -> std::vector<SemanticModelProfileInfo> {
-  if (status_.state != SemanticRuntimeState::kReady || !client_) {
+  if (status_.state != AiSidecarRuntimeState::kReady || !client_) {
     if (error) {
       *error = "semantic runtime is not ready";
     }
@@ -838,11 +893,11 @@ auto SemanticRuntimeService::ListModelProfiles(const std::string&        model_r
   return client_->ListModelProfiles(endpoint_, model_root, timeout, error);
 }
 
-auto SemanticRuntimeService::ListInstalledModels(const std::string&        model_root,
+auto AiSidecarRuntimeService::ListInstalledModels(const std::string&        model_root,
                                                  std::chrono::milliseconds timeout,
                                                  std::string*              error)
     -> std::vector<SemanticModelProfileInfo> {
-  if (status_.state != SemanticRuntimeState::kReady || !client_) {
+  if (status_.state != AiSidecarRuntimeState::kReady || !client_) {
     if (error) {
       *error = "semantic runtime is not ready";
     }
@@ -851,11 +906,26 @@ auto SemanticRuntimeService::ListInstalledModels(const std::string&        model
   return client_->ListInstalledModels(endpoint_, model_root, timeout, error);
 }
 
-auto SemanticRuntimeService::ValidateModel(const std::string&        profile_id,
+auto AiSidecarRuntimeService::ListCapabilities(std::chrono::milliseconds timeout, std::string* error)
+    -> std::vector<AiSidecarCapability> {
+  if (status_.state != AiSidecarRuntimeState::kReady || !client_) {
+    if (error) {
+      *error = "ai sidecar runtime is not ready";
+    }
+    return {};
+  }
+  std::vector<AiSidecarCapability> capabilities;
+  if (!client_->ListCapabilities(endpoint_, timeout, &capabilities, error)) {
+    return {};
+  }
+  return capabilities;
+}
+
+auto AiSidecarRuntimeService::ValidateModel(const std::string&        profile_id,
                                            const std::string&        model_root,
                                            std::chrono::milliseconds timeout)
     -> SemanticModelManagerResult {
-  if (status_.state != SemanticRuntimeState::kReady || !client_) {
+  if (status_.state != AiSidecarRuntimeState::kReady || !client_) {
     SemanticModelManagerResult result;
     result.ok     = false;
     result.status = "error";
@@ -865,11 +935,11 @@ auto SemanticRuntimeService::ValidateModel(const std::string&        profile_id,
   return client_->ValidateModel(endpoint_, profile_id, model_root, timeout);
 }
 
-auto SemanticRuntimeService::DeleteModel(const std::string&        profile_id,
+auto AiSidecarRuntimeService::DeleteModel(const std::string&        profile_id,
                                          const std::string&        model_root,
                                          std::chrono::milliseconds timeout)
     -> SemanticModelManagerResult {
-  if (status_.state != SemanticRuntimeState::kReady || !client_) {
+  if (status_.state != AiSidecarRuntimeState::kReady || !client_) {
     SemanticModelManagerResult result;
     result.ok     = false;
     result.status = "error";
@@ -879,10 +949,10 @@ auto SemanticRuntimeService::DeleteModel(const std::string&        profile_id,
   return client_->DeleteModel(endpoint_, profile_id, model_root, timeout);
 }
 
-auto SemanticRuntimeService::EmbedText(const std::string& request_id, const std::string& text,
+auto AiSidecarRuntimeService::EmbedText(const std::string& request_id, const std::string& text,
                                        std::chrono::milliseconds timeout)
     -> SemanticEmbeddingResult {
-  if (status_.state != SemanticRuntimeState::kReady || !client_) {
+  if (status_.state != AiSidecarRuntimeState::kReady || !client_) {
     SemanticEmbeddingResult result;
     result.request_id = request_id;
     result.ok         = false;
@@ -892,10 +962,10 @@ auto SemanticRuntimeService::EmbedText(const std::string& request_id, const std:
   return client_->EmbedText(endpoint_, request_id, text, timeout);
 }
 
-auto SemanticRuntimeService::EmbedTextBatch(
+auto AiSidecarRuntimeService::EmbedTextBatch(
     const std::vector<SemanticTextEmbeddingRequest>& requests, std::chrono::milliseconds timeout)
     -> std::vector<SemanticEmbeddingResult> {
-  if (status_.state != SemanticRuntimeState::kReady || !client_) {
+  if (status_.state != AiSidecarRuntimeState::kReady || !client_) {
     std::vector<SemanticEmbeddingResult> results;
     results.reserve(requests.size());
     for (const auto& request : requests) {
@@ -910,12 +980,12 @@ auto SemanticRuntimeService::EmbedTextBatch(
   return client_->EmbedTextBatch(endpoint_, requests, timeout);
 }
 
-auto SemanticRuntimeService::EmbedImage(const std::string&          request_id,
+auto AiSidecarRuntimeService::EmbedImage(const std::string&          request_id,
                                         const std::vector<uint8_t>& rgba8_image,
                                         const std::string&          format_hint,
                                         std::chrono::milliseconds   timeout)
     -> SemanticEmbeddingResult {
-  if (status_.state != SemanticRuntimeState::kReady || !client_) {
+  if (status_.state != AiSidecarRuntimeState::kReady || !client_) {
     SemanticEmbeddingResult result;
     result.request_id = request_id;
     result.ok         = false;
@@ -925,10 +995,10 @@ auto SemanticRuntimeService::EmbedImage(const std::string&          request_id,
   return client_->EmbedImage(endpoint_, request_id, rgba8_image, format_hint, timeout);
 }
 
-auto SemanticRuntimeService::EmbedImageBatch(std::vector<SemanticImageEmbeddingRequest> requests,
+auto AiSidecarRuntimeService::EmbedImageBatch(std::vector<SemanticImageEmbeddingRequest> requests,
                                              std::chrono::milliseconds                  timeout)
     -> std::vector<SemanticEmbeddingResult> {
-  if (status_.state != SemanticRuntimeState::kReady || !client_) {
+  if (status_.state != AiSidecarRuntimeState::kReady || !client_) {
     std::vector<SemanticEmbeddingResult> results;
     results.reserve(requests.size());
     for (const auto& request : requests) {
@@ -943,15 +1013,15 @@ auto SemanticRuntimeService::EmbedImageBatch(std::vector<SemanticImageEmbeddingR
   return client_->EmbedImageBatch(endpoint_, std::move(requests), timeout);
 }
 
-auto SemanticRuntimeService::StateName() const -> QString {
+auto AiSidecarRuntimeService::StateName() const -> QString {
   return QString::fromLatin1(ToString(status_.state));
 }
 
-auto SemanticRuntimeService::IssueName() const -> QString {
+auto AiSidecarRuntimeService::IssueName() const -> QString {
   return QString::fromLatin1(ToString(status_.issue));
 }
 
-void SemanticRuntimeService::SetStatus(SemanticRuntimeState state, SemanticRuntimeIssue issue,
+void AiSidecarRuntimeService::SetStatus(AiSidecarRuntimeState state, AiSidecarRuntimeIssue issue,
                                        std::string message) {
   status_.state    = state;
   status_.issue    = issue;
@@ -964,7 +1034,7 @@ void SemanticRuntimeService::SetStatus(SemanticRuntimeState state, SemanticRunti
   emit statusChanged();
 }
 
-void SemanticRuntimeService::AppendStdout(const QByteArray& bytes) {
+void AiSidecarRuntimeService::AppendStdout(const QByteArray& bytes) {
   TailAppend(&status_.stdout_tail, bytes);
   const QString text = QString::fromUtf8(bytes).trimmed();
   if (!text.isEmpty()) {
@@ -973,7 +1043,7 @@ void SemanticRuntimeService::AppendStdout(const QByteArray& bytes) {
   }
 }
 
-void SemanticRuntimeService::AppendStderr(const QByteArray& bytes) {
+void AiSidecarRuntimeService::AppendStderr(const QByteArray& bytes) {
   TailAppend(&status_.stderr_tail, bytes);
   const QString text = QString::fromUtf8(bytes).trimmed();
   if (!text.isEmpty()) {
@@ -982,16 +1052,16 @@ void SemanticRuntimeService::AppendStderr(const QByteArray& bytes) {
   }
 }
 
-void SemanticRuntimeService::RefreshProcessExit() {
+void AiSidecarRuntimeService::RefreshProcessExit() {
   if (process_.state() != QProcess::NotRunning) {
     process_.waitForFinished(0);
   }
   if (process_.state() != QProcess::NotRunning) {
     return;
   }
-  if (status_.state != SemanticRuntimeState::kReady &&
-      status_.state != SemanticRuntimeState::kStarting &&
-      status_.state != SemanticRuntimeState::kStopping) {
+  if (status_.state != AiSidecarRuntimeState::kReady &&
+      status_.state != AiSidecarRuntimeState::kStarting &&
+      status_.state != AiSidecarRuntimeState::kStopping) {
     return;
   }
 
@@ -1002,12 +1072,12 @@ void SemanticRuntimeService::RefreshProcessExit() {
   const bool crashed = process_.exitStatus() == QProcess::CrashExit || process_.exitCode() != 0;
   std::ostringstream message;
   message << "Semantic runtime exited with code " << process_.exitCode();
-  SetStatus(SemanticRuntimeState::kFailed,
-            crashed ? SemanticRuntimeIssue::kRuntimeCrashed : SemanticRuntimeIssue::kRuntimeExited,
+  SetStatus(AiSidecarRuntimeState::kFailed,
+            crashed ? AiSidecarRuntimeIssue::kRuntimeCrashed : AiSidecarRuntimeIssue::kRuntimeExited,
             message.str());
 }
 
-auto SemanticRuntimeService::BuildArguments() const -> QStringList {
+auto AiSidecarRuntimeService::BuildArguments() const -> QStringList {
   QStringList args;
   args << "--host" << QString::fromStdString(options_.host);
   args << "--port" << QString::number(options_.port);
@@ -1032,7 +1102,7 @@ auto SemanticRuntimeService::BuildArguments() const -> QStringList {
   return args;
 }
 
-auto SemanticRuntimeService::ChoosePort() const -> uint16_t {
+auto AiSidecarRuntimeService::ChoosePort() const -> uint16_t {
   QTcpServer server;
   if (server.listen(QHostAddress::LocalHost, 0)) {
     const auto port = static_cast<uint16_t>(server.serverPort());
@@ -1042,25 +1112,25 @@ auto SemanticRuntimeService::ChoosePort() const -> uint16_t {
   return 50051;
 }
 
-auto SemanticRuntimeService::WaitForReadiness() -> bool {
+auto AiSidecarRuntimeService::WaitForReadiness() -> bool {
   const auto  deadline = std::chrono::steady_clock::now() + options_.startup_timeout;
   std::string last_error;
   while (std::chrono::steady_clock::now() < deadline) {
     process_.waitForReadyRead(static_cast<int>(options_.health_poll_interval.count()));
     RefreshProcessExit();
-    if (status_.state == SemanticRuntimeState::kFailed) {
+    if (status_.state == AiSidecarRuntimeState::kFailed) {
       return false;
     }
     if (client_ && client_->Ping(endpoint_, options_.health_poll_interval, &last_error)) {
-      SemanticRuntimeModelInfo info;
+      AiSidecarRuntimeModelInfo info;
       std::string              info_error;
       if (client_->GetModelInfo(endpoint_, std::chrono::milliseconds(500), &info, &info_error)) {
         status_.model_info = info;
-        SetStatus(SemanticRuntimeState::kReady, SemanticRuntimeIssue::kNone,
+        SetStatus(AiSidecarRuntimeState::kReady, AiSidecarRuntimeIssue::kNone,
                   "Semantic runtime is ready");
         return true;
       } else if (!options_.require_model_info) {
-        SetStatus(SemanticRuntimeState::kReady, SemanticRuntimeIssue::kNone,
+        SetStatus(AiSidecarRuntimeState::kReady, AiSidecarRuntimeIssue::kNone,
                   "Semantic model manager is ready");
         return true;
       } else if (!info_error.empty()) {
@@ -1073,7 +1143,7 @@ auto SemanticRuntimeService::WaitForReadiness() -> bool {
     std::this_thread::sleep_for(options_.health_poll_interval);
   }
 
-  SetStatus(SemanticRuntimeState::kFailed, SemanticRuntimeIssue::kReadinessTimeout,
+  SetStatus(AiSidecarRuntimeState::kFailed, AiSidecarRuntimeIssue::kReadinessTimeout,
             last_error.empty() ? "Timed out waiting for semantic runtime readiness" : last_error);
   if (process_.state() != QProcess::NotRunning) {
     process_.terminate();
@@ -1087,7 +1157,7 @@ auto SemanticRuntimeService::WaitForReadiness() -> bool {
   return false;
 }
 
-void SemanticRuntimeService::AttachChildTreeCleanup() {
+void AiSidecarRuntimeService::AttachChildTreeCleanup() {
 #ifdef _WIN32
   ReleaseChildTreeCleanup();
   HANDLE job = CreateJobObjectW(nullptr, nullptr);
@@ -1116,7 +1186,7 @@ void SemanticRuntimeService::AttachChildTreeCleanup() {
 #endif
 }
 
-void SemanticRuntimeService::ReleaseChildTreeCleanup() {
+void AiSidecarRuntimeService::ReleaseChildTreeCleanup() {
 #ifdef _WIN32
   if (job_object_ != nullptr) {
     CloseHandle(static_cast<HANDLE>(job_object_));

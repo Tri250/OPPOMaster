@@ -180,7 +180,7 @@ Deliverables:
 
 Tests:
 
-- `SemanticRuntimeServiceTest`.
+- `AiSidecarRuntimeServiceTest` (renamed from `SemanticRuntimeServiceTest` in Phase 2).
 - Fake runtime tests for startup args, readiness, crash handling, hung stop, and capability query.
 - Manual smoke if the sidecar command-line contract changes.
 
@@ -355,7 +355,7 @@ cmd /c scripts\msvc_env.cmd --build --preset win_debug --parallel 4
 Targeted CTest group after semantic, storage, or search changes:
 
 ```powershell
-ctest --test-dir build/debug --output-on-failure -R "SemanticRuntimeServiceTest|SemanticGenerationServiceTest|SemanticStorageControllerTest|FilterServiceTest|GlobalSearchDialogQmlTest|SearchQueryClassifierTest"
+ctest --test-dir build/debug --output-on-failure -R "AiSidecarRuntimeServiceTest|SemanticGenerationServiceTest|SemanticStorageControllerTest|FilterServiceTest|GlobalSearchDialogQmlTest|SearchQueryClassifierTest"
 ```
 
 Live runtime tests remain environment-gated and should be run when the required model assets and

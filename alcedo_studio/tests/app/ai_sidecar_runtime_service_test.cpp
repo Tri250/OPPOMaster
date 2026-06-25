@@ -2,7 +2,7 @@
 //  SPDX-License-Identifier: GPL-3.0-only
 //  Additional permission under GPLv3 section 7 applies; see the LICENSE file.
 
-#include "app/semantic_runtime_service.hpp"
+#include "app/ai_sidecar_runtime_service.hpp"
 
 #include <gtest/gtest.h>
 
@@ -21,9 +21,9 @@
 namespace alcedo {
 namespace {
 
-class FakeSemanticRuntimeClient final : public ISemanticRuntimeClient {
+class FakeAiSidecarRuntimeClient final : public IAiSidecarRuntimeClient {
  public:
-  explicit FakeSemanticRuntimeClient(bool ready = true) : ready_(ready) {}
+  explicit FakeAiSidecarRuntimeClient(bool ready = true) : ready_(ready) {}
 
   auto Ping(const std::string& endpoint, std::chrono::milliseconds timeout, std::string* error)
       -> bool override {
@@ -40,7 +40,7 @@ class FakeSemanticRuntimeClient final : public ISemanticRuntimeClient {
   }
 
   auto GetModelInfo(const std::string& endpoint, std::chrono::milliseconds timeout,
-                    SemanticRuntimeModelInfo* info, std::string* error) -> bool override {
+                    AiSidecarRuntimeModelInfo* info, std::string* error) -> bool override {
     (void)endpoint;
     (void)timeout;
     if (!model_info_ready_.load()) {
@@ -65,7 +65,7 @@ class FakeSemanticRuntimeClient final : public ISemanticRuntimeClient {
   }
 
   auto GetRuntimeStatus(const std::string& endpoint, std::chrono::milliseconds timeout,
-                        SemanticRuntimeRemoteStatus* status, std::string* error) -> bool override {
+                        AiSidecarRuntimeRemoteStatus* status, std::string* error) -> bool override {
     (void)endpoint;
     (void)timeout;
     (void)error;
@@ -74,6 +74,38 @@ class FakeSemanticRuntimeClient final : public ISemanticRuntimeClient {
     status->image_batch_cap     = 8;
     status->image_batch_wait_ms = 2;
     status->uptime_ms           = 42;
+    return true;
+  }
+
+  // Canned `AiRuntimeService::ListCapabilities` response (Phase 0 §4.4): one local
+  // semantic-embedding capability. input_kinds/output_kinds carry the raw enum values
+  // (alcedo::ai::AiInputKind / AiOutputKind) since the host DTO stores them as int.
+  auto ListCapabilities(const std::string& endpoint, std::chrono::milliseconds timeout,
+                        std::vector<AiSidecarCapability>* capabilities,
+                        std::string* error) -> bool override {
+    (void)endpoint;
+    (void)timeout;
+    (void)error;
+    if (!ready_.load()) {
+      if (error) {
+        *error = "fake runtime is not ready";
+      }
+      return false;
+    }
+    if (capabilities) {
+      capabilities->clear();
+      AiSidecarCapability capability;
+      capability.task_id              = "semantic.embed_*";
+      capability.provider_id          = "local";
+      capability.model_id             = "test/mobileclip";
+      capability.input_kinds          = {2, 3};   // AI_INPUT_IMAGE, AI_INPUT_THUMBNAIL
+      capability.output_kinds         = {1};      // AI_OUTPUT_EMBEDDING
+      capability.supports_batch       = true;
+      capability.supports_cancel      = true;
+      capability.requires_credential  = false;
+      capability.max_payload_bytes    = 0;
+      capabilities->push_back(std::move(capability));
+    }
     return true;
   }
 
@@ -216,11 +248,11 @@ class FakeSemanticRuntimeClient final : public ISemanticRuntimeClient {
 };
 
 auto FakeRuntimePath() -> std::filesystem::path {
-  return std::filesystem::path(ALCEDO_SEMANTIC_FAKE_RUNTIME_PATH);
+  return std::filesystem::path(ALCEDO_AI_SIDECAR_FAKE_RUNTIME_PATH);
 }
 
-auto BaseOptions() -> SemanticRuntimeOptions {
-  SemanticRuntimeOptions options;
+auto BaseOptions() -> AiSidecarRuntimeOptions {
+  AiSidecarRuntimeOptions options;
   options.runtime_binary  = FakeRuntimePath();
   options.model_root      = std::filesystem::temp_directory_path() / "semantic_runtime_test_model";
   options.model_id        = "test/mobileclip";
@@ -268,17 +300,17 @@ class ScopedModelRootEnv final {
 
 }  // namespace
 
-TEST(SemanticRuntimeServiceTest, StartStopReportsReadyAndStopped) {
-  auto                   client = std::make_shared<FakeSemanticRuntimeClient>();
-  SemanticRuntimeService service(client);
+TEST(AiSidecarRuntimeServiceTest, StartStopReportsReadyAndStopped) {
+  auto                   client = std::make_shared<FakeAiSidecarRuntimeClient>();
+  AiSidecarRuntimeService service(client);
 
   auto                   options = BaseOptions();
   options.extra_arguments        = {"--sleep-ms", "30000"};
 
   ASSERT_TRUE(service.StartAndWait(options));
   auto status = service.Status();
-  EXPECT_EQ(status.state, SemanticRuntimeState::kReady);
-  EXPECT_EQ(status.issue, SemanticRuntimeIssue::kNone);
+  EXPECT_EQ(status.state, AiSidecarRuntimeState::kReady);
+  EXPECT_EQ(status.issue, AiSidecarRuntimeIssue::kNone);
   EXPECT_FALSE(status.endpoint.empty());
   EXPECT_GT(status.process_id, 0);
   ASSERT_TRUE(status.model_info.has_value());
@@ -305,38 +337,38 @@ TEST(SemanticRuntimeServiceTest, StartStopReportsReadyAndStopped) {
 
   service.Stop();
   status = service.Status();
-  EXPECT_EQ(status.state, SemanticRuntimeState::kStopped);
-  EXPECT_EQ(status.issue, SemanticRuntimeIssue::kNone);
+  EXPECT_EQ(status.state, AiSidecarRuntimeState::kStopped);
+  EXPECT_EQ(status.issue, AiSidecarRuntimeIssue::kNone);
   EXPECT_EQ(status.process_id, 0);
 }
 
-TEST(SemanticRuntimeServiceTest, MissingBinaryFailsBeforeProcessStart) {
-  SemanticRuntimeService service(std::make_shared<FakeSemanticRuntimeClient>());
+TEST(AiSidecarRuntimeServiceTest, MissingBinaryFailsBeforeProcessStart) {
+  AiSidecarRuntimeService service(std::make_shared<FakeAiSidecarRuntimeClient>());
   auto                   options = BaseOptions();
   options.runtime_binary = std::filesystem::temp_directory_path() / "missing_alcedo_mind.exe";
 
   EXPECT_FALSE(service.StartAndWait(options));
   const auto status = service.Status();
-  EXPECT_EQ(status.state, SemanticRuntimeState::kFailed);
-  EXPECT_EQ(status.issue, SemanticRuntimeIssue::kBinaryMissing);
+  EXPECT_EQ(status.state, AiSidecarRuntimeState::kFailed);
+  EXPECT_EQ(status.issue, AiSidecarRuntimeIssue::kBinaryMissing);
 }
 
-TEST(SemanticRuntimeServiceTest, RuntimeExitBeforeReadyIsReported) {
-  SemanticRuntimeService service(std::make_shared<FakeSemanticRuntimeClient>(false));
+TEST(AiSidecarRuntimeServiceTest, RuntimeExitBeforeReadyIsReported) {
+  AiSidecarRuntimeService service(std::make_shared<FakeAiSidecarRuntimeClient>(false));
   auto                   options = BaseOptions();
   options.extra_arguments        = {"--exit-now", "--exit-code", "7"};
 
   EXPECT_FALSE(service.StartAndWait(options));
   const auto status = service.Status();
-  EXPECT_EQ(status.state, SemanticRuntimeState::kFailed);
-  EXPECT_EQ(status.issue, SemanticRuntimeIssue::kRuntimeCrashed);
+  EXPECT_EQ(status.state, AiSidecarRuntimeState::kFailed);
+  EXPECT_EQ(status.issue, AiSidecarRuntimeIssue::kRuntimeCrashed);
   EXPECT_NE(status.stderr_tail.find(""), std::string::npos);
 }
 
-TEST(SemanticRuntimeServiceTest, PingWithoutModelInfoDoesNotBecomeReady) {
-  auto client = std::make_shared<FakeSemanticRuntimeClient>();
+TEST(AiSidecarRuntimeServiceTest, PingWithoutModelInfoDoesNotBecomeReady) {
+  auto client = std::make_shared<FakeAiSidecarRuntimeClient>();
   client->SetModelInfoReady(false);
-  SemanticRuntimeService service(client);
+  AiSidecarRuntimeService service(client);
 
   auto                   options = BaseOptions();
   options.extra_arguments        = {"--sleep-ms", "30000"};
@@ -345,16 +377,16 @@ TEST(SemanticRuntimeServiceTest, PingWithoutModelInfoDoesNotBecomeReady) {
 
   EXPECT_FALSE(service.StartAndWait(options));
   const auto status = service.Status();
-  EXPECT_EQ(status.state, SemanticRuntimeState::kFailed);
-  EXPECT_EQ(status.issue, SemanticRuntimeIssue::kReadinessTimeout);
+  EXPECT_EQ(status.state, AiSidecarRuntimeState::kFailed);
+  EXPECT_EQ(status.issue, AiSidecarRuntimeIssue::kReadinessTimeout);
   EXPECT_NE(status.message.find("fake semantic model is unavailable"), std::string::npos);
   EXPECT_FALSE(status.model_info.has_value());
 }
 
-TEST(SemanticRuntimeServiceTest, ModelManagerRuntimeCanStartWithoutModelInfo) {
-  auto client = std::make_shared<FakeSemanticRuntimeClient>();
+TEST(AiSidecarRuntimeServiceTest, ModelManagerRuntimeCanStartWithoutModelInfo) {
+  auto client = std::make_shared<FakeAiSidecarRuntimeClient>();
   client->SetModelInfoReady(false);
-  SemanticRuntimeService service(client);
+  AiSidecarRuntimeService service(client);
 
   auto                   options = BaseOptions();
   options.extra_arguments        = {"--sleep-ms", "30000"};
@@ -362,28 +394,28 @@ TEST(SemanticRuntimeServiceTest, ModelManagerRuntimeCanStartWithoutModelInfo) {
 
   ASSERT_TRUE(service.StartAndWait(options));
   const auto status = service.Status();
-  EXPECT_EQ(status.state, SemanticRuntimeState::kReady);
-  EXPECT_EQ(status.issue, SemanticRuntimeIssue::kNone);
+  EXPECT_EQ(status.state, AiSidecarRuntimeState::kReady);
+  EXPECT_EQ(status.issue, AiSidecarRuntimeIssue::kNone);
   EXPECT_FALSE(status.model_info.has_value());
   EXPECT_NE(status.message.find("model manager"), std::string::npos);
   service.Stop();
 }
 
-TEST(SemanticRuntimeServiceTest, ReadyRuntimeSelfExitBecomesUiVisibleFailure) {
-  SemanticRuntimeService service(std::make_shared<FakeSemanticRuntimeClient>());
+TEST(AiSidecarRuntimeServiceTest, ReadyRuntimeSelfExitBecomesUiVisibleFailure) {
+  AiSidecarRuntimeService service(std::make_shared<FakeAiSidecarRuntimeClient>());
   auto                   options = BaseOptions();
   options.extra_arguments        = {"--exit-after-ms", "100", "--exit-code", "9"};
 
   ASSERT_TRUE(service.StartAndWait(options));
   std::this_thread::sleep_for(std::chrono::milliseconds(250));
   const auto status = service.Status();
-  EXPECT_EQ(status.state, SemanticRuntimeState::kFailed);
-  EXPECT_EQ(status.issue, SemanticRuntimeIssue::kRuntimeCrashed);
+  EXPECT_EQ(status.state, AiSidecarRuntimeState::kFailed);
+  EXPECT_EQ(status.issue, AiSidecarRuntimeIssue::kRuntimeCrashed);
   EXPECT_NE(status.stderr_tail.find("self-exit"), std::string::npos);
 }
 
-TEST(SemanticRuntimeServiceTest, StopKillsHungRuntime) {
-  SemanticRuntimeService service(std::make_shared<FakeSemanticRuntimeClient>());
+TEST(AiSidecarRuntimeServiceTest, StopKillsHungRuntime) {
+  AiSidecarRuntimeService service(std::make_shared<FakeAiSidecarRuntimeClient>());
   auto                   options = BaseOptions();
   options.extra_arguments        = {"--ignore-terminate", "--sleep-ms", "30000"};
   options.graceful_stop_timeout  = std::chrono::milliseconds(1);
@@ -392,12 +424,12 @@ TEST(SemanticRuntimeServiceTest, StopKillsHungRuntime) {
   ASSERT_TRUE(service.StartAndWait(options));
   service.Stop();
   const auto status = service.Status();
-  EXPECT_EQ(status.state, SemanticRuntimeState::kStopped);
-  EXPECT_EQ(status.issue, SemanticRuntimeIssue::kNone);
+  EXPECT_EQ(status.state, AiSidecarRuntimeState::kStopped);
+  EXPECT_EQ(status.issue, AiSidecarRuntimeIssue::kNone);
 }
 
-TEST(SemanticRuntimeServiceTest, RuntimeArgumentsCarryModelAndDeviceConfiguration) {
-  SemanticRuntimeService service(std::make_shared<FakeSemanticRuntimeClient>());
+TEST(AiSidecarRuntimeServiceTest, RuntimeArgumentsCarryModelAndDeviceConfiguration) {
+  AiSidecarRuntimeService service(std::make_shared<FakeAiSidecarRuntimeClient>());
   const auto record_path = std::filesystem::temp_directory_path() / "semantic_runtime_args.txt";
   std::filesystem::remove(record_path);
 
@@ -423,9 +455,9 @@ TEST(SemanticRuntimeServiceTest, RuntimeArgumentsCarryModelAndDeviceConfiguratio
   std::filesystem::remove(record_path);
 }
 
-TEST(SemanticRuntimeServiceTest, ModelManagerListsProfilesViaRuntimeService) {
-  auto                   client = std::make_shared<FakeSemanticRuntimeClient>();
-  SemanticRuntimeService service(client);
+TEST(AiSidecarRuntimeServiceTest, ModelManagerListsProfilesViaRuntimeService) {
+  auto                   client = std::make_shared<FakeAiSidecarRuntimeClient>();
+  AiSidecarRuntimeService service(client);
 
   auto                   options = BaseOptions();
   options.extra_arguments        = {"--sleep-ms", "30000"};
@@ -445,8 +477,36 @@ TEST(SemanticRuntimeServiceTest, ModelManagerListsProfilesViaRuntimeService) {
   service.Stop();
 }
 
-TEST(SemanticRuntimeServiceTest, EmptyModelRootUsesEnvironmentFallback) {
-  SemanticRuntimeService service(std::make_shared<FakeSemanticRuntimeClient>());
+TEST(AiSidecarRuntimeServiceTest, ListsCapabilitiesViaRuntimeService) {
+  auto                   client = std::make_shared<FakeAiSidecarRuntimeClient>();
+  AiSidecarRuntimeService service(client);
+
+  auto                   options = BaseOptions();
+  options.extra_arguments        = {"--sleep-ms", "30000"};
+
+  ASSERT_TRUE(service.StartAndWait(options));
+
+  std::string error;
+  const auto  capabilities = service.ListCapabilities(std::chrono::milliseconds(2000), &error);
+  ASSERT_EQ(capabilities.size(), 1u) << error;
+  const auto& capability = capabilities[0];
+  EXPECT_EQ(capability.task_id, "semantic.embed_*");
+  EXPECT_EQ(capability.provider_id, "local");
+  EXPECT_EQ(capability.model_id, "test/mobileclip");
+  EXPECT_FALSE(capability.requires_credential);
+  EXPECT_TRUE(capability.supports_cancel);
+  EXPECT_TRUE(capability.supports_batch);
+  ASSERT_EQ(capability.input_kinds.size(), 2u);
+  EXPECT_EQ(capability.input_kinds[0], 2);   // AI_INPUT_IMAGE
+  EXPECT_EQ(capability.input_kinds[1], 3);   // AI_INPUT_THUMBNAIL
+  ASSERT_EQ(capability.output_kinds.size(), 1u);
+  EXPECT_EQ(capability.output_kinds[0], 1);  // AI_OUTPUT_EMBEDDING
+
+  service.Stop();
+}
+
+TEST(AiSidecarRuntimeServiceTest, EmptyModelRootUsesEnvironmentFallback) {
+  AiSidecarRuntimeService service(std::make_shared<FakeAiSidecarRuntimeClient>());
   const auto             record_path =
       std::filesystem::temp_directory_path() / "semantic_runtime_env_model_args.txt";
   const auto model_root =
@@ -472,7 +532,7 @@ TEST(SemanticRuntimeServiceTest, EmptyModelRootUsesEnvironmentFallback) {
   std::filesystem::remove_all(model_root);
 }
 
-TEST(SemanticRuntimeServiceTest, ProjectServiceOwnsStoppedRuntimeService) {
+TEST(AiSidecarRuntimeServiceTest, ProjectServiceOwnsStoppedRuntimeService) {
   const auto db_path   = std::filesystem::temp_directory_path() / "semantic_runtime_project.db";
   const auto meta_path = std::filesystem::temp_directory_path() / "semantic_runtime_project.json";
   std::filesystem::remove(db_path);
@@ -480,17 +540,17 @@ TEST(SemanticRuntimeServiceTest, ProjectServiceOwnsStoppedRuntimeService) {
 
   {
     ProjectService project(db_path, meta_path, ProjectOpenMode::kCreateNew);
-    auto           runtime = project.GetSemanticRuntimeService();
+    auto           runtime = project.GetAiSidecarRuntimeService();
     ASSERT_NE(runtime, nullptr);
     const auto status = runtime->Status();
-    EXPECT_EQ(status.state, SemanticRuntimeState::kStopped);
+    EXPECT_EQ(status.state, AiSidecarRuntimeState::kStopped);
   }
 
   std::filesystem::remove(db_path);
   std::filesystem::remove(meta_path);
 }
 
-TEST(SemanticRuntimeServiceTest, ProjectServiceCreatesRuntimeOnCallerThreadAfterBackgroundLoad) {
+TEST(AiSidecarRuntimeServiceTest, ProjectServiceCreatesRuntimeOnCallerThreadAfterBackgroundLoad) {
   const auto db_path   = std::filesystem::temp_directory_path() / "semantic_runtime_thread.db";
   const auto meta_path = std::filesystem::temp_directory_path() / "semantic_runtime_thread.json";
   std::filesystem::remove(db_path);
@@ -503,18 +563,18 @@ TEST(SemanticRuntimeServiceTest, ProjectServiceCreatesRuntimeOnCallerThreadAfter
   loader.join();
 
   ASSERT_NE(project, nullptr);
-  auto runtime = project->GetSemanticRuntimeService();
+  auto runtime = project->GetAiSidecarRuntimeService();
   ASSERT_NE(runtime, nullptr);
   ASSERT_EQ(runtime->thread(), QThread::currentThread());
   const auto status = runtime->Status();
-  EXPECT_EQ(status.state, SemanticRuntimeState::kStopped);
+  EXPECT_EQ(status.state, AiSidecarRuntimeState::kStopped);
 
   project.reset();
   std::filesystem::remove(db_path);
   std::filesystem::remove(meta_path);
 }
 
-TEST(SemanticRuntimeServiceLiveTest, DefaultGrpcClientEmbedsRawRgba8AgainstRustRuntime) {
+TEST(AiSidecarRuntimeServiceLiveTest, DefaultGrpcClientEmbedsRawRgba8AgainstRustRuntime) {
   const char* runtime_path_env = std::getenv("ALCEDO_SEMANTIC_LIVE_RUNTIME_PATH");
   const char* model_root_env   = std::getenv("ALCEDO_SEMANTIC_LIVE_MODEL_ROOT");
   if (runtime_path_env == nullptr || model_root_env == nullptr) {
@@ -539,8 +599,8 @@ TEST(SemanticRuntimeServiceLiveTest, DefaultGrpcClientEmbedsRawRgba8AgainstRustR
       env_or("ALCEDO_SEMANTIC_LIVE_REVISION", "ba95759a5bdbaca53e9111e2550a76ec09c8fd9e");
   const auto expected_image_size = env_u32_or("ALCEDO_SEMANTIC_LIVE_EXPECTED_IMAGE_SIZE", 256u);
 
-  SemanticRuntimeService service;
-  SemanticRuntimeOptions options;
+  AiSidecarRuntimeService service;
+  AiSidecarRuntimeOptions options;
   options.runtime_binary        = std::filesystem::path(runtime_path_env);
   options.model_root            = std::filesystem::path(model_root_env);
   options.model_id              = model_id;
