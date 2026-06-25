@@ -81,8 +81,8 @@ class FakeAiSidecarRuntimeClient final : public IAiSidecarRuntimeClient {
   // semantic-embedding capability. input_kinds/output_kinds carry the raw enum values
   // (alcedo::ai::AiInputKind / AiOutputKind) since the host DTO stores them as int.
   auto ListCapabilities(const std::string& endpoint, std::chrono::milliseconds timeout,
-                        std::vector<AiSidecarCapability>* capabilities,
-                        std::string* error) -> bool override {
+                        std::vector<AiSidecarCapability>* capabilities, std::string* error)
+      -> bool override {
     (void)endpoint;
     (void)timeout;
     (void)error;
@@ -95,16 +95,60 @@ class FakeAiSidecarRuntimeClient final : public IAiSidecarRuntimeClient {
     if (capabilities) {
       capabilities->clear();
       AiSidecarCapability capability;
-      capability.task_id              = "semantic.embed_*";
-      capability.provider_id          = "local";
-      capability.model_id             = "test/mobileclip";
-      capability.input_kinds          = {2, 3};   // AI_INPUT_IMAGE, AI_INPUT_THUMBNAIL
-      capability.output_kinds         = {1};      // AI_OUTPUT_EMBEDDING
-      capability.supports_batch       = true;
-      capability.supports_cancel      = true;
-      capability.requires_credential  = false;
-      capability.max_payload_bytes    = 0;
+      capability.task_id             = "semantic.embed_*";
+      capability.provider_id         = "local";
+      capability.model_id            = "test/mobileclip";
+      capability.input_kinds         = {2, 3};  // AI_INPUT_IMAGE, AI_INPUT_THUMBNAIL
+      capability.output_kinds        = {1};     // AI_OUTPUT_EMBEDDING
+      capability.supports_batch      = true;
+      capability.supports_cancel     = true;
+      capability.requires_credential = false;
+      capability.max_payload_bytes   = 0;
       capabilities->push_back(std::move(capability));
+    }
+    return true;
+  }
+
+  // Canned `AiRuntimeService::RegisterCredential` (Phase 3): returns a fixed opaque handle
+  // and ignores the secret/provider_id/ttl_ms. The secret never reaches the fake, which is
+  // the point — it proves the host never routes key material through process args or logs.
+  auto RegisterCredential(const std::string& endpoint, std::chrono::milliseconds timeout,
+                          const std::string& provider_id, const std::string& secret, int64_t ttl_ms,
+                          std::string* handle, std::string* error) -> bool override {
+    (void)endpoint;
+    (void)timeout;
+    (void)provider_id;
+    (void)secret;
+    (void)ttl_ms;
+    (void)error;
+    if (!ready_.load()) {
+      if (error) {
+        *error = "fake runtime is not ready";
+      }
+      return false;
+    }
+    if (handle) {
+      *handle = "fake-credential-handle";
+    }
+    return true;
+  }
+
+  // Canned `AiRuntimeService::CancelTask` (Phase 3): reports cancellation only for the
+  // well-known in-flight request_id "fake-in-flight"; any other id maps to cancelled=false.
+  auto CancelTask(const std::string& endpoint, std::chrono::milliseconds timeout,
+                  const std::string& request_id, bool* cancelled, std::string* error)
+      -> bool override {
+    (void)endpoint;
+    (void)timeout;
+    (void)error;
+    if (!ready_.load()) {
+      if (error) {
+        *error = "fake runtime is not ready";
+      }
+      return false;
+    }
+    if (cancelled) {
+      *cancelled = (request_id == "fake-in-flight");
     }
     return true;
   }
@@ -301,11 +345,11 @@ class ScopedModelRootEnv final {
 }  // namespace
 
 TEST(AiSidecarRuntimeServiceTest, StartStopReportsReadyAndStopped) {
-  auto                   client = std::make_shared<FakeAiSidecarRuntimeClient>();
+  auto                    client = std::make_shared<FakeAiSidecarRuntimeClient>();
   AiSidecarRuntimeService service(client);
 
-  auto                   options = BaseOptions();
-  options.extra_arguments        = {"--sleep-ms", "30000"};
+  auto                    options = BaseOptions();
+  options.extra_arguments         = {"--sleep-ms", "30000"};
 
   ASSERT_TRUE(service.StartAndWait(options));
   auto status = service.Status();
@@ -344,7 +388,7 @@ TEST(AiSidecarRuntimeServiceTest, StartStopReportsReadyAndStopped) {
 
 TEST(AiSidecarRuntimeServiceTest, MissingBinaryFailsBeforeProcessStart) {
   AiSidecarRuntimeService service(std::make_shared<FakeAiSidecarRuntimeClient>());
-  auto                   options = BaseOptions();
+  auto                    options = BaseOptions();
   options.runtime_binary = std::filesystem::temp_directory_path() / "missing_alcedo_mind.exe";
 
   EXPECT_FALSE(service.StartAndWait(options));
@@ -355,8 +399,8 @@ TEST(AiSidecarRuntimeServiceTest, MissingBinaryFailsBeforeProcessStart) {
 
 TEST(AiSidecarRuntimeServiceTest, RuntimeExitBeforeReadyIsReported) {
   AiSidecarRuntimeService service(std::make_shared<FakeAiSidecarRuntimeClient>(false));
-  auto                   options = BaseOptions();
-  options.extra_arguments        = {"--exit-now", "--exit-code", "7"};
+  auto                    options = BaseOptions();
+  options.extra_arguments         = {"--exit-now", "--exit-code", "7"};
 
   EXPECT_FALSE(service.StartAndWait(options));
   const auto status = service.Status();
@@ -370,10 +414,10 @@ TEST(AiSidecarRuntimeServiceTest, PingWithoutModelInfoDoesNotBecomeReady) {
   client->SetModelInfoReady(false);
   AiSidecarRuntimeService service(client);
 
-  auto                   options = BaseOptions();
-  options.extra_arguments        = {"--sleep-ms", "30000"};
-  options.startup_timeout        = std::chrono::milliseconds(120);
-  options.health_poll_interval   = std::chrono::milliseconds(20);
+  auto                    options = BaseOptions();
+  options.extra_arguments         = {"--sleep-ms", "30000"};
+  options.startup_timeout         = std::chrono::milliseconds(120);
+  options.health_poll_interval    = std::chrono::milliseconds(20);
 
   EXPECT_FALSE(service.StartAndWait(options));
   const auto status = service.Status();
@@ -388,9 +432,9 @@ TEST(AiSidecarRuntimeServiceTest, ModelManagerRuntimeCanStartWithoutModelInfo) {
   client->SetModelInfoReady(false);
   AiSidecarRuntimeService service(client);
 
-  auto                   options = BaseOptions();
-  options.extra_arguments        = {"--sleep-ms", "30000"};
-  options.require_model_info     = false;
+  auto                    options = BaseOptions();
+  options.extra_arguments         = {"--sleep-ms", "30000"};
+  options.require_model_info      = false;
 
   ASSERT_TRUE(service.StartAndWait(options));
   const auto status = service.Status();
@@ -403,8 +447,8 @@ TEST(AiSidecarRuntimeServiceTest, ModelManagerRuntimeCanStartWithoutModelInfo) {
 
 TEST(AiSidecarRuntimeServiceTest, ReadyRuntimeSelfExitBecomesUiVisibleFailure) {
   AiSidecarRuntimeService service(std::make_shared<FakeAiSidecarRuntimeClient>());
-  auto                   options = BaseOptions();
-  options.extra_arguments        = {"--exit-after-ms", "100", "--exit-code", "9"};
+  auto                    options = BaseOptions();
+  options.extra_arguments         = {"--exit-after-ms", "100", "--exit-code", "9"};
 
   ASSERT_TRUE(service.StartAndWait(options));
   std::this_thread::sleep_for(std::chrono::milliseconds(250));
@@ -416,10 +460,10 @@ TEST(AiSidecarRuntimeServiceTest, ReadyRuntimeSelfExitBecomesUiVisibleFailure) {
 
 TEST(AiSidecarRuntimeServiceTest, StopKillsHungRuntime) {
   AiSidecarRuntimeService service(std::make_shared<FakeAiSidecarRuntimeClient>());
-  auto                   options = BaseOptions();
-  options.extra_arguments        = {"--ignore-terminate", "--sleep-ms", "30000"};
-  options.graceful_stop_timeout  = std::chrono::milliseconds(1);
-  options.kill_timeout           = std::chrono::milliseconds(1000);
+  auto                    options = BaseOptions();
+  options.extra_arguments         = {"--ignore-terminate", "--sleep-ms", "30000"};
+  options.graceful_stop_timeout   = std::chrono::milliseconds(1);
+  options.kill_timeout            = std::chrono::milliseconds(1000);
 
   ASSERT_TRUE(service.StartAndWait(options));
   service.Stop();
@@ -456,11 +500,11 @@ TEST(AiSidecarRuntimeServiceTest, RuntimeArgumentsCarryModelAndDeviceConfigurati
 }
 
 TEST(AiSidecarRuntimeServiceTest, ModelManagerListsProfilesViaRuntimeService) {
-  auto                   client = std::make_shared<FakeAiSidecarRuntimeClient>();
+  auto                    client = std::make_shared<FakeAiSidecarRuntimeClient>();
   AiSidecarRuntimeService service(client);
 
-  auto                   options = BaseOptions();
-  options.extra_arguments        = {"--sleep-ms", "30000"};
+  auto                    options = BaseOptions();
+  options.extra_arguments         = {"--sleep-ms", "30000"};
 
   ASSERT_TRUE(service.StartAndWait(options));
 
@@ -478,11 +522,11 @@ TEST(AiSidecarRuntimeServiceTest, ModelManagerListsProfilesViaRuntimeService) {
 }
 
 TEST(AiSidecarRuntimeServiceTest, ListsCapabilitiesViaRuntimeService) {
-  auto                   client = std::make_shared<FakeAiSidecarRuntimeClient>();
+  auto                    client = std::make_shared<FakeAiSidecarRuntimeClient>();
   AiSidecarRuntimeService service(client);
 
-  auto                   options = BaseOptions();
-  options.extra_arguments        = {"--sleep-ms", "30000"};
+  auto                    options = BaseOptions();
+  options.extra_arguments         = {"--sleep-ms", "30000"};
 
   ASSERT_TRUE(service.StartAndWait(options));
 
@@ -497,17 +541,86 @@ TEST(AiSidecarRuntimeServiceTest, ListsCapabilitiesViaRuntimeService) {
   EXPECT_TRUE(capability.supports_cancel);
   EXPECT_TRUE(capability.supports_batch);
   ASSERT_EQ(capability.input_kinds.size(), 2u);
-  EXPECT_EQ(capability.input_kinds[0], 2);   // AI_INPUT_IMAGE
-  EXPECT_EQ(capability.input_kinds[1], 3);   // AI_INPUT_THUMBNAIL
+  EXPECT_EQ(capability.input_kinds[0], 2);  // AI_INPUT_IMAGE
+  EXPECT_EQ(capability.input_kinds[1], 3);  // AI_INPUT_THUMBNAIL
   ASSERT_EQ(capability.output_kinds.size(), 1u);
   EXPECT_EQ(capability.output_kinds[0], 1);  // AI_OUTPUT_EMBEDDING
 
   service.Stop();
 }
 
+TEST(AiSidecarRuntimeServiceTest,
+     RegisterCredentialReturnsHandleWithoutLeakingSecretIntoProcessArgs) {
+  auto                    client = std::make_shared<FakeAiSidecarRuntimeClient>();
+  AiSidecarRuntimeService service(client);
+
+  const auto              record_path =
+      std::filesystem::temp_directory_path() / "ai_sidecar_credential_args.txt";
+  std::filesystem::remove(record_path);
+
+  auto options            = BaseOptions();
+  options.extra_arguments = {"--record-args", record_path.string(), "--sleep-ms", "30000"};
+
+  ASSERT_TRUE(service.StartAndWait(options));
+
+  // A distinctive, never-used-elsewhere secret. It must travel only over the gRPC loopback
+  // to the (fake) vault and never appear in process args or any captured runtime log surface.
+  const std::string secret = "sk-DO-NOT-LEAK-7c3f9a1e-b2d4";
+  std::string       handle;
+  std::string       error;
+  EXPECT_TRUE(service.RegisterCredential("remote", secret, /*ttl_ms=*/0,
+                                         std::chrono::milliseconds(2000), &handle, &error));
+  EXPECT_EQ(handle, "fake-credential-handle");
+  EXPECT_TRUE(error.empty()) << error;
+
+  service.Stop();
+
+  std::ifstream in(record_path);
+  ASSERT_TRUE(in.is_open());
+  const std::string args((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  in.close();
+  // BuildArguments never sees the secret, so the recorded launch args must not contain it.
+  EXPECT_EQ(args.find(secret), std::string::npos) << args;
+
+  // Nor may it leak into any status/log surface the host captures from the child.
+  const auto status = service.Status();
+  EXPECT_EQ(status.message.find(secret), std::string::npos) << status.message;
+  EXPECT_EQ(status.stdout_tail.find(secret), std::string::npos) << status.stdout_tail;
+  EXPECT_EQ(status.stderr_tail.find(secret), std::string::npos) << status.stderr_tail;
+
+  std::filesystem::remove(record_path);
+}
+
+TEST(AiSidecarRuntimeServiceTest, CancelTaskMapsResponseFromClient) {
+  auto                    client = std::make_shared<FakeAiSidecarRuntimeClient>();
+  AiSidecarRuntimeService service(client);
+
+  auto                    options = BaseOptions();
+  options.extra_arguments         = {"--sleep-ms", "30000"};
+
+  ASSERT_TRUE(service.StartAndWait(options));
+
+  std::string error;
+  bool        cancelled = false;
+  EXPECT_TRUE(
+      service.CancelTask("fake-in-flight", std::chrono::milliseconds(2000), &cancelled, &error));
+  EXPECT_TRUE(cancelled) << error;
+  EXPECT_TRUE(error.empty()) << error;
+
+  // Pre-seed cancelled=true so a no-op client would leave it set; the fake must overwrite it
+  // with false for an unknown request_id, proving the response is propagated, not defaulted.
+  cancelled = true;
+  EXPECT_TRUE(service.CancelTask("unknown-request-id", std::chrono::milliseconds(2000), &cancelled,
+                                 &error));
+  EXPECT_FALSE(cancelled);
+  EXPECT_TRUE(error.empty()) << error;
+
+  service.Stop();
+}
+
 TEST(AiSidecarRuntimeServiceTest, EmptyModelRootUsesEnvironmentFallback) {
   AiSidecarRuntimeService service(std::make_shared<FakeAiSidecarRuntimeClient>());
-  const auto             record_path =
+  const auto              record_path =
       std::filesystem::temp_directory_path() / "semantic_runtime_env_model_args.txt";
   const auto model_root =
       std::filesystem::temp_directory_path() / "semantic_runtime_env_model_root";

@@ -135,11 +135,11 @@ struct SemanticImageEmbeddingRequest {
 struct AiSidecarRuntimeStatusSnapshot {
   AiSidecarRuntimeState                       state = AiSidecarRuntimeState::kStopped;
   AiSidecarRuntimeIssue                       issue = AiSidecarRuntimeIssue::kNone;
-  std::string                                message;
-  std::string                                endpoint;
-  int64_t                                    process_id = 0;
-  std::string                                stdout_tail;
-  std::string                                stderr_tail;
+  std::string                                 message;
+  std::string                                 endpoint;
+  int64_t                                     process_id = 0;
+  std::string                                 stdout_tail;
+  std::string                                 stderr_tail;
   std::optional<AiSidecarRuntimeModelInfo>    model_info;
   std::optional<AiSidecarRuntimeRemoteStatus> remote_status;
 };
@@ -147,15 +147,15 @@ struct AiSidecarRuntimeStatusSnapshot {
 // Host-side mirror of `alcedo::ai::AiCapability` (proto/ai_common.proto). Plain struct so the
 // header stays free of generated-proto includes; the .cpp hand-maps the proto fields here.
 struct AiSidecarCapability {
-  std::string             task_id;
-  std::string             provider_id;
-  std::string             model_id;
-  std::vector<int>        input_kinds;   // alcedo::ai::AiInputKind values
-  std::vector<int>        output_kinds;  // alcedo::ai::AiOutputKind values
-  bool                    supports_batch      = false;
-  bool                    supports_cancel     = false;
-  bool                    requires_credential = false;
-  int64_t                 max_payload_bytes   = 0;
+  std::string      task_id;
+  std::string      provider_id;
+  std::string      model_id;
+  std::vector<int> input_kinds;   // alcedo::ai::AiInputKind values
+  std::vector<int> output_kinds;  // alcedo::ai::AiOutputKind values
+  bool             supports_batch      = false;
+  bool             supports_cancel     = false;
+  bool             requires_credential = false;
+  int64_t          max_payload_bytes   = 0;
 };
 
 struct AiSidecarRuntimeOptions {
@@ -184,7 +184,7 @@ class IAiSidecarRuntimeClient {
   virtual ~IAiSidecarRuntimeClient()                                                     = default;
 
   virtual auto Ping(const std::string& endpoint, std::chrono::milliseconds timeout,
-                    std::string* error) -> bool                                         = 0;
+                    std::string* error) -> bool                                          = 0;
   virtual auto GetModelInfo(const std::string& endpoint, std::chrono::milliseconds timeout,
                             AiSidecarRuntimeModelInfo* info, std::string* error) -> bool = 0;
   virtual auto GetRuntimeStatus(const std::string& endpoint, std::chrono::milliseconds timeout,
@@ -195,8 +195,23 @@ class IAiSidecarRuntimeClient {
   // ignored by the server for this RPC (Phase 0 §3.1) but the client fills a header for uniform
   // request correlation.
   virtual auto ListCapabilities(const std::string& endpoint, std::chrono::milliseconds timeout,
-                                std::vector<AiSidecarCapability>* capabilities,
-                                std::string* error) -> bool                                = 0;
+                                std::vector<AiSidecarCapability>* capabilities, std::string* error)
+      -> bool = 0;
+  // Registers a long-lived provider secret with the sidecar's in-memory credential vault
+  // (proto/ai_runtime.proto RegisterCredential). The secret travels only over the gRPC
+  // loopback channel to the Rust vault; it is never written into AiSidecarRuntimeOptions,
+  // process launch args, or logs. On success `*handle` receives the opaque credential
+  // handle to place in AiRequestHeader.credential_ref for later task calls. `ttl_ms` of 0
+  // asks the server to apply its default lifetime.
+  virtual auto RegisterCredential(const std::string& endpoint, std::chrono::milliseconds timeout,
+                                  const std::string& provider_id, const std::string& secret,
+                                  int64_t ttl_ms, std::string* handle, std::string* error)
+      -> bool = 0;
+  // Cancels an in-flight sidecar task by request_id. `*cancelled` is true only if a task
+  // with that request_id was registered and signalled.
+  virtual auto CancelTask(const std::string& endpoint, std::chrono::milliseconds timeout,
+                          const std::string& request_id, bool* cancelled, std::string* error)
+      -> bool = 0;
   virtual auto ListModelProfiles(const std::string& endpoint, const std::string& model_root,
                                  std::chrono::milliseconds timeout, std::string* error)
       -> std::vector<SemanticModelProfileInfo> = 0;
@@ -205,7 +220,7 @@ class IAiSidecarRuntimeClient {
       -> std::vector<SemanticModelProfileInfo> = 0;
   virtual auto ValidateModel(const std::string& endpoint, const std::string& profile_id,
                              const std::string& model_root, std::chrono::milliseconds timeout)
-      -> SemanticModelManagerResult                                                           = 0;
+      -> SemanticModelManagerResult = 0;
   virtual auto DeleteModel(const std::string& endpoint, const std::string& profile_id,
                            const std::string& model_root, std::chrono::milliseconds timeout)
       -> SemanticModelManagerResult = 0;
@@ -234,8 +249,14 @@ class GrpcAiSidecarRuntimeClient final : public IAiSidecarRuntimeClient {
   auto GetRuntimeStatus(const std::string& endpoint, std::chrono::milliseconds timeout,
                         AiSidecarRuntimeRemoteStatus* status, std::string* error) -> bool override;
   auto ListCapabilities(const std::string& endpoint, std::chrono::milliseconds timeout,
-                        std::vector<AiSidecarCapability>* capabilities,
-                        std::string* error) -> bool override;
+                        std::vector<AiSidecarCapability>* capabilities, std::string* error)
+      -> bool override;
+  auto RegisterCredential(const std::string& endpoint, std::chrono::milliseconds timeout,
+                          const std::string& provider_id, const std::string& secret, int64_t ttl_ms,
+                          std::string* handle, std::string* error) -> bool override;
+  auto CancelTask(const std::string& endpoint, std::chrono::milliseconds timeout,
+                  const std::string& request_id, bool* cancelled, std::string* error)
+      -> bool override;
   auto ListModelProfiles(const std::string& endpoint, const std::string& model_root,
                          std::chrono::milliseconds timeout, std::string* error)
       -> std::vector<SemanticModelProfileInfo> override;
@@ -273,8 +294,8 @@ class AiSidecarRuntimeService final : public QObject {
 
  public:
   explicit AiSidecarRuntimeService(std::shared_ptr<IAiSidecarRuntimeClient> client =
-                                      std::make_shared<GrpcAiSidecarRuntimeClient>(),
-                                  QObject* parent = nullptr);
+                                       std::make_shared<GrpcAiSidecarRuntimeClient>(),
+                                   QObject* parent = nullptr);
   ~AiSidecarRuntimeService() override;
 
   auto StartAndWait(const AiSidecarRuntimeOptions& options) -> bool;
@@ -288,6 +309,14 @@ class AiSidecarRuntimeService final : public QObject {
 
   auto ListCapabilities(std::chrono::milliseconds timeout, std::string* error)
       -> std::vector<AiSidecarCapability>;
+  // Host-side convenience wrappers around the client RPCs of the same name. The secret
+  // passed to RegisterCredential is forwarded only to the sidecar vault; it never enters
+  // BuildArguments or any logged surface.
+  auto RegisterCredential(const std::string& provider_id, const std::string& secret, int64_t ttl_ms,
+                          std::chrono::milliseconds timeout, std::string* handle,
+                          std::string* error) -> bool;
+  auto CancelTask(const std::string& request_id, std::chrono::milliseconds timeout, bool* cancelled,
+                  std::string* error) -> bool;
   auto ListModelProfiles(const std::string& model_root, std::chrono::milliseconds timeout,
                          std::string* error) -> std::vector<SemanticModelProfileInfo>;
   auto ListInstalledModels(const std::string& model_root, std::chrono::milliseconds timeout,
@@ -327,10 +356,10 @@ class AiSidecarRuntimeService final : public QObject {
   void ReleaseChildTreeCleanup();
 
   std::shared_ptr<IAiSidecarRuntimeClient> client_;
-  QProcess                                process_;
+  QProcess                                 process_;
   AiSidecarRuntimeOptions                  options_;
   AiSidecarRuntimeStatusSnapshot           status_;
-  std::string                             endpoint_;
+  std::string                              endpoint_;
 #ifdef _WIN32
   void* job_object_ = nullptr;
 #endif

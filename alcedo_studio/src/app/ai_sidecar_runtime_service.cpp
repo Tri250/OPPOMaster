@@ -10,9 +10,9 @@
 #include <QCoreApplication>
 #include <QHostAddress>
 #include <QMetaObject>
+#include <QStringList>
 #include <QTcpServer>
 #include <QThread>
-#include <QStringList>
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -20,9 +20,9 @@
 #include <thread>
 #include <vector>
 
-#include "semantic.grpc.pb.h"
 #include "ai_common.pb.h"
 #include "ai_runtime.grpc.pb.h"
+#include "semantic.grpc.pb.h"
 #include "utils/diagnostics/app_logging.hpp"
 
 #ifdef _WIN32
@@ -32,10 +32,10 @@
 namespace alcedo {
 namespace {
 
-constexpr size_t kLogTailBytes             = 16 * 1024;
+constexpr size_t kLogTailBytes              = 16 * 1024;
 constexpr auto   kAiSidecarRuntimeBinaryEnv = "ALCEDO_MIND_BINARY";
-constexpr auto   kSemanticModelRootEnv     = "ALCEDO_MIND_MODEL_ROOT";
-constexpr auto   kDefaultModelDirectory    = "model";
+constexpr auto   kSemanticModelRootEnv      = "ALCEDO_MIND_MODEL_ROOT";
+constexpr auto   kDefaultModelDirectory     = "model";
 #ifdef _WIN32
 constexpr auto kAiSidecarRuntimeBinaryName = "alcedo_mind.exe";
 #else
@@ -125,9 +125,24 @@ auto DeadlineFromNow(std::chrono::milliseconds timeout) -> std::chrono::system_c
   return std::chrono::system_clock::now() + timeout;
 }
 
+// Fills the shared AiRequestHeader carried by every AiRuntimeService RPC for uniform request
+// correlation. `credential_ref` is the opaque vault handle (empty for local/no-credential
+// tasks); it is never key material. Centralizing header construction here keeps every RPC on
+// the same redaction-safe path — no call site logs or echoes a secret through this helper.
+auto FillAiRequestHeader(alcedo::ai::AiRequestHeader* header, const std::string& request_id,
+                         const std::string& task_id, std::chrono::milliseconds timeout,
+                         const std::string& credential_ref = {}) -> void {
+  header->set_request_id(request_id);
+  header->set_task_id(task_id);
+  header->set_timeout_ms(std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count());
+  if (!credential_ref.empty()) {
+    header->set_credential_ref(credential_ref);
+  }
+}
+
 auto SummarizeTextRequests(const std::vector<SemanticTextEmbeddingRequest>& requests,
                            size_t max_items = 12) -> QString {
-  QStringList parts;
+  QStringList  parts;
   const size_t count = std::min(requests.size(), max_items);
   for (size_t i = 0; i < count; ++i) {
     parts << QString::fromStdString(requests[i].request_id);
@@ -140,7 +155,7 @@ auto SummarizeTextRequests(const std::vector<SemanticTextEmbeddingRequest>& requ
 
 auto SummarizeImageRequests(const std::vector<SemanticImageEmbeddingRequest>& requests,
                             size_t max_items = 12) -> QString {
-  QStringList parts;
+  QStringList  parts;
   const size_t count = std::min(requests.size(), max_items);
   for (size_t i = 0; i < count; ++i) {
     parts << QStringLiteral("%1/%2/%3B")
@@ -192,9 +207,9 @@ auto ToRuntimeStatus(const semantic::GetRuntimeStatusResponse& response)
 
 auto ToAiSidecarCapability(const alcedo::ai::AiCapability& capability) -> AiSidecarCapability {
   AiSidecarCapability out;
-  out.task_id              = capability.task_id();
-  out.provider_id          = capability.provider_id();
-  out.model_id             = capability.model_id();
+  out.task_id     = capability.task_id();
+  out.provider_id = capability.provider_id();
+  out.model_id    = capability.model_id();
   out.input_kinds.reserve(static_cast<size_t>(capability.input_kinds_size()));
   for (const auto kind : capability.input_kinds()) {
     out.input_kinds.push_back(static_cast<int>(kind));
@@ -342,8 +357,9 @@ auto ToString(AiSidecarRuntimeIssue issue) -> const char* {
   return "unknown";
 }
 
-auto GrpcAiSidecarRuntimeClient::Ping(const std::string& endpoint, std::chrono::milliseconds timeout,
-                                     std::string* error) -> bool {
+auto GrpcAiSidecarRuntimeClient::Ping(const std::string&        endpoint,
+                                      std::chrono::milliseconds timeout, std::string* error)
+    -> bool {
   auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
   auto                stub    = semantic::SemanticService::NewStub(channel);
 
@@ -362,9 +378,9 @@ auto GrpcAiSidecarRuntimeClient::Ping(const std::string& endpoint, std::chrono::
   return true;
 }
 
-auto GrpcAiSidecarRuntimeClient::GetModelInfo(const std::string&        endpoint,
-                                             std::chrono::milliseconds timeout,
-                                             AiSidecarRuntimeModelInfo* info, std::string* error)
+auto GrpcAiSidecarRuntimeClient::GetModelInfo(const std::string&         endpoint,
+                                              std::chrono::milliseconds  timeout,
+                                              AiSidecarRuntimeModelInfo* info, std::string* error)
     -> bool {
   auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
   auto                stub    = semantic::SemanticService::NewStub(channel);
@@ -386,10 +402,10 @@ auto GrpcAiSidecarRuntimeClient::GetModelInfo(const std::string&        endpoint
   return true;
 }
 
-auto GrpcAiSidecarRuntimeClient::GetRuntimeStatus(const std::string&           endpoint,
-                                                 std::chrono::milliseconds    timeout,
-                                                 AiSidecarRuntimeRemoteStatus* status,
-                                                 std::string*                 error) -> bool {
+auto GrpcAiSidecarRuntimeClient::GetRuntimeStatus(const std::string&            endpoint,
+                                                  std::chrono::milliseconds     timeout,
+                                                  AiSidecarRuntimeRemoteStatus* status,
+                                                  std::string*                  error) -> bool {
   auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
   auto                stub    = semantic::SemanticService::NewStub(channel);
 
@@ -410,21 +426,18 @@ auto GrpcAiSidecarRuntimeClient::GetRuntimeStatus(const std::string&           e
   return true;
 }
 
-auto GrpcAiSidecarRuntimeClient::ListCapabilities(const std::string&             endpoint,
-                                                  std::chrono::milliseconds      timeout,
+auto GrpcAiSidecarRuntimeClient::ListCapabilities(const std::string&                endpoint,
+                                                  std::chrono::milliseconds         timeout,
                                                   std::vector<AiSidecarCapability>* capabilities,
-                                                  std::string*                   error) -> bool {
-  auto channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
-  auto stub    = alcedo::ai::AiRuntimeService::NewStub(channel);
+                                                  std::string*                      error) -> bool {
+  auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
+  auto                stub    = alcedo::ai::AiRuntimeService::NewStub(channel);
 
   grpc::ClientContext context;
   context.set_deadline(DeadlineFromNow(timeout));
-  alcedo::ai::ListCapabilitiesRequest  request;
-  auto* header = request.mutable_header();
-  header->set_request_id("alcedo-sidecar-list-capabilities");
-  header->set_task_id("ai_runtime.list_capabilities");
-  header->set_timeout_ms(
-      std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count());
+  alcedo::ai::ListCapabilitiesRequest request;
+  FillAiRequestHeader(request.mutable_header(), "alcedo-sidecar-list-capabilities",
+                      "ai_runtime.list_capabilities", timeout);
   alcedo::ai::ListCapabilitiesResponse response;
   const auto status = stub->ListCapabilities(&context, request, &response);
   if (!status.ok()) {
@@ -443,10 +456,66 @@ auto GrpcAiSidecarRuntimeClient::ListCapabilities(const std::string&            
   return true;
 }
 
+auto GrpcAiSidecarRuntimeClient::RegisterCredential(
+    const std::string& endpoint, std::chrono::milliseconds timeout, const std::string& provider_id,
+    const std::string& secret, int64_t ttl_ms, std::string* handle, std::string* error) -> bool {
+  auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
+  auto                stub    = alcedo::ai::AiRuntimeService::NewStub(channel);
+
+  grpc::ClientContext context;
+  context.set_deadline(DeadlineFromNow(timeout));
+  alcedo::ai::RegisterCredentialRequest request;
+  // The secret is placed only on the loopback gRPC request body; it is never logged here.
+  FillAiRequestHeader(request.mutable_header(), "alcedo-sidecar-register-credential",
+                      "ai_runtime.register_credential", timeout);
+  request.set_provider_id(provider_id);
+  request.set_secret(secret);
+  request.set_ttl_ms(ttl_ms);
+  alcedo::ai::RegisterCredentialResponse response;
+  const auto status = stub->RegisterCredential(&context, request, &response);
+  if (!status.ok()) {
+    if (error) {
+      *error = GrpcErrorMessage(status);
+    }
+    return false;
+  }
+  if (handle) {
+    *handle = response.credential_handle();
+  }
+  return true;
+}
+
+auto GrpcAiSidecarRuntimeClient::CancelTask(const std::string&        endpoint,
+                                            std::chrono::milliseconds timeout,
+                                            const std::string& request_id, bool* cancelled,
+                                            std::string* error) -> bool {
+  auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
+  auto                stub    = alcedo::ai::AiRuntimeService::NewStub(channel);
+
+  grpc::ClientContext context;
+  context.set_deadline(DeadlineFromNow(timeout));
+  alcedo::ai::CancelTaskRequest request;
+  FillAiRequestHeader(request.mutable_header(), "alcedo-sidecar-cancel-task",
+                      "ai_runtime.cancel_task", timeout);
+  request.set_request_id(request_id);
+  alcedo::ai::CancelTaskResponse response;
+  const auto                     status = stub->CancelTask(&context, request, &response);
+  if (!status.ok()) {
+    if (error) {
+      *error = GrpcErrorMessage(status);
+    }
+    return false;
+  }
+  if (cancelled) {
+    *cancelled = response.cancelled();
+  }
+  return true;
+}
+
 auto GrpcAiSidecarRuntimeClient::ListModelProfiles(const std::string&        endpoint,
-                                                  const std::string&        model_root,
-                                                  std::chrono::milliseconds timeout,
-                                                  std::string*              error)
+                                                   const std::string&        model_root,
+                                                   std::chrono::milliseconds timeout,
+                                                   std::string*              error)
     -> std::vector<SemanticModelProfileInfo> {
   auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
   auto                stub    = semantic::ModelManagerService::NewStub(channel);
@@ -472,9 +541,9 @@ auto GrpcAiSidecarRuntimeClient::ListModelProfiles(const std::string&        end
 }
 
 auto GrpcAiSidecarRuntimeClient::ListInstalledModels(const std::string&        endpoint,
-                                                    const std::string&        model_root,
-                                                    std::chrono::milliseconds timeout,
-                                                    std::string*              error)
+                                                     const std::string&        model_root,
+                                                     std::chrono::milliseconds timeout,
+                                                     std::string*              error)
     -> std::vector<SemanticModelProfileInfo> {
   auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
   auto                stub    = semantic::ModelManagerService::NewStub(channel);
@@ -500,9 +569,9 @@ auto GrpcAiSidecarRuntimeClient::ListInstalledModels(const std::string&        e
 }
 
 auto GrpcAiSidecarRuntimeClient::ValidateModel(const std::string&        endpoint,
-                                              const std::string&        profile_id,
-                                              const std::string&        model_root,
-                                              std::chrono::milliseconds timeout)
+                                               const std::string&        profile_id,
+                                               const std::string&        model_root,
+                                               std::chrono::milliseconds timeout)
     -> SemanticModelManagerResult {
   auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
   auto                stub    = semantic::ModelManagerService::NewStub(channel);
@@ -525,9 +594,9 @@ auto GrpcAiSidecarRuntimeClient::ValidateModel(const std::string&        endpoin
 }
 
 auto GrpcAiSidecarRuntimeClient::DeleteModel(const std::string&        endpoint,
-                                            const std::string&        profile_id,
-                                            const std::string&        model_root,
-                                            std::chrono::milliseconds timeout)
+                                             const std::string&        profile_id,
+                                             const std::string&        model_root,
+                                             std::chrono::milliseconds timeout)
     -> SemanticModelManagerResult {
   auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
   auto                stub    = semantic::ModelManagerService::NewStub(channel);
@@ -561,8 +630,8 @@ auto IAiSidecarRuntimeClient::EmbedTextBatch(
 }
 
 auto GrpcAiSidecarRuntimeClient::EmbedText(const std::string& endpoint,
-                                          const std::string& request_id, const std::string& text,
-                                          std::chrono::milliseconds timeout)
+                                           const std::string& request_id, const std::string& text,
+                                           std::chrono::milliseconds timeout)
     -> SemanticEmbeddingResult {
   auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
   auto                stub    = semantic::SemanticService::NewStub(channel);
@@ -587,12 +656,12 @@ auto GrpcAiSidecarRuntimeClient::EmbedText(const std::string& endpoint,
 auto GrpcAiSidecarRuntimeClient::EmbedTextBatch(
     const std::string& endpoint, const std::vector<SemanticTextEmbeddingRequest>& requests,
     std::chrono::milliseconds timeout) -> std::vector<SemanticEmbeddingResult> {
-  diag::TraceScope trace(diag::semanticRpcLog(), QStringLiteral("semantic.rpc.embed_text_batch"),
-                         QStringLiteral("endpoint=%1 count=%2 timeout_ms=%3 ids=%4")
-                             .arg(QString::fromStdString(endpoint))
-                             .arg(static_cast<qulonglong>(requests.size()))
-                             .arg(timeout.count())
-                             .arg(SummarizeTextRequests(requests)));
+  diag::TraceScope    trace(diag::semanticRpcLog(), QStringLiteral("semantic.rpc.embed_text_batch"),
+                            QStringLiteral("endpoint=%1 count=%2 timeout_ms=%3 ids=%4")
+                                .arg(QString::fromStdString(endpoint))
+                                .arg(static_cast<qulonglong>(requests.size()))
+                                .arg(timeout.count())
+                                .arg(SummarizeTextRequests(requests)));
   auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
   auto                stub    = semantic::SemanticService::NewStub(channel);
 
@@ -638,10 +707,10 @@ auto GrpcAiSidecarRuntimeClient::EmbedTextBatch(
 }
 
 auto GrpcAiSidecarRuntimeClient::EmbedImage(const std::string&          endpoint,
-                                           const std::string&          request_id,
-                                           const std::vector<uint8_t>& rgba8_image,
-                                           const std::string&          format_hint,
-                                           std::chrono::milliseconds   timeout)
+                                            const std::string&          request_id,
+                                            const std::vector<uint8_t>& rgba8_image,
+                                            const std::string&          format_hint,
+                                            std::chrono::milliseconds   timeout)
     -> SemanticEmbeddingResult {
   auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
   auto                stub    = semantic::SemanticService::NewStub(channel);
@@ -664,18 +733,17 @@ auto GrpcAiSidecarRuntimeClient::EmbedImage(const std::string&          endpoint
   return result;
 }
 
-auto GrpcAiSidecarRuntimeClient::EmbedImageBatch(const std::string&                         endpoint,
-                                                std::vector<SemanticImageEmbeddingRequest> requests,
-                                                std::chrono::milliseconds                  timeout)
-    -> std::vector<SemanticEmbeddingResult> {
+auto GrpcAiSidecarRuntimeClient::EmbedImageBatch(
+    const std::string& endpoint, std::vector<SemanticImageEmbeddingRequest> requests,
+    std::chrono::milliseconds timeout) -> std::vector<SemanticEmbeddingResult> {
   diag::TraceScope trace(diag::semanticRpcLog(), QStringLiteral("semantic.rpc.embed_image_batch"),
                          QStringLiteral("endpoint=%1 count=%2 timeout_ms=%3 ids=%4")
                              .arg(QString::fromStdString(endpoint))
                              .arg(static_cast<qulonglong>(requests.size()))
                              .arg(timeout.count())
                              .arg(SummarizeImageRequests(requests)));
-  auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
-  auto                stub    = semantic::SemanticService::NewStub(channel);
+  auto             channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
+  auto             stub    = semantic::SemanticService::NewStub(channel);
 
   grpc::ClientContext context;
   context.set_deadline(DeadlineFromNow(timeout));
@@ -721,7 +789,7 @@ auto GrpcAiSidecarRuntimeClient::EmbedImageBatch(const std::string&             
 }
 
 AiSidecarRuntimeService::AiSidecarRuntimeService(std::shared_ptr<IAiSidecarRuntimeClient> client,
-                                               QObject*                                parent)
+                                                 QObject*                                 parent)
     : QObject(parent), client_(std::move(client)) {
   status_.state   = AiSidecarRuntimeState::kStopped;
   status_.issue   = AiSidecarRuntimeIssue::kNone;
@@ -785,8 +853,9 @@ auto AiSidecarRuntimeService::StartAndWait(const AiSidecarRuntimeOptions& option
     return false;
   }
   qCInfo(diag::semanticLog).noquote()
-      << QStringLiteral("semantic.runtime.start binary=%1 endpoint=%2 model_id=%3 revision=%4 "
-                        "model_root=%5 device=%6")
+      << QStringLiteral(
+             "semantic.runtime.start binary=%1 endpoint=%2 model_id=%3 revision=%4 "
+             "model_root=%5 device=%6")
              .arg(QString::fromStdString(options_.runtime_binary.string()),
                   QString::fromStdString(endpoint_), QString::fromStdString(options_.model_id),
                   QString::fromStdString(options_.revision),
@@ -828,10 +897,9 @@ void AiSidecarRuntimeService::Stop() {
 
   SetStatus(AiSidecarRuntimeState::kStopping, AiSidecarRuntimeIssue::kNone,
             "Stopping semantic runtime");
-  qCInfo(diag::semanticLog).noquote()
-      << QStringLiteral("semantic.runtime.stop pid=%1 endpoint=%2")
-             .arg(status_.process_id)
-             .arg(QString::fromStdString(endpoint_));
+  qCInfo(diag::semanticLog).noquote() << QStringLiteral("semantic.runtime.stop pid=%1 endpoint=%2")
+                                             .arg(status_.process_id)
+                                             .arg(QString::fromStdString(endpoint_));
   process_.terminate();
   if (!process_.waitForFinished(static_cast<int>(options_.graceful_stop_timeout.count()))) {
     process_.kill();
@@ -860,7 +928,7 @@ auto AiSidecarRuntimeService::Status() -> AiSidecarRuntimeStatusSnapshot {
   RefreshProcessExit();
   if (status_.state == AiSidecarRuntimeState::kReady && client_) {
     AiSidecarRuntimeRemoteStatus remote;
-    std::string                 error;
+    std::string                  error;
     if (client_->GetRuntimeStatus(endpoint_, std::chrono::milliseconds(250), &remote, &error)) {
       status_.remote_status = remote;
     }
@@ -881,8 +949,8 @@ auto AiSidecarRuntimeService::IsRunning() -> bool {
 }
 
 auto AiSidecarRuntimeService::ListModelProfiles(const std::string&        model_root,
-                                               std::chrono::milliseconds timeout,
-                                               std::string*              error)
+                                                std::chrono::milliseconds timeout,
+                                                std::string*              error)
     -> std::vector<SemanticModelProfileInfo> {
   if (status_.state != AiSidecarRuntimeState::kReady || !client_) {
     if (error) {
@@ -894,8 +962,8 @@ auto AiSidecarRuntimeService::ListModelProfiles(const std::string&        model_
 }
 
 auto AiSidecarRuntimeService::ListInstalledModels(const std::string&        model_root,
-                                                 std::chrono::milliseconds timeout,
-                                                 std::string*              error)
+                                                  std::chrono::milliseconds timeout,
+                                                  std::string*              error)
     -> std::vector<SemanticModelProfileInfo> {
   if (status_.state != AiSidecarRuntimeState::kReady || !client_) {
     if (error) {
@@ -906,7 +974,8 @@ auto AiSidecarRuntimeService::ListInstalledModels(const std::string&        mode
   return client_->ListInstalledModels(endpoint_, model_root, timeout, error);
 }
 
-auto AiSidecarRuntimeService::ListCapabilities(std::chrono::milliseconds timeout, std::string* error)
+auto AiSidecarRuntimeService::ListCapabilities(std::chrono::milliseconds timeout,
+                                               std::string*              error)
     -> std::vector<AiSidecarCapability> {
   if (status_.state != AiSidecarRuntimeState::kReady || !client_) {
     if (error) {
@@ -921,9 +990,35 @@ auto AiSidecarRuntimeService::ListCapabilities(std::chrono::milliseconds timeout
   return capabilities;
 }
 
+auto AiSidecarRuntimeService::RegisterCredential(const std::string& provider_id,
+                                                 const std::string& secret, int64_t ttl_ms,
+                                                 std::chrono::milliseconds timeout,
+                                                 std::string* handle, std::string* error) -> bool {
+  if (status_.state != AiSidecarRuntimeState::kReady || !client_) {
+    if (error) {
+      *error = "ai sidecar runtime is not ready";
+    }
+    return false;
+  }
+  return client_->RegisterCredential(endpoint_, timeout, provider_id, secret, ttl_ms, handle,
+                                     error);
+}
+
+auto AiSidecarRuntimeService::CancelTask(const std::string&        request_id,
+                                         std::chrono::milliseconds timeout, bool* cancelled,
+                                         std::string* error) -> bool {
+  if (status_.state != AiSidecarRuntimeState::kReady || !client_) {
+    if (error) {
+      *error = "ai sidecar runtime is not ready";
+    }
+    return false;
+  }
+  return client_->CancelTask(endpoint_, timeout, request_id, cancelled, error);
+}
+
 auto AiSidecarRuntimeService::ValidateModel(const std::string&        profile_id,
-                                           const std::string&        model_root,
-                                           std::chrono::milliseconds timeout)
+                                            const std::string&        model_root,
+                                            std::chrono::milliseconds timeout)
     -> SemanticModelManagerResult {
   if (status_.state != AiSidecarRuntimeState::kReady || !client_) {
     SemanticModelManagerResult result;
@@ -936,8 +1031,8 @@ auto AiSidecarRuntimeService::ValidateModel(const std::string&        profile_id
 }
 
 auto AiSidecarRuntimeService::DeleteModel(const std::string&        profile_id,
-                                         const std::string&        model_root,
-                                         std::chrono::milliseconds timeout)
+                                          const std::string&        model_root,
+                                          std::chrono::milliseconds timeout)
     -> SemanticModelManagerResult {
   if (status_.state != AiSidecarRuntimeState::kReady || !client_) {
     SemanticModelManagerResult result;
@@ -950,7 +1045,7 @@ auto AiSidecarRuntimeService::DeleteModel(const std::string&        profile_id,
 }
 
 auto AiSidecarRuntimeService::EmbedText(const std::string& request_id, const std::string& text,
-                                       std::chrono::milliseconds timeout)
+                                        std::chrono::milliseconds timeout)
     -> SemanticEmbeddingResult {
   if (status_.state != AiSidecarRuntimeState::kReady || !client_) {
     SemanticEmbeddingResult result;
@@ -981,9 +1076,9 @@ auto AiSidecarRuntimeService::EmbedTextBatch(
 }
 
 auto AiSidecarRuntimeService::EmbedImage(const std::string&          request_id,
-                                        const std::vector<uint8_t>& rgba8_image,
-                                        const std::string&          format_hint,
-                                        std::chrono::milliseconds   timeout)
+                                         const std::vector<uint8_t>& rgba8_image,
+                                         const std::string&          format_hint,
+                                         std::chrono::milliseconds   timeout)
     -> SemanticEmbeddingResult {
   if (status_.state != AiSidecarRuntimeState::kReady || !client_) {
     SemanticEmbeddingResult result;
@@ -996,7 +1091,7 @@ auto AiSidecarRuntimeService::EmbedImage(const std::string&          request_id,
 }
 
 auto AiSidecarRuntimeService::EmbedImageBatch(std::vector<SemanticImageEmbeddingRequest> requests,
-                                             std::chrono::milliseconds                  timeout)
+                                              std::chrono::milliseconds                  timeout)
     -> std::vector<SemanticEmbeddingResult> {
   if (status_.state != AiSidecarRuntimeState::kReady || !client_) {
     std::vector<SemanticEmbeddingResult> results;
@@ -1022,7 +1117,7 @@ auto AiSidecarRuntimeService::IssueName() const -> QString {
 }
 
 void AiSidecarRuntimeService::SetStatus(AiSidecarRuntimeState state, AiSidecarRuntimeIssue issue,
-                                       std::string message) {
+                                        std::string message) {
   status_.state    = state;
   status_.issue    = issue;
   status_.message  = std::move(message);
@@ -1072,9 +1167,10 @@ void AiSidecarRuntimeService::RefreshProcessExit() {
   const bool crashed = process_.exitStatus() == QProcess::CrashExit || process_.exitCode() != 0;
   std::ostringstream message;
   message << "Semantic runtime exited with code " << process_.exitCode();
-  SetStatus(AiSidecarRuntimeState::kFailed,
-            crashed ? AiSidecarRuntimeIssue::kRuntimeCrashed : AiSidecarRuntimeIssue::kRuntimeExited,
-            message.str());
+  SetStatus(
+      AiSidecarRuntimeState::kFailed,
+      crashed ? AiSidecarRuntimeIssue::kRuntimeCrashed : AiSidecarRuntimeIssue::kRuntimeExited,
+      message.str());
 }
 
 auto AiSidecarRuntimeService::BuildArguments() const -> QStringList {
@@ -1123,7 +1219,7 @@ auto AiSidecarRuntimeService::WaitForReadiness() -> bool {
     }
     if (client_ && client_->Ping(endpoint_, options_.health_poll_interval, &last_error)) {
       AiSidecarRuntimeModelInfo info;
-      std::string              info_error;
+      std::string               info_error;
       if (client_->GetModelInfo(endpoint_, std::chrono::milliseconds(500), &info, &info_error)) {
         status_.model_info = info;
         SetStatus(AiSidecarRuntimeState::kReady, AiSidecarRuntimeIssue::kNone,

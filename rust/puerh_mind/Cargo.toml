@@ -21,6 +21,8 @@ serde_json = "1"
 tokenizers = { version = "0.20", default-features = false, features = ["onig"] }
 ort = { version = "2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "download-binaries", "copy-dylibs", "api-24", "tls-rustls", "directml", "coreml"] }
 sha2 = "0.10"
+uuid = { version = "1", features = ["v4"] }
+zeroize = { version = "1", features = ["alloc"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-cf = "0.9.3"

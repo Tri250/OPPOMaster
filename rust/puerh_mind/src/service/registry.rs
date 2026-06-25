@@ -4,6 +4,7 @@ use tonic::transport::Server;
 
 use crate::config::AppConfig;
 use crate::proto::alcedo::ai::ai_runtime_service_server::AiRuntimeServiceServer;
+use crate::proto::alcedo::ai::AiCapability;
 use crate::proto::common::health_service_server::HealthServiceServer;
 use crate::proto::semantic::model_manager_service_server::ModelManagerServiceServer;
 use crate::proto::semantic::semantic_service_server::SemanticServiceServer;
@@ -11,6 +12,8 @@ use crate::server::ai_runtime::AiRuntimeServiceImpl;
 use crate::server::health::HealthServiceImpl;
 use crate::server::model_manager::ModelManagerServiceImpl;
 use crate::server::semantic::SemanticServiceImpl;
+use crate::service::cancellation_registry::CancellationRegistry;
+use crate::service::credential_vault::CredentialVault;
 use crate::service::embedding::EmbeddingEngine;
 
 const FILE_DESCRIPTOR_SET: &[u8] = tonic::include_file_descriptor_set!("semantic_descriptor");
@@ -18,6 +21,9 @@ pub fn register_services(
     mut builder: Server,
     config: &AppConfig,
     semantic_engine: Arc<dyn EmbeddingEngine>,
+    vault: Arc<CredentialVault>,
+    cancel_registry: Arc<CancellationRegistry>,
+    capabilities: Vec<AiCapability>,
 ) -> anyhow::Result<tonic::transport::server::Router> {
     let health_service = HealthServiceImpl;
     let semantic_service = SemanticServiceImpl::new(
@@ -27,9 +33,9 @@ pub fn register_services(
     );
     let model_manager_service =
         ModelManagerServiceImpl::new(&config.semantic.model_root, &config.semantic.hf_endpoint);
-    // The AI runtime service is stateless in Phase 1 (ListCapabilities only);
-    // capability population arrives in Phase 3.
-    let ai_runtime_service = AiRuntimeServiceImpl::new();
+    // Phase 3: the AI runtime service owns the credential vault, the
+    // cancellation registry, and the advertised capability descriptors.
+    let ai_runtime_service = AiRuntimeServiceImpl::new(vault, cancel_registry, capabilities);
 
     let reflection_service = tonic_reflection::server::Builder::configure()
         .register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET)

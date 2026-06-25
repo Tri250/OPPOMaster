@@ -4,6 +4,9 @@ pub mod embedding;
 pub mod inference;
 pub mod model_adapters;
 pub mod registry;
+pub mod capabilities;
+pub mod cancellation_registry;
+pub mod credential_vault;
 
 pub mod model_assets;
 pub mod ort_clip;

@@ -6,6 +6,7 @@ pub struct AppConfig {
     pub port: u16,
     pub semantic: SemanticConfig,
     pub max_message_bytes: usize,
+    pub credential_ttl_ms: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -55,6 +56,9 @@ impl AppConfig {
                 "--max-message-bytes" => {
                     config.max_message_bytes = parse_next(&mut args, "--max-message-bytes")?
                 }
+                "--credential-ttl-ms" => {
+                    config.credential_ttl_ms = parse_next(&mut args, "--credential-ttl-ms")?
+                }
                 "--help" | "-h" => anyhow::bail!("{}", Self::usage()),
                 other => anyhow::bail!("unknown argument {other:?}\n{}", Self::usage()),
             }
@@ -82,6 +86,7 @@ impl AppConfig {
                 batch_cap: parse_env("ALCEDO_MIND_BATCH_CAP", 512)?,
                 batch_wait_ms: parse_env("ALCEDO_MIND_BATCH_WAIT_MS", 25)?,
             },
+            credential_ttl_ms: parse_env("ALCEDO_MIND_CREDENTIAL_TTL_MS", 3_600_000)?,
         })
     }
 
@@ -115,7 +120,7 @@ impl AppConfig {
     }
 
     fn usage() -> &'static str {
-        "usage: alcedo_mind [--host HOST] [--port PORT] [--model-root PATH] [--model-id ID] [--revision REV] [--hf-endpoint URL] [--device auto|cpu|directml[:N]|coreml[:MODE]] [--no-download] [--allow-download] [--batch-cap N] [--batch-wait-ms N] [--max-message-bytes N]"
+        "usage: alcedo_mind [--host HOST] [--port PORT] [--model-root PATH] [--model-id ID] [--revision REV] [--hf-endpoint URL] [--device auto|cpu|directml[:N]|coreml[:MODE]] [--no-download] [--allow-download] [--batch-cap N] [--batch-wait-ms N] [--max-message-bytes N] [--credential-ttl-ms N]"
     }
 }
 
