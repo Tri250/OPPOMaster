@@ -51,6 +51,14 @@ struct ImageAnalysisCredential {
   std::string secret;
 };
 
+// Phase 5e prefill queue depth upper bound. The plan calls for "initially 1 or 2"; this
+// cap keeps a caller from requesting an unbounded prefill depth, which would let the
+// producer encode most of a large album while one RPC is blocked and weaken the
+// bounded-memory promise. RunJob clamps `ImageAnalysisOptions::prefetch` to
+// [1, kMaxImageAnalysisPrefetch]. Each queued entry is one encoded k1024 JPEG buffer, so
+// raise this only with a matching memory-budget review.
+inline constexpr int kMaxImageAnalysisPrefetch = 4;
+
 struct ImageAnalysisOptions {
   ImageAnalysisTask       task               = ImageAnalysisTask::kDescribe;
   ThumbnailResolution     thumbnail_resolution = ThumbnailResolution::k1024;
@@ -63,6 +71,13 @@ struct ImageAnalysisOptions {
   ImageAnalysisCredential credential;
   std::filesystem::path   temp_dir;           // empty => std::filesystem::temp_directory_path()
   int64_t                 credential_ttl_ms = 0;  // 0 => sidecar default
+  // Phase 5e prefill queue depth: the maximum number of encoded JPEG renditions
+  // buffered ahead of the single in-flight remote call. The gate still caps remote
+  // concurrency at one; this only overlaps local thumbnail/encode prep with the
+  // active provider call. Clamped to [1, kMaxImageAnalysisPrefetch] in RunJob. A
+  // large album cannot accumulate more than `prefetch` encoded byte buffers in
+  // memory (plus the one in flight).
+  int                     prefetch           = 1;
 };
 
 struct ImageAnalysisProgress {
@@ -95,17 +110,24 @@ class ImageAnalysisInFlightGate {
  public:
   ImageAnalysisInFlightGate() = default;
 
-  // Blocks until the slot is free or `is_canceled()` returns true. Returns true if the
-  // slot was acquired, false if the wait was canceled (the slot is NOT acquired).
-  auto Acquire(std::function<bool()> is_canceled) -> bool;
+  // Blocks until the slot is free or `is_canceled()` returns true. On success the slot
+  // is acquired AND `request_id` is published under the same lock, so an observer can
+  // never see the slot held with no published id. Returns true if the slot was acquired
+  // (id published), false if the wait was canceled (the slot is NOT acquired, id NOT
+  // published). Atomic acquire+publish closes the cancel race where ImageAnalysisJob::
+  // Cancel could otherwise observe a held slot with an empty id (skip CancelTask) while
+  // the worker was about to issue the paid provider RPC.
+  auto AcquireAndPublish(const std::string& request_id, std::function<bool()> is_canceled)
+      -> bool;
   void Release();
-  // Publishes / clears the request_id of the job currently occupying the slot. Held
-  // only while a job is in flight; read by ImageAnalysisJob::Cancel to decide whether
-  // to best-effort CancelTask this job's in-flight RPC.
-  void PublishRequestId(const std::string& id);
+  // Clears the request_id of the job currently occupying the slot. Paired with
+  // AcquireAndPublish; read by ImageAnalysisJob::Cancel to decide whether to best-effort
+  // CancelTask this job's in-flight RPC. While the slot is held the id is always
+  // non-empty (AcquireAndPublish publishes atomically), so Cancel's id check agrees with
+  // its am_in_flight_ check.
   void ClearRequestId();
   auto CurrentRequestId() const -> std::string;
-  // Wakes any waiter blocked in Acquire (called by ImageAnalysisJob::Cancel).
+  // Wakes any waiter blocked in AcquireAndPublish (called by ImageAnalysisJob::Cancel).
   void NotifyAll();
 
  private:
@@ -211,6 +233,7 @@ class ImageAnalysisJob final {
   std::atomic<bool>                         canceled_{false};
   std::atomic<bool>                         am_in_flight_{false};
   std::thread                               worker_;
+  std::thread                               producer_;  // Phase 5e prefill producer
   bool                                      finished_ = false;
 
   std::shared_ptr<ImageAnalysisInFlightGate> gate_;

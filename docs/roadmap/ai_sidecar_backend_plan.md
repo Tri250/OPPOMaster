@@ -1915,3 +1915,274 @@ propagation; encoder JPEG-default + format metadata + no `rgba8:WxH` + no leftov
 no OpenCV imgcodecs dep; two-jobs-serial + cancel queued/running + no extra provider call; secret
 not in request/options/args/logs) are implemented and green, and the 5d-adjacent regression suite
 is green.
+
+## Phase 5e - Completion & Self-Review
+
+Status: complete. `ImageAnalysisService::RunJob` is now a producer/consumer
+prefill pipeline that overlaps local thumbnail/JPEG preparation with the single
+in-flight remote LLM call, without writing any database rows. A bounded
+`PrefillQueue` (depth = `prefetch`, clamped to `[1, kMaxImageAnalysisPrefetch]` (= 4))
+holds only encoded JPEG bytes
+plus rendition/item/request/task/provider metadata - never `ThumbnailGuard` or
+`ImageBuffer` pins. A producer thread runs `ThumbnailService` request -> CPU
+materialization -> `EncodeThumbnailForRemoteAnalysis` -> release the guard -> push
+the encoded item; the consumer worker pops FIFO -> `ImageAnalysisInFlightGate::
+Acquire` -> `DescribeImage`/`ScoreImage` -> `Release` -> append the DTO. The gate
+still caps remote concurrency at one; this phase only overlaps local prep with the
+active provider call. All Phase 5d invariants (credential-vault registration +
+secret zeroization, post-RPC cancel discard, best-effort `CancelTask` on this job's
+in-flight id only, OIIO JPEG encoder, no DB writes) are preserved unchanged. No
+product UI / controller wiring (Phase 6).
+
+Implemented (file-by-file, per the plan):
+
+- `alcedo_studio/src/include/app/image_analysis_service.hpp` - `ImageAnalysisOptions`
+  gains `int prefetch = 1;` (Phase 5e prefill queue depth, clamped to
+  `[1, kMaxImageAnalysisPrefetch]` in RunJob; the gate still caps remote at one).
+  New `inline constexpr int kMaxImageAnalysisPrefetch = 4;` bounds the prefill depth
+  so a caller cannot request an unbounded depth (Phase 5e review follow-up). The gate
+  replaces the separate `Acquire` + `PublishRequestId` with `AcquireAndPublish`
+  (acquire + publish request_id atomically under one lock) to close the post-acquire
+  cancel race. `ImageAnalysisJob` gains a `std::thread producer_;` member (joined in
+  the dtor alongside `worker_`).
+- `alcedo_studio/src/app/image_analysis_service.cpp` - `RunJob` refactored into a
+  producer/consumer pipeline. New `EncodedAnalysisItem` (encoded bytes + mime /
+  format_hint + rendition metadata + item ids + request_id + task/provider options
+  + the opaque `credential_ref` - NO `ThumbnailGuard`/`ImageBuffer` pin). New
+  `PrefillQueue` (bounded `std::deque`, 25ms timed-wait `Push`/`Pop` so cancel is
+  observed without an explicit notify, `MarkProducerDone`). The producer thread
+  (`producer_body` lambda, stored on `producer_`) prepares items in order:
+  `WaitForOneThumbnail` -> `EncodeThumbnailForRemoteAnalysis` -> release the
+  `ThumbnailGuard` -> `Push` (drops + exits on cancel). The consumer (the existing
+  `worker_` thread) pops FIFO -> on `PrepFailed`/`canceled`/`Encoded`:
+  `gate->AcquireAndPublish(request_id, IsCanceled)` (acquires the slot AND publishes
+  the request_id atomically; exits without a provider call if canceled while queued)
+  -> `am_in_flight_.store(true)` -> re-check `IsCanceled()` (PRE-RPC: if cancel
+  landed between AcquireAndPublish's internal check and the am_in_flight_ store, it
+  saw no in-flight job and sent no CancelTask; this re-check tears down the slot and
+  discards as canceled WITHOUT issuing the paid provider RPC, closing the narrow
+  post-acquire race) -> `DescribeImage`/`ScoreImage` (a `ScopeExit` slot guard
+  releases the gate on every exit path) -> post-RPC `IsCanceled()` discard (the
+  correctness guarantee) -> `Release` -> append result + `++consumed`.
+  `MarkProducerDone` + `producer_.join()` run before the finalizer, which emits
+  `canceled` for `items[consumed..N-1]`. `prefetch` is clamped via
+  `std::clamp(options.prefetch, 1, kMaxImageAnalysisPrefetch)` (logged when clamped).
+- `alcedo_studio/tests/app/image_analysis_service_test.cpp` - 9 new
+  `ImageAnalysisServiceTest` cases (the 8 plan-required 5e tests + 1 review-driven
+  prefetch-clamp regression):
+  `PrefillPipelinePreparesImage2WhileImage1BlockedInRpc` (prefetch=1; image 2 is
+  thumbnail-requested/encoded while image 1 is blocked in the fake `Describe`),
+  `PrefetchBoundedQueueDoesNotRequestWholeAlbum` (prefetch=2 over 6 items; requests
+  == prefetch+2 < 6, never the whole album), `OversizedPrefetchClampedToUpperBound`
+  (prefetch=1000 over 10 items; clamped to `kMaxImageAnalysisPrefetch`, requests
+  == max+2 < 10, never the whole album - Phase 5e review follow-up),
+  `PinReleasedAfterEncodeBefore
+  WaitingBehindGate` (`ReleaseThumbnail` called for all 3 before the first
+  `Describe`), `CancelWhileConsumerWaitsForEncodedItem` (blockable provider; all
+  items canceled, zero `Describe` calls), `CancelWhileProducerWaitsForQueueCapacity`
+  (prefetch=1 over 4 items; cancel unblocks the producer), `CancelWhileRemote
+  RequestInFlightDiscardsResult` (post-RPC discard + best-effort `CancelTask` on
+  this job's id only), `CancelAfterPrefilledNotSentItemsDropsQueuedRenditions`
+  (queued renditions dropped after cancel), `TwoJobsSharingGateSerializeRpcsWith
+  Prefill` (two jobs sharing one gate; B prefills locally with 0 remote calls while
+  A holds the slot). Plus a `SpinWaitFor` polling helper and a refactor of
+  `FakeThumbnailProvider` to a blockable mode (pending-request queue +
+  `SetBlockMode`/`WaitForPending`) for the consumer-waits-for-encoded-item case.
+  New includes `<condition_variable>`, `<deque>`, `<vector>`.
+- `alcedo_studio/tests/app/image_analysis_live_smoke_test.cpp` - NEW env-gated
+  live smoke (Phase 5g live-smoke territory, built early here as the bonus
+  real-image end-to-end). Skips unless `ALCEDO_IA_LIVE_RUNTIME_PATH`,
+  `ALCEDO_TEST_PACKED_PROJECT_PATH`, and `ALCEDO_IA_LIVE_ENV_TEST_PATH` are set
+  (optional `ALCEDO_IA_LIVE_PROVIDER_ID`, default `openrouter`). Opens a packed
+  `.alcd` via `ProjectPackageService`, materializes one k1024 thumbnail through the
+  REAL `ThumbnailService`+`PipelineMgmtService`, starts the real sidecar
+  (`require_model_info=false`, `allow_download=false`, empty model root - describe
+  is served over the HTTP provider path), registers a real credential read from
+  `.env.test`, runs `ImageAnalysisService` describe, and prints caption/tags/scene/
+  confidence (NEVER the image or the key) with redact-checks that the key is absent
+  from every result field. Calls `RegisterAllOperators()` at start (see harness
+  note below). The key var is `ALCEDO_VOLCENGINE_ARK_API_KEY` for any
+  `volcengine*` provider, else `ALCEDO_OPENROUTER_API_KEY`.
+- `alcedo_studio/tests/CMakeLists.txt` - new `ImageAnalysisLiveSmokeTest` target
+  (links `ImageAnalysisService ProjectService GTest::gtest_main`), registered in
+  the `ci_raw_flow` label.
+
+Invariants (Phase 5e review focus):
+
+- The queue stores encoded payloads, not `ThumbnailGuard`/`ImageBuffer` pins:
+  `EncodedAnalysisItem` carries bytes + metadata + the opaque `credential_ref`
+  only; the producer releases each `ThumbnailGuard` immediately after encoding,
+  before pushing. `PinReleasedAfterEncodeBeforeWaitingBehindGate` asserts
+  `ReleaseCount == 3` while only 1 `Describe` has fired.
+- Remote provider concurrency remains one across all services sharing the gate:
+  the prefill queue only overlaps LOCAL prep; `gate->AcquireAndPublish` still gates
+  the remote call. `TwoJobsSharingGateSerializeRpcsWithPrefill` proves two jobs
+  sharing one gate serialize (B makes 0 remote calls while A holds the slot); the
+  gate's contract changed only in that acquire + request_id publish are now atomic
+  (5e review follow-up), which does not affect serialization.
+- Cancellation cannot cancel another job's in-flight request, cannot issue a paid
+  provider RPC after a cancel that sent no CancelTask, and cannot leave the gate or
+  queue permanently blocked: the 25ms timed-wait on both `Push` and `Pop` observes
+  the cancel flag without an explicit notify; `Cancel()` calls `gate_->NotifyAll()`;
+  `AcquireAndPublish` publishes this job's request_id atomically with the slot, so
+  while `am_in_flight_` is true `gate_->CurrentRequestId()` is this job's non-empty
+  id (a queued job's cancel never touches another job's RPC); the post-acquire
+  PRE-RPC `IsCanceled()` re-check tears down the slot without a provider call if
+  cancel landed between AcquireAndPublish and the `am_in_flight_` store (closing the
+  narrow race where Cancel saw no in-flight job and sent no CancelTask); the
+  post-RPC `IsCanceled()` discard drops this job's own result if cancel landed
+  during the call (CancelTask best-effort + discard). The four cancel tests cover
+  producer-waits-for-capacity, consumer-waits-for-item, remote-in-flight, and
+  encoded-but-not-sent.
+- Memory behavior for large albums: bounded JPEG queue
+  (`PrefetchBoundedQueueDoesNotRequestWholeAlbum`: with prefetch=2 over 6 items,
+  only prefetch+2 thumbnails are requested, never the whole album), no unbounded
+  thumbnail pins (guards released after encode), no database writes (RunJob emits
+  DTOs only).
+
+Credential handling (Phase 3 invariant preserved, unchanged from 5d): the secret
+travels only to `RegisterCredential` once at job start; `RunJob` zeroizes + clears
+the local options copy immediately after and threads only the opaque
+`credential_ref` through the `EncodedAnalysisItem` and the request. The prefill
+queue never holds the secret - only the handle.
+
+Cancellation (guarantee strengthened, now spanning the prefill pipeline): the
+post-RPC `IsCanceled()` discard is the correctness guarantee for a cancel that
+lands during the RPC (CancelTask best-effort + discard); the 5e review follow-up
+adds a post-acquire PRE-RPC `IsCanceled()` re-check so a cancel that lands in the
+narrow window between `AcquireAndPublish` and the `am_in_flight_` store (where
+`Cancel()` saw no in-flight job and sent no CancelTask) tears down the slot and
+discards as canceled WITHOUT issuing the paid provider RPC. `AcquireAndPublish`
+publishing the request_id atomically with the slot means `Cancel()`'s
+`am_in_flight_` + `CurrentRequestId()` checks always agree. The 25ms timed-wait
+polling on the bounded queue means a producer blocked on capacity and a consumer
+blocked on an empty queue both observe cancel promptly without an explicit notify
+(the gate's `NotifyAll` covers the gate wait). A canceled queued job exits without
+ever calling the provider.
+
+Bonus live run (Phase 5g-adjacent): the env-gated live smoke now runs a real
+describe end-to-end against a packed `.alcd` project. Two test-harness /
+environment issues were found and fixed during the run (neither is a Phase 5e
+shipped-code bug):
+
+- (Harness) The live smoke initially crashed with 0xC0000005 inside
+  `CPUPipelineExecutor::InitDefaultPipeline` -> `PipelineStage::SetOperator` (null
+  `op_` deref). Root cause: the smoke never called `alcedo::RegisterAllOperators()`,
+  so the global `OperatorFactory` was empty and `OperatorFactory::Create` returned
+  nullptr for every default operator; the 3-arg `SetOperator` then dereferenced the
+  null op in `SetGlobalParams`. Fixed by calling `RegisterAllOperators()` at the
+  start of the smoke (exactly as `main.cpp:142` and every pipeline-using test
+  fixture do). This is a harness requirement for any test exercising the real
+  `ThumbnailService` -> CPU-pipeline render path, not a Phase 5e defect.
+- (Environment) `DescribeImage` returned gRPC UNIMPLEMENTED (code 12). The on-disk
+  release `alcedo_mind.exe` was a Phase-4-era build that registered
+  `AiRuntimeService` (so `RegisterCredential` worked) but NOT `ImageAnalysisService`
+  (`registry.rs:66` is a 5a addition). The C++ client even documents this case
+  (`grpc::UNIMPLEMENTED => the sidecar predates Phase 5d`). Fixed by rebuilding the
+  release sidecar binary (`cargo build --release --bin alcedo_mind` in
+  `rust/puerh_mind`).
+
+Provider-credential state in `.env.test` (environment, not code): the OpenRouter
+key returns HTTP 401 (invalid/expired); the Volcengine Ark Responses default model
+returns HTTP 404 (the default `doubao-seed-2.0-lite-260428` endpoint/model is not
+found for this account - this is Open Decision #4, the live-verified Volcengine
+Responses shape). The Volcengine Ark Coding Plan (Anthropic-compatible, via
+`AnthropicMessagesProvider`) WORKS with the same Ark key. The live smoke PASSED
+with `ALCEDO_IA_LIVE_PROVIDER_ID=volcengine_ark_coding` against the real `.alcd`
+image: the LLM (Doubao seed 2.0 lite, model id `doubao-seed-2.0-lite`) returned a
+coherent caption, 10 tags, a scene hint, and confidence 0.95 in ~2.8s, and the
+redact-checks confirmed the key is absent from every result field. (The actual
+caption is printed only to the env-gated test stdout, not recorded here, per the
+"you don't need to look at what the image is" instruction.)
+
+Test results:
+
+- C++ MSVC build (PowerShell tool): `--target ImageAnalysisServiceTest
+  ImageAnalysisLiveSmokeTest` built clean. The two live-smoke edits this phase
+  (`RegisterAllOperators()` + the `volcengine*` key-var fix) rebuilt in one pass.
+- ctest Phase 5d/5e group (`-R "ImageAnalysisServiceTest|ImageAnalysisEncoderTest
+  |AiSidecarRuntimeServiceTest"`): 46/46 passed (19 `ImageAnalysisServiceTest`
+  incl. the 9 new 5e cases, 3 `ImageAnalysisEncoderTest`, 24
+  `AiSidecarRuntimeServiceTest`; 1 pre-existing live-runtime test Skipped -
+  `ALCEDO_SEMANTIC_LIVE_RUNTIME_PATH` not set). The 9 new 5e tests rely only on
+  bounded 25ms timed-wait polling, not wall-clock timing. Re-run after the 5e
+  review follow-up (cancel-race fix + prefetch upper cap): 46/46, incl. the new
+  `OversizedPrefetchClampedToUpperBound` regression.
+- Rust (no 5e source change - the sidecar was only REBUILT, not modified): the 5d
+  suite (185 passed) is unchanged. The 3 env-gated Rust live smokes were run this
+  phase: `live_openrouter_smoke_*` -> HTTP 401, `live_volcengine_ark_smoke_*` ->
+  HTTP 404, `live_volcengine_ark_coding_smoke_*` -> PASSED (real caption of the
+  32x32 fixture PNG), confirming the driver / endpoint / key matrix above.
+- C++ env-gated live smoke `ImageAnalysisLiveSmokeTest.DescribesOneImageFrom
+  PackedProject`: PASSED with `volcengine_ark_coding` (real describe of a real
+  `.alcd` image through the full C++ -> sidecar -> HTTP-provider path); SKIPPED
+  cleanly without the env vars.
+
+Deferred to Phase 5f / 5g / 6:
+
+- Database writes / persistence / search integration (5f) - 5e still emits DTOs
+  only.
+- The env-gated live smokes are formally a 5g deliverable; the C++ one was built
+  early here as the bonus real-image run. Phase 5g should also record the
+  provider-credential matrix (OpenRouter 401 / Volcengine Ark Responses 404 /
+  Volcengine Ark Coding Plan ok) and the harness requirement to call
+  `RegisterAllOperators()` in any test that drives the real CPU pipeline.
+- Product UI / controller wiring / a shared `ImageAnalysisInFlightGate` owned by
+  the album backend, and setting the app-wide `prefetch` (6).
+- A valid OpenRouter credential and a confirmed Volcengine Ark Responses
+  model/endpoint (Open Decision #4) for full 5g live coverage of all three
+  providers.
+
+Build note for the next handoff: rebuild the release sidecar binary after any Rust
+image-analysis change (`cargo build --release --bin alcedo_mind` in
+`rust/puerh_mind`) - a stale binary returns UNIMPLEMENTED for `DescribeImage`. Run
+MSVC builds through the PowerShell tool (not Bash), and build affected test targets
+explicitly before ctest.
+
+Review conclusion: two findings from the 5e review were addressed in a follow-up
+(both shipped-code, both fixed and re-tested green):
+
+- (P2 cancel race) `ImageAnalysisJob::Cancel` had a narrow window after
+  `Acquire()` succeeded: if Cancel landed between the post-Acquire `IsCanceled()`
+  check and the `am_in_flight_` / `PublishRequestId` stores, Cancel saw no
+  in-flight request, sent no CancelTask, and the worker could still issue the paid
+  provider RPC. Fixed by replacing `Acquire` + `PublishRequestId` with a single
+  atomic `AcquireAndPublish(request_id, is_canceled)` (acquire + publish under one
+  lock) and adding a post-publish / PRE-RPC `IsCanceled()` re-check after the
+  `am_in_flight_` store: if Cancel landed in that window, the re-check tears down
+  the slot and discards as canceled WITHOUT issuing the paid RPC. The seq_cst
+  atomics + gate mutex make the store happen-after the atomic publish and the
+  re-check observe a cancel that preceded it. The residual accepted behavior
+  (unchanged) is that a cancel landing AFTER the re-check may still issue the RPC,
+  but then Cancel DOES send CancelTask (am_in_flight_ true + published id) and the
+  post-RPC discard drops the result. The four existing cancel tests stay green; the
+  new pre-RPC discard branch is not deterministically reachable without
+  production-side instrumentation, so it is covered by the memory-model argument +
+  the regression suite, not a dedicated flaky test.
+- (P2/P3 prefetch upper bound) `prefetch` was clamped only to `>= 1`; a caller
+  could set an unbounded depth and let the producer encode most of a large album
+  while one RPC was blocked. Fixed by adding `inline constexpr int
+  kMaxImageAnalysisPrefetch = 4;` and clamping via
+  `std::clamp(options.prefetch, 1, kMaxImageAnalysisPrefetch)` (logged when
+  clamped). New regression `OversizedPrefetchClampedToUpperBound` (prefetch=1000
+  over 10 items; requests == max+2 < 10, never the whole album).
+
+Re-run after the follow-up: ctest 5d/5e group 46/46 (19 `ImageAnalysisServiceTest`
+incl. the 9 new 5e cases + the new prefetch-clamp regression, 3
+`ImageAnalysisEncoderTest`, 24 `AiSidecarRuntimeServiceTest`; 1 pre-existing
+live-runtime Skip). The earlier-accepted risk (1) (prefetch lower-bounded only) is
+now resolved; the remaining accepted risks are unchanged: (2) the deterministic
+suite uses `FakeThumbnailProvider`, so the prefill pipeline's interaction with the
+real `ThumbnailService` async / `PipelineScheduler` ThreadPool render path is
+proven only by the env-gated live smoke (5g territory), not the always-run ctest
+group; (3) the `.env.test` OpenRouter key is invalid (HTTP 401) and the Volcengine
+Ark Responses default model 404s (Open Decision #4) - the live describe succeeds
+via the Volcengine Ark Coding Plan provider, and this credential / config state is
+accepted as an environment constraint, not a code defect. The two bonus-live-run
+issues (live smoke omitted `RegisterAllOperators()` -> null-deref; stale Phase-4
+sidecar binary -> UNIMPLEMENTED for `DescribeImage`) were test-harness /
+environment, both fixed. Missing tests: none - all 8 plan-required 5e tests
+(pipeline overlap, bounded queue, the four cancel scenarios, pin lifetime,
+two-jobs-sharing-gate) plus the review-driven prefetch-clamp regression are
+implemented and green, and the bonus env-gated live smoke runs end-to-end against
+a real provider.

@@ -730,6 +730,19 @@ target_link_libraries(ImageAnalysisServiceTest ImageAnalysisService
 gtest_discover_tests(ImageAnalysisServiceTest TEST_PREFIX "ImageAnalysisServiceTest."
   PROPERTIES LABELS "ci_raw_flow")
 
+# Env-gated live smoke: opens a real packed .alcd, materializes one k1024 thumbnail, starts the
+# real Rust sidecar (no CLIP model; describe uses the HTTP provider path), and asks a live LLM to
+# describe the image through ImageAnalysisService. Skipped unless ALCEDO_IA_LIVE_RUNTIME_PATH,
+# ALCEDO_TEST_PACKED_PROJECT_PATH, and ALCEDO_IA_LIVE_ENV_TEST_PATH are set. ProjectService
+# transitively provides ProjectPackageService (unpack), AlbumBrowseService (enumerate), and
+# AiSidecarRuntimeService (sidecar); ThumbnailService provides the k1024 materialization.
+add_executable(ImageAnalysisLiveSmokeTest app/image_analysis_live_smoke_test.cpp)
+target_include_directories(ImageAnalysisLiveSmokeTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(ImageAnalysisLiveSmokeTest ImageAnalysisService ProjectService
+  GTest::gtest_main)
+gtest_discover_tests(ImageAnalysisLiveSmokeTest TEST_PREFIX "ImageAnalysisLiveSmokeTest."
+  PROPERTIES LABELS "ci_raw_flow")
+
 add_executable(ThumbnailServiceTest app/thumbnail_service_test.cpp)
 target_include_directories(ThumbnailServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
 target_link_libraries(ThumbnailServiceTest ThumbnailService ProjectService ImportService GTest::gtest_main)

@@ -7,8 +7,10 @@
 #include "app/image_analysis_encoder.hpp"
 
 #include <algorithm>
+#include <deque>
 #include <exception>
 #include <filesystem>
+#include <optional>
 #include <stdexcept>
 #include <utility>
 
@@ -114,6 +116,87 @@ auto WaitForOneThumbnail(const std::shared_ptr<ImageAnalysisJob>&             jo
   return std::move(state->result);
 }
 
+// Phase 5e: one prepared, self-contained work unit handed from the producer to the
+// consumer across the bounded ready queue. It carries encoded bytes + rendition
+// metadata + item/request identity + the (non-secret) request fields the consumer
+// needs to build the typed RPC — it never carries a ThumbnailGuard / ImageBuffer pin
+// (the producer releases the pin before pushing). `credential_ref` is the opaque vault
+// handle, never key material.
+enum class EncodedItemKind : uint8_t { kEncoded = 0, kPrepFailed };
+
+struct EncodedAnalysisItem {
+  EncodedItemKind          kind = EncodedItemKind::kEncoded;
+  ImageAnalysisItem        item{};
+  std::string              request_id;
+  std::vector<uint8_t>     bytes;           // kEncoded: encoded JPEG bytes
+  std::string              image_format_hint;  // kEncoded: "image/jpeg;max_edge=<N>"
+  ImageAnalysisRendition   rendition;       // kEncoded: records what was actually encoded
+  std::string              provider_id;     // request identity (non-secret)
+  std::string              model_id;
+  std::string              prompt_profile_id;
+  std::string              rubric_id;
+  std::string              credential_ref;  // opaque vault handle
+  std::string              error;           // kPrepFailed: thumbnail/encode error message
+};
+
+// Bounded ready queue (Phase 5e prefill). The producer pushes prepared encoded items;
+// the consumer pops them in FIFO order and runs the single in-flight remote call. The
+// bound caps in-memory JPEG buffers at `capacity` (plus the one the consumer holds in
+// flight), so a large album cannot accumulate unbounded encoded bytes. Waits use a 25ms
+// timed poll so a cancel (which only flips the job flag; the queue is not a job member)
+// is observed without an explicit notify — matching WaitForOneThumbnail's discipline.
+// Notify-on-release / notify-on-done keep the normal (non-cancel) path prompt.
+class PrefillQueue {
+ public:
+  explicit PrefillQueue(size_t capacity) : capacity_(capacity == 0 ? 1 : capacity) {}
+
+  auto Push(EncodedAnalysisItem item, std::function<bool()> is_canceled) -> bool {
+    std::unique_lock lk(mutex_);
+    while (items_.size() >= capacity_ && !is_canceled()) {
+      not_full_cv_.wait_for(lk, std::chrono::milliseconds(25));
+    }
+    if (is_canceled()) {
+      return false;  // item NOT pushed; caller should stop producing
+    }
+    items_.push_back(std::move(item));
+    not_empty_cv_.notify_one();
+    return true;
+  }
+
+  auto Pop(std::function<bool()> is_canceled) -> std::optional<EncodedAnalysisItem> {
+    std::unique_lock lk(mutex_);
+    while (items_.empty() && !producer_done_ && !is_canceled()) {
+      not_empty_cv_.wait_for(lk, std::chrono::milliseconds(25));
+    }
+    if (is_canceled()) {
+      return std::nullopt;
+    }
+    if (items_.empty()) {
+      return std::nullopt;  // producer_done_ && empty => end of stream
+    }
+    auto item = std::move(items_.front());
+    items_.pop_front();
+    not_full_cv_.notify_one();
+    return item;
+  }
+
+  void MarkProducerDone() {
+    {
+      std::unique_lock lk(mutex_);
+      producer_done_ = true;
+    }
+    not_empty_cv_.notify_all();
+  }
+
+ private:
+  mutable std::mutex             mutex_;
+  std::condition_variable        not_full_cv_;
+  std::condition_variable        not_empty_cv_;
+  std::deque<EncodedAnalysisItem> items_;
+  size_t                         capacity_;
+  bool                           producer_done_ = false;
+};
+
 }  // namespace
 
 auto ToString(ImageAnalysisItemStatus status) -> const char* {
@@ -134,13 +217,15 @@ auto ToString(ImageAnalysisItemStatus status) -> const char* {
 
 // --- ImageAnalysisInFlightGate ---
 
-auto ImageAnalysisInFlightGate::Acquire(std::function<bool()> is_canceled) -> bool {
+auto ImageAnalysisInFlightGate::AcquireAndPublish(const std::string& request_id,
+                                                  std::function<bool()> is_canceled) -> bool {
   std::unique_lock lk(mutex_);
   cv_.wait(lk, [&] { return !in_flight_ || is_canceled(); });
   if (is_canceled()) {
     return false;
   }
   in_flight_ = true;
+  in_flight_request_id_ = request_id;  // published atomically with in_flight_
   return true;
 }
 
@@ -150,11 +235,6 @@ void ImageAnalysisInFlightGate::Release() {
     in_flight_ = false;
   }
   cv_.notify_all();
-}
-
-void ImageAnalysisInFlightGate::PublishRequestId(const std::string& id) {
-  std::unique_lock lk(mutex_);
-  in_flight_request_id_ = id;
 }
 
 void ImageAnalysisInFlightGate::ClearRequestId() {
@@ -262,6 +342,19 @@ auto AiSidecarRuntimeImageAnalysisClient::CancelTask(const std::string& request_
 
 ImageAnalysisJob::~ImageAnalysisJob() {
   Cancel();
+  // RunJob joins the producer before it returns, so producer_ is normally non-joinable
+  // here. Join defensively (with the self-join guard) for the case where a job is
+  // destroyed without Wait()-ing to completion. Order: producer first (shorter-lived),
+  // then the worker. worker_ may be self (the worker thread releasing the last ref when
+  // the caller drops the job without waiting); producer_ is never self here because the
+  // producer thread's ref keeps the job alive until RunJob has already joined it.
+  if (producer_.joinable()) {
+    if (producer_.get_id() == std::this_thread::get_id()) {
+      producer_.detach();
+    } else {
+      producer_.join();
+    }
+  }
   if (worker_.joinable()) {
     if (worker_.get_id() == std::this_thread::get_id()) {
       worker_.detach();
@@ -277,9 +370,12 @@ void ImageAnalysisJob::Cancel() {
     gate_->NotifyAll();
   }
   // Best-effort server-side cancel of THIS job's in-flight RPC. am_in_flight_ is true
-  // only while this job occupies the gate slot, so the gate's current id (when non-empty)
-  // is this job's request_id. CancelTask returning cancelled=false (already finished /
-  // unknown) is harmless; the post-RPC IsCanceled() discard in RunJob is the guarantee.
+  // only while this job occupies the gate slot, and AcquireAndPublish publishes this
+  // job's request_id atomically with the slot, so while am_in_flight_ is true the gate's
+  // current id is this job's (non-empty) request_id. CancelTask returning cancelled=false
+  // (already finished / unknown) is harmless; the pre-RPC re-check + post-RPC
+  // IsCanceled() discard in RunJob are the guarantees that no paid RPC is honored after
+  // cancel.
   if (am_in_flight_.load() && client_ && gate_) {
     const auto id = gate_->CurrentRequestId();
     if (!id.empty()) {
@@ -444,109 +540,216 @@ void ImageAnalysisService::RunJob(const std::shared_ptr<ImageAnalysisJob>& job,
     credential_ref = std::move(handle);
   }
 
+  // Clamp the prefill depth to [1, kMaxImageAnalysisPrefetch]: the lower bound keeps the
+  // queue non-empty, the upper bound keeps a caller from requesting an unbounded depth
+  // (which would let the producer encode most of a large album while one RPC is blocked,
+  // weakening the Phase 5e bounded-memory promise). The gate still caps remote at one.
+  const int effective_prefetch = std::clamp(options.prefetch, 1, kMaxImageAnalysisPrefetch);
+  if (effective_prefetch != options.prefetch) {
+    qCInfo(diag::semanticLog).noquote()
+        << QStringLiteral("image_analysis.prefetch clamped requested=%1 effective=%2 max=%3")
+               .arg(options.prefetch)
+               .arg(effective_prefetch)
+               .arg(kMaxImageAnalysisPrefetch);
+  }
+
   const auto temp_dir   = options.temp_dir.empty()
                               ? std::filesystem::temp_directory_path()
                               : options.temp_dir;
   const auto resolution = options.thumbnail_resolution;
+  auto       queue      = std::make_shared<PrefillQueue>(
+      static_cast<size_t>(effective_prefetch));
 
-  for (const auto& item : items) {
-    if (job->IsCanceled()) {
-      ImageAnalysisItemResult r;
-      r.item   = item;
-      r.status = ImageAnalysisItemStatus::kCanceled;
-      job->AppendResult(std::move(r));
-      update_and_dispatch([&](ImageAnalysisProgress& p) { p.canceled += 1; });
-      continue;
+  // --- Producer thread (Phase 5e): overlaps local thumbnail/encode prep with the single
+  // in-flight remote call. It prepares items in order, releases each ThumbnailGuard
+  // immediately after encoding, and pushes a self-contained encoded item (bytes +
+  // rendition + request identity; never a thumbnail pin) into the bounded ready queue.
+  // The gate is NOT touched here — the consumer remains the sole remote-call boundary.
+  // On cancel the producer stops requesting/encoding; the consumer finalizes un-produced
+  // items. The ScopeExit guarantees MarkProducerDone on every exit so the consumer is
+  // never stranded waiting for an item that will never come.
+  auto producer_body = [&]() {
+    ScopeExit done_guard([&] { queue->MarkProducerDone(); });
+    for (const auto& item : items) {
+      if (job->IsCanceled()) {
+        break;
+      }
+      EncodedAnalysisItem e;
+      e.item              = item;
+      e.request_id        = MakeRequestId(item, options.task);
+      e.provider_id       = options.provider_id;
+      e.model_id          = options.model_id;
+      e.prompt_profile_id = options.prompt_profile_id;
+      e.rubric_id         = options.rubric_id;
+      e.credential_ref    = credential_ref;  // opaque handle; secret already cleared
+
+      auto thumb = WaitForOneThumbnail(job, thumbnail_provider, item, resolution);
+      if (job->IsCanceled() || thumb.status == ThumbnailRequestStatus::kCanceled) {
+        break;  // consumer finalizer records canceled for this + remaining items
+      }
+      if (thumb.status != ThumbnailRequestStatus::kReady || !thumb.guard) {
+        e.kind  = EncodedItemKind::kPrepFailed;
+        e.error = thumb.message.empty() ? std::string("thumbnail unavailable") : thumb.message;
+        if (!queue->Push(std::move(e), [job] { return job->IsCanceled(); })) {
+          break;
+        }
+        continue;
+      }
+
+      std::string encode_error;
+      auto        encoded = EncodeThumbnailForRemoteAnalysis(
+          *thumb.guard, options.jpeg_quality, static_cast<uint32_t>(resolution), temp_dir,
+          &encode_error);
+      // Release the thumbnail pin immediately after encode — BEFORE the encoded item
+      // waits in the queue / behind the remote gate. The queue holds bytes, not a pin.
+      thumbnail_provider->ReleaseThumbnail(thumb.key);
+
+      if (!encoded.ok) {
+        e.kind  = EncodedItemKind::kPrepFailed;
+        e.error = encode_error.empty() ? std::string("image encode failed") : encode_error;
+      } else {
+        e.kind               = EncodedItemKind::kEncoded;
+        e.bytes              = std::move(encoded.bytes);
+        e.image_format_hint  = std::move(encoded.format_hint);
+        e.rendition.kind     = std::move(encoded.rendition_kind);
+        e.rendition.width    = encoded.width;
+        e.rendition.height   = encoded.height;
+        e.rendition.bytes    = e.bytes.size();
+        e.rendition.max_edge = encoded.max_edge;
+      }
+      if (!queue->Push(std::move(e), [job] { return job->IsCanceled(); })) {
+        break;  // canceled while blocked on queue capacity; finalizer cancels the rest
+      }
     }
+  };
 
-    // (2) Materialize the k1024 thumbnail and encode it to JPEG. This is the encoded
-    // remote-analysis path — distinct from the raw RGBA8 CLIP embedding path.
-    auto thumb = WaitForOneThumbnail(job, thumbnail_provider, item, resolution);
-    if (thumb.status != ThumbnailRequestStatus::kReady || !thumb.guard) {
-      ImageAnalysisItemResult r;
-      r.item   = item;
-      r.status = (thumb.status == ThumbnailRequestStatus::kCanceled)
-                     ? ImageAnalysisItemStatus::kCanceled
-                     : ImageAnalysisItemStatus::kError;
-      r.error  = thumb.message.empty() ? std::string("thumbnail unavailable") : thumb.message;
-      update_and_dispatch(
-          [&](ImageAnalysisProgress& p) {
-            if (r.status == ImageAnalysisItemStatus::kCanceled) {
-              p.canceled += 1;
-            } else {
-              p.failed += 1;
-            }
-          });
-      job->AppendResult(std::move(r));
-      continue;
-    }
-
-    std::string encode_error;
-    auto        encoded = EncodeThumbnailForRemoteAnalysis(
-        *thumb.guard, options.jpeg_quality, static_cast<uint32_t>(resolution), temp_dir, &encode_error);
-    thumbnail_provider->ReleaseThumbnail(thumb.key);
-    if (!encoded.ok) {
+  try {
+    job->producer_ = std::thread(std::move(producer_body));
+  } catch (const std::exception& e) {
+    // Could not spawn the producer pipeline; fail every item and finish.
+    for (const auto& item : items) {
       ImageAnalysisItemResult r;
       r.item   = item;
       r.status = ImageAnalysisItemStatus::kError;
-      r.error  = encode_error.empty() ? std::string("image encode failed") : encode_error;
+      r.error  = std::string("image analysis pipeline failed: ") + e.what();
+      job->AppendResult(std::move(r));
+    }
+    update_and_dispatch([&](ImageAnalysisProgress& p) { p.failed += items.size(); });
+    if (on_finished) {
+      on_finished(job->Results());
+    }
+    job->Finish();
+    return;
+  }
+
+  // --- Consumer (runs on this worker thread): pops encoded items in FIFO order, holds
+  // the single in-flight slot across the typed RPC, and appends structured DTO results.
+  // Order is preserved (one queue entry per item, FIFO, single appender), so every input
+  // item gets exactly one result in item order. On cancel the consumer stops popping to
+  // RPC and the finalizer emits canceled results for every item it never processed
+  // (including encoded-but-not-sent items left in the queue). No database writes.
+  size_t consumed = 0;
+  while (consumed < items.size()) {
+    if (job->IsCanceled()) {
+      break;
+    }
+    auto entry = queue->Pop([job] { return job->IsCanceled(); });
+    if (!entry.has_value()) {
+      break;  // producer done + empty (end of stream), or canceled
+    }
+    auto& e = *entry;
+
+    if (e.kind == EncodedItemKind::kPrepFailed) {
+      ImageAnalysisItemResult r;
+      r.item      = e.item;
+      r.request_id = e.request_id;
+      r.rendition = e.rendition;
+      r.status    = ImageAnalysisItemStatus::kError;
+      r.error     = e.error;
       job->AppendResult(std::move(r));
       update_and_dispatch([&](ImageAnalysisProgress& p) { p.failed += 1; });
+      ++consumed;
       continue;
     }
 
-    // (3) Build the typed request. The rendition records what was actually sent.
-    const auto byte_count = encoded.bytes.size();
-    ImageAnalysisRequest req;
-    req.request_id        = MakeRequestId(item, options.task);
-    req.image_bytes       = std::move(encoded.bytes);
-    req.image_format_hint = encoded.format_hint;
-    req.rendition.kind    = encoded.rendition_kind;
-    req.rendition.width   = encoded.width;
-    req.rendition.height  = encoded.height;
-    req.rendition.bytes   = byte_count;
-    req.rendition.max_edge = encoded.max_edge;
-    req.provider_id       = options.provider_id;
-    req.model_id          = options.model_id;
-    req.prompt_profile_id = options.prompt_profile_id;
-    req.credential_ref    = credential_ref;
-    req.rubric_id         = options.rubric_id;
-
-    // (4) Acquire the service-wide in-flight slot (max one remote analysis at a time).
-    // If canceled while queued, exit without ever calling the provider.
-    if (!in_flight_gate->Acquire([job]() { return job->IsCanceled(); })) {
+    // Encoded item. If the job was canceled while it sat in the queue, discard it as
+    // canceled without touching the provider or the in-flight gate.
+    if (job->IsCanceled()) {
       ImageAnalysisItemResult r;
-      r.item      = item;
-      r.request_id = req.request_id;
+      r.item      = e.item;
+      r.request_id = e.request_id;
+      r.rendition = e.rendition;
       r.status    = ImageAnalysisItemStatus::kCanceled;
-      r.rendition = req.rendition;
       job->AppendResult(std::move(r));
       update_and_dispatch([&](ImageAnalysisProgress& p) { p.canceled += 1; });
+      ++consumed;
       continue;
     }
+
+    // Build the typed request from the self-contained queue entry. The consumer never
+    // reads the secret-bearing options copy; the opaque credential_ref came via the queue.
+    ImageAnalysisRequest req;
+    req.request_id        = std::move(e.request_id);
+    req.image_bytes       = std::move(e.bytes);
+    req.image_format_hint = std::move(e.image_format_hint);
+    req.rendition         = e.rendition;
+    req.provider_id       = std::move(e.provider_id);
+    req.model_id          = std::move(e.model_id);
+    req.prompt_profile_id = std::move(e.prompt_profile_id);
+    req.credential_ref    = std::move(e.credential_ref);
+    req.rubric_id         = std::move(e.rubric_id);
+
+    // Acquire the service-wide in-flight slot (max one remote analysis at a time across
+    // all services sharing this gate) AND publish this request_id atomically with the
+    // slot. If canceled while queued, AcquireAndPublish returns false and we exit without
+    // ever calling the provider. Atomic acquire+publish (rather than Acquire then a
+    // separate PublishRequestId) closes the narrow cancel race where Cancel() could
+    // observe a held slot with an empty id and skip CancelTask while the worker was still
+    // about to issue the paid provider RPC.
+    if (!in_flight_gate->AcquireAndPublish(req.request_id,
+                                           [job]() { return job->IsCanceled(); })) {
+      ImageAnalysisItemResult r;
+      r.item      = e.item;
+      r.request_id = req.request_id;
+      r.rendition = req.rendition;
+      r.status    = ImageAnalysisItemStatus::kCanceled;
+      job->AppendResult(std::move(r));
+      update_and_dispatch([&](ImageAnalysisProgress& p) { p.canceled += 1; });
+      ++consumed;
+      continue;
+    }
+    // Mark this job as the in-flight occupant AFTER the slot is won (not before: while
+    // queued behind another job, am_in_flight_ must stay false so this job's Cancel()
+    // never cancels the other job's RPC). Then re-check cancel: if Cancel() landed in the
+    // window between AcquireAndPublish's internal IsCanceled check and this store, it saw
+    // am_in_flight_ == false and sent no CancelTask - this re-check (after the store,
+    // before the RPC) is what prevents the paid provider call from going out after a
+    // cancel that sent no CancelTask. The seq_cst atomics + the gate mutex make the store
+    // happen-after the atomic publish and the re-check observe a cancel that preceded it.
+    job->am_in_flight_.store(true);
     if (job->IsCanceled()) {
+      in_flight_gate->ClearRequestId();
+      job->am_in_flight_.store(false);
       in_flight_gate->Release();
       ImageAnalysisItemResult r;
-      r.item      = item;
+      r.item      = e.item;
       r.request_id = req.request_id;
-      r.status    = ImageAnalysisItemStatus::kCanceled;
       r.rendition = req.rendition;
+      r.status    = ImageAnalysisItemStatus::kCanceled;
       job->AppendResult(std::move(r));
       update_and_dispatch([&](ImageAnalysisProgress& p) { p.canceled += 1; });
+      ++consumed;
       continue;
     }
-    job->am_in_flight_.store(true);
-    in_flight_gate->PublishRequestId(req.request_id);
 
-    // (5) The typed RPC. DescribeImage / ScoreImage are distinct contracts (distinct
-    // task_ids / result types) so a rating result can never overwrite an understanding.
-    // The in-flight slot is held across the call. An RAII guard releases it (and clears
-    // the published request_id + am_in_flight_) on scope exit — including if the
-    // provider throws, which would otherwise leave the service-wide gate locked and the
-    // job stuck in-flight (so Finish() would never run). The provider call is wrapped so
-    // a thrown RPC becomes an item error instead of escaping the worker thread.
+    // The typed RPC. DescribeImage / ScoreImage are distinct contracts (distinct task_ids
+    // / result types) so a rating result can never overwrite an understanding. The in-flight
+    // slot is held across the call; an RAII guard releases it (and clears the published
+    // request_id + am_in_flight_) on scope exit — including if the provider throws, which
+    // would otherwise leave the service-wide gate locked and the job stuck in-flight. The
+    // provider call is wrapped so a thrown RPC becomes an item error instead of escaping.
     ImageAnalysisItemResult r;
-    r.item      = item;
+    r.item      = e.item;
     r.request_id = req.request_id;
     r.rendition = req.rendition;
     {
@@ -557,29 +760,31 @@ void ImageAnalysisService::RunJob(const std::shared_ptr<ImageAnalysisJob>& job,
       });
       try {
         if (options.task == ImageAnalysisTask::kScore) {
-          auto res   = analysis_client->ScoreImage(req, options.timeout);
+          auto res     = analysis_client->ScoreImage(req, options.timeout);
           r.request_id = res.request_id.empty() ? req.request_id : res.request_id;
-          r.rating   = std::move(res);
+          r.rating     = std::move(res);
         } else {
-          auto res   = analysis_client->DescribeImage(req, options.timeout);
-          r.request_id = res.request_id.empty() ? req.request_id : res.request_id;
+          auto res        = analysis_client->DescribeImage(req, options.timeout);
+          r.request_id    = res.request_id.empty() ? req.request_id : res.request_id;
           r.understanding = std::move(res);
         }
-      } catch (const std::exception& e) {
+      } catch (const std::exception& ex) {
         r.status = ImageAnalysisItemStatus::kError;
-        r.error  = std::string("image analysis rpc failed: ") + e.what();
+        r.error  = std::string("image analysis rpc failed: ") + ex.what();
         job->AppendResult(std::move(r));
         update_and_dispatch([&](ImageAnalysisProgress& p) { p.failed += 1; });
+        ++consumed;
         continue;  // slot_guard releases the slot on scope exit
       }
     }  // slot_guard releases the slot here on the success path
 
-    // (6) Post-RPC cancel check: if canceled during the call, discard the result even
-    // if the provider succeeded — this is the correctness guarantee, not CancelTask.
+    // Post-RPC cancel check: if canceled during the call, discard the result even if the
+    // provider succeeded — this is the correctness guarantee, not CancelTask.
     if (job->IsCanceled()) {
       r.status = ImageAnalysisItemStatus::kCanceled;
       job->AppendResult(std::move(r));
       update_and_dispatch([&](ImageAnalysisProgress& p) { p.canceled += 1; });
+      ++consumed;
       continue;
     }
 
@@ -601,6 +806,32 @@ void ImageAnalysisService::RunJob(const std::shared_ptr<ImageAnalysisJob>& job,
       update_and_dispatch([&](ImageAnalysisProgress& p) { p.failed += 1; });
     }
     job->AppendResult(std::move(r));
+    ++consumed;
+  }
+
+  // The producer has finished (or been canceled) by the time the consumer exits: Pop only
+  // returns nullopt on producer_done + empty, and on cancel the producer's Push /
+  // WaitForOneThumbnail observes the flag within the 25ms poll. Join it so no producer
+  // thread outlives RunJob; the destructor's producer_ join is then inert.
+  if (job->producer_.joinable()) {
+    job->producer_.join();
+  }
+
+  // Finalizer: emit canceled results for every item the consumer never processed — the
+  // items the producer never reached (cancel mid-prep) plus any encoded items left in the
+  // queue at cancel time (their bytes are freed when `queue` is destroyed). This preserves
+  // the invariant that every input item yields exactly one result, in order, with no
+  // database writes.
+  if (consumed < items.size()) {
+    for (size_t j = consumed; j < items.size(); ++j) {
+      ImageAnalysisItemResult r;
+      r.item      = items[j];
+      r.request_id = MakeRequestId(items[j], options.task);
+      r.status    = ImageAnalysisItemStatus::kCanceled;
+      job->AppendResult(std::move(r));
+    }
+    update_and_dispatch(
+        [&](ImageAnalysisProgress& p) { p.canceled += (items.size() - consumed); });
   }
 
   if (on_finished) {

@@ -8,6 +8,8 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
+#include <deque>
 #include <filesystem>
 #include <future>
 #include <memory>
@@ -15,6 +17,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include <opencv2/core.hpp>
 
@@ -39,12 +42,53 @@ auto ScratchDir(const std::string& tag) -> std::filesystem::path {
 }
 
 // Synchronous thumbnail provider: returns a ready guard holding a small CPU mat so the
-// encoder produces real JPEG bytes. No ThumbnailService / pipeline required.
+// encoder produces real JPEG bytes. No ThumbnailService / pipeline required. A block mode
+// holds callbacks without delivering them, so a Phase 5e test can stall the producer (the
+// "consumer waiting for an encoded item" case): cancel then unblocks the producer via
+// RunJob's 25ms poll, and the held callbacks are simply discarded on provider teardown.
 class FakeThumbnailProvider : public IImageAnalysisThumbnailProvider {
  public:
   void RequestThumbnail(const ImageAnalysisItem& item, ThumbnailResolution resolution,
                         ImageAnalysisThumbnailCallback callback) override {
     ++request_count_;
+    if (block_mode_.load()) {
+      std::unique_lock lk(block_mutex_);
+      pending_.push_back(Pending{item, resolution, std::move(callback)});
+      block_cv_.notify_one();
+      return;
+    }
+    DeliverReady(item, resolution, std::move(callback));
+  }
+  void CancelThumbnail(const ThumbnailCacheKey& /*key*/) override { ++cancel_count_; }
+  void ReleaseThumbnail(const ThumbnailCacheKey& /*key*/) override { ++release_count_; }
+
+  void SetBlockMode(bool block) {
+    std::unique_lock lk(block_mutex_);
+    block_mode_ = block;
+  }
+  // Blocks until at least one request is pending (the producer has entered RequestThumbnail
+  // and is now blocked waiting for the callback). Returns false on timeout.
+  auto WaitForPending(std::chrono::milliseconds timeout) -> bool {
+    std::unique_lock lk(block_mutex_);
+    return block_cv_.wait_for(lk, timeout, [this] { return !pending_.empty(); });
+  }
+  auto PendingCount() const -> int {
+    std::unique_lock lk(block_mutex_);
+    return static_cast<int>(pending_.size());
+  }
+
+  auto RequestCount() const -> int { return request_count_.load(); }
+  auto ReleaseCount() const -> int { return release_count_.load(); }
+
+ private:
+  struct Pending {
+    ImageAnalysisItem               item;
+    ThumbnailResolution             resolution;
+    ImageAnalysisThumbnailCallback  callback;
+  };
+
+  static void DeliverReady(const ImageAnalysisItem& item, ThumbnailResolution resolution,
+                           ImageAnalysisThumbnailCallback callback) {
     ThumbnailRequestResult r;
     r.key    = ThumbnailCacheKey{item.element_id, resolution};
     r.status = ThumbnailRequestStatus::kReady;
@@ -53,16 +97,15 @@ class FakeThumbnailProvider : public IImageAnalysisThumbnailProvider {
     r.guard->thumbnail_buffer_ = std::make_unique<ImageBuffer>(std::move(mat));
     callback(std::move(r));
   }
-  void CancelThumbnail(const ThumbnailCacheKey& /*key*/) override { ++cancel_count_; }
-  void ReleaseThumbnail(const ThumbnailCacheKey& /*key*/) override { ++release_count_; }
 
-  auto RequestCount() const -> int { return request_count_.load(); }
-  auto ReleaseCount() const -> int { return release_count_.load(); }
-
- private:
   std::atomic<int> request_count_{0};
   std::atomic<int> cancel_count_{0};
   std::atomic<int> release_count_{0};
+
+  std::atomic<bool>              block_mode_{false};
+  mutable std::mutex             block_mutex_;
+  std::condition_variable        block_cv_;
+  std::deque<Pending>            pending_;
 };
 
 class FakeImageAnalysisClient : public IImageAnalysisClient {
@@ -291,6 +334,21 @@ auto WaitWithTimeout(const std::shared_ptr<ImageAnalysisJob>& job,
   return false;
 }
 
+// Polls `pred` every 5ms until it holds or `timeout` elapses. Returns true if pred held.
+// Used to deterministically observe producer/consumer race points (the fake provider is
+// synchronous, so the producer reaches a stable blocking state within a few polls).
+template <typename Pred>
+auto SpinWaitFor(Pred pred, std::chrono::milliseconds timeout) -> bool {
+  const auto deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (pred()) {
+      return true;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  return pred();
+}
+
 TEST(ImageAnalysisServiceTest, ThrowingRpcReleasesGateAndFinishesJob) {
   auto provider = std::make_shared<FakeThumbnailProvider>();
   auto client   = std::make_shared<FakeImageAnalysisClient>();
@@ -512,6 +570,327 @@ TEST(ImageAnalysisServiceTest, SecretReachesOnlyRegisterCredentialNotDescribeIma
   EXPECT_EQ(results[0].understanding.error.find("sk-DO-NOT-LEAK"), std::string::npos);
   EXPECT_EQ(results[0].understanding.caption.find("sk-DO-NOT-LEAK"), std::string::npos);
   std::filesystem::remove_all(ScratchDir("noleak"));
+}
+
+// === Phase 5e: producer/consumer prefill pipeline ============================================
+
+// Pipeline overlap: while image 1 is blocked in the fake remote call, image 2 must already
+// be thumbnail-requested AND encoded. Encoding is proven by the pin release (the producer
+// calls ReleaseThumbnail only after EncodeThumbnailForRemoteAnalysis), so ReleaseCount == 2
+// while DescribeCalls == 1 means image 2 was fully prepped locally behind image 1's RPC.
+TEST(ImageAnalysisServiceTest, PrefillPipelinePreparesImage2WhileImage1BlockedInRpc) {
+  auto provider = std::make_shared<FakeThumbnailProvider>();
+  auto client   = std::make_shared<FakeImageAnalysisClient>();
+  client->SetBlockMode(true);
+  auto gate = std::make_shared<ImageAnalysisInFlightGate>();
+  ImageAnalysisService service(provider, client, gate);
+
+  auto opts  = BaseDescribeOpts("prefill-overlap");
+  opts.prefetch = 1;
+  auto job   = service.StartAnalysis({ImageAnalysisItem{1, 100}, ImageAnalysisItem{2, 200}}, opts, {}, {});
+  ASSERT_TRUE(client->WaitForDescribeEntered(std::chrono::seconds(2)));  // image 1 in RPC
+
+  ASSERT_TRUE(SpinWaitFor(
+      [&] { return provider->RequestCount() >= 2 && provider->ReleaseCount() >= 2; },
+      std::chrono::seconds(2)));
+  EXPECT_EQ(provider->RequestCount(), 2);
+  EXPECT_EQ(provider->ReleaseCount(), 2);
+  EXPECT_EQ(client->DescribeCalls(), 1);  // only image 1 reached the provider
+
+  client->ReleaseBlock();
+  ASSERT_TRUE(WaitWithTimeout(job, std::chrono::seconds(10)));
+  auto results = job->Results();
+  ASSERT_EQ(results.size(), 2u);
+  EXPECT_EQ(results[0].status, ImageAnalysisItemStatus::kAnalyzed);
+  EXPECT_EQ(results[1].status, ImageAnalysisItemStatus::kAnalyzed);
+  std::filesystem::remove_all(ScratchDir("prefill-overlap"));
+}
+
+// Bounded queue: with prefetch=2 and image 1 in flight, the producer can hold at most
+// prefetch + 2 thumbnails (1 in flight + 2 queued + 1 blocked on a full push) = 4. It must
+// NOT request the whole album while a single remote call is outstanding.
+TEST(ImageAnalysisServiceTest, PrefetchBoundedQueueDoesNotRequestWholeAlbum) {
+  auto provider = std::make_shared<FakeThumbnailProvider>();
+  auto client   = std::make_shared<FakeImageAnalysisClient>();
+  client->SetBlockMode(true);
+  auto gate = std::make_shared<ImageAnalysisInFlightGate>();
+  ImageAnalysisService service(provider, client, gate);
+
+  auto opts  = BaseDescribeOpts("prefill-bound");
+  opts.prefetch = 2;
+  std::vector<ImageAnalysisItem> items = {
+      {1, 100}, {2, 200}, {3, 300}, {4, 400}, {5, 500}, {6, 600}};
+  auto job   = service.StartAnalysis(items, opts, {}, {});
+  ASSERT_TRUE(client->WaitForDescribeEntered(std::chrono::seconds(2)));
+
+  ASSERT_TRUE(SpinWaitFor([&] { return provider->RequestCount() >= 4; }, std::chrono::seconds(3)));
+  // The producer is now blocked on a full push; the held RPC keeps the queue full, so the
+  // count must not climb past prefetch + 2 = 4. Settle to prove it does not advance.
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  EXPECT_EQ(provider->RequestCount(), 4);
+  EXPECT_LT(provider->RequestCount(), static_cast<int>(items.size()));
+  EXPECT_EQ(client->DescribeCalls(), 1);
+
+  client->ReleaseBlock();
+  ASSERT_TRUE(WaitWithTimeout(job, std::chrono::seconds(15)));
+  auto results = job->Results();
+  ASSERT_EQ(results.size(), items.size());
+  for (const auto& r : results) {
+    EXPECT_EQ(r.status, ImageAnalysisItemStatus::kAnalyzed);
+  }
+  EXPECT_EQ(client->DescribeCalls(), static_cast<int>(items.size()));
+  std::filesystem::remove_all(ScratchDir("prefill-bound"));
+}
+
+// Regression (Phase 5e review): prefetch is clamped to an upper bound, not just >= 1. A
+// caller requesting an oversized prefetch must NOT let the producer encode most of a large
+// album while one RPC is blocked - the clamp preserves the bounded-memory promise. With
+// prefetch clamped to kMaxImageAnalysisPrefetch over 10 items and image 1 blocked in the
+// fake remote call, the producer requests at most kMaxImageAnalysisPrefetch + 2 thumbnails
+// (1 in flight + max queued + 1 blocked on a full push), never the whole album.
+TEST(ImageAnalysisServiceTest, OversizedPrefetchClampedToUpperBound) {
+  auto provider = std::make_shared<FakeThumbnailProvider>();
+  auto client   = std::make_shared<FakeImageAnalysisClient>();
+  client->SetBlockMode(true);
+  auto gate = std::make_shared<ImageAnalysisInFlightGate>();
+  ImageAnalysisService service(provider, client, gate);
+
+  auto opts  = BaseDescribeOpts("prefetch-clamp");
+  opts.prefetch = 1000;  // far above kMaxImageAnalysisPrefetch; must be clamped down
+  std::vector<ImageAnalysisItem> items = {
+      {1, 100}, {2, 200}, {3, 300}, {4, 400}, {5, 500},
+      {6, 600}, {7, 700}, {8, 800}, {9, 900}, {10, 1000}};
+  ASSERT_GT(static_cast<int>(items.size()), kMaxImageAnalysisPrefetch + 2)
+      << "item count must exceed the clamped bound to prove bounding";
+  auto job   = service.StartAnalysis(items, opts, {}, {});
+  ASSERT_TRUE(client->WaitForDescribeEntered(std::chrono::seconds(2)));
+
+  ASSERT_TRUE(SpinWaitFor(
+      [&] { return provider->RequestCount() >= kMaxImageAnalysisPrefetch + 2; },
+      std::chrono::seconds(3)));
+  // The producer is now blocked on a full push; the held RPC keeps the queue full, so the
+  // count must not climb past kMaxImageAnalysisPrefetch + 2. Settle to prove it does not
+  // advance toward the whole album.
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  EXPECT_EQ(provider->RequestCount(), kMaxImageAnalysisPrefetch + 2);
+  EXPECT_LT(provider->RequestCount(), static_cast<int>(items.size()));
+  EXPECT_EQ(client->DescribeCalls(), 1);
+
+  client->ReleaseBlock();
+  ASSERT_TRUE(WaitWithTimeout(job, std::chrono::seconds(15)));
+  auto results = job->Results();
+  ASSERT_EQ(results.size(), items.size());
+  for (const auto& r : results) {
+    EXPECT_EQ(r.status, ImageAnalysisItemStatus::kAnalyzed);
+  }
+  EXPECT_EQ(client->DescribeCalls(), static_cast<int>(items.size()));
+  std::filesystem::remove_all(ScratchDir("prefetch-clamp"));
+}
+
+// Pin lifetime: with prefetch=2 and image 1 in flight, the producer encodes+releases images
+// 2 and 3 (ReleaseCount == 3) while only image 1 has reached the provider (DescribeCalls ==
+// 1). The gap proves the pin is released after encode and BEFORE the encoded item waits
+// behind the remote gate — images 2 and 3 are released but have not yet been sent.
+TEST(ImageAnalysisServiceTest, PinReleasedAfterEncodeBeforeWaitingBehindGate) {
+  auto provider = std::make_shared<FakeThumbnailProvider>();
+  auto client   = std::make_shared<FakeImageAnalysisClient>();
+  client->SetBlockMode(true);
+  auto gate = std::make_shared<ImageAnalysisInFlightGate>();
+  ImageAnalysisService service(provider, client, gate);
+
+  auto opts  = BaseDescribeOpts("pin-lifetime");
+  opts.prefetch = 2;
+  auto job   = service.StartAnalysis(
+      {ImageAnalysisItem{1, 100}, ImageAnalysisItem{2, 200}, ImageAnalysisItem{3, 300}}, opts, {}, {});
+  ASSERT_TRUE(client->WaitForDescribeEntered(std::chrono::seconds(2)));
+
+  ASSERT_TRUE(SpinWaitFor([&] { return provider->ReleaseCount() >= 3; }, std::chrono::seconds(3)));
+  EXPECT_EQ(provider->ReleaseCount(), 3);
+  EXPECT_EQ(client->DescribeCalls(), 1);
+
+  client->ReleaseBlock();
+  ASSERT_TRUE(WaitWithTimeout(job, std::chrono::seconds(10)));
+  auto results = job->Results();
+  ASSERT_EQ(results.size(), 3u);
+  for (const auto& r : results) {
+    EXPECT_EQ(r.status, ImageAnalysisItemStatus::kAnalyzed);
+  }
+  std::filesystem::remove_all(ScratchDir("pin-lifetime"));
+}
+
+// Cancellation bullet: cancel while the consumer is waiting for an encoded item (the
+// producer is stalled on a held thumbnail callback). Neither a thumbnail callback nor a
+// remote call is needed: the 25ms polls observe the cancel and both threads exit cleanly.
+TEST(ImageAnalysisServiceTest, CancelWhileConsumerWaitsForEncodedItem) {
+  auto provider = std::make_shared<FakeThumbnailProvider>();
+  provider->SetBlockMode(true);  // stall the producer; never deliver a thumbnail
+  auto client = std::make_shared<FakeImageAnalysisClient>();
+  auto gate   = std::make_shared<ImageAnalysisInFlightGate>();
+  ImageAnalysisService service(provider, client, gate);
+
+  auto opts  = BaseDescribeOpts("cancel-wait-item");
+  opts.prefetch = 1;
+  auto job   = service.StartAnalysis({ImageAnalysisItem{1, 100}, ImageAnalysisItem{2, 200}}, opts, {}, {});
+  ASSERT_TRUE(provider->WaitForPending(std::chrono::seconds(2)));  // producer entered + blocked
+
+  job->Cancel();
+  ASSERT_TRUE(WaitWithTimeout(job, std::chrono::seconds(10)));
+
+  auto results = job->Results();
+  ASSERT_EQ(results.size(), 2u);
+  for (const auto& r : results) {
+    EXPECT_EQ(r.status, ImageAnalysisItemStatus::kCanceled);
+  }
+  EXPECT_EQ(client->DescribeCalls(), 0);  // no RPC ever reached the provider
+  EXPECT_EQ(client->CancelCalls(), 0);    // nothing was in flight to cancel
+  std::filesystem::remove_all(ScratchDir("cancel-wait-item"));
+}
+
+// Cancellation bullet: cancel while the producer is waiting for queue capacity. prefetch=1
+// fills the queue with image 2, then the producer blocks on image 3's push. Cancel wakes the
+// blocked push (returns false); the consumer, blocked in image 1's RPC, finalizes every
+// item as canceled once the RPC returns.
+TEST(ImageAnalysisServiceTest, CancelWhileProducerWaitsForQueueCapacity) {
+  auto provider = std::make_shared<FakeThumbnailProvider>();
+  auto client   = std::make_shared<FakeImageAnalysisClient>();
+  client->SetBlockMode(true);
+  auto gate = std::make_shared<ImageAnalysisInFlightGate>();
+  ImageAnalysisService service(provider, client, gate);
+
+  auto opts  = BaseDescribeOpts("cancel-queue-capacity");
+  opts.prefetch = 1;
+  std::vector<ImageAnalysisItem> items = {{1, 100}, {2, 200}, {3, 300}, {4, 400}};
+  auto job   = service.StartAnalysis(items, opts, {}, {});
+  ASSERT_TRUE(client->WaitForDescribeEntered(std::chrono::seconds(2)));
+  // The producer has requested image 3 (1 in flight + 1 queued + 1 about to block on push).
+  ASSERT_TRUE(SpinWaitFor([&] { return provider->RequestCount() >= 3; }, std::chrono::seconds(3)));
+
+  job->Cancel();  // producer blocked on a full push; consumer blocked in the RPC
+
+  client->ReleaseBlock();  // let the in-flight RPC return so the worker exits
+  ASSERT_TRUE(WaitWithTimeout(job, std::chrono::seconds(10)));
+
+  auto results = job->Results();
+  ASSERT_EQ(results.size(), items.size());
+  for (const auto& r : results) {
+    EXPECT_EQ(r.status, ImageAnalysisItemStatus::kCanceled);
+  }
+  EXPECT_EQ(client->DescribeCalls(), 1);  // only image 1 reached the provider
+  std::filesystem::remove_all(ScratchDir("cancel-queue-capacity"));
+}
+
+// Cancellation bullet: cancel while a remote request is in flight, with a prefilled item
+// behind it. The post-RPC discard drops image 1 even though the provider would have
+// succeeded, and the prefilled image 2 is discarded without a remote call.
+TEST(ImageAnalysisServiceTest, CancelWhileRemoteRequestInFlightDiscardsResult) {
+  auto provider = std::make_shared<FakeThumbnailProvider>();
+  auto client   = std::make_shared<FakeImageAnalysisClient>();
+  client->SetBlockMode(true);
+  auto gate = std::make_shared<ImageAnalysisInFlightGate>();
+  ImageAnalysisService service(provider, client, gate);
+
+  auto opts  = BaseDescribeOpts("cancel-in-flight");
+  opts.prefetch = 1;
+  auto job   = service.StartAnalysis({ImageAnalysisItem{1, 100}, ImageAnalysisItem{2, 200}}, opts, {}, {});
+  ASSERT_TRUE(client->WaitForDescribeEntered(std::chrono::seconds(2)));
+  EXPECT_EQ(client->DescribeCalls(), 1);
+
+  job->Cancel();
+  EXPECT_EQ(client->CancelCalls(), 1);
+  EXPECT_EQ(client->LastCancelledId(), "image-analysis-describe-1-100");
+
+  client->ReleaseBlock();  // the blocked RPC returns; post-RPC discard drops it
+  ASSERT_TRUE(WaitWithTimeout(job, std::chrono::seconds(10)));
+
+  auto results = job->Results();
+  ASSERT_EQ(results.size(), 2u);
+  EXPECT_EQ(results[0].status, ImageAnalysisItemStatus::kCanceled);
+  EXPECT_EQ(results[1].status, ImageAnalysisItemStatus::kCanceled);
+  EXPECT_EQ(client->DescribeCalls(), 1);  // only image 1 reached the provider
+  std::filesystem::remove_all(ScratchDir("cancel-in-flight"));
+}
+
+// Cancellation bullet: cancel after some encoded-but-not-sent items exist. prefetch=2 lets
+// images 2 and 3 sit encoded in the queue behind image 1's in-flight RPC. Cancel discards
+// the in-flight result (post-RPC) and the queued renditions without any extra remote call.
+TEST(ImageAnalysisServiceTest, CancelAfterPrefilledNotSentItemsDropsQueuedRenditions) {
+  auto provider = std::make_shared<FakeThumbnailProvider>();
+  auto client   = std::make_shared<FakeImageAnalysisClient>();
+  client->SetBlockMode(true);
+  auto gate = std::make_shared<ImageAnalysisInFlightGate>();
+  ImageAnalysisService service(provider, client, gate);
+
+  auto opts  = BaseDescribeOpts("cancel-prefilled");
+  opts.prefetch = 2;
+  std::vector<ImageAnalysisItem> items = {{1, 100}, {2, 200}, {3, 300}, {4, 400}};
+  auto job   = service.StartAnalysis(items, opts, {}, {});
+  ASSERT_TRUE(client->WaitForDescribeEntered(std::chrono::seconds(2)));
+  // Let the producer prefill images 2 and 3 (encoded) behind the in-flight image 1.
+  ASSERT_TRUE(SpinWaitFor([&] { return provider->ReleaseCount() >= 3; }, std::chrono::seconds(3)));
+
+  job->Cancel();
+
+  client->ReleaseBlock();  // image 1's RPC returns; post-RPC discard drops it
+  ASSERT_TRUE(WaitWithTimeout(job, std::chrono::seconds(10)));
+
+  auto results = job->Results();
+  ASSERT_EQ(results.size(), items.size());
+  for (const auto& r : results) {
+    EXPECT_EQ(r.status, ImageAnalysisItemStatus::kCanceled);
+  }
+  EXPECT_EQ(client->DescribeCalls(), 1);  // only image 1 ever reached the provider
+  std::filesystem::remove_all(ScratchDir("cancel-prefilled"));
+}
+
+// Regression: two jobs sharing one ImageAnalysisInFlightGate still serialize remote RPCs even
+// when both locally prefill their queues. While A holds the gate in a blocked RPC, B locally
+// prepares renditions (RequestCount_b >= 1) but makes ZERO remote calls; B only runs after A
+// releases the slot.
+TEST(ImageAnalysisServiceTest, TwoJobsSharingGateSerializeRpcsWithPrefill) {
+  auto gate = std::make_shared<ImageAnalysisInFlightGate>();
+
+  auto provider_a = std::make_shared<FakeThumbnailProvider>();
+  auto client_a   = std::make_shared<FakeImageAnalysisClient>();
+  client_a->SetBlockMode(true);  // A holds the gate in a blocked RPC
+  ImageAnalysisService service_a(provider_a, client_a, gate);
+
+  auto provider_b = std::make_shared<FakeThumbnailProvider>();
+  auto client_b   = std::make_shared<FakeImageAnalysisClient>();
+  ImageAnalysisService service_b(provider_b, client_b, gate);
+
+  auto opts   = BaseDescribeOpts("gate-prefill-regression");
+  opts.prefetch = 2;
+  std::vector<ImageAnalysisItem> items_a = {{1, 100}, {2, 200}, {3, 300}};
+  std::vector<ImageAnalysisItem> items_b = {{4, 400}, {5, 500}, {6, 600}};
+
+  auto job_a = service_a.StartAnalysis(items_a, opts, {}, {});
+  ASSERT_TRUE(client_a->WaitForDescribeEntered(std::chrono::seconds(2)));  // A holds gate
+
+  auto job_b = service_b.StartAnalysis(items_b, opts, {}, {});
+  // B prefills locally but its consumer must block in Acquire behind A: zero B remote calls.
+  ASSERT_TRUE(SpinWaitFor([&] { return provider_b->RequestCount() >= 1; }, std::chrono::seconds(3)));
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));  // settle: prove B does not slip in
+  EXPECT_EQ(client_b->DescribeCalls(), 0);
+  EXPECT_GE(provider_b->RequestCount(), 1);  // B did local prep despite the held gate
+
+  client_a->ReleaseBlock();  // A finishes and releases the slot
+  ASSERT_TRUE(WaitWithTimeout(job_a, std::chrono::seconds(10)));
+  ASSERT_TRUE(client_b->WaitForDescribeEntered(std::chrono::seconds(5)));  // B now runs
+  ASSERT_TRUE(WaitWithTimeout(job_b, std::chrono::seconds(15)));
+
+  auto ra = job_a->Results();
+  ASSERT_EQ(ra.size(), items_a.size());
+  auto rb = job_b->Results();
+  ASSERT_EQ(rb.size(), items_b.size());
+  for (const auto& r : ra) {
+    EXPECT_EQ(r.status, ImageAnalysisItemStatus::kAnalyzed);
+  }
+  for (const auto& r : rb) {
+    EXPECT_EQ(r.status, ImageAnalysisItemStatus::kAnalyzed);
+  }
+  EXPECT_EQ(client_a->DescribeCalls(), 3);
+  EXPECT_EQ(client_b->DescribeCalls(), 3);
+  std::filesystem::remove_all(ScratchDir("gate-prefill-regression"));
 }
 
 }  // namespace
