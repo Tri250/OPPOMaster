@@ -734,7 +734,68 @@ Review focus:
   concurrency.
 - Check that sidecar startup remains on demand and normal browsing/search do not require API keys.
 
-### Phase 5e - Storage And Search Integration
+### Phase 5e - Local Prefill Queue Before Persistence
+
+Goal: overlap local rendition preparation with the single in-flight remote LLM request, without
+writing any database rows yet.
+
+Rationale: Phase 5d correctly keeps paid/non-idempotent remote calls serialized through
+`ImageAnalysisInFlightGate`, but its per-item loop prepares the next thumbnail/JPEG only after the
+previous remote call returns. The intended product behavior is a small host-side pipeline: while image
+N is flying to the remote provider, C++ should prepare image N+1 locally and place the encoded
+rendition in a bounded ready queue. The gate still limits remote calls to one; the prefill queue only
+keeps local CPU/cache work ahead of the provider.
+
+Deliverables:
+
+- Refactor `ImageAnalysisService::RunJob` into a small producer/consumer pipeline:
+  - producer: `ThumbnailService` request -> CPU materialization -> `EncodeThumbnailForRemoteAnalysis`
+    -> push an encoded item into a bounded ready queue.
+  - consumer: pop encoded item -> `ImageAnalysisInFlightGate::Acquire` -> `DescribeImage` /
+    `ScoreImage` -> `Release` -> append structured DTO result.
+- Keep the ready queue bounded, initially `prefetch=1` or `prefetch=2`. Do not let a large album
+  accumulate unbounded JPEG byte buffers in memory.
+- Release each `ThumbnailGuard` immediately after encoding. The queue must contain only encoded bytes,
+  rendition metadata, item id, request id, and task/provider options; it must not hold thumbnail pins
+  while waiting for the remote provider.
+- Keep `ImageAnalysisInFlightGate` as the remote-call boundary. This phase must not increase remote
+  provider concurrency; it only overlaps local preparation with the active remote request.
+- Preserve cancellation semantics:
+  - cancel stops the producer from requesting/encoding more thumbnails,
+  - wakes a producer or consumer blocked on the queue,
+  - wakes any wait on `ImageAnalysisInFlightGate`,
+  - best-effort cancels only this job's in-flight remote request,
+  - discards post-RPC results if cancellation happened during the provider call.
+- Keep credential handling unchanged: register once at job start, clear the local secret copy, and
+  thread only the opaque `credential_ref` through queued encoded items.
+- Keep persistence out of this phase. The output is still `ImageAnalysisItemResult` DTOs only.
+
+Tests:
+
+- C++ pipeline test proving image 2 is thumbnail-requested/encoded while image 1 is blocked in the
+  fake remote `DescribeImage` / `ScoreImage` call.
+- Bounded-queue test proving prefetch does not exceed the configured queue depth and does not request
+  the whole album at once.
+- Cancellation tests for:
+  - cancel while producer is waiting for queue capacity,
+  - cancel while consumer is waiting for an encoded item,
+  - cancel while a remote request is in flight,
+  - cancel after some encoded-but-not-sent items exist.
+- Pin-lifetime test proving `ReleaseThumbnail` is called after encode and before the encoded item waits
+  behind the remote gate.
+- Regression test proving two jobs sharing one `ImageAnalysisInFlightGate` still serialize remote RPCs,
+  even if both jobs locally prefill their queues.
+
+Review focus:
+
+- Check that the queue stores encoded payloads, not `ThumbnailGuard` / `ImageBuffer` pins.
+- Check that remote provider concurrency remains one across all services sharing the gate.
+- Check that cancellation cannot cancel another job's in-flight request and cannot leave the gate or
+  queue permanently blocked.
+- Check memory behavior for large albums: bounded JPEG queue, no unbounded thumbnail pins, no database
+  writes.
+
+### Phase 5f - Storage And Search Integration
 
 Goal: persist remote analysis results without mixing searchable understanding with subjective rating.
 
@@ -763,7 +824,7 @@ Review focus:
 - Check that failed remote calls do not create partial active search documents.
 - Check that prompt/profile/rubric changes do not reinterpret old scores as new scores.
 
-### Phase 5f - Developer Smoke And Handoff
+### Phase 5g - Developer Smoke And Handoff
 
 Goal: prove the MVP path end to end before product UI wiring in Phase 6.
 
@@ -1226,7 +1287,7 @@ vault; the service resolves `credential_ref` against the vault and never sees th
 `error_message` is redacted via `vault.redact_error_message` before placement; the `Provider(String)`
 inner text is dropped by `provider_error_to_header` (only a fixed string is placed), so provider text is
 not leaked in the header. No image bytes, base64, or prompt payloads are placed in headers. The service
-never writes to DuckDB - C++ owns DB writes (relevant to 5e, not 5b).
+never writes to DuckDB - C++ owns DB writes (relevant to 5f, not 5b).
 
 Distinct-contract / fail-closed invariants (Phase 5b review focus):
 
@@ -1465,12 +1526,13 @@ Test results:
   and hands it back; the smokes then run against the real endpoints and assert the parsed outcome
   validates against the code-owned contract.
 
-Deferred to Phase 5d / 5e / 5f:
+Deferred to Phase 5d / 5e / 5f / 5g:
 
 - Secret persistence across sidecar restarts - the vault is in-memory; a registered credential does not
-  survive a sidecar restart. Persisting registered credentials (encrypted at rest) is a 5d/5e concern.
-- The C++ host image-analysis service, the C++ runtime client, storage/search integration, and the
-  developer smoke (5d / 5e / 5f).
+  survive a sidecar restart. Persisting user credentials encrypted at rest remains a Phase 6 product
+  wiring concern.
+- The C++ host image-analysis service and runtime client (5d), local prefill queue before persistence
+  (5e), storage/search integration (5f), and developer smoke (5g).
 - `volcengine_ark_chat` remains a reserved compatibility driver (not wired) unless live testing proves
   the default Doubao path needs the Chat API instead of the Responses API; the bundled config defaults to
   `doubao-seed-2-0-lite-260428` on the Responses path.
@@ -1637,7 +1699,8 @@ return flow, with an injectable service-wide in-flight gate (max one remote anal
 time) and cooperative + server-side cancellation. A new `image_analysis_encoder` provides
 the encoded-rendition path (OpenImageIO primary codec, NOT OpenCV imgcodecs), kept
 strictly separate from the raw RGBA8 CLIP embedding path. No database writes occur in 5d
-(5e); no product UI / controller wiring (6). All pre-execution decisions (k1024 rendition,
+(the local prefill queue is 5e; database writes are 5f); no product UI / controller wiring (6).
+All pre-execution decisions (k1024 rendition,
 encoded JPEG bytes q90, OIIO primary, concurrency=1, encoded `image_format_hint`) are
 honored.
 
@@ -1791,9 +1854,11 @@ Distinct contracts: `DescribeImage` -> `ImageUnderstandingResult`, `ScoreImage` 
 `"image_rating.score"`); a rating result can never overwrite an understanding result (the
 `ImageAnalysisItemResult` carries both but only the task-matching one is filled).
 
-Deferred to Phase 5e / 5f / 6:
+Deferred to Phase 5e / 5f / 5g / 6:
 
-- Database writes / persistence / search integration (5e). 5d returns structured DTOs only.
+- Local prefill queue before persistence (5e): while one encoded image is in the remote LLM call, the
+  host should prepare the next encoded rendition into a bounded queue. 5d returns structured DTOs only.
+- Database writes / persistence / search integration (5f).
 - Product UI / controller wiring / the OS credential store (QtKeychain) and a shared gate owned
   by the album backend (6). 5d's `ImageAnalysisService` is standalone and constructed directly by
   tests; Phase 6 must construct it with ONE shared `ImageAnalysisInFlightGate` (and a secure
@@ -1803,9 +1868,9 @@ Deferred to Phase 5e / 5f / 6:
 - PNG fallback (JPEG-only in 5d). No PNG OIIO encode exists in-repo (unproven on this MSVC/DLL
   build); JPEG covers the photographic-thumbnail MVP. PNG is a fast-follow once a PNG OIIO encode
   is validated.
-- Live sidecar proto->DTO mapper coverage (5f). `ToImageUnderstandingResult` / `ToImageRatingResult`
+- Live sidecar proto->DTO mapper coverage (5g). `ToImageUnderstandingResult` / `ToImageRatingResult`
   are not directly unit-tested, matching the embedding-mapper convention (`ToEmbeddingResult` is
-  also untested directly); they are exercised by a live sidecar in 5f.
+  also untested directly); they are exercised by a live sidecar in 5g.
 
 Test results:
 
@@ -1839,7 +1904,7 @@ before any test ran); risk accepted: (1) JPEG-only encoder - PNG fallback deferr
 OIIO encode exists in-repo and is unproven on this MSVC/DLL build (photographic thumbnails are
 JPEG; PNG is a fast-follow); (2) proto->DTO mappers (`ToImageUnderstandingResult` /
 `ToImageRatingResult`) are not directly unit-tested, matching the embedding-mapper convention -
-exercised by the 5f live sidecar; (3) the mid-`write_image` OIIO failure cleanup is covered by
+exercised by the 5g live sidecar; (3) the mid-`write_image` OIIO failure cleanup is covered by
 the `TempFileGuard` RAII design + review, not by a forced-failure test (the deterministic proxies
 - success-cleanup and empty-guard early-return - are tested); (4) production cross-instance
 serialization depends on Phase 6 wiring a single shared `ImageAnalysisInFlightGate` - the 5d test

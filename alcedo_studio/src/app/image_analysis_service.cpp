@@ -17,6 +17,28 @@
 namespace alcedo {
 namespace {
 
+// Generic RAII scope-exit: invokes `fn` on destruction. Used to guarantee the
+// in-flight gate is released (and am_in_flight_ / the published request_id are
+// cleared) even if a provider RPC throws between Acquire and Release.
+template <typename F>
+class ScopeExit {
+ public:
+  explicit ScopeExit(F fn) : fn_(std::move(fn)) {}
+  ~ScopeExit() {
+    if (engaged_) {
+      fn_();
+    }
+  }
+  ScopeExit(const ScopeExit&)            = delete;
+  ScopeExit& operator=(const ScopeExit&) = delete;
+
+ private:
+  F    fn_;
+  bool engaged_ = true;
+};
+template <typename F>
+ScopeExit(F) -> ScopeExit<F>;
+
 auto MakeRequestId(const ImageAnalysisItem& item, ImageAnalysisTask task) -> std::string {
   return std::string("image-analysis-") +
          (task == ImageAnalysisTask::kScore ? "score-" : "describe-") +
@@ -518,23 +540,39 @@ void ImageAnalysisService::RunJob(const std::shared_ptr<ImageAnalysisJob>& job,
 
     // (5) The typed RPC. DescribeImage / ScoreImage are distinct contracts (distinct
     // task_ids / result types) so a rating result can never overwrite an understanding.
+    // The in-flight slot is held across the call. An RAII guard releases it (and clears
+    // the published request_id + am_in_flight_) on scope exit — including if the
+    // provider throws, which would otherwise leave the service-wide gate locked and the
+    // job stuck in-flight (so Finish() would never run). The provider call is wrapped so
+    // a thrown RPC becomes an item error instead of escaping the worker thread.
     ImageAnalysisItemResult r;
     r.item      = item;
     r.request_id = req.request_id;
     r.rendition = req.rendition;
-    if (options.task == ImageAnalysisTask::kScore) {
-      auto res   = analysis_client->ScoreImage(req, options.timeout);
-      r.request_id = res.request_id.empty() ? req.request_id : res.request_id;
-      r.rating   = std::move(res);
-    } else {
-      auto res   = analysis_client->DescribeImage(req, options.timeout);
-      r.request_id = res.request_id.empty() ? req.request_id : res.request_id;
-      r.understanding = std::move(res);
-    }
-
-    job->am_in_flight_.store(false);
-    in_flight_gate->ClearRequestId();
-    in_flight_gate->Release();
+    {
+      ScopeExit slot_guard([&] {
+        job->am_in_flight_.store(false);
+        in_flight_gate->ClearRequestId();
+        in_flight_gate->Release();
+      });
+      try {
+        if (options.task == ImageAnalysisTask::kScore) {
+          auto res   = analysis_client->ScoreImage(req, options.timeout);
+          r.request_id = res.request_id.empty() ? req.request_id : res.request_id;
+          r.rating   = std::move(res);
+        } else {
+          auto res   = analysis_client->DescribeImage(req, options.timeout);
+          r.request_id = res.request_id.empty() ? req.request_id : res.request_id;
+          r.understanding = std::move(res);
+        }
+      } catch (const std::exception& e) {
+        r.status = ImageAnalysisItemStatus::kError;
+        r.error  = std::string("image analysis rpc failed: ") + e.what();
+        job->AppendResult(std::move(r));
+        update_and_dispatch([&](ImageAnalysisProgress& p) { p.failed += 1; });
+        continue;  // slot_guard releases the slot on scope exit
+      }
+    }  // slot_guard releases the slot here on the success path
 
     // (6) Post-RPC cancel check: if canceled during the call, discard the result even
     // if the provider succeeded — this is the correctness guarantee, not CancelTask.

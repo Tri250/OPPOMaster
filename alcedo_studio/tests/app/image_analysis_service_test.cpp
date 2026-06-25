@@ -9,8 +9,10 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <future>
 #include <memory>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 #include <thread>
 
@@ -68,6 +70,10 @@ class FakeImageAnalysisClient : public IImageAnalysisClient {
   enum class Outcome { kSuccess, kMissingCredential, kUnsupported, kTimeout, kSchemaError };
 
   void SetDescribeOutcome(Outcome o) { describe_outcome_ = o; }
+  // When true, DescribeImage throws instead of returning — simulates a provider / RPC
+  // wrapper that propagates an exception. Used to exercise the RunJob exception-safety
+  // guard around the in-flight slot.
+  void SetThrowOnDescribe(bool t) { throw_on_describe_ = t; }
   void SetBlockMode(bool block) {
     block_mode_ = block;
     release_blocked_ = false;
@@ -103,6 +109,9 @@ class FakeImageAnalysisClient : public IImageAnalysisClient {
     if (block_mode_.load()) {
       std::unique_lock lk(block_mutex_);
       block_cv_.wait(lk, [this] { return release_blocked_.load(); });
+    }
+    if (throw_on_describe_.load()) {
+      throw std::runtime_error("simulated provider rpc crash");
     }
     return MakeUnderstanding(request, describe_outcome_);
   }
@@ -230,6 +239,7 @@ class FakeImageAnalysisClient : public IImageAnalysisClient {
 
   Outcome describe_outcome_ = Outcome::kSuccess;
 
+  std::atomic<bool> throw_on_describe_{false};
   std::atomic<bool> block_mode_{false};
   std::atomic<bool> release_blocked_{false};
   std::mutex        block_mutex_;
@@ -265,6 +275,49 @@ auto RunDescribe(std::shared_ptr<IImageAnalysisThumbnailProvider> provider,
   auto                 job  = service.StartAnalysis({ImageAnalysisItem{1, 100}}, opts, {}, {});
   job->Wait();
   return job->Results();
+}
+
+// Bounded wait: returns true if the job finishes within `timeout`. On timeout it cancels
+// the job (waking any blocked Acquire) so a leaked gate does not hang the test process,
+// then returns false. The async future's destructor blocks until Wait() returns, which the
+// Cancel guarantees, so no thread is leaked either.
+auto WaitWithTimeout(const std::shared_ptr<ImageAnalysisJob>& job,
+                     std::chrono::milliseconds                timeout) -> bool {
+  auto fut = std::async(std::launch::async, [&] { job->Wait(); });
+  if (fut.wait_for(timeout) == std::future_status::ready) {
+    return true;
+  }
+  job->Cancel();
+  return false;
+}
+
+TEST(ImageAnalysisServiceTest, ThrowingRpcReleasesGateAndFinishesJob) {
+  auto provider = std::make_shared<FakeThumbnailProvider>();
+  auto client   = std::make_shared<FakeImageAnalysisClient>();
+  client->SetThrowOnDescribe(true);
+  auto gate = std::make_shared<ImageAnalysisInFlightGate>();
+
+  ImageAnalysisService service(provider, client, gate);
+  auto                 opts = BaseDescribeOpts("throw");
+  // Two items: the second can only enter Acquire (and reach the provider) if the first
+  // item's thrown RPC released the slot. A leaked gate would block the second item
+  // forever and WaitWithTimeout would time out.
+  auto job = service.StartAnalysis({ImageAnalysisItem{1, 100}, ImageAnalysisItem{2, 200}},
+                                   opts, {}, {});
+  ASSERT_TRUE(WaitWithTimeout(job, std::chrono::seconds(10)))
+      << "job did not finish; in-flight gate was likely not released after the throw";
+
+  auto results = job->Results();
+  ASSERT_EQ(results.size(), 2u);
+  for (const auto& r : results) {
+    EXPECT_EQ(r.status, ImageAnalysisItemStatus::kError);
+    EXPECT_NE(r.error.find("image analysis rpc failed"), std::string::npos);
+  }
+  // Both items reached the provider — the second proves the gate was released after the
+  // first throw, and the slot is not stuck.
+  EXPECT_EQ(client->DescribeCalls(), 2);
+  EXPECT_TRUE(gate->CurrentRequestId().empty());
+  std::filesystem::remove_all(ScratchDir("throw"));
 }
 
 TEST(ImageAnalysisServiceTest, DescribeSuccessReturnsAnalyzedResult) {
