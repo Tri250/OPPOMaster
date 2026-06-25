@@ -26,7 +26,7 @@ use crate::proto::alcedo::ai::{
     ScoreImageResponse, ScoredDimension, UsageMetadata,
     image_analysis_service_server::ImageAnalysisService,
 };
-use crate::service::credential_vault::{CredentialError, CredentialVault};
+use crate::service::credential_vault::{CredentialError, CredentialVault, SecretString};
 use crate::service::cancellation_registry::CancellationRegistry;
 use crate::service::image_analysis::{
     DescribeOutcome, ImageAnalysisProvider, ProviderError, ScoreOutcome, validate_rating,
@@ -67,18 +67,21 @@ impl ImageAnalysisServiceImpl {
         self.providers.get(id).cloned()
     }
 
-    /// Resolve the credential a provider requires. Returns a failure header
-    /// triple when the credential is missing or the handle is invalid; the caller
-    /// turns it into an `Ok(Response)` with that failure header. Provider ids are
-    /// not secrets and may appear in error text; the message is still passed
-    /// through the vault's redactor before placement.
-    fn resolve_credential(
+    /// Resolve the credential a provider requires to the secret itself. Returns
+    /// `Ok(None)` when the provider does not require a credential, `Ok(Some(secret))`
+    /// when the handle resolves, or a failure header triple when the credential is
+    /// missing or the handle is invalid; the caller turns the triple into an
+    /// `Ok(Response)` with that failure header. Provider ids are not secrets and
+    /// may appear in error text; the message is still passed through the vault's
+    /// redactor before placement. The resolved `SecretString` is handed to the
+    /// provider trait method and never logged (Phase 3 invariant preserved).
+    fn resolve_credential_secret(
         &self,
         header: &AiRequestHeader,
         provider: &dyn ImageAnalysisProvider,
-    ) -> Result<(), (AiResponseStatus, AiErrorCode, String)> {
+    ) -> Result<Option<SecretString>, (AiResponseStatus, AiErrorCode, String)> {
         if !provider.requires_credential() {
-            return Ok(());
+            return Ok(None);
         }
         if header.credential_ref.trim().is_empty() {
             return Err((
@@ -88,7 +91,7 @@ impl ImageAnalysisServiceImpl {
             ));
         }
         match self.vault.resolve(&header.credential_ref) {
-            Ok(_) => Ok(()),
+            Ok(secret) => Ok(Some(secret)),
             Err(CredentialError::NotFound) | Err(CredentialError::Revoked) => Err((
                 AiResponseStatus::AiStatusPermissionDenied,
                 AiErrorCode::AiErrorCredentialRevoked,
@@ -266,28 +269,35 @@ impl ImageAnalysisService for ImageAnalysisServiceImpl {
             }
         };
 
-        if let Err((status, code, msg)) = self.resolve_credential(&header, provider.as_ref()) {
-            return Ok(Response::new(DescribeImageResponse {
-                header: self.failure_header(
-                    &header,
-                    status,
-                    code,
-                    &msg,
-                    provider.provider_id(),
-                    &req.model_id,
-                    start.elapsed().as_millis() as u64,
-                ),
-                result: None,
-                rendition: req.rendition.clone(),
-                usage: None,
-                provider_request_id: String::new(),
-                prompt_profile_id: req.prompt_profile_id.clone(),
-            }));
-        }
+        let credential = match self.resolve_credential_secret(&header, provider.as_ref()) {
+            Ok(c) => c,
+            Err((status, code, msg)) => {
+                return Ok(Response::new(DescribeImageResponse {
+                    header: self.failure_header(
+                        &header,
+                        status,
+                        code,
+                        &msg,
+                        provider.provider_id(),
+                        &req.model_id,
+                        start.elapsed().as_millis() as u64,
+                    ),
+                    result: None,
+                    rendition: req.rendition.clone(),
+                    usage: None,
+                    provider_request_id: String::new(),
+                    prompt_profile_id: req.prompt_profile_id.clone(),
+                }));
+            }
+        };
 
         let cancel_rx = self.cancel_registry.register(&header.request_id);
-        let provider_fut =
-            provider.describe_image(&req.image_bytes, &req.model_id, &req.prompt_profile_id);
+        let provider_fut = provider.describe_image(
+            &req.image_bytes,
+            &req.model_id,
+            &req.prompt_profile_id,
+            credential.as_ref(),
+        );
         tokio::pin!(provider_fut);
         let timeout_dur = Self::timeout_duration(&header);
 
@@ -409,28 +419,36 @@ impl ImageAnalysisService for ImageAnalysisServiceImpl {
             }
         };
 
-        if let Err((status, code, msg)) = self.resolve_credential(&header, provider.as_ref()) {
-            return Ok(Response::new(ScoreImageResponse {
-                header: self.failure_header(
-                    &header,
-                    status,
-                    code,
-                    &msg,
-                    provider.provider_id(),
-                    &req.model_id,
-                    start.elapsed().as_millis() as u64,
-                ),
-                result: None,
-                rendition: req.rendition.clone(),
-                usage: None,
-                provider_request_id: String::new(),
-                prompt_profile_id: req.prompt_profile_id.clone(),
-            }));
-        }
+        let credential = match self.resolve_credential_secret(&header, provider.as_ref()) {
+            Ok(c) => c,
+            Err((status, code, msg)) => {
+                return Ok(Response::new(ScoreImageResponse {
+                    header: self.failure_header(
+                        &header,
+                        status,
+                        code,
+                        &msg,
+                        provider.provider_id(),
+                        &req.model_id,
+                        start.elapsed().as_millis() as u64,
+                    ),
+                    result: None,
+                    rendition: req.rendition.clone(),
+                    usage: None,
+                    provider_request_id: String::new(),
+                    prompt_profile_id: req.prompt_profile_id.clone(),
+                }));
+            }
+        };
 
         let cancel_rx = self.cancel_registry.register(&header.request_id);
-        let provider_fut =
-            provider.score_image(&req.image_bytes, &req.model_id, &req.prompt_profile_id, &req.rubric_id);
+        let provider_fut = provider.score_image(
+            &req.image_bytes,
+            &req.model_id,
+            &req.prompt_profile_id,
+            &req.rubric_id,
+            credential.as_ref(),
+        );
         tokio::pin!(provider_fut);
         let timeout_dur = Self::timeout_duration(&header);
 

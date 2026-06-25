@@ -1252,3 +1252,318 @@ so the name describes what it actually covers (a blank-string tag for understand
 list for rating) rather than implying the empty-tags-list case it did not cover. The schema test now
 asserts `tags.minItems == 1` and `tags.items.minLength == 1`. `cargo test` in `rust/puerh_mind`:
 133 passed; 0 failed; 0 warnings (was 129; +1 here, +3 in 5a).
+
+## Phase 5c - Completion & Self-Review
+
+Status: complete. The first real remote image-analysis providers are wired behind the two shipped
+driver ids. `OpenRouterChatProvider` (`openrouter_chat`) builds OpenAI Chat-compatible
+`POST /api/v1/chat/completions` requests; `VolcengineArkResponsesProvider` (`volcengine_ark_responses`)
+builds OpenAI Responses-compatible `POST /api/v3/responses` requests against the Ark data-plane base
+URL. Both reuse a shared rustls HTTPS client, image->data-URI encoding, bounded retry, strict-schema
+injection, and redaction discipline (`http_util`), so the driver files own only the per-family
+request/response shape and the typed parser - not the cross-cutting policy. The credential secret is
+resolved per request from the Rust vault by the service and passed to the provider as
+`Option<&SecretString>`; the provider calls `expose()` exactly once, at the `Authorization: Bearer`
+header call site. No secret, image base64, prompt, or raw provider body travels through args, options,
+logs, or error strings. The mock provider remains the default; the real providers are merged into the
+provider map at startup and only selected when a request names their `provider_id`.
+
+Contract change (threading the credential): `ImageAnalysisProvider::describe_image` / `score_image`
+now take `credential: Option<&SecretString>`. The service (`server/image_analysis.rs`) gained
+`resolve_credential_secret` - `Ok(None)` when the provider does not require a credential,
+`Ok(Some(secret))` when the handle resolves, or a failure-header triple on `MISSING_CREDENTIAL` /
+`CREDENTIAL_REVOKED` / `CREDENTIAL_EXPIRED` - and passes `credential.as_ref()` into the provider call.
+`MockImageAnalysisProvider` was updated to the new signature. This keeps the secret out of
+`AiSidecarRuntimeOptions` / `BuildArguments` (Phase 3 invariant preserved) and localizes `expose()`
+to the driver.
+
+Implemented (file-by-file, per the plan):
+
+- `rust/puerh_mind/Cargo.toml` - `reqwest = { 0.12, default-features = false, features =
+  ["rustls-tls-webpki-roots", "json"] }` (no native-tls, no invalid-cert acceptance, no plaintext-for-
+  production), `rustls = { 0.23, default-features = false, features = ["ring", "std", "tls12",
+  "logging"] }`, `base64 = "0.22"`; dev-deps `wiremock = "0.6"` (mock HTTP server) and `dotenvy = "0.15"`
+  (loads `.env.test` for the live smokes). The `ring` crypto provider is installed at client
+  construction, reusing ort's existing tls-rustls native build rather than introducing aws-lc-rs.
+- `rust/puerh_mind/src/service/providers/mod.rs` - new module; `build_real_image_providers(&
+  ProviderRegistry) -> HashMap<String, Arc<dyn ImageAnalysisProvider>>` constructs only the shipped
+  driver families from the loaded registry and skips a config naming a reserved-but-unimplemented driver
+  (`openai_responses`, `anthropic_messages`, `volcengine_ark_chat`) with a `warn!` - fail closed, so a
+  request for that `provider_id` returns `UNSUPPORTED_TASK` in-header. `build_one` maps a construction
+  failure to a skipped provider (also fail-closed).
+- `rust/puerh_mind/src/service/providers/http_util.rs` - shared helpers: `build_rustls_client`
+  (installs `ring`, `use_rustls_tls().build()`); `build_image_data_uri` (magic-byte detect
+  PNG/JPEG/WebP/GIF pass-through, else image-crate re-encode to PNG); `strict_schema_value` +
+  `sanitize_strict` (drops unsupported keys $schema/title/minLength/minItems/minimum/maximum/pattern/
+  format, forces `required` = all properties recursively, keeps additionalProperties:false - strict-
+  mode compatible; the code-owned validator still enforces the dropped constraints, so fail-closed is
+  preserved); `send_with_retry` (bounded retry: retryable = 429 | 5xx | transport error; max 1 retry /
+  2 attempts; 4xx non-429 never retried; Retry-After respected and capped at 5s; body drained with
+  `let _ = resp.text().await` and never logged); `parse_content_json`, `extract_usage` (tolerant
+  input_tokens/prompt_tokens + output_tokens/completion_tokens), `json_pointer_str`,
+  `transport_error_category`, `retry_after`. Constants `MAX_TRANSIENT_RETRIES=1`, `RETRY_BACKOFF=100ms`,
+  `MAX_RETRY_AFTER=5s`.
+- `rust/puerh_mind/src/service/providers/openrouter.rs` - `OpenRouterChatProvider` (`new`,
+  `with_client`, `url`, `resolve_model`, `ensure_structured_output`, `bearer` (expose() only here),
+  `attribution_headers` (HTTP-Referer, X-OpenRouter-Title), `provider_knobs` (require_parameters +
+  data_collection=deny), `build_chat_body`, `parse_describe`, `parse_score`); schema names
+  `alcedo_image_understanding` / `alcedo_image_rating`; `build_chat_body` emits `{model, messages:[
+  {role:system},{role:user,content:[{type:text},{type:image_url,image_url:{url:data_uri}}]}],
+  stream:false, temperature, max_tokens, response_format:{type:json_schema,json_schema:{name,strict,
+  schema}}}` plus a conditional `provider` object (omitted when empty). 13 mock-server tests.
+- `rust/puerh_mind/src/service/providers/volcengine_ark.rs` - `VolcengineArkResponsesProvider`,
+  structurally parallel but with the Responses shape; `build_responses_body` emits `{model, input:[
+  {role:system,content:[{type:input_text}]},{role:user,content:[{type:input_image,image_url:data_uri},
+  {type:input_text}]}], stream:false, temperature, max_output_tokens, text:{format:{type:json_schema,
+  name,strict,schema}}}` (no `provider` object, flat `image_url` string); `extract_output_text` is the
+  driver-owned typed parser walking `output[].content[]` for the first `output_text` item (config
+  `content_json_pointer` is null for this driver - the parser owns the shape). 13 mock-server tests.
+- `rust/puerh_mind/src/service/providers/live_smoke.rs` - env-gated live smokes
+  `live_openrouter_smoke_describe_and_score` (keys `ALCEDO_OPENROUTER_API_KEY` / `OPENROUTER_API_KEY`)
+  and `live_volcengine_ark_smoke_describe_and_score` (keys `ALCEDO_VOLCENGINE_ARK_API_KEY` /
+  `ALCEDO_ARK_API_KEY`); `env_or_skip` returns the first non-empty env var or skips with an eprintln;
+  `smoke_image_png` builds a 32x32 RGB gradient PNG; `dotenvy::from_filename(".env.test")` loads the
+  gitignored file (existing process env takes precedence); each smoke constructs the provider from the
+  real built-in config (no base_url override), calls describe + score, asserts `validate_understanding`
+  / `validate_rating`, and eprintlns usage + provider request id.
+- `rust/puerh_mind/src/service/image_analysis.rs` - the `ImageAnalysisProvider` trait and
+  `MockImageAnalysisProvider` updated to the `Option<&SecretString>` credential signature.
+- `rust/puerh_mind/src/server/image_analysis.rs` - `resolve_credential_secret` resolves the vault
+  handle to a `SecretString` (or a failure-header triple) and passes `credential.as_ref()` into
+  `describe_image` / `score_image`.
+- `rust/puerh_mind/src/service/mod.rs` - `pub mod providers;`.
+- `rust/puerh_mind/src/main.rs` - `build_real_image_providers(&provider_registry)` merged into the
+  image provider map; the mock stays the default.
+- `rust/puerh_mind/.gitignore` - `.env.test` ignored (the `.env.test.example` template stays tracked).
+- `rust/puerh_mind/.env.test.example` - committed template documenting the four expected key names with
+  empty values.
+- `rust/puerh_mind/.env.test` - gitignored, empty values, for the user to fill and hand back; loaded by
+  `dotenvy` only for the live smokes.
+
+Driver-shape / fail-closed / bounded-retry invariants (Phase 5c review focus):
+
+- Compatibility is implemented by typed drivers, not arbitrary JSON templates. Each provider is a
+  struct with typed methods that build the request from the loaded `ProviderConfig` and parse the
+  response with a driver-owned typed parser (`parse_describe` / `parse_score` for OpenRouter;
+  `extract_output_text` + `parse_describe` / `parse_score` for Volcengine).
+  `request_body_has_structured_output_and_require_parameters` and
+  `request_body_uses_responses_shape_with_structured_output` pin the exact wire shape (Chat
+  `choices[0].message.content` + nested `image_url.url`; Responses `output[].content[].output_text` +
+  flat `image_url` string) so a template drift is caught.
+- A provider schema failure cannot create an active annotation. `schema_failure_does_not_produce_active
+  _result` (both drivers) sends a malformed-but-200 response; the driver returns
+  `ProviderError::SchemaValidation`, the service maps it to `PROVIDER_ERROR` / `PAYLOAD_DECODE` with
+  `result = None`. `non_json_content_maps_to_schema_validation` (OpenRouter) and
+  `missing_output_text_maps_to_schema_validation` (Volcengine) cover the non-JSON / missing-output-text
+  paths to the same fail-closed outcome.
+- The Volcengine response parser is backed by a live smoke fixture -
+  `live_volcengine_ark_smoke_describe_and_score` asserts `validate_understanding` / `validate_rating` on
+  the real Ark response and is the ground-truth check that the documented Responses shape matches the
+  live provider. The fixture is wired and skip-gated; see "Test results" for its execution status.
+- Retries are bounded and not aggressive on paid non-idempotent calls. `send_with_retry` retries at
+  most once (2 attempts) on 429 | 5xx | transport error, never on 4xx non-429, with a 100ms backoff and
+  Retry-After respected and capped at 5s. `rate_limit_maps_to_transient` and
+  `server_500_is_retried_then_succeeds` (both drivers) pin the policy;
+  `client_4xx_is_not_retried_and_maps_to_provider_error` (OpenRouter) pins the no-retry-on-4xx side.
+
+Negative / redaction invariants:
+
+- `no_secret_image_prompt_or_body_in_logs_or_error_strings` (both drivers) mounts a 500-then-400-
+  with-sentinel sequence, captures tracing output on a `current_thread` runtime under a thread-local
+  capturing subscriber, and asserts the captured logs and the returned error string contain neither the
+  API key, the `data:image/png;base64,` prefix, the prompt text, nor the raw provider body sentinel. A
+  positive `captured.contains("retrying")` assertion proves the capture is real (not an empty-buffer
+  false pass); the test was rewritten from a `multi_thread` + `block_in_place` form that could poll the
+  future's continuation on a worker thread where the thread-local subscriber is not set, leaving
+  `captured` empty and the no-leak assertions passing trivially. `bearer` calls `SecretString::expose()`
+  exactly once, at the `Authorization` header call site; error strings use fixed messages
+  (`"provider returned HTTP {code}"`), never the body.
+
+Test results:
+
+- Rust - `cargo test` in `rust/puerh_mind`: 171 passed; 0 failed; 0 ignored (was 133 after the 5b
+  follow-up; +38 here: 10 `http_util`, 13 `openrouter`, 13 `volcengine_ark`, 2 `live_smoke`). The plan-
+  required OpenRouter mock-server tests (`sends_bearer_authorization_and_attribution_headers`,
+  `request_body_has_structured_output_and_require_parameters`,
+  `parses_understanding_response_and_captures_usage`, `parses_rating_response_and_captures_usage`,
+  `rate_limit_maps_to_transient`, `server_500_is_retried_then_succeeds`,
+  `cancellation_drops_in_flight_request`, `timeout_returns_deadline_exceeded`,
+  `schema_failure_does_not_produce_active_result`, `non_json_content_maps_to_schema_validation`,
+  `bearer_required_without_credential_errors`, `no_secret_image_prompt_or_body_in_logs_or_error_strings`,
+  `client_4xx_is_not_retried_and_maps_to_provider_error`) and the Volcengine equivalents
+  (`sends_bearer_authorization`, `request_body_uses_responses_shape_with_structured_output`,
+  `extracts_output_text_from_responses_envelope`, `parses_rating_response_and_captures_usage`,
+  `ark_error_body_maps_to_provider_error_without_leaking_text`,
+  `missing_output_text_maps_to_schema_validation`, `schema_failure_does_not_produce_active_result`,
+  `rate_limit_maps_to_transient`, `server_500_is_retried_then_succeeds`,
+  `cancellation_drops_in_flight_request`, `timeout_returns_deadline_exceeded`,
+  `bearer_required_without_credential_errors`,
+  `no_secret_image_prompt_or_body_in_logs_or_error_strings`) are all green.
+  `cargo check --all-targets` exits 0 with only the 5 pre-existing test-API warnings carried from
+  earlier phases (`ProviderRegistry::get`, `MockFailure` variants, `with_requires_credential` /
+  `with_failure`, `EmbedImageItemV2` / `EmbedTextItemV2`) - no new warnings from 5c.
+- Live smokes - both `live_openrouter_smoke_describe_and_score` and
+  `live_volcengine_ark_smoke_describe_and_score` SKIP cleanly (printed skip line, counted as `ok`)
+  because `.env.test` ships with empty values. They have NOT been executed against the real provider APIs
+  yet - pending the user-supplied credentials. This is the explicit handoff: the user fills `.env.test`
+  and hands it back; the smokes then run against the real endpoints and assert the parsed outcome
+  validates against the code-owned contract.
+
+Deferred to Phase 5d / 5e / 5f:
+
+- Secret persistence across sidecar restarts - the vault is in-memory; a registered credential does not
+  survive a sidecar restart. Persisting registered credentials (encrypted at rest) is a 5d/5e concern.
+- The C++ host image-analysis service, the C++ runtime client, storage/search integration, and the
+  developer smoke (5d / 5e / 5f).
+- `volcengine_ark_chat` remains a reserved compatibility driver (not wired) unless live testing proves
+  the default Doubao path needs the Chat API instead of the Responses API; the bundled config defaults to
+  `doubao-seed-2-0-lite-260428` on the Responses path.
+
+Review conclusion: none (no shipped-code bugs found in review - the compile errors fixed during
+implementation, including a `resp` use-after-move in `send_with_retry`, an `Option<&str>` comparison in
+`sanitize_strict`, and `is_body_decode` -> `is_decode`, were caught at compile time before any test ran;
+the one review finding was a test-honesty gap, not a shipped bug: the no-leak log-capture tests were
+rewritten from a `multi_thread` + `block_in_place` form that could false-pass on an empty captured
+buffer to a `current_thread` runtime with a positive `captured.contains("retrying")` assertion proving
+capture is real); risk accepted: (1) a single bounded retry (max 1, 100ms backoff, Retry-After
+respected and capped at 5s, only on 429 / 5xx / transport, never 4xx) on paid non-idempotent `POST
+describe/score` calls - a retried POST could double-charge if the first request succeeded server-side
+but its response was lost, and the bound is the minimum useful retry, not aggressive; (2) the
+advertised-but-unregistered-provider risk carried from 5a/5b - a user-supplied config naming a reserved
+driver id (`openai_responses`, `anthropic_messages`, `volcengine_ark_chat`) is skipped with `warn!`
+(fail closed), so a request for that `provider_id` returns `UNSUPPORTED_TASK`; the shipped built-ins
+(`openrouter`, `volcengine_ark`) are wired, so advertisement and registration align; missing tests: the
+env-gated live smokes (OpenRouter + Volcengine) are implemented and skip cleanly without credentials but
+have not yet been executed against the real provider APIs - pending the user-supplied credentials in the
+gitignored `.env.test`; the mock-server suite (38 tests, no network, no cost) is the CI gate and is
+green. Per the Phase 5 review focus, the Volcengine parser's live-smoke backing is wired but unexecuted;
+running it is the explicit next step once `.env.test` is handed back.
+
+### Phase 5c - Follow-up Review & Fixes (2026-06-25): Anthropic Messages driver for the Volcengine Ark Coding Plan
+
+Triggered by the user's request to talk to the Volcengine Ark **Coding Plan** endpoint, which exposes an
+Anthropic-compatible API (`https://ark.cn-beijing.volces.com/api/coding` -> `POST /v1/messages`). The user
+chose the **Anthropic Messages** protocol, **vision `DescribeImage`/`ScoreImage`** when a vision-capable
+model is selected, default model **`doubao-seed-2.0-lite`**. This fills the reserved `anthropic_messages`
+driver slot declared in `KNOWN_DRIVER_IDS` since 5a; no config-schema changes were required
+(`driver: "anthropic_messages"`, `auth.type: "bearer"`/`"api_key_header"`, `structured_output.mode: "tool"`,
+`content_json_pointer: null` were all already in the known-ID closed sets).
+
+What shipped:
+
+- New driver `rust/puerh_mind/src/service/providers/anthropic_messages.rs` (`AnthropicMessagesProvider`),
+  mirroring `volcengine_ark.rs` with these wire-shape deltas: the request body is the Anthropic Messages
+  shape (`model`, mandatory `max_tokens`, top-level `system`, `messages[user]` with an `image` block
+  `{type:"image", source:{type:"base64", media_type, data}}` carrying RAW base64 — not a data URI — plus a
+  `text` instruction, `temperature`, `stream:false`), structured output via **tool-use**
+  (`tools[{name, description, input_schema}]` + `tool_choice:{type:"tool", name}`) with the code-owned
+  Alcedo schema run through `strict_schema_value` as `input_schema`, and a driver-owned `tool_use` walker
+  (`extract_tool_use_input` finds `content[].tool_use` by expected name and returns its `input` object;
+  missing or wrong-name -> `SchemaValidation`, fail-closed). Auth is selected by `config.auth.auth_type`:
+  `bearer` -> `Authorization: Bearer <secret>` (Claude-Code-style, the Coding Plan default), `api_key_header`
+  -> `x-api-key: <secret>` (real Anthropic API convention), `none` -> no credential; `anthropic-version:
+  2023-06-01` is always sent. `SecretString::expose()` is called only at the header-build site; the
+  `api_key_header` value is a short-lived `String` clone dropped after the call. The `describe_prompt` /
+  `score_prompt` free fns are copied verbatim from `volcengine_ark.rs` (per-driver, not shared). The module
+  doc records the Coding Plan ToS + vision caveats.
+- New built-in config `rust/puerh_mind/configs/providers/volcengine_ark_coding.json` (embedded via
+  `include_str!` in `BUILTIN_PROVIDER_CONFIGS`): `provider_id volcengine_ark_coding`, `driver
+  anthropic_messages`, `base_url https://ark.cn-beijing.volces.com/api/coding`, `endpoint /v1/messages`,
+  `auth.type bearer` reusing the `volcengine_ark_api_key` slot (the slot is a label; the vault resolves by
+  opaque handle, so one registered Ark key serves both `volcengine_ark` and `volcengine_ark_coding`),
+  `defaults.model doubao-seed-2.0-lite`, `structured_output.mode tool` strict, `content_json_pointer null`,
+  one model `doubao-seed-2.0-lite` (`supports_vision true`, `supports_structured_output true`). Passes
+  `scan_for_secrets` (same shape as `volcengine_ark.json` which loads today; `credential_slot` is exempt
+  from the `_key`-suffix rejection because it is a label, not a secret).
+- `http_util.rs`: extracted the image-encode core into private `detect_image_base64` and added
+  `pub fn build_image_base64(bytes) -> (media_type, base64)` so the Anthropic driver can emit raw base64 +
+  media type; `build_image_data_uri` now delegates to the same core (DRY, existing behavior preserved). The
+  old `data_uri_uses_standard_base64` test was replaced 1:1 by `build_image_base64_returns_mime_and_base64`
+  (still asserts STANDARD base64), so `http_util` stays at 10 tests.
+- `providers/mod.rs`: `pub mod anthropic_messages;` + an `"anthropic_messages"` arm in `build_one`; the doc
+  comment now lists `anthropic_messages` as wired (removed from the reserved list) and `volcengine_ark_coding`
+  among the shipped built-ins.
+- `live_smoke.rs`: `live_volcengine_ark_coding_smoke_describe_and_score` mirrors the Ark smoke and reuses
+  the same `ALCEDO_VOLCENGINE_ARK_API_KEY` / `ALCEDO_ARK_API_KEY` keys (no new env var); the module doc +
+  `.env.test.example` note that the Coding Plan smoke reuses the Ark key.
+
+Two existing `provider_config` count-assertion tests were updated for the 3rd built-in (these were the only
+test breakages from adding the config — both are count tests, not logic):
+`loads_built_in_configs` 2 -> 3 built-ins (and now explicitly asserts the coding config's driver / base_url /
+endpoint / auth.type / credential_slot / default model / `structured_output.mode tool` / strict /
+`content_json_pointer null`); `built_ins_advertise_understanding_and_rating_descriptors` 4 -> 6 capability
+descriptors (3 providers x 1 model x 2), understanding 2 -> 3, rating 2 -> 3.
+
+Test results:
+
+- Rust - `cargo check --all-targets` exits 0 with only the 5 pre-existing test-API warnings carried from
+  earlier phases (`ProviderRegistry::get`, `MockFailure` variants, `with_requires_credential` /
+  `with_failure`, `CredentialVault::revoke`, `EmbedImageItemV2` / `EmbedTextItemV2`) - no new warnings.
+- Rust - `cargo test -- --skip live_` (mock suite, no network, no cost): 185 passed; 0 failed; 0 ignored; 3
+  filtered (the 3 live smokes). vs 169 mock tests at 5c close (+16 `anthropic_messages` driver tests; the
+  `http_util` image-encode test was a 1:1 replacement, not a net add). The 16 new driver tests:
+  `sends_authorization_and_anthropic_version_headers`, `request_body_uses_messages_shape_with_tool_use`,
+  `extracts_tool_use_input_from_messages_envelope`, `parses_understanding_response_and_captures_usage`,
+  `parses_rating_response_and_captures_usage`, `rate_limit_maps_to_transient`, `server_500_is_retried_then_succeeds`,
+  `client_4xx_is_not_retried_and_maps_to_provider_error`, `schema_failure_does_not_produce_active_result`,
+  `missing_tool_use_maps_to_schema_validation`, `wrong_tool_name_maps_to_schema_validation`,
+  `bearer_required_without_credential_errors`, `api_key_header_mode_sends_x_api_key`,
+  `no_secret_image_prompt_or_body_in_logs_or_error_strings`, `cancellation_drops_in_flight_request`,
+  `timeout_returns_deadline_exceeded`. Full binary total 188 (was 171; +16 driver + 1 coding live smoke + 0
+  net http_util + the 2 count-test fixes). The no-leak test uses the same `current_thread` runtime +
+  positive `captured.contains("retrying")` pattern proven in 5c (a `multi_thread` runtime false-passes on an
+  empty buffer); it computes the image base64 via `build_image_base64` and asserts it is absent from logs.
+- Live smokes - `live_volcengine_ark_coding_smoke_describe_and_score` SKIPs cleanly without a key (printed
+  skip line, counted `ok`). It has NOT been executed against the real Coding Plan endpoint yet - see the
+  handoff / blocker note below.
+
+Live Coding Plan smoke result (executed 2026-06-25, PASSED):
+
+- After the env-file fix below, `cargo test live_volcengine_ark_coding -- --nocapture` ran against the real
+  Coding Plan endpoint and PASSED - both `describe_image` and `score_image` succeeded and the parsed
+  outcomes validated against the code-owned Alcedo contract. Sample describe output: caption "A smooth
+  diagonal gradient transitioning from dark green in the bottom-left to bright pink in the top-right.",
+  tags ["gradient","abstract","green","pink","background","smooth","color transition"], scene "abstract
+  gradient background", confidence 0.98, usage {input_tokens 1901, output_tokens 130}; sample score: 2
+  dims, rubric alcedo-default-v1, usage {input 1978, output 169}. This confirms three things that were
+  previously "unverified" accepted risks: (a) `auth.type: bearer` is accepted by the Coding Plan (no 401 -
+  no flip to `api_key_header` needed); (b) the `doubao-seed-2.0-lite` slug is valid on the Coding Plan and
+  IS vision-capable (it accepted and described the image - no 404, no image rejection); (c) the documented
+  Anthropic Messages wire shape (tool-use structured output, raw-base64 image block, `anthropic-version`
+  header) matches the Coding Plan proxy. Only the Coding Plan usage-policy caveat remains
+  (operator-policy, not technical): using the Coding Plan as an OpenClaw-style coding-tool backend is in
+  the intended usage class, while routing non-coding production image analysis through it remains an
+  operator decision. Production Alcedo image analysis stays on `volcengine_ark`.
+- Env-file fix: the user moved the real keys into the gitignored `.env.test` (where dotenvy reads them)
+  and emptied `.env.test.example` back to a true template, resolving the hygiene finding below. (The
+  earlier attempt to copy the real-key file into `.env.test` was blocked by the Claude Code auto-classifier;
+  the user did the copy themselves.)
+
+Finding (env-file hygiene, not shipped code; RESOLVED 2026-06-25 by the user): `rust/puerh_mind/.env.test.example`
+is UNTRACKED and NOT gitignored (only `.env.test` is gitignored, per `rust/puerh_mind/.gitignore:35`), and the
+`.gitignore` comment (lines 31-33) describes it as the tracked *empty-value* template. It briefly held
+real-looking API keys (a `git add .` would have committed them); the user has since emptied it back to a
+true template and moved the real keys into the gitignored `.env.test`. No leak occurred (the file was
+untracked throughout). Optional follow-up: `git add` the empty `.env.test.example` so it is a tracked
+template matching the `.gitignore` comment's intent (it is currently untracked, so other developers do not
+get it automatically).
+
+Review conclusion: none (no shipped-code bugs found - the two test failures from adding the built-in
+(`loads_built_in_configs` 2->3, `built_ins_advertise_understanding_and_rating_descriptors` 4->6) were
+expected count-assertion updates, not logic bugs, and are fixed; the driver compiles clean with no new
+warnings and all 16 mock tests pass on the first run; the env-gated live Coding Plan smoke was executed
+against the real Coding Plan endpoint on 2026-06-25 and PASSED - both describe and score returned valid
+outcomes that validate against the code-owned contract); risk accepted: (1) the Coding Plan usage-policy
+caveat - `/api/coding/*` is intended for AI coding tools, so using this driver as an OpenClaw-style
+coding-tool backend is low-risk and aligned with the plan's purpose; the remaining caution is routing
+non-coding PRODUCTION Alcedo image analysis through `volcengine_ark_coding`, which stays an operator
+decision. Mitigation: production Alcedo image analysis stays on `volcengine_ark` (`/api/v3/responses`);
+the coding endpoint remains available for coding-tool validation and explicit operator-approved use,
+documented in the driver module doc + here; (2) the env-file
+hygiene finding (`.env.test.example` untracked + not gitignored) - resolved by the user (real keys moved to
+gitignored `.env.test`, `.env.test.example` emptied); optional follow-up to `git add` the empty template;
+risks previously listed as "unverified" (auth-header style, model/vision) are now CONFIRMED by the live
+smoke - `auth.type: bearer` is accepted (no 401), `doubao-seed-2.0-lite` is a valid Coding Plan slug and is
+vision-capable (it described the image); missing tests: none - the live Coding Plan smoke is implemented,
+executed, and passing; the mock-server suite (16 driver tests + the replaced `http_util` test, no network,
+no cost) is the CI gate and is green.

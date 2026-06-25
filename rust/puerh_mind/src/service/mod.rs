@@ -13,3 +13,4 @@ pub mod ort_clip;
 pub mod ort_runtime;
 pub mod provider_config;
 pub mod image_analysis;
+pub mod providers;

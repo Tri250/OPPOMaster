@@ -276,6 +276,10 @@ impl ProviderRegistry {
 const BUILTIN_PROVIDER_CONFIGS: &[(&str, &str)] = &[
     ("openrouter", include_str!("../../configs/providers/openrouter.json")),
     ("volcengine_ark", include_str!("../../configs/providers/volcengine_ark.json")),
+    (
+        "volcengine_ark_coding",
+        include_str!("../../configs/providers/volcengine_ark_coding.json"),
+    ),
 ];
 
 /// Load built-in configs and optional user configs from `user_dir`.
@@ -819,8 +823,8 @@ mod tests {
     #[test]
     fn loads_built_in_configs() {
         let registry = builtin_registry();
-        // OpenRouter + Volcengine Ark.
-        assert_eq!(registry.len(), 2);
+        // OpenRouter + Volcengine Ark + Volcengine Ark Coding Plan.
+        assert_eq!(registry.len(), 3);
         let openrouter = registry.get("openrouter").expect("openrouter present");
         assert_eq!(openrouter.driver, "openrouter_chat");
         assert_eq!(openrouter.base_url, "https://openrouter.ai/api/v1");
@@ -840,6 +844,21 @@ mod tests {
         // content_json_pointer: null -> driver-owned parser.
         assert_eq!(ark.response.content_json_pointer, None);
         assert_eq!(ark.defaults.model, "doubao-seed-2-0-lite-260428");
+
+        let coding = registry
+            .get("volcengine_ark_coding")
+            .expect("volcengine_ark_coding present");
+        assert_eq!(coding.driver, "anthropic_messages");
+        assert_eq!(coding.base_url, "https://ark.cn-beijing.volces.com/api/coding");
+        assert_eq!(coding.endpoint, "/v1/messages");
+        // Coding Plan uses Claude-Code-style bearer auth and reuses the Ark key slot.
+        assert_eq!(coding.auth.auth_type, "bearer");
+        assert_eq!(coding.auth.credential_slot, "volcengine_ark_api_key");
+        assert_eq!(coding.defaults.model, "doubao-seed-2.0-lite");
+        // Structured output via Anthropic tool-use; driver-owned parser.
+        assert_eq!(coding.structured_output.mode, "tool");
+        assert!(coding.structured_output.strict);
+        assert_eq!(coding.response.content_json_pointer, None);
     }
 
     #[test]
@@ -1255,13 +1274,14 @@ mod tests {
     fn built_ins_advertise_understanding_and_rating_descriptors() {
         let registry = builtin_registry();
         let caps = build_provider_capability_descriptors(&registry);
-        // OpenRouter (1 model) + Volcengine (1 model), each emitting 2 descriptors.
-        assert_eq!(caps.len(), 4);
+        // 3 providers (OpenRouter, Volcengine Ark, Volcengine Ark Coding Plan), 1
+        // model each, each emitting 2 descriptors (understanding + rating) = 6.
+        assert_eq!(caps.len(), 6);
 
         let understanding: Vec<_> = caps.iter().filter(|c| c.task_id == "image_understanding.describe").collect();
         let rating: Vec<_> = caps.iter().filter(|c| c.task_id == "image_rating.score").collect();
-        assert_eq!(understanding.len(), 2);
-        assert_eq!(rating.len(), 2);
+        assert_eq!(understanding.len(), 3);
+        assert_eq!(rating.len(), 3);
 
         let or_understanding = understanding
             .iter()

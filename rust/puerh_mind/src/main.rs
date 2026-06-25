@@ -44,19 +44,27 @@ fn run_server() -> anyhow::Result<()> {
     )
     .context("failed to load provider configs")?;
 
-    // Phase 5b: register the mock image-analysis provider. It returns valid typed
-    // results without HTTP and advertises a no-credential capability. Real
-    // providers (OpenRouter, Volcengine Ark) are wired in Phase 5c; until then a
-    // request for an unregistered provider_id returns UNSUPPORTED_TASK in-header.
+    // Phase 5b/5c: register the mock image-analysis provider (no-credential, no
+    // HTTP, returns valid typed results) plus the wired remote drivers constructed
+    // from the loaded provider registry (OpenRouter, Volcengine Ark). The mock
+    // stays the default provider_id, so a request that leaves provider_id empty
+    // uses the mock; a request naming "openrouter" or "volcengine_ark" uses the
+    // matching remote driver. A config naming a reserved-but-unimplemented driver
+    // is skipped by `build_real_image_providers` (fail closed -> UNSUPPORTED_TASK).
     let mock_provider: Arc<dyn service::image_analysis::ImageAnalysisProvider> =
         Arc::new(service::image_analysis::MockImageAnalysisProvider::new(
             "mock",
             "alcedo-mock",
         ));
     let mock_capability = mock_provider.capability();
+    let real_providers =
+        service::providers::build_real_image_providers(&provider_registry);
     let mut image_providers: HashMap<String, Arc<dyn service::image_analysis::ImageAnalysisProvider>> =
         HashMap::new();
     image_providers.insert(mock_provider.provider_id().to_string(), mock_provider.clone());
+    for (id, provider) in real_providers {
+        image_providers.insert(id, provider);
+    }
     let default_image_provider_id = mock_provider.provider_id().to_string();
 
     let capabilities = service::capabilities::build_capability_descriptors(

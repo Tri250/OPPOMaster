@@ -16,6 +16,8 @@
 
 use std::time::Duration;
 
+use crate::service::credential_vault::SecretString;
+
 /// Provider-reported usage. Fields are optional in spirit: a provider may report
 /// only some; 0 means "not reported". Captured for UI/cost summaries (Phase 6).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -163,6 +165,15 @@ fn is_valid_confidence(c: f64) -> bool {
 /// A remote/local image-analysis provider. Phase 5b ships one implementation
 /// (`MockImageAnalysisProvider`); Phase 5c adds `OpenRouterChatProvider` and
 /// `VolcengineArkResponsesProvider` behind the same trait.
+///
+/// `credential` carries the resolved secret (from the Rust credential vault) when
+/// `requires_credential()` is true; `None` otherwise. The provider must treat the
+/// `SecretString` as a secret — only `expose()` it at the single call site that
+/// builds the `Authorization` header, and never log it, base64, image bytes, or
+/// prompt payloads (Phase 5c negative-test focus). The service resolves the handle
+/// against the vault and passes the secret down, so the secret travels only across
+/// the gRPC loopback -> vault -> trait call boundary, never through process args,
+/// `AiSidecarRuntimeOptions`, or logs (Phase 3 invariant preserved).
 #[tonic::async_trait]
 pub trait ImageAnalysisProvider: Send + Sync {
     fn provider_id(&self) -> &str;
@@ -176,6 +187,7 @@ pub trait ImageAnalysisProvider: Send + Sync {
         image_bytes: &[u8],
         model_id: &str,
         prompt_profile_id: &str,
+        credential: Option<&SecretString>,
     ) -> Result<DescribeOutcome, ProviderError>;
     async fn score_image(
         &self,
@@ -183,6 +195,7 @@ pub trait ImageAnalysisProvider: Send + Sync {
         model_id: &str,
         prompt_profile_id: &str,
         rubric_id: &str,
+        credential: Option<&SecretString>,
     ) -> Result<ScoreOutcome, ProviderError>;
 }
 
@@ -317,6 +330,7 @@ impl ImageAnalysisProvider for MockImageAnalysisProvider {
         _image_bytes: &[u8],
         _model_id: &str,
         _prompt_profile_id: &str,
+        _credential: Option<&SecretString>,
     ) -> Result<DescribeOutcome, ProviderError> {
         if let MockFailure::Slow(d) = self.failure {
             tokio::time::sleep(d).await;
@@ -342,6 +356,7 @@ impl ImageAnalysisProvider for MockImageAnalysisProvider {
         _model_id: &str,
         _prompt_profile_id: &str,
         _rubric_id: &str,
+        _credential: Option<&SecretString>,
     ) -> Result<ScoreOutcome, ProviderError> {
         if let MockFailure::Slow(d) = self.failure {
             tokio::time::sleep(d).await;
@@ -485,11 +500,11 @@ mod schema_tests {
     #[tokio::test]
     async fn mock_returns_canned_valid_results() {
         let mock = MockImageAnalysisProvider::new("mock", "alcedo-mock");
-        let d = mock.describe_image(&[], "", "").await.expect("describe");
+        let d = mock.describe_image(&[], "", "", None).await.expect("describe");
         assert_eq!(d.caption, "A mock caption describing the image.");
         assert!(!d.tags.is_empty());
         validate_understanding(&d).expect("canned describe validates");
-        let s = mock.score_image(&[], "", "", "").await.expect("score");
+        let s = mock.score_image(&[], "", "", "", None).await.expect("score");
         validate_rating(&s).expect("canned score validates");
     }
 }
