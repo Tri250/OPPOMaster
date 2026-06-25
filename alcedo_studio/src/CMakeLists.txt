@@ -953,6 +953,7 @@ set(ALCEDO_SEMANTIC_PROTO_HDRS
 set(ALCEDO_AI_PROTO_DIR "${ALCEDO_SEMANTIC_PROTO_DIR}")
 set(ALCEDO_AI_COMMON_PROTO "${ALCEDO_AI_PROTO_DIR}/ai_common.proto")
 set(ALCEDO_AI_RUNTIME_PROTO "${ALCEDO_AI_PROTO_DIR}/ai_runtime.proto")
+set(ALCEDO_AI_IMAGE_ANALYSIS_PROTO "${ALCEDO_AI_PROTO_DIR}/image_analysis.proto")
 set(ALCEDO_AI_PROTO_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/ai")
 
 add_custom_command(
@@ -985,11 +986,15 @@ set(ALCEDO_AI_PROTO_SRCS
     "${ALCEDO_AI_PROTO_GEN_DIR}/ai_common.pb.cc"
     "${ALCEDO_AI_PROTO_GEN_DIR}/ai_runtime.pb.cc"
     "${ALCEDO_AI_PROTO_GEN_DIR}/ai_runtime.grpc.pb.cc"
+    "${ALCEDO_AI_PROTO_GEN_DIR}/image_analysis.pb.cc"
+    "${ALCEDO_AI_PROTO_GEN_DIR}/image_analysis.grpc.pb.cc"
 )
 set(ALCEDO_AI_PROTO_HDRS
     "${ALCEDO_AI_PROTO_GEN_DIR}/ai_common.pb.h"
     "${ALCEDO_AI_PROTO_GEN_DIR}/ai_runtime.pb.h"
     "${ALCEDO_AI_PROTO_GEN_DIR}/ai_runtime.grpc.pb.h"
+    "${ALCEDO_AI_PROTO_GEN_DIR}/image_analysis.pb.h"
+    "${ALCEDO_AI_PROTO_GEN_DIR}/image_analysis.grpc.pb.h"
 )
 
 # ai_common.proto: messages + enums only (no service -> no grpc stub).
@@ -1026,6 +1031,31 @@ add_custom_command(
         "${ALCEDO_AI_RUNTIME_PROTO}"
     DEPENDS
         "${ALCEDO_AI_RUNTIME_PROTO}"
+        "${ALCEDO_AI_COMMON_PROTO}"
+    VERBATIM
+)
+
+# image_analysis.proto: imports ai_common.proto; emits .pb + .grpc.pb (Phase 5b).
+# Same pattern as ai_runtime.proto: protoc generates output only for files named on
+# the command line, so this does not regenerate ai_common.*; DEPENDS the ai_common.proto
+# *source* (not a generated artifact) so import resolution + ordering are correct
+# under Make/Ninja. Shares the single alcedo.ai package, so AiProto picks it up with
+# no new package / cross-package extern_path.
+add_custom_command(
+    OUTPUT
+        "${ALCEDO_AI_PROTO_GEN_DIR}/image_analysis.pb.cc"
+        "${ALCEDO_AI_PROTO_GEN_DIR}/image_analysis.pb.h"
+        "${ALCEDO_AI_PROTO_GEN_DIR}/image_analysis.grpc.pb.h"
+        "${ALCEDO_AI_PROTO_GEN_DIR}/image_analysis.grpc.pb.cc"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${ALCEDO_AI_PROTO_GEN_DIR}"
+    COMMAND ${PUERHLAB_PROTOC_EXECUTABLE}
+        --proto_path=${ALCEDO_AI_PROTO_DIR}
+        --cpp_out=${ALCEDO_AI_PROTO_GEN_DIR}
+        --grpc_out=${ALCEDO_AI_PROTO_GEN_DIR}
+        --plugin=protoc-gen-grpc=${PUERHLAB_GRPC_CPP_PLUGIN_EXECUTABLE}
+        "${ALCEDO_AI_IMAGE_ANALYSIS_PROTO}"
+    DEPENDS
+        "${ALCEDO_AI_IMAGE_ANALYSIS_PROTO}"
         "${ALCEDO_AI_COMMON_PROTO}"
     VERBATIM
 )

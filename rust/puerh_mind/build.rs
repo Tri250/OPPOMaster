@@ -18,6 +18,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "proto/semantic.proto",
                 "proto/ai_common.proto",
                 "proto/ai_runtime.proto",
+                "proto/image_analysis.proto",
             ],
             &["proto"],
         )?;
@@ -26,6 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=proto/semantic.proto");
     println!("cargo:rerun-if-changed=proto/ai_common.proto");
     println!("cargo:rerun-if-changed=proto/ai_runtime.proto");
+    println!("cargo:rerun-if-changed=proto/image_analysis.proto");
 
     Ok(())
 }

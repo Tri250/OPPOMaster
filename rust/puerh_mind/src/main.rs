@@ -6,6 +6,7 @@ mod server;
 mod service;
 
 use anyhow::{Context, anyhow};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -35,9 +36,35 @@ fn run_server() -> anyhow::Result<()> {
         },
     ));
     let cancel_registry = Arc::new(service::cancellation_registry::CancellationRegistry::new());
+    // Phase 5a: load built-in provider configs plus optional user-provider configs
+    // from the configured directory. An invalid built-in is a hard error (the binary
+    // is broken); invalid user configs are skipped with a warning by the loader.
+    let provider_registry = service::provider_config::load_provider_configs(
+        config.provider_config_dir.as_deref().map(std::path::Path::new),
+    )
+    .context("failed to load provider configs")?;
+
+    // Phase 5b: register the mock image-analysis provider. It returns valid typed
+    // results without HTTP and advertises a no-credential capability. Real
+    // providers (OpenRouter, Volcengine Ark) are wired in Phase 5c; until then a
+    // request for an unregistered provider_id returns UNSUPPORTED_TASK in-header.
+    let mock_provider: Arc<dyn service::image_analysis::ImageAnalysisProvider> =
+        Arc::new(service::image_analysis::MockImageAnalysisProvider::new(
+            "mock",
+            "alcedo-mock",
+        ));
+    let mock_capability = mock_provider.capability();
+    let mut image_providers: HashMap<String, Arc<dyn service::image_analysis::ImageAnalysisProvider>> =
+        HashMap::new();
+    image_providers.insert(mock_provider.provider_id().to_string(), mock_provider.clone());
+    let default_image_provider_id = mock_provider.provider_id().to_string();
+
     let capabilities = service::capabilities::build_capability_descriptors(
         &*semantic_engine,
         config.max_message_bytes,
+        &provider_registry,
+        // The mock provider advertises its own no-credential image-analysis capability.
+        &[mock_capability],
     );
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -50,6 +77,8 @@ fn run_server() -> anyhow::Result<()> {
             credential_vault,
             cancel_registry,
             capabilities,
+            image_providers,
+            default_image_provider_id,
         ))
         .map_err(|err| anyhow!("{err}"))
 }

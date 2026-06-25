@@ -122,7 +122,9 @@ mod tests {
     fn test_impl() -> AiRuntimeServiceImpl {
         let vault = Arc::new(CredentialVault::new(None));
         let cancel_registry = Arc::new(CancellationRegistry::new());
-        let capabilities = build_capability_descriptors(&MockEmbeddingEngine, 4096);
+        let registry = crate::service::provider_config::load_provider_configs(None)
+            .expect("built-in provider configs load");
+        let capabilities = build_capability_descriptors(&MockEmbeddingEngine, 4096, &registry, &[]);
         AiRuntimeServiceImpl::new(vault, cancel_registry, capabilities)
     }
 
@@ -147,12 +149,19 @@ mod tests {
         assert_eq!(header.status, AiResponseStatus::AiStatusOk as i32);
         assert_eq!(header.error_code, 0);
 
-        assert_eq!(inner.capabilities.len(), 2);
+        // local semantic + 4 config-derived (openrouter + volcengine, understanding+rating each).
+        assert!(inner.capabilities.len() >= 5);
         assert_eq!(inner.capabilities[0].task_id, "semantic.embed_*");
         assert!(!inner.capabilities[0].requires_credential);
-        assert_eq!(inner.capabilities[1].task_id, "image_understanding.describe");
-        assert!(inner.capabilities[1].requires_credential);
-        assert_eq!(inner.capabilities[1].model_id, "unconfigured");
+        // The config-derived image_understanding.describe descriptors are present and
+        // require a credential (the old "unconfigured" placeholder is gone).
+        let understanding = inner
+            .capabilities
+            .iter()
+            .find(|c| c.task_id == "image_understanding.describe" && c.provider_id == "openrouter")
+            .expect("openrouter understanding descriptor advertised");
+        assert!(understanding.requires_credential);
+        assert_ne!(understanding.model_id, "unconfigured");
     }
 
     #[tokio::test]
@@ -166,7 +175,7 @@ mod tests {
 
         assert_eq!(header.status, AiResponseStatus::AiStatusOk as i32);
         assert!(header.request_id.is_empty());
-        assert_eq!(inner.capabilities.len(), 2);
+        assert!(inner.capabilities.len() >= 5);
     }
 
     #[tokio::test]

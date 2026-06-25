@@ -982,3 +982,216 @@ Review conclusion: none; risk accepted: v2 hard-failure responses propagate the 
 `AiResponseHeader` travels on success only) and embedding cancellation is not wired into the
 micro-batch worker - both deferred to Phase 5 per Phase 0 section 1.5, and `supports_cancel` stays a
 forward promise with no regression; missing tests: none.
+
+## Phase 5a - Completion & Self-Review
+
+Status: complete. Provider selection is data-driven via validated JSON provider configs (built-in
+plus an optional user-config directory), with built-ins embedded through `include_str!` so Windows
+packaging cannot omit them. Provider configs are DATA ONLY: the validator scans the raw JSON for
+secrets before deserializing, rejects raw secret values (`sk-...`, `Bearer ...`, `AKIA...`) and
+secret-named keys, enforces HTTPS-only (except localhost dev), known driver / schema version, valid
+JSON Pointers, bounded timeout / payload / output-token limits, `stream = false`, and reserved
+attribution-header rejection. Invalid user configs fail closed (skipped with a warning, never
+offered); an invalid built-in is a hard error. Capability descriptors are derived from loaded configs
+so C++ can display remote-provider availability before a task starts. No HTTP is issued in 5a - only
+config load, validation, and descriptor advertisement.
+
+Implemented (file-by-file, per the plan):
+
+- `rust/puerh_mind/configs/providers/openrouter.json` - built-in OpenRouter config: `openrouter_chat`
+  driver, `https://openrouter.ai/api/v1` + `/chat/completions`, bearer auth slot `openrouter_api_key`,
+  `HTTP-Referer` / `X-OpenRouter-Title` attribution headers, `response_format_json_schema` strict,
+  JSON Pointer extraction (`/choices/0/message/content`, `/usage`, `/id`), qwen vision+structured
+  model, `data_collection = "deny"`.
+- `rust/puerh_mind/configs/providers/volcengine_ark.json` - built-in Volcengine Ark config:
+  `volcengine_ark_responses` driver, `https://ark.cn-beijing.volces.com/api/v3` + `/responses`, bearer
+  auth slot, `responses_json_schema` mode, driver-owned parser (`content_json_pointer = null`),
+  doubao-seed-2-0-lite-260428 vision+structured model.
+- `rust/puerh_mind/src/service/provider_config.rs` - `ProviderConfig` schema + validation,
+  `ProviderRegistry` (upsert-by-provider_id / get / iter), `BUILTIN_PROVIDER_CONFIGS` via
+  `include_str!`, `load_provider_configs(user_dir)` (built-ins hard-error, user configs skip+warn, user
+  overrides built-in by provider_id, user-on-user duplicates skipped), `scan_for_secrets` (runs before
+  deserialize; rejects secret-named keys and leaked-looking values; a `credential_slot` VALUE like
+  `openrouter_api_key` is not treated as a secret because it is a value, not a key, and the slot regex
+  `^[a-z0-9_]+$` cannot carry a real key), `build_provider_capability_descriptors` (emits one
+  `image_understanding.describe` + one `image_rating.score` descriptor per model with
+  `supports_vision && supports_structured_output`; `requires_credential` from auth type). 18 module
+  tests.
+- `rust/puerh_mind/src/service/capabilities.rs` - rewritten
+  `build_capability_descriptors(engine, max_payload_bytes, registry, extra)` returns local-semantic +
+  config-derived + extra. The old placeholder `provider_id = "remote"` / `model_id = "unconfigured"`
+  descriptor is removed. 3 tests.
+- `rust/puerh_mind/src/service/mod.rs` - `pub mod provider_config;` (and `pub mod image_analysis;`
+  for 5b).
+- `rust/puerh_mind/src/config.rs` - `provider_config_dir: Option<String>` field,
+  `--provider-config-dir` CLI flag, `ALCEDO_MIND_PROVIDER_CONFIG_DIR` env. 2 tests.
+- `rust/puerh_mind/src/main.rs` - loads the provider registry, constructs the mock image-analysis
+  provider + its capability (5b), and passes the registry + extra capability + image providers through
+  to `start_server`.
+- `rust/puerh_mind/src/server/ai_runtime.rs` - `test_impl` loads the registry; two `ai_runtime` tests
+  updated to assert config-derived descriptors (count >= 5, an openrouter understanding descriptor with
+  `requires_credential` and `model_id != "unconfigured"`).
+
+Data-only / fail-closed invariants (Phase 5a review focus):
+
+- `scan_for_secrets` runs before deserialize, so a secret-shaped value or secret-named key is rejected
+  even if the surrounding JSON would otherwise parse. The `credential_slot` value is intentionally not
+  treated as a secret: it names a vault slot, never holds key material, and the slot regex
+  `^[a-z0-9_]+$` cannot carry a real key (`sk-`, `Bearer `, `AKIA...` all fail it).
+- Invalid user configs fail closed (skip + warn, not offered) and produce an actionable `ConfigError`
+  diagnostic naming the origin file and reason; an invalid built-in is a hard error (the binary is
+  broken).
+- User configs can add providers or override model defaults, but cannot override credential policy,
+  disable schema validation, or enable arbitrary code execution: those are not user-overridable fields,
+  and validation always runs.
+
+Deferred to Phase 5c:
+
+- The real HTTP drivers (`OpenRouterChatProvider`, `VolcengineArkResponsesProvider`) - 5a only loads,
+  validates, and advertises; no HTTPS call is made.
+- Secret persistence across sidecar restarts - the 5a vault is in-memory only (Phase 3 invariant).
+
+Test results:
+
+- Rust - `cargo test` in `rust/puerh_mind`: 129 passed; 0 failed; 0 ignored; 0 warnings. The 18
+  `provider_config` tests cover built-in load, user override of a built-in model default, user adds a
+  new provider, duplicate user provider id rejected, unknown driver rejected, invalid HTTPS policy
+  rejected, http-localhost allowed for dev, raw secret in an `api_key`-named field rejected, leaked
+  `Bearer` value rejected, `credential_slot` value not treated as a secret, invalid JSON Pointer
+  rejected, invalid JSON Pointer escape rejected, schema-version mismatch rejected, `stream = true`
+  rejected, reserved attribution header rejected, out-of-range timeout rejected, built-ins advertise
+  understanding + rating descriptors, non-vision / non-structured models not advertised. The 3
+  `capabilities` tests + 2 `ai_runtime` tests cover config-derived remote descriptors appended, the
+  local semantic descriptor, extra local providers appended, and `ListCapabilities` with / without a
+  request header. The 2 `config` tests cover the `--provider-config-dir` override and the None default.
+- C++ - no C++ surface changed in 5a (AiProto / CMake are untouched in 5a; `image_analysis.proto` CMake
+  generation is 5b). No ctest required for 5a.
+
+Review conclusion: none; risk accepted: the openrouter and volcengine capability descriptors
+advertised by 5a are not backed by a registered provider until the 5c drivers land, so a
+`DescribeImage` / `ScoreImage` for those provider_ids returns `UNSUPPORTED_TASK` / `TASK_UNKNOWN` in
+5a/5b (only the mock is registered) - this is the intended phase boundary, not a regression; missing
+tests: none.
+
+## Phase 5b - Completion & Self-Review
+
+Status: complete. Alcedo's provider-independent result contracts for `image_understanding.describe`
+and `image_rating.score` are frozen as typed proto messages plus code-owned JSON Schemas. The two
+tasks are distinct contracts - distinct `task_id`s, distinct result message types
+(`ImageUnderstandingResult` vs `ImageRatingResult`), distinct RPCs (`DescribeImage` vs `ScoreImage`) -
+so a rating result can never overwrite or be reinterpreted as an understanding result (Phase 5b review
+focus). Provider-specific raw JSON is never the public contract: the (5c) driver validates and
+normalizes provider output against the code-owned schemas and returns these typed fields. The mock
+provider returns valid typed results without HTTP. The service owns the control-plane concerns the
+provider should not - credential resolution against the vault, request timeout, cooperative
+cancellation via the `CancellationRegistry`, and schema validation of the provider's typed result - and
+carries outcomes inside the `AiResponseHeader` (status / error_code / redacted error_message). This is
+the Phase 5 structured-error-in-body mapping deferred from Phase 4: image analysis has no legacy v1
+caller, so the RPC returns `Ok(Response{ header, ... })` with the header carrying the precise status
+rather than a plain `tonic::Status`. A genuinely malformed request (empty `image_bytes`) is still a
+transport-level `tonic::Status::invalid_argument`, since there is no provider outcome to report.
+
+Implemented (file-by-file, per the plan):
+
+- `rust/puerh_mind/proto/image_analysis.proto` - package `alcedo.ai` (Phase 0 single-package decision),
+  `import "ai_common.proto";`, `ImageAnalysisService { DescribeImage, ScoreImage }`; messages
+  `RenditionMetadata`, `UsageMetadata`, `ImageUnderstandingResult { caption, tags, scene, confidence }`,
+  `ScoredDimension { name, score }`, `ImageRatingResult { scores, rubric_id, rubric_version, reasons,
+  confidence }`, `DescribeImageRequest` / `Response`, `ScoreImageRequest` / `Response`. Every
+  request / response carries `AiRequestHeader` / `AiResponseHeader`; the response echoes the selected
+  rendition, usage, provider request id, and prompt profile id.
+- `rust/puerh_mind/build.rs` - `image_analysis.proto` added to `compile_protos` and
+  `cargo:rerun-if-changed`.
+- `alcedo_studio/src/CMakeLists.txt` - `ALCEDO_AI_IMAGE_ANALYSIS_PROTO` var; `image_analysis.pb.{cc,h}`
+  and `image_analysis.grpc.pb.{cc,h}` added to `ALCEDO_AI_PROTO_SRCS` / `_HDRS`; a new custom command
+  mirroring `ai_runtime.proto` (imports `ai_common.proto`, emits `.pb` + `.grpc.pb`, `DEPENDS` the
+  `ai_common.proto` source). `AiProto.lib` now includes `image_analysis`.
+- `rust/puerh_mind/src/service/image_analysis.rs` - domain types (`Usage`, `DescribeOutcome`,
+  `ScoreOutcome`, `ScoreDimension`, `ProviderError`); code-owned `IMAGE_UNDERSTANDING_SCHEMA` and
+  `IMAGE_RATING_SCHEMA` (JSON Schema draft 2020-12); `validate_understanding` / `validate_rating`
+  (reject empty caption, out-of-range confidence, empty tags / scores, empty rubric_id);
+  `ImageAnalysisProvider` trait (`#[tonic::async_trait]`: `provider_id`, `requires_credential`,
+  `capability`, `describe_image`, `score_image`); `MockImageAnalysisProvider` with canned valid results
+  and `MockFailure { None, InvalidOutput, Slow, Error, Transient }`. 7 schema tests.
+- `rust/puerh_mind/src/server/image_analysis.rs` - `ImageAnalysisServiceImpl { providers,
+  default_provider_id, vault, cancel_registry }`; `resolve_credential` (missing ->
+  `UNAUTHENTICATED` / `MISSING_CREDENTIAL`; `NotFound` / `Revoked` -> `PERMISSION_DENIED` /
+  `CREDENTIAL_REVOKED`; `Expired` -> `PERMISSION_DENIED` / `CREDENTIAL_EXPIRED`); `timeout_duration`;
+  `failure_header` / `success_header` (return `Option<AiResponseHeader>`, redact via
+  `vault.redact_error_message`); `provider_error_to_header` (`SchemaValidation` -> `PROVIDER_ERROR` /
+  `PAYLOAD_DECODE`; `Transient` -> `PROVIDER_UNAVAILABLE` / `PROVIDER_5XX`; `Provider` ->
+  `PROVIDER_ERROR` / `INTERNAL`, dropping the inner provider string); `describe_image` / `score_image`
+  via `tokio::select! { biased; cancel_rx; timeout(provider_fut) }`. Empty `image_bytes` ->
+  `tonic::Status::invalid_argument`. 12 service tests (all 5 plan-required plus cancellation,
+  valid-credential, unknown-provider, empty-bytes, provider-error, transient-error, mock-capability).
+- `rust/puerh_mind/src/server/mod.rs` - `pub mod image_analysis;`.
+- `rust/puerh_mind/src/service/registry.rs` - `register_services` takes `image_providers` +
+  `default_image_provider_id`; `ImageAnalysisServiceImpl` shares `vault.clone()` /
+  `cancel_registry.clone()` with the AI runtime service; `ImageAnalysisServiceServer` added to the
+  router.
+- `rust/puerh_mind/src/bootstrap.rs` - `start_server` passes through `image_providers` +
+  `default_image_provider_id`.
+- `rust/puerh_mind/src/main.rs` - the mock image-analysis provider is registered as the default and its
+  no-credential capability is passed as `extra` to `build_capability_descriptors`.
+
+Credential handling (Phase 3 invariant preserved): secrets travel only over gRPC loopback to the Rust
+vault; the service resolves `credential_ref` against the vault and never sees the secret material.
+`error_message` is redacted via `vault.redact_error_message` before placement; the `Provider(String)`
+inner text is dropped by `provider_error_to_header` (only a fixed string is placed), so provider text is
+not leaked in the header. No image bytes, base64, or prompt payloads are placed in headers. The service
+never writes to DuckDB - C++ owns DB writes (relevant to 5e, not 5b).
+
+Distinct-contract / fail-closed invariants (Phase 5b review focus):
+
+- `DescribeImage` returns `ImageUnderstandingResult` (caption / tags / scene); `ScoreImage` returns
+  `ImageRatingResult` (scores / rubric_id / rubric_version / reasons). Distinct `task_id`s on the
+  request header; the response header echoes the same `task_id`. A rating result cannot overwrite an
+  understanding result and vice versa.
+- Provider-specific raw JSON is never the public contract: the code-owned JSON Schemas and the proto
+  typed fields are the contract; the (5c) driver validates + normalizes provider output against them.
+- A schema-validation failure returns a typed error header with `result = None` (no active annotation) -
+  `describe_image_schema_validation_failure_returns_provider_error` proves this.
+
+Deferred to Phase 5c:
+
+- The real HTTP drivers (`OpenRouterChatProvider`, `VolcengineArkResponsesProvider`) - 5b ships only the
+  mock. The openrouter / volcengine descriptors advertised by 5a are not backed by a registered
+  provider in 5b; a request for those `provider_id`s returns `UNSUPPORTED_TASK` / `TASK_UNKNOWN` until
+  5c.
+- Real 5xx / rate-limit detection - the `Transient` path is exercised by a mock in 5b; real detection
+  lives in the 5c HTTP drivers.
+- Secret persistence across sidecar restarts (5c / 5d).
+
+Test results:
+
+- Rust - `cargo test` in `rust/puerh_mind`: 129 passed; 0 failed; 0 ignored; 0 warnings. Includes the 5
+  plan-required 5b service tests (`describe_image_returns_valid_understanding`,
+  `score_image_returns_valid_rating`, `describe_image_missing_credential_returns_unauthenticated`,
+  `describe_image_timeout_returns_deadline_exceeded`,
+  `describe_image_schema_validation_failure_returns_provider_error`) plus
+  `describe_image_cancellation_returns_cancelled`, `describe_image_with_valid_credential_succeeds`,
+  `describe_image_unknown_provider_returns_unsupported_task`,
+  `describe_image_empty_bytes_is_transport_error`,
+  `describe_image_provider_error_returns_provider_error`,
+  `describe_image_transient_error_returns_provider_unavailable`,
+  `mock_capability_advertises_no_credential_understanding`, and the 7 schema tests. All three
+  `provider_error_to_header` arms (SchemaValidation, Provider, Transient) are exercised, so the service
+  has no dead error-mapping code.
+- C++ MSVC build (run through the PowerShell tool, per project memory): the `AiProto` target built -
+  `image_analysis.pb.{cc,h}` and `image_analysis.grpc.pb.{cc,h}` were generated into `generated/ai/` and
+  `AiProto.lib` (10 MB) linked. `AiSidecarRuntimeServiceTest` built (exit code 0), confirming the AiProto
+  change (adding `image_analysis` to the library) is regression-free downstream - this target
+  transitively depends on AiProto via `AppDiagnostics` -> `SemanticProto` -> `AiProto`. The C++
+  generated-proto build coverage requirement is met.
+
+Build note for the next handoff: `--target AiProto` regenerates the `image_analysis` stubs and links
+`AiProto.lib` but does not rebuild downstream C++ test targets whose own sources are unchanged - after
+any 5c change that touches `AiProto`, build a downstream target explicitly (e.g.
+`cmd /c scripts\msvc_env.cmd --build --preset win_debug --target AiSidecarRuntimeServiceTest --parallel 4`)
+before ctest, mirroring the Phase 4 note. `image_analysis.grpc.pb.h` includes `ai_common.pb.h`, so
+AiProto's existing PUBLIC include dir is sufficient for future 5d C++ consumers - no new include dirs.
+
+Review conclusion: none; risk accepted: the openrouter / volcengine capability descriptors advertised
+by 5a are not backed by a registered provider in 5b (only the mock is registered), so a
+`DescribeImage` / `ScoreImage` for those `provider_id`s returns `UNSUPPORTED_TASK` / `TASK_UNKNOWN` until
+the 5c drivers land - this is the intended phase boundary, not a regression; missing tests: none.

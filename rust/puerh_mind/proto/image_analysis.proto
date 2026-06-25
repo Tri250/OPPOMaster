@@ -1,0 +1,121 @@
+syntax = "proto3";
+
+package alcedo.ai;
+
+import "ai_common.proto";
+
+// Image analysis task contracts (Phase 5b).
+//
+// These are Alcedo's provider-independent result contracts for the two Phase 5
+// remote tasks. Each request/response carries the shared control-surface headers
+// (alcedo.ai.AiRequestHeader / AiResponseHeader) inline, exactly like the v2
+// embedding RPCs. The two tasks are distinct contracts even if a single provider
+// HTTP call could return both:
+//
+//   - image_understanding.describe: objective-ish image content -> caption, tags,
+//     scene/category hint, confidence. These fields can participate in the search
+//     document when marked active (Phase 5e).
+//   - image_rating.score: subjective / product-policy scoring -> numeric score
+//     dimensions, rubric id/version, reasons, confidence. Rating is NOT full-text
+//     search content; it drives sort/filter/recommendation only after the product
+//     contract is clear (Phase 5e).
+//
+// They carry distinct task_ids ("image_understanding.describe" vs
+// "image_rating.score") and distinct result message types, so a rating result can
+// never overwrite or be reinterpreted as an understanding result. Provider-specific
+// raw JSON is never exposed here; the Rust driver (Phase 5c) validates and
+// normalizes provider output against the code-owned JSON Schemas and returns these
+// typed fields.
+//
+// This file shares the single `alcedo.ai` package with ai_common.proto and
+// ai_runtime.proto (Phase 0 §1.1 single-package decision), so the Rust
+// `tonic::include_proto!("alcedo.ai")` and the C++ `AiProto` library pick it up
+// without a new package / cross-package extern_path.
+
+service ImageAnalysisService {
+  // Generate a caption / tags / scene hint for one image.
+  rpc DescribeImage(DescribeImageRequest) returns (DescribeImageResponse);
+  // Score one image against a rubric.
+  rpc ScoreImage(ScoreImageRequest) returns (ScoreImageResponse);
+}
+
+// Metadata describing the image rendition the host selected and sent. The host
+// owns rendition selection; the response echoes this so the recorded result
+// metadata states exactly what was analyzed (Phase 5d review focus).
+message RenditionMetadata {
+  string kind = 1;     // "thumbnail" | "preview" | "image"
+  uint32 width = 2;
+  uint32 height = 3;
+  uint64 bytes = 4;
+}
+
+// Provider-reported usage, captured for UI/cost summaries (Phase 6). Fields are
+// optional in spirit: a provider may report only some of them; 0 = not reported.
+message UsageMetadata {
+  int64 input_tokens = 1;
+  int64 output_tokens = 2;
+  int64 total_tokens = 3;
+}
+
+// image_understanding.describe result.
+message ImageUnderstandingResult {
+  string caption = 1;          // one-line caption; non-empty on success
+  repeated string tags = 2;    // searchable tags
+  string scene = 3;             // scene / category hint (may be empty)
+  double confidence = 4;       // [0.0, 1.0]
+}
+
+// One scored dimension of an image_rating.score result.
+message ScoredDimension {
+  string name = 1;             // e.g. "aesthetic", "technical", "keeper"
+  double score = 2;             // rubric-defined range (commonly [0.0, 1.0] or 0-100)
+}
+
+// image_rating.score result. Carries rubric identity so a future rubric change does
+// not silently reinterpret earlier scores (Phase 5e review focus).
+message ImageRatingResult {
+  repeated ScoredDimension scores = 1;
+  string rubric_id = 2;         // which rubric produced these scores
+  string rubric_version = 3;   // rubric version
+  string reasons = 4;          // short human-readable rationale
+  double confidence = 5;       // [0.0, 1.0]
+}
+
+message DescribeImageRequest {
+  AiRequestHeader header = 1;
+  bytes image_bytes = 2;
+  string image_format_hint = 3;   // "rgba8:WxH" (matches the embedding path)
+  RenditionMetadata rendition = 4;
+  string provider_id = 5;         // selected provider; "" = sidecar default
+  string model_id = 6;            // selected model; "" = provider default
+  string prompt_profile_id = 7;   // prompt/profile used (may be empty)
+}
+
+message DescribeImageResponse {
+  AiResponseHeader header = 1;
+  ImageUnderstandingResult result = 2;  // unset on failure
+  RenditionMetadata rendition = 3;      // echoes the selected rendition
+  UsageMetadata usage = 4;              // unset if the provider did not report usage
+  string provider_request_id = 5;      // provider's request id when available
+  string prompt_profile_id = 6;         // echoes the prompt profile used
+}
+
+message ScoreImageRequest {
+  AiRequestHeader header = 1;
+  bytes image_bytes = 2;
+  string image_format_hint = 3;
+  RenditionMetadata rendition = 4;
+  string provider_id = 5;
+  string model_id = 6;
+  string prompt_profile_id = 7;
+  string rubric_id = 8;             // rubric to apply; "" = provider default
+}
+
+message ScoreImageResponse {
+  AiResponseHeader header = 1;
+  ImageRatingResult result = 2;
+  RenditionMetadata rendition = 3;
+  UsageMetadata usage = 4;
+  string provider_request_id = 5;
+  string prompt_profile_id = 6;
+}
