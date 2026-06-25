@@ -945,6 +945,16 @@ set(ALCEDO_SEMANTIC_PROTO_HDRS
     "${ALCEDO_SEMANTIC_PROTO_GEN_DIR}/semantic.grpc.pb.h"
 )
 
+# AI proto path vars are hoisted here (ahead of the SemanticProto custom command and library)
+# because semantic.proto now imports ai_common.proto (Phase 4): the SemanticProto protoc
+# command DEPENDS the ai_common.proto source, semantic.pb.h includes ai_common.pb.h, and the
+# SemanticProto library links AiProto. The AI custom commands and AiProto target still live
+# below; only these path vars are defined early.
+set(ALCEDO_AI_PROTO_DIR "${ALCEDO_SEMANTIC_PROTO_DIR}")
+set(ALCEDO_AI_COMMON_PROTO "${ALCEDO_AI_PROTO_DIR}/ai_common.proto")
+set(ALCEDO_AI_RUNTIME_PROTO "${ALCEDO_AI_PROTO_DIR}/ai_runtime.proto")
+set(ALCEDO_AI_PROTO_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/ai")
+
 add_custom_command(
     OUTPUT ${ALCEDO_SEMANTIC_PROTO_SRCS} ${ALCEDO_SEMANTIC_PROTO_HDRS}
     COMMAND ${CMAKE_COMMAND} -E make_directory "${ALCEDO_SEMANTIC_PROTO_GEN_DIR}"
@@ -956,12 +966,9 @@ add_custom_command(
         "${ALCEDO_SEMANTIC_PROTO}"
     DEPENDS
         "${ALCEDO_SEMANTIC_PROTO}"
+        "${ALCEDO_AI_COMMON_PROTO}"
     VERBATIM
 )
-
-add_library(SemanticProto ${ALCEDO_SEMANTIC_PROTO_SRCS} ${ALCEDO_SEMANTIC_PROTO_HDRS})
-target_include_directories(SemanticProto PUBLIC "${ALCEDO_SEMANTIC_PROTO_GEN_DIR}")
-target_link_libraries(SemanticProto PUBLIC puerhlab::grpc++ puerhlab::protobuf)
 
 # ------------------------------------------------------------------------------
 # AI sidecar protobuf generation (package alcedo.ai).
@@ -974,10 +981,6 @@ target_link_libraries(SemanticProto PUBLIC puerhlab::grpc++ puerhlab::protobuf)
 # Phase 1 only requires the generated headers and stub to compile; no C++
 # service implementation consumes AiProto yet (Phase 2 wires the runtime).
 # ------------------------------------------------------------------------------
-set(ALCEDO_AI_PROTO_DIR "${ALCEDO_SEMANTIC_PROTO_DIR}")
-set(ALCEDO_AI_COMMON_PROTO "${ALCEDO_AI_PROTO_DIR}/ai_common.proto")
-set(ALCEDO_AI_RUNTIME_PROTO "${ALCEDO_AI_PROTO_DIR}/ai_runtime.proto")
-set(ALCEDO_AI_PROTO_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/ai")
 set(ALCEDO_AI_PROTO_SRCS
     "${ALCEDO_AI_PROTO_GEN_DIR}/ai_common.pb.cc"
     "${ALCEDO_AI_PROTO_GEN_DIR}/ai_runtime.pb.cc"
@@ -1030,6 +1033,16 @@ add_custom_command(
 add_library(AiProto ${ALCEDO_AI_PROTO_SRCS} ${ALCEDO_AI_PROTO_HDRS})
 target_include_directories(AiProto PUBLIC "${ALCEDO_AI_PROTO_GEN_DIR}")
 target_link_libraries(AiProto PUBLIC puerhlab::grpc++ puerhlab::protobuf)
+
+# SemanticProto links AiProto and adds the AI generated include dir because semantic.proto
+# imports ai_common.proto (Phase 4): semantic.pb.h includes ai_common.pb.h and references
+# alcedo::ai types. AiProto is defined just above so the link resolves; the target dependency
+# also orders the AI custom commands (which generate ai_common.pb.h) before SemanticProto
+# compiles semantic.pb.cc.
+add_library(SemanticProto ${ALCEDO_SEMANTIC_PROTO_SRCS} ${ALCEDO_SEMANTIC_PROTO_HDRS})
+target_include_directories(SemanticProto PUBLIC "${ALCEDO_SEMANTIC_PROTO_GEN_DIR}"
+                                           "${ALCEDO_AI_PROTO_GEN_DIR}")
+target_link_libraries(SemanticProto PUBLIC puerhlab::grpc++ puerhlab::protobuf AiProto)
 
 def_library(AiSidecarRuntimeService
     SOURCES

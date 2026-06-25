@@ -236,6 +236,7 @@ class FakeAiSidecarRuntimeClient final : public IAiSidecarRuntimeClient {
     (void)endpoint;
     (void)text;
     (void)timeout;
+    embed_text_v1_calls_.fetch_add(1);
     SemanticEmbeddingResult result;
     result.request_id = request_id;
     result.embedding  = {1.0f, 0.0f};
@@ -267,6 +268,104 @@ class FakeAiSidecarRuntimeClient final : public IAiSidecarRuntimeClient {
       -> std::vector<SemanticEmbeddingResult> override {
     (void)endpoint;
     (void)timeout;
+    embed_image_batch_v1_calls_.fetch_add(1);
+    std::vector<SemanticEmbeddingResult> results;
+    results.reserve(requests.size());
+    for (const auto& request : requests) {
+      SemanticEmbeddingResult result;
+      result.request_id = request.request_id;
+      result.embedding  = {0.0f, 1.0f};
+      result.dimension  = 2;
+      result.model_name = "test/mobileclip";
+      result.ok         = true;
+      results.push_back(std::move(result));
+    }
+    return results;
+  }
+
+  // v2 overrides (Phase 4): canned bit-identical to the v1 canned responses so existing
+  // result-asserting tests pass on either path. When v2_supported_ is false the override
+  // signals *v2_available=false (and returns {}) so the service wrapper falls back to v1.
+  auto EmbedTextV2(const std::string& endpoint, const std::string& request_id,
+                   const std::string& text, std::chrono::milliseconds timeout,
+                   bool* v2_available) -> SemanticEmbeddingResult override {
+    (void)endpoint;
+    (void)text;
+    (void)timeout;
+    embed_text_v2_calls_.fetch_add(1);
+    if (!v2_supported_.load()) {
+      if (v2_available) *v2_available = false;
+      return {};
+    }
+    if (v2_available) *v2_available = true;
+    SemanticEmbeddingResult result;
+    result.request_id = request_id;
+    result.embedding  = {1.0f, 0.0f};
+    result.dimension  = 2;
+    result.model_name = "test/mobileclip";
+    result.ok         = true;
+    return result;
+  }
+
+  auto EmbedImageV2(const std::string& endpoint, const std::string& request_id,
+                    const std::vector<uint8_t>& rgba8_image, const std::string& format_hint,
+                    std::chrono::milliseconds timeout, bool* v2_available)
+      -> SemanticEmbeddingResult override {
+    (void)endpoint;
+    (void)rgba8_image;
+    (void)format_hint;
+    (void)timeout;
+    if (!v2_supported_.load()) {
+      if (v2_available) *v2_available = false;
+      return {};
+    }
+    if (v2_available) *v2_available = true;
+    SemanticEmbeddingResult result;
+    result.request_id = request_id;
+    result.embedding  = {0.0f, 1.0f};
+    result.dimension  = 2;
+    result.model_name = "test/mobileclip";
+    result.ok         = true;
+    return result;
+  }
+
+  auto EmbedTextBatchV2(const std::string&                               endpoint,
+                        const std::vector<SemanticTextEmbeddingRequest>& requests,
+                        std::chrono::milliseconds                        timeout,
+                        bool* v2_available) -> std::vector<SemanticEmbeddingResult> override {
+    (void)endpoint;
+    (void)timeout;
+    if (!v2_supported_.load()) {
+      if (v2_available) *v2_available = false;
+      return {};
+    }
+    if (v2_available) *v2_available = true;
+    std::vector<SemanticEmbeddingResult> results;
+    results.reserve(requests.size());
+    for (const auto& request : requests) {
+      SemanticEmbeddingResult result;
+      result.request_id = request.request_id;
+      result.embedding  = {1.0f, 0.0f};
+      result.dimension  = 2;
+      result.model_name = "test/mobileclip";
+      result.ok         = true;
+      results.push_back(std::move(result));
+    }
+    return results;
+  }
+
+  auto EmbedImageBatchV2(const std::string&                                endpoint,
+                         const std::vector<SemanticImageEmbeddingRequest>& requests,
+                         std::chrono::milliseconds                        timeout,
+                         bool* v2_available) -> std::vector<SemanticEmbeddingResult> override {
+    (void)endpoint;
+    (void)timeout;
+    embed_image_batch_v2_calls_.fetch_add(1);
+    if (!v2_supported_.load()) {
+      if (v2_available) *v2_available = false;
+      return {};
+    }
+    if (v2_available) *v2_available = true;
     std::vector<SemanticEmbeddingResult> results;
     results.reserve(requests.size());
     for (const auto& request : requests) {
@@ -284,11 +383,21 @@ class FakeAiSidecarRuntimeClient final : public IAiSidecarRuntimeClient {
   void SetReady(bool ready) { ready_.store(ready); }
   void SetModelInfoReady(bool ready) { model_info_ready_.store(ready); }
   auto PingCount() const -> int { return ping_count_.load(); }
+  void SetV2Supported(bool supported) { v2_supported_.store(supported); }
+  auto EmbedTextV1Calls() const -> int { return embed_text_v1_calls_.load(); }
+  auto EmbedTextV2Calls() const -> int { return embed_text_v2_calls_.load(); }
+  auto EmbedImageBatchV1Calls() const -> int { return embed_image_batch_v1_calls_.load(); }
+  auto EmbedImageBatchV2Calls() const -> int { return embed_image_batch_v2_calls_.load(); }
 
  private:
   std::atomic<bool> ready_;
   std::atomic<bool> model_info_ready_{true};
   std::atomic<int>  ping_count_{0};
+  std::atomic<bool> v2_supported_{true};
+  std::atomic<int>  embed_text_v1_calls_{0};
+  std::atomic<int>  embed_text_v2_calls_{0};
+  std::atomic<int>  embed_image_batch_v1_calls_{0};
+  std::atomic<int>  embed_image_batch_v2_calls_{0};
 };
 
 auto FakeRuntimePath() -> std::filesystem::path {
@@ -685,6 +794,131 @@ TEST(AiSidecarRuntimeServiceTest, ProjectServiceCreatesRuntimeOnCallerThreadAfte
   project.reset();
   std::filesystem::remove(db_path);
   std::filesystem::remove(meta_path);
+}
+
+TEST(AiSidecarRuntimeServiceTest, EmbedTextV2ReturnsCannedViaV2Path) {
+  auto client = std::make_shared<FakeAiSidecarRuntimeClient>();
+  AiSidecarRuntimeService service(client);
+
+  auto            options = BaseOptions();
+  options.extra_arguments = {"--sleep-ms", "30000"};
+
+  ASSERT_TRUE(service.StartAndWait(options));
+  const auto result =
+      service.EmbedText("text-v2", "a quiet portrait", std::chrono::milliseconds(100));
+  EXPECT_TRUE(result.ok);
+  EXPECT_EQ(result.request_id, "text-v2");
+  EXPECT_EQ(result.embedding, (std::vector<float>{1.0f, 0.0f}));
+  // v2 path taken: v2 called once, v1 not called.
+  EXPECT_EQ(client->EmbedTextV2Calls(), 1);
+  EXPECT_EQ(client->EmbedTextV1Calls(), 0);
+  service.Stop();
+}
+
+TEST(AiSidecarRuntimeServiceTest, EmbedTextV2FallsBackToV1WhenV2Unsupported) {
+  auto client = std::make_shared<FakeAiSidecarRuntimeClient>();
+  client->SetV2Supported(false);
+  AiSidecarRuntimeService service(client);
+
+  auto            options = BaseOptions();
+  options.extra_arguments = {"--sleep-ms", "30000"};
+
+  ASSERT_TRUE(service.StartAndWait(options));
+  const auto result =
+      service.EmbedText("text-fb", "a quiet portrait", std::chrono::milliseconds(100));
+  EXPECT_TRUE(result.ok);
+  EXPECT_EQ(result.request_id, "text-fb");
+  // v2 attempted (signals unavailable), then v1 fallback serves the call.
+  EXPECT_EQ(client->EmbedTextV2Calls(), 1);
+  EXPECT_EQ(client->EmbedTextV1Calls(), 1);
+  service.Stop();
+}
+
+TEST(AiSidecarRuntimeServiceTest, EmbedImageBatchV2ReturnsCannedViaV2Path) {
+  auto client = std::make_shared<FakeAiSidecarRuntimeClient>();
+  AiSidecarRuntimeService service(client);
+
+  auto            options = BaseOptions();
+  options.extra_arguments = {"--sleep-ms", "30000"};
+
+  ASSERT_TRUE(service.StartAndWait(options));
+
+  SemanticImageEmbeddingRequest req_a;
+  req_a.request_id  = "img-a";
+  req_a.rgba8_image = std::vector<uint8_t>(4, 0);
+  req_a.format_hint = "rgba8:1x1";
+  SemanticImageEmbeddingRequest req_b;
+  req_b.request_id  = "img-b";
+  req_b.rgba8_image = std::vector<uint8_t>(4, 0);
+  req_b.format_hint = "rgba8:1x1";
+
+  const auto results = service.EmbedImageBatch({req_a, req_b}, std::chrono::milliseconds(100));
+  ASSERT_EQ(results.size(), 2u);
+  EXPECT_EQ(results[0].request_id, "img-a");
+  EXPECT_TRUE(results[0].ok);
+  EXPECT_EQ(results[0].embedding, (std::vector<float>{0.0f, 1.0f}));
+  EXPECT_EQ(results[1].request_id, "img-b");
+  // v2 path taken: v2 called once, v1 not called.
+  EXPECT_EQ(client->EmbedImageBatchV2Calls(), 1);
+  EXPECT_EQ(client->EmbedImageBatchV1Calls(), 0);
+  service.Stop();
+}
+
+TEST(AiSidecarRuntimeServiceTest, EmbedImageBatchFallsBackToV1WhenV2Unsupported) {
+  auto client = std::make_shared<FakeAiSidecarRuntimeClient>();
+  client->SetV2Supported(false);
+  AiSidecarRuntimeService service(client);
+
+  auto            options = BaseOptions();
+  options.extra_arguments = {"--sleep-ms", "30000"};
+
+  ASSERT_TRUE(service.StartAndWait(options));
+
+  SemanticImageEmbeddingRequest req;
+  req.request_id  = "img-fb";
+  req.rgba8_image = std::vector<uint8_t>(4, 0);
+  req.format_hint = "rgba8:1x1";
+
+  const auto results = service.EmbedImageBatch({req}, std::chrono::milliseconds(100));
+  ASSERT_EQ(results.size(), 1u);
+  EXPECT_EQ(results[0].request_id, "img-fb");
+  EXPECT_TRUE(results[0].ok);
+  // v2 attempted (signals unavailable), then v1 fallback serves the batch.
+  EXPECT_EQ(client->EmbedImageBatchV2Calls(), 1);
+  EXPECT_EQ(client->EmbedImageBatchV1Calls(), 1);
+  service.Stop();
+}
+
+TEST(AiSidecarRuntimeServiceTest, EmbedImageBatchV2EchoesRequestIds) {
+  auto client = std::make_shared<FakeAiSidecarRuntimeClient>();
+  AiSidecarRuntimeService service(client);
+
+  auto            options = BaseOptions();
+  options.extra_arguments = {"--sleep-ms", "30000"};
+
+  ASSERT_TRUE(service.StartAndWait(options));
+
+  std::vector<SemanticImageEmbeddingRequest> requests;
+  for (const char* id : {"echo-1", "echo-2", "echo-3"}) {
+    SemanticImageEmbeddingRequest req;
+    req.request_id  = id;
+    req.rgba8_image = std::vector<uint8_t>(4, 0);
+    req.format_hint = "rgba8:1x1";
+    requests.push_back(std::move(req));
+  }
+
+  const auto results = service.EmbedImageBatch(requests, std::chrono::milliseconds(100));
+  ASSERT_EQ(results.size(), 3u);
+  EXPECT_EQ(results[0].request_id, "echo-1");
+  EXPECT_EQ(results[1].request_id, "echo-2");
+  EXPECT_EQ(results[2].request_id, "echo-3");
+  for (const auto& r : results) {
+    EXPECT_TRUE(r.ok);
+  }
+  // Per-item request_id preserved across the v2 path in one batch call; v1 not used.
+  EXPECT_EQ(client->EmbedImageBatchV2Calls(), 1);
+  EXPECT_EQ(client->EmbedImageBatchV1Calls(), 0);
+  service.Stop();
 }
 
 TEST(AiSidecarRuntimeServiceLiveTest, DefaultGrpcClientEmbedsRawRgba8AgainstRustRuntime) {

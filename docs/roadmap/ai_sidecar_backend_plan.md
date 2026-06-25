@@ -89,6 +89,211 @@ Recommended Rust stack:
   Never log prompt payloads, image bytes/base64, API keys, credential handles, or raw provider error
   bodies before redaction.
 
+## Provider Driver And Config Strategy
+
+Large-model providers do not share a stable request JSON shape. A pure "JSON template per provider"
+system would look flexible, but it would push protocol semantics, credential handling, error mapping,
+retry policy, and response validation into data files where they are hard to test. The safer pattern
+used by LLM gateway projects is:
+
+1. Keep Alcedo task schemas stable and code-owned.
+2. Implement a small set of provider drivers for real protocol families.
+3. Let provider config files describe endpoints, model defaults, capability flags, schema-injection
+   mode, auth slot, limits, and response extraction.
+
+Provider config files are therefore deployment/configuration data, not executable adapters. They
+should not contain JavaScript, shell commands, arbitrary eval expressions, or raw API keys.
+
+Initial driver families:
+
+- `openrouter_chat`: OpenRouter's OpenAI Chat Completions-compatible endpoint, with OpenRouter
+  routing preferences and metadata handling.
+- `volcengine_ark_responses`: Volcengine Ark / 火山方舟 Responses API, used by the built-in
+  Doubao multimodal provider config.
+- `volcengine_ark_chat`: Volcengine Ark / 火山方舟 Chat API, kept as a fallback/compatibility
+  driver if a model or deployment is easier to call through the OpenAI-compatible chat surface.
+- `openai_responses`: direct OpenAI Responses API, added after OpenRouter if needed for
+  provider-specific capabilities.
+- `openai_chat_compatible`: generic OpenAI-compatible chat-completions servers.
+- `anthropic_messages`: Anthropic Messages API.
+- `gemini_generate_content`: Google Gemini `generateContent`.
+- `generic_json_http`: optional experimental fallback for advanced users. It may only use HTTPS
+  (except localhost dev), static JSON object templates, a small allowlist of variable substitutions,
+  and JSON Pointer response extraction. It must still pass Alcedo schema validation before returning
+  results.
+
+Provider config file shape:
+
+```json
+{
+  "schema_version": 1,
+  "provider_id": "openrouter",
+  "display_name": "OpenRouter",
+  "driver": "openrouter_chat",
+  "base_url": "https://openrouter.ai/api/v1",
+  "endpoint": "/chat/completions",
+  "auth": {
+    "type": "bearer",
+    "credential_slot": "openrouter_api_key"
+  },
+  "attribution_headers": {
+    "HTTP-Referer": "https://alcedo.studio",
+    "X-OpenRouter-Title": "Alcedo Studio"
+  },
+  "defaults": {
+    "model": "qwen/qwen3.7-plus",
+    "stream": false,
+    "temperature": 0.2
+  },
+  "structured_output": {
+    "mode": "response_format_json_schema",
+    "strict": true,
+    "provider_require_parameters": true
+  },
+  "response": {
+    "content_json_pointer": "/choices/0/message/content",
+    "usage_json_pointer": "/usage",
+    "provider_request_id_json_pointer": "/id",
+    "provider_request_id_header": null
+  },
+  "limits": {
+    "timeout_ms": 60000,
+    "max_image_bytes": 4194304,
+    "max_output_tokens": 1200
+  }
+}
+```
+
+Phase 5 should use JSON config first because `rust/puerh_mind` already depends on `serde_json`.
+Built-in provider configs can be embedded into the sidecar binary with `include_str!` to avoid
+packaging drift. User-added provider configs should live in a user config directory and be loaded
+after built-ins, with validation errors surfaced in settings. User configs may override model lists
+and endpoints, but they may not override secret storage policy or bypass schema validation.
+
+The Alcedo task schema remains code-owned:
+
+- `image_understanding.describe` always returns Alcedo's caption/tags/scene/confidence shape.
+- `image_rating.score` always returns Alcedo's rating/rubric shape.
+- Provider configs only describe how that schema is requested from a provider and where to extract
+  the provider's response.
+
+Second built-in provider config example:
+
+```json
+{
+  "schema_version": 1,
+  "provider_id": "volcengine_ark",
+  "display_name": "Volcengine Ark / 火山方舟",
+  "driver": "volcengine_ark_responses",
+  "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+  "endpoint": "/responses",
+  "auth": {
+    "type": "bearer",
+    "credential_slot": "volcengine_ark_api_key"
+  },
+  "defaults": {
+    "model": "doubao-seed-2-0-lite-260428",
+    "stream": false,
+    "temperature": 0.2
+  },
+  "structured_output": {
+    "mode": "responses_json_schema",
+    "strict": true
+  },
+  "response": {
+    "content_json_pointer": null,
+    "usage_json_pointer": "/usage",
+    "provider_request_id_json_pointer": "/id",
+    "provider_request_id_header": null
+  },
+  "limits": {
+    "timeout_ms": 60000,
+    "max_image_bytes": 4194304,
+    "max_output_tokens": 1200
+  }
+}
+```
+
+## OpenRouter Implementation Strategy
+
+OpenRouter should be the first remote provider because it gives one OpenAI-compatible endpoint for
+many model vendors while still supporting structured outputs for compatible models. The bundled
+OpenRouter default is Qwen3.7 Plus: show it to users as `qwen3.7-plus`, but send the canonical
+OpenRouter model slug `qwen/qwen3.7-plus` on the wire.
+
+OpenRouter driver behavior:
+
+- Use `POST https://openrouter.ai/api/v1/chat/completions`.
+- Authenticate with `Authorization: Bearer <runtime secret>`, where the secret comes from the
+  runtime credential vault by `credential_ref`; never from config files.
+- Send `Content-Type: application/json`.
+- Optionally send `HTTP-Referer` and `X-OpenRouter-Title` attribution headers from config.
+- Build OpenAI Chat-compatible `messages` with an Alcedo-owned system prompt and user content that
+  contains the selected image rendition plus task instructions.
+- Keep the request body compatible with OpenRouter's official Go SDK chat-completion shape. Rust
+  still sends direct HTTPS in Phase 5, but the request/response fixtures should be reusable by an
+  OpenRouter Go client without changing model slug, structured-output fields, provider routing, or
+  attribution-header semantics.
+- Inject Alcedo's JSON Schema through `response_format: { "type": "json_schema", ... }` and set
+  strict mode when the selected model supports it.
+- Include `provider: { "require_parameters": true }` when structured output is required, so
+  OpenRouter does not route to a provider that silently ignores `response_format`.
+- Keep `stream: false` in Phase 5.
+- Parse `choices[0].message.content` as JSON, validate it against the Alcedo task schema, normalize
+  strings/tags/scores, and return typed protobuf fields.
+- Capture `usage` and provider request id when available; expose them as metadata for UI/cost
+  summaries and diagnostics.
+- If schema validation fails, return a typed provider/schema error and do not persist an active
+  annotation. A future retry may use response healing, but Phase 5 should not silently repair and
+  persist ambiguous results.
+
+OpenRouter config should ship with a small curated model list instead of defaulting to arbitrary
+router aliases. Phase 5 starts with `qwen/qwen3.7-plus` as the bundled default, because it is the
+canonical OpenRouter slug for the user-facing `qwen3.7-plus` model. Each bundled model entry should
+declare:
+
+- model slug
+- whether vision input is supported
+- whether JSON Schema structured output is supported
+- max image bytes / recommended image rendition
+- approximate cost metadata if available
+- whether to request data-collection restrictions such as `provider.data_collection = "deny"` when
+  the user enables a privacy-first mode
+
+## Volcengine Ark Implementation Strategy
+
+Volcengine Ark / 火山方舟 should ship as the second built-in remote provider. The default model is
+`doubao-seed-2-0-lite-260428`, matching the current multimodal/Responses API plan and keeping a
+China-friendly provider available without requiring users to configure an arbitrary custom endpoint.
+
+Volcengine driver behavior:
+
+- Use the Ark data-plane base URL `https://ark.cn-beijing.volces.com/api/v3`.
+- Prefer the Responses API driver (`volcengine_ark_responses`) for multimodal understanding because
+  the linked 火山方舟 docs place multimodal understanding under Responses API. Keep
+  `volcengine_ark_chat` available as a compatibility driver for deployments or models that are
+  easier to call through Chat API.
+- Authenticate with `Authorization: Bearer <runtime secret>`, where the secret comes from the
+  runtime credential vault by `credential_ref`; never from config files.
+- Send `Content-Type: application/json`.
+- Build a Responses API request from Alcedo-owned task schema, selected image rendition, and prompt
+  profile. The driver, not the provider config, owns the exact Responses API field mapping.
+- Inject Alcedo's JSON Schema through the Ark structured-output mechanism when supported. If a
+  selected model does not support structured output, fail closed for Phase 5 rather than relying on
+  best-effort free-form JSON.
+- Keep `stream: false` in Phase 5.
+- Parse the provider response content as JSON, validate it against the Alcedo task schema, normalize
+  values, and return typed protobuf fields.
+- Capture response id, model id, usage metadata, and provider error codes when available.
+- Map Ark/transport errors into `AiResponseStatus` / `AiErrorCode`, with redacted messages.
+
+Bundled Volcengine config should declare `doubao-seed-2-0-lite-260428` as the default model and mark
+it as supporting text generation, multimodal understanding, and structured output only after a live
+provider smoke confirms the exact request shape. `content_json_pointer: null` means the
+`volcengine_ark_responses` driver owns response-content extraction with a typed parser; it should
+only become a static JSON Pointer if the live response shape is stable enough to make that safer than
+driver-owned parsing.
+
 Credential ownership is split deliberately:
 
 - Long-lived user API keys are persisted by the C++/Qt host, not by Rust.
@@ -323,44 +528,209 @@ Self-review focus:
 
 ## Phase 5 - Remote Image Analysis MVP
 
-Goal: add the first non-CLIP remote AI task over Rust HTTPS: typed image understanding, with rating
-kept as a separate task contract even if the first provider request can return both.
+Goal: add the first non-CLIP remote AI task over Rust HTTPS, with OpenRouter and Volcengine Ark /
+火山方舟 as the two built-in remote providers. Image understanding and image rating are separate task
+contracts even if a provider request can return both.
+
+### Phase 5a - Provider Config Loader And Registry
+
+Goal: make provider selection data-driven without turning provider JSON files into executable code.
 
 Deliverables:
 
-- Add typed protobuf messages for image analysis. At minimum include
-  `image_understanding.describe`; add `image_rating.score` either in the same proto file or a sibling
-  proto, but keep distinct `task_id`s and result identities.
-- Add Rust provider traits for remote vision analysis, starting with a mock provider and one
-  OpenAI-compatible provider behind credential handles.
-- Add the Rust HTTP stack: `reqwest` client construction, provider config, bearer auth, structured
-  output schema, timeout, bounded retry policy, provider request-id capture, and secret redaction.
-- Add a C++ `ImageUnderstandingService` that requests thumbnails/previews from existing host
-  services, calls the sidecar, and returns structured results.
-- Add storage for AI image annotations with file id, provider id, model id, prompt/profile id,
-  caption, tags, score, created time, and active-for-search state.
-- Extend search document construction so active captions/tags can participate in full-text search.
-- Persist ratings separately from searchable understanding fields, or at least gate them with a
-  separate `task_id` so rating does not accidentally become full-text search material.
+- Add a Rust `provider_config` module that loads built-in JSON provider configs and optional
+  user-provider configs from a configured directory.
+- Embed built-in configs with `include_str!` for Phase 5 so Windows packaging cannot omit them.
+- Add a validated `ProviderConfig` schema with fields for `provider_id`, `driver`, `base_url`,
+  `endpoint`, auth `credential_slot`, attribution headers, structured-output mode, response
+  extraction pointers or driver-owned parser mode, model capabilities, and limits.
+- Add config validation: HTTPS-only except localhost dev, no raw secrets, known driver id, known
+  schema version, allowed header names, bounded timeout/payload limits, and JSON Pointer syntax
+  checks.
+- Add capability descriptors from loaded provider configs so C++ can display remote-provider
+  availability before a task starts.
+- Add user-config precedence rules: user configs can add providers or override model defaults, but
+  cannot override credential policy, disable schema validation, or enable arbitrary code execution.
 
 Tests:
 
-- Rust mock-provider and timeout tests.
-- Rust HTTP provider tests using a local mock server. Cover authorization header placement, no key in
-  logs/errors, schema validation, rate limit mapping, provider request id capture, and cancellation.
-- C++ service tests with a fake sidecar client.
-- Storage controller tests for insert, replace, active selection, and model/provider identity.
-- `FilterServiceTest` or equivalent coverage showing captions/tags are searchable.
-- QML/controller smoke tests only if UI is introduced in this phase.
+- Rust config-loader tests for built-in load, user override, duplicate provider id, unknown driver,
+  invalid HTTPS policy, raw-secret rejection, invalid JSON Pointer, and schema-version mismatch.
+- Capability-registry tests showing OpenRouter and Volcengine Ark model capabilities become
+  `image_understanding.describe` / `image_rating.score` descriptors.
 
-Self-review focus:
+Review focus:
 
-- Check that the sidecar does not write directly to the database.
-- Check that prompt/profile/model identity is persisted with each annotation.
+- Check that provider configs are data only: no eval, no scripts, no shell, no secrets.
+- Check that invalid user configs fail closed and produce actionable diagnostics.
+
+### Phase 5b - Image Analysis Protobuf And Alcedo Task Schemas
+
+Goal: freeze Alcedo's provider-independent result contracts before writing HTTP provider code.
+
+Deliverables:
+
+- Add `image_analysis.proto` (or equivalent) with typed request/response messages for:
+  - `image_understanding.describe`
+  - `image_rating.score`
+- Include `AiRequestHeader` / `AiResponseHeader` in every request/response.
+- Define code-owned JSON Schemas for the two task outputs. Provider configs select injection mode;
+  they do not define business fields.
+- Include provider/model/prompt profile identity, selected rendition metadata, usage metadata, and
+  provider request id in the response.
+- Add a mock Rust provider that returns valid typed results without HTTP.
+
+Tests:
+
+- Rust proto/service tests for valid understanding, valid rating, missing credential, timeout, and
+  schema-validation failure.
+- C++ generated-proto build coverage after adding the new proto.
+
+Review focus:
+
+- Check that rating and understanding cannot overwrite each other because they carry distinct
+  `task_id`s and result identities.
+- Check that provider-specific raw JSON is not exposed as the public task contract.
+
+### Phase 5c - OpenRouter And Volcengine Ark Drivers
+
+Goal: implement the first real remote providers through OpenRouter's Chat Completions-compatible API
+and Volcengine Ark's Responses API.
+
+Deliverables:
+
+- Add `reqwest` with explicit Rustls TLS features and no plaintext/invalid-cert production mode.
+- Add `OpenRouterChatProvider` behind the `openrouter_chat` driver id.
+- Build `POST /api/v1/chat/completions` requests from the loaded OpenRouter config.
+- Keep OpenRouter request and response fixtures compatible with OpenRouter Go SDK chat-completion
+  types, even though the production Rust implementation uses `reqwest`.
+- Add `VolcengineArkResponsesProvider` behind the `volcengine_ark_responses` driver id, with the
+  bundled config defaulting to `doubao-seed-2-0-lite-260428`.
+- Build `POST /responses` requests from the loaded Volcengine config and Ark data-plane base URL.
+- Keep `volcengine_ark_chat` as a reserved compatibility driver unless live provider testing proves
+  the default Doubao path needs Chat API instead of Responses API.
+- Resolve the OpenRouter or Volcengine API key from `credential_ref` through the Rust credential
+  vault and send it only as an `Authorization: Bearer ...` header.
+- Send optional `HTTP-Referer` and `X-OpenRouter-Title` attribution headers from config.
+- Send non-streaming requests with `response_format.type = "json_schema"` and strict JSON Schema
+  when the selected model supports it.
+- Send `provider.require_parameters = true` whenever structured output is required.
+- Support optional privacy routing knobs from config/user settings, such as
+  `provider.data_collection = "deny"` or `provider.zdr = true` when available.
+- For Volcengine, construct the Responses API request from the Alcedo task schema, selected image
+  rendition, and prompt profile; the typed driver owns the exact request-field mapping.
+- Extract `choices[0].message.content`, parse JSON, validate against the Alcedo task schema,
+  normalize values, and return typed protobuf fields for OpenRouter.
+- Extract Ark Responses output content with a typed parser, parse JSON, validate against the Alcedo
+  task schema, normalize values, and return typed protobuf fields for Volcengine.
+- Capture response `id`, `model`, `usage`, and any available request-id header for diagnostics and
+  usage/cost display.
+- Map OpenRouter, Ark, and transport errors into `AiResponseStatus` / `AiErrorCode`, with redacted
+  messages.
+
+Tests:
+
+- Rust HTTP tests with a local mock server for auth header placement, attribution headers,
+  structured-output request body, `provider.require_parameters`, response parsing, usage capture,
+  rate-limit mapping, 5xx retry policy, cancellation, and timeout.
+- Rust HTTP tests with a local mock server for Volcengine Ark auth header placement, Responses API
+  request body, structured-output request body, typed output extraction, usage capture, provider
+  error-code mapping, cancellation, and timeout.
+- Negative tests proving API keys, image payloads/base64, prompts, and raw provider bodies are not
+  emitted in routine logs or error strings.
+- Manual OpenRouter smoke behind an environment-gated test that is skipped without credentials.
+- Manual Volcengine Ark smoke behind an environment-gated test that is skipped unless
+  `ALCEDO_VOLCENGINE_ARK_API_KEY` or `ALCEDO_ARK_API_KEY` is set.
+
+Review focus:
+
+- Check that OpenRouter and Volcengine compatibility are implemented by drivers, not by arbitrary
+  JSON templates.
+- Check that a provider schema failure cannot create an active annotation.
+- Check that the Volcengine response parser is backed by a live smoke fixture before Phase 5 is
+  marked complete.
+- Check that retries are bounded and do not retry non-idempotent or paid calls too aggressively.
+
+### Phase 5d - C++ Runtime Client And Host Image Analysis Service
+
+Goal: expose remote image analysis to the host while keeping C++ ownership of image rendition,
+project state, and persistence.
+
+Deliverables:
+
+- Extend `IAiSidecarRuntimeClient` / `GrpcAiSidecarRuntimeClient` with typed image-analysis RPCs.
+- Add a C++ `ImageAnalysisService` (or narrow `ImageUnderstandingService` plus rating companion)
+  that prepares thumbnails/previews via existing host services, registers credentials with the
+  sidecar, calls the typed RPC, and returns structured DTOs.
+- Keep all database writes in C++; the sidecar returns results only.
+- Add cancellation propagation from C++ job id/request id to `AiRuntimeService.CancelTask`.
+
+Tests:
+
+- C++ fake-sidecar tests for success, missing credential, invalid provider config, timeout,
+  cancellation, and schema-error propagation.
+- Tests proving raw API key material never enters `AiSidecarRuntimeOptions`, process args, QSettings,
+  project files, or captured logs.
+
+Review focus:
+
+- Check that the host controls which image rendition is sent and records that rendition in result
+  metadata.
+- Check that sidecar startup remains on demand and normal browsing/search do not require API keys.
+
+### Phase 5e - Storage And Search Integration
+
+Goal: persist remote analysis results without mixing searchable understanding with subjective rating.
+
+Deliverables:
+
+- Add storage for AI image annotations with file id, task id, provider id, model id, prompt/profile
+  id, selected rendition, caption, tags, scene/category hints, confidence, created time, and
+  active-for-search state.
+- Add rating storage with file id, task id, provider id, model id, prompt/profile id, score fields,
+  rubric id/version, reasons, created time, and active-for-rating state.
+- Enforce at most one active understanding result per `(file_id, task_id)` for search.
+- Keep rating out of full-text search by default; expose it later as sort/filter/recommendation
+  data only when a product rubric is approved.
+- Extend search document construction so active captions/tags can participate in full-text search.
+- Extend delete cleanup so deleting files removes both understanding and rating rows.
+
+Tests:
+
+- Storage controller tests for insert, replace, active selection, provider/model/prompt identity,
+  delete cleanup, and rating-vs-understanding isolation.
+- `FilterServiceTest` or equivalent coverage showing captions/tags are searchable only after
+  successful active persistence, while rating scores do not enter full-text search.
+
+Review focus:
+
 - Check that failed remote calls do not create partial active search documents.
-- Check that understanding and rating outputs cannot overwrite each other across prompt/profile
-  changes.
-- Check that prompt/image payloads and raw provider response bodies are absent from routine logs.
+- Check that prompt/profile/rubric changes do not reinterpret old scores as new scores.
+
+### Phase 5f - Developer Smoke And Handoff
+
+Goal: prove the MVP path end to end before product UI wiring in Phase 6.
+
+Deliverables:
+
+- Add CLI/dev smoke paths or environment-gated tests that run one real OpenRouter request and one
+  real Volcengine Ark request against a small fixture image when the matching API key env var is set.
+- Record required environment variables, skipped-test behavior, and expected output shape.
+- Write the Phase 5 self-review conclusion in the required plan format.
+
+Tests:
+
+- Full Rust focused tests for provider config, OpenRouter driver, Volcengine Ark driver, schema
+  validation, and mock provider.
+- Targeted C++ tests for runtime client, host service, storage, and search.
+- Environment-gated real OpenRouter and Volcengine Ark smokes, skipped by default.
+
+Review focus:
+
+- Check that no raw API key appears in diagnostics, logs, screenshots, settings, process args, or
+  packed projects.
+- Check that OpenRouter and Volcengine model/provider metadata and usage are captured enough for
+  Phase 6 UI.
 
 ## Phase 6 - Product Wiring For Credentials, Caption, And Rating
 
@@ -463,11 +833,17 @@ provider credentials are available.
 ## Open Decisions
 
 - Whether image understanding should use thumbnails, previews, or caller-selected image renditions.
-- Exact first remote provider and model defaults.
+- Whether to prefer OpenRouter privacy-first routing knobs by default. OpenRouter's bundled default
+  is Qwen3.7 Plus (`qwen/qwen3.7-plus` on the wire; `qwen3.7-plus` in UI copy). Volcengine Ark's
+  bundled default is `doubao-seed-2-0-lite-260428`.
+- Exact live-verified Volcengine Responses output extraction shape and whether the reserved Chat API
+  compatibility driver is needed for any target deployment.
 - Exact rating rubric: whether score means aesthetic quality, technical quality, keeper priority, or
   a weighted combination.
 - Whether the first UI exposes rating separately or runs a combined understanding+rating job that
   stores separate task results.
+- Exact user-provider config directory and whether C++ passes it to Rust or Rust resolves it from an
+  app-specific config path.
 - When to rename C++ classes and the sidecar executable from semantic-oriented names to AI-sidecar
   names.
 
@@ -480,6 +856,35 @@ provider credentials are available.
   key-management service, not hard-coded or exposed client-side.
 - OpenAI API docs: Responses API supports image input and structured outputs, which match the
   caption/tag/rating schema requirement.
+- OpenRouter docs (`https://openrouter.ai/docs/quickstart`,
+  `https://openrouter.ai/docs/guides/features/structured-outputs`): the direct API uses
+  `POST /api/v1/chat/completions` with Bearer authentication, OpenAI-compatible request/response
+  shapes, optional attribution headers, structured outputs via `response_format: json_schema`, and
+  provider routing options such as `require_parameters`.
+- OpenRouter model docs (`https://openrouter.ai/qwen/qwen3.7-plus`): Qwen3.7 Plus uses the canonical
+  model slug `qwen/qwen3.7-plus`, supports text and image input with text output, and is therefore
+  the bundled OpenRouter default for Phase 5 image understanding.
+- OpenRouter Go SDK docs (`https://openrouter.ai/docs/client-sdks/go/overview`,
+  `https://openrouter.ai/docs/sdks/go/api-reference/chat`): the Go SDK is a type-safe client over
+  OpenRouter's chat-completion API, so Phase 5 request/response fixtures should stay compatible with
+  the SDK's chat send shape even though Rust calls the REST API directly.
+- OpenRouter docs: usage metadata is available on non-streaming responses, making it appropriate for
+  Phase 6 job-level usage/cost summaries.
+- Volcengine Ark docs (`https://www.volcengine.com/docs/82379/1958521?lang=zh`): the linked
+  multimodal-understanding guide is under the Responses API path, supporting
+  `volcengine_ark_responses` as the preferred built-in driver for Doubao multimodal calls.
+- Volcengine Ark model-list docs (`https://www.volcengine.com/docs/82379/1330310`):
+  `doubao-seed-2-0-lite-260428` is a current Doubao Seed 2.0 Lite model with text generation,
+  multimodal understanding, and tool-call capabilities, making it the built-in default for the
+  China-friendly provider path.
+- BytePlus/ModelArk docs (`https://docs.byteplus.com/en/docs/ModelArk/Responses_API`,
+  `https://docs.byteplus.com/en/docs/ModelArk/1958523`): Responses API and Structured output
+  (Responses API) are documented as first-class APIs, so the Volcengine driver should use
+  schema-based output when the selected model supports it rather than best-effort prompt-only JSON.
+- LiteLLM docs: mature LLM gateway systems use configuration for model aliases, `api_base`,
+  provider-specific params, routing, and secret-manager references while still routing through
+  provider-aware code paths. This supports Alcedo's driver-plus-config design instead of a pure
+  arbitrary-template design.
 - Rust `reqwest` docs: async HTTP client with JSON support, reusable clients, timeout/TLS
   configuration, and explicit TLS backend selection.
 - QtKeychain docs: platform-independent Qt secret storage backed by Windows Credential Store, macOS
@@ -487,3 +892,93 @@ provider credentials are available.
 - Rust `secrecy` / `zeroize` docs: explicit secret exposure and zeroing help prevent accidental
   logging and reduce in-memory lifetime risk; the current custom `SecretString` can stay if it keeps
   the same audit properties.
+
+## Phase 4 - Completion & Self-Review
+
+Status: complete. Semantic embedding now runs over the shared AI control surface
+(`alcedo.ai.AiRequestHeader` / `AiResponseHeader`) via additive v2 RPCs, with v1 kept as an automatic
+fallback. v1 RPCs, batching, request-id-to-file-id mapping, model-info validation, embedding
+dimensions, model keys, and persistence are all unchanged (Phase 0 contract section 2.3 honored: v2 is
+added as new methods, v1 is frozen).
+
+Implemented (file-by-file, per the plan):
+
+- `rust/puerh_mind/proto/semantic.proto` - `import "ai_common.proto";`, 4 v2 RPCs on `SemanticService`
+  (`EmbedTextV2` / `EmbedImageV2` / `EmbedTextBatchV2` / `EmbedImageBatchV2`), and 9 v2 messages that
+  reference `alcedo.ai.*` fully-qualified. v1 is untouched.
+- `rust/puerh_mind/src/server/semantic.rs` - a `build_response_header` helper plus 4 v2 trait methods
+  that delegate to the frozen v1 methods and wrap the result with an `AiResponseHeader` (single ->
+  `header.model_id`; batch -> per-item `request_id` preserved). v1 methods and v1 tests are unedited. 5
+  new v2 tests were added. The cross-package `semantic` -> `alcedo.ai` prost reference resolves with no
+  `build.rs` / `proto.rs` change (the existing sibling-module layout emits `super::alcedo::ai::*`).
+- `alcedo_studio/src/CMakeLists.txt` - the SemanticProto custom-command `DEPENDS` now includes
+  `ai_common.proto`; the SemanticProto `add_library` is ordered after AiProto;
+  `target_include_directories` adds the AI generated dir; `target_link_libraries` adds `AiProto`. The
+  DAG stays clean (AiProto does not depend on SemanticProto).
+- `alcedo_studio/src/include/app/ai_sidecar_runtime_service.hpp` - 4 v2 virtuals on
+  `IAiSidecarRuntimeClient` (with out-of-line default impls) and 4 `override` declarations on
+  `GrpcAiSidecarRuntimeClient`.
+- `alcedo_studio/src/app/ai_sidecar_runtime_service.cpp` - `FillAiRequestHeader` gained a
+  backward-compatible `trace_id` parameter (the 3 existing AI-runtime call sites are unchanged);
+  `MakeBatchRequestId()`; 2 v2 `ToEmbeddingResult` overloads (single reads `header().request_id()`,
+  batch item keeps the per-item `request_id`); 4 `GrpcAiSidecarRuntimeClient::Embed*V2` overrides; and 4
+  service wrappers that try-v2-then-fallback. `SemanticEmbeddingResult` is unchanged, so storage and
+  search are unchanged.
+- `alcedo_studio/tests/app/ai_sidecar_runtime_service_test.cpp` - `FakeAiSidecarRuntimeClient` was
+  extended with `v2_supported_` / `SetV2Supported`, 4 v2 overrides canned bit-identical to v1, and call
+  counters; 5 new tests were added. Existing tests are unedited.
+
+Fallback policy: only `grpc::UNIMPLEMENTED` triggers v1 fallback (`*v2_available = false`, the service
+then calls v1). All other grpc codes (including `DEADLINE_EXCEEDED`) keep v2 (`*v2_available = true`)
+with synthesized per-input failures and no v1 retry - the server has v2 but the call failed. Single-call
+v2 correlation is `header.request_id`; batch correlation is a fresh `MakeBatchRequestId()` with the
+per-item `request_id` preserved end to end.
+
+Credential handling (Phase 3 invariant preserved): Phase 4 embedding has no credentials, so
+`FillAiRequestHeader` receives an empty `credential_ref`. Secrets still travel only over gRPC loopback
+to the Rust vault, never through process args, `AiSidecarRuntimeOptions`, or logs; `FillAiRequestHeader`
+never echoes a secret. v2 calls set `trace_id = request_id` (local correlation; no distributed trace
+exists yet). `priority` stays at default and `client_capabilities` is left empty (no `cancel-by-request_id`
+advertised).
+
+Deferred to Phase 5 (per Phase 0 section 1.5 and the plan design):
+
+- Cancellation wiring for embedding - not a Phase 4 deliverable; the old C++ embedding has no gRPC-level
+  cancel (job-level only, unchanged). `supports_cancel: true` remains a forward promise with no regression.
+- Full status-to-tonic structured-error-in-body mapping - v2 hard failures still propagate the v1
+  `tonic::Status` (`?`); the `AiResponseHeader` travels on success only, matching the existing
+  `ok_header` success-only pattern.
+
+Test results:
+
+- Rust - `cargo test` in `rust/puerh_mind`: 88 passed; 0 failed; 0 ignored. Includes the 5 v2 tests
+  (`text_batch_v2_preserves_request_order_and_item_errors`,
+  `image_batch_v2_preserves_request_order_and_item_errors`,
+  `rejects_non_finite_batch_embedding_as_item_error_v2`,
+  `embed_image_v2_routes_through_micro_batch_worker`, `embed_text_v2_echoes_header_request_id`).
+- C++ MSVC build (run through the PowerShell tool, per project memory): succeeded after regenerating
+  `semantic.pb.h` / `ai_common.pb.h`. This resolved all prior clangd "No type named EmbeddingResponseV2"
+  and "redefinition" diagnostics, which were stale generated headers, not real errors.
+- ctest targeted group (the validation regex in this plan): 87 tests; 100% passed; 0 failed (1 live
+  smoke Skipped - environment-gated, `ALCEDO_SEMANTIC_LIVE_RUNTIME_PATH` was not set). The 5 new
+  `AiSidecarRuntimeServiceTest` tests pass: `EmbedTextV2ReturnsCannedViaV2Path`,
+  `EmbedTextV2FallsBackToV1WhenV2Unsupported`, `EmbedImageBatchV2ReturnsCannedViaV2Path`,
+  `EmbedImageBatchFallsBackToV1WhenV2Unsupported`, `EmbedImageBatchV2EchoesRequestIds`. The 15 existing
+  `AiSidecarRuntimeServiceTest` tests still pass - now exercising the v2 path (the fake v2 overrides
+  with `v2_supported_ = true`), which proves v2 canned is bit-identical to v1.
+  `SemanticGenerationServiceTest` / `SemanticStorageControllerTest` / `FilterServiceTest` /
+  `SearchQueryClassifierTest` / `GlobalSearchDialogQmlTest` are unchanged and green (they use
+  `ISemanticImageEmbeddingClient` fakes / storage / search, not the v2 gRPC path).
+
+Build note for the next handoff: the default `all` MSVC build (`--build --preset win_debug`) did not
+rebuild `AiSidecarRuntimeServiceTest` after a test-source-only edit - ninja treated the target as
+up-to-date, and deleting the executable confirmed `all` does not own it. After editing test sources,
+build the target explicitly before ctest:
+`cmd /c scripts\msvc_env.cmd --build --preset win_debug --target AiSidecarRuntimeServiceTest --parallel 4`
+(or the affected test targets). The plan's verification step 2 should be augmented with this explicit
+test-target build.
+
+Review conclusion: none; risk accepted: v2 hard-failure responses propagate the v1 `tonic::Status` (the
+`AiResponseHeader` travels on success only) and embedding cancellation is not wired into the
+micro-batch worker - both deferred to Phase 5 per Phase 0 section 1.5, and `supports_cancel` stays a
+forward promise with no regression; missing tests: none.

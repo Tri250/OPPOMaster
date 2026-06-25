@@ -13,6 +13,7 @@
 #include <QStringList>
 #include <QTcpServer>
 #include <QThread>
+#include <QUuid>
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -125,18 +126,29 @@ auto DeadlineFromNow(std::chrono::milliseconds timeout) -> std::chrono::system_c
   return std::chrono::system_clock::now() + timeout;
 }
 
+// Mints a fresh per-batch correlation id for v2 batch RPCs. header.request_id of a batch call
+// correlates the whole batch; per-item request_id (the host's file-identity mapping) rides in
+// each EmbedTextItemV2 / EmbedImageItemV2, unchanged from the v1 EmbeddingBatchItem shape.
+auto MakeBatchRequestId() -> std::string {
+  return QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
+}
+
 // Fills the shared AiRequestHeader carried by every AiRuntimeService RPC for uniform request
 // correlation. `credential_ref` is the opaque vault handle (empty for local/no-credential
 // tasks); it is never key material. Centralizing header construction here keeps every RPC on
 // the same redaction-safe path — no call site logs or echoes a secret through this helper.
 auto FillAiRequestHeader(alcedo::ai::AiRequestHeader* header, const std::string& request_id,
                          const std::string& task_id, std::chrono::milliseconds timeout,
-                         const std::string& credential_ref = {}) -> void {
+                         const std::string& credential_ref = {},
+                         const std::string& trace_id = {}) -> void {
   header->set_request_id(request_id);
   header->set_task_id(task_id);
   header->set_timeout_ms(std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count());
   if (!credential_ref.empty()) {
     header->set_credential_ref(credential_ref);
+  }
+  if (!trace_id.empty()) {
+    header->set_trace_id(trace_id);
   }
 }
 
@@ -304,6 +316,34 @@ auto ToEmbeddingResult(const semantic::EmbeddingResponse& response) -> SemanticE
 }
 
 auto ToEmbeddingResult(const semantic::EmbeddingBatchItem& response) -> SemanticEmbeddingResult {
+  SemanticEmbeddingResult result;
+  result.request_id = response.request_id();
+  result.embedding.assign(response.embedding().begin(), response.embedding().end());
+  result.dimension  = response.dimension();
+  result.model_name = response.model_name();
+  result.elapsed_ms = response.elapsed_ms();
+  result.ok         = response.ok();
+  result.error      = response.error();
+  return result;
+}
+
+// v2 embedding mappers (Phase 4). The v2 single response carries the correlation id in its
+// AiResponseHeader (there is no body request_id), so the single-call mapper reads
+// header().request_id(); the batch item mapper uses the item's own per-item request_id, exactly
+// like the v1 item. The AiResponseHeader itself is not mapped into SemanticEmbeddingResult
+// (which has no header field) — only the correlation id and embedding payload are.
+auto ToEmbeddingResult(const semantic::EmbeddingResponseV2& response) -> SemanticEmbeddingResult {
+  SemanticEmbeddingResult result;
+  result.request_id = response.header().request_id();
+  result.embedding.assign(response.embedding().begin(), response.embedding().end());
+  result.dimension  = response.dimension();
+  result.model_name = response.model_name();
+  result.elapsed_ms = response.elapsed_ms();
+  result.ok         = true;
+  return result;
+}
+
+auto ToEmbeddingResult(const semantic::EmbeddingBatchItemV2& response) -> SemanticEmbeddingResult {
   SemanticEmbeddingResult result;
   result.request_id = response.request_id();
   result.embedding.assign(response.embedding().begin(), response.embedding().end());
@@ -629,6 +669,38 @@ auto IAiSidecarRuntimeClient::EmbedTextBatch(
   return results;
 }
 
+// v2 default impls (Phase 4): a client that does not override v2 signals v2-unavailable so the
+// service wrapper falls back to v1 transparently. The real gRPC client and the test fake both
+// override these. Unused parameters are intentionally unnamed.
+auto IAiSidecarRuntimeClient::EmbedTextV2(const std::string&, const std::string&,
+                                           const std::string&, std::chrono::milliseconds,
+                                           bool* v2_available) -> SemanticEmbeddingResult {
+  if (v2_available) *v2_available = false;
+  return {};
+}
+
+auto IAiSidecarRuntimeClient::EmbedImageV2(const std::string&, const std::string&,
+                                           const std::vector<uint8_t>&, const std::string&,
+                                           std::chrono::milliseconds, bool* v2_available)
+    -> SemanticEmbeddingResult {
+  if (v2_available) *v2_available = false;
+  return {};
+}
+
+auto IAiSidecarRuntimeClient::EmbedTextBatchV2(
+    const std::string&, const std::vector<SemanticTextEmbeddingRequest>&,
+    std::chrono::milliseconds, bool* v2_available) -> std::vector<SemanticEmbeddingResult> {
+  if (v2_available) *v2_available = false;
+  return {};
+}
+
+auto IAiSidecarRuntimeClient::EmbedImageBatchV2(
+    const std::string&, const std::vector<SemanticImageEmbeddingRequest>&,
+    std::chrono::milliseconds, bool* v2_available) -> std::vector<SemanticEmbeddingResult> {
+  if (v2_available) *v2_available = false;
+  return {};
+}
+
 auto GrpcAiSidecarRuntimeClient::EmbedText(const std::string& endpoint,
                                            const std::string& request_id, const std::string& text,
                                            std::chrono::milliseconds timeout)
@@ -785,6 +857,199 @@ auto GrpcAiSidecarRuntimeClient::EmbedImageBatch(
       << QStringLiteral("semantic.rpc.embed_image_batch.response endpoint=%1 count=%2")
              .arg(QString::fromStdString(endpoint))
              .arg(static_cast<qulonglong>(results.size()));
+  return results;
+}
+
+auto GrpcAiSidecarRuntimeClient::EmbedTextV2(const std::string& endpoint,
+                                             const std::string& request_id, const std::string& text,
+                                             std::chrono::milliseconds timeout, bool* v2_available)
+    -> SemanticEmbeddingResult {
+  auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
+  auto                stub    = semantic::SemanticService::NewStub(channel);
+
+  grpc::ClientContext context;
+  context.set_deadline(DeadlineFromNow(timeout));
+  semantic::EmbedTextRequestV2 request;
+  FillAiRequestHeader(request.mutable_header(), request_id, "semantic.embed_text", timeout, "",
+                      request_id);
+  request.set_text(text);
+  semantic::EmbeddingResponseV2 response;
+  const auto                  status = stub->EmbedTextV2(&context, request, &response);
+  if (status.ok()) {
+    if (v2_available) *v2_available = true;
+    return ToEmbeddingResult(response);
+  }
+  // UNIMPLEMENTED => the sidecar predates Phase 4; signal v2-unavailable so the service wrapper
+  // falls back to v1. Any other grpc code (incl. DEADLINE_EXCEEDED) means v2 is present but the
+  // call failed — synthesize a per-input failure and do not retry over v1.
+  if (status.error_code() == grpc::StatusCode::UNIMPLEMENTED) {
+    if (v2_available) *v2_available = false;
+    return {};
+  }
+  if (v2_available) *v2_available = true;
+  SemanticEmbeddingResult result;
+  result.request_id = request_id;
+  result.ok         = false;
+  result.error      = GrpcErrorMessage(status);
+  return result;
+}
+
+auto GrpcAiSidecarRuntimeClient::EmbedImageV2(const std::string&          endpoint,
+                                              const std::string&          request_id,
+                                              const std::vector<uint8_t>& rgba8_image,
+                                              const std::string&          format_hint,
+                                              std::chrono::milliseconds   timeout,
+                                              bool*                       v2_available)
+    -> SemanticEmbeddingResult {
+  auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
+  auto                stub    = semantic::SemanticService::NewStub(channel);
+
+  grpc::ClientContext context;
+  context.set_deadline(DeadlineFromNow(timeout));
+  semantic::EmbedImageRequestV2 request;
+  FillAiRequestHeader(request.mutable_header(), request_id, "semantic.embed_image", timeout, "",
+                      request_id);
+  request.set_image_bytes(reinterpret_cast<const char*>(rgba8_image.data()), rgba8_image.size());
+  request.set_image_format_hint(format_hint);
+  semantic::EmbeddingResponseV2 response;
+  const auto                  status = stub->EmbedImageV2(&context, request, &response);
+  if (status.ok()) {
+    if (v2_available) *v2_available = true;
+    return ToEmbeddingResult(response);
+  }
+  if (status.error_code() == grpc::StatusCode::UNIMPLEMENTED) {
+    if (v2_available) *v2_available = false;
+    return {};
+  }
+  if (v2_available) *v2_available = true;
+  SemanticEmbeddingResult result;
+  result.request_id = request_id;
+  result.ok         = false;
+  result.error      = GrpcErrorMessage(status);
+  return result;
+}
+
+auto GrpcAiSidecarRuntimeClient::EmbedTextBatchV2(
+    const std::string& endpoint, const std::vector<SemanticTextEmbeddingRequest>& requests,
+    std::chrono::milliseconds timeout, bool* v2_available) -> std::vector<SemanticEmbeddingResult> {
+  diag::TraceScope    trace(diag::semanticRpcLog(), QStringLiteral("semantic.rpc.embed_text_batch_v2"),
+                            QStringLiteral("endpoint=%1 count=%2 timeout_ms=%3 ids=%4")
+                                .arg(QString::fromStdString(endpoint))
+                                .arg(static_cast<qulonglong>(requests.size()))
+                                .arg(timeout.count())
+                                .arg(SummarizeTextRequests(requests)));
+  auto                channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
+  auto                stub    = semantic::SemanticService::NewStub(channel);
+
+  grpc::ClientContext context;
+  context.set_deadline(DeadlineFromNow(timeout));
+  const auto           batch_id = MakeBatchRequestId();
+  semantic::EmbedTextBatchRequestV2 request;
+  FillAiRequestHeader(request.mutable_header(), batch_id, "semantic.embed_text_batch", timeout, "",
+                      batch_id);
+  for (const auto& input : requests) {
+    auto* item = request.add_items();
+    item->set_request_id(input.request_id);
+    item->set_text(input.text);
+    item->set_model_name(input.model_name);
+  }
+
+  semantic::EmbeddingBatchResponseV2     response;
+  const auto                             status = stub->EmbedTextBatchV2(&context, request, &response);
+  std::vector<SemanticEmbeddingResult> results;
+  if (status.ok()) {
+    if (v2_available) *v2_available = true;
+    results.reserve(static_cast<size_t>(response.items_size()));
+    for (const auto& item : response.items()) {
+      results.push_back(ToEmbeddingResult(item));
+    }
+    qCInfo(diag::semanticRpcLog).noquote()
+        << QStringLiteral("semantic.rpc.embed_text_batch_v2.response endpoint=%1 count=%2")
+               .arg(QString::fromStdString(endpoint))
+               .arg(static_cast<qulonglong>(results.size()));
+    return results;
+  }
+  if (status.error_code() == grpc::StatusCode::UNIMPLEMENTED) {
+    if (v2_available) *v2_available = false;
+    return {};
+  }
+  if (v2_available) *v2_available = true;
+  qCWarning(diag::semanticRpcLog).noquote()
+      << QStringLiteral("semantic.rpc.embed_text_batch_v2.failed endpoint=%1 count=%2 error=%3")
+             .arg(QString::fromStdString(endpoint))
+             .arg(static_cast<qulonglong>(requests.size()))
+             .arg(QString::fromStdString(GrpcErrorMessage(status)));
+  results.reserve(requests.size());
+  for (const auto& input : requests) {
+    SemanticEmbeddingResult result;
+    result.request_id = input.request_id;
+    result.ok         = false;
+    result.error      = GrpcErrorMessage(status);
+    results.push_back(std::move(result));
+  }
+  return results;
+}
+
+auto GrpcAiSidecarRuntimeClient::EmbedImageBatchV2(
+    const std::string& endpoint, const std::vector<SemanticImageEmbeddingRequest>& requests,
+    std::chrono::milliseconds timeout, bool* v2_available) -> std::vector<SemanticEmbeddingResult> {
+  diag::TraceScope trace(diag::semanticRpcLog(), QStringLiteral("semantic.rpc.embed_image_batch_v2"),
+                         QStringLiteral("endpoint=%1 count=%2 timeout_ms=%3 ids=%4")
+                             .arg(QString::fromStdString(endpoint))
+                             .arg(static_cast<qulonglong>(requests.size()))
+                             .arg(timeout.count())
+                             .arg(SummarizeImageRequests(requests)));
+  auto             channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
+  auto             stub    = semantic::SemanticService::NewStub(channel);
+
+  grpc::ClientContext context;
+  context.set_deadline(DeadlineFromNow(timeout));
+  const auto          batch_id = MakeBatchRequestId();
+  semantic::EmbedImageBatchRequestV2 request;
+  FillAiRequestHeader(request.mutable_header(), batch_id, "semantic.embed_image_batch", timeout, "",
+                      batch_id);
+  for (const auto& input : requests) {
+    auto* item = request.add_items();
+    item->set_request_id(input.request_id);
+    item->set_image_bytes(reinterpret_cast<const char*>(input.rgba8_image.data()),
+                          input.rgba8_image.size());
+    item->set_image_format_hint(input.format_hint);
+    item->set_model_name(input.model_name);
+  }
+
+  semantic::EmbeddingBatchResponseV2     response;
+  const auto                             status = stub->EmbedImageBatchV2(&context, request, &response);
+  std::vector<SemanticEmbeddingResult> results;
+  if (status.ok()) {
+    if (v2_available) *v2_available = true;
+    results.reserve(static_cast<size_t>(response.items_size()));
+    for (const auto& item : response.items()) {
+      results.push_back(ToEmbeddingResult(item));
+    }
+    qCInfo(diag::semanticRpcLog).noquote()
+        << QStringLiteral("semantic.rpc.embed_image_batch_v2.response endpoint=%1 count=%2")
+               .arg(QString::fromStdString(endpoint))
+               .arg(static_cast<qulonglong>(results.size()));
+    return results;
+  }
+  if (status.error_code() == grpc::StatusCode::UNIMPLEMENTED) {
+    if (v2_available) *v2_available = false;
+    return {};
+  }
+  if (v2_available) *v2_available = true;
+  qCWarning(diag::semanticRpcLog).noquote()
+      << QStringLiteral("semantic.rpc.embed_image_batch_v2.failed endpoint=%1 count=%2 error=%3")
+             .arg(QString::fromStdString(endpoint))
+             .arg(static_cast<qulonglong>(requests.size()))
+             .arg(QString::fromStdString(GrpcErrorMessage(status)));
+  results.reserve(requests.size());
+  for (const auto& input : requests) {
+    SemanticEmbeddingResult result;
+    result.request_id = input.request_id;
+    result.ok         = false;
+    result.error      = GrpcErrorMessage(status);
+    results.push_back(std::move(result));
+  }
   return results;
 }
 
@@ -1054,6 +1319,13 @@ auto AiSidecarRuntimeService::EmbedText(const std::string& request_id, const std
     result.error      = "semantic runtime is not ready";
     return result;
   }
+  // Prefer v2 (shared AiRequestHeader control surface); fall back to v1 for sidecars that
+  // predate Phase 4 (v2 returns *v2_available=false on grpc::UNIMPLEMENTED).
+  bool v2_available = false;
+  auto result = client_->EmbedTextV2(endpoint_, request_id, text, timeout, &v2_available);
+  if (v2_available) {
+    return result;
+  }
   return client_->EmbedText(endpoint_, request_id, text, timeout);
 }
 
@@ -1072,6 +1344,11 @@ auto AiSidecarRuntimeService::EmbedTextBatch(
     }
     return results;
   }
+  bool v2_available = false;
+  auto results = client_->EmbedTextBatchV2(endpoint_, requests, timeout, &v2_available);
+  if (v2_available) {
+    return results;
+  }
   return client_->EmbedTextBatch(endpoint_, requests, timeout);
 }
 
@@ -1085,6 +1362,12 @@ auto AiSidecarRuntimeService::EmbedImage(const std::string&          request_id,
     result.request_id = request_id;
     result.ok         = false;
     result.error      = "semantic runtime is not ready";
+    return result;
+  }
+  bool v2_available = false;
+  auto result =
+      client_->EmbedImageV2(endpoint_, request_id, rgba8_image, format_hint, timeout, &v2_available);
+  if (v2_available) {
     return result;
   }
   return client_->EmbedImage(endpoint_, request_id, rgba8_image, format_hint, timeout);
@@ -1103,6 +1386,11 @@ auto AiSidecarRuntimeService::EmbedImageBatch(std::vector<SemanticImageEmbedding
       result.error      = "semantic runtime is not ready";
       results.push_back(std::move(result));
     }
+    return results;
+  }
+  bool v2_available = false;
+  auto results = client_->EmbedImageBatchV2(endpoint_, requests, timeout, &v2_available);
+  if (v2_available) {
     return results;
   }
   return client_->EmbedImageBatch(endpoint_, std::move(requests), timeout);

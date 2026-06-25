@@ -238,6 +238,25 @@ class IAiSidecarRuntimeClient {
                                std::vector<SemanticImageEmbeddingRequest> requests,
                                std::chrono::milliseconds                  timeout)
       -> std::vector<SemanticEmbeddingResult> = 0;
+  // v2 embedding RPCs (Phase 4): carry the shared AiRequestHeader/AiResponseHeader inline for
+  // uniform request correlation, timeout, and (future) cancellation. The service wrappers try
+  // v2 first and fall back to v1 when the sidecar reports v2 unavailable (*v2_available=false on
+  // the default impl, or grpc::UNIMPLEMENTED from a pre-Phase-4 server). v1 RPCs stay frozen.
+  virtual auto EmbedTextV2(const std::string& endpoint, const std::string& request_id,
+                            const std::string& text, std::chrono::milliseconds timeout,
+                            bool* v2_available) -> SemanticEmbeddingResult;
+  virtual auto EmbedImageV2(const std::string& endpoint, const std::string& request_id,
+                            const std::vector<uint8_t>& rgba8_image,
+                            const std::string& format_hint, std::chrono::milliseconds timeout,
+                            bool* v2_available) -> SemanticEmbeddingResult;
+  virtual auto EmbedTextBatchV2(const std::string&                               endpoint,
+                                 const std::vector<SemanticTextEmbeddingRequest>& requests,
+                                 std::chrono::milliseconds                        timeout,
+                                 bool* v2_available) -> std::vector<SemanticEmbeddingResult>;
+  virtual auto EmbedImageBatchV2(const std::string&                                endpoint,
+                                 const std::vector<SemanticImageEmbeddingRequest>& requests,
+                                 std::chrono::milliseconds                        timeout,
+                                 bool* v2_available) -> std::vector<SemanticEmbeddingResult>;
 };
 
 class GrpcAiSidecarRuntimeClient final : public IAiSidecarRuntimeClient {
@@ -282,6 +301,21 @@ class GrpcAiSidecarRuntimeClient final : public IAiSidecarRuntimeClient {
   auto EmbedImageBatch(const std::string&                         endpoint,
                        std::vector<SemanticImageEmbeddingRequest> requests,
                        std::chrono::milliseconds                  timeout)
+      -> std::vector<SemanticEmbeddingResult> override;
+  auto EmbedTextV2(const std::string& endpoint, const std::string& request_id,
+                   const std::string& text, std::chrono::milliseconds timeout, bool* v2_available)
+      -> SemanticEmbeddingResult override;
+  auto EmbedImageV2(const std::string& endpoint, const std::string& request_id,
+                    const std::vector<uint8_t>& rgba8_image, const std::string& format_hint,
+                    std::chrono::milliseconds timeout, bool* v2_available)
+      -> SemanticEmbeddingResult override;
+  auto EmbedTextBatchV2(const std::string&                               endpoint,
+                        const std::vector<SemanticTextEmbeddingRequest>& requests,
+                        std::chrono::milliseconds                        timeout, bool* v2_available)
+      -> std::vector<SemanticEmbeddingResult> override;
+  auto EmbedImageBatchV2(const std::string&                                endpoint,
+                         const std::vector<SemanticImageEmbeddingRequest>& requests,
+                         std::chrono::milliseconds                        timeout, bool* v2_available)
       -> std::vector<SemanticEmbeddingResult> override;
 };
 
