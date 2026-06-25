@@ -93,7 +93,10 @@ impl InferenceBackend {
 
     pub fn is_supported_on_current_platform(self) -> bool {
         match self {
-            InferenceBackend::OnnxRuntime => true,
+            // TEMPORARY: the ONNX Runtime execution path hangs on macOS, so only
+            // the native CoreML profile is offered there until it is fixed. Keep
+            // this in sync with the C++ gate in model_asset_catalog.cpp.
+            InferenceBackend::OnnxRuntime => cfg!(not(target_os = "macos")),
             InferenceBackend::NativeCoreMl => cfg!(target_os = "macos"),
         }
     }

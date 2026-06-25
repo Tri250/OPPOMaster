@@ -228,7 +228,14 @@ auto ToString(ModelInferenceBackend backend) -> const char* {
 auto IsModelProfileSupportedOnCurrentPlatform(const ModelProfileSpec& profile) -> bool {
   switch (profile.inference_backend) {
     case ModelInferenceBackend::kOnnxRuntime:
+#ifdef Q_OS_MACOS
+      // TEMPORARY: the ONNX Runtime execution path hangs on macOS. Only the
+      // native CoreML profile is exposed there until the ONNX path is fixed,
+      // so users can neither download nor activate the freezing models.
+      return false;
+#else
       return true;
+#endif
     case ModelInferenceBackend::kNativeCoreMl:
 #ifdef Q_OS_MACOS
       return true;
