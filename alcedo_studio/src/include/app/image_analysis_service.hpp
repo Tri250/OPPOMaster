@@ -1,0 +1,248 @@
+//  Copyright 2026 Yurun Zi
+//  SPDX-License-Identifier: GPL-3.0-only
+//  Additional permission under GPLv3 section 7 applies; see the LICENSE file.
+
+#pragma once
+
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <cstddef>
+#include <cstdint>
+#include <filesystem>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <vector>
+
+#include "app/ai_sidecar_runtime_service.hpp"
+#include "app/thumbnail_service.hpp"
+#include "app/thumbnail_types.hpp"
+#include "type/type.hpp"
+
+namespace alcedo {
+
+struct ImageAnalysisItem {
+  sl_element_id_t element_id = 0;
+  image_id_t      image_id   = 0;
+};
+
+enum class ImageAnalysisTask : uint8_t {
+  kDescribe = 0,
+  kScore,
+};
+
+enum class ImageAnalysisItemStatus : uint8_t {
+  kPending = 0,
+  kThumbnailReady,
+  kAnalyzed,
+  kCanceled,
+  kError,
+};
+
+// Long-lived provider credential for one analysis run. The `secret` is consumed once
+// (registered with the sidecar vault to obtain an opaque handle) and then cleared from
+// the options copy inside RunJob; it never enters ImageAnalysisRequest, result DTOs,
+// AiSidecarRuntimeOptions, process args, or logs.
+struct ImageAnalysisCredential {
+  std::string provider_id;
+  std::string secret;
+};
+
+struct ImageAnalysisOptions {
+  ImageAnalysisTask       task               = ImageAnalysisTask::kDescribe;
+  ThumbnailResolution     thumbnail_resolution = ThumbnailResolution::k1024;
+  int                     jpeg_quality       = 90;
+  std::chrono::milliseconds timeout          {60000};
+  std::string             provider_id;        // "" = sidecar default
+  std::string             model_id;           // "" = provider default
+  std::string             prompt_profile_id;
+  std::string             rubric_id;          // ScoreImage only; "" = provider default
+  ImageAnalysisCredential credential;
+  std::filesystem::path   temp_dir;           // empty => std::filesystem::temp_directory_path()
+  int64_t                 credential_ttl_ms = 0;  // 0 => sidecar default
+};
+
+struct ImageAnalysisProgress {
+  size_t total    = 0;
+  size_t analyzed = 0;
+  size_t failed   = 0;
+  size_t canceled = 0;
+};
+
+struct ImageAnalysisItemResult {
+  ImageAnalysisItem               item{};
+  std::string                     request_id;
+  ImageAnalysisItemStatus         status = ImageAnalysisItemStatus::kPending;
+  std::string                     error;
+  ImageAnalysisUnderstandingResult understanding;  // filled when task == kDescribe
+  ImageAnalysisRatingResult       rating;          // filled when task == kScore
+  ImageAnalysisRendition          rendition;       // the rendition actually analyzed
+};
+
+using ImageAnalysisProgressCallback = std::function<void(const ImageAnalysisProgress&)>;
+using ImageAnalysisFinishedCallback = std::function<void(std::vector<ImageAnalysisItemResult>)>;
+using ImageAnalysisThumbnailCallback = std::function<void(ThumbnailRequestResult)>;
+
+// Serializes remote image-analysis calls to at most one in flight across ALL
+// ImageAnalysisService instances that share the same gate. Phase 5d mandates a
+// host-boundary in-flight limit of one (provider calls are non-idempotent / paid).
+// Injectable so the album backend (Phase 6) can share one gate app-wide even if the
+// service is constructed per-use; if none is passed the service creates a private one.
+class ImageAnalysisInFlightGate {
+ public:
+  ImageAnalysisInFlightGate() = default;
+
+  // Blocks until the slot is free or `is_canceled()` returns true. Returns true if the
+  // slot was acquired, false if the wait was canceled (the slot is NOT acquired).
+  auto Acquire(std::function<bool()> is_canceled) -> bool;
+  void Release();
+  // Publishes / clears the request_id of the job currently occupying the slot. Held
+  // only while a job is in flight; read by ImageAnalysisJob::Cancel to decide whether
+  // to best-effort CancelTask this job's in-flight RPC.
+  void PublishRequestId(const std::string& id);
+  void ClearRequestId();
+  auto CurrentRequestId() const -> std::string;
+  // Wakes any waiter blocked in Acquire (called by ImageAnalysisJob::Cancel).
+  void NotifyAll();
+
+ private:
+  mutable std::mutex          mutex_;
+  std::condition_variable     cv_;
+  bool                        in_flight_ = false;
+  std::string                 in_flight_request_id_;
+};
+
+class IImageAnalysisThumbnailProvider {
+ public:
+  virtual ~IImageAnalysisThumbnailProvider() = default;
+
+  virtual void RequestThumbnail(const ImageAnalysisItem& item, ThumbnailResolution resolution,
+                                ImageAnalysisThumbnailCallback callback) = 0;
+  virtual void CancelThumbnail(const ThumbnailCacheKey& key)              = 0;
+  virtual void ReleaseThumbnail(const ThumbnailCacheKey& key)             = 0;
+};
+
+class ThumbnailServiceImageAnalysisProvider final : public IImageAnalysisThumbnailProvider {
+ public:
+  explicit ThumbnailServiceImageAnalysisProvider(std::shared_ptr<ThumbnailService> service);
+
+  void RequestThumbnail(const ImageAnalysisItem& item, ThumbnailResolution resolution,
+                        ImageAnalysisThumbnailCallback callback) override;
+  void CancelThumbnail(const ThumbnailCacheKey& key) override;
+  void ReleaseThumbnail(const ThumbnailCacheKey& key) override;
+
+ private:
+  std::shared_ptr<ThumbnailService> service_;
+};
+
+// Sidecar-call seam for ImageAnalysisService (mirrors ISemanticImageEmbeddingClient).
+// Adding Ready / RegisterCredential / CancelTask beyond the typed RPCs keeps the
+// service's credential + server-cancel concerns behind one testable interface.
+class IImageAnalysisClient {
+ public:
+  virtual ~IImageAnalysisClient() = default;
+
+  virtual auto Ready() -> bool = 0;
+  virtual auto RegisterCredential(const std::string& provider_id, const std::string& secret,
+                                  int64_t ttl_ms, std::chrono::milliseconds timeout,
+                                  std::string* handle, std::string* error) -> bool = 0;
+  virtual auto DescribeImage(const ImageAnalysisRequest& request, std::chrono::milliseconds timeout)
+      -> ImageAnalysisUnderstandingResult = 0;
+  virtual auto ScoreImage(const ImageAnalysisRequest& request, std::chrono::milliseconds timeout)
+      -> ImageAnalysisRatingResult = 0;
+  virtual auto CancelTask(const std::string& request_id, std::chrono::milliseconds timeout,
+                          bool* cancelled, std::string* error) -> bool = 0;
+};
+
+class AiSidecarRuntimeImageAnalysisClient final : public IImageAnalysisClient {
+ public:
+  explicit AiSidecarRuntimeImageAnalysisClient(std::shared_ptr<AiSidecarRuntimeService> runtime);
+
+  auto Ready() -> bool override;
+  auto RegisterCredential(const std::string& provider_id, const std::string& secret,
+                          int64_t ttl_ms, std::chrono::milliseconds timeout, std::string* handle,
+                          std::string* error) -> bool override;
+  auto DescribeImage(const ImageAnalysisRequest& request, std::chrono::milliseconds timeout)
+      -> ImageAnalysisUnderstandingResult override;
+  auto ScoreImage(const ImageAnalysisRequest& request, std::chrono::milliseconds timeout)
+      -> ImageAnalysisRatingResult override;
+  auto CancelTask(const std::string& request_id, std::chrono::milliseconds timeout,
+                  bool* cancelled, std::string* error) -> bool override;
+
+ private:
+  std::shared_ptr<AiSidecarRuntimeService> runtime_;
+};
+
+class ImageAnalysisJob final {
+ public:
+  ImageAnalysisJob() = default;
+  ~ImageAnalysisJob();
+
+  ImageAnalysisJob(const ImageAnalysisJob&)            = delete;
+  ImageAnalysisJob& operator=(const ImageAnalysisJob&) = delete;
+
+  // Sets the cooperative cancel flag, wakes any queued wait on the in-flight gate, and
+  // best-effort calls CancelTask on this job's in-flight RPC (if any). The correctness
+  // guarantee is the post-RPC discard in RunJob, not CancelTask: a long provider call
+  // may still complete and its result is dropped.
+  void Cancel();
+  auto IsCanceled() const -> bool;
+  void Wait();
+  auto SnapshotProgress() const -> ImageAnalysisProgress;
+  auto Results() const -> std::vector<ImageAnalysisItemResult>;
+
+ private:
+  friend class ImageAnalysisService;
+
+  void UpdateProgress(const std::function<void(ImageAnalysisProgress&)>& updater);
+  void AppendResult(ImageAnalysisItemResult result);
+  void SetWorkerThread(std::thread worker);
+  void Finish();
+  void SetGate(std::shared_ptr<ImageAnalysisInFlightGate> gate);
+  void SetClient(std::shared_ptr<IImageAnalysisClient> client);
+
+  mutable std::mutex                        lock_;
+  std::condition_variable                   finished_cv_;
+  ImageAnalysisProgress                     progress_{};
+  std::vector<ImageAnalysisItemResult>      results_;
+  std::atomic<bool>                         canceled_{false};
+  std::atomic<bool>                         am_in_flight_{false};
+  std::thread                               worker_;
+  bool                                      finished_ = false;
+
+  std::shared_ptr<ImageAnalysisInFlightGate> gate_;
+  std::shared_ptr<IImageAnalysisClient>      client_;
+};
+
+class ImageAnalysisService final {
+ public:
+  ImageAnalysisService(std::shared_ptr<IImageAnalysisThumbnailProvider> thumbnail_provider,
+                       std::shared_ptr<IImageAnalysisClient>            analysis_client,
+                       std::shared_ptr<ImageAnalysisInFlightGate>       in_flight_gate = nullptr);
+
+  auto StartAnalysis(std::vector<ImageAnalysisItem> items, ImageAnalysisOptions options = {},
+                     ImageAnalysisProgressCallback  on_progress = {},
+                     ImageAnalysisFinishedCallback  on_finished = {})
+      -> std::shared_ptr<ImageAnalysisJob>;
+
+ private:
+  static void RunJob(const std::shared_ptr<ImageAnalysisJob>&             job,
+                     const std::vector<ImageAnalysisItem>&                items,
+                     ImageAnalysisOptions                                 options,
+                     ImageAnalysisProgressCallback                        on_progress,
+                     ImageAnalysisFinishedCallback                        on_finished,
+                     std::shared_ptr<IImageAnalysisThumbnailProvider>     thumbnail_provider,
+                     std::shared_ptr<IImageAnalysisClient>                analysis_client,
+                     std::shared_ptr<ImageAnalysisInFlightGate>           in_flight_gate);
+
+  std::shared_ptr<IImageAnalysisThumbnailProvider> thumbnail_provider_;
+  std::shared_ptr<IImageAnalysisClient>            analysis_client_;
+  std::shared_ptr<ImageAnalysisInFlightGate>       in_flight_gate_;
+};
+
+auto ToString(ImageAnalysisItemStatus status) -> const char*;
+
+}  // namespace alcedo

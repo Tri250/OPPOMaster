@@ -158,6 +158,85 @@ struct AiSidecarCapability {
   int64_t          max_payload_bytes   = 0;
 };
 
+// Phase 5d image-analysis DTOs (mirror of alcedo.ai messages in
+// proto/image_analysis.proto). Plain structs so this header stays free of
+// generated-proto includes; the .cpp hand-maps the proto fields here. status /
+// error_code hold raw alcedo::ai::AiResponseStatus / AiErrorCode values (int),
+// matching the input_kinds convention on AiSidecarCapability.
+
+struct ImageAnalysisRendition {
+  std::string kind;        // "thumbnail" | "preview" | "image"
+  uint32_t    width        = 0;
+  uint32_t    height       = 0;
+  uint64_t    bytes        = 0;
+  uint32_t    max_edge     = 0;  // host-recorded longest side actually sent
+};
+
+struct ImageAnalysisUsage {
+  int64_t input_tokens  = 0;
+  int64_t output_tokens = 0;
+  int64_t total_tokens  = 0;
+};
+
+struct ImageAnalysisScoredDimension {
+  std::string name;
+  double      score = 0.0;
+};
+
+// Input to DescribeImage / ScoreImage. `credential_ref` is the opaque vault
+// handle from RegisterCredential (never key material); `image_bytes` carries
+// the encoded rendition (JPEG/PNG), NOT raw RGBA8.
+struct ImageAnalysisRequest {
+  std::string               request_id;
+  std::vector<uint8_t>      image_bytes;
+  std::string               image_format_hint;  // "image/jpeg;max_edge=1024" etc.
+  ImageAnalysisRendition    rendition;
+  std::string               provider_id;        // "" = sidecar default
+  std::string               model_id;           // "" = provider default
+  std::string               prompt_profile_id;
+  std::string               credential_ref;     // vault handle; "" = no credential
+  std::string               rubric_id;          // ScoreImage only; "" = provider default
+};
+
+struct ImageAnalysisUnderstandingResult {
+  std::string                   request_id;
+  bool                          ok            = false;
+  int                           status        = 0;  // AiResponseStatus
+  int                           error_code    = 0;  // AiErrorCode
+  std::string                   error;
+  std::string                   caption;
+  std::vector<std::string>      tags;
+  std::string                   scene;
+  double                        confidence = 0.0;
+  std::string                   provider;
+  std::string                   model_id;
+  std::string                   provider_request_id;
+  std::string                   prompt_profile_id;
+  ImageAnalysisRendition        rendition;
+  ImageAnalysisUsage            usage;
+  uint64_t                      elapsed_ms = 0;
+};
+
+struct ImageAnalysisRatingResult {
+  std::string                            request_id;
+  bool                                   ok            = false;
+  int                                    status        = 0;  // AiResponseStatus
+  int                                    error_code    = 0;  // AiErrorCode
+  std::string                            error;
+  std::vector<ImageAnalysisScoredDimension> scores;
+  std::string                            rubric_id;
+  std::string                            rubric_version;
+  std::string                            reasons;
+  double                                 confidence = 0.0;
+  std::string                            provider;
+  std::string                            model_id;
+  std::string                            provider_request_id;
+  std::string                            prompt_profile_id;
+  ImageAnalysisRendition                 rendition;
+  ImageAnalysisUsage                     usage;
+  uint64_t                               elapsed_ms = 0;
+};
+
 struct AiSidecarRuntimeOptions {
   std::filesystem::path     runtime_binary;
   std::filesystem::path     model_root;
@@ -257,6 +336,17 @@ class IAiSidecarRuntimeClient {
                                  const std::vector<SemanticImageEmbeddingRequest>& requests,
                                  std::chrono::milliseconds                        timeout,
                                  bool* v2_available) -> std::vector<SemanticEmbeddingResult>;
+  // Phase 5d image-analysis RPCs (proto/image_analysis.proto ImageAnalysisService).
+  // Typed task RPCs with inline AiRequestHeader/AiResponseHeader — no v1/v2 split
+  // (image analysis is new; a sidecar that predates 5d returns grpc::UNIMPLEMENTED,
+  // which the client maps to a failed result). `credential_ref` is the opaque vault
+  // handle, never key material. image_bytes is the encoded rendition (JPEG/PNG).
+  virtual auto DescribeImage(const std::string&          endpoint,
+                             const ImageAnalysisRequest& request, std::chrono::milliseconds timeout)
+      -> ImageAnalysisUnderstandingResult = 0;
+  virtual auto ScoreImage(const std::string&          endpoint,
+                          const ImageAnalysisRequest& request, std::chrono::milliseconds timeout)
+      -> ImageAnalysisRatingResult = 0;
 };
 
 class GrpcAiSidecarRuntimeClient final : public IAiSidecarRuntimeClient {
@@ -317,6 +407,10 @@ class GrpcAiSidecarRuntimeClient final : public IAiSidecarRuntimeClient {
                          const std::vector<SemanticImageEmbeddingRequest>& requests,
                          std::chrono::milliseconds                        timeout, bool* v2_available)
       -> std::vector<SemanticEmbeddingResult> override;
+  auto DescribeImage(const std::string& endpoint, const ImageAnalysisRequest& request,
+                     std::chrono::milliseconds timeout) -> ImageAnalysisUnderstandingResult override;
+  auto ScoreImage(const std::string& endpoint, const ImageAnalysisRequest& request,
+                  std::chrono::milliseconds timeout) -> ImageAnalysisRatingResult override;
 };
 
 class AiSidecarRuntimeService final : public QObject {
@@ -369,6 +463,15 @@ class AiSidecarRuntimeService final : public QObject {
       -> SemanticEmbeddingResult;
   auto EmbedImageBatch(std::vector<SemanticImageEmbeddingRequest> requests,
                        std::chrono::milliseconds timeout) -> std::vector<SemanticEmbeddingResult>;
+
+  // Phase 5d image-analysis host wrappers. The host fills `request` (including the
+  // opaque `credential_ref` from a prior RegisterCredential call); the wrapper adds
+  // the ready-guard and delegates to the client. No v1/v2 split. The sidecar returns
+  // results only — the host owns all persistence (5e).
+  auto DescribeImage(const ImageAnalysisRequest& request, std::chrono::milliseconds timeout)
+      -> ImageAnalysisUnderstandingResult;
+  auto ScoreImage(const ImageAnalysisRequest& request, std::chrono::milliseconds timeout)
+      -> ImageAnalysisRatingResult;
 
   auto StateName() const -> QString;
   auto IssueName() const -> QString;

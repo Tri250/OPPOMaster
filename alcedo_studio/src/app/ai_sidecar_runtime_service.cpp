@@ -23,6 +23,7 @@
 
 #include "ai_common.pb.h"
 #include "ai_runtime.grpc.pb.h"
+#include "image_analysis.grpc.pb.h"
 #include "semantic.grpc.pb.h"
 #include "utils/diagnostics/app_logging.hpp"
 
@@ -353,6 +354,102 @@ auto ToEmbeddingResult(const semantic::EmbeddingBatchItemV2& response) -> Semant
   result.ok         = response.ok();
   result.error      = response.error();
   return result;
+}
+
+// Phase 5d image-analysis mappers (proto/image_analysis.proto). The response carries the
+// outcome in its AiResponseHeader (status / error_code / redacted error_message) plus the
+// typed result body. ok follows the header status: AI_STATUS_OK => ok=true and the result
+// body is mapped; anything else => ok=false with the header's redacted error message and
+// the result body left empty (no active annotation — fail-closed, matching the Rust service).
+auto ToImageAnalysisRendition(const alcedo::ai::RenditionMetadata& rendition)
+    -> ImageAnalysisRendition {
+  ImageAnalysisRendition out;
+  out.kind     = rendition.kind();
+  out.width    = rendition.width();
+  out.height   = rendition.height();
+  out.bytes    = rendition.bytes();
+  out.max_edge = std::max(rendition.width(), rendition.height());
+  return out;
+}
+
+auto ToImageAnalysisUsage(const alcedo::ai::UsageMetadata& usage) -> ImageAnalysisUsage {
+  ImageAnalysisUsage out;
+  out.input_tokens  = usage.input_tokens();
+  out.output_tokens = usage.output_tokens();
+  out.total_tokens  = usage.total_tokens();
+  return out;
+}
+
+auto ToImageUnderstandingResult(const alcedo::ai::DescribeImageResponse& response,
+                                const std::string& fallback_request_id,
+                                const std::string& transport_error = {})
+    -> ImageAnalysisUnderstandingResult {
+  ImageAnalysisUnderstandingResult result;
+  const auto& header = response.header();
+  result.request_id          = header.request_id().empty() ? fallback_request_id : header.request_id();
+  result.status              = static_cast<int>(header.status());
+  result.error_code          = static_cast<int>(header.error_code());
+  result.error               = transport_error.empty() ? header.error_message() : transport_error;
+  result.provider            = header.provider();
+  result.model_id            = header.model_id();
+  result.elapsed_ms          = static_cast<uint64_t>(header.elapsed_ms());
+  result.provider_request_id = response.provider_request_id();
+  result.prompt_profile_id   = response.prompt_profile_id();
+  result.rendition           = ToImageAnalysisRendition(response.rendition());
+  if (response.has_usage()) {
+    result.usage = ToImageAnalysisUsage(response.usage());
+  }
+  result.ok = (header.status() == alcedo::ai::AI_STATUS_OK);
+  if (result.ok && response.has_result()) {
+    const auto& body = response.result();
+    result.caption    = body.caption();
+    result.tags.assign(body.tags().begin(), body.tags().end());
+    result.scene      = body.scene();
+    result.confidence = body.confidence();
+  }
+  return result;
+}
+
+auto ToImageRatingResult(const alcedo::ai::ScoreImageResponse& response,
+                         const std::string& fallback_request_id,
+                         const std::string& transport_error = {}) -> ImageAnalysisRatingResult {
+  ImageAnalysisRatingResult result;
+  const auto& header = response.header();
+  result.request_id          = header.request_id().empty() ? fallback_request_id : header.request_id();
+  result.status              = static_cast<int>(header.status());
+  result.error_code          = static_cast<int>(header.error_code());
+  result.error               = transport_error.empty() ? header.error_message() : transport_error;
+  result.provider            = header.provider();
+  result.model_id            = header.model_id();
+  result.elapsed_ms          = static_cast<uint64_t>(header.elapsed_ms());
+  result.provider_request_id = response.provider_request_id();
+  result.prompt_profile_id   = response.prompt_profile_id();
+  result.rendition           = ToImageAnalysisRendition(response.rendition());
+  if (response.has_usage()) {
+    result.usage = ToImageAnalysisUsage(response.usage());
+  }
+  result.ok = (header.status() == alcedo::ai::AI_STATUS_OK);
+  if (result.ok && response.has_result()) {
+    const auto& body = response.result();
+    result.scores.reserve(static_cast<size_t>(body.scores_size()));
+    for (const auto& dim : body.scores()) {
+      result.scores.push_back({dim.name(), dim.score()});
+    }
+    result.rubric_id      = body.rubric_id();
+    result.rubric_version = body.rubric_version();
+    result.reasons        = body.reasons();
+    result.confidence     = body.confidence();
+  }
+  return result;
+}
+
+// Fills the proto request from the host DTO (shared by DescribeImage / ScoreImage). The
+// credential_ref is the opaque vault handle; image_bytes is the encoded rendition. trace_id
+// is set to request_id for single-call local correlation, matching the v2 embedding path.
+auto FillImageAnalysisRequestProto(alcedo::ai::AiRequestHeader* header, const std::string& task_id,
+                                   const ImageAnalysisRequest& req, std::chrono::milliseconds timeout)
+    -> void {
+  FillAiRequestHeader(header, req.request_id, task_id, timeout, req.credential_ref, req.request_id);
 }
 
 }  // namespace
@@ -801,6 +898,82 @@ auto GrpcAiSidecarRuntimeClient::EmbedImage(const std::string&          endpoint
   SemanticEmbeddingResult result;
   result.request_id = request_id;
   result.ok         = false;
+  result.error      = GrpcErrorMessage(status);
+  return result;
+}
+
+auto GrpcAiSidecarRuntimeClient::DescribeImage(const std::string&          endpoint,
+                                               const ImageAnalysisRequest& request,
+                                               std::chrono::milliseconds   timeout)
+    -> ImageAnalysisUnderstandingResult {
+  auto channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
+  auto stub    = alcedo::ai::ImageAnalysisService::NewStub(channel);
+
+  grpc::ClientContext context;
+  context.set_deadline(DeadlineFromNow(timeout));
+  alcedo::ai::DescribeImageRequest req;
+  FillImageAnalysisRequestProto(req.mutable_header(), "image_understanding.describe", request,
+                                timeout);
+  req.set_image_bytes(reinterpret_cast<const char*>(request.image_bytes.data()),
+                      request.image_bytes.size());
+  req.set_image_format_hint(request.image_format_hint);
+  req.set_provider_id(request.provider_id);
+  req.set_model_id(request.model_id);
+  req.set_prompt_profile_id(request.prompt_profile_id);
+  auto* rendition = req.mutable_rendition();
+  rendition->set_kind(request.rendition.kind);
+  rendition->set_width(request.rendition.width);
+  rendition->set_height(request.rendition.height);
+  rendition->set_bytes(request.rendition.bytes);
+
+  alcedo::ai::DescribeImageResponse response;
+  const auto                        status = stub->DescribeImage(&context, req, &response);
+  if (status.ok()) {
+    return ToImageUnderstandingResult(response, request.request_id);
+  }
+  // grpc::UNIMPLEMENTED => the sidecar predates Phase 5d; map to a typed failed result
+  // (status=UNIMPLEMENTED) rather than a fallback RPC, since image analysis has no v1 path.
+  ImageAnalysisUnderstandingResult result;
+  result.request_id   = request.request_id;
+  result.ok           = false;
+  result.status       = static_cast<int>(alcedo::ai::AI_STATUS_UNIMPLEMENTED);
+  result.error        = GrpcErrorMessage(status);
+  return result;
+}
+
+auto GrpcAiSidecarRuntimeClient::ScoreImage(const std::string&          endpoint,
+                                            const ImageAnalysisRequest& request,
+                                            std::chrono::milliseconds   timeout)
+    -> ImageAnalysisRatingResult {
+  auto channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
+  auto stub    = alcedo::ai::ImageAnalysisService::NewStub(channel);
+
+  grpc::ClientContext context;
+  context.set_deadline(DeadlineFromNow(timeout));
+  alcedo::ai::ScoreImageRequest req;
+  FillImageAnalysisRequestProto(req.mutable_header(), "image_rating.score", request, timeout);
+  req.set_image_bytes(reinterpret_cast<const char*>(request.image_bytes.data()),
+                      request.image_bytes.size());
+  req.set_image_format_hint(request.image_format_hint);
+  req.set_provider_id(request.provider_id);
+  req.set_model_id(request.model_id);
+  req.set_prompt_profile_id(request.prompt_profile_id);
+  req.set_rubric_id(request.rubric_id);
+  auto* rendition = req.mutable_rendition();
+  rendition->set_kind(request.rendition.kind);
+  rendition->set_width(request.rendition.width);
+  rendition->set_height(request.rendition.height);
+  rendition->set_bytes(request.rendition.bytes);
+
+  alcedo::ai::ScoreImageResponse response;
+  const auto                     status = stub->ScoreImage(&context, req, &response);
+  if (status.ok()) {
+    return ToImageRatingResult(response, request.request_id);
+  }
+  ImageAnalysisRatingResult result;
+  result.request_id = request.request_id;
+  result.ok         = false;
+  result.status     = static_cast<int>(alcedo::ai::AI_STATUS_UNIMPLEMENTED);
   result.error      = GrpcErrorMessage(status);
   return result;
 }
@@ -1394,6 +1567,34 @@ auto AiSidecarRuntimeService::EmbedImageBatch(std::vector<SemanticImageEmbedding
     return results;
   }
   return client_->EmbedImageBatch(endpoint_, std::move(requests), timeout);
+}
+
+auto AiSidecarRuntimeService::DescribeImage(const ImageAnalysisRequest& request,
+                                            std::chrono::milliseconds   timeout)
+    -> ImageAnalysisUnderstandingResult {
+  if (status_.state != AiSidecarRuntimeState::kReady || !client_) {
+    ImageAnalysisUnderstandingResult result;
+    result.request_id = request.request_id;
+    result.ok         = false;
+    result.status     = static_cast<int>(alcedo::ai::AI_STATUS_UNIMPLEMENTED);
+    result.error      = "ai sidecar runtime is not ready";
+    return result;
+  }
+  return client_->DescribeImage(endpoint_, request, timeout);
+}
+
+auto AiSidecarRuntimeService::ScoreImage(const ImageAnalysisRequest& request,
+                                         std::chrono::milliseconds   timeout)
+    -> ImageAnalysisRatingResult {
+  if (status_.state != AiSidecarRuntimeState::kReady || !client_) {
+    ImageAnalysisRatingResult result;
+    result.request_id = request.request_id;
+    result.ok         = false;
+    result.status     = static_cast<int>(alcedo::ai::AI_STATUS_UNIMPLEMENTED);
+    result.error      = "ai sidecar runtime is not ready";
+    return result;
+  }
+  return client_->ScoreImage(endpoint_, request, timeout);
 }
 
 auto AiSidecarRuntimeService::StateName() const -> QString {

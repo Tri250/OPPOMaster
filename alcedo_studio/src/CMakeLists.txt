@@ -1142,6 +1142,24 @@ def_library(SemanticGenerationService
     PRIVATE_DEPS AppDiagnostics
 )
 
+# Phase 5d: host-side encoded-rendition encoder (OIIO primary codec, no OpenCV
+# imgcodecs in the primary path) + the host ImageAnalysisService that owns rendition
+# selection, credential registration, serialized dispatch, and cancellation.
+def_library(ImageAnalysisEncoder
+    SOURCES
+        app/image_analysis_encoder.cpp
+        include/app/image_analysis_encoder.hpp
+    PUBLIC_DEPS ThumbnailService ImageBuffer OpenImageIO::OpenImageIO opencv_core opencv_imgproc
+)
+
+def_library(ImageAnalysisService
+    SOURCES
+        app/image_analysis_service.cpp
+        include/app/image_analysis_service.hpp
+    PUBLIC_DEPS AiSidecarRuntimeService ThumbnailService ImageAnalysisEncoder ImageBuffer
+    PRIVATE_DEPS AppDiagnostics
+)
+
 def_library(ThumbnailDiskCacheService
     SOURCES app/thumbnail_disk_cache_service.cpp
     PUBLIC_DEPS ImageBuffer JSON xxHash opencv_imgcodecs OpenImageIO::OpenImageIO

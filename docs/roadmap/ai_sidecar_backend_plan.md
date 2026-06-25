@@ -656,19 +656,67 @@ Review focus:
 Goal: expose remote image analysis to the host while keeping C++ ownership of image rendition,
 project state, and persistence.
 
+Pre-execution decisions (2026-06-25):
+
+- Do not make LibRaw embedded thumbnails the Phase 5d source path. They are attractive because they
+  are cheap and already compressed in many RAW files, but using them as the first implementation would
+  bypass the current thumbnail/render cache semantics, vary by camera/file, and force `ThumbnailService`
+  ownership changes before the remote-analysis contract is proven. Keep embedded thumbnails as a later
+  optimization behind an explicit rendition source such as `embedded_preview`, not as the MVP path.
+- Phase 5d uses the existing `ThumbnailService`/thumbnail provider boundary with
+  `ThumbnailResolution::k1024` as the default remote-analysis rendition. The service should request a
+  1024 max-edge thumbnail/preview, materialize it on CPU, and record the selected max edge and source in
+  `RenditionMetadata`.
+- Remote image analysis must send encoded image bytes, not the CLIP path's raw `rgba8:WxH` payload.
+  Raw RGBA8 is appropriate for local CLIP inference because it avoids decode/encode overhead inside the
+  same process family. For remote multimodal APIs, encoded transfer is the right boundary: smaller wire
+  payloads, provider-native image inputs, and no accidental multi-megabyte raw uploads.
+- Use JPEG as the default host-side upload encoding for photographic RGB thumbnails, with a fixed
+  quality setting in the service (for example 90). Fall back to PNG only when preserving alpha or a
+  non-photographic/diagnostic fixture matters. The Rust provider drivers already detect PNG/JPEG/WebP/GIF
+  and pass encoded bytes through to data-URI or raw-base64 provider shapes, so Phase 5d should avoid
+  sending undecodable raw RGBA8 to `ImageAnalysisService`.
+- Use OpenImageIO for the host-side JPEG/PNG encoding path, not OpenCV `imencode` / `imwrite`.
+  OpenCV image-codec failures have already shown up several times in this repository, while OIIO is an
+  existing required dependency and is already used by the thumbnail disk cache and export writer. The
+  Phase 5d encoder should expose a simple in-memory result (`bytes`, `mime_type`, `max_edge`, quality,
+  dimensions); internally it may use an OIIO memory sink if the linked OIIO version supports it, or a
+  scoped temporary file + readback fallback if that is the stable Windows/MSVC path. That fallback must
+  stay hidden inside the encoder helper and must not leak temp files on cancellation/failure.
+- Update the image-analysis wire contract/comment so `image_format_hint` covers encoded hints such as
+  `image/jpeg;max_edge=1024` or `image/png;max_edge=1024`. The old `rgba8:WxH` wording belongs to the
+  semantic embedding RPC only.
+- Keep remote API concurrency at 1 for Phase 5d. Providers differ on paid-call concurrency/rate limits,
+  and description/rating calls are non-idempotent from a billing perspective. The C++ host
+  `ImageAnalysisService` should serialize remote requests through one worker/queue and expose progress
+  as queued/running/cancelled. Provider-specific concurrency can become a later configuration only after
+  the product UI and retry policy are clear.
+
 Deliverables:
 
 - Extend `IAiSidecarRuntimeClient` / `GrpcAiSidecarRuntimeClient` with typed image-analysis RPCs.
 - Add a C++ `ImageAnalysisService` (or narrow `ImageUnderstandingService` plus rating companion)
   that prepares thumbnails/previews via existing host services, registers credentials with the
   sidecar, calls the typed RPC, and returns structured DTOs.
+- Add a small host-side remote-analysis rendition encoder: request `ThumbnailResolution::k1024`,
+  convert/sync to CPU, encode JPEG by default, produce encoded bytes plus an encoded
+  `image_format_hint`, and keep the raw RGBA8 conversion path isolated to semantic CLIP generation.
+  Prefer OpenImageIO for the encoder implementation; do not use OpenCV imgcodecs as the primary JPEG
+  path.
 - Keep all database writes in C++; the sidecar returns results only.
 - Add cancellation propagation from C++ job id/request id to `AiRuntimeService.CancelTask`.
+- Add a Phase 5d-local serial dispatch limit of one in-flight remote analysis request.
 
 Tests:
 
 - C++ fake-sidecar tests for success, missing credential, invalid provider config, timeout,
   cancellation, and schema-error propagation.
+- C++ encoder tests proving a 1024 max-edge thumbnail is encoded as JPEG by default, reports encoded
+  format metadata, and does not send `rgba8:WxH` to the image-analysis RPC.
+- C++ encoder tests covering OIIO failure cleanup: no leftover temporary files if the implementation
+  falls back to temp-file readback, and no OpenCV imgcodecs dependency in the primary encode path.
+- C++ queue tests proving two remote analysis jobs run serially when the in-flight limit is one, and
+  that cancelling a queued or running job does not start an extra provider call.
 - Tests proving raw API key material never enters `AiSidecarRuntimeOptions`, process args, QSettings,
   project files, or captured logs.
 
@@ -676,6 +724,14 @@ Review focus:
 
 - Check that the host controls which image rendition is sent and records that rendition in result
   metadata.
+- Check that Phase 5d did not refactor `ThumbnailService` or introduce a LibRaw embedded-thumbnail fast
+  path before the encoded-rendition contract is proven.
+- Check that encoded remote-analysis payloads and raw CLIP embedding payloads remain separate code
+  paths.
+- Check that the JPEG/PNG upload encoder uses OpenImageIO as the primary codec path and does not
+  reintroduce fragile OpenCV image-codec behavior.
+- Check that remote calls are serialized at the host boundary and that retries cannot multiply
+  concurrency.
 - Check that sidecar startup remains on demand and normal browsing/search do not require API keys.
 
 ### Phase 5e - Storage And Search Integration
@@ -1567,3 +1623,230 @@ smoke - `auth.type: bearer` is accepted (no 401), `doubao-seed-2.0-lite` is a va
 vision-capable (it described the image); missing tests: none - the live Coding Plan smoke is implemented,
 executed, and passing; the mock-server suite (16 driver tests + the replaced `http_util` test, no network,
 no cost) is the CI gate and is green.
+
+## Phase 5d - Completion & Self-Review
+
+Status: complete. The C++ host can now drive the Rust image-analysis sidecar end to end
+over typed RPCs while keeping C++ ownership of image rendition, project state, and
+persistence. `IAiSidecarRuntimeClient` / `GrpcAiSidecarRuntimeClient` gained typed
+`DescribeImage` / `ScoreImage` RPCs (proto `alcedo.ai.ImageAnalysisService`) with inline
+`AiRequestHeader` / `AiResponseHeader`; `AiSidecarRuntimeService` exposes ready-guarded
+host wrappers. A new host `ImageAnalysisService` owns the k1024 thumbnail materialization
+→ OIIO JPEG encode → credential registration → serialized typed RPC → structured-DTO
+return flow, with an injectable service-wide in-flight gate (max one remote analysis at a
+time) and cooperative + server-side cancellation. A new `image_analysis_encoder` provides
+the encoded-rendition path (OpenImageIO primary codec, NOT OpenCV imgcodecs), kept
+strictly separate from the raw RGBA8 CLIP embedding path. No database writes occur in 5d
+(5e); no product UI / controller wiring (6). All pre-execution decisions (k1024 rendition,
+encoded JPEG bytes q90, OIIO primary, concurrency=1, encoded `image_format_hint`) are
+honored.
+
+Implemented (file-by-file, per the plan):
+
+- `rust/puerh_mind/proto/image_analysis.proto` - comment-only edit: `DescribeImageRequest.
+  image_format_hint` now documents encoded hints (`image/jpeg;max_edge=<N>`,
+  `image/png;max_edge=<N>`) and states the `rgba8:WxH` shape belongs to the semantic
+  embedding RPC only; `ScoreImageRequest.image_format_hint` gained the same comment. Field
+  numbers unchanged. Regenerates Rust (prost, byte-identical) + C++ stubs (no semantic
+  change); `grep -rn "rgba8:WxH" rust/puerh_mind` confirmed no 5c test greps the proto
+  source.
+- `alcedo_studio/src/include/app/ai_sidecar_runtime_service.hpp` - new proto-free DTOs
+  (`ImageAnalysisRendition`, `ImageAnalysisUsage`, `ImageAnalysisScoredDimension`,
+  `ImageAnalysisRequest`, `ImageAnalysisUnderstandingResult`, `ImageAnalysisRatingResult`;
+  `status` / `error_code` as `int` raw enum values, mirroring `AiSidecarCapability.
+  input_kinds`); pure-virtual `DescribeImage` / `ScoreImage` on `IAiSidecarRuntimeClient`
+  (no v1/v2 split - image analysis is new); `override` decls on `GrpcAiSidecarRuntimeClient`;
+  ready-guarded `AiSidecarRuntimeService::DescribeImage` / `ScoreImage` wrappers.
+- `alcedo_studio/src/app/ai_sidecar_runtime_service.cpp` - `#include "image_analysis.pb.h"`
+  + `"image_analysis.grpc.pb.h"`; anon-namespace mappers `ToImageAnalysisRendition`,
+  `ToImageAnalysisUsage`, `ToImageUnderstandingResult`, `ToImageRatingResult` (ok follows
+  `AiResponseHeader.status`: `AI_STATUS_OK` => ok + mapped body; anything else => ok=false
+  with the redacted header error and the body left empty - fail-closed, matching the Rust
+  service), and `FillImageAnalysisRequestProto`; `GrpcAiSidecarRuntimeClient::DescribeImage`
+  / `ScoreImage` (build the proto request, `FillAiRequestHeader(..., request_id,
+  "image_understanding.describe"|"image_rating.score", timeout, credential_ref, request_id)`,
+  `set_image_bytes` / `set_image_format_hint` / fill `mutable_rendition()` / provider/model/
+  prompt(/rubric), call the stub; `!status.ok()` => failed result with `GrpcErrorMessage`,
+  UNIMPLEMENTED mapped to `AI_STATUS_UNIMPLEMENTED`); `AiSidecarRuntimeService::DescribeImage`
+  / `ScoreImage` wrappers (not-ready => failed result `"ai sidecar runtime is not ready"`).
+- `alcedo_studio/src/include/app/image_analysis_encoder.hpp` +
+  `alcedo_studio/src/app/image_analysis_encoder.cpp` - new. `EncodedRendition { bytes,
+  mime_type, format_hint, rendition_kind, width, height, max_edge, quality, ok, error }` and
+  `EncodeThumbnailForRemoteAnalysis(guard, quality, max_edge_hint, temp_dir, error)`.
+  Includes only `opencv2/core.hpp` + `opencv2/imgproc.hpp` (NO `opencv2/imgcodecs`) +
+  `<OpenImageIO/imageio.h>`. Replicates `PrepareForOiioEncoding` (anon-namespace in
+  `thumbnail_disk_cache_service.cpp`, unreachable) -> CV_8UC3 RGB; syncs via
+  `ImageBuffer::SyncToCPU()` when `gpu_data_valid_ && !cpu_data_valid_` (mirrors
+  `MaterializeThumbnailRgba8`). `max_edge = max(width,height)`; `format_hint =
+  "image/jpeg;max_edge=<N>"`. OIIO temp-file + readback (the in-memory sink is unproven on
+  this MSVC/DLL build): `ImageOutput::create(dst_string)` (single-arg, not the two-arg
+  MSVC-breaking overload) -> `ImageSpec(w,h,3,UINT8)` -> `CompressionQuality` -> `open` ->
+  `write_image` -> `close`; read back via `ifstream(binary)+istreambuf_iterator`; a
+  `TempFileGuard` RAII removes the temp file on every exit path (success, OIIO failure,
+  readback failure).
+- `alcedo_studio/src/include/app/image_analysis_service.hpp` +
+  `alcedo_studio/src/app/image_analysis_service.cpp` - new. Types: `ImageAnalysisItem`,
+  `ImageAnalysisTask {kDescribe, kScore}`, `ImageAnalysisItemStatus`, `ImageAnalysisCredential`,
+  `ImageAnalysisOptions` (task, `thumbnail_resolution=k1024`, `jpeg_quality=90`, timeout,
+  provider/model/prompt/rubric, credential, `temp_dir`, `credential_ttl_ms`),
+  `ImageAnalysisProgress`, `ImageAnalysisItemResult` (carries understanding OR rating + the
+  recorded rendition). `ImageAnalysisInFlightGate` (`Acquire(is_canceled)` cv-wait on
+  `!in_flight_ || is_canceled()`, `Release`, `PublishRequestId`/`ClearRequestId`/
+  `CurrentRequestId`, `NotifyAll`) - injectable so the album backend (Phase 6) can share one
+  gate app-wide; the service creates a private one if none is passed. New
+  `IImageAnalysisThumbnailProvider` + `ThumbnailServiceImageAnalysisProvider` (wraps
+  `ThumbnailService::GetThumbnailDetailed`; `ThumbnailService` is NOT refactored). New
+  `IImageAnalysisClient` (`Ready`, `RegisterCredential`, `DescribeImage`, `ScoreImage`,
+  `CancelTask`) + `AiSidecarRuntimeImageAnalysisClient` (wraps `AiSidecarRuntimeService`;
+  `Ready`->`IsRunning`). `ImageAnalysisJob` (`Cancel`/`IsCanceled`/`Wait`/`SnapshotProgress`/
+  `Results`, dtor joins - mirrors `SemanticGenerationJob`). `ImageAnalysisService::StartAnalysis`
+  spawns a `std::thread` per job (mirrors `StartGeneration`). `RunJob`: (1) if the credential
+  secret is non-empty, `client->RegisterCredential` once, then zeroize+clear the secret from
+  the local options copy and thread only the handle into every request; (2) per item:
+  `WaitForOneThumbnail(k1024)` -> `EncodeThumbnailForRemoteAnalysis` -> build the typed
+  request (`request_id = "image-analysis-<task>-<el>-<img>"`, `credential_ref = handle`,
+  `format_hint`/rendition from the encoder's actuals); (3) `gate->Acquire(IsCanceled)` - if
+  canceled while queued, exit without ever calling the provider; re-check `IsCanceled()` after
+  acquiring; publish `request_id`; (4) `DescribeImage`/`ScoreImage`; clear id; release slot;
+  (5) post-RPC `IsCanceled()` discard (the correctness guarantee, not CancelTask); (6) append
+  result + dispatch progress. `ImageAnalysisJob::Cancel()` sets the flag, `gate_->NotifyAll()`,
+  and best-effort `client->CancelTask(gate_->CurrentRequestId())` only while `am_in_flight_`
+  (so a queued job's cancel never cancels another job's in-flight RPC).
+- `alcedo_studio/tests/app/ai_sidecar_runtime_service_test.cpp` - `FakeAiSidecarRuntimeClient`
+  extended with canned `DescribeImage`/`ScoreImage` + `DescribeImageCalls()`/`ScoreImageCalls()`
+  counters; 3 new `AiSidecarRuntimeServiceTest` cases: `DescribeImageDelegatesToClient`,
+  `DescribeImageRespectsReadyGuard`, `ScoreImageRespectsReadyGuard` (ready-guard + delegation;
+  proto->DTO mapping is exercised only by a live sidecar per the embedding-mapper convention).
+- `alcedo_studio/tests/app/image_analysis_encoder_test.cpp` - new. `EncodesThumbnailAsJpegByDefault`
+  (mime `image/jpeg`, `format_hint == "image/jpeg;max_edge=64"`, JPEG SOI magic, NOT `rgba8:`,
+  width/height/max_edge correct, no leftover temp file), `EncodesFromRgbaAndFloatInputs`
+  (CV_8UC4 / CV_32FC3 / CV_8UC1 all normalize to RGB8 and encode), `NullBufferFailsCleanlyWithout
+  LeakingTempFiles` (failure path leaves no temp file).
+- `alcedo_studio/tests/app/image_analysis_service_test.cpp` - new, with a fake
+  `IImageAnalysisClient` (configurable outcome, block/release latch, request recording, counters)
+  + fake `IImageAnalysisThumbnailProvider`. Cases: `DescribeSuccessReturnsAnalyzedResult` (also
+  asserts the rendition is recorded in result metadata), `MissingCredentialPropagatesAsError`
+  (`AI_STATUS_UNAUTHENTICATED`/`MISSING_CREDENTIAL`), `InvalidProviderConfigPropagatesAsError`
+  (`UNSUPPORTED_TASK`/`TASK_UNKNOWN`), `TimeoutPropagatesAsError` (`DEADLINE_EXCEEDED`),
+  `SchemaErrorPropagatesAsErrorWithoutActiveResult` (`PROVIDER_ERROR`/`PAYLOAD_DECODE`, ok=false,
+  caption empty), `CancelRunningJobCallsCancelTaskAndDiscardsResult` (CancelTask called once with
+  the in-flight id, no extra provider call, result canceled), `TwoJobsSharingGateRunSerially`
+  (two service instances sharing one gate - the production scenario - second provider call does
+  not start until the first releases), `CancelQueuedJobDoesNotStartProviderCall` (queued job
+  canceled -> DescribeImage never called), `SecretReachesOnlyRegisterCredentialNotDescribeImage`
+  (sentinel secret reaches RegisterCredential but only the opaque handle reaches DescribeImage;
+  result/error carry no secret).
+- `alcedo_studio/src/CMakeLists.txt` - `def_library(ImageAnalysisEncoder ...)` (PUBLIC_DEPS
+  ThumbnailService ImageBuffer OpenImageIO::OpenImageIO opencv_core opencv_imgproc - NO
+  opencv_imgcodecs) and `def_library(ImageAnalysisService ...)` (PUBLIC_DEPS AiSidecarRuntimeService
+  ThumbnailService ImageAnalysisEncoder ImageBuffer, PRIVATE_DEPS AppDiagnostics).
+- `alcedo_studio/tests/CMakeLists.txt` - `ImageAnalysisEncoderTest` + `ImageAnalysisServiceTest`
+  targets; both registered in the `app` category, `ImageAnalysisServiceTest` also in `ci_raw`.
+
+Invariants (Phase 5d review focus):
+
+- The host controls which rendition is sent and records it in result metadata: the service
+  requests `ThumbnailResolution::k1024`, the encoder reports the ACTUAL width/height/max_edge,
+  the request carries `RenditionMetadata`, and the result echoes it
+  (`DescribeSuccessReturnsAnalyzedResult` asserts `rendition.max_edge == 16` on the test fixture).
+- No `ThumbnailService` refactor and no LibRaw embedded-thumbnail fast path: 5d adds a new
+  `ThumbnailServiceImageAnalysisProvider` adapter; `ThumbnailService` is untouched.
+- Encoded remote-analysis payloads and raw CLIP embedding payloads remain separate code paths:
+  the encoder produces `image/jpeg;max_edge=<N>` bytes; `MaterializeThumbnailRgba8`
+  (`semantic_generation_service.cpp`) still owns the `rgba8:WxH` CLIP path. The two never share a
+  producer.
+- The JPEG upload encoder uses OpenImageIO as the primary codec path and does not reintroduce
+  fragile OpenCV image-codec behavior: the encoder includes only `opencv2/core.hpp` +
+  `opencv2/imgproc.hpp` (channel/depth conversion) and `OpenImageIO/imageio.h` for the actual
+  encode; `ImageAnalysisEncoder` does not link `opencv_imgcodecs`.
+- Remote calls are serialized at the host boundary and retries cannot multiply concurrency: the
+  injectable `ImageAnalysisInFlightGate` caps in-flight remote analyses at one;
+  `TwoJobsSharingGateRunSerially` proves two service instances sharing one gate serialize. There
+  are no host-side retries in 5d (the bounded retry lives in the Rust `http_util` driver, which
+  is behind the single gate slot).
+- Sidecar startup remains on demand and normal browsing/search do not require API keys: the
+  service never auto-starts the runtime; `AiSidecarRuntimeImageAnalysisClient::Ready()` ->
+  `IsRunning()`, and a not-ready runtime fails fast without an API key
+  (`DescribeImageRespectsReadyGuard` / `ScoreImageRespectsReadyGuard`).
+
+Credential handling (Phase 3 invariant preserved): the secret travels only over gRPC loopback
+to `RegisterCredential`; `RunJob` zeroizes + clears it from the local options copy immediately
+after registration and threads only the opaque handle into `ImageAnalysisRequest.credential_ref`.
+The secret never enters `ImageAnalysisRequest`, result DTOs, `AiSidecarRuntimeOptions`, process
+args, or logs. `SecretReachesOnlyRegisterCredentialNotDescribeImage` proves the sentinel reaches
+`RegisterCredential` but only the handle reaches `DescribeImage`; the existing
+`AiSidecarRuntimeServiceTest.RegisterCredentialReturnsHandleWithoutLeakingSecretIntoProcessArgs`
+(Phase 3) still covers the process-args surface. The sidecar returns results only - C++ owns all
+DB writes (none occur in 5d).
+
+Cancellation: the post-RPC `IsCanceled()` discard is the correctness guarantee - a canceled
+running job's provider result is dropped and the item marked canceled even if the provider call
+completed (`CancelRunningJobCallsCancelTaskAndDiscardsResult`). `Cancel()` additionally
+best-effort calls `CancelTask` on this job's in-flight `request_id` (only while `am_in_flight_`,
+so a queued job's cancel never touches another job's RPC). A canceled queued job exits without
+ever calling the provider (`CancelQueuedJobDoesNotStartProviderCall`).
+
+Distinct contracts: `DescribeImage` -> `ImageUnderstandingResult`, `ScoreImage` ->
+`ImageRatingResult`, with distinct task_ids (`"image_understanding.describe"` vs
+`"image_rating.score"`); a rating result can never overwrite an understanding result (the
+`ImageAnalysisItemResult` carries both but only the task-matching one is filled).
+
+Deferred to Phase 5e / 5f / 6:
+
+- Database writes / persistence / search integration (5e). 5d returns structured DTOs only.
+- Product UI / controller wiring / the OS credential store (QtKeychain) and a shared gate owned
+  by the album backend (6). 5d's `ImageAnalysisService` is standalone and constructed directly by
+  tests; Phase 6 must construct it with ONE shared `ImageAnalysisInFlightGate` (and a secure
+  secret source) so the host-boundary serialization holds app-wide - per-use construction without
+  a shared gate would NOT serialize across instances (the 5d test proves serialization only when
+  the gate is shared).
+- PNG fallback (JPEG-only in 5d). No PNG OIIO encode exists in-repo (unproven on this MSVC/DLL
+  build); JPEG covers the photographic-thumbnail MVP. PNG is a fast-follow once a PNG OIIO encode
+  is validated.
+- Live sidecar proto->DTO mapper coverage (5f). `ToImageUnderstandingResult` / `ToImageRatingResult`
+  are not directly unit-tested, matching the embedding-mapper convention (`ToEmbeddingResult` is
+  also untested directly); they are exercised by a live sidecar in 5f.
+
+Test results:
+
+- Rust - `cargo test -- --skip live_` in `rust/puerh_mind`: 185 passed; 0 failed; 0 ignored; 3
+  filtered (the 3 live smokes). Confirms the comment-only `image_analysis.proto` edit did not
+  break 5a-5c.
+- C++ MSVC build (run through the PowerShell tool, per project memory): `--target AiProto
+  ImageAnalysisEncoder ImageAnalysisService ImageAnalysisEncoderTest ImageAnalysisServiceTest
+  AiSidecarRuntimeServiceTest` built clean. `AiProto` regenerated `image_analysis.pb.{cc,h}` /
+  `image_analysis.grpc.pb.{cc,h}` from the comment edit; `AiSidecarRuntimeService.lib`,
+  `ImageAnalysisEncoder.lib`, `ImageAnalysisService.lib`, and the three test executables linked.
+  (One compile bug fixed during implementation: `image_analysis_service.cpp` initially omitted
+  `#include "app/image_analysis_encoder.hpp"`, producing an `EncodeThumbnailForRemoteAnalysis`
+  identifier-not-found cascade - fixed before any test ran; no shipped-code bug.)
+- ctest Phase 5d group (`-R "ImageAnalysisEncoderTest|ImageAnalysisServiceTest|AiSidecarRuntimeServiceTest"`):
+  36/36 passed (3 `ImageAnalysisEncoderTest` + 9 `ImageAnalysisServiceTest` + 24
+  `AiSidecarRuntimeServiceTest` including the 3 new wire tests; 1 pre-existing live-runtime test
+  Skipped - `ALCEDO_SEMANTIC_LIVE_RUNTIME_PATH` not set).
+- ctest regression regex (`-R "SemanticGenerationServiceTest|SemanticStorageControllerTest|FilterServiceTest|GlobalSearchDialogQmlTest|SearchQueryClassifierTest"`):
+  66/66 passed - no regression in semantic/storage/search from the shared-header changes.
+
+Build note for the next handoff: after any edit to `image_analysis.proto` or to test-only
+sources, build the affected targets explicitly before ctest (mirroring the Phase 4 / 5b notes) -
+the default `all` build does not always rebuild test executables whose own sources changed:
+`cmd /c scripts\msvc_env.cmd --build --preset win_debug --target ImageAnalysisServiceTest
+ImageAnalysisEncoderTest --parallel 4` (run through PowerShell, not Bash).
+
+Review conclusion: none (no shipped-code bugs found in review - the one compile error during
+implementation, the missing `image_analysis_encoder.hpp` include, was caught at compile time
+before any test ran); risk accepted: (1) JPEG-only encoder - PNG fallback deferred because no PNG
+OIIO encode exists in-repo and is unproven on this MSVC/DLL build (photographic thumbnails are
+JPEG; PNG is a fast-follow); (2) proto->DTO mappers (`ToImageUnderstandingResult` /
+`ToImageRatingResult`) are not directly unit-tested, matching the embedding-mapper convention -
+exercised by the 5f live sidecar; (3) the mid-`write_image` OIIO failure cleanup is covered by
+the `TempFileGuard` RAII design + review, not by a forced-failure test (the deterministic proxies
+- success-cleanup and empty-guard early-return - are tested); (4) production cross-instance
+serialization depends on Phase 6 wiring a single shared `ImageAnalysisInFlightGate` - the 5d test
+proves two instances sharing one gate serialize, but a per-use construction without a shared gate
+would NOT serialize across instances (flagged for Phase 6); missing tests: none - all plan-required
+5d tests (success, missing credential, invalid provider config, timeout, cancellation, schema-error
+propagation; encoder JPEG-default + format metadata + no `rgba8:WxH` + no leftover temp files +
+no OpenCV imgcodecs dep; two-jobs-serial + cancel queued/running + no extra provider call; secret
+not in request/options/args/logs) are implemented and green, and the 5d-adjacent regression suite
+is green.

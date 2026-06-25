@@ -716,6 +716,20 @@ target_link_libraries(SemanticGenerationServiceTest
 gtest_discover_tests(SemanticGenerationServiceTest TEST_PREFIX "SemanticGenerationServiceTest."
   PROPERTIES LABELS "ci_raw_flow")
 
+# Phase 5d: encoded-rendition encoder + host image-analysis service tests.
+add_executable(ImageAnalysisEncoderTest app/image_analysis_encoder_test.cpp)
+target_include_directories(ImageAnalysisEncoderTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(ImageAnalysisEncoderTest ImageAnalysisEncoder ImageBuffer
+  GTest::gtest_main)
+gtest_discover_tests(ImageAnalysisEncoderTest TEST_PREFIX "ImageAnalysisEncoderTest.")
+
+add_executable(ImageAnalysisServiceTest app/image_analysis_service_test.cpp)
+target_include_directories(ImageAnalysisServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(ImageAnalysisServiceTest ImageAnalysisService
+  GTest::gtest_main)
+gtest_discover_tests(ImageAnalysisServiceTest TEST_PREFIX "ImageAnalysisServiceTest."
+  PROPERTIES LABELS "ci_raw_flow")
+
 add_executable(ThumbnailServiceTest app/thumbnail_service_test.cpp)
 target_include_directories(ThumbnailServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
 target_link_libraries(ThumbnailServiceTest ThumbnailService ProjectService ImportService GTest::gtest_main)
@@ -1073,6 +1087,8 @@ alcedo_assign_test_category(app ALCEDO_BUILD_APP_TESTS alcedo_tests_app
   ThumbnailServiceTest
   ThumbnailDiskCacheServiceTest
   ExportServiceTest
+  ImageAnalysisEncoderTest
+  ImageAnalysisServiceTest
 )
 
 alcedo_assign_test_category(storage ALCEDO_BUILD_STORAGE_TESTS alcedo_tests_storage
@@ -1105,6 +1121,7 @@ alcedo_assign_test_category(ci_raw ALCEDO_BUILD_CI_TESTS alcedo_tests_ci_raw
   AlbumBackendRatingTest
   AlbumBackendCiWorkflowTest
   SemanticGenerationServiceTest
+  ImageAnalysisServiceTest
 )
 
 alcedo_assign_test_category(ci_metal ALCEDO_BUILD_CI_TESTS alcedo_tests_ci_metal

@@ -84,7 +84,13 @@ message ImageRatingResult {
 message DescribeImageRequest {
   AiRequestHeader header = 1;
   bytes image_bytes = 2;
-  string image_format_hint = 3;   // "rgba8:WxH" (matches the embedding path)
+  // Encoded image bytes for a remote multimodal provider. Phase 5d sends an
+  // encoded rendition (host-rendered thumbnail) with a hint such as
+  // "image/jpeg;max_edge=1024" or "image/png;max_edge=1024". The raw "rgba8:WxH"
+  // shape belongs to the local semantic embedding RPC (semantic.proto) only and
+  // must NOT be sent here: remote multimodal APIs expect provider-native encoded
+  // inputs, not multi-megabyte raw RGBA.
+  string image_format_hint = 3;
   RenditionMetadata rendition = 4;
   string provider_id = 5;         // selected provider; "" = sidecar default
   string model_id = 6;            // selected model; "" = provider default
@@ -103,6 +109,7 @@ message DescribeImageResponse {
 message ScoreImageRequest {
   AiRequestHeader header = 1;
   bytes image_bytes = 2;
+  // Encoded image bytes hint; see DescribeImageRequest.image_format_hint.
   string image_format_hint = 3;
   RenditionMetadata rendition = 4;
   string provider_id = 5;

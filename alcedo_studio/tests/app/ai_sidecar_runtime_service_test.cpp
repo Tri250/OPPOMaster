@@ -380,6 +380,46 @@ class FakeAiSidecarRuntimeClient final : public IAiSidecarRuntimeClient {
     return results;
   }
 
+  // Phase 5d image-analysis overrides: canned success mirroring the request_id, bumping
+  // counters. Used by the wire-layer ready-guard / delegation tests (proto->DTO mapping
+  // is exercised only by a live sidecar, per the embedding-mapper convention).
+  auto DescribeImage(const std::string& endpoint, const ImageAnalysisRequest& request,
+                     std::chrono::milliseconds timeout) -> ImageAnalysisUnderstandingResult override {
+    (void)endpoint;
+    (void)timeout;
+    describe_image_calls_.fetch_add(1);
+    ImageAnalysisUnderstandingResult result;
+    result.request_id = request.request_id;
+    result.ok         = true;
+    result.status     = 1;  // AI_STATUS_OK
+    result.caption    = "fake caption";
+    result.tags       = {"fake", "tag"};
+    result.scene      = "fake scene";
+    result.confidence = 0.9;
+    result.provider   = "fake";
+    result.model_id   = request.model_id.empty() ? "fake-model" : request.model_id;
+    result.rendition  = request.rendition;
+    return result;
+  }
+  auto ScoreImage(const std::string& endpoint, const ImageAnalysisRequest& request,
+                  std::chrono::milliseconds timeout) -> ImageAnalysisRatingResult override {
+    (void)endpoint;
+    (void)timeout;
+    score_image_calls_.fetch_add(1);
+    ImageAnalysisRatingResult result;
+    result.request_id    = request.request_id;
+    result.ok            = true;
+    result.status        = 1;  // AI_STATUS_OK
+    result.scores.push_back({"aesthetic", 0.8});
+    result.rubric_id     = "alcedo-default-v1";
+    result.rubric_version = "1";
+    result.confidence    = 0.9;
+    result.provider      = "fake";
+    result.model_id      = request.model_id.empty() ? "fake-model" : request.model_id;
+    result.rendition     = request.rendition;
+    return result;
+  }
+
   void SetReady(bool ready) { ready_.store(ready); }
   void SetModelInfoReady(bool ready) { model_info_ready_.store(ready); }
   auto PingCount() const -> int { return ping_count_.load(); }
@@ -388,6 +428,8 @@ class FakeAiSidecarRuntimeClient final : public IAiSidecarRuntimeClient {
   auto EmbedTextV2Calls() const -> int { return embed_text_v2_calls_.load(); }
   auto EmbedImageBatchV1Calls() const -> int { return embed_image_batch_v1_calls_.load(); }
   auto EmbedImageBatchV2Calls() const -> int { return embed_image_batch_v2_calls_.load(); }
+  auto DescribeImageCalls() const -> int { return describe_image_calls_.load(); }
+  auto ScoreImageCalls() const -> int { return score_image_calls_.load(); }
 
  private:
   std::atomic<bool> ready_;
@@ -398,6 +440,8 @@ class FakeAiSidecarRuntimeClient final : public IAiSidecarRuntimeClient {
   std::atomic<int>  embed_text_v2_calls_{0};
   std::atomic<int>  embed_image_batch_v1_calls_{0};
   std::atomic<int>  embed_image_batch_v2_calls_{0};
+  std::atomic<int>  describe_image_calls_{0};
+  std::atomic<int>  score_image_calls_{0};
 };
 
 auto FakeRuntimePath() -> std::filesystem::path {
@@ -725,6 +769,59 @@ TEST(AiSidecarRuntimeServiceTest, CancelTaskMapsResponseFromClient) {
   EXPECT_TRUE(error.empty()) << error;
 
   service.Stop();
+}
+
+// Phase 5d: DescribeImage delegates to the client when the runtime is ready.
+TEST(AiSidecarRuntimeServiceTest, DescribeImageDelegatesToClient) {
+  auto                    client = std::make_shared<FakeAiSidecarRuntimeClient>();
+  AiSidecarRuntimeService service(client);
+  auto                    options = BaseOptions();
+  options.extra_arguments         = {"--sleep-ms", "30000"};
+  ASSERT_TRUE(service.StartAndWait(options));
+
+  ImageAnalysisRequest req;
+  req.request_id        = "ia-describe-1";
+  req.image_bytes       = {0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10};
+  req.image_format_hint = "image/jpeg;max_edge=1024";
+  req.provider_id       = "openrouter";
+  req.model_id          = "qwen/qwen3.7-plus";
+  req.rendition.kind    = "thumbnail";
+  req.rendition.width   = 1024;
+  req.rendition.height  = 683;
+  req.rendition.bytes   = req.image_bytes.size();
+
+  const auto result = service.DescribeImage(req, std::chrono::milliseconds(5000));
+  EXPECT_TRUE(result.ok) << result.error;
+  EXPECT_EQ(result.request_id, "ia-describe-1");
+  EXPECT_FALSE(result.caption.empty());
+  EXPECT_FALSE(result.tags.empty());
+  EXPECT_EQ(client->DescribeImageCalls(), 1);
+  service.Stop();
+}
+
+// Phase 5d: DescribeImage fails fast without delegating when the runtime is not ready
+// (sidecar startup stays on demand; no API key / binary required for this path).
+TEST(AiSidecarRuntimeServiceTest, DescribeImageRespectsReadyGuard) {
+  auto                    client = std::make_shared<FakeAiSidecarRuntimeClient>();
+  AiSidecarRuntimeService service(client);  // not started -> not ready
+  ImageAnalysisRequest    req;
+  req.request_id = "ia-describe-2";
+  const auto     result = service.DescribeImage(req, std::chrono::milliseconds(5000));
+  EXPECT_FALSE(result.ok);
+  EXPECT_FALSE(result.error.empty());
+  EXPECT_EQ(client->DescribeImageCalls(), 0);
+}
+
+TEST(AiSidecarRuntimeServiceTest, ScoreImageRespectsReadyGuard) {
+  auto                    client = std::make_shared<FakeAiSidecarRuntimeClient>();
+  AiSidecarRuntimeService service(client);  // not started -> not ready
+  ImageAnalysisRequest    req;
+  req.request_id = "ia-score-2";
+  req.rubric_id  = "alcedo-default-v1";
+  const auto     result = service.ScoreImage(req, std::chrono::milliseconds(5000));
+  EXPECT_FALSE(result.ok);
+  EXPECT_FALSE(result.error.empty());
+  EXPECT_EQ(client->ScoreImageCalls(), 0);
 }
 
 TEST(AiSidecarRuntimeServiceTest, EmptyModelRootUsesEnvironmentFallback) {
