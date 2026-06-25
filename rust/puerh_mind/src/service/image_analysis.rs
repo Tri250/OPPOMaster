@@ -84,7 +84,7 @@ pub const IMAGE_UNDERSTANDING_SCHEMA: &str = r#"{
   "required": ["caption", "tags"],
   "properties": {
     "caption": { "type": "string", "minLength": 1 },
-    "tags": { "type": "array", "items": { "type": "string" } },
+    "tags": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
     "scene": { "type": "string" },
     "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 }
   }
@@ -122,6 +122,10 @@ pub const IMAGE_RATING_SCHEMA: &str = r#"{
 /// code-owned contract. Returns `ProviderError::SchemaValidation` on any breach
 /// so the service maps it to a non-active provider error (Phase 5b: a schema
 /// failure must not produce an active annotation).
+///
+/// Rejects an empty `tags` list as well as any blank tag string, mirroring the
+/// `IMAGE_UNDERSTANDING_SCHEMA` `minItems: 1` / `minLength: 1` and matching
+/// `validate_rating`'s empty-scores handling.
 pub fn validate_understanding(out: &DescribeOutcome) -> Result<(), ProviderError> {
     if out.caption.trim().is_empty() {
         return Err(ProviderError::SchemaValidation);
@@ -129,7 +133,7 @@ pub fn validate_understanding(out: &DescribeOutcome) -> Result<(), ProviderError
     if !is_valid_confidence(out.confidence) {
         return Err(ProviderError::SchemaValidation);
     }
-    if out.tags.iter().any(|t| t.trim().is_empty()) {
+    if out.tags.is_empty() || out.tags.iter().any(|t| t.trim().is_empty()) {
         return Err(ProviderError::SchemaValidation);
     }
     Ok(())
@@ -371,6 +375,11 @@ mod schema_tests {
         assert!(required.contains(&"tags"));
         assert_eq!(v["properties"]["caption"]["type"], "string");
         assert_eq!(v["properties"]["confidence"]["maximum"], 1.0);
+        // tags must be a non-empty array of non-empty strings (matches the
+        // validator's empty-list + blank-string rejection and the rating
+        // schema's minItems:1 on scores).
+        assert_eq!(v["properties"]["tags"]["minItems"], 1);
+        assert_eq!(v["properties"]["tags"]["items"]["minLength"], 1);
     }
 
     #[test]
@@ -426,7 +435,8 @@ mod schema_tests {
     }
 
     #[test]
-    fn validator_rejects_empty_tags_or_scores() {
+    fn validator_rejects_blank_tag_string_and_empty_scores_list() {
+        // A tag that is a blank string (vec![""]) is rejected for understanding.
         let bad_tags = DescribeOutcome {
             caption: "c".into(),
             tags: vec!["".into()],
@@ -436,8 +446,9 @@ mod schema_tests {
             usage: Usage::default(),
             provider_request_id: "r".into(),
         };
-        assert!(validate_understanding(&bad_tags).is_err());
+        assert_eq!(validate_understanding(&bad_tags).unwrap_err(), ProviderError::SchemaValidation);
 
+        // An empty scores list (vec![]) is rejected for rating.
         let bad_scores = ScoreOutcome {
             scores: vec![],
             rubric_id: "r".into(),
@@ -448,7 +459,27 @@ mod schema_tests {
             usage: Usage::default(),
             provider_request_id: "r".into(),
         };
-        assert!(validate_rating(&bad_scores).is_err());
+        assert_eq!(validate_rating(&bad_scores).unwrap_err(), ProviderError::SchemaValidation);
+    }
+
+    #[test]
+    fn validator_rejects_empty_tags_list() {
+        // An empty tags list (vec![]) is rejected for understanding, not just a
+        // blank-string tag. Previously validate_understanding only checked
+        // .any(|t| t.trim().is_empty()), which is false for an empty list, so
+        // tags: [] slipped through despite the 5b doc promising "reject empty
+        // tags / scores". This is the understanding-side mirror of the rating
+        // empty-scores-list rejection above.
+        let empty_tags = DescribeOutcome {
+            caption: "c".into(),
+            tags: vec![],
+            scene: "".into(),
+            confidence: 0.5,
+            model_id: "m".into(),
+            usage: Usage::default(),
+            provider_request_id: "r".into(),
+        };
+        assert_eq!(validate_understanding(&empty_tags).unwrap_err(), ProviderError::SchemaValidation);
     }
 
     #[tokio::test]

@@ -1034,10 +1034,12 @@ Implemented (file-by-file, per the plan):
 
 Data-only / fail-closed invariants (Phase 5a review focus):
 
-- `scan_for_secrets` runs before deserialize, so a secret-shaped value or secret-named key is rejected
-  even if the surrounding JSON would otherwise parse. The `credential_slot` value is intentionally not
-  treated as a secret: it names a vault slot, never holds key material, and the slot regex
-  `^[a-z0-9_]+$` cannot carry a real key (`sk-`, `Bearer `, `AKIA...` all fail it).
+- `scan_for_secrets` runs before deserialize on both built-in and user configs, so a secret-shaped
+  value or secret-named key is rejected even if the surrounding JSON would otherwise parse and even
+  if the field is unknown to `ProviderConfig` (serde silently drops unknown fields). The
+  `credential_slot` value is intentionally not treated as a secret: it names a vault slot, never
+  holds key material, and the slot regex `^[a-z0-9_]+$` cannot carry a real key (`sk-`, `Bearer `,
+  `AKIA...` all fail it).
 - Invalid user configs fail closed (skip + warn, not offered) and produce an actionable `ConfigError`
   diagnostic naming the origin file and reason; an invalid built-in is a hard error (the binary is
   broken).
@@ -1067,11 +1069,40 @@ Test results:
 - C++ - no C++ surface changed in 5a (AiProto / CMake are untouched in 5a; `image_analysis.proto` CMake
   generation is 5b). No ctest required for 5a.
 
-Review conclusion: none; risk accepted: the openrouter and volcengine capability descriptors
-advertised by 5a are not backed by a registered provider until the 5c drivers land, so a
-`DescribeImage` / `ScoreImage` for those provider_ids returns `UNSUPPORTED_TASK` / `TASK_UNKNOWN` in
-5a/5b (only the mock is registered) - this is the intended phase boundary, not a regression; missing
-tests: none.
+Review conclusion: none at phase close; superseded by the 2026-06-25 follow-up (two bugs found and
+fixed, see "Phase 5a - Follow-up Review & Fixes" below); risk accepted: the openrouter and volcengine
+capability descriptors advertised by 5a are not backed by a registered provider until the 5c drivers
+land, so a `DescribeImage` / `ScoreImage` for those provider_ids returns `UNSUPPORTED_TASK` /
+`TASK_UNKNOWN` in 5a/5b (only the mock is registered) - this is the intended phase boundary, not a
+regression; missing tests: none after the follow-up added 3 regression tests.
+
+### Phase 5a - Follow-up Review & Fixes (2026-06-25)
+
+A follow-up review of the 5a surface found two correctness gaps in `provider_config.rs`; both are
+fixed with regression tests.
+
+- P1 (raw-secret scan not applied to user configs): `load_user_configs` deserialized each user config
+  with `serde_json::from_value::<ProviderConfig>` without first calling `scan_for_secrets`. Because
+  `ProviderConfig` has no `#[serde(deny_unknown_fields)]`, serde silently drops unknown fields, so a
+  user JSON carrying `"api_key": "sk-..."` or `"note": "Bearer ..."` was silently accepted -
+  contradicting the 5a "raw JSON before deserialize" / "configs are data only" guarantee, which only
+  the built-in `parse_and_validate` path actually enforced. Fixed: `load_user_configs` now scans the
+  parsed `Value` before `from_value`, skipping + warning on a secret hit (fail closed, not a hard
+  error, matching the existing user-config failure policy).
+- P2 (user-on-user duplicate of a built-in override): the duplicate guard was
+  `registry.get(&id).is_some() && !is_builtin(&id)`. `is_builtin` checks the static built-in id list,
+  so for a built-in id like `openrouter` the second clause is always false, and a second user file
+  overriding `openrouter` silently clobbered the first (the guard only caught user-on-user dupes for
+  non-builtin ids). The existing `duplicate_user_provider_id_is_rejected` test passed only because it
+  used the non-builtin id `"dupe"`. Fixed: `load_user_configs` now tracks a `seen_user_provider_ids`
+  `HashSet`; the first user config wins and any later user config sharing the id is skipped + warned,
+  regardless of whether the id is also a built-in. The now-dead `is_builtin` helper was removed.
+
+Regression tests added (`provider_config`): `user_config_with_raw_secret_in_unknown_field_is_skipped`,
+`user_config_with_leaked_bearer_in_unknown_field_is_skipped`,
+`duplicate_user_override_of_builtin_does_not_silently_clobber`. `cargo test` in `rust/puerh_mind`:
+133 passed; 0 failed; 0 warnings (was 129; +3 here, +1 in 5b). The `is_builtin` removal introduced no
+dead-code warning (its only call site was the old guard).
 
 ## Phase 5b - Completion & Self-Review
 
@@ -1191,7 +1222,33 @@ any 5c change that touches `AiProto`, build a downstream target explicitly (e.g.
 before ctest, mirroring the Phase 4 note. `image_analysis.grpc.pb.h` includes `ai_common.pb.h`, so
 AiProto's existing PUBLIC include dir is sufficient for future 5d C++ consumers - no new include dirs.
 
-Review conclusion: none; risk accepted: the openrouter / volcengine capability descriptors advertised
-by 5a are not backed by a registered provider in 5b (only the mock is registered), so a
-`DescribeImage` / `ScoreImage` for those `provider_id`s returns `UNSUPPORTED_TASK` / `TASK_UNKNOWN` until
-the 5c drivers land - this is the intended phase boundary, not a regression; missing tests: none.
+Review conclusion: none at phase close; superseded by the 2026-06-25 follow-up (one bug found and
+fixed, see "Phase 5b - Follow-up Review & Fixes" below); risk accepted: the openrouter / volcengine
+capability descriptors advertised by 5a are not backed by a registered provider in 5b (only the mock
+is registered), so a `DescribeImage` / `ScoreImage` for those `provider_id`s returns
+`UNSUPPORTED_TASK` / `TASK_UNKNOWN` until the 5c drivers land - this is the intended phase boundary,
+not a regression; missing tests: none after the follow-up added 1 regression test and renamed 1 for
+honesty.
+
+### Phase 5b - Follow-up Review & Fixes (2026-06-25)
+
+A follow-up review of the 5b surface found one correctness gap in `image_analysis.rs`; fixed with a
+regression test.
+
+- P2 (empty `tags` list not rejected): `validate_understanding` only checked
+  `out.tags.iter().any(|t| t.trim().is_empty())`, which is false for an empty list, so `tags: []`
+  slipped through - contradicting the 5b "reject empty tags / scores" promise. `validate_rating`
+  already rejected `scores: []` (it checks `out.scores.is_empty()` and `IMAGE_RATING_SCHEMA` has
+  `minItems: 1`), so the gap was understanding-only. The existing
+  `validator_rejects_empty_tags_or_scores` test only exercised `vec![""]` (a blank-string tag) for
+  understanding and `vec![]` for rating, so the empty-tags-list case for understanding was uncovered.
+  Fixed: `validate_understanding` now rejects `out.tags.is_empty()`, and `IMAGE_UNDERSTANDING_SCHEMA`
+  gained `minItems: 1` on `tags` plus `minLength: 1` on tag items, matching the rating schema's
+  `scores` handling.
+
+Regression tests: added `validator_rejects_empty_tags_list`; renamed
+`validator_rejects_empty_tags_or_scores` -> `validator_rejects_blank_tag_string_and_empty_scores_list`
+so the name describes what it actually covers (a blank-string tag for understanding, an empty scores
+list for rating) rather than implying the empty-tags-list case it did not cover. The schema test now
+asserts `tags.minItems == 1` and `tags.items.minLength == 1`. `cargo test` in `rust/puerh_mind`:
+133 passed; 0 failed; 0 warnings (was 129; +1 here, +3 in 5a).

@@ -20,7 +20,7 @@
 //! docs/roadmap/ai_sidecar_phase0_contract.md (section 1) for the frozen
 //! control-surface contract these configs feed into.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use serde_json::Value;
@@ -285,7 +285,10 @@ const BUILTIN_PROVIDER_CONFIGS: &[(&str, &str)] = &[
 /// invalid user config is logged via `tracing::warn` and skipped (fail closed —
 /// that provider is not offered), while valid user configs override a built-in
 /// by `provider_id` or add a new provider. Two user configs sharing a
-/// `provider_id` is an error.
+/// `provider_id` is an error (the first wins; a later one is skipped), whether
+/// or not that id is also a built-in. Both built-in and user configs run the
+/// raw-secret scan before deserializing, so unknown fields holding a key are
+/// rejected rather than silently ignored by serde.
 pub fn load_provider_configs(user_dir: Option<&Path>) -> Result<ProviderRegistry, ConfigError> {
     let mut registry = ProviderRegistry::new();
 
@@ -322,6 +325,18 @@ fn load_user_configs(registry: &mut ProviderRegistry, dir: &Path) -> Result<(), 
         .collect();
     paths.sort();
 
+    // Track which provider_ids have already been loaded from USER configs. This
+    // is deliberately separate from `registry.get(...)` + `is_builtin(...)`:
+    // a user may override a built-in by `provider_id` (e.g. openrouter), and
+    // after that first override the registry entry is the user's config while
+    // the id is still a built-in id. Without this set, a second user config
+    // with the same built-in id would silently clobber the first user override,
+    // because the old `!is_builtin` guard only caught user-on-user dupes for
+    // non-builtin ids. With this set, the first user config wins and any later
+    // user config sharing the id is skipped + warned, regardless of whether
+    // the id is also a built-in.
+    let mut seen_user_provider_ids: HashSet<String> = HashSet::new();
+
     for path in paths {
         let source = path.display().to_string();
         let raw = match std::fs::read_to_string(&path) {
@@ -339,6 +354,18 @@ fn load_user_configs(registry: &mut ProviderRegistry, dir: &Path) -> Result<(), 
                 continue;
             }
         };
+        // Scan the raw JSON for secret material BEFORE deserializing into the
+        // typed struct, so unknown fields holding a key are caught too. This is
+        // the same "configs are data only / no raw secrets" guard the built-in
+        // path runs in `parse_and_validate`; without it, a user JSON with an
+        // `api_key` / `Bearer ...` field would be silently accepted, because
+        // serde ignores unknown fields and the typed `ProviderConfig` never
+        // sees them. A user config that fails the scan is skipped + warned
+        // (fail closed — that provider is not offered), not a hard error.
+        if let Err(err) = scan_for_secrets(&value, &source) {
+            tracing::warn!("skipping user provider config {source}: {err}");
+            continue;
+        }
         let configs: Vec<Value> = match value {
             Value::Array(items) => items,
             other => vec![other],
@@ -347,17 +374,16 @@ fn load_user_configs(registry: &mut ProviderRegistry, dir: &Path) -> Result<(), 
             match serde_json::from_value::<ProviderConfig>(item.clone()) {
                 Ok(config) => match validate_config(&config, &source) {
                     Ok(()) => {
-                        if registry.get(&config.provider_id).is_some()
-                            && !is_builtin(&config.provider_id)
-                        {
-                            // Two user configs sharing a provider_id (a user
-                            // overriding a built-in is allowed; user-on-user
-                            // collision is an error surfaced as a skip + warning).
+                        if seen_user_provider_ids.contains(&config.provider_id) {
+                            // Two user configs sharing a provider_id (whether or
+                            // not it is also a built-in id) is an error surfaced
+                            // as a skip + warning; the first user config wins.
                             tracing::warn!(
                                 "skipping user provider config {source}: duplicate provider_id {:?} already loaded from another user config",
                                 config.provider_id
                             );
                         } else {
+                            seen_user_provider_ids.insert(config.provider_id.clone());
                             registry.upsert(config);
                         }
                     }
@@ -372,10 +398,6 @@ fn load_user_configs(registry: &mut ProviderRegistry, dir: &Path) -> Result<(), 
         }
     }
     Ok(())
-}
-
-fn is_builtin(provider_id: &str) -> bool {
-    BUILTIN_PROVIDER_CONFIGS.iter().any(|(id, _)| *id == provider_id)
 }
 
 fn parse_and_validate(raw: &str, source: String) -> Result<ProviderConfig, ConfigError> {
@@ -901,6 +923,59 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_user_override_of_builtin_does_not_silently_clobber() {
+        // Two user files both override the built-in `openrouter` id. The first
+        // user override must win; the second must be skipped as a user-on-user
+        // duplicate. The old `registry.get(..) && !is_builtin(..)` guard failed
+        // here because `is_builtin("openrouter")` is always true, so the second
+        // override silently clobbered the first. Deterministic order: a_first
+        // sorts before b_second.
+        let dir = tempdir();
+        let first = r#"{
+            "schema_version": 1,
+            "provider_id": "openrouter",
+            "display_name": "OpenRouter (first user override)",
+            "driver": "openrouter_chat",
+            "base_url": "https://openrouter.ai/api/v1",
+            "endpoint": "/chat/completions",
+            "auth": {"type": "bearer", "credential_slot": "openrouter_api_key"},
+            "defaults": {"model": "first/model", "stream": false, "temperature": 0.1},
+            "structured_output": {"mode": "response_format_json_schema", "strict": true},
+            "response": {"content_json_pointer": "/choices/0/message/content"},
+            "limits": {"timeout_ms": 30000, "max_image_bytes": 2097152, "max_output_tokens": 800},
+            "models": [
+                {"slug": "first/model", "display_name": "first", "supports_vision": true, "supports_structured_output": true}
+            ]
+        }"#;
+        let second = r#"{
+            "schema_version": 1,
+            "provider_id": "openrouter",
+            "display_name": "OpenRouter (second user override)",
+            "driver": "openrouter_chat",
+            "base_url": "https://openrouter.ai/api/v1",
+            "endpoint": "/chat/completions",
+            "auth": {"type": "bearer", "credential_slot": "openrouter_api_key"},
+            "defaults": {"model": "second/model", "stream": false, "temperature": 0.1},
+            "structured_output": {"mode": "response_format_json_schema", "strict": true},
+            "response": {"content_json_pointer": "/choices/0/message/content"},
+            "limits": {"timeout_ms": 30000, "max_image_bytes": 2097152, "max_output_tokens": 800},
+            "models": [
+                {"slug": "second/model", "display_name": "second", "supports_vision": true, "supports_structured_output": true}
+            ]
+        }"#;
+        write_config(&dir, "a_first.json", first);
+        write_config(&dir, "b_second.json", second);
+
+        let registry = load_provider_configs(Some(dir.path())).expect("load does not hard-fail on dupe");
+        let openrouter = registry.get("openrouter").expect("openrouter present");
+        // The first user override wins; the second is skipped, not silently
+        // clobbered, even though openrouter is a built-in id.
+        assert_eq!(openrouter.display_name, "OpenRouter (first user override)");
+        assert_eq!(openrouter.defaults.model, "first/model");
+        assert_eq!(openrouter.models[0].slug, "first/model");
+    }
+
+    #[test]
     fn unknown_driver_rejected() {
         let result = parse_and_validate(
             r#"{
@@ -999,6 +1074,65 @@ mod tests {
         let registry = builtin_registry();
         let openrouter = registry.get("openrouter").expect("openrouter present");
         assert_eq!(openrouter.auth.credential_slot, "openrouter_api_key");
+    }
+
+    #[test]
+    fn user_config_with_raw_secret_in_unknown_field_is_skipped() {
+        // The `api_key` field is unknown to ProviderConfig, so serde would
+        // silently ignore it (the typed struct never sees it). The raw-secret
+        // scan must run on the user path too and reject the config before
+        // deserialize, otherwise the leaked key is accepted (P1: the user path
+        // previously did not call scan_for_secrets). Fail closed: skipped, not a
+        // hard error.
+        let dir = tempdir();
+        let user = r#"{
+            "schema_version": 1,
+            "provider_id": "leaky",
+            "display_name": "Leaky",
+            "driver": "openai_chat_compatible",
+            "base_url": "https://example.com",
+            "endpoint": "/x",
+            "auth": {"type": "bearer", "credential_slot": "leaky_key"},
+            "api_key": "sk-1234567890abcdef1234567890abcdef",
+            "defaults": {"model": "m", "stream": false, "temperature": 0.2},
+            "structured_output": {"mode": "none"},
+            "response": {},
+            "limits": {"timeout_ms": 60000, "max_image_bytes": 4194304, "max_output_tokens": 1200},
+            "models": []
+        }"#;
+        write_config(&dir, "leaky.json", user);
+
+        let registry = load_provider_configs(Some(dir.path())).expect("load does not hard-fail on a bad user config");
+        assert!(registry.get("leaky").is_none(), "user config with embedded secret must be skipped");
+        // Built-ins still load.
+        assert!(registry.get("openrouter").is_some());
+    }
+
+    #[test]
+    fn user_config_with_leaked_bearer_in_unknown_field_is_skipped() {
+        // A `note` field (unknown to serde, so silently ignored) carries a
+        // `Bearer <token>` value. The raw-secret scan must catch the leaked
+        // bearer value on the user path and skip the config (P1).
+        let dir = tempdir();
+        let user = r#"{
+            "schema_version": 1,
+            "provider_id": "leaky_bearer",
+            "display_name": "Leaky Bearer",
+            "driver": "openai_chat_compatible",
+            "base_url": "https://example.com",
+            "endpoint": "/x",
+            "auth": {"type": "bearer", "credential_slot": "leaky_bearer_key"},
+            "note": "Bearer abc123tokenvalue",
+            "defaults": {"model": "m", "stream": false, "temperature": 0.2},
+            "structured_output": {"mode": "none"},
+            "response": {},
+            "limits": {"timeout_ms": 60000, "max_image_bytes": 4194304, "max_output_tokens": 1200},
+            "models": []
+        }"#;
+        write_config(&dir, "leaky_bearer.json", user);
+
+        let registry = load_provider_configs(Some(dir.path())).expect("load does not hard-fail on a bad user config");
+        assert!(registry.get("leaky_bearer").is_none(), "user config with leaked bearer must be skipped");
     }
 
     #[test]
