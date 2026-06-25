@@ -37,6 +37,8 @@
 
 - [ ] Add JSON serialization for pipeline configurations.
 - [ ] Extend HDR workflow and output.
-- [ ] Continue semantic search and AI-assisted tagging work.
+- [ ] Continue semantic search and AI-assisted tagging work; see the
+      [semantic generation plan](semantic_generation_search_plan.md) and
+      [AI sidecar backend plan](ai_sidecar_backend_plan.md).
 - [ ] Integrate the panorama stitching module into the main workflow.
 - [ ] Keep closing the feature and stability gap between the Windows/CUDA and macOS/Metal paths.
