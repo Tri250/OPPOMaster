@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package alcedo.ai;
+
+import "ai_common.proto";
+
+// Sidecar-level capability and runtime control service.
+//
+// Phase 1 implements only ListCapabilities: it lets the C++ host discover what
+// task types this sidecar can serve, via the shared AiCapability descriptor.
+// The header is carried for uniform request correlation, but task_id,
+// credential_ref, and timeout_ms are ignored for this RPC.
+//
+// Credential registration and task cancellation are staged as comments below so
+// the file boundary is stable; they are implemented in Phase 3, not Phase 1.
+service AiRuntimeService {
+  rpc ListCapabilities(ListCapabilitiesRequest) returns (ListCapabilitiesResponse);
+  // Phase 3 (staged, not implemented in Phase 1):
+  // rpc RegisterCredential(RegisterCredentialRequest) returns (RegisterCredentialResponse);
+  // rpc CancelTask(CancelTaskRequest) returns (CancelTaskResponse);
+}
+
+message ListCapabilitiesRequest {
+  AiRequestHeader header = 1;
+}
+
+message ListCapabilitiesResponse {
+  AiResponseHeader header = 1;
+  repeated AiCapability capabilities = 2;
+}

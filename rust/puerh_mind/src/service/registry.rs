@@ -3,9 +3,11 @@ use std::sync::Arc;
 use tonic::transport::Server;
 
 use crate::config::AppConfig;
+use crate::proto::alcedo::ai::ai_runtime_service_server::AiRuntimeServiceServer;
 use crate::proto::common::health_service_server::HealthServiceServer;
 use crate::proto::semantic::model_manager_service_server::ModelManagerServiceServer;
 use crate::proto::semantic::semantic_service_server::SemanticServiceServer;
+use crate::server::ai_runtime::AiRuntimeServiceImpl;
 use crate::server::health::HealthServiceImpl;
 use crate::server::model_manager::ModelManagerServiceImpl;
 use crate::server::semantic::SemanticServiceImpl;
@@ -25,6 +27,9 @@ pub fn register_services(
     );
     let model_manager_service =
         ModelManagerServiceImpl::new(&config.semantic.model_root, &config.semantic.hf_endpoint);
+    // The AI runtime service is stateless in Phase 1 (ListCapabilities only);
+    // capability population arrives in Phase 3.
+    let ai_runtime_service = AiRuntimeServiceImpl::new();
 
     let reflection_service = tonic_reflection::server::Builder::configure()
         .register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET)
@@ -39,5 +44,6 @@ pub fn register_services(
             SemanticServiceServer::new(semantic_service)
                 .max_decoding_message_size(config.max_message_bytes)
                 .max_encoding_message_size(config.max_message_bytes),
-        ))
+        )
+        .add_service(AiRuntimeServiceServer::new(ai_runtime_service)))
 }

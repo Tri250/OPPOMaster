@@ -963,6 +963,74 @@ add_library(SemanticProto ${ALCEDO_SEMANTIC_PROTO_SRCS} ${ALCEDO_SEMANTIC_PROTO_
 target_include_directories(SemanticProto PUBLIC "${ALCEDO_SEMANTIC_PROTO_GEN_DIR}")
 target_link_libraries(SemanticProto PUBLIC puerhlab::grpc++ puerhlab::protobuf)
 
+# ------------------------------------------------------------------------------
+# AI sidecar protobuf generation (package alcedo.ai).
+#
+# Sibling to SemanticProto. The two new protos live in the same proto directory
+# (ALCEDO_SEMANTIC_PROTO_DIR), already on the --proto_path, so ai_runtime.proto's
+# `import "ai_common.proto";` resolves at generation time. ai_common.proto has
+# no service, so it only gets .pb.{h,cc}; ai_runtime.proto also gets a .grpc.pb
+# stub. SemanticProto is left frozen — existing consumers are untouched.
+# Phase 1 only requires the generated headers and stub to compile; no C++
+# service implementation consumes AiProto yet (Phase 2 wires the runtime).
+# ------------------------------------------------------------------------------
+set(ALCEDO_AI_PROTO_DIR "${ALCEDO_SEMANTIC_PROTO_DIR}")
+set(ALCEDO_AI_COMMON_PROTO "${ALCEDO_AI_PROTO_DIR}/ai_common.proto")
+set(ALCEDO_AI_RUNTIME_PROTO "${ALCEDO_AI_PROTO_DIR}/ai_runtime.proto")
+set(ALCEDO_AI_PROTO_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/ai")
+set(ALCEDO_AI_PROTO_SRCS
+    "${ALCEDO_AI_PROTO_GEN_DIR}/ai_common.pb.cc"
+    "${ALCEDO_AI_PROTO_GEN_DIR}/ai_runtime.pb.cc"
+    "${ALCEDO_AI_PROTO_GEN_DIR}/ai_runtime.grpc.pb.cc"
+)
+set(ALCEDO_AI_PROTO_HDRS
+    "${ALCEDO_AI_PROTO_GEN_DIR}/ai_common.pb.h"
+    "${ALCEDO_AI_PROTO_GEN_DIR}/ai_runtime.pb.h"
+    "${ALCEDO_AI_PROTO_GEN_DIR}/ai_runtime.grpc.pb.h"
+)
+
+# ai_common.proto: messages + enums only (no service -> no grpc stub).
+add_custom_command(
+    OUTPUT
+        "${ALCEDO_AI_PROTO_GEN_DIR}/ai_common.pb.cc"
+        "${ALCEDO_AI_PROTO_GEN_DIR}/ai_common.pb.h"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${ALCEDO_AI_PROTO_GEN_DIR}"
+    COMMAND ${PUERHLAB_PROTOC_EXECUTABLE}
+        --proto_path=${ALCEDO_AI_PROTO_DIR}
+        --cpp_out=${ALCEDO_AI_PROTO_GEN_DIR}
+        "${ALCEDO_AI_COMMON_PROTO}"
+    DEPENDS
+        "${ALCEDO_AI_COMMON_PROTO}"
+    VERBATIM
+)
+
+# ai_runtime.proto: imports ai_common.proto; emits .pb + .grpc.pb. DEPENDS the
+# ai_common.proto *source* (not a generated artifact) so import resolution and
+# ordering are correct under Make/Ninja. protoc generates output only for files
+# named on the command line, so this command does not regenerate ai_common.*.
+add_custom_command(
+    OUTPUT
+        "${ALCEDO_AI_PROTO_GEN_DIR}/ai_runtime.pb.cc"
+        "${ALCEDO_AI_PROTO_GEN_DIR}/ai_runtime.pb.h"
+        "${ALCEDO_AI_PROTO_GEN_DIR}/ai_runtime.grpc.pb.h"
+        "${ALCEDO_AI_PROTO_GEN_DIR}/ai_runtime.grpc.pb.cc"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${ALCEDO_AI_PROTO_GEN_DIR}"
+    COMMAND ${PUERHLAB_PROTOC_EXECUTABLE}
+        --proto_path=${ALCEDO_AI_PROTO_DIR}
+        --cpp_out=${ALCEDO_AI_PROTO_GEN_DIR}
+        --grpc_out=${ALCEDO_AI_PROTO_GEN_DIR}
+        --plugin=protoc-gen-grpc=${PUERHLAB_GRPC_CPP_PLUGIN_EXECUTABLE}
+        "${ALCEDO_AI_RUNTIME_PROTO}"
+    DEPENDS
+        "${ALCEDO_AI_RUNTIME_PROTO}"
+        "${ALCEDO_AI_COMMON_PROTO}"
+    VERBATIM
+)
+
+add_library(AiProto ${ALCEDO_AI_PROTO_SRCS} ${ALCEDO_AI_PROTO_HDRS})
+target_include_directories(AiProto PUBLIC "${ALCEDO_AI_PROTO_GEN_DIR}")
+target_link_libraries(AiProto PUBLIC puerhlab::grpc++ puerhlab::protobuf)
+
 def_library(SemanticRuntimeService
     SOURCES
         app/semantic_runtime_service.cpp

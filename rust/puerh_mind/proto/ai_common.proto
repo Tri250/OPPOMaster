@@ -1,0 +1,110 @@
+syntax = "proto3";
+
+package alcedo.ai;
+
+// Shared AI sidecar control surface.
+//
+// This file holds only the control plane: request/response headers, the status
+// and error enums, and the capability *descriptor*. It deliberately defines no
+// service and no universal Invoke(task_name, json) RPC. Each task keeps its own
+// typed request/response proto and carries these headers inline for uniform
+// correlation, timeout, cancellation, and credential handling.
+//
+// See docs/roadmap/ai_sidecar_phase0_contract.md (section 1) for the frozen
+// field-by-field contract. Well-known types are intentionally not imported; the
+// Rust build (tonic_prost_build defaults) and the C++ generator both compile
+// only the `proto/` path with no WKT include, so timeouts are int64 scalars.
+
+enum AiPriority {
+  AI_PRIORITY_UNSPECIFIED   = 0;
+  AI_PRIORITY_LOW           = 1;
+  AI_PRIORITY_NORMAL        = 2;
+  AI_PRIORITY_HIGH          = 3;
+  AI_PRIORITY_USER_INITIATED = 4;
+}
+
+enum AiResponseStatus {
+  AI_STATUS_UNSPECIFIED          = 0;
+  AI_STATUS_OK                   = 1;
+  AI_STATUS_CANCELLED            = 2;
+  AI_STATUS_DEADLINE_EXCEEDED    = 3;
+  AI_STATUS_INVALID_ARGUMENT     = 4;
+  AI_STATUS_PAYLOAD_TOO_LARGE    = 5;
+  AI_STATUS_UNAUTHENTICATED      = 6;  // credential missing
+  AI_STATUS_PERMISSION_DENIED    = 7;  // credential invalid / expired / revoked
+  AI_STATUS_PROVIDER_UNAVAILABLE = 8;
+  AI_STATUS_PROVIDER_ERROR       = 9;
+  AI_STATUS_UNSUPPORTED_TASK     = 10;
+  AI_STATUS_UNIMPLEMENTED        = 11;
+  AI_STATUS_INTERNAL             = 12;
+}
+
+enum AiErrorCode {
+  AI_ERROR_NONE                  = 0;
+  AI_ERROR_MISSING_HEADER        = 1;
+  AI_ERROR_MISSING_CREDENTIAL    = 2;
+  AI_ERROR_CREDENTIAL_REVOKED    = 3;
+  AI_ERROR_CREDENTIAL_EXPIRED    = 4;
+  AI_ERROR_PROVIDER_TIMEOUT      = 5;
+  AI_ERROR_PROVIDER_RATE_LIMITED = 6;
+  AI_ERROR_PROVIDER_5XX          = 7;
+  AI_ERROR_MODEL_NOT_READY       = 8;
+  AI_ERROR_TASK_UNKNOWN          = 9;
+  AI_ERROR_PAYLOAD_DECODE        = 10;
+  AI_ERROR_CANCELLED_BY_CLIENT   = 11;
+  AI_ERROR_INTERNAL              = 12;
+}
+
+enum AiInputKind {
+  AI_INPUT_UNSPECIFIED     = 0;
+  AI_INPUT_TEXT            = 1;
+  AI_INPUT_IMAGE           = 2;  // full-res bytes
+  AI_INPUT_THUMBNAIL       = 3;  // host-rendered thumbnail
+  AI_INPUT_PREVIEW         = 4;  // host-rendered preview
+  AI_INPUT_METADATA        = 5;
+  AI_INPUT_PIPELINE_PARAMS = 6;
+}
+
+enum AiOutputKind {
+  AI_OUTPUT_UNSPECIFIED = 0;
+  AI_OUTPUT_EMBEDDING   = 1;
+  AI_OUTPUT_CAPTION     = 2;
+  AI_OUTPUT_TAGS        = 3;
+  AI_OUTPUT_SCORE       = 4;
+  AI_OUTPUT_RECIPE      = 5;  // future edit-assistant
+}
+
+message AiRequestHeader {
+  string request_id      = 1;  // per-call correlation; echoed in response
+  string task_id         = 2;  // stable task type id, e.g. "semantic.embed_text"
+  int64  timeout_ms      = 3;  // relative deadline from receipt; 0 = server default
+  AiPriority priority    = 4;  // defaults to NORMAL when UNSPECIFIED
+  string trace_id        = 5;  // optional cross-cutting trace; empty allowed
+  string credential_ref  = 6;  // opaque handle from the Rust credential vault;
+                               //   empty = no credential (local task)
+  repeated string client_capabilities = 7;  // tokens the client understands,
+                               //   e.g. "cancel-by-request_id"
+}
+
+message AiResponseHeader {
+  string request_id        = 1;
+  string task_id           = 2;
+  AiResponseStatus status  = 3;
+  AiErrorCode error_code   = 4;  // set only when status != OK
+  string error_message     = 5;  // human-readable, redacted of secrets
+  string provider          = 6;  // provider_id that actually served
+  string model_id          = 7;  // model_id that actually served
+  int64  elapsed_ms        = 8;
+}
+
+message AiCapability {
+  string task_id                = 1;
+  string provider_id            = 2;  // "local", "mock", "openai", ...
+  string model_id               = 3;
+  repeated AiInputKind input_kinds  = 4;
+  repeated AiOutputKind output_kinds = 5;
+  bool supports_batch           = 6;
+  bool supports_cancel          = 7;
+  bool requires_credential      = 8;
+  int64 max_payload_bytes       = 9;
+}
