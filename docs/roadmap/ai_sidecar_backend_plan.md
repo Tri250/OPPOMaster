@@ -62,6 +62,69 @@ description, and credential handles.
 - Keep the binary name `alcedo_mind.exe` initially. Renaming the sidecar can be a later packaging
   cleanup once the API shape is stable.
 
+## Remote LLM Technical Stack And Security Decisions
+
+The first remote provider path should be implemented in Rust inside `alcedo_mind`, not in QML or
+direct UI code. The C++ host remains responsible for settings, project state, persistence, and
+database writes; Rust owns only the outbound provider call and runtime-only secret handling.
+
+Recommended Rust stack:
+
+- Use `reqwest` on the existing Tokio runtime for HTTPS JSON calls. Keep the provider layer thin
+  and task-specific instead of adopting a broad multi-provider LLM SDK in the first iteration.
+- Pin `reqwest` with `default-features = false` and an explicit Rustls TLS feature when added to
+  `Cargo.toml`. Do not enable invalid certificate acceptance or plaintext HTTP endpoints for
+  production providers.
+- Build a small `RemoteVisionProvider` / `OpenAiVisionProvider` adapter around the provider REST
+  API. It should map provider errors, rate limits, request ids, and usage/cost metadata into the
+  typed AI response, not leak provider JSON directly through C++.
+- Use provider structured-output support for caption/tag/rating responses when available. The Rust
+  service must still validate and normalize the response before returning protobuf fields.
+- Do not stream in the MVP. Use non-streaming calls for deterministic timeout, cancellation, and
+  schema-validation behavior. Streaming can be added later for assistant-style workflows.
+- Keep retries conservative. Retrying a provider call can duplicate cost, so only retry transient
+  transport / 429 / 5xx failures under a small, bounded policy and surface the provider request id
+  when available.
+- Log correlation ids, task ids, provider id, model id, latency, status, and provider request id.
+  Never log prompt payloads, image bytes/base64, API keys, credential handles, or raw provider error
+  bodies before redaction.
+
+Credential ownership is split deliberately:
+
+- Long-lived user API keys are persisted by the C++/Qt host, not by Rust.
+- The persisted store must be an OS credential store: Windows Credential Manager, macOS Keychain,
+  and Linux Secret Service / KWallet where supported. `QSettings` may store only non-secret metadata
+  such as provider id, selected model, masked key label, and "remember key" preference.
+- A practical implementation path is to add a small host `AiCredentialStore` abstraction backed by
+  QtKeychain or a minimal platform-native wrapper. QtKeychain is attractive because it already maps
+  to Windows Credential Store, macOS Keychain, and Linux desktop keyrings and has vcpkg/Homebrew
+  availability; using it should still be gated by a focused dependency/build review.
+- When starting a remote task, C++ reads the secret from the OS credential store, calls
+  `AiRuntimeService.RegisterCredential`, receives an opaque handle, and passes only that handle in
+  task headers. Rust keeps the secret only in memory with TTL/revoke/redaction.
+- On sidecar stop, project close, provider logout, or settings deletion, C++ must revoke runtime
+  handles and delete persisted credentials when requested.
+- Developer override via `OPENAI_API_KEY` or equivalent is allowed for tests/manual smoke, but it is
+  not the normal product persistence path and must not be copied into QSettings.
+
+## Rating vs Understanding Boundary
+
+Rating and understanding should be separate task semantics even if a provider can answer both in one
+HTTP call.
+
+- `image_understanding.describe`: objective-ish image content. Outputs caption, searchable tags,
+  scene/category hints, and optional confidence. These fields can participate in the search document
+  when marked active.
+- `image_rating.score`: subjective or product-policy scoring. Outputs one or more numeric scores
+  such as keeper score, aesthetic score, technical quality, or curation priority, plus short reasons.
+  Rating is not full-text search content by default; it should drive sort/filter/recommendation
+  workflows only after the product contract is clear.
+- Shared plumbing is fine: both tasks may use the same credential handle, HTTP client, provider
+  adapter, image rendition selection, timeout, cancellation, and redaction path.
+- Storage should keep `task_id` / `prompt_profile_id` / provider / model identity with each result
+  so a future rating rubric change does not silently overwrite or reinterpret earlier understanding
+  annotations.
+
 ## Shared Control Surface
 
 Add protobuf messages similar to:
@@ -100,7 +163,9 @@ This layer should live beside, not inside, task-specific protobuf files. For exa
 - `proto/ai_runtime.proto` for sidecar-level capabilities, credential registration, and
   cancellation.
 - `proto/semantic.proto` remains the typed semantic embedding service during migration.
-- `proto/image_understanding.proto` adds caption, scoring, and tag extraction.
+- `proto/image_analysis.proto` or `proto/image_understanding.proto` adds typed image
+  understanding and rating task messages; `task_id` distinguishes searchable understanding from
+  subjective rating.
 - Future task protobufs can be added without changing existing task contracts.
 
 ## Mandatory Phase Rule
@@ -190,10 +255,10 @@ Self-review focus:
 - Check that model-manager-only startup still works without local model assets.
 - Check that ordinary album/search startup does not launch extra AI work.
 
-## Phase 3 - Capability Registry And Credential Handles
+## Phase 3 - Capability Registry, Credential Handles, And Host Credential Store
 
-Goal: support remote providers without leaking long-lived secrets into sidecar process launch or
-logs.
+Goal: support remote providers without making users re-enter keys every session and without leaking
+long-lived secrets into sidecar process launch, QSettings, persistent logs, or crash messages.
 
 Deliverables:
 
@@ -201,19 +266,32 @@ Deliverables:
 - Add C++ APIs for creating credential handles and passing only the handle in task headers.
 - Add capability descriptors for local semantic embedding and remote image understanding.
 - Add cancellation by `request_id` or task operation id.
-- Keep actual secure credential persistence out of Rust. C++ settings/UI can decide later whether
-  and how to store user credentials.
+- Add a C++ `AiCredentialStore` interface for long-lived user API keys. Back it with the platform
+  secure credential store, preferably through QtKeychain or a narrow native wrapper after dependency
+  review.
+- Store only non-secret metadata in QSettings: provider id, selected model/profile, masked key label,
+  and whether the user enabled persistence.
+- Define the task flow from persisted key -> C++ loads secret -> `RegisterCredential` -> runtime
+  handle -> task header -> Rust resolves handle for the provider call.
+- Keep actual secure credential persistence out of Rust. Rust may keep secrets only in memory for the
+  lifetime/TTL of the registered handle.
 
 Tests:
 
 - Rust tests for register, resolve, TTL expiry, revoke, and redaction.
 - C++ fake-runtime tests proving API key material is not present in process args or routine logs.
 - Cancellation tests with a delayed fake operation.
+- C++ credential-store tests with a fake backend for save/read/delete, metadata-only QSettings, and
+  "remember key" off/on behavior.
+- Manual smoke on Windows Credential Manager and macOS Keychain before treating persisted keys as
+  shippable.
 
 Self-review focus:
 
 - Check that keys never appear in command-line arguments, persistent logs, or crash messages.
 - Check that credential handles cannot silently outlive their intended session.
+- Check that QSettings and project files never contain raw key material.
+- Check that deleting or replacing a key revokes the in-memory sidecar handle.
 
 ## Phase 4 - Semantic Embedding V2 Migration
 
@@ -243,24 +321,33 @@ Self-review focus:
 - Check that embedding vector dimensions, model keys, and persistence compatibility are unchanged.
 - Check that timeout/cancellation semantics match the old C++ expectations.
 
-## Phase 5 - Image Understanding MVP
+## Phase 5 - Remote Image Analysis MVP
 
-Goal: add the first non-CLIP AI task: score, tags, and one-line caption for an image.
+Goal: add the first non-CLIP remote AI task over Rust HTTPS: typed image understanding, with rating
+kept as a separate task contract even if the first provider request can return both.
 
 Deliverables:
 
-- Add `image_understanding.proto` with typed request/response messages.
-- Add Rust provider traits for image understanding, starting with a mock provider and one optional
-  remote provider behind credential handles.
+- Add typed protobuf messages for image analysis. At minimum include
+  `image_understanding.describe`; add `image_rating.score` either in the same proto file or a sibling
+  proto, but keep distinct `task_id`s and result identities.
+- Add Rust provider traits for remote vision analysis, starting with a mock provider and one
+  OpenAI-compatible provider behind credential handles.
+- Add the Rust HTTP stack: `reqwest` client construction, provider config, bearer auth, structured
+  output schema, timeout, bounded retry policy, provider request-id capture, and secret redaction.
 - Add a C++ `ImageUnderstandingService` that requests thumbnails/previews from existing host
   services, calls the sidecar, and returns structured results.
 - Add storage for AI image annotations with file id, provider id, model id, prompt/profile id,
   caption, tags, score, created time, and active-for-search state.
 - Extend search document construction so active captions/tags can participate in full-text search.
+- Persist ratings separately from searchable understanding fields, or at least gate them with a
+  separate `task_id` so rating does not accidentally become full-text search material.
 
 Tests:
 
 - Rust mock-provider and timeout tests.
+- Rust HTTP provider tests using a local mock server. Cover authorization header placement, no key in
+  logs/errors, schema validation, rate limit mapping, provider request id capture, and cancellation.
 - C++ service tests with a fake sidecar client.
 - Storage controller tests for insert, replace, active selection, and model/provider identity.
 - `FilterServiceTest` or equivalent coverage showing captions/tags are searchable.
@@ -271,22 +358,32 @@ Self-review focus:
 - Check that the sidecar does not write directly to the database.
 - Check that prompt/profile/model identity is persisted with each annotation.
 - Check that failed remote calls do not create partial active search documents.
+- Check that understanding and rating outputs cannot overwrite each other across prompt/profile
+  changes.
+- Check that prompt/image payloads and raw provider response bodies are absent from routine logs.
 
-## Phase 6 - Product Wiring For Caption And Score
+## Phase 6 - Product Wiring For Credentials, Caption, And Rating
 
-Goal: make image understanding usable from the album workflow without disturbing ordinary search.
+Goal: make remote image analysis usable from the album workflow without disturbing ordinary search or
+requiring users to re-enter API keys every session.
 
 Deliverables:
 
-- Add settings/controller flow for remote-provider availability and credential entry.
-- Add an album action for generating or refreshing captions and scores.
+- Add settings/controller flow for remote-provider availability, credential entry, remember/delete
+  key behavior, selected provider/model, and connection validation.
+- Add an album action for generating or refreshing captions/tags.
+- Add a separate rating action or an explicit combined action that writes separate
+  `image_understanding.describe` and `image_rating.score` results.
 - Add progress, cancellation, retry, and clear error states.
 - Add a search-index refresh path after successful annotation persistence.
 - Ensure the sidecar starts on demand and is not required for normal album browsing.
+- Add provider usage/cost display when the response includes usage metadata. This may start as a
+  per-job summary rather than a full billing dashboard.
 
 Tests:
 
-- Controller tests for missing credential, offline provider, cancel, retry, and successful write.
+- Controller tests for missing credential, saved credential, delete credential, offline provider,
+  cancel, retry, and successful write.
 - QML smoke tests for visible states if UI is added.
 - Targeted search tests proving new captions appear only after successful persistence.
 - Manual smoke with the fake provider and, when configured by a developer, a real provider.
@@ -296,6 +393,8 @@ Self-review focus:
 - Check user-visible error copy for credential and network failures.
 - Check that normal search and browsing remain usable without API keys.
 - Check that cancellation does not leave stale progress or half-active annotations.
+- Check that no raw API key appears in QML state dumps, settings files, diagnostics logs, or packed
+  projects.
 
 ## Future Candidate - Edit Assistant Recipes
 
@@ -363,9 +462,28 @@ provider credentials are available.
 
 ## Open Decisions
 
-- Final protobuf package naming, for example `alcedo.ai` vs a shorter `ai` package.
-- Exact credential persistence policy on the C++ side.
 - Whether image understanding should use thumbnails, previews, or caller-selected image renditions.
-- Whether captions/tags are per provider/profile, per active semantic model, or globally active.
+- Exact first remote provider and model defaults.
+- Exact rating rubric: whether score means aesthetic quality, technical quality, keeper priority, or
+  a weighted combination.
+- Whether the first UI exposes rating separately or runs a combined understanding+rating job that
+  stores separate task results.
 - When to rename C++ classes and the sidecar executable from semantic-oriented names to AI-sidecar
   names.
+
+## Research References
+
+- OpenAI API docs: official SDKs are available for several languages, and direct HTTP clients are a
+  supported path when no official SDK fits. Rust should therefore use direct HTTPS for the first
+  provider instead of relying on an unofficial broad SDK.
+- OpenAI API docs: API keys are bearer secrets and should be loaded from environment variables or a
+  key-management service, not hard-coded or exposed client-side.
+- OpenAI API docs: Responses API supports image input and structured outputs, which match the
+  caption/tag/rating schema requirement.
+- Rust `reqwest` docs: async HTTP client with JSON support, reusable clients, timeout/TLS
+  configuration, and explicit TLS backend selection.
+- QtKeychain docs: platform-independent Qt secret storage backed by Windows Credential Store, macOS
+  Keychain, and Linux desktop keyrings.
+- Rust `secrecy` / `zeroize` docs: explicit secret exposure and zeroing help prevent accidental
+  logging and reduce in-memory lifetime risk; the current custom `SecretString` can stay if it keeps
+  the same audit properties.
