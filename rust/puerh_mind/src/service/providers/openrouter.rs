@@ -30,7 +30,8 @@ use crate::service::image_analysis::{
 use crate::service::provider_config::{ModelConfig, ProviderConfig};
 use crate::service::providers::http_util::{
     MAX_TRANSIENT_RETRIES, build_image_data_uri, build_rustls_client, extract_usage,
-    json_pointer_str, parse_content_json, send_with_retry, strict_schema_value,
+    json_pointer_str, parse_content_json, parse_rating_int, send_with_retry,
+    strict_schema_value,
 };
 
 /// Schema names injected into `response_format.json_schema.name`. Kept stable and
@@ -243,12 +244,14 @@ impl OpenRouterChatProvider {
             other => other.clone(),
         };
         // The remote LLM is asked for a 1..=5 integer star rating. Accept an exact
-        // integer first, then a float a model may emit despite the `integer` schema
-        // (e.g. `4.0`); anything missing or non-numeric falls back to 0, which is
-        // outside the 1..=5 contract and is rejected by `validate_rating`.
+        // integer, or an integer-valued float a model may emit despite the
+        // `integer` schema (e.g. `4.0`); a fractional float (e.g. `4.9`) is
+        // schema-invalid and is NOT truncated — `parse_rating_int` returns None,
+        // the rating falls back to 0 (outside the 1..=5 contract), and
+        // `validate_rating` rejects it (fail closed, no active annotation).
         let rating = parsed
             .get("rating")
-            .and_then(|v| v.as_i64().map(|i| i as i32).or_else(|| v.as_f64().map(|f| f as i32)))
+            .and_then(parse_rating_int)
             .unwrap_or(0);
         let out = ScoreOutcome {
             rating,
@@ -636,6 +639,31 @@ mod tests {
             .expect("score ok");
         assert_eq!(out.rating, 5);
         validate_rating(&out).expect("float rating coerces and validates");
+    }
+
+    #[tokio::test]
+    async fn parses_rating_rejects_fractional_float() {
+        // A fractional rating (4.9) is schema-invalid. It must NOT be truncated
+        // to 4 and pass validation — fail closed: the parser yields the
+        // out-of-contract sentinel 0 and validate_rating maps it to
+        // SchemaValidation (no active annotation).
+        let server = MockServer::start().await;
+        let body = json!({
+            "id": "or-req-frac",
+            "choices": [ { "message": { "content":
+                r#"{"rating":4.9,"rubric_id":"alcedo-default-v1","rubric_version":"1","reasons":"x"}"# } } ]
+        });
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&server)
+            .await;
+        let provider = provider_for(&server);
+        let err = provider
+            .score_image(&test_image_png(), "", "", "alcedo-default-v1", Some(&secret()))
+            .await
+            .expect_err("fractional rating rejected");
+        assert_eq!(err, ProviderError::SchemaValidation);
     }
 
     #[tokio::test]

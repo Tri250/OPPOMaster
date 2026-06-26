@@ -851,40 +851,39 @@ Review focus:
 
 ## Phase 6 - Product Wiring For Credentials, Caption, And Rating
 
-### Phase 5f handoff — live data-carrier payloads (response header stripped)
+### Phase 5f handoff — live data-carrier payload shapes (response header + content stripped)
 
-The two JSON bodies below are the REAL data carriers the Phase 5f env-gated live
-run received from the remote provider for one image in `install_test.alcd`
-(provider `volcengine_ark_coding`, model `doubao-seed-2.0-lite`). The gRPC
-response wraps each in an `AiResponseHeader` (request_id, provider, model_id,
-usage, provider_request_id, error, elapsed_ms, rendition) — that header metadata
-is stripped here; what remains is the body the host persists and, for
-understanding, folds into the search document. Each body is an instance of the
-code-owned JSON Schema the driver validates + normalizes before returning
+The two JSON bodies below are the SHAPE of the data carriers the Phase 5f
+env-gated live run received from the remote provider for one image in
+`install_test.alcd` (provider `volcengine_ark_coding`, model
+`doubao-seed-2.0-lite`). The gRPC response wraps each in an `AiResponseHeader`
+(request_id, provider, model_id, usage, provider_request_id, error, elapsed_ms,
+rendition) — that header metadata is stripped here. The field VALUES for the
+photo-describing fields (`caption`, `tags`, `scene`, `reasons`) are ALSO stripped
+and replaced with `<redacted ...>` placeholders: the live image's actual content
+is private and is NOT recorded in this plan doc (the live-smoke test already
+states "the caption is printed to stdout only (NOT recorded in the plan doc)").
+What remains is the exact field set, types, and structure a Phase 6 consumer
+gets after `ImageAnalysisService` -> `AiSidecarRuntimeService` ->
+`GrpcAiSidecarRuntimeClient::DescribeImage`/`ScoreImage` -> sidecar HTTP driver —
+enough for handoff without leaking photo contents. Each body is an instance of
+the code-owned JSON Schema the driver validates + normalizes before returning
 (`IMAGE_UNDERSTANDING_SCHEMA` / `IMAGE_RATING_SCHEMA` in
 `rust/puerh_mind/src/service/image_analysis.rs`): `caption` + `tags` required
 (understanding), `rating` + `rubric_id` required (rating), `rating` an integer in
 1..5 with NO `confidence` (Phase 5f rating-contract change; understanding still
-carries `confidence` in 0..1). These are the exact shapes a Phase 6 consumer
-gets after `ImageAnalysisService` -> `AiSidecarRuntimeService` ->
-`GrpcAiSidecarRuntimeClient::DescribeImage`/`ScoreImage` -> sidecar HTTP driver.
+carries `confidence` in 0..1).
 
 `image_understanding.describe` body (`AlcedoImageUnderstanding`):
 
 ```json
 {
-  "caption": "Traditional Japanese restaurant entrance at night with a lit paper lantern and decorative doll.",
+  "caption": "<redacted: photo-describing caption>",
   "tags": [
-    "japanese",
-    "entrance",
-    "night",
-    "lantern",
-    "wooden door",
-    "traditional architecture",
-    "restaurant",
-    "decor"
+    "<redacted tag>",
+    "<redacted tag>"
   ],
-  "scene": "night street entrance to Japanese restaurant",
+  "scene": "<redacted: photo-describing scene>",
   "confidence": 0.95
 }
 ```
@@ -896,7 +895,7 @@ gets after `ImageAnalysisService` -> `AiSidecarRuntimeService` ->
   "rating": 5,
   "rubric_id": "general",
   "rubric_version": "1.0",
-  "reasons": "This is a beautifully composed night photograph of a traditional Japanese entrance, with warm lighting from the lantern creating strong atmospheric mood, clear detail in wooden textures, and excellent cultural composition."
+  "reasons": "<redacted: photo-describing reasons>"
 }
 ```
 

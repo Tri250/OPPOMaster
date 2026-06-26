@@ -146,7 +146,9 @@
       "Bash(npm run *)",
       "Bash(git log *)",
       "Bash(grep -v -E \"/third_party/|/target/|/build/|/\\\\.venv/\")",
-      "Read(//d/rust/puerh_mind/src/**)"
+      "Read(//d/rust/puerh_mind/src/**)",
+      "Bash(head -40 mod.rs)",
+      "Bash(head -40 providers.rs)"
     ]
   }
 }

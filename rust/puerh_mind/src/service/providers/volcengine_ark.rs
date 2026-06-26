@@ -33,7 +33,8 @@ use crate::service::image_analysis::{
 use crate::service::provider_config::{ModelConfig, ProviderConfig};
 use crate::service::providers::http_util::{
     MAX_TRANSIENT_RETRIES, build_image_data_uri, build_rustls_client, extract_usage,
-    json_pointer_str, parse_content_json, send_with_retry, strict_schema_value,
+    json_pointer_str, parse_content_json, parse_rating_int, send_with_retry,
+    strict_schema_value,
 };
 
 const UNDERSTANDING_SCHEMA_NAME: &str = "alcedo_image_understanding";
@@ -208,11 +209,13 @@ impl VolcengineArkResponsesProvider {
     fn parse_score(&self, body: &Value, model_id: &str) -> Result<ScoreOutcome, ProviderError> {
         let text = Self::extract_output_text(body).ok_or(ProviderError::SchemaValidation)?;
         let parsed = parse_content_json(&text)?;
-        // 1..=5 integer star rating; accept a float form a model may emit despite
-        // the `integer` schema, fall back to 0 (outside the contract) otherwise.
+        // 1..=5 integer star rating. Accept an exact integer or an integer-valued
+        // float (e.g. `4.0`); a fractional float (e.g. `4.9`) is NOT truncated —
+        // `parse_rating_int` returns None, the rating falls back to 0 (outside the
+        // 1..=5 contract), and `validate_rating` rejects it (fail closed).
         let rating = parsed
             .get("rating")
-            .and_then(|v| v.as_i64().map(|i| i as i32).or_else(|| v.as_f64().map(|f| f as i32)))
+            .and_then(parse_rating_int)
             .unwrap_or(0);
         let out = ScoreOutcome {
             rating,
@@ -569,6 +572,28 @@ mod tests {
         assert_eq!(out.reasons, "r");
         assert_eq!(out.usage.total_tokens, 125);
         validate_rating(&out).expect("canned rating validates");
+    }
+
+    #[tokio::test]
+    async fn parses_rating_rejects_fractional_float() {
+        // A fractional rating (4.9) is schema-invalid and must NOT be truncated
+        // to 4 — fail closed: the parser yields 0 and validate_rating maps it to
+        // SchemaValidation (no active annotation).
+        let server = MockServer::start().await;
+        let body = ok_responses_body(
+            r#"{"rating":4.9,"rubric_id":"alcedo-default-v1","rubric_version":"1","reasons":"x"}"#,
+        );
+        Mock::given(method("POST"))
+            .and(path("/responses"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&server)
+            .await;
+        let provider = provider_for(&server);
+        let err = provider
+            .score_image(&test_image_png(), "", "", "alcedo-default-v1", Some(&secret()))
+            .await
+            .expect_err("fractional rating rejected");
+        assert_eq!(err, ProviderError::SchemaValidation);
     }
 
     #[tokio::test]

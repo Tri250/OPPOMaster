@@ -152,6 +152,29 @@ auto JoinFileIds(std::span<const sl_element_id_t> file_ids) -> std::string {
   return out;
 }
 
+// Enforce the "file_id is a foreign key into Element(id)" contract at the write
+// boundary. The AiImageUnderstanding / AiImageRating DDL declares file_id NOT
+// NULL but, like the semantic embedding tables, does NOT add a SQL-level
+// REFERENCES Element(id) constraint: a DDL foreign key could not be added
+// migration-safely here (CREATE TABLE IF NOT EXISTS skips existing DBs, so
+// enforcement would be inconsistent across fresh and pre-existing databases),
+// and the codebase's established pattern is manual cascade on the
+// ElementController's connection. Instead, every upsert rejects a file_id with
+// no matching Element row, so no orphan AI annotation can ever be written.
+// `file_id` is an integer, so it is interpolated safely into the predicate.
+auto FileExists(duckdb_connection conn, sl_element_id_t file_id) -> bool {
+  duckdb_result result;
+  const auto    sql = std::format("SELECT 1 FROM Element WHERE id = {} LIMIT 1;", file_id);
+  if (duckdb_query(conn, sql.c_str(), &result) != DuckDBSuccess) {
+    duckdb_destroy_result(&result);
+    // Fail closed: a query failure must never allow an orphan write.
+    return false;
+  }
+  const bool exists = duckdb_row_count(&result) > 0;
+  duckdb_destroy_result(&result);
+  return exists;
+}
+
 }  // namespace
 
 AiStorageController::AiStorageController(DBController& db_ctrl) : db_ctrl_(db_ctrl) {}
@@ -162,6 +185,9 @@ auto AiStorageController::UpsertUnderstanding(const AiDescription& description) 
   }
   auto guard = db_ctrl_.GetConnectionGuard();
   auto lock  = guard.Lock();
+  if (!FileExists(guard.conn_, description.file_id_)) {
+    return false;  // no Element row for file_id — refuse the orphan annotation
+  }
   duckorm::insert_or_replace(guard.conn_, kUnderstandingTable, &description,
                              kInsertUnderstandingFields, kInsertUnderstandingFields.size());
   return true;
@@ -205,6 +231,9 @@ auto AiStorageController::UpsertRating(const AiRating& rating) const -> bool {
   }
   auto guard = db_ctrl_.GetConnectionGuard();
   auto lock  = guard.Lock();
+  if (!FileExists(guard.conn_, rating.file_id_)) {
+    return false;  // no Element row for file_id — refuse the orphan annotation
+  }
   duckorm::insert_or_replace(guard.conn_, kRatingTable, &rating, kInsertRatingFields,
                              kInsertRatingFields.size());
   return true;

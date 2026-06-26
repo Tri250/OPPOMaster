@@ -297,6 +297,33 @@ pub fn parse_content_json(content: &str) -> Result<Value, ProviderError> {
     serde_json::from_str::<Value>(content).map_err(|_| ProviderError::SchemaValidation)
 }
 
+/// Coerce a model-emitted `rating` value to the 1..=5 integer the contract
+/// requires, WITHOUT silently truncating a fractional float.
+///
+/// The remote LLM is asked for an `integer` rating, but some models still emit
+/// an integer-valued float (e.g. `4.0`); that form is accepted and coerced to
+/// the integer 4. A genuinely fractional float (e.g. `4.9`) is schema-invalid
+/// — truncating it to 4 would silently normalize bad output into a valid
+/// rating, so it is rejected here (returns `None`). The caller maps `None` to
+/// the out-of-contract sentinel 0, which `validate_rating` then turns into a
+/// `SchemaValidation` error (fail closed, no active annotation). Non-numeric
+/// values are likewise `None`.
+pub fn parse_rating_int(value: &Value) -> Option<i32> {
+    // An exact integer (JSON `4`) — the common, contract-correct case.
+    if let Some(i) = value.as_i64() {
+        return Some(i as i32);
+    }
+    // An integer-valued float (JSON `4.0`) — accept and coerce. A fractional
+    // float (JSON `4.9`) has `fract() != 0.0` and falls through to `None`,
+    // so it is NOT truncated into a valid rating.
+    if let Some(f) = value.as_f64() {
+        if f.fract() == 0.0 && f >= i32::MIN as f64 && f <= i32::MAX as f64 {
+            return Some(f as i32);
+        }
+    }
+    None
+}
+
 /// Tolerantly extract usage from a provider usage object. OpenRouter follows
 /// OpenAI Chat (`prompt_tokens` / `completion_tokens` / `total_tokens`); Ark
 /// Responses follows OpenAI Responses (`input_tokens` / `output_tokens` /
@@ -489,5 +516,30 @@ mod tests {
         assert_eq!(json_pointer_str(&v, "").unwrap(), &v);
         assert_eq!(json_pointer_str(&v, "/a/b").unwrap(), &1);
         assert!(json_pointer_str(&v, "/missing").is_none());
+    }
+
+    #[test]
+    fn parse_rating_int_accepts_integer_and_integer_valued_float() {
+        // Exact integer (the contract-correct form).
+        assert_eq!(parse_rating_int(&serde_json::json!(4)), Some(4));
+        // Integer-valued float a model may emit despite the `integer` schema.
+        assert_eq!(parse_rating_int(&serde_json::json!(5.0)), Some(5));
+        assert_eq!(parse_rating_int(&serde_json::json!(1.0)), Some(1));
+    }
+
+    #[test]
+    fn parse_rating_int_rejects_fractional_float_without_truncation() {
+        // A fractional rating is schema-invalid. It must NOT be truncated to 4
+        // and pass validation — fail closed (None -> 0 -> SchemaValidation).
+        assert_eq!(parse_rating_int(&serde_json::json!(4.9)), None);
+        assert_eq!(parse_rating_int(&serde_json::json!(0.5)), None);
+        assert_eq!(parse_rating_int(&serde_json::json!(-1.2)), None);
+    }
+
+    #[test]
+    fn parse_rating_int_rejects_non_numeric() {
+        assert_eq!(parse_rating_int(&serde_json::json!("4")), None);
+        assert_eq!(parse_rating_int(&serde_json::json!(null)), None);
+        assert_eq!(parse_rating_int(&serde_json::json!({"rating": 4})), None);
     }
 }

@@ -264,6 +264,14 @@ auto ElementController::GetFolderContent(const sl_element_id_t folder_id)
  * @brief Remove an element by its ID from the database, only be called when the ref count to the
  * element is 0.
  *
+ * Low-level row delete: removes the Element row only. It does NOT cascade
+ * AI / semantic / history / pipeline / file-binding rows — that orchestration
+ * lives at the service layer (SleeveServiceImpl::DeleteElement flows through
+ * Write -> Sync -> RemoveElements / RemoveElement(shared_ptr), which call
+ * DeleteSemanticAndAiRowsForFiles on the same connection). Keep this primitive
+ * a pure row delete so the storage-controller layer does not reach back up
+ * into element-fetch / cascade orchestration.
+ *
  * @param id
  */
 void ElementController::RemoveElement(const sl_element_id_t id) {

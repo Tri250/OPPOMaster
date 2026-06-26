@@ -313,6 +313,24 @@ TEST_F(AiStorageControllerTest, DeleteForFilesRemovesBothKinds) {
   EXPECT_FALSE(ai.GetActiveRating(file_id).has_value());
 }
 
+// file_id is a foreign key into Element(id). An upsert for a file_id with no
+// matching Element row is refused so no orphan AI annotation can ever be
+// written (the FK is enforced at the write boundary, not via a DDL constraint).
+TEST_F(AiStorageControllerTest, OrphanFileIdNotPersisted) {
+  ProjectService project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
+  auto&          ai = project.GetStorageService()->GetAiStorageController();
+  // A file_id that was never created — no Element row exists for it.
+  constexpr sl_element_id_t kOrphanFileId = 999'999'999;
+
+  EXPECT_FALSE(ai.UpsertUnderstanding(
+      MakeUnderstanding(kOrphanFileId, "describe", "orphan caption", {"orphan"})));
+  EXPECT_FALSE(ai.UpsertRating(MakeRating(kOrphanFileId, "rate", 3, "orphan reasons")));
+
+  EXPECT_FALSE(ai.GetUnderstanding(kOrphanFileId, "describe").has_value());
+  EXPECT_FALSE(ai.GetRating(kOrphanFileId, "rate").has_value());
+  EXPECT_EQ(CountUnderstandingRows(project.GetStorageService()->GetDBController()), 0u);
+}
+
 // The file-deletion cascade (ElementController::RemoveElements) drops AI annotation rows
 // on the same connection as element deletion, so the cleanup is atomic and a re-import
 // cannot resurrect an old AI annotation under a new image id.
@@ -333,6 +351,34 @@ TEST_F(AiStorageControllerTest, ElementDeletionCascadesAiRows) {
 
   EXPECT_FALSE(ai.GetUnderstanding(file_id, "describe").has_value());
   EXPECT_FALSE(ai.GetRating(file_id, "rate").has_value());
+}
+
+// The public façade delete-by-id API — SleeveServiceImpl::DeleteElement(id) —
+// must cascade AI rows. DeleteElement flows through Write<void>, which marks the
+// element DELETED in the in-memory FS tree and then calls Sync(); Sync collects
+// the deleted element and runs ElementController::RemoveElements, which calls
+// DeleteSemanticAndAiRowsForFiles on the same connection. The cascade lives at
+// the service layer, NOT in the low-level ElementController::RemoveElement(id)
+// row-delete primitive (which intentionally removes only the Element row).
+TEST_F(AiStorageControllerTest, SleeveServiceDeleteElementCascadesAiRows) {
+  ProjectService project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
+  const auto     file_id = CreateSyntheticFile(project, L"ai_cascade_id_alpha.dng");
+  ASSERT_NE(file_id, 0u);
+  auto& ai = project.GetStorageService()->GetAiStorageController();
+  ASSERT_TRUE(ai.UpsertUnderstanding(MakeUnderstanding(file_id, "describe", "cascade id caption", {})));
+  ASSERT_TRUE(ai.UpsertRating(MakeRating(file_id, "rate", 4, "cascade id reasons")));
+  ASSERT_TRUE(ai.GetUnderstanding(file_id, "describe").has_value());
+  ASSERT_TRUE(ai.GetRating(file_id, "rate").has_value());
+
+  // Façade API: marks DELETED + Syncs (Write<void> auto-calls Sync), flushing
+  // the element + its AI rows out of the DB.
+  const auto result = project.GetSleeveService()->DeleteElement(file_id);
+  EXPECT_TRUE(result.success_) << result.message_;
+
+  EXPECT_FALSE(ai.GetUnderstanding(file_id, "describe").has_value());
+  EXPECT_FALSE(ai.GetActiveUnderstanding(file_id).has_value());
+  EXPECT_FALSE(ai.GetRating(file_id, "rate").has_value());
+  EXPECT_FALSE(ai.GetActiveRating(file_id).has_value());
 }
 
 }  // namespace alcedo
