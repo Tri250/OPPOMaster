@@ -12,8 +12,10 @@
 #include <deque>
 #include <filesystem>
 #include <future>
+#include <fstream>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -37,8 +39,67 @@ constexpr int kErrorMissingCredential   = 2;
 constexpr int kErrorTaskUnknown         = 9;
 constexpr int kErrorPayloadDecode       = 10;
 
+#ifndef ALCEDO_REPO_ROOT
+#define ALCEDO_REPO_ROOT "."
+#endif
+
 auto ScratchDir(const std::string& tag) -> std::filesystem::path {
   return std::filesystem::temp_directory_path() / ("alcedo_ia_svc_test_" + tag);
+}
+
+auto EnvFileValue(const std::filesystem::path& path, const std::string& key) -> std::string {
+  std::ifstream in(path);
+  if (!in.is_open()) {
+    return {};
+  }
+  std::string line;
+  while (std::getline(in, line)) {
+    if (!line.empty() && line.back() == '\r') {
+      line.pop_back();
+    }
+    const auto first = line.find_first_not_of(" \t");
+    if (first == std::string::npos || line[first] == '#') {
+      continue;
+    }
+    auto key_pos = first;
+    if (line.compare(first, 7, "export ") == 0) {
+      key_pos = first + 7;
+    }
+    if (line.compare(key_pos, key.size(), key) != 0 ||
+        line.size() <= key_pos + key.size() || line[key_pos + key.size()] != '=') {
+      continue;
+    }
+    std::string value = line.substr(key_pos + key.size() + 1);
+    const auto  a = value.find_first_not_of(" \t");
+    const auto  b = value.find_last_not_of(" \t");
+    if (a == std::string::npos) {
+      return {};
+    }
+    value = value.substr(a, b - a + 1);
+    if (value.size() >= 2 && ((value.front() == '"' && value.back() == '"') ||
+                              (value.front() == '\'' && value.back() == '\''))) {
+      value = value.substr(1, value.size() - 2);
+    }
+    return value;
+  }
+  return {};
+}
+
+auto EnvOrFileValue(const std::filesystem::path& env_path,
+                    const std::vector<std::string>& names) -> std::string {
+  for (const auto& name : names) {
+    if (const char* value = std::getenv(name.c_str());
+        value != nullptr && value[0] != '\0') {
+      return std::string(value);
+    }
+  }
+  for (const auto& name : names) {
+    auto value = EnvFileValue(env_path, name);
+    if (!value.empty()) {
+      return value;
+    }
+  }
+  return {};
 }
 
 // Synchronous thumbnail provider: returns a ready guard holding a small CPU mat so the
@@ -694,6 +755,78 @@ TEST(ImageAnalysisServiceTest, ValidateConnectionListModelsFailureStillRevokesHa
   EXPECT_EQ(client->RevokeCalls(), 1);
   EXPECT_TRUE(result.credential_revoked);
   EXPECT_EQ(result.error.find("sk-VALIDATE-FAILURE"), std::string::npos);
+}
+
+TEST(ImageAnalysisServiceLiveTest, ValidateConnectionDiscoversOpencodeModels) {
+  const std::filesystem::path repo_root = std::filesystem::path(ALCEDO_REPO_ROOT);
+  const std::filesystem::path env_path =
+      std::getenv("ALCEDO_OPENCODE_ENV_TEST_PATH") != nullptr
+          ? std::filesystem::path(std::getenv("ALCEDO_OPENCODE_ENV_TEST_PATH"))
+          : repo_root / "rust" / "puerh_mind" / ".env.test";
+  const std::string api_key =
+      EnvOrFileValue(env_path, {"ALCEDO_OPENCODE_API_KEY", "OPENCODE_API_KEY"});
+  if (api_key.empty()) {
+    GTEST_SKIP() << "Set ALCEDO_OPENCODE_API_KEY or OPENCODE_API_KEY in " << env_path
+                 << " to run the live Opencode validate-connection smoke.";
+  }
+
+  std::filesystem::path runtime_path =
+      std::getenv("ALCEDO_OPENCODE_LIVE_RUNTIME_PATH") != nullptr
+          ? std::filesystem::path(std::getenv("ALCEDO_OPENCODE_LIVE_RUNTIME_PATH"))
+          : repo_root / "rust" / "puerh_mind" / "target" / "debug" / "alcedo_mind.exe";
+  if (!std::filesystem::exists(runtime_path)) {
+    GTEST_SKIP() << "Sidecar binary not found at " << runtime_path
+                 << "; build rust/puerh_mind target debug alcedo_mind first.";
+  }
+
+  auto runtime = std::make_shared<AiSidecarRuntimeService>();
+  AiSidecarRuntimeOptions runtime_opts;
+  runtime_opts.runtime_binary        = runtime_path;
+  runtime_opts.model_root            = std::filesystem::temp_directory_path() /
+                            "alcedo_opencode_validate_modelroot";
+  runtime_opts.model_id              = "plhery/mobileclip2-onnx:s2";
+  runtime_opts.device                = "cpu";
+  runtime_opts.allow_download        = false;
+  runtime_opts.require_model_info    = false;
+  runtime_opts.startup_timeout       = std::chrono::milliseconds(120000);
+  runtime_opts.health_poll_interval  = std::chrono::milliseconds(100);
+  runtime_opts.graceful_stop_timeout = std::chrono::milliseconds(2000);
+  runtime_opts.kill_timeout          = std::chrono::milliseconds(3000);
+  std::filesystem::create_directories(runtime_opts.model_root);
+  ASSERT_TRUE(runtime->StartAndWait(runtime_opts)) << runtime->Status().message;
+
+  auto provider = std::make_shared<FakeThumbnailProvider>();
+  auto client   = std::make_shared<AiSidecarRuntimeImageAnalysisClient>(runtime);
+  ImageAnalysisService     service(provider, client);
+  InMemoryAiCredentialStore store;
+  ASSERT_TRUE(store.SaveCredential("opencode_api_key", api_key, nullptr));
+
+  ImageAnalysisConnectionValidationOptions opts;
+  opts.provider_id     = std::getenv("ALCEDO_OPENCODE_LIVE_PROVIDER_ID") != nullptr
+                             ? std::string(std::getenv("ALCEDO_OPENCODE_LIVE_PROVIDER_ID"))
+                             : std::string("opencode_go_openai");
+  opts.credential_slot = "opencode_api_key";
+  opts.timeout         = std::chrono::milliseconds(120000);
+  opts.credential_ttl_ms = 120000;
+
+  const auto result = service.ValidateConnection(opts, store);
+  runtime->Stop();
+  std::error_code ec;
+  std::filesystem::remove_all(runtime_opts.model_root, ec);
+
+  ASSERT_TRUE(result.ok) << result.error;
+  EXPECT_TRUE(result.credential_revoked);
+  ASSERT_TRUE(result.list_models.ok) << result.list_models.error;
+  ASSERT_FALSE(result.models.empty()) << "Opencode model discovery returned no models";
+
+  std::cout << "opencode validate connection ok; provider=" << opts.provider_id
+            << "; discovered_models=" << result.models.size() << "\n";
+  const size_t limit = std::min<size_t>(result.models.size(), 20);
+  for (size_t i = 0; i < limit; ++i) {
+    std::cout << "opencode model[" << i << "]: id=" << result.models[i].model_id
+              << "; display=" << result.models[i].display_name
+              << "; source=" << result.models[i].source_provider_id << "\n";
+  }
 }
 
 // === Phase 5e: producer/consumer prefill pipeline ============================================

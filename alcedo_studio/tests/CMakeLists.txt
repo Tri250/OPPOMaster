@@ -770,6 +770,8 @@ gtest_discover_tests(ImageAnalysisEncoderTest TEST_PREFIX "ImageAnalysisEncoderT
 
 add_executable(ImageAnalysisServiceTest app/image_analysis_service_test.cpp)
 target_include_directories(ImageAnalysisServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_compile_definitions(ImageAnalysisServiceTest PRIVATE
+  ALCEDO_REPO_ROOT="${CMAKE_SOURCE_DIR}")
 target_link_libraries(ImageAnalysisServiceTest ImageAnalysisService
   GTest::gtest_main)
 gtest_discover_tests(ImageAnalysisServiceTest TEST_PREFIX "ImageAnalysisServiceTest."
