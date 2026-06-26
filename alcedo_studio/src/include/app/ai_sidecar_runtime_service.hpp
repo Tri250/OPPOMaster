@@ -239,6 +239,32 @@ struct ImageAnalysisRatingResult {
   uint64_t                               elapsed_ms = 0;
 };
 
+// Phase 6c: a model id discovered by live-listing the configured endpoint's
+// /models (dry-run discovery). Carries NO capability verdict — listing proves
+// only that the endpoint can see the id, not image input or structured-output
+// support. The host merges candidates into preset state but keeps them
+// unadvertised until a validation smoke pins capability (Phase 6f).
+struct AiDiscoveredModel {
+  std::string model_id;
+  std::string display_name;
+  std::string source_provider_id;
+};
+
+// Result of ImageAnalysisService::ListModels (Phase 6c). On a non-OK header the
+// `models` vector is empty and `error`/`status`/`error_code` carry the failure
+// (auth, unsupported provider, network, schema). No annotations are persisted —
+// this is a dry run.
+struct ImageAnalysisListModelsResult {
+  std::string                     request_id;
+  bool                            ok         = false;
+  int                             status     = 0;  // AiResponseStatus
+  int                             error_code = 0;  // AiErrorCode
+  std::string                     error;
+  std::string                     provider;
+  uint64_t                        elapsed_ms = 0;
+  std::vector<AiDiscoveredModel>  models;
+};
+
 struct AiSidecarRuntimeOptions {
   std::filesystem::path     runtime_binary;
   std::filesystem::path     model_root;
@@ -287,6 +313,13 @@ class IAiSidecarRuntimeClient {
   virtual auto RegisterCredential(const std::string& endpoint, std::chrono::milliseconds timeout,
                                   const std::string& provider_id, const std::string& secret,
                                   int64_t ttl_ms, std::string* handle, std::string* error)
+      -> bool = 0;
+  // Phase 6c: revoke a previously-registered credential handle so it can no
+  // longer be resolved by task RPCs. Idempotent. `*revoked` is true only when a
+  // live handle was revoked. Used on provider logout, settings deletion, sidecar
+  // stop, and project close.
+  virtual auto RevokeCredential(const std::string& endpoint, std::chrono::milliseconds timeout,
+                                const std::string& handle, bool* revoked, std::string* error)
       -> bool = 0;
   // Cancels an in-flight sidecar task by request_id. `*cancelled` is true only if a task
   // with that request_id was registered and signalled.
@@ -349,6 +382,14 @@ class IAiSidecarRuntimeClient {
   virtual auto ScoreImage(const std::string&          endpoint,
                           const ImageAnalysisRequest& request, std::chrono::milliseconds timeout)
       -> ImageAnalysisRatingResult = 0;
+  // Phase 6c: dry-run model discovery against the configured endpoint's /models
+  // (proto/image_analysis.proto ImageAnalysisService::ListModels). `provider_id`
+  // selects the configured endpoint ("" = sidecar default); `credential_ref` is
+  // the opaque vault handle, never key material. Returns unverified candidate
+  // DTOs; no annotations are persisted.
+  virtual auto ListModels(const std::string& endpoint, const std::string& provider_id,
+                          const std::string& credential_ref, std::chrono::milliseconds timeout)
+      -> ImageAnalysisListModelsResult = 0;
 };
 
 class GrpcAiSidecarRuntimeClient final : public IAiSidecarRuntimeClient {
@@ -365,6 +406,9 @@ class GrpcAiSidecarRuntimeClient final : public IAiSidecarRuntimeClient {
   auto RegisterCredential(const std::string& endpoint, std::chrono::milliseconds timeout,
                           const std::string& provider_id, const std::string& secret, int64_t ttl_ms,
                           std::string* handle, std::string* error) -> bool override;
+  auto RevokeCredential(const std::string& endpoint, std::chrono::milliseconds timeout,
+                        const std::string& handle, bool* revoked, std::string* error)
+      -> bool override;
   auto CancelTask(const std::string& endpoint, std::chrono::milliseconds timeout,
                   const std::string& request_id, bool* cancelled, std::string* error)
       -> bool override;
@@ -413,6 +457,9 @@ class GrpcAiSidecarRuntimeClient final : public IAiSidecarRuntimeClient {
                      std::chrono::milliseconds timeout) -> ImageAnalysisUnderstandingResult override;
   auto ScoreImage(const std::string& endpoint, const ImageAnalysisRequest& request,
                   std::chrono::milliseconds timeout) -> ImageAnalysisRatingResult override;
+  auto ListModels(const std::string& endpoint, const std::string& provider_id,
+                  const std::string& credential_ref, std::chrono::milliseconds timeout)
+      -> ImageAnalysisListModelsResult override;
 };
 
 class AiSidecarRuntimeService final : public QObject {
@@ -445,6 +492,11 @@ class AiSidecarRuntimeService final : public QObject {
   auto RegisterCredential(const std::string& provider_id, const std::string& secret, int64_t ttl_ms,
                           std::chrono::milliseconds timeout, std::string* handle,
                           std::string* error) -> bool;
+  // Phase 6c: revoke a credential handle (idempotent). `*revoked` is true only
+  // when a live handle was revoked. Used on logout / settings deletion / stop /
+  // project close.
+  auto RevokeCredential(const std::string& handle, std::chrono::milliseconds timeout,
+                        bool* revoked, std::string* error) -> bool;
   auto CancelTask(const std::string& request_id, std::chrono::milliseconds timeout, bool* cancelled,
                   std::string* error) -> bool;
   auto ListModelProfiles(const std::string& model_root, std::chrono::milliseconds timeout,
@@ -474,6 +526,10 @@ class AiSidecarRuntimeService final : public QObject {
       -> ImageAnalysisUnderstandingResult;
   auto ScoreImage(const ImageAnalysisRequest& request, std::chrono::milliseconds timeout)
       -> ImageAnalysisRatingResult;
+  // Phase 6c: dry-run model discovery (validate-connection flow). Ready-guarded
+  // delegate to the client; `credential_ref` is the opaque vault handle.
+  auto ListModels(const std::string& provider_id, const std::string& credential_ref,
+                  std::chrono::milliseconds timeout) -> ImageAnalysisListModelsResult;
 
   auto StateName() const -> QString;
   auto IssueName() const -> QString;

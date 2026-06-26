@@ -6,7 +6,8 @@ use tracing::info;
 use crate::proto::alcedo::ai::{
     AiCapability, AiRequestHeader, AiResponseHeader, AiResponseStatus, CancelTaskRequest,
     CancelTaskResponse, ListCapabilitiesRequest, ListCapabilitiesResponse,
-    RegisterCredentialRequest, RegisterCredentialResponse,
+    RegisterCredentialRequest, RegisterCredentialResponse, RevokeCredentialRequest,
+    RevokeCredentialResponse,
     ai_runtime_service_server::AiRuntimeService,
 };
 use crate::service::cancellation_registry::CancellationRegistry;
@@ -93,6 +94,27 @@ impl AiRuntimeService for AiRuntimeServiceImpl {
         Ok(Response::new(RegisterCredentialResponse {
             header: Some(ok_header(&header)),
             credential_handle: handle,
+        }))
+    }
+
+    async fn revoke_credential(
+        &self,
+        request: Request<RevokeCredentialRequest>,
+    ) -> Result<Response<RevokeCredentialResponse>, Status> {
+        // Log only that the call happened — never the handle (it is a secret
+        // proxy) or any secret material. The handle is opaque and carries no
+        // secret on its own, but we still avoid echoing it.
+        info!("received RevokeCredential request");
+        let req = request.into_inner();
+        let header = req.header.unwrap_or_default();
+        // A handle is "live" if it currently resolves; revoke is idempotent, so
+        // revoking an unknown/already-revoked handle reports `revoked = false`
+        // but status OK (no error to surface).
+        let was_live = self.vault.resolve(&req.credential_handle).is_ok();
+        self.vault.revoke(&req.credential_handle);
+        Ok(Response::new(RevokeCredentialResponse {
+            header: Some(ok_header(&header)),
+            revoked: was_live,
         }))
     }
 
@@ -215,6 +237,42 @@ mod tests {
             .await
             .expect_err("negative ttl rejected");
         assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    }
+
+    #[tokio::test]
+    async fn revoke_credential_revokes_live_handle_and_is_idempotent() {
+        let svc = test_impl();
+        // Register a credential to get a live handle.
+        let handle = svc
+            .vault
+            .register("remote", "sk-test".to_string(), None);
+        // The handle currently resolves.
+        assert!(svc.vault.resolve(&handle).is_ok());
+
+        let resp = svc
+            .revoke_credential(Request::new(RevokeCredentialRequest {
+                header: None,
+                credential_handle: handle.clone(),
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(resp.header.unwrap().status, AiResponseStatus::AiStatusOk as i32);
+        assert!(resp.revoked, "first revoke of a live handle reports true");
+        // After revoke the handle no longer resolves.
+        assert!(svc.vault.resolve(&handle).is_err());
+
+        // Idempotent: a second revoke reports false (no live handle) but OK.
+        let resp2 = svc
+            .revoke_credential(Request::new(RevokeCredentialRequest {
+                header: None,
+                credential_handle: handle.clone(),
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(!resp2.revoked, "second revoke reports false");
+        assert_eq!(resp2.header.unwrap().status, AiResponseStatus::AiStatusOk as i32);
     }
 
     #[tokio::test]

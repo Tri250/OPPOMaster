@@ -60,14 +60,19 @@ impl VolcengineArkResponsesProvider {
         format!("{}{}", self.config.base_url, self.config.endpoint)
     }
 
-    fn resolve_model<'a>(&'a self, requested: &str) -> (String, Option<&'a ModelConfig>) {
-        let slug = if requested.trim().is_empty() {
-            self.config.defaults.model.clone()
-        } else {
-            requested.to_string()
-        };
-        let entry = self.config.models.iter().find(|m| m.slug == slug);
-        (slug, entry)
+    fn resolve_model<'a>(
+        &'a self,
+        requested: &str,
+    ) -> Result<(String, Option<&'a ModelConfig>), ProviderError> {
+        if requested.trim().is_empty() {
+            let slug = self.config.defaults.model.clone();
+            let entry = self.config.models.iter().find(|m| m.slug == slug);
+            return Ok((slug, entry));
+        }
+        match self.config.models.iter().find(|m| m.slug == requested) {
+            Some(m) => Ok((m.slug.clone(), Some(m))),
+            None => Err(ProviderError::UnknownModel(requested.to_string())),
+        }
     }
 
     fn ensure_structured_output(&self, model: Option<&ModelConfig>) -> Result<(), ProviderError> {
@@ -322,7 +327,7 @@ impl ImageAnalysisProvider for VolcengineArkResponsesProvider {
         prompt_profile_id: &str,
         credential: Option<&SecretString>,
     ) -> Result<DescribeOutcome, ProviderError> {
-        let (slug, model) = self.resolve_model(model_id);
+        let (slug, model) = self.resolve_model(model_id)?;
         self.ensure_structured_output(model)?;
         let bearer = self.bearer(credential)?;
         let data_uri = build_image_data_uri(image_bytes)?;
@@ -360,7 +365,7 @@ impl ImageAnalysisProvider for VolcengineArkResponsesProvider {
         rubric_id: &str,
         credential: Option<&SecretString>,
     ) -> Result<ScoreOutcome, ProviderError> {
-        let (slug, model) = self.resolve_model(model_id);
+        let (slug, model) = self.resolve_model(model_id)?;
         self.ensure_structured_output(model)?;
         let bearer = self.bearer(credential)?;
         let data_uri = build_image_data_uri(image_bytes)?;

@@ -63,14 +63,14 @@ use tracing::warn;
 
 use crate::service::credential_vault::SecretString;
 use crate::service::image_analysis::{
-    DescribeOutcome, ImageAnalysisProvider, ProviderError, ScoreOutcome,
+    DescribeOutcome, DiscoveredModel, ImageAnalysisProvider, ProviderError, ScoreOutcome,
     IMAGE_RATING_SCHEMA, IMAGE_UNDERSTANDING_SCHEMA, validate_rating, validate_understanding,
 };
 use crate::service::provider_config::{ModelConfig, ProviderConfig};
 use crate::service::providers::http_util::{
     MAX_TRANSIENT_RETRIES, build_image_base64, build_rustls_client, extract_provider_request_id,
-    extract_usage, json_pointer_str, parse_rating_int, read_response, send_with_retry,
-    strict_schema_value,
+    extract_usage, json_pointer_str, parse_rating_int, read_response, send_get_with_retry,
+    send_with_retry, strict_schema_value,
 };
 
 const UNDERSTANDING_SCHEMA_NAME: &str = "alcedo_image_understanding";
@@ -97,14 +97,31 @@ impl AnthropicMessagesProvider {
         format!("{}{}", self.config.base_url, self.config.endpoint)
     }
 
-    fn resolve_model<'a>(&'a self, requested: &str) -> (String, Option<&'a ModelConfig>) {
-        let slug = if requested.trim().is_empty() {
-            self.config.defaults.model.clone()
-        } else {
-            requested.to_string()
-        };
-        let entry = self.config.models.iter().find(|m| m.slug == slug);
-        (slug, entry)
+    /// Phase 6c: the model-listing (discovery) URL. Defaults to
+    /// `{base_url}/models` (the Anthropic-compatible default); a config
+    /// `models_endpoint` override replaces the path.
+    fn models_url(&self) -> String {
+        let path = self
+            .config
+            .models_endpoint
+            .as_deref()
+            .unwrap_or("/models");
+        format!("{}{}", self.config.base_url, path)
+    }
+
+    fn resolve_model<'a>(
+        &'a self,
+        requested: &str,
+    ) -> Result<(String, Option<&'a ModelConfig>), ProviderError> {
+        if requested.trim().is_empty() {
+            let slug = self.config.defaults.model.clone();
+            let entry = self.config.models.iter().find(|m| m.slug == slug);
+            return Ok((slug, entry));
+        }
+        match self.config.models.iter().find(|m| m.slug == requested) {
+            Some(m) => Ok((m.slug.clone(), Some(m))),
+            None => Err(ProviderError::UnknownModel(requested.to_string())),
+        }
     }
 
     fn ensure_structured_output(&self, model: Option<&ModelConfig>) -> Result<(), ProviderError> {
@@ -382,7 +399,7 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
         prompt_profile_id: &str,
         credential: Option<&SecretString>,
     ) -> Result<DescribeOutcome, ProviderError> {
-        let (slug, model) = self.resolve_model(model_id);
+        let (slug, model) = self.resolve_model(model_id)?;
         self.ensure_structured_output(model)?;
         let (bearer, extra_auth_header) = self.build_auth(credential)?;
         let (media_type, image_b64) = build_image_base64(image_bytes)?;
@@ -425,7 +442,7 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
         rubric_id: &str,
         credential: Option<&SecretString>,
     ) -> Result<ScoreOutcome, ProviderError> {
-        let (slug, model) = self.resolve_model(model_id);
+        let (slug, model) = self.resolve_model(model_id)?;
         self.ensure_structured_output(model)?;
         let (bearer, extra_auth_header) = self.build_auth(credential)?;
         let (media_type, image_b64) = build_image_base64(image_bytes)?;
@@ -459,6 +476,76 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
         );
         Ok(outcome)
     }
+
+    /// Phase 6c: discover models by listing the configured Anthropic-compatible
+    /// `/models` endpoint. Auth follows the config convention (`bearer` ->
+    /// `Authorization: Bearer`, `api_key_header` -> `x-api-key`, both with
+    /// `anthropic-version`). The Anthropic list shape paginates with
+    /// `has_more` + `last_id`; we follow `after_id` pages up to a bounded cap so
+    /// a misbehaving server cannot stall discovery. Discovered models are
+    /// unverified candidates — no capability flags are inferred.
+    async fn list_models(
+        &self,
+        credential: Option<&SecretString>,
+    ) -> Result<Vec<DiscoveredModel>, ProviderError> {
+        let (bearer, extra_auth_header) = self.build_auth(credential)?;
+        let headers = self.request_headers(extra_auth_header);
+        let mut out = Vec::new();
+        let mut after_id: Option<String> = None;
+        // Bound pagination so a server that always reports has_more=true cannot
+        // stall discovery. 50 pages × (typical 100/page) is far beyond any real
+        // account's model list.
+        for _ in 0..50 {
+            let url = match &after_id {
+                Some(id) => format!("{}?limit=100&after_id={}", self.models_url(), id),
+                None => format!("{}?limit=100", self.models_url()),
+            };
+            let resp = send_get_with_retry(
+                &self.http,
+                &url,
+                &headers,
+                bearer,
+                MAX_TRANSIENT_RETRIES,
+            )
+            .await?;
+            let (_resp_headers, body) = read_response(resp).await?;
+            let data = body
+                .get("data")
+                .and_then(|d| d.as_array())
+                .ok_or(ProviderError::SchemaValidation)?;
+            for item in data {
+                let Some(id) = item.get("id").and_then(|v| v.as_str()) else {
+                    continue;
+                };
+                let display_name = item
+                    .get("display_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(id)
+                    .to_string();
+                out.push(DiscoveredModel {
+                    model_id: id.to_string(),
+                    display_name,
+                    source_provider_id: self.config.provider_id.clone(),
+                });
+            }
+            let has_more = body.get("has_more").and_then(|v| v.as_bool()).unwrap_or(false);
+            if !has_more {
+                break;
+            }
+            // Follow the cursor: prefer the response's `last_id` field (Anthropic
+            // shape); fall back to the last item's id. If neither is available
+            // (server reports has_more with no items and no cursor), stop to
+            // avoid an infinite empty-page loop.
+            let next_after = body
+                .get("last_id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .or_else(|| out.last().map(|m| m.model_id.clone()));
+            let Some(next_after) = next_after else { break; };
+            after_id = Some(next_after);
+        }
+        Ok(out)
+    }
 }
 
 #[cfg(test)]
@@ -469,7 +556,7 @@ mod tests {
     use crate::service::provider_config::load_provider_configs;
     use std::collections::HashMap;
     use std::sync::Arc;
-    use wiremock::matchers::{header, method, path};
+    use wiremock::matchers::{header, method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     const TEST_SECRET: &str = "ark-coding-test-key-DO-NOT-LEAK";
@@ -1298,5 +1385,118 @@ mod tests {
         assert_eq!(server.received_requests().await.unwrap().len(), 1);
         assert!(!err.to_string().contains(RAW_BODY_SENTINEL), "raw body leaked: {err}");
         assert!(!err.to_string().contains(TEST_SECRET), "secret in error: {err}");
+    }
+
+    // ----- Phase 6c: model_id tightening + model discovery -----
+
+    #[tokio::test]
+    async fn unknown_explicit_model_id_fails_before_http_anthropic() {
+        let server = MockServer::start().await;
+        let provider = opencode_provider_for(&server);
+        let err = provider
+            .describe_image(&test_image_png(), "not-a-real-anthropic-model", "", Some(&secret()))
+            .await
+            .expect_err("unknown model id should fail closed");
+        assert_eq!(
+            err,
+            ProviderError::UnknownModel("not-a-real-anthropic-model".to_string())
+        );
+        assert_eq!(server.received_requests().await.unwrap().len(), 0);
+    }
+
+    /// Phase 6c: Anthropic-compatible discovery follows `has_more` + `last_id`
+    /// pagination and merges all pages into unverified candidates.
+    #[tokio::test]
+    async fn list_models_anthropic_bearer_parses_and_paginates() {
+        let server = MockServer::start().await;
+        // Page 1 (no after_id): has_more=true, last_id=claude-a.
+        Mock::given(method("GET"))
+            .and(path("/models"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "data": [ { "id": "claude-a", "display_name": "Claude A" } ],
+                "has_more": true,
+                "last_id": "claude-a",
+                "first_id": "claude-a"
+            })))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+        // Page 2 (after_id=claude-a): has_more=false.
+        Mock::given(method("GET"))
+            .and(path("/models"))
+            .and(query_param("after_id", "claude-a"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "data": [ { "id": "claude-b" } ],
+                "has_more": false,
+                "last_id": "claude-b"
+            })))
+            .mount(&server)
+            .await;
+        let provider = opencode_provider_for(&server);
+
+        let models = provider.list_models(Some(&secret())).await.expect("list ok");
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].model_id, "claude-a");
+        assert_eq!(models[0].display_name, "Claude A");
+        assert_eq!(models[1].model_id, "claude-b");
+        assert_eq!(models[1].display_name, "claude-b"); // falls back to id
+        assert_eq!(models[0].source_provider_id, "opencode_go_anthropic");
+        // Two GETs, second carrying the cursor.
+        let reqs = server.received_requests().await.unwrap();
+        assert_eq!(reqs.len(), 2);
+        assert_eq!(reqs[0].method, "GET");
+        assert_eq!(reqs[1].method, "GET");
+    }
+
+    /// Phase 6c: `api_key_header` mode sends `x-api-key` + `anthropic-version`
+    /// and NO `Authorization` for discovery, mirroring the task-call auth path.
+    #[tokio::test]
+    async fn list_models_anthropic_x_api_key_auth() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/models"))
+            .and(header("x-api-key", TEST_SECRET))
+            .and(header("anthropic-version", "2023-06-01"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "data": [ { "id": "claude-a" } ],
+                "has_more": false
+            })))
+            .mount(&server)
+            .await;
+        let mut config = load_provider_configs(None)
+            .expect("built-ins load")
+            .get("volcengine_ark_coding")
+            .expect("coding built-in")
+            .clone();
+        config.base_url = server.uri();
+        config.endpoint = "/v1/messages".to_string();
+        config.models_endpoint = Some("/v1/models".to_string());
+        config.auth.auth_type = "api_key_header".to_string();
+        let provider = AnthropicMessagesProvider::new(config).expect("provider builds");
+
+        let models = provider.list_models(Some(&secret())).await.expect("list ok");
+        assert_eq!(models.len(), 1);
+        let reqs = server.received_requests().await.unwrap();
+        assert_eq!(reqs.len(), 1);
+        assert!(reqs[0].headers.get("authorization").is_none(), "Authorization present in x-api-key mode");
+    }
+
+    /// Phase 6c: a 401 on the model-list maps to a non-retryable `Provider`
+    /// error; the raw body and secret are not leaked.
+    #[tokio::test]
+    async fn list_models_anthropic_4xx_redacts() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/models"))
+            .respond_with(ResponseTemplate::new(401).set_body_string(RAW_BODY_SENTINEL))
+            .mount(&server)
+            .await;
+        let provider = opencode_provider_for(&server);
+
+        let err = provider.list_models(Some(&secret())).await.expect_err("401 fails");
+        assert!(matches!(err, ProviderError::Provider(_)), "{err:?}");
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+        assert!(!err.to_string().contains(TEST_SECRET), "secret in error: {err}");
+        assert!(!err.to_string().contains(RAW_BODY_SENTINEL), "raw body leaked: {err}");
     }
 }

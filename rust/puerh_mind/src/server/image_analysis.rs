@@ -22,8 +22,9 @@ use tracing::info;
 
 use crate::proto::alcedo::ai::{
     AiErrorCode, AiRequestHeader, AiResponseHeader, AiResponseStatus, DescribeImageRequest,
-    DescribeImageResponse, ImageUnderstandingResult, ImageRatingResult, ScoreImageRequest,
-    ScoreImageResponse, UsageMetadata,
+    DescribeImageResponse, DiscoveredModel as DiscoveredModelProto, ImageUnderstandingResult,
+    ImageRatingResult, ListModelsRequest, ListModelsResponse, ScoreImageRequest, ScoreImageResponse,
+    UsageMetadata,
     image_analysis_service_server::ImageAnalysisService,
 };
 use crate::service::credential_vault::{CredentialError, CredentialVault, SecretString};
@@ -174,6 +175,17 @@ impl ImageAnalysisServiceImpl {
                 AiResponseStatus::AiStatusProviderError,
                 AiErrorCode::AiErrorInternal,
                 "provider returned an error".to_string(),
+            ),
+            // Phase 6c: an unknown explicit model_id fails before any provider
+            // HTTP call. Map to INVALID_ARGUMENT so the host surfaces a
+            // configuration error rather than retrying or falling back. The
+            // offending slug is in the error variant but is NOT placed in the
+            // message (provider text is never echoed), so a slug that happens
+            // to look like a key cannot leak.
+            ProviderError::UnknownModel(_) => (
+                AiResponseStatus::AiStatusInvalidArgument,
+                AiErrorCode::AiErrorInternal,
+                "requested model id is not present in the provider config".to_string(),
             ),
         }
     }
@@ -525,13 +537,126 @@ impl ImageAnalysisService for ImageAnalysisServiceImpl {
         };
         Ok(Response::new(response))
     }
+
+    /// Phase 6c: dry-run model discovery. Resolves the credential (when the
+    /// provider requires one), calls the provider's `list_models`, and returns
+    /// unverified candidate DTOs. No annotations are persisted. A provider that
+    /// does not implement discovery (default trait impl) maps to a
+    /// `PROVIDER_ERROR` header; auth/schema/network failures map through the
+    /// same `provider_error_to_header` arms as the task RPCs. No cancellation
+    /// registry entry is registered — discovery is a short bounded call wrapped
+    /// only in the request timeout.
+    async fn list_models(
+        &self,
+        request: Request<ListModelsRequest>,
+    ) -> Result<Response<ListModelsResponse>, Status> {
+        info!("received ListModels request");
+        let start = std::time::Instant::now();
+        let req = request.into_inner();
+        let header = req.header.unwrap_or_default();
+
+        let provider = match self.lookup_provider(&req.provider_id) {
+            Some(p) => p,
+            None => {
+                return Ok(Response::new(ListModelsResponse {
+                    header: self.failure_header(
+                        &header,
+                        AiResponseStatus::AiStatusUnsupportedTask,
+                        AiErrorCode::AiErrorTaskUnknown,
+                        "no provider registered for the requested provider_id",
+                        &req.provider_id,
+                        "",
+                        start.elapsed().as_millis() as u64,
+                    ),
+                    models: vec![],
+                }));
+            }
+        };
+
+        let credential = match self.resolve_credential_secret(&header, provider.as_ref()) {
+            Ok(c) => c,
+            Err((status, code, msg)) => {
+                return Ok(Response::new(ListModelsResponse {
+                    header: self.failure_header(
+                        &header,
+                        status,
+                        code,
+                        &msg,
+                        provider.provider_id(),
+                        "",
+                        start.elapsed().as_millis() as u64,
+                    ),
+                    models: vec![],
+                }));
+            }
+        };
+
+        let timeout_dur = Self::timeout_duration(&header);
+        let fut = provider.list_models(credential.as_ref());
+        let outcome: Result<Vec<_>, ProviderError> =
+            match tokio::time::timeout(timeout_dur, fut).await {
+                Ok(inner) => inner,
+                Err(_elapsed) => {
+                    return Ok(Response::new(ListModelsResponse {
+                        header: self.failure_header(
+                            &header,
+                            AiResponseStatus::AiStatusDeadlineExceeded,
+                            AiErrorCode::AiErrorProviderTimeout,
+                            "model-list call did not complete within the timeout",
+                            provider.provider_id(),
+                            "",
+                            start.elapsed().as_millis() as u64,
+                        ),
+                        models: vec![],
+                    }));
+                }
+            };
+        let elapsed = start.elapsed().as_millis() as u64;
+
+        match outcome {
+            Ok(models) => {
+                let proto_models: Vec<DiscoveredModelProto> = models
+                    .into_iter()
+                    .map(|m| DiscoveredModelProto {
+                        model_id: m.model_id,
+                        display_name: m.display_name,
+                        source_provider_id: m.source_provider_id,
+                    })
+                    .collect();
+                Ok(Response::new(ListModelsResponse {
+                    header: self.success_header(
+                        &header,
+                        provider.provider_id(),
+                        "",
+                        elapsed,
+                    ),
+                    models: proto_models,
+                }))
+            }
+            Err(err) => {
+                let (status, code, msg) = Self::provider_error_to_header(&err);
+                Ok(Response::new(ListModelsResponse {
+                    header: self.failure_header(
+                        &header,
+                        status,
+                        code,
+                        &msg,
+                        provider.provider_id(),
+                        "",
+                        elapsed,
+                    ),
+                    models: vec![],
+                }))
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::proto::alcedo::ai::{AiInputKind, AiOutputKind, AiPriority, RenditionMetadata as ProtoRendition};
-    use crate::service::image_analysis::{MockFailure, MockImageAnalysisProvider};
+    use crate::service::image_analysis::{DiscoveredModel, MockFailure, MockImageAnalysisProvider};
 
     fn svc(mock: MockImageAnalysisProvider) -> ImageAnalysisServiceImpl {
         let vault = Arc::new(CredentialVault::new(None));
@@ -838,6 +963,95 @@ mod tests {
         });
         let err = svc.describe_image(req).await.expect_err("empty image is a transport error");
         assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    }
+
+    // ----- Phase 6c: ListModels -----
+
+    fn discovered() -> Vec<DiscoveredModel> {
+        vec![
+            DiscoveredModel {
+                model_id: "gpt-4o".to_string(),
+                display_name: "GPT-4o".to_string(),
+                source_provider_id: "mock".to_string(),
+            },
+            DiscoveredModel {
+                model_id: "gpt-4o-mini".to_string(),
+                display_name: "gpt-4o-mini".to_string(),
+                source_provider_id: "mock".to_string(),
+            },
+        ]
+    }
+
+    #[tokio::test]
+    async fn list_models_returns_candidates_without_persisting() {
+        let svc = svc(
+            MockImageAnalysisProvider::new("mock", "alcedo-mock")
+                .with_discovered_models(discovered()),
+        );
+        let req = Request::new(ListModelsRequest {
+            header: Some(header("list-1", 5000, "")),
+            provider_id: "mock".to_string(),
+        });
+        let resp = svc.list_models(req).await.expect("rpc ok");
+        let inner = resp.into_inner();
+        assert_eq!(inner.header.as_ref().unwrap().status, AiResponseStatus::AiStatusOk as i32);
+        assert_eq!(inner.models.len(), 2);
+        assert_eq!(inner.models[0].model_id, "gpt-4o");
+        assert_eq!(inner.models[1].display_name, "gpt-4o-mini");
+        assert_eq!(inner.models[0].source_provider_id, "mock");
+    }
+
+    #[tokio::test]
+    async fn list_models_missing_credential_returns_unauthenticated() {
+        let svc = svc(
+            MockImageAnalysisProvider::new("mock", "alcedo-mock")
+                .with_requires_credential(true)
+                .with_discovered_models(discovered()),
+        );
+        // No credential_ref -> the call must fail closed before list_models.
+        let req = Request::new(ListModelsRequest {
+            header: Some(header("list-2", 5000, "")),
+            provider_id: "mock".to_string(),
+        });
+        let resp = svc.list_models(req).await.expect("rpc ok");
+        let inner = resp.into_inner();
+        let h = inner.header.as_ref().unwrap();
+        assert_eq!(h.status, AiResponseStatus::AiStatusUnauthenticated as i32);
+        assert_eq!(h.error_code, AiErrorCode::AiErrorMissingCredential as i32);
+        assert!(inner.models.is_empty(), "no candidates on auth failure");
+    }
+
+    #[tokio::test]
+    async fn list_models_unknown_provider_returns_unsupported_task() {
+        let svc = svc(MockImageAnalysisProvider::new("mock", "alcedo-mock"));
+        let req = Request::new(ListModelsRequest {
+            header: Some(header("list-3", 5000, "")),
+            provider_id: "no-such-provider".to_string(),
+        });
+        let resp = svc.list_models(req).await.expect("rpc ok");
+        let inner = resp.into_inner();
+        let h = inner.header.as_ref().unwrap();
+        assert_eq!(h.status, AiResponseStatus::AiStatusUnsupportedTask as i32);
+        assert!(inner.models.is_empty());
+    }
+
+    #[tokio::test]
+    async fn list_models_with_valid_credential_succeeds() {
+        let svc = svc(
+            MockImageAnalysisProvider::new("mock", "alcedo-mock")
+                .with_requires_credential(true)
+                .with_discovered_models(discovered()),
+        );
+        let handle = svc.vault.register("mock", "sk-test-key".to_string(), None);
+        let req = Request::new(ListModelsRequest {
+            header: Some(header("list-4", 5000, &handle)),
+            provider_id: "mock".to_string(),
+        });
+        let resp = svc.list_models(req).await.expect("rpc ok");
+        let inner = resp.into_inner();
+        assert_eq!(inner.header.as_ref().unwrap().status, AiResponseStatus::AiStatusOk as i32);
+        assert_eq!(inner.models.len(), 2);
+        assert!(!format!("{:?}", inner).contains("sk-test-key"));
     }
 
     #[test]

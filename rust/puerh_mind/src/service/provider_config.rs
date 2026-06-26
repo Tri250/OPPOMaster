@@ -236,6 +236,16 @@ pub struct ProviderConfig {
     pub driver: String,
     pub base_url: String,
     pub endpoint: String,
+    /// Phase 6c: optional override for the model-listing (discovery) endpoint
+    /// path. When `None`, the driver discovers models at `{base_url}/models`
+    /// (the OpenAI- and Anthropic-compatible default). When `Some`, it must be a
+    /// path beginning with `/` (e.g. `/v1/models`) for providers that expose
+    /// listing elsewhere. Discovery is a dry run: discovered models are returned
+    /// to the host as unverified candidates and are NOT advertised as
+    /// image-analysis capable until a validation smoke pins capability.
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub models_endpoint: Option<String>,
     pub auth: AuthConfig,
     #[serde(default)]
     pub attribution_headers: HashMap<String, String>,
@@ -485,6 +495,17 @@ fn validate_config(config: &ProviderConfig, source: &str) -> Result<(), ConfigEr
     }
     if !config.endpoint.starts_with('/') {
         return Err(ConfigError::invalid(source, format!("endpoint {:?} must start with '/'", config.endpoint)));
+    }
+    if let Some(list_endpoint) = &config.models_endpoint {
+        if !list_endpoint.starts_with('/') {
+            return Err(ConfigError::invalid(
+                source,
+                format!(
+                    "models_endpoint {:?} must start with '/' when set",
+                    list_endpoint
+                ),
+            ));
+        }
     }
     if !is_known(KNOWN_AUTH_TYPES, &config.auth.auth_type) {
         return Err(ConfigError::invalid(
@@ -1283,6 +1304,65 @@ mod tests {
         );
         let err = result.expect_err("invalid escape rejected");
         assert!(err.to_string().contains("invalid escape"), "{err}");
+    }
+
+    /// Phase 6c: a config may set `models_endpoint` to override the default
+    /// `/models` discovery path; it must start with `/`. Absent is valid (the
+    /// driver falls back to `/models`).
+    #[test]
+    fn models_endpoint_override_validated() {
+        // Absent -> valid (None).
+        let cfg = parse_and_validate(
+            r#"{
+                "schema_version": 1, "provider_id": "x", "display_name": "X",
+                "driver": "openai_chat_compatible", "base_url": "https://example.com",
+                "endpoint": "/x", "auth": {"type": "bearer", "credential_slot": "x_key"},
+                "defaults": {"model": "m", "stream": false, "temperature": 0.2},
+                "structured_output": {"mode": "tool"},
+                "response": {}, "limits": {"timeout_ms": 60000, "max_image_bytes": 4194304, "max_output_tokens": 1200},
+                "models": []
+            }"#,
+            "test".to_string(),
+        )
+        .expect("absent models_endpoint is valid");
+        assert!(cfg.models_endpoint.is_none());
+
+        // Present with leading "/" -> valid.
+        let cfg = parse_and_validate(
+            r#"{
+                "schema_version": 1, "provider_id": "x", "display_name": "X",
+                "driver": "anthropic_messages", "base_url": "https://example.com",
+                "endpoint": "/v1/messages", "models_endpoint": "/v1/models",
+                "auth": {"type": "api_key_header", "credential_slot": "x_key"},
+                "defaults": {"model": "m", "stream": false, "temperature": 0.2},
+                "structured_output": {"mode": "tool"},
+                "response": {}, "limits": {"timeout_ms": 60000, "max_image_bytes": 4194304, "max_output_tokens": 1200},
+                "models": []
+            }"#,
+            "test".to_string(),
+        )
+        .expect("leading-slash models_endpoint is valid");
+        assert_eq!(cfg.models_endpoint.as_deref(), Some("/v1/models"));
+
+        // Present WITHOUT leading "/" -> rejected.
+        let err = parse_and_validate(
+            r#"{
+                "schema_version": 1, "provider_id": "x", "display_name": "X",
+                "driver": "openai_chat_compatible", "base_url": "https://example.com",
+                "endpoint": "/x", "models_endpoint": "v1/models",
+                "auth": {"type": "bearer", "credential_slot": "x_key"},
+                "defaults": {"model": "m", "stream": false, "temperature": 0.2},
+                "structured_output": {"mode": "tool"},
+                "response": {}, "limits": {"timeout_ms": 60000, "max_image_bytes": 4194304, "max_output_tokens": 1200},
+                "models": []
+            }"#,
+            "test".to_string(),
+        )
+        .expect_err("models_endpoint without leading / rejected");
+        assert!(
+            err.to_string().contains("models_endpoint") && err.to_string().contains("must start with '/'"),
+            "{err}"
+        );
     }
 
     #[test]

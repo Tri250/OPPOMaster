@@ -17,6 +17,7 @@
 #include <thread>
 #include <vector>
 
+#include "app/ai_credential_store.hpp"
 #include "app/ai_sidecar_runtime_service.hpp"
 #include "app/thumbnail_service.hpp"
 #include "app/thumbnail_types.hpp"
@@ -78,6 +79,21 @@ struct ImageAnalysisOptions {
   // large album cannot accumulate more than `prefetch` encoded byte buffers in
   // memory (plus the one in flight).
   int                     prefetch           = 1;
+};
+
+struct ImageAnalysisConnectionValidationOptions {
+  std::string               provider_id;
+  std::string               credential_slot;
+  std::chrono::milliseconds timeout{60000};
+  int64_t                   credential_ttl_ms = 60000;
+};
+
+struct ImageAnalysisConnectionValidationResult {
+  bool                            ok = false;
+  std::string                     error;
+  bool                            credential_revoked = false;
+  ImageAnalysisListModelsResult   list_models;
+  std::vector<AiDiscoveredModel>  models;
 };
 
 struct ImageAnalysisProgress {
@@ -171,10 +187,17 @@ class IImageAnalysisClient {
   virtual auto RegisterCredential(const std::string& provider_id, const std::string& secret,
                                   int64_t ttl_ms, std::chrono::milliseconds timeout,
                                   std::string* handle, std::string* error) -> bool = 0;
+  virtual auto RevokeCredential(const std::string& handle, std::chrono::milliseconds timeout,
+                                bool* revoked, std::string* error) -> bool = 0;
   virtual auto DescribeImage(const ImageAnalysisRequest& request, std::chrono::milliseconds timeout)
       -> ImageAnalysisUnderstandingResult = 0;
   virtual auto ScoreImage(const ImageAnalysisRequest& request, std::chrono::milliseconds timeout)
       -> ImageAnalysisRatingResult = 0;
+  // Phase 6c: dry-run model discovery (validate-connection flow). `provider_id`
+  // selects the configured endpoint ("" = sidecar default); `credential_ref` is
+  // the opaque vault handle. Returns unverified candidates; no persistence.
+  virtual auto ListModels(const std::string& provider_id, const std::string& credential_ref,
+                          std::chrono::milliseconds timeout) -> ImageAnalysisListModelsResult = 0;
   virtual auto CancelTask(const std::string& request_id, std::chrono::milliseconds timeout,
                           bool* cancelled, std::string* error) -> bool = 0;
 };
@@ -187,10 +210,14 @@ class AiSidecarRuntimeImageAnalysisClient final : public IImageAnalysisClient {
   auto RegisterCredential(const std::string& provider_id, const std::string& secret,
                           int64_t ttl_ms, std::chrono::milliseconds timeout, std::string* handle,
                           std::string* error) -> bool override;
+  auto RevokeCredential(const std::string& handle, std::chrono::milliseconds timeout,
+                        bool* revoked, std::string* error) -> bool override;
   auto DescribeImage(const ImageAnalysisRequest& request, std::chrono::milliseconds timeout)
       -> ImageAnalysisUnderstandingResult override;
   auto ScoreImage(const ImageAnalysisRequest& request, std::chrono::milliseconds timeout)
       -> ImageAnalysisRatingResult override;
+  auto ListModels(const std::string& provider_id, const std::string& credential_ref,
+                  std::chrono::milliseconds timeout) -> ImageAnalysisListModelsResult override;
   auto CancelTask(const std::string& request_id, std::chrono::milliseconds timeout,
                   bool* cancelled, std::string* error) -> bool override;
 
@@ -250,6 +277,9 @@ class ImageAnalysisService final {
                      ImageAnalysisProgressCallback  on_progress = {},
                      ImageAnalysisFinishedCallback  on_finished = {})
       -> std::shared_ptr<ImageAnalysisJob>;
+  auto ValidateConnection(const ImageAnalysisConnectionValidationOptions& options,
+                          IAiCredentialStore& credential_store)
+      -> ImageAnalysisConnectionValidationResult;
 
  private:
   static void RunJob(const std::shared_ptr<ImageAnalysisJob>&             job,

@@ -133,6 +133,27 @@ class FakeAiSidecarRuntimeClient final : public IAiSidecarRuntimeClient {
     return true;
   }
 
+  auto RevokeCredential(const std::string& endpoint, std::chrono::milliseconds timeout,
+                        const std::string& handle, bool* revoked, std::string* error)
+      -> bool override {
+    (void)endpoint;
+    (void)timeout;
+    (void)error;
+    if (!ready_.load()) {
+      if (revoked) *revoked = false;
+      return true;  // idempotent: handle dies with the sidecar
+    }
+    ++revoke_calls_;
+    last_revoked_handle_ = handle;
+    // The fake revokes any handle it previously minted ("fake-credential-handle").
+    if (revoked) {
+      *revoked = (handle == "fake-credential-handle");
+    }
+    return true;
+  }
+  auto RevokeCalls() const -> int { return revoke_calls_.load(); }
+  auto LastRevokedHandle() const -> std::string { return last_revoked_handle_; }
+
   // Canned `AiRuntimeService::CancelTask` (Phase 3): reports cancellation only for the
   // well-known in-flight request_id "fake-in-flight"; any other id maps to cancelled=false.
   auto CancelTask(const std::string& endpoint, std::chrono::milliseconds timeout,
@@ -420,7 +441,34 @@ class FakeAiSidecarRuntimeClient final : public IAiSidecarRuntimeClient {
     return result;
   }
 
+  auto ListModels(const std::string& endpoint, const std::string& provider_id,
+                  const std::string& credential_ref, std::chrono::milliseconds timeout)
+      -> ImageAnalysisListModelsResult override {
+    (void)endpoint;
+    (void)provider_id;
+    (void)credential_ref;
+    (void)timeout;
+    list_models_calls_.fetch_add(1);
+    ImageAnalysisListModelsResult result;
+    result.ok = list_models_ok_.load();
+    if (!result.ok) {
+      result.error = list_models_error_;
+      return result;
+    }
+    result.status = 1;  // AI_STATUS_OK
+    result.models = list_models_canned_;
+    return result;
+  }
+
   void SetReady(bool ready) { ready_.store(ready); }
+  void SetListModelsOk(bool ok, std::string error = {}) {
+    list_models_ok_.store(ok);
+    list_models_error_ = std::move(error);
+  }
+  void SetListModelsCanned(std::vector<AiDiscoveredModel> models) {
+    list_models_canned_ = std::move(models);
+  }
+  auto ListModelsCalls() const -> int { return list_models_calls_.load(); }
   void SetModelInfoReady(bool ready) { model_info_ready_.store(ready); }
   auto PingCount() const -> int { return ping_count_.load(); }
   void SetV2Supported(bool supported) { v2_supported_.store(supported); }
@@ -442,6 +490,12 @@ class FakeAiSidecarRuntimeClient final : public IAiSidecarRuntimeClient {
   std::atomic<int>  embed_image_batch_v2_calls_{0};
   std::atomic<int>  describe_image_calls_{0};
   std::atomic<int>  score_image_calls_{0};
+  std::atomic<int>  list_models_calls_{0};
+  std::atomic<int>  revoke_calls_{0};
+  std::atomic<bool> list_models_ok_{true};
+  std::string       list_models_error_;
+  std::string       last_revoked_handle_;
+  std::vector<AiDiscoveredModel> list_models_canned_;
 };
 
 auto FakeRuntimePath() -> std::filesystem::path {
@@ -744,6 +798,31 @@ TEST(AiSidecarRuntimeServiceTest,
   std::filesystem::remove(record_path);
 }
 
+TEST(AiSidecarRuntimeServiceTest, RevokeCredentialDelegatesWhenReadyAndIsNoOpWhenStopped) {
+  auto                    client = std::make_shared<FakeAiSidecarRuntimeClient>();
+  AiSidecarRuntimeService service(client);
+
+  bool        revoked = true;
+  std::string error;
+  EXPECT_TRUE(
+      service.RevokeCredential("fake-credential-handle", std::chrono::milliseconds(2000),
+                               &revoked, &error));
+  EXPECT_FALSE(revoked);
+  EXPECT_EQ(client->RevokeCalls(), 0);
+
+  auto options            = BaseOptions();
+  options.extra_arguments = {"--sleep-ms", "30000"};
+  ASSERT_TRUE(service.StartAndWait(options));
+
+  EXPECT_TRUE(
+      service.RevokeCredential("fake-credential-handle", std::chrono::milliseconds(2000),
+                               &revoked, &error));
+  EXPECT_TRUE(revoked) << error;
+  EXPECT_EQ(client->RevokeCalls(), 1);
+  EXPECT_EQ(client->LastRevokedHandle(), "fake-credential-handle");
+  service.Stop();
+}
+
 TEST(AiSidecarRuntimeServiceTest, CancelTaskMapsResponseFromClient) {
   auto                    client = std::make_shared<FakeAiSidecarRuntimeClient>();
   AiSidecarRuntimeService service(client);
@@ -822,6 +901,41 @@ TEST(AiSidecarRuntimeServiceTest, ScoreImageRespectsReadyGuard) {
   EXPECT_FALSE(result.ok);
   EXPECT_FALSE(result.error.empty());
   EXPECT_EQ(client->ScoreImageCalls(), 0);
+}
+
+TEST(AiSidecarRuntimeServiceTest, ListModelsDelegatesToClient) {
+  auto                    client = std::make_shared<FakeAiSidecarRuntimeClient>();
+  client->SetListModelsCanned({
+      AiDiscoveredModel{"gpt-4o", "GPT-4o", "opencode_go_openai"},
+      AiDiscoveredModel{"gpt-4o-mini", "GPT-4o mini", "opencode_go_openai"},
+  });
+  AiSidecarRuntimeService service(client);
+  auto                    options = BaseOptions();
+  options.extra_arguments         = {"--sleep-ms", "30000"};
+  ASSERT_TRUE(service.StartAndWait(options));
+
+  const auto result =
+      service.ListModels("opencode_go_openai", "fake-credential-handle",
+                         std::chrono::milliseconds(5000));
+
+  EXPECT_TRUE(result.ok) << result.error;
+  ASSERT_EQ(result.models.size(), 2u);
+  EXPECT_EQ(result.models[0].model_id, "gpt-4o");
+  EXPECT_EQ(client->ListModelsCalls(), 1);
+  service.Stop();
+}
+
+TEST(AiSidecarRuntimeServiceTest, ListModelsRespectsReadyGuard) {
+  auto                    client = std::make_shared<FakeAiSidecarRuntimeClient>();
+  AiSidecarRuntimeService service(client);
+
+  const auto result =
+      service.ListModels("opencode_go_openai", "fake-credential-handle",
+                         std::chrono::milliseconds(5000));
+
+  EXPECT_FALSE(result.ok);
+  EXPECT_FALSE(result.error.empty());
+  EXPECT_EQ(client->ListModelsCalls(), 0);
 }
 
 TEST(AiSidecarRuntimeServiceTest, EmptyModelRootUsesEnvironmentFallback) {

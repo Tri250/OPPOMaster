@@ -920,6 +920,9 @@ requiring users to re-enter API keys every session. Product setup is protocol-fi
 compatible protocol preset (`openai_chat_compatible` or `anthropic_messages`) and fill endpoint,
 model id, and API key metadata. Brand/provider names such as Opencode, Volcengine, OpenRouter, or a
 local compatible server are presets over those protocol families, not separate product concepts.
+When an endpoint supports model listing, the backend should discover visible model ids first and let
+the selected model be written back into provider config / user preset state instead of relying on a
+user to type opaque model ids from memory.
 
 Primary Phase 6 assumption: the user's available paid path is Opencode, not OpenRouter. Add Opencode
 as the first product-facing compatible preset family, but do not mark any Opencode model as
@@ -937,6 +940,11 @@ Structured-output rule:
 - If an endpoint cannot enforce structured output through one of the supported protocol mechanisms,
   fail closed and do not expose it as a product preset. Do not add a "prompt it to return JSON" path
   as a fallback; that would hide provider incompatibility and make persistence ambiguous.
+- A model-list response only proves the account/endpoint can see a model id. It does not prove image
+  input or schema/tool-use support. Discovered models therefore start unverified
+  (`supports_vision=false`, `supports_structured_output=false`, `live_confirmed=false`) until a
+  validation smoke proves the selected model accepts the exact Phase 6 image+structured-output
+  contract.
 
 ### Phase 6a - Compatible Provider Presets And Config Contract
 
@@ -946,8 +954,8 @@ Deliverables:
   controller DTOs and UI copy where practical. Keep existing Rust `provider_id` fields for wire
   compatibility, but make their meaning "configured endpoint id".
 - Define the editable preset fields: display name, protocol family, base URL, endpoint, auth type,
-  credential slot label, model id, optional model display name, structured-output mode, timeout,
-  max image bytes, and recommended rendition.
+  credential slot label, model id, optional model display name, optional model-list endpoint,
+  structured-output mode, timeout, max image bytes, and recommended rendition.
 - Add Opencode preset templates:
   - `opencode_go_anthropic`: `anthropic_messages`, base URL
     `https://opencode.ai/zen/go/v1`, endpoint `/messages`.
@@ -1008,6 +1016,23 @@ Deliverables:
 - Add "validate connection" as a dry run against the selected compatible endpoint. Prefer a tiny
   schema-capability smoke if the endpoint/model supports it; otherwise validate credential and model
   listing without persisting annotations.
+- Add backend model discovery for compatible presets:
+  - OpenAI-compatible: request the endpoint's model list using the same credential/auth path. The
+    default discovery endpoint is `{base_url}/models`, with an optional config override for providers
+    that expose model listing elsewhere.
+  - Anthropic-compatible: request the endpoint's model list using the configured auth convention
+    (`Authorization: Bearer`, `x-api-key` + `anthropic-version`, or `none`). The default discovery
+    endpoint is `{base_url}/models`, with an optional config override for Opencode/Ark-compatible
+    variants if live testing proves a different path.
+  - Parse the provider's list response into provider-independent `DiscoveredModel` DTOs containing
+    model id, display name when reported, source preset/provider id, and raw capability flags only
+    when the provider reports trustworthy capability metadata.
+  - Merge discovered models into the user-provider config/preset state as candidates, but keep them
+    unadvertised until the image+structured-output validation smoke succeeds.
+- Tighten model selection after discovery lands: a non-empty request `model_id` must resolve to a
+  known model entry from built-in config or discovered/persisted user config. Unknown explicit model
+  ids fail before any provider HTTP call. This closes the Phase 6b review gap where an unlisted
+  model slug could bypass `supports_structured_output` checks.
 - Revoke runtime handles on provider logout, settings deletion, sidecar stop, and project close.
 - Developer env overrides (`ALCEDO_OPENCODE_API_KEY`, existing provider-specific keys) are allowed
   for tests/smoke only and must never be copied into `QSettings` or packed projects.
@@ -1016,6 +1041,10 @@ Tests:
 
 - Controller tests for missing credential, saved credential, masked display, delete credential,
   validation success, validation auth failure, validation network failure, and runtime handle revoke.
+- Rust/C++ tests for model discovery: OpenAI-compatible `/models`, Anthropic-compatible `/models`,
+  bearer vs `x-api-key` auth, provider 4xx/429/5xx mapping, optional pagination when exposed by the
+  provider, redaction, merge into user config without marking capabilities verified, and unknown
+  explicit `model_id` failing before any paid image-analysis HTTP request.
 - Redaction tests covering settings dumps, QML-exposed properties, runtime args, diagnostics logs,
   and packed project files.
 
@@ -1070,8 +1099,15 @@ Deliverables:
   - `ALCEDO_OPENCODE_API_KEY` plus `ALCEDO_IA_LIVE_PROVIDER_ID=opencode_go_anthropic` or
     `opencode_go_openai`;
   - skip cleanly when the key/model is absent;
+  - list visible models first when the compatible endpoint supports model listing, choose the
+    requested `ALCEDO_IA_LIVE_MODEL_ID` if set, otherwise print discovered candidates and skip
+    rather than guessing a model;
   - fail closed if the selected model does not accept image input or does not return validated
     structured JSON.
+- When a live smoke succeeds, record enough information to update `config.models[]` or a user config
+  override: model id, display name, protocol family, endpoint, validation timestamp, tested task(s),
+  and the fact that image input + structured output were both verified. Do not flip
+  `live_confirmed` from model listing alone.
 - Keep the known-good Volcengine Ark Coding Plan smoke as the Anthropic-compatible reference until
   Opencode image+schema capability is confirmed.
 - Record the final provider/protocol matrix in the phase handoff with exact endpoint, protocol
@@ -1206,6 +1242,10 @@ provider credentials are available.
 - For Opencode, which selected model is live-confirmed to accept image input and structured output
   through either the OpenAI-compatible or Anthropic-compatible endpoint. Do not advertise an
   Opencode preset as image-analysis capable until this is proven.
+- Where discovered model candidates should be persisted long term: C++ preset settings, Rust
+  user-provider config JSON, or a small generated user-provider config file owned by the settings
+  flow. Model discovery should feed `config.models[]`, but should not make a model advertised until
+  validation succeeds.
 - Volcengine Ark's bundled default is `doubao-seed-2-0-lite-260428`.
 - Exact live-verified Volcengine Responses output extraction shape and whether the reserved Chat API
   compatibility driver is needed for any target deployment.
@@ -1227,6 +1267,12 @@ provider credentials are available.
   key-management service, not hard-coded or exposed client-side.
 - OpenAI API docs: Responses API supports image input and structured outputs, which match the
   caption/tag/rating schema requirement.
+- OpenAI API docs: the Models API exposes a list endpoint for available model ids; Phase 6c should
+  use it for OpenAI-compatible model discovery when the selected endpoint implements that compatible
+  surface.
+- Anthropic API docs: the Models API exposes `GET /v1/models`; Phase 6c should use the analogous
+  compatible endpoint for Anthropic-compatible discovery, but still validate image+tool-use support
+  separately.
 - Opencode Go docs (`https://opencode.ai/docs/go/`): Opencode Go uses Bearer-authenticated API
   access and exposes compatible model endpoints under `https://opencode.ai/zen/go/v1`, including
   OpenAI-compatible `/chat/completions` and Anthropic-compatible `/messages` paths depending on the
@@ -3111,25 +3157,107 @@ Accepted risk (Phase 6a → 6b state change): in Phase 6a the Opencode presets w
 "advertised-but-unregistered" (config named a reserved driver, `build_one` skipped
 it with `warn!`). Phase 6b wires the generic drivers, so the Opencode presets are
 now "registered-but-not-advertised" (callable by an explicit `provider_id`, but no
-capability descriptor because the models ship with `supports_vision=false` /
-`supports_structured_output=false` / `live_confirmed=false`). This is benign and
-intentional: `ListCapabilities` does not surface them, and even an explicit call
-fails closed at `ensure_structured_output` (model lacks `supports_structured_output`)
-before any paid HTTP request — so an unverified model cannot silently produce an
-active annotation.
+capability descriptor because the bundled models ship with `supports_vision=false`
+/ `supports_structured_output=false` / `live_confirmed=false`). `ListCapabilities`
+does not surface them. Follow-up review correction: a request using the bundled
+default model still fails closed at `ensure_structured_output`, but a non-empty
+explicit `model_id` that is not present in `config.models[]` currently resolves to
+`model = None` and bypasses the model capability check before the provider call.
+Phase 6c must close this by adding model discovery/listing and requiring explicit
+model ids to resolve to a known built-in or discovered/persisted model entry before
+any image-analysis HTTP request.
 
-Review conclusion: bugs found — none (the two compile errors during implementation
-were a missing `.await` on the shared async `read_response` in the new
-`openai_chat_compatible` trait impl, caught and fixed by `cargo build --tests`
-before any test ran); risk accepted — (1) the Opencode presets are now
-registered-but-not-advertised (the inverse of the 6a state) — benign because the
-unverified models fail closed at `ensure_structured_output` before any HTTP call,
-and `ListCapabilities` does not surface them; (2) the `openrouter_chat` and
-`openai_chat_compatible` driver ids dispatch to the same implementation in 6b, so
-a user config naming either gets identical behavior — the deduplication to a
-single id is deferred to 6g; (3) the "unsupported structured output" failure path
-reuses `ProviderError::SchemaValidation` rather than introducing a distinct
-variant — the outcome (no active annotation) is what the plan requires, and a
-distinct variant would ripple into the gRPC `provider_error_to_header` mapping
-without changing host behavior; missing tests — none.
+Review conclusion update: the original self-review said "bugs found — none", but a
+post-review found one Phase 6c-bound gap: unknown explicit `model_id` values are
+not required to exist in `config.models[]`, so they can bypass the current
+`supports_structured_output` check. Treat this as a follow-up correctness/safety
+item, not as a Phase 6b driver-shape blocker. The `openrouter_chat` and
+`openai_chat_compatible` driver ids still intentionally dispatch to the same
+implementation in 6b; the deduplication to a single id is deferred to 6g. The
+"unsupported structured output" failure path still reuses
+`ProviderError::SchemaValidation`; the required outcome is no active annotation.
 
+## Phase 6c - Completion & Self-Review
+
+Status: complete for the backend slice. Phase 6c now has the credential-store
+boundary, runtime-handle revoke, dry-run model discovery, and the Phase 6b
+unknown-explicit-model gap closed before provider HTTP calls. Album/QML wiring
+remains Phase 6d, and live capability pinning remains Phase 6f.
+
+Implemented:
+
+- `rust/puerh_mind/proto/ai_runtime.proto` +
+  `rust/puerh_mind/src/server/ai_runtime.rs`: added
+  `AiRuntimeService.RevokeCredential`. Revoke is idempotent, reports whether a
+  live handle was removed, and never logs/echoes the handle or secret material.
+- `rust/puerh_mind/proto/image_analysis.proto` +
+  `rust/puerh_mind/src/server/image_analysis.rs`: added
+  `ImageAnalysisService.ListModels`, returning provider-independent
+  `DiscoveredModel` candidates as an unverified dry run. Credential resolution,
+  timeout handling, provider errors, and missing/unknown provider mapping reuse
+  the typed AI response header path.
+- Rust provider layer: `openai_chat_compatible` and `anthropic_messages` now
+  implement `/models` discovery using the configured auth convention and optional
+  `models_endpoint` override; Anthropic-compatible discovery handles bounded
+  cursor pagination. `http_util::send_get_with_retry` applies the same
+  retry/redaction policy as task calls. `provider_config` validates
+  `models_endpoint`.
+- Rust model safety: OpenAI-compatible, Anthropic-compatible, and Volcengine
+  drivers now reject a non-empty explicit `model_id` unless it resolves to a
+  known `config.models[]` entry, before any image-analysis HTTP request. Empty
+  `model_id` continues to mean the config-authored default model.
+- C++ runtime bridge: `AiSidecarRuntimeService` / `GrpcAiSidecarRuntimeClient`
+  expose `RevokeCredential` and `ListModels`; ready guards map unavailable
+  sidecar state into failed typed results instead of falling back.
+- C++ credential store: added `AiCredentialStore` with a Windows Credential
+  Manager implementation (`AlcedoStudio/AiCredential/<slot>`) and an in-memory
+  fallback for tests/non-Windows. Slot labels are constrained to `[a-z0-9_]+`;
+  error strings never include secret material. The new target links `Advapi32`
+  on Windows.
+- C++ validation flow: `ImageAnalysisService::ValidateConnection` loads the
+  secret from `IAiCredentialStore`, registers a short-lived sidecar vault handle,
+  runs `ListModels`, and revokes the handle even on model-list failure or thrown
+  RPC. Normal image-analysis jobs also revoke their registered handle on job
+  completion/cancel/error.
+
+Invariants (Phase 6c review focus):
+
+- No raw API key in QSettings, process args, request DTOs, logs, result DTOs, or
+  packed project paths changed in this phase. The raw key enters C++ only through
+  `IAiCredentialStore::LoadCredential`, then through `RegisterCredential`; task
+  RPCs and discovery use only the opaque vault handle.
+- Model discovery is not capability advertisement. `DiscoveredModel` carries id,
+  display name, and source provider only; image input / structured output remain
+  unverified until Phase 6f live smoke pins them.
+- No paid image-analysis call can bypass structured-output checks with an
+  unknown explicit model id. The provider drivers fail locally with
+  `ProviderError::UnknownModel`, mapped to `AI_STATUS_INVALID_ARGUMENT`.
+- Runtime handles are revoked at the two host-managed lifetimes available in
+  this backend slice: validate-connection dry runs and `ImageAnalysisService`
+  jobs. Revoke is idempotent and benign when the sidecar is already stopped.
+
+Test results:
+
+- Rust - `cargo test -- --skip live_` in `rust/puerh_mind`: 230 passed; 0
+  failed; 0 ignored; 7 filtered out. This includes the new RevokeCredential,
+  ListModels, `/models` discovery, redaction, pagination, retry, and
+  unknown-explicit-model tests.
+- C++ - built with `cmd /c scripts\msvc_env.cmd --build --preset win_debug
+  --target AiCredentialStoreTest ImageAnalysisServiceTest
+  AiSidecarRuntimeServiceTest --parallel 4`: succeeded.
+- C++ - `ctest --test-dir build/debug --output-on-failure -R
+  "AiCredentialStoreTest|AiSidecarRuntimeServiceTest|ImageAnalysisServiceTest"`:
+  53/53 passed, with 1 live-runtime test skipped because
+  `ALCEDO_SEMANTIC_LIVE_RUNTIME_PATH` was not set.
+
+Accepted risk / deferred:
+
+- Non-Windows still uses the in-memory fallback from `MakeDefaultAiCredentialStore`;
+  native macOS Keychain and Linux Secret Service/KWallet stores are deferred. The
+  Windows production path is backed by Credential Manager.
+- The host currently returns discovered model candidates to callers but does not
+  yet persist/merge them into a generated user provider config. That merge point
+  is intentionally left for the Phase 6d/6f settings and live-validation flow.
+- AlbumBackend/QML exposure of provider settings, credential save/delete buttons,
+  and validate-connection UI remain Phase 6d. The backend contract is ready for
+  that wiring.

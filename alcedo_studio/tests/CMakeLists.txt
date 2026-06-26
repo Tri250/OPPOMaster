@@ -671,6 +671,12 @@ target_link_libraries(AiProviderPresetTest AiProviderPreset GTest::gtest_main)
 gtest_discover_tests(AiProviderPresetTest TEST_PREFIX "AiProviderPresetTest."
   PROPERTIES LABELS "ci_core_flow")
 
+add_executable(AiCredentialStoreTest app/ai_credential_store_test.cpp)
+target_include_directories(AiCredentialStoreTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(AiCredentialStoreTest AiCredentialStore GTest::gtest_main)
+gtest_discover_tests(AiCredentialStoreTest TEST_PREFIX "AiCredentialStoreTest."
+  PROPERTIES LABELS "ci_core_flow")
+
 add_executable(SemanticGrpcDependencySmokeTest app/semantic_grpc_dependency_smoke_test.cpp)
 target_include_directories(SemanticGrpcDependencySmokeTest PUBLIC ${ALCEDO_INCLUDE_DIR})
 target_link_libraries(SemanticGrpcDependencySmokeTest

@@ -441,6 +441,31 @@ auto ToImageRatingResult(const alcedo::ai::ScoreImageResponse& response,
   return result;
 }
 
+// Phase 6c: maps the ListModels response header + discovered candidates onto
+// the host DTO. On a non-OK header `models` is empty; the caller surfaces the
+// failure. No annotations are persisted — this is a dry run.
+auto ToListModelsResult(const alcedo::ai::ListModelsResponse& response,
+                        const std::string& fallback_request_id,
+                        const std::string& transport_error = {}) -> ImageAnalysisListModelsResult {
+  ImageAnalysisListModelsResult result;
+  const auto& header = response.header();
+  result.request_id = header.request_id().empty() ? fallback_request_id : header.request_id();
+  result.status     = static_cast<int>(header.status());
+  result.error_code = static_cast<int>(header.error_code());
+  result.error      = transport_error.empty() ? header.error_message() : transport_error;
+  result.provider   = header.provider();
+  result.elapsed_ms = static_cast<uint64_t>(header.elapsed_ms());
+  result.ok         = (header.status() == alcedo::ai::AI_STATUS_OK);
+  if (result.ok) {
+    result.models.reserve(response.models_size());
+    for (const auto& m : response.models()) {
+      result.models.push_back(AiDiscoveredModel{
+          m.model_id(), m.display_name(), m.source_provider_id()});
+    }
+  }
+  return result;
+}
+
 // Fills the proto request from the host DTO (shared by DescribeImage / ScoreImage). The
 // credential_ref is the opaque vault handle; image_bytes is the encoded rendition. trace_id
 // is set to request_id for single-call local correlation, matching the v2 embedding path.
@@ -616,6 +641,35 @@ auto GrpcAiSidecarRuntimeClient::RegisterCredential(
   }
   if (handle) {
     *handle = response.credential_handle();
+  }
+  return true;
+}
+
+auto GrpcAiSidecarRuntimeClient::RevokeCredential(const std::string&        endpoint,
+                                                  std::chrono::milliseconds timeout,
+                                                  const std::string& handle, bool* revoked,
+                                                  std::string* error) -> bool {
+  auto channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
+  auto stub    = alcedo::ai::AiRuntimeService::NewStub(channel);
+
+  grpc::ClientContext context;
+  context.set_deadline(DeadlineFromNow(timeout));
+  alcedo::ai::RevokeCredentialRequest request;
+  // The handle is an opaque UUID secret-proxy; it is not logged. The revoke RPC
+  // carries it in the dedicated `credential_handle` field, not header.credential_ref.
+  FillAiRequestHeader(request.mutable_header(), "alcedo-sidecar-revoke-credential",
+                      "ai_runtime.revoke_credential", timeout);
+  request.set_credential_handle(handle);
+  alcedo::ai::RevokeCredentialResponse response;
+  const auto                           status = stub->RevokeCredential(&context, request, &response);
+  if (!status.ok()) {
+    if (error) {
+      *error = GrpcErrorMessage(status);
+    }
+    return false;
+  }
+  if (revoked) {
+    *revoked = response.revoked();
   }
   return true;
 }
@@ -970,6 +1024,37 @@ auto GrpcAiSidecarRuntimeClient::ScoreImage(const std::string&          endpoint
   }
   ImageAnalysisRatingResult result;
   result.request_id = request.request_id;
+  result.ok         = false;
+  result.status     = static_cast<int>(alcedo::ai::AI_STATUS_UNIMPLEMENTED);
+  result.error      = GrpcErrorMessage(status);
+  return result;
+}
+
+auto GrpcAiSidecarRuntimeClient::ListModels(const std::string&          endpoint,
+                                            const std::string&          provider_id,
+                                            const std::string&          credential_ref,
+                                            std::chrono::milliseconds   timeout)
+    -> ImageAnalysisListModelsResult {
+  auto channel = grpc::CreateChannel(endpoint, grpc::InsecureChannelCredentials());
+  auto stub    = alcedo::ai::ImageAnalysisService::NewStub(channel);
+
+  grpc::ClientContext context;
+  context.set_deadline(DeadlineFromNow(timeout));
+  alcedo::ai::ListModelsRequest req;
+  const std::string request_id = MakeBatchRequestId();  // fresh correlation id
+  FillAiRequestHeader(req.mutable_header(), request_id, "image_analysis.list_models", timeout,
+                      credential_ref, request_id);
+  req.set_provider_id(provider_id);
+
+  alcedo::ai::ListModelsResponse response;
+  const auto                     status = stub->ListModels(&context, req, &response);
+  if (status.ok()) {
+    return ToListModelsResult(response, request_id);
+  }
+  // grpc::UNIMPLEMENTED => the sidecar predates Phase 6c and lacks the ListModels
+  // RPC; map to a typed failed result (status=UNIMPLEMENTED). No fallback.
+  ImageAnalysisListModelsResult result;
+  result.request_id = request_id;
   result.ok         = false;
   result.status     = static_cast<int>(alcedo::ai::AI_STATUS_UNIMPLEMENTED);
   result.error      = GrpcErrorMessage(status);
@@ -1440,6 +1525,20 @@ auto AiSidecarRuntimeService::RegisterCredential(const std::string& provider_id,
                                      error);
 }
 
+auto AiSidecarRuntimeService::RevokeCredential(const std::string&        handle,
+                                               std::chrono::milliseconds timeout, bool* revoked,
+                                               std::string* error) -> bool {
+  if (status_.state != AiSidecarRuntimeState::kReady || !client_) {
+    // Not ready: the handle dies with the sidecar process anyway, so report a
+    // benign no-op rather than a hard failure (idempotent revoke semantics).
+    if (revoked) {
+      *revoked = false;
+    }
+    return true;
+  }
+  return client_->RevokeCredential(endpoint_, timeout, handle, revoked, error);
+}
+
 auto AiSidecarRuntimeService::CancelTask(const std::string&        request_id,
                                          std::chrono::milliseconds timeout, bool* cancelled,
                                          std::string* error) -> bool {
@@ -1593,6 +1692,20 @@ auto AiSidecarRuntimeService::ScoreImage(const ImageAnalysisRequest& request,
     return result;
   }
   return client_->ScoreImage(endpoint_, request, timeout);
+}
+
+auto AiSidecarRuntimeService::ListModels(const std::string&        provider_id,
+                                         const std::string&        credential_ref,
+                                         std::chrono::milliseconds timeout)
+    -> ImageAnalysisListModelsResult {
+  if (status_.state != AiSidecarRuntimeState::kReady || !client_) {
+    ImageAnalysisListModelsResult result;
+    result.ok     = false;
+    result.status = static_cast<int>(alcedo::ai::AI_STATUS_UNIMPLEMENTED);
+    result.error  = "ai sidecar runtime is not ready";
+    return result;
+  }
+  return client_->ListModels(endpoint_, provider_id, credential_ref, timeout);
 }
 
 auto AiSidecarRuntimeService::StateName() const -> QString {

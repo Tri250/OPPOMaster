@@ -142,6 +142,15 @@ class FakeImageAnalysisClient : public IImageAnalysisClient {
     return true;
   }
 
+  auto RevokeCredential(const std::string& handle, std::chrono::milliseconds /*timeout*/,
+                        bool* revoked, std::string* /*error*/) -> bool override {
+    ++revoke_calls_;
+    std::unique_lock lk(record_mutex_);
+    last_revoked_handle_ = handle;
+    if (revoked) *revoked = (handle == "fake-handle");
+    return true;
+  }
+
   auto DescribeImage(const ImageAnalysisRequest& request, std::chrono::milliseconds /*timeout*/)
       -> ImageAnalysisUnderstandingResult override {
     ++describe_calls_;
@@ -182,6 +191,35 @@ class FakeImageAnalysisClient : public IImageAnalysisClient {
     return true;
   }
 
+  // Phase 6c: dry-run discovery seam used by the credential controller's
+  // validate-connection flow. Returns a canned candidate list (or a typed
+  // failure) without persisting anything.
+  auto ListModels(const std::string& provider_id, const std::string& credential_ref,
+                  std::chrono::milliseconds /*timeout*/) -> ImageAnalysisListModelsResult override {
+    ++list_models_calls_;
+    std::unique_lock lk(record_mutex_);
+    last_list_models_provider_ = provider_id;
+    last_list_models_credential_ref_ = credential_ref;
+    ImageAnalysisListModelsResult result;
+    result.ok = (list_models_outcome_ == Outcome::kSuccess);
+    if (!result.ok) {
+      result.error = "fake list-models failure";
+      return result;
+    }
+    result.status = 1;  // AI_STATUS_OK
+    result.models = list_models_canned_;
+    return result;
+  }
+  void SetListModelsOutcome(Outcome o) { list_models_outcome_ = o; }
+  void SetListModelsCanned(std::vector<AiDiscoveredModel> models) {
+    list_models_canned_ = std::move(models);
+  }
+  auto ListModelsCalls() const -> int { return list_models_calls_.load(); }
+  auto LastListModelsCredentialRef() const -> std::string {
+    std::unique_lock lk(record_mutex_);
+    return last_list_models_credential_ref_;
+  }
+
   auto WaitForDescribeEntered(std::chrono::milliseconds timeout) -> bool {
     const auto deadline = std::chrono::steady_clock::now() + timeout;
     while (describe_calls_.load() < 1) {
@@ -197,9 +235,14 @@ class FakeImageAnalysisClient : public IImageAnalysisClient {
   auto ScoreCalls() const -> int { return score_calls_.load(); }
   auto CancelCalls() const -> int { return cancel_calls_.load(); }
   auto RegisterCalls() const -> int { return register_calls_.load(); }
+  auto RevokeCalls() const -> int { return revoke_calls_.load(); }
   auto RegisteredSecret() const -> std::string {
     std::unique_lock lk(record_mutex_);
     return registered_secret_;
+  }
+  auto LastRevokedHandle() const -> std::string {
+    std::unique_lock lk(record_mutex_);
+    return last_revoked_handle_;
   }
   auto LastDescribeRequest() const -> ImageAnalysisRequest {
     std::unique_lock lk(record_mutex_);
@@ -279,8 +322,12 @@ class FakeImageAnalysisClient : public IImageAnalysisClient {
   std::atomic<int> score_calls_{0};
   std::atomic<int> cancel_calls_{0};
   std::atomic<int> register_calls_{0};
+  std::atomic<int> list_models_calls_{0};
+  std::atomic<int> revoke_calls_{0};
 
-  Outcome describe_outcome_ = Outcome::kSuccess;
+  Outcome describe_outcome_             = Outcome::kSuccess;
+  Outcome list_models_outcome_          = Outcome::kSuccess;
+  std::vector<AiDiscoveredModel> list_models_canned_;
 
   std::atomic<bool> throw_on_describe_{false};
   std::atomic<bool> block_mode_{false};
@@ -294,6 +341,9 @@ class FakeImageAnalysisClient : public IImageAnalysisClient {
   ImageAnalysisRequest last_describe_request_;
   ImageAnalysisRequest last_score_request_;
   std::string        last_cancelled_id_;
+  std::string        last_list_models_provider_;
+  std::string        last_list_models_credential_ref_;
+  std::string        last_revoked_handle_;
 };
 
 auto BaseDescribeOpts(const std::string& tag) -> ImageAnalysisOptions {
@@ -561,6 +611,8 @@ TEST(ImageAnalysisServiceTest, SecretReachesOnlyRegisterCredentialNotDescribeIma
   // The secret traveled only to the loopback RegisterCredential call.
   EXPECT_EQ(client->RegisterCalls(), 1);
   EXPECT_EQ(client->RegisteredSecret(), "sk-DO-NOT-LEAK-SENTINEL-7c3f9a1e");
+  EXPECT_EQ(client->RevokeCalls(), 1);
+  EXPECT_EQ(client->LastRevokedHandle(), "fake-handle");
   // Only the opaque handle (not the secret) reached DescribeImage.
   const auto req = client->LastDescribeRequest();
   EXPECT_EQ(req.credential_ref, "fake-handle");
@@ -570,6 +622,78 @@ TEST(ImageAnalysisServiceTest, SecretReachesOnlyRegisterCredentialNotDescribeIma
   EXPECT_EQ(results[0].understanding.error.find("sk-DO-NOT-LEAK"), std::string::npos);
   EXPECT_EQ(results[0].understanding.caption.find("sk-DO-NOT-LEAK"), std::string::npos);
   std::filesystem::remove_all(ScratchDir("noleak"));
+}
+
+TEST(ImageAnalysisServiceTest, ValidateConnectionLoadsCredentialListsModelsAndRevokesHandle) {
+  auto provider = std::make_shared<FakeThumbnailProvider>();
+  auto client   = std::make_shared<FakeImageAnalysisClient>();
+  client->SetListModelsCanned({
+      AiDiscoveredModel{"gpt-4o", "GPT-4o", "opencode_go_openai"},
+      AiDiscoveredModel{"gpt-4o-mini", "GPT-4o mini", "opencode_go_openai"},
+  });
+  ImageAnalysisService     service(provider, client);
+  InMemoryAiCredentialStore store;
+  ASSERT_TRUE(store.SaveCredential("opencode_api_key", "sk-VALIDATE-CONNECTION-7c3f", nullptr));
+
+  ImageAnalysisConnectionValidationOptions opts;
+  opts.provider_id     = "opencode_go_openai";
+  opts.credential_slot = "opencode_api_key";
+  opts.timeout         = std::chrono::milliseconds(5000);
+
+  const auto result = service.ValidateConnection(opts, store);
+
+  EXPECT_TRUE(result.ok) << result.error;
+  EXPECT_EQ(result.models.size(), 2u);
+  EXPECT_EQ(client->RegisterCalls(), 1);
+  EXPECT_EQ(client->RegisteredSecret(), "sk-VALIDATE-CONNECTION-7c3f");
+  EXPECT_EQ(client->ListModelsCalls(), 1);
+  EXPECT_EQ(client->LastListModelsCredentialRef(), "fake-handle");
+  EXPECT_EQ(client->RevokeCalls(), 1);
+  EXPECT_EQ(client->LastRevokedHandle(), "fake-handle");
+  EXPECT_TRUE(result.credential_revoked);
+  EXPECT_EQ(result.error.find("sk-VALIDATE-CONNECTION"), std::string::npos);
+}
+
+TEST(ImageAnalysisServiceTest, ValidateConnectionMissingCredentialFailsBeforeSidecar) {
+  auto provider = std::make_shared<FakeThumbnailProvider>();
+  auto client   = std::make_shared<FakeImageAnalysisClient>();
+  ImageAnalysisService     service(provider, client);
+  InMemoryAiCredentialStore store;
+
+  ImageAnalysisConnectionValidationOptions opts;
+  opts.provider_id     = "opencode_go_openai";
+  opts.credential_slot = "missing_slot";
+
+  const auto result = service.ValidateConnection(opts, store);
+
+  EXPECT_FALSE(result.ok);
+  EXPECT_FALSE(result.error.empty());
+  EXPECT_EQ(client->RegisterCalls(), 0);
+  EXPECT_EQ(client->ListModelsCalls(), 0);
+  EXPECT_EQ(client->RevokeCalls(), 0);
+}
+
+TEST(ImageAnalysisServiceTest, ValidateConnectionListModelsFailureStillRevokesHandle) {
+  auto provider = std::make_shared<FakeThumbnailProvider>();
+  auto client   = std::make_shared<FakeImageAnalysisClient>();
+  client->SetListModelsOutcome(FakeImageAnalysisClient::Outcome::kMissingCredential);
+  ImageAnalysisService     service(provider, client);
+  InMemoryAiCredentialStore store;
+  ASSERT_TRUE(store.SaveCredential("opencode_api_key", "sk-VALIDATE-FAILURE-4d2a", nullptr));
+
+  ImageAnalysisConnectionValidationOptions opts;
+  opts.provider_id     = "opencode_go_openai";
+  opts.credential_slot = "opencode_api_key";
+
+  const auto result = service.ValidateConnection(opts, store);
+
+  EXPECT_FALSE(result.ok);
+  EXPECT_EQ(result.error, "fake list-models failure");
+  EXPECT_EQ(client->RegisterCalls(), 1);
+  EXPECT_EQ(client->ListModelsCalls(), 1);
+  EXPECT_EQ(client->RevokeCalls(), 1);
+  EXPECT_TRUE(result.credential_revoked);
+  EXPECT_EQ(result.error.find("sk-VALIDATE-FAILURE"), std::string::npos);
 }
 
 // === Phase 5e: producer/consumer prefill pipeline ============================================

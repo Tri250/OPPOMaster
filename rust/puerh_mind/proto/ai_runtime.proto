@@ -18,6 +18,7 @@ import "ai_common.proto";
 service AiRuntimeService {
   rpc ListCapabilities(ListCapabilitiesRequest) returns (ListCapabilitiesResponse);
   rpc RegisterCredential(RegisterCredentialRequest) returns (RegisterCredentialResponse);
+  rpc RevokeCredential(RevokeCredentialRequest) returns (RevokeCredentialResponse);
   rpc CancelTask(CancelTaskRequest) returns (CancelTaskResponse);
 }
 
@@ -40,6 +41,20 @@ message RegisterCredentialRequest {
 message RegisterCredentialResponse {
   AiResponseHeader header            = 1;
   string           credential_handle = 2;  // opaque UUID; the secret is never echoed back
+}
+
+// Phase 6c: revoke a previously-registered credential handle so it can no longer
+// be resolved by task RPCs. Used by the host on provider logout, settings
+// deletion, sidecar stop, and project close. Idempotent: revoking an unknown or
+// already-revoked handle returns `revoked = false` but status OK.
+message RevokeCredentialRequest {
+  AiRequestHeader header            = 1;
+  string          credential_handle = 2;  // the opaque handle to revoke
+}
+
+message RevokeCredentialResponse {
+  AiResponseHeader header  = 1;
+  bool             revoked = 2;  // true = a live handle was revoked
 }
 
 message CancelTaskRequest {

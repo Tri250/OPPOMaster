@@ -39,6 +39,31 @@ service ImageAnalysisService {
   rpc DescribeImage(DescribeImageRequest) returns (DescribeImageResponse);
   // Score one image against a rubric.
   rpc ScoreImage(ScoreImageRequest) returns (ScoreImageResponse);
+  // Phase 6c: list the model ids the configured endpoint exposes (dry-run
+  // discovery, no annotations persisted). Used by the host's "validate
+  // connection" flow and model-discovery merge.
+  rpc ListModels(ListModelsRequest) returns (ListModelsResponse);
+}
+
+// Phase 6c: a model id discovered by live-listing the configured endpoint.
+// Carries NO capability verdict — listing proves only that the endpoint can see
+// the id, not image input or structured-output support. The host merges
+// candidates into preset state but keeps them unadvertised until a validation
+// smoke pins capability.
+message DiscoveredModel {
+  string model_id = 1;
+  string display_name = 2;
+  string source_provider_id = 3;  // which configured endpoint produced this
+}
+
+message ListModelsRequest {
+  AiRequestHeader header = 1;
+  string provider_id = 2;  // selected provider; "" = sidecar default
+}
+
+message ListModelsResponse {
+  AiResponseHeader header = 1;
+  repeated DiscoveredModel models = 2;  // empty on failure or unsupported
 }
 
 // Metadata describing the image rendition the host selected and sent. The host

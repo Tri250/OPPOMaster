@@ -269,6 +269,77 @@ pub async fn send_with_retry(
     }
 }
 
+/// Phase 6c: GET counterpart of [`send_with_retry`] for the model-discovery
+/// (`/models`) dry run. Same bounded retry policy (429 + 5xx + transient
+/// transport errors retried up to `max_retries`; 4xx non-429 not retried), same
+/// redaction discipline (the body is drained on the error path but never
+/// logged, and the bearer token is sent only via `bearer_auth` and never
+/// logged). `headers` carries routing/attribution headers the driver sets
+/// (never `Authorization`); `bearer` is the resolved secret. The response body
+/// is the caller's responsibility — this helper returns the raw
+/// `reqwest::Response` on a 2xx so the driver can parse the provider's model
+/// list shape.
+pub async fn send_get_with_retry(
+    client: &reqwest::Client,
+    url: &str,
+    headers: &[(String, String)],
+    bearer: Option<&str>,
+    max_retries: u32,
+) -> Result<reqwest::Response, ProviderError> {
+    let mut attempt = 0u32;
+    loop {
+        let mut req = client.get(url);
+        for (k, v) in headers {
+            req = req.header(k.as_str(), v.as_str());
+        }
+        if let Some(token) = bearer {
+            req = req.bearer_auth(token);
+        }
+        match req.send().await {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.is_success() {
+                    return Ok(resp);
+                }
+                let code = status.as_u16();
+                let retryable = code == 429 || status.is_server_error();
+                if retryable && attempt < max_retries {
+                    warn!(
+                        attempt = attempt + 1,
+                        status = code,
+                        "provider model-list returned a transient status; retrying"
+                    );
+                    let backoff = retry_after(&resp).unwrap_or(RETRY_BACKOFF);
+                    let _ = resp.text().await;
+                    tokio::time::sleep(backoff).await;
+                    attempt += 1;
+                    continue;
+                }
+                let _ = resp.text().await;
+                if retryable {
+                    return Err(ProviderError::Transient);
+                }
+                return Err(ProviderError::Provider(format!(
+                    "provider model-list returned HTTP {code}"
+                )));
+            }
+            Err(err) => {
+                if attempt < max_retries {
+                    warn!(
+                        attempt = attempt + 1,
+                        category = transport_error_category(&err),
+                        "transport error calling provider model-list; retrying"
+                    );
+                    tokio::time::sleep(RETRY_BACKOFF).await;
+                    attempt += 1;
+                    continue;
+                }
+                return Err(ProviderError::Transient);
+            }
+        }
+    }
+}
+
 fn transport_error_category(err: &reqwest::Error) -> &'static str {
     if err.is_connect() {
         "connect"

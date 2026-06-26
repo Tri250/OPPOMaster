@@ -27,6 +27,23 @@ pub struct Usage {
     pub total_tokens: i64,
 }
 
+/// Phase 6c: a model id discovered by live-listing the configured endpoint's
+/// `/models` (or configured override). This is provider-independent: the driver
+/// parses the provider's list response into these DTOs and returns them to the
+/// host as *unverified candidates*. Discovery only proves the account/endpoint
+/// can see a model id; it does NOT prove image input or structured-output
+/// support, so a discovered model carries NO capability verdict here — the host
+/// merges candidates into preset state but keeps them unadvertised until a
+/// validation smoke pins `live_confirmed` (Phase 6f). `source_provider_id`
+/// records which configured endpoint produced the candidate so a future
+/// prompt/model change does not reinterpret it under a different provider.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiscoveredModel {
+    pub model_id: String,
+    pub display_name: String,
+    pub source_provider_id: String,
+}
+
 /// `image_understanding.describe` outcome (provider-neutral).
 #[derive(Debug, Clone)]
 pub struct DescribeOutcome {
@@ -70,6 +87,16 @@ pub enum ProviderError {
     Transient,
     #[error("provider returned an error")]
     Provider(String),
+    /// Phase 6c: the request supplied a non-empty `model_id` that does not
+    /// resolve to any entry in the provider's `config.models[]` (built-in or
+    /// discovered/persisted user config). The call fails closed BEFORE any
+    /// provider HTTP request, closing the Phase 6b review gap where an unlisted
+    /// model slug could bypass `supports_structured_output` and be forwarded
+    /// verbatim to the provider. The inner string is the offending slug; it is
+    /// dropped by the service before placement (provider text is never echoed),
+    /// so a slug that happens to look like a key cannot leak through this arm.
+    #[error("unknown model id; not present in provider config")]
+    UnknownModel(String),
 }
 
 /// Code-owned JSON Schema for `image_understanding.describe` output. Phase 5c
@@ -186,6 +213,21 @@ pub trait ImageAnalysisProvider: Send + Sync {
         rubric_id: &str,
         credential: Option<&SecretString>,
     ) -> Result<ScoreOutcome, ProviderError>;
+    /// Phase 6c: list the model ids the configured endpoint exposes (a dry-run
+    /// discovery probe, not an image-analysis call). The credential is the
+    /// resolved vault secret when `requires_credential()` is true; it is
+    /// `expose()`d only at the auth-header build site, exactly like the task
+    /// calls. The default impl fails closed — only the OpenAI- and
+    /// Anthropic-compatible drivers override it. Discovery never persists
+    /// annotations; the host treats the returned candidates as unverified.
+    async fn list_models(
+        &self,
+        _credential: Option<&SecretString>,
+    ) -> Result<Vec<DiscoveredModel>, ProviderError> {
+        Err(ProviderError::Provider(
+            "model discovery is not supported by this provider".to_string(),
+        ))
+    }
 }
 
 /// How the mock should misbehave, for service-level failure tests.
@@ -216,6 +258,10 @@ pub struct MockImageAnalysisProvider {
     model_id: String,
     requires_credential: bool,
     failure: MockFailure,
+    /// Phase 6c: when set, `list_models` returns these candidates; otherwise it
+    /// uses the default unsupported impl. Lets the server test the ListModels
+    /// RPC plumbing (credential resolution, success/failure header) without HTTP.
+    discovered_models: Vec<DiscoveredModel>,
 }
 
 impl MockImageAnalysisProvider {
@@ -225,6 +271,7 @@ impl MockImageAnalysisProvider {
             model_id: model_id.into(),
             requires_credential: false,
             failure: MockFailure::None,
+            discovered_models: Vec::new(),
         }
     }
 
@@ -235,6 +282,11 @@ impl MockImageAnalysisProvider {
 
     pub fn with_failure(mut self, f: MockFailure) -> Self {
         self.failure = f;
+        self
+    }
+
+    pub fn with_discovered_models(mut self, models: Vec<DiscoveredModel>) -> Self {
+        self.discovered_models = models;
         self
     }
 
@@ -354,6 +406,20 @@ impl ImageAnalysisProvider for MockImageAnalysisProvider {
             out.rating = 0;
         }
         Ok(out)
+    }
+
+    /// Phase 6c: when the mock was given discovered candidates, return them;
+    /// otherwise fail closed with the default unsupported error.
+    async fn list_models(
+        &self,
+        _credential: Option<&SecretString>,
+    ) -> Result<Vec<DiscoveredModel>, ProviderError> {
+        if self.discovered_models.is_empty() {
+            return Err(ProviderError::Provider(
+                "model discovery is not supported by this provider".to_string(),
+            ));
+        }
+        Ok(self.discovered_models.clone())
     }
 }
 

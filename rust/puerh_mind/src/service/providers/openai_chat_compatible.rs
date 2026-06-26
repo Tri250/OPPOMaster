@@ -46,14 +46,14 @@ use tracing::warn;
 
 use crate::service::credential_vault::SecretString;
 use crate::service::image_analysis::{
-    DescribeOutcome, ImageAnalysisProvider, ProviderError, ScoreOutcome, IMAGE_RATING_SCHEMA,
-    IMAGE_UNDERSTANDING_SCHEMA, validate_rating, validate_understanding,
+    DescribeOutcome, DiscoveredModel, ImageAnalysisProvider, ProviderError, ScoreOutcome,
+    IMAGE_RATING_SCHEMA, IMAGE_UNDERSTANDING_SCHEMA, validate_rating, validate_understanding,
 };
 use crate::service::provider_config::{ModelConfig, ProviderConfig};
 use crate::service::providers::http_util::{
     MAX_TRANSIENT_RETRIES, build_image_data_uri, build_rustls_client, extract_provider_request_id,
     extract_usage, json_pointer_str, parse_content_json, parse_rating_int, read_response,
-    send_with_retry, strict_schema_value,
+    send_get_with_retry, send_with_retry, strict_schema_value,
 };
 
 /// Schema names injected into `response_format.json_schema.name`. Kept stable and
@@ -87,16 +87,40 @@ impl OpenAiChatCompatibleProvider {
         format!("{}{}", self.config.base_url, self.config.endpoint)
     }
 
+    /// Phase 6c: the model-listing (discovery) URL. Defaults to
+    /// `{base_url}/models` (the OpenAI-compatible default); a config
+    /// `models_endpoint` override replaces the path.
+    fn models_url(&self) -> String {
+        let path = self
+            .config
+            .models_endpoint
+            .as_deref()
+            .unwrap_or("/models");
+        format!("{}{}", self.config.base_url, path)
+    }
+
     /// Resolve the requested model slug (falling back to the config default) and
-    /// the matching model entry (for per-model knobs) if present.
-    fn resolve_model<'a>(&'a self, requested: &str) -> (String, Option<&'a ModelConfig>) {
-        let slug = if requested.trim().is_empty() {
-            self.config.defaults.model.clone()
-        } else {
-            requested.to_string()
-        };
-        let entry = self.config.models.iter().find(|m| m.slug == slug);
-        (slug, entry)
+    /// the matching model entry (for per-model knobs) if present. Phase 6c: a
+    /// non-empty explicit `requested` must resolve to an entry in
+    /// `config.models[]` (built-in or discovered/persisted user config); an
+    /// unknown slug fails closed here, BEFORE any provider HTTP call, closing
+    /// the Phase 6b review gap where an unlisted slug bypassed the
+    /// `supports_structured_output` check. An empty `requested` uses the config
+    /// default (config-authored, so it is "known" by virtue of being the
+    /// default) and may yield `None` when the default is not itself listed.
+    fn resolve_model<'a>(
+        &'a self,
+        requested: &str,
+    ) -> Result<(String, Option<&'a ModelConfig>), ProviderError> {
+        if requested.trim().is_empty() {
+            let slug = self.config.defaults.model.clone();
+            let entry = self.config.models.iter().find(|m| m.slug == slug);
+            return Ok((slug, entry));
+        }
+        match self.config.models.iter().find(|m| m.slug == requested) {
+            Some(m) => Ok((m.slug.clone(), Some(m))),
+            None => Err(ProviderError::UnknownModel(requested.to_string())),
+        }
     }
 
     /// Fail closed if structured output is not requested or the selected model
@@ -380,7 +404,7 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
         prompt_profile_id: &str,
         credential: Option<&SecretString>,
     ) -> Result<DescribeOutcome, ProviderError> {
-        let (slug, model) = self.resolve_model(model_id);
+        let (slug, model) = self.resolve_model(model_id)?;
         self.ensure_structured_output(model)?;
         let bearer = self.bearer(credential)?;
         let data_uri = build_image_data_uri(image_bytes)?;
@@ -429,7 +453,7 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
         rubric_id: &str,
         credential: Option<&SecretString>,
     ) -> Result<ScoreOutcome, ProviderError> {
-        let (slug, model) = self.resolve_model(model_id);
+        let (slug, model) = self.resolve_model(model_id)?;
         self.ensure_structured_output(model)?;
         let bearer = self.bearer(credential)?;
         let data_uri = build_image_data_uri(image_bytes)?;
@@ -468,6 +492,50 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
             "ScoreImage completed"
         );
         Ok(outcome)
+    }
+
+    /// Phase 6c: discover models by listing the configured OpenAI-compatible
+    /// `/models` endpoint. The standard OpenAI shape is `{ "data": [{ "id": ...
+    /// }] }` with no pagination; a non-`data`-array body fails closed as
+    /// `SchemaValidation`. Discovered models are unverified candidates — no
+    /// capability flags are inferred (listing proves only that the endpoint can
+    /// see the id, not image/structured-output support).
+    async fn list_models(
+        &self,
+        credential: Option<&SecretString>,
+    ) -> Result<Vec<DiscoveredModel>, ProviderError> {
+        let bearer = self.bearer(credential)?;
+        let resp = send_get_with_retry(
+            &self.http,
+            &self.models_url(),
+            &self.attribution_headers(),
+            bearer,
+            MAX_TRANSIENT_RETRIES,
+        )
+        .await?;
+        let (_headers, body) = read_response(resp).await?;
+        let data = body
+            .get("data")
+            .and_then(|d| d.as_array())
+            .ok_or(ProviderError::SchemaValidation)?;
+        let mut out = Vec::with_capacity(data.len());
+        for item in data {
+            let Some(id) = item.get("id").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            let display_name = item
+                .get("display_name")
+                .or_else(|| item.get("name"))
+                .and_then(|v| v.as_str())
+                .unwrap_or(id)
+                .to_string();
+            out.push(DiscoveredModel {
+                model_id: id.to_string(),
+                display_name,
+                source_provider_id: self.config.provider_id.clone(),
+            });
+        }
+        Ok(out)
     }
 }
 
@@ -908,5 +976,159 @@ mod tests {
         assert!(!captured.contains(RAW_BODY_SENTINEL), "raw body in logs: {captured}");
         assert!(!err.to_string().contains(TEST_SECRET), "secret in error: {err}");
         assert!(!err.to_string().contains(RAW_BODY_SENTINEL), "raw body in error: {err}");
+    }
+
+    // ----- Phase 6c: model_id tightening + model discovery -----
+
+    /// Phase 6c: a non-empty explicit `model_id` that is not present in
+    /// `config.models[]` fails closed with `UnknownModel` BEFORE any provider
+    /// HTTP call. Closes the Phase 6b review gap where an unlisted slug bypassed
+    /// `supports_structured_output` and was forwarded verbatim.
+    #[tokio::test]
+    async fn unknown_explicit_model_id_fails_before_http() {
+        let server = MockServer::start().await;
+        // No mock mounted: any HTTP call would fail the test by being recorded.
+        let provider = provider_for(&server);
+
+        let err = provider
+            .describe_image(&test_image_png(), "not-a-real-model-slug", "", Some(&secret()))
+            .await
+            .expect_err("unknown model id should fail closed");
+        assert_eq!(err, ProviderError::UnknownModel("not-a-real-model-slug".to_string()));
+        // No request should have hit the server.
+        assert_eq!(server.received_requests().await.unwrap().len(), 0);
+    }
+
+    /// Phase 6c: discovery lists the OpenAI-compatible `/models` shape and
+    /// returns unverified candidates with no capability flags.
+    #[tokio::test]
+    async fn list_models_parses_openai_shape() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/models"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "object": "list",
+                "data": [
+                    { "id": "gpt-4o", "object": "model", "owned_by": "openai" },
+                    { "id": "gpt-4o-mini", "display_name": "GPT-4o mini" }
+                ]
+            })))
+            .mount(&server)
+            .await;
+        let provider = provider_for(&server);
+
+        let models = provider.list_models(Some(&secret())).await.expect("list ok");
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].model_id, "gpt-4o");
+        assert_eq!(models[0].display_name, "gpt-4o"); // falls back to id
+        assert_eq!(models[1].model_id, "gpt-4o-mini");
+        assert_eq!(models[1].display_name, "GPT-4o mini"); // uses display_name
+        assert_eq!(models[0].source_provider_id, "opencode_go_openai");
+    }
+
+    /// Phase 6c: discovery sends `Authorization: Bearer <secret>` and no
+    /// attribution/routing for the Opencode preset.
+    #[tokio::test]
+    async fn list_models_sends_bearer_auth() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/models"))
+            .and(header("authorization", format!("Bearer {TEST_SECRET}")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": [] })))
+            .mount(&server)
+            .await;
+        let provider = provider_for(&server);
+
+        provider.list_models(Some(&secret())).await.expect("list ok");
+        let reqs = server.received_requests().await.unwrap();
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs[0].method, "GET");
+        // No OpenRouter attribution headers for the Opencode preset.
+        let hmap: std::collections::HashMap<&str, &str> = reqs[0]
+            .headers
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.to_str().unwrap_or("")))
+            .collect();
+        assert!(!hmap.contains_key("http-referer"));
+        assert!(!hmap.contains_key("x-openrouter-title"));
+    }
+
+    /// Phase 6c: a 401 is a non-retryable 4xx -> `Provider` error (auth failure
+    /// surfaced to the host's validate-connection flow).
+    #[tokio::test]
+    async fn list_models_4xx_maps_to_provider_error() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/models"))
+            .respond_with(ResponseTemplate::new(401).set_body_string("unauthorized"))
+            .mount(&server)
+            .await;
+        let provider = provider_for(&server);
+
+        let err = provider.list_models(Some(&secret())).await.expect_err("401 fails");
+        match err {
+            ProviderError::Provider(_) => {}
+            other => panic!("expected Provider for 401, got {other:?}"),
+        }
+        // 4xx is not retried.
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
+
+    /// Phase 6c: 429 then 200 — the transient status retries once and the
+    /// final 200 succeeds (`MAX_TRANSIENT_RETRIES = 1` allows exactly one retry).
+    #[tokio::test]
+    async fn list_models_429_retries_then_succeeds() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/models"))
+            .respond_with(ResponseTemplate::new(429))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/models"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": [
+                { "id": "gpt-4o" }
+            ] })))
+            .mount(&server)
+            .await;
+        let provider = provider_for(&server);
+
+        let models = provider.list_models(Some(&secret())).await.expect("list ok after retry");
+        assert_eq!(models.len(), 1);
+        assert_eq!(server.received_requests().await.unwrap().len(), 2);
+    }
+
+    /// Phase 6c: exhausted 5xx retries -> `Transient`; the secret never appears
+    /// in the error string.
+    #[tokio::test]
+    async fn list_models_exhausted_5xx_is_transient_and_redacts() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/models"))
+            .respond_with(ResponseTemplate::new(500).set_body_string(RAW_BODY_SENTINEL))
+            .mount(&server)
+            .await;
+        let provider = provider_for(&server);
+
+        let err = provider.list_models(Some(&secret())).await.expect_err("500 fails");
+        assert_eq!(err, ProviderError::Transient);
+        assert!(!err.to_string().contains(TEST_SECRET));
+        assert!(!err.to_string().contains(RAW_BODY_SENTINEL));
+    }
+
+    /// Phase 6c: a non-`data`-array body fails closed as `SchemaValidation`.
+    #[tokio::test]
+    async fn list_models_non_data_body_is_schema_validation() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/models"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "models": "oops" })))
+            .mount(&server)
+            .await;
+        let provider = provider_for(&server);
+
+        let err = provider.list_models(Some(&secret())).await.expect_err("bad shape");
+        assert_eq!(err, ProviderError::SchemaValidation);
     }
 }

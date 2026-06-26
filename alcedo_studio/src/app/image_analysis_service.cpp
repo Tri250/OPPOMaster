@@ -302,6 +302,17 @@ auto AiSidecarRuntimeImageAnalysisClient::RegisterCredential(
   return runtime_->RegisterCredential(provider_id, secret, ttl_ms, timeout, handle, error);
 }
 
+auto AiSidecarRuntimeImageAnalysisClient::RevokeCredential(const std::string&        handle,
+                                                           std::chrono::milliseconds timeout,
+                                                           bool* revoked,
+                                                           std::string* error) -> bool {
+  if (!runtime_) {
+    if (revoked) *revoked = false;
+    return true;
+  }
+  return runtime_->RevokeCredential(handle, timeout, revoked, error);
+}
+
 auto AiSidecarRuntimeImageAnalysisClient::DescribeImage(const ImageAnalysisRequest& request,
                                                         std::chrono::milliseconds timeout)
     -> ImageAnalysisUnderstandingResult {
@@ -326,6 +337,19 @@ auto AiSidecarRuntimeImageAnalysisClient::ScoreImage(const ImageAnalysisRequest&
     return r;
   }
   return runtime_->ScoreImage(request, timeout);
+}
+
+auto AiSidecarRuntimeImageAnalysisClient::ListModels(const std::string&        provider_id,
+                                                     const std::string&        credential_ref,
+                                                     std::chrono::milliseconds timeout)
+    -> ImageAnalysisListModelsResult {
+  if (!runtime_) {
+    ImageAnalysisListModelsResult r;
+    r.ok    = false;
+    r.error = "ai sidecar runtime is not available";
+    return r;
+  }
+  return runtime_->ListModels(provider_id, credential_ref, timeout);
 }
 
 auto AiSidecarRuntimeImageAnalysisClient::CancelTask(const std::string& request_id,
@@ -486,6 +510,75 @@ auto ImageAnalysisService::StartAnalysis(std::vector<ImageAnalysisItem> items,
   return job;
 }
 
+auto ImageAnalysisService::ValidateConnection(
+    const ImageAnalysisConnectionValidationOptions& options, IAiCredentialStore& credential_store)
+    -> ImageAnalysisConnectionValidationResult {
+  ImageAnalysisConnectionValidationResult result;
+  if (!analysis_client_->Ready()) {
+    result.error = "ai sidecar runtime is not ready";
+    return result;
+  }
+  if (options.provider_id.empty()) {
+    result.error = "provider id is required";
+    return result;
+  }
+  if (options.credential_slot.empty()) {
+    result.error = "credential slot is required";
+    return result;
+  }
+
+  std::string secret;
+  std::string store_error;
+  if (!credential_store.LoadCredential(options.credential_slot, &secret, &store_error)) {
+    result.error = store_error.empty() ? std::string("credential is missing") : store_error;
+    return result;
+  }
+
+  std::string handle;
+  std::string register_error;
+  const bool  registered = analysis_client_->RegisterCredential(
+      options.provider_id, secret, options.credential_ttl_ms, options.timeout, &handle,
+      &register_error);
+  if (!secret.empty()) {
+    std::fill(secret.begin(), secret.end(), '0');
+  }
+  secret.clear();
+  secret.shrink_to_fit();
+
+  if (!registered) {
+    result.error =
+        register_error.empty() ? std::string("credential registration failed") : register_error;
+    return result;
+  }
+
+  try {
+    result.list_models = analysis_client_->ListModels(options.provider_id, handle, options.timeout);
+    result.models = result.list_models.models;
+    result.ok = result.list_models.ok;
+    if (!result.ok) {
+      result.error = result.list_models.error.empty() ? std::string("model discovery failed")
+                                                      : result.list_models.error;
+    }
+  } catch (const std::exception& e) {
+    result.ok = false;
+    result.error = std::string("model discovery failed: ") + e.what();
+  } catch (...) {
+    result.ok = false;
+    result.error = "model discovery failed";
+  }
+
+  std::string revoke_error;
+  bool        revoked = false;
+  if (!analysis_client_->RevokeCredential(handle, options.timeout, &revoked, &revoke_error)) {
+    if (result.ok) {
+      result.ok = false;
+      result.error = revoke_error.empty() ? std::string("credential revoke failed") : revoke_error;
+    }
+  }
+  result.credential_revoked = revoked;
+  return result;
+}
+
 void ImageAnalysisService::RunJob(const std::shared_ptr<ImageAnalysisJob>& job,
                                   const std::vector<ImageAnalysisItem>&    items,
                                   ImageAnalysisOptions                     options,
@@ -539,6 +632,20 @@ void ImageAnalysisService::RunJob(const std::shared_ptr<ImageAnalysisJob>& job,
     }
     credential_ref = std::move(handle);
   }
+  ScopeExit credential_revoke_guard([&] {
+    if (credential_ref.empty()) {
+      return;
+    }
+    bool        revoked = false;
+    std::string revoke_error;
+    if (!analysis_client->RevokeCredential(credential_ref, options.timeout, &revoked,
+                                           &revoke_error) &&
+        !revoke_error.empty()) {
+      qCWarning(diag::semanticLog).noquote()
+          << QStringLiteral("image_analysis.credential_revoke_failed error=%1")
+                 .arg(QString::fromStdString(revoke_error));
+    }
+  });
 
   // Clamp the prefill depth to [1, kMaxImageAnalysisPrefetch]: the lower bound keeps the
   // queue non-empty, the upper bound keeps a caller from requesting an unbounded depth

@@ -1103,6 +1103,15 @@ def_library(AiProviderPreset
     PUBLIC_DEPS Qt6::Core
 )
 
+def_library(AiCredentialStore
+    SOURCES
+        app/ai_credential_store.cpp
+        include/app/ai_credential_store.hpp
+)
+if(WIN32)
+    target_link_libraries(AiCredentialStore PRIVATE Advapi32)
+endif()
+
 def_library(ModelDownloadService
     SOURCES
         app/model_download_service.cpp
@@ -1177,7 +1186,7 @@ def_library(ImageAnalysisService
     SOURCES
         app/image_analysis_service.cpp
         include/app/image_analysis_service.hpp
-    PUBLIC_DEPS AiSidecarRuntimeService ThumbnailService ImageAnalysisEncoder ImageBuffer
+    PUBLIC_DEPS AiSidecarRuntimeService AiCredentialStore ThumbnailService ImageAnalysisEncoder ImageBuffer
     PRIVATE_DEPS AppDiagnostics
 )
 
