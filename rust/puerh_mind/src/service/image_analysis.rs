@@ -150,7 +150,10 @@ fn is_valid_confidence(c: f64) -> bool {
 
 /// A remote/local image-analysis provider. Phase 5b ships one implementation
 /// (`MockImageAnalysisProvider`); Phase 5c adds `OpenRouterChatProvider` and
-/// `VolcengineArkResponsesProvider` behind the same trait.
+/// `VolcengineArkResponsesProvider` behind the same trait; Phase 6b generalizes the
+/// OpenAI Chat-compatible path into `OpenAiChatCompatibleProvider` (of which
+/// `OpenRouterChatProvider` is now a type alias) and keeps
+/// `AnthropicMessagesProvider` generic over the base URL.
 ///
 /// `credential` carries the resolved secret (from the Rust credential vault) when
 /// `requires_credential()` is true; `None` otherwise. The provider must treat the

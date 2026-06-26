@@ -1,450 +1,32 @@
 //! OpenRouter Chat Completions image-analysis driver (Phase 5c, `openrouter_chat`).
 //!
-//! Builds an OpenAI Chat-compatible `POST /chat/completions` request from the
-//! loaded OpenRouter provider config: an Alcedo-owned system prompt, a user
-//! message carrying the selected image rendition as a data URI plus a task
-//! instruction, `response_format: json_schema` with the code-owned (sanitized to
-//! strict-compatible) Alcedo schema, `provider.require_parameters` when the
-//! config requests it, and the optional `provider.data_collection = "deny"`
-//! privacy knob. The API key is resolved from the Rust credential vault and sent
-//! only as `Authorization: Bearer <secret>`; attribution headers come from the
-//! config. The response's `choices[0].message.content` is parsed as JSON,
-//! validated + normalized against the code-owned understanding / rating contract,
-//! and returned as typed fields. Transport / 429 / 5xx failures are retried under
-//! a small bounded policy; provider and transport errors map to `ProviderError`
-//! variants the service translates into `AiResponseStatus` / `AiErrorCode`.
+//! As of Phase 6b the OpenAI Chat-compatible implementation lives in
+//! [`super::openai_chat_compatible`] as `OpenAiChatCompatibleProvider`. The
+//! OpenRouter-specific routing/attribution knobs (`attribution_headers`,
+//! `structured_output.provider_require_parameters`, per-model `data_collection`)
+//! are config-gated there, so they are emitted for the OpenRouter built-in config
+//! and omitted for an Opencode / plain OpenAI-compatible preset. `openrouter_chat`
+//! and `openai_chat_compatible` dispatch to the same implementation; the
+//! `OpenRouterChatProvider` name is kept as a type alias so existing call sites
+//! (`build_one`, `live_smoke`, these tests) compile unchanged. Phase 6g may retire
+//! the `openrouter_chat` driver id once the generic driver is the only product
+//! path.
 //!
-//! The request/response shape is kept compatible with OpenRouter's official Go
-//! SDK chat-completion types (model slug, `response_format.json_schema`,
-//! `provider.require_parameters`, attribution headers), even though the
-//! production Rust path calls the REST API directly with `reqwest`.
+//! See [`super::openai_chat_compatible`] for the request/response contract, the
+//! fail-closed structured-output policy, and the redaction discipline.
 
-use serde_json::{Value, json};
-use tracing::warn;
-
-use crate::service::credential_vault::SecretString;
-use crate::service::image_analysis::{
-    DescribeOutcome, ImageAnalysisProvider, ProviderError, ScoreOutcome,
-    IMAGE_RATING_SCHEMA, IMAGE_UNDERSTANDING_SCHEMA, validate_rating, validate_understanding,
-};
-use crate::service::provider_config::{ModelConfig, ProviderConfig};
-use crate::service::providers::http_util::{
-    MAX_TRANSIENT_RETRIES, build_image_data_uri, build_rustls_client, extract_usage,
-    json_pointer_str, parse_content_json, parse_rating_int, send_with_retry,
-    strict_schema_value,
-};
-
-/// Schema names injected into `response_format.json_schema.name`. Kept stable and
-/// Alcedo-namespaced so a provider's structured-output dashboard identifies the
-/// contract unambiguously.
-const UNDERSTANDING_SCHEMA_NAME: &str = "alcedo_image_understanding";
-const RATING_SCHEMA_NAME: &str = "alcedo_image_rating";
-
-pub struct OpenRouterChatProvider {
-    config: ProviderConfig,
-    http: reqwest::Client,
-}
-
-impl OpenRouterChatProvider {
-    /// Construct from a validated provider config, building a rustls-backed
-    /// `reqwest::Client`. Used by `main.rs` for the shipped sidecar.
-    pub fn new(config: ProviderConfig) -> Result<Self, ProviderError> {
-        let http = build_rustls_client()?;
-        Ok(Self { config, http })
-    }
-
-    /// Construct with an injected HTTP client. Used by tests to point the driver
-    /// at a local mock server; the rustls client built by `new` already speaks
-    /// `http://127.0.0.1` so tests can also use `new` with a localhost base_url.
-    #[allow(dead_code)]
-    pub fn with_client(config: ProviderConfig, http: reqwest::Client) -> Self {
-        Self { config, http }
-    }
-
-    fn url(&self) -> String {
-        format!("{}{}", self.config.base_url, self.config.endpoint)
-    }
-
-    /// Resolve the requested model slug (falling back to the config default) and
-    /// the matching model entry (for per-model knobs) if present.
-    fn resolve_model<'a>(&'a self, requested: &str) -> (String, Option<&'a ModelConfig>) {
-        let slug = if requested.trim().is_empty() {
-            self.config.defaults.model.clone()
-        } else {
-            requested.to_string()
-        };
-        let entry = self.config.models.iter().find(|m| m.slug == slug);
-        (slug, entry)
-    }
-
-    /// Fail closed if structured output is not requested or the selected model
-    /// does not support it (the plan: do not rely on best-effort free-form JSON).
-    fn ensure_structured_output(&self, model: Option<&ModelConfig>) -> Result<(), ProviderError> {
-        if self.config.structured_output.mode == "none" {
-            return Err(ProviderError::Provider(
-                "provider config does not request structured output; failing closed".to_string(),
-            ));
-        }
-        if let Some(m) = model {
-            if !m.supports_structured_output {
-                return Err(ProviderError::Provider(
-                    "selected model does not support structured output; failing closed".to_string(),
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    /// Resolve the bearer token from the credential, or `None` for `auth: none`.
-    /// The secret is `expose()`d only here, at the single call site that builds the
-    /// `Authorization` header, and is never logged.
-    fn bearer<'a>(&self, credential: Option<&'a SecretString>) -> Result<Option<&'a str>, ProviderError> {
-        match (self.config.auth.auth_type.as_str(), credential) {
-            ("none", _) => Ok(None),
-            ("bearer", Some(s)) => Ok(Some(s.expose())),
-            ("bearer", None) => Err(ProviderError::Provider(
-                "bearer provider called without a credential".to_string(),
-            )),
-            (other, _) => Err(ProviderError::Provider(format!("unsupported auth type {other}"))),
-        }
-    }
-
-    fn attribution_headers(&self) -> Vec<(String, String)> {
-        self.config
-            .attribution_headers
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect()
-    }
-
-    /// Build the `provider` routing object: `require_parameters` when the config
-    /// asks for it, plus `data_collection = "deny"` when the selected model
-    /// declares the privacy-first knob.
-    fn provider_knobs(&self, model: Option<&ModelConfig>) -> Value {
-        let mut m = serde_json::Map::new();
-        if self.config.structured_output.provider_require_parameters {
-            m.insert("require_parameters".into(), Value::Bool(true));
-        }
-        if let Some(md) = model {
-            if md.data_collection.as_deref() == Some("deny") {
-                m.insert("data_collection".into(), Value::String("deny".into()));
-            }
-        }
-        Value::Object(m)
-    }
-
-    fn build_chat_body(
-        &self,
-        slug: &str,
-        model: Option<&ModelConfig>,
-        data_uri: &str,
-        schema: Value,
-        schema_name: &str,
-        system: &str,
-        instruction: &str,
-    ) -> Value {
-        let messages = json!([
-            { "role": "system", "content": system },
-            { "role": "user", "content": [
-                { "type": "text", "text": instruction },
-                { "type": "image_url", "image_url": { "url": data_uri } }
-            ]}
-        ]);
-        let mut body = json!({
-            "model": slug,
-            "messages": messages,
-            "stream": false,
-            "temperature": self.config.defaults.temperature,
-            "max_tokens": self.config.limits.max_output_tokens,
-            "response_format": {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": schema_name,
-                    "strict": self.config.structured_output.strict,
-                    "schema": schema
-                }
-            }
-        });
-        let provider = self.provider_knobs(model);
-        // Omit `provider` entirely when empty so the body matches the Go SDK's
-        // omitempty Provider field.
-        let is_empty = provider.as_object().map(|o| o.is_empty()).unwrap_or(false);
-        if !is_empty {
-            body["provider"] = provider;
-        }
-        body
-    }
-
-    fn parse_describe(&self, body: &Value, model_id: &str) -> Result<DescribeOutcome, ProviderError> {
-        let content_pointer = self
-            .config
-            .response
-            .content_json_pointer
-            .as_deref()
-            .unwrap_or("/choices/0/message/content");
-        let content = json_pointer_str(body, content_pointer).ok_or(ProviderError::SchemaValidation)?;
-        let parsed = match content {
-            Value::String(s) => parse_content_json(s)?,
-            other => other.clone(),
-        };
-        let out = DescribeOutcome {
-            caption: parsed
-                .get("caption")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim()
-                .to_string(),
-            tags: parsed
-                .get("tags")
-                .and_then(|v| v.as_array())
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|t| t.as_str().map(|s| s.trim().to_string()))
-                        .collect()
-                })
-                .unwrap_or_default(),
-            scene: parsed
-                .get("scene")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            confidence: parsed.get("confidence").and_then(|v| v.as_f64()).unwrap_or(f64::NAN),
-            model_id: model_id.to_string(),
-            usage: extract_usage(
-                self.config
-                    .response
-                    .usage_json_pointer
-                    .as_deref()
-                    .and_then(|p| json_pointer_str(body, p)),
-            ),
-            provider_request_id: self
-                .config
-                .response
-                .provider_request_id_json_pointer
-                .as_deref()
-                .and_then(|p| json_pointer_str(body, p))
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-        };
-        validate_understanding(&out)?;
-        Ok(out)
-    }
-
-    fn parse_score(&self, body: &Value, model_id: &str) -> Result<ScoreOutcome, ProviderError> {
-        let content_pointer = self
-            .config
-            .response
-            .content_json_pointer
-            .as_deref()
-            .unwrap_or("/choices/0/message/content");
-        let content = json_pointer_str(body, content_pointer).ok_or(ProviderError::SchemaValidation)?;
-        let parsed = match content {
-            Value::String(s) => parse_content_json(s)?,
-            other => other.clone(),
-        };
-        // The remote LLM is asked for a 1..=5 integer star rating. Accept an exact
-        // integer, or an integer-valued float a model may emit despite the
-        // `integer` schema (e.g. `4.0`); a fractional float (e.g. `4.9`) is
-        // schema-invalid and is NOT truncated — `parse_rating_int` returns None,
-        // the rating falls back to 0 (outside the 1..=5 contract), and
-        // `validate_rating` rejects it (fail closed, no active annotation).
-        let rating = parsed
-            .get("rating")
-            .and_then(parse_rating_int)
-            .unwrap_or(0);
-        let out = ScoreOutcome {
-            rating,
-            rubric_id: parsed
-                .get("rubric_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            rubric_version: parsed
-                .get("rubric_version")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            reasons: parsed
-                .get("reasons")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            model_id: model_id.to_string(),
-            usage: extract_usage(
-                self.config
-                    .response
-                    .usage_json_pointer
-                    .as_deref()
-                    .and_then(|p| json_pointer_str(body, p)),
-            ),
-            provider_request_id: self
-                .config
-                .response
-                .provider_request_id_json_pointer
-                .as_deref()
-                .and_then(|p| json_pointer_str(body, p))
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-        };
-        validate_rating(&out)?;
-        Ok(out)
-    }
-}
-
-/// Alcedo-owned prompt for `image_understanding.describe`. The prompt profile id is
-/// echoed into the instruction for traceability; the JSON contract is enforced by
-/// the injected schema + the code-owned validator, not by the prompt text.
-fn describe_prompt(prompt_profile_id: &str) -> (String, String) {
-    let system = "You are an image understanding assistant for Alcedo Studio. Analyze the supplied image and respond with a single JSON object matching the provided schema. The object must contain: \"caption\" (a concise one-line description of the image), \"tags\" (an array of short lowercase searchable tags, with at least one tag), \"scene\" (a short scene or category hint, or an empty string if none), and \"confidence\" (your confidence in the description, a number between 0.0 and 1.0). Output only the JSON object — no prose, no markdown code fences.".to_string();
-    let mut instruction = "Describe this image for a photo library.".to_string();
-    if !prompt_profile_id.trim().is_empty() {
-        instruction.push_str(&format!(" Prompt profile: {prompt_profile_id}."));
-    }
-    instruction.push_str(" Return only the JSON object described above.");
-    (system, instruction)
-}
-
-/// Alcedo-owned prompt for `image_rating.score`. Asks the remote LLM for a single
-/// 1–5 integer star rating aligned with the EXIF-standard Rating the app already
-/// stores per file (0 = unrated in the app; the remote contract requires 1..=5 so a
-/// scored image is never confused with an unrated one). No confidence is requested
-/// (Phase 5f rating-contract change).
-fn score_prompt(prompt_profile_id: &str, rubric_id: &str) -> (String, String) {
-    let system = "You are an image rating assistant for Alcedo Studio. Rate the supplied image against the given rubric and respond with a single JSON object matching the provided schema. The object must contain: \"rating\" (an integer from 1 to 5, where 1 is a poor photo and 5 is an excellent photo — the app's star rating), \"rubric_id\" (the rubric you applied), \"rubric_version\" (the rubric version, or an empty string), and \"reasons\" (a short rationale). Do not include any other field — in particular, do not output a confidence. Output only the JSON object — no prose, no markdown code fences.".to_string();
-    let mut instruction = "Rate this image on a 1–5 star scale.".to_string();
-    if !rubric_id.trim().is_empty() {
-        instruction.push_str(&format!(" Rubric: {rubric_id}."));
-    }
-    if !prompt_profile_id.trim().is_empty() {
-        instruction.push_str(&format!(" Prompt profile: {prompt_profile_id}."));
-    }
-    instruction.push_str(" Return only the JSON object described above, with an integer \"rating\" between 1 and 5.");
-    (system, instruction)
-}
-
-#[tonic::async_trait]
-impl ImageAnalysisProvider for OpenRouterChatProvider {
-    fn provider_id(&self) -> &str {
-        &self.config.provider_id
-    }
-
-    fn requires_credential(&self) -> bool {
-        self.config.auth.auth_type != "none"
-    }
-
-    fn capability(&self) -> crate::proto::alcedo::ai::AiCapability {
-        // Real providers advertise their capabilities via the provider registry
-        // (Phase 5a `build_provider_capability_descriptors`), which emits one
-        // descriptor per advertised model. This trait method is a compliance
-        // fallback returning the default model's understanding descriptor; it is
-        // not used to advertise OpenRouter to the C++ host.
-        use crate::proto::alcedo::ai::{AiCapability, AiInputKind, AiOutputKind};
-        AiCapability {
-            task_id: "image_understanding.describe".to_string(),
-            provider_id: self.config.provider_id.clone(),
-            model_id: self.config.defaults.model.clone(),
-            input_kinds: vec![
-                AiInputKind::AiInputThumbnail as i32,
-                AiInputKind::AiInputPreview as i32,
-                AiInputKind::AiInputImage as i32,
-            ],
-            output_kinds: vec![
-                AiOutputKind::AiOutputCaption as i32,
-                AiOutputKind::AiOutputTags as i32,
-            ],
-            supports_batch: false,
-            supports_cancel: true,
-            requires_credential: self.requires_credential(),
-            max_payload_bytes: self.config.limits.max_image_bytes as i64,
-        }
-    }
-
-    async fn describe_image(
-        &self,
-        image_bytes: &[u8],
-        model_id: &str,
-        prompt_profile_id: &str,
-        credential: Option<&SecretString>,
-    ) -> Result<DescribeOutcome, ProviderError> {
-        let (slug, model) = self.resolve_model(model_id);
-        self.ensure_structured_output(model)?;
-        let bearer = self.bearer(credential)?;
-        let data_uri = build_image_data_uri(image_bytes)?;
-        let schema = strict_schema_value(IMAGE_UNDERSTANDING_SCHEMA)?;
-        let (system, instruction) = describe_prompt(prompt_profile_id);
-        let body = self.build_chat_body(
-            &slug,
-            model,
-            &data_uri,
-            schema,
-            UNDERSTANDING_SCHEMA_NAME,
-            &system,
-            &instruction,
-        );
-        let resp = send_with_retry(&self.http, &self.url(), &body, &self.attribution_headers(), bearer, MAX_TRANSIENT_RETRIES)
-            .await?;
-        let resp_body: Value = resp
-            .json()
-            .await
-            .map_err(|_| ProviderError::SchemaValidation)?;
-        let outcome = self.parse_describe(&resp_body, &slug)?;
-        warn!(
-            provider = %self.config.provider_id,
-            model = %slug,
-            provider_request_id = %outcome.provider_request_id,
-            "DescribeImage completed"
-        );
-        Ok(outcome)
-    }
-
-    async fn score_image(
-        &self,
-        image_bytes: &[u8],
-        model_id: &str,
-        prompt_profile_id: &str,
-        rubric_id: &str,
-        credential: Option<&SecretString>,
-    ) -> Result<ScoreOutcome, ProviderError> {
-        let (slug, model) = self.resolve_model(model_id);
-        self.ensure_structured_output(model)?;
-        let bearer = self.bearer(credential)?;
-        let data_uri = build_image_data_uri(image_bytes)?;
-        let schema = strict_schema_value(IMAGE_RATING_SCHEMA)?;
-        let (system, instruction) = score_prompt(prompt_profile_id, rubric_id);
-        let body = self.build_chat_body(
-            &slug,
-            model,
-            &data_uri,
-            schema,
-            RATING_SCHEMA_NAME,
-            &system,
-            &instruction,
-        );
-        let resp = send_with_retry(&self.http, &self.url(), &body, &self.attribution_headers(), bearer, MAX_TRANSIENT_RETRIES)
-            .await?;
-        let resp_body: Value = resp
-            .json()
-            .await
-            .map_err(|_| ProviderError::SchemaValidation)?;
-        let outcome = self.parse_score(&resp_body, &slug)?;
-        warn!(
-            provider = %self.config.provider_id,
-            model = %slug,
-            provider_request_id = %outcome.provider_request_id,
-            "ScoreImage completed"
-        );
-        Ok(outcome)
-    }
-}
+pub type OpenRouterChatProvider = super::openai_chat_compatible::OpenAiChatCompatibleProvider;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::OpenRouterChatProvider;
     use crate::proto::alcedo::ai::image_analysis_service_server::ImageAnalysisService;
     use crate::service::credential_vault::SecretString;
+    use crate::service::image_analysis::{
+        ImageAnalysisProvider, ProviderError, validate_rating, validate_understanding,
+    };
     use crate::service::provider_config::load_provider_configs;
+    use serde_json::{Value, json};
     use std::collections::HashMap;
     use std::sync::Arc;
     use wiremock::matchers::{header, method, path};
@@ -909,11 +491,11 @@ mod tests {
 
     #[tokio::test]
     async fn cancellation_drops_in_flight_request() {
-        use crate::server::image_analysis::ImageAnalysisServiceImpl;
         use crate::proto::alcedo::ai::{
             AiErrorCode, AiRequestHeader, AiPriority, AiResponseStatus, DescribeImageRequest,
             RenditionMetadata as ProtoRendition,
         };
+        use crate::server::image_analysis::ImageAnalysisServiceImpl;
         use crate::service::cancellation_registry::CancellationRegistry;
         use crate::service::credential_vault::CredentialVault;
 
@@ -983,11 +565,11 @@ mod tests {
 
     #[tokio::test]
     async fn timeout_returns_deadline_exceeded() {
-        use crate::server::image_analysis::ImageAnalysisServiceImpl;
         use crate::proto::alcedo::ai::{
             AiErrorCode, AiRequestHeader, AiPriority, AiResponseStatus, DescribeImageRequest,
             RenditionMetadata as ProtoRendition,
         };
+        use crate::server::image_analysis::ImageAnalysisServiceImpl;
         use crate::service::cancellation_registry::CancellationRegistry;
         use crate::service::credential_vault::CredentialVault;
 

@@ -1,17 +1,17 @@
-//! Anthropic Messages image-analysis driver (Phase 5c follow-up,
-//! `anthropic_messages`).
+//! Anthropic Messages image-analysis driver (Phase 5c follow-up, Phase 6b
+//! generalized; `anthropic_messages`).
 //!
-//! Speaks the Anthropic Messages API (`POST /v1/messages`): an Alcedo-owned
-//! `system` prompt, a single user message carrying the image as an Anthropic
-//! `image` content block (`source.type = "base64"`, raw base64 + `media_type` —
-//! NOT a data URI) plus a `text` task instruction, and **tool-use** for structured
-//! output (`tools` + `tool_choice = { type: "tool", name }`) with the code-owned
-//! (sanitized to Anthropic-strict-compatible) Alcedo schema as the tool
-//! `input_schema`. Tool-use is more reliable than `response_format.json_schema`
-//! for forcing a typed result, and does not depend on a proxy honoring
-//! `json_schema`. The response's `content[].tool_use.input` object (for the
-//! expected tool name) is extracted with a driver-owned typed parser
-//! (`content_json_pointer` is null for this driver), validated + normalized
+//! Speaks the Anthropic Messages API (`POST /v1/messages`, or `/messages` on
+//! Opencode): an Alcedo-owned `system` prompt, a single user message carrying the
+//! image as an Anthropic `image` content block (`source.type = "base64"`, raw
+//! base64 + `media_type` — NOT a data URI) plus a `text` task instruction, and
+//! **tool-use** for structured output (`tools` + `tool_choice = { type: "tool",
+//! name }`) with the code-owned (sanitized to Anthropic-strict-compatible) Alcedo
+//! schema as the tool `input_schema`. Tool-use is more reliable than
+//! `response_format.json_schema` for forcing a typed result, and does not depend
+//! on a proxy honoring `json_schema`. The response's `content[].tool_use.input`
+//! object (for the expected tool name) is extracted with a driver-owned typed
+//! parser (`content_json_pointer` is null for this driver), validated + normalized
 //! against the code-owned understanding / rating contract, and returned as typed
 //! fields. Transient / 429 / 5xx failures retry under the same bounded policy as
 //! the other drivers; provider and transport errors map to `ProviderError`
@@ -19,17 +19,25 @@
 //!
 //! Auth is selected by `config.auth.auth_type`:
 //! - `bearer` — `Authorization: Bearer <secret>` (Claude-Code-style drop-in; used
-//!   by the shipped `volcengine_ark_coding` Coding Plan config).
+//!   by the shipped `volcengine_ark_coding` Coding Plan config and the Opencode
+//!   Go Anthropic preset).
 //! - `api_key_header` — `x-api-key: <secret>` (the real Anthropic API convention).
 //! - `none` — no credential. The `anthropic-version: 2023-06-01` header is always
 //!   sent. The secret is resolved from the Rust credential vault per request and
 //!   travels only as a header value; `SecretString::expose()` is called solely at
 //!   the header-build site and the cloned `String` is dropped right after the call.
 //!
-//! The driver is generic Anthropic Messages — the same code targets the Volcengine
-//! Ark **Coding Plan** (`https://ark.cn-beijing.volces.com/api/coding`), the real
-//! Anthropic API (`api.anthropic.com`), and Anthropic models behind OpenRouter, by
-//! `base_url`. The Coding Plan is just one config.
+//! The driver is generic Anthropic Messages and is NOT coupled to any provider
+//! brand. The same code targets the Volcengine Ark **Coding Plan**
+//! (`https://ark.cn-beijing.volces.com/api/coding` + `/v1/messages`), the real
+//! Anthropic API (`api.anthropic.com`), and Opencode's Anthropic-compatible
+//! endpoint (`https://opencode.ai/zen/go/v1` + `/messages`), selected purely by
+//! the config's `base_url` / `endpoint` / `credential_slot`. The provider request
+//! id is captured from EITHER the config's `provider_request_id_header` (Opencode
+//! echoes `request-id`) OR its `provider_request_id_json_pointer` (the Coding Plan
+//! embeds `id` in the body), whichever the config sets — both are optional because
+//! compatible providers do not all report the id the same way (Phase 6b
+//! deliverable).
 //!
 //! ## Coding Plan usage-policy caveat (accepted risk)
 //!
@@ -44,10 +52,10 @@
 //!
 //! ## Vision caveat
 //!
-//! Coding Plan models are primarily coding / text models. Image analysis only
-//! works if the selected model accepts image input. The live smoke is the
-//! ground-truth check; if the configured `slug` rejects the image on the Coding
-//! Plan, adjust `slug` to a confirmed vision-capable model — the driver itself is
+//! Coding Plan / Opencode models are primarily coding / text models. Image
+//! analysis only works if the selected model accepts image input. The live smoke
+//! is the ground-truth check; if the configured `slug` rejects the image, adjust
+//! `slug` to a confirmed vision-capable model — the driver itself is
 //! model-agnostic.
 
 use serde_json::{Value, json};
@@ -60,8 +68,9 @@ use crate::service::image_analysis::{
 };
 use crate::service::provider_config::{ModelConfig, ProviderConfig};
 use crate::service::providers::http_util::{
-    MAX_TRANSIENT_RETRIES, build_image_base64, build_rustls_client, extract_usage,
-    json_pointer_str, parse_rating_int, send_with_retry, strict_schema_value,
+    MAX_TRANSIENT_RETRIES, build_image_base64, build_rustls_client, extract_provider_request_id,
+    extract_usage, json_pointer_str, parse_rating_int, read_response, send_with_retry,
+    strict_schema_value,
 };
 
 const UNDERSTANDING_SCHEMA_NAME: &str = "alcedo_image_understanding";
@@ -200,7 +209,12 @@ impl AnthropicMessagesProvider {
         None
     }
 
-    fn parse_describe(&self, body: &Value, model_id: &str) -> Result<DescribeOutcome, ProviderError> {
+    fn parse_describe(
+        &self,
+        body: &Value,
+        model_id: &str,
+        header_req_id: &str,
+    ) -> Result<DescribeOutcome, ProviderError> {
         let parsed = Self::extract_tool_use_input(body, UNDERSTANDING_SCHEMA_NAME)
             .ok_or(ProviderError::SchemaValidation)?;
         let out = DescribeOutcome {
@@ -233,21 +247,20 @@ impl AnthropicMessagesProvider {
                     .as_deref()
                     .and_then(|p| json_pointer_str(body, p)),
             ),
-            provider_request_id: self
-                .config
-                .response
-                .provider_request_id_json_pointer
-                .as_deref()
-                .and_then(|p| json_pointer_str(body, p))
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
+            // Captured from the response header OR body JSON pointer by the caller
+            // (Phase 6b: compatible providers report the id inconsistently).
+            provider_request_id: header_req_id.to_string(),
         };
         validate_understanding(&out)?;
         Ok(out)
     }
 
-    fn parse_score(&self, body: &Value, model_id: &str) -> Result<ScoreOutcome, ProviderError> {
+    fn parse_score(
+        &self,
+        body: &Value,
+        model_id: &str,
+        header_req_id: &str,
+    ) -> Result<ScoreOutcome, ProviderError> {
         let parsed = Self::extract_tool_use_input(body, RATING_SCHEMA_NAME)
             .ok_or(ProviderError::SchemaValidation)?;
         // 1..=5 integer star rating. Accept an exact integer or an integer-valued
@@ -283,15 +296,7 @@ impl AnthropicMessagesProvider {
                     .as_deref()
                     .and_then(|p| json_pointer_str(body, p)),
             ),
-            provider_request_id: self
-                .config
-                .response
-                .provider_request_id_json_pointer
-                .as_deref()
-                .and_then(|p| json_pointer_str(body, p))
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
+            provider_request_id: header_req_id.to_string(),
         };
         validate_rating(&out)?;
         Ok(out)
@@ -395,11 +400,14 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
         let headers = self.request_headers(extra_auth_header);
         let resp = send_with_retry(&self.http, &self.url(), &body, &headers, bearer, MAX_TRANSIENT_RETRIES)
             .await?;
-        let resp_body: Value = resp
-            .json()
-            .await
-            .map_err(|_| ProviderError::SchemaValidation)?;
-        let outcome = self.parse_describe(&resp_body, &slug)?;
+        let (resp_headers, resp_body) = read_response(resp).await?;
+        let header_req_id = extract_provider_request_id(
+            &resp_headers,
+            &resp_body,
+            self.config.response.provider_request_id_header.as_deref(),
+            self.config.response.provider_request_id_json_pointer.as_deref(),
+        );
+        let outcome = self.parse_describe(&resp_body, &slug, &header_req_id)?;
         warn!(
             provider = %self.config.provider_id,
             model = %slug,
@@ -435,11 +443,14 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
         let headers = self.request_headers(extra_auth_header);
         let resp = send_with_retry(&self.http, &self.url(), &body, &headers, bearer, MAX_TRANSIENT_RETRIES)
             .await?;
-        let resp_body: Value = resp
-            .json()
-            .await
-            .map_err(|_| ProviderError::SchemaValidation)?;
-        let outcome = self.parse_score(&resp_body, &slug)?;
+        let (resp_headers, resp_body) = read_response(resp).await?;
+        let header_req_id = extract_provider_request_id(
+            &resp_headers,
+            &resp_body,
+            self.config.response.provider_request_id_header.as_deref(),
+            self.config.response.provider_request_id_json_pointer.as_deref(),
+        );
+        let outcome = self.parse_score(&resp_body, &slug, &header_req_id)?;
         warn!(
             provider = %self.config.provider_id,
             model = %slug,
@@ -1130,5 +1141,162 @@ mod tests {
         assert_eq!(h.status, AiResponseStatus::AiStatusDeadlineExceeded as i32);
         assert_eq!(h.error_code, AiErrorCode::AiErrorProviderTimeout as i32);
         assert!(inner.result.is_none());
+    }
+
+    // --- Phase 6b: Opencode-compatible base URL / endpoint --------------------
+    //
+    // The driver is generic Anthropic Messages — these tests prove it accepts an
+    // Opencode-compatible base URL + endpoint (`https://opencode.ai/zen/go/v1` +
+    // `/messages`) from config, captures the provider request id from the
+    // `request-id` response header (Opencode echoes a header, not a body `id`),
+    // and stays fail-closed when the endpoint ignores tool-use. The Coding Plan
+    // tests above cover the body-`id` path; these cover the header path.
+
+    fn opencode_provider_for(server: &MockServer) -> AnthropicMessagesProvider {
+        let mut config = load_provider_configs(None)
+            .expect("built-ins load")
+            .get("opencode_go_anthropic")
+            .expect("opencode_go_anthropic built-in")
+            .clone();
+        config.base_url = server.uri();
+        // The Opencode model ships unverified (`supports_structured_output = false`).
+        // Flip it on for these driver-shape tests so `ensure_structured_output`
+        // does not fail closed before the HTTP call — the advertisement gate
+        // (Phase 6a) is tested separately in `provider_config`. Here we exercise
+        // the wire shape, not the advertisement rule.
+        config.models[0].supports_structured_output = true;
+        AnthropicMessagesProvider::new(config).expect("provider builds")
+    }
+
+    #[tokio::test]
+    async fn opencode_base_url_builds_messages_request_with_tool_use() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/messages"))
+            .and(header("authorization", format!("Bearer {TEST_SECRET}")))
+            .and(header("anthropic-version", ANTHROPIC_VERSION))
+            .respond_with(ResponseTemplate::new(200).set_body_json(ok_messages_body(
+                UNDERSTANDING_SCHEMA_NAME,
+                r#"{"caption":"c","tags":["t"],"scene":"","confidence":0.5}"#,
+            )))
+            .mount(&server)
+            .await;
+
+        let provider = opencode_provider_for(&server);
+        provider
+            .describe_image(&test_image_png(), "claude-sonnet-4-5", "", Some(&secret()))
+            .await
+            .expect("describe ok");
+
+        let reqs = server.received_requests().await.expect("requests captured");
+        assert_eq!(reqs.len(), 1);
+        // The Opencode endpoint is `/messages` (not the Coding Plan `/v1/messages`).
+        assert_eq!(reqs[0].url.path(), "/messages");
+        let body: Value = serde_json::from_slice(&reqs[0].body).expect("body json");
+        assert_eq!(body["model"], "claude-sonnet-4-5");
+        // Anthropic image block: source.type=base64, media_type, raw base64 data.
+        let img = &body["messages"][0]["content"][0];
+        assert_eq!(img["type"], "image");
+        assert_eq!(img["source"]["type"], "base64");
+        assert_eq!(img["source"]["media_type"], "image/png");
+        let data = img["source"]["data"].as_str().expect("data string");
+        assert!(!data.starts_with("data:"), "image data is a data URI: {data}");
+        // Structured output via tools + tool_choice, not response_format.
+        assert_eq!(body["tools"][0]["name"], "alcedo_image_understanding");
+        assert_eq!(body["tools"][0]["input_schema"]["type"], "object");
+        assert_eq!(body["tools"][0]["input_schema"]["additionalProperties"], false);
+        assert_eq!(body["tool_choice"]["type"], "tool");
+        assert_eq!(body["tool_choice"]["name"], "alcedo_image_understanding");
+        // No OpenRouter / OpenAI-Chat fields leak in.
+        assert!(body.get("provider").is_none(), "OpenRouter `provider` object present");
+        assert!(body.get("response_format").is_none(), "OpenAI `response_format` present");
+        // No x-api-key in bearer mode.
+        assert!(
+            reqs[0].headers.get("x-api-key").is_none(),
+            "x-api-key present in bearer mode"
+        );
+    }
+
+    #[tokio::test]
+    async fn opencode_extracts_tool_use_and_captures_request_id_header() {
+        // Opencode echoes the provider request id as a `request-id` response header
+        // (the config sets `provider_request_id_header: "request-id"`,
+        // `provider_request_id_json_pointer: null`). The driver must capture it
+        // from the header, not the body.
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/messages"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(ok_messages_body(
+                        UNDERSTANDING_SCHEMA_NAME,
+                        r#"{"caption":"a small image","tags":["test"],"scene":"studio","confidence":0.7}"#,
+                    ))
+                    .insert_header("request-id", "opencode-hdr-42"),
+            )
+            .mount(&server)
+            .await;
+        let provider = opencode_provider_for(&server);
+        let out = provider
+            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .await
+            .expect("describe ok");
+        assert_eq!(out.caption, "a small image");
+        assert_eq!(out.tags, vec!["test".to_string()]);
+        // Captured from the `request-id` header, not a body field.
+        assert_eq!(out.provider_request_id, "opencode-hdr-42");
+        validate_understanding(&out).expect("canned outcome validates");
+    }
+
+    #[tokio::test]
+    async fn opencode_missing_tool_use_maps_to_schema_validation() {
+        // Explicit "unsupported structured output" fail-closed path on the Opencode
+        // endpoint: a 200 that returns only a text block (endpoint ignored
+        // tool_choice) must not create an active annotation.
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/messages"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": "opencode-resp-x",
+                "type": "message",
+                "role": "assistant",
+                "content": [ { "type": "text", "text": "I cannot use a tool here." } ]
+            })))
+            .mount(&server)
+            .await;
+        let provider = opencode_provider_for(&server);
+        let err = provider
+            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .await
+            .expect_err("no tool_use");
+        assert_eq!(err, ProviderError::SchemaValidation);
+    }
+
+    #[tokio::test]
+    async fn opencode_client_4xx_redacts_raw_body() {
+        // A 4xx on the Opencode endpoint is not retried, maps to
+        // ProviderError::Provider, and the raw provider error body must NOT surface
+        // in the error string (redaction). The full log-capture redaction test
+        // (`no_secret_image_prompt_or_body_in_logs_or_error_strings`) covers the
+        // shared `send_with_retry` path with the Coding Plan config; this asserts
+        // the Opencode path likewise does not leak the raw body in the error.
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/messages"))
+            .respond_with(ResponseTemplate::new(400).set_body_json(json!({
+                "type": "error",
+                "error": { "type": "invalid_request_error", "message": RAW_BODY_SENTINEL }
+            })))
+            .mount(&server)
+            .await;
+        let provider = opencode_provider_for(&server);
+        let err = provider
+            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .await
+            .expect_err("400 not retried");
+        assert!(matches!(err, ProviderError::Provider(_)), "{err:?}");
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+        assert!(!err.to_string().contains(RAW_BODY_SENTINEL), "raw body leaked: {err}");
+        assert!(!err.to_string().contains(TEST_SECRET), "secret in error: {err}");
     }
 }

@@ -2948,3 +2948,188 @@ so there is no advertisement/registration mismatch; (2) the Opencode default
 model slugs (`claude-sonnet-4-5`, `gpt-4o`) are unverified placeholders the user
 must edit — the presets are not advertised until `live_confirmed` flips, so a
 wrong default cannot drive an image-analysis job; missing tests — none.
+
+## Phase 6b - Completion & Self-Review
+
+Status: complete. The two compatible-protocol drivers are now generic over the
+configured base URL/endpoint, not coupled to any provider brand. The OpenRouter
+Chat implementation is refactored into a generic `openai_chat_compatible` driver
+(`OpenAiChatCompatibleProvider`); `openrouter_chat` and `openai_chat_compatible`
+both dispatch to it, and `OpenRouterChatProvider` is now a type alias so all
+existing call sites (`build_one`, `live_smoke`, the OpenRouter test suite) compile
+unchanged. OpenRouter's routing/attribution knobs (`attribution_headers`,
+`structured_output.provider_require_parameters`, per-model `data_collection`) are
+read from the provider config and only emitted when set, so they are on for the
+OpenRouter built-in and off by default for the Opencode / plain OpenAI-compatible
+preset — "disabled for Opencode by default" is automatic from the config, not a
+code branch. `AnthropicMessagesProvider` was already URL-agnostic; Phase 6b
+decoupled its module doc from the Volcengine Ark Coding Plan name, made
+provider-request-id capture work from EITHER a response header (Opencode echoes
+`request-id`) OR a body JSON pointer (Coding Plan embeds `id`), and added
+Opencode-style mock-server tests proving the driver accepts the Opencode base URL
+(`/messages`) from config. Both compatible drivers build request bodies from the
+code-owned Alcedo task schemas (config selects protocol/endpoint only — it owns no
+prompt text, response schema, or business fields). An endpoint that ignores
+`response_format` / tool-use and returns non-JSON prose, or returns JSON that
+violates the code-owned contract, maps to `ProviderError::SchemaValidation` so the
+service creates no active annotation (the explicit "unsupported structured output"
+fail-closed path).
+
+Implemented (file-by-file, per the plan):
+
+- `rust/puerh_mind/src/service/providers/openai_chat_compatible.rs` - NEW. The
+  generic OpenAI Chat-compatible driver, moved from `openrouter.rs` and renamed
+  `OpenAiChatCompatibleProvider`. All OpenRouter-specific knobs are config-gated
+  (`provider_knobs` emits `require_parameters` / `data_collection` only when the
+  config sets them; `attribution_headers` forwards the config map, empty for
+  Opencode; the `provider` object is omitted entirely when empty). Uses the shared
+  `read_response` + `extract_provider_request_id` so the provider request id is
+  captured from a header OR a body pointer. 12 new mock-server tests cover the
+  Opencode preset shape: bearer auth with NO attribution/routing for Opencode,
+  `response_format: json_schema` + image data URI, understanding/rating parse +
+  usage capture, 429 transient / 500-retry / 4xx-no-retry mapping, the explicit
+  ignored-`response_format` fail-closed path, contract-violation fail-closed,
+  missing-credential, header-based provider-request-id capture, and the
+  current_thread-runtime no-leak redaction test.
+- `rust/puerh_mind/src/service/providers/openrouter.rs` - reduced to a module doc
+  + `pub type OpenRouterChatProvider = super::openai_chat_compatible::OpenAiChatCompatibleProvider;`.
+  The full OpenRouter test suite is retained unchanged (it constructs
+  `OpenRouterChatProvider` via the alias and asserts the OpenRouter-specific knobs
+  are still emitted for the OpenRouter built-in config), with its test-module
+  imports made explicit (`serde_json`, `ImageAnalysisProvider`, `ProviderError`,
+  `validate_*`) since the top-level re-exports moved with the implementation.
+- `rust/puerh_mind/src/service/providers/anthropic_messages.rs` - module doc
+  rewritten to state the driver is generic and NOT coupled to the Coding Plan
+  (Opencode / Anthropic / Ark Coding selected by `base_url`/`endpoint`/
+  `credential_slot`); `parse_describe`/`parse_score` now take the
+  already-extracted `header_req_id` and the trait impl uses `read_response` +
+  `extract_provider_request_id` so Opencode's `request-id` response header is
+  captured (previously only the body `id` pointer was read, which would have
+  returned empty for the Opencode preset). 4 new Opencode-style tests:
+  `/messages` request shape with tool-use + image block (no `provider`/
+  `response_format` leak, no `x-api-key` in bearer mode), tool-use extraction +
+  header-based provider-request-id, missing-tool-use fail-closed, and 4xx raw-body
+  redaction.
+- `rust/puerh_mind/src/service/providers/http_util.rs` - two new shared helpers:
+  `extract_provider_request_id(headers, body, header_name, json_pointer)` (header
+  takes precedence, then pointer, then empty — the field stays optional end to
+  end) and `read_response(resp) -> (HeaderMap, Value)` (clones headers before
+  consuming the body so the id can come from either source; non-JSON body →
+  `SchemaValidation`). 1 new unit test (`extract_provider_request_id_prefers_header_then_pointer`).
+- `rust/puerh_mind/src/service/providers/mod.rs` - `pub mod openai_chat_compatible`
+  added; `build_one` now has an `"openai_chat_compatible" | "openrouter_chat"` arm
+  dispatching to `OpenAiChatCompatibleProvider::new` (so the `opencode_go_openai`
+  preset is now registered, not skipped-with-warn as in 6a). Module doc updated
+  to describe the three protocol-family drivers.
+- `rust/puerh_mind/src/service/image_analysis.rs` - trait doc updated to mention
+  the Phase 6b generic `OpenAiChatCompatibleProvider` and that
+  `OpenRouterChatProvider` is now a type alias.
+
+Invariants (Phase 6b review focus):
+
+- Protocol-first, not brand-first: adding another OpenAI- or Anthropic-compatible
+  endpoint requires a preset/config, not a new brand-specific driver branch. Both
+  compatible drivers select behavior purely from `ProviderConfig` fields
+  (`base_url`, `endpoint`, `auth_type`, `attribution_headers`,
+  `provider_require_parameters`, `provider_request_id_header`/`_json_pointer`).
+  The Opencode and OpenRouter OpenAI-compatible presets differ only in config over
+  the same `openai_chat_compatible` driver; the Opencode and Coding Plan
+  Anthropic presets differ only in config over the same `anthropic_messages`
+  driver.
+- OpenRouter knobs optional and off for Opencode by default:
+  `sends_bearer_authorization_without_attribution_or_routing_for_opencode` asserts
+  no `HTTP-Referer`/`X-OpenRouter-Title` headers and no `provider` routing object
+  are sent for the Opencode preset, while
+  `request_body_has_structured_output_and_require_parameters` (OpenRouter suite)
+  still asserts both are present for the OpenRouter config.
+- No active annotation on unsupported structured output: the explicit fail-closed
+  path is pinned by `ignored_response_format_produces_no_active_annotation`
+  (OpenAI-compatible: 200 with prose content → `SchemaValidation`),
+  `json_violating_contract_maps_to_schema_validation` (valid JSON, empty caption),
+  `opencode_missing_tool_use_maps_to_schema_validation` (Anthropic: 200 with only
+  a text block), and the existing `missing_tool_use`/`wrong_tool_name` Coding Plan
+  tests. `ensure_structured_output` still fails closed before any HTTP call when
+  `mode = "none"` or the model lacks `supports_structured_output`.
+- Provider request id is optional and source-agnostic:
+  `provider_request_id_captured_from_response_header_when_configured` (OpenAI
+  driver, header override),
+  `opencode_extracts_tool_use_and_captures_request_id_header` (Anthropic driver,
+  Opencode `request-id` header), and the OpenRouter/Coding-Plan body-`id` tests
+  (unchanged) cover both sources; `extract_provider_request_id_prefers_header_then_pointer`
+  pins the precedence. An unreported id yields an empty string, not an error.
+- Redaction preserved: the current_thread-runtime no-leak test is duplicated in
+  the new `openai_chat_compatible` module (asserts no secret / image data-URI /
+  prompt / raw-body in captured logs or the error string), and
+  `opencode_client_4xx_redacts_raw_body` covers the Opencode Anthropic 4xx path.
+  The shared `send_with_retry` still drains and never logs the body; the secret is
+  still `expose()`d only at the single header-build site per driver.
+- Existing OpenRouter and Volcengine tests stay green: the OpenRouter suite runs
+  unchanged against the alias; the Volcengine Ark Responses driver was not touched
+  (its `provider_request_id` still comes from the `/id` body pointer via the same
+  shared `extract_provider_request_id` helper — behavior preserved because its
+  config sets `provider_request_id_json_pointer: "/id"`, `provider_request_id_header: null`).
+
+Test results:
+
+- Rust - `cargo test -- --skip live_` in `rust/puerh_mind`: 213 passed; 0 failed;
+  0 ignored; 5 filtered out (the env-gated live smokes). 196 (Phase 6a baseline)
+  + 17 new tests: 12 in `openai_chat_compatible`, 4 Opencode tests in
+  `anthropic_messages`, 1 `extract_provider_request_id` unit test in `http_util`.
+  The existing OpenRouter tests, the existing Anthropic Coding-Plan tests, and the
+  Volcengine Ark tests all stayed green. `cargo build --tests` is warning-free.
+- No C++ changes in Phase 6b (the deliverables are Rust driver code only); no C++
+  rebuild or ctest run was required for this phase.
+
+Deferred to Phase 6c / 6d / 6f / 6g:
+
+- `AiCredentialStore` (OS credential store), "validate connection" dry run, and
+  runtime-handle revoke (6c) — the secret flow is still env/vault-only; the
+  compatible drivers resolve the credential from the vault per request and never
+  persist it.
+- AlbumBackend/QML job wiring of the Opencode presets (6d) — the presets are
+  registered (callable by `provider_id`) but not advertised (models unverified),
+  so no album job can pick them as a default capability yet.
+- Live smoke matrix against Opencode (6f) — the `live_confirmed` flag on the
+  Opencode models stays false until a 6f live smoke pins it; only then do the
+  Opencode presets advertise as image-analysis capable.
+- Retire `openrouter_chat` as a product-facing driver id (6g) — `openrouter_chat`
+  and `openai_chat_compatible` currently dispatch to the same implementation; 6g
+  may collapse to the single generic id once OpenRouter is demoted to an optional
+  compatible preset.
+
+Build note for the next handoff: rebuild the release sidecar binary
+(`cargo build --release --bin alcedo_mind` in `rust/puerh_mind`) after picking up
+these Rust driver changes — the `openai_chat_compatible` driver is new code, so a
+stale binary will not register the `opencode_go_openai` preset (it would fall to
+the reserved-driver `warn!` skip path) and a 6f Opencode live smoke would fail to
+find a usable provider. Run MSVC builds through the PowerShell tool (not Bash) if
+a later phase touches C++. For an offline cargo run with `.env.test` present, use
+`cargo test -- --skip live_` so the env-gated live smokes do not turn the suite
+red.
+
+Accepted risk (Phase 6a → 6b state change): in Phase 6a the Opencode presets were
+"advertised-but-unregistered" (config named a reserved driver, `build_one` skipped
+it with `warn!`). Phase 6b wires the generic drivers, so the Opencode presets are
+now "registered-but-not-advertised" (callable by an explicit `provider_id`, but no
+capability descriptor because the models ship with `supports_vision=false` /
+`supports_structured_output=false` / `live_confirmed=false`). This is benign and
+intentional: `ListCapabilities` does not surface them, and even an explicit call
+fails closed at `ensure_structured_output` (model lacks `supports_structured_output`)
+before any paid HTTP request — so an unverified model cannot silently produce an
+active annotation.
+
+Review conclusion: bugs found — none (the two compile errors during implementation
+were a missing `.await` on the shared async `read_response` in the new
+`openai_chat_compatible` trait impl, caught and fixed by `cargo build --tests`
+before any test ran); risk accepted — (1) the Opencode presets are now
+registered-but-not-advertised (the inverse of the 6a state) — benign because the
+unverified models fail closed at `ensure_structured_output` before any HTTP call,
+and `ListCapabilities` does not surface them; (2) the `openrouter_chat` and
+`openai_chat_compatible` driver ids dispatch to the same implementation in 6b, so
+a user config naming either gets identical behavior — the deduplication to a
+single id is deferred to 6g; (3) the "unsupported structured output" failure path
+reuses `ProviderError::SchemaValidation` rather than introducing a distinct
+variant — the outcome (no active annotation) is what the plan requires, and a
+distinct variant would ripple into the gRPC `provider_error_to_header` mapping
+without changing host behavior; missing tests — none.
+

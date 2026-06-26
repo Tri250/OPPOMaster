@@ -358,6 +358,59 @@ pub fn json_pointer_str<'a>(root: &'a Value, pointer: &str) -> Option<&'a Value>
     }
 }
 
+/// Extract the provider's own request id from a response, when the compatible
+/// endpoint reports one. Compatible providers do not all report the id the same
+/// way: some echo it in a response header (e.g. Opencode's `request-id`), some
+/// embed it in the JSON body (e.g. OpenAI Chat's `id`), and some report neither.
+/// Both sources are therefore optional in the provider config:
+/// `provider_request_id_header` (a header name) and `provider_request_id_json_pointer`
+/// (a JSON Pointer into the body). The header takes precedence when both are set
+/// and present; a missing/empty header falls through to the pointer; a missing
+/// pointer yields an empty string. The field stays optional end to end — an empty
+/// result means "not reported", not an error (Phase 6b deliverable).
+pub fn extract_provider_request_id(
+    headers: &reqwest::header::HeaderMap,
+    body: &Value,
+    header_name: Option<&str>,
+    json_pointer: Option<&str>,
+) -> String {
+    if let Some(name) = header_name {
+        if let Some(val) = headers.get(name).and_then(|h| h.to_str().ok()) {
+            if !val.is_empty() {
+                return val.to_string();
+            }
+        }
+    }
+    if let Some(pointer) = json_pointer {
+        if let Some(v) = json_pointer_str(body, pointer) {
+            if let Some(s) = v.as_str() {
+                return s.to_string();
+            }
+        }
+    }
+    String::new()
+}
+
+/// Read a provider response into `(headers, body)` so a driver can capture the
+/// provider request id from EITHER a response header OR a body JSON pointer
+/// (compatible providers report it inconsistently — Opencode's Anthropic endpoint
+/// echoes `request-id` as a header, OpenAI Chat embeds `id` in the body). The
+/// headers are cloned (cheap, one response) before the body is consumed. A
+/// non-JSON body maps to `SchemaValidation` — the service reports a payload-decode
+/// failure and creates no active annotation.
+pub async fn read_response(
+    resp: reqwest::Response,
+) -> Result<(reqwest::header::HeaderMap, Value), ProviderError> {
+    let headers = resp.headers().clone();
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|_| ProviderError::SchemaValidation)?;
+    let body: Value =
+        serde_json::from_slice(&bytes).map_err(|_| ProviderError::SchemaValidation)?;
+    Ok((headers, body))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -541,5 +594,48 @@ mod tests {
         assert_eq!(parse_rating_int(&serde_json::json!("4")), None);
         assert_eq!(parse_rating_int(&serde_json::json!(null)), None);
         assert_eq!(parse_rating_int(&serde_json::json!({"rating": 4})), None);
+    }
+
+    #[test]
+    fn extract_provider_request_id_prefers_header_then_pointer() {
+        use reqwest::header::{HeaderMap, HeaderValue};
+        // Header set + pointer set -> header wins.
+        let mut headers = HeaderMap::new();
+        headers.insert("request-id", HeaderValue::from_static("hdr-123"));
+        let body: Value = serde_json::from_str(r#"{"id": "body-123"}"#).unwrap();
+        assert_eq!(
+            extract_provider_request_id(&headers, &body, Some("request-id"), Some("/id")),
+            "hdr-123"
+        );
+        // Header name set but absent -> fall through to pointer.
+        let headers = HeaderMap::new();
+        assert_eq!(
+            extract_provider_request_id(&headers, &body, Some("request-id"), Some("/id")),
+            "body-123"
+        );
+        // Only pointer set -> pointer.
+        assert_eq!(
+            extract_provider_request_id(&headers, &body, None, Some("/id")),
+            "body-123"
+        );
+        // Only header set -> header.
+        let mut headers = HeaderMap::new();
+        headers.insert("request-id", HeaderValue::from_static("hdr-only"));
+        assert_eq!(
+            extract_provider_request_id(&headers, &body, Some("request-id"), None),
+            "hdr-only"
+        );
+        // Neither set / empty header value -> empty string (not reported).
+        let headers = HeaderMap::new();
+        assert_eq!(
+            extract_provider_request_id(&headers, &body, None, None),
+            ""
+        );
+        let mut headers = HeaderMap::new();
+        headers.insert("request-id", HeaderValue::from_str("").unwrap());
+        assert_eq!(
+            extract_provider_request_id(&headers, &body, Some("request-id"), None),
+            ""
+        );
     }
 }

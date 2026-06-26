@@ -1,19 +1,27 @@
-//! Phase 5c remote image-analysis HTTP drivers.
+//! Phase 5c / 6b remote image-analysis HTTP drivers.
 //!
 //! Each driver implements [`crate::service::image_analysis::ImageAnalysisProvider`]
-//! against a specific provider family's REST API:
-//! - [`openrouter::OpenRouterChatProvider`] — `openrouter_chat`, OpenAI
-//!   Chat-compatible `/chat/completions`.
+//! against a specific protocol family's REST API:
+//! - [`openai_chat_compatible::OpenAiChatCompatibleProvider`] —
+//!   `openai_chat_compatible`, the generic OpenAI Chat-compatible
+//!   `/chat/completions` driver (Opencode, OpenRouter, plain OpenAI-compatible
+//!   servers). `openrouter::OpenRouterChatProvider` is a type alias for this type;
+//!   the `openrouter_chat` driver id dispatches to the same implementation with
+//!   OpenRouter's routing/attribution knobs config-gated on.
+//! - [`anthropic_messages::AnthropicMessagesProvider`] — `anthropic_messages`, the
+//!   generic Anthropic Messages `/messages` driver (Opencode, the real Anthropic
+//!   API, the Volcengine Ark Coding Plan).
 //! - [`volcengine_ark::VolcengineArkResponsesProvider`] — `volcengine_ark_responses`,
 //!   OpenAI Responses-compatible `/api/v3/responses`.
 //!
-//! Both reuse the shared rustls client, image->data-URI encoding, bounded retry,
-//! strict-schema injection, and redaction discipline from [`http_util`]. The
-//! drivers are constructed from validated `ProviderConfig`s at startup
-//! ([`build_real_image_providers`]); the secret is resolved from the credential
-//! vault per request and never travels through args, options, or logs.
+//! All three reuse the shared rustls client, image encoding, bounded retry,
+//! strict-schema injection, response-reading, and redaction discipline from
+//! [`http_util`]. The drivers are constructed from validated `ProviderConfig`s at
+//! startup ([`build_real_image_providers`]); the secret is resolved from the
+//! credential vault per request and never travels through args, options, or logs.
 
 pub mod http_util;
+pub mod openai_chat_compatible;
 pub mod openrouter;
 pub mod volcengine_ark;
 pub mod anthropic_messages;
@@ -43,8 +51,10 @@ use crate::service::provider_config::{ProviderConfig, ProviderRegistry};
 /// a capability descriptor (Phase 5a) may advertise a model whose driver is not yet
 /// wired. For the shipped built-ins (openrouter, volcengine_ark,
 /// volcengine_ark_coding) the driver IS wired, so advertisement and registration
-/// align; the risk only surfaces for user-supplied configs naming reserved driver
-/// ids.
+/// align; the Opencode built-ins (`opencode_go_openai`, `opencode_go_anthropic`)
+/// are wired as of Phase 6b but NOT advertised (models ship unverified, per the
+/// Phase 6a advertisement gate). The risk only surfaces for user-supplied configs
+/// naming reserved driver ids that have no `build_one` arm.
 pub fn build_real_image_providers(
     registry: &ProviderRegistry,
 ) -> HashMap<String, Arc<dyn ImageAnalysisProvider>> {
@@ -69,9 +79,14 @@ pub fn build_real_image_providers(
 
 fn build_one(config: &ProviderConfig) -> Result<Arc<dyn ImageAnalysisProvider>, String> {
     match config.driver.as_str() {
-        "openrouter_chat" => {
-            let p = openrouter::OpenRouterChatProvider::new(config.clone())
-                .map_err(|e| format!("failed to build openrouter provider: {e}"))?;
+        // The generic OpenAI Chat-compatible driver. `openrouter_chat` is the
+        // legacy/Phase-5 driver id; `openai_chat_compatible` is the Phase 6b
+        // product-facing id. Both dispatch to the same implementation — OpenRouter's
+        // routing/attribution knobs are config-gated inside the driver and are off
+        // by default for an Opencode / plain compatible preset.
+        "openai_chat_compatible" | "openrouter_chat" => {
+            let p = openai_chat_compatible::OpenAiChatCompatibleProvider::new(config.clone())
+                .map_err(|e| format!("failed to build openai-chat-compatible provider: {e}"))?;
             Ok(Arc::new(p))
         }
         "volcengine_ark_responses" => {
