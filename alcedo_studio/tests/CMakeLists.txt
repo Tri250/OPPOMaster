@@ -664,6 +664,13 @@ add_dependencies(AiSidecarRuntimeServiceTest AiSidecarFakeRuntime)
 gtest_discover_tests(AiSidecarRuntimeServiceTest TEST_PREFIX "AiSidecarRuntimeServiceTest."
   PROPERTIES LABELS "ci_core_flow")
 
+# Phase 6a: compatible-protocol preset settings round-trip (non-secret metadata only).
+add_executable(AiProviderPresetTest app/ai_provider_preset_test.cpp)
+target_include_directories(AiProviderPresetTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(AiProviderPresetTest AiProviderPreset GTest::gtest_main)
+gtest_discover_tests(AiProviderPresetTest TEST_PREFIX "AiProviderPresetTest."
+  PROPERTIES LABELS "ci_core_flow")
+
 add_executable(SemanticGrpcDependencySmokeTest app/semantic_grpc_dependency_smoke_test.cpp)
 target_include_directories(SemanticGrpcDependencySmokeTest PUBLIC ${ALCEDO_INCLUDE_DIR})
 target_link_libraries(SemanticGrpcDependencySmokeTest

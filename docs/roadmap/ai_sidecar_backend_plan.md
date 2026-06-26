@@ -104,23 +104,33 @@ used by LLM gateway projects is:
 Provider config files are therefore deployment/configuration data, not executable adapters. They
 should not contain JavaScript, shell commands, arbitrary eval expressions, or raw API keys.
 
+Phase 6 correction (2026-06-26): the product-facing provider setup should be
+protocol-family first, not brand first. The user's paid subscription is Opencode,
+not OpenRouter. Opencode exposes API-key-authenticated compatible endpoints:
+OpenAI-style `/chat/completions` and Anthropic-style `/messages` (for example
+under `https://opencode.ai/zen/go/v1` for Opencode Go). That means Phase 6 should
+let users choose or create protocol presets containing base URL, endpoint, model
+id, auth slot, and structured-output mode. OpenRouter and Volcengine remain useful
+built-in sample presets / live-smoke fixtures, but they are not the abstraction the
+UI should organize around.
+
 Initial driver families:
 
-- `openrouter_chat`: OpenRouter's OpenAI Chat Completions-compatible endpoint, with OpenRouter
-  routing preferences and metadata handling.
-- `volcengine_ark_responses`: Volcengine Ark / 火山方舟 Responses API, used by the built-in
-  Doubao multimodal provider config.
-- `volcengine_ark_chat`: Volcengine Ark / 火山方舟 Chat API, kept as a fallback/compatibility
-  driver if a model or deployment is easier to call through the OpenAI-compatible chat surface.
-- `openai_responses`: direct OpenAI Responses API, added after OpenRouter if needed for
-  provider-specific capabilities.
 - `openai_chat_compatible`: generic OpenAI-compatible chat-completions servers.
 - `anthropic_messages`: Anthropic Messages API.
+- `openai_responses`: OpenAI-compatible Responses API, added only when a target endpoint needs the
+  Responses shape instead of Chat Completions.
+- `openrouter_chat`: OpenRouter's OpenAI Chat Completions-compatible endpoint, with OpenRouter
+  routing preferences and metadata handling. Treat this as a specialized preset/driver, not the
+  Phase 6 product default.
+- `volcengine_ark_responses`: Volcengine Ark / 火山方舟 Responses API, used by the built-in
+  Doubao multimodal provider config.
+- `volcengine_ark_chat`: Volcengine Ark / 火山方舟 Chat API. Phase 6 should remove this from
+  product-facing paths unless live testing proves a concrete endpoint cannot be represented by
+  `openai_chat_compatible`.
 - `gemini_generate_content`: Google Gemini `generateContent`.
-- `generic_json_http`: optional experimental fallback for advanced users. It may only use HTTPS
-  (except localhost dev), static JSON object templates, a small allowlist of variable substitutions,
-  and JSON Pointer response extraction. It must still pass Alcedo schema validation before returning
-  results.
+- `generic_json_http`: reserved historical idea only. Do not ship it as a Phase 6 product fallback;
+  compatible-protocol presets must use code-owned OpenAI-compatible or Anthropic-compatible drivers.
 
 Provider config file shape:
 
@@ -216,10 +226,16 @@ Second built-in provider config example:
 
 ## OpenRouter Implementation Strategy
 
-OpenRouter should be the first remote provider because it gives one OpenAI-compatible endpoint for
+Historical Phase 5 note: OpenRouter was the first implemented OpenAI-compatible
+test path, but it is not the user's current subscription. Phase 6 should not
+require or prioritize an OpenRouter credential. Reuse the request/response work
+by generalizing it into `openai_chat_compatible`, then add Opencode-compatible
+presets on top of that generic driver.
+
+OpenRouter was chosen for Phase 5 exploration because it gives one OpenAI-compatible endpoint for
 many model vendors while still supporting structured outputs for compatible models. The bundled
-OpenRouter default is Qwen3.7 Plus: show it to users as `qwen3.7-plus`, but send the canonical
-OpenRouter model slug `qwen/qwen3.7-plus` on the wire.
+OpenRouter preset default is Qwen3.7 Plus: show it to users as `qwen3.7-plus`, but send the
+canonical OpenRouter model slug `qwen/qwen3.7-plus` on the wire.
 
 OpenRouter driver behavior:
 
@@ -849,7 +865,7 @@ Review focus:
 - Check that OpenRouter and Volcengine model/provider metadata and usage are captured enough for
   Phase 6 UI.
 
-## Phase 6 - Product Wiring For Credentials, Caption, And Rating
+## Phase 6 - Protocol-First Product Wiring For Credentials, Caption, And Rating
 
 ### Phase 5f handoff — live data-carrier payload shapes (response header + content stripped)
 
@@ -900,36 +916,222 @@ carries `confidence` in 0..1).
 ```
 
 Goal: make remote image analysis usable from the album workflow without disturbing ordinary search or
-requiring users to re-enter API keys every session.
+requiring users to re-enter API keys every session. Product setup is protocol-first: users pick a
+compatible protocol preset (`openai_chat_compatible` or `anthropic_messages`) and fill endpoint,
+model id, and API key metadata. Brand/provider names such as Opencode, Volcengine, OpenRouter, or a
+local compatible server are presets over those protocol families, not separate product concepts.
+
+Primary Phase 6 assumption: the user's available paid path is Opencode, not OpenRouter. Add Opencode
+as the first product-facing compatible preset family, but do not mark any Opencode model as
+image-analysis capable until a live smoke confirms both image input and structured JSON output for
+the selected model. The already-live Volcengine Ark Coding Plan remains a useful
+Anthropic-compatible smoke target. The existing OpenRouter built-in remains an optional legacy
+OpenAI-compatible preset/test fixture; Phase 6 should not block on OpenRouter access.
+
+Structured-output rule:
+
+- For OpenAI-compatible chat, request Alcedo's schema through `response_format: { "type":
+  "json_schema", ... }` when the endpoint supports it.
+- For Anthropic-compatible Messages, request Alcedo's schema through tool use (`tools` +
+  `tool_choice`) and extract the tool input.
+- If an endpoint cannot enforce structured output through one of the supported protocol mechanisms,
+  fail closed and do not expose it as a product preset. Do not add a "prompt it to return JSON" path
+  as a fallback; that would hide provider incompatibility and make persistence ambiguous.
+
+### Phase 6a - Compatible Provider Presets And Config Contract
 
 Deliverables:
 
-- Add settings/controller flow for remote-provider availability, credential entry, remember/delete
-  key behavior, selected provider/model, and connection validation.
-- Add an album action for generating or refreshing captions/tags.
-- Add a separate rating action or an explicit combined action that writes separate
-  `image_understanding.describe` and `image_rating.score` results.
-- Add progress, cancellation, retry, and clear error states.
-- Add a search-index refresh path after successful annotation persistence.
-- Ensure the sidecar starts on demand and is not required for normal album browsing.
-- Add provider usage/cost display when the response includes usage metadata. This may start as a
-  per-job summary rather than a full billing dashboard.
+- Rename the Phase 6 product mental model from "provider brand" to "compatible protocol preset" in
+  controller DTOs and UI copy where practical. Keep existing Rust `provider_id` fields for wire
+  compatibility, but make their meaning "configured endpoint id".
+- Define the editable preset fields: display name, protocol family, base URL, endpoint, auth type,
+  credential slot label, model id, optional model display name, structured-output mode, timeout,
+  max image bytes, and recommended rendition.
+- Add Opencode preset templates:
+  - `opencode_go_anthropic`: `anthropic_messages`, base URL
+    `https://opencode.ai/zen/go/v1`, endpoint `/messages`.
+  - `opencode_go_openai`: `openai_chat_compatible`, base URL
+    `https://opencode.ai/zen/go/v1`, endpoint `/chat/completions`.
+  - If the user is on Opencode Zen rather than Go, add parallel `https://opencode.ai/zen/v1`
+    presets after checking the account's model/endpoint access.
+- Keep Volcengine Ark Coding Plan as a built-in Anthropic-compatible sample preset because the
+  Phase 5f live smoke already proved that path.
+- Move OpenRouter copy into "optional compatible preset / legacy Phase 5 smoke" wording. Do not show
+  it as the primary recommendation unless the user explicitly chooses it.
+- Add a config validation rule that a preset is advertised for image analysis only when the selected
+  model has `supports_vision && supports_structured_output` or a live smoke has explicitly pinned
+  that capability.
 
 Tests:
 
-- Controller tests for missing credential, saved credential, delete credential, offline provider,
-  cancel, retry, and successful write.
-- QML smoke tests for visible states if UI is added.
+- Rust provider-config tests for Opencode preset parsing, HTTPS policy, no raw secret in JSON,
+  duplicate endpoint-id handling, and capability advertisement gated on vision + structured output.
+- C++ DTO/controller tests proving the selected preset survives settings round-trip without storing
+  a raw API key.
+
+### Phase 6b - Generic OpenAI-Compatible And Anthropic-Compatible Drivers
+
+Deliverables:
+
+- Refactor `OpenRouterChatProvider` shared code into a generic `openai_chat_compatible` driver, with
+  OpenRouter-specific routing/attribution knobs left optional and disabled for Opencode by default.
+- Keep `AnthropicMessagesProvider` generic and ensure it is not coupled to Volcengine Ark Coding
+  Plan names. It should accept Opencode-compatible base URLs/endpoints from config.
+- Build request bodies from the code-owned Alcedo task schemas for both compatible protocols. Config
+  selects the protocol and endpoint; it does not own prompt text, response schema, or business
+  result fields.
+- Capture usage metadata and provider request ids when the compatible endpoint reports them, but make
+  those fields optional because compatible providers do not all report identical usage shapes.
+- Add an explicit "unsupported structured output" failure path so a compatible endpoint that ignores
+  JSON Schema/tool-use does not create active annotations.
+
+Tests:
+
+- Rust mock-server tests for `openai_chat_compatible`: bearer auth, image content placement, JSON
+  Schema `response_format`, JSON extraction, usage extraction, provider 4xx/429/5xx mapping, and
+  redaction.
+- Rust mock-server tests for `anthropic_messages` with an Opencode-style base URL: tool schema,
+  image block, tool-use extraction, missing/wrong tool-use schema failure, and redaction.
+- Existing OpenRouter and Volcengine tests stay green after the generic-driver refactor.
+
+### Phase 6c - Credential Store, Settings, And Validation Flow
+
+Deliverables:
+
+- Add a host-side `AiCredentialStore` backed by an OS credential store (QtKeychain or a small native
+  wrapper after dependency review). `QSettings` may store only non-secret metadata: selected preset
+  id, protocol family, endpoint, model id, masked key label, and remember/delete preference.
+- On connection validation or job start, C++ reads the secret from the OS store, calls
+  `AiSidecarRuntimeService.RegisterCredential`, receives an opaque handle, and passes only that
+  handle to image-analysis RPCs.
+- Add "validate connection" as a dry run against the selected compatible endpoint. Prefer a tiny
+  schema-capability smoke if the endpoint/model supports it; otherwise validate credential and model
+  listing without persisting annotations.
+- Revoke runtime handles on provider logout, settings deletion, sidecar stop, and project close.
+- Developer env overrides (`ALCEDO_OPENCODE_API_KEY`, existing provider-specific keys) are allowed
+  for tests/smoke only and must never be copied into `QSettings` or packed projects.
+
+Tests:
+
+- Controller tests for missing credential, saved credential, masked display, delete credential,
+  validation success, validation auth failure, validation network failure, and runtime handle revoke.
+- Redaction tests covering settings dumps, QML-exposed properties, runtime args, diagnostics logs,
+  and packed project files.
+
+### Phase 6d - Album Job Wiring
+
+Deliverables:
+
+- Add album actions for:
+  - generate/refresh captions and tags (`image_understanding.describe`);
+  - generate/refresh rating (`image_rating.score`);
+  - optional combined run that still writes two separate task results.
+- Construct `ImageAnalysisService` with one shared `ImageAnalysisInFlightGate` owned by the album
+  backend so jobs serialize across the whole album flow, not per service instance.
+- Start the sidecar on demand with `require_model_info=false` when only remote image analysis is
+  needed, so ordinary album browsing/search does not require a running sidecar or an API key.
+- Add progress, cancellation, retry, and clear error states. A cancelled or failed remote call must
+  not upsert an active understanding/rating row.
+- Reuse the Phase 5d encoded-rendition path and cap prefetch/image bytes from the selected preset.
+
+Tests:
+
+- Controller tests for empty selection, one-image success, multi-image success, cancel, retry,
+  provider error, schema error, and no partial active annotation after failure.
+- QML smoke tests for visible states if UI is added in this phase.
+
+### Phase 6e - Persistence, Search Refresh, Rating Surface, And Usage Summary
+
+Deliverables:
+
+- Persist successful describe results through `AiStorageController.UpsertUnderstanding`; refresh the
+  search path so new captions/tags become searchable only after persistence.
+- Persist rating results through `AiStorageController.UpsertRating`. Keep rating out of full-text
+  search unless a later product decision says otherwise.
+- Show provider/protocol/model/prompt-profile identity on job results and stored rows so future
+  prompt/model changes do not reinterpret old annotations.
+- Add per-job usage/cost summary when the response includes usage metadata. Start with tokens and
+  provider request ids; do not build a full billing dashboard in Phase 6.
+
+Tests:
+
 - Targeted search tests proving new captions appear only after successful persistence.
-- Manual smoke with the fake provider and, when configured by a developer, a real provider.
+- Storage/controller tests proving rating remains excluded from full-text search and failed calls
+  create no active rows.
+- Usage summary tests for present/absent usage metadata.
+
+### Phase 6f - Live Smoke Matrix And Handoff
+
+Deliverables:
+
+- Always-run fake-provider smoke remains the deterministic product path.
+- Env-gated Opencode smokes:
+  - `ALCEDO_OPENCODE_API_KEY` plus `ALCEDO_IA_LIVE_PROVIDER_ID=opencode_go_anthropic` or
+    `opencode_go_openai`;
+  - skip cleanly when the key/model is absent;
+  - fail closed if the selected model does not accept image input or does not return validated
+    structured JSON.
+- Keep the known-good Volcengine Ark Coding Plan smoke as the Anthropic-compatible reference until
+  Opencode image+schema capability is confirmed.
+- Record the final provider/protocol matrix in the phase handoff with exact endpoint, protocol
+  family, model id, image support, structured-output support, and expected skip/fail/pass behavior.
+
+### Phase 6g - Legacy Cleanup And No-Fallback Cutover
+
+Goal: after the compatible-protocol path is live, remove Phase 5-era brand-specific and legacy
+provider surfaces instead of carrying them as permanent product complexity.
+
+Deliverables:
+
+- Delete or demote OpenRouter-specific product UI/copy, default recommendations, and required live
+  smoke wiring. OpenRouter may remain only as a user-created compatible config or a clearly isolated
+  developer fixture if a test still needs the request shape.
+- Remove `openrouter_chat` as a product-facing driver id once `openai_chat_compatible` covers the
+  same request/response contract. Keep OpenRouter-only routing knobs behind optional config fields
+  consumed by the generic driver only when explicitly set.
+- Remove unused reserved provider families from Phase 6 code paths (`volcengine_ark_chat`,
+  `generic_json_http`, or any other unimplemented placeholder) unless a concrete live endpoint and
+  test require them. Reserved strings may stay documented as future work, but should not appear in
+  settings, capability descriptors, or product presets.
+- Remove legacy live-smoke defaults that point at OpenRouter or other old providers. The default
+  env-gated smoke matrix should target Opencode compatible presets plus the known-good
+  Anthropic-compatible reference until Opencode is confirmed.
+- Do not fallback across protocol families. If a selected preset is `anthropic_messages`, a failed
+  call must not retry as `openai_chat_compatible`; if a selected preset is OpenAI-compatible, it must
+  not retry as Anthropic Messages. The selected preset is the contract.
+- Do not fallback from schema-enforced structured output to free-form JSON prompting, response
+  healing, provider auto-routing that ignores schema parameters, or a different model id. Surface a
+  clear capability/configuration error instead.
+- Keep only compatibility fallbacks that preserve an explicit versioned contract and are necessary
+  for already-shipped local protocol migration (for example, the existing semantic v2-to-v1
+  `grpc::UNIMPLEMENTED` migration path). Do not introduce new remote-provider fallback layers.
+
+Tests:
+
+- Rust/provider tests proving an unsupported structured-output mode, missing tool-use, ignored
+  `response_format`, or wrong protocol shape returns a typed failure without retrying another
+  protocol or model.
+- C++ controller tests proving a selected preset id is passed through unchanged and no hidden
+  alternate provider is attempted after auth, schema, or provider errors.
+- Config/capability tests proving removed legacy provider ids are not advertised in product
+  settings or capability descriptors.
+- Live-smoke documentation test/handoff check proving OpenRouter is no longer a required or default
+  smoke path.
 
 Self-review focus:
 
-- Check user-visible error copy for credential and network failures.
+- Check user-visible error copy for credential, model capability, schema, cancellation, and network
+  failures.
 - Check that normal search and browsing remain usable without API keys.
-- Check that cancellation does not leave stale progress or half-active annotations.
-- Check that no raw API key appears in QML state dumps, settings files, diagnostics logs, or packed
-  projects.
+- Check that cancellation and retry do not leave stale progress or half-active annotations.
+- Check that no raw API key appears in QML state dumps, settings files, diagnostics logs, process
+  arguments, live-smoke stdout, or packed projects.
+- Check that the implementation is truly protocol-first: adding another OpenAI-compatible or
+  Anthropic-compatible endpoint should require a preset/config, not a new brand-specific product
+  branch.
+- Check that no remote image-analysis path performs an implicit protocol, provider, model, or
+  free-form-JSON fallback after the user selected a preset.
 
 ## Future Candidate - Edit Assistant Recipes
 
@@ -998,9 +1200,13 @@ provider credentials are available.
 ## Open Decisions
 
 - Whether image understanding should use thumbnails, previews, or caller-selected image renditions.
-- Whether to prefer OpenRouter privacy-first routing knobs by default. OpenRouter's bundled default
-  is Qwen3.7 Plus (`qwen/qwen3.7-plus` on the wire; `qwen3.7-plus` in UI copy). Volcengine Ark's
-  bundled default is `doubao-seed-2-0-lite-260428`.
+- Whether Opencode Go or Opencode Zen is the user's actual account/API surface for Phase 6 live
+  validation. The first product-facing presets should target Opencode-compatible endpoints, while
+  OpenRouter routing knobs stay optional/legacy.
+- For Opencode, which selected model is live-confirmed to accept image input and structured output
+  through either the OpenAI-compatible or Anthropic-compatible endpoint. Do not advertise an
+  Opencode preset as image-analysis capable until this is proven.
+- Volcengine Ark's bundled default is `doubao-seed-2-0-lite-260428`.
 - Exact live-verified Volcengine Responses output extraction shape and whether the reserved Chat API
   compatibility driver is needed for any target deployment.
 - Exact rating rubric: whether score means aesthetic quality, technical quality, keeper priority, or
@@ -1021,6 +1227,14 @@ provider credentials are available.
   key-management service, not hard-coded or exposed client-side.
 - OpenAI API docs: Responses API supports image input and structured outputs, which match the
   caption/tag/rating schema requirement.
+- Opencode Go docs (`https://opencode.ai/docs/go/`): Opencode Go uses Bearer-authenticated API
+  access and exposes compatible model endpoints under `https://opencode.ai/zen/go/v1`, including
+  OpenAI-compatible `/chat/completions` and Anthropic-compatible `/messages` paths depending on the
+  model.
+- Opencode Zen docs (`https://opencode.ai/docs/zen/`): Opencode Zen exposes API endpoints under
+  `https://opencode.ai/zen/v1`, including OpenAI-compatible, Responses-compatible, and
+  Anthropic-compatible entry points. Treat these as presets over Alcedo's compatible protocol
+  drivers, not as a brand-specific driver unless a live smoke proves a protocol deviation.
 - OpenRouter docs (`https://openrouter.ai/docs/quickstart`,
   `https://openrouter.ai/docs/guides/features/structured-outputs`): the direct API uses
   `POST /api/v1/chat/completions` with Bearer authentication, OpenAI-compatible request/response
@@ -2130,12 +2344,14 @@ shipped-code bug):
   release sidecar binary (`cargo build --release --bin alcedo_mind` in
   `rust/puerh_mind`).
 
-Provider-credential state in `.env.test` (environment, not code): the OpenRouter
-key returns HTTP 401 (invalid/expired); the Volcengine Ark Responses default model
-returns HTTP 404 (the default `doubao-seed-2.0-lite-260428` endpoint/model is not
-found for this account - this is Open Decision #4, the live-verified Volcengine
-Responses shape). The Volcengine Ark Coding Plan (Anthropic-compatible, via
-`AnthropicMessagesProvider`) WORKS with the same Ark key. The live smoke PASSED
+Provider-credential state in `.env.test` (environment, not code): the legacy
+OpenRouter env value returns HTTP 401 and should not be treated as the user's paid
+provider path (the subscription is Opencode). The Volcengine Ark Responses default
+model returns HTTP 404 (the default `doubao-seed-2.0-lite-260428` endpoint/model
+is not found for this account - this is Open Decision #4, the live-verified
+Volcengine Responses shape). The Volcengine Ark Coding Plan
+(Anthropic-compatible, via `AnthropicMessagesProvider`) WORKS with the same Ark
+key. The live smoke PASSED
 with `ALCEDO_IA_LIVE_PROVIDER_ID=volcengine_ark_coding` against the real `.alcd`
 image: the LLM (Doubao seed 2.0 lite, model id `doubao-seed-2.0-lite`) returned a
 coherent caption, 10 tags, a scene hint, and confidence 0.95 in ~2.8s, and the
@@ -2177,9 +2393,11 @@ Deferred to Phase 5f / 5g / 6:
   `RegisterAllOperators()` in any test that drives the real CPU pipeline.
 - Product UI / controller wiring / a shared `ImageAnalysisInFlightGate` owned by
   the album backend, and setting the app-wide `prefetch` (6).
-- A valid OpenRouter credential and a confirmed Volcengine Ark Responses
-  model/endpoint (Open Decision #4) for full 5g live coverage of all three
-  providers.
+- Opencode is the Phase 6 credential path to validate. Do not block 5g/6 on
+  OpenRouter access; keep OpenRouter as an optional historical smoke.
+  A confirmed Volcengine Ark Responses model/endpoint (Open Decision #4) is still
+  useful for full coverage, but not required for the Opencode-compatible product
+  path.
 
 Build note for the next handoff: rebuild the release sidecar binary after any Rust
 image-analysis change (`cargo build --release --bin alcedo_mind` in
@@ -2223,10 +2441,11 @@ now resolved; the remaining accepted risks are unchanged: (2) the deterministic
 suite uses `FakeThumbnailProvider`, so the prefill pipeline's interaction with the
 real `ThumbnailService` async / `PipelineScheduler` ThreadPool render path is
 proven only by the env-gated live smoke (5g territory), not the always-run ctest
-group; (3) the `.env.test` OpenRouter key is invalid (HTTP 401) and the Volcengine
-Ark Responses default model 404s (Open Decision #4) - the live describe succeeds
-via the Volcengine Ark Coding Plan provider, and this credential / config state is
-accepted as an environment constraint, not a code defect. The two bonus-live-run
+group; (3) the optional legacy `.env.test` OpenRouter smoke returns HTTP 401 and
+the Volcengine Ark Responses default model 404s (Open Decision #4) - the live
+describe succeeds via the Volcengine Ark Coding Plan provider, and this credential
+/ config state is accepted as an environment constraint, not a code defect. The
+two bonus-live-run
 issues (live smoke omitted `RegisterAllOperators()` -> null-deref; stale Phase-4
 sidecar binary -> UNIMPLEMENTED for `DescribeImage`) were test-harness /
 environment, both fixed. Missing tests: none - all 8 plan-required 5e tests
@@ -2488,7 +2707,8 @@ from every result/persisted field).
   here.)
 
 Provider-credential state in `.env.test` (environment, not code; unchanged from
-5e): OpenRouter returns HTTP 401 (invalid/expired key); the Volcengine Ark
+5e): the legacy OpenRouter env value returns HTTP 401 and should not be treated as
+the user's paid provider path (the subscription is Opencode); the Volcengine Ark
 Responses default model returns HTTP 404 (Open Decision #4); the Volcengine Ark
 Coding Plan (Anthropic-compatible, via `AnthropicMessagesProvider`) WORKS with the
 same Ark key. Both live tests this phase used
@@ -2541,9 +2761,11 @@ Deferred to Phase 5g / 6:
   surfacing the rating as sort/filter/recommendation data only when a product
   rubric is approved, and constructing `ImageAnalysisService` with a single
   shared `ImageAnalysisInFlightGate` (6).
-- A valid OpenRouter credential and a confirmed Volcengine Ark Responses
-  model/endpoint (Open Decision #4) for full 5g live coverage of all three
-  providers.
+- Opencode is the Phase 6 credential path to validate. Do not block 5g/6 on
+  OpenRouter access; keep OpenRouter as an optional historical smoke.
+  A confirmed Volcengine Ark Responses model/endpoint (Open Decision #4) is still
+  useful for full coverage, but not required for the Opencode-compatible product
+  path.
 
 Build note for the next handoff: rebuild the release sidecar binary after any
 Rust image-analysis change (`cargo build --release --bin alcedo_mind` in
@@ -2552,12 +2774,177 @@ Rust image-analysis change (`cargo build --release --bin alcedo_mind` in
 change. Run MSVC builds through the PowerShell tool (not Bash), and build
 affected test targets explicitly before ctest. For an offline cargo run with
 `.env.test` present, use `cargo test -- --skip live_smoke` so the env-gated live
-smokes (which fail on the known-bad OpenRouter/Volcengine Responses creds) do
-not turn the suite red.
+smokes (including the optional legacy OpenRouter smoke and known Volcengine
+Responses 404) do not turn the suite red.
 
 Review conclusion: bugs found — none; risk accepted — (1) the single-id
 `ElementController::RemoveElement(sl_element_id_t)` overload does not cascade AI
 (or semantic) rows, which is pre-existing behavior unchanged by 5f and out of
-scope, and (2) the `.env.test` credential matrix (OpenRouter 401, Volcengine Ark
-Responses 404 = Open Decision #4) is an environment constraint, not a code
-defect; missing tests — none.
+scope, and (2) the `.env.test` credential matrix (optional legacy OpenRouter 401,
+Volcengine Ark Responses 404 = Open Decision #4) is an environment constraint,
+not a code defect; missing tests — none.
+
+## Phase 6a - Completion & Self-Review
+
+Status: complete. The Phase 6 product mental model is now "compatible protocol
+preset", not "provider brand": two Opencode Go compatible presets are shipped as
+built-ins (`opencode_go_anthropic` over `anthropic_messages`, `opencode_go_openai`
+over `openai_chat_compatible`), the editable preset field set is frozen as a C++
+DTO + settings controller, and OpenRouter copy is demoted to legacy/optional. A
+preset is advertised for image analysis only when a model has
+`supports_vision && supports_structured_output` OR a live smoke has explicitly
+pinned that capability (`live_confirmed`); the Opencode models ship unverified
+(both flags false, `live_confirmed` false) so they are NOT advertised until a
+live smoke confirms image input + structured JSON for the selected model — the
+Phase 6 primary assumption. The Volcengine Ark Coding Plan built-in stays
+unchanged (the proven Anthropic-compatible reference). No driver code changed
+(the generic `openai_chat_compatible` driver is Phase 6b; the
+`opencode_go_openai` preset is config-only until 6b wires it). No C++ host
+job/credential wiring (6c/6d); no persistence changes (6e).
+
+Implemented (file-by-file, per the plan):
+
+- `rust/puerh_mind/configs/providers/opencode_go_anthropic.json` - NEW built-in.
+  `anthropic_messages`, `https://opencode.ai/zen/go/v1` + `/messages`, bearer auth
+  slot `opencode_api_key`, `structured_output.mode = tool` strict, driver-owned
+  parser (`content_json_pointer: null`), `provider_request_id_header: "request-id"`,
+  one model `claude-sonnet-4-5` with `supports_vision=false`,
+  `supports_structured_output=false`, `live_confirmed=false` (unverified → not
+  advertised).
+- `rust/puerh_mind/configs/providers/opencode_go_openai.json` - NEW built-in.
+  `openai_chat_compatible`, `https://opencode.ai/zen/go/v1` + `/chat/completions`,
+  bearer slot `opencode_api_key`, `structured_output.mode =
+  response_format_json_schema` strict, `content_json_pointer:
+  /choices/0/message/content`, one model `gpt-4o` unverified (all three flags
+  false → not advertised). Driver reserved (not wired) until 6b; config-only here.
+- `rust/puerh_mind/configs/providers/openrouter.json` - `display_name` changed to
+  `"OpenRouter (legacy / optional Phase 5 smoke)"` (the Phase 6a "move OpenRouter
+  copy to legacy/optional wording" deliverable). No wire-shape change.
+- `rust/puerh_mind/src/service/provider_config.rs` -
+  (a) `ModelConfig` gained `#[serde(default)] live_confirmed: bool` (the
+  "live-smoke-pinned capability" mechanism; `#[allow(dead_code)]` until 6b/6f
+  consume it from a driver path).
+  (b) `build_provider_capability_descriptors` advertisement gate changed from
+  `supports_vision && supports_structured_output` to
+  `(supports_vision && supports_structured_output) || live_confirmed` — the Phase
+  6a advertisement rule.
+  (c) `BUILTIN_PROVIDER_CONFIGS` extended with the two Opencode `include_str!`
+  entries (3 → 5 built-ins).
+  (d) Module doc rewritten to describe the protocol-first preset model, the
+  legacy/optional status of OpenRouter, and the advertisement rule.
+- `alcedo_studio/src/include/app/ai_provider_preset.hpp` + `app/ai_provider_preset.cpp`
+  - NEW. `struct AiProviderPreset` (the editable preset fields: display name,
+  protocol family, base URL, endpoint, auth type, credential slot label, model id,
+  optional model display name, structured-output mode, timeout, max image bytes,
+  recommended rendition, masked key label, remember-key flag) with intentionally
+  NO raw-API-key field. `class AiProviderPresetController : public QObject` with a
+  `Q_PROPERTY` per field, `Q_INVOKABLE` setters, `CurrentPreset()` / `SetFromPreset()`
+  / `Clear()`, shared `PresetChanged` NOTIFY, and `Normalized{ProtocolFamily,
+  AuthType,StructuredOutputMode,Rendition}` clampers (mirror
+  `NormalizedEndpointPreset` in `project_service.cpp`). Round-trips through
+  `QSettings` under `ai/preset/*` (the same default-scope pattern as the semantic
+  model-endpoint settings). Defaults mirror the Opencode Anthropic preset. No
+  `SetApiKey` / `SetSecret` exists — the secret stays in the OS credential store
+  (6c) and reaches the sidecar only as a vault handle.
+- `alcedo_studio/src/CMakeLists.txt` - NEW `def_library(AiProviderPreset ...)`
+  (PUBLIC `Qt6::Core`), placed beside `AiSidecarRuntimeService`.
+- `alcedo_studio/tests/app/ai_provider_preset_test.cpp` + `tests/CMakeLists.txt` -
+  NEW `AiProviderPresetTest` target (links `AiProviderPreset GTest::gtest_main`,
+  LABELS `ci_core_flow`). 5 cases: `RoundTripsEveryEditableField`,
+  `IndividualSettersPersistAndReload`, `ClearRemovesAllPresetKeys`,
+  `GarbageValuesClampToKnownClosedSets`, `NoRawApiKeyIsPersisted`.
+
+Invariants (Phase 6a review focus):
+
+- Protocol-first, not brand-first: adding another OpenAI- or Anthropic-compatible
+  endpoint requires a preset/config, not a new brand-specific product branch. The
+  C++ DTO's primary axis is `protocol_family`; `credential_slot` is a slot label,
+  not a brand. The two Opencode presets differ only in protocol family + endpoint
+  over the same base URL.
+- No raw API key in the DTO/controller/QSettings: `AiProviderPreset` has no
+  secret field; the controller has no `SetApiKey`/`SetSecret`. `NoRawApiKeyIsPersisted`
+  asserts the `ai/preset` group has no key-named setting and no full-`sk-`-key
+  value; `maskedKeyLabel` is a short display mask (contains an ellipsis, does not
+  match a full-key regex), not key material.
+- Advertisement gated on verified capability: the Opencode presets are NOT
+  advertised (both model flags false, `live_confirmed` false). A user override
+  flipping `live_confirmed=true` advertises the model even with both flags false
+  (the live-pin disjunct) — `opencode_presets_not_advertised_until_live_confirmed`
+  and `live_confirmed_alone_advertises_without_vision_or_structured_flags` pin both
+  sides. The capability-descriptor count stays 6 (3 advertised built-ins × 2); the
+  2 Opencode presets add no descriptors.
+- OpenRouter demoted: `loads_built_in_configs` asserts the OpenRouter
+  `display_name` now contains "legacy".
+- Duplicate endpoint-id handling: two user configs sharing an Opencode
+  `provider_id` keep the first and skip the second (fail closed, not a silent
+  clobber) — `opencode_duplicate_provider_id_is_rejected`.
+- Configs are data only: an Opencode-shaped preset carrying a raw `api_key` in an
+  unknown field is rejected by the pre-deserialize secret scan —
+  `opencode_preset_with_injected_raw_secret_is_rejected`.
+
+Test results:
+
+- Rust - `cargo test -- --skip live_` in `rust/puerh_mind`: 196 passed; 0 failed;
+  0 ignored; 5 filtered out (the env-gated live smokes). The 5 new
+  `provider_config` tests (`opencode_presets_are_https_with_no_raw_secret`,
+  `opencode_preset_with_injected_raw_secret_is_rejected`,
+  `opencode_duplicate_provider_id_is_rejected`,
+  `opencode_presets_not_advertised_until_live_confirmed`,
+  `live_confirmed_alone_advertises_without_vision_or_structured_flags`) are green.
+  The two updated count tests (`loads_built_in_configs` 3→5 built-ins with Opencode
+  field assertions; `built_ins_advertise_understanding_and_rating_descriptors`
+  count stays 6 + Opencode-not-advertised assertions) are green. The
+  `capabilities.rs` / `ai_runtime.rs` `assert!(caps.len() >= 5)` lower bounds still
+  hold (count is 6).
+- C++ MSVC build (PowerShell tool): `AiProviderPreset` lib + `AiProviderPresetTest`
+  built clean (AUTOMOC ran; no warnings). ctest `-R "AiSidecarRuntimeServiceTest|
+  AiProviderPresetTest|AiStorageControllerTest"`: 42/42 passed (1 live-runtime
+  Skip — `ALCEDO_SEMANTIC_LIVE_RUNTIME_PATH` not set). The 5 `AiProviderPresetTest`
+  cases pass. No existing C++ source changed, so no downstream rebuild was
+  required beyond the new target.
+
+Deferred to Phase 6b / 6c / 6d / 6f:
+
+- The generic `openai_chat_compatible` driver (6b): the `opencode_go_openai`
+  preset is config-only until 6b wires it. `build_real_image_providers` skips it
+  with `warn!` at sidecar startup (reserved driver, fail closed) — expected, not a
+  regression. The `opencode_go_anthropic` preset IS usable today (the
+  `anthropic_messages` driver is wired from the 5c follow-up) but is not
+  advertised as image-analysis capable until live-confirmed.
+- Opencode Zen (`https://opencode.ai/zen/v1`) parallel presets: deferred until the
+  user's account/model/endpoint access is confirmed (Open Decision: Go vs Zen). The
+  Go presets are the documented primary path.
+- `AiCredentialStore` (OS credential store), "validate connection" dry run, and
+  runtime-handle revoke (6c) — the controller persists only non-secret metadata;
+  the secret flow is 6c.
+- AlbumBackend/QML member wiring of `AiProviderPresetController` (6d) — 6a ships
+  the controller as a standalone, testable QObject in its own lib; it is not yet a
+  member of `AlbumBackend` and has no QML exposure. The constructor takes only
+  `QObject* parent` so 6d can adopt it without rework.
+- Live smoke matrix against Opencode (6f) — the `live_confirmed` flag on the
+  Opencode models stays false until a 6f live smoke pins it; only then do the
+  Opencode presets advertise as image-analysis capable.
+
+Build note for the next handoff: rebuild the release sidecar binary
+(`cargo build --release --bin alcedo_mind` in `rust/puerh_mind`) after picking up
+these Rust config changes — the two Opencode presets are embedded via
+`include_str!`, so a stale binary will not list them in `BUILTIN_PROVIDER_CONFIGS`
+and a 6f Opencode live smoke would not find its preset. Run MSVC builds through
+the PowerShell tool (not Bash), and build affected test targets explicitly before
+ctest. For an offline cargo run with `.env.test` present, use
+`cargo test -- --skip live_` so the env-gated live smokes do not turn the suite
+red.
+
+Review conclusion: bugs found — none (the one test failure during implementation
+was a test-honesty gap in `NoRawApiKeyIsPersisted`, which asserted no persisted
+value starts with `sk-` and was tripped by the legitimate `maskedKeyLabel`
+display mask `sk-…4f2a`; fixed by asserting against a full-key regex
+`sk-[A-Za-z0-9_-]{20,}` that a short ellipsis-containing mask does not match);
+risk accepted — (1) the `opencode_go_openai` built-in names the reserved
+`openai_chat_compatible` driver, so `build_real_image_providers` skips it with
+`warn!` at sidecar startup until 6b wires the generic driver — this is the
+intended 6a/6b phase split, and the preset is NOT advertised (model unverified),
+so there is no advertisement/registration mismatch; (2) the Opencode default
+model slugs (`claude-sonnet-4-5`, `gpt-4o`) are unverified placeholders the user
+must edit — the presets are not advertised until `live_confirmed` flips, so a
+wrong default cannot drive an image-analysis job; missing tests — none.

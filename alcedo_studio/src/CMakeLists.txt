@@ -1092,6 +1092,17 @@ def_library(AiSidecarRuntimeService
     PRIVATE_DEPS SemanticProto AiProto AppDiagnostics
 )
 
+# Phase 6a: compatible-protocol preset DTO + settings controller. Non-secret
+# metadata only (round-trips through QSettings); the raw API key never enters
+# this type — it stays in the OS credential store (Phase 6c) and reaches the
+# sidecar only as a short-lived vault handle.
+def_library(AiProviderPreset
+    SOURCES
+        app/ai_provider_preset.cpp
+        include/app/ai_provider_preset.hpp
+    PUBLIC_DEPS Qt6::Core
+)
+
 def_library(ModelDownloadService
     SOURCES
         app/model_download_service.cpp

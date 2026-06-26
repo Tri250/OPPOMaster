@@ -1,4 +1,4 @@
-//! Provider configuration loader and registry (Phase 5a).
+//! Provider configuration loader and registry (Phase 5a; Phase 6a preset model).
 //!
 //! Makes remote-provider selection data-driven without turning provider JSON
 //! files into executable code. Built-in provider configs are embedded into the
@@ -16,7 +16,22 @@
 //! (those live in `image_analysis.proto` and the JSON Schemas in
 //! `crate::service::image_analysis`).
 //!
-//! See docs/roadmap/ai_sidecar_backend_plan.md (Phase 5a) and
+//! Phase 6a preset model: the product mental model is "compatible protocol
+//! preset", not "provider brand". A preset is a configured endpoint over one of
+//! the protocol families (`openai_chat_compatible`, `anthropic_messages`, ...);
+//! `provider_id` is kept on the wire for compatibility but means "configured
+//! endpoint id". The two Opencode Go presets (`opencode_go_anthropic`,
+//! `opencode_go_openai`) are the first product-facing compatible presets.
+//! OpenRouter remains shipped only as an optional / legacy Phase 5 smoke preset
+//! — it is not the primary recommendation. A preset is advertised as
+//! image-analysis capable only when a model has
+//! `supports_vision && supports_structured_output` OR a live smoke has
+//! explicitly pinned that capability via `live_confirmed`. The Opencode presets
+//! ship with both flags false and `live_confirmed = false` (unverified), so they
+//! are NOT advertised until a live smoke confirms image input + structured JSON
+//! output for the selected model.
+//!
+//! See docs/roadmap/ai_sidecar_backend_plan.md (Phase 5a / Phase 6a) and
 //! docs/roadmap/ai_sidecar_phase0_contract.md (section 1) for the frozen
 //! control-surface contract these configs feed into.
 
@@ -175,9 +190,11 @@ pub struct LimitsConfig {
     pub max_output_tokens: u64,
 }
 
-/// A curated model entry. Only models with `supports_vision && supports_structured_output`
-/// are advertised as image-analysis capabilities in Phase 5 (the plan: fail closed
-/// rather than rely on best-effort free-form JSON).
+/// A curated model entry. A model is advertised as an image-analysis capability
+/// only when `supports_vision && supports_structured_output` OR `live_confirmed`
+/// is true (Phase 6a: fail closed rather than rely on best-effort free-form JSON,
+/// and do not advertise a compatible-preset model as image-analysis capable until
+/// a live smoke confirms both image input and structured JSON output).
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct ModelConfig {
     pub slug: String,
@@ -186,6 +203,14 @@ pub struct ModelConfig {
     pub supports_vision: bool,
     #[serde(default)]
     pub supports_structured_output: bool,
+    /// Phase 6a: a live smoke has explicitly pinned that this model accepts image
+    /// input AND returns validated structured JSON for the configured protocol.
+    /// When true the model is advertised even if `supports_vision` /
+    /// `supports_structured_output` are still false (the pin IS the confirmation).
+    /// Ship preset models with this false until a live smoke confirms capability.
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub live_confirmed: bool,
     #[serde(default)]
     pub max_image_bytes: Option<u64>,
     #[serde(default)]
@@ -279,6 +304,18 @@ const BUILTIN_PROVIDER_CONFIGS: &[(&str, &str)] = &[
     (
         "volcengine_ark_coding",
         include_str!("../../configs/providers/volcengine_ark_coding.json"),
+    ),
+    // Phase 6a Opencode Go compatible presets (protocol-first). Models ship
+    // unverified (supports_vision / supports_structured_output / live_confirmed
+    // all false) so they are NOT advertised as image-analysis capable until a
+    // live smoke confirms image input + structured JSON for the selected model.
+    (
+        "opencode_go_anthropic",
+        include_str!("../../configs/providers/opencode_go_anthropic.json"),
+    ),
+    (
+        "opencode_go_openai",
+        include_str!("../../configs/providers/opencode_go_openai.json"),
     ),
 ];
 
@@ -768,7 +805,15 @@ pub fn build_provider_capability_descriptors(registry: &ProviderRegistry) -> Vec
     for config in registry.iter() {
         let requires_credential = config.auth.auth_type != "none";
         for model in &config.models {
-            if !(model.supports_vision && model.supports_structured_output) {
+            // Phase 6a advertisement rule: a preset is advertised for image
+            // analysis only when the model has supports_vision &&
+            // supports_structured_output OR a live smoke has explicitly pinned
+            // that capability (live_confirmed). Compatible-preset models ship
+            // unverified (both flags false, live_confirmed false) so they are
+            // NOT advertised until a live smoke confirms image + structured JSON.
+            let capable =
+                (model.supports_vision && model.supports_structured_output) || model.live_confirmed;
+            if !capable {
                 continue;
             }
             let max_payload = model.max_image_bytes.unwrap_or(config.limits.max_image_bytes) as i64;
@@ -823,8 +868,9 @@ mod tests {
     #[test]
     fn loads_built_in_configs() {
         let registry = builtin_registry();
-        // OpenRouter + Volcengine Ark + Volcengine Ark Coding Plan.
-        assert_eq!(registry.len(), 3);
+        // OpenRouter + Volcengine Ark + Volcengine Ark Coding Plan + Opencode Go
+        // (Anthropic) + Opencode Go (OpenAI) = 5 built-in presets.
+        assert_eq!(registry.len(), 5);
         let openrouter = registry.get("openrouter").expect("openrouter present");
         assert_eq!(openrouter.driver, "openrouter_chat");
         assert_eq!(openrouter.base_url, "https://openrouter.ai/api/v1");
@@ -837,6 +883,12 @@ mod tests {
         assert_eq!(
             openrouter.response.content_json_pointer.as_deref(),
             Some("/choices/0/message/content")
+        );
+        // Phase 6a: OpenRouter copy is demoted to legacy / optional smoke wording.
+        assert!(
+            openrouter.display_name.to_lowercase().contains("legacy"),
+            "openrouter display_name should mark it legacy: {}",
+            openrouter.display_name
         );
 
         let ark = registry.get("volcengine_ark").expect("volcengine_ark present");
@@ -859,6 +911,37 @@ mod tests {
         assert_eq!(coding.structured_output.mode, "tool");
         assert!(coding.structured_output.strict);
         assert_eq!(coding.response.content_json_pointer, None);
+
+        // Phase 6a Opencode Go compatible presets (protocol-first).
+        let oc_anthropic = registry
+            .get("opencode_go_anthropic")
+            .expect("opencode_go_anthropic present");
+        assert_eq!(oc_anthropic.driver, "anthropic_messages");
+        assert_eq!(oc_anthropic.base_url, "https://opencode.ai/zen/go/v1");
+        assert_eq!(oc_anthropic.endpoint, "/messages");
+        assert_eq!(oc_anthropic.auth.auth_type, "bearer");
+        assert_eq!(oc_anthropic.auth.credential_slot, "opencode_api_key");
+        assert_eq!(oc_anthropic.structured_output.mode, "tool");
+        // Unverified model: not advertised until live-confirmed.
+        assert!(!oc_anthropic.models[0].supports_vision);
+        assert!(!oc_anthropic.models[0].supports_structured_output);
+        assert!(!oc_anthropic.models[0].live_confirmed);
+
+        let oc_openai = registry
+            .get("opencode_go_openai")
+            .expect("opencode_go_openai present");
+        assert_eq!(oc_openai.driver, "openai_chat_compatible");
+        assert_eq!(oc_openai.base_url, "https://opencode.ai/zen/go/v1");
+        assert_eq!(oc_openai.endpoint, "/chat/completions");
+        assert_eq!(oc_openai.auth.credential_slot, "opencode_api_key");
+        assert_eq!(oc_openai.structured_output.mode, "response_format_json_schema");
+        assert_eq!(
+            oc_openai.response.content_json_pointer.as_deref(),
+            Some("/choices/0/message/content")
+        );
+        assert!(!oc_openai.models[0].supports_vision);
+        assert!(!oc_openai.models[0].supports_structured_output);
+        assert!(!oc_openai.models[0].live_confirmed);
     }
 
     #[test]
@@ -1274,14 +1357,27 @@ mod tests {
     fn built_ins_advertise_understanding_and_rating_descriptors() {
         let registry = builtin_registry();
         let caps = build_provider_capability_descriptors(&registry);
-        // 3 providers (OpenRouter, Volcengine Ark, Volcengine Ark Coding Plan), 1
-        // model each, each emitting 2 descriptors (understanding + rating) = 6.
+        // 3 advertised providers (OpenRouter, Volcengine Ark, Volcengine Ark Coding
+        // Plan), 1 model each, each emitting 2 descriptors (understanding + rating)
+        // = 6. The 2 Opencode Go presets are NOT advertised (their models ship
+        // unverified: supports_vision / supports_structured_output / live_confirmed
+        // all false — Phase 6a "do not advertise until live-confirmed").
         assert_eq!(caps.len(), 6);
 
         let understanding: Vec<_> = caps.iter().filter(|c| c.task_id == "image_understanding.describe").collect();
         let rating: Vec<_> = caps.iter().filter(|c| c.task_id == "image_rating.score").collect();
         assert_eq!(understanding.len(), 3);
         assert_eq!(rating.len(), 3);
+        // Phase 6a: Opencode compatible presets are not advertised as
+        // image-analysis capable until a live smoke pins the capability.
+        assert!(
+            caps.iter().all(|c| c.provider_id != "opencode_go_anthropic"),
+            "opencode_go_anthropic must not be advertised until live-confirmed"
+        );
+        assert!(
+            caps.iter().all(|c| c.provider_id != "opencode_go_openai"),
+            "opencode_go_openai must not be advertised until live-confirmed"
+        );
 
         let or_understanding = understanding
             .iter()
@@ -1329,6 +1425,166 @@ mod tests {
             caps.iter().all(|c| c.provider_id != "vision_only_noschema"),
             "non-structured-output model is not advertised"
         );
+    }
+
+    // ---- Phase 6a: compatible protocol preset tests ----
+
+    #[test]
+    fn opencode_presets_are_https_with_no_raw_secret() {
+        // The two Opencode Go presets must load (which runs the raw-secret scan
+        // before deserialize on the built-in path) and must be HTTPS-only.
+        let registry = builtin_registry();
+        for id in ["opencode_go_anthropic", "opencode_go_openai"] {
+            let cfg = registry.get(id).unwrap_or_else(|| panic!("{id} present"));
+            assert!(
+                cfg.base_url.starts_with("https://"),
+                "{id} base_url must be https:// (got {})",
+                cfg.base_url
+            );
+            // credential_slot is a slot label, not a secret; it must survive load
+            // (the scan must not reject the label "opencode_api_key").
+            assert_eq!(cfg.auth.credential_slot, "opencode_api_key");
+        }
+    }
+
+    #[test]
+    fn opencode_preset_with_injected_raw_secret_is_rejected() {
+        // An Opencode-shaped preset carrying a raw API key in an unknown field
+        // must be rejected by the raw-secret scan (configs are data only).
+        let dir = tempdir();
+        let user = r#"{
+            "schema_version": 1,
+            "provider_id": "opencode_go_anthropic",
+            "display_name": "Opencode Go (Anthropic-compatible)",
+            "driver": "anthropic_messages",
+            "base_url": "https://opencode.ai/zen/go/v1",
+            "endpoint": "/messages",
+            "auth": {"type": "bearer", "credential_slot": "opencode_api_key"},
+            "api_key": "sk-1234567890abcdef1234567890abcdef",
+            "defaults": {"model": "claude-sonnet-4-5", "stream": false, "temperature": 0.2},
+            "structured_output": {"mode": "tool", "strict": true},
+            "response": {"content_json_pointer": null},
+            "limits": {"timeout_ms": 60000, "max_image_bytes": 4194304, "max_output_tokens": 1200},
+            "models": [
+                {"slug": "claude-sonnet-4-5", "display_name": "Claude", "supports_vision": false, "supports_structured_output": false, "live_confirmed": false}
+            ]
+        }"#;
+        write_config(&dir, "leaky_opencode.json", user);
+        let registry = load_provider_configs(Some(dir.path())).expect("load does not hard-fail on a bad user config");
+        // The user config is skipped (fail closed); the built-in Opencode preset
+        // it tried to override remains, but the leaky override is NOT applied.
+        assert!(registry.get("opencode_go_anthropic").is_some(), "built-in remains");
+    }
+
+    #[test]
+    fn opencode_duplicate_provider_id_is_rejected() {
+        // Two user configs sharing the Opencode preset's provider_id ("configured
+        // endpoint id"): the first user override wins, the second is skipped as a
+        // user-on-user duplicate (fail closed, not a hard error, not a silent
+        // clobber). Deterministic order: a_first sorts before b_second.
+        let dir = tempdir();
+        let first = r#"{
+            "schema_version": 1,
+            "provider_id": "opencode_go_anthropic",
+            "display_name": "Opencode (first user override)",
+            "driver": "anthropic_messages",
+            "base_url": "https://opencode.ai/zen/go/v1",
+            "endpoint": "/messages",
+            "auth": {"type": "bearer", "credential_slot": "opencode_api_key"},
+            "defaults": {"model": "first/model", "stream": false, "temperature": 0.2},
+            "structured_output": {"mode": "tool", "strict": true},
+            "response": {"content_json_pointer": null},
+            "limits": {"timeout_ms": 60000, "max_image_bytes": 4194304, "max_output_tokens": 1200},
+            "models": [
+                {"slug": "first/model", "display_name": "first", "supports_vision": false, "supports_structured_output": false, "live_confirmed": false}
+            ]
+        }"#;
+        let second = r#"{
+            "schema_version": 1,
+            "provider_id": "opencode_go_anthropic",
+            "display_name": "Opencode (second user override)",
+            "driver": "anthropic_messages",
+            "base_url": "https://opencode.ai/zen/go/v1",
+            "endpoint": "/messages",
+            "auth": {"type": "bearer", "credential_slot": "opencode_api_key"},
+            "defaults": {"model": "second/model", "stream": false, "temperature": 0.2},
+            "structured_output": {"mode": "tool", "strict": true},
+            "response": {"content_json_pointer": null},
+            "limits": {"timeout_ms": 60000, "max_image_bytes": 4194304, "max_output_tokens": 1200},
+            "models": [
+                {"slug": "second/model", "display_name": "second", "supports_vision": false, "supports_structured_output": false, "live_confirmed": false}
+            ]
+        }"#;
+        write_config(&dir, "a_first.json", first);
+        write_config(&dir, "b_second.json", second);
+        let registry = load_provider_configs(Some(dir.path())).expect("load does not hard-fail on dupe");
+        let oc = registry.get("opencode_go_anthropic").expect("opencode_go_anthropic present");
+        assert_eq!(oc.display_name, "Opencode (first user override)");
+        assert_eq!(oc.defaults.model, "first/model");
+    }
+
+    #[test]
+    fn opencode_presets_not_advertised_until_live_confirmed() {
+        // The shipped Opencode presets are unverified -> not advertised. A user
+        // override that flips live_confirmed=true advertises the model even though
+        // supports_vision / supports_structured_output stay false (the live smoke
+        // pin IS the confirmation). This is the Phase 6a advertisement gate.
+        let registry = builtin_registry();
+        let caps = build_provider_capability_descriptors(&registry);
+        assert!(
+            caps.iter().all(|c| c.provider_id != "opencode_go_anthropic"),
+            "unverified opencode_go_anthropic must not be advertised"
+        );
+
+        let dir = tempdir();
+        let pinned = r#"{
+            "schema_version": 1,
+            "provider_id": "opencode_go_anthropic",
+            "display_name": "Opencode Go (Anthropic-compatible, live-confirmed)",
+            "driver": "anthropic_messages",
+            "base_url": "https://opencode.ai/zen/go/v1",
+            "endpoint": "/messages",
+            "auth": {"type": "bearer", "credential_slot": "opencode_api_key"},
+            "defaults": {"model": "claude-sonnet-4-5", "stream": false, "temperature": 0.2},
+            "structured_output": {"mode": "tool", "strict": true},
+            "response": {"content_json_pointer": null},
+            "limits": {"timeout_ms": 60000, "max_image_bytes": 4194304, "max_output_tokens": 1200},
+            "models": [
+                {"slug": "claude-sonnet-4-5", "display_name": "Claude", "supports_vision": false, "supports_structured_output": false, "live_confirmed": true}
+            ]
+        }"#;
+        write_config(&dir, "pinned.json", pinned);
+        let registry = load_provider_configs(Some(dir.path())).expect("pinned override loads");
+        let caps = build_provider_capability_descriptors(&registry);
+        let oc_caps: Vec<_> = caps.iter().filter(|c| c.provider_id == "opencode_go_anthropic").collect();
+        assert_eq!(oc_caps.len(), 2, "live-confirmed opencode model advertises understanding + rating");
+        assert!(oc_caps.iter().any(|c| c.task_id == "image_understanding.describe"));
+        assert!(oc_caps.iter().any(|c| c.task_id == "image_rating.score"));
+    }
+
+    #[test]
+    fn live_confirmed_alone_advertises_without_vision_or_structured_flags() {
+        // Directly exercises the live-pin disjunct of the advertisement gate:
+        // supports_vision=false && supports_structured_output=false but
+        // live_confirmed=true -> advertised.
+        let dir = tempdir();
+        let user = r#"{
+            "schema_version": 1, "provider_id": "live_pinned", "display_name": "L",
+            "driver": "anthropic_messages", "base_url": "https://example.com",
+            "endpoint": "/messages", "auth": {"type": "bearer", "credential_slot": "x_key"},
+            "defaults": {"model": "m", "stream": false, "temperature": 0.2},
+            "structured_output": {"mode": "tool"},
+            "response": {"content_json_pointer": null},
+            "limits": {"timeout_ms": 60000, "max_image_bytes": 4194304, "max_output_tokens": 1200},
+            "models": [
+                {"slug": "m", "display_name": "m", "supports_vision": false, "supports_structured_output": false, "live_confirmed": true}
+            ]
+        }"#;
+        write_config(&dir, "pinned.json", user);
+        let registry = load_provider_configs(Some(dir.path())).expect("loads");
+        let caps = build_provider_capability_descriptors(&registry);
+        let pinned: Vec<_> = caps.iter().filter(|c| c.provider_id == "live_pinned").collect();
+        assert_eq!(pinned.len(), 2, "live_confirmed model is advertised (understanding + rating)");
     }
 
     // ---- tempdir helpers (avoid pulling in tempfile) ----

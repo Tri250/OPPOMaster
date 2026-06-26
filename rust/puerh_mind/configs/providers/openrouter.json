@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "provider_id": "openrouter",
-  "display_name": "OpenRouter",
+  "display_name": "OpenRouter (legacy / optional Phase 5 smoke)",
   "driver": "openrouter_chat",
   "base_url": "https://openrouter.ai/api/v1",
   "endpoint": "/chat/completions",
