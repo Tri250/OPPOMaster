@@ -21,6 +21,7 @@
 #include "app/ai_sidecar_runtime_service.hpp"
 #include "app/thumbnail_service.hpp"
 #include "app/thumbnail_types.hpp"
+#include "sidecar_client/dto/semantic_embedding.hpp"
 #include "storage/controller/semantic/semantic_label_config.hpp"
 #include "storage/controller/semantic/semantic_storage_controller.hpp"
 #include "type/type.hpp"

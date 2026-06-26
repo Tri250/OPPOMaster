@@ -24,6 +24,7 @@
 #include "app/model_asset_catalog.hpp"
 #include "app/project_package_backend.hpp"
 #include "app/project_package_service.hpp"
+#include "sidecar_client/dto/semantic_embedding.hpp"
 #include "utils/diagnostics/app_logging.hpp"
 #include "utils/string/convert.hpp"
 #include "uuid.h"
@@ -260,8 +261,12 @@ class ProjectSemanticSearchProvider final : public SemanticSearchProvider {
         << QStringLiteral("semantic.search.embedding.request request_id=%1 model_key=%2")
                .arg(QString::fromStdString(request_id),
                     QString::fromStdString(active_model->model_key_));
-    const auto                         embedding =
-        runtime->EmbedText(request_id, text, EmbeddingTimeoutForModel(*active_model));
+    const auto client_session = runtime->ClientSession();
+    if (!client_session) {
+      throw std::runtime_error("Semantic runtime client session is unavailable.");
+    }
+    const auto embedding =
+        client_session->semantic().EmbedText(request_id, text, EmbeddingTimeoutForModel(*active_model));
     if (const auto validation =
             ValidateSearchEmbedding(embedding, request_id, active_model->embedding_dim_);
         validation.has_value()) {

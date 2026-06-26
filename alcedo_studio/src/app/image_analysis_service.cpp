@@ -289,7 +289,8 @@ AiSidecarRuntimeImageAnalysisClient::AiSidecarRuntimeImageAnalysisClient(
     : runtime_(std::move(runtime)) {}
 
 auto AiSidecarRuntimeImageAnalysisClient::Ready() -> bool {
-  return runtime_ && runtime_->IsRunning();
+  return runtime_ && runtime_->Status().state == AiSidecarRuntimeState::kReady &&
+         runtime_->ClientSession() != nullptr;
 }
 
 auto AiSidecarRuntimeImageAnalysisClient::RegisterCredential(
@@ -299,7 +300,13 @@ auto AiSidecarRuntimeImageAnalysisClient::RegisterCredential(
     if (error) *error = "ai sidecar runtime is not available";
     return false;
   }
-  return runtime_->RegisterCredential(provider_id, secret, ttl_ms, timeout, handle, error);
+  const auto session = runtime_->ClientSession();
+  if (!session || runtime_->Status().state != AiSidecarRuntimeState::kReady) {
+    if (error) *error = "ai sidecar runtime is not ready";
+    return false;
+  }
+  return session->credentials().RegisterCredential(provider_id, secret, ttl_ms, timeout, handle,
+                                                   error);
 }
 
 auto AiSidecarRuntimeImageAnalysisClient::RevokeCredential(const std::string&        handle,
@@ -310,7 +317,12 @@ auto AiSidecarRuntimeImageAnalysisClient::RevokeCredential(const std::string&   
     if (revoked) *revoked = false;
     return true;
   }
-  return runtime_->RevokeCredential(handle, timeout, revoked, error);
+  const auto session = runtime_->ClientSession();
+  if (!session || runtime_->Status().state != AiSidecarRuntimeState::kReady) {
+    if (revoked) *revoked = false;
+    return true;
+  }
+  return session->credentials().RevokeCredential(handle, timeout, revoked, error);
 }
 
 auto AiSidecarRuntimeImageAnalysisClient::DescribeImage(const ImageAnalysisRequest& request,
@@ -323,7 +335,15 @@ auto AiSidecarRuntimeImageAnalysisClient::DescribeImage(const ImageAnalysisReque
     r.error      = "ai sidecar runtime is not available";
     return r;
   }
-  return runtime_->DescribeImage(request, timeout);
+  const auto session = runtime_->ClientSession();
+  if (!session || runtime_->Status().state != AiSidecarRuntimeState::kReady) {
+    ImageAnalysisUnderstandingResult r;
+    r.request_id = request.request_id;
+    r.ok         = false;
+    r.error      = "ai sidecar runtime is not ready";
+    return r;
+  }
+  return session->image_analysis().DescribeImage(request, timeout);
 }
 
 auto AiSidecarRuntimeImageAnalysisClient::ScoreImage(const ImageAnalysisRequest& request,
@@ -336,7 +356,15 @@ auto AiSidecarRuntimeImageAnalysisClient::ScoreImage(const ImageAnalysisRequest&
     r.error      = "ai sidecar runtime is not available";
     return r;
   }
-  return runtime_->ScoreImage(request, timeout);
+  const auto session = runtime_->ClientSession();
+  if (!session || runtime_->Status().state != AiSidecarRuntimeState::kReady) {
+    ImageAnalysisRatingResult r;
+    r.request_id = request.request_id;
+    r.ok         = false;
+    r.error      = "ai sidecar runtime is not ready";
+    return r;
+  }
+  return session->image_analysis().ScoreImage(request, timeout);
 }
 
 auto AiSidecarRuntimeImageAnalysisClient::ListModels(const std::string&        provider_id,
@@ -349,7 +377,14 @@ auto AiSidecarRuntimeImageAnalysisClient::ListModels(const std::string&        p
     r.error = "ai sidecar runtime is not available";
     return r;
   }
-  return runtime_->ListModels(provider_id, credential_ref, timeout);
+  const auto session = runtime_->ClientSession();
+  if (!session || runtime_->Status().state != AiSidecarRuntimeState::kReady) {
+    ImageAnalysisListModelsResult r;
+    r.ok    = false;
+    r.error = "ai sidecar runtime is not ready";
+    return r;
+  }
+  return session->image_analysis().ListModels(provider_id, credential_ref, timeout);
 }
 
 auto AiSidecarRuntimeImageAnalysisClient::CancelTask(const std::string& request_id,
@@ -359,7 +394,12 @@ auto AiSidecarRuntimeImageAnalysisClient::CancelTask(const std::string& request_
     if (error) *error = "ai sidecar runtime is not available";
     return false;
   }
-  return runtime_->CancelTask(request_id, timeout, cancelled, error);
+  const auto session = runtime_->ClientSession();
+  if (!session || runtime_->Status().state != AiSidecarRuntimeState::kReady) {
+    if (error) *error = "ai sidecar runtime is not ready";
+    return false;
+  }
+  return session->runtime().CancelTask(request_id, timeout, cancelled, error);
 }
 
 // --- ImageAnalysisJob ---

@@ -688,7 +688,15 @@ auto AiSidecarRuntimeImageEmbeddingClient::EmbedText(const std::string&        r
     result.error      = "semantic runtime service is not available";
     return result;
   }
-  return runtime_->EmbedText(request_id, text, timeout);
+  const auto session = runtime_->ClientSession();
+  if (!session || runtime_->Status().state != AiSidecarRuntimeState::kReady) {
+    SemanticEmbeddingResult result;
+    result.request_id = request_id;
+    result.ok         = false;
+    result.error      = "semantic runtime is not ready";
+    return result;
+  }
+  return session->semantic().EmbedText(request_id, text, timeout);
 }
 
 auto AiSidecarRuntimeImageEmbeddingClient::EmbedTextBatch(
@@ -706,7 +714,20 @@ auto AiSidecarRuntimeImageEmbeddingClient::EmbedTextBatch(
     }
     return results;
   }
-  return runtime_->EmbedTextBatch(requests, timeout);
+  const auto session = runtime_->ClientSession();
+  if (!session || runtime_->Status().state != AiSidecarRuntimeState::kReady) {
+    std::vector<SemanticEmbeddingResult> results;
+    results.reserve(requests.size());
+    for (const auto& request : requests) {
+      SemanticEmbeddingResult result;
+      result.request_id = request.request_id;
+      result.ok         = false;
+      result.error      = "semantic runtime is not ready";
+      results.push_back(std::move(result));
+    }
+    return results;
+  }
+  return session->semantic().EmbedTextBatch(requests, timeout);
 }
 
 void AiSidecarRuntimeImageEmbeddingClient::EmbedImageBatch(
@@ -742,7 +763,20 @@ void AiSidecarRuntimeImageEmbeddingClient::EmbedImageBatch(
       requests.push_back(std::move(request));
     }
 
-    const auto runtime_results = runtime->EmbedImageBatch(std::move(requests), timeout);
+    const auto session = runtime->ClientSession();
+    std::vector<SemanticEmbeddingResult> runtime_results;
+    if (!session || runtime->Status().state != AiSidecarRuntimeState::kReady) {
+      runtime_results.reserve(requests.size());
+      for (const auto& request : requests) {
+        SemanticEmbeddingResult result;
+        result.request_id = request.request_id;
+        result.ok         = false;
+        result.error      = "semantic runtime is not ready";
+        runtime_results.push_back(std::move(result));
+      }
+    } else {
+      runtime_results = session->semantic().EmbedImageBatch(std::move(requests), timeout);
+    }
     results.reserve(runtime_results.size());
     for (size_t i = 0; i < runtime_results.size(); ++i) {
       SemanticImageEmbeddingBatchResult result;

@@ -21,6 +21,7 @@
 #include "app/ai_sidecar_runtime_service.hpp"
 #include "app/thumbnail_service.hpp"
 #include "app/thumbnail_types.hpp"
+#include "sidecar_client/dto/image_analysis.hpp"
 #include "type/type.hpp"
 
 namespace alcedo {

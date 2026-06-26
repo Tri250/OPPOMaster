@@ -29,13 +29,15 @@ description, and credential handles.
 
 ## Current C++ Integration Points
 
-- `ProjectService` lazily owns `SemanticRuntimeService`; this is the C++ entry point that starts
+- `ProjectService` lazily owns `AiSidecarRuntimeService`; this is the C++ entry point that starts
   the sidecar process and hands runtime access to album/semantic flows.
-- `SemanticRuntimeService` owns `QProcess`, readiness polling, command-line arguments, and the
-  gRPC DTO bridge. Its thread-hop behavior in `StartAndWait` must be preserved when the runtime
-  becomes more general.
-- `GrpcSemanticRuntimeClient` currently creates semantic and model-manager stubs directly and
-  sends semantic protobuf requests without a common AI request header.
+- `AiSidecarRuntimeService` currently owns `QProcess`, readiness polling, command-line arguments,
+  runtime status, the gRPC client interface, and most proto-to-DTO mapping. This is now too broad:
+  lifecycle and protocol work must be split before persistence/search wiring adds more call sites.
+- `GrpcAiSidecarRuntimeClient` currently creates semantic, model-manager, AI-runtime, and
+  image-analysis stubs directly. It also hand-maps protobuf messages for capabilities,
+  credentials, model profiles, embeddings, image understanding, rating, and model discovery in one
+  file. That makes every new RPC grow the same monolithic client.
 - Model download and model-profile settings are currently C++-owned through
   `ModelDownloadService` and `ModelDownloadController`, using the local aria2-based download
   path. The AI sidecar plan should not assume Rust owns semantic asset acquisition today.
@@ -53,12 +55,19 @@ description, and credential handles.
   `Invoke(task_name, json_payload)` interface.
 - Add a small shared protobuf control surface for common fields, then let each task define its
   own typed payload and response.
+- Move direct sidecar protocol code into a real `sidecar_client` module under
+  `alcedo_studio/src/sidecar_client` and `alcedo_studio/src/include/sidecar_client`. The runtime
+  service owns the process; the client owns gRPC, request envelopes, stubs, and protobuf mapping.
+- Make DTO/protobuf conversion explicit on the DTO types through a shared CRTP-style mapper helper.
+  Call sites should read as `Dto::FromProto(proto)` or `dto.ToProto(&proto)`, not as anonymous
+  helper functions hidden in `ai_sidecar_runtime_service.cpp`.
 - Keep host ownership clear. C++ owns project state, persistence, UI policy, model download
   settings, and database writes. The sidecar computes results and reports structured outcomes.
 - Treat credentials as short-lived capabilities. Do not pass long-lived API keys through command
   line arguments, persistent logs, or sidecar startup environment by default.
-- Preserve semantic compatibility while migrating. Existing semantic generation/search should
-  keep working during each phase.
+- Cut over cleanly when refactoring C++ protocol ownership. Do not keep `AiSidecarRuntimeService`
+  as a method-by-method forwarding facade for every sidecar API, and do not add fallback paths that
+  silently try an older provider, protocol, model, schema mode, or C++ RPC implementation.
 - Keep the binary name `alcedo_mind.exe` initially. Renaming the sidecar can be a later packaging
   cleanup once the API shape is stable.
 
@@ -1070,18 +1079,223 @@ Tests:
   provider error, schema error, and no partial active annotation after failure.
 - QML smoke tests for visible states if UI is added in this phase.
 
-### Phase 6e - Persistence, Search Refresh, Rating Surface, And Usage Summary
+### Phase 6e - Sidecar Client Module Refactor
+
+Goal: stop growing `app/ai_sidecar_runtime_service.cpp` as the place where every sidecar concern
+lands. Phase 6d proved the product flow can call the sidecar from album code; the next phase is a
+structural cutover before persistence/search work adds more permanent call sites. The runtime
+service should manage the sidecar process lifecycle. A new `sidecar_client` module should own every
+direct gRPC API, protobuf DTO conversion, request envelope, and task-specific client.
+
+Reflection on the current shape:
+
+- `ai_sidecar_runtime_service.cpp` is doing at least four unrelated jobs: runtime binary discovery
+  and `QProcess` lifecycle, readiness/status state, gRPC transport/stub creation, and hand-written
+  protobuf mapping for semantic, model-manager, credential, capability, and image-analysis DTOs.
+- `IAiSidecarRuntimeClient` is a single broad interface for runtime control, model management,
+  embedding, credential vault, cancellation, image description, rating, and model discovery. Adding
+  one task means editing one god interface, one god implementation, and one god test fake.
+- DTO conversion is hidden in anonymous `ToXxx(...)` functions instead of being attached to the DTO
+  contract. That makes mapper coverage hard to target and makes call sites depend on whatever file
+  happens to include the generated protobuf headers.
+- `AiSidecarRuntimeService` currently preserves old call shapes by offering ready-guarded forwarding
+  methods for every sidecar API. That keeps the old boundary alive and makes the runtime service a
+  second client surface.
+
+Target module layout:
+
+```text
+alcedo_studio/src/include/sidecar_client/
+  proto_dto.hpp
+  client.hpp
+  runtime_control_client.hpp
+  credential_client.hpp
+  model_manager_client.hpp
+  semantic_embedding_client.hpp
+  image_analysis_client.hpp
+  dto/runtime.hpp
+  dto/credentials.hpp
+  dto/model_manager.hpp
+  dto/semantic_embedding.hpp
+  dto/image_analysis.hpp
+
+alcedo_studio/src/sidecar_client/
+  client.cpp
+  runtime_control_client.cpp
+  credential_client.cpp
+  model_manager_client.cpp
+  semantic_embedding_client.cpp
+  image_analysis_client.cpp
+  dto/runtime.cpp
+  dto/credentials.cpp
+  dto/model_manager.cpp
+  dto/semantic_embedding.cpp
+  dto/image_analysis.cpp
+```
+
+The CMake target should be `SidecarClient`, with `SemanticProto` and `AiProto` as private protocol
+dependencies. App services may include `sidecar_client/*.hpp`; only files under
+`src/sidecar_client` should include generated `*.pb.h` / `*.grpc.pb.h` headers after the cutover.
+
+DTO/protobuf conversion contract:
+
+- Introduce a small CRTP-style helper in `sidecar_client/proto_dto.hpp`. DTOs declare their protobuf
+  counterpart and expose static/self conversion, for example:
+
+  ```cpp
+  struct ImageAnalysisRatingResult
+      : ProtoDto<ImageAnalysisRatingResult, alcedo::ai::ScoreImageResponse> {
+    static auto FromProto(const alcedo::ai::ScoreImageResponse& proto,
+                          std::string fallback_request_id = {}) -> ImageAnalysisRatingResult;
+    void ToProto(alcedo::ai::ScoreImageResponse* proto) const;
+  };
+  ```
+
+- Request DTOs own `ToProto(...)`; response DTOs own `FromProto(...)`; bidirectional DTOs own both.
+  The implementation lives in `src/sidecar_client/dto/*.cpp` beside generated protobuf includes.
+- Shared envelope fields (`AiRequestHeader`, `AiResponseHeader`, deadlines, credential refs,
+  request ids, task ids) move into `sidecar_client`, not `AiSidecarRuntimeService`.
+- No anonymous `ToRuntimeModelInfo`, `ToEmbeddingResult`, `ToImageRatingResult`, or equivalent mapper
+  helpers remain in `ai_sidecar_runtime_service.cpp`.
+
+Client surface after cutover:
+
+- `sidecar_client::Client` owns one channel factory / channel and exposes typed member modules:
+  `runtime()`, `credentials()`, `models()`, `semantic()`, and `image_analysis()`.
+- `RuntimeControlClient` owns `Ping`, `GetRuntimeStatus`, `ListCapabilities`, and `CancelTask`.
+- `CredentialClient` owns `RegisterCredential` and `RevokeCredential`.
+- `ModelManagerClient` owns model profile/install/validate/delete/download/status/cancel RPCs that
+  are actually exposed by the sidecar contract.
+- `SemanticEmbeddingClient` owns current semantic embedding RPCs and `GetModelInfo`. The production
+  app path should use the current versioned/batch protocol directly. Remove the runtime-service
+  v2-to-v1 fallback path; an old sidecar returning `UNIMPLEMENTED` should fail with a clear protocol
+  error instead of silently switching wire contracts.
+- `ImageAnalysisClient` owns `DescribeImage`, `ScoreImage`, and `ListModels`.
+- Tests that need fakes fake the narrow module interface they use, not the entire sidecar runtime.
+
+Runtime-service boundary after cutover:
+
+- `AiSidecarRuntimeService` keeps only lifecycle concerns: default binary/model-root resolution,
+  option-to-argument construction, port selection, `QProcess` start/stop, stdout/stderr tail,
+  child-tree cleanup, readiness polling, and runtime status snapshots.
+- `AiSidecarRuntimeService` constructs or receives a `std::shared_ptr<sidecar_client::Client>` and
+  exposes a ready session/client reference after `StartAndWait`. It should not keep
+  method-by-method wrappers such as `DescribeImage`, `ScoreImage`, `EmbedImageBatch`,
+  `RegisterCredential`, or `ListModels`.
+- Readiness checks may call `client->runtime().Ping(...)` and, when `require_model_info=true`,
+  `client->semantic().GetModelInfo(...)`. Those are lifecycle checks, not a general client facade.
+- `app/ai_sidecar_runtime_service.hpp` should no longer declare semantic embedding DTOs,
+  image-analysis DTOs, model-manager DTOs, `IAiSidecarRuntimeClient`, or
+  `GrpcAiSidecarRuntimeClient`.
+
+Consumer cutover:
+
+- `SemanticGenerationService` and semantic search provider code receive/use
+  `sidecar_client::SemanticEmbeddingClient` (or a `sidecar_client::Client` session) for embeddings
+  and model info. They keep their generation/search business logic in `app/` and storage.
+- `ImageAnalysisService` receives/use `sidecar_client::CredentialClient`,
+  `sidecar_client::RuntimeControlClient`, and `sidecar_client::ImageAnalysisClient` through a
+  narrow bundle or `sidecar_client::Client` session. Credential registration/revoke stays explicit;
+  no raw key reaches runtime options, process args, or logs.
+- `ImageAnalysisController` and `AlbumImageAnalysisEnvironment` ask the runtime service only to
+  ensure the sidecar process is ready, then pass the live sidecar client/session into
+  `ImageAnalysisService`.
+- `ProjectService` remains the owner that lazily creates the runtime service, but it no longer
+  makes `AiSidecarRuntimeService` the application-wide RPC facade.
+
+Execution steps:
+
+1. Add `SidecarClient` target, DTO headers, CRTP mapper helper, and module client skeletons.
+2. Move all protobuf mapping out of `ai_sidecar_runtime_service.cpp` into `sidecar_client/dto/*.cpp`
+   and add focused mapper tests before changing app call sites.
+3. Implement the five module clients and replace `GrpcAiSidecarRuntimeClient` with
+   `sidecar_client::Client`.
+4. Strip `AiSidecarRuntimeService` down to lifecycle/session ownership and delete
+   `IAiSidecarRuntimeClient` / `GrpcAiSidecarRuntimeClient` from `app/`.
+5. Update `SemanticGenerationService`, semantic search provider wiring, `ImageAnalysisService`,
+   `ImageAnalysisController`, and tests to use the new sidecar client modules directly.
+6. Delete the old forwarding methods and v1 embedding fallback code. Do not add compatibility
+   aliases or old-header forwarding shims.
+7. Re-run the focused C++ test group and then the existing semantic/image-analysis regression group.
+
+Tests:
+
+- New `SidecarClientDtoMappingTest`: round-trip or one-way mapper coverage for runtime status/model
+  info, capabilities, credential responses, model manager profile/manifest/result, semantic
+  embeddings, image understanding, rating, rendition/usage metadata, and discovered models.
+- New `SidecarClientModuleTest` or split per module: fake/stubbed gRPC calls prove each module fills
+  deadlines, request ids, task ids, credential refs, and maps transport/protocol errors exactly once.
+- `AiSidecarRuntimeServiceTest` becomes lifecycle-only: binary missing, start failure, readiness
+  timeout, ready status, stop/kill behavior, log tails, and child cleanup. It should not assert
+  image-analysis or embedding protobuf mapping.
+- Existing `ImageAnalysisServiceTest`, `ImageAnalysisControllerTest`,
+  `SemanticGenerationServiceTest`, semantic search tests, and live-smoke skips stay green after the
+  include/API cutover.
+
+Acceptance checks:
+
+- `rg "#include \".*(pb|grpc)\\.h\"" alcedo_studio/src/app alcedo_studio/src/include/app` finds no
+  sidecar protobuf includes.
+- `ai_sidecar_runtime_service.cpp` contains no generated protobuf includes and no task-specific DTO
+  mapper functions.
+- `AiSidecarRuntimeService` has no public sidecar task API beyond lifecycle/session access.
+- There is no production v2-to-v1 semantic embedding fallback and no remote-provider fallback across
+  protocol family, model id, structured-output mode, or provider id.
+- The refactor lands as a cutover, not a parallel permanent API. Old app-layer client classes,
+  forwarding wrappers, and broad fakes are deleted in the same phase.
+
+## Phase 6e - Completion & Self-Review
+
+Status: complete for the backend refactor slice. The sidecar protocol boundary now lives under
+`SidecarClient`: generated sidecar protobuf includes are gone from `app/`, `AiSidecarRuntimeService`
+has been reduced to process lifecycle/readiness/session ownership, and app consumers call the
+live `sidecar_client::Client` session's narrow modules (`runtime`, `credentials`, `models`,
+`semantic`, `image_analysis`) instead of runtime-service forwarding methods.
+
+What changed:
+
+- Added the `SidecarClient` CMake target and `sidecar_client` public interfaces/DTO headers.
+- Moved gRPC stub creation, request-envelope filling, protobuf-to-DTO mapping, credential calls,
+  model-manager calls, semantic v2 embedding calls, runtime control, and image-analysis calls out of
+  `app/ai_sidecar_runtime_service.cpp`.
+- Deleted the app-layer `IAiSidecarRuntimeClient` / `GrpcAiSidecarRuntimeClient` boundary and the
+  method-by-method `AiSidecarRuntimeService` wrappers.
+- Removed production semantic v2-to-v1 embedding fallback. The production client now calls the v2
+  semantic RPCs directly and reports transport/protocol failure as failed results.
+- Updated semantic generation, semantic search, and image analysis to use the runtime service only
+  for process readiness/session access.
+- Reworked `AiSidecarRuntimeServiceTest` around lifecycle and session injection instead of the old
+  broad fake runtime client.
+
+Acceptance verification:
+
+- `rg '#include "(ai_common|ai_runtime|image_analysis|semantic)\.(pb|grpc\.pb)\.h"' alcedo_studio/src
+  alcedo_studio/tests -g"*.cpp" -g"*.hpp"` now finds sidecar generated includes only in
+  `alcedo_studio/src/sidecar_client/client.cpp`.
+- `cmd /c scripts\msvc_env.cmd --build --preset win_debug --target AiSidecarRuntimeServiceTest
+  SemanticGenerationServiceTest ImageAnalysisServiceTest --parallel 4`: succeeded.
+- `ctest --test-dir build/debug --output-on-failure -R
+  "AiSidecarRuntimeServiceTest|SemanticGenerationServiceTest|ImageAnalysisServiceTest"`: 54/54
+  passed, with 2 environment-gated live smoke tests skipped.
+
+## Phase 7 - Persistence, Search, Live Smoke, And Product Cutover
+
+This phase starts only after the `sidecar_client` boundary is in place. Persistence and album search
+refresh touch storage/search behavior, so they should not be mixed into the Phase 6 code-shape
+refactor.
+
+### Phase 7a - Persistence, Search Refresh, Rating Surface, And Usage Summary
 
 Deliverables:
 
 - Persist successful describe results through `AiStorageController.UpsertUnderstanding`; refresh the
   search path so new captions/tags become searchable only after persistence.
 - Persist rating results through `AiStorageController.UpsertRating`. Keep rating out of full-text
-  search unless a later product decision says otherwise.
-- Show provider/protocol/model/prompt-profile identity on job results and stored rows so future
-  prompt/model changes do not reinterpret old annotations.
+  search unless a product decision says otherwise.
+- Show provider/protocol/model/prompt-profile identity on job results and stored rows so prompt or
+  model changes do not reinterpret old annotations.
 - Add per-job usage/cost summary when the response includes usage metadata. Start with tokens and
-  provider request ids; do not build a full billing dashboard in Phase 6.
+  provider request ids; do not build a billing dashboard in this phase.
 
 Tests:
 
@@ -1090,7 +1304,7 @@ Tests:
   create no active rows.
 - Usage summary tests for present/absent usage metadata.
 
-### Phase 6f - Live Smoke Matrix And Handoff
+### Phase 7b - Live Smoke Matrix And Handoff
 
 Deliverables:
 
@@ -1113,7 +1327,7 @@ Deliverables:
 - Record the final provider/protocol matrix in the phase handoff with exact endpoint, protocol
   family, model id, image support, structured-output support, and expected skip/fail/pass behavior.
 
-### Phase 6g - Legacy Cleanup And No-Fallback Cutover
+### Phase 7c - Legacy Cleanup And No-Fallback Cutover
 
 Goal: after the compatible-protocol path is live, remove Phase 5-era brand-specific and legacy
 provider surfaces instead of carrying them as permanent product complexity.
@@ -1126,9 +1340,9 @@ Deliverables:
 - Remove `openrouter_chat` as a product-facing driver id once `openai_chat_compatible` covers the
   same request/response contract. Keep OpenRouter-only routing knobs behind optional config fields
   consumed by the generic driver only when explicitly set.
-- Remove unused reserved provider families from Phase 6 code paths (`volcengine_ark_chat`,
+- Remove unused reserved provider families from product code paths (`volcengine_ark_chat`,
   `generic_json_http`, or any other unimplemented placeholder) unless a concrete live endpoint and
-  test require them. Reserved strings may stay documented as future work, but should not appear in
+  test require them. Reserved strings may stay documented as design history, but should not appear in
   settings, capability descriptors, or product presets.
 - Remove legacy live-smoke defaults that point at OpenRouter or other old providers. The default
   env-gated smoke matrix should target Opencode compatible presets plus the known-good
@@ -1139,9 +1353,6 @@ Deliverables:
 - Do not fallback from schema-enforced structured output to free-form JSON prompting, response
   healing, provider auto-routing that ignores schema parameters, or a different model id. Surface a
   clear capability/configuration error instead.
-- Keep only compatibility fallbacks that preserve an explicit versioned contract and are necessary
-  for already-shipped local protocol migration (for example, the existing semantic v2-to-v1
-  `grpc::UNIMPLEMENTED` migration path). Do not introduce new remote-provider fallback layers.
 
 Tests:
 
@@ -3281,8 +3492,9 @@ calls serialize through one shared `ImageAnalysisInFlightGate` owned by
 `max_image_bytes` cap sourced from the preset. **No QML UI this phase** (the
 controller is QML-callable; menu actions / progress dialog deferred). **No
 combined describe+rating run** (deferred). **No database writes** (persistence +
-search refresh is 6e), so a cancelled or failed run leaves no active annotation
-trivially — failed/canceled items are never counted as `analyzed`.
+search refresh now moves to Phase 7a, after the sidecar-client refactor), so a
+cancelled or failed run leaves no active annotation trivially — failed/canceled
+items are never counted as `analyzed`.
 
 Implemented (file-by-file, per the plan):
 
@@ -3389,7 +3601,7 @@ Invariants (Phase 6d review focus):
   sidecar. `MissingCredentialSetsErrorAndDoesNotStart` proves the sidecar is NOT
   touched when the credential is absent.
 - No DB writes / no partial active annotation: the controller performs NO
-  persistence (6e); `Finish` only tallies counts and builds `lastResults`.
+  persistence (now Phase 7a); `Finish` only tallies counts and builds `lastResults`.
   Failed/canceled items are counted `failed`/`canceled`, never `analyzed`.
   `ProviderErrorPropagatesAndNoActiveAnnotation` +
   `SchemaErrorPropagatesAndNoActiveAnnotation` +
@@ -3427,23 +3639,25 @@ Test results:
   live-runtime Skip — `ALCEDO_SEMANTIC_LIVE_RUNTIME_PATH` not set). No regression
   in semantic/storage/search.
 
-Deferred to Phase 6e / 6f / 6g:
+Next phase / renumbering note:
 
-- Persistence, search refresh, rating surface, usage summary (6e): the controller
-  emits `lastResults` only; `AiStorageController.UpsertUnderstanding`/
-  `UpsertRating` wiring + the storage-layer `IsValid()` backstop for "no upsert
-  on failure" land in 6e. The 6d controller-level guarantee ("nothing is
-  persisted; failed/canceled never `analyzed`") is the floor.
-- QML UI (menu actions + progress dialog) — the controller is QML-callable but
-  has no menu/dialog yet; deferred (the user explicitly chose "expose to QML, no
-  UI this phase").
-- Combined describe+rating run — deferred (user choice).
-- Live Opencode smoke (6f) — `live_confirmed` stays false on the Opencode models;
-  the controller's `ValidateConnection` dry-run is the closest 6d gets to live
-  provider contact.
-- Merging discovered model candidates into preset state (the 6c deferred merge
-  point) — not done in 6d; `ValidateConnection` surfaces candidates in `lastError`
-  text only.
+- Phase 6e is now the `sidecar_client` module refactor. It should run before any
+  storage/search persistence work, because `AiSidecarRuntimeService` is currently
+  carrying the gRPC client, DTO mapping, credential vault calls, embedding RPCs,
+  and image-analysis RPCs in the same file as `QProcess` lifecycle management.
+- Persistence, search refresh, rating surface, and usage summary are renumbered
+  to Phase 7a. The controller emits `lastResults` only; `AiStorageController`
+  wiring and the storage-layer `IsValid()` backstop for "no upsert on failure"
+  land after the sidecar client boundary is clean.
+- QML UI (menu actions + progress dialog) remains deferred. The controller is
+  QML-callable, but has no menu/dialog yet.
+- Combined describe+rating run remains deferred.
+- Live Opencode smoke and capability pinning move to Phase 7b. `live_confirmed`
+  stays false on the Opencode models; the controller's `ValidateConnection`
+  dry-run is the closest 6d gets to live provider contact.
+- Merging discovered model candidates into preset state moves to Phase 7. It was
+  not done in 6d; `ValidateConnection` surfaces candidates in `lastError` text
+  only.
 
 Build note for the next handoff: after any Rust image-analysis change, rebuild
 the release sidecar (`cargo build --release --bin alcedo_mind`) before a live run
@@ -3455,11 +3669,12 @@ linked by any future consumer; `AlbumBackendLib` already does.
 Review conclusion: bugs found — none (the `<Q_OBJECT>` typo and the link-layer
 lib split were caught at compile/link time before any test ran); risk accepted —
 (1) no QML UI this phase (controller is QML-callable, no menu/dialog — deferred),
-(2) no persistence (6e); the "no upsert on failure" guarantee is controller-level
-only ("nothing persisted" + failed/canceled never `analyzed`), with the
-storage-layer `IsValid()` backstop landing in 6e, (3) combined describe+rating
-run deferred, (4) `ValidateConnection` spawns a detached `std::thread` per call
-(acceptable for a dry-run; not exercised by UI this phase), (5) `max_image_bytes`
+(2) no persistence (Phase 7a); the "no upsert on failure" guarantee is
+controller-level only ("nothing persisted" + failed/canceled never `analyzed`),
+with the storage-layer `IsValid()` backstop landing after the sidecar-client
+cutover, (3) combined describe+rating run deferred, (4) `ValidateConnection`
+spawns a detached `std::thread` per call (acceptable for a dry-run; not
+exercised by UI this phase), (5) `max_image_bytes`
 rejects oversized items as `kPrepFailed` (error, not retried) — matches the
 fail-closed posture; missing tests — none: all 6d-required controller cases
 (empty selection, one-image success, multi-image success, cancel, retry, provider

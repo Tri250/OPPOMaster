@@ -1084,12 +1084,30 @@ target_include_directories(SemanticProto PUBLIC "${ALCEDO_SEMANTIC_PROTO_GEN_DIR
                                            "${ALCEDO_AI_PROTO_GEN_DIR}")
 target_link_libraries(SemanticProto PUBLIC puerhlab::grpc++ puerhlab::protobuf AiProto)
 
+def_library(SidecarClient
+    SOURCES
+        sidecar_client/client.cpp
+        include/sidecar_client/client.hpp
+        include/sidecar_client/credential_client.hpp
+        include/sidecar_client/image_analysis_client.hpp
+        include/sidecar_client/model_manager_client.hpp
+        include/sidecar_client/proto_dto.hpp
+        include/sidecar_client/runtime_control_client.hpp
+        include/sidecar_client/semantic_embedding_client.hpp
+        include/sidecar_client/dto/image_analysis.hpp
+        include/sidecar_client/dto/model_manager.hpp
+        include/sidecar_client/dto/runtime.hpp
+        include/sidecar_client/dto/semantic_embedding.hpp
+    PUBLIC_DEPS Qt6::Core
+    PRIVATE_DEPS SemanticProto AiProto AppDiagnostics
+)
+
 def_library(AiSidecarRuntimeService
     SOURCES
         app/ai_sidecar_runtime_service.cpp
         include/app/ai_sidecar_runtime_service.hpp
-    PUBLIC_DEPS Qt6::Core Qt6::Network
-    PRIVATE_DEPS SemanticProto AiProto AppDiagnostics
+    PUBLIC_DEPS Qt6::Core Qt6::Network SidecarClient
+    PRIVATE_DEPS AppDiagnostics
 )
 
 # Phase 6a: compatible-protocol preset DTO + settings controller. Non-secret

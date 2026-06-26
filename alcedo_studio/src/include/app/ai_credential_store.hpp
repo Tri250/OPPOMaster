@@ -16,7 +16,7 @@ namespace alcedo {
 // preset id, protocol family, endpoint, model id, masked key label, remember/
 // delete preference). The raw API key itself lives ONLY in the OS credential
 // store and reaches the sidecar exclusively as a vault handle via
-// `AiSidecarRuntimeService::RegisterCredential` — never through QSettings,
+// `sidecar_client::CredentialClient::RegisterCredential` — never through QSettings,
 // `AiSidecarRuntimeOptions`, process launch args, or logs.
 //
 // `slot` is the provider config's `credential_slot` label (e.g.
