@@ -77,6 +77,29 @@ pub fn build_real_image_providers(
     providers
 }
 
+/// Whether a driver id has a wired `build_one` arm in this build.
+///
+/// This is the single source of truth for "is this driver registered", shared by
+/// [`build_one`] (construction) and
+/// [`crate::service::provider_config::build_provider_capability_descriptors`]
+/// (advertisement). Keeping the two in sync prevents an
+/// advertised-but-unregistered provider: a user config that pins
+/// `live_confirmed = true` on a reserved-but-unimplemented driver id (e.g.
+/// `openai_responses`, `gemini_generate_content`) would otherwise be advertised
+/// by `ListCapabilities` but fail with `UNSUPPORTED_TASK` at call time. The
+/// capability gate therefore fail-closes on `!is_driver_wired(driver)` even when
+/// the model is live-confirmed.
+///
+/// **Keep in sync with the `match` arms in [`build_one`]** — a new driver wired
+/// there must be added here too; `is_driver_wired_known_set` guards the known
+/// set but cannot detect a future arm added without an entry here.
+pub fn is_driver_wired(driver: &str) -> bool {
+    matches!(
+        driver,
+        "openai_chat_compatible" | "openrouter_chat" | "volcengine_ark_responses" | "anthropic_messages"
+    )
+}
+
 fn build_one(config: &ProviderConfig) -> Result<Arc<dyn ImageAnalysisProvider>, String> {
     match config.driver.as_str() {
         // The generic OpenAI Chat-compatible driver. `openrouter_chat` is the
@@ -100,5 +123,35 @@ fn build_one(config: &ProviderConfig) -> Result<Arc<dyn ImageAnalysisProvider>, 
             Ok(Arc::new(p))
         }
         other => Err(format!("driver {other:?} is not wired in this build")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_driver_wired;
+
+    /// Guard against `is_driver_wired` drifting from the `build_one` match arms.
+    /// The wired set is small and changes rarely; this pins the known set so a
+    /// rename or removal is caught. A genuinely new driver added to `build_one`
+    /// must also be added to `is_driver_wired` (the doc spells this out).
+    #[test]
+    fn is_driver_wired_known_set() {
+        for wired in [
+            "openai_chat_compatible",
+            "openrouter_chat",
+            "volcengine_ark_responses",
+            "anthropic_messages",
+        ] {
+            assert!(is_driver_wired(wired), "{wired:?} should be wired");
+        }
+        for unwired in [
+            "openai_responses",
+            "gemini_generate_content",
+            "",
+            "anthropic",
+            "openai_chat",
+        ] {
+            assert!(!is_driver_wired(unwired), "{unwired:?} should NOT be wired");
+        }
     }
 }

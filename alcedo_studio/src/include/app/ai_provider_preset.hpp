@@ -118,11 +118,16 @@ class AiProviderPresetController final : public QObject {
  private:
   // Clamp helpers (mirror NormalizedEndpointPreset in project_service.cpp): keep
   // the persisted value inside the known closed set so a stale/garbage QSettings
-  // value cannot describe an unsupported protocol/auth/rendition.
+  // value cannot describe an unsupported protocol/auth/rendition, and keep the
+  // numeric fields inside the same bounds the Rust config enforces
+  // (timeout_ms in [1s, 300s], max_image_bytes in [1, 16 MiB]) so a bad value
+  // can never be persisted or reach a request / generated user config.
   static QString NormalizedProtocolFamily(const QString& value);
   static QString NormalizedAuthType(const QString& value);
   static QString NormalizedStructuredOutputMode(const QString& value);
   static QString NormalizedRendition(const QString& value);
+  static qint64 NormalizedTimeoutMs(qint64 value);
+  static qint64 NormalizedMaxImageBytes(qint64 value);
 };
 
 }  // namespace alcedo

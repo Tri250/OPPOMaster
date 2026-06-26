@@ -816,6 +816,16 @@ pub fn build_provider_capability_descriptors(registry: &ProviderRegistry) -> Vec
             if !capable {
                 continue;
             }
+            // Phase 6b fail-closed: never advertise a capability whose driver is
+            // not wired in this build, even if a user config pinned
+            // live_confirmed = true. An advertised-but-unregistered provider
+            // would surface as UNSUPPORTED_TASK at call time; suppressing the
+            // descriptor here keeps ListCapabilities honest. The set of wired
+            // drivers is owned by `providers::is_driver_wired` so this gate and
+            // `build_real_image_providers` cannot drift apart.
+            if !crate::service::providers::is_driver_wired(&config.driver) {
+                continue;
+            }
             let max_payload = model.max_image_bytes.unwrap_or(config.limits.max_image_bytes) as i64;
 
             out.push(AiCapability {
@@ -1585,6 +1595,46 @@ mod tests {
         let caps = build_provider_capability_descriptors(&registry);
         let pinned: Vec<_> = caps.iter().filter(|c| c.provider_id == "live_pinned").collect();
         assert_eq!(pinned.len(), 2, "live_confirmed model is advertised (understanding + rating)");
+    }
+
+    #[test]
+    fn live_confirmed_unwired_driver_is_not_advertised() {
+        // Phase 6b fail-closed: a user config that pins live_confirmed=true on a
+        // reserved-but-unimplemented driver id must NOT be advertised. Without
+        // the wired-driver check, ListCapabilities would surface this as a usable
+        // capability and the call would then fail with UNSUPPORTED_TASK.
+        let dir = tempdir();
+        let user = r#"{
+            "schema_version": 1, "provider_id": "reserved_live_pinned", "display_name": "R",
+            "driver": "gemini_generate_content", "base_url": "https://example.com",
+            "endpoint": "/x", "auth": {"type": "bearer", "credential_slot": "x_key"},
+            "defaults": {"model": "m", "stream": false, "temperature": 0.2},
+            "structured_output": {"mode": "none"},
+            "response": {}, "limits": {"timeout_ms": 60000, "max_image_bytes": 4194304, "max_output_tokens": 1200},
+            "models": [
+                {"slug": "m", "display_name": "m", "supports_vision": false, "supports_structured_output": false, "live_confirmed": true}
+            ]
+        }"#;
+        write_config(&dir, "reserved.json", user);
+        let registry = load_provider_configs(Some(dir.path())).expect("loads");
+        let caps = build_provider_capability_descriptors(&registry);
+        assert!(
+            caps.iter().all(|c| c.provider_id != "reserved_live_pinned"),
+            "live-confirmed model on an unwired driver must not be advertised"
+        );
+
+        // Sanity: the same config on a WIRED driver IS advertised (controls for
+        // the live_confirmed pin itself being well-formed).
+        let dir2 = tempdir();
+        let wired = user.replace("gemini_generate_content", "anthropic_messages");
+        write_config(&dir2, "wired.json", &wired);
+        let registry2 = load_provider_configs(Some(dir2.path())).expect("loads");
+        let caps2 = build_provider_capability_descriptors(&registry2);
+        let pinned: Vec<_> = caps2
+            .iter()
+            .filter(|c| c.provider_id == "reserved_live_pinned")
+            .collect();
+        assert_eq!(pinned.len(), 2, "wired driver + live_confirmed is advertised");
     }
 
     // ---- tempdir helpers (avoid pulling in tempfile) ----

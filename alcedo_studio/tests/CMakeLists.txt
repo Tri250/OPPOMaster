@@ -1167,6 +1167,7 @@ alcedo_assign_test_category(ci_core ALCEDO_BUILD_CI_TESTS alcedo_tests_ci_core
   AiSidecarRuntimeServiceTest
   SemanticStorageControllerTest
   AiStorageControllerTest
+  AiProviderPresetTest
 )
 
 alcedo_assign_test_category(ci_raw ALCEDO_BUILD_CI_TESTS alcedo_tests_ci_raw

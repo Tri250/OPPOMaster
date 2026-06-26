@@ -52,6 +52,20 @@ alcedo::AiProviderPreset SamplePreset() {
   return p;
 }
 
+void ExpectNoRawSecretInPresetSettings() {
+  QSettings s;
+  s.beginGroup(QStringLiteral("ai/preset"));
+  const QRegularExpression full_key(QStringLiteral("sk-[A-Za-z0-9_-]{20,}"));
+  for (const QString& key : s.allKeys()) {
+    const QString value = s.value(key).toString();
+    EXPECT_FALSE(full_key.match(value).hasMatch())
+        << "raw API key leaked into " << key.toStdString();
+    EXPECT_FALSE(value.contains(QStringLiteral("Bearer "), Qt::CaseInsensitive))
+        << "Bearer literal leaked into " << key.toStdString();
+  }
+  s.endGroup();
+}
+
 }  // namespace
 
 TEST_F(AiProviderPresetTest, RoundTripsEveryEditableField) {
@@ -137,6 +151,69 @@ TEST_F(AiProviderPresetTest, GarbageValuesClampToKnownClosedSets) {
   EXPECT_EQ(got.recommended_rendition, QStringLiteral("preview"));
 }
 
+TEST_F(AiProviderPresetTest, NumericFieldsClampToRustConfigBounds) {
+  // The Rust provider config rejects timeout_ms outside [1s, 300s] and
+  // max_image_bytes outside [1, 16 MiB]. The C++ preset contract must clamp to
+  // the same bounds on both write and read so a bad value can never be
+  // persisted or reach a request / generated user config — even a stale
+  // QSettings from an older, unclamped install is repaired on read.
+  alcedo::AiProviderPresetController controller;
+  controller.SetTimeoutMs(-5);            // negative -> lower bound (1s)
+  controller.SetMaxImageBytes(0);         // zero     -> lower bound (1)
+
+  alcedo::AiProviderPresetController reloaded;
+  alcedo::AiProviderPreset got = reloaded.CurrentPreset();
+  EXPECT_EQ(got.timeout_ms, 1000);
+  EXPECT_EQ(got.max_image_bytes, 1);
+
+  controller.SetTimeoutMs(50);            // sub-min  -> lower bound (1s)
+  controller.SetMaxImageBytes(3);
+  got = reloaded.CurrentPreset();
+  EXPECT_EQ(got.timeout_ms, 1000);
+  EXPECT_EQ(got.max_image_bytes, 3);      // in-range preserved
+
+  controller.SetTimeoutMs(999999999LL);   // huge     -> upper bound (300s)
+  controller.SetMaxImageBytes(999999999LL);
+  got = reloaded.CurrentPreset();
+  EXPECT_EQ(got.timeout_ms, 300000);
+  EXPECT_EQ(got.max_image_bytes, 16 * 1024 * 1024);
+
+  // In-range values pass through untouched.
+  controller.SetTimeoutMs(45000);
+  controller.SetMaxImageBytes(4194304);
+  got = reloaded.CurrentPreset();
+  EXPECT_EQ(got.timeout_ms, 45000);
+  EXPECT_EQ(got.max_image_bytes, 4194304);
+}
+
+TEST_F(AiProviderPresetTest, SetFromPresetClampsNumericFields) {
+  // SetFromPreset must also clamp — a caller-built preset with out-of-range
+  // numerics must not leak past the controller into QSettings.
+  alcedo::AiProviderPreset preset = SamplePreset();
+  preset.timeout_ms = -1;
+  preset.max_image_bytes = 999999999LL;
+  alcedo::AiProviderPresetController controller;
+  controller.SetFromPreset(preset);
+
+  alcedo::AiProviderPresetController reloaded;
+  const alcedo::AiProviderPreset got = reloaded.CurrentPreset();
+  EXPECT_EQ(got.timeout_ms, 1000);
+  EXPECT_EQ(got.max_image_bytes, 16 * 1024 * 1024);
+}
+
+TEST_F(AiProviderPresetTest, StaleUnclampedQSettingsValueIsRepairedOnRead) {
+  // Simulate a stale install that wrote a raw out-of-range value directly to
+  // QSettings (bypassing the setters, as an older unclamped build would).
+  QSettings().setValue(QLatin1String("ai/preset/timeoutMs"), -42);
+  QSettings().setValue(QLatin1String("ai/preset/maxImageBytes"),
+                       static_cast<qint64>(999999999LL));
+
+  alcedo::AiProviderPresetController reloaded;
+  const alcedo::AiProviderPreset got = reloaded.CurrentPreset();
+  EXPECT_EQ(got.timeout_ms, 1000);
+  EXPECT_EQ(got.max_image_bytes, 16 * 1024 * 1024);
+}
+
 TEST_F(AiProviderPresetTest, NoRawApiKeyIsPersisted) {
   // The controller has NO API to accept a raw API key — only a non-secret slot
   // label and a display-only mask. Persist a preset that a user might naively
@@ -162,18 +239,55 @@ TEST_F(AiProviderPresetTest, NoRawApiKeyIsPersisted) {
   // `sk-` followed by a long run of alphanumerics; the masked_key_label
   // ("sk-…4f2a") is a short display mask containing an ellipsis and so does
   // NOT match a full-key pattern — that is the distinction this asserts.
-  const QRegularExpression full_key(QStringLiteral("sk-[A-Za-z0-9_-]{20,}"));
-  for (const QString& key : keys) {
-    const QString value = s.value(key).toString();
-    EXPECT_FALSE(full_key.match(value).hasMatch())
-        << "raw API key leaked into " << key.toStdString();
-    EXPECT_FALSE(value.contains(QStringLiteral("Bearer "), Qt::CaseInsensitive))
-        << "Bearer literal leaked into " << key.toStdString();
-  }
+  ExpectNoRawSecretInPresetSettings();
   // The credential slot label IS persisted (it is non-secret metadata), but it
   // is a slot name, not key material.
   EXPECT_EQ(s.value(QStringLiteral("credentialSlot")).toString(), QStringLiteral("opencode_api_key"));
   // The masked label is persisted for display but is a mask, not a full key.
   EXPECT_EQ(s.value(QStringLiteral("maskedKeyLabel")).toString(), QStringLiteral("sk-…4f2a"));
   s.endGroup();
+}
+
+TEST_F(AiProviderPresetTest, RawApiKeyInputIsRejectedBeforePersistence) {
+  const QString raw_key = QStringLiteral("sk-1234567890abcdef1234567890abcdef");
+
+  alcedo::AiProviderPreset preset = SamplePreset();
+  preset.credential_slot  = raw_key;
+  preset.masked_key_label = raw_key;
+  alcedo::AiProviderPresetController controller;
+  controller.SetFromPreset(preset);
+  ExpectNoRawSecretInPresetSettings();
+
+  alcedo::AiProviderPresetController reloaded;
+  alcedo::AiProviderPreset got = reloaded.CurrentPreset();
+  EXPECT_TRUE(got.credential_slot.isEmpty());
+  EXPECT_TRUE(got.masked_key_label.isEmpty());
+
+  controller.SetCredentialSlot(QStringLiteral("Bearer abc123tokenvalue"));
+  controller.SetMaskedKeyLabel(raw_key);
+  controller.SetDisplayName(raw_key);
+  controller.SetBaseUrl(raw_key);
+  controller.SetEndpoint(QStringLiteral("Bearer abc123tokenvalue"));
+  controller.SetModelId(raw_key);
+  controller.SetModelDisplayName(QStringLiteral("Bearer abc123tokenvalue"));
+  ExpectNoRawSecretInPresetSettings();
+
+  got = reloaded.CurrentPreset();
+  EXPECT_TRUE(got.credential_slot.isEmpty());
+  EXPECT_TRUE(got.masked_key_label.isEmpty());
+  EXPECT_TRUE(got.display_name.isEmpty());
+  EXPECT_TRUE(got.base_url.isEmpty());
+  EXPECT_TRUE(got.endpoint.isEmpty());
+  EXPECT_TRUE(got.model_id.isEmpty());
+  EXPECT_TRUE(got.model_display_name.isEmpty());
+
+  controller.SetCredentialSlot(QStringLiteral("Bad-Slot"));
+  got = reloaded.CurrentPreset();
+  EXPECT_TRUE(got.credential_slot.isEmpty());
+
+  controller.SetCredentialSlot(QStringLiteral("opencode_api_key"));
+  controller.SetMaskedKeyLabel(QStringLiteral("sk-…4f2a"));
+  got = reloaded.CurrentPreset();
+  EXPECT_EQ(got.credential_slot, QStringLiteral("opencode_api_key"));
+  EXPECT_EQ(got.masked_key_label, QStringLiteral("sk-…4f2a"));
 }
