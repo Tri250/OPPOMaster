@@ -79,6 +79,12 @@ struct ImageAnalysisOptions {
   // large album cannot accumulate more than `prefetch` encoded byte buffers in
   // memory (plus the one in flight).
   int                     prefetch           = 1;
+  // Phase 6d: optional cap on the encoded-rendition byte size, sourced from the
+  // selected preset's `max_image_bytes`. 0 = no cap. When > 0, RunJob marks an
+  // item as a prep failure (no provider call, no pin held) if the encoded JPEG
+  // exceeds this limit — fail-closed so a preset cannot push an oversized payload
+  // to a paid provider call.
+  int64_t                 max_image_bytes    = 0;
 };
 
 struct ImageAnalysisConnectionValidationOptions {

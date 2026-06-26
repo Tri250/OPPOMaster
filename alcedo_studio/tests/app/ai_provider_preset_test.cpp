@@ -35,6 +35,7 @@ class AiProviderPresetTest : public ::testing::Test {
 
 alcedo::AiProviderPreset SamplePreset() {
   alcedo::AiProviderPreset p;
+  p.provider_id            = QStringLiteral("opencode_go_anthropic");
   p.display_name           = QStringLiteral("Opencode Go (Anthropic-compatible)");
   p.protocol_family        = QStringLiteral("anthropic_messages");
   p.base_url               = QStringLiteral("https://opencode.ai/zen/go/v1");
@@ -76,6 +77,7 @@ TEST_F(AiProviderPresetTest, RoundTripsEveryEditableField) {
   alcedo::AiProviderPresetController reloaded;
   const alcedo::AiProviderPreset got = reloaded.CurrentPreset();
 
+  EXPECT_EQ(got.provider_id, QStringLiteral("opencode_go_anthropic"));
   EXPECT_EQ(got.display_name, QStringLiteral("Opencode Go (Anthropic-compatible)"));
   EXPECT_EQ(got.protocol_family, QStringLiteral("anthropic_messages"));
   EXPECT_EQ(got.base_url, QStringLiteral("https://opencode.ai/zen/go/v1"));
@@ -94,6 +96,7 @@ TEST_F(AiProviderPresetTest, RoundTripsEveryEditableField) {
 
 TEST_F(AiProviderPresetTest, IndividualSettersPersistAndReload) {
   alcedo::AiProviderPresetController controller;
+  controller.SetProviderId(QStringLiteral("opencode_go_openai"));
   controller.SetProtocolFamily(QStringLiteral("openai_chat_compatible"));
   controller.SetEndpoint(QStringLiteral("/chat/completions"));
   controller.SetStructuredOutputMode(QStringLiteral("response_format_json_schema"));
@@ -103,6 +106,7 @@ TEST_F(AiProviderPresetTest, IndividualSettersPersistAndReload) {
 
   alcedo::AiProviderPresetController reloaded;
   const alcedo::AiProviderPreset got = reloaded.CurrentPreset();
+  EXPECT_EQ(got.provider_id, QStringLiteral("opencode_go_openai"));
   EXPECT_EQ(got.protocol_family, QStringLiteral("openai_chat_compatible"));
   EXPECT_EQ(got.endpoint, QStringLiteral("/chat/completions"));
   EXPECT_EQ(got.structured_output_mode, QStringLiteral("response_format_json_schema"));
@@ -120,6 +124,9 @@ TEST_F(AiProviderPresetTest, ClearRemovesAllPresetKeys) {
   alcedo::AiProviderPresetController reloaded;
   const alcedo::AiProviderPreset got = reloaded.CurrentPreset();
   EXPECT_TRUE(got.display_name.isEmpty());
+  // provider_id falls back to its built-in default (it is the endpoint selector,
+  // not a user free-text field), so a cleared preset still names a valid target.
+  EXPECT_EQ(got.provider_id, QStringLiteral("opencode_go_anthropic"));
   EXPECT_TRUE(got.base_url.isEmpty());
   EXPECT_TRUE(got.endpoint.isEmpty());
   EXPECT_TRUE(got.model_id.isEmpty());

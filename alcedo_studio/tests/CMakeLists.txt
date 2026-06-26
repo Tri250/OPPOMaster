@@ -777,6 +777,15 @@ target_link_libraries(ImageAnalysisServiceTest ImageAnalysisService
 gtest_discover_tests(ImageAnalysisServiceTest TEST_PREFIX "ImageAnalysisServiceTest."
   PROPERTIES LABELS "ci_raw_flow")
 
+# Phase 6d: album image-analysis job controller. Standalone QObject module
+# (IImageAnalysisEnvironment seam + AiProviderPresetController) driven by fakes.
+add_executable(ImageAnalysisControllerTest app/image_analysis_controller_test.cpp)
+target_include_directories(ImageAnalysisControllerTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(ImageAnalysisControllerTest ImageAnalysisController AiProviderPreset
+  AiCredentialStore GTest::gtest_main)
+gtest_discover_tests(ImageAnalysisControllerTest TEST_PREFIX "ImageAnalysisControllerTest."
+  PROPERTIES LABELS "ci_core_flow")
+
 # Env-gated live smoke: opens a real packed .alcd, materializes one k1024 thumbnail, starts the
 # real Rust sidecar (no CLIP model; describe uses the HTTP provider path), and asks a live LLM to
 # describe the image through ImageAnalysisService. Skipped unless ALCEDO_IA_LIVE_RUNTIME_PATH,
@@ -1176,6 +1185,7 @@ alcedo_assign_test_category(ci_core ALCEDO_BUILD_CI_TESTS alcedo_tests_ci_core
   SemanticStorageControllerTest
   AiStorageControllerTest
   AiProviderPresetTest
+  ImageAnalysisControllerTest
 )
 
 alcedo_assign_test_category(ci_raw ALCEDO_BUILD_CI_TESTS alcedo_tests_ci_raw

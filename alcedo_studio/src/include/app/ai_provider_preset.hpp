@@ -24,6 +24,7 @@ namespace alcedo {
 /// display-only mask. Persisting this DTO through `QSettings` therefore never
 /// stores raw key material.
 struct AiProviderPreset {
+  QString provider_id;             // configured endpoint id (sidecar provider_id), e.g. opencode_go_anthropic.
   QString display_name;             // user-facing preset label.
   QString protocol_family;          // openai_chat_compatible | anthropic_messages.
   QString base_url;                 // e.g. https://opencode.ai/zen/go/v1
@@ -52,6 +53,7 @@ struct AiProviderPreset {
 /// settings-round-trip contract.
 class AiProviderPresetController final : public QObject {
   Q_OBJECT
+  Q_PROPERTY(QString providerId READ ProviderId NOTIFY PresetChanged)
   Q_PROPERTY(QString displayName READ DisplayName NOTIFY PresetChanged)
   Q_PROPERTY(QString protocolFamily READ ProtocolFamily NOTIFY PresetChanged)
   Q_PROPERTY(QString baseUrl READ BaseUrl NOTIFY PresetChanged)
@@ -80,6 +82,7 @@ class AiProviderPresetController final : public QObject {
   void Clear();
 
   // Individual getters (back the Q_PROPERTYs).
+  QString ProviderId() const;
   QString DisplayName() const;
   QString ProtocolFamily() const;
   QString BaseUrl() const;
@@ -96,6 +99,7 @@ class AiProviderPresetController final : public QObject {
   bool    RememberKey() const;
 
   // Individual Q_INVOKABLE setters (write QSettings + emit PresetChanged).
+  Q_INVOKABLE void SetProviderId(const QString& value);
   Q_INVOKABLE void SetDisplayName(const QString& value);
   Q_INVOKABLE void SetProtocolFamily(const QString& value);
   Q_INVOKABLE void SetBaseUrl(const QString& value);

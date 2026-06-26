@@ -39,9 +39,107 @@
 namespace alcedo::ui {
 
 using namespace album_util;
+using namespace std::chrono_literals;
 #define PL_TEXT(text, ...)                     \
   i18n::MakeLocalizedText(ALCEDO_I18N_CONTEXT, \
                           QT_TRANSLATE_NOOP(ALCEDO_I18N_CONTEXT, text) __VA_OPT__(, ) __VA_ARGS__)
+
+// On-demand sidecar startup timeout for the remote image-analysis path. The
+// semantic path uses 60s; image analysis cold-starts the same binary, so match.
+constexpr auto kImageAnalysisSidecarStartupTimeout = 60s;
+
+// ────────────────────────────────────────────────────────────────────────────
+// Production IImageAnalysisEnvironment: resolves the runtime seams lazily from
+// AlbumBackend's open project (mirrors SemanticGenerationController's lazy
+// resolution). Declared a friend of AlbumBackend so it can reach
+// project_handler_ / image_analysis_gate_.
+// ────────────────────────────────────────────────────────────────────────────
+class AlbumImageAnalysisEnvironment final : public IImageAnalysisEnvironment {
+ public:
+  explicit AlbumImageAnalysisEnvironment(AlbumBackend& backend) : backend_(backend) {}
+
+  auto ThumbnailProvider() -> std::shared_ptr<IImageAnalysisThumbnailProvider> override {
+    if (thumbnail_provider_) {
+      return thumbnail_provider_;
+    }
+    auto ts = backend_.project_handler_.thumbnail_service();
+    if (!ts) {
+      return nullptr;
+    }
+    thumbnail_provider_ = std::make_shared<ThumbnailServiceImageAnalysisProvider>(ts);
+    return thumbnail_provider_;
+  }
+
+  auto AnalysisClient() -> std::shared_ptr<IImageAnalysisClient> override {
+    auto project = backend_.project_handler_.project();
+    if (!project) {
+      return nullptr;
+    }
+    auto runtime = project->GetAiSidecarRuntimeService();
+    if (!runtime) {
+      return nullptr;
+    }
+    // Rebuild per call: the runtime is lazily created by ProjectService and may
+    // differ across calls if the project is reopened. Cheap wrapper.
+    return std::make_shared<AiSidecarRuntimeImageAnalysisClient>(runtime);
+  }
+
+  auto CredentialStore() -> std::shared_ptr<IAiCredentialStore> override {
+    if (credential_store_) {
+      return credential_store_;
+    }
+    credential_store_ = MakeDefaultAiCredentialStore();
+    return credential_store_;
+  }
+
+  auto Gate() -> std::shared_ptr<ImageAnalysisInFlightGate> override {
+    return backend_.image_analysis_gate_;
+  }
+
+  auto EnsureSidecarReady(std::string* error) -> bool override {
+    auto project = backend_.project_handler_.project();
+    if (!project) {
+      if (error) {
+        *error = "no project is open";
+      }
+      return false;
+    }
+    auto runtime = project->GetAiSidecarRuntimeService();
+    if (!runtime) {
+      if (error) {
+        *error = "ai sidecar runtime service is unavailable";
+      }
+      return false;
+    }
+    if (runtime->Status().state == AiSidecarRuntimeState::kReady) {
+      return true;
+    }
+    AiSidecarRuntimeOptions options;
+    options.allow_download     = false;
+    options.require_model_info = false;  // remote image analysis: HTTP-provider path, no CLIP model.
+    options.startup_timeout    = kImageAnalysisSidecarStartupTimeout;
+    if (!runtime->StartAndWait(options)) {
+      if (error) {
+        *error = runtime->Status().message;
+        if (error->empty()) {
+          *error = "ai sidecar failed to start";
+        }
+      }
+      return false;
+    }
+    // require_model_info=false means model_info is unpopulated; only state matters.
+    return runtime->Status().state == AiSidecarRuntimeState::kReady;
+  }
+
+ private:
+  AlbumBackend&                                    backend_;
+  std::shared_ptr<IImageAnalysisThumbnailProvider> thumbnail_provider_;
+  std::shared_ptr<IAiCredentialStore>              credential_store_;
+};
+
+std::shared_ptr<IImageAnalysisEnvironment> MakeAlbumImageAnalysisEnvironment(AlbumBackend& backend) {
+  return std::make_shared<AlbumImageAnalysisEnvironment>(backend);
+}
 
 namespace {
 
@@ -229,6 +327,9 @@ AlbumBackend::AlbumBackend(QObject* parent)
       search_(*this),
       model_download_controller_(*this),
       semantic_generation_(*this),
+      ai_provider_preset_(this),
+      image_analysis_gate_(std::make_shared<alcedo::ImageAnalysisInFlightGate>()),
+      image_analysis_(MakeAlbumImageAnalysisEnvironment(*this), &ai_provider_preset_),
       import_export_(*this),
       nikon_he_recovery_(*this),
       editor_(*this),

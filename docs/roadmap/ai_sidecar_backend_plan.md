@@ -3261,3 +3261,208 @@ Accepted risk / deferred:
 - AlbumBackend/QML exposure of provider settings, credential save/delete buttons,
   and validate-connection UI remain Phase 6d. The backend contract is ready for
   that wiring.
+
+## Phase 6d - Completion & Self-Review
+
+Status: complete for the backend slice. Remote image analysis is now drivable
+from the album workflow through a **standalone** QML-exposed module
+(`ImageAnalysisController`), NOT inlined into `album_backend.cpp` — it mirrors
+the cleanly-factored QObject sub-controller pattern
+(`SemanticGenerationController` / `ModelDownloadController`): own hpp/cpp under
+`album_backend/`, held as an `AlbumBackend` member, surfaced to QML via
+`Q_PROPERTY(QObject* imageAnalysisController ... CONSTANT)`. The controller is
+unit-testable with fakes through an `IImageAnalysisEnvironment` seam, so it has
+no direct `AlbumBackend` dependency. The `AiProviderPresetController` (Phase 6a,
+shipped standalone) is now also an `AlbumBackend` member exposed to QML, and
+gained a `provider_id` field so a job can select a registered sidecar provider
+config. The sidecar starts on demand with `require_model_info=false`; remote
+calls serialize through one shared `ImageAnalysisInFlightGate` owned by
+`AlbumBackend`; the Phase 5d encoded-rendition path is reused with a new
+`max_image_bytes` cap sourced from the preset. **No QML UI this phase** (the
+controller is QML-callable; menu actions / progress dialog deferred). **No
+combined describe+rating run** (deferred). **No database writes** (persistence +
+search refresh is 6e), so a cancelled or failed run leaves no active annotation
+trivially — failed/canceled items are never counted as `analyzed`.
+
+Implemented (file-by-file, per the plan):
+
+- `alcedo_studio/src/include/ui/alcedo_main/album_backend/image_analysis_controller.hpp`
+  + `.../image_analysis_controller.cpp` - NEW standalone module. `IImageAnalysisEnvironment`
+  (ThumbnailProvider / AnalysisClient / CredentialStore / Gate / EnsureSidecarReady)
+  is the testability seam. `ImageAnalysisController : public QObject` with
+  `Q_PROPERTY`s (`running`, `total`/`analyzed`/`failed`/`canceled`, `statusText`,
+  `lastError`, `canRetry`, `providerConfigured`, `credentialAvailable`,
+  `lastResults`) and `Q_INVOKABLE` `StartDescribeForTargets` /
+  `StartScoreForTargets` / `CancelAnalysis` / `RetryLast` / `ValidateConnection` /
+  `RefreshCredentialState`, one shared `StateChanged()` NOTIFY. Selection is a
+  `QVariantList` of `{elementId, imageId}` maps (the
+  `ImportExportHandler::CollectExportTargets` convention); **empty selection is a
+  no-op with a clear error** (paid-call safety; never falls back to "whole view").
+  Job flow: parse → read preset (`provider_id`/`model_id`/`credential_slot`/
+  `timeout_ms`/`max_image_bytes`) → `LoadCredential` from the OS store →
+  `EnsureSidecarReady` (`require_model_info=false`) → build `ImageAnalysisService`
+  with the SHARED gate → `StartAnalysis` with `QPointer`+`Qt::QueuedConnection`
+  progress/finished marshalling (mirrors `semantic_generation_controller.cpp:897–925`).
+  `Finish` tallies counts + builds `lastResults` for QML; failed/canceled items
+  never count as `analyzed`. `ValidateConnection` reuses the 6c dry-run
+  (`ImageAnalysisService::ValidateConnection`) off the QML thread. `RetryLast`
+  re-runs the last `(targets, task)` (controller-level retry; no new host-side
+  HTTP retry — the bounded retry lives in the Rust `http_util` driver behind the
+  gate).
+- `alcedo_studio/src/ui/alcedo_main/album_backend/album_backend.cpp` - the
+  production `AlbumImageAnalysisEnvironment` (lazy `ThumbnailServiceImageAnalysisProvider`
+  / `AiSidecarRuntimeImageAnalysisClient` / `MakeDefaultAiCredentialStore` /
+  shared `image_analysis_gate_`; `EnsureSidecarReady` starts the sidecar
+  `require_model_info=false`, 60s startup timeout, checks only `state==kReady`)
+  and the `MakeAlbumImageAnalysisEnvironment` factory. Declared a friend of
+  `AlbumBackend`. The controller class itself has no `AlbumBackend` coupling.
+- `alcedo_studio/src/include/ui/alcedo_main/album_backend/album_backend.hpp` -
+  new members (`AiProviderPresetController ai_provider_preset_`, the shared
+  `std::shared_ptr<ImageAnalysisInFlightGate> image_analysis_gate_`,
+  `ImageAnalysisController image_analysis_`), two new `Q_PROPERTY(QObject* ...)`
+  + inline getters, `friend class ImageAnalysisController` +
+  `friend class AlbumImageAnalysisEnvironment`. Constructor init-list order:
+  `ai_provider_preset_(this)` → `image_analysis_gate_(make_shared<...>())` →
+  `image_analysis_(MakeAlbumImageAnalysisEnvironment(*this), &ai_provider_preset_)`.
+- `alcedo_studio/src/include/app/ai_provider_preset.hpp` + `.../ai_provider_preset.cpp` -
+  `AiProviderPreset` gained `QString provider_id` (the configured endpoint id the
+  sidecar RPC selects, e.g. `opencode_go_anthropic`); `Q_PROPERTY providerId` /
+  `ProviderId()` / `Q_INVOKABLE SetProviderId`; settings key `ai/preset/providerId`;
+  default `opencode_go_anthropic` (matches the 6a Opencode Anthropic default
+  protocol/base_url); sanitized as a non-secret string. `provider_id` is NOT a
+  secret and is exempt from the raw-key scan.
+- `alcedo_studio/src/include/app/image_analysis_service.hpp` +
+  `.../image_analysis_service.cpp` - `ImageAnalysisOptions` gained
+  `int64_t max_image_bytes = 0` (0 = no cap). In `RunJob`'s producer, after a
+  successful encode, if `max_image_bytes > 0 && encoded.bytes.size() > max_image_bytes`,
+  the item is marked `kPrepFailed` with a redacted size error — no provider call,
+  no pin held (the encode already released the guard). This is the "cap image
+  bytes from the selected preset" deliverable; `prefetch` stays at the 5e-bounded
+  default (1).
+- `alcedo_studio/src/CMakeLists.txt` - new `def_library(ImageAnalysisController ...)`
+  (PUBLIC_DEPS `ImageAnalysisService AiProviderPreset AiCredentialStore
+  UiLocalization Qt6::Core`); `AlbumBackendLib` links it (plus the direct
+  `ImageAnalysisService`/`AiProviderPreset`/`AiCredentialStore` it uses in
+  `album_backend.cpp`); the controller source is NOT in `AlbumBackendLib`'s source
+  list so the test can link the controller without pulling all of AlbumBackend.
+- `alcedo_studio/tests/CMakeLists.txt` - new `ImageAnalysisControllerTest` target
+  (links `ImageAnalysisController AiProviderPreset AiCredentialStore
+  GTest::gtest_main`), label `ci_core_flow`; added to the `ci_core` category.
+- `alcedo_studio/tests/app/image_analysis_controller_test.cpp` - NEW. A fake
+  `IImageAnalysisEnvironment` (synchronous `FakeThumbProvider` +
+  `FakeImageAnalysisClient` with configurable outcome / block mode +
+  `InMemoryAiCredentialStore` + a shared gate + a `SidecarEnsured()` flag) and a
+  real `AiProviderPresetController` on temp `QSettings`. A `QCoreApplication` is
+  created in `SetUpTestSuite` so the controller's `Qt::QueuedConnection`
+  progress/finished marshalling delivers. 10 cases (the 6d-required set):
+  `EmptySelectionSetsErrorAndDoesNotStart`, `OneImageDescribeSucceeds`,
+  `MultiImageDescribeSucceeds`, `CancelRunningAnalysisDiscardsResult`,
+  `RetryLastReRunsTargets`, `ProviderErrorPropagatesAndNoActiveAnnotation`,
+  `SchemaErrorPropagatesAndNoActiveAnnotation`,
+  `MissingCredentialSetsErrorAndDoesNotStart`, `ScoreTaskReturnsRating`,
+  `SharedGateSerializesTwoConcurrentRuns` (two controllers over one shared env
+  prove the gate serializes app-wide — the 6d mandate). `WaitForFinished` /
+  `SpinWaitFor` pump the event loop with a timeout so a leaked gate cannot hang
+  the suite.
+- `alcedo_studio/tests/app/image_analysis_service_test.cpp` - NEW
+  `OversizedImageBytesRejectedBeforeProviderCall` (preset cap = 1 byte < the
+  fixture JPEG → item `kError` with "exceeds preset limit", `DescribeCalls() == 0`).
+- `alcedo_studio/tests/app/ai_provider_preset_test.cpp` - `provider_id` added to
+  `RoundTripsEveryEditableField` / `IndividualSettersPersistAndReload` /
+  `ClearRemovesAllPresetKeys` (after Clear it falls back to the
+  `opencode_go_anthropic` default, not empty — it is the endpoint selector).
+
+Invariants (Phase 6d review focus):
+
+- Standalone module, not inlined: `ImageAnalysisController` is its own hpp/cpp
+  + lib; `AlbumBackend` only holds it as a member and exposes it via
+  `Q_PROPERTY`. The production env (`AlbumImageAnalysisEnvironment`) lives in
+  `album_backend.cpp`; the controller class has no `AlbumBackend` dependency, so
+  the test links only `ImageAnalysisController` + fakes.
+- Shared gate app-wide: `AlbumBackend` owns one `image_analysis_gate_`; the env
+  returns it; the controller passes it to every `ImageAnalysisService` it builds
+  (never `nullptr`, never a private gate). `SharedGateSerializesTwoConcurrentRuns`
+  proves two concurrent controller runs serialize.
+- Sidecar on demand, `require_model_info=false`: `EnsureSidecarReady` starts the
+  sidecar only when a job is launched and only checks `state==kReady` (not
+  `model_info`, which is unpopulated). Ordinary browsing/search never starts the
+  sidecar. `MissingCredentialSetsErrorAndDoesNotStart` proves the sidecar is NOT
+  touched when the credential is absent.
+- No DB writes / no partial active annotation: the controller performs NO
+  persistence (6e); `Finish` only tallies counts and builds `lastResults`.
+  Failed/canceled items are counted `failed`/`canceled`, never `analyzed`.
+  `ProviderErrorPropagatesAndNoActiveAnnotation` +
+  `SchemaErrorPropagatesAndNoActiveAnnotation` +
+  `CancelRunningAnalysisDiscardsResult` assert `analyzed==0` on failure/cancel.
+- Credential handling (Phase 3/6c invariant preserved): the secret is loaded via
+  `IAiCredentialStore::LoadCredential` (OS store on Windows), placed into
+  `ImageAnalysisOptions::credential.secret`, and the 5d `RunJob` registers it
+  once, zeroizes the local copy, threads only the opaque handle, and revokes on
+  job end. The controller never logs/stores the secret; `provider_id` is a
+  non-secret endpoint id.
+- Encoded-rendition path reused + capped: k1024 / JPEG q90 / OIIO encoder (5d)
+  unchanged; `max_image_bytes` from the preset rejects oversized payloads before
+  the provider call (`OversizedImageBytesRejectedBeforeProviderCall`).
+- Sidecar startup remains on demand and normal browsing/search do not require
+  API keys: confirmed — the controller only reaches `EnsureSidecarReady` after a
+  non-empty selection + valid preset + present credential.
+
+Test results:
+
+- C++ MSVC build (PowerShell tool, per project memory): `--target
+  ImageAnalysisControllerTest ImageAnalysisServiceTest AiProviderPresetTest
+  AlbumBackendLib alcedo_main` built clean (one typo fixed during implementation:
+  `<Q_OBJECT>` → `<QObject>` in the new header, caught at compile time before any
+  test ran; and a link-layer refactor — the controller was moved from the
+  `AlbumBackendLib` source list into its own `ImageAnalysisController` lib so the
+  test can link it without pulling all of AlbumBackend).
+- ctest 6d group (`-R "ImageAnalysisControllerTest|ImageAnalysisServiceTest|
+  AiProviderPresetTest"`): 43/43 — 42 passed, 1 Skipped (the pre-existing
+  `ImageAnalysisServiceLiveTest.ValidateConnectionDiscoversOpencodeModels` live
+  smoke, env-gated). The 10 `ImageAnalysisControllerTest` cases pass; the new
+  `OversizedImageBytesRejectedBeforeProviderCall` passes; the `AiProviderPresetTest`
+  `provider_id` additions pass.
+- ctest regression (`-R "SemanticGenerationServiceTest|FilterServiceTest|
+  AiStorageControllerTest|AiSidecarRuntimeServiceTest"`): all green (1 pre-existing
+  live-runtime Skip — `ALCEDO_SEMANTIC_LIVE_RUNTIME_PATH` not set). No regression
+  in semantic/storage/search.
+
+Deferred to Phase 6e / 6f / 6g:
+
+- Persistence, search refresh, rating surface, usage summary (6e): the controller
+  emits `lastResults` only; `AiStorageController.UpsertUnderstanding`/
+  `UpsertRating` wiring + the storage-layer `IsValid()` backstop for "no upsert
+  on failure" land in 6e. The 6d controller-level guarantee ("nothing is
+  persisted; failed/canceled never `analyzed`") is the floor.
+- QML UI (menu actions + progress dialog) — the controller is QML-callable but
+  has no menu/dialog yet; deferred (the user explicitly chose "expose to QML, no
+  UI this phase").
+- Combined describe+rating run — deferred (user choice).
+- Live Opencode smoke (6f) — `live_confirmed` stays false on the Opencode models;
+  the controller's `ValidateConnection` dry-run is the closest 6d gets to live
+  provider contact.
+- Merging discovered model candidates into preset state (the 6c deferred merge
+  point) — not done in 6d; `ValidateConnection` surfaces candidates in `lastError`
+  text only.
+
+Build note for the next handoff: after any Rust image-analysis change, rebuild
+the release sidecar (`cargo build --release --bin alcedo_mind`) before a live run
+(not required for the 6d offline tests). Run MSVC builds through the PowerShell
+tool (not Bash). For an offline cargo run with `.env.test` present, use
+`cargo test -- --skip live_`. The new `ImageAnalysisController` lib must be
+linked by any future consumer; `AlbumBackendLib` already does.
+
+Review conclusion: bugs found — none (the `<Q_OBJECT>` typo and the link-layer
+lib split were caught at compile/link time before any test ran); risk accepted —
+(1) no QML UI this phase (controller is QML-callable, no menu/dialog — deferred),
+(2) no persistence (6e); the "no upsert on failure" guarantee is controller-level
+only ("nothing persisted" + failed/canceled never `analyzed`), with the
+storage-layer `IsValid()` backstop landing in 6e, (3) combined describe+rating
+run deferred, (4) `ValidateConnection` spawns a detached `std::thread` per call
+(acceptable for a dry-run; not exercised by UI this phase), (5) `max_image_bytes`
+rejects oversized items as `kPrepFailed` (error, not retried) — matches the
+fail-closed posture; missing tests — none: all 6d-required controller cases
+(empty selection, one-image success, multi-image success, cancel, retry, provider
+error, schema error, no partial active annotation after failure) plus the
+shared-gate serialization and missing-credential cases are implemented and green,
+and the 6d-adjacent regression suite is green.

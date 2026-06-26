@@ -714,6 +714,16 @@ void ImageAnalysisService::RunJob(const std::shared_ptr<ImageAnalysisJob>& job,
       if (!encoded.ok) {
         e.kind  = EncodedItemKind::kPrepFailed;
         e.error = encode_error.empty() ? std::string("image encode failed") : encode_error;
+      } else if (options.max_image_bytes > 0 &&
+                 static_cast<int64_t>(encoded.bytes.size()) > options.max_image_bytes) {
+        // Phase 6d: the selected preset caps the encoded-rendition byte size.
+        // Fail closed — do NOT push the oversized payload to the bounded queue or
+        // issue a paid provider call. The thumbnail pin was already released above,
+        // so this path holds no pin while it reports the prep failure.
+        e.kind  = EncodedItemKind::kPrepFailed;
+        e.error = "encoded image (" + std::to_string(encoded.bytes.size()) +
+                  " bytes) exceeds preset limit (" + std::to_string(options.max_image_bytes) +
+                  " bytes)";
       } else {
         e.kind               = EncodedItemKind::kEncoded;
         e.bytes              = std::move(encoded.bytes);

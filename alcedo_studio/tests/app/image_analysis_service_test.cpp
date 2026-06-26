@@ -507,6 +507,28 @@ TEST(ImageAnalysisServiceTest, DescribeSuccessReturnsAnalyzedResult) {
   std::filesystem::remove_all(ScratchDir("success"));
 }
 
+TEST(ImageAnalysisServiceTest, OversizedImageBytesRejectedBeforeProviderCall) {
+  // Phase 6d: a preset `max_image_bytes` cap smaller than the encoded JPEG must
+  // fail closed — the item is a prep failure (no provider call, no pin held),
+  // never an analyzed result.
+  auto provider = std::make_shared<FakeThumbnailProvider>();
+  auto client   = std::make_shared<FakeImageAnalysisClient>();
+  auto gate     = std::make_shared<ImageAnalysisInFlightGate>();
+
+  ImageAnalysisService service(provider, client, gate);
+  auto                 opts = BaseDescribeOpts("oversized");
+  opts.max_image_bytes      = 1;  // smaller than any real encoded JPEG
+  auto job = service.StartAnalysis({ImageAnalysisItem{1, 100}}, opts, {}, {});
+  ASSERT_TRUE(WaitWithTimeout(job, std::chrono::seconds(10)));
+  auto results = job->Results();
+  ASSERT_EQ(results.size(), 1u);
+  EXPECT_EQ(results[0].status, ImageAnalysisItemStatus::kError);
+  EXPECT_NE(results[0].error.find("exceeds preset limit"), std::string::npos);
+  // The provider was never called — the cap rejects before the gate/RPC.
+  EXPECT_EQ(client->DescribeCalls(), 0);
+  std::filesystem::remove_all(ScratchDir("oversized"));
+}
+
 TEST(ImageAnalysisServiceTest, MissingCredentialPropagatesAsError) {
   auto provider = std::make_shared<FakeThumbnailProvider>();
   auto client   = std::make_shared<FakeImageAnalysisClient>();

@@ -17,12 +17,15 @@
 #include <vector>
 
 #include "app/semantic_generation_service.hpp"
+#include "app/ai_provider_preset.hpp"
+#include "app/image_analysis_service.hpp"
 #include "edit/pipeline/pipeline_accelerator.hpp"
 #include "ui/alcedo_main/album_backend/adjustment_transfer_controller.hpp"
 #include "ui/alcedo_main/album_backend/album_thumbnail_model.hpp"
 #include "ui/alcedo_main/album_backend/album_types.hpp"
 #include "ui/alcedo_main/album_backend/editor_controller.hpp"
 #include "ui/alcedo_main/album_backend/folder_controller.hpp"
+#include "ui/alcedo_main/album_backend/image_analysis_controller.hpp"
 #include "ui/alcedo_main/album_backend/image_controller.hpp"
 #include "ui/alcedo_main/album_backend/import_export.hpp"
 #include "ui/alcedo_main/album_backend/model_download_controller.hpp"
@@ -44,6 +47,8 @@ class AlbumBackend final : public QObject {
   Q_PROPERTY(QObject* adjustmentTransferController READ AdjustmentTransferControllerObject CONSTANT)
   Q_PROPERTY(QObject* modelDownloadController READ ModelDownloadControllerObject CONSTANT)
   Q_PROPERTY(QObject* semanticGenerationController READ SemanticGenerationControllerObject CONSTANT)
+  Q_PROPERTY(QObject* aiProviderPresetController READ AiProviderPresetControllerObject CONSTANT)
+  Q_PROPERTY(QObject* imageAnalysisController READ ImageAnalysisControllerObject CONSTANT)
   Q_PROPERTY(QVariantList folders READ Folders NOTIFY FoldersChanged)
   Q_PROPERTY(uint currentFolderId READ CurrentFolderId NOTIFY FolderSelectionChanged)
   Q_PROPERTY(QString currentFolderPath READ CurrentFolderPath NOTIFY FolderSelectionChanged)
@@ -139,6 +144,8 @@ class AlbumBackend final : public QObject {
   QObject*     AdjustmentTransferControllerObject() { return &adjustment_transfer_; }
   QObject*     ModelDownloadControllerObject() { return &model_download_controller_; }
   QObject*     SemanticGenerationControllerObject() { return &semantic_generation_; }
+  QObject*     AiProviderPresetControllerObject() { return &ai_provider_preset_; }
+  QObject*     ImageAnalysisControllerObject() { return &image_analysis_; }
   QVariantList Folders() const { return folder_ctrl_.folders(); }
   uint CurrentFolderId() const { return static_cast<uint>(folder_ctrl_.current_folder_id()); }
   const QString& CurrentFolderPath() const { return folder_ctrl_.current_folder_path_text(); }
@@ -336,6 +343,8 @@ class AlbumBackend final : public QObject {
   friend class SearchController;
   friend class ModelDownloadController;
   friend class SemanticGenerationController;
+  friend class ImageAnalysisController;
+  friend class AlbumImageAnalysisEnvironment;
   friend class ImportExportHandler;
   friend class NikonHeRecoveryController;
   friend class EditorController;
@@ -384,6 +393,11 @@ class AlbumBackend final : public QObject {
   alcedo::ModelDownloadService model_download_service_;
   ModelDownloadController      model_download_controller_;
   SemanticGenerationController semantic_generation_;
+  alcedo::AiProviderPresetController ai_provider_preset_;
+  // One app-wide in-flight gate so remote image-analysis calls serialize across
+  // the whole album flow, not per service instance (Phase 6d mandate).
+  std::shared_ptr<alcedo::ImageAnalysisInFlightGate> image_analysis_gate_;
+  ImageAnalysisController            image_analysis_;
   ImportExportHandler          import_export_;
   NikonHeRecoveryController    nikon_he_recovery_;
   EditorController             editor_;

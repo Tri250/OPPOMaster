@@ -18,6 +18,7 @@ namespace {
 // QSettings keys for the selected compatible-protocol preset. All non-secret.
 // Grouped under "ai/preset/" so a single Remove() clears the whole preset.
 constexpr auto kGroup                = "ai/preset";
+constexpr auto kKeyProviderId        = "ai/preset/providerId";
 constexpr auto kKeyDisplayName       = "ai/preset/displayName";
 constexpr auto kKeyProtocolFamily    = "ai/preset/protocolFamily";
 constexpr auto kKeyBaseUrl           = "ai/preset/baseUrl";
@@ -37,6 +38,7 @@ constexpr auto kKeyRememberKey       = "ai/preset/rememberKey";
 // preset (the proven compatible path). They are used when a key is absent so a
 // fresh install lands on a sensible preset the user can edit.
 constexpr auto kDefaultProtocolFamily       = "anthropic_messages";
+constexpr auto kDefaultProviderId           = "opencode_go_anthropic";
 constexpr auto kDefaultAuthType             = "bearer";
 constexpr auto kDefaultStructuredOutputMode = "tool";
 constexpr auto kDefaultRendition            = "preview";
@@ -129,6 +131,7 @@ AiProviderPresetController::AiProviderPresetController(QObject* parent) : QObjec
 
 AiProviderPreset AiProviderPresetController::CurrentPreset() const {
   AiProviderPreset preset;
+  preset.provider_id            = read_non_secret_string(kKeyProviderId, QLatin1String(kDefaultProviderId));
   preset.display_name           = read_non_secret_string(kKeyDisplayName, QString{});
   preset.protocol_family        = NormalizedProtocolFamily(read_string(kKeyProtocolFamily, kDefaultProtocolFamily));
   preset.base_url               = read_non_secret_string(kKeyBaseUrl, QString{});
@@ -149,6 +152,7 @@ AiProviderPreset AiProviderPresetController::CurrentPreset() const {
 
 void AiProviderPresetController::SetFromPreset(const AiProviderPreset& preset) {
   QSettings s;
+  s.setValue(QLatin1String(kKeyProviderId), SanitizedNonSecretString(preset.provider_id));
   s.setValue(QLatin1String(kKeyDisplayName), SanitizedNonSecretString(preset.display_name));
   s.setValue(QLatin1String(kKeyProtocolFamily), NormalizedProtocolFamily(preset.protocol_family));
   s.setValue(QLatin1String(kKeyBaseUrl), SanitizedNonSecretString(preset.base_url));
@@ -173,6 +177,9 @@ void AiProviderPresetController::Clear() {
   emit PresetChanged();
 }
 
+QString AiProviderPresetController::ProviderId() const {
+  return CurrentPreset().provider_id;
+}
 QString AiProviderPresetController::DisplayName() const {
   return CurrentPreset().display_name;
 }
@@ -216,6 +223,10 @@ bool AiProviderPresetController::RememberKey() const {
   return CurrentPreset().remember_key;
 }
 
+void AiProviderPresetController::SetProviderId(const QString& value) {
+  QSettings().setValue(QLatin1String(kKeyProviderId), SanitizedNonSecretString(value));
+  emit PresetChanged();
+}
 void AiProviderPresetController::SetDisplayName(const QString& value) {
   QSettings().setValue(QLatin1String(kKeyDisplayName), SanitizedNonSecretString(value));
   emit PresetChanged();

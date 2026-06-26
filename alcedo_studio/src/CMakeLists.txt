@@ -1190,6 +1190,16 @@ def_library(ImageAnalysisService
     PRIVATE_DEPS AppDiagnostics
 )
 
+# Phase 6d: standalone QML-exposed album image-analysis controller. Owns NO
+# AlbumBackend coupling (the production IImageAnalysisEnvironment lives in
+# album_backend.cpp); unit-testable with fakes. AlbumBackendLib links this.
+def_library(ImageAnalysisController
+    SOURCES
+        ui/alcedo_main/album_backend/image_analysis_controller.cpp
+        include/ui/alcedo_main/album_backend/image_analysis_controller.hpp
+    PUBLIC_DEPS ImageAnalysisService AiProviderPreset AiCredentialStore UiLocalization Qt6::Core
+)
+
 def_library(ThumbnailDiskCacheService
     SOURCES app/thumbnail_disk_cache_service.cpp
     PUBLIC_DEPS ImageBuffer JSON xxHash opencv_imgcodecs OpenImageIO::OpenImageIO
@@ -1346,6 +1356,10 @@ target_link_libraries(AlbumBackendLib
         EditHistoryMgmtService
         ThumbnailService
         SemanticGenerationService
+        ImageAnalysisService
+        ImageAnalysisController
+        AiProviderPreset
+        AiCredentialStore
         ModelDownloadService
         SleeveFilterService
         FSService
