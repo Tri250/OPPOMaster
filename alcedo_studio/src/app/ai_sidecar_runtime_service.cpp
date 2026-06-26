@@ -431,14 +431,12 @@ auto ToImageRatingResult(const alcedo::ai::ScoreImageResponse& response,
   result.ok = (header.status() == alcedo::ai::AI_STATUS_OK);
   if (result.ok && response.has_result()) {
     const auto& body = response.result();
-    result.scores.reserve(static_cast<size_t>(body.scores_size()));
-    for (const auto& dim : body.scores()) {
-      result.scores.push_back({dim.name(), dim.score()});
-    }
+    // 1..=5 integer star rating (Phase 5f contract); 0 here means the sidecar
+    // returned a result without a rating, which the host treats as "unset".
+    result.rating        = body.rating();
     result.rubric_id      = body.rubric_id();
     result.rubric_version = body.rubric_version();
     result.reasons        = body.reasons();
-    result.confidence     = body.confidence();
   }
   return result;
 }

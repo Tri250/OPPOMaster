@@ -97,8 +97,8 @@ async fn live_openrouter_smoke_describe_and_score() {
         .await
         .expect("live OpenRouter score succeeded");
     eprintln!(
-        "live openrouter score: {} dims, rubric={} usage={:?} req_id={}",
-        score.scores.len(), score.rubric_id, score.usage, score.provider_request_id
+        "live openrouter score: rating={} rubric={} usage={:?} req_id={}",
+        score.rating, score.rubric_id, score.usage, score.provider_request_id
     );
     validate_rating(&score).expect("live rating validates against the Alcedo contract");
 }
@@ -135,8 +135,8 @@ async fn live_volcengine_ark_smoke_describe_and_score() {
         .await
         .expect("live Volcengine Ark score succeeded");
     eprintln!(
-        "live volcengine_ark score: {} dims, rubric={} usage={:?} req_id={}",
-        score.scores.len(), score.rubric_id, score.usage, score.provider_request_id
+        "live volcengine_ark score: rating={} rubric={} usage={:?} req_id={}",
+        score.rating, score.rubric_id, score.usage, score.provider_request_id
     );
     validate_rating(&score).expect("live rating validates against the Alcedo contract");
 }
@@ -182,8 +182,8 @@ async fn live_volcengine_ark_coding_smoke_describe_and_score() {
         .await
         .expect("live Volcengine Ark Coding Plan score succeeded");
     eprintln!(
-        "live volcengine_ark_coding score: {} dims, rubric={} usage={:?} req_id={}",
-        score.scores.len(), score.rubric_id, score.usage, score.provider_request_id
+        "live volcengine_ark_coding score: rating={} rubric={} usage={:?} req_id={}",
+        score.rating, score.rubric_id, score.usage, score.provider_request_id
     );
     validate_rating(&score).expect("live rating validates against the Alcedo contract");
 }

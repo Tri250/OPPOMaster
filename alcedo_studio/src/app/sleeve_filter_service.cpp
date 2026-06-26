@@ -170,6 +170,21 @@ auto SemanticLabelExpr(const std::string& active_model_key) -> std::wstring {
          SqlStringLiteral(active_model_key) + L")";
 }
 
+// Phase 5f: active AI image understanding (caption + tags + scene) participates in
+// full-text search; the remote LLM rating does NOT (it is a subjective 1..5 score
+// exposed for sort/filter only). This is a correlated subquery against the outer
+// `Element e` row (e.id is the file id / inode the AI rows bind to). tags_json is a JSON
+// array string (e.g. ["sahara","dunes"]); it is concatenated raw and the search
+// separator-folding (FoldSqlSearchSeparators) strips the JSON syntax characters so the
+// tag words become searchable. string_agg over zero rows is NULL, so COALESCE turns a
+// file with no AI understanding into an empty document contribution. Only
+// active-for-search rows participate, so a failed/partial remote call that was never
+// persisted (or a deactivated row) cannot surface in search.
+auto AiUnderstandingExpr() -> std::wstring {
+  return L"(SELECT string_agg(u.caption || ' ' || u.tags_json || ' ' || u.scene, ' ') "
+         L"FROM AiImageUnderstanding u WHERE u.file_id = e.id AND u.active = TRUE)";
+}
+
 auto SearchDocumentExpr(const std::string& active_model_key) -> std::wstring {
   return L"CONCAT_WS(' ', "
          L"COALESCE(e.element_name, ''), "
@@ -182,6 +197,9 @@ auto SearchDocumentExpr(const std::string& active_model_key) -> std::wstring {
          L"COALESCE(json_extract_string(i.metadata, '$.DateTimeString'), ''), "
          L"COALESCE(" +
          SemanticLabelExpr(active_model_key) +
+         L", ''), "
+         L"COALESCE(" +
+         AiUnderstandingExpr() +
          L", ''), "
          L"COALESCE(CAST(i.metadata AS VARCHAR), ''))";
 }

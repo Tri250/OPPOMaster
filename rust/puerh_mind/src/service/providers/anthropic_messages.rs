@@ -55,7 +55,7 @@ use tracing::warn;
 
 use crate::service::credential_vault::SecretString;
 use crate::service::image_analysis::{
-    DescribeOutcome, ImageAnalysisProvider, ProviderError, ScoreDimension, ScoreOutcome,
+    DescribeOutcome, ImageAnalysisProvider, ProviderError, ScoreOutcome,
     IMAGE_RATING_SCHEMA, IMAGE_UNDERSTANDING_SCHEMA, validate_rating, validate_understanding,
 };
 use crate::service::provider_config::{ModelConfig, ProviderConfig};
@@ -250,21 +250,14 @@ impl AnthropicMessagesProvider {
     fn parse_score(&self, body: &Value, model_id: &str) -> Result<ScoreOutcome, ProviderError> {
         let parsed = Self::extract_tool_use_input(body, RATING_SCHEMA_NAME)
             .ok_or(ProviderError::SchemaValidation)?;
-        let scores: Vec<ScoreDimension> = parsed
-            .get("scores")
-            .and_then(|v| v.as_array())
-            .map(|a| {
-                a.iter()
-                    .filter_map(|s| {
-                        let name = s.get("name").and_then(|n| n.as_str()).unwrap_or("").trim().to_string();
-                        let score = s.get("score").and_then(|n| n.as_f64()).unwrap_or(f64::NAN);
-                        Some(ScoreDimension { name, score })
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+        // 1..=5 integer star rating; accept a float form a model may emit despite
+        // the `integer` schema, fall back to 0 (outside the contract) otherwise.
+        let rating = parsed
+            .get("rating")
+            .and_then(|v| v.as_i64().map(|i| i as i32).or_else(|| v.as_f64().map(|f| f as i32)))
+            .unwrap_or(0);
         let out = ScoreOutcome {
-            scores,
+            rating,
             rubric_id: parsed
                 .get("rubric_id")
                 .and_then(|v| v.as_str())
@@ -280,7 +273,6 @@ impl AnthropicMessagesProvider {
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string(),
-            confidence: parsed.get("confidence").and_then(|v| v.as_f64()).unwrap_or(f64::NAN),
             model_id: model_id.to_string(),
             usage: extract_usage(
                 self.config
@@ -329,15 +321,15 @@ fn describe_prompt(prompt_profile_id: &str) -> (String, String) {
 }
 
 fn score_prompt(prompt_profile_id: &str, rubric_id: &str) -> (String, String) {
-    let system = "You are an image rating assistant for Alcedo Studio. Score the supplied image against the given rubric and respond with a single JSON object matching the provided schema. The object must contain: \"scores\" (an array of {\"name\": <dimension>, \"score\": <number>} objects, with at least one), \"rubric_id\" (the rubric you applied), \"rubric_version\" (the rubric version, or an empty string), \"reasons\" (a short rationale), and \"confidence\" (a number between 0.0 and 1.0). Output only the JSON object — no prose, no markdown code fences.".to_string();
-    let mut instruction = "Score this image.".to_string();
+    let system = "You are an image rating assistant for Alcedo Studio. Rate the supplied image against the given rubric and respond with a single JSON object matching the provided schema. The object must contain: \"rating\" (an integer from 1 to 5, where 1 is a poor photo and 5 is an excellent photo — the app's star rating), \"rubric_id\" (the rubric you applied), \"rubric_version\" (the rubric version, or an empty string), and \"reasons\" (a short rationale). Do not include any other field — in particular, do not output a confidence. Output only the JSON object — no prose, no markdown code fences.".to_string();
+    let mut instruction = "Rate this image on a 1–5 star scale.".to_string();
     if !rubric_id.trim().is_empty() {
         instruction.push_str(&format!(" Rubric: {rubric_id}."));
     }
     if !prompt_profile_id.trim().is_empty() {
         instruction.push_str(&format!(" Prompt profile: {prompt_profile_id}."));
     }
-    instruction.push_str(" Return only the JSON object described above.");
+    instruction.push_str(" Return only the JSON object described above, with an integer \"rating\" between 1 and 5.");
     (system, instruction)
 }
 
@@ -665,7 +657,7 @@ mod tests {
             .and(path("/v1/messages"))
             .respond_with(ResponseTemplate::new(200).set_body_json(ok_messages_body(
                 RATING_SCHEMA_NAME,
-                r#"{"scores":[{"name":"aesthetic","score":0.9}],"rubric_id":"alcedo-default-v1","rubric_version":"1","reasons":"r","confidence":0.6}"#,
+                r#"{"rating":4,"rubric_id":"alcedo-default-v1","rubric_version":"1","reasons":"r"}"#,
             )))
             .mount(&server)
             .await;
@@ -674,10 +666,11 @@ mod tests {
             .score_image(&test_image_png(), "", "", "alcedo-default-v1", Some(&secret()))
             .await
             .expect("score ok");
-        assert_eq!(out.scores.len(), 1);
-        assert_eq!(out.scores[0].name, "aesthetic");
-        assert!((out.scores[0].score - 0.9).abs() < 1e-9);
+        // Single 1..=5 integer star rating; no scores array, no confidence.
+        assert_eq!(out.rating, 4);
         assert_eq!(out.rubric_id, "alcedo-default-v1");
+        assert_eq!(out.rubric_version, "1");
+        assert_eq!(out.reasons, "r");
         assert_eq!(out.usage.input_tokens, 90);
         validate_rating(&out).expect("canned rating validates");
     }

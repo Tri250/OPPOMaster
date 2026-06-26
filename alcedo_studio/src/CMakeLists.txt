@@ -819,6 +819,15 @@ def_library(SleeveMapper
     PUBLIC_DEPS DuckDB DuckORM Image SleeveElement ImagePool EditPipeline PipelineScheduler
 )
 
+# AI domain objects (Phase 5f): standalone image understanding/rating objects, FK=file_id
+# (Sleeve element id / inode). Not members of Image/SleeveFile. DB ser/deser lives in the
+# duckorm-backed `AiStorageController` (storage layer); this lib is JSON-only at the
+# object layer so it can be reused without pulling storage deps.
+def_library(Ai
+    SOURCES ai/ai_description.cpp ai/ai_rating.cpp
+    PUBLIC_DEPS JSON
+)
+
 # Services
 set(SERVICE_SRCS
     sleeve/storage_service.cpp
@@ -826,6 +835,7 @@ set(SERVICE_SRCS
     storage/controller/db_controller.cpp
     storage/controller/image/image_controller.cpp
     storage/controller/semantic/semantic_storage_controller.cpp
+    storage/controller/ai/ai_storage_controller.cpp
     storage/controller/sleeve/element_controller.cpp
     storage/service/image/image_service.cpp
     storage/service/sleeve/base/base_service.cpp
@@ -840,7 +850,7 @@ set(SERVICE_SRCS
 
 def_library(StorageService
     SOURCES ${SERVICE_SRCS}
-    PUBLIC_DEPS DuckDB DuckORM SleeveMapper StrConv PipelineScheduler
+    PUBLIC_DEPS Ai DuckDB DuckORM SleeveMapper StrConv PipelineScheduler
     PRIVATE_DEPS AppDiagnostics
 )
 

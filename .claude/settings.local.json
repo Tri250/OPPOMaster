@@ -145,7 +145,8 @@
       "Bash(node -e \"let s='';process.stdin.on\\('data',d=>s+=d\\).on\\('end',\\(\\)=>{const p=JSON.parse\\(s\\);console.log\\(JSON.stringify\\(p.scripts,null,2\\)\\)}\\)\")",
       "Bash(npm run *)",
       "Bash(git log *)",
-      "Bash(grep -v -E \"/third_party/|/target/|/build/|/\\\\.venv/\")"
+      "Bash(grep -v -E \"/third_party/|/target/|/build/|/\\\\.venv/\")",
+      "Read(//d/rust/puerh_mind/src/**)"
     ]
   }
 }

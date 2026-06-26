@@ -420,19 +420,34 @@ mod tests {
     }
 
     #[test]
-    fn strict_schema_forces_required_on_nested_rating_scores() {
+    fn strict_schema_forces_required_on_rating_properties() {
         let v = strict_schema_value(crate::service::image_analysis::IMAGE_RATING_SCHEMA)
             .expect("rating schema sanitizes");
-        let scores_items = &v["properties"]["scores"]["items"];
-        // The nested scores item object must list all its properties as required.
-        let required: Vec<&str> = scores_items["required"]
+        // The rating contract is a flat object: rating + rubric_id + rubric_version
+        // + reasons. Strict mode forces every property to be required (sorted), and
+        // drops the `minimum`/`maximum` range constraints (the code-owned
+        // `validate_rating` re-enforces 1..=5 on the parsed response, so fail-closed
+        // behavior is preserved — the injected schema only guides the model).
+        let required: Vec<&str> = v["required"]
             .as_array()
             .unwrap()
             .iter()
             .map(|x| x.as_str().unwrap())
             .collect();
-        assert_eq!(required, vec!["name", "score"]);
-        assert_eq!(scores_items["additionalProperties"], false);
+        assert_eq!(required, vec!["rating", "reasons", "rubric_id", "rubric_version"]);
+        assert_eq!(v["additionalProperties"], false);
+        assert_eq!(v["properties"]["rating"]["type"], "integer");
+        assert!(
+            v["properties"]["rating"].get("minimum").is_none(),
+            "minimum dropped by strict sanitization"
+        );
+        assert!(
+            v["properties"]["rating"].get("maximum").is_none(),
+            "maximum dropped by strict sanitization"
+        );
+        // No nested `scores` array and no `confidence` remain after sanitization.
+        assert!(v["properties"].get("scores").is_none(), "scores array still present");
+        assert!(v["properties"].get("confidence").is_none(), "confidence still present");
     }
 
     #[test]

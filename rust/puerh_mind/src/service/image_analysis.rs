@@ -41,21 +41,18 @@ pub struct DescribeOutcome {
     pub provider_request_id: String,
 }
 
-/// One scored dimension of a `image_rating.score` outcome.
-#[derive(Debug, Clone)]
-pub struct ScoreDimension {
-    pub name: String,
-    pub score: f64,
-}
-
-/// `image_rating.score` outcome (provider-neutral).
+/// `image_rating.score` outcome (provider-neutral). A single 1–5 integer star
+/// rating aligned with the EXIF-standard Rating the app already stores per file,
+/// plus rubric identity and a short rationale. The remote LLM is NOT asked for a
+/// confidence (Phase 5f rating-contract change): the rating is a discrete label,
+/// not a calibrated probability, and the app's own Rating field has no confidence
+/// counterpart to pair it with.
 #[derive(Debug, Clone)]
 pub struct ScoreOutcome {
-    pub scores: Vec<ScoreDimension>,
+    pub rating: i32,
     pub rubric_id: String,
     pub rubric_version: String,
     pub reasons: String,
-    pub confidence: f64,
     pub model_id: String,
     pub usage: Usage,
     pub provider_request_id: String,
@@ -92,31 +89,23 @@ pub const IMAGE_UNDERSTANDING_SCHEMA: &str = r#"{
   }
 }"#;
 
-/// Code-owned JSON Schema for `image_rating.score` output.
+/// Code-owned JSON Schema for `image_rating.score` output. The remote LLM is
+/// asked for a single 1–5 integer star rating plus rubric identity and a short
+/// rationale; no `confidence` is requested (Phase 5f rating-contract change). The
+/// code-owned validator (`validate_rating`) still enforces `minimum`/`maximum` on
+/// the parsed response even though strict-mode injection drops those constraints,
+/// so fail-closed behavior is preserved.
 pub const IMAGE_RATING_SCHEMA: &str = r#"{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "AlcedoImageRating",
   "type": "object",
   "additionalProperties": false,
-  "required": ["scores", "rubric_id"],
+  "required": ["rating", "rubric_id"],
   "properties": {
-    "scores": {
-      "type": "array",
-      "minItems": 1,
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["name", "score"],
-        "properties": {
-          "name": { "type": "string", "minLength": 1 },
-          "score": { "type": "number" }
-        }
-      }
-    },
+    "rating": { "type": "integer", "minimum": 1, "maximum": 5 },
     "rubric_id": { "type": "string", "minLength": 1 },
     "rubric_version": { "type": "string" },
-    "reasons": { "type": "string" },
-    "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 }
+    "reasons": { "type": "string" }
   }
 }"#;
 
@@ -141,18 +130,15 @@ pub fn validate_understanding(out: &DescribeOutcome) -> Result<(), ProviderError
     Ok(())
 }
 
-/// Validate + normalize a `image_rating.score` outcome.
+/// Validate + normalize a `image_rating.score` outcome. The rating is a 1–5
+/// integer star rating (the app's own Rating field uses 0–5 with 0=unrated; the
+/// remote contract requires 1..=5 so a scored image is never confused with an
+/// unrated one). No confidence is checked — the remote LLM is not asked for one.
 pub fn validate_rating(out: &ScoreOutcome) -> Result<(), ProviderError> {
     if out.rubric_id.trim().is_empty() {
         return Err(ProviderError::SchemaValidation);
     }
-    if out.scores.is_empty() {
-        return Err(ProviderError::SchemaValidation);
-    }
-    if out.scores.iter().any(|s| s.name.trim().is_empty()) {
-        return Err(ProviderError::SchemaValidation);
-    }
-    if !is_valid_confidence(out.confidence) {
+    if !(1..=5).contains(&out.rating) {
         return Err(ProviderError::SchemaValidation);
     }
     Ok(())
@@ -267,20 +253,10 @@ impl MockImageAnalysisProvider {
 
     fn canned_score(&self) -> ScoreOutcome {
         ScoreOutcome {
-            scores: vec![
-                ScoreDimension {
-                    name: "aesthetic".to_string(),
-                    score: 0.8,
-                },
-                ScoreDimension {
-                    name: "technical".to_string(),
-                    score: 0.7,
-                },
-            ],
+            rating: 4,
             rubric_id: "alcedo-default-v1".to_string(),
             rubric_version: "1".to_string(),
             reasons: "Mock rubric reasons.".to_string(),
-            confidence: 0.85,
             model_id: self.model_id.clone(),
             usage: Usage {
                 input_tokens: 128,
@@ -369,7 +345,10 @@ impl ImageAnalysisProvider for MockImageAnalysisProvider {
         }
         let mut out = self.canned_score();
         if matches!(self.failure, MockFailure::InvalidOutput) {
-            out.scores.clear();
+            // Corrupt the outcome so the service validator rejects it: an
+            // out-of-range rating (0 is the app's "unrated" sentinel, not a
+            // valid scored rating, and outside the 1..=5 contract).
+            out.rating = 0;
         }
         Ok(out)
     }
@@ -402,9 +381,15 @@ mod schema_tests {
         let v: Value = serde_json::from_str(IMAGE_RATING_SCHEMA).expect("valid json");
         assert_eq!(v["type"], "object");
         let required: Vec<&str> = v["required"].as_array().unwrap().iter().map(|x| x.as_str().unwrap()).collect();
-        assert!(required.contains(&"scores"));
+        assert!(required.contains(&"rating"));
         assert!(required.contains(&"rubric_id"));
-        assert_eq!(v["properties"]["scores"]["minItems"], 1);
+        // The rating is a 1..=5 integer; no `scores` array and no `confidence`
+        // are requested from the remote LLM (Phase 5f rating-contract change).
+        assert_eq!(v["properties"]["rating"]["type"], "integer");
+        assert_eq!(v["properties"]["rating"]["minimum"], 1);
+        assert_eq!(v["properties"]["rating"]["maximum"], 5);
+        assert!(v["properties"].get("scores").is_none(), "scores array still present");
+        assert!(v["properties"].get("confidence").is_none(), "confidence still present");
     }
 
     #[test]
@@ -450,7 +435,7 @@ mod schema_tests {
     }
 
     #[test]
-    fn validator_rejects_blank_tag_string_and_empty_scores_list() {
+    fn validator_rejects_blank_tag_string_and_out_of_range_rating() {
         // A tag that is a blank string (vec![""]) is rejected for understanding.
         let bad_tags = DescribeOutcome {
             caption: "c".into(),
@@ -463,18 +448,30 @@ mod schema_tests {
         };
         assert_eq!(validate_understanding(&bad_tags).unwrap_err(), ProviderError::SchemaValidation);
 
-        // An empty scores list (vec![]) is rejected for rating.
-        let bad_scores = ScoreOutcome {
-            scores: vec![],
+        // An out-of-range rating (0 is the app's "unrated" sentinel and outside
+        // the 1..=5 remote contract) is rejected for rating.
+        let bad_rating = ScoreOutcome {
+            rating: 0,
             rubric_id: "r".into(),
             rubric_version: "1".into(),
             reasons: "".into(),
-            confidence: 0.5,
             model_id: "m".into(),
             usage: Usage::default(),
             provider_request_id: "r".into(),
         };
-        assert_eq!(validate_rating(&bad_scores).unwrap_err(), ProviderError::SchemaValidation);
+        assert_eq!(validate_rating(&bad_rating).unwrap_err(), ProviderError::SchemaValidation);
+
+        // 6 is also out of range (the upper bound is inclusive 5).
+        let too_high = ScoreOutcome {
+            rating: 6,
+            rubric_id: "r".into(),
+            rubric_version: "1".into(),
+            reasons: "".into(),
+            model_id: "m".into(),
+            usage: Usage::default(),
+            provider_request_id: "r".into(),
+        };
+        assert_eq!(validate_rating(&too_high).unwrap_err(), ProviderError::SchemaValidation);
     }
 
     #[test]

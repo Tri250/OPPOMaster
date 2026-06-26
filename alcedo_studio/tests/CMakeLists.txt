@@ -705,6 +705,38 @@ if(WIN32)
   endif()
 endif()
 
+add_executable(AiStorageControllerTest storage/ai_storage_controller_test.cpp)
+target_include_directories(AiStorageControllerTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(AiStorageControllerTest ProjectService GTest::gtest_main)
+gtest_discover_tests(AiStorageControllerTest TEST_PREFIX "AiStorageControllerTest."
+  PROPERTIES LABELS "ci_core_flow")
+if(WIN32)
+  target_link_libraries(AiStorageControllerTest)
+  if(TARGET alcedo_lensfun)
+    add_custom_command(TARGET AiStorageControllerTest POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "$<TARGET_FILE:alcedo_lensfun>"
+              "$<TARGET_FILE_DIR:AiStorageControllerTest>/lensfun.dll"
+      VERBATIM)
+  endif()
+  if(EXISTS "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/libduckdb-windows/duckdb.dll")
+    add_custom_command(TARGET AiStorageControllerTest POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/libduckdb-windows/duckdb.dll"
+              "$<TARGET_FILE_DIR:AiStorageControllerTest>/duckdb.dll"
+      VERBATIM)
+  endif()
+  if(ALCEDO_DUCKDB_VSS_EXTENSION)
+    add_custom_command(TARGET AiStorageControllerTest POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E make_directory
+              "$<TARGET_FILE_DIR:AiStorageControllerTest>/duckdb_extensions"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${ALCEDO_DUCKDB_VSS_EXTENSION}"
+              "$<TARGET_FILE_DIR:AiStorageControllerTest>/duckdb_extensions/vss.duckdb_extension"
+      VERBATIM)
+  endif()
+endif()
+
 add_executable(SemanticGenerationServiceTest app/semantic_generation_service_test.cpp)
 target_include_directories(SemanticGenerationServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
 target_link_libraries(SemanticGenerationServiceTest
@@ -1127,6 +1159,7 @@ alcedo_assign_test_category(ci_core ALCEDO_BUILD_CI_TESTS alcedo_tests_ci_core
   SemanticGrpcDependencySmokeTest
   AiSidecarRuntimeServiceTest
   SemanticStorageControllerTest
+  AiStorageControllerTest
 )
 
 alcedo_assign_test_category(ci_raw ALCEDO_BUILD_CI_TESTS alcedo_tests_ci_raw

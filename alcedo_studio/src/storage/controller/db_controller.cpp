@@ -31,6 +31,19 @@ auto SqlString(const std::string& value) -> std::string {
   out.push_back('\'');
   return out;
 }
+
+// Run a multi-statement DDL string (e.g. `ai_annotation_table_query`) and throw on the
+// first failing statement. Used for the Phase 5f AI annotation tables on both DB init
+// paths so existing databases gain the tables in place.
+void RunDdlChecked(duckdb_connection conn, const char* query) {
+  duckdb_result result;
+  if (duckdb_query(conn, query, &result) != DuckDBSuccess) {
+    auto error_message = duckdb_result_error(&result);
+    duckdb_destroy_result(&result);
+    throw std::runtime_error(error_message ? error_message : "DuckDB DDL query failed");
+  }
+  duckdb_destroy_result(&result);
+}
 }  // namespace
 
 /**
@@ -97,6 +110,7 @@ void DBController::InitializeDB() {
       throw std::runtime_error(error_message);
     }
     duckdb_destroy_result(&result);
+    RunDdlChecked(guard.conn_, ai_annotation_table_query);
     SeedSemanticLabelQueries(guard.conn_);
     return;
   }
@@ -121,6 +135,7 @@ void DBController::InitializeDB() {
     throw std::runtime_error(error_message);
   }
   duckdb_destroy_result(&result);
+  RunDdlChecked(guard.conn_, ai_annotation_table_query);
   SeedSemanticLabelQueries(guard.conn_);
   initialized_ = true;
 }

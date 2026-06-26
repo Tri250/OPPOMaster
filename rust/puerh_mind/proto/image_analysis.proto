@@ -15,10 +15,12 @@ import "ai_common.proto";
 //   - image_understanding.describe: objective-ish image content -> caption, tags,
 //     scene/category hint, confidence. These fields can participate in the search
 //     document when marked active (Phase 5e).
-//   - image_rating.score: subjective / product-policy scoring -> numeric score
-//     dimensions, rubric id/version, reasons, confidence. Rating is NOT full-text
+//   - image_rating.score: subjective / product-policy scoring -> a single 1–5
+//     integer star rating (aligned with the EXIF-standard Rating the app already
+//     stores per file), plus rubric id/version and reasons. Rating is NOT full-text
 //     search content; it drives sort/filter/recommendation only after the product
-//     contract is clear (Phase 5e).
+//     contract is clear (Phase 5e). Confidence is NOT requested from the remote
+//     LLM (Phase 5f rating-contract change).
 //
 // They carry distinct task_ids ("image_understanding.describe" vs
 // "image_rating.score") and distinct result message types, so a rating result can
@@ -65,20 +67,17 @@ message ImageUnderstandingResult {
   double confidence = 4;       // [0.0, 1.0]
 }
 
-// One scored dimension of an image_rating.score result.
-message ScoredDimension {
-  string name = 1;             // e.g. "aesthetic", "technical", "keeper"
-  double score = 2;             // rubric-defined range (commonly [0.0, 1.0] or 0-100)
-}
-
-// image_rating.score result. Carries rubric identity so a future rubric change does
-// not silently reinterpret earlier scores (Phase 5e review focus).
+// image_rating.score result. A single 1–5 integer star rating aligned with the
+// EXIF-standard Rating the app already stores per file (0=unrated; the remote
+// contract requires 1..=5 so a scored image is never confused with an unrated
+// one). Carries rubric identity so a future rubric change does not silently
+// reinterpret earlier ratings (Phase 5e review focus). Confidence is NOT requested
+// from the remote LLM (Phase 5f rating-contract change).
 message ImageRatingResult {
-  repeated ScoredDimension scores = 1;
-  string rubric_id = 2;         // which rubric produced these scores
+  int32 rating = 1;            // 1..=5 integer star rating
+  string rubric_id = 2;         // which rubric produced this rating
   string rubric_version = 3;   // rubric version
   string reasons = 4;          // short human-readable rationale
-  double confidence = 5;       // [0.0, 1.0]
 }
 
 message DescribeImageRequest {

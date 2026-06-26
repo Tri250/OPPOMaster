@@ -10,6 +10,7 @@
 
 #include "sleeve/sleeve_element/sleeve_element.hpp"
 #include "sleeve/sleeve_element/sleeve_folder.hpp"
+#include "storage/controller/ai/ai_storage_controller.hpp"
 #include "storage/controller/db_controller.hpp"
 #include "storage/controller/image/image_controller.hpp"
 #include "storage/controller/semantic/semantic_storage_controller.hpp"
@@ -41,6 +42,7 @@ class StorageService {
   ElementController                                                         el_ctrl_;
   ImageController                                                           img_ctrl_;
   SemanticStorageController                                                 semantic_ctrl_;
+  AiStorageController                                                       ai_ctrl_;
   std::mutex                                                                live_state_lock_;
 
   std::unordered_map<sl_element_id_t, std::weak_ptr<EditHistory>>           live_histories_;
@@ -53,6 +55,7 @@ class StorageService {
   auto GetElementController() -> ElementController&;
   auto GetImageController() -> ImageController&;
   auto GetSemanticStorageController() -> SemanticStorageController&;
+  auto GetAiStorageController() -> AiStorageController&;
 
   void RememberLiveEditHistory(sl_element_id_t                     file_id,
                                const std::shared_ptr<EditHistory>& history);

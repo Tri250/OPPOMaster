@@ -23,7 +23,7 @@ use tracing::info;
 use crate::proto::alcedo::ai::{
     AiErrorCode, AiRequestHeader, AiResponseHeader, AiResponseStatus, DescribeImageRequest,
     DescribeImageResponse, ImageUnderstandingResult, ImageRatingResult, ScoreImageRequest,
-    ScoreImageResponse, ScoredDimension, UsageMetadata,
+    ScoreImageResponse, UsageMetadata,
     image_analysis_service_server::ImageAnalysisService,
 };
 use crate::service::credential_vault::{CredentialError, CredentialVault, SecretString};
@@ -189,20 +189,11 @@ fn to_proto_understanding(out: &DescribeOutcome) -> ImageUnderstandingResult {
 }
 
 fn to_proto_rating(out: &ScoreOutcome) -> ImageRatingResult {
-    let scores = out
-        .scores
-        .iter()
-        .map(|s| ScoredDimension {
-            name: s.name.clone(),
-            score: s.score,
-        })
-        .collect();
     ImageRatingResult {
-        scores,
+        rating: out.rating,
         rubric_id: out.rubric_id.clone(),
         rubric_version: out.rubric_version.clone(),
         reasons: out.reasons.clone(),
-        confidence: out.confidence,
     }
 }
 
@@ -628,8 +619,9 @@ mod tests {
         assert_eq!(inner.header.as_ref().unwrap().status, AiResponseStatus::AiStatusOk as i32);
         assert_eq!(inner.header.as_ref().unwrap().task_id, "image_rating.score");
         let result = inner.result.expect("rating result present");
-        assert!(!result.scores.is_empty());
-        // Distinct task_id + result type: rating carries scores, not caption/tags.
+        // The canned mock rating is 4 (1..=5 contract); distinct task_id + result
+        // type: rating carries a single integer star rating, not caption/tags.
+        assert_eq!(result.rating, 4);
         assert_eq!(inner.header.as_ref().unwrap().model_id, "alcedo-mock");
     }
 

@@ -410,10 +410,10 @@ class FakeAiSidecarRuntimeClient final : public IAiSidecarRuntimeClient {
     result.request_id    = request.request_id;
     result.ok            = true;
     result.status        = 1;  // AI_STATUS_OK
-    result.scores.push_back({"aesthetic", 0.8});
+    // 1..=5 integer star rating (Phase 5f contract); no scores array, no confidence.
+    result.rating        = 4;
     result.rubric_id     = "alcedo-default-v1";
     result.rubric_version = "1";
-    result.confidence    = 0.9;
     result.provider      = "fake";
     result.model_id      = request.model_id.empty() ? "fake-model" : request.model_id;
     result.rendition     = request.rendition;

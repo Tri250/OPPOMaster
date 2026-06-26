@@ -24,7 +24,7 @@ use tracing::warn;
 
 use crate::service::credential_vault::SecretString;
 use crate::service::image_analysis::{
-    DescribeOutcome, ImageAnalysisProvider, ProviderError, ScoreDimension, ScoreOutcome,
+    DescribeOutcome, ImageAnalysisProvider, ProviderError, ScoreOutcome,
     IMAGE_RATING_SCHEMA, IMAGE_UNDERSTANDING_SCHEMA, validate_rating, validate_understanding,
 };
 use crate::service::provider_config::{ModelConfig, ProviderConfig};
@@ -242,21 +242,16 @@ impl OpenRouterChatProvider {
             Value::String(s) => parse_content_json(s)?,
             other => other.clone(),
         };
-        let scores: Vec<ScoreDimension> = parsed
-            .get("scores")
-            .and_then(|v| v.as_array())
-            .map(|a| {
-                a.iter()
-                    .filter_map(|s| {
-                        let name = s.get("name").and_then(|n| n.as_str()).unwrap_or("").trim().to_string();
-                        let score = s.get("score").and_then(|n| n.as_f64()).unwrap_or(f64::NAN);
-                        Some(ScoreDimension { name, score })
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+        // The remote LLM is asked for a 1..=5 integer star rating. Accept an exact
+        // integer first, then a float a model may emit despite the `integer` schema
+        // (e.g. `4.0`); anything missing or non-numeric falls back to 0, which is
+        // outside the 1..=5 contract and is rejected by `validate_rating`.
+        let rating = parsed
+            .get("rating")
+            .and_then(|v| v.as_i64().map(|i| i as i32).or_else(|| v.as_f64().map(|f| f as i32)))
+            .unwrap_or(0);
         let out = ScoreOutcome {
-            scores,
+            rating,
             rubric_id: parsed
                 .get("rubric_id")
                 .and_then(|v| v.as_str())
@@ -272,7 +267,6 @@ impl OpenRouterChatProvider {
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string(),
-            confidence: parsed.get("confidence").and_then(|v| v.as_f64()).unwrap_or(f64::NAN),
             model_id: model_id.to_string(),
             usage: extract_usage(
                 self.config
@@ -309,17 +303,21 @@ fn describe_prompt(prompt_profile_id: &str) -> (String, String) {
     (system, instruction)
 }
 
-/// Alcedo-owned prompt for `image_rating.score`.
+/// Alcedo-owned prompt for `image_rating.score`. Asks the remote LLM for a single
+/// 1–5 integer star rating aligned with the EXIF-standard Rating the app already
+/// stores per file (0 = unrated in the app; the remote contract requires 1..=5 so a
+/// scored image is never confused with an unrated one). No confidence is requested
+/// (Phase 5f rating-contract change).
 fn score_prompt(prompt_profile_id: &str, rubric_id: &str) -> (String, String) {
-    let system = "You are an image rating assistant for Alcedo Studio. Score the supplied image against the given rubric and respond with a single JSON object matching the provided schema. The object must contain: \"scores\" (an array of {\"name\": <dimension>, \"score\": <number>} objects, with at least one), \"rubric_id\" (the rubric you applied), \"rubric_version\" (the rubric version, or an empty string), \"reasons\" (a short rationale), and \"confidence\" (a number between 0.0 and 1.0). Output only the JSON object — no prose, no markdown code fences.".to_string();
-    let mut instruction = "Score this image.".to_string();
+    let system = "You are an image rating assistant for Alcedo Studio. Rate the supplied image against the given rubric and respond with a single JSON object matching the provided schema. The object must contain: \"rating\" (an integer from 1 to 5, where 1 is a poor photo and 5 is an excellent photo — the app's star rating), \"rubric_id\" (the rubric you applied), \"rubric_version\" (the rubric version, or an empty string), and \"reasons\" (a short rationale). Do not include any other field — in particular, do not output a confidence. Output only the JSON object — no prose, no markdown code fences.".to_string();
+    let mut instruction = "Rate this image on a 1–5 star scale.".to_string();
     if !rubric_id.trim().is_empty() {
         instruction.push_str(&format!(" Rubric: {rubric_id}."));
     }
     if !prompt_profile_id.trim().is_empty() {
         instruction.push_str(&format!(" Prompt profile: {prompt_profile_id}."));
     }
-    instruction.push_str(" Return only the JSON object described above.");
+    instruction.push_str(" Return only the JSON object described above, with an integer \"rating\" between 1 and 5.");
     (system, instruction)
 }
 
@@ -592,7 +590,7 @@ mod tests {
         let body = json!({
             "id": "or-req-456",
             "choices": [ { "message": { "content":
-                r#"{"scores":[{"name":"aesthetic","score":0.8},{"name":"technical","score":0.7}],"rubric_id":"alcedo-default-v1","rubric_version":"1","reasons":"good","confidence":0.6}"# } } ],
+                r#"{"rating":4,"rubric_id":"alcedo-default-v1","rubric_version":"1","reasons":"good"}"# } } ],
             "usage": { "prompt_tokens": 80, "completion_tokens": 50, "total_tokens": 130 }
         });
         Mock::given(method("POST"))
@@ -605,13 +603,62 @@ mod tests {
             .score_image(&test_image_png(), "", "", "alcedo-default-v1", Some(&secret()))
             .await
             .expect("score ok");
-        assert_eq!(out.scores.len(), 2);
-        assert_eq!(out.scores[0].name, "aesthetic");
-        assert!((out.scores[0].score - 0.8).abs() < 1e-9);
+        // Single 1..=5 integer star rating; no scores array, no confidence.
+        assert_eq!(out.rating, 4);
         assert_eq!(out.rubric_id, "alcedo-default-v1");
+        assert_eq!(out.rubric_version, "1");
+        assert_eq!(out.reasons, "good");
         assert_eq!(out.usage.total_tokens, 130);
         assert_eq!(out.provider_request_id, "or-req-456");
         validate_rating(&out).expect("canned rating validates");
+    }
+
+    #[tokio::test]
+    async fn parses_rating_accepts_float_rating_as_integer() {
+        // A model may emit `4.0` despite the `integer` schema; the parser accepts
+        // the float form and coerces it to the integer 4. validate_rating still
+        // enforces the 1..=5 range.
+        let server = MockServer::start().await;
+        let body = json!({
+            "id": "or-req-float",
+            "choices": [ { "message": { "content":
+                r#"{"rating":5.0,"rubric_id":"alcedo-default-v1","rubric_version":"1","reasons":"great"}"# } } ]
+        });
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&server)
+            .await;
+        let provider = provider_for(&server);
+        let out = provider
+            .score_image(&test_image_png(), "", "", "alcedo-default-v1", Some(&secret()))
+            .await
+            .expect("score ok");
+        assert_eq!(out.rating, 5);
+        validate_rating(&out).expect("float rating coerces and validates");
+    }
+
+    #[tokio::test]
+    async fn out_of_range_rating_maps_to_schema_validation() {
+        // 0 is the app's "unrated" sentinel and outside the 1..=5 remote contract;
+        // validate_rating rejects it (no active result).
+        let server = MockServer::start().await;
+        let body = json!({
+            "id": "or-req-zero",
+            "choices": [ { "message": { "content":
+                r#"{"rating":0,"rubric_id":"alcedo-default-v1","rubric_version":"1","reasons":""}"# } } ]
+        });
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&server)
+            .await;
+        let provider = provider_for(&server);
+        let err = provider
+            .score_image(&test_image_png(), "", "", "alcedo-default-v1", Some(&secret()))
+            .await
+            .expect_err("rating 0 rejected");
+        assert_eq!(err, ProviderError::SchemaValidation);
     }
 
     #[tokio::test]

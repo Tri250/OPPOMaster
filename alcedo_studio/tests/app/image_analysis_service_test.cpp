@@ -263,10 +263,10 @@ class FakeImageAnalysisClient : public IImageAnalysisClient {
     if (o == Outcome::kSuccess) {
       r.ok = true;
       r.status = kStatusOk;
-      r.scores.push_back({"aesthetic", 0.8});
+      // 1..=5 integer star rating (Phase 5f contract); no scores array, no confidence.
+      r.rating = 4;
       r.rubric_id = "alcedo-default-v1";
       r.rubric_version = "1";
-      r.confidence = 0.9;
     } else {
       r.ok = false;
       r.status = (o == Outcome::kTimeout) ? kStatusDeadlineExceeded : kStatusProviderError;

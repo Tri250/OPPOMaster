@@ -132,6 +132,51 @@ class DBController {
       "WHERE NOT EXISTS (SELECT 1 FROM SemanticModel WHERE active = TRUE) "
       "ORDER BY created_at DESC, model_key DESC LIMIT 1);";
 
+  // Phase 5f: AI image understanding + rating annotation tables. CREATE IF NOT EXISTS
+  // so this runs migration-safely on BOTH the fresh-DB and existing-DB paths (see
+  // InitializeDB). Foreign key is file_id = the Sleeve element id / inode, the same key
+  // the CLIP embeddings bind to (not the image id). PRIMARY KEY (file_id, task_id)
+  // makes insert_or_replace enforce "at most one row per pair", hence at most one
+  // active-for-search understanding per (file_id, task_id). Every text column is NOT
+  // NULL DEFAULT '' so the duckorm select path (which would turn a NULL cell into
+  // string(nullptr) and crash) never sees a NULL text value; updated_at is excluded from
+  // inserts and re-stamped on each upsert, so it doubles as last-write time. Rating is
+  // NOT part of full-text search: it is stored here only, and the search-document
+  // builder (sleeve_filter_service) intentionally reads the understanding table alone.
+  constexpr static const char* ai_annotation_table_query =
+      "CREATE TABLE IF NOT EXISTS AiImageUnderstanding ("
+      "file_id BIGINT NOT NULL,"
+      "task_id VARCHAR NOT NULL DEFAULT '',"
+      "provider_id VARCHAR NOT NULL DEFAULT '',"
+      "model_id VARCHAR NOT NULL DEFAULT '',"
+      "prompt_profile_id VARCHAR NOT NULL DEFAULT '',"
+      "rendition_kind VARCHAR NOT NULL DEFAULT '',"
+      "caption VARCHAR NOT NULL DEFAULT '',"
+      "tags_json VARCHAR NOT NULL DEFAULT '',"
+      "scene VARCHAR NOT NULL DEFAULT '',"
+      "confidence DOUBLE NOT NULL DEFAULT 0.0,"
+      "active BOOLEAN NOT NULL DEFAULT TRUE,"
+      "updated_at TIMESTAMP DEFAULT current_timestamp,"
+      "PRIMARY KEY (file_id, task_id));"
+      "CREATE INDEX IF NOT EXISTS idx_ai_understanding_file_active "
+      "ON AiImageUnderstanding(file_id, active);"
+      "CREATE TABLE IF NOT EXISTS AiImageRating ("
+      "file_id BIGINT NOT NULL,"
+      "task_id VARCHAR NOT NULL DEFAULT '',"
+      "provider_id VARCHAR NOT NULL DEFAULT '',"
+      "model_id VARCHAR NOT NULL DEFAULT '',"
+      "prompt_profile_id VARCHAR NOT NULL DEFAULT '',"
+      "rendition_kind VARCHAR NOT NULL DEFAULT '',"
+      "rating INTEGER NOT NULL DEFAULT 0,"
+      "rubric_id VARCHAR NOT NULL DEFAULT '',"
+      "rubric_version VARCHAR NOT NULL DEFAULT '',"
+      "reasons VARCHAR NOT NULL DEFAULT '',"
+      "active BOOLEAN NOT NULL DEFAULT TRUE,"
+      "updated_at TIMESTAMP DEFAULT current_timestamp,"
+      "PRIMARY KEY (file_id, task_id));"
+      "CREATE INDEX IF NOT EXISTS idx_ai_rating_file_active "
+      "ON AiImageRating(file_id, active);";
+
   void SeedSemanticLabelQueries(duckdb_connection conn);
 
  public:

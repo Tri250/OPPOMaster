@@ -178,11 +178,6 @@ struct ImageAnalysisUsage {
   int64_t total_tokens  = 0;
 };
 
-struct ImageAnalysisScoredDimension {
-  std::string name;
-  double      score = 0.0;
-};
-
 // Input to DescribeImage / ScoreImage. `credential_ref` is the opaque vault
 // handle from RegisterCredential (never key material); `image_bytes` carries
 // the encoded rendition (JPEG/PNG), NOT raw RGBA8.
@@ -217,17 +212,24 @@ struct ImageAnalysisUnderstandingResult {
   uint64_t                      elapsed_ms = 0;
 };
 
+// Result of image_rating.score. A single 1–5 integer star rating aligned with
+// the EXIF-standard Rating the app already stores per file (see image/metadata.hpp:
+// 0–5 stars, 0 = unrated, integer storage). The remote LLM contract requires 1..=5
+// (Phase 5f) so a scored image is never confused with an unrated one; the host
+// maps a 1..=5 AI rating onto the app's 0–5 Rating field directly. The remote LLM
+// is NOT asked for a confidence (Phase 5f rating-contract change), so this DTO
+// carries no confidence field — unlike ImageAnalysisUnderstandingResult, which
+// still reports the describe-task confidence.
 struct ImageAnalysisRatingResult {
   std::string                            request_id;
   bool                                   ok            = false;
   int                                    status        = 0;  // AiResponseStatus
   int                                    error_code    = 0;  // AiErrorCode
   std::string                            error;
-  std::vector<ImageAnalysisScoredDimension> scores;
+  int                                    rating       = 0;   // 1..=5 on success; 0 = unset
   std::string                            rubric_id;
   std::string                            rubric_version;
   std::string                            reasons;
-  double                                 confidence = 0.0;
   std::string                            provider;
   std::string                            model_id;
   std::string                            provider_request_id;

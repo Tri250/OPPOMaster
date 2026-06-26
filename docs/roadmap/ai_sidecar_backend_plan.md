@@ -851,6 +851,55 @@ Review focus:
 
 ## Phase 6 - Product Wiring For Credentials, Caption, And Rating
 
+### Phase 5f handoff — live data-carrier payloads (response header stripped)
+
+The two JSON bodies below are the REAL data carriers the Phase 5f env-gated live
+run received from the remote provider for one image in `install_test.alcd`
+(provider `volcengine_ark_coding`, model `doubao-seed-2.0-lite`). The gRPC
+response wraps each in an `AiResponseHeader` (request_id, provider, model_id,
+usage, provider_request_id, error, elapsed_ms, rendition) — that header metadata
+is stripped here; what remains is the body the host persists and, for
+understanding, folds into the search document. Each body is an instance of the
+code-owned JSON Schema the driver validates + normalizes before returning
+(`IMAGE_UNDERSTANDING_SCHEMA` / `IMAGE_RATING_SCHEMA` in
+`rust/puerh_mind/src/service/image_analysis.rs`): `caption` + `tags` required
+(understanding), `rating` + `rubric_id` required (rating), `rating` an integer in
+1..5 with NO `confidence` (Phase 5f rating-contract change; understanding still
+carries `confidence` in 0..1). These are the exact shapes a Phase 6 consumer
+gets after `ImageAnalysisService` -> `AiSidecarRuntimeService` ->
+`GrpcAiSidecarRuntimeClient::DescribeImage`/`ScoreImage` -> sidecar HTTP driver.
+
+`image_understanding.describe` body (`AlcedoImageUnderstanding`):
+
+```json
+{
+  "caption": "Traditional Japanese restaurant entrance at night with a lit paper lantern and decorative doll.",
+  "tags": [
+    "japanese",
+    "entrance",
+    "night",
+    "lantern",
+    "wooden door",
+    "traditional architecture",
+    "restaurant",
+    "decor"
+  ],
+  "scene": "night street entrance to Japanese restaurant",
+  "confidence": 0.95
+}
+```
+
+`image_rating.score` body (`AlcedoImageRating`):
+
+```json
+{
+  "rating": 5,
+  "rubric_id": "general",
+  "rubric_version": "1.0",
+  "reasons": "This is a beautifully composed night photograph of a traditional Japanese entrance, with warm lighting from the lantern creating strong atmospheric mood, clear detail in wooden textures, and excellent cultural composition."
+}
+```
+
 Goal: make remote image analysis usable from the album workflow without disturbing ordinary search or
 requiring users to re-enter API keys every session.
 
@@ -2186,3 +2235,330 @@ environment, both fixed. Missing tests: none - all 8 plan-required 5e tests
 two-jobs-sharing-gate) plus the review-driven prefetch-clamp regression are
 implemented and green, and the bonus env-gated live smoke runs end-to-end against
 a real provider.
+
+## Phase 5f - Completion & Self-Review
+
+Status: complete. Remote image-analysis results now persist and feed search
+without mixing the searchable understanding with the subjective rating. Two new
+DuckDB tables (`AiImageUnderstanding`, `AiImageRating`) hold the annotations;
+both bind to `file_id` (the Sleeve element id / inode) — the same key the CLIP
+embeddings bind to, not the image id — so deleting a file cascades cleanly and a
+re-import under a new image id recovers prior annotations. The
+`(file_id, task_id)` primary key makes `insert_or_replace` enforce "at most one
+row per pair", hence at most one active-for-search understanding per
+`(file_id, task_id)`. The rating is kept out of full-text search by default: the
+search document folds in active captions/tags/scene via a `string_agg` subquery
+over `AiImageUnderstanding` only, and the `AiImageRating` columns never enter it.
+All serialization/deserialization goes through the duckorm layer
+(`insert_or_replace`, `select`, `remove`) — no raw INSERT/SELECT is written for
+the AI tables. Deleting files removes both understanding and rating rows via the
+existing element-deletion cascade. The remote rating contract (user-requested
+Task #1) is changed to a 1..5 integer with no confidence. A bonus env-gated
+live run proves both the describe (with search attribution) and the rating (1..5
+integer, no confidence) paths end-to-end against a real LLM. No product UI /
+controller wiring (Phase 6).
+
+Implemented (file-by-file, per the plan):
+
+- `alcedo_studio/src/ai/ai_description.cpp` +
+  `alcedo_studio/src/include/ai/ai_description.hpp` - NEW standalone domain
+  object (NOT a member of `image.hpp` or `sleeve_file.hpp`, per the Phase 5f
+  code-quality requirement). Holds `file_id` + `task_id` +
+  provider/model/prompt-profile/rendition identity + `caption` + `tags_json` +
+  `scene` + `confidence` + `active` + `updated_at`. `Tags()` parses `tags_json`
+  via `nlohmann::json` (catch returns `{}` — a malformed store surfaces "no
+  tags" rather than throwing through the app/search path); `SetTags()` serializes.
+  `IsValid()` requires `file_id != 0` and non-empty task/provider/model (the
+  storage-layer backstop that a partial/failed remote call leaves no active
+  search document).
+- `alcedo_studio/src/ai/ai_rating.cpp` +
+  `alcedo_studio/src/include/ai/ai_rating.hpp` - NEW standalone domain object,
+  same placement rule. Holds `file_id` + `task_id` +
+  provider/model/prompt-profile/rendition identity + `rating` (integer 1..5;
+  `kMinRating = 1`, `kMaxRating = 5`, `NormalizeRating` clamps) +
+  `rubric_id`/`rubric_version` + `reasons` + `active` + `updated_at`. `IsValid()`
+  requires `file_id != 0`, non-empty task/provider/model, and `rating in [1,5]` —
+  a rating of 0 ("unset") is rejected so a scored image is never confused with an
+  unrated one (`UnsetRatingNotPersisted`). The EXIF-standard `Rating` (0..5,
+  0 = unrated) in `metadata.hpp` is a separate contract and is untouched.
+- `alcedo_studio/src/storage/controller/ai/ai_storage_controller.cpp` +
+  `alcedo_studio/src/include/storage/controller/ai/ai_storage_controller.hpp` -
+  NEW ORM controller. Field arrays via `FIELD_AS`
+  (`kInsertUnderstandingFields` = 11 fields, `kSelectUnderstandingFields` = 12 in
+  DDL order incl. `updated_at`; same shape for rating with `rating` INT32).
+  `UpsertUnderstanding`/`UpsertRating` return false and write nothing when
+  `!IsValid()`, else `duckorm::insert_or_replace` (PRIMARY KEY
+  `(file_id, task_id)` replaces the prior row in place). `Get*` do a
+  `SELECT * WHERE file_id = <int>` and filter `task_id` in C++; `GetActive*` add
+  `AND active = TRUE`. `file_id` is read as INT64 (cast to `uint32`) and inserted
+  as UINT32 — the element-id convention. `DeleteForFiles` takes a named guard +
+  lock then calls `DeleteAiAnnotationRowsForFiles(conn, file_ids)`, which uses
+  `duckorm::remove(conn, table, "file_id IN (...)")` for both tables — no raw
+  DELETE for the AI tables, only the `file_id IN (...)` predicate. Constants
+  `kUnderstandingTable = "AiImageUnderstanding"`,
+  `kRatingTable = "AiImageRating"`.
+- `alcedo_studio/src/include/storage/controller/db_controller.hpp` - NEW
+  `ai_annotation_table_query` DDL (static `const char*`, executed once on both
+  init paths, the same pattern as the semantic tables): `CREATE TABLE IF NOT
+  EXISTS AiImageUnderstanding` (`file_id BIGINT`; `task_id`/`provider_id`/
+  `model_id`/`prompt_profile_id`/`rendition_kind`/`caption`/`tags_json`/`scene`
+  `VARCHAR NOT NULL DEFAULT ''`; `confidence DOUBLE NOT NULL DEFAULT 0.0`;
+  `active BOOLEAN NOT NULL DEFAULT TRUE`; `updated_at TIMESTAMP DEFAULT
+  current_timestamp`; `PRIMARY KEY (file_id, task_id)`) +
+  `idx_ai_understanding_file_active (file_id, active)`; `AiImageRating`
+  (`rating INTEGER NOT NULL DEFAULT 0`; `rubric_id`/`rubric_version`/`reasons`
+  `VARCHAR NOT NULL DEFAULT ''`) + `idx_ai_rating_file_active`. Text columns are
+  `NOT NULL DEFAULT ''` so `duckorm` never sees a `string(nullptr)` null-crash.
+- `alcedo_studio/src/app/sleeve_filter_service.cpp` - NEW `AiUnderstandingExpr()`
+  returns `string_agg(u.caption || ' ' || u.tags_json || ' ' || u.scene, ' ') FROM
+  AiImageUnderstanding u WHERE u.file_id = e.id AND u.active = TRUE` (`e.id` is
+  the element/file-id alias). Folded into `SearchDocumentExpr`'s `CONCAT_WS` as
+  `COALESCE(AiUnderstandingExpr(), '')` after `SemanticLabelExpr`, so active
+  captions/tags/scene participate in full-text search. The `AiImageRating`
+  columns are deliberately NOT added (rating stays out of full-text search). Both
+  the LIKE and the folded search paths consume the same `SearchDocumentExpr`.
+- `alcedo_studio/src/storage/controller/sleeve/element_controller.cpp` - the
+  existing anonymous-namespace `DeleteSemanticAndAiRowsForFiles(conn, file_ids)`
+  (called from `RemoveElement(shared_ptr)` with a single-element span and from
+  `RemoveElements` with the bulk `file_ids`) now also calls
+  `DeleteAiAnnotationRowsForFiles(conn, file_ids)` after the pre-existing raw
+  DELETEs for the three semantic tables. The AI cleanup runs on the
+  ElementController's own connection so it is atomic with element deletion;
+  rating rows are dropped here too even though they are not part of full-text
+  search, so a re-import cannot resurrect an old AI rating under a new image id.
+  The single-id `RemoveElement(sl_element_id_t)` overload is unchanged (it never
+  cascaded semantic rows either — see accepted risk).
+- `rust/puerh_mind/src/service/image_analysis.rs` (Task #1, user-requested) -
+  `ScoreOutcome` drops `confidence` (the remote rating no longer outputs it);
+  `IMAGE_RATING_SCHEMA` constrains `"rating": { "type": "integer", "minimum": 1,
+  "maximum": 5 }` with `required = ["rating", "rubric_id"]`; `validate_rating`
+  rejects `!(1..=5).contains(&out.rating)`. The understanding schema/validator
+  are unchanged.
+- `alcedo_studio/src/include/app/ai_sidecar_runtime_service.hpp` +
+  `alcedo_studio/src/app/ai_sidecar_runtime_service.cpp` (Task #2) - the C++
+  rating DTO `ImageAnalysisRatingResult` carries int `rating`, `rubric_id`,
+  `rubric_version`, `reasons` and NO `confidence` (the header comment documents
+  the Phase 5f contract change and contrasts it with
+  `ImageAnalysisUnderstandingResult`, which still reports the describe-task
+  `confidence`). `ToImageRatingResult` maps `ScoreImageResponse` -> DTO via
+  `result.rating = body.rating()` (comment: "1..=5 integer star rating (Phase 5f
+  contract); 0 = unset"), `rubric_id`, `rubric_version`; it maps no confidence,
+  unlike the describe mapper which reads `body.confidence()`. The regenerated
+  AiProto `ScoreImageResponse` (int32 `rating`, `rubric_id`, `rubric_version`,
+  `reasons`; no confidence) mirrors this.
+- `alcedo_studio/src/app/image_analysis_service.cpp` - threads `rubric_id` into
+  the `ScoreImage` request and assembles the rating result (the score task's
+  `ok`/`rendition`/`error` are taken from the rating result, never the
+  understanding result, so the two contracts stay distinct).
+- `alcedo_studio/tests/storage/ai_storage_controller_test.cpp` - NEW 11
+  `AiStorageControllerTest` cases (the plan-required storage tests):
+  `UpsertAndRetrieveUnderstanding` (full identity + content + confidence +
+  tags-json round-trip), `ReplaceUnderstandingForSamePairKeepsOneRow`
+  (`insert_or_replace` does not append a second row for the same
+  `(file_id, task_id)` — the "at most one per pair" invariant),
+  `DifferentTaskIdsForSameFileCoexist` (the invariant constrains each pair, not
+  the file), `InvalidUnderstandingNotPersisted` (`!IsValid()` writes nothing),
+  `GetActiveUnderstandingReturnsPersistedRow`, `UpsertAndRetrieveRating` (1..5
+  integer + rubric identity round-trip), `UnsetRatingNotPersisted` (rating 0
+  rejected), `RatingAndUnderstandingAreIsolated` (the rating's reasons never
+  appear on the understanding object and vice versa),
+  `ProviderModelPromptIdentityPreserved` (a different
+  provider/model/prompt-profile/rubric on a later run is read back as that row's
+  own identity), `DeleteForFilesRemovesBothKinds`, `ElementDeletionCascadesAiRows`
+  (`ElementController::RemoveElements` drops AI rows on the same connection). The
+  fixture uses a per-test temp DB, calls `RegisterAllOperators()`, and
+  `CountUnderstandingRows` runs a raw `COUNT(*)` on the project's own connection
+  (test verification, not ser/deser).
+- `alcedo_studio/tests/app/filter_service_test.cpp` - 2 NEW `FilterServiceTest`
+  cases (the plan-required search tests):
+  `AiUnderstandingCaptionAndTagsSearchableOnlyAfterActivePersistence` (a
+  caption/tag token is NOT searchable before `UpsertUnderstanding`, IS searchable
+  after — so the hit is attributable to the AI row, not pre-existing
+  filename/metadata) and `AiRatingReasonsAreNotInFullScreenSearch` (a token from
+  persisted rating reasons is NOT searchable — rating stays out of full-text
+  search). These are always-run deterministic coverage, not env-gated.
+- `alcedo_studio/tests/app/image_analysis_live_smoke_test.cpp` - the env-gated
+  live smoke is extended with a NEW `RatesOneImageFromPackedProject` (validates
+  Task #1's 1..5 integer contract end-to-end) and the existing
+  `DescribesOneImageFromPackedProject` is strengthened: after the live describe,
+  the result is persisted via `AiStorageController.UpsertUnderstanding` and read
+  back with `GetActiveUnderstanding` (round-trip assertions on caption/scene/
+  provider/model/confidence/active/tags), then a token drawn from the live caption
+  is shown searchable via a fresh `SleeveFilterService` ONLY after AI persistence
+  (attribution proof). The rating test persists via `UpsertRating`, reads back
+  with `GetActiveRating`, asserts `rating in [1,5]` and non-empty reasons and NO
+  confidence field, and asserts a rating-reasons token is NOT searchable (rating
+  excluded from full-text search). Both tests redact-check the key absent from
+  every result/persisted field. (The actual caption and reasons are printed only
+  to the env-gated test stdout, not recorded here, per the "you don't need to
+  look at what the image is" instruction.)
+- `alcedo_studio/tests/CMakeLists.txt` - NEW `AiStorageControllerTest` target
+  (links `ProjectService GTest::gtest_main`, `gtest_discover_tests` with the
+  WIN32 dll-copy block for lensfun/duckdb, label `ci_core_flow`), added to the
+  `ci_core` category after `SemanticStorageControllerTest`.
+
+Invariants (Phase 5f review focus):
+
+- Failed remote calls do not create partial active search documents: the primary
+  guard is that the host only reaches `UpsertUnderstanding`/`UpsertRating` on a
+  complete successful describe/score (the live tests assert `kAnalyzed` +
+  `understanding.ok`/`rating.ok` before persisting, and skip on a provider
+  limitation rather than persist); the storage-layer backstop is `IsValid()` —
+  `Upsert*` returns false and writes nothing when `file_id == 0` or
+  task/provider/model is empty (or `rating not in [1,5]`).
+  `InvalidUnderstandingNotPersisted` and `UnsetRatingNotPersisted` assert zero
+  rows after a rejected upsert.
+- Prompt/profile/rubric changes do not reinterpret old scores as new scores:
+  identity (`provider_id`, `model_id`, `prompt_profile_id`, `rubric_id`,
+  `rubric_version`) is stored PER ROW and round-trips.
+  `ProviderModelPromptIdentityPreserved` upserts a row with a different
+  provider/model/prompt-profile/rubric and reads it back as that row's own
+  identity. `insert_or_replace` on `PRIMARY KEY (file_id, task_id)` replaces the
+  prior row for that pair (latest wins), but each row carries its own identity, so
+  a stale row cannot be misread as a new prompt's score; distinct `task_id`s
+  coexist (`DifferentTaskIdsForSameFileCoexist`) so history is preserved across
+  prompt-profile changes.
+- At most one active understanding per `(file_id, task_id)`: the
+  `PRIMARY KEY (file_id, task_id)` + `insert_or_replace` keep one row per pair;
+  `ReplaceUnderstandingForSamePairKeepsOneRow` asserts the row count stays 1
+  across two upserts for the same pair; `GetActiveUnderstanding` filters
+  `active = TRUE`.
+- Rating stays out of full-text search: the `AiImageRating` columns are not in
+  `SearchDocumentExpr`; `AiRatingReasonsAreNotInFullScreenSearch` (offline) and
+  the live rating test both assert a rating-reasons token is NOT searchable after
+  persistence.
+
+ORM discipline (user-requested): no raw SQL is written for AI
+serialization/deserialization — `AiStorageController` uses
+`duckorm::insert_or_replace`, `duckorm::select`, and `duckorm::remove`
+exclusively, with `FIELD_AS` field descriptors and the `file_id IN (...)`
+predicate as the only hand-written fragment (a predicate, not a statement). The
+two raw `DELETE FROM SemanticImageEmbedding...` statements in
+`DeleteSemanticAndAiRowsForFiles` are pre-existing (the semantic tables predate
+5f and were already cleaned up with raw DELETEs there); refactoring them to an
+ORM path is out of scope for 5f and is not a 5f change. The AI row cleanup is the
+new code and it is ORM-faithful. No scattered patches: the cascade is one call
+site in the existing `DeleteSemanticAndAiRowsForFiles`, and the search extension
+is one `AiUnderstandingExpr` folded into the existing `SearchDocumentExpr`.
+
+Foreign key = file_id (element id): both `AiImageUnderstanding` and
+`AiImageRating` bind to `file_id` (`sl_element_id_t`, the Sleeve element id /
+inode) — the same key the CLIP embeddings (`SemanticImageEmbedding*`) bind to,
+not the image id. `file_id` is read as INT64 and cast to `uint32` for select, and
+inserted as UINT32, matching the element-id convention. Because the cleanup is by
+`file_id` and atomic with element deletion
+(`ElementDeletionCascadesAiRows`), a re-import under a new image id cannot
+resurrect an old AI annotation — the old rows are gone with the old element.
+
+Rating contract (user-requested Task #1): the software already has an
+EXIF-standard `Rating` (0..5 stars, 0 = unrated, integer) in `metadata.hpp`,
+which is unchanged. The REMOTE LLM rating is a separate contract: the prompt/
+response schema now requires a 1..5 integer and confidence is NOT output. Rust
+`ScoreOutcome` has no `confidence`; `IMAGE_RATING_SCHEMA` constrains `rating` to
+`integer` `minimum 1 maximum 5` with `required = ["rating", "rubric_id"]`;
+`validate_rating` rejects `!(1..=5)`. The C++ `ImageAnalysisRatingResult` DTO and
+the regenerated AiProto `ScoreImageResponse` carry the integer rating with no
+confidence field; the `AiRating` domain object's `NormalizeRating` clamps to
+`[1,5]` and `kMinRating = 1` (0 = unset = rejected). Validated live: the
+Volcengine Ark Coding provider returned an integer rating in `[1,5]` with
+non-empty reasons and no confidence field.
+
+Bonus live run (Phase 5g-adjacent): the env-gated live smoke now runs BOTH a real
+describe and a real score end-to-end against the packed `.alcd` project, through
+the full C++ -> sidecar -> HTTP-provider path, with the rebuilt release
+`alcedo_mind.exe` (Task #1's contract change). The key is read from `.env.test`
+and registered into the sidecar vault; the secret is never in process args,
+`AiSidecarRuntimeOptions`, logs, or the persisted rows (redact-checked absent
+from every result/persisted field).
+
+- Describe (re-run this phase with attribution): PASSED. The LLM returned a
+  coherent caption, a non-empty tags list, a scene hint, and a confidence in
+  range; the result was persisted via `AiStorageController.UpsertUnderstanding`
+  and read back with `GetActiveUnderstanding` (round-trip on caption/scene/
+  provider/model/confidence/active/tags); a token drawn from the live caption is
+  searchable via a fresh `SleeveFilterService` ONLY after AI persistence (not
+  before, not from pre-existing filename/metadata), proving the search hit is
+  attributable to the AI row. Redact-checks pass. (The actual caption is printed
+  only to the env-gated test stdout, not recorded here.)
+- Rating (NEW this phase): PASSED. The Volcengine Ark Coding provider returned an
+  integer rating in `[1,5]` (no confidence field), rubric `general/1.0`,
+  non-empty reasons; the result was persisted via `UpsertRating` and read back
+  with `GetActiveRating`; a rating-reasons token is NOT searchable after
+  persistence (rating stays out of full-text search). Redact-checks pass. (The
+  actual reasons are printed only to the env-gated test stdout, not recorded
+  here.)
+
+Provider-credential state in `.env.test` (environment, not code; unchanged from
+5e): OpenRouter returns HTTP 401 (invalid/expired key); the Volcengine Ark
+Responses default model returns HTTP 404 (Open Decision #4); the Volcengine Ark
+Coding Plan (Anthropic-compatible, via `AnthropicMessagesProvider`) WORKS with the
+same Ark key. Both live tests this phase used
+`ALCEDO_IA_LIVE_PROVIDER_ID=volcengine_ark_coding`.
+
+Test results:
+
+- C++ MSVC build (PowerShell tool): the new `AiStorageControllerTest` target and
+  the edited `FilterServiceTest` / `ImageAnalysisLiveSmokeTest` targets built
+  clean.
+- ctest Phase 5f group (`-R "AiStorageControllerTest|FilterServiceTest|
+  ImageAnalysisServiceTest|ImageAnalysisLiveSmokeTest|AiSidecarRuntimeServiceTest"`):
+  88/88 — 85 passed, 3 Skipped, 0 failed. Composition: 32 `FilterServiceTest`
+  (incl. the 2 new AI cases `AiUnderstandingCaptionAndTagsSearchableOnlyAfter
+  ActivePersistence`, `AiRatingReasonsAreNotInFullScreenSearch`), 24
+  `AiSidecarRuntimeServiceTest` (23 passed + 1 pre-existing live-runtime Skip —
+  `ALCEDO_SEMANTIC_LIVE_RUNTIME_PATH` not set), 11 `AiStorageControllerTest` (all
+  new, all passed), 19 `ImageAnalysisServiceTest`, 2 `ImageAnalysisLiveSmokeTest`
+  (both Skipped — the live env vars are not set in the ctest shell; run
+  individually below).
+- Rust (Task #1 contract change): `cargo test --release -- --skip live_smoke`
+  (the offline suite): 187/187 green (`0 failed`; 3 filtered out = the env-gated
+  live smokes). The rating-contract tests pass
+  (`validator_rejects_blank_tag_string_and_out_of_range_rating`,
+  `out_of_range_rating_maps_to_schema_validation`,
+  `parses_rating_accepts_float_rating_as_integer`,
+  `strict_schema_forces_required_on_rating_properties`). The 3 env-gated Rust
+  live smokes (run separately, not in the offline count) give the expected
+  environment outcomes: `live_openrouter_smoke` -> HTTP 401,
+  `live_volcengine_ark_smoke` -> HTTP 404 (Open Decision #4),
+  `live_volcengine_ark_coding_smoke` -> PASSED. (A plain `cargo test --release`
+  with `.env.test` present reports 188 passed / 2 failed — the 2 "failures" are
+  exactly the OpenRouter 401 and Volcengine Ark 404 live smokes above; they are
+  environment outcomes, not code defects, so the offline count excludes them via
+  `--skip live_smoke`.)
+- C++ env-gated live smoke: `ImageAnalysisLiveSmokeTest.DescribesOneImageFrom
+  PackedProject` PASSED (with search attribution) and
+  `RatesOneImageFromPackedProject` PASSED (1..5 integer, no confidence), both with
+  `ALCEDO_IA_LIVE_PROVIDER_ID=volcengine_ark_coding` against the real `.alcd`
+  image; both SKIP cleanly without the env vars (as in the ctest run above).
+
+Deferred to Phase 5g / 6:
+
+- The env-gated live smokes are formally a 5g deliverable; the C++ describe was
+  built early in 5e and the C++ rating is built here. Phase 5g should record the
+  provider-credential matrix and the harness requirements
+  (`RegisterAllOperators()` for any test driving the real CPU pipeline; rebuild
+  release `alcedo_mind.exe` after any Rust image-analysis change).
+- Product UI / controller wiring: persisting results from the album backend,
+  surfacing the rating as sort/filter/recommendation data only when a product
+  rubric is approved, and constructing `ImageAnalysisService` with a single
+  shared `ImageAnalysisInFlightGate` (6).
+- A valid OpenRouter credential and a confirmed Volcengine Ark Responses
+  model/endpoint (Open Decision #4) for full 5g live coverage of all three
+  providers.
+
+Build note for the next handoff: rebuild the release sidecar binary after any
+Rust image-analysis change (`cargo build --release --bin alcedo_mind` in
+`rust/puerh_mind`) — a stale binary returns UNIMPLEMENTED for
+`DescribeImage`/`ScoreImage` and would not carry the Task #1 rating-contract
+change. Run MSVC builds through the PowerShell tool (not Bash), and build
+affected test targets explicitly before ctest. For an offline cargo run with
+`.env.test` present, use `cargo test -- --skip live_smoke` so the env-gated live
+smokes (which fail on the known-bad OpenRouter/Volcengine Responses creds) do
+not turn the suite red.
+
+Review conclusion: bugs found — none; risk accepted — (1) the single-id
+`ElementController::RemoveElement(sl_element_id_t)` overload does not cascade AI
+(or semantic) rows, which is pre-existing behavior unchanged by 5f and out of
+scope, and (2) the `.env.test` credential matrix (OpenRouter 401, Volcengine Ark
+Responses 404 = Open Decision #4) is an environment constraint, not a code
+defect; missing tests — none.
