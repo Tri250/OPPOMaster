@@ -7,6 +7,7 @@
 #include <QMetaObject>
 #include <QPointer>
 #include <QVariantMap>
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <unordered_set>
@@ -25,6 +26,17 @@ namespace {
 
 // Credential handle TTL for a remote image-analysis job (matches the 6c default).
 constexpr int64_t kCredentialTtlMs = 60000;
+
+void ClearSecret(std::string* secret) {
+  if (secret == nullptr) {
+    return;
+  }
+  if (!secret->empty()) {
+    std::fill(secret->begin(), secret->end(), '0');
+  }
+  secret->clear();
+  secret->shrink_to_fit();
+}
 
 }  // namespace
 
@@ -53,12 +65,10 @@ void ImageAnalysisController::RefreshConfiguredState() {
   const bool was_provider_configured  = provider_configured_;
   const bool was_credential_available = credential_available_;
   provider_configured_ = !preset.provider_id.isEmpty() && !preset.model_id.isEmpty();
-  // Re-check the credential store without starting the sidecar.
+  // Re-check the credential store without reading the secret or starting the sidecar.
   if (provider_configured_ && !preset.credential_slot.isEmpty()) {
-    std::string secret;
-    std::string err;
-    auto        store = env_ ? env_->CredentialStore() : nullptr;
-    credential_available_ = store && store->LoadCredential(preset.credential_slot.toStdString(), &secret, &err);
+    auto store = env_ ? env_->CredentialStore() : nullptr;
+    credential_available_ = store && store->HasCredential(preset.credential_slot.toStdString());
   } else {
     credential_available_ = false;
   }
@@ -102,6 +112,10 @@ void ImageAnalysisController::SetError(const QString& error) {
   status_text_ = i18n::LocalizedText{};
   running_     = false;
   can_retry_   = false;
+  job_.reset();
+  last_items_.clear();
+  last_results_.clear();
+  ResetCounters();
   emit StateChanged();
 }
 
@@ -155,6 +169,7 @@ void ImageAnalysisController::StartForTargets(const QVariantList&        targetE
   // Start the sidecar on demand (require_model_info=false).
   std::string sidecar_err;
   if (!env_->EnsureSidecarReady(&sidecar_err)) {
+    ClearSecret(&secret);
     SetError(Tr("Could not start the AI sidecar: %1").arg(QString::fromStdString(sidecar_err)));
     return;
   }
@@ -163,6 +178,7 @@ void ImageAnalysisController::StartForTargets(const QVariantList&        targetE
   auto analysis_client    = env_->AnalysisClient();
   auto gate               = env_->Gate();
   if (!thumbnail_provider || !analysis_client || !gate) {
+    ClearSecret(&secret);
     SetError(Tr("Image analysis runtime is unavailable. Open a project first."));
     return;
   }
@@ -201,7 +217,7 @@ void ImageAnalysisController::StartForTargets(const QVariantList&        targetE
 
   QPointer<ImageAnalysisController> self(this);
   auto job = service.StartAnalysis(
-      std::move(items), options,
+      std::move(items), std::move(options),
       [self](const alcedo::ImageAnalysisProgress& progress) {
         if (!self) {
           return;
@@ -267,6 +283,20 @@ void ImageAnalysisController::ValidateConnection() {
     return;
   }
 
+  auto store = env_->CredentialStore();
+  if (!store) {
+    SetError(Tr("Image analysis runtime is unavailable."));
+    return;
+  }
+  std::string slot = preset.credential_slot.toStdString();
+  if (!store->HasCredential(slot)) {
+    credential_available_ = false;
+    SetError(Tr("No API key stored for credential slot '%1'. Save a key first.").arg(
+        preset.credential_slot));
+    return;
+  }
+  credential_available_ = true;
+
   std::string sidecar_err;
   if (!env_->EnsureSidecarReady(&sidecar_err)) {
     SetError(Tr("Could not start the AI sidecar: %1").arg(QString::fromStdString(sidecar_err)));
@@ -275,14 +305,12 @@ void ImageAnalysisController::ValidateConnection() {
   auto thumbnail_provider = env_->ThumbnailProvider();
   auto analysis_client    = env_->AnalysisClient();
   auto gate               = env_->Gate();
-  auto store              = env_->CredentialStore();
-  if (!thumbnail_provider || !analysis_client || !gate || !store) {
+  if (!thumbnail_provider || !analysis_client || !gate) {
     SetError(Tr("Image analysis runtime is unavailable."));
     return;
   }
   // Run the dry-run off the QML thread so the UI stays responsive.
   std::string provider_id = preset.provider_id.toStdString();
-  std::string slot        = preset.credential_slot.toStdString();
   int64_t     timeout_ms  = preset.timeout_ms;
   QPointer<ImageAnalysisController> self(this);
   std::thread([self, provider_id, slot, timeout_ms, thumbnail_provider, analysis_client, gate,

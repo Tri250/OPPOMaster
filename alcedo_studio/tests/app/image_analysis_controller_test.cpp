@@ -147,6 +147,7 @@ class FakeClient : public alcedo::IImageAnalysisClient {
   auto ScoreCalls() const -> int { return score_calls_.load(); }
   auto CancelCalls() const -> int { return cancel_calls_.load(); }
   auto RegisterCalls() const -> int { return register_calls_.load(); }
+  auto ListModelsCalls() const -> int { return list_models_calls_.load(); }
 
  private:
   static auto MakeUnderstanding(const alcedo::ImageAnalysisRequest& req, Outcome o)
@@ -216,6 +217,33 @@ class FakeClient : public alcedo::IImageAnalysisClient {
   std::condition_variable block_cv_;
 };
 
+class CountingCredentialStore final : public alcedo::IAiCredentialStore {
+ public:
+  auto SaveCredential(const std::string& slot, const std::string& secret,
+                      std::string* error) -> bool override {
+    return inner_.SaveCredential(slot, secret, error);
+  }
+  auto LoadCredential(const std::string& slot, std::string* secret,
+                      std::string* error) -> bool override {
+    ++load_calls_;
+    return inner_.LoadCredential(slot, secret, error);
+  }
+  auto DeleteCredential(const std::string& slot, std::string* error) -> bool override {
+    return inner_.DeleteCredential(slot, error);
+  }
+  auto HasCredential(const std::string& slot) -> bool override {
+    ++has_calls_;
+    return inner_.HasCredential(slot);
+  }
+
+  auto LoadCalls() const -> int { return load_calls_.load(); }
+  auto HasCalls() const -> int { return has_calls_.load(); }
+
+ private:
+  alcedo::InMemoryAiCredentialStore inner_;
+  std::atomic<int> load_calls_{0};
+  std::atomic<int> has_calls_{0};
+};
 class FakeEnv : public IImageAnalysisEnvironment {
  public:
   FakeEnv(std::shared_ptr<FakeThumbProvider> thumbs,
@@ -295,8 +323,7 @@ struct EnvBundle {
   std::shared_ptr<FakeClient>                        client = std::make_shared<FakeClient>();
   std::shared_ptr<alcedo::ImageAnalysisInFlightGate> gate   = std::make_shared<
       alcedo::ImageAnalysisInFlightGate>();
-  std::shared_ptr<alcedo::IAiCredentialStore> store =
-      std::make_shared<alcedo::InMemoryAiCredentialStore>();
+  std::shared_ptr<CountingCredentialStore> store = std::make_shared<CountingCredentialStore>();
   std::shared_ptr<FakeEnv>               env;
   alcedo::AiProviderPresetController     preset;  // outlives the controller(s)
 
@@ -359,6 +386,48 @@ TEST_F(ImageAnalysisControllerTest, EmptySelectionSetsErrorAndDoesNotStart) {
   EXPECT_FALSE(last_bundle_->env->SidecarEnsured());
 }
 
+TEST_F(ImageAnalysisControllerTest, RefreshCredentialStateUsesHasCredentialWithoutLoadingSecret) {
+  auto controller = MakeController();
+  EXPECT_TRUE(controller->CredentialAvailable());
+  EXPECT_EQ(last_bundle_->store->LoadCalls(), 0);
+  EXPECT_GE(last_bundle_->store->HasCalls(), 1);
+
+  controller->RefreshCredentialState();
+  EXPECT_TRUE(controller->CredentialAvailable());
+  EXPECT_EQ(last_bundle_->store->LoadCalls(), 0);
+  EXPECT_GE(last_bundle_->store->HasCalls(), 2);
+}
+
+TEST_F(ImageAnalysisControllerTest, ErrorClearsPreviousResultsAndCounts) {
+  auto controller = MakeController();
+  controller->StartDescribeForTargets(Targets({{1, 100}}));
+  ASSERT_TRUE(WaitForFinished(*controller, std::chrono::seconds(10)));
+  ASSERT_EQ(controller->Analyzed(), 1);
+  ASSERT_EQ(controller->LastResults().size(), 1);
+
+  controller->StartDescribeForTargets(QVariantList{});
+  EXPECT_FALSE(controller->Running());
+  EXPECT_FALSE(controller->LastError().isEmpty());
+  EXPECT_EQ(controller->Total(), 0);
+  EXPECT_EQ(controller->Analyzed(), 0);
+  EXPECT_EQ(controller->Failed(), 0);
+  EXPECT_EQ(controller->Canceled(), 0);
+  EXPECT_FALSE(controller->CanRetry());
+  EXPECT_TRUE(controller->LastResults().isEmpty());
+}
+
+TEST_F(ImageAnalysisControllerTest, ValidateConnectionMissingCredentialDoesNotStartSidecar) {
+  auto controller = MakeController();
+  ASSERT_TRUE(last_bundle_->store->DeleteCredential("opencode_api_key", nullptr));
+
+  controller->ValidateConnection();
+  EXPECT_FALSE(controller->Running());
+  EXPECT_FALSE(controller->LastError().isEmpty());
+  EXPECT_FALSE(controller->CredentialAvailable());
+  EXPECT_FALSE(last_bundle_->env->SidecarEnsured());
+  EXPECT_EQ(last_bundle_->client->RegisterCalls(), 0);
+  EXPECT_EQ(last_bundle_->client->ListModelsCalls(), 0);
+}
 TEST_F(ImageAnalysisControllerTest, OneImageDescribeSucceeds) {
   auto controller = MakeController();
   controller->StartDescribeForTargets(Targets({{1, 100}}));

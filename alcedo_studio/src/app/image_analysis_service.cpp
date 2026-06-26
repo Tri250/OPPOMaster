@@ -533,8 +533,9 @@ auto ImageAnalysisService::StartAnalysis(std::vector<ImageAnalysisItem> items,
   auto analysis_client    = analysis_client_;
   auto gate               = in_flight_gate_;
   auto worker             = std::thread(
-      [job, items = std::move(items), options, on_progress = std::move(on_progress),
-       on_finished = std::move(on_finished), thumbnail_provider = std::move(thumbnail_provider),
+      [job, items = std::move(items), options = std::move(options),
+       on_progress = std::move(on_progress), on_finished = std::move(on_finished),
+       thumbnail_provider = std::move(thumbnail_provider),
        analysis_client = std::move(analysis_client), gate = std::move(gate)]() mutable {
         RunJob(job, items, options, std::move(on_progress), std::move(on_finished),
                std::move(thumbnail_provider), std::move(analysis_client), std::move(gate));
