@@ -299,6 +299,7 @@ impl ImageAnalysisService for ImageAnalysisServiceImpl {
             &req.image_bytes,
             &req.model_id,
             &req.prompt_profile_id,
+            &req.output_language,
             credential.as_ref(),
         );
         tokio::pin!(provider_fut);
@@ -450,6 +451,7 @@ impl ImageAnalysisService for ImageAnalysisServiceImpl {
             &req.model_id,
             &req.prompt_profile_id,
             &req.rubric_id,
+            &req.output_language,
             credential.as_ref(),
         );
         tokio::pin!(provider_fut);
@@ -703,6 +705,7 @@ mod tests {
             provider_id: "mock".to_string(),
             model_id: "alcedo-mock".to_string(),
             prompt_profile_id: "profile-1".to_string(),
+            output_language: String::new(),
         });
         let resp = svc.describe_image(req).await.expect("rpc ok");
         let inner = resp.into_inner();
@@ -738,6 +741,7 @@ mod tests {
             model_id: "alcedo-mock".to_string(),
             prompt_profile_id: "profile-1".to_string(),
             rubric_id: "alcedo-default-v1".to_string(),
+            output_language: String::new(),
         });
         let resp = svc.score_image(req).await.expect("rpc ok");
         let inner = resp.into_inner();
@@ -763,6 +767,7 @@ mod tests {
             provider_id: "mock".to_string(),
             model_id: "alcedo-mock".to_string(),
             prompt_profile_id: "".to_string(),
+            output_language: String::new(),
         });
         let resp = svc.describe_image(req).await.expect("rpc ok (failure in header)");
         let inner = resp.into_inner();
@@ -789,6 +794,7 @@ mod tests {
             provider_id: "mock".to_string(),
             model_id: "alcedo-mock".to_string(),
             prompt_profile_id: "".to_string(),
+            output_language: String::new(),
         });
         let resp = svc.describe_image(req).await.expect("rpc ok");
         let inner = resp.into_inner();
@@ -812,6 +818,7 @@ mod tests {
             provider_id: "mock".to_string(),
             model_id: "alcedo-mock".to_string(),
             prompt_profile_id: "".to_string(),
+            output_language: String::new(),
         });
         let resp = svc.describe_image(req).await.expect("rpc ok (timeout in header)");
         let inner = resp.into_inner();
@@ -835,6 +842,7 @@ mod tests {
             provider_id: "mock".to_string(),
             model_id: "alcedo-mock".to_string(),
             prompt_profile_id: "".to_string(),
+            output_language: String::new(),
         });
         let resp = svc.describe_image(req).await.expect("rpc ok (schema failure in header)");
         let inner = resp.into_inner();
@@ -861,6 +869,7 @@ mod tests {
             provider_id: "mock".to_string(),
             model_id: "alcedo-mock".to_string(),
             prompt_profile_id: "".to_string(),
+            output_language: String::new(),
         });
         let resp = svc.describe_image(req).await.expect("rpc ok (provider error in header)");
         let inner = resp.into_inner();
@@ -889,6 +898,7 @@ mod tests {
             provider_id: "mock".to_string(),
             model_id: "alcedo-mock".to_string(),
             prompt_profile_id: "".to_string(),
+            output_language: String::new(),
         });
         let resp = svc.describe_image(req).await.expect("rpc ok (transient in header)");
         let inner = resp.into_inner();
@@ -913,6 +923,7 @@ mod tests {
             provider_id: "mock".to_string(),
             model_id: "alcedo-mock".to_string(),
             prompt_profile_id: "".to_string(),
+            output_language: String::new(),
         });
 
         // Cancel before awaiting: register the id, then fire cancel from another task.
@@ -941,6 +952,7 @@ mod tests {
             provider_id: "openrouter".to_string(), // not registered in 5b
             model_id: "qwen/qwen3.7-plus".to_string(),
             prompt_profile_id: "".to_string(),
+            output_language: String::new(),
         });
         let resp = svc.describe_image(req).await.expect("rpc ok (unsupported in header)");
         let inner = resp.into_inner();
@@ -960,6 +972,7 @@ mod tests {
             provider_id: "mock".to_string(),
             model_id: "alcedo-mock".to_string(),
             prompt_profile_id: "".to_string(),
+            output_language: String::new(),
         });
         let err = svc.describe_image(req).await.expect_err("empty image is a transport error");
         assert_eq!(err.code(), tonic::Code::InvalidArgument);

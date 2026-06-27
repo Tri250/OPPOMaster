@@ -119,6 +119,11 @@ message DescribeImageRequest {
   string provider_id = 5;         // selected provider; "" = sidecar default
   string model_id = 6;            // selected model; "" = provider default
   string prompt_profile_id = 7;   // prompt/profile used (may be empty)
+  // Target language for generated caption/reasons. "" or "en" = English (the
+  // default prompt language); "zh" = Simplified Chinese. The host resolves a
+  // "follow app language" preference to one of these before sending, so the
+  // sidecar never sees "follow".
+  string output_language = 8;
 }
 
 message DescribeImageResponse {
@@ -140,6 +145,8 @@ message ScoreImageRequest {
   string model_id = 6;
   string prompt_profile_id = 7;
   string rubric_id = 8;             // rubric to apply; "" = provider default
+  // Target language for generated reasons; see DescribeImageRequest.output_language.
+  string output_language = 9;
 }
 
 message ScoreImageResponse {

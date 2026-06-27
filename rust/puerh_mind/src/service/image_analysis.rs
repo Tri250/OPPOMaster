@@ -175,6 +175,21 @@ fn is_valid_confidence(c: f64) -> bool {
     !c.is_nan() && c >= 0.0 && c <= 1.0
 }
 
+/// Build the output-language directive appended to a prompt's system message.
+/// `output_language` is the host-resolved code ("" or "en" = English, the
+/// default prompt language; "zh" = Simplified Chinese). English needs no
+/// directive — the prompt is already English — so only a non-English code
+/// produces a sentence. Unknown codes produce no directive (fail open to the
+/// default English prompt rather than injecting garbage).
+pub fn language_directive(output_language: &str) -> String {
+    match output_language.trim() {
+        "zh" | "zh-CN" | "zh_CN" | "chinese" => {
+            " Respond in Simplified Chinese (简体中文).".to_string()
+        }
+        _ => String::new(),
+    }
+}
+
 /// A remote/local image-analysis provider. Phase 5b ships one implementation
 /// (`MockImageAnalysisProvider`); Phase 5c adds `OpenRouterChatProvider` and
 /// `VolcengineArkResponsesProvider` behind the same trait; Phase 6b generalizes the
@@ -203,6 +218,7 @@ pub trait ImageAnalysisProvider: Send + Sync {
         image_bytes: &[u8],
         model_id: &str,
         prompt_profile_id: &str,
+        output_language: &str,
         credential: Option<&SecretString>,
     ) -> Result<DescribeOutcome, ProviderError>;
     async fn score_image(
@@ -211,6 +227,7 @@ pub trait ImageAnalysisProvider: Send + Sync {
         model_id: &str,
         prompt_profile_id: &str,
         rubric_id: &str,
+        output_language: &str,
         credential: Option<&SecretString>,
     ) -> Result<ScoreOutcome, ProviderError>;
     /// Phase 6c: list the model ids the configured endpoint exposes (a dry-run
@@ -361,6 +378,7 @@ impl ImageAnalysisProvider for MockImageAnalysisProvider {
         _image_bytes: &[u8],
         _model_id: &str,
         _prompt_profile_id: &str,
+        _output_language: &str,
         _credential: Option<&SecretString>,
     ) -> Result<DescribeOutcome, ProviderError> {
         if let MockFailure::Slow(d) = self.failure {
@@ -387,6 +405,7 @@ impl ImageAnalysisProvider for MockImageAnalysisProvider {
         _model_id: &str,
         _prompt_profile_id: &str,
         _rubric_id: &str,
+        _output_language: &str,
         _credential: Option<&SecretString>,
     ) -> Result<ScoreOutcome, ProviderError> {
         if let MockFailure::Slow(d) = self.failure {
@@ -566,11 +585,11 @@ mod schema_tests {
     #[tokio::test]
     async fn mock_returns_canned_valid_results() {
         let mock = MockImageAnalysisProvider::new("mock", "alcedo-mock");
-        let d = mock.describe_image(&[], "", "", None).await.expect("describe");
+        let d = mock.describe_image(&[], "", "", "", None).await.expect("describe");
         assert_eq!(d.caption, "A mock caption describing the image.");
         assert!(!d.tags.is_empty());
         validate_understanding(&d).expect("canned describe validates");
-        let s = mock.score_image(&[], "", "", "", None).await.expect("score");
+        let s = mock.score_image(&[], "", "", "", "", None).await.expect("score");
         validate_rating(&s).expect("canned score validates");
     }
 }

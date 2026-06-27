@@ -262,8 +262,9 @@ impl VolcengineArkResponsesProvider {
     }
 }
 
-fn describe_prompt(prompt_profile_id: &str) -> (String, String) {
-    let system = "You are an image understanding assistant for Alcedo Studio. Analyze the supplied image and respond with a single JSON object matching the provided schema. The object must contain: \"caption\" (a concise one-line description of the image), \"tags\" (an array of short lowercase searchable tags, with at least one tag), \"scene\" (a short scene or category hint, or an empty string if none), and \"confidence\" (your confidence in the description, a number between 0.0 and 1.0). Output only the JSON object — no prose, no markdown code fences.".to_string();
+fn describe_prompt(prompt_profile_id: &str, output_language: &str) -> (String, String) {
+    let mut system = "You are an image understanding assistant for Alcedo Studio. Analyze the supplied image and respond with a single JSON object matching the provided schema. The object must contain: \"caption\" (a concise one-line description of the image), \"tags\" (an array of short lowercase searchable tags, with at least one tag), \"scene\" (a short scene or category hint, or an empty string if none), and \"confidence\" (your confidence in the description, a number between 0.0 and 1.0). Output only the JSON object — no prose, no markdown code fences.".to_string();
+    system.push_str(&crate::service::image_analysis::language_directive(output_language));
     let mut instruction = "Describe this image for a photo library.".to_string();
     if !prompt_profile_id.trim().is_empty() {
         instruction.push_str(&format!(" Prompt profile: {prompt_profile_id}."));
@@ -272,8 +273,9 @@ fn describe_prompt(prompt_profile_id: &str) -> (String, String) {
     (system, instruction)
 }
 
-fn score_prompt(prompt_profile_id: &str, rubric_id: &str) -> (String, String) {
-    let system = "You are an image rating assistant for Alcedo Studio. Rate the supplied image against the given rubric and respond with a single JSON object matching the provided schema. The object must contain: \"rating\" (an integer from 1 to 5, where 1 is a poor photo and 5 is an excellent photo — the app's star rating), \"rubric_id\" (the rubric you applied), \"rubric_version\" (the rubric version, or an empty string), and \"reasons\" (a short rationale). Do not include any other field — in particular, do not output a confidence. Output only the JSON object — no prose, no markdown code fences.".to_string();
+fn score_prompt(prompt_profile_id: &str, rubric_id: &str, output_language: &str) -> (String, String) {
+    let mut system = "You are an image rating assistant for Alcedo Studio. Rate the supplied image against the given rubric and respond with a single JSON object matching the provided schema. The object must contain: \"rating\" (an integer from 1 to 5, where 1 is a poor photo and 5 is an excellent photo — the app's star rating), \"rubric_id\" (the rubric you applied), \"rubric_version\" (the rubric version, or an empty string), and \"reasons\" (a short rationale). Do not include any other field — in particular, do not output a confidence. Output only the JSON object — no prose, no markdown code fences.".to_string();
+    system.push_str(&crate::service::image_analysis::language_directive(output_language));
     let mut instruction = "Rate this image on a 1–5 star scale.".to_string();
     if !rubric_id.trim().is_empty() {
         instruction.push_str(&format!(" Rubric: {rubric_id}."));
@@ -325,6 +327,7 @@ impl ImageAnalysisProvider for VolcengineArkResponsesProvider {
         image_bytes: &[u8],
         model_id: &str,
         prompt_profile_id: &str,
+        output_language: &str,
         credential: Option<&SecretString>,
     ) -> Result<DescribeOutcome, ProviderError> {
         let (slug, model) = self.resolve_model(model_id)?;
@@ -332,7 +335,7 @@ impl ImageAnalysisProvider for VolcengineArkResponsesProvider {
         let bearer = self.bearer(credential)?;
         let data_uri = build_image_data_uri(image_bytes)?;
         let schema = strict_schema_value(IMAGE_UNDERSTANDING_SCHEMA)?;
-        let (system, instruction) = describe_prompt(prompt_profile_id);
+        let (system, instruction) = describe_prompt(prompt_profile_id, output_language);
         let body = self.build_responses_body(
             &slug,
             &data_uri,
@@ -363,6 +366,7 @@ impl ImageAnalysisProvider for VolcengineArkResponsesProvider {
         model_id: &str,
         prompt_profile_id: &str,
         rubric_id: &str,
+        output_language: &str,
         credential: Option<&SecretString>,
     ) -> Result<ScoreOutcome, ProviderError> {
         let (slug, model) = self.resolve_model(model_id)?;
@@ -370,7 +374,7 @@ impl ImageAnalysisProvider for VolcengineArkResponsesProvider {
         let bearer = self.bearer(credential)?;
         let data_uri = build_image_data_uri(image_bytes)?;
         let schema = strict_schema_value(IMAGE_RATING_SCHEMA)?;
-        let (system, instruction) = score_prompt(prompt_profile_id, rubric_id);
+        let (system, instruction) = score_prompt(prompt_profile_id, rubric_id, output_language);
         let body = self.build_responses_body(
             &slug,
             &data_uri,
@@ -468,7 +472,7 @@ mod tests {
 
         let provider = provider_for(&server);
         let out = provider
-            .describe_image(&test_image_png(), "", "profile-1", Some(&secret()))
+            .describe_image(&test_image_png(), "", "profile-1", "", Some(&secret()))
             .await
             .expect("describe ok");
         assert_eq!(out.caption, "a small image");
@@ -489,7 +493,7 @@ mod tests {
 
         let provider = provider_for(&server);
         provider
-            .describe_image(&test_image_png(), "doubao-seed-2-0-lite-260428", "", Some(&secret()))
+            .describe_image(&test_image_png(), "doubao-seed-2-0-lite-260428", "", "", Some(&secret()))
             .await
             .expect("describe ok");
 
@@ -542,7 +546,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let out = provider
-            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect("describe ok");
         assert_eq!(out.caption, "sunrise");
@@ -567,7 +571,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let out = provider
-            .score_image(&test_image_png(), "", "", "alcedo-default-v1", Some(&secret()))
+            .score_image(&test_image_png(), "", "", "alcedo-default-v1", "", Some(&secret()))
             .await
             .expect("score ok");
         // Single 1..=5 integer star rating; no scores array, no confidence.
@@ -595,7 +599,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let err = provider
-            .score_image(&test_image_png(), "", "", "alcedo-default-v1", Some(&secret()))
+            .score_image(&test_image_png(), "", "", "alcedo-default-v1", "", Some(&secret()))
             .await
             .expect_err("fractional rating rejected");
         assert_eq!(err, ProviderError::SchemaValidation);
@@ -612,7 +616,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let err = provider
-            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect_err("transient after retries");
         assert_eq!(err, ProviderError::Transient);
@@ -637,7 +641,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let out = provider
-            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect("succeeds after retry");
         assert_eq!(out.caption, "c");
@@ -664,7 +668,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let err = provider
-            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect_err("400 not retried");
         assert!(matches!(err, ProviderError::Provider(_)), "{err:?}");
@@ -685,7 +689,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let err = provider
-            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect_err("empty tags rejected");
         assert_eq!(err, ProviderError::SchemaValidation);
@@ -705,7 +709,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let err = provider
-            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect_err("no output_text");
         assert_eq!(err, ProviderError::SchemaValidation);
@@ -723,7 +727,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let err = provider
-            .describe_image(&test_image_png(), "", "", None)
+            .describe_image(&test_image_png(), "", "", "", None)
             .await
             .expect_err("missing credential");
         assert!(matches!(err, ProviderError::Provider(_)), "{err:?}");
@@ -795,7 +799,7 @@ mod tests {
                     .await;
                 let provider = provider_for(&server);
                 provider
-                    .describe_image(&test_image_png(), "", "profile-1", Some(&secret()))
+                    .describe_image(&test_image_png(), "", "profile-1", "", Some(&secret()))
                     .await
             })
         });
@@ -872,6 +876,7 @@ mod tests {
             provider_id: "volcengine_ark".to_string(),
             model_id: "doubao-seed-2-0-lite-260428".to_string(),
             prompt_profile_id: String::new(),
+            output_language: String::new(),
         };
 
         let cancel_registry2 = cancel_registry.clone();
@@ -945,6 +950,7 @@ mod tests {
             provider_id: "volcengine_ark".to_string(),
             model_id: "doubao-seed-2-0-lite-260428".to_string(),
             prompt_profile_id: String::new(),
+            output_language: String::new(),
         };
 
         let resp = svc

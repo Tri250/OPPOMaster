@@ -700,6 +700,7 @@ class GrpcImageAnalysisClient final : public ImageAnalysisClient {
     req.set_provider_id(request.provider_id);
     req.set_model_id(request.model_id);
     req.set_prompt_profile_id(request.prompt_profile_id);
+    req.set_output_language(request.output_language);
     alcedo::ai::DescribeImageResponse response;
     const auto status = stub->DescribeImage(&context, req, &response);
     if (status.ok()) {
@@ -728,6 +729,7 @@ class GrpcImageAnalysisClient final : public ImageAnalysisClient {
     req.set_model_id(request.model_id);
     req.set_prompt_profile_id(request.prompt_profile_id);
     req.set_rubric_id(request.rubric_id);
+    req.set_output_language(request.output_language);
     alcedo::ai::ScoreImageResponse response;
     const auto status = stub->ScoreImage(&context, req, &response);
     if (status.ok()) {

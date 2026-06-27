@@ -78,6 +78,8 @@ class ImageAnalysisController final : public QObject {
   Q_PROPERTY(bool credentialAvailable READ CredentialAvailable NOTIFY StateChanged)
   Q_PROPERTY(QVariantList lastResults READ LastResults NOTIFY StateChanged)
   Q_PROPERTY(QVariantMap lastUsage READ LastUsage NOTIFY StateChanged)
+  Q_PROPERTY(QVariantList discoveredModels READ DiscoveredModels NOTIFY StateChanged)
+  Q_PROPERTY(QString connectionStatus READ ConnectionStatus NOTIFY StateChanged)
 
  public:
   ImageAnalysisController(std::shared_ptr<IImageAnalysisEnvironment> env,
@@ -97,6 +99,8 @@ class ImageAnalysisController final : public QObject {
   bool             CredentialAvailable() const { return credential_available_; }
   QVariantList     LastResults() const { return last_results_; }
   QVariantMap      LastUsage() const { return last_usage_; }
+  QVariantList     DiscoveredModels() const { return discovered_models_; }
+  QString          ConnectionStatus() const { return connection_status_; }
 
   // Album selection is a QVariantList of {elementId, imageId} maps (the same
   // convention as ImportExportHandler::CollectExportTargets). Empty selection is
@@ -107,9 +111,19 @@ class ImageAnalysisController final : public QObject {
   Q_INVOKABLE void CancelAnalysis();
   Q_INVOKABLE void RetryLast();
   // Dry-run model discovery against the selected preset (reuses the Phase 6c
-  // ValidateConnection path). Surfaces ok/error in lastError.
+  // ValidateConnection path). Surfaces ok/error in lastError and populates
+  // `discoveredModels` with the live-listed candidates. The sidecar commits
+  // discovered models during ListModels, so a candidate is immediately
+  // selectable as an explicit model_id.
   Q_INVOKABLE void ValidateConnection();
   Q_INVOKABLE void RefreshCredentialState();
+  // Save / delete the API key for the current preset's `credential_slot` in the
+  // OS credential store. The raw secret never enters QSettings, logs, status
+  // text, or the preset DTO — only `masked_key_label` (a display mask) is
+  // persisted. SaveApiKey returns a non-empty error string on failure (empty on
+  // success). DeleteApiKey is idempotent. Both refresh `credentialAvailable`.
+  Q_INVOKABLE QString SaveApiKey(const QString& secret);
+  Q_INVOKABLE void DeleteApiKey();
 
  signals:
   void StateChanged();
@@ -132,7 +146,9 @@ class ImageAnalysisController final : public QObject {
 
   i18n::LocalizedText status_text_{};
   QString             last_error_;
+  QString             connection_status_;
   QVariantList        last_results_;
+  QVariantList        discovered_models_;
   QVariantMap         last_usage_;
   bool                running_              = false;
   bool                can_retry_            = false;

@@ -34,6 +34,10 @@ struct ImageAnalysisRequest {
   std::string            prompt_profile_id;
   std::string            credential_ref;
   std::string            rubric_id;
+  // Host-resolved target language for generated caption/reasons ("" or "en" =
+  // English; "zh" = Simplified Chinese). The host resolves a "follow app
+  // language" preference before sending, so the sidecar never sees "follow".
+  std::string            output_language;
 };
 
 struct ImageAnalysisUnderstandingResult {

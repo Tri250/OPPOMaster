@@ -59,6 +59,7 @@
 //! model-agnostic.
 
 use serde_json::{Value, json};
+use std::sync::Mutex;
 use tracing::warn;
 
 use crate::service::credential_vault::SecretString;
@@ -80,17 +81,21 @@ const ANTHROPIC_VERSION: &str = "2023-06-01";
 pub struct AnthropicMessagesProvider {
     config: ProviderConfig,
     http: reqwest::Client,
+    /// Models committed from live `list_models` discovery so an explicitly
+    /// requested discovered slug passes the Phase 6c `resolve_model` gate. See
+    /// `OpenAiChatCompatibleProvider::discovered_models` for the rationale.
+    discovered_models: Mutex<Vec<ModelConfig>>,
 }
 
 impl AnthropicMessagesProvider {
     pub fn new(config: ProviderConfig) -> Result<Self, ProviderError> {
         let http = build_rustls_client()?;
-        Ok(Self { config, http })
+        Ok(Self { config, http, discovered_models: Mutex::new(Vec::new()) })
     }
 
     #[allow(dead_code)]
     pub fn with_client(config: ProviderConfig, http: reqwest::Client) -> Self {
-        Self { config, http }
+        Self { config, http, discovered_models: Mutex::new(Vec::new()) }
     }
 
     fn url(&self) -> String {
@@ -109,18 +114,45 @@ impl AnthropicMessagesProvider {
         format!("{}{}", self.config.base_url, path)
     }
 
-    fn resolve_model<'a>(
-        &'a self,
-        requested: &str,
-    ) -> Result<(String, Option<&'a ModelConfig>), ProviderError> {
+    fn resolve_model(&self, requested: &str) -> Result<(String, Option<ModelConfig>), ProviderError> {
         if requested.trim().is_empty() {
             let slug = self.config.defaults.model.clone();
-            let entry = self.config.models.iter().find(|m| m.slug == slug);
+            let entry = self.config.models.iter().find(|m| m.slug == slug).cloned();
             return Ok((slug, entry));
         }
-        match self.config.models.iter().find(|m| m.slug == requested) {
-            Some(m) => Ok((m.slug.clone(), Some(m))),
-            None => Err(ProviderError::UnknownModel(requested.to_string())),
+        if let Some(m) = self.config.models.iter().find(|m| m.slug == requested) {
+            return Ok((m.slug.clone(), Some(m.clone())));
+        }
+        let committed = self.discovered_models.lock().expect("discovered_models mutex poisoned");
+        if let Some(m) = committed.iter().find(|m| m.slug == requested) {
+            return Ok((m.slug.clone(), Some(m.clone())));
+        }
+        Err(ProviderError::UnknownModel(requested.to_string()))
+    }
+
+    /// Commit discovered models so a later explicit `model_id` resolves. See
+    /// `OpenAiChatCompatibleProvider::commit_discovered_models` for the rationale
+    /// (idempotent, synthesized `supports_structured_output = true`).
+    fn commit_discovered_models(&self, models: &[DiscoveredModel]) {
+        let mut committed = self.discovered_models.lock().expect("discovered_models mutex poisoned");
+        for m in models {
+            let already_known = self.config.models.iter().any(|c| c.slug == m.model_id)
+                || committed.iter().any(|c| c.slug == m.model_id);
+            if already_known {
+                continue;
+            }
+            committed.push(ModelConfig {
+                slug: m.model_id.clone(),
+                display_name: m.display_name.clone(),
+                supports_vision: true,
+                supports_structured_output: true,
+                live_confirmed: false,
+                max_image_bytes: Some(self.config.limits.max_image_bytes),
+                recommended_rendition: None,
+                cost_per_million_input_usd: None,
+                cost_per_million_output_usd: None,
+                data_collection: None,
+            });
         }
     }
 
@@ -334,8 +366,9 @@ impl AnthropicMessagesProvider {
     }
 }
 
-fn describe_prompt(prompt_profile_id: &str) -> (String, String) {
-    let system = "You are an image understanding assistant for Alcedo Studio. Analyze the supplied image and respond with a single JSON object matching the provided schema. The object must contain: \"caption\" (a concise one-line description of the image), \"tags\" (an array of short lowercase searchable tags, with at least one tag), \"scene\" (a short scene or category hint, or an empty string if none), and \"confidence\" (your confidence in the description, a number between 0.0 and 1.0). Output only the JSON object — no prose, no markdown code fences.".to_string();
+fn describe_prompt(prompt_profile_id: &str, output_language: &str) -> (String, String) {
+    let mut system = "You are an image understanding assistant for Alcedo Studio. Analyze the supplied image and respond with a single JSON object matching the provided schema. The object must contain: \"caption\" (a concise one-line description of the image), \"tags\" (an array of short lowercase searchable tags, with at least one tag), \"scene\" (a short scene or category hint, or an empty string if none), and \"confidence\" (your confidence in the description, a number between 0.0 and 1.0). Output only the JSON object — no prose, no markdown code fences.".to_string();
+    system.push_str(&crate::service::image_analysis::language_directive(output_language));
     let mut instruction = "Describe this image for a photo library.".to_string();
     if !prompt_profile_id.trim().is_empty() {
         instruction.push_str(&format!(" Prompt profile: {prompt_profile_id}."));
@@ -344,8 +377,9 @@ fn describe_prompt(prompt_profile_id: &str) -> (String, String) {
     (system, instruction)
 }
 
-fn score_prompt(prompt_profile_id: &str, rubric_id: &str) -> (String, String) {
-    let system = "You are an image rating assistant for Alcedo Studio. Rate the supplied image against the given rubric and respond with a single JSON object matching the provided schema. The object must contain: \"rating\" (an integer from 1 to 5, where 1 is a poor photo and 5 is an excellent photo — the app's star rating), \"rubric_id\" (the rubric you applied), \"rubric_version\" (the rubric version, or an empty string), and \"reasons\" (a short rationale). Do not include any other field — in particular, do not output a confidence. Output only the JSON object — no prose, no markdown code fences.".to_string();
+fn score_prompt(prompt_profile_id: &str, rubric_id: &str, output_language: &str) -> (String, String) {
+    let mut system = "You are an image rating assistant for Alcedo Studio. Rate the supplied image against the given rubric and respond with a single JSON object matching the provided schema. The object must contain: \"rating\" (an integer from 1 to 5, where 1 is a poor photo and 5 is an excellent photo — the app's star rating), \"rubric_id\" (the rubric you applied), \"rubric_version\" (the rubric version, or an empty string), and \"reasons\" (a short rationale). Do not include any other field — in particular, do not output a confidence. Output only the JSON object — no prose, no markdown code fences.".to_string();
+    system.push_str(&crate::service::image_analysis::language_directive(output_language));
     let mut instruction = "Rate this image on a 1–5 star scale.".to_string();
     if !rubric_id.trim().is_empty() {
         instruction.push_str(&format!(" Rubric: {rubric_id}."));
@@ -397,14 +431,15 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
         image_bytes: &[u8],
         model_id: &str,
         prompt_profile_id: &str,
+        output_language: &str,
         credential: Option<&SecretString>,
     ) -> Result<DescribeOutcome, ProviderError> {
         let (slug, model) = self.resolve_model(model_id)?;
-        self.ensure_structured_output(model)?;
+        self.ensure_structured_output(model.as_ref())?;
         let (bearer, extra_auth_header) = self.build_auth(credential)?;
         let (media_type, image_b64) = build_image_base64(image_bytes)?;
         let schema = strict_schema_value(IMAGE_UNDERSTANDING_SCHEMA)?;
-        let (system, instruction) = describe_prompt(prompt_profile_id);
+        let (system, instruction) = describe_prompt(prompt_profile_id, output_language);
         let body = self.build_messages_body(
             &slug,
             &media_type,
@@ -440,14 +475,15 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
         model_id: &str,
         prompt_profile_id: &str,
         rubric_id: &str,
+        output_language: &str,
         credential: Option<&SecretString>,
     ) -> Result<ScoreOutcome, ProviderError> {
         let (slug, model) = self.resolve_model(model_id)?;
-        self.ensure_structured_output(model)?;
+        self.ensure_structured_output(model.as_ref())?;
         let (bearer, extra_auth_header) = self.build_auth(credential)?;
         let (media_type, image_b64) = build_image_base64(image_bytes)?;
         let schema = strict_schema_value(IMAGE_RATING_SCHEMA)?;
-        let (system, instruction) = score_prompt(prompt_profile_id, rubric_id);
+        let (system, instruction) = score_prompt(prompt_profile_id, rubric_id, output_language);
         let body = self.build_messages_body(
             &slug,
             &media_type,
@@ -544,6 +580,9 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
             let Some(next_after) = next_after else { break; };
             after_id = Some(next_after);
         }
+        // Commit discovered candidates so a later explicit `model_id` resolves
+        // (see OpenAiChatCompatibleProvider::list_models).
+        self.commit_discovered_models(&out);
         Ok(out)
     }
 }
@@ -619,7 +658,7 @@ mod tests {
 
         let provider = provider_for(&server);
         let out = provider
-            .describe_image(&test_image_png(), "", "profile-1", Some(&secret()))
+            .describe_image(&test_image_png(), "", "profile-1", "", Some(&secret()))
             .await
             .expect("describe ok");
         assert_eq!(out.caption, "a small image");
@@ -647,7 +686,7 @@ mod tests {
 
         let provider = provider_for(&server);
         provider
-            .describe_image(&test_image_png(), "doubao-seed-2.0-lite", "", Some(&secret()))
+            .describe_image(&test_image_png(), "doubao-seed-2.0-lite", "", "", Some(&secret()))
             .await
             .expect("describe ok");
 
@@ -709,7 +748,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let out = provider
-            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect("describe ok");
         assert_eq!(out.caption, "sunrise");
@@ -735,7 +774,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let out = provider
-            .describe_image(&test_image_png(), "", "profile-1", Some(&secret()))
+            .describe_image(&test_image_png(), "", "profile-1", "", Some(&secret()))
             .await
             .expect("describe ok");
         assert_eq!(out.caption, "a small image");
@@ -763,7 +802,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let out = provider
-            .score_image(&test_image_png(), "", "", "alcedo-default-v1", Some(&secret()))
+            .score_image(&test_image_png(), "", "", "alcedo-default-v1", "", Some(&secret()))
             .await
             .expect("score ok");
         // Single 1..=5 integer star rating; no scores array, no confidence.
@@ -791,7 +830,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let err = provider
-            .score_image(&test_image_png(), "", "", "alcedo-default-v1", Some(&secret()))
+            .score_image(&test_image_png(), "", "", "alcedo-default-v1", "", Some(&secret()))
             .await
             .expect_err("fractional rating rejected");
         assert_eq!(err, ProviderError::SchemaValidation);
@@ -808,7 +847,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let err = provider
-            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect_err("transient after retries");
         assert_eq!(err, ProviderError::Transient);
@@ -834,7 +873,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let out = provider
-            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect("succeeds after retry");
         assert_eq!(out.caption, "c");
@@ -858,7 +897,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let err = provider
-            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect_err("400 not retried");
         assert!(matches!(err, ProviderError::Provider(_)), "{err:?}");
@@ -883,7 +922,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let err = provider
-            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect_err("empty tags rejected");
         assert_eq!(err, ProviderError::SchemaValidation);
@@ -905,7 +944,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let err = provider
-            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect_err("no tool_use");
         assert_eq!(err, ProviderError::SchemaValidation);
@@ -925,7 +964,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let err = provider
-            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect_err("wrong tool name");
         assert_eq!(err, ProviderError::SchemaValidation);
@@ -944,7 +983,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let err = provider
-            .describe_image(&test_image_png(), "", "", None)
+            .describe_image(&test_image_png(), "", "", "", None)
             .await
             .expect_err("missing credential");
         assert!(matches!(err, ProviderError::Provider(_)), "{err:?}");
@@ -973,7 +1012,7 @@ mod tests {
         let provider = AnthropicMessagesProvider::new(config).expect("provider builds");
 
         let out = provider
-            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect("describe ok");
         assert_eq!(out.caption, "c");
@@ -1059,7 +1098,7 @@ mod tests {
                     .await;
                 let provider = provider_for(&server);
                 provider
-                    .describe_image(&img, "", "profile-1", Some(&secret()))
+                    .describe_image(&img, "", "profile-1", "", Some(&secret()))
                     .await
             })
         });
@@ -1143,6 +1182,7 @@ mod tests {
             provider_id: "volcengine_ark_coding".to_string(),
             model_id: String::new(),
             prompt_profile_id: String::new(),
+            output_language: String::new(),
         };
 
         let cancel_registry2 = cancel_registry.clone();
@@ -1217,6 +1257,7 @@ mod tests {
             provider_id: "volcengine_ark_coding".to_string(),
             model_id: String::new(),
             prompt_profile_id: String::new(),
+            output_language: String::new(),
         };
 
         let resp = svc
@@ -1271,7 +1312,7 @@ mod tests {
 
         let provider = opencode_provider_for(&server);
         provider
-            .describe_image(&test_image_png(), "claude-sonnet-4-5", "", Some(&secret()))
+            .describe_image(&test_image_png(), "claude-sonnet-4-5", "", "", Some(&secret()))
             .await
             .expect("describe ok");
 
@@ -1325,7 +1366,7 @@ mod tests {
             .await;
         let provider = opencode_provider_for(&server);
         let out = provider
-            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect("describe ok");
         assert_eq!(out.caption, "a small image");
@@ -1353,7 +1394,7 @@ mod tests {
             .await;
         let provider = opencode_provider_for(&server);
         let err = provider
-            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect_err("no tool_use");
         assert_eq!(err, ProviderError::SchemaValidation);
@@ -1378,7 +1419,7 @@ mod tests {
             .await;
         let provider = opencode_provider_for(&server);
         let err = provider
-            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect_err("400 not retried");
         assert!(matches!(err, ProviderError::Provider(_)), "{err:?}");
@@ -1394,7 +1435,7 @@ mod tests {
         let server = MockServer::start().await;
         let provider = opencode_provider_for(&server);
         let err = provider
-            .describe_image(&test_image_png(), "not-a-real-anthropic-model", "", Some(&secret()))
+            .describe_image(&test_image_png(), "not-a-real-anthropic-model", "", "", Some(&secret()))
             .await
             .expect_err("unknown model id should fail closed");
         assert_eq!(

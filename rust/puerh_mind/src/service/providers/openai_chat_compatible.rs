@@ -42,6 +42,7 @@
 //! `AiErrorCode`.
 
 use serde_json::{Value, json};
+use std::sync::Mutex;
 use tracing::warn;
 
 use crate::service::credential_vault::SecretString;
@@ -65,6 +66,14 @@ const RATING_SCHEMA_NAME: &str = "alcedo_image_rating";
 pub struct OpenAiChatCompatibleProvider {
     config: ProviderConfig,
     http: reqwest::Client,
+    /// Models committed from live `list_models` discovery so an explicitly
+    /// requested discovered slug passes the Phase 6c `resolve_model` gate. Each
+    /// entry is synthesized with `supports_structured_output = true` (discovery
+    /// cannot prove it, but the gate requires it for the call to proceed; a model
+    /// that truly lacks support fails at the provider HTTP call as a normal
+    /// per-item error). Idempotent: a slug already in `config.models` or already
+    /// committed is not duplicated.
+    discovered_models: Mutex<Vec<ModelConfig>>,
 }
 
 impl OpenAiChatCompatibleProvider {
@@ -72,7 +81,7 @@ impl OpenAiChatCompatibleProvider {
     /// `reqwest::Client`. Used by `main.rs` for the shipped sidecar.
     pub fn new(config: ProviderConfig) -> Result<Self, ProviderError> {
         let http = build_rustls_client()?;
-        Ok(Self { config, http })
+        Ok(Self { config, http, discovered_models: Mutex::new(Vec::new()) })
     }
 
     /// Construct with an injected HTTP client. Used by tests to point the driver
@@ -80,7 +89,7 @@ impl OpenAiChatCompatibleProvider {
     /// `http://127.0.0.1` so tests can also use `new` with a localhost base_url.
     #[allow(dead_code)]
     pub fn with_client(config: ProviderConfig, http: reqwest::Client) -> Self {
-        Self { config, http }
+        Self { config, http, discovered_models: Mutex::new(Vec::new()) }
     }
 
     fn url(&self) -> String {
@@ -102,24 +111,58 @@ impl OpenAiChatCompatibleProvider {
     /// Resolve the requested model slug (falling back to the config default) and
     /// the matching model entry (for per-model knobs) if present. Phase 6c: a
     /// non-empty explicit `requested` must resolve to an entry in
-    /// `config.models[]` (built-in or discovered/persisted user config); an
-    /// unknown slug fails closed here, BEFORE any provider HTTP call, closing
-    /// the Phase 6b review gap where an unlisted slug bypassed the
-    /// `supports_structured_output` check. An empty `requested` uses the config
-    /// default (config-authored, so it is "known" by virtue of being the
-    /// default) and may yield `None` when the default is not itself listed.
-    fn resolve_model<'a>(
-        &'a self,
-        requested: &str,
-    ) -> Result<(String, Option<&'a ModelConfig>), ProviderError> {
+    /// `config.models[]` (built-in) or in the committed `discovered_models`
+    /// (from a prior `list_models`); an unknown slug fails closed here, BEFORE
+    /// any provider HTTP call, closing the Phase 6b review gap where an unlisted
+    /// slug bypassed the `supports_structured_output` check. An empty `requested`
+    /// uses the config default (config-authored, so it is "known" by virtue of
+    /// being the default) and may yield `None` when the default is not itself
+    /// listed. Returns an owned `ModelConfig` clone because committed discovered
+    /// models live behind a `Mutex` whose guard cannot outlive the call.
+    fn resolve_model(&self, requested: &str) -> Result<(String, Option<ModelConfig>), ProviderError> {
         if requested.trim().is_empty() {
             let slug = self.config.defaults.model.clone();
-            let entry = self.config.models.iter().find(|m| m.slug == slug);
+            let entry = self.config.models.iter().find(|m| m.slug == slug).cloned();
             return Ok((slug, entry));
         }
-        match self.config.models.iter().find(|m| m.slug == requested) {
-            Some(m) => Ok((m.slug.clone(), Some(m))),
-            None => Err(ProviderError::UnknownModel(requested.to_string())),
+        if let Some(m) = self.config.models.iter().find(|m| m.slug == requested) {
+            return Ok((m.slug.clone(), Some(m.clone())));
+        }
+        let committed = self.discovered_models.lock().expect("discovered_models mutex poisoned");
+        if let Some(m) = committed.iter().find(|m| m.slug == requested) {
+            return Ok((m.slug.clone(), Some(m.clone())));
+        }
+        Err(ProviderError::UnknownModel(requested.to_string()))
+    }
+
+    /// Commit discovered models so a later explicit `model_id` resolves. Each
+    /// discovered id not already present in the static `config.models` or the
+    /// committed list is appended as a synthesized `ModelConfig` with
+    /// `supports_structured_output = true` (required by `ensure_structured_output`
+    /// for the call to proceed). Idempotent. Discovery cannot prove vision or
+    /// structured-output support, so a model lacking support fails at the
+    /// provider HTTP call as a normal per-item error rather than being silently
+    /// dropped.
+    fn commit_discovered_models(&self, models: &[DiscoveredModel]) {
+        let mut committed = self.discovered_models.lock().expect("discovered_models mutex poisoned");
+        for m in models {
+            let already_known = self.config.models.iter().any(|c| c.slug == m.model_id)
+                || committed.iter().any(|c| c.slug == m.model_id);
+            if already_known {
+                continue;
+            }
+            committed.push(ModelConfig {
+                slug: m.model_id.clone(),
+                display_name: m.display_name.clone(),
+                supports_vision: true,
+                supports_structured_output: true,
+                live_confirmed: false,
+                max_image_bytes: Some(self.config.limits.max_image_bytes),
+                recommended_rendition: None,
+                cost_per_million_input_usd: None,
+                cost_per_million_output_usd: None,
+                data_collection: None,
+            });
         }
     }
 
@@ -332,8 +375,11 @@ impl OpenAiChatCompatibleProvider {
 /// Alcedo-owned prompt for `image_understanding.describe`. The prompt profile id is
 /// echoed into the instruction for traceability; the JSON contract is enforced by
 /// the injected schema + the code-owned validator, not by the prompt text.
-fn describe_prompt(prompt_profile_id: &str) -> (String, String) {
-    let system = "You are an image understanding assistant for Alcedo Studio. Analyze the supplied image and respond with a single JSON object matching the provided schema. The object must contain: \"caption\" (a concise one-line description of the image), \"tags\" (an array of short lowercase searchable tags, with at least one tag), \"scene\" (a short scene or category hint, or an empty string if none), and \"confidence\" (your confidence in the description, a number between 0.0 and 1.0). Output only the JSON object — no prose, no markdown code fences.".to_string();
+/// `output_language` (host-resolved; "" or "en" = English, "zh" = Simplified
+/// Chinese) appends a response-language directive to the system message.
+fn describe_prompt(prompt_profile_id: &str, output_language: &str) -> (String, String) {
+    let mut system = "You are an image understanding assistant for Alcedo Studio. Analyze the supplied image and respond with a single JSON object matching the provided schema. The object must contain: \"caption\" (a concise one-line description of the image), \"tags\" (an array of short lowercase searchable tags, with at least one tag), \"scene\" (a short scene or category hint, or an empty string if none), and \"confidence\" (your confidence in the description, a number between 0.0 and 1.0). Output only the JSON object — no prose, no markdown code fences.".to_string();
+    system.push_str(&crate::service::image_analysis::language_directive(output_language));
     let mut instruction = "Describe this image for a photo library.".to_string();
     if !prompt_profile_id.trim().is_empty() {
         instruction.push_str(&format!(" Prompt profile: {prompt_profile_id}."));
@@ -346,9 +392,11 @@ fn describe_prompt(prompt_profile_id: &str) -> (String, String) {
 /// 1–5 integer star rating aligned with the EXIF-standard Rating the app already
 /// stores per file (0 = unrated in the app; the remote contract requires 1..=5 so a
 /// scored image is never confused with an unrated one). No confidence is requested
-/// (Phase 5f rating-contract change).
-fn score_prompt(prompt_profile_id: &str, rubric_id: &str) -> (String, String) {
-    let system = "You are an image rating assistant for Alcedo Studio. Rate the supplied image against the given rubric and respond with a single JSON object matching the provided schema. The object must contain: \"rating\" (an integer from 1 to 5, where 1 is a poor photo and 5 is an excellent photo — the app's star rating), \"rubric_id\" (the rubric you applied), \"rubric_version\" (the rubric version, or an empty string), and \"reasons\" (a short rationale). Do not include any other field — in particular, do not output a confidence. Output only the JSON object — no prose, no markdown code fences.".to_string();
+/// (Phase 5f rating-contract change). `output_language` controls the language of
+/// the generated `reasons` (the integer rating is language-independent).
+fn score_prompt(prompt_profile_id: &str, rubric_id: &str, output_language: &str) -> (String, String) {
+    let mut system = "You are an image rating assistant for Alcedo Studio. Rate the supplied image against the given rubric and respond with a single JSON object matching the provided schema. The object must contain: \"rating\" (an integer from 1 to 5, where 1 is a poor photo and 5 is an excellent photo — the app's star rating), \"rubric_id\" (the rubric you applied), \"rubric_version\" (the rubric version, or an empty string), and \"reasons\" (a short rationale). Do not include any other field — in particular, do not output a confidence. Output only the JSON object — no prose, no markdown code fences.".to_string();
+    system.push_str(&crate::service::image_analysis::language_directive(output_language));
     let mut instruction = "Rate this image on a 1–5 star scale.".to_string();
     if !rubric_id.trim().is_empty() {
         instruction.push_str(&format!(" Rubric: {rubric_id}."));
@@ -402,17 +450,18 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
         image_bytes: &[u8],
         model_id: &str,
         prompt_profile_id: &str,
+        output_language: &str,
         credential: Option<&SecretString>,
     ) -> Result<DescribeOutcome, ProviderError> {
         let (slug, model) = self.resolve_model(model_id)?;
-        self.ensure_structured_output(model)?;
+        self.ensure_structured_output(model.as_ref())?;
         let bearer = self.bearer(credential)?;
         let data_uri = build_image_data_uri(image_bytes)?;
         let schema = strict_schema_value(IMAGE_UNDERSTANDING_SCHEMA)?;
-        let (system, instruction) = describe_prompt(prompt_profile_id);
+        let (system, instruction) = describe_prompt(prompt_profile_id, output_language);
         let body = self.build_chat_body(
             &slug,
-            model,
+            model.as_ref(),
             &data_uri,
             schema,
             UNDERSTANDING_SCHEMA_NAME,
@@ -451,17 +500,18 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
         model_id: &str,
         prompt_profile_id: &str,
         rubric_id: &str,
+        output_language: &str,
         credential: Option<&SecretString>,
     ) -> Result<ScoreOutcome, ProviderError> {
         let (slug, model) = self.resolve_model(model_id)?;
-        self.ensure_structured_output(model)?;
+        self.ensure_structured_output(model.as_ref())?;
         let bearer = self.bearer(credential)?;
         let data_uri = build_image_data_uri(image_bytes)?;
         let schema = strict_schema_value(IMAGE_RATING_SCHEMA)?;
-        let (system, instruction) = score_prompt(prompt_profile_id, rubric_id);
+        let (system, instruction) = score_prompt(prompt_profile_id, rubric_id, output_language);
         let body = self.build_chat_body(
             &slug,
-            model,
+            model.as_ref(),
             &data_uri,
             schema,
             RATING_SCHEMA_NAME,
@@ -535,6 +585,12 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
                 source_provider_id: self.config.provider_id.clone(),
             });
         }
+        // Phase 6c+: commit the discovered candidates so a later explicit
+        // `model_id` selecting one of them passes the `resolve_model` gate and
+        // the `supports_structured_output` check. This makes "Test & Refresh
+        // Models" immediately usable: a discovered model becomes selectable and
+        // functional without a sidecar restart or a hand-authored user config.
+        self.commit_discovered_models(&out);
         Ok(out)
     }
 }
@@ -610,7 +666,7 @@ mod tests {
 
         let provider = provider_for(&server);
         let out = provider
-            .describe_image(&test_image_png(), "", "profile-1", Some(&secret()))
+            .describe_image(&test_image_png(), "", "profile-1", "", Some(&secret()))
             .await
             .expect("describe ok");
         assert_eq!(out.caption, "a small image");
@@ -649,7 +705,7 @@ mod tests {
 
         let provider = provider_for(&server);
         provider
-            .describe_image(&test_image_png(), "gpt-4o", "", Some(&secret()))
+            .describe_image(&test_image_png(), "gpt-4o", "", "", Some(&secret()))
             .await
             .expect("describe ok");
 
@@ -689,7 +745,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let out = provider
-            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect("describe ok");
         assert_eq!(out.caption, "sunrise over mountains");
@@ -720,7 +776,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let out = provider
-            .score_image(&test_image_png(), "", "", "alcedo-default-v1", Some(&secret()))
+            .score_image(&test_image_png(), "", "", "alcedo-default-v1", "", Some(&secret()))
             .await
             .expect("score ok");
         assert_eq!(out.rating, 4);
@@ -741,7 +797,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let err = provider
-            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect_err("transient after retries");
         assert_eq!(err, ProviderError::Transient);
@@ -766,7 +822,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let out = provider
-            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect("succeeds after retry");
         assert_eq!(out.caption, "c");
@@ -786,7 +842,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let err = provider
-            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect_err("400 not retried");
         assert!(matches!(err, ProviderError::Provider(_)), "{err:?}");
@@ -811,7 +867,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let err = provider
-            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect_err("ignored response_format rejected");
         assert_eq!(err, ProviderError::SchemaValidation);
@@ -831,7 +887,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let err = provider
-            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect_err("empty caption rejected");
         assert_eq!(err, ProviderError::SchemaValidation);
@@ -849,7 +905,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let err = provider
-            .describe_image(&test_image_png(), "", "", None)
+            .describe_image(&test_image_png(), "", "", "", None)
             .await
             .expect_err("missing credential");
         assert!(matches!(err, ProviderError::Provider(_)), "{err:?}");
@@ -885,7 +941,7 @@ mod tests {
         let provider = OpenAiChatCompatibleProvider::new(config).expect("provider builds");
 
         let out = provider
-            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect("describe ok");
         assert_eq!(out.provider_request_id, "hdr-opencode-999");
@@ -956,7 +1012,7 @@ mod tests {
                     .await;
                 let provider = provider_for(&server);
                 provider
-                    .describe_image(&test_image_png(), "", "profile-1", Some(&secret()))
+                    .describe_image(&test_image_png(), "", "profile-1", "", Some(&secret()))
                     .await
             })
         });
@@ -991,7 +1047,7 @@ mod tests {
         let provider = provider_for(&server);
 
         let err = provider
-            .describe_image(&test_image_png(), "not-a-real-model-slug", "", Some(&secret()))
+            .describe_image(&test_image_png(), "not-a-real-model-slug", "", "", Some(&secret()))
             .await
             .expect_err("unknown model id should fail closed");
         assert_eq!(err, ProviderError::UnknownModel("not-a-real-model-slug".to_string()));
@@ -1130,5 +1186,76 @@ mod tests {
 
         let err = provider.list_models(Some(&secret())).await.expect_err("bad shape");
         assert_eq!(err, ProviderError::SchemaValidation);
+    }
+
+    /// Phase 6c+: a discovered model is committed during `list_models`, so a
+    /// later explicit `model_id` selecting it resolves (passes the
+    /// `resolve_model` slug gate and the synthesized
+    /// `supports_structured_output = true` check) and the call proceeds to HTTP.
+    /// Before discovery, the same slug fails closed as `UnknownModel`.
+    #[tokio::test]
+    async fn list_models_commits_discovered_model_so_it_becomes_selectable() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/models"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": [
+                { "id": "discovered-vision-model", "display_name": "Discovered Vision" }
+            ] })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(ok_understanding_body(
+                r#"{"caption":"c","tags":["t"],"scene":"","confidence":0.5}"#,
+            )))
+            .mount(&server)
+            .await;
+        let provider = provider_for(&server);
+
+        // Before discovery, the slug is unknown -> fail closed before HTTP.
+        let err = provider
+            .describe_image(&test_image_png(), "discovered-vision-model", "", "", Some(&secret()))
+            .await
+            .expect_err("unknown slug fails before discovery");
+        assert!(matches!(err, ProviderError::UnknownModel(_)));
+
+        // Discovery commits the slug.
+        let models = provider.list_models(Some(&secret())).await.expect("list ok");
+        assert_eq!(models.len(), 1);
+
+        // After discovery, the same slug resolves and the call proceeds.
+        let out = provider
+            .describe_image(&test_image_png(), "discovered-vision-model", "", "", Some(&secret()))
+            .await
+            .expect("discovered slug selectable after list_models");
+        assert_eq!(out.caption, "c");
+        // The committed slug is sent in the request body.
+        let reqs = server.received_requests().await.expect("requests captured");
+        let post = reqs.iter().find(|r| r.method.as_str() == "POST").expect("POST captured");
+        let body: Value = serde_json::from_slice(&post.body).expect("body json");
+        assert_eq!(body["model"], "discovered-vision-model");
+    }
+
+    /// Output language: a `zh` directive is appended to the system prompt and
+    /// reaches the provider request body; English/default leaves the prompt as-is.
+    #[tokio::test]
+    async fn describe_image_zh_output_language_appends_directive() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(ok_understanding_body(
+                r#"{"caption":"c","tags":["t"],"scene":"","confidence":0.5}"#,
+            )))
+            .mount(&server)
+            .await;
+        let provider = provider_for(&server);
+        provider
+            .describe_image(&test_image_png(), "", "", "zh", Some(&secret()))
+            .await
+            .expect("describe ok");
+        let reqs = server.received_requests().await.expect("requests captured");
+        let body: Value = serde_json::from_slice(&reqs[0].body).expect("body json");
+        let system = body["messages"][0]["content"].as_str().expect("system content");
+        assert!(system.contains("Simplified Chinese"), "zh directive missing: {system}");
     }
 }

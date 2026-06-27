@@ -840,7 +840,7 @@ ApplicationWindow {
         promptVisible: root.semanticGeneration.activatePromptVisible
         onOpenSettingsRequested: {
             root.semanticGeneration.DismissActivatePrompt()
-            root.openSettingsDialog(3) // 3 == "AI" category (model install/activate)
+            root.openSettingsDialog(3) // 3 == "Local Content Recognition" (model install/activate)
         }
         onDismissed: root.semanticGeneration.DismissActivatePrompt()
     }

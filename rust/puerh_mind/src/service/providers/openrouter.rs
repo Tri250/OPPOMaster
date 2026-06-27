@@ -85,7 +85,7 @@ mod tests {
 
         let provider = provider_for(&server);
         let out = provider
-            .describe_image(&test_image_png(), "", "profile-1", Some(&secret()))
+            .describe_image(&test_image_png(), "", "profile-1", "", Some(&secret()))
             .await
             .expect("describe ok");
         assert_eq!(out.caption, "a small image");
@@ -107,7 +107,7 @@ mod tests {
 
         let provider = provider_for(&server);
         provider
-            .describe_image(&test_image_png(), "qwen/qwen3.7-plus", "", Some(&secret()))
+            .describe_image(&test_image_png(), "qwen/qwen3.7-plus", "", "", Some(&secret()))
             .await
             .expect("describe ok");
 
@@ -154,7 +154,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let out = provider
-            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect("describe ok");
         assert_eq!(out.caption, "sunrise over mountains");
@@ -185,7 +185,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let out = provider
-            .score_image(&test_image_png(), "", "", "alcedo-default-v1", Some(&secret()))
+            .score_image(&test_image_png(), "", "", "alcedo-default-v1", "", Some(&secret()))
             .await
             .expect("score ok");
         // Single 1..=5 integer star rating; no scores array, no confidence.
@@ -216,7 +216,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let out = provider
-            .score_image(&test_image_png(), "", "", "alcedo-default-v1", Some(&secret()))
+            .score_image(&test_image_png(), "", "", "alcedo-default-v1", "", Some(&secret()))
             .await
             .expect("score ok");
         assert_eq!(out.rating, 5);
@@ -242,7 +242,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let err = provider
-            .score_image(&test_image_png(), "", "", "alcedo-default-v1", Some(&secret()))
+            .score_image(&test_image_png(), "", "", "alcedo-default-v1", "", Some(&secret()))
             .await
             .expect_err("fractional rating rejected");
         assert_eq!(err, ProviderError::SchemaValidation);
@@ -265,7 +265,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let err = provider
-            .score_image(&test_image_png(), "", "", "alcedo-default-v1", Some(&secret()))
+            .score_image(&test_image_png(), "", "", "alcedo-default-v1", "", Some(&secret()))
             .await
             .expect_err("rating 0 rejected");
         assert_eq!(err, ProviderError::SchemaValidation);
@@ -283,7 +283,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let err = provider
-            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect_err("transient after retries");
         assert_eq!(err, ProviderError::Transient);
@@ -309,7 +309,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let out = provider
-            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect("succeeds after retry");
         assert_eq!(out.caption, "c");
@@ -330,7 +330,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let err = provider
-            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect_err("400 not retried");
         assert!(matches!(err, ProviderError::Provider(_)), "{err:?}");
@@ -354,7 +354,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let err = provider
-            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect_err("empty tags rejected");
         assert_eq!(err, ProviderError::SchemaValidation);
@@ -372,7 +372,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let err = provider
-            .describe_image(&test_image_png(), "", "", Some(&secret()))
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect_err("fenced json rejected");
         assert_eq!(err, ProviderError::SchemaValidation);
@@ -390,7 +390,7 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let err = provider
-            .describe_image(&test_image_png(), "", "", None)
+            .describe_image(&test_image_png(), "", "", "", None)
             .await
             .expect_err("missing credential");
         assert!(matches!(err, ProviderError::Provider(_)), "{err:?}");
@@ -464,7 +464,7 @@ mod tests {
                     .await;
                 let provider = provider_for(&server);
                 provider
-                    .describe_image(&test_image_png(), "", "profile-1", Some(&secret()))
+                    .describe_image(&test_image_png(), "", "profile-1", "", Some(&secret()))
                     .await
             })
         });
@@ -543,6 +543,7 @@ mod tests {
             provider_id: "openrouter".to_string(),
             model_id: "qwen/qwen3.7-plus".to_string(),
             prompt_profile_id: String::new(),
+            output_language: String::new(),
         };
 
         let cancel_registry2 = cancel_registry.clone();
@@ -616,6 +617,7 @@ mod tests {
             provider_id: "openrouter".to_string(),
             model_id: "qwen/qwen3.7-plus".to_string(),
             prompt_profile_id: String::new(),
+            output_language: String::new(),
         };
 
         let resp = svc

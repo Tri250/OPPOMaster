@@ -33,6 +33,7 @@ constexpr auto kKeyMaxImageBytes     = "ai/preset/maxImageBytes";
 constexpr auto kKeyRecommendedRendition = "ai/preset/recommendedRendition";
 constexpr auto kKeyMaskedKeyLabel    = "ai/preset/maskedKeyLabel";
 constexpr auto kKeyRememberKey       = "ai/preset/rememberKey";
+constexpr auto kKeyOutputLanguage    = "ai/preset/outputLanguage";
 
 // Defaults mirror the primary product-facing Opencode Go Anthropic-compatible
 // preset (the proven compatible path). They are used when a key is absent so a
@@ -42,6 +43,7 @@ constexpr auto kDefaultProviderId           = "opencode_go_anthropic";
 constexpr auto kDefaultAuthType             = "bearer";
 constexpr auto kDefaultStructuredOutputMode = "tool";
 constexpr auto kDefaultRendition            = "preview";
+constexpr auto kDefaultOutputLanguage       = "follow";  // resolve to app language at job time
 constexpr qint64 kDefaultTimeoutMs          = 60000;
 constexpr qint64 kDefaultMaxImageBytes      = 4194304;
 
@@ -147,6 +149,7 @@ AiProviderPreset AiProviderPresetController::CurrentPreset() const {
   preset.recommended_rendition = NormalizedRendition(read_string(kKeyRecommendedRendition, kDefaultRendition));
   preset.masked_key_label      = read_non_secret_string(kKeyMaskedKeyLabel, QString{});
   preset.remember_key          = read_bool(kKeyRememberKey, false);
+  preset.output_language       = NormalizedOutputLanguage(read_string(kKeyOutputLanguage, kDefaultOutputLanguage));
   return preset;
 }
 
@@ -168,6 +171,7 @@ void AiProviderPresetController::SetFromPreset(const AiProviderPreset& preset) {
   s.setValue(QLatin1String(kKeyRecommendedRendition), NormalizedRendition(preset.recommended_rendition));
   s.setValue(QLatin1String(kKeyMaskedKeyLabel), SanitizedNonSecretString(preset.masked_key_label));
   s.setValue(QLatin1String(kKeyRememberKey), preset.remember_key);
+  s.setValue(QLatin1String(kKeyOutputLanguage), NormalizedOutputLanguage(preset.output_language));
   emit PresetChanged();
 }
 
@@ -221,6 +225,9 @@ QString AiProviderPresetController::MaskedKeyLabel() const {
 }
 bool AiProviderPresetController::RememberKey() const {
   return CurrentPreset().remember_key;
+}
+QString AiProviderPresetController::OutputLanguage() const {
+  return CurrentPreset().output_language;
 }
 
 void AiProviderPresetController::SetProviderId(const QString& value) {
@@ -283,6 +290,10 @@ void AiProviderPresetController::SetRememberKey(bool value) {
   QSettings().setValue(QLatin1String(kKeyRememberKey), value);
   emit PresetChanged();
 }
+void AiProviderPresetController::SetOutputLanguage(const QString& value) {
+  QSettings().setValue(QLatin1String(kKeyOutputLanguage), NormalizedOutputLanguage(value));
+  emit PresetChanged();
+}
 
 QString AiProviderPresetController::NormalizedProtocolFamily(const QString& value) {
   const QString v = value.trimmed();
@@ -315,6 +326,14 @@ QString AiProviderPresetController::NormalizedRendition(const QString& value) {
     return v;
   }
   return QLatin1String(kDefaultRendition);
+}
+
+QString AiProviderPresetController::NormalizedOutputLanguage(const QString& value) {
+  const QString v = value.trimmed().toLower();
+  if (v == QLatin1String("follow") || v == QLatin1String("en") || v == QLatin1String("zh")) {
+    return v;
+  }
+  return QLatin1String(kDefaultOutputLanguage);
 }
 
 qint64 AiProviderPresetController::NormalizedTimeoutMs(qint64 value) {

@@ -70,6 +70,10 @@ struct ImageAnalysisOptions {
   std::string             model_id;           // "" = provider default
   std::string             prompt_profile_id;
   std::string             rubric_id;          // ScoreImage only; "" = provider default
+  // Host-resolved output language for generated caption/reasons ("" or "en" =
+  // English; "zh" = Simplified Chinese). Set from the preset's
+  // `output_language` ("follow" resolves to the current app language here).
+  std::string             output_language;
   ImageAnalysisCredential credential;
   std::filesystem::path   temp_dir;           // empty => std::filesystem::temp_directory_path()
   int64_t                 credential_ttl_ms = 0;  // 0 => sidecar default

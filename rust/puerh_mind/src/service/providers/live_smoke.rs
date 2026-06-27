@@ -83,7 +83,7 @@ async fn live_openrouter_smoke_describe_and_score() {
     let img = smoke_image_png();
 
     let out = provider
-        .describe_image(&img, "", "alcedo-live-smoke", Some(&secret))
+        .describe_image(&img, "", "alcedo-live-smoke", "", Some(&secret))
         .await
         .expect("live OpenRouter describe succeeded");
     eprintln!(
@@ -93,7 +93,7 @@ async fn live_openrouter_smoke_describe_and_score() {
     validate_understanding(&out).expect("live outcome validates against the Alcedo contract");
 
     let score = provider
-        .score_image(&img, "", "alcedo-live-smoke", "alcedo-default-v1", Some(&secret))
+        .score_image(&img, "", "alcedo-live-smoke", "alcedo-default-v1", "", Some(&secret))
         .await
         .expect("live OpenRouter score succeeded");
     eprintln!(
@@ -121,7 +121,7 @@ async fn live_volcengine_ark_smoke_describe_and_score() {
     let img = smoke_image_png();
 
     let out = provider
-        .describe_image(&img, "", "alcedo-live-smoke", Some(&secret))
+        .describe_image(&img, "", "alcedo-live-smoke", "", Some(&secret))
         .await
         .expect("live Volcengine Ark describe succeeded");
     eprintln!(
@@ -131,7 +131,7 @@ async fn live_volcengine_ark_smoke_describe_and_score() {
     validate_understanding(&out).expect("live outcome validates against the Alcedo contract");
 
     let score = provider
-        .score_image(&img, "", "alcedo-live-smoke", "alcedo-default-v1", Some(&secret))
+        .score_image(&img, "", "alcedo-live-smoke", "alcedo-default-v1", "", Some(&secret))
         .await
         .expect("live Volcengine Ark score succeeded");
     eprintln!(
@@ -168,7 +168,7 @@ async fn live_volcengine_ark_coding_smoke_describe_and_score() {
     let img = smoke_image_png();
 
     let out = provider
-        .describe_image(&img, "", "alcedo-live-smoke", Some(&secret))
+        .describe_image(&img, "", "alcedo-live-smoke", "", Some(&secret))
         .await
         .expect("live Volcengine Ark Coding Plan describe succeeded");
     eprintln!(
@@ -178,7 +178,7 @@ async fn live_volcengine_ark_coding_smoke_describe_and_score() {
     validate_understanding(&out).expect("live outcome validates against the Alcedo contract");
 
     let score = provider
-        .score_image(&img, "", "alcedo-live-smoke", "alcedo-default-v1", Some(&secret))
+        .score_image(&img, "", "alcedo-live-smoke", "alcedo-default-v1", "", Some(&secret))
         .await
         .expect("live Volcengine Ark Coding Plan score succeeded");
     eprintln!(

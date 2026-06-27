@@ -61,6 +61,11 @@ Dialog {
             refreshCacheStats()
         } else if (currentCategory === 3) {
             albumBackend.semanticGenerationController.RefreshAlbumSummary()
+        } else if (currentCategory === 4) {
+            // Refresh credential/configured state when the Advanced Content
+            // Analysis page is shown, so the API-key label and model box reflect
+            // any changes made since the last visit.
+            albumBackend.imageAnalysisController.RefreshCredentialState()
         }
     }
 
@@ -247,7 +252,8 @@ Dialog {
                                     { label: qsTr("Language"), icon: "qrc:/panel_icons/language.svg" },
                                     { label: qsTr("Theme and color"), icon: "qrc:/panel_icons/palette.svg" },
                                     { label: qsTr("Cache"), icon: "qrc:/panel_icons/box.svg" },
-                                    { label: qsTr("AI"), icon: "qrc:/panel_icons/search.svg" },
+                                    { label: qsTr("Local Content Recognition"), icon: "qrc:/panel_icons/search.svg" },
+                                    { label: qsTr("Advanced Content Analysis"), icon: "qrc:/panel_icons/color-filter.svg" },
                                     { label: qsTr("About"), icon: "qrc:/panel_icons/aperture.svg" }
                                 ]
 
@@ -330,8 +336,10 @@ Dialog {
                                          : (dialog.currentCategory === 2
                                             ? qsTr("Cache")
                                             : (dialog.currentCategory === 3
-                                               ? qsTr("AI")
-                                               : qsTr("About"))))
+                                               ? qsTr("Local Content Recognition")
+                                               : (dialog.currentCategory === 4
+                                                  ? qsTr("Advanced Content Analysis")
+                                                  : qsTr("About")))))
                                 color: dialog.textColor
                                 font.family: dialog.headlineFontFamily
                                 font.pixelSize: 34
@@ -754,6 +762,33 @@ Dialog {
                                     onMessageRequested: function(message) {
                                         dialog.messageRequested(message)
                                     }
+                                }
+                            }
+                        }
+
+                        ScrollView {
+                            id: advancedAnalysisScroll
+                            contentWidth: availableWidth
+                            clip: true
+
+                            AiProviderSettingsPanel {
+                                Layout.fillWidth: true
+                                Layout.topMargin: 26
+                                Layout.leftMargin: 34
+                                Layout.rightMargin: 34
+                                Layout.bottomMargin: 26
+                                presetController: albumBackend.aiProviderPresetController
+                                analysisController: albumBackend.imageAnalysisController
+                                primaryAccent: dialog.primaryAccent
+                                secondaryAccent: dialog.secondaryAccent
+                                textColor: dialog.textColor
+                                mutedTextColor: dialog.mutedTextColor
+                                canvasColor: dialog.canvasColor
+                                dividerColor: dialog.dividerColor
+                                dangerColor: dialog.dangerColor
+                                dataFontFamily: dialog.dataFontFamily
+                                onMessageRequested: function(message) {
+                                    dialog.messageRequested(message)
                                 }
                             }
                         }

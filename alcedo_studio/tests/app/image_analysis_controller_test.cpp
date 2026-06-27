@@ -113,6 +113,7 @@ class FakeClient : public alcedo::IImageAnalysisClient {
   auto DescribeImage(const alcedo::ImageAnalysisRequest& req, std::chrono::milliseconds)
       -> alcedo::ImageAnalysisUnderstandingResult override {
     ++describe_calls_;
+    last_output_language_ = req.output_language;
     if (block_mode_.load()) {
       std::unique_lock lk(block_mutex_);
       block_cv_.wait(lk, [this] { return release_blocked_.load(); });
@@ -122,6 +123,7 @@ class FakeClient : public alcedo::IImageAnalysisClient {
   auto ScoreImage(const alcedo::ImageAnalysisRequest& req, std::chrono::milliseconds)
       -> alcedo::ImageAnalysisRatingResult override {
     ++score_calls_;
+    last_output_language_ = req.output_language;
     if (block_mode_.load()) {
       std::unique_lock lk(block_mutex_);
       block_cv_.wait(lk, [this] { return release_blocked_.load(); });
@@ -151,6 +153,7 @@ class FakeClient : public alcedo::IImageAnalysisClient {
   auto CancelCalls() const -> int { return cancel_calls_.load(); }
   auto RegisterCalls() const -> int { return register_calls_.load(); }
   auto ListModelsCalls() const -> int { return list_models_calls_.load(); }
+  auto LastOutputLanguage() const -> std::string { return last_output_language_; }
 
  private:
   auto MakeUnderstanding(const alcedo::ImageAnalysisRequest& req, Outcome o)
@@ -227,6 +230,7 @@ class FakeClient : public alcedo::IImageAnalysisClient {
   std::atomic<int> register_calls_{0};
   std::atomic<int> list_models_calls_{0};
   std::atomic<int> revoke_calls_{0};
+  std::string last_output_language_;
   Outcome describe_outcome_ = Outcome::kSuccess;
   Outcome score_outcome_    = Outcome::kSuccess;
   bool   usage_enabled_     = true;
@@ -787,6 +791,93 @@ TEST_F(ImageAnalysisControllerTest, LastResultsCarryPromptProfileAndProviderRequ
   const auto r = controller->LastResults().front().toMap();
   EXPECT_EQ(r.value("promptProfileId").toString(), QStringLiteral("profile-v1"));
   EXPECT_TRUE(r.value("providerRequestId").toString().startsWith(QStringLiteral("req-desc-")));
+}
+
+// ── Output language (Frontend 1) ─────────────────────────────────────────────
+
+TEST_F(ImageAnalysisControllerTest, OutputLanguageFollowResolvesToAppLanguage) {
+  // Default preset output_language is "follow"; the test app has no ui/language
+  // set, so QSettings returns "system" -> QLocale::system() (English on the CI
+  // host). Either way it must resolve to "" / "en" / "zh", never "follow".
+  auto controller = MakeController();
+  controller->StartDescribeForTargets(Targets({{1, 100}}));
+  ASSERT_TRUE(WaitForFinished(*controller, std::chrono::seconds(10)));
+  const std::string lang = last_bundle_->client->LastOutputLanguage();
+  EXPECT_TRUE(lang == "en" || lang == "zh")
+      << "follow must resolve to en/zh, got: " << lang;
+  EXPECT_NE(lang, "follow");
+}
+
+TEST_F(ImageAnalysisControllerTest, OutputLanguageExplicitZhReachesProvider) {
+  auto controller = MakeController();
+  last_bundle_->preset.SetOutputLanguage(QStringLiteral("zh"));
+  controller->StartDescribeForTargets(Targets({{1, 100}}));
+  ASSERT_TRUE(WaitForFinished(*controller, std::chrono::seconds(10)));
+  EXPECT_EQ(last_bundle_->client->LastOutputLanguage(), "zh");
+}
+
+TEST_F(ImageAnalysisControllerTest, OutputLanguageExplicitEnReachesProvider) {
+  auto controller = MakeController();
+  last_bundle_->preset.SetOutputLanguage(QStringLiteral("en"));
+  controller->StartScoreForTargets(Targets({{1, 100}}));
+  ASSERT_TRUE(WaitForFinished(*controller, std::chrono::seconds(10)));
+  EXPECT_EQ(last_bundle_->client->LastOutputLanguage(), "en");
+}
+
+// ── Credential save / delete bridge (Frontend 1) ─────────────────────────────
+
+TEST_F(ImageAnalysisControllerTest, SaveApiKeyPersistsSecretAndUpdatesMaskAndAvailability) {
+  auto controller = MakeController();
+  // Wipe the slot the EnvBundle pre-seeded so we start from "no key".
+  controller->DeleteApiKey();
+  controller->RefreshCredentialState();
+  EXPECT_FALSE(controller->CredentialAvailable());
+
+  const QString err = controller->SaveApiKey(QStringLiteral("sk-test-secret-1234"));
+  EXPECT_TRUE(err.isEmpty()) << err.toStdString();
+  controller->RefreshCredentialState();
+  EXPECT_TRUE(controller->CredentialAvailable());
+  // The raw secret never appears in the masked label; only a mask + tail.
+  const QString masked = last_bundle_->preset.MaskedKeyLabel();
+  EXPECT_FALSE(masked.isEmpty());
+  EXPECT_FALSE(masked.contains(QStringLiteral("sk-test-secret-1234")));
+  EXPECT_TRUE(masked.contains(QStringLiteral("••••")));
+}
+
+TEST_F(ImageAnalysisControllerTest, DeleteApiKeyClearsCredential) {
+  auto controller = MakeController();
+  EXPECT_TRUE(controller->CredentialAvailable());
+  controller->DeleteApiKey();
+  EXPECT_FALSE(controller->CredentialAvailable());
+  EXPECT_TRUE(last_bundle_->preset.MaskedKeyLabel().isEmpty());
+}
+
+TEST_F(ImageAnalysisControllerTest, SaveApiKeyRawSecretNeverEntersQSettings) {
+  auto controller = MakeController();
+  controller->SaveApiKey(QStringLiteral("sk-never-persist-me-9876"));
+  // The raw key must never land in the preset's QSettings group.
+  QSettings s;
+  s.beginGroup(QStringLiteral("ai/preset"));
+  const QStringList keys = s.allKeys();
+  for (const QString& k : keys) {
+    const QString v = s.value(k).toString();
+    EXPECT_FALSE(v.contains(QStringLiteral("sk-never-persist-me-9876")))
+        << "raw secret leaked into QSettings key: " << k.toStdString();
+  }
+  s.endGroup();
+}
+
+// ── Discovered models surface (Frontend 1) ───────────────────────────────────
+
+TEST_F(ImageAnalysisControllerTest, ValidateConnectionPopulatesDiscoveredModels) {
+  auto controller = MakeController();
+  controller->ValidateConnection();
+  ASSERT_TRUE(SpinWaitFor([&] { return !controller->ConnectionStatus().isEmpty(); },
+                          std::chrono::seconds(5)));
+  EXPECT_FALSE(controller->DiscoveredModels().isEmpty());
+  const auto first = controller->DiscoveredModels().first().toMap();
+  EXPECT_EQ(first.value("modelId").toString(), QStringLiteral("fake-model"));
+  EXPECT_TRUE(controller->ConnectionStatus().contains(QStringLiteral("Connected")));
 }
 
 }  // namespace

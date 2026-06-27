@@ -4,8 +4,10 @@
 
 #include "ui/alcedo_main/album_backend/image_analysis_controller.hpp"
 
+#include <QLocale>
 #include <QMetaObject>
 #include <QPointer>
+#include <QSettings>
 #include <QVariantMap>
 #include <algorithm>
 #include <chrono>
@@ -36,6 +38,49 @@ void ClearSecret(std::string* secret) {
   }
   secret->clear();
   secret->shrink_to_fit();
+}
+
+// Resolve the preset's output_language to a concrete code the sidecar accepts.
+// "follow" (the default) resolves to the current app language — reading
+// QSettings("ui/language") and resolving "system" via QLocale, the same pattern
+// as semantic_generation_controller.cpp's CurrentUiSemanticLabelLanguage. The
+// sidecar only understands "" / "en" / "zh", so "follow" never crosses the
+// wire. Returns "" (English default) for any unknown value.
+QString ResolveOutputLanguage(const QString& preference) {
+  const QString v = preference.trimmed().toLower();
+  if (v == "en") {
+    return QStringLiteral("en");
+  }
+  if (v == "zh") {
+    return QStringLiteral("zh");
+  }
+  // "follow" (or anything else) -> current app language.
+  QString code = QSettings().value(QStringLiteral("ui/language"), QStringLiteral("system")).toString();
+  if (code.compare(QStringLiteral("system"), Qt::CaseInsensitive) == 0) {
+    code = QLocale::system().bcp47Name();
+  }
+  return code.startsWith(QStringLiteral("zh"), Qt::CaseInsensitive) ? QStringLiteral("zh")
+                                                                    : QStringLiteral("en");
+}
+
+// Build a display mask for a raw secret: "sk-••••1234" style — never the raw
+// key. Used for `masked_key_label` so QML can show "a key is saved" without the
+// secret itself ever being persisted or logged.
+QString MaskedKeyLabel(const std::string& secret) {
+  if (secret.empty()) {
+    return QString{};
+  }
+  const auto n = secret.size();
+  // Show up to the last 4 chars, masked prefix. Cap the visible tail so a long
+  // key does not leak much.
+  const size_t tail = std::min<size_t>(n, 4);
+  QString masked;
+  masked.reserve(16);
+  masked += QStringLiteral("••••");
+  if (tail > 0) {
+    masked += QString::fromUtf8(secret.data() + (n - tail), static_cast<int>(tail));
+  }
+  return masked;
 }
 
 }  // namespace
@@ -80,6 +125,60 @@ void ImageAnalysisController::RefreshConfiguredState() {
 }
 
 void ImageAnalysisController::RefreshCredentialState() { RefreshConfiguredState(); }
+
+QString ImageAnalysisController::SaveApiKey(const QString& secret) {
+  if (!preset_ || !env_) {
+    return Tr("Image analysis runtime is unavailable.");
+  }
+  const auto preset = preset_->CurrentPreset();
+  if (preset.credential_slot.isEmpty()) {
+    return Tr("Configure a credential slot before saving a key.");
+  }
+  auto store = env_->CredentialStore();
+  if (!store) {
+    return Tr("Image analysis runtime is unavailable.");
+  }
+  // Copy the secret into a std::string only long enough to hand it to the OS
+  // credential store, then wipe it. It is never logged, never written to
+  // QSettings, and never stored on the preset DTO — only a display mask is.
+  std::string raw = secret.toStdString();
+  std::string err;
+  const bool ok = store->SaveCredential(preset.credential_slot.toStdString(), raw, &err);
+  // Build the mask from the raw secret before wiping it.
+  QString masked = MaskedKeyLabel(raw);
+  ClearSecret(&raw);
+  if (!ok) {
+    return err.empty() ? Tr("Could not save the API key to the system credential store.")
+                       : QString::fromStdString(err);
+  }
+  if (preset_) {
+    preset_->SetMaskedKeyLabel(masked);
+    // SetMaskedKeyLabel emits PresetChanged -> RefreshConfiguredState runs, but
+    // call it explicitly so credentialAvailable reflects the new key promptly.
+  }
+  RefreshCredentialState();
+  return {};
+}
+
+void ImageAnalysisController::DeleteApiKey() {
+  if (!preset_ || !env_) {
+    return;
+  }
+  const auto preset = preset_->CurrentPreset();
+  if (preset.credential_slot.isEmpty()) {
+    return;
+  }
+  auto store = env_->CredentialStore();
+  if (!store) {
+    return;
+  }
+  std::string err;
+  store->DeleteCredential(preset.credential_slot.toStdString(), &err);  // idempotent
+  if (preset_) {
+    preset_->SetMaskedKeyLabel(QString{});
+  }
+  RefreshCredentialState();
+}
 
 auto ImageAnalysisController::CollectItems(const QVariantList& targetEntries)
     -> std::vector<alcedo::ImageAnalysisItem> {
@@ -192,6 +291,7 @@ void ImageAnalysisController::StartForTargets(const QVariantList&        targetE
   options.timeout              = std::chrono::milliseconds(preset.timeout_ms);
   options.provider_id          = preset.provider_id.toStdString();
   options.model_id             = preset.model_id.toStdString();
+  options.output_language      = ResolveOutputLanguage(preset.output_language).toStdString();
   options.credential.provider_id = preset.provider_id.toStdString();
   options.credential.secret     = std::move(secret);
   options.credential_ttl_ms     = kCredentialTtlMs;
@@ -332,11 +432,29 @@ void ImageAnalysisController::ValidateConnection() {
           }
           if (result.ok) {
             self->last_error_.clear();
+            // Surface the discovered candidates to QML so the settings page can
+            // populate the model ComboBox. The sidecar committed them during
+            // ListModels, so each is immediately usable as an explicit model_id.
+            QVariantList models;
+            models.reserve(static_cast<int>(result.models.size()));
+            for (const auto& m : result.models) {
+              QVariantMap entry;
+              entry.insert(QStringLiteral("modelId"), QString::fromStdString(m.model_id));
+              entry.insert(QStringLiteral("displayName"), QString::fromStdString(m.display_name));
+              entry.insert(QStringLiteral("sourceProviderId"),
+                           QString::fromStdString(m.source_provider_id));
+              models.append(entry);
+            }
+            self->discovered_models_ = std::move(models);
             const int n = static_cast<int>(result.models.size());
-            self->status_text_ = PL_TEXT("Connection OK — %1 model(s) visible.", n);
+            self->status_text_       = PL_TEXT("Connection OK — %1 model(s) visible.", n);
+            self->connection_status_ = Tr("Connected — %1 model(s) available.").arg(n);
           } else {
             self->last_error_ = QString::fromStdString(result.error);
             self->status_text_ = i18n::LocalizedText{};
+            self->connection_status_ =
+                Tr("Connection failed: %1").arg(QString::fromStdString(result.error));
+            self->discovered_models_.clear();
           }
           self->RefreshConfiguredState();
           emit self->StateChanged();

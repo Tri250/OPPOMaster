@@ -39,6 +39,11 @@ struct AiProviderPreset {
   QString recommended_rendition;    // thumbnail | preview | image
   QString masked_key_label;         // display-only mask of the persisted key (no raw key).
   bool remember_key = false;        // whether the user enabled persistent key storage.
+  // Target language for AI-generated captions/reasons. "follow" (default)
+  // resolves to the current app language at job time; "en" and "zh" are
+  // explicit. Stored on the preset because it governs the provider it pairs
+  // with; the host resolves "follow" before sending (the sidecar never sees it).
+  QString output_language;          // follow | en | zh
 };
 
 /// Owns the selected compatible-protocol preset's non-secret settings and
@@ -68,6 +73,7 @@ class AiProviderPresetController final : public QObject {
   Q_PROPERTY(QString recommendedRendition READ RecommendedRendition NOTIFY PresetChanged)
   Q_PROPERTY(QString maskedKeyLabel READ MaskedKeyLabel NOTIFY PresetChanged)
   Q_PROPERTY(bool rememberKey READ RememberKey NOTIFY PresetChanged)
+  Q_PROPERTY(QString outputLanguage READ OutputLanguage NOTIFY PresetChanged)
 
  public:
   explicit AiProviderPresetController(QObject* parent = nullptr);
@@ -97,6 +103,7 @@ class AiProviderPresetController final : public QObject {
   QString RecommendedRendition() const;
   QString MaskedKeyLabel() const;
   bool    RememberKey() const;
+  QString OutputLanguage() const;
 
   // Individual Q_INVOKABLE setters (write QSettings + emit PresetChanged).
   Q_INVOKABLE void SetProviderId(const QString& value);
@@ -114,6 +121,7 @@ class AiProviderPresetController final : public QObject {
   Q_INVOKABLE void SetRecommendedRendition(const QString& value);
   Q_INVOKABLE void SetMaskedKeyLabel(const QString& value);
   Q_INVOKABLE void SetRememberKey(bool value);
+  Q_INVOKABLE void SetOutputLanguage(const QString& value);
 
  signals:
   // Shared NOTIFY for every Q_PROPERTY above (mirrors the existing controller convention).
@@ -130,6 +138,7 @@ class AiProviderPresetController final : public QObject {
   static QString NormalizedAuthType(const QString& value);
   static QString NormalizedStructuredOutputMode(const QString& value);
   static QString NormalizedRendition(const QString& value);
+  static QString NormalizedOutputLanguage(const QString& value);
   static qint64 NormalizedTimeoutMs(qint64 value);
   static qint64 NormalizedMaxImageBytes(qint64 value);
 };

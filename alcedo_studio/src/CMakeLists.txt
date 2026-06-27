@@ -1609,6 +1609,7 @@ qt_add_qml_module(alcedo_main
         ui/alcedo_main/qml/SemanticGenerationDialog.qml
         ui/alcedo_main/qml/ActivateModelDialog.qml
         ui/alcedo_main/qml/SemanticGenerationSettingsPanel.qml
+        ui/alcedo_main/qml/AiProviderSettingsPanel.qml
         ui/alcedo_main/qml/AboutPage.qml
         ui/alcedo_main/qml/ImportProgressRing.qml
         ui/alcedo_main/qml/InspectorPanel.qml
