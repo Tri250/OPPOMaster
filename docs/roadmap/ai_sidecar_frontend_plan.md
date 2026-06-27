@@ -457,6 +457,190 @@ Acceptance:
 - The lower connection/model/output-language sections have been manually tested
   after credential persistence is fixed.
 
+### Frontend 1b - Provider Settings Card Refactor
+
+This phase restructures the Advanced Content Analysis settings page from the
+single-preset form delivered in Frontend 1 / 1-Fix into a card-per-provider
+layout where each provider is an independently-saved profile and only one is
+active at a time. It supersedes the single-preset `ai/preset/*` QSettings
+model with a list of provider profiles. Frontend 2's analysis dialog should
+read "current provider/model" from the active profile of this model, so this
+phase lands before Frontend 2.
+
+Reference: this phase mirrors the provider-card UX of cc-switch
+(`farion1231/cc-switch`) — a card per provider, an Enable/Use primary button
+that marks the active card, an Edit action opening a per-provider edit form,
+add via presets/templates, duplicate with a `copy` suffix, drag-to-reorder,
+and an empty state. Deliberate divergences from cc-switch: no user-facing JSON
+config editor (editing is fine-grained individual fields); the card's right
+side has only two buttons, Edit and Use, not cc-switch's full action row; the
+API key lives in the OS credential store keyed per-card slot, never in a
+config blob, so clone does not copy the key; and no proxy/failover/usage-query
+/multi-app concepts, since this panel manages one image-analysis provider at a
+time.
+
+Decisions locked in this grill session:
+
+- Multi-profile model. Each provider profile persists its full settings
+  independently across switching, not only the API key. The single flat
+  `ai/preset/*` record is replaced by a list of profiles, each with its own
+  base URL, endpoint, model, output language, and advanced fields.
+- Dynamic card list. Cards are user-created profiles. Users can add, remove,
+  and clone. Multiple cards of the same provider are allowed, e.g. two
+  OpenRouter accounts with independent keys.
+- Profile granularity. A profile is bound to one concrete `provider_id`,
+  which fixes its protocol. The Add picker seeds a new card from one of the
+  built-in `provider_id` templates or a Custom blank; switching protocols
+  means creating a new card, not mutating an existing one. The two-ComboBox
+  Provider/Protocol interaction from Frontend 1-Fix is retired in favor of
+  the card list.
+- Card creation. Add opens a small template picker (the built-in `provider_id`
+  templates plus Custom), seeds a new card with a default disambiguated
+  display name, then immediately slides to the edit page so the user
+  configures it before returning to the list.
+- Card identity. Each profile has a stable host-minted uuid, persisted
+  forever, never shown to the user. The display name is user-editable; the
+  default is the template name plus a suffix when taken. Duplicate display
+  names are allowed (the uuid is the real key) with a light warning.
+- Per-card credential slot. Each card gets its own host-minted, unique
+  credential slot, not a built-in shared slot like `openrouter_api_key`. Two
+  cards of the same provider therefore hold two independent OS credentials and
+  two independent keys; this is what makes the multi-account case real.
+- Clone. Cloning duplicates a card's settings under a new uuid and a new name
+  but does not copy the API key. The clone gets its own empty new slot, so a
+  secret is never silently duplicated.
+- Delete. Each card has a trash action with confirmation. Deletion offers to
+  also wipe that card's OS-store key (default yes) to avoid orphan
+  credentials. Deleting the active card auto-activates the most-recently-used
+  remaining card, or shows an empty-state placeholder if no cards remain.
+- Sidecar plumbing (P-a). The host exports each card's config to user-config
+  JSON in a directory passed to the sidecar via `--provider-config-dir`, and
+  restarts the sidecar to reload when configs change. The host mints a unique
+  sidecar `provider_id` per profile so multiple cards of the same built-in do
+  not collide on the sidecar's `seen_user_provider_ids` dedupe. Restarts are
+  lazy: edits are written to host storage immediately, and the sidecar reloads
+  only at the start of the next analysis run when configs are dirty, never
+  concurrent with a running job. The host must call `Stop()` explicitly before
+  `StartAndWait()` because the same-options short-circuit in `StartAndWait`
+  does not compare `extra_arguments`. Credential handles are re-registered per
+  analysis run anyway, so an idle restart is effectively free.
+- Edit-on-non-active (E-a). Edit and Use are separate actions. Editing a
+  non-active card edits its saved profile without activating it; Test &
+  Refresh Models on the edit page targets that card by its profile id and its
+  own credential slot, in place, without activating. This needs a small host
+  change: `ValidateConnection` and model discovery must accept a specific
+  profile id rather than reading only the active preset. Testing a card
+  reloads its config first if dirty (the same lazy-reload-when-dirty rule).
+- Output language is global, not per-profile. One output-language preference
+  applies to whichever card is active; profiles do not store their own
+  language, and the wire request carries this global language (resolved to
+  en/zh, or the app language for `follow`) instead of a per-profile field. It
+  is stored under its own global key (migrated from the old
+  `ai/preset/outputLanguage`).
+- Seed template set (S-all). The Add picker offers all four host built-in
+  provider_ids — `opencode_go_anthropic`, `opencode_go_openai`,
+  `volcengine_ark`, `volcengine_ark_coding` — plus a Custom blank. OpenRouter
+  is not offered (it is absent from the host builtin table, per the Frontend
+  1-Fix stance). The known live-404 `volcengine_ark` (Open Decision #4) is
+  kept in the picker rather than hidden; per-card Test & Refresh reports the
+  failure honestly.
+- Host-side persistence. Profiles live in a single `ai_providers.json` (a
+  profile array plus `active_profile_id` and the global `output_language`).
+  Each profile stores the rich host fields (uuid, display name, based-on
+  template, its own credential slot, masked key label, remember-key,
+  last-used) and the sidecar-relevant fields (the host-minted unique
+  `provider_id`, driver, base URL, endpoint, auth type, structured output
+  mode, default model, timeout, max image bytes, recommended rendition,
+  models). The sidecar user-config directory is generated from the profiles
+  (only the `ProviderConfig`-shaped subset) and passed via
+  `--provider-config-dir`; host UI state and sidecar config stay separate.
+- Controller. A new `AiProviderProfileController` owns the profile list, the
+  active id, per-card operations (add/clone/delete/rename/set-field/save-key
+  /delete-key/per-profile validate), sidecar-config generation, and the lazy
+  sidecar restart on dirty configs. `ImageAnalysisController` and the new
+  panel are re-pointed at it to read the active profile. The old single-preset
+  `AiProviderPresetController` is retired (or kept as a thin adapter during
+  transition) rather than reworked in place, so single-preset callers are not
+  dragged into a multi-profile rewrite.
+- No old-data migration. The legacy `ai/preset/*` single preset is not
+  migrated; the new model starts fresh (empty card list on first run, output
+  language defaulting to follow-app-language). A previously saved key under a
+  built-in shared slot is left in the OS store but unreferenced, and the old
+  `ai/preset/*` QSettings keys are abandoned.
+
+Page 1 (list):
+
+- A scrollable list of provider cards.
+- A global Output language control above the list (Follow app language /
+  English / 中文), applying to whichever card is active.
+- Cards are ordered by insertion order with no drag-reorder: new cards
+  append at the end and a clone inserts immediately after its source
+  (cc-switch's clone-insertion), keeping the list plain.
+- Each card: left side shows the display name (bold) and the base URL as a
+  muted subtitle line, kept plain with no icon, badges, or protocol tag; the
+  right side has two always-visible buttons, Use and Edit. Use is the primary
+  button and, when this card is already active, shows a checkmark plus an
+  in-use label and is disabled (mirroring cc-switch's Enable). Edit opens the
+  edit page. Key-saved status lives on the edit page, not on the card; Use is
+  not gated on having a key (analysis surfaces a clear no-key error if the
+  active card has none).
+- Only one card is active at a time. The active card is marked by an accent
+  border plus a subtle accent tint (cc-switch's blue-border pattern), so it is
+  obvious without relying on button hover. Use sets the active profile.
+- Duplicate, Delete, and Test & Refresh Models live on the edit page, not on
+  the card, to keep the card to two buttons.
+
+Page 2 (edit, reached by sliding):
+
+- A SwipeView second page modeled on `WelcomeDialog.qml`'s pager, with a
+  header back button and the card's display name as the title.
+- Editable fields: API key (password field, Save Key, Delete Key, masked
+  saved-key label, and the card's own credential slot), model (ComboBox
+  populated from discovered candidates), and the advanced
+  fields (provider id, display name, base URL, endpoint, auth type,
+  credential slot, structured output mode, timeout, max image bytes,
+  recommended rendition).
+- A Test & Refresh Models action next to the model field, scoped to this
+  card (the per-profile connection test from the edit-on-non-active decision).
+- A footer with Duplicate and Delete. Delete confirms and offers to wipe this
+  card's OS-store key (the delete semantics locked above); Duplicate creates a
+  copy with a `copy` name suffix and a new uuid/slot without copying the API
+  key (the clone semantics locked above).
+
+Layout (L-drop). The Advanced Content Analysis page currently sits in a
+`ScrollView` with unbounded content height inside `SettingDialog.qml`'s
+`StackLayout`, which a `SwipeView` cannot fill. This phase drops that outer
+`ScrollView` for page 4 and makes `AiProviderSettingsPanel` fill the
+`StackLayout` directly (`Layout.fillWidth` + `Layout.fillHeight`, plus a
+`width` binding like `SemanticGenerationSettingsPanel.qml`). The panel root
+becomes a `SwipeView` with two pages, each managing its own scroll: page 1 is
+a `ListView` of cards, page 2 is a `ScrollView` around the edit form. This
+mirrors `WelcomeDialog.qml`'s pager and fits the ~440px viewport.
+
+Acceptance:
+
+- The provider settings page is a card list; each card is an independently
+  persisted profile. Switching the active card does not lose any card's
+  settings, including base URL and model.
+- Only one card is active at a time and is clearly marked.
+- Add creates a card from a built-in provider_id template or Custom, then
+  opens the edit page.
+- Clone duplicates settings without copying the API key.
+- Delete removes the card and (on opt-in) its OS-store key, and re-selects an
+  active card if needed.
+- Each card stores its API key under its own unique credential slot; two cards
+  of the same provider hold independent keys.
+- Editing a card slides to a second page exposing API key, base URL, model,
+  and advanced fields (output language is the global control on page 1).
+- Raw API keys never enter QSettings, profile DTOs, status text, or logs.
+- Profiles persist in a single `ai_providers.json`; the sidecar config
+  directory is generated from them and reloaded lazily before the next
+  analysis when dirty. A new `AiProviderProfileController` owns the list, the
+  active id, per-card operations, and the sidecar restart.
+- The legacy `ai/preset/*` single preset is not migrated; the model starts
+  fresh on upgrade (a previously saved key under a built-in shared slot is
+  left in the OS store but unreferenced).
+
 ### Frontend 2 - Advanced Analysis Launcher And Dialog
 
 - Add `panel_icons/flask.svg` and register it in `resource.qrc`.

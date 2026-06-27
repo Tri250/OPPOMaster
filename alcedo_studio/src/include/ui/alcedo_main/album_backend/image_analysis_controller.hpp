@@ -14,7 +14,7 @@
 #include <vector>
 
 #include "app/ai_credential_store.hpp"
-#include "app/ai_provider_preset.hpp"
+#include "app/ai_provider_profile.hpp"
 #include "app/image_analysis_service.hpp"
 #include "ui/alcedo_main/album_backend/image_analysis_sink.hpp"
 #include "ui/alcedo_main/i18n.hpp"
@@ -33,16 +33,16 @@ class AlbumBackend;
 /// fake thumbnail/client/credential-store seams and a shared gate.
 class IImageAnalysisEnvironment {
  public:
-  virtual ~IImageAnalysisEnvironment() = default;
+  virtual ~IImageAnalysisEnvironment()                                                 = default;
   virtual auto ThumbnailProvider() -> std::shared_ptr<IImageAnalysisThumbnailProvider> = 0;
-  virtual auto AnalysisClient() -> std::shared_ptr<IImageAnalysisClient>            = 0;
-  virtual auto CredentialStore() -> std::shared_ptr<IAiCredentialStore>              = 0;
-  virtual auto Gate() -> std::shared_ptr<ImageAnalysisInFlightGate>                 = 0;
+  virtual auto AnalysisClient() -> std::shared_ptr<IImageAnalysisClient>               = 0;
+  virtual auto CredentialStore() -> std::shared_ptr<IAiCredentialStore>                = 0;
+  virtual auto Gate() -> std::shared_ptr<ImageAnalysisInFlightGate>                    = 0;
   /// Start the AI sidecar on demand with `require_model_info=false` (remote image
   /// analysis uses the HTTP-provider path; no CLIP model is needed). Returns true
   /// if the sidecar is ready. Does NOT check `model_info` (it is unpopulated when
   /// `require_model_info=false`).
-  virtual auto EnsureSidecarReady(std::string* error) -> bool = 0;
+  virtual auto EnsureSidecarReady(bool provider_configs_dirty, std::string* error) -> bool = 0;
 };
 
 /// Drives remote image analysis (caption/tags via `image_understanding.describe`,
@@ -53,7 +53,7 @@ class IImageAnalysisEnvironment {
 /// `album_backend/`, surfaced to QML as a `Q_PROPERTY(QObject* ... CONSTANT)` on
 /// `AlbumBackend`. The controller is deliberately NOT inlined into
 /// `album_backend.cpp` — it is a standalone module. It is constructable with an
-/// `IImageAnalysisEnvironment` + `AiProviderPresetController*` so it has no direct
+/// `IImageAnalysisEnvironment` + `AiProviderProfileController*` so it has no direct
 /// `AlbumBackend` dependency and is unit-testable with fakes.
 ///
 /// The controller owns NO database writes (persistence + search refresh is Phase
@@ -83,9 +83,8 @@ class ImageAnalysisController final : public QObject {
 
  public:
   ImageAnalysisController(std::shared_ptr<IImageAnalysisEnvironment> env,
-                          AiProviderPresetController*                 preset,
-                          std::shared_ptr<IImageAnalysisSink>         sink,
-                          QObject*                                    parent = nullptr);
+                          AiProviderProfileController*               profiles,
+                          std::shared_ptr<IImageAnalysisSink> sink, QObject* parent = nullptr);
 
   bool             Running() const { return running_; }
   int              Total() const { return total_; }
@@ -110,20 +109,14 @@ class ImageAnalysisController final : public QObject {
   Q_INVOKABLE void StartScoreForTargets(const QVariantList& targetEntries);
   Q_INVOKABLE void CancelAnalysis();
   Q_INVOKABLE void RetryLast();
-  // Dry-run model discovery against the selected preset (reuses the Phase 6c
+  // Dry-run model discovery against the selected profile (reuses the Phase 6c
   // ValidateConnection path). Surfaces ok/error in lastError and populates
   // `discoveredModels` with the live-listed candidates. The sidecar commits
   // discovered models during ListModels, so a candidate is immediately
   // selectable as an explicit model_id.
   Q_INVOKABLE void ValidateConnection();
+  Q_INVOKABLE void ValidateConnectionForProfile(const QString& profileId);
   Q_INVOKABLE void RefreshCredentialState();
-  // Save / delete the API key for the current preset's `credential_slot` in the
-  // OS credential store. The raw secret never enters QSettings, logs, status
-  // text, or the preset DTO — only `masked_key_label` (a display mask) is
-  // persisted. SaveApiKey returns a non-empty error string on failure (empty on
-  // success). DeleteApiKey is idempotent. Both refresh `credentialAvailable`.
-  Q_INVOKABLE QString SaveApiKey(const QString& secret);
-  Q_INVOKABLE void DeleteApiKey();
 
  signals:
   void StateChanged();
@@ -138,26 +131,26 @@ class ImageAnalysisController final : public QObject {
   void ResetCounters();
 
   std::shared_ptr<IImageAnalysisEnvironment> env_;
-  AiProviderPresetController*                 preset_;
-  std::shared_ptr<IImageAnalysisSink>         sink_;
-  std::shared_ptr<alcedo::ImageAnalysisJob>   job_;
-  std::vector<alcedo::ImageAnalysisItem>      last_items_;
-  alcedo::ImageAnalysisTask                    last_task_ = alcedo::ImageAnalysisTask::kDescribe;
+  AiProviderProfileController*               profiles_;
+  std::shared_ptr<IImageAnalysisSink>        sink_;
+  std::shared_ptr<alcedo::ImageAnalysisJob>  job_;
+  std::vector<alcedo::ImageAnalysisItem>     last_items_;
+  alcedo::ImageAnalysisTask                  last_task_ = alcedo::ImageAnalysisTask::kDescribe;
 
-  i18n::LocalizedText status_text_{};
-  QString             last_error_;
-  QString             connection_status_;
-  QVariantList        last_results_;
-  QVariantList        discovered_models_;
-  QVariantMap         last_usage_;
-  bool                running_              = false;
-  bool                can_retry_            = false;
-  bool                provider_configured_  = false;
-  bool                credential_available_ = false;
-  int                 total_                = 0;
-  int                 analyzed_             = 0;
-  int                 failed_               = 0;
-  int                 canceled_             = 0;
+  i18n::LocalizedText                        status_text_{};
+  QString                                    last_error_;
+  QString                                    connection_status_;
+  QVariantList                               last_results_;
+  QVariantList                               discovered_models_;
+  QVariantMap                                last_usage_;
+  bool                                       running_              = false;
+  bool                                       can_retry_            = false;
+  bool                                       provider_configured_  = false;
+  bool                                       credential_available_ = false;
+  int                                        total_                = 0;
+  int                                        analyzed_             = 0;
+  int                                        failed_               = 0;
+  int                                        canceled_             = 0;
 };
 
 /// Factory for the production environment. Defined in the .cpp (the concrete
@@ -169,6 +162,6 @@ std::shared_ptr<IImageAnalysisEnvironment> MakeAlbumImageAnalysisEnvironment(Alb
 /// `album_backend.cpp`). Delegates to `AiStorageController`, `ImageController`, and
 /// `StatsEngine`. `AlbumBackend` calls this from its member-init list to construct
 /// `ImageAnalysisController`.
-std::shared_ptr<IImageAnalysisSink> MakeAlbumImageAnalysisSink(AlbumBackend& backend);
+std::shared_ptr<IImageAnalysisSink>        MakeAlbumImageAnalysisSink(AlbumBackend& backend);
 
 }  // namespace alcedo::ui

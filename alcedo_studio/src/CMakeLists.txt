@@ -1110,17 +1110,6 @@ def_library(AiSidecarRuntimeService
     PRIVATE_DEPS AppDiagnostics
 )
 
-# Phase 6a: compatible-protocol preset DTO + settings controller. Non-secret
-# metadata only (round-trips through QSettings); the raw API key never enters
-# this type — it stays in the OS credential store (Phase 6c) and reaches the
-# sidecar only as a short-lived vault handle.
-def_library(AiProviderPreset
-    SOURCES
-        app/ai_provider_preset.cpp
-        include/app/ai_provider_preset.hpp
-    PUBLIC_DEPS Qt6::Core
-)
-
 def_library(AiCredentialStore
     SOURCES
         app/ai_credential_store.cpp
@@ -1130,6 +1119,15 @@ if(WIN32)
     target_link_libraries(AiCredentialStore PRIVATE Advapi32)
 endif()
 
+# Frontend 1b: multi-profile provider settings controller. Profiles persist in
+# ai_providers.json and generated sidecar ProviderConfig JSON; raw API keys stay
+# only in AiCredentialStore.
+def_library(AiProviderProfile
+    SOURCES
+        app/ai_provider_profile.cpp
+        include/app/ai_provider_profile.hpp
+    PUBLIC_DEPS AiCredentialStore Qt6::Core
+)
 def_library(ModelDownloadService
     SOURCES
         app/model_download_service.cpp
@@ -1215,7 +1213,7 @@ def_library(ImageAnalysisController
     SOURCES
         ui/alcedo_main/album_backend/image_analysis_controller.cpp
         include/ui/alcedo_main/album_backend/image_analysis_controller.hpp
-    PUBLIC_DEPS ImageAnalysisService AiProviderPreset AiCredentialStore UiLocalization Qt6::Core
+    PUBLIC_DEPS ImageAnalysisService AiProviderProfile AiCredentialStore UiLocalization Qt6::Core
 )
 
 def_library(ThumbnailDiskCacheService
@@ -1376,7 +1374,7 @@ target_link_libraries(AlbumBackendLib
         SemanticGenerationService
         ImageAnalysisService
         ImageAnalysisController
-        AiProviderPreset
+        AiProviderProfile
         AiCredentialStore
         ModelDownloadService
         SleeveFilterService

@@ -3,8 +3,8 @@
 //  Additional permission under GPLv3 section 7 applies; see the LICENSE file.
 
 // Phase 6d — album image-analysis job controller. Drives ImageAnalysisController
-// with fakes (IImageAnalysisEnvironment + AiProviderPresetController on temp
-// QSettings) so the 6d-required cases (empty selection, one/multi success, cancel,
+// with fakes (IImageAnalysisEnvironment + AiProviderProfileController on temp
+// files) so the 6d-required cases (empty selection, one/multi success, cancel,
 // retry, provider error, schema error, missing credential, score, shared-gate
 // serialization) run without a live project or sidecar.
 
@@ -13,27 +13,25 @@
 #include <gtest/gtest.h>
 
 #include <QCoreApplication>
-#include <QLatin1String>
-#include <QSettings>
 #include <QString>
+#include <QTemporaryDir>
 #include <QVariantList>
 #include <QVariantMap>
-
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <opencv2/core.hpp>
 #include <string>
 #include <thread>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
-#include <opencv2/core.hpp>
-
-#include "app/ai_provider_preset.hpp"
+#include "app/ai_provider_profile.hpp"
 #include "app/image_analysis_service.hpp"
 #include "image/image_buffer.hpp"
 
@@ -48,19 +46,29 @@ constexpr int kErrorMissingCredential = 2;
 constexpr int kErrorTaskUnknown       = 9;
 constexpr int kErrorPayloadDecode     = 10;
 
+#ifdef _WIN32
+auto FsPathFromQStringForTest(const QString& path) -> std::filesystem::path {
+  return std::filesystem::path(path.toStdWString());
+}
+#else
+auto FsPathFromQStringForTest(const QString& path) -> std::filesystem::path {
+  return std::filesystem::path(path.toStdString());
+}
+#endif
+
 // Synchronous thumbnail provider: returns a ready guard holding a small CPU mat so
 // the encoder produces real JPEG bytes. No ThumbnailService / pipeline required.
 class FakeThumbProvider : public alcedo::IImageAnalysisThumbnailProvider {
  public:
-  void RequestThumbnail(const alcedo::ImageAnalysisItem& item,
-                        alcedo::ThumbnailResolution             resolution,
-                        alcedo::ImageAnalysisThumbnailCallback  callback) override {
+  void RequestThumbnail(const alcedo::ImageAnalysisItem&       item,
+                        alcedo::ThumbnailResolution            resolution,
+                        alcedo::ImageAnalysisThumbnailCallback callback) override {
     ++request_count_;
     alcedo::ThumbnailRequestResult r;
     r.key    = alcedo::ThumbnailCacheKey{item.element_id, resolution};
     r.status = alcedo::ThumbnailRequestStatus::kReady;
-    cv::Mat  mat(16, 16, CV_8UC3, cv::Scalar(100, 150, 200));
-    r.guard  = std::make_shared<alcedo::ThumbnailGuard>();
+    cv::Mat mat(16, 16, CV_8UC3, cv::Scalar(100, 150, 200));
+    r.guard                    = std::make_shared<alcedo::ThumbnailGuard>();
     r.guard->thumbnail_buffer_ = std::make_unique<alcedo::ImageBuffer>(std::move(mat));
     callback(std::move(r));
   }
@@ -84,7 +92,7 @@ class FakeClient : public alcedo::IImageAnalysisClient {
   // itemsWithoutUsage branch of the Phase 7a usage aggregate).
   void SetUsageEnabled(bool enabled) { usage_enabled_ = enabled; }
   void SetBlockMode(bool block) {
-    block_mode_ = block;
+    block_mode_      = block;
     release_blocked_ = false;
   }
   void ReleaseBlock() {
@@ -97,16 +105,16 @@ class FakeClient : public alcedo::IImageAnalysisClient {
 
   auto Ready() -> bool override { return true; }
   auto RegisterCredential(const std::string&, const std::string&, int64_t,
-                          std::chrono::milliseconds, std::string* handle,
-                          std::string*) -> bool override {
+                          std::chrono::milliseconds, std::string* handle, std::string*)
+      -> bool override {
     ++register_calls_;
     if (handle) {
       *handle = "fake-handle";
     }
     return true;
   }
-  auto RevokeCredential(const std::string&, std::chrono::milliseconds, bool*,
-                        std::string*) -> bool override {
+  auto RevokeCredential(const std::string&, std::chrono::milliseconds, bool*, std::string*)
+      -> bool override {
     ++revoke_calls_;
     return true;
   }
@@ -130,8 +138,8 @@ class FakeClient : public alcedo::IImageAnalysisClient {
     }
     return MakeRating(req, score_outcome_);
   }
-  auto CancelTask(const std::string&, std::chrono::milliseconds, bool* cancelled,
-                  std::string*) -> bool override {
+  auto CancelTask(const std::string&, std::chrono::milliseconds, bool* cancelled, std::string*)
+      -> bool override {
     ++cancel_calls_;
     if (cancelled) {
       *cancelled = true;
@@ -164,12 +172,12 @@ class FakeClient : public alcedo::IImageAnalysisClient {
     r.provider   = "fake";
     r.model_id   = req.model_id.empty() ? std::string("fake-model") : req.model_id;
     if (o == Outcome::kSuccess) {
-      r.ok = true;
-      r.status = kStatusOk;
-      r.caption = "a caption";
-      r.tags    = {"tag1", "tag2"};
-      r.scene   = "scene";
-      r.confidence = 0.9;
+      r.ok                = true;
+      r.status            = kStatusOk;
+      r.caption           = "a caption";
+      r.tags              = {"tag1", "tag2"};
+      r.scene             = "scene";
+      r.confidence        = 0.9;
       r.prompt_profile_id = "profile-v1";
       if (usage_enabled_) {
         r.provider_request_id = "req-desc-" + req.request_id;
@@ -178,20 +186,20 @@ class FakeClient : public alcedo::IImageAnalysisClient {
         r.usage.total_tokens  = 30;
       }
     } else if (o == Outcome::kMissingCredential) {
-      r.ok = false;
-      r.status = kStatusUnauthenticated;
+      r.ok         = false;
+      r.status     = kStatusUnauthenticated;
       r.error_code = kErrorMissingCredential;
-      r.error = "credential missing";
+      r.error      = "credential missing";
     } else if (o == Outcome::kUnsupported) {
-      r.ok = false;
-      r.status = kStatusUnsupportedTask;
+      r.ok         = false;
+      r.status     = kStatusUnsupportedTask;
       r.error_code = kErrorTaskUnknown;
-      r.error = "unsupported provider";
+      r.error      = "unsupported provider";
     } else {
-      r.ok = false;
-      r.status = kStatusProviderError;
+      r.ok         = false;
+      r.status     = kStatusProviderError;
       r.error_code = kErrorPayloadDecode;
-      r.error = "schema validation failed";
+      r.error      = "schema validation failed";
     }
     return r;
   }
@@ -203,13 +211,13 @@ class FakeClient : public alcedo::IImageAnalysisClient {
     r.provider   = "fake";
     r.model_id   = req.model_id.empty() ? std::string("fake-model") : req.model_id;
     if (o == Outcome::kSuccess) {
-      r.ok = true;
-      r.status = kStatusOk;
-      r.rating = 4;
-      r.rubric_id = "general";
-      r.rubric_version = "1.0";
-      r.prompt_profile_id   = "profile-v1";
-      r.reasons             = "strong composition";
+      r.ok                = true;
+      r.status            = kStatusOk;
+      r.rating            = 4;
+      r.rubric_id         = "general";
+      r.rubric_version    = "1.0";
+      r.prompt_profile_id = "profile-v1";
+      r.reasons           = "strong composition";
       if (usage_enabled_) {
         r.provider_request_id = "req-score-" + req.request_id;
         r.usage.input_tokens  = 5;
@@ -217,37 +225,37 @@ class FakeClient : public alcedo::IImageAnalysisClient {
         r.usage.total_tokens  = 12;
       }
     } else {
-      r.ok = false;
+      r.ok     = false;
       r.status = kStatusProviderError;
-      r.error = "failed";
+      r.error  = "failed";
     }
     return r;
   }
 
-  std::atomic<int> describe_calls_{0};
-  std::atomic<int> score_calls_{0};
-  std::atomic<int> cancel_calls_{0};
-  std::atomic<int> register_calls_{0};
-  std::atomic<int> list_models_calls_{0};
-  std::atomic<int> revoke_calls_{0};
-  std::string last_output_language_;
-  Outcome describe_outcome_ = Outcome::kSuccess;
-  Outcome score_outcome_    = Outcome::kSuccess;
-  bool   usage_enabled_     = true;
-  std::atomic<bool> block_mode_{false};
-  std::atomic<bool> release_blocked_{false};
-  std::mutex        block_mutex_;
+  std::atomic<int>        describe_calls_{0};
+  std::atomic<int>        score_calls_{0};
+  std::atomic<int>        cancel_calls_{0};
+  std::atomic<int>        register_calls_{0};
+  std::atomic<int>        list_models_calls_{0};
+  std::atomic<int>        revoke_calls_{0};
+  std::string             last_output_language_;
+  Outcome                 describe_outcome_ = Outcome::kSuccess;
+  Outcome                 score_outcome_    = Outcome::kSuccess;
+  bool                    usage_enabled_    = true;
+  std::atomic<bool>       block_mode_{false};
+  std::atomic<bool>       release_blocked_{false};
+  std::mutex              block_mutex_;
   std::condition_variable block_cv_;
 };
 
 class CountingCredentialStore final : public alcedo::IAiCredentialStore {
  public:
-  auto SaveCredential(const std::string& slot, const std::string& secret,
-                      std::string* error) -> bool override {
+  auto SaveCredential(const std::string& slot, const std::string& secret, std::string* error)
+      -> bool override {
     return inner_.SaveCredential(slot, secret, error);
   }
-  auto LoadCredential(const std::string& slot, std::string* secret,
-                      std::string* error) -> bool override {
+  auto LoadCredential(const std::string& slot, std::string* secret, std::string* error)
+      -> bool override {
     ++load_calls_;
     return inner_.LoadCredential(slot, secret, error);
   }
@@ -264,8 +272,8 @@ class CountingCredentialStore final : public alcedo::IAiCredentialStore {
 
  private:
   alcedo::InMemoryAiCredentialStore inner_;
-  std::atomic<int> load_calls_{0};
-  std::atomic<int> has_calls_{0};
+  std::atomic<int>                  load_calls_{0};
+  std::atomic<int>                  has_calls_{0};
 };
 
 // Phase 7a fake IImageAnalysisSink — records every call so "no upsert on failure /
@@ -348,21 +356,20 @@ class FakeSink : public IImageAnalysisSink {
   }
 
  private:
-  mutable std::mutex mu_;
-  int  persist_understanding_calls_ = 0;
-  int  persist_reasons_calls_       = 0;
-  int  apply_star_calls_            = 0;
-  int  flush_calls_                 = 0;
-  int  notify_calls_                = 0;
-  bool persist_ok_                  = true;
-  std::vector<StarCall>   star_calls_;
-  std::vector<uint32_t>   understanding_element_ids_;
-  std::vector<uint32_t>   reasons_element_ids_;
+  mutable std::mutex    mu_;
+  int                   persist_understanding_calls_ = 0;
+  int                   persist_reasons_calls_       = 0;
+  int                   apply_star_calls_            = 0;
+  int                   flush_calls_                 = 0;
+  int                   notify_calls_                = 0;
+  bool                  persist_ok_                  = true;
+  std::vector<StarCall> star_calls_;
+  std::vector<uint32_t> understanding_element_ids_;
+  std::vector<uint32_t> reasons_element_ids_;
 };
 class FakeEnv : public IImageAnalysisEnvironment {
  public:
-  FakeEnv(std::shared_ptr<FakeThumbProvider> thumbs,
-          std::shared_ptr<FakeClient>        client,
+  FakeEnv(std::shared_ptr<FakeThumbProvider> thumbs, std::shared_ptr<FakeClient> client,
           std::shared_ptr<alcedo::ImageAnalysisInFlightGate> gate,
           std::shared_ptr<alcedo::IAiCredentialStore>        store)
       : thumbs_(std::move(thumbs)),
@@ -373,23 +380,28 @@ class FakeEnv : public IImageAnalysisEnvironment {
   auto ThumbnailProvider() -> std::shared_ptr<alcedo::IImageAnalysisThumbnailProvider> override {
     return thumbs_;
   }
-  auto AnalysisClient() -> std::shared_ptr<alcedo::IImageAnalysisClient> override { return client_; }
+  auto AnalysisClient() -> std::shared_ptr<alcedo::IImageAnalysisClient> override {
+    return client_;
+  }
   auto CredentialStore() -> std::shared_ptr<alcedo::IAiCredentialStore> override { return store_; }
   auto Gate() -> std::shared_ptr<alcedo::ImageAnalysisInFlightGate> override { return gate_; }
-  auto EnsureSidecarReady(std::string*) -> bool override {
-    sidecar_ensured_ = true;
+  auto EnsureSidecarReady(bool provider_configs_dirty, std::string*) -> bool override {
+    last_provider_configs_dirty_ = provider_configs_dirty;
+    sidecar_ensured_             = true;
     return sidecar_ready_;
   }
   void SetSidecarReady(bool r) { sidecar_ready_ = r; }
   auto SidecarEnsured() const -> bool { return sidecar_ensured_.load(); }
+  auto LastProviderConfigsDirty() const -> bool { return last_provider_configs_dirty_.load(); }
 
  private:
-  std::shared_ptr<FakeThumbProvider>                  thumbs_;
-  std::shared_ptr<FakeClient>                         client_;
-  std::shared_ptr<alcedo::ImageAnalysisInFlightGate>  gate_;
-  std::shared_ptr<alcedo::IAiCredentialStore>         store_;
-  std::atomic<bool> sidecar_ensured_{false};
-  bool              sidecar_ready_ = true;
+  std::shared_ptr<FakeThumbProvider>                 thumbs_;
+  std::shared_ptr<FakeClient>                        client_;
+  std::shared_ptr<alcedo::ImageAnalysisInFlightGate> gate_;
+  std::shared_ptr<alcedo::IAiCredentialStore>        store_;
+  std::atomic<bool>                                  sidecar_ensured_{false};
+  std::atomic<bool>                                  last_provider_configs_dirty_{false};
+  bool                                               sidecar_ready_ = true;
 };
 
 auto Targets(std::vector<std::pair<uint, uint>> ids) -> QVariantList {
@@ -434,30 +446,32 @@ auto SpinWaitFor(std::function<bool()> pred, std::chrono::milliseconds timeout) 
 }
 
 struct EnvBundle {
-  std::shared_ptr<FakeThumbProvider>                 thumbs = std::make_shared<FakeThumbProvider>();
-  std::shared_ptr<FakeClient>                        client = std::make_shared<FakeClient>();
-  std::shared_ptr<alcedo::ImageAnalysisInFlightGate> gate   = std::make_shared<
-      alcedo::ImageAnalysisInFlightGate>();
+  QTemporaryDir                            temp_dir;
   std::shared_ptr<CountingCredentialStore> store = std::make_shared<CountingCredentialStore>();
-  std::shared_ptr<FakeSink>                sink = std::make_shared<FakeSink>();
-  std::shared_ptr<FakeEnv>               env;
-  alcedo::AiProviderPresetController     preset;  // outlives the controller(s)
+  alcedo::AiProviderProfileController      profiles;
+  std::shared_ptr<FakeThumbProvider>       thumbs = std::make_shared<FakeThumbProvider>();
+  std::shared_ptr<FakeClient>              client = std::make_shared<FakeClient>();
+  std::shared_ptr<alcedo::ImageAnalysisInFlightGate> gate =
+      std::make_shared<alcedo::ImageAnalysisInFlightGate>();
+  std::shared_ptr<FakeSink> sink = std::make_shared<FakeSink>();
+  std::shared_ptr<FakeEnv>  env;
 
-  EnvBundle() {
-    store->SaveCredential("opencode_api_key", "sk-fake-test-key", nullptr);
+  EnvBundle()
+      : profiles(FsPathFromQStringForTest(temp_dir.filePath(QStringLiteral("ai_providers.json"))),
+                 FsPathFromQStringForTest(temp_dir.filePath(QStringLiteral("provider_configs"))),
+                 store) {
+    const QString id = profiles.AddProfileFromTemplate(QStringLiteral("opencode_go_anthropic"));
+    EXPECT_FALSE(id.isEmpty());
+    profiles.SetProfileField(id, QStringLiteral("modelId"), QStringLiteral("claude-sonnet-4-5"));
+    store->SaveCredential(ActiveCredentialSlot(), "sk-fake-test-key", nullptr);
     env = std::make_shared<FakeEnv>(thumbs, client, gate, store);
-    alcedo::AiProviderPreset p;
-    p.provider_id              = QStringLiteral("opencode_go_anthropic");
-    p.protocol_family          = QStringLiteral("anthropic_messages");
-    p.base_url                 = QStringLiteral("https://opencode.ai/zen/go/v1");
-    p.endpoint                 = QStringLiteral("/messages");
-    p.auth_type                = QStringLiteral("bearer");
-    p.credential_slot          = QStringLiteral("opencode_api_key");
-    p.model_id                 = QStringLiteral("claude-sonnet-4-5");
-    p.structured_output_mode   = QStringLiteral("tool");
-    p.timeout_ms               = 5000;
-    p.max_image_bytes          = 4 * 1024 * 1024;
-    preset.SetFromPreset(p);
+  }
+
+  auto ActiveCredentialSlot() const -> std::string {
+    return profiles.Profile(profiles.ActiveProfileId())
+        .value(QStringLiteral("credentialSlot"))
+        .toString()
+        .toStdString();
   }
 };
 
@@ -471,22 +485,20 @@ class ImageAnalysisControllerTest : public ::testing::Test {
     }
     QCoreApplication::setOrganizationName(QStringLiteral("PuerhLabTest"));
     QCoreApplication::setApplicationName(QStringLiteral("ImageAnalysisControllerTest"));
-    QSettings().remove(QLatin1String("ai/preset"));
   }
-  static void TearDownTestSuite() { QSettings().remove(QLatin1String("ai/preset")); }
 
-  // A fresh controller + env per case. The preset lives in the bundle (kept
-  // alive in bundles_) so the controller's raw pointer stays valid.
+  // A fresh controller + env per case. The profile controller lives in the
+  // bundle (kept alive in bundles_) so the controller's raw pointer stays valid.
   auto MakeController() -> std::unique_ptr<ImageAnalysisController> {
     auto bundle = std::make_shared<EnvBundle>();
     bundles_.push_back(bundle);
     last_bundle_ = bundle;
-    return std::make_unique<ImageAnalysisController>(bundle->env, &bundle->preset, bundle->sink);
+    return std::make_unique<ImageAnalysisController>(bundle->env, &bundle->profiles, bundle->sink);
   }
 
-  static QCoreApplication*                              app_;
-  std::vector<std::shared_ptr<EnvBundle>>               bundles_;
-  std::shared_ptr<EnvBundle>                            last_bundle_;
+  static QCoreApplication*                app_;
+  std::vector<std::shared_ptr<EnvBundle>> bundles_;
+  std::shared_ptr<EnvBundle>              last_bundle_;
 };
 
 QCoreApplication* ImageAnalysisControllerTest::app_ = nullptr;
@@ -534,7 +546,7 @@ TEST_F(ImageAnalysisControllerTest, ErrorClearsPreviousResultsAndCounts) {
 
 TEST_F(ImageAnalysisControllerTest, ValidateConnectionMissingCredentialDoesNotStartSidecar) {
   auto controller = MakeController();
-  ASSERT_TRUE(last_bundle_->store->DeleteCredential("opencode_api_key", nullptr));
+  ASSERT_TRUE(last_bundle_->store->DeleteCredential(last_bundle_->ActiveCredentialSlot(), nullptr));
 
   controller->ValidateConnection();
   EXPECT_FALSE(controller->Running());
@@ -624,8 +636,7 @@ TEST_F(ImageAnalysisControllerTest, SchemaErrorPropagatesAndNoActiveAnnotation) 
 TEST_F(ImageAnalysisControllerTest, MissingCredentialSetsErrorAndDoesNotStart) {
   auto controller = MakeController();
   // Wipe the credential so LoadCredential fails before the sidecar is touched.
-  ASSERT_TRUE(
-      last_bundle_->store->DeleteCredential("opencode_api_key", nullptr));
+  ASSERT_TRUE(last_bundle_->store->DeleteCredential(last_bundle_->ActiveCredentialSlot(), nullptr));
   controller->StartDescribeForTargets(Targets({{1, 100}}));
   EXPECT_FALSE(controller->Running());
   EXPECT_FALSE(controller->LastError().isEmpty());
@@ -654,14 +665,14 @@ TEST_F(ImageAnalysisControllerTest, SharedGateSerializesTwoConcurrentRuns) {
   auto bundle = std::make_shared<EnvBundle>();
   bundles_.push_back(bundle);
 
-  ImageAnalysisController a(bundle->env, &bundle->preset, bundle->sink);
-  ImageAnalysisController b(bundle->env, &bundle->preset, bundle->sink);
+  ImageAnalysisController a(bundle->env, &bundle->profiles, bundle->sink);
+  ImageAnalysisController b(bundle->env, &bundle->profiles, bundle->sink);
 
   bundle->client->SetBlockMode(true);
   a.StartDescribeForTargets(Targets({{1, 100}}));
   // Wait until A's provider call is in flight (A holds the shared gate).
-  ASSERT_TRUE(SpinWaitFor([&] { return bundle->client->DescribeCalls() >= 1; },
-                          std::chrono::seconds(5)));
+  ASSERT_TRUE(
+      SpinWaitFor([&] { return bundle->client->DescribeCalls() >= 1; }, std::chrono::seconds(5)));
 
   b.StartDescribeForTargets(Targets({{2, 200}}));
   // B must NOT reach the provider while A holds the gate.
@@ -796,21 +807,20 @@ TEST_F(ImageAnalysisControllerTest, LastResultsCarryPromptProfileAndProviderRequ
 // ── Output language (Frontend 1) ─────────────────────────────────────────────
 
 TEST_F(ImageAnalysisControllerTest, OutputLanguageFollowResolvesToAppLanguage) {
-  // Default preset output_language is "follow"; the test app has no ui/language
+  // Default profile output_language is "follow"; the test app has no ui/language
   // set, so QSettings returns "system" -> QLocale::system() (English on the CI
   // host). Either way it must resolve to "" / "en" / "zh", never "follow".
   auto controller = MakeController();
   controller->StartDescribeForTargets(Targets({{1, 100}}));
   ASSERT_TRUE(WaitForFinished(*controller, std::chrono::seconds(10)));
   const std::string lang = last_bundle_->client->LastOutputLanguage();
-  EXPECT_TRUE(lang == "en" || lang == "zh")
-      << "follow must resolve to en/zh, got: " << lang;
+  EXPECT_TRUE(lang == "en" || lang == "zh") << "follow must resolve to en/zh, got: " << lang;
   EXPECT_NE(lang, "follow");
 }
 
 TEST_F(ImageAnalysisControllerTest, OutputLanguageExplicitZhReachesProvider) {
   auto controller = MakeController();
-  last_bundle_->preset.SetOutputLanguage(QStringLiteral("zh"));
+  last_bundle_->profiles.SetOutputLanguage(QStringLiteral("zh"));
   controller->StartDescribeForTargets(Targets({{1, 100}}));
   ASSERT_TRUE(WaitForFinished(*controller, std::chrono::seconds(10)));
   EXPECT_EQ(last_bundle_->client->LastOutputLanguage(), "zh");
@@ -818,83 +828,10 @@ TEST_F(ImageAnalysisControllerTest, OutputLanguageExplicitZhReachesProvider) {
 
 TEST_F(ImageAnalysisControllerTest, OutputLanguageExplicitEnReachesProvider) {
   auto controller = MakeController();
-  last_bundle_->preset.SetOutputLanguage(QStringLiteral("en"));
+  last_bundle_->profiles.SetOutputLanguage(QStringLiteral("en"));
   controller->StartScoreForTargets(Targets({{1, 100}}));
   ASSERT_TRUE(WaitForFinished(*controller, std::chrono::seconds(10)));
   EXPECT_EQ(last_bundle_->client->LastOutputLanguage(), "en");
-}
-
-// ── Credential save / delete bridge (Frontend 1) ─────────────────────────────
-
-TEST_F(ImageAnalysisControllerTest, SaveApiKeyUpdatesAvailabilityEvenWhenModelIsUnset) {
-  auto controller = MakeController();
-  controller->DeleteApiKey();
-  last_bundle_->preset.SetModelId(QString{});
-  controller->RefreshCredentialState();
-  ASSERT_FALSE(controller->ProviderConfigured());
-  ASSERT_FALSE(controller->CredentialAvailable());
-
-  const QString err = controller->SaveApiKey(QStringLiteral("sk-model-empty-secret-1234"));
-  EXPECT_TRUE(err.isEmpty()) << err.toStdString();
-  EXPECT_FALSE(controller->ProviderConfigured());
-  EXPECT_TRUE(controller->CredentialAvailable());
-}
-TEST_F(ImageAnalysisControllerTest, SaveApiKeyPersistsSecretAndUpdatesMaskAndAvailability) {
-  auto controller = MakeController();
-  // Wipe the slot the EnvBundle pre-seeded so we start from "no key".
-  controller->DeleteApiKey();
-  controller->RefreshCredentialState();
-  EXPECT_FALSE(controller->CredentialAvailable());
-
-  const QString err = controller->SaveApiKey(QStringLiteral("sk-test-secret-1234"));
-  EXPECT_TRUE(err.isEmpty()) << err.toStdString();
-  controller->RefreshCredentialState();
-  EXPECT_TRUE(controller->CredentialAvailable());
-  // The raw secret never appears in the masked label; only a mask + tail.
-  const QString masked = last_bundle_->preset.MaskedKeyLabel();
-  EXPECT_FALSE(masked.isEmpty());
-  EXPECT_FALSE(masked.contains(QStringLiteral("sk-test-secret-1234")));
-  EXPECT_TRUE(masked.contains(QStringLiteral("••••")));
-}
-
-TEST_F(ImageAnalysisControllerTest, CredentialAvailabilitySurvivesControllerRecreationWithSharedStore) {
-  auto controller = MakeController();
-  controller->DeleteApiKey();
-  ASSERT_FALSE(controller->CredentialAvailable());
-
-  const QString err = controller->SaveApiKey(QStringLiteral("sk-recreate-secret-5555"));
-  ASSERT_TRUE(err.isEmpty()) << err.toStdString();
-  ASSERT_TRUE(controller->CredentialAvailable());
-
-  ImageAnalysisController recreated(last_bundle_->env, &last_bundle_->preset, last_bundle_->sink);
-  EXPECT_TRUE(recreated.CredentialAvailable());
-
-  recreated.DeleteApiKey();
-  EXPECT_FALSE(recreated.CredentialAvailable());
-  ImageAnalysisController after_delete(last_bundle_->env, &last_bundle_->preset, last_bundle_->sink);
-  EXPECT_FALSE(after_delete.CredentialAvailable());
-}
-TEST_F(ImageAnalysisControllerTest, DeleteApiKeyClearsCredential) {
-  auto controller = MakeController();
-  EXPECT_TRUE(controller->CredentialAvailable());
-  controller->DeleteApiKey();
-  EXPECT_FALSE(controller->CredentialAvailable());
-  EXPECT_TRUE(last_bundle_->preset.MaskedKeyLabel().isEmpty());
-}
-
-TEST_F(ImageAnalysisControllerTest, SaveApiKeyRawSecretNeverEntersQSettings) {
-  auto controller = MakeController();
-  controller->SaveApiKey(QStringLiteral("sk-never-persist-me-9876"));
-  // The raw key must never land in the preset's QSettings group.
-  QSettings s;
-  s.beginGroup(QStringLiteral("ai/preset"));
-  const QStringList keys = s.allKeys();
-  for (const QString& k : keys) {
-    const QString v = s.value(k).toString();
-    EXPECT_FALSE(v.contains(QStringLiteral("sk-never-persist-me-9876")))
-        << "raw secret leaked into QSettings key: " << k.toStdString();
-  }
-  s.endGroup();
 }
 
 // ── Discovered models surface (Frontend 1) ───────────────────────────────────

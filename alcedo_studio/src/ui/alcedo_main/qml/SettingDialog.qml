@@ -766,33 +766,24 @@ Dialog {
                             }
                         }
 
-                        ScrollView {
-                            id: advancedAnalysisScroll
-                            contentWidth: availableWidth
-                            clip: true
-
-                            AiProviderSettingsPanel {
-                                Layout.fillWidth: true
-                                Layout.topMargin: 26
-                                Layout.leftMargin: 34
-                                Layout.rightMargin: 34
-                                Layout.bottomMargin: 26
-                                presetController: albumBackend.aiProviderPresetController
-                                analysisController: albumBackend.imageAnalysisController
-                                primaryAccent: dialog.primaryAccent
-                                secondaryAccent: dialog.secondaryAccent
-                                textColor: dialog.textColor
-                                mutedTextColor: dialog.mutedTextColor
-                                canvasColor: dialog.canvasColor
-                                dividerColor: dialog.dividerColor
-                                dangerColor: dialog.dangerColor
-                                dataFontFamily: dialog.dataFontFamily
-                                onMessageRequested: function(message) {
-                                    dialog.messageRequested(message)
-                                }
+                        AiProviderSettingsPanel {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            width: parent ? parent.width : 0
+                            profileController: albumBackend.aiProviderProfileController
+                            analysisController: albumBackend.imageAnalysisController
+                            primaryAccent: dialog.primaryAccent
+                            secondaryAccent: dialog.secondaryAccent
+                            textColor: dialog.textColor
+                            mutedTextColor: dialog.mutedTextColor
+                            canvasColor: dialog.canvasColor
+                            dividerColor: dialog.dividerColor
+                            dangerColor: dialog.dangerColor
+                            dataFontFamily: dialog.dataFontFamily
+                            onMessageRequested: function(message) {
+                                dialog.messageRequested(message)
                             }
                         }
-
                         ScrollView {
                             id: aboutScroll
                             contentWidth: availableWidth

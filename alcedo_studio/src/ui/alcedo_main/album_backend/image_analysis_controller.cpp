@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <thread>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -29,7 +30,7 @@ namespace {
 // Credential handle TTL for a remote image-analysis job (matches the 6c default).
 constexpr int64_t kCredentialTtlMs = 60000;
 
-void ClearSecret(std::string* secret) {
+void              ClearSecret(std::string* secret) {
   if (secret == nullptr) {
     return;
   }
@@ -40,7 +41,7 @@ void ClearSecret(std::string* secret) {
   secret->shrink_to_fit();
 }
 
-// Resolve the preset's output_language to a concrete code the sidecar accepts.
+// Resolve the profile output_language to a concrete code the sidecar accepts.
 // "follow" (the default) resolves to the current app language — reading
 // QSettings("ui/language") and resolving "system" via QLocale, the same pattern
 // as semantic_generation_controller.cpp's CurrentUiSemanticLabelLanguage. The
@@ -55,32 +56,13 @@ QString ResolveOutputLanguage(const QString& preference) {
     return QStringLiteral("zh");
   }
   // "follow" (or anything else) -> current app language.
-  QString code = QSettings().value(QStringLiteral("ui/language"), QStringLiteral("system")).toString();
+  QString code =
+      QSettings().value(QStringLiteral("ui/language"), QStringLiteral("system")).toString();
   if (code.compare(QStringLiteral("system"), Qt::CaseInsensitive) == 0) {
     code = QLocale::system().bcp47Name();
   }
   return code.startsWith(QStringLiteral("zh"), Qt::CaseInsensitive) ? QStringLiteral("zh")
                                                                     : QStringLiteral("en");
-}
-
-// Build a display mask for a raw secret: "sk-••••1234" style — never the raw
-// key. Used for `masked_key_label` so QML can show "a key is saved" without the
-// secret itself ever being persisted or logged.
-QString MaskedKeyLabel(const std::string& secret) {
-  if (secret.empty()) {
-    return QString{};
-  }
-  const auto n = secret.size();
-  // Show up to the last 4 chars, masked prefix. Cap the visible tail so a long
-  // key does not leak much.
-  const size_t tail = std::min<size_t>(n, 4);
-  QString masked;
-  masked.reserve(16);
-  masked += QStringLiteral("••••");
-  if (tail > 0) {
-    masked += QString::fromUtf8(secret.data() + (n - tail), static_cast<int>(tail));
-  }
-  return masked;
 }
 
 }  // namespace
@@ -89,32 +71,37 @@ QString MaskedKeyLabel(const std::string& secret) {
 // ImageAnalysisController
 // ────────────────────────────────────────────────────────────────────────────
 ImageAnalysisController::ImageAnalysisController(std::shared_ptr<IImageAnalysisEnvironment> env,
-                                                 AiProviderPresetController*                 preset,
-                                                 std::shared_ptr<IImageAnalysisSink>         sink,
-                                                 QObject*                                    parent)
-    : QObject(parent), env_(std::move(env)), preset_(preset), sink_(std::move(sink)) {
-  if (preset_) {
-    connect(preset_, &AiProviderPresetController::PresetChanged, this,
+                                                 AiProviderProfileController*        profiles,
+                                                 std::shared_ptr<IImageAnalysisSink> sink,
+                                                 QObject*                            parent)
+    : QObject(parent), env_(std::move(env)), profiles_(profiles), sink_(std::move(sink)) {
+  if (profiles_) {
+    connect(profiles_, &AiProviderProfileController::ProfilesChanged, this,
             [this] { RefreshConfiguredState(); });
   }
   RefreshConfiguredState();
 }
 
 void ImageAnalysisController::RefreshConfiguredState() {
-  if (!preset_) {
+  if (!profiles_) {
     provider_configured_  = false;
     credential_available_ = false;
     emit StateChanged();
     return;
   }
-  const auto preset = preset_->CurrentPreset();
+  const auto profile                  = profiles_->ActiveProfile();
   const bool was_provider_configured  = provider_configured_;
   const bool was_credential_available = credential_available_;
-  provider_configured_ = !preset.provider_id.isEmpty() && !preset.model_id.isEmpty();
-  // Re-check the credential store without reading the secret or starting the sidecar.
-  if (!preset.credential_slot.isEmpty()) {
-    auto store = env_ ? env_->CredentialStore() : nullptr;
-    credential_available_ = store && store->HasCredential(preset.credential_slot.toStdString());
+  provider_configured_ =
+      profile.has_value() && !profile->provider_id.isEmpty() && !profile->model_id.isEmpty();
+  if (profile && profile->auth_type == QStringLiteral("none")) {
+    credential_available_ = true;
+  } else if (profile && !profile->credential_slot.isEmpty()) {
+    auto store = profiles_->CredentialStore();
+    if (!store && env_) {
+      store = env_->CredentialStore();
+    }
+    credential_available_ = store && store->HasCredential(profile->credential_slot.toStdString());
   } else {
     credential_available_ = false;
   }
@@ -125,61 +112,6 @@ void ImageAnalysisController::RefreshConfiguredState() {
 }
 
 void ImageAnalysisController::RefreshCredentialState() { RefreshConfiguredState(); }
-
-QString ImageAnalysisController::SaveApiKey(const QString& secret) {
-  if (!preset_ || !env_) {
-    return Tr("Image analysis runtime is unavailable.");
-  }
-  const auto preset = preset_->CurrentPreset();
-  if (preset.credential_slot.isEmpty()) {
-    return Tr("Configure a credential slot before saving a key.");
-  }
-  auto store = env_->CredentialStore();
-  if (!store) {
-    return Tr("Image analysis runtime is unavailable.");
-  }
-  // Copy the secret into a std::string only long enough to hand it to the OS
-  // credential store, then wipe it. It is never logged, never written to
-  // QSettings, and never stored on the preset DTO — only a display mask is.
-  std::string raw = secret.toStdString();
-  std::string err;
-  const bool ok = store->SaveCredential(preset.credential_slot.toStdString(), raw, &err);
-  // Build the mask from the raw secret before wiping it.
-  QString masked = MaskedKeyLabel(raw);
-  ClearSecret(&raw);
-  if (!ok) {
-    return err.empty() ? Tr("Could not save the API key to the system credential store.")
-                       : QString::fromStdString(err);
-  }
-  if (preset_) {
-    preset_->SetMaskedKeyLabel(masked);
-    // SetMaskedKeyLabel emits PresetChanged -> RefreshConfiguredState runs, but
-    // call it explicitly so credentialAvailable reflects the new key promptly.
-  }
-  RefreshCredentialState();
-  return {};
-}
-
-void ImageAnalysisController::DeleteApiKey() {
-  if (!preset_ || !env_) {
-    return;
-  }
-  const auto preset = preset_->CurrentPreset();
-  if (preset.credential_slot.isEmpty()) {
-    return;
-  }
-  auto store = env_->CredentialStore();
-  if (!store) {
-    return;
-  }
-  std::string err;
-  store->DeleteCredential(preset.credential_slot.toStdString(), &err);  // idempotent
-  if (preset_) {
-    preset_->SetMaskedKeyLabel(QString{});
-  }
-  RefreshCredentialState();
-}
-
 auto ImageAnalysisController::CollectItems(const QVariantList& targetEntries)
     -> std::vector<alcedo::ImageAnalysisItem> {
   std::vector<alcedo::ImageAnalysisItem> items;
@@ -208,7 +140,7 @@ void ImageAnalysisController::ResetCounters() {
 }
 
 void ImageAnalysisController::SetError(const QString& error) {
-  last_error_ = error;
+  last_error_  = error;
   status_text_ = i18n::LocalizedText{};
   running_     = false;
   can_retry_   = false;
@@ -228,7 +160,7 @@ void ImageAnalysisController::StartScoreForTargets(const QVariantList& targetEnt
   StartForTargets(targetEntries, alcedo::ImageAnalysisTask::kScore);
 }
 
-void ImageAnalysisController::StartForTargets(const QVariantList&        targetEntries,
+void ImageAnalysisController::StartForTargets(const QVariantList&       targetEntries,
                                               alcedo::ImageAnalysisTask task) {
   if (running_) {
     return;
@@ -242,34 +174,51 @@ void ImageAnalysisController::StartForTargets(const QVariantList&        targetE
     return;
   }
 
-  if (!preset_) {
-    SetError(Tr("No provider preset is configured."));
+  if (!profiles_) {
+    SetError(Tr("No provider profile is configured."));
     return;
   }
-  const auto preset = preset_->CurrentPreset();
-  if (preset.provider_id.isEmpty() || preset.model_id.isEmpty()) {
+  const auto profile_opt = profiles_->ActiveProfile();
+  if (!profile_opt) {
     provider_configured_ = false;
-    SetError(Tr("Configure a provider and model in the AI preset before analyzing images."));
+    SetError(Tr("Add and use an Advanced Content Analysis provider before analyzing images."));
+    return;
+  }
+  const auto profile = *profile_opt;
+  if (profile.provider_id.isEmpty() || profile.model_id.isEmpty()) {
+    provider_configured_ = false;
+    SetError(Tr("Configure a provider and model before analyzing images."));
     return;
   }
   provider_configured_ = true;
 
-  // Load the secret from the OS credential store (never from QSettings). If the
-  // slot is missing, fail before starting the sidecar.
   std::string secret;
-  std::string cred_err;
-  auto        store = env_ ? env_->CredentialStore() : nullptr;
-  if (!store || !store->LoadCredential(preset.credential_slot.toStdString(), &secret, &cred_err)) {
-    credential_available_ = false;
-    SetError(Tr("No API key stored for credential slot '%1'. Save a key first.").arg(
-        preset.credential_slot));
+  if (profile.auth_type != QStringLiteral("none")) {
+    std::string cred_err;
+    auto        store = profiles_->CredentialStore();
+    if (!store && env_) {
+      store = env_->CredentialStore();
+    }
+    if (!store ||
+        !store->LoadCredential(profile.credential_slot.toStdString(), &secret, &cred_err)) {
+      credential_available_ = false;
+      SetError(Tr("No API key stored for credential slot '%1'. Save a key first.")
+                   .arg(profile.credential_slot));
+      return;
+    }
+  }
+  credential_available_              = true;
+
+  const bool  provider_configs_dirty = profiles_->SidecarConfigsDirty();
+  std::string config_err;
+  if (!profiles_->PrepareSidecarConfigDir(&config_err)) {
+    ClearSecret(&secret);
+    SetError(Tr("Could not write provider configs: %1").arg(QString::fromStdString(config_err)));
     return;
   }
-  credential_available_ = true;
 
-  // Start the sidecar on demand (require_model_info=false).
   std::string sidecar_err;
-  if (!env_->EnsureSidecarReady(&sidecar_err)) {
+  if (!env_->EnsureSidecarReady(provider_configs_dirty, &sidecar_err)) {
     ClearSecret(&secret);
     SetError(Tr("Could not start the AI sidecar: %1").arg(QString::fromStdString(sidecar_err)));
     return;
@@ -285,40 +234,38 @@ void ImageAnalysisController::StartForTargets(const QVariantList&        targetE
   }
 
   alcedo::ImageAnalysisOptions options;
-  options.task                 = task;
-  options.thumbnail_resolution = alcedo::ThumbnailResolution::k1024;
-  options.jpeg_quality         = 90;
-  options.timeout              = std::chrono::milliseconds(preset.timeout_ms);
-  options.provider_id          = preset.provider_id.toStdString();
-  options.model_id             = preset.model_id.toStdString();
-  options.output_language      = ResolveOutputLanguage(preset.output_language).toStdString();
-  options.credential.provider_id = preset.provider_id.toStdString();
-  options.credential.secret     = std::move(secret);
-  options.credential_ttl_ms     = kCredentialTtlMs;
-  options.temp_dir              = std::filesystem::temp_directory_path();
-  options.prefetch             = 1;
-  options.max_image_bytes      = preset.max_image_bytes;
+  options.task                   = task;
+  options.thumbnail_resolution   = alcedo::ThumbnailResolution::k1024;
+  options.jpeg_quality           = 90;
+  options.timeout                = std::chrono::milliseconds(profile.timeout_ms);
+  options.provider_id            = profile.provider_id.toStdString();
+  options.model_id               = profile.model_id.toStdString();
+  options.output_language        = ResolveOutputLanguage(profiles_->OutputLanguage()).toStdString();
+  options.credential.provider_id = profile.provider_id.toStdString();
+  options.credential.secret      = std::move(secret);
+  options.credential_ttl_ms      = kCredentialTtlMs;
+  options.temp_dir               = std::filesystem::temp_directory_path();
+  options.prefetch               = 1;
+  options.max_image_bytes        = profile.max_image_bytes;
   if (task == alcedo::ImageAnalysisTask::kScore) {
     options.rubric_id = "general";
   }
-
   ResetCounters();
-  total_      = static_cast<int>(items.size());
-  running_    = true;
-  can_retry_  = false;
-  last_items_ = items;
-  status_text_ =
-      task == alcedo::ImageAnalysisTask::kDescribe
-          ? PL_TEXT("Analyzing %1 image(s) for captions and tags...", total_)
-          : PL_TEXT("Scoring %1 image(s)...", total_);
-  emit StateChanged();
+  total_       = static_cast<int>(items.size());
+  running_     = true;
+  can_retry_   = false;
+  last_items_  = items;
+  status_text_ = task == alcedo::ImageAnalysisTask::kDescribe
+                     ? PL_TEXT("Analyzing %1 image(s) for captions and tags...", total_)
+                     : PL_TEXT("Scoring %1 image(s)...", total_);
+  emit                              StateChanged();
 
   // Build a fresh service per job, passing the SHARED gate so remote calls
   // serialize app-wide across every controller/service instance.
-  alcedo::ImageAnalysisService service(thumbnail_provider, analysis_client, gate);
+  alcedo::ImageAnalysisService      service(thumbnail_provider, analysis_client, gate);
 
   QPointer<ImageAnalysisController> self(this);
-  auto job = service.StartAnalysis(
+  auto                              job = service.StartAnalysis(
       std::move(items), std::move(options),
       [self](const alcedo::ImageAnalysisProgress& progress) {
         if (!self) {
@@ -362,8 +309,8 @@ void ImageAnalysisController::RetryLast() {
   if (running_ || last_items_.empty()) {
     return;
   }
-  auto items = last_items_;
-  auto task  = last_task_;
+  auto         items = last_items_;
+  auto         task  = last_task_;
   // Re-run via StartForTargets by reconstructing the target entries from items.
   QVariantList entries;
   for (const auto& it : items) {
@@ -376,31 +323,50 @@ void ImageAnalysisController::RetryLast() {
 }
 
 void ImageAnalysisController::ValidateConnection() {
-  if (running_ || !preset_ || !env_) {
+  ValidateConnectionForProfile(profiles_ ? profiles_->ActiveProfileId() : QString{});
+}
+
+void ImageAnalysisController::ValidateConnectionForProfile(const QString& profileId) {
+  if (running_ || !profiles_ || !env_) {
     return;
   }
-  const auto preset = preset_->CurrentPreset();
-  if (preset.provider_id.isEmpty() || preset.credential_slot.isEmpty()) {
+  const auto profile_opt = profiles_->ProfileById(profileId);
+  if (!profile_opt) {
+    SetError(Tr("Select a provider profile before validating."));
+    return;
+  }
+  const auto profile = *profile_opt;
+  if (profile.provider_id.isEmpty() || profile.credential_slot.isEmpty()) {
     SetError(Tr("Configure a provider id and credential slot before validating."));
     return;
   }
 
-  auto store = env_->CredentialStore();
+  auto store = profiles_->CredentialStore();
+  if (!store) {
+    store = env_->CredentialStore();
+  }
   if (!store) {
     SetError(Tr("Image analysis runtime is unavailable."));
     return;
   }
-  std::string slot = preset.credential_slot.toStdString();
-  if (!store->HasCredential(slot)) {
+  std::string slot = profile.credential_slot.toStdString();
+  if (profile.auth_type != QStringLiteral("none") && !store->HasCredential(slot)) {
     credential_available_ = false;
-    SetError(Tr("No API key stored for credential slot '%1'. Save a key first.").arg(
-        preset.credential_slot));
+    SetError(Tr("No API key stored for credential slot '%1'. Save a key first.")
+                 .arg(profile.credential_slot));
     return;
   }
-  credential_available_ = true;
+  credential_available_              = true;
+
+  const bool  provider_configs_dirty = profiles_->SidecarConfigsDirty();
+  std::string config_err;
+  if (!profiles_->PrepareSidecarConfigDir(&config_err)) {
+    SetError(Tr("Could not write provider configs: %1").arg(QString::fromStdString(config_err)));
+    return;
+  }
 
   std::string sidecar_err;
-  if (!env_->EnsureSidecarReady(&sidecar_err)) {
+  if (!env_->EnsureSidecarReady(provider_configs_dirty, &sidecar_err)) {
     SetError(Tr("Could not start the AI sidecar: %1").arg(QString::fromStdString(sidecar_err)));
     return;
   }
@@ -411,30 +377,28 @@ void ImageAnalysisController::ValidateConnection() {
     SetError(Tr("Image analysis runtime is unavailable."));
     return;
   }
-  // Run the dry-run off the QML thread so the UI stays responsive.
-  std::string provider_id = preset.provider_id.toStdString();
-  int64_t     timeout_ms  = preset.timeout_ms;
+
+  std::string                       provider_id = profile.provider_id.toStdString();
+  int64_t                           timeout_ms  = profile.timeout_ms;
+  const QString                     profile_id  = profile.uuid;
   QPointer<ImageAnalysisController> self(this);
-  std::thread([self, provider_id, slot, timeout_ms, thumbnail_provider, analysis_client, gate,
-               store]() {
-    alcedo::ImageAnalysisService                         service(thumbnail_provider, analysis_client, gate);
+  std::thread([self, provider_id, profile_id, slot, timeout_ms, thumbnail_provider, analysis_client,
+               gate, store]() {
+    alcedo::ImageAnalysisService service(thumbnail_provider, analysis_client, gate);
     alcedo::ImageAnalysisConnectionValidationOptions opts;
-    opts.provider_id        = provider_id;
-    opts.credential_slot    = slot;
-    opts.timeout            = std::chrono::milliseconds(timeout_ms);
-    opts.credential_ttl_ms  = kCredentialTtlMs;
-    auto result = service.ValidateConnection(opts, *store);
+    opts.provider_id       = provider_id;
+    opts.credential_slot   = slot;
+    opts.timeout           = std::chrono::milliseconds(timeout_ms);
+    opts.credential_ttl_ms = kCredentialTtlMs;
+    auto result            = service.ValidateConnection(opts, *store);
     QMetaObject::invokeMethod(
         self,
-        [self, result]() {
+        [self, result, profile_id]() {
           if (!self) {
             return;
           }
           if (result.ok) {
             self->last_error_.clear();
-            // Surface the discovered candidates to QML so the settings page can
-            // populate the model ComboBox. The sidecar committed them during
-            // ListModels, so each is immediately usable as an explicit model_id.
             QVariantList models;
             models.reserve(static_cast<int>(result.models.size()));
             for (const auto& m : result.models) {
@@ -445,12 +409,15 @@ void ImageAnalysisController::ValidateConnection() {
                            QString::fromStdString(m.source_provider_id));
               models.append(entry);
             }
-            self->discovered_models_ = std::move(models);
-            const int n = static_cast<int>(result.models.size());
+            self->discovered_models_ = models;
+            if (self->profiles_) {
+              self->profiles_->SetDiscoveredModels(profile_id, models);
+            }
+            const int n              = static_cast<int>(result.models.size());
             self->status_text_       = PL_TEXT("Connection OK — %1 model(s) visible.", n);
             self->connection_status_ = Tr("Connected — %1 model(s) available.").arg(n);
           } else {
-            self->last_error_ = QString::fromStdString(result.error);
+            self->last_error_  = QString::fromStdString(result.error);
             self->status_text_ = i18n::LocalizedText{};
             self->connection_status_ =
                 Tr("Connection failed: %1").arg(QString::fromStdString(result.error));
@@ -462,17 +429,16 @@ void ImageAnalysisController::ValidateConnection() {
         Qt::QueuedConnection);
   }).detach();
 }
-
 void ImageAnalysisController::UpdateProgress(const alcedo::ImageAnalysisProgress& progress) {
-  total_    = static_cast<int>(progress.total);
-  analyzed_ = static_cast<int>(progress.analyzed);
-  failed_   = static_cast<int>(progress.failed);
-  canceled_ = static_cast<int>(progress.canceled);
+  total_              = static_cast<int>(progress.total);
+  analyzed_           = static_cast<int>(progress.analyzed);
+  failed_             = static_cast<int>(progress.failed);
+  canceled_           = static_cast<int>(progress.canceled);
   const int completed = analyzed_ + failed_ + canceled_;
   const int pct       = total_ > 0 ? (completed * 100) / total_ : 0;
   status_text_        = (last_task_ == alcedo::ImageAnalysisTask::kDescribe)
-                 ? PL_TEXT("Analyzing captions/tags: %1/%2 (%3%)", completed, total_, pct)
-                 : PL_TEXT("Scoring: %1/%2 (%3%)", completed, total_, pct);
+                            ? PL_TEXT("Analyzing captions/tags: %1/%2 (%3%)", completed, total_, pct)
+                            : PL_TEXT("Scoring: %1/%2 (%3%)", completed, total_, pct);
   emit StateChanged();
 }
 
@@ -483,13 +449,13 @@ void ImageAnalysisController::Finish(std::vector<alcedo::ImageAnalysisItemResult
   // Phase 7a usage aggregate: token totals across all items + the distinct provider
   // request ids, plus how many items carried usage metadata vs not. Per-item usage is
   // NOT placed in `lastResults` — this aggregate is the 7a summary.
-  int64_t             usage_input     = 0;
-  int64_t             usage_output    = 0;
-  int64_t             usage_total     = 0;
-  QVariantList        usage_request_ids;
-  int                 items_with_usage    = 0;
-  int                 items_without_usage = 0;
-  const bool          describe = (last_task_ == alcedo::ImageAnalysisTask::kDescribe);
+  int64_t      usage_input  = 0;
+  int64_t      usage_output = 0;
+  int64_t      usage_total  = 0;
+  QVariantList usage_request_ids;
+  int          items_with_usage    = 0;
+  int          items_without_usage = 0;
+  const bool   describe            = (last_task_ == alcedo::ImageAnalysisTask::kDescribe);
 
   for (const auto& r : results) {
     QVariantMap m;
@@ -497,16 +463,15 @@ void ImageAnalysisController::Finish(std::vector<alcedo::ImageAnalysisItemResult
     m.insert("imageId", static_cast<uint>(r.item.image_id));
     m.insert("status", QString::fromUtf8(alcedo::ToString(r.status)));
     m.insert("error", QString::fromStdString(r.error));
-    m.insert("provider", QString::fromStdString(describe ? r.understanding.provider
-                                                          : r.rating.provider));
-    m.insert("modelId", QString::fromStdString(describe ? r.understanding.model_id
-                                                         : r.rating.model_id));
+    m.insert("provider",
+             QString::fromStdString(describe ? r.understanding.provider : r.rating.provider));
+    m.insert("modelId",
+             QString::fromStdString(describe ? r.understanding.model_id : r.rating.model_id));
     // Identity on every job result so a prompt/model change does not reinterpret old
     // annotations: prompt-profile id + the provider's own request id (provider/modelId
     // already present above).
-    m.insert("promptProfileId",
-             QString::fromStdString(describe ? r.understanding.prompt_profile_id
-                                             : r.rating.prompt_profile_id));
+    m.insert("promptProfileId", QString::fromStdString(describe ? r.understanding.prompt_profile_id
+                                                                : r.rating.prompt_profile_id));
     m.insert("providerRequestId",
              QString::fromStdString(describe ? r.understanding.provider_request_id
                                              : r.rating.provider_request_id));
@@ -561,7 +526,7 @@ void ImageAnalysisController::Finish(std::vector<alcedo::ImageAnalysisItemResult
   usage_map.insert("providerRequestIds", usage_request_ids);
   usage_map.insert("itemsWithUsage", items_with_usage);
   usage_map.insert("itemsWithoutUsage", items_without_usage);
-  last_usage_ = usage_map;
+  last_usage_            = usage_map;
 
   const bool any_failure = (failed_ > 0 || canceled_ > 0);
   can_retry_             = any_failure && !last_items_.empty();

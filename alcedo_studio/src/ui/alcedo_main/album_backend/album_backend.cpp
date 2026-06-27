@@ -27,10 +27,10 @@
 #include <string>
 #include <thread>
 
-#include "app/album_browse_service.hpp"
-#include "app/project_package_service.hpp"
 #include "ai/ai_description.hpp"
 #include "ai/ai_rating.hpp"
+#include "app/album_browse_service.hpp"
+#include "app/project_package_service.hpp"
 #include "image/image.hpp"
 #include "storage/controller/ai/ai_storage_controller.hpp"
 #ifdef HAVE_OPENCL
@@ -49,7 +49,7 @@ using namespace std::chrono_literals;
 
 // On-demand sidecar startup timeout for the remote image-analysis path. The
 // semantic path uses 60s; image analysis cold-starts the same binary, so match.
-constexpr auto kImageAnalysisSidecarStartupTimeout = 60s;
+constexpr auto                      kImageAnalysisSidecarStartupTimeout = 60s;
 
 // ────────────────────────────────────────────────────────────────────────────
 // Production IImageAnalysisEnvironment: resolves the runtime seams lazily from
@@ -88,18 +88,14 @@ class AlbumImageAnalysisEnvironment final : public IImageAnalysisEnvironment {
   }
 
   auto CredentialStore() -> std::shared_ptr<IAiCredentialStore> override {
-    if (credential_store_) {
-      return credential_store_;
-    }
-    credential_store_ = MakeDefaultAiCredentialStore();
-    return credential_store_;
+    return backend_.ai_provider_profiles_.CredentialStore();
   }
 
   auto Gate() -> std::shared_ptr<ImageAnalysisInFlightGate> override {
     return backend_.image_analysis_gate_;
   }
 
-  auto EnsureSidecarReady(std::string* error) -> bool override {
+  auto EnsureSidecarReady(bool provider_configs_dirty, std::string* error) -> bool override {
     auto project = backend_.project_handler_.project();
     if (!project) {
       if (error) {
@@ -114,13 +110,22 @@ class AlbumImageAnalysisEnvironment final : public IImageAnalysisEnvironment {
       }
       return false;
     }
+    if (provider_configs_dirty && runtime->IsRunning()) {
+      runtime->Stop();
+    }
     if (runtime->Status().state == AiSidecarRuntimeState::kReady) {
       return true;
     }
     AiSidecarRuntimeOptions options;
-    options.allow_download     = false;
-    options.require_model_info = false;  // remote image analysis: HTTP-provider path, no CLIP model.
-    options.startup_timeout    = kImageAnalysisSidecarStartupTimeout;
+    options.allow_download = false;
+    options.require_model_info =
+        false;  // remote image analysis: HTTP-provider path, no CLIP model.
+    options.startup_timeout = kImageAnalysisSidecarStartupTimeout;
+    const auto config_dir   = backend_.ai_provider_profiles_.SidecarConfigDir();
+    if (!config_dir.empty()) {
+      options.extra_arguments.push_back("--provider-config-dir");
+      options.extra_arguments.push_back(config_dir.string());
+    }
     if (!runtime->StartAndWait(options)) {
       if (error) {
         *error = runtime->Status().message;
@@ -137,10 +142,10 @@ class AlbumImageAnalysisEnvironment final : public IImageAnalysisEnvironment {
  private:
   AlbumBackend&                                    backend_;
   std::shared_ptr<IImageAnalysisThumbnailProvider> thumbnail_provider_;
-  std::shared_ptr<IAiCredentialStore>              credential_store_;
 };
 
-std::shared_ptr<IImageAnalysisEnvironment> MakeAlbumImageAnalysisEnvironment(AlbumBackend& backend) {
+std::shared_ptr<IImageAnalysisEnvironment> MakeAlbumImageAnalysisEnvironment(
+    AlbumBackend& backend) {
   return std::make_shared<AlbumImageAnalysisEnvironment>(backend);
 }
 
@@ -165,7 +170,7 @@ class AlbumImageAnalysisSink final : public IImageAnalysisSink {
     if (!project) {
       return false;
     }
-    auto& ai = project->GetStorageService()->GetAiStorageController();
+    auto&         ai = project->GetStorageService()->GetAiStorageController();
     AiDescription d;
     d.file_id_           = result.item.element_id;
     d.task_id_           = kDescribeTaskId;
@@ -186,7 +191,7 @@ class AlbumImageAnalysisSink final : public IImageAnalysisSink {
     if (!project) {
       return false;
     }
-    auto& ai = project->GetStorageService()->GetAiStorageController();
+    auto&    ai = project->GetStorageService()->GetAiStorageController();
     AiRating r;
     r.file_id_           = result.item.element_id;
     r.task_id_           = kScoreTaskId;
@@ -197,11 +202,11 @@ class AlbumImageAnalysisSink final : public IImageAnalysisSink {
     // rating_ = 0 SENTINEL: the real star is the EXIF/metadata `Rating` value written by
     // ApplyStarRating. IsValidReasonsOnly ignores the rating value; GetActiveRating
     // consumers must not treat this 0 as the real score.
-    r.rating_         = 0;
-    r.rubric_id_      = result.rating.rubric_id;
-    r.rubric_version_ = result.rating.rubric_version;
-    r.reasons_        = result.rating.reasons;
-    r.active_         = true;
+    r.rating_            = 0;
+    r.rubric_id_         = result.rating.rubric_id;
+    r.rubric_version_    = result.rating.rubric_version;
+    r.reasons_           = result.rating.reasons;
+    r.active_            = true;
     return ai.UpsertRatingReasons(r);
   }
 
@@ -237,7 +242,7 @@ constexpr int    kMaxRecentProjects                 = 12;
 constexpr size_t kAlbumMetadataPageSize             = 1000;
 constexpr size_t kSearchMetadataPageSize            = 120;
 
-auto FormatCacheSize(size_t bytes) -> QString {
+auto             FormatCacheSize(size_t bytes) -> QString {
   if (bytes == 0) {
     return QStringLiteral("0 KiB");
   }
@@ -414,9 +419,9 @@ AlbumBackend::AlbumBackend(QObject* parent)
       search_(*this),
       model_download_controller_(*this),
       semantic_generation_(*this),
-      ai_provider_preset_(this),
+      ai_provider_profiles_(this),
       image_analysis_gate_(std::make_shared<alcedo::ImageAnalysisInFlightGate>()),
-      image_analysis_(MakeAlbumImageAnalysisEnvironment(*this), &ai_provider_preset_,
+      image_analysis_(MakeAlbumImageAnalysisEnvironment(*this), &ai_provider_profiles_,
                       MakeAlbumImageAnalysisSink(*this)),
       import_export_(*this),
       nikon_he_recovery_(*this),
@@ -513,13 +518,9 @@ auto AlbumBackend::SetImageRating(uint elementId, uint imageId, int rating) -> Q
 // AI rationale + identity. The stored `rating_` is a 0 sentinel for 7a rows and is NOT
 // returned as the score.
 auto AlbumBackend::GetImageRatingReasons(uint elementId) -> QVariantMap {
-  QVariantMap result{{"hasReasons", false},
-                     {"reasons", QString{}},
-                     {"provider", QString{}},
-                     {"modelId", QString{}},
-                     {"rubricId", QString{}},
-                     {"rubricVersion", QString{}}};
-  auto project = project_handler_.project();
+  QVariantMap result{{"hasReasons", false},  {"reasons", QString{}},  {"provider", QString{}},
+                     {"modelId", QString{}}, {"rubricId", QString{}}, {"rubricVersion", QString{}}};
+  auto        project = project_handler_.project();
   if (!project) {
     return result;
   }
@@ -528,11 +529,11 @@ auto AlbumBackend::GetImageRatingReasons(uint elementId) -> QVariantMap {
   if (!row.has_value() || row->reasons_.empty()) {
     return result;
   }
-  result["hasReasons"]   = true;
-  result["reasons"]      = QString::fromStdString(row->reasons_);
-  result["provider"]     = QString::fromStdString(row->provider_id_);
-  result["modelId"]      = QString::fromStdString(row->model_id_);
-  result["rubricId"]     = QString::fromStdString(row->rubric_id_);
+  result["hasReasons"]    = true;
+  result["reasons"]       = QString::fromStdString(row->reasons_);
+  result["provider"]      = QString::fromStdString(row->provider_id_);
+  result["modelId"]       = QString::fromStdString(row->model_id_);
+  result["rubricId"]      = QString::fromStdString(row->rubric_id_);
   result["rubricVersion"] = QString::fromStdString(row->rubric_version_);
   return result;
 }
@@ -580,7 +581,7 @@ void AlbumBackend::StartImport(const QStringList& fileUrlsOrPaths) {
 }
 void AlbumBackend::CancelImport() { import_export_.CancelImport(); }
 
-void AlbumBackend::SetAcceleratorPreparationState(bool preparing,
+void AlbumBackend::SetAcceleratorPreparationState(bool                       preparing,
                                                   const i18n::LocalizedText& status) {
   accelerator_preparing_               = preparing;
   accelerator_preparation_status_text_ = status;
@@ -596,7 +597,8 @@ void AlbumBackend::StartOpenClPreparationIfNeeded() {
   accelerator_prepare_started_ = true;
 
 #ifdef HAVE_OPENCL
-  SetAcceleratorPreparationState(true, PL_TEXT("Compiling OpenCL kernels. This happens every launch."));
+  SetAcceleratorPreparationState(true,
+                                 PL_TEXT("Compiling OpenCL kernels. This happens every launch."));
   QPointer<AlbumBackend> self(this);
   std::thread([self]() {
     QString error_text;
@@ -842,10 +844,9 @@ void AlbumBackend::StartExportWithOptionsForTargets(
 
 void AlbumBackend::StartExportWithSplitOptionsForTargets(
     const QString& outputDirUrlOrPath, bool sdrResizeEnabled, int sdrMaxLengthSide,
-    int ultraHdrMaxLengthSide,
-    const QString& sdrFormatName, int sdrQuality, int sdrBitDepth, int sdrPngCompressionLevel,
-    const QString& sdrTiffCompression, int ultraHdrQuality, bool ultraHdrDitherEnabled,
-    const QVariantList& targetEntries) {
+    int ultraHdrMaxLengthSide, const QString& sdrFormatName, int sdrQuality, int sdrBitDepth,
+    int sdrPngCompressionLevel, const QString& sdrTiffCompression, int ultraHdrQuality,
+    bool ultraHdrDitherEnabled, const QVariantList& targetEntries) {
   import_export_.StartExportWithSplitOptionsForTargets(
       outputDirUrlOrPath, sdrResizeEnabled, sdrMaxLengthSide, ultraHdrMaxLengthSide, sdrFormatName,
       sdrQuality, sdrBitDepth, sdrPngCompressionLevel, sdrTiffCompression, ultraHdrQuality,
@@ -934,7 +935,7 @@ bool AlbumBackend::LoadThumbnailsThroughIndex(int index) {
     return false;
   }
 
-  const int target = TotalCount() > 0 ? std::min(index, TotalCount() - 1) : index;
+  const int target     = TotalCount() > 0 ? std::min(index, TotalCount() - 1) : index;
   bool      loaded_any = false;
   while (thumbnail_model_.hasMore() && thumbnail_model_.count() <= target) {
     if (!stats_.LoadMoreThumbnailView()) {
@@ -1393,8 +1394,8 @@ bool AlbumBackend::LoadThumbnailWindow(const std::optional<std::wstring>& filter
     return false;
   }
 
-  const auto page_size = search_.HasActiveSearchFilter() ? kSearchMetadataPageSize
-                                                         : kAlbumMetadataPageSize;
+  const auto page_size =
+      search_.HasActiveSearchFilter() ? kSearchMetadataPageSize : kAlbumMetadataPageSize;
   const auto files =
       browse->ListFilesInFolderById(folder_id, oldSize, page_size, effective_filter_where);
   for (const auto& file : files) {
@@ -1523,12 +1524,12 @@ void AlbumBackend::PersistImageHdrFlag(sl_element_id_t elementId, image_id_t ima
   }
 
   try {
-    proj->GetImagePoolService()->Write_NoSync<void>(
-        imageId, [isHdr](const std::shared_ptr<Image>& image) {
-          if (image) {
-            image->SetHdrDisplayMetadata(isHdr);
-          }
-        });
+    proj->GetImagePoolService()->Write_NoSync<void>(imageId,
+                                                    [isHdr](const std::shared_ptr<Image>& image) {
+                                                      if (image) {
+                                                        image->SetHdrDisplayMetadata(isHdr);
+                                                      }
+                                                    });
     SetAlbumItemHdrFlag(elementId, imageId, isHdr);
   } catch (...) {
   }
@@ -1578,7 +1579,8 @@ void AlbumBackend::SaveThumbnailDiskCacheSettings() {
   settings.setValue(QStringLiteral("thumbnailCache/enabled"), thumbnail_disk_cache_enabled_);
   settings.setValue(QStringLiteral("thumbnailCache/rootPath"), thumbnail_disk_cache_root_);
   settings.setValue(QStringLiteral("thumbnailCache/maxEntries"), thumbnail_disk_cache_max_entries_);
-  settings.setValue(QStringLiteral("thumbnailCache/jpegQuality"), thumbnail_disk_cache_jpeg_quality_);
+  settings.setValue(QStringLiteral("thumbnailCache/jpegQuality"),
+                    thumbnail_disk_cache_jpeg_quality_);
 }
 
 void AlbumBackend::ApplyThumbnailDiskCacheSettingsToService() {
@@ -1587,16 +1589,13 @@ void AlbumBackend::ApplyThumbnailDiskCacheSettingsToService() {
 
   thumb_svc->SetDiskCacheEnabled(thumbnail_disk_cache_enabled_);
   if (!thumbnail_disk_cache_root_.isEmpty()) {
-    thumb_svc->SetDiskCacheRoot(
-        std::filesystem::path(thumbnail_disk_cache_root_.toStdWString()));
+    thumb_svc->SetDiskCacheRoot(std::filesystem::path(thumbnail_disk_cache_root_.toStdWString()));
   }
   thumb_svc->SetDiskCacheMaxEntries(static_cast<size_t>(thumbnail_disk_cache_max_entries_));
   thumb_svc->SetDiskCacheJpegQuality(thumbnail_disk_cache_jpeg_quality_);
 }
 
-bool AlbumBackend::ThumbnailDiskCacheEnabled() const {
-  return thumbnail_disk_cache_enabled_;
-}
+bool    AlbumBackend::ThumbnailDiskCacheEnabled() const { return thumbnail_disk_cache_enabled_; }
 
 QString AlbumBackend::ThumbnailDiskCacheRoot() const {
   auto thumb_svc = project_handler_.thumbnail_service();
@@ -1658,10 +1657,11 @@ void AlbumBackend::SetThumbnailDiskCacheEnabled(bool enabled) {
 }
 
 void AlbumBackend::SetThumbnailDiskCacheRoot(const QString& rootPath) {
-  const auto root_path_opt = InputToPath(rootPath);
-  const QString normalized_root =
-      root_path_opt.has_value() ? PathToQString(root_path_opt.value().lexically_normal()) : rootPath;
-  thumbnail_disk_cache_root_ = normalized_root;
+  const auto    root_path_opt   = InputToPath(rootPath);
+  const QString normalized_root = root_path_opt.has_value()
+                                      ? PathToQString(root_path_opt.value().lexically_normal())
+                                      : rootPath;
+  thumbnail_disk_cache_root_    = normalized_root;
   SaveThumbnailDiskCacheSettings();
   auto thumb_svc = project_handler_.thumbnail_service();
   if (thumb_svc && !thumbnail_disk_cache_root_.isEmpty()) {
@@ -1708,11 +1708,11 @@ void AlbumBackend::ClearProjectThumbnailDiskCache() {
   SetServiceMessageForCurrentProject(PL_TEXT("Current project thumbnail disk cache cleared."));
 }
 
-int AlbumBackend::PromptForInt(const QString& title, const QString& label,
-                               int defaultValue, int minValue, int maxValue) {
+int AlbumBackend::PromptForInt(const QString& title, const QString& label, int defaultValue,
+                               int minValue, int maxValue) {
   bool accepted = false;
-  int  value    = QInputDialog::getInt(nullptr, title, label, defaultValue, minValue, maxValue, 1,
-                                      &accepted);
+  int  value =
+      QInputDialog::getInt(nullptr, title, label, defaultValue, minValue, maxValue, 1, &accepted);
   return accepted ? value : defaultValue;
 }
 

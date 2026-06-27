@@ -12,9 +12,9 @@ namespace alcedo {
 
 // Phase 6c: host-side OS credential store for long-lived provider API keys.
 //
-// The plan's rule: `QSettings` may store only non-secret metadata (selected
-// preset id, protocol family, endpoint, model id, masked key label, remember/
-// delete preference). The raw API key itself lives ONLY in the OS credential
+// The plan's rule: `ai_providers.json` may store only non-secret metadata
+// (profile id, provider config fields, model id, masked key label, delete
+// preference). The raw API key itself lives ONLY in the OS credential
 // store and reaches the sidecar exclusively as a vault handle via
 // `sidecar_client::CredentialClient::RegisterCredential` — never through QSettings,
 // `AiSidecarRuntimeOptions`, process launch args, or logs.
@@ -26,7 +26,7 @@ namespace alcedo {
 // it, never echo it through `error`.
 class IAiCredentialStore {
  public:
-  virtual ~IAiCredentialStore() = default;
+  virtual ~IAiCredentialStore()                           = default;
 
   // Persist `secret` under `slot`, replacing any existing entry. Returns false
   // (and sets `error`) if the OS store rejected the write. `error` must carry
@@ -37,13 +37,13 @@ class IAiCredentialStore {
   // `error`) when no entry exists or the read failed; a missing entry is NOT an
   // error in the diagnostic sense but is reported as false with a benign
   // message so the caller can distinguish "no credential" from "store failure".
-  virtual auto LoadCredential(const std::string& slot, std::string* secret,
-                              std::string* error) -> bool = 0;
+  virtual auto LoadCredential(const std::string& slot, std::string* secret, std::string* error)
+      -> bool                                                                        = 0;
   // Remove the entry under `slot`. Returns true even if no entry existed
   // (idempotent delete); returns false only on a store failure.
   virtual auto DeleteCredential(const std::string& slot, std::string* error) -> bool = 0;
   // True when an entry exists under `slot`.
-  virtual auto HasCredential(const std::string& slot) -> bool = 0;
+  virtual auto HasCredential(const std::string& slot) -> bool                        = 0;
 };
 
 // Windows Credential Manager (wincred) backed store. Entries are generic
@@ -52,10 +52,10 @@ class IAiCredentialStore {
 // blob. This is the production store on Windows (the tested platform).
 class WinCredAiCredentialStore final : public IAiCredentialStore {
  public:
-  auto SaveCredential(const std::string& slot, const std::string& secret,
-                      std::string* error) -> bool override;
-  auto LoadCredential(const std::string& slot, std::string* secret,
-                      std::string* error) -> bool override;
+  auto SaveCredential(const std::string& slot, const std::string& secret, std::string* error)
+      -> bool override;
+  auto LoadCredential(const std::string& slot, std::string* secret, std::string* error)
+      -> bool override;
   auto DeleteCredential(const std::string& slot, std::string* error) -> bool override;
   auto HasCredential(const std::string& slot) -> bool override;
 };
@@ -67,10 +67,10 @@ class WinCredAiCredentialStore final : public IAiCredentialStore {
 // fallback; see the plan's Phase 6c review notes).
 class InMemoryAiCredentialStore final : public IAiCredentialStore {
  public:
-  auto SaveCredential(const std::string& slot, const std::string& secret,
-                      std::string* error) -> bool override;
-  auto LoadCredential(const std::string& slot, std::string* secret,
-                      std::string* error) -> bool override;
+  auto SaveCredential(const std::string& slot, const std::string& secret, std::string* error)
+      -> bool override;
+  auto LoadCredential(const std::string& slot, std::string* secret, std::string* error)
+      -> bool override;
   auto DeleteCredential(const std::string& slot, std::string* error) -> bool override;
   auto HasCredential(const std::string& slot) -> bool override;
 

@@ -16,9 +16,9 @@
 #include <string>
 #include <vector>
 
-#include "app/semantic_generation_service.hpp"
-#include "app/ai_provider_preset.hpp"
+#include "app/ai_provider_profile.hpp"
 #include "app/image_analysis_service.hpp"
+#include "app/semantic_generation_service.hpp"
 #include "edit/pipeline/pipeline_accelerator.hpp"
 #include "ui/alcedo_main/album_backend/adjustment_transfer_controller.hpp"
 #include "ui/alcedo_main/album_backend/album_thumbnail_model.hpp"
@@ -47,7 +47,7 @@ class AlbumBackend final : public QObject {
   Q_PROPERTY(QObject* adjustmentTransferController READ AdjustmentTransferControllerObject CONSTANT)
   Q_PROPERTY(QObject* modelDownloadController READ ModelDownloadControllerObject CONSTANT)
   Q_PROPERTY(QObject* semanticGenerationController READ SemanticGenerationControllerObject CONSTANT)
-  Q_PROPERTY(QObject* aiProviderPresetController READ AiProviderPresetControllerObject CONSTANT)
+  Q_PROPERTY(QObject* aiProviderProfileController READ AiProviderProfileControllerObject CONSTANT)
   Q_PROPERTY(QObject* imageAnalysisController READ ImageAnalysisControllerObject CONSTANT)
   Q_PROPERTY(QVariantList folders READ Folders NOTIFY FoldersChanged)
   Q_PROPERTY(uint currentFolderId READ CurrentFolderId NOTIFY FolderSelectionChanged)
@@ -74,8 +74,10 @@ class AlbumBackend final : public QObject {
   Q_PROPERTY(QVariantList acceleratorOptions READ AcceleratorOptions NOTIFY AcceleratorStateChanged)
   Q_PROPERTY(QString acceleratorBackend READ AcceleratorBackend NOTIFY AcceleratorStateChanged)
   Q_PROPERTY(QString acceleratorWarning READ AcceleratorWarning NOTIFY AcceleratorStateChanged)
-  Q_PROPERTY(bool acceleratorPreparing READ AcceleratorPreparing NOTIFY AcceleratorPreparationStateChanged)
-  Q_PROPERTY(QString acceleratorPreparationStatus READ AcceleratorPreparationStatus NOTIFY AcceleratorPreparationStateChanged)
+  Q_PROPERTY(
+      bool acceleratorPreparing READ AcceleratorPreparing NOTIFY AcceleratorPreparationStateChanged)
+  Q_PROPERTY(QString acceleratorPreparationStatus READ AcceleratorPreparationStatus NOTIFY
+                 AcceleratorPreparationStateChanged)
   Q_PROPERTY(bool projectLoading READ ProjectLoading NOTIFY ProjectLoadStateChanged)
   Q_PROPERTY(
       QString projectLoadingMessage READ ProjectLoadingMessage NOTIFY ProjectLoadStateChanged)
@@ -115,11 +117,16 @@ class AlbumBackend final : public QObject {
   Q_PROPERTY(uint editorElementId READ EditorElementId NOTIFY EditorStateChanged)
   Q_PROPERTY(QString editorTitle READ EditorTitle NOTIFY EditorStateChanged)
   Q_PROPERTY(QString editorStatus READ EditorStatus NOTIFY EditorStateChanged)
-  Q_PROPERTY(bool thumbnailDiskCacheEnabled READ ThumbnailDiskCacheEnabled NOTIFY ThumbnailDiskCacheStateChanged)
-  Q_PROPERTY(QString thumbnailDiskCacheRoot READ ThumbnailDiskCacheRoot NOTIFY ThumbnailDiskCacheStateChanged)
-  Q_PROPERTY(int thumbnailDiskCacheMaxEntries READ ThumbnailDiskCacheMaxEntries NOTIFY ThumbnailDiskCacheStateChanged)
-  Q_PROPERTY(int thumbnailDiskCacheJpegQuality READ ThumbnailDiskCacheJpegQuality NOTIFY ThumbnailDiskCacheStateChanged)
-  Q_PROPERTY(QString thumbnailDiskCacheStats READ ThumbnailDiskCacheStats NOTIFY ThumbnailDiskCacheStateChanged)
+  Q_PROPERTY(bool thumbnailDiskCacheEnabled READ ThumbnailDiskCacheEnabled NOTIFY
+                 ThumbnailDiskCacheStateChanged)
+  Q_PROPERTY(QString thumbnailDiskCacheRoot READ ThumbnailDiskCacheRoot NOTIFY
+                 ThumbnailDiskCacheStateChanged)
+  Q_PROPERTY(int thumbnailDiskCacheMaxEntries READ ThumbnailDiskCacheMaxEntries NOTIFY
+                 ThumbnailDiskCacheStateChanged)
+  Q_PROPERTY(int thumbnailDiskCacheJpegQuality READ ThumbnailDiskCacheJpegQuality NOTIFY
+                 ThumbnailDiskCacheStateChanged)
+  Q_PROPERTY(QString thumbnailDiskCacheStats READ ThumbnailDiskCacheStats NOTIFY
+                 ThumbnailDiskCacheStateChanged)
   Q_PROPERTY(QString editorPreviewUrl READ EditorPreviewUrl NOTIFY EditorPreviewChanged)
   Q_PROPERTY(QVariantList editorLutOptions READ EditorLutOptions NOTIFY EditorStateChanged)
   Q_PROPERTY(int editorLutIndex READ EditorLutIndex NOTIFY EditorStateChanged)
@@ -144,7 +151,7 @@ class AlbumBackend final : public QObject {
   QObject*     AdjustmentTransferControllerObject() { return &adjustment_transfer_; }
   QObject*     ModelDownloadControllerObject() { return &model_download_controller_; }
   QObject*     SemanticGenerationControllerObject() { return &semantic_generation_; }
-  QObject*     AiProviderPresetControllerObject() { return &ai_provider_preset_; }
+  QObject*     AiProviderProfileControllerObject() { return &ai_provider_profiles_; }
   QObject*     ImageAnalysisControllerObject() { return &image_analysis_; }
   QVariantList Folders() const { return folder_ctrl_.folders(); }
   uint CurrentFolderId() const { return static_cast<uint>(folder_ctrl_.current_folder_id()); }
@@ -174,7 +181,9 @@ class AlbumBackend final : public QObject {
     return IsAcceleratorWarningAcknowledged() ? QString{} : accelerator_warning_text_.Render();
   }
   bool    AcceleratorPreparing() const { return accelerator_preparing_; }
-  QString AcceleratorPreparationStatus() const { return accelerator_preparation_status_text_.Render(); }
+  QString AcceleratorPreparationStatus() const {
+    return accelerator_preparation_status_text_.Render();
+  }
   bool    ProjectLoading() const { return project_handler_.project_loading(); }
   QString ProjectLoadingMessage() const { return project_handler_.project_loading_message(); }
   QString TaskStatus() const { return task_status_text_.Render(); }
@@ -209,11 +218,11 @@ class AlbumBackend final : public QObject {
   uint           EditorElementId() const { return static_cast<uint>(editor_.editor_element_id()); }
   QString        EditorTitle() const { return editor_.editor_title(); }
   QString        EditorStatus() const { return editor_.editor_status(); }
-  bool    ThumbnailDiskCacheEnabled() const;
-  QString ThumbnailDiskCacheRoot() const;
-  int     ThumbnailDiskCacheMaxEntries() const;
-  int     ThumbnailDiskCacheJpegQuality() const;
-  QString ThumbnailDiskCacheStats() const;
+  bool           ThumbnailDiskCacheEnabled() const;
+  QString        ThumbnailDiskCacheRoot() const;
+  int            ThumbnailDiskCacheMaxEntries() const;
+  int            ThumbnailDiskCacheJpegQuality() const;
+  QString        ThumbnailDiskCacheStats() const;
   const QString& EditorPreviewUrl() const { return editor_.editor_preview_url(); }
   QVariantList   EditorLutOptions() const { return editor_.editor_lut_options(); }
   int            EditorLutIndex() const { return editor_.editor_lut_index(); }
@@ -265,39 +274,38 @@ class AlbumBackend final : public QObject {
              const QString& outputDirUrlOrPath, const QString& formatName, const QString& hdrExportMode,
              bool resizeEnabled, int maxLengthSide, int quality, int bitDepth, int pngCompressionLevel,
              const QString& tiffCompression, const QVariantList& targetEntries);
-  Q_INVOKABLE void        StartExportWithSplitOptionsForTargets(
-             const QString& outputDirUrlOrPath, bool sdrResizeEnabled, int sdrMaxLengthSide,
-             int ultraHdrMaxLengthSide,
-             const QString& sdrFormatName, int sdrQuality, int sdrBitDepth,
-             int sdrPngCompressionLevel, const QString& sdrTiffCompression,
-             int ultraHdrQuality, bool ultraHdrDitherEnabled, const QVariantList& targetEntries);
-  Q_INVOKABLE void         ResetExportState();
-  Q_INVOKABLE bool         CanUseHdrExportForTargets(const QVariantList& targetEntries) const;
-  Q_INVOKABLE void         BrowseNikonHeConverter();
-  Q_INVOKABLE void         StartNikonHeConversion();
-  Q_INVOKABLE void         ExitNikonHeRecovery();
-  Q_INVOKABLE void         OpenEditor(uint elementId, uint imageId);
-  Q_INVOKABLE void         CloseEditor();
-  Q_INVOKABLE void         ResetEditorAdjustments();
-  Q_INVOKABLE void         RequestEditorFullPreview();
-  Q_INVOKABLE void         SetEditorLutIndex(int index);
-  Q_INVOKABLE void         SetEditorExposure(double value);
-  Q_INVOKABLE void         SetEditorContrast(double value);
-  Q_INVOKABLE void         SetEditorSaturation(double value);
-  Q_INVOKABLE void         SetEditorTint(double value);
-  Q_INVOKABLE void         SetEditorBlacks(double value);
-  Q_INVOKABLE void         SetEditorWhites(double value);
-  Q_INVOKABLE void         SetEditorShadows(double value);
-  Q_INVOKABLE void         SetEditorHighlights(double value);
-  Q_INVOKABLE void         SetEditorSharpen(double value);
-  Q_INVOKABLE void         SetEditorClarity(double value);
-  Q_INVOKABLE void         SetThumbnailVisible(uint elementId, uint imageId, bool visible,
-                                               uint maxEdge = 1024);
-  Q_INVOKABLE void         SetThumbnailCacheHint(uint visibleCells, uint maxEdge = 1024);
-  Q_INVOKABLE bool         LoadMoreThumbnails();
-  Q_INVOKABLE bool         LoadThumbnailsThroughIndex(int index);
-  Q_INVOKABLE void         ToggleStatsFilter(const QString& category, const QString& label);
-  Q_INVOKABLE void         ClearStatsFilter();
+  Q_INVOKABLE void StartExportWithSplitOptionsForTargets(
+      const QString& outputDirUrlOrPath, bool sdrResizeEnabled, int sdrMaxLengthSide,
+      int ultraHdrMaxLengthSide, const QString& sdrFormatName, int sdrQuality, int sdrBitDepth,
+      int sdrPngCompressionLevel, const QString& sdrTiffCompression, int ultraHdrQuality,
+      bool ultraHdrDitherEnabled, const QVariantList& targetEntries);
+  Q_INVOKABLE void ResetExportState();
+  Q_INVOKABLE bool CanUseHdrExportForTargets(const QVariantList& targetEntries) const;
+  Q_INVOKABLE void BrowseNikonHeConverter();
+  Q_INVOKABLE void StartNikonHeConversion();
+  Q_INVOKABLE void ExitNikonHeRecovery();
+  Q_INVOKABLE void OpenEditor(uint elementId, uint imageId);
+  Q_INVOKABLE void CloseEditor();
+  Q_INVOKABLE void ResetEditorAdjustments();
+  Q_INVOKABLE void RequestEditorFullPreview();
+  Q_INVOKABLE void SetEditorLutIndex(int index);
+  Q_INVOKABLE void SetEditorExposure(double value);
+  Q_INVOKABLE void SetEditorContrast(double value);
+  Q_INVOKABLE void SetEditorSaturation(double value);
+  Q_INVOKABLE void SetEditorTint(double value);
+  Q_INVOKABLE void SetEditorBlacks(double value);
+  Q_INVOKABLE void SetEditorWhites(double value);
+  Q_INVOKABLE void SetEditorShadows(double value);
+  Q_INVOKABLE void SetEditorHighlights(double value);
+  Q_INVOKABLE void SetEditorSharpen(double value);
+  Q_INVOKABLE void SetEditorClarity(double value);
+  Q_INVOKABLE void SetThumbnailVisible(uint elementId, uint imageId, bool visible,
+                                       uint maxEdge = 1024);
+  Q_INVOKABLE void SetThumbnailCacheHint(uint visibleCells, uint maxEdge = 1024);
+  Q_INVOKABLE bool LoadMoreThumbnails();
+  Q_INVOKABLE bool LoadThumbnailsThroughIndex(int index);
+  Q_INVOKABLE void ToggleStatsFilter(const QString& category, const QString& label);
+  Q_INVOKABLE void ClearStatsFilter();
 
   // ── Phase 4: Thumbnail disk cache control ───────────────────────────
   Q_INVOKABLE void SetThumbnailDiskCacheEnabled(bool enabled);
@@ -306,8 +314,8 @@ class AlbumBackend final : public QObject {
   Q_INVOKABLE void SetThumbnailDiskCacheJpegQuality(int quality);
   Q_INVOKABLE void ClearAllThumbnailDiskCache();
   Q_INVOKABLE void ClearProjectThumbnailDiskCache();
-  Q_INVOKABLE int  PromptForInt(const QString& title, const QString& label,
-                                int defaultValue, int minValue, int maxValue);
+  Q_INVOKABLE int  PromptForInt(const QString& title, const QString& label, int defaultValue,
+                                int minValue, int maxValue);
 
  signals:
   void ThumbnailsChanged();
@@ -390,54 +398,54 @@ class AlbumBackend final : public QObject {
   auto FindAlbumItem(sl_element_id_t elementId) const -> const AlbumItem*;
 
   // ── Helper modules ──────────────────────────────────────────────────
-  ProjectHandler               project_handler_;
-  ThumbnailManager             thumb_;
-  FolderController             folder_ctrl_;
-  ImageController              image_ctrl_;
-  StatsEngine                  stats_;
-  SearchController             search_;
-  alcedo::ModelDownloadService model_download_service_;
-  ModelDownloadController      model_download_controller_;
-  SemanticGenerationController semantic_generation_;
-  alcedo::AiProviderPresetController ai_provider_preset_;
+  ProjectHandler                                     project_handler_;
+  ThumbnailManager                                   thumb_;
+  FolderController                                   folder_ctrl_;
+  ImageController                                    image_ctrl_;
+  StatsEngine                                        stats_;
+  SearchController                                   search_;
+  alcedo::ModelDownloadService                       model_download_service_;
+  ModelDownloadController                            model_download_controller_;
+  SemanticGenerationController                       semantic_generation_;
+  alcedo::AiProviderProfileController                ai_provider_profiles_;
   // One app-wide in-flight gate so remote image-analysis calls serialize across
   // the whole album flow, not per service instance (Phase 6d mandate).
   std::shared_ptr<alcedo::ImageAnalysisInFlightGate> image_analysis_gate_;
-  ImageAnalysisController            image_analysis_;
-  ImportExportHandler          import_export_;
-  NikonHeRecoveryController    nikon_he_recovery_;
-  EditorController             editor_;
-  AdjustmentTransferController adjustment_transfer_;
-  AlbumThumbnailModel          thumbnail_model_{};
+  ImageAnalysisController                            image_analysis_;
+  ImportExportHandler                                import_export_;
+  NikonHeRecoveryController                          nikon_he_recovery_;
+  EditorController                                   editor_;
+  AdjustmentTransferController                       adjustment_transfer_;
+  AlbumThumbnailModel                                thumbnail_model_{};
 
   // ── Shared data (accessed by helpers via friend) ────────────────────
-  AlbumViewState               view_state_{};
-  i18n::LocalizedText          service_message_text_{};
-  bool                         service_ready_ = false;
-  QVariantList                 recent_projects_{};
+  AlbumViewState                                     view_state_{};
+  i18n::LocalizedText                                service_message_text_{};
+  bool                                               service_ready_ = false;
+  QVariantList                                       recent_projects_{};
   AcceleratorBackendPreference accelerator_preference_ = AcceleratorBackendPreference::Auto;
   QString                      accelerator_backend_key_{};
   QString                      accelerator_warning_id_{};
   QVariantList                 accelerator_options_{};
   i18n::LocalizedText          accelerator_warning_text_{};
   i18n::LocalizedText          accelerator_preparation_status_text_{};
-  bool                         accelerator_preparing_      = false;
+  bool                         accelerator_preparing_       = false;
   bool                         accelerator_prepare_started_ = false;
-  bool                         cuda_backend_available_   = false;
-  bool                         opencl_backend_available_ = false;
-  bool                         metal_backend_available_  = false;
+  bool                         cuda_backend_available_      = false;
+  bool                         opencl_backend_available_    = false;
+  bool                         metal_backend_available_     = false;
   i18n::LocalizedText          task_status_text_{};
   int                          task_progress_       = 0;
   bool                         task_cancel_visible_ = false;
   // ── Phase 4: Thumbnail disk cache settings ──────────────────────────
-  void LoadThumbnailDiskCacheSettings();
-  void SaveThumbnailDiskCacheSettings();
-  void ApplyThumbnailDiskCacheSettingsToService();
+  void                         LoadThumbnailDiskCacheSettings();
+  void                         SaveThumbnailDiskCacheSettings();
+  void                         ApplyThumbnailDiskCacheSettingsToService();
 
-  bool   thumbnail_disk_cache_enabled_     = true;
-  QString thumbnail_disk_cache_root_;
-  int    thumbnail_disk_cache_max_entries_ = 10000;
-  int    thumbnail_disk_cache_jpeg_quality_ = 85;
+  bool                         thumbnail_disk_cache_enabled_ = true;
+  QString                      thumbnail_disk_cache_root_;
+  int                          thumbnail_disk_cache_max_entries_  = 10000;
+  int                          thumbnail_disk_cache_jpeg_quality_ = 85;
 };
 
 }  // namespace alcedo::ui

@@ -664,11 +664,11 @@ add_dependencies(AiSidecarRuntimeServiceTest AiSidecarFakeRuntime)
 gtest_discover_tests(AiSidecarRuntimeServiceTest TEST_PREFIX "AiSidecarRuntimeServiceTest."
   PROPERTIES LABELS "ci_core_flow")
 
-# Phase 6a: compatible-protocol preset settings round-trip (non-secret metadata only).
-add_executable(AiProviderPresetTest app/ai_provider_preset_test.cpp)
-target_include_directories(AiProviderPresetTest PUBLIC ${ALCEDO_INCLUDE_DIR})
-target_link_libraries(AiProviderPresetTest AiProviderPreset GTest::gtest_main)
-gtest_discover_tests(AiProviderPresetTest TEST_PREFIX "AiProviderPresetTest."
+# Frontend 1b: multi-profile provider cards, JSON persistence, and generated sidecar configs.
+add_executable(AiProviderProfileTest app/ai_provider_profile_test.cpp)
+target_include_directories(AiProviderProfileTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(AiProviderProfileTest AiProviderProfile AiCredentialStore GTest::gtest_main)
+gtest_discover_tests(AiProviderProfileTest TEST_PREFIX "AiProviderProfileTest."
   PROPERTIES LABELS "ci_core_flow")
 
 add_executable(AiCredentialStoreTest app/ai_credential_store_test.cpp)
@@ -778,10 +778,10 @@ gtest_discover_tests(ImageAnalysisServiceTest TEST_PREFIX "ImageAnalysisServiceT
   PROPERTIES LABELS "ci_raw_flow")
 
 # Phase 6d: album image-analysis job controller. Standalone QObject module
-# (IImageAnalysisEnvironment seam + AiProviderPresetController) driven by fakes.
+# (IImageAnalysisEnvironment seam + AiProviderProfileController) driven by fakes.
 add_executable(ImageAnalysisControllerTest app/image_analysis_controller_test.cpp)
 target_include_directories(ImageAnalysisControllerTest PUBLIC ${ALCEDO_INCLUDE_DIR})
-target_link_libraries(ImageAnalysisControllerTest ImageAnalysisController AiProviderPreset
+target_link_libraries(ImageAnalysisControllerTest ImageAnalysisController AiProviderProfile
   AiCredentialStore GTest::gtest_main)
 gtest_discover_tests(ImageAnalysisControllerTest TEST_PREFIX "ImageAnalysisControllerTest."
   PROPERTIES LABELS "ci_core_flow")
@@ -1184,7 +1184,7 @@ alcedo_assign_test_category(ci_core ALCEDO_BUILD_CI_TESTS alcedo_tests_ci_core
   AiSidecarRuntimeServiceTest
   SemanticStorageControllerTest
   AiStorageControllerTest
-  AiProviderPresetTest
+  AiProviderProfileTest
   ImageAnalysisControllerTest
 )
 
