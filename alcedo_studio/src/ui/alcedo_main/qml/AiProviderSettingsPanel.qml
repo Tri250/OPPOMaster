@@ -32,6 +32,7 @@ ColumnLayout {
     property color dividerColor: Qt.rgba(1, 1, 1, 0.08)
     property color dangerColor: "#D96C75"
     property string dataFontFamily: appTheme.dataFontFamily
+    readonly property int pageMargin: 34
 
     signal messageRequested(string message)
 
@@ -40,77 +41,54 @@ ColumnLayout {
     readonly property bool providerConfigured: hasAnalysis ? analysisController.providerConfigured : false
     readonly property bool credentialAvailable: hasAnalysis ? analysisController.credentialAvailable : false
     readonly property string maskedKeyLabel: hasPreset ? presetController.maskedKeyLabel : ""
+    readonly property string savedKeyDisplayMask: "•••• •••• •••• ••••"
     readonly property string connectionStatus: hasAnalysis ? analysisController.connectionStatus : ""
     readonly property string lastError: hasAnalysis ? analysisController.lastError : ""
     readonly property var discoveredModels: hasAnalysis ? analysisController.discoveredModels : []
+    property bool advancedExpanded: false
 
-    // Built-in presets keyed by provider_id. Selecting one backfills the advanced
-    // fields and clears any custom/modified state. Keep in sync with the Rust
-    // built-in configs (rust/puerh_mind/configs/providers/*.json).
-    readonly property var builtinPresets: [
-        {
-            providerId: "opencode_go_anthropic",
-            displayName: qsTr("Opencode Go (Anthropic-compatible)"),
-            protocolFamily: "anthropic_messages",
-            baseUrl: "https://opencode.ai/zen/go/v1",
-            endpoint: "/messages",
-            authType: "bearer",
-            credentialSlot: "opencode_api_key",
-            structuredOutputMode: "tool"
-        },
-        {
-            providerId: "opencode_go_openai",
-            displayName: qsTr("Opencode Go (OpenAI-compatible)"),
-            protocolFamily: "openai_chat_compatible",
-            baseUrl: "https://opencode.ai/zen/go/v1",
-            endpoint: "/chat/completions",
-            authType: "bearer",
-            credentialSlot: "opencode_api_key",
-            structuredOutputMode: "response_format_json_schema"
-        },
-        {
-            providerId: "openrouter",
-            displayName: qsTr("OpenRouter (legacy)"),
-            protocolFamily: "openai_chat_compatible",
-            baseUrl: "https://openrouter.ai/api/v1",
-            endpoint: "/chat/completions",
-            authType: "bearer",
-            credentialSlot: "openrouter_api_key",
-            structuredOutputMode: "response_format_json_schema"
-        }
-    ]
-
-    // The currently-selected preset index, or -1 if the saved config does not
-    // match any built-in (custom/modified). Recomputed whenever the preset
-    // changes.
-    readonly property int selectedPresetIndex: {
+    readonly property var providerOptions: hasPreset ? presetController.BuiltinProviderOptions() : []
+    readonly property string selectedProviderKey: {
         if (!hasPreset) {
-            return -1
+            return "custom"
         }
-        const id = presetController.providerId
-        for (let i = 0; i < builtinPresets.length; ++i) {
-            if (builtinPresets[i].providerId === id) {
+        for (let i = 0; i < providerOptions.length; ++i) {
+            const protocols = presetController.BuiltinProtocolOptions(providerOptions[i].providerKey)
+            for (let j = 0; j < protocols.length; ++j) {
+                if (protocols[j].providerId === presetController.providerId) {
+                    return providerOptions[i].providerKey
+                }
+            }
+        }
+        return "custom"
+    }
+    readonly property var protocolOptions: hasPreset && selectedProviderKey !== "custom"
+                                          ? presetController.BuiltinProtocolOptions(selectedProviderKey) : []
+    readonly property int selectedProviderIndex: {
+        for (let i = 0; i < providerOptions.length; ++i) {
+            if (providerOptions[i].providerKey === selectedProviderKey) {
                 return i
             }
         }
-        return -1
+        return Math.max(0, providerOptions.length - 1)
     }
-    // ComboBox model for the Preset box: a leading "Custom" entry, then the
-    // built-ins. Selecting "Custom" leaves the advanced fields as-is; selecting
-    // a built-in backfills them.
-    readonly property var presetOptions: {
-        const opts = builtinPresets.slice()
-        opts.unshift({ providerId: "", displayName: qsTr("Custom") })
-        return opts
+    readonly property int selectedProtocolIndex: {
+        if (!hasPreset) {
+            return 0
+        }
+        for (let i = 0; i < protocolOptions.length; ++i) {
+            if (protocolOptions[i].providerId === presetController.providerId) {
+                return i
+            }
+        }
+        return 0
     }
-    // "Modified" when a built-in preset is selected but an advanced field no
-    // longer matches it; "Custom" when no built-in matches.
     readonly property string presetStateLabel: {
-        if (selectedPresetIndex < 0) {
+        if (!hasPreset || selectedProviderKey === "custom" || protocolOptions.length === 0) {
             return qsTr("Custom")
         }
-        const b = builtinPresets[selectedPresetIndex]
-        if (presetController.protocolFamily !== b.protocolFamily
+        const b = protocolOptions[selectedProtocolIndex]
+        if (!b || presetController.protocolFamily !== b.protocolFamily
                 || presetController.baseUrl !== b.baseUrl
                 || presetController.endpoint !== b.endpoint
                 || presetController.authType !== b.authType
@@ -120,7 +98,51 @@ ColumnLayout {
         }
         return ""
     }
+    readonly property bool connectionConfigReady: hasPreset
+        && presetController.providerId.length > 0
+        && presetController.credentialSlot.length > 0
+    readonly property string validationBlockReason: !hasAnalysis ? qsTr("Image analysis runtime is unavailable.")
+        : !connectionConfigReady ? qsTr("Select a provider and protocol before testing.")
+        : !credentialAvailable ? qsTr("Save an API key before testing the connection.") : ""
+    readonly property string credentialStorageCopy: Qt.platform.os === "windows"
+        ? qsTr("Saved in Windows Credential Manager. Only a masked label is kept in settings.")
+        : qsTr("Persistent OS credential storage is not available on this platform yet; saved keys are temporary for this app session.")
 
+    function applyProvider(providerKey) {
+        if (!hasPreset || providerKey === "custom") {
+            return
+        }
+        const protocols = presetController.BuiltinProtocolOptions(providerKey)
+        if (protocols.length === 0) {
+            return
+        }
+        let protocolFamily = presetController.protocolFamily
+        let supported = false
+        for (let i = 0; i < protocols.length; ++i) {
+            if (protocols[i].protocolFamily === protocolFamily) {
+                supported = true
+                break
+            }
+        }
+        if (!supported) {
+            protocolFamily = protocols[0].protocolFamily
+            messageRequested(qsTr("Protocol changed to %1 because %2 does not support the previous path.")
+                             .arg(protocols[0].protocolLabel).arg(protocols[0].providerLabel))
+        }
+        if (presetController.ApplyBuiltinProviderProtocol(providerKey, protocolFamily) && hasAnalysis) {
+            analysisController.RefreshCredentialState()
+        }
+    }
+
+    function applyProtocol(protocolFamily) {
+        if (!hasPreset || selectedProviderKey === "custom") {
+            presetController.SetProtocolFamily(protocolFamily)
+            return
+        }
+        if (presetController.ApplyBuiltinProviderProtocol(selectedProviderKey, protocolFamily) && hasAnalysis) {
+            analysisController.RefreshCredentialState()
+        }
+    }
     // The model ComboBox model: a "use preset default" entry first, then the
     // preset's currently-set model (if any), then live-discovered candidates.
     // Discovered models are committed by the sidecar during ListModels, so each
@@ -158,32 +180,14 @@ ColumnLayout {
         return 0
     }
 
-    function applyPreset(preset) {
-        if (!hasPreset) {
-            return
-        }
-        presetController.SetProviderId(preset.providerId)
-        presetController.SetDisplayName(preset.displayName)
-        presetController.SetProtocolFamily(preset.protocolFamily)
-        presetController.SetBaseUrl(preset.baseUrl)
-        presetController.SetEndpoint(preset.endpoint)
-        presetController.SetAuthType(preset.authType)
-        presetController.SetCredentialSlot(preset.credentialSlot)
-        presetController.SetStructuredOutputMode(preset.structuredOutputMode)
-        // A fresh preset resets the explicit model to its default.
-        presetController.SetModelId("")
-        presetController.SetModelDisplayName("")
-        if (hasAnalysis) {
-            analysisController.RefreshCredentialState()
-        }
-    }
-
     spacing: 20
 
-    // ── Protocol + Preset ────────────────────────────────────────────────────
+    // ── Provider + Protocol ─────────────────────────────────────────────────
     SettingsSection {
-        Layout.fillWidth: true
-        title: qsTr("Provider preset")
+        Layout.preferredWidth: Math.max(0, panel.width - panel.pageMargin * 2)
+        Layout.leftMargin: panel.pageMargin
+        Layout.rightMargin: panel.pageMargin
+        title: qsTr("Provider and protocol")
         textColor: panel.textColor
         mutedTextColor: panel.mutedTextColor
         dividerColor: panel.dividerColor
@@ -197,7 +201,7 @@ ColumnLayout {
                 spacing: 6
 
                 Label {
-                    text: qsTr("Protocol")
+                    text: qsTr("Provider")
                     color: panel.mutedTextColor
                     font.pixelSize: 12
                     font.weight: 700
@@ -206,26 +210,23 @@ ColumnLayout {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 44
                     enabled: panel.hasPreset
-                    model: [
-                        { label: qsTr("OpenAI-compatible chat"), value: "openai_chat_compatible" },
-                        { label: qsTr("Anthropic-compatible messages"), value: "anthropic_messages" }
-                    ]
+                    model: panel.providerOptions
                     textRole: "label"
-                    currentIndex: {
-                        if (!panel.hasPreset) {
-                            return 0
-                        }
-                        const fam = panel.presetController.protocolFamily
-                        for (let i = 0; i < model.length; ++i) {
-                            if (model[i].value === fam) {
-                                return i
-                            }
-                        }
-                        return 0
-                    }
+                    currentIndex: panel.selectedProviderIndex
                     onActivated: function(index) {
-                        panel.presetController.SetProtocolFamily(model[index].value)
+                        const p = model[index]
+                        if (p) {
+                            panel.applyProvider(p.providerKey)
+                        }
                     }
+                }
+                Label {
+                    Layout.fillWidth: true
+                    text: panel.providerOptions.length > panel.selectedProviderIndex
+                          ? panel.providerOptions[panel.selectedProviderIndex].help : ""
+                    color: panel.mutedTextColor
+                    font.pixelSize: 11
+                    wrapMode: Text.WordWrap
                 }
             }
 
@@ -236,7 +237,7 @@ ColumnLayout {
                 RowLayout {
                     spacing: 8
                     Label {
-                        text: qsTr("Preset")
+                        text: qsTr("Protocol")
                         color: panel.mutedTextColor
                         font.pixelSize: 12
                         font.weight: 700
@@ -252,27 +253,34 @@ ColumnLayout {
                 ComboBox {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 44
-                    enabled: panel.hasPreset
-                    model: panel.presetOptions
-                    textRole: "displayName"
-                    currentIndex: panel.selectedPresetIndex < 0 ? 0 : panel.selectedPresetIndex + 1
+                    enabled: panel.hasPreset && panel.selectedProviderKey !== "custom" && panel.protocolOptions.length > 0
+                    model: panel.protocolOptions
+                    textRole: "protocolLabel"
+                    currentIndex: panel.selectedProtocolIndex
                     onActivated: function(index) {
-                        if (index === 0) {
-                            return  // "Custom" — leave fields as-is
-                        }
-                        const preset = panel.presetOptions[index]
-                        if (preset && preset.providerId.length > 0) {
-                            panel.applyPreset(preset)
+                        const p = model[index]
+                        if (p) {
+                            panel.applyProtocol(p.protocolFamily)
                         }
                     }
+                }
+                Label {
+                    Layout.fillWidth: true
+                    text: panel.selectedProviderKey === "custom"
+                          ? qsTr("Custom providers are edited in Advanced fields.")
+                          : qsTr("Protocol changes only the request path for the selected provider.")
+                    color: panel.mutedTextColor
+                    font.pixelSize: 11
+                    wrapMode: Text.WordWrap
                 }
             }
         }
     }
-
     // ── API key ──────────────────────────────────────────────────────────────
     SettingsSection {
-        Layout.fillWidth: true
+        Layout.preferredWidth: Math.max(0, panel.width - panel.pageMargin * 2)
+        Layout.leftMargin: panel.pageMargin
+        Layout.rightMargin: panel.pageMargin
         title: qsTr("API key")
         textColor: panel.textColor
         mutedTextColor: panel.mutedTextColor
@@ -280,33 +288,34 @@ ColumnLayout {
 
         ColumnLayout {
             Layout.fillWidth: true
-            spacing: 8
+            spacing: 10
 
             Label {
                 Layout.fillWidth: true
-                text: qsTr("Saved in the system credential store — never written to settings files.")
+                text: panel.credentialStorageCopy
                 color: panel.mutedTextColor
                 font.pixelSize: 12
                 wrapMode: Text.WordWrap
+            }
+
+            TextField {
+                id: keyField
+                Layout.fillWidth: true
+                Layout.preferredHeight: 64
+                echoMode: TextInput.Password
+                placeholderText: qsTr("Paste a long provider API key for %1").arg(panel.hasPreset ? panel.presetController.credentialSlot : qsTr("this provider"))
+                color: panel.textColor
+                enabled: panel.hasAnalysis
+                font.family: panel.dataFontFamily
+                verticalAlignment: TextInput.AlignVCenter
             }
 
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 12
 
-                TextField {
-                    id: keyField
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 44
-                    echoMode: TextInput.Password
-                    placeholderText: qsTr("Paste API key")
-                    color: panel.textColor
-                    enabled: panel.hasAnalysis
-                    font.family: panel.dataFontFamily
-                }
-
                 Button {
-                    Layout.preferredHeight: 42
+                    Layout.preferredHeight: 38
                     text: qsTr("Save Key")
                     enabled: panel.hasAnalysis && keyField.text.length > 0
                     Material.foreground: panel.textColor
@@ -316,13 +325,15 @@ ColumnLayout {
                         if (err.length > 0) {
                             panel.messageRequested(err)
                         } else {
-                            panel.messageRequested(qsTr("API key saved to the system credential store"))
+                            panel.messageRequested(Qt.platform.os === "windows"
+                                                   ? qsTr("API key saved to Windows Credential Manager")
+                                                   : qsTr("API key saved for this app session"))
                         }
                     }
                 }
 
                 Button {
-                    Layout.preferredHeight: 42
+                    Layout.preferredHeight: 38
                     text: qsTr("Delete Key")
                     enabled: panel.hasAnalysis && panel.credentialAvailable
                     Material.foreground: panel.dangerColor
@@ -331,23 +342,80 @@ ColumnLayout {
                         panel.messageRequested(qsTr("API key deleted"))
                     }
                 }
+
+
+                Item { Layout.fillWidth: true }
             }
 
-            Label {
+            Rectangle {
                 Layout.fillWidth: true
-                visible: panel.maskedKeyLabel.length > 0
-                text: panel.credentialAvailable
-                      ? qsTr("Key saved: %1").arg(panel.maskedKeyLabel)
-                      : qsTr("No key saved")
-                color: panel.credentialAvailable ? panel.mutedTextColor : panel.dangerColor
-                font.pixelSize: 12
+                Layout.preferredHeight: 48
+                radius: 8
+                color: panel.credentialAvailable
+                       ? Qt.rgba(panel.primaryAccent.r, panel.primaryAccent.g, panel.primaryAccent.b, 0.16)
+                       : Qt.rgba(panel.dangerColor.r, panel.dangerColor.g, panel.dangerColor.b, 0.10)
+                border.width: 1
+                border.color: panel.credentialAvailable
+                              ? Qt.rgba(panel.secondaryAccent.r, panel.secondaryAccent.g, panel.secondaryAccent.b, 0.34)
+                              : Qt.rgba(panel.dangerColor.r, panel.dangerColor.g, panel.dangerColor.b, 0.28)
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 14
+                    anchors.rightMargin: 14
+                    spacing: 12
+
+                    Rectangle {
+                        Layout.preferredWidth: 9
+                        Layout.preferredHeight: 9
+                        radius: 5
+                        color: panel.credentialAvailable ? panel.secondaryAccent : panel.dangerColor
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 1
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: panel.credentialAvailable ? qsTr("API key saved") : qsTr("No API key saved")
+                            color: panel.credentialAvailable ? panel.textColor : panel.dangerColor
+                            font.pixelSize: 12
+                            font.weight: 800
+                            elide: Text.ElideRight
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: panel.credentialAvailable
+                                  ? panel.savedKeyDisplayMask
+                                  : qsTr("Save a key for %1").arg(panel.hasPreset ? panel.presetController.credentialSlot : qsTr("this provider"))
+                            color: panel.credentialAvailable ? panel.secondaryAccent : panel.mutedTextColor
+                            font.family: panel.dataFontFamily
+                            font.pixelSize: 13
+                            font.weight: 700
+                            elide: Text.ElideRight
+                        }
+                    }
+
+                    Label {
+                        visible: panel.credentialAvailable && panel.hasPreset
+                        Layout.maximumWidth: 190
+                        text: panel.presetController.credentialSlot
+                        color: panel.mutedTextColor
+                        font.family: panel.dataFontFamily
+                        font.pixelSize: 11
+                        elide: Text.ElideRight
+                    }
+                }
             }
         }
     }
-
     // ── Connection + model ───────────────────────────────────────────────────
     SettingsSection {
-        Layout.fillWidth: true
+        Layout.preferredWidth: Math.max(0, panel.width - panel.pageMargin * 2)
+        Layout.leftMargin: panel.pageMargin
+        Layout.rightMargin: panel.pageMargin
         title: qsTr("Connection and model")
         textColor: panel.textColor
         mutedTextColor: panel.mutedTextColor
@@ -364,7 +432,9 @@ ColumnLayout {
                 Button {
                     Layout.preferredHeight: 42
                     text: qsTr("Test & Refresh Models")
-                    enabled: panel.hasAnalysis && panel.providerConfigured && panel.credentialAvailable
+                    enabled: panel.hasAnalysis && panel.connectionConfigReady && panel.credentialAvailable
+                    ToolTip.visible: hovered && !enabled && panel.validationBlockReason.length > 0
+                    ToolTip.text: panel.validationBlockReason
                     Material.foreground: panel.textColor
                     onClicked: panel.analysisController.ValidateConnection()
                 }
@@ -378,6 +448,15 @@ ColumnLayout {
                     font.pixelSize: 12
                     elide: Text.ElideRight
                     visible: panel.connectionStatus.length > 0
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    visible: panel.connectionStatus.length === 0 && panel.validationBlockReason.length > 0
+                    text: panel.validationBlockReason
+                    color: panel.mutedTextColor
+                    font.pixelSize: 12
+                    elide: Text.ElideRight
                 }
             }
 
@@ -428,7 +507,9 @@ ColumnLayout {
 
     // ── Output language ──────────────────────────────────────────────────────
     SettingsSection {
-        Layout.fillWidth: true
+        Layout.preferredWidth: Math.max(0, panel.width - panel.pageMargin * 2)
+        Layout.leftMargin: panel.pageMargin
+        Layout.rightMargin: panel.pageMargin
         title: qsTr("Output language")
         textColor: panel.textColor
         mutedTextColor: panel.mutedTextColor
@@ -477,7 +558,9 @@ ColumnLayout {
 
     // ── Advanced collapsible ─────────────────────────────────────────────────
     SettingsSection {
-        Layout.fillWidth: true
+        Layout.preferredWidth: Math.max(0, panel.width - panel.pageMargin * 2)
+        Layout.leftMargin: panel.pageMargin
+        Layout.rightMargin: panel.pageMargin
         title: qsTr("Advanced")
         textColor: panel.textColor
         mutedTextColor: panel.mutedTextColor
@@ -485,88 +568,180 @@ ColumnLayout {
 
         ColumnLayout {
             Layout.fillWidth: true
-            spacing: 8
+            spacing: 10
 
-            Button {
-                flat: true
-                text: advancedToggle.checked ? qsTr("Hide advanced fields") : qsTr("Show advanced fields")
-                Material.foreground: panel.secondaryAccent
-                font.pixelSize: 13
-                onClicked: advancedToggle.toggle()
-                checkable: true
-                id: advancedToggle
-                checked: false
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Low-level provider fields for custom endpoints and debugging preset mappings.")
+                color: panel.mutedTextColor
+                font.pixelSize: 12
+                wrapMode: Text.WordWrap
+                lineHeight: 1.25
             }
 
-            ColumnLayout {
+            Rectangle {
                 Layout.fillWidth: true
-                spacing: 10
-                visible: advancedToggle.checked
+                Layout.preferredHeight: 46
+                radius: 10
+                color: advancedToggleMouse.containsMouse
+                       ? Qt.rgba(1, 1, 1, 0.08)
+                       : Qt.rgba(1, 1, 1, 0.04)
+                border.width: 1
+                border.color: Qt.rgba(1, 1, 1, 0.08)
 
-                AdvancedField {
-                    label: qsTr("Provider id")
-                    value: panel.hasPreset ? panel.presetController.providerId : ""
-                    onEdited: function(text) { panel.presetController.SetProviderId(text) }
-                }
-                AdvancedField {
-                    label: qsTr("Display name")
-                    value: panel.hasPreset ? panel.presetController.displayName : ""
-                    onEdited: function(text) { panel.presetController.SetDisplayName(text) }
-                }
-                AdvancedField {
-                    label: qsTr("Base URL")
-                    value: panel.hasPreset ? panel.presetController.baseUrl : ""
-                    onEdited: function(text) { panel.presetController.SetBaseUrl(text) }
-                }
-                AdvancedField {
-                    label: qsTr("Endpoint")
-                    value: panel.hasPreset ? panel.presetController.endpoint : ""
-                    onEdited: function(text) { panel.presetController.SetEndpoint(text) }
-                }
-                AdvancedField {
-                    label: qsTr("Auth type")
-                    value: panel.hasPreset ? panel.presetController.authType : ""
-                    onEdited: function(text) { panel.presetController.SetAuthType(text) }
-                }
-                AdvancedField {
-                    label: qsTr("Credential slot")
-                    value: panel.hasPreset ? panel.presetController.credentialSlot : ""
-                    onEdited: function(text) { panel.presetController.SetCredentialSlot(text) }
-                }
-                AdvancedField {
-                    label: qsTr("Structured output mode")
-                    value: panel.hasPreset ? panel.presetController.structuredOutputMode : ""
-                    onEdited: function(text) { panel.presetController.SetStructuredOutputMode(text) }
-                }
-                AdvancedField {
-                    label: qsTr("Timeout (ms)")
-                    value: panel.hasPreset ? String(panel.presetController.timeoutMs) : ""
-                    onEdited: function(text) {
-                        const n = parseInt(text, 10)
-                        if (!isNaN(n)) {
-                            panel.presetController.SetTimeoutMs(n)
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 14
+                    anchors.rightMargin: 14
+                    spacing: 10
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 1
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: panel.advancedExpanded
+                                  ? qsTr("Hide provider fields")
+                                  : qsTr("Show provider fields")
+                            color: panel.secondaryAccent
+                            font.pixelSize: 14
+                            font.weight: 800
+                            elide: Text.ElideRight
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: panel.hasPreset
+                                  ? qsTr("%1 · %2").arg(panel.presetController.providerId).arg(panel.presetController.protocolFamily)
+                                  : qsTr("No provider selected")
+                            color: panel.mutedTextColor
+                            font.family: panel.dataFontFamily
+                            font.pixelSize: 11
+                            elide: Text.ElideRight
                         }
                     }
-                }
-                AdvancedField {
-                    label: qsTr("Max image bytes")
-                    value: panel.hasPreset ? String(panel.presetController.maxImageBytes) : ""
-                    onEdited: function(text) {
-                        const n = parseInt(text, 10)
-                        if (!isNaN(n)) {
-                            panel.presetController.SetMaxImageBytes(n)
-                        }
+
+                    Label {
+                        text: panel.advancedExpanded ? "▲" : "▼"
+                        color: panel.secondaryAccent
+                        font.pixelSize: 14
+                        font.weight: 800
                     }
                 }
-                AdvancedField {
-                    label: qsTr("Recommended rendition")
-                    value: panel.hasPreset ? panel.presetController.recommendedRendition : ""
-                    onEdited: function(text) { panel.presetController.SetRecommendedRendition(text) }
+
+                MouseArea {
+                    id: advancedToggleMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: panel.advancedExpanded = !panel.advancedExpanded
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: panel.advancedExpanded ? advancedFields.implicitHeight + 24 : 0
+                Layout.bottomMargin: 26
+                visible: panel.advancedExpanded
+                radius: 10
+                color: Qt.rgba(panel.canvasColor.r, panel.canvasColor.g, panel.canvasColor.b, 0.45)
+                border.width: 1
+                border.color: Qt.rgba(1, 1, 1, 0.06)
+                clip: true
+                opacity: panel.advancedExpanded ? 1 : 0
+
+                Behavior on Layout.preferredHeight {
+                    NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
+                }
+                Behavior on opacity {
+                    NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
+                }
+
+                ColumnLayout {
+                    id: advancedFields
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: 12
+                    spacing: 10
+
+                    GridLayout {
+                        Layout.fillWidth: true
+                        columns: panel.width > 760 ? 2 : 1
+                        columnSpacing: 12
+                        rowSpacing: 10
+
+                        AdvancedField {
+                            label: qsTr("Provider id")
+                            value: panel.hasPreset ? panel.presetController.providerId : ""
+                            onEdited: function(text) { panel.presetController.SetProviderId(text) }
+                        }
+                        AdvancedField {
+                            label: qsTr("Display name")
+                            value: panel.hasPreset ? panel.presetController.displayName : ""
+                            onEdited: function(text) { panel.presetController.SetDisplayName(text) }
+                        }
+                        AdvancedField {
+                            label: qsTr("Protocol family")
+                            value: panel.hasPreset ? panel.presetController.protocolFamily : ""
+                            onEdited: function(text) { panel.presetController.SetProtocolFamily(text) }
+                        }
+                        AdvancedField {
+                            label: qsTr("Base URL")
+                            value: panel.hasPreset ? panel.presetController.baseUrl : ""
+                            onEdited: function(text) { panel.presetController.SetBaseUrl(text) }
+                        }
+                        AdvancedField {
+                            label: qsTr("Endpoint")
+                            value: panel.hasPreset ? panel.presetController.endpoint : ""
+                            onEdited: function(text) { panel.presetController.SetEndpoint(text) }
+                        }
+                        AdvancedField {
+                            label: qsTr("Auth type")
+                            value: panel.hasPreset ? panel.presetController.authType : ""
+                            onEdited: function(text) { panel.presetController.SetAuthType(text) }
+                        }
+                        AdvancedField {
+                            label: qsTr("Credential slot")
+                            value: panel.hasPreset ? panel.presetController.credentialSlot : ""
+                            onEdited: function(text) { panel.presetController.SetCredentialSlot(text) }
+                        }
+                        AdvancedField {
+                            label: qsTr("Structured output mode")
+                            value: panel.hasPreset ? panel.presetController.structuredOutputMode : ""
+                            onEdited: function(text) { panel.presetController.SetStructuredOutputMode(text) }
+                        }
+                        AdvancedField {
+                            label: qsTr("Timeout (ms)")
+                            value: panel.hasPreset ? String(panel.presetController.timeoutMs) : ""
+                            onEdited: function(text) {
+                                const n = parseInt(text, 10)
+                                if (!isNaN(n)) {
+                                    panel.presetController.SetTimeoutMs(n)
+                                }
+                            }
+                        }
+                        AdvancedField {
+                            label: qsTr("Max image bytes")
+                            value: panel.hasPreset ? String(panel.presetController.maxImageBytes) : ""
+                            onEdited: function(text) {
+                                const n = parseInt(text, 10)
+                                if (!isNaN(n)) {
+                                    panel.presetController.SetMaxImageBytes(n)
+                                }
+                            }
+                        }
+                        AdvancedField {
+                            label: qsTr("Recommended rendition")
+                            value: panel.hasPreset ? panel.presetController.recommendedRendition : ""
+                            onEdited: function(text) { panel.presetController.SetRecommendedRendition(text) }
+                        }
+                    }
                 }
             }
         }
     }
-
     // ── Inline components ────────────────────────────────────────────────────
     component SettingsSection: ColumnLayout {
         property string title: ""
@@ -597,6 +772,7 @@ ColumnLayout {
 
         spacing: 4
         Layout.fillWidth: true
+        Layout.minimumWidth: 220
 
         Label {
             text: label

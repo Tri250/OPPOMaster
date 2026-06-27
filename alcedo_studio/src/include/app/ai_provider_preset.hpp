@@ -6,6 +6,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QVariantList>
 
 namespace alcedo {
 
@@ -122,6 +123,10 @@ class AiProviderPresetController final : public QObject {
   Q_INVOKABLE void SetMaskedKeyLabel(const QString& value);
   Q_INVOKABLE void SetRememberKey(bool value);
   Q_INVOKABLE void SetOutputLanguage(const QString& value);
+  Q_INVOKABLE QVariantList BuiltinProviderOptions() const;
+  Q_INVOKABLE QVariantList BuiltinProtocolOptions(const QString& provider_key) const;
+  Q_INVOKABLE bool ApplyBuiltinProviderProtocol(const QString& provider_key,
+                                                const QString& protocol_family);
 
  signals:
   // Shared NOTIFY for every Q_PROPERTY above (mirrors the existing controller convention).

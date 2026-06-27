@@ -15,6 +15,7 @@
 #include <QSettings>
 #include <QString>
 #include <QStringList>
+#include <QVariant>
 
 #include "app/ai_provider_preset.hpp"
 
@@ -69,6 +70,75 @@ void ExpectNoRawSecretInPresetSettings() {
 
 }  // namespace
 
+TEST_F(AiProviderPresetTest, BuiltinProviderListContainsArkAndHidesOpenRouter) {
+  alcedo::AiProviderPresetController controller;
+  const QVariantList providers = controller.BuiltinProviderOptions();
+  QStringList labels;
+  QStringList keys;
+  for (const QVariant& value : providers) {
+    const auto m = value.toMap();
+    labels.push_back(m.value(QStringLiteral("label")).toString());
+    keys.push_back(m.value(QStringLiteral("providerKey")).toString());
+  }
+  EXPECT_TRUE(labels.contains(QStringLiteral("OpenCode")));
+  EXPECT_TRUE(labels.contains(QStringLiteral("Volcengine Ark / 火山方舟")));
+  EXPECT_TRUE(keys.contains(QStringLiteral("custom")));
+  EXPECT_FALSE(labels.join(QStringLiteral("|")).contains(QStringLiteral("OpenRouter"), Qt::CaseInsensitive));
+  EXPECT_FALSE(keys.contains(QStringLiteral("openrouter")));
+}
+
+TEST_F(AiProviderPresetTest, ProviderProtocolMatrixMapsToConcreteBackendConfigs) {
+  alcedo::AiProviderPresetController controller;
+
+  ASSERT_TRUE(controller.ApplyBuiltinProviderProtocol(QStringLiteral("opencode"),
+                                                      QStringLiteral("anthropic_messages")));
+  auto got = controller.CurrentPreset();
+  EXPECT_EQ(got.provider_id, QStringLiteral("opencode_go_anthropic"));
+  EXPECT_EQ(got.endpoint, QStringLiteral("/messages"));
+  EXPECT_EQ(got.structured_output_mode, QStringLiteral("tool"));
+  EXPECT_EQ(got.model_id, QStringLiteral("claude-sonnet-4-5"));
+  EXPECT_EQ(got.credential_slot, QStringLiteral("opencode_api_key"));
+
+  ASSERT_TRUE(controller.ApplyBuiltinProviderProtocol(QStringLiteral("opencode"),
+                                                      QStringLiteral("openai_chat_compatible")));
+  got = controller.CurrentPreset();
+  EXPECT_EQ(got.provider_id, QStringLiteral("opencode_go_openai"));
+  EXPECT_EQ(got.endpoint, QStringLiteral("/chat/completions"));
+  EXPECT_EQ(got.structured_output_mode, QStringLiteral("response_format_json_schema"));
+  EXPECT_EQ(got.model_id, QStringLiteral("gpt-4o"));
+  EXPECT_EQ(got.credential_slot, QStringLiteral("opencode_api_key"));
+
+  ASSERT_TRUE(controller.ApplyBuiltinProviderProtocol(QStringLiteral("volcengine_ark"),
+                                                      QStringLiteral("volcengine_ark_responses")));
+  got = controller.CurrentPreset();
+  EXPECT_EQ(got.provider_id, QStringLiteral("volcengine_ark"));
+  EXPECT_EQ(got.endpoint, QStringLiteral("/responses"));
+  EXPECT_EQ(got.structured_output_mode, QStringLiteral("responses_json_schema"));
+  EXPECT_EQ(got.model_id, QStringLiteral("doubao-seed-2-0-lite-260428"));
+  EXPECT_EQ(got.credential_slot, QStringLiteral("volcengine_ark_api_key"));
+
+  ASSERT_TRUE(controller.ApplyBuiltinProviderProtocol(QStringLiteral("volcengine_ark"),
+                                                      QStringLiteral("anthropic_messages")));
+  got = controller.CurrentPreset();
+  EXPECT_EQ(got.provider_id, QStringLiteral("volcengine_ark_coding"));
+  EXPECT_EQ(got.endpoint, QStringLiteral("/v1/messages"));
+  EXPECT_EQ(got.structured_output_mode, QStringLiteral("tool"));
+  EXPECT_EQ(got.model_id, QStringLiteral("doubao-seed-2.0-lite"));
+  EXPECT_EQ(got.credential_slot, QStringLiteral("volcengine_ark_api_key"));
+}
+
+TEST_F(AiProviderPresetTest, OpenCodeProtocolSwitchingKeepsCredentialIdentityStable) {
+  alcedo::AiProviderPresetController controller;
+  ASSERT_TRUE(controller.ApplyBuiltinProviderProtocol(QStringLiteral("opencode"),
+                                                      QStringLiteral("anthropic_messages")));
+  EXPECT_EQ(controller.CurrentPreset().credential_slot, QStringLiteral("opencode_api_key"));
+  ASSERT_TRUE(controller.ApplyBuiltinProviderProtocol(QStringLiteral("opencode"),
+                                                      QStringLiteral("openai_chat_compatible")));
+  const auto got = controller.CurrentPreset();
+  EXPECT_EQ(got.provider_id, QStringLiteral("opencode_go_openai"));
+  EXPECT_EQ(got.credential_slot, QStringLiteral("opencode_api_key"));
+  EXPECT_EQ(got.base_url, QStringLiteral("https://opencode.ai/zen/go/v1"));
+}
 TEST_F(AiProviderPresetTest, RoundTripsEveryEditableField) {
   alcedo::AiProviderPresetController controller;
   controller.SetFromPreset(SamplePreset());
@@ -120,17 +190,16 @@ TEST_F(AiProviderPresetTest, ClearRemovesAllPresetKeys) {
   controller.SetFromPreset(SamplePreset());
   controller.Clear();
 
-  // After Clear, only defaults remain; the editable string fields are empty.
+  // After Clear, the selected provider resets to the complete built-in default
+  // so the settings page is immediately usable rather than missing model/slot data.
   alcedo::AiProviderPresetController reloaded;
   const alcedo::AiProviderPreset got = reloaded.CurrentPreset();
-  EXPECT_TRUE(got.display_name.isEmpty());
-  // provider_id falls back to its built-in default (it is the endpoint selector,
-  // not a user free-text field), so a cleared preset still names a valid target.
+  EXPECT_EQ(got.display_name, QStringLiteral("OpenCode - Anthropic-compatible messages"));
   EXPECT_EQ(got.provider_id, QStringLiteral("opencode_go_anthropic"));
-  EXPECT_TRUE(got.base_url.isEmpty());
-  EXPECT_TRUE(got.endpoint.isEmpty());
-  EXPECT_TRUE(got.model_id.isEmpty());
-  EXPECT_TRUE(got.credential_slot.isEmpty());
+  EXPECT_EQ(got.base_url, QStringLiteral("https://opencode.ai/zen/go/v1"));
+  EXPECT_EQ(got.endpoint, QStringLiteral("/messages"));
+  EXPECT_EQ(got.model_id, QStringLiteral("claude-sonnet-4-5"));
+  EXPECT_EQ(got.credential_slot, QStringLiteral("opencode_api_key"));
   EXPECT_FALSE(got.remember_key);
   // Defaults (not user values) are applied for the closed-set / numeric fields.
   EXPECT_EQ(got.protocol_family, QStringLiteral("anthropic_messages"));
@@ -267,7 +336,7 @@ TEST_F(AiProviderPresetTest, RawApiKeyInputIsRejectedBeforePersistence) {
 
   alcedo::AiProviderPresetController reloaded;
   alcedo::AiProviderPreset got = reloaded.CurrentPreset();
-  EXPECT_TRUE(got.credential_slot.isEmpty());
+  EXPECT_EQ(got.credential_slot, QStringLiteral("opencode_api_key"));
   EXPECT_TRUE(got.masked_key_label.isEmpty());
 
   controller.SetCredentialSlot(QStringLiteral("Bearer abc123tokenvalue"));
@@ -280,7 +349,7 @@ TEST_F(AiProviderPresetTest, RawApiKeyInputIsRejectedBeforePersistence) {
   ExpectNoRawSecretInPresetSettings();
 
   got = reloaded.CurrentPreset();
-  EXPECT_TRUE(got.credential_slot.isEmpty());
+  EXPECT_EQ(got.credential_slot, QStringLiteral("opencode_api_key"));
   EXPECT_TRUE(got.masked_key_label.isEmpty());
   EXPECT_TRUE(got.display_name.isEmpty());
   EXPECT_TRUE(got.base_url.isEmpty());
@@ -290,7 +359,7 @@ TEST_F(AiProviderPresetTest, RawApiKeyInputIsRejectedBeforePersistence) {
 
   controller.SetCredentialSlot(QStringLiteral("Bad-Slot"));
   got = reloaded.CurrentPreset();
-  EXPECT_TRUE(got.credential_slot.isEmpty());
+  EXPECT_EQ(got.credential_slot, QStringLiteral("opencode_api_key"));
 
   controller.SetCredentialSlot(QStringLiteral("opencode_api_key"));
   controller.SetMaskedKeyLabel(QStringLiteral("sk-…4f2a"));

@@ -10,6 +10,7 @@
 #include <QLatin1String>
 #include <QRegularExpression>
 #include <QSettings>
+#include <QVariantMap>
 #include <QStringList>
 
 namespace alcedo {
@@ -61,6 +62,102 @@ QString read_string(const char* key, const QString& fallback) {
   return QSettings().value(QLatin1String(key), fallback).toString();
 }
 
+struct BuiltinProviderProtocol {
+  const char* provider_key;
+  const char* provider_label;
+  const char* provider_help;
+  const char* provider_id;
+  const char* display_name;
+  const char* protocol_label;
+  const char* protocol_family;
+  const char* driver;
+  const char* base_url;
+  const char* endpoint;
+  const char* auth_type;
+  const char* credential_slot;
+  const char* structured_output_mode;
+  const char* default_model_id;
+  const char* default_model_display_name;
+  const char* recommended_rendition;
+  qint64 timeout_ms;
+  qint64 max_image_bytes;
+};
+
+constexpr BuiltinProviderProtocol kBuiltinProviderProtocols[] = {
+    {"opencode", "OpenCode", "Shared OpenCode account; both request paths use opencode_api_key.",
+     "opencode_go_anthropic", "OpenCode - Anthropic-compatible messages",
+     "Anthropic-compatible messages", "anthropic_messages", "anthropic_messages",
+     "https://opencode.ai/zen/go/v1", "/messages", "bearer", "opencode_api_key", "tool",
+     "claude-sonnet-4-5", "Claude Sonnet 4.5", "preview", 60000, 4194304},
+    {"opencode", "OpenCode", "Shared OpenCode account; both request paths use opencode_api_key.",
+     "opencode_go_openai", "OpenCode - OpenAI-compatible chat", "OpenAI-compatible chat",
+     "openai_chat_compatible", "openai_chat_compatible", "https://opencode.ai/zen/go/v1",
+     "/chat/completions", "bearer", "opencode_api_key", "response_format_json_schema",
+     "gpt-4o", "GPT-4o", "preview", 60000, 4194304},
+    {"volcengine_ark", "Volcengine Ark / 火山方舟",
+     "Shared Volcengine Ark account; both request paths use volcengine_ark_api_key.",
+     "volcengine_ark", "Volcengine Ark / 火山方舟 - Responses", "Volcengine Ark responses",
+     "volcengine_ark_responses", "volcengine_ark_responses",
+     "https://ark.cn-beijing.volces.com/api/v3", "/responses", "bearer",
+     "volcengine_ark_api_key", "responses_json_schema", "doubao-seed-2-0-lite-260428",
+     "Doubao Seed 2.0 Lite (260428)", "preview", 60000, 4194304},
+    {"volcengine_ark", "Volcengine Ark / 火山方舟",
+     "Shared Volcengine Ark account; both request paths use volcengine_ark_api_key.",
+     "volcengine_ark_coding", "Volcengine Ark / 火山方舟 - Anthropic-compatible messages",
+     "Anthropic-compatible messages", "anthropic_messages", "anthropic_messages",
+     "https://ark.cn-beijing.volces.com/api/coding", "/v1/messages", "bearer",
+     "volcengine_ark_api_key", "tool", "doubao-seed-2.0-lite", "Doubao Seed 2.0 Lite",
+     "preview", 60000, 4194304},
+};
+
+const BuiltinProviderProtocol* FindBuiltinProtocol(const QString& provider_key,
+                                                   const QString& protocol_family) {
+  const QString key = provider_key.trimmed();
+  const QString fam = protocol_family.trimmed();
+  for (const auto& option : kBuiltinProviderProtocols) {
+    if (key == QLatin1String(option.provider_key) && fam == QLatin1String(option.protocol_family)) {
+      return &option;
+    }
+  }
+  return nullptr;
+}
+
+const BuiltinProviderProtocol* FindBuiltinByProviderId(const QString& provider_id) {
+  const QString id = provider_id.trimmed();
+  for (const auto& option : kBuiltinProviderProtocols) {
+    if (id == QLatin1String(option.provider_id)) {
+      return &option;
+    }
+  }
+  return nullptr;
+}
+
+const BuiltinProviderProtocol& DefaultBuiltinProtocol() {
+  return kBuiltinProviderProtocols[0];
+}
+
+QVariantMap BuiltinProtocolMap(const BuiltinProviderProtocol& option) {
+  QVariantMap m;
+  m.insert(QStringLiteral("providerKey"), QString::fromLatin1(option.provider_key));
+  m.insert(QStringLiteral("providerLabel"), QString::fromUtf8(option.provider_label));
+  m.insert(QStringLiteral("providerHelp"), QString::fromUtf8(option.provider_help));
+  m.insert(QStringLiteral("providerId"), QString::fromLatin1(option.provider_id));
+  m.insert(QStringLiteral("displayName"), QString::fromUtf8(option.display_name));
+  m.insert(QStringLiteral("protocolLabel"), QString::fromUtf8(option.protocol_label));
+  m.insert(QStringLiteral("protocolFamily"), QString::fromLatin1(option.protocol_family));
+  m.insert(QStringLiteral("driver"), QString::fromLatin1(option.driver));
+  m.insert(QStringLiteral("baseUrl"), QString::fromLatin1(option.base_url));
+  m.insert(QStringLiteral("endpoint"), QString::fromLatin1(option.endpoint));
+  m.insert(QStringLiteral("authType"), QString::fromLatin1(option.auth_type));
+  m.insert(QStringLiteral("credentialSlot"), QString::fromLatin1(option.credential_slot));
+  m.insert(QStringLiteral("structuredOutputMode"), QString::fromLatin1(option.structured_output_mode));
+  m.insert(QStringLiteral("modelId"), QString::fromLatin1(option.default_model_id));
+  m.insert(QStringLiteral("modelDisplayName"), QString::fromUtf8(option.default_model_display_name));
+  m.insert(QStringLiteral("recommendedRendition"), QString::fromLatin1(option.recommended_rendition));
+  m.insert(QStringLiteral("timeoutMs"), option.timeout_ms);
+  m.insert(QStringLiteral("maxImageBytes"), option.max_image_bytes);
+  return m;
+}
 qint64 read_int(const char* key, qint64 fallback) {
   // QSettings may store the value as int or qlonglong depending on platform;
   // toLongLong handles both and yields the fallback for missing/non-numeric.
@@ -132,21 +229,31 @@ QString read_credential_slot(const char* key) {
 AiProviderPresetController::AiProviderPresetController(QObject* parent) : QObject(parent) {}
 
 AiProviderPreset AiProviderPresetController::CurrentPreset() const {
+  const auto& d = DefaultBuiltinProtocol();
   AiProviderPreset preset;
-  preset.provider_id            = read_non_secret_string(kKeyProviderId, QLatin1String(kDefaultProviderId));
-  preset.display_name           = read_non_secret_string(kKeyDisplayName, QString{});
-  preset.protocol_family        = NormalizedProtocolFamily(read_string(kKeyProtocolFamily, kDefaultProtocolFamily));
-  preset.base_url               = read_non_secret_string(kKeyBaseUrl, QString{});
-  preset.endpoint               = read_non_secret_string(kKeyEndpoint, QString{});
-  preset.auth_type              = NormalizedAuthType(read_string(kKeyAuthType, kDefaultAuthType));
-  preset.credential_slot        = read_credential_slot(kKeyCredentialSlot);
-  preset.model_id               = read_non_secret_string(kKeyModelId, QString{});
-  preset.model_display_name     = read_non_secret_string(kKeyModelDisplayName, QString{});
+  preset.provider_id = read_non_secret_string(kKeyProviderId, QLatin1String(d.provider_id));
+  const auto* builtin = FindBuiltinByProviderId(preset.provider_id);
+  if (builtin == nullptr) {
+    builtin = &d;
+  }
+  preset.display_name = read_non_secret_string(kKeyDisplayName, QString::fromUtf8(builtin->display_name));
+  preset.protocol_family = NormalizedProtocolFamily(
+      read_string(kKeyProtocolFamily, QLatin1String(builtin->protocol_family)));
+  preset.base_url = read_non_secret_string(kKeyBaseUrl, QLatin1String(builtin->base_url));
+  preset.endpoint = read_non_secret_string(kKeyEndpoint, QLatin1String(builtin->endpoint));
+  preset.auth_type = NormalizedAuthType(read_string(kKeyAuthType, QLatin1String(builtin->auth_type)));
+  preset.credential_slot = read_credential_slot(kKeyCredentialSlot);
+  if (preset.credential_slot.isEmpty()) {
+    preset.credential_slot = QString::fromLatin1(builtin->credential_slot);
+  }
+  preset.model_id = read_non_secret_string(kKeyModelId, QLatin1String(builtin->default_model_id));
+  preset.model_display_name = read_non_secret_string(
+      kKeyModelDisplayName, QString::fromUtf8(builtin->default_model_display_name));
   preset.structured_output_mode = NormalizedStructuredOutputMode(
-      read_string(kKeyStructuredOutput, kDefaultStructuredOutputMode));
+      read_string(kKeyStructuredOutput, QLatin1String(builtin->structured_output_mode)));
   preset.timeout_ms            = NormalizedTimeoutMs(read_int(kKeyTimeoutMs, kDefaultTimeoutMs));
   preset.max_image_bytes       = NormalizedMaxImageBytes(read_int(kKeyMaxImageBytes, kDefaultMaxImageBytes));
-  preset.recommended_rendition = NormalizedRendition(read_string(kKeyRecommendedRendition, kDefaultRendition));
+  preset.recommended_rendition = NormalizedRendition(read_string(kKeyRecommendedRendition, QLatin1String(builtin->recommended_rendition)));
   preset.masked_key_label      = read_non_secret_string(kKeyMaskedKeyLabel, QString{});
   preset.remember_key          = read_bool(kKeyRememberKey, false);
   preset.output_language       = NormalizedOutputLanguage(read_string(kKeyOutputLanguage, kDefaultOutputLanguage));
@@ -295,9 +402,72 @@ void AiProviderPresetController::SetOutputLanguage(const QString& value) {
   emit PresetChanged();
 }
 
+QVariantList AiProviderPresetController::BuiltinProviderOptions() const {
+  QVariantList out;
+  QStringList  seen;
+  for (const auto& option : kBuiltinProviderProtocols) {
+    const QString key = QString::fromLatin1(option.provider_key);
+    if (seen.contains(key)) {
+      continue;
+    }
+    seen.push_back(key);
+    QVariantMap m;
+    m.insert(QStringLiteral("providerKey"), key);
+    m.insert(QStringLiteral("label"), QString::fromUtf8(option.provider_label));
+    m.insert(QStringLiteral("help"), QString::fromUtf8(option.provider_help));
+    m.insert(QStringLiteral("credentialSlot"), QString::fromLatin1(option.credential_slot));
+    out.push_back(m);
+  }
+  QVariantMap custom;
+  custom.insert(QStringLiteral("providerKey"), QStringLiteral("custom"));
+  custom.insert(QStringLiteral("label"), QStringLiteral("Custom"));
+  custom.insert(QStringLiteral("help"), QStringLiteral("Use advanced fields for a custom provider."));
+  custom.insert(QStringLiteral("credentialSlot"), QString{});
+  out.push_back(custom);
+  return out;
+}
+
+QVariantList AiProviderPresetController::BuiltinProtocolOptions(const QString& provider_key) const {
+  QVariantList out;
+  const QString key = provider_key.trimmed();
+  for (const auto& option : kBuiltinProviderProtocols) {
+    if (key == QLatin1String(option.provider_key)) {
+      out.push_back(BuiltinProtocolMap(option));
+    }
+  }
+  return out;
+}
+
+bool AiProviderPresetController::ApplyBuiltinProviderProtocol(const QString& provider_key,
+                                                              const QString& protocol_family) {
+  const auto* option = FindBuiltinProtocol(provider_key, protocol_family);
+  if (option == nullptr) {
+    return false;
+  }
+  AiProviderPreset preset;
+  preset.provider_id            = QString::fromLatin1(option->provider_id);
+  preset.display_name           = QString::fromUtf8(option->display_name);
+  preset.protocol_family        = QString::fromLatin1(option->protocol_family);
+  preset.base_url               = QString::fromLatin1(option->base_url);
+  preset.endpoint               = QString::fromLatin1(option->endpoint);
+  preset.auth_type              = QString::fromLatin1(option->auth_type);
+  preset.credential_slot        = QString::fromLatin1(option->credential_slot);
+  preset.model_id               = QString::fromLatin1(option->default_model_id);
+  preset.model_display_name     = QString::fromUtf8(option->default_model_display_name);
+  preset.structured_output_mode = QString::fromLatin1(option->structured_output_mode);
+  preset.timeout_ms             = option->timeout_ms;
+  preset.max_image_bytes        = option->max_image_bytes;
+  preset.recommended_rendition  = QString::fromLatin1(option->recommended_rendition);
+  preset.masked_key_label       = CurrentPreset().masked_key_label;
+  preset.remember_key           = CurrentPreset().remember_key;
+  preset.output_language        = CurrentPreset().output_language;
+  SetFromPreset(preset);
+  return true;
+}
 QString AiProviderPresetController::NormalizedProtocolFamily(const QString& value) {
   const QString v = value.trimmed();
-  if (v == QLatin1String("openai_chat_compatible") || v == QLatin1String("anthropic_messages")) {
+  if (v == QLatin1String("openai_chat_compatible") || v == QLatin1String("anthropic_messages") ||
+      v == QLatin1String("volcengine_ark_responses")) {
     return v;
   }
   return QLatin1String(kDefaultProtocolFamily);

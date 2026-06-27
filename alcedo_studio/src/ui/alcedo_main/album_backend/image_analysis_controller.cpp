@@ -112,7 +112,7 @@ void ImageAnalysisController::RefreshConfiguredState() {
   const bool was_credential_available = credential_available_;
   provider_configured_ = !preset.provider_id.isEmpty() && !preset.model_id.isEmpty();
   // Re-check the credential store without reading the secret or starting the sidecar.
-  if (provider_configured_ && !preset.credential_slot.isEmpty()) {
+  if (!preset.credential_slot.isEmpty()) {
     auto store = env_ ? env_->CredentialStore() : nullptr;
     credential_available_ = store && store->HasCredential(preset.credential_slot.toStdString());
   } else {

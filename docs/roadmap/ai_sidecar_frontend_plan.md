@@ -345,6 +345,118 @@ Acceptance:
 - Test/refresh reports success/failure and populates the model ComboBox when
   supported.
 
+### Frontend 1-Fix - Provider Settings Repair
+
+This phase is inserted before Frontend 2 because the first settings slice is not
+yet a reliable product surface. Frontend 2 must not build the analysis launcher
+or execution dialog on top of the current provider-settings behavior.
+
+Audit findings from manual testing:
+
+- Protocol and preset/provider identity are incorrectly coupled in the UI. The
+  current panel exposes `OpenCode (Anthropic)` and `OpenCode (OpenAI)` as
+  separate provider presets, then lets the protocol ComboBox appear to follow
+  the preset selection. The intended model is a combination: provider/service
+  choice plus compatible protocol path.
+- API keys do not persist reliably. The current text claims a system credential
+  store, but the QML/C++ path must prove that save, reload, availability check,
+  delete, and analysis-time loading all use the same credential slot on every
+  supported desktop OS.
+- The API-key input is visually too small for paste-oriented long secrets. Even
+  when masked, the field should signal that long keys are expected.
+- The lower half of `AiProviderSettingsPanel.qml` is effectively unverified
+  because credential persistence blocks connection/model testing.
+- The built-in preset list is wrong for the intended first product slice:
+  OpenCode appears, OpenRouter appears when it should not, and Volcengine Ark /
+  火山方舟 is missing.
+- Provider labels must not use stale/deprecated marketing markers. Provider UI
+  copy should name the actual service and protocol path plainly.
+
+Fix scope:
+
+- Replace the current single mixed preset model with an explicit provider +
+  protocol combination model:
+  - `Provider` selects the service identity and shared account/credential slot
+    such as `OpenCode`, `Volcengine Ark / 火山方舟`, or `Custom`.
+  - `Protocol` selects the compatible request/response path for that provider
+    such as `OpenAI-compatible chat`, `Anthropic-compatible messages`, or
+    `Volcengine Ark responses` when available.
+  - The selected combination resolves to the concrete backend `provider_id`,
+    `driver`/`protocol_family`, endpoint, structured-output mode, model
+    defaults, and credential slot.
+  - Changing Provider must not silently overwrite a manually chosen Protocol
+    unless that provider does not support the current protocol; in that case the
+    UI must show the fallback clearly.
+  - Changing Protocol must not pretend that the provider changed. It only
+    changes the transport path within the selected provider.
+- Make the built-in presets data-driven from the backend provider configs, or
+  keep one QML/C++ table generated from the same source. The first fixed list
+  must include:
+  - `OpenCode` with supported Anthropic-compatible and OpenAI-compatible paths,
+    sharing `opencode_api_key`.
+  - `Volcengine Ark / 火山方舟` with the normal Ark responses path and the coding
+    plan Anthropic-compatible path when both backend configs are present,
+    sharing `volcengine_ark_api_key`.
+  - `Custom`.
+  - OpenRouter must be removed from the default visible list for this slice.
+- Redesign the API-key section:
+  - use a wide paste field spanning the panel width, with a minimum height that
+    feels like a long secret entry rather than a short option field;
+  - keep password masking, but show enough placeholder/help text to make paste
+    behavior obvious;
+  - keep the action buttons adjacent but secondary to the full-width field;
+  - show saved state using only a masked label and credential slot/service name,
+    never raw key material.
+- Fix and verify credential persistence:
+  - Windows: use Credential Manager through the existing store or a corrected
+    wrapper, with deterministic target names.
+  - macOS: do not use a process-only in-memory fallback for saved keys; either
+    implement Keychain-backed persistence for this slice or explicitly disable
+    persistent save with a truthful status until implemented.
+  - Linux: do not claim persistent OS storage unless a Secret Service/libsecret
+    path exists; otherwise use a truthful unsupported/temporary state.
+  - Saving a key must immediately flip `credentialAvailable` without requiring
+    a settings dialog reopen.
+  - Closing and reopening the app must preserve the saved-key state where the OS
+    credential path is supported.
+  - Deleting a key must clear the OS credential, masked label, and availability
+    state.
+- Re-verify the connection/model section after credential save works:
+  - `Test & Refresh Models` must be disabled with a clear reason until provider,
+    protocol, model/default, and credential are sufficient.
+  - Live-discovered models may only become selectable if they can actually be
+    used by the analysis path without local rejection.
+  - Status lines must distinguish missing key, unsupported credential backend,
+    provider failure, and successful model refresh.
+- Add focused tests before Frontend 2 starts:
+  - provider + protocol matrix maps to the expected concrete backend
+    `provider_id`, endpoint, structured output mode, model default, and
+    credential slot;
+  - OpenCode protocol switching keeps the provider identity stable;
+  - Volcengine Ark appears in the built-in list;
+  - OpenRouter is not visible in the default built-in list;
+  - credential save/delete/availability survives controller recreation on each
+    platform with persistent support;
+  - raw keys never enter QSettings, preset DTOs, status text, logs, or test
+    failure output;
+  - API-key field sizing is covered by a QML/manual visual check at narrow and
+    wide settings-dialog widths.
+
+Acceptance:
+
+- The settings page presents Provider and Protocol as two parts of one selected
+  backend combination, not as duplicated provider presets.
+- OpenCode is one provider entry with compatible protocol choices underneath it.
+- Volcengine Ark / 火山方舟 is visible when its backend configs are present.
+- OpenRouter is absent from the default visible built-in preset list.
+- API keys can be saved, detected, used for connection refresh, deleted, and
+  detected as deleted on the supported credential backend.
+- The UI never claims persistent OS credential storage on a platform where the
+  implementation is only in-memory.
+- The API-key field visually accommodates long pasted keys.
+- The lower connection/model/output-language sections have been manually tested
+  after credential persistence is fixed.
+
 ### Frontend 2 - Advanced Analysis Launcher And Dialog
 
 - Add `panel_icons/flask.svg` and register it in `resource.qrc`.

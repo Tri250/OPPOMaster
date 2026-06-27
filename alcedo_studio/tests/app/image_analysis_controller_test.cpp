@@ -826,6 +826,19 @@ TEST_F(ImageAnalysisControllerTest, OutputLanguageExplicitEnReachesProvider) {
 
 // ── Credential save / delete bridge (Frontend 1) ─────────────────────────────
 
+TEST_F(ImageAnalysisControllerTest, SaveApiKeyUpdatesAvailabilityEvenWhenModelIsUnset) {
+  auto controller = MakeController();
+  controller->DeleteApiKey();
+  last_bundle_->preset.SetModelId(QString{});
+  controller->RefreshCredentialState();
+  ASSERT_FALSE(controller->ProviderConfigured());
+  ASSERT_FALSE(controller->CredentialAvailable());
+
+  const QString err = controller->SaveApiKey(QStringLiteral("sk-model-empty-secret-1234"));
+  EXPECT_TRUE(err.isEmpty()) << err.toStdString();
+  EXPECT_FALSE(controller->ProviderConfigured());
+  EXPECT_TRUE(controller->CredentialAvailable());
+}
 TEST_F(ImageAnalysisControllerTest, SaveApiKeyPersistsSecretAndUpdatesMaskAndAvailability) {
   auto controller = MakeController();
   // Wipe the slot the EnvBundle pre-seeded so we start from "no key".
@@ -844,6 +857,23 @@ TEST_F(ImageAnalysisControllerTest, SaveApiKeyPersistsSecretAndUpdatesMaskAndAva
   EXPECT_TRUE(masked.contains(QStringLiteral("••••")));
 }
 
+TEST_F(ImageAnalysisControllerTest, CredentialAvailabilitySurvivesControllerRecreationWithSharedStore) {
+  auto controller = MakeController();
+  controller->DeleteApiKey();
+  ASSERT_FALSE(controller->CredentialAvailable());
+
+  const QString err = controller->SaveApiKey(QStringLiteral("sk-recreate-secret-5555"));
+  ASSERT_TRUE(err.isEmpty()) << err.toStdString();
+  ASSERT_TRUE(controller->CredentialAvailable());
+
+  ImageAnalysisController recreated(last_bundle_->env, &last_bundle_->preset, last_bundle_->sink);
+  EXPECT_TRUE(recreated.CredentialAvailable());
+
+  recreated.DeleteApiKey();
+  EXPECT_FALSE(recreated.CredentialAvailable());
+  ImageAnalysisController after_delete(last_bundle_->env, &last_bundle_->preset, last_bundle_->sink);
+  EXPECT_FALSE(after_delete.CredentialAvailable());
+}
 TEST_F(ImageAnalysisControllerTest, DeleteApiKeyClearsCredential) {
   auto controller = MakeController();
   EXPECT_TRUE(controller->CredentialAvailable());
