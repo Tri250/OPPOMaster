@@ -11,4 +11,12 @@ auto AiRating::IsValid() const -> bool {
          !model_id_.empty() && rating_ >= kMinRating && rating_ <= kMaxRating;
 }
 
+auto AiRating::IsValidReasonsOnly() const -> bool {
+  // The rating value is intentionally ignored: a 7a reasons row carries `rating_ = 0`
+  // as a sentinel because the real star lives in the EXIF/metadata `Rating` column. Only
+  // the file key, provider/model identity, and non-empty reasons are required.
+  return file_id_ != 0 && !task_id_.empty() && !provider_id_.empty() &&
+         !model_id_.empty() && !reasons_.empty();
+}
+
 }  // namespace alcedo

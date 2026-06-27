@@ -54,6 +54,16 @@ struct AiRating {
   // Identity + range check used at the persistence boundary: a rating is storable only
   // when its file key, provider/model identity, and a 1..5 rating are present.
   [[nodiscard]] auto IsValid() const -> bool;
+
+  // Phase 7a reasons-only gate. The product star rating is the EXIF/metadata `Rating`
+  // value, written through the existing star-rating path; `AiStorageController` is used
+  // only to persist the rating *reasons* (rationale text) plus provider/model/prompt/
+  // rubric identity. Such a row carries `rating_ = 0` as a sentinel ("the truth is the
+  // EXIF star, not this column"), so `IsValid()` — which requires 1..5—rejects it. This
+  // looser check ignores the rating value and requires only the file key, provider/model
+  // identity, and non-empty reasons. `IsValid()` stays strict so Phase 5f tests are
+  // untouched.
+  [[nodiscard]] auto IsValidReasonsOnly() const -> bool;
 };
 
 }  // namespace alcedo

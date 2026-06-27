@@ -80,6 +80,9 @@ class FakeClient : public alcedo::IImageAnalysisClient {
 
   void SetDescribeOutcome(Outcome o) { describe_outcome_ = o; }
   void SetScoreOutcome(Outcome o) { score_outcome_ = o; }
+  // When false, success results carry no usage / provider_request_id (exercises the
+  // itemsWithoutUsage branch of the Phase 7a usage aggregate).
+  void SetUsageEnabled(bool enabled) { usage_enabled_ = enabled; }
   void SetBlockMode(bool block) {
     block_mode_ = block;
     release_blocked_ = false;
@@ -150,7 +153,7 @@ class FakeClient : public alcedo::IImageAnalysisClient {
   auto ListModelsCalls() const -> int { return list_models_calls_.load(); }
 
  private:
-  static auto MakeUnderstanding(const alcedo::ImageAnalysisRequest& req, Outcome o)
+  auto MakeUnderstanding(const alcedo::ImageAnalysisRequest& req, Outcome o)
       -> alcedo::ImageAnalysisUnderstandingResult {
     alcedo::ImageAnalysisUnderstandingResult r;
     r.request_id = req.request_id;
@@ -164,6 +167,13 @@ class FakeClient : public alcedo::IImageAnalysisClient {
       r.tags    = {"tag1", "tag2"};
       r.scene   = "scene";
       r.confidence = 0.9;
+      r.prompt_profile_id = "profile-v1";
+      if (usage_enabled_) {
+        r.provider_request_id = "req-desc-" + req.request_id;
+        r.usage.input_tokens  = 10;
+        r.usage.output_tokens = 20;
+        r.usage.total_tokens  = 30;
+      }
     } else if (o == Outcome::kMissingCredential) {
       r.ok = false;
       r.status = kStatusUnauthenticated;
@@ -182,7 +192,7 @@ class FakeClient : public alcedo::IImageAnalysisClient {
     }
     return r;
   }
-  static auto MakeRating(const alcedo::ImageAnalysisRequest& req, Outcome o)
+  auto MakeRating(const alcedo::ImageAnalysisRequest& req, Outcome o)
       -> alcedo::ImageAnalysisRatingResult {
     alcedo::ImageAnalysisRatingResult r;
     r.request_id = req.request_id;
@@ -195,6 +205,14 @@ class FakeClient : public alcedo::IImageAnalysisClient {
       r.rating = 4;
       r.rubric_id = "general";
       r.rubric_version = "1.0";
+      r.prompt_profile_id   = "profile-v1";
+      r.reasons             = "strong composition";
+      if (usage_enabled_) {
+        r.provider_request_id = "req-score-" + req.request_id;
+        r.usage.input_tokens  = 5;
+        r.usage.output_tokens = 7;
+        r.usage.total_tokens  = 12;
+      }
     } else {
       r.ok = false;
       r.status = kStatusProviderError;
@@ -211,6 +229,7 @@ class FakeClient : public alcedo::IImageAnalysisClient {
   std::atomic<int> revoke_calls_{0};
   Outcome describe_outcome_ = Outcome::kSuccess;
   Outcome score_outcome_    = Outcome::kSuccess;
+  bool   usage_enabled_     = true;
   std::atomic<bool> block_mode_{false};
   std::atomic<bool> release_blocked_{false};
   std::mutex        block_mutex_;
@@ -243,6 +262,98 @@ class CountingCredentialStore final : public alcedo::IAiCredentialStore {
   alcedo::InMemoryAiCredentialStore inner_;
   std::atomic<int> load_calls_{0};
   std::atomic<int> has_calls_{0};
+};
+
+// Phase 7a fake IImageAnalysisSink — records every call so "no upsert on failure /
+// cancel" is a one-liner assertion, and so the controller's job-end persistence wiring
+// (PersistUnderstanding / PersistRatingReasons + ApplyStarRating, then Flush / Notify)
+// can be verified without a live project / DB.
+class FakeSink : public IImageAnalysisSink {
+ public:
+  struct StarCall {
+    uint32_t elementId;
+    uint32_t imageId;
+    int      rating;
+  };
+
+  bool PersistUnderstanding(const alcedo::ImageAnalysisItemResult& r) override {
+    std::lock_guard lk(mu_);
+    ++persist_understanding_calls_;
+    understanding_element_ids_.push_back(r.item.element_id);
+    return persist_ok_;
+  }
+  bool PersistRatingReasons(const alcedo::ImageAnalysisItemResult& r) override {
+    std::lock_guard lk(mu_);
+    ++persist_reasons_calls_;
+    reasons_element_ids_.push_back(r.item.element_id);
+    return persist_ok_;
+  }
+  bool ApplyStarRating(uint32_t elementId, uint32_t imageId, int rating) override {
+    std::lock_guard lk(mu_);
+    ++apply_star_calls_;
+    star_calls_.push_back({elementId, imageId, rating});
+    return true;
+  }
+  void FlushPendingStarRatings() override {
+    std::lock_guard lk(mu_);
+    ++flush_calls_;
+  }
+  void NotifySearchDocumentChanged() override {
+    std::lock_guard lk(mu_);
+    ++notify_calls_;
+  }
+
+  void SetPersistOk(bool ok) { persist_ok_ = ok; }
+
+  auto PersistUnderstandingCalls() const -> int {
+    std::lock_guard lk(mu_);
+    return persist_understanding_calls_;
+  }
+  auto PersistReasonsCalls() const -> int {
+    std::lock_guard lk(mu_);
+    return persist_reasons_calls_;
+  }
+  auto ApplyStarCalls() const -> int {
+    std::lock_guard lk(mu_);
+    return apply_star_calls_;
+  }
+  auto FlushCalls() const -> int {
+    std::lock_guard lk(mu_);
+    return flush_calls_;
+  }
+  auto NotifyCalls() const -> int {
+    std::lock_guard lk(mu_);
+    return notify_calls_;
+  }
+  auto TotalCalls() const -> int {
+    std::lock_guard lk(mu_);
+    return persist_understanding_calls_ + persist_reasons_calls_ + apply_star_calls_ +
+           flush_calls_ + notify_calls_;
+  }
+  auto StarCalls() const -> std::vector<StarCall> {
+    std::lock_guard lk(mu_);
+    return star_calls_;
+  }
+  auto UnderstandingElementIds() const -> std::vector<uint32_t> {
+    std::lock_guard lk(mu_);
+    return understanding_element_ids_;
+  }
+  auto ReasonsElementIds() const -> std::vector<uint32_t> {
+    std::lock_guard lk(mu_);
+    return reasons_element_ids_;
+  }
+
+ private:
+  mutable std::mutex mu_;
+  int  persist_understanding_calls_ = 0;
+  int  persist_reasons_calls_       = 0;
+  int  apply_star_calls_            = 0;
+  int  flush_calls_                 = 0;
+  int  notify_calls_                = 0;
+  bool persist_ok_                  = true;
+  std::vector<StarCall>   star_calls_;
+  std::vector<uint32_t>   understanding_element_ids_;
+  std::vector<uint32_t>   reasons_element_ids_;
 };
 class FakeEnv : public IImageAnalysisEnvironment {
  public:
@@ -324,6 +435,7 @@ struct EnvBundle {
   std::shared_ptr<alcedo::ImageAnalysisInFlightGate> gate   = std::make_shared<
       alcedo::ImageAnalysisInFlightGate>();
   std::shared_ptr<CountingCredentialStore> store = std::make_shared<CountingCredentialStore>();
+  std::shared_ptr<FakeSink>                sink = std::make_shared<FakeSink>();
   std::shared_ptr<FakeEnv>               env;
   alcedo::AiProviderPresetController     preset;  // outlives the controller(s)
 
@@ -365,7 +477,7 @@ class ImageAnalysisControllerTest : public ::testing::Test {
     auto bundle = std::make_shared<EnvBundle>();
     bundles_.push_back(bundle);
     last_bundle_ = bundle;
-    return std::make_unique<ImageAnalysisController>(bundle->env, &bundle->preset);
+    return std::make_unique<ImageAnalysisController>(bundle->env, &bundle->preset, bundle->sink);
   }
 
   static QCoreApplication*                              app_;
@@ -538,8 +650,8 @@ TEST_F(ImageAnalysisControllerTest, SharedGateSerializesTwoConcurrentRuns) {
   auto bundle = std::make_shared<EnvBundle>();
   bundles_.push_back(bundle);
 
-  ImageAnalysisController a(bundle->env, &bundle->preset);
-  ImageAnalysisController b(bundle->env, &bundle->preset);
+  ImageAnalysisController a(bundle->env, &bundle->preset, bundle->sink);
+  ImageAnalysisController b(bundle->env, &bundle->preset, bundle->sink);
 
   bundle->client->SetBlockMode(true);
   a.StartDescribeForTargets(Targets({{1, 100}}));
@@ -560,6 +672,121 @@ TEST_F(ImageAnalysisControllerTest, SharedGateSerializesTwoConcurrentRuns) {
   EXPECT_EQ(a.Analyzed(), 1);
   EXPECT_EQ(b.Analyzed(), 1);
   EXPECT_EQ(bundle->client->DescribeCalls(), 2);
+}
+
+// ── Phase 7a: persistence sink wiring ────────────────────────────────────────
+
+// (a) Describe success persists one understanding per analyzed image and notifies the
+// search document at job end; no rating path is touched.
+TEST_F(ImageAnalysisControllerTest, DescribeSuccessPersistsUnderstandingAndNotifiesSearch) {
+  auto controller = MakeController();
+  controller->StartDescribeForTargets(Targets({{1, 100}, {2, 200}}));
+  ASSERT_TRUE(WaitForFinished(*controller, std::chrono::seconds(15)));
+  EXPECT_EQ(controller->Analyzed(), 2);
+
+  auto& sink = *last_bundle_->sink;
+  EXPECT_EQ(sink.PersistUnderstandingCalls(), 2);
+  EXPECT_EQ(sink.UnderstandingElementIds(), (std::vector<uint32_t>{1, 2}));
+  EXPECT_EQ(sink.PersistReasonsCalls(), 0);
+  EXPECT_EQ(sink.ApplyStarCalls(), 0);
+  EXPECT_EQ(sink.FlushCalls(), 0);
+  EXPECT_EQ(sink.NotifyCalls(), 1);
+}
+
+// (b) Score success persists reasons + applies the star per analyzed image, then flushes
+// the batched star writes at job end; no understanding / search-notify path is touched.
+TEST_F(ImageAnalysisControllerTest, ScoreSuccessPersistsReasonsAppliesStarAndFlushes) {
+  auto controller = MakeController();
+  controller->StartScoreForTargets(Targets({{7, 700}, {8, 800}}));
+  ASSERT_TRUE(WaitForFinished(*controller, std::chrono::seconds(15)));
+  EXPECT_EQ(controller->Analyzed(), 2);
+
+  auto& sink = *last_bundle_->sink;
+  EXPECT_EQ(sink.PersistReasonsCalls(), 2);
+  EXPECT_EQ(sink.ReasonsElementIds(), (std::vector<uint32_t>{7, 8}));
+  EXPECT_EQ(sink.ApplyStarCalls(), 2);
+  const auto stars = sink.StarCalls();
+  ASSERT_EQ(stars.size(), 2u);
+  EXPECT_EQ(stars[0].rating, 4);
+  EXPECT_GE(stars[0].rating, 1);
+  EXPECT_LE(stars[0].rating, 5);
+  EXPECT_EQ(sink.FlushCalls(), 1);
+  EXPECT_EQ(sink.PersistUnderstandingCalls(), 0);
+  EXPECT_EQ(sink.NotifyCalls(), 0);
+}
+
+// (c) A provider error, schema error, and cancellation each produce ZERO sink calls — no
+// active annotation is left behind.
+TEST_F(ImageAnalysisControllerTest, ProviderErrorMakesNoSinkCalls) {
+  auto controller = MakeController();
+  last_bundle_->client->SetDescribeOutcome(FakeClient::Outcome::kUnsupported);
+  controller->StartDescribeForTargets(Targets({{1, 100}}));
+  ASSERT_TRUE(WaitForFinished(*controller, std::chrono::seconds(10)));
+  EXPECT_EQ(controller->Analyzed(), 0);
+  EXPECT_EQ(controller->Failed(), 1);
+  EXPECT_EQ(last_bundle_->sink->TotalCalls(), 0);
+}
+
+TEST_F(ImageAnalysisControllerTest, SchemaErrorMakesNoSinkCalls) {
+  auto controller = MakeController();
+  last_bundle_->client->SetDescribeOutcome(FakeClient::Outcome::kSchemaError);
+  controller->StartDescribeForTargets(Targets({{1, 100}}));
+  ASSERT_TRUE(WaitForFinished(*controller, std::chrono::seconds(10)));
+  EXPECT_EQ(controller->Analyzed(), 0);
+  EXPECT_EQ(controller->Failed(), 1);
+  EXPECT_EQ(last_bundle_->sink->TotalCalls(), 0);
+}
+
+TEST_F(ImageAnalysisControllerTest, CancelMakesNoSinkCalls) {
+  auto controller = MakeController();
+  last_bundle_->client->SetBlockMode(true);
+  controller->StartScoreForTargets(Targets({{1, 100}}));
+  ASSERT_TRUE(SpinWaitFor([&] { return last_bundle_->client->ScoreCalls() >= 1; },
+                          std::chrono::seconds(5)));
+  controller->CancelAnalysis();
+  last_bundle_->client->ReleaseBlock();
+  ASSERT_TRUE(WaitForFinished(*controller, std::chrono::seconds(10)));
+  EXPECT_GE(controller->Canceled(), 1);
+  EXPECT_EQ(last_bundle_->sink->TotalCalls(), 0);
+}
+
+// (d) lastUsage aggregates tokens + provider request ids and counts items with/without
+// usage metadata.
+TEST_F(ImageAnalysisControllerTest, LastUsageAggregatesTokensAndRequestIds) {
+  auto controller = MakeController();
+  controller->StartDescribeForTargets(Targets({{1, 100}, {2, 200}}));
+  ASSERT_TRUE(WaitForFinished(*controller, std::chrono::seconds(15)));
+  const auto usage = controller->LastUsage();
+  EXPECT_EQ(usage.value("inputTokens").toLongLong(), 20);   // 10 * 2
+  EXPECT_EQ(usage.value("outputTokens").toLongLong(), 40);  // 20 * 2
+  EXPECT_EQ(usage.value("totalTokens").toLongLong(), 60);   // 30 * 2
+  EXPECT_EQ(usage.value("itemsWithUsage").toInt(), 2);
+  EXPECT_EQ(usage.value("itemsWithoutUsage").toInt(), 0);
+  const auto ids = usage.value("providerRequestIds").toList();
+  EXPECT_EQ(ids.size(), 2);
+}
+
+TEST_F(ImageAnalysisControllerTest, LastUsageCountsItemsWithoutUsageMetadata) {
+  auto controller = MakeController();
+  last_bundle_->client->SetUsageEnabled(false);
+  controller->StartDescribeForTargets(Targets({{1, 100}}));
+  ASSERT_TRUE(WaitForFinished(*controller, std::chrono::seconds(10)));
+  const auto usage = controller->LastUsage();
+  EXPECT_EQ(usage.value("totalTokens").toLongLong(), 0);
+  EXPECT_EQ(usage.value("itemsWithUsage").toInt(), 0);
+  EXPECT_EQ(usage.value("itemsWithoutUsage").toInt(), 1);
+  EXPECT_EQ(usage.value("providerRequestIds").toList().size(), 0);
+}
+
+// (e) lastResults carries promptProfileId and providerRequestId on each item.
+TEST_F(ImageAnalysisControllerTest, LastResultsCarryPromptProfileAndProviderRequestId) {
+  auto controller = MakeController();
+  controller->StartDescribeForTargets(Targets({{1, 100}}));
+  ASSERT_TRUE(WaitForFinished(*controller, std::chrono::seconds(10)));
+  ASSERT_EQ(controller->LastResults().size(), 1);
+  const auto r = controller->LastResults().front().toMap();
+  EXPECT_EQ(r.value("promptProfileId").toString(), QStringLiteral("profile-v1"));
+  EXPECT_TRUE(r.value("providerRequestId").toString().startsWith(QStringLiteral("req-desc-")));
 }
 
 }  // namespace

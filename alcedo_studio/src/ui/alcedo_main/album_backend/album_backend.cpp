@@ -29,7 +29,10 @@
 
 #include "app/album_browse_service.hpp"
 #include "app/project_package_service.hpp"
+#include "ai/ai_description.hpp"
+#include "ai/ai_rating.hpp"
 #include "image/image.hpp"
+#include "storage/controller/ai/ai_storage_controller.hpp"
 #ifdef HAVE_OPENCL
 #include "opencl/opencl_runtime.hpp"
 #endif
@@ -139,6 +142,90 @@ class AlbumImageAnalysisEnvironment final : public IImageAnalysisEnvironment {
 
 std::shared_ptr<IImageAnalysisEnvironment> MakeAlbumImageAnalysisEnvironment(AlbumBackend& backend) {
   return std::make_shared<AlbumImageAnalysisEnvironment>(backend);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Phase 7a production IImageAnalysisSink. Declared a friend of AlbumBackend so it
+// can reach project_handler_ / image_ctrl_ / stats_. Delegates persistence to
+// AiStorageController, the star write to ImageController's light path, and the
+// search refresh to StatsEngine. The controller calls these at job end (see
+// ImageAnalysisController::Finish); a failed/cancelled job never reaches here.
+// ────────────────────────────────────────────────────────────────────────────
+class AlbumImageAnalysisSink final : public IImageAnalysisSink {
+ public:
+  explicit AlbumImageAnalysisSink(AlbumBackend& backend) : backend_(backend) {}
+
+  // task_id "describe" matches the Phase 5g live-smoke persistence convention so a
+  // 7a-persisted row lands in the same (file_id, "describe") slot the live path uses.
+  static constexpr const char* kDescribeTaskId = "describe";
+  static constexpr const char* kScoreTaskId    = "rate";
+
+  bool PersistUnderstanding(const ImageAnalysisItemResult& result) override {
+    auto project = backend_.project_handler_.project();
+    if (!project) {
+      return false;
+    }
+    auto& ai = project->GetStorageService()->GetAiStorageController();
+    AiDescription d;
+    d.file_id_           = result.item.element_id;
+    d.task_id_           = kDescribeTaskId;
+    d.provider_id_       = result.understanding.provider;
+    d.model_id_          = result.understanding.model_id;
+    d.prompt_profile_id_ = result.understanding.prompt_profile_id;
+    d.rendition_kind_    = result.understanding.rendition.kind;
+    d.caption_           = result.understanding.caption;
+    d.scene_             = result.understanding.scene;
+    d.confidence_        = result.understanding.confidence;
+    d.active_            = true;
+    d.SetTags(result.understanding.tags);
+    return ai.UpsertUnderstanding(d);
+  }
+
+  bool PersistRatingReasons(const ImageAnalysisItemResult& result) override {
+    auto project = backend_.project_handler_.project();
+    if (!project) {
+      return false;
+    }
+    auto& ai = project->GetStorageService()->GetAiStorageController();
+    AiRating r;
+    r.file_id_           = result.item.element_id;
+    r.task_id_           = kScoreTaskId;
+    r.provider_id_       = result.rating.provider;
+    r.model_id_          = result.rating.model_id;
+    r.prompt_profile_id_ = result.rating.prompt_profile_id;
+    r.rendition_kind_    = result.rating.rendition.kind;
+    // rating_ = 0 SENTINEL: the real star is the EXIF/metadata `Rating` value written by
+    // ApplyStarRating. IsValidReasonsOnly ignores the rating value; GetActiveRating
+    // consumers must not treat this 0 as the real score.
+    r.rating_         = 0;
+    r.rubric_id_      = result.rating.rubric_id;
+    r.rubric_version_ = result.rating.rubric_version;
+    r.reasons_        = result.rating.reasons;
+    r.active_         = true;
+    return ai.UpsertRatingReasons(r);
+  }
+
+  bool ApplyStarRating(uint32_t elementId, uint32_t imageId, int rating) override {
+    backend_.image_ctrl_.ApplyStarRatingLight(elementId, imageId, rating);
+    return true;
+  }
+
+  void FlushPendingStarRatings() override { backend_.image_ctrl_.FlushPendingStarRatings(); }
+
+  void NotifySearchDocumentChanged() override {
+    // AiUnderstandingExpr is a live correlated subquery against AiImageUnderstanding, so
+    // newly-persisted active rows match immediately — there is no materialized index to
+    // rebuild. Re-running the thumbnail view against the current search/filter picks up
+    // the new captions/tags. Mirrors SearchController's search-apply hook.
+    backend_.stats_.RebuildThumbnailView();
+  }
+
+ private:
+  AlbumBackend& backend_;
+};
+
+std::shared_ptr<IImageAnalysisSink> MakeAlbumImageAnalysisSink(AlbumBackend& backend) {
+  return std::make_shared<AlbumImageAnalysisSink>(backend);
 }
 
 namespace {
@@ -329,7 +416,8 @@ AlbumBackend::AlbumBackend(QObject* parent)
       semantic_generation_(*this),
       ai_provider_preset_(this),
       image_analysis_gate_(std::make_shared<alcedo::ImageAnalysisInFlightGate>()),
-      image_analysis_(MakeAlbumImageAnalysisEnvironment(*this), &ai_provider_preset_),
+      image_analysis_(MakeAlbumImageAnalysisEnvironment(*this), &ai_provider_preset_,
+                      MakeAlbumImageAnalysisSink(*this)),
       import_export_(*this),
       nikon_he_recovery_(*this),
       editor_(*this),
@@ -418,6 +506,35 @@ auto AlbumBackend::GetImageRating(uint elementId, uint imageId) -> QVariantMap {
 }
 auto AlbumBackend::SetImageRating(uint elementId, uint imageId, int rating) -> QVariantMap {
   return image_ctrl_.SetImageRating(elementId, imageId, rating);
+}
+
+// Phase 7a: read the AI rating *reasons* row persisted by AlbumImageAnalysisSink. The
+// numeric star is the EXIF/metadata `Rating` value (GetImageRating); this returns the
+// AI rationale + identity. The stored `rating_` is a 0 sentinel for 7a rows and is NOT
+// returned as the score.
+auto AlbumBackend::GetImageRatingReasons(uint elementId) -> QVariantMap {
+  QVariantMap result{{"hasReasons", false},
+                     {"reasons", QString{}},
+                     {"provider", QString{}},
+                     {"modelId", QString{}},
+                     {"rubricId", QString{}},
+                     {"rubricVersion", QString{}}};
+  auto project = project_handler_.project();
+  if (!project) {
+    return result;
+  }
+  const auto row =
+      project->GetStorageService()->GetAiStorageController().GetActiveRating(elementId);
+  if (!row.has_value() || row->reasons_.empty()) {
+    return result;
+  }
+  result["hasReasons"]   = true;
+  result["reasons"]      = QString::fromStdString(row->reasons_);
+  result["provider"]     = QString::fromStdString(row->provider_id_);
+  result["modelId"]      = QString::fromStdString(row->model_id_);
+  result["rubricId"]     = QString::fromStdString(row->rubric_id_);
+  result["rubricVersion"] = QString::fromStdString(row->rubric_version_);
+  return result;
 }
 bool AlbumBackend::OpenDirectoryInFileManager(const QString& dirUrlOrPath) {
   const auto dir_path_opt = InputToPath(dirUrlOrPath);

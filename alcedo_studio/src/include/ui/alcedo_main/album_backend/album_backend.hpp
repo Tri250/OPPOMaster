@@ -236,6 +236,11 @@ class AlbumBackend final : public QObject {
   Q_INVOKABLE QVariantMap GetImageDetails(uint elementId, uint imageId);
   Q_INVOKABLE QVariantMap GetImageRating(uint elementId, uint imageId);
   Q_INVOKABLE QVariantMap SetImageRating(uint elementId, uint imageId, int rating);
+  // Phase 7a: read the AI rating *reasons* (rationale + provider/model/rubric identity)
+  // persisted by the image-analysis sink. The numeric star itself is the EXIF/metadata
+  // `Rating` value (use `GetImageRating`); this returns the AI rationale row. Returns
+  // {hasReasons, reasons, provider, modelId, rubricId, rubricVersion}. No QML UI in 7a.
+  Q_INVOKABLE QVariantMap GetImageRatingReasons(uint elementId);
   Q_INVOKABLE bool        OpenDirectoryInFileManager(const QString& dirUrlOrPath);
 
   Q_INVOKABLE void        StartImport(const QStringList& fileUrlsOrPaths);
@@ -345,6 +350,7 @@ class AlbumBackend final : public QObject {
   friend class SemanticGenerationController;
   friend class ImageAnalysisController;
   friend class AlbumImageAnalysisEnvironment;
+  friend class AlbumImageAnalysisSink;
   friend class ImportExportHandler;
   friend class NikonHeRecoveryController;
   friend class EditorController;

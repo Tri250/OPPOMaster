@@ -241,6 +241,89 @@ TEST_F(AiStorageControllerTest, UnsetRatingNotPersisted) {
   EXPECT_FALSE(ai.GetRating(file_id, "rate").has_value());
 }
 
+// ── Phase 7a: reasons-only persistence path ─────────────────────────────────
+
+// The 7a gate ignores the rating value and requires file key + provider/model identity +
+// non-empty reasons. A rating=0 row (the 7a sentinel) is storable through this path even
+// though `IsValid()` rejects it.
+TEST_F(AiStorageControllerTest, IsValidReasonsOnlyAcceptsZeroSentinelAndRejectsEmptyReasons) {
+  const auto file_id = static_cast<sl_element_id_t>(42);
+  // rating=0 sentinel with reasons — reasons-only valid, but IsValid (strict) rejects it.
+  const auto sentinel = MakeRating(file_id, "rate", 0, "rationale");
+  EXPECT_FALSE(sentinel.IsValid());          // 5f strict gate: rating must be 1..5
+  EXPECT_TRUE(sentinel.IsValidReasonsOnly());  // 7a gate: rating ignored, reasons present
+  // Empty reasons — rejected by the reasons-only gate.
+  const auto no_reasons = MakeRating(file_id, "rate", 0, "");
+  EXPECT_FALSE(no_reasons.IsValidReasonsOnly());
+  // Missing identity — rejected even with reasons.
+  auto no_identity = MakeRating(file_id, "rate", 0, "rationale");
+  no_identity.provider_id_.clear();
+  EXPECT_FALSE(no_identity.IsValidReasonsOnly());
+  // A real 1..5 rating is also reasons-only-valid (rating ignored).
+  EXPECT_TRUE(MakeRating(file_id, "rate", 5, "rationale").IsValidReasonsOnly());
+}
+
+// UpsertRatingReasons writes a row with rating = 0 (sentinel) + reasons + identity; the
+// active row is retrievable via GetActiveRating. The stored rating is the 0 sentinel, NOT
+// the real score (the truth is the EXIF/metadata `Rating` value).
+TEST_F(AiStorageControllerTest, UpsertRatingReasonsInsertsZeroSentinelRow) {
+  ProjectService project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
+  const auto     file_id = CreateSyntheticFile(project, L"ai_reasons_alpha.dng");
+  ASSERT_NE(file_id, 0u);
+  auto& ai = project.GetStorageService()->GetAiStorageController();
+
+  ASSERT_TRUE(ai.UpsertRatingReasons(MakeRating(file_id, "rate", 0, "strong composition")));
+  const auto got = ai.GetActiveRating(file_id);
+  ASSERT_TRUE(got.has_value());
+  EXPECT_EQ(got->file_id_, file_id);
+  EXPECT_EQ(got->rating_, 0);  // sentinel — NOT the real score
+  EXPECT_EQ(got->reasons_, "strong composition");
+  EXPECT_EQ(got->rubric_id_, "default-rubric");
+  EXPECT_EQ(got->rubric_version_, "v1");
+  EXPECT_EQ(got->provider_id_, "openrouter");
+  EXPECT_EQ(got->model_id_, "test-model");
+  EXPECT_TRUE(got->active_);
+}
+
+// The (file_id, task_id) PK replaces the prior reasons row in place — at most one active
+// reasons row per pair.
+TEST_F(AiStorageControllerTest, UpsertRatingReasonsReplacesPriorRowForSamePair) {
+  ProjectService project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
+  const auto     file_id = CreateSyntheticFile(project, L"ai_reasons_replace_alpha.dng");
+  ASSERT_NE(file_id, 0u);
+  auto& ai = project.GetStorageService()->GetAiStorageController();
+
+  ASSERT_TRUE(ai.UpsertRatingReasons(MakeRating(file_id, "rate", 0, "old rationale")));
+  ASSERT_TRUE(ai.UpsertRatingReasons(MakeRating(file_id, "rate", 0, "new rationale")));
+  const auto got = ai.GetActiveRating(file_id);
+  ASSERT_TRUE(got.has_value());
+  EXPECT_EQ(got->reasons_, "new rationale");
+  EXPECT_EQ(got->rating_, 0);
+}
+
+// Empty reasons are rejected at the storage boundary — no row is written.
+TEST_F(AiStorageControllerTest, UpsertRatingReasonsRejectsEmptyReasons) {
+  ProjectService project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
+  const auto     file_id = CreateSyntheticFile(project, L"ai_reasons_empty_alpha.dng");
+  ASSERT_NE(file_id, 0u);
+  auto& ai = project.GetStorageService()->GetAiStorageController();
+  EXPECT_FALSE(ai.UpsertRatingReasons(MakeRating(file_id, "rate", 0, "")));
+  EXPECT_FALSE(ai.GetActiveRating(file_id).has_value());
+}
+
+// A reasons-only row is dropped by the file-deletion cascade (same as a full rating row).
+TEST_F(AiStorageControllerTest, DeleteForFilesRemovesReasonsOnlyRow) {
+  ProjectService project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
+  const auto     file_id = CreateSyntheticFile(project, L"ai_reasons_delete_alpha.dng");
+  ASSERT_NE(file_id, 0u);
+  auto& ai = project.GetStorageService()->GetAiStorageController();
+  ASSERT_TRUE(ai.UpsertRatingReasons(MakeRating(file_id, "rate", 0, "rationale")));
+  ASSERT_TRUE(ai.GetActiveRating(file_id).has_value());
+
+  ai.DeleteForFiles(std::span<const sl_element_id_t>(&file_id, 1));
+  EXPECT_FALSE(ai.GetActiveRating(file_id).has_value());
+}
+
 // Understanding and rating live in separate tables and must not bleed into each other's
 // retrieval: the rating's reasons never appear on the understanding object, and the
 // understanding's caption never appears on the rating object.

@@ -65,6 +65,18 @@ class AiStorageController {
   // one). Throws on a DuckDB error.
   [[nodiscard]] auto UpsertRating(const AiRating& rating) const -> bool;
 
+  // Phase 7a: persist a rating's *reasons* only (rationale text + provider/model/prompt/
+  // rubric identity), with `rating_ = 0` as a sentinel. The product star rating is the
+  // EXIF/metadata `Rating` value written through the star-rating path; this row exists so
+  // the AI rationale and identity survive alongside it. The caller MUST set `rating_ = 0`
+  // (the truth is the EXIF star, not this column); `GetActiveRating` consumers must not
+  // treat the stored `rating_` as the real score. Validated via `IsValidReasonsOnly()`
+  // (rating ignored; file key + provider/model identity + non-empty reasons required), so
+  // it is rejected if the reasons are empty. Same `(file_id, task_id)` PK + `FileExists`
+  // guard as `UpsertRating`; reuses `kInsertRatingFields` (no DDL change). Throws on a
+  // DuckDB error.
+  [[nodiscard]] auto UpsertRatingReasons(const AiRating& rating) const -> bool;
+
   [[nodiscard]] auto GetRating(sl_element_id_t file_id, const std::string& task_id) const
       -> std::optional<AiRating>;
   [[nodiscard]] auto GetActiveRating(sl_element_id_t file_id) const -> std::optional<AiRating>;

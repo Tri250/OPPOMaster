@@ -8,6 +8,7 @@
 #include <QPointer>
 #include <QString>
 #include <QVariantList>
+#include <QVariantMap>
 #include <memory>
 #include <string>
 #include <vector>
@@ -15,6 +16,7 @@
 #include "app/ai_credential_store.hpp"
 #include "app/ai_provider_preset.hpp"
 #include "app/image_analysis_service.hpp"
+#include "ui/alcedo_main/album_backend/image_analysis_sink.hpp"
 #include "ui/alcedo_main/i18n.hpp"
 
 namespace alcedo::ui {
@@ -75,10 +77,12 @@ class ImageAnalysisController final : public QObject {
   Q_PROPERTY(bool providerConfigured READ ProviderConfigured NOTIFY StateChanged)
   Q_PROPERTY(bool credentialAvailable READ CredentialAvailable NOTIFY StateChanged)
   Q_PROPERTY(QVariantList lastResults READ LastResults NOTIFY StateChanged)
+  Q_PROPERTY(QVariantMap lastUsage READ LastUsage NOTIFY StateChanged)
 
  public:
   ImageAnalysisController(std::shared_ptr<IImageAnalysisEnvironment> env,
                           AiProviderPresetController*                 preset,
+                          std::shared_ptr<IImageAnalysisSink>         sink,
                           QObject*                                    parent = nullptr);
 
   bool             Running() const { return running_; }
@@ -92,6 +96,7 @@ class ImageAnalysisController final : public QObject {
   bool             ProviderConfigured() const { return provider_configured_; }
   bool             CredentialAvailable() const { return credential_available_; }
   QVariantList     LastResults() const { return last_results_; }
+  QVariantMap      LastUsage() const { return last_usage_; }
 
   // Album selection is a QVariantList of {elementId, imageId} maps (the same
   // convention as ImportExportHandler::CollectExportTargets). Empty selection is
@@ -120,6 +125,7 @@ class ImageAnalysisController final : public QObject {
 
   std::shared_ptr<IImageAnalysisEnvironment> env_;
   AiProviderPresetController*                 preset_;
+  std::shared_ptr<IImageAnalysisSink>         sink_;
   std::shared_ptr<alcedo::ImageAnalysisJob>   job_;
   std::vector<alcedo::ImageAnalysisItem>      last_items_;
   alcedo::ImageAnalysisTask                    last_task_ = alcedo::ImageAnalysisTask::kDescribe;
@@ -127,6 +133,7 @@ class ImageAnalysisController final : public QObject {
   i18n::LocalizedText status_text_{};
   QString             last_error_;
   QVariantList        last_results_;
+  QVariantMap         last_usage_;
   bool                running_              = false;
   bool                can_retry_            = false;
   bool                provider_configured_  = false;
@@ -141,5 +148,11 @@ class ImageAnalysisController final : public QObject {
 /// `AlbumImageAnalysisEnvironment` is an implementation detail); `AlbumBackend`
 /// calls this from its member-init list to construct `ImageAnalysisController`.
 std::shared_ptr<IImageAnalysisEnvironment> MakeAlbumImageAnalysisEnvironment(AlbumBackend& backend);
+
+/// Factory for the production Phase 7a sink (`AlbumImageAnalysisSink`, defined in
+/// `album_backend.cpp`). Delegates to `AiStorageController`, `ImageController`, and
+/// `StatsEngine`. `AlbumBackend` calls this from its member-init list to construct
+/// `ImageAnalysisController`.
+std::shared_ptr<IImageAnalysisSink> MakeAlbumImageAnalysisSink(AlbumBackend& backend);
 
 }  // namespace alcedo::ui

@@ -1286,23 +1286,284 @@ refactor.
 
 ### Phase 7a - Persistence, Search Refresh, Rating Surface, And Usage Summary
 
-Deliverables:
+Goal: wire the remote image-analysis results produced by Phase 6d's
+`ImageAnalysisController` into persistence, search, the existing EXIF star-rating
+surface, and a per-job usage summary — without letting a failed or cancelled call
+create an active annotation.
 
-- Persist successful describe results through `AiStorageController.UpsertUnderstanding`; refresh the
-  search path so new captions/tags become searchable only after persistence.
-- Persist rating results through `AiStorageController.UpsertRating`. Keep rating out of full-text
-  search unless a product decision says otherwise.
-- Show provider/protocol/model/prompt-profile identity on job results and stored rows so prompt or
-  model changes do not reinterpret old annotations.
-- Add per-job usage/cost summary when the response includes usage metadata. Start with tokens and
-  provider request ids; do not build a billing dashboard in this phase.
+Phase 7a constraint (product decision, 2026-06-27): the numeric AI rating is NOT
+persisted through `AiStorageController.UpsertRating`. A photo's star rating is
+already the EXIF/metadata `Rating` value surfaced everywhere (star UI, stats
+filter, thumbnail cards — read via `json_extract(i.metadata, '$.Rating')`). The AI
+score must therefore be applied directly through the existing
+`AlbumBackend::SetImageRating` / `ImageController::SetImageRating` path that owns
+that metadata column. `AiStorageController` is used in 7a only to persist the
+rating *reasons* (the rationale text) plus provider/model/prompt-profile/rubric
+identity. `UpsertRating` from Phase 5f is kept but not called in 7a.
 
-Tests:
+#### Decisions (locked via design review, 2026-06-27)
 
-- Targeted search tests proving new captions appear only after successful persistence.
-- Storage/controller tests proving rating remains excluded from full-text search and failed calls
-  create no active rows.
+1. **Reasons storage** — reuse the existing `AiImageRating` table. Add a new
+   `AiStorageController.UpsertRatingReasons` that writes a row with `rating = 0`
+   as a sentinel (NOT the truth), plus `reasons`, `provider_id`, `model_id`,
+   `prompt_profile_id`, `rendition_kind`, `rubric_id`, `rubric_version`, `active`.
+   Add `AiRating::IsValidReasonsOnly()` (file_id/task/provider/model non-empty +
+   reasons non-empty; rating ignored) as the gate. `AiRating::IsValid()` stays
+   strict (rating 1..5) so Phase 5f tests are untouched. No DDL change — the
+   `rating` column already has `NOT NULL DEFAULT 0`.
+2. **Star overwrite policy** — overwrite always. Every successful AI score calls
+   the star-rating path with the model's 1..5 value, replacing any existing manual
+   star. Accepted risk: a batch AI run silently overwrites manual curation;
+   mitigated only by re-running manual rating (UI copy deferred).
+3. **Batch write cost** — light per-image, sync once at job end, no
+   `SaveProject`/`Package` in 7a. Per image: `Write_NoSync` (in-memory
+   `exif_display_.rating_` + MODIFIED flag) + view-state patch +
+   `thumbnail_model_.updateRating`. At job end: one `SyncWithStorage()` (flushes
+   all MODIFIED image rows in a single transaction) + `stats_.RefreshStats()`. The
+   `.alcd` packaged snapshot is left stale until the next normal save/close; the
+   live DB is authoritative.
+4. **Usage summary surface** — new aggregate `lastUsage` Q_PROPERTY on
+   `ImageAnalysisController`: `inputTokens`, `outputTokens`, `totalTokens`,
+   `providerRequestIds` (list), `itemsWithUsage`, `itemsWithoutUsage`. No
+   per-item usage in `lastResults`; the aggregate is the 7a summary.
+5. **"Rating surface" scope** — persist reasons + add a new
+   `Q_INVOKABLE GetImageRatingReasons(uint elementId)` read API on `AlbumBackend`
+   returning `{hasReasons, reasons, provider, modelId, rubricId, rubricVersion}`.
+   No QML UI in 7a (consistent with 6d's "controller is QML-callable, no menu/dialog
+   yet").
+6. **Search refresh** — after a successful describe job persists rows, emit a
+   search-document-changed notification so `stats_.RebuildThumbnailView()` re-runs
+   the active search. `AiUnderstandingExpr` is a live correlated subquery against
+   `AiImageUnderstanding`, so newly-persisted active rows match immediately; there
+   is no materialized index to rebuild.
+
+#### Research conclusion driving decision 3
+
+`SyncWithStorage()` is NOT redundant — it is the only path that writes the rating
+into the DuckDB `Image.metadata` JSON column. `Write_NoSync` mutates in-memory
+state only; `ProjectService::SaveProject` (`project_service.cpp:502`) writes only
+the project-meta JSON (`db_path`, `project_uuid`, `start_id`, `data_summary`) and
+touches no image rows; `PackageCurrentProjectFiles` (`project_handler.cpp:311`)
+snapshots the DB as-is. Every canonical save path calls `SyncWithStorage()`
+immediately before `SaveProject()` — `PersistCurrentProjectState`
+(`project_handler.cpp:300-302`), close/switch (`113-114`, `159-160`),
+`AlbumBackend::SaveProject` (`1002`), import/export (`434-435`), editor
+(`121`, `580`). Removing sync from `SetImageRating` would lose the rating on
+reload (DB has the old value) and leave `stats_.RefreshStats()` (a DB
+`GROUP BY json_extract(i.metadata,'$.Rating')`) stale. The genuine waste in a
+batch is `SaveProject`+`Package` per image; 7a therefore defers those to the next
+normal save and does only the cheap DB flush once at job end.
+
+#### Design
+
+**Persistence seam — `IImageAnalysisSink`.** The controller stays decoupled from
+`AlbumBackend` (6d invariant) and `ImageAnalysisService` stays storage-agnostic
+(5d/6d tests unchanged). A new narrow interface, injected into
+`ImageAnalysisController`'s constructor, owns all host-state mutation:
+
+```cpp
+class IImageAnalysisSink {
+ public:
+  virtual ~IImageAnalysisSink() = default;
+  // Describe: persist understanding (caption/tags/scene/confidence + identity).
+  virtual bool PersistUnderstanding(const alcedo::ImageAnalysisItemResult& r) = 0;
+  // Score: persist reasons-only (rating=0 sentinel) + identity. Does NOT write the star.
+  virtual bool PersistRatingReasons(const alcedo::ImageAnalysisItemResult& r) = 0;
+  // Score: write the 1..5 star into EXIF/metadata in-memory (Write_NoSync) + view/model patch.
+  virtual bool ApplyStarRating(uint elementId, uint imageId, int rating) = 0;
+  // Score job end: one SyncWithStorage + RefreshStats (durability + star-filter stats).
+  virtual void FlushPendingStarRatings() = 0;
+  // Describe job end: re-run active search so new captions/tags match.
+  virtual void NotifySearchDocumentChanged() = 0;
+};
+```
+
+The production implementation `AlbumImageAnalysisSink` lives in `album_backend.cpp`
+(declared a friend of `AlbumBackend`) and delegates to
+`StorageService::GetAiStorageController()`, `ImageController`, and `stats_`. The
+test fake records calls so "no upsert on failure" is a one-liner assertion. The
+controller constructor becomes `(env, preset, sink, parent)`.
+
+**When persistence fires:** in the service's finished callback, before `Finish()`,
+iterate `results`: for each `kAnalyzed` item call `PersistUnderstanding` (describe)
+or `PersistRatingReasons` + `ApplyStarRating` (score); skip `kError`/`kCanceled`.
+Then: score job → `FlushPendingStarRatings()`; describe job →
+`NotifySearchDocumentChanged()`. Persistence happens at job end (not per item) —
+simpler, matching the single finished-callback delivery. Accepted risk: a crash
+mid-batch loses unsynced reasons/stars for already-completed items; re-running the
+job regenerates them (reasons/stars are cheap to recompute).
+
+**Storage — reasons-only path.** `AiRating` gains `IsValidReasonsOnly()`:
+`file_id_ != 0 && !task_id_/provider_id_/model_id_.empty() && !reasons_.empty()`
+(rating ignored). `IsValid()` stays strict (rating 1..5) so 5f tests are
+untouched. `AiStorageController::UpsertRatingReasons(const AiRating&)` validates
+via `IsValidReasonsOnly()`, runs the `FileExists` guard, and
+`duckorm::insert_or_replace` on `AiImageUnderstanding`'s sibling `AiImageRating`
+reusing `kInsertRatingFields` (caller sets `rating_ = 0`). PK `(file_id, task_id)`
+guarantees at most one active reasons row per pair. `GetActiveRating` returns it
+(rating = 0, reasons filled) — acceptable, since the star truth lives in EXIF.
+Identity columns (`provider_id_`, `model_id_`, `prompt_profile_id_`,
+`rendition_kind_`, `rubric_id_`, `rubric_version_`) are filled from the result DTO
+in both the understanding and reasons paths.
+
+**Rating star path — light writes.** Extract from
+`ImageController::SetImageRating` (`image_controller.cpp:856-967`) two pieces:
+
+- `ImageController::ApplyStarRatingLight(elementId, imageId, rating)`: the
+  `Write_NoSync` block (897-909) + view-state patch (924-929) +
+  `thumbnail_model_.updateRating` (930). NO `SyncWithStorage`/`SaveProject`/
+  `Package`/`RefreshStats`.
+- `ImageController::FlushPendingStarRatings()`:
+  `image_pool->SyncWithStorage()` + `stats_.RefreshStats()`.
+
+`AlbumBackend` exposes both; the sink delegates. The existing `SetImageRating`
+Q_INVOKABLE (used for manual single star clicks) is unchanged — it still does a
+full sync+save per single user action, which is correct for a one-off click.
+
+**Usage summary.** In `Finish()`, accumulate from each item's
+`understanding.usage`/`rating.usage` + `provider_request_id` into a new
+`last_usage_` struct; expose as `Q_PROPERTY(QVariantMap lastUsage ...)`. Items
+where `usage.total_tokens == 0 && provider_request_id` empty count as
+`itemsWithoutUsage`. Also add `promptProfileId` and `providerRequestId` to each
+`lastResults` map (provider/modelId already present) — cheap, and satisfies "show
+identity on job results."
+
+**`GetImageRatingReasons` read API.** New
+`Q_INVOKABLE QVariantMap AlbumBackend::GetImageRatingReasons(uint elementId)` →
+`AiStorageController::GetActiveRating(elementId)` → `{hasReasons, reasons,
+provider, modelId, rubricId, rubricVersion}`. No QML wiring in 7a.
+
+**Search refresh hook.** `NotifySearchDocumentChanged()` →
+`stats_.RebuildThumbnailView()` (mirrors `search_controller.cpp:451`). The live
+`AiUnderstandingExpr` correlated subquery picks up the newly-persisted
+`AiImageUnderstanding` rows, so an active fuzzy search re-matches immediately.
+
+#### Deliverables
+
+- Add `AiRating::IsValidReasonsOnly()` and `AiStorageController::UpsertRatingReasons`
+  (reuses `kInsertRatingFields`; no DDL change).
+- Add `IImageAnalysisSink` + production `AlbumImageAnalysisSink`; inject into
+  `ImageAnalysisController`. Wire persistence (understanding / reasons + star) +
+  job-end flush/notify into the finished callback.
+- Extract `ImageController::ApplyStarRatingLight` + `FlushPendingStarRatings` from
+  `SetImageRating`.
+- Add `lastUsage` aggregate Q_PROPERTY; add `promptProfileId`/`providerRequestId`
+  to `lastResults`.
+- Add `Q_INVOKABLE GetImageRatingReasons` on `AlbumBackend`.
+- Show provider/model/prompt-profile/rubric identity on job results and stored rows
+  so prompt or model changes do not reinterpret old annotations.
+- Persist successful describe results through `AiStorageController.UpsertUnderstanding`;
+  refresh the search path so new captions/tags become searchable only after
+  persistence.
+- Keep rating out of full-text search (rating reasons never enter the FTS document;
+  `AiUnderstandingExpr` reads understanding only).
+
+#### Tests
+
+- `AiStorageControllerTest`: `UpsertRatingReasons` insert + replace (PK), reasons-only
+  row has `rating = 0`, `GetActiveRating` returns reasons, `IsValidReasonsOnly`
+  rejects empty reasons, `IsValid` (5f) still rejects `rating = 0` (no regression),
+  delete cascade still drops reasons rows.
+- `ImageAnalysisControllerTest`: extend the fake env with a fake
+  `IImageAnalysisSink`; assert (a) describe success → `PersistUnderstanding` per
+  `kAnalyzed` + `NotifySearchDocumentChanged` at end; (b) score success →
+  `PersistRatingReasons` + `ApplyStarRating` per `kAnalyzed` +
+  `FlushPendingStarRatings` at end; (c) provider/schema error + cancel → ZERO sink
+  calls (no active annotation); (d) `lastUsage` aggregates tokens +
+  provider_request_ids and counts itemsWith/WithoutUsage; (e) `lastResults` carries
+  `promptProfileId`/`providerRequestId`.
+- `ImageAnalysisServiceTest`: unchanged (service stays storage-agnostic — proves the
+  sink boundary is clean).
+- `FilterServiceTest` (or controller-level via fake sink + a real
+  `SleeveFilterService`): caption searchable only after `PersistUnderstanding`;
+  rating reasons never enter FTS.
+- AlbumBackend-level (offline if feasible): `GetImageRatingReasons` returns stored
+  reasons; `ApplyStarRatingLight` + `FlushPendingStarRatings` leave the DB
+  `metadata.Rating` updated and star-filter stats correct.
 - Usage summary tests for present/absent usage metadata.
+
+#### Review focus / accepted risks
+
+- No upsert on failure/cancel: the sink receives zero calls for non-`kAnalyzed`
+  items (test-enforced); the storage-layer `IsValidReasonsOnly`/`IsValid` backstop
+  remains.
+- Rating truth is EXIF, not the AI table: `AiImageRating.rating` is a 0-sentinel for
+  7a rows; documented; `GetActiveRating` consumers must not treat it as the real
+  score. 5f's `UpsertRating` rows with real ratings can coexist under different
+  `task_id`s, but 7a never writes them.
+- Overwrite-always star policy: a batch AI run silently replaces manual stars —
+  accepted per decision 2; mitigated only by re-running manual curation.
+- Job-end persistence: a crash mid-batch loses unsynced reasons/stars for completed
+  items — accepted (re-run). Reasons persist only at job end, not per item.
+- No `SaveProject`/`Package` in 7a: the `.alcd` packaged snapshot is stale until the
+  next normal save/close — same as any DB change between manual saves; the live DB
+  is authoritative.
+- Combined describe+rating run: still deferred (6d).
+- QML UI: still deferred; `GetImageRatingReasons` read API lands ready for later.
+
+Review conclusion (handoff, 2026-06-27): bugs found — none; risk accepted —
+(1) overwrite-always star policy, (2) job-end persistence crash window,
+(3) `rating = 0` sentinel semantics on `AiImageRating` reasons rows, (4) no
+`.alcd` repackage in 7a; missing tests — none (storage reasons-only, controller
+sink wiring incl. no-upsert-on-failure, usage aggregate, search refresh, read API
+all covered).
+
+#### Phase 7a - Completion & Self-Review
+
+Status: complete. Remote image-analysis results from Phase 6d's
+`ImageAnalysisController` now flow into persistence (understanding / rating reasons),
+the existing EXIF star-rating surface, the album search view, and a per-job usage
+summary — without letting a failed or cancelled call create an active annotation.
+
+What changed:
+
+- `AiRating` gained `IsValidReasonsOnly()` (rating ignored; file key + provider/model
+  identity + non-empty reasons). `IsValid()` stays strict (1..5) so Phase 5f tests are
+  untouched. `AiStorageController::UpsertRatingReasons` reuses `kInsertRatingFields`
+  (caller sets `rating_ = 0` sentinel) with the same `(file_id, task_id)` PK +
+  `FileExists` guard — no DDL change.
+- New `IImageAnalysisSink` seam (`image_analysis_sink.hpp`) injected into
+  `ImageAnalysisController`'s constructor `(env, preset, sink, parent)`. `Finish()`
+  iterates results at job end: per `kAnalyzed` item it calls `PersistUnderstanding`
+  (describe) or `PersistRatingReasons` + `ApplyStarRating` (score); `kError`/`kCanceled`
+  are skipped. The trailing `FlushPendingStarRatings` (score) / `NotifySearchDocumentChanged`
+  (describe) fires only when `analyzed_ > 0`, so a fully failed/cancelled job produces
+  ZERO sink calls. The service stays storage-agnostic.
+- `ImageController::ApplyStarRatingLight` (the `Write_NoSync` + view-state patch +
+  `thumbnail_model_.updateRating` half) and `FlushPendingStarRatings`
+  (`SyncWithStorage` + `RefreshStats`) were extracted from `SetImageRating`.
+  `SetImageRating` (manual single click) is unchanged.
+- Production `AlbumImageAnalysisSink` in `album_backend.cpp` (friend of `AlbumBackend`)
+  delegates to `AiStorageController`, `ImageController`, and `stats_.RebuildThumbnailView()`.
+  task_id slots `"describe"` / `"rate"` match the Phase 5g live-smoke convention.
+- New `Q_INVOKABLE AlbumBackend::GetImageRatingReasons(elementId)` returns
+  `{hasReasons, reasons, provider, modelId, rubricId, rubricVersion}` from
+  `GetActiveRating`. No QML UI in 7a.
+- New `lastUsage` Q_PROPERTY (`inputTokens`, `outputTokens`, `totalTokens`,
+  `providerRequestIds`, `itemsWithUsage`, `itemsWithoutUsage`) aggregated in `Finish()`;
+  `promptProfileId` + `providerRequestId` added to each `lastResults` map.
+
+Acceptance verification (MSVC debug, PowerShell tool per project memory):
+
+- `cmd /c scripts\msvc_env.cmd --build --preset win_debug --target AlbumBackendLib
+  AiStorageControllerTest ImageAnalysisControllerTest FilterServiceTest --parallel 4`:
+  succeeded.
+- `ctest --test-dir build/debug -R "AiStorageControllerTest|ImageAnalysisControllerTest|
+  FilterServiceTest"`: 72/72 passed.
+- Regression `ctest --test-dir build/debug -R "ImageAnalysisServiceTest|
+  AiSidecarRuntimeServiceTest|SemanticGenerationServiceTest|SemanticStorageControllerTest"`:
+  66/66 passed (2 environment-gated live smokes skipped).
+- `ImageAnalysisServiceTest` unchanged and green — proves the sink boundary keeps the
+  service storage-agnostic.
+
+Accepted risks (unchanged from the locked decisions): overwrite-always star policy;
+job-end persistence crash window (re-run regenerates); `rating = 0` sentinel semantics
+on `AiImageRating` reasons rows (truth is EXIF `Rating`); no `.alcd` repackage in 7a
+(live DB authoritative). AlbumBackend-level offline coverage of `GetImageRatingReasons`
+/ `ApplyStarRatingLight` + `FlushPendingStarRatings` is provided through the storage
+`GetActiveRating`/`UpsertRatingReasons` round-trip tests plus the controller sink-wiring
+tests rather than a heavy AlbumBackend project harness; the read API is a thin delegate
+over the tested `GetActiveRating`.
 
 ### Phase 7b - Live Smoke Matrix And Handoff
 

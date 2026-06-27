@@ -45,8 +45,9 @@ void ClearSecret(std::string* secret) {
 // ────────────────────────────────────────────────────────────────────────────
 ImageAnalysisController::ImageAnalysisController(std::shared_ptr<IImageAnalysisEnvironment> env,
                                                  AiProviderPresetController*                 preset,
+                                                 std::shared_ptr<IImageAnalysisSink>         sink,
                                                  QObject*                                    parent)
-    : QObject(parent), env_(std::move(env)), preset_(preset) {
+    : QObject(parent), env_(std::move(env)), preset_(preset), sink_(std::move(sink)) {
   if (preset_) {
     connect(preset_, &AiProviderPresetController::PresetChanged, this,
             [this] { RefreshConfiguredState(); });
@@ -115,6 +116,7 @@ void ImageAnalysisController::SetError(const QString& error) {
   job_.reset();
   last_items_.clear();
   last_results_.clear();
+  last_usage_.clear();
   ResetCounters();
   emit StateChanged();
 }
@@ -360,17 +362,53 @@ void ImageAnalysisController::Finish(std::vector<alcedo::ImageAnalysisItemResult
   running_ = false;
   ResetCounters();
   last_results_.clear();
+  // Phase 7a usage aggregate: token totals across all items + the distinct provider
+  // request ids, plus how many items carried usage metadata vs not. Per-item usage is
+  // NOT placed in `lastResults` — this aggregate is the 7a summary.
+  int64_t             usage_input     = 0;
+  int64_t             usage_output    = 0;
+  int64_t             usage_total     = 0;
+  QVariantList        usage_request_ids;
+  int                 items_with_usage    = 0;
+  int                 items_without_usage = 0;
+  const bool          describe = (last_task_ == alcedo::ImageAnalysisTask::kDescribe);
+
   for (const auto& r : results) {
     QVariantMap m;
     m.insert("elementId", static_cast<uint>(r.item.element_id));
     m.insert("imageId", static_cast<uint>(r.item.image_id));
     m.insert("status", QString::fromUtf8(alcedo::ToString(r.status)));
     m.insert("error", QString::fromStdString(r.error));
-    const bool describe = (last_task_ == alcedo::ImageAnalysisTask::kDescribe);
     m.insert("provider", QString::fromStdString(describe ? r.understanding.provider
                                                           : r.rating.provider));
     m.insert("modelId", QString::fromStdString(describe ? r.understanding.model_id
                                                          : r.rating.model_id));
+    // Identity on every job result so a prompt/model change does not reinterpret old
+    // annotations: prompt-profile id + the provider's own request id (provider/modelId
+    // already present above).
+    m.insert("promptProfileId",
+             QString::fromStdString(describe ? r.understanding.prompt_profile_id
+                                             : r.rating.prompt_profile_id));
+    m.insert("providerRequestId",
+             QString::fromStdString(describe ? r.understanding.provider_request_id
+                                             : r.rating.provider_request_id));
+
+    const auto& usage = describe ? r.understanding.usage : r.rating.usage;
+    const auto& provider_request_id =
+        describe ? r.understanding.provider_request_id : r.rating.provider_request_id;
+    const bool item_has_usage = (usage.total_tokens != 0 || !provider_request_id.empty());
+    if (item_has_usage) {
+      ++items_with_usage;
+      usage_input += usage.input_tokens;
+      usage_output += usage.output_tokens;
+      usage_total += usage.total_tokens;
+      if (!provider_request_id.empty()) {
+        usage_request_ids.push_back(QString::fromStdString(provider_request_id));
+      }
+    } else {
+      ++items_without_usage;
+    }
+
     if (r.status == alcedo::ImageAnalysisItemStatus::kAnalyzed) {
       if (describe) {
         m.insert("caption", QString::fromStdString(r.understanding.caption));
@@ -396,6 +434,17 @@ void ImageAnalysisController::Finish(std::vector<alcedo::ImageAnalysisItemResult
   }
   total_ = static_cast<int>(results.size());
 
+  // Build the usage aggregate (always present, even on an all-failure job, so QML can
+  // read itemsWithUsage=0).
+  QVariantMap usage_map;
+  usage_map.insert("inputTokens", static_cast<qlonglong>(usage_input));
+  usage_map.insert("outputTokens", static_cast<qlonglong>(usage_output));
+  usage_map.insert("totalTokens", static_cast<qlonglong>(usage_total));
+  usage_map.insert("providerRequestIds", usage_request_ids);
+  usage_map.insert("itemsWithUsage", items_with_usage);
+  usage_map.insert("itemsWithoutUsage", items_without_usage);
+  last_usage_ = usage_map;
+
   const bool any_failure = (failed_ > 0 || canceled_ > 0);
   can_retry_             = any_failure && !last_items_.empty();
   if (analyzed_ == total_ && total_ > 0) {
@@ -408,9 +457,32 @@ void ImageAnalysisController::Finish(std::vector<alcedo::ImageAnalysisItemResult
   } else {
     status_text_ = i18n::LocalizedText{};
   }
-  // A cancelled or failed run must leave no active annotation. The controller
-  // performs NO persistence (Phase 6e), so this holds trivially; failed/canceled
-  // items are counted here, never as analyzed.
+
+  // Phase 7a persistence (job end, in the finished callback). A cancelled or failed run
+  // must leave no active annotation: only `kAnalyzed` items reach the sink, and the
+  // trailing flush/notify fires only when at least one item was persisted (analyzed_ > 0),
+  // so a fully failed/cancelled job produces ZERO sink calls. The sink is nullable so the
+  // controller stays usable in contexts without host-state wiring (e.g. a dry unit test).
+  if (sink_ && analyzed_ > 0) {
+    for (const auto& r : results) {
+      if (r.status != alcedo::ImageAnalysisItemStatus::kAnalyzed) {
+        continue;
+      }
+      if (describe) {
+        sink_->PersistUnderstanding(r);
+      } else {
+        sink_->PersistRatingReasons(r);
+        sink_->ApplyStarRating(static_cast<uint32_t>(r.item.element_id),
+                               static_cast<uint32_t>(r.item.image_id), r.rating.rating);
+      }
+    }
+    if (describe) {
+      sink_->NotifySearchDocumentChanged();
+    } else {
+      sink_->FlushPendingStarRatings();
+    }
+  }
+
   RefreshConfiguredState();
   emit StateChanged();
 }

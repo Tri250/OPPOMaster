@@ -131,6 +131,27 @@ void StoreAiRating(ProjectService& project, sl_element_id_t file_id, const std::
   ASSERT_TRUE(ai.UpsertRating(r));
 }
 
+// Phase 7a: persist a rating's *reasons* only (rating = 0 sentinel) through the new
+// UpsertRatingReasons path — the path AlbumImageAnalysisSink uses. The reasons must still
+// be excluded from full-text search.
+void StoreAiRatingReasons(ProjectService& project, sl_element_id_t file_id,
+                          const std::string& task_id, const std::string& reasons) {
+  auto&       ai = project.GetStorageService()->GetAiStorageController();
+  AiRating r;
+  r.file_id_           = file_id;
+  r.task_id_           = task_id;
+  r.provider_id_       = "openrouter";
+  r.model_id_          = "test-model";
+  r.prompt_profile_id_ = "profile-v1";
+  r.rendition_kind_    = "thumbnail_k1024";
+  r.rating_            = 0;  // 7a sentinel — the real star is the EXIF Rating column
+  r.rubric_id_         = "default-rubric";
+  r.rubric_version_    = "v1";
+  r.reasons_           = reasons;
+  r.active_            = true;
+  ASSERT_TRUE(ai.UpsertRatingReasons(r));
+}
+
 struct SyntheticFileSpec {
   file_name_t           file_name_{};
   std::filesystem::path image_path_{};
@@ -692,6 +713,37 @@ TEST_F(FilterServiceTests, AiRatingReasonsAreNotInFullScreenSearch) {
       project.GetStorageService()->GetAiStorageController().GetRating(alpha_id, "rate");
   ASSERT_TRUE(rating.has_value());
   EXPECT_EQ(rating->rating_, 5);
+  EXPECT_NE(rating->reasons_.find("flibbertigibbet"), std::string::npos);
+}
+
+// Phase 7a: the reasons-only path (UpsertRatingReasons, rating = 0 sentinel — the path
+// AlbumImageAnalysisSink uses) still keeps rating reasons out of full-text search. A
+// distinctive word that appears only in the reasons must not be searchable.
+TEST_F(FilterServiceTests, AiRatingReasonsOnlyRowIsNotInFullScreenSearch) {
+  ProjectService project(db_path_, meta_path_);
+  const auto     alpha_id =
+      CreateSyntheticFile(project, SyntheticFileSpec{.file_name_    = L"ai_reasons_search_alpha.dng",
+                                                     .camera_model_ = "Neutral Body",
+                                                     .lens_         = "Plain Lens"});
+  ASSERT_NE(alpha_id, 0u);
+
+  StoreAiUnderstanding(project, alpha_id, "describe", "sahara caption", {"desert"}, "");
+  StoreAiRatingReasons(project, alpha_id, "rate", "flibbertigibbet golden ratio");
+
+  SleeveFilterService filter_service(project.GetStorageService());
+  // The understanding caption is searchable.
+  ASSERT_EQ(filter_service.SearchFolder(0, L"sahara", 0, 10).size(), 1u);
+
+  // The reasons-only row's distinctive word must NOT be searchable, even though the row
+  // is persisted and active and the word exists in the DB.
+  EXPECT_TRUE(filter_service.SearchFolder(0, L"flibbertigibbet", 0, 10).empty());
+  EXPECT_EQ(filter_service.CountSearchResults(0, L"flibbertigibbet"), 0u);
+
+  // Sanity: the reasons row was persisted as an active rating row (rating = 0 sentinel).
+  const auto rating =
+      project.GetStorageService()->GetAiStorageController().GetActiveRating(alpha_id);
+  ASSERT_TRUE(rating.has_value());
+  EXPECT_EQ(rating->rating_, 0);
   EXPECT_NE(rating->reasons_.find("flibbertigibbet"), std::string::npos);
 }
 

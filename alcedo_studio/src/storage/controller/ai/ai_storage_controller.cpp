@@ -239,6 +239,25 @@ auto AiStorageController::UpsertRating(const AiRating& rating) const -> bool {
   return true;
 }
 
+auto AiStorageController::UpsertRatingReasons(const AiRating& rating) const -> bool {
+  // Phase 7a: reasons-only row. The caller sets `rating_ = 0` as a sentinel (the real
+  // star is the EXIF/metadata `Rating` value); `IsValidReasonsOnly` ignores the rating
+  // value and requires file key + provider/model identity + non-empty reasons. Reuses
+  // `kInsertRatingFields` and the same `(file_id, task_id)` PK + `FileExists` guard as
+  // `UpsertRating` — no DDL change (the `rating` column is `NOT NULL DEFAULT 0`).
+  if (!rating.IsValidReasonsOnly()) {
+    return false;  // missing identity or empty reasons — never persisted
+  }
+  auto guard = db_ctrl_.GetConnectionGuard();
+  auto lock  = guard.Lock();
+  if (!FileExists(guard.conn_, rating.file_id_)) {
+    return false;  // no Element row for file_id — refuse the orphan annotation
+  }
+  duckorm::insert_or_replace(guard.conn_, kRatingTable, &rating, kInsertRatingFields,
+                             kInsertRatingFields.size());
+  return true;
+}
+
 auto AiStorageController::GetRating(sl_element_id_t file_id, const std::string& task_id) const
     -> std::optional<AiRating> {
   const auto where = std::format("file_id = {}", file_id);

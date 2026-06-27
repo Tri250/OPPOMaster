@@ -966,6 +966,76 @@ auto ImageController::SetImageRating(uint elementId, uint imageId, int rating) -
   }
 }
 
+// Phase 7a: the light half of the star-rating path (extracted from `SetImageRating`
+// above). `Write_NoSync` sets the image MODIFIED and mutates the in-memory
+// `exif_display_.rating_`; the view-state patch + `thumbnail_model_.updateRating` keep
+// the UI in sync without a DB round-trip. No `SyncWithStorage`/`SaveProject`/`Package`/
+// `RefreshStats` — the batched AI scoring run flushes once at job end via
+// `FlushPendingStarRatings`, so a batch does one DB flush instead of one per image.
+// `SetImageRating` (manual single click) is unchanged and still does a full sync+save.
+void ImageController::ApplyStarRatingLight(uint elementId, uint imageId, int rating) {
+  const RatingTarget target = ResolveRatingTarget(elementId, imageId);
+  if (target.image_id_ == 0) {
+    return;
+  }
+  auto proj = backend_.project_handler_.project();
+  if (!proj) {
+    return;
+  }
+  auto image_pool = proj->GetImagePoolService();
+  if (!image_pool) {
+    return;
+  }
+  try {
+    image_pool->Write_NoSync<void>(target.image_id_,
+                                   [rating](const std::shared_ptr<Image>& image) {
+                                     if (!image) {
+                                       return;
+                                     }
+                                     ExifDisplayMetaData metadata;
+                                     if (image->has_exif_display_.load()) {
+                                       metadata = image->exif_display_;
+                                     } else if (image->has_exif_json_.load()) {
+                                       metadata.FromJson(image->exif_json_);
+                                     }
+                                     metadata.rating_ = ExifDisplayMetaData::NormalizeRating(rating);
+                                     image->SetExifDisplayMetaData(std::move(metadata));
+                                   });
+    for (auto& item : backend_.view_state_.all_images_) {
+      if ((target.element_id_ != 0 && item.element_id == target.element_id_) ||
+          (target.element_id_ == 0 && item.image_id == target.image_id_)) {
+        item.rating = rating;
+      }
+    }
+    backend_.thumbnail_model_.updateRating(target.element_id_, target.image_id_, rating);
+  } catch (...) {
+    // Best-effort light write: a transient pool failure leaves the prior rating; the
+    // batch flush at job end is the durability point. Match `PersistImageHdrFlag`'s
+    // swallow-and-return policy for the light path.
+  }
+}
+
+// Phase 7a: the batched flush half. `SyncWithStorage` flushes every MODIFIED image row
+// (the pending star writes from `ApplyStarRatingLight`) in a single transaction;
+// `RefreshStats` re-runs the rating-bucket GROUP BY so star-filter stats reflect the
+// new stars. No `SaveProject`/`Package` — the `.alcd` packaged snapshot is left stale
+// until the next normal save/close; the live DB is authoritative (same as any DB change
+// between manual saves).
+void ImageController::FlushPendingStarRatings() {
+  auto proj = backend_.project_handler_.project();
+  if (!proj) {
+    return;
+  }
+  try {
+    auto image_pool = proj->GetImagePoolService();
+    if (image_pool) {
+      image_pool->SyncWithStorage();
+    }
+  } catch (...) {
+  }
+  backend_.stats_.RefreshStats();
+}
+
 }  // namespace alcedo::ui
 
 #undef PL_TEXT
