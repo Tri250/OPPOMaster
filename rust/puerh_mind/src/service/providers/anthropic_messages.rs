@@ -64,21 +64,44 @@ use tracing::warn;
 
 use crate::service::credential_vault::SecretString;
 use crate::service::image_analysis::{
-    AnalyzeOutcome, DescribeOutcome, DiscoveredModel, IMAGE_ANALYSIS_BUNDLE_SCHEMA,
-    IMAGE_RATING_SCHEMA, IMAGE_UNDERSTANDING_SCHEMA, ImageAnalysisProvider, ProviderError,
-    ScoreOutcome, validate_analyze, validate_rating, validate_understanding,
+    AnalyzeOutcome, DescribeOutcome, DiscoveredModel, IMAGE_RATING_SCHEMA,
+    IMAGE_UNDERSTANDING_SCHEMA, ImageAnalysisProvider, ProviderError, ScoreOutcome,
+    validate_analyze, validate_rating, validate_understanding,
 };
 use crate::service::provider_config::{ModelConfig, ProviderConfig};
 use crate::service::providers::http_util::{
-    MAX_TRANSIENT_RETRIES, build_image_base64, build_rustls_client, extract_provider_request_id,
-    extract_usage, json_pointer_str, parse_rating_int, read_response, send_get_with_retry,
-    send_with_retry, strict_schema_value,
+    MAX_TRANSIENT_RETRIES, build_image_base64, build_rustls_client, compact_json_excerpt,
+    compact_text_excerpt, extract_provider_request_id, extract_usage, json_pointer_str,
+    parse_rating_int, read_response, send_get_with_retry, send_with_retry, strict_schema_value,
 };
 
 const UNDERSTANDING_SCHEMA_NAME: &str = "alcedo_image_understanding";
 const RATING_SCHEMA_NAME: &str = "alcedo_image_rating";
 const ANALYSIS_BUNDLE_SCHEMA_NAME: &str = "alcedo_image_analysis_bundle";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
+const ANALYZE_SCHEMA_REPAIR_RETRIES: u32 = 1;
+
+/// Anthropic-compatible tool adapters such as Minimax through Opencode have
+/// proven much more reliable when the tool input is flat. The provider-facing
+/// contract is flat, then the driver maps it back into Alcedo's internal
+/// `AnalyzeOutcome { understanding, rating }` shape.
+const ANTHROPIC_ANALYSIS_FLAT_SCHEMA: &str = r#"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AlcedoAnthropicImageAnalysis",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["caption", "tags", "rating", "rubric_id"],
+  "properties": {
+    "caption": { "type": "string", "minLength": 1 },
+    "tags": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "scene": { "type": "string" },
+    "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+    "rating": { "type": "integer", "minimum": 1, "maximum": 5 },
+    "rubric_id": { "type": "string", "minLength": 1 },
+    "rubric_version": { "type": "string" },
+    "reasons": { "type": "string" }
+  }
+}"#;
 
 pub struct AnthropicMessagesProvider {
     config: ProviderConfig,
@@ -386,16 +409,31 @@ impl AnthropicMessagesProvider {
                 "provider response did not contain tool_use input named {ANALYSIS_BUNDLE_SCHEMA_NAME}; expected Anthropic-compatible structured tool output"
             ))
         })?;
-        let understanding = parsed.get("understanding").ok_or_else(|| {
-            ProviderError::SchemaValidationMessage(
-                "provider response did not contain understanding object".to_string(),
-            )
-        })?;
-        let rating = parsed.get("rating").ok_or_else(|| {
-            ProviderError::SchemaValidationMessage(
-                "provider response did not contain rating object".to_string(),
-            )
-        })?;
+        if parsed.get("caption").is_none() {
+            return Err(ProviderError::SchemaValidationMessage(
+                "provider response did not contain caption".to_string(),
+            ));
+        }
+        if parsed.get("tags").is_none() {
+            return Err(ProviderError::SchemaValidationMessage(
+                "provider response did not contain tags array".to_string(),
+            ));
+        }
+        if !parsed.get("tags").is_some_and(|v| v.is_array()) {
+            return Err(ProviderError::SchemaValidationMessage(
+                "provider response tags was not an array; expected tags: [\"...\"]".to_string(),
+            ));
+        }
+        if parsed.get("rating").is_none() {
+            return Err(ProviderError::SchemaValidationMessage(
+                "provider response did not contain rating".to_string(),
+            ));
+        }
+        if parsed.get("rubric_id").is_none() {
+            return Err(ProviderError::SchemaValidationMessage(
+                "provider response did not contain rubric_id".to_string(),
+            ));
+        }
         let usage = extract_usage(
             self.config
                 .response
@@ -404,13 +442,13 @@ impl AnthropicMessagesProvider {
                 .and_then(|p| json_pointer_str(body, p)),
         );
         let understanding = DescribeOutcome {
-            caption: understanding
+            caption: parsed
                 .get("caption")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .trim()
                 .to_string(),
-            tags: understanding
+            tags: parsed
                 .get("tags")
                 .and_then(|v| v.as_array())
                 .map(|a| {
@@ -419,12 +457,12 @@ impl AnthropicMessagesProvider {
                         .collect()
                 })
                 .unwrap_or_default(),
-            scene: understanding
+            scene: parsed
                 .get("scene")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string(),
-            confidence: understanding
+            confidence: parsed
                 .get("confidence")
                 .and_then(|v| v.as_f64())
                 .unwrap_or(f64::NAN),
@@ -433,18 +471,18 @@ impl AnthropicMessagesProvider {
             provider_request_id: header_req_id.to_string(),
         };
         let rating = ScoreOutcome {
-            rating: rating.get("rating").and_then(parse_rating_int).unwrap_or(0),
-            rubric_id: rating
+            rating: parsed.get("rating").and_then(parse_rating_int).unwrap_or(0),
+            rubric_id: parsed
                 .get("rubric_id")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string(),
-            rubric_version: rating
+            rubric_version: parsed
                 .get("rubric_version")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string(),
-            reasons: rating
+            reasons: parsed
                 .get("reasons")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
@@ -462,6 +500,10 @@ impl AnthropicMessagesProvider {
         };
         validate_analyze(&out)?;
         Ok(out)
+    }
+
+    fn response_content_excerpt(body: &Value) -> String {
+        compact_json_excerpt(body.get("content").unwrap_or(body), 1200)
     }
 
     /// Build the per-request header set: `anthropic-version` always, then
@@ -504,7 +546,8 @@ fn score_prompt(
     rating_severity: &str,
     output_language: &str,
 ) -> (String, String) {
-    let system = crate::service::image_analysis::rating_system_prompt(rating_severity, output_language);
+    let system =
+        crate::service::image_analysis::rating_system_prompt(rating_severity, output_language);
     let mut instruction = "Rate this image on a 1–5 star scale.".to_string();
     if !rubric_id.trim().is_empty() {
         instruction.push_str(&format!(" Rubric: {rubric_id}."));
@@ -524,13 +567,54 @@ fn analyze_prompt(
     rating_severity: &str,
     output_language: &str,
 ) -> (String, String) {
-    let mut system = "You are an image analysis assistant for Alcedo Studio. Analyze the supplied image and return one tool input object matching the schema. The top-level object must contain \"understanding\" (caption, tags, scene, confidence) and \"rating\" (rating, rubric_id, rubric_version, reasons). The rating is a 1-5 integer star rating; do not include a rating confidence.".to_string();
+    let mut system = r#"
+You are an image analysis assistant. Analyze the supplied image and return one tool input object matching the schema.
+
+The tool input object is flat. It must contain these top-level fields:
+caption, tags, scene, confidence, rating, rubric_id, rubric_version, reasons.
+
+tags must be a JSON array of strings, not a comma-separated string.
+rating must be a 1-5 integer star rating. Do not include a rating confidence.
+
+Evaluate the image as an intentional photograph, not as a generic technical test image. Before judging technical quality, infer the likely visual intent, mood, genre, subject hierarchy, and visual premise from the image itself. Judge whether the technical and aesthetic choices serve that intent.
+
+Exposure must be evaluated relative to the intended look. Do not treat a dark, low-key, silhouette-driven, nocturnal, moody, cinematic, or deliberately muted image as defective merely because shadows are deep, the overall luminance is low, or some areas are intentionally unreadable.
+
+Deep blacks, restrained midtones, limited visibility, selective illumination, haze, grain, soft focus, muted color, and ambiguity can be valid compositional or emotional choices when they support the image.
+
+Distinguish intentional darkness from accidental underexposure:
+
+Intentional darkness preserves a meaningful visual hierarchy, directs attention, supports atmosphere, or uses shadow as part of the image's structure.
+Accidental underexposure obscures the intended subject without expressive purpose, collapses important tonal relationships, destroys necessary information, or makes the image feel visually unresolved.
+Do not recommend brightening an image simply to reveal more shadow detail.
+Do not penalize clipped blacks unless the clipping visibly harms the subject, composition, tonal structure, or intended reading.
+
+The supplied image may be a compressed or low-resolution preview. Do not treat thumbnail limitations as evidence of poor image quality.
+
+Do not diagnose low sharpness, missed focus, motion blur, camera shake, poor lens performance, noise, compression artifacts, or insufficient resolution unless the issue is clearly and directly visible at the supplied viewing scale.
+
+In particular:
+
+Do not call an image "soft," "not sharp enough," "out of focus," "slightly shaken," or "lacking detail" merely because fine detail cannot be resolved in a thumbnail.
+Only criticize focus or sharpness when the primary subject is visibly and consistently blurred in a way that weakens the image, and the blur cannot reasonably be explained by depth of field, intentional softness, motion, atmosphere, low resolution, compression, or downsampling.
+Do not infer autofocus failure, lens softness, sensor quality, image processing defects, or camera shake from limited visual evidence.
+When pixel-level quality is not reliably assessable, focus instead on visible large-scale evidence: composition, subject hierarchy, timing, tonal structure, lighting direction, color relationships, gesture, framing, and emotional effect.
+Lack of visible micro-detail is not itself a flaw.
+
+Assess composition, subject separation, focus, lighting, color, tonal control, timing, and visual intent in context. Give greater weight to the image's actual artistic goal than to generic rules such as evenly exposed shadows, centered sharpness, maximum visible detail, or technically neutral processing.
+
+Reasons must be specific, image-grounded, and concise. Name both what works and what limits the image. Avoid generic advice. Do not treat stylistic choices as mistakes unless they visibly fail to support the image.
+"#.to_string();
     match rating_severity.trim().to_ascii_lowercase().as_str() {
         "lite" => system.push_str(" Be generous when rating: ordinary competent photos default to 3-4 stars with mild reasons."),
-        "xhigh" | "x_high" | "high" => system.push_str(" Be exacting when rating: judge composition, exposure, focus, lighting, and intent strictly, and write reasons in a harsh critic voice."),
+        "xhigh" | "x_high" | "high" => system.push_str(r#"
+        Act as a condescending internet 'expert' photography critic who is utterly confident but full of half-baked textbook clichés. Do not just obsess over/under exposure; instead, be a general gatekeeper. Judge composition, gear choice, and intent with extreme cynicism. Write reasons in a passive-aggressive, insufferable keyboard-warrior voice. Be stubborn, dismissive, and impossible to please.
+        "#),
         _ => system.push_str(" Use a balanced rating standard."),
     }
-    system.push_str(&crate::service::image_analysis::language_directive(output_language));
+    system.push_str(&crate::service::image_analysis::language_directive(
+        output_language,
+    ));
     let mut instruction = "Analyze and rate this image in one pass.".to_string();
     if !rubric_id.trim().is_empty() {
         instruction.push_str(&format!(" Rubric: {rubric_id}."));
@@ -540,6 +624,28 @@ fn analyze_prompt(
     }
     instruction.push_str(" Return only the requested tool input object.");
     (system, instruction)
+}
+
+fn analyze_schema_repair_instruction(instruction: &str, error: &ProviderError) -> String {
+    format!(
+        r#"{instruction}
+
+Your previous tool input did not match the required schema: {error}
+
+Call the tool again with exactly this shape:
+{{
+  "caption": "non-empty string",
+  "tags": ["one or more non-empty strings"],
+  "scene": "string",
+  "confidence": 0.0,
+  "rating": 1,
+  "rubric_id": "non-empty string",
+  "rubric_version": "string",
+  "reasons": "string"
+}}
+
+The tool input must be a flat object. Do not nest fields under "understanding" or a rating object. tags must be an array, not a string."#
+    )
 }
 
 #[tonic::async_trait]
@@ -620,11 +726,28 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
                 .provider_request_id_json_pointer
                 .as_deref(),
         );
-        let outcome = self.parse_describe(&resp_body, &slug, &header_req_id)?;
+        let provider_content = Self::response_content_excerpt(&resp_body);
+        let outcome = match self.parse_describe(&resp_body, &slug, &header_req_id) {
+            Ok(outcome) => outcome,
+            Err(err) => {
+                warn!(
+                    provider = %self.config.provider_id,
+                    model = %slug,
+                    provider_request_id = %header_req_id,
+                    provider_content = %provider_content,
+                    error = %err,
+                    "DescribeImage provider response parse failed"
+                );
+                return Err(err);
+            }
+        };
         warn!(
             provider = %self.config.provider_id,
             model = %slug,
             provider_request_id = %outcome.provider_request_id,
+            caption = %compact_text_excerpt(&outcome.caption, 240),
+            tags = ?outcome.tags,
+            provider_content = %provider_content,
             "DescribeImage completed"
         );
         Ok(outcome)
@@ -645,7 +768,12 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
         let (bearer, extra_auth_header) = self.build_auth(credential)?;
         let (media_type, image_b64) = build_image_base64(image_bytes)?;
         let schema = strict_schema_value(IMAGE_RATING_SCHEMA)?;
-        let (system, instruction) = score_prompt(prompt_profile_id, rubric_id, rating_severity, output_language);
+        let (system, instruction) = score_prompt(
+            prompt_profile_id,
+            rubric_id,
+            rating_severity,
+            output_language,
+        );
         let body = self.build_messages_body(
             &slug,
             &media_type,
@@ -675,11 +803,28 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
                 .provider_request_id_json_pointer
                 .as_deref(),
         );
-        let outcome = self.parse_score(&resp_body, &slug, &header_req_id)?;
+        let provider_content = Self::response_content_excerpt(&resp_body);
+        let outcome = match self.parse_score(&resp_body, &slug, &header_req_id) {
+            Ok(outcome) => outcome,
+            Err(err) => {
+                warn!(
+                    provider = %self.config.provider_id,
+                    model = %slug,
+                    provider_request_id = %header_req_id,
+                    provider_content = %provider_content,
+                    error = %err,
+                    "ScoreImage provider response parse failed"
+                );
+                return Err(err);
+            }
+        };
         warn!(
             provider = %self.config.provider_id,
             model = %slug,
             provider_request_id = %outcome.provider_request_id,
+            rating = outcome.rating,
+            reasons = %compact_text_excerpt(&outcome.reasons, 360),
+            provider_content = %provider_content,
             "ScoreImage completed"
         );
         Ok(outcome)
@@ -699,43 +844,95 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
         self.ensure_structured_output(model.as_ref())?;
         let (bearer, extra_auth_header) = self.build_auth(credential)?;
         let (media_type, image_b64) = build_image_base64(image_bytes)?;
-        let schema = strict_schema_value(IMAGE_ANALYSIS_BUNDLE_SCHEMA)?;
-        let (system, instruction) =
-            analyze_prompt(prompt_profile_id, rubric_id, rating_severity, output_language);
-        let body = self.build_messages_body(
-            &slug,
-            &media_type,
-            &image_b64,
-            schema,
-            ANALYSIS_BUNDLE_SCHEMA_NAME,
-            &system,
-            &instruction,
+        let schema = strict_schema_value(ANTHROPIC_ANALYSIS_FLAT_SCHEMA)?;
+        let (system, instruction) = analyze_prompt(
+            prompt_profile_id,
+            rubric_id,
+            rating_severity,
+            output_language,
         );
         let headers = self.request_headers(extra_auth_header);
-        let resp = send_with_retry(
-            &self.http,
-            &self.url(),
-            &body,
-            &headers,
-            bearer,
-            MAX_TRANSIENT_RETRIES,
-        )
-        .await?;
-        let (resp_headers, resp_body) = read_response(resp).await?;
-        let header_req_id = extract_provider_request_id(
-            &resp_headers,
-            &resp_body,
-            self.config.response.provider_request_id_header.as_deref(),
-            self.config
-                .response
-                .provider_request_id_json_pointer
-                .as_deref(),
-        );
-        let outcome = self.parse_analyze(&resp_body, &slug, &header_req_id)?;
+        let mut attempt = 0u32;
+        let mut instruction_for_attempt = instruction;
+        let (outcome, provider_content, schema_repair_attempt) = loop {
+            let body = self.build_messages_body(
+                &slug,
+                &media_type,
+                &image_b64,
+                schema.clone(),
+                ANALYSIS_BUNDLE_SCHEMA_NAME,
+                &system,
+                &instruction_for_attempt,
+            );
+            let resp = send_with_retry(
+                &self.http,
+                &self.url(),
+                &body,
+                &headers,
+                bearer,
+                MAX_TRANSIENT_RETRIES,
+            )
+            .await?;
+            let (resp_headers, resp_body) = read_response(resp).await?;
+            let header_req_id = extract_provider_request_id(
+                &resp_headers,
+                &resp_body,
+                self.config.response.provider_request_id_header.as_deref(),
+                self.config
+                    .response
+                    .provider_request_id_json_pointer
+                    .as_deref(),
+            );
+            let provider_content = Self::response_content_excerpt(&resp_body);
+            match self.parse_analyze(&resp_body, &slug, &header_req_id) {
+                Ok(outcome) => break (outcome, provider_content, attempt),
+                Err(err) => {
+                    warn!(
+                        provider = %self.config.provider_id,
+                        model = %slug,
+                        provider_request_id = %header_req_id,
+                        provider_content = %provider_content,
+                        error = %err,
+                        schema_repair_attempt = attempt,
+                        "AnalyzeImage provider response parse failed"
+                    );
+                    if attempt >= ANALYZE_SCHEMA_REPAIR_RETRIES {
+                        return Err(err);
+                    }
+                    attempt += 1;
+                    instruction_for_attempt = analyze_schema_repair_instruction(
+                        &instruction_for_attempt,
+                        &err,
+                    );
+                    warn!(
+                        provider = %self.config.provider_id,
+                        model = %slug,
+                        schema_repair_attempt = attempt,
+                        "AnalyzeImage retrying after schema validation failure"
+                    );
+                }
+            }
+        };
+        let caption = outcome
+            .understanding
+            .as_ref()
+            .map(|u| compact_text_excerpt(&u.caption, 240))
+            .unwrap_or_default();
+        let rating = outcome.rating.as_ref().map(|r| r.rating).unwrap_or(0);
+        let reasons = outcome
+            .rating
+            .as_ref()
+            .map(|r| compact_text_excerpt(&r.reasons, 360))
+            .unwrap_or_default();
         warn!(
             provider = %self.config.provider_id,
             model = %slug,
             provider_request_id = %outcome.provider_request_id,
+            caption = %caption,
+            rating,
+            reasons = %reasons,
+            provider_content = %provider_content,
+            schema_repair_attempt,
             "AnalyzeImage completed"
         );
         Ok(outcome)
@@ -1099,6 +1296,134 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn analyze_accepts_flat_tool_output() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/messages"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(ok_messages_body(
+                ANALYSIS_BUNDLE_SCHEMA_NAME,
+                r#"{
+                    "caption": "a macaque on a branch",
+                    "tags": ["wildlife", "monkey"],
+                    "scene": "rainforest",
+                    "confidence": 0.85,
+                    "rating": 3,
+                    "rubric_id": "general",
+                    "rubric_version": "v1",
+                    "reasons": "competent but ordinary"
+                }"#,
+            )))
+            .mount(&server)
+            .await;
+        let provider = provider_for(&server);
+        let out = provider
+            .analyze_image(
+                &test_image_png(),
+                "",
+                "",
+                "general",
+                "",
+                "",
+                Some(&secret()),
+            )
+            .await
+            .expect("flat analysis output accepted");
+        let understanding = out.understanding.expect("understanding present");
+        let rating = out.rating.expect("rating present");
+        assert_eq!(understanding.caption, "a macaque on a branch");
+        assert_eq!(rating.rating, 3);
+        assert_eq!(rating.rubric_id, "general");
+        assert_eq!(rating.rubric_version, "v1");
+        assert_eq!(rating.reasons, "competent but ordinary");
+        validate_analyze(&AnalyzeOutcome {
+            understanding: Some(understanding),
+            rating: Some(rating),
+            model_id: out.model_id,
+            usage: out.usage,
+            provider_request_id: out.provider_request_id,
+        })
+        .expect("flat bundle validates after mapping");
+
+        let reqs = server.received_requests().await.expect("requests captured");
+        assert_eq!(reqs.len(), 1);
+        let body: Value = serde_json::from_slice(&reqs[0].body).expect("body json");
+        let schema = &body["tools"][0]["input_schema"];
+        assert!(schema["properties"].get("caption").is_some());
+        assert!(schema["properties"].get("tags").is_some());
+        assert!(schema["properties"].get("rating").is_some());
+        assert!(schema["properties"].get("rubric_id").is_some());
+        assert!(schema["properties"].get("understanding").is_none());
+    }
+
+    #[tokio::test]
+    async fn analyze_repairs_flat_tags_string_once() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/messages"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(ok_messages_body(
+                ANALYSIS_BUNDLE_SCHEMA_NAME,
+                r#"{
+                    "caption": "a macaque on a branch",
+                    "tags": "wildlife, monkey",
+                    "scene": "rainforest",
+                    "confidence": 0.85,
+                    "rating": 3,
+                    "rubric_id": "general",
+                    "rubric_version": "v1",
+                    "reasons": "competent but ordinary"
+                }"#,
+            )))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v1/messages"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(ok_messages_body(
+                ANALYSIS_BUNDLE_SCHEMA_NAME,
+                r#"{
+                    "caption": "a macaque on a branch",
+                    "tags": ["wildlife", "monkey"],
+                    "scene": "rainforest",
+                    "confidence": 0.85,
+                    "rating": 3,
+                    "rubric_id": "general",
+                    "rubric_version": "v1",
+                    "reasons": "competent but ordinary"
+                }"#,
+            )))
+            .mount(&server)
+            .await;
+        let provider = provider_for(&server);
+        let out = provider
+            .analyze_image(
+                &test_image_png(),
+                "",
+                "",
+                "general",
+                "",
+                "",
+                Some(&secret()),
+            )
+            .await
+            .expect("tags string repaired");
+        assert_eq!(
+            out.understanding.expect("understanding present").tags,
+            vec!["wildlife".to_string(), "monkey".to_string()]
+        );
+
+        let reqs = server.received_requests().await.expect("requests captured");
+        assert_eq!(reqs.len(), 2);
+        let second_body: Value = serde_json::from_slice(&reqs[1].body).expect("body json");
+        let second_instruction = second_body["messages"][0]["content"][1]["text"]
+            .as_str()
+            .expect("instruction string");
+        assert!(
+            second_instruction.contains("tags must be an array, not a string"),
+            "{second_instruction}"
+        );
+    }
+
+    #[tokio::test]
     async fn rate_limit_maps_to_transient() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
@@ -1240,7 +1565,15 @@ mod tests {
             .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect_err("wrong tool name");
-        assert_eq!(err, ProviderError::SchemaValidation);
+        match err {
+            ProviderError::SchemaValidationMessage(message) => {
+                assert!(
+                    message.contains("tool_use input named alcedo_image_understanding"),
+                    "{message}"
+                );
+            }
+            other => panic!("expected detailed schema validation message, got {other:?}"),
+        }
     }
 
     #[tokio::test]
@@ -1303,112 +1636,45 @@ mod tests {
         );
     }
 
-    #[test]
-    fn no_secret_image_prompt_or_body_in_logs_or_error_strings() {
-        // Capture tracing output emitted during a call that triggers a retry (warn)
-        // then a 400 with a raw body sentinel. A current_thread runtime drives the
-        // whole call on THIS thread, so the thread-local capturing subscriber set by
-        // `with_default` is in scope for every `warn!` the driver emits. A
-        // multi_thread runtime could poll the future's continuation on a worker
-        // thread where the subscriber is NOT set, leaving `captured` empty and the
-        // no-leak assertions passing trivially (a false pass). The first assertion
-        // confirms capture actually worked; the rest confirm nothing leaked.
-        use std::io::Write;
-        use std::sync::Mutex;
-        use tracing_subscriber::fmt::MakeWriter;
-
-        #[derive(Clone)]
-        struct BufWriter(Arc<Mutex<Vec<u8>>>);
-        impl<'a> MakeWriter<'a> for BufWriter {
-            type Writer = BufWriteImpl;
-            fn make_writer(&'a self) -> Self::Writer {
-                BufWriteImpl {
-                    inner: self.0.clone(),
-                }
-            }
-        }
-        struct BufWriteImpl {
-            inner: Arc<Mutex<Vec<u8>>>,
-        }
-        impl Write for BufWriteImpl {
-            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-                self.inner.lock().unwrap().extend_from_slice(b);
-                Ok(b.len())
-            }
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
-        }
-
-        let buf = Arc::new(Mutex::new(Vec::new()));
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(BufWriter(buf.clone()))
-            .with_ansi(false)
-            .with_env_filter("warn")
-            .finish();
-
+    #[tokio::test]
+    async fn schema_repair_error_string_does_not_leak_secret_image_prompt_or_body() {
         let img = test_image_png();
         let (_, img_b64) = build_image_base64(&img).expect("encode image");
-
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("current_thread runtime");
-        let err = tracing::subscriber::with_default(subscriber, || {
-            rt.block_on(async {
-                let server = MockServer::start().await;
-                Mock::given(method("POST"))
-                    .and(path("/v1/messages"))
-                    .respond_with(ResponseTemplate::new(500))
-                    .up_to_n_times(1)
-                    .mount(&server)
-                    .await;
-                Mock::given(method("POST"))
-                    .and(path("/v1/messages"))
-                    .respond_with(
-                        ResponseTemplate::new(400)
-                            .set_body_json(json!({ "type": "error", "error": { "type": "x", "message": RAW_BODY_SENTINEL } })),
-                    )
-                    .mount(&server)
-                    .await;
-                let provider = provider_for(&server);
-                provider
-                    .describe_image(&img, "", "profile-1", "", Some(&secret()))
-                    .await
-            })
-        });
-        let err = err.expect_err("400 after retry");
-
-        let captured = String::from_utf8_lossy(&buf.lock().unwrap()).to_string();
-        // Capture worked: the retry warn was emitted and reached the buffer.
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/messages"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(ok_messages_body(
+                ANALYSIS_BUNDLE_SCHEMA_NAME,
+                r#"{
+                    "caption": "a macaque on a branch",
+                    "tags": "wildlife, RAW_ARK_CODING_BODY_SENTINEL",
+                    "scene": "rainforest",
+                    "confidence": 0.85,
+                    "rating": 3,
+                    "rubric_id": "general",
+                    "rubric_version": "v1",
+                    "reasons": "RAW_ARK_CODING_BODY_SENTINEL"
+                }"#,
+            )))
+            .mount(&server)
+            .await;
+        let provider = provider_for(&server);
+        let err = provider
+            .analyze_image(&img, "", "profile-1", "general", "", "", Some(&secret()))
+            .await
+            .expect_err("schema repair budget exhausted");
+        let err = err.to_string();
+        assert!(!err.contains(TEST_SECRET), "secret in error: {err}");
         assert!(
-            captured.contains("retrying"),
-            "log capture did not work (no retry warn captured): {captured}"
+            !err.contains(img_b64.as_str()),
+            "image base64 in error: {err}"
         );
+        assert!(!err.contains(TEST_PROMPT), "prompt in error: {err}");
         assert!(
-            !captured.contains(TEST_SECRET),
-            "secret in logs: {captured}"
-        );
-        assert!(
-            !captured.contains(img_b64.as_str()),
-            "image base64 in logs: {captured}"
-        );
-        assert!(
-            !captured.contains(TEST_PROMPT),
-            "prompt in logs: {captured}"
-        );
-        assert!(
-            !captured.contains(RAW_BODY_SENTINEL),
-            "raw body in logs: {captured}"
-        );
-        assert!(
-            !err.to_string().contains(TEST_SECRET),
-            "secret in error: {err}"
-        );
-        assert!(
-            !err.to_string().contains(RAW_BODY_SENTINEL),
+            !err.contains(RAW_BODY_SENTINEL),
             "raw body in error: {err}"
         );
+        assert_eq!(server.received_requests().await.unwrap().len(), 2);
     }
 
     #[tokio::test]

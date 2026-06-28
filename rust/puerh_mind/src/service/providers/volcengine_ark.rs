@@ -32,8 +32,9 @@ use crate::service::image_analysis::{
 };
 use crate::service::provider_config::{ModelConfig, ProviderConfig};
 use crate::service::providers::http_util::{
-    MAX_TRANSIENT_RETRIES, build_image_data_uri, build_rustls_client, extract_usage,
-    json_pointer_str, parse_content_json, parse_rating_int, send_with_retry, strict_schema_value,
+    MAX_TRANSIENT_RETRIES, build_image_data_uri, build_rustls_client, compact_json_excerpt,
+    compact_text_excerpt, extract_usage, json_pointer_str, parse_content_json, parse_rating_int,
+    read_response, send_with_retry, strict_schema_value,
 };
 
 const UNDERSTANDING_SCHEMA_NAME: &str = "alcedo_image_understanding";
@@ -268,6 +269,12 @@ impl VolcengineArkResponsesProvider {
         validate_rating(&out)?;
         Ok(out)
     }
+
+    fn response_content_excerpt(body: &Value) -> String {
+        Self::extract_output_text(body)
+            .map(|text| compact_text_excerpt(&text, 1200))
+            .unwrap_or_else(|| compact_json_excerpt(body, 1200))
+    }
 }
 
 fn describe_prompt(prompt_profile_id: &str, output_language: &str) -> (String, String) {
@@ -289,7 +296,8 @@ fn score_prompt(
     rating_severity: &str,
     output_language: &str,
 ) -> (String, String) {
-    let system = crate::service::image_analysis::rating_system_prompt(rating_severity, output_language);
+    let system =
+        crate::service::image_analysis::rating_system_prompt(rating_severity, output_language);
     let mut instruction = "Rate this image on a 1–5 star scale.".to_string();
     if !rubric_id.trim().is_empty() {
         instruction.push_str(&format!(" Rubric: {rubric_id}."));
@@ -369,15 +377,28 @@ impl ImageAnalysisProvider for VolcengineArkResponsesProvider {
             MAX_TRANSIENT_RETRIES,
         )
         .await?;
-        let resp_body: Value = resp
-            .json()
-            .await
-            .map_err(|_| ProviderError::SchemaValidation)?;
-        let outcome = self.parse_describe(&resp_body, &slug)?;
+        let (_headers, resp_body) = read_response(resp).await?;
+        let provider_content = Self::response_content_excerpt(&resp_body);
+        let outcome = match self.parse_describe(&resp_body, &slug) {
+            Ok(outcome) => outcome,
+            Err(err) => {
+                warn!(
+                    provider = %self.config.provider_id,
+                    model = %slug,
+                    provider_content = %provider_content,
+                    error = %err,
+                    "DescribeImage provider response parse failed"
+                );
+                return Err(err);
+            }
+        };
         warn!(
             provider = %self.config.provider_id,
             model = %slug,
             provider_request_id = %outcome.provider_request_id,
+            caption = %compact_text_excerpt(&outcome.caption, 240),
+            tags = ?outcome.tags,
+            provider_content = %provider_content,
             "DescribeImage completed"
         );
         Ok(outcome)
@@ -398,7 +419,12 @@ impl ImageAnalysisProvider for VolcengineArkResponsesProvider {
         let bearer = self.bearer(credential)?;
         let data_uri = build_image_data_uri(image_bytes)?;
         let schema = strict_schema_value(IMAGE_RATING_SCHEMA)?;
-        let (system, instruction) = score_prompt(prompt_profile_id, rubric_id, rating_severity, output_language);
+        let (system, instruction) = score_prompt(
+            prompt_profile_id,
+            rubric_id,
+            rating_severity,
+            output_language,
+        );
         let body = self.build_responses_body(
             &slug,
             &data_uri,
@@ -416,15 +442,28 @@ impl ImageAnalysisProvider for VolcengineArkResponsesProvider {
             MAX_TRANSIENT_RETRIES,
         )
         .await?;
-        let resp_body: Value = resp
-            .json()
-            .await
-            .map_err(|_| ProviderError::SchemaValidation)?;
-        let outcome = self.parse_score(&resp_body, &slug)?;
+        let (_headers, resp_body) = read_response(resp).await?;
+        let provider_content = Self::response_content_excerpt(&resp_body);
+        let outcome = match self.parse_score(&resp_body, &slug) {
+            Ok(outcome) => outcome,
+            Err(err) => {
+                warn!(
+                    provider = %self.config.provider_id,
+                    model = %slug,
+                    provider_content = %provider_content,
+                    error = %err,
+                    "ScoreImage provider response parse failed"
+                );
+                return Err(err);
+            }
+        };
         warn!(
             provider = %self.config.provider_id,
             model = %slug,
             provider_request_id = %outcome.provider_request_id,
+            rating = outcome.rating,
+            reasons = %compact_text_excerpt(&outcome.reasons, 360),
+            provider_content = %provider_content,
             "ScoreImage completed"
         );
         Ok(outcome)

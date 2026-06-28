@@ -308,6 +308,17 @@ Dialog {
         return parts.join("\n")
     }
 
+    function firstFailureLine(details) {
+        const lines = String(details || "").split("\n")
+        for (let i = 0; i < lines.length; ++i) {
+            const line = lines[i].trim()
+            if (line.length > 0) {
+                return line
+            }
+        }
+        return ""
+    }
+
     function startAnalysis() {
         if (!analysisController || running) {
             return
@@ -390,14 +401,21 @@ Dialog {
         const failed = analysisController ? Number(analysisController.failed) : 0
         const canceled = analysisController ? Number(analysisController.canceled) : 0
         const error = controllerError()
+        const failureDetails = failedResultSummary()
         finalFailureDetails = ""
         if (cancelRequested || canceled > 0) {
+            finalFailureDetails = failureDetails
             finalSummary = qsTr("Canceled. Successful results already saved remain in place.")
         } else if (error.length > 0) {
+            finalFailureDetails = failureDetails.length > 0 ? failureDetails : error
             finalSummary = error
         } else if (failed > 0) {
-            finalFailureDetails = failedResultSummary()
-            finalSummary = qsTr("Finished with %1 successful item(s) and %2 failed item(s).").arg(ok).arg(failed)
+            finalFailureDetails = failureDetails
+            const firstFailure = firstFailureLine(failureDetails)
+            finalSummary = firstFailure.length > 0
+                    ? qsTr("Finished with %1 successful item(s) and %2 failed item(s). First failure: %3")
+                        .arg(ok).arg(failed).arg(firstFailure)
+                    : qsTr("Finished with %1 successful item(s) and %2 failed item(s).").arg(ok).arg(failed)
         } else if (skippedUnits > 0) {
             finalSummary = qsTr("Analysis complete. Skipped %1 existing image(s).").arg(skippedUnits)
         } else {

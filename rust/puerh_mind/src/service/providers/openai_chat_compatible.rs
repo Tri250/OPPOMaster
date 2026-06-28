@@ -53,9 +53,10 @@ use crate::service::image_analysis::{
 };
 use crate::service::provider_config::{ModelConfig, ProviderConfig};
 use crate::service::providers::http_util::{
-    MAX_TRANSIENT_RETRIES, build_image_data_uri, build_rustls_client, extract_provider_request_id,
-    extract_usage, json_pointer_str, parse_content_json, parse_rating_int, read_response,
-    send_get_with_retry, send_with_retry, strict_schema_value,
+    MAX_TRANSIENT_RETRIES, build_image_data_uri, build_rustls_client, compact_json_excerpt,
+    compact_text_excerpt, extract_provider_request_id, extract_usage, json_pointer_str,
+    parse_content_json, parse_rating_int, read_response, send_get_with_retry, send_with_retry,
+    strict_schema_value,
 };
 
 /// Schema names injected into `response_format.json_schema.name`. Kept stable and
@@ -504,6 +505,20 @@ impl OpenAiChatCompatibleProvider {
         validate_analyze(&out)?;
         Ok(out)
     }
+
+    fn response_content_excerpt(&self, body: &Value) -> String {
+        let content_pointer = self
+            .config
+            .response
+            .content_json_pointer
+            .as_deref()
+            .unwrap_or("/choices/0/message/content");
+        match json_pointer_str(body, content_pointer) {
+            Some(Value::String(s)) => compact_text_excerpt(s, 1200),
+            Some(other) => compact_json_excerpt(other, 1200),
+            None => compact_json_excerpt(body, 1200),
+        }
+    }
 }
 
 /// Alcedo-owned prompt for `image_understanding.describe`. The prompt profile id is
@@ -539,7 +554,8 @@ fn score_prompt(
     rating_severity: &str,
     output_language: &str,
 ) -> (String, String) {
-    let system = crate::service::image_analysis::rating_system_prompt(rating_severity, output_language);
+    let system =
+        crate::service::image_analysis::rating_system_prompt(rating_severity, output_language);
     let mut instruction = "Rate this image on a 1–5 star scale.".to_string();
     if !rubric_id.trim().is_empty() {
         instruction.push_str(&format!(" Rubric: {rubric_id}."));
@@ -565,7 +581,9 @@ fn analyze_prompt(
         "xhigh" | "x_high" | "high" => system.push_str(" Be exacting when rating: judge composition, exposure, focus, lighting, and intent strictly, and write reasons in a harsh critic voice."),
         _ => system.push_str(" Use a balanced rating standard."),
     }
-    system.push_str(&crate::service::image_analysis::language_directive(output_language));
+    system.push_str(&crate::service::image_analysis::language_directive(
+        output_language,
+    ));
     let mut instruction = "Analyze and rate this image in one pass.".to_string();
     if !rubric_id.trim().is_empty() {
         instruction.push_str(&format!(" Rubric: {rubric_id}."));
@@ -656,11 +674,28 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
                 .provider_request_id_json_pointer
                 .as_deref(),
         );
-        let outcome = self.parse_describe(&resp_body, &slug, &header_req_id)?;
+        let provider_content = self.response_content_excerpt(&resp_body);
+        let outcome = match self.parse_describe(&resp_body, &slug, &header_req_id) {
+            Ok(outcome) => outcome,
+            Err(err) => {
+                warn!(
+                    provider = %self.config.provider_id,
+                    model = %slug,
+                    provider_request_id = %header_req_id,
+                    provider_content = %provider_content,
+                    error = %err,
+                    "DescribeImage provider response parse failed"
+                );
+                return Err(err);
+            }
+        };
         warn!(
             provider = %self.config.provider_id,
             model = %slug,
             provider_request_id = %outcome.provider_request_id,
+            caption = %compact_text_excerpt(&outcome.caption, 240),
+            tags = ?outcome.tags,
+            provider_content = %provider_content,
             "DescribeImage completed"
         );
         Ok(outcome)
@@ -681,7 +716,12 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
         let bearer = self.bearer(credential)?;
         let data_uri = build_image_data_uri(image_bytes)?;
         let schema = strict_schema_value(IMAGE_RATING_SCHEMA)?;
-        let (system, instruction) = score_prompt(prompt_profile_id, rubric_id, rating_severity, output_language);
+        let (system, instruction) = score_prompt(
+            prompt_profile_id,
+            rubric_id,
+            rating_severity,
+            output_language,
+        );
         let body = self.build_chat_body(
             &slug,
             model.as_ref(),
@@ -710,11 +750,28 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
                 .provider_request_id_json_pointer
                 .as_deref(),
         );
-        let outcome = self.parse_score(&resp_body, &slug, &header_req_id)?;
+        let provider_content = self.response_content_excerpt(&resp_body);
+        let outcome = match self.parse_score(&resp_body, &slug, &header_req_id) {
+            Ok(outcome) => outcome,
+            Err(err) => {
+                warn!(
+                    provider = %self.config.provider_id,
+                    model = %slug,
+                    provider_request_id = %header_req_id,
+                    provider_content = %provider_content,
+                    error = %err,
+                    "ScoreImage provider response parse failed"
+                );
+                return Err(err);
+            }
+        };
         warn!(
             provider = %self.config.provider_id,
             model = %slug,
             provider_request_id = %outcome.provider_request_id,
+            rating = outcome.rating,
+            reasons = %compact_text_excerpt(&outcome.reasons, 360),
+            provider_content = %provider_content,
             "ScoreImage completed"
         );
         Ok(outcome)
@@ -735,8 +792,12 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
         let bearer = self.bearer(credential)?;
         let data_uri = build_image_data_uri(image_bytes)?;
         let schema = strict_schema_value(IMAGE_ANALYSIS_BUNDLE_SCHEMA)?;
-        let (system, instruction) =
-            analyze_prompt(prompt_profile_id, rubric_id, rating_severity, output_language);
+        let (system, instruction) = analyze_prompt(
+            prompt_profile_id,
+            rubric_id,
+            rating_severity,
+            output_language,
+        );
         let body = self.build_chat_body(
             &slug,
             model.as_ref(),
@@ -765,11 +826,40 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
                 .provider_request_id_json_pointer
                 .as_deref(),
         );
-        let outcome = self.parse_analyze(&resp_body, &slug, &header_req_id)?;
+        let provider_content = self.response_content_excerpt(&resp_body);
+        let outcome = match self.parse_analyze(&resp_body, &slug, &header_req_id) {
+            Ok(outcome) => outcome,
+            Err(err) => {
+                warn!(
+                    provider = %self.config.provider_id,
+                    model = %slug,
+                    provider_request_id = %header_req_id,
+                    provider_content = %provider_content,
+                    error = %err,
+                    "AnalyzeImage provider response parse failed"
+                );
+                return Err(err);
+            }
+        };
+        let caption = outcome
+            .understanding
+            .as_ref()
+            .map(|u| compact_text_excerpt(&u.caption, 240))
+            .unwrap_or_default();
+        let rating = outcome.rating.as_ref().map(|r| r.rating).unwrap_or(0);
+        let reasons = outcome
+            .rating
+            .as_ref()
+            .map(|r| compact_text_excerpt(&r.reasons, 360))
+            .unwrap_or_default();
         warn!(
             provider = %self.config.provider_id,
             model = %slug,
             provider_request_id = %outcome.provider_request_id,
+            caption = %caption,
+            rating,
+            reasons = %reasons,
+            provider_content = %provider_content,
             "AnalyzeImage completed"
         );
         Ok(outcome)

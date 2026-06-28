@@ -32,6 +32,21 @@ const RETRY_BACKOFF: Duration = Duration::from_millis(100);
 const MAX_RETRY_AFTER: Duration = Duration::from_secs(5);
 const MAX_ERROR_BODY_CHARS: usize = 700;
 
+pub fn compact_text_excerpt(text: &str, max_chars: usize) -> String {
+    let compact = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let excerpt: String = compact.chars().take(max_chars).collect();
+    if compact.chars().count() > max_chars {
+        format!("{excerpt}...")
+    } else {
+        excerpt
+    }
+}
+
+pub fn compact_json_excerpt(value: &Value, max_chars: usize) -> String {
+    let text = serde_json::to_string(value).unwrap_or_else(|_| value.to_string());
+    compact_text_excerpt(&text, max_chars)
+}
+
 /// Maximum number of retries after a transient failure. With the initial attempt
 /// this is at most 2 calls for a transient transport / 429 / 5xx failure; a 4xx
 /// (non-429) is never retried — it is a non-transient provider error such as a
@@ -45,13 +60,10 @@ async fn http_error_message(resp: reqwest::Response, prefix: &str, code: u16) ->
     if body.is_empty() {
         return format!("{prefix} HTTP {code}");
     }
-    let excerpt: String = body.chars().take(MAX_ERROR_BODY_CHARS).collect();
-    let suffix = if body.chars().count() > MAX_ERROR_BODY_CHARS {
-        "..."
-    } else {
-        ""
-    };
-    format!("{prefix} HTTP {code}: {excerpt}{suffix}")
+    format!(
+        "{prefix} HTTP {code}: {}",
+        compact_text_excerpt(&body, MAX_ERROR_BODY_CHARS)
+    )
 }
 
 /// Install `ring` as the rustls default crypto provider and build a rustls-backed
@@ -384,11 +396,9 @@ fn retry_after(resp: &reqwest::Response) -> Option<Duration> {
 /// payload-decode failure and creates no active annotation.
 pub fn parse_content_json(content: &str) -> Result<Value, ProviderError> {
     serde_json::from_str::<Value>(content).map_err(|err| {
-        let compact = content.split_whitespace().collect::<Vec<_>>().join(" ");
-        let excerpt: String = compact.chars().take(220).collect();
-        let suffix = if compact.chars().count() > 220 { "..." } else { "" };
         ProviderError::SchemaValidationMessage(format!(
-            "provider response content was not valid JSON: {err}; content excerpt: {excerpt}{suffix}"
+            "provider response content was not valid JSON: {err}; content excerpt: {}",
+            compact_text_excerpt(content, 220)
         ))
     })
 }
@@ -510,15 +520,9 @@ pub async fn read_response(
     })?;
     let body: Value = serde_json::from_slice(&bytes).map_err(|err| {
         let text = String::from_utf8_lossy(&bytes);
-        let compact = text.split_whitespace().collect::<Vec<_>>().join(" ");
-        let excerpt: String = compact.chars().take(220).collect();
-        let suffix = if compact.chars().count() > 220 {
-            "..."
-        } else {
-            ""
-        };
         ProviderError::SchemaValidationMessage(format!(
-            "provider response body was not valid JSON: {err}; body excerpt: {excerpt}{suffix}"
+            "provider response body was not valid JSON: {err}; body excerpt: {}",
+            compact_text_excerpt(&text, 220)
         ))
     })?;
     Ok((headers, body))

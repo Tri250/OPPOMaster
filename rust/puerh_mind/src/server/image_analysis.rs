@@ -18,7 +18,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tonic::{Request, Response, Status};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::proto::alcedo::ai::{
     AiErrorCode, AiRequestHeader, AiResponseHeader, AiResponseStatus, AnalyzeImageRequest,
@@ -127,12 +127,24 @@ impl ImageAnalysisServiceImpl {
         model_id: &str,
         elapsed_ms: u64,
     ) -> Option<AiResponseHeader> {
+        let redacted_message = self.vault.redact_error_message(message);
+        warn!(
+            request_id = %req.request_id,
+            task_id = %req.task_id,
+            provider = %provider,
+            model = %model_id,
+            status = status as i32,
+            error_code = error_code as i32,
+            elapsed_ms,
+            error = %redacted_message,
+            "image analysis request failed"
+        );
         Some(AiResponseHeader {
             request_id: req.request_id.clone(),
             task_id: req.task_id.clone(),
             status: status as i32,
             error_code: error_code as i32,
-            error_message: self.vault.redact_error_message(message),
+            error_message: redacted_message,
             provider: provider.to_string(),
             model_id: model_id.to_string(),
             elapsed_ms: elapsed_ms as i64,
@@ -1020,7 +1032,10 @@ mod tests {
             inner.header.as_ref().unwrap().status,
             AiResponseStatus::AiStatusOk as i32
         );
-        assert_eq!(inner.header.as_ref().unwrap().task_id, "image_analysis.analyze");
+        assert_eq!(
+            inner.header.as_ref().unwrap().task_id,
+            "image_analysis.analyze"
+        );
         assert!(inner.understanding.is_some());
         assert!(inner.rating.is_some());
         assert_eq!(inner.rating.as_ref().unwrap().rating, 4);

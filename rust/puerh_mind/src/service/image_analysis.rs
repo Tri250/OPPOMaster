@@ -316,7 +316,6 @@ pub fn rating_system_prompt(rating_severity: &str, output_language: &str) -> Str
     system
 }
 
-
 /// A remote/local image-analysis provider. Phase 5b ships one implementation
 /// (`MockImageAnalysisProvider`); Phase 5c adds `OpenRouterChatProvider` and
 /// `VolcengineArkResponsesProvider` behind the same trait; Phase 6b generalizes the
@@ -860,7 +859,10 @@ mod schema_tests {
         let en = rating_system_prompt("normal", "");
         let zh = rating_system_prompt("normal", "zh");
         assert!(zh.ends_with(" Respond in Simplified Chinese (简体中文)."));
-        assert_eq!(zh.len(), en.len() + " Respond in Simplified Chinese (简体中文).".len());
+        assert_eq!(
+            zh.len(),
+            en.len() + " Respond in Simplified Chinese (简体中文).".len()
+        );
     }
 
     #[test]
