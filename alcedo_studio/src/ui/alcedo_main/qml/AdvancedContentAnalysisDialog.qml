@@ -93,8 +93,8 @@ Dialog {
           flavorEn: "Balanced 1–5 star rating with a short rationale.",
           flavorZh: "正常评分，平衡的 1–5 星，简短理由。" },
         { code: "xhigh",  en: "XHigh",  zh: "懂哥",
-          flavorEn: "Harsh connoisseur mode — nitpicks and drops catchphrases like “没意义” and “建议多看看××大师的作品” in the reasons.",
-          flavorZh: "懂哥模式——苛刻挑刺，理由里带“没意义”、“建议多看看××大师的作品”等语录。" }
+          flavorEn: "Connoisseur mode — a harsh, nitpicking eye that grades strictly and writes in a pretentious critic voice.",
+          flavorZh: "懂哥模式——眼光挑剔，分数从严，评语里少不了那套居高临下的行话。" }
     ]
     readonly property string severityFlavor: {
         for (let i = 0; i < severityModel.length; ++i) {
