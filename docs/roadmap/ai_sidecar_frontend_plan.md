@@ -680,7 +680,7 @@ Acceptance:
 - Vertical nav switches between Album and Image.
 - Existing inspector collapse/expand and resizing still work.
 
-### Frontend 4 - Image Inspector Tiles And Inline Editing
+### Frontend 4 - Image Inspector Tiles And Inline Editing  ✅ complete (2026-06-28)
 
 - Build the six responsive tiles.
 - Reuse/replace the current `ImageDetailsDialog.qml` data flow with a compact

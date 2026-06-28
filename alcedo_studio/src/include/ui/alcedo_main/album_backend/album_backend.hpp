@@ -243,8 +243,11 @@ class AlbumBackend final : public QObject {
   Q_INVOKABLE QVariantMap DeleteImages(const QVariantList& targetEntries);
   Q_INVOKABLE QVariantMap AddImagesToFolder(const QVariantList& targetEntries, uint targetFolderId);
   Q_INVOKABLE QVariantMap GetImageDetails(uint elementId, uint imageId);
+  Q_INVOKABLE QVariantMap GetFocusedImageInspection(uint elementId, uint imageId);
   Q_INVOKABLE QVariantMap GetImageRating(uint elementId, uint imageId);
   Q_INVOKABLE QVariantMap SetImageRating(uint elementId, uint imageId, int rating);
+  Q_INVOKABLE QVariantMap SetImageDescription(uint elementId, const QString& caption);
+  Q_INVOKABLE QVariantMap SetImageRatingReasons(uint elementId, const QString& reasons);
   // Phase 7a: read the AI rating *reasons* (rationale + provider/model/rubric identity)
   // persisted by the image-analysis sink. The numeric star itself is the EXIF/metadata
   // `Rating` value (use `GetImageRating`); this returns the AI rationale row. Returns

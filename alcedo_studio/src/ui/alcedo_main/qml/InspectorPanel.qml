@@ -11,9 +11,9 @@ import QtQuick.Layouts
 // inactive tabs are muted gray. The whole content tree below swaps with the
 // tab (Album stats vs. Image tiles).
 //
-// `focusedImage` is a Frontend 3 stand-in bound from Main.qml to the
-// right-click / details target so the Image page can show a focused placeholder.
-// Frontend 4 will replace this with true thumbnail-focus tracking.
+// `focusedImage` is the compact focused-image inspection DTO supplied by Main.qml.
+// The shell owns only navigation; ImageInspectorPanel owns the page layout and edit
+// state.
 //
 // Top inset: the shell is placed with a 10px outer margin in Main.qml; the tab
 // strip's topMargin of 4 lands it at 14px from the panel-card top — matching
@@ -24,6 +24,9 @@ Item {
 
     property var focusedImage: ({})
     property int currentPage: 0  // 0 = Album, 1 = Image
+    signal ratingRequested(int rating)
+    signal descriptionSaveRequested(string caption)
+    signal ratingReasonSaveRequested(string reasons)
 
     readonly property color textColor: appTheme.textColor
     readonly property color mutedTextColor: appTheme.textMutedColor
@@ -125,6 +128,15 @@ Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 focusedImage: root.focusedImage
+                onRatingRequested: function(rating) {
+                    root.ratingRequested(rating)
+                }
+                onDescriptionSaveRequested: function(caption) {
+                    root.descriptionSaveRequested(caption)
+                }
+                onRatingReasonSaveRequested: function(reasons) {
+                    root.ratingReasonSaveRequested(reasons)
+                }
             }
         }
     }

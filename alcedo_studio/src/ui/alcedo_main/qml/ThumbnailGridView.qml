@@ -64,6 +64,7 @@ Item {
     signal imageSelectionChanged(int elementId, int imageId, string fileName, bool isHdr,
                                  bool selected)
     signal replaceSelection(var items)
+    signal imageFocused(var item)
     signal contextMenuRequested(var item, real sceneX, real sceneY)
     signal zoomChanged(int zoomLevel)
 
@@ -639,7 +640,10 @@ Item {
 
         return {
             elementId: elementId,
+            fileId: Number(row.fileId || row.elementId),
             imageId: Number(row.imageId),
+            folderId: Number(row.folderId || 0),
+            scopeType: row.scopeType ? String(row.scopeType) : "",
             fileName: row.fileName ? row.fileName : qsTr("(unnamed)"),
             rating: Number(row.rating),
             isHdr: row.isHdr === true
@@ -660,7 +664,10 @@ Item {
             }
             items.push({
                 elementId: elementId,
+                fileId: Number(row.fileId || row.elementId),
                 imageId: Number(row.imageId),
+                folderId: Number(row.folderId || 0),
+                scopeType: row.scopeType ? String(row.scopeType) : "",
                 fileName: row.fileName ? row.fileName : qsTr("(unnamed)"),
                 rating: Number(row.rating),
                 isHdr: row.isHdr === true
@@ -1273,6 +1280,7 @@ Item {
                 if (idx >= 0) {
                     const item = root.selectionItemForIndex(idx)
                     if (item) {
+                        root.imageFocused(item)
                         const scenePoint = overlay.mapToItem(null, mouse.x, mouse.y)
                         root.contextMenuRequested(item, scenePoint.x, scenePoint.y)
                     }
@@ -1298,6 +1306,7 @@ Item {
                 if (idx >= 0) {
                     const item = root.selectionItemForIndex(idx)
                     if (item) {
+                        root.imageFocused(item)
                         if (mouse.modifiers & Qt.ShiftModifier) {
                             root.selectRangeToIndex(idx, mouse.modifiers & Qt.ControlModifier)
                         } else if (mouse.modifiers & Qt.ControlModifier) {
@@ -1323,6 +1332,7 @@ Item {
             if (idx >= 0) {
                 const item = root.selectionItemForIndex(idx)
                 if (item) {
+                    root.imageFocused(item)
                     albumBackend.OpenEditor(item.elementId, item.imageId)
                 }
             }

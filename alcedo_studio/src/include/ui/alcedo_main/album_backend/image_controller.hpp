@@ -41,8 +41,11 @@ class ImageController {
   auto AddImagesToFolder(const QVariantList& targetEntries, uint targetFolderId) -> QVariantMap;
   auto DeleteTargets(const std::vector<DeleteTarget>& targets) -> DeleteExecutionResult;
   auto GetImageDetails(uint elementId, uint imageId) -> QVariantMap;
+  auto GetFocusedImageInspection(uint elementId, uint imageId) -> QVariantMap;
   auto GetImageRating(uint elementId, uint imageId) -> QVariantMap;
   auto SetImageRating(uint elementId, uint imageId, int rating) -> QVariantMap;
+  auto SetImageDescription(uint elementId, const QString& caption) -> QVariantMap;
+  auto SetImageRatingReasons(uint elementId, const QString& reasons) -> QVariantMap;
 
   // Phase 7a: the light half of the star-rating path, extracted from `SetImageRating`.
   // Writes the 1..5 value into the in-memory EXIF/metadata `Rating` column via
@@ -69,6 +72,7 @@ class ImageController {
   [[nodiscard]] auto CollectDeleteTargets(const QVariantList& targetEntries) const
       -> std::vector<DeleteTarget>;
   [[nodiscard]] auto ResolveRatingTarget(uint elementId, uint imageId) const -> RatingTarget;
+  [[nodiscard]] auto SaveProjectSnapshot() -> bool;
 
   AlbumBackend&      backend_;
 };

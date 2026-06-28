@@ -1599,7 +1599,6 @@ qt_add_qml_module(alcedo_main
         ui/alcedo_main/qml/Main.qml
         ui/alcedo_main/qml/ExportQueueState.qml
         ui/alcedo_main/qml/AlbumExportDialog.qml
-        ui/alcedo_main/qml/ImageDetailsDialog.qml
         ui/alcedo_main/qml/AdjustmentTransferDialog.qml
         ui/alcedo_main/qml/SettingDialog.qml
         ui/alcedo_main/qml/WelcomeDialog.qml

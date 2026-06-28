@@ -506,11 +506,20 @@ auto AlbumBackend::AddImagesToFolder(const QVariantList& targetEntries, uint tar
 auto AlbumBackend::GetImageDetails(uint elementId, uint imageId) -> QVariantMap {
   return image_ctrl_.GetImageDetails(elementId, imageId);
 }
+auto AlbumBackend::GetFocusedImageInspection(uint elementId, uint imageId) -> QVariantMap {
+  return image_ctrl_.GetFocusedImageInspection(elementId, imageId);
+}
 auto AlbumBackend::GetImageRating(uint elementId, uint imageId) -> QVariantMap {
   return image_ctrl_.GetImageRating(elementId, imageId);
 }
 auto AlbumBackend::SetImageRating(uint elementId, uint imageId, int rating) -> QVariantMap {
   return image_ctrl_.SetImageRating(elementId, imageId, rating);
+}
+auto AlbumBackend::SetImageDescription(uint elementId, const QString& caption) -> QVariantMap {
+  return image_ctrl_.SetImageDescription(elementId, caption);
+}
+auto AlbumBackend::SetImageRatingReasons(uint elementId, const QString& reasons) -> QVariantMap {
+  return image_ctrl_.SetImageRatingReasons(elementId, reasons);
 }
 
 // Phase 7a: read the AI rating *reasons* row persisted by AlbumImageAnalysisSink. The

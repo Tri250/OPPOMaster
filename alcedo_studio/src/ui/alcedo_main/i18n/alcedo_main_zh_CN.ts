@@ -2073,19 +2073,6 @@ Alcedo 将改用 %1。</translation>
     </message>
 </context>
 <context>
-    <name>ImageDetailsDialog</name>
-    <message>
-        <location filename="../qml/ImageDetailsDialog.qml" line="346"/>
-        <source>Open in file manager</source>
-        <translation>在文件管理器中打开</translation>
-    </message>
-    <message>
-        <location filename="../qml/ImageDetailsDialog.qml" line="369"/>
-        <source>Close</source>
-        <translation>关闭</translation>
-    </message>
-</context>
-<context>
     <name>InspectorPanel</name>
     <message>
         <source>Photo Library</source>
