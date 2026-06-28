@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 import QtQuick.Effects
+import "util"
 
 SwipeView {
     id: panel
@@ -52,14 +53,6 @@ SwipeView {
         currentIndex = 1
     }
 
-    function modelIndexFor(modelId) {
-        for (let i = 0; i < modelOptions.length; ++i) {
-            if (modelOptions[i].modelId === modelId) {
-                return i
-            }
-        }
-        return modelOptions.length > 0 ? 0 : -1
-    }
 
     function languageIndexFor(value) {
         const options = languageModel
@@ -561,26 +554,36 @@ SwipeView {
                             Layout.fillWidth: true
                             spacing: 12
 
-                            ComboBox {
+                            SearchComboBox {
                                 id: modelCombo
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 42
                                 enabled: panel.modelOptions.length > 0
-                                model: panel.modelOptions
-                                textRole: "displayName"
-                                currentIndex: panel.modelIndexFor(panel.editProfile.modelId || "")
-                                onActivated: function(index) {
-                                    const item = model[index]
-                                    if (item) {
-                                        panel.setField("modelId", item.modelId)
-                                        panel.setField("modelDisplayName", item.displayName)
-                                    }
+                                options: panel.modelOptions
+                                selectedValue: panel.editProfile.modelId || ""
+                                selectedLabel: panel.editProfile.modelDisplayName || ""
+                                valueRole: "modelId"
+                                labelRole: "displayName"
+                                subtitleRole: "modelId"
+                                placeholderText: qsTr("Search models")
+                                emptyText: qsTr("No matching models")
+                                textColor: panel.textColor
+                                mutedTextColor: panel.mutedTextColor
+                                accentColor: panel.secondaryAccent
+                                focusedBorderColor: Qt.rgba(panel.secondaryAccent.r,
+                                                            panel.secondaryAccent.g,
+                                                            panel.secondaryAccent.b, 0.62)
+                                popupColor: appTheme.toneGraphite
+                                dataFontFamily: panel.dataFontFamily
+                                onItemSelected: function(item) {
+                                    panel.setField("modelId", item.modelId)
+                                    panel.setField("modelDisplayName", item.displayName)
                                 }
                             }
 
                             Rectangle {
                                 id: retryButton
-                                // Square side tracks the ComboBox's actual rendered
+                                // Square side tracks the model selector's actual rendered
                                 // height so the two are always exactly equal — plain
                                 // Rectangle has no style padding, mirroring the
                                 // browse-button pattern in SemanticGenerationSettingsPanel.

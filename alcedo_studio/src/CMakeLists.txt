@@ -1608,6 +1608,7 @@ qt_add_qml_module(alcedo_main
         ui/alcedo_main/qml/ActivateModelDialog.qml
         ui/alcedo_main/qml/SemanticGenerationSettingsPanel.qml
         ui/alcedo_main/qml/AiProviderSettingsPanel.qml
+        ui/alcedo_main/qml/util/SearchComboBox.qml
         ui/alcedo_main/qml/AboutPage.qml
         ui/alcedo_main/qml/ImportProgressRing.qml
         ui/alcedo_main/qml/InspectorPanel.qml
@@ -1618,6 +1619,8 @@ qt_add_qml_module(alcedo_main
         ui/alcedo_main/qml/ImageContextMenu.qml
         ui/alcedo_main/qml/ThumbnailGridView.qml
         ui/alcedo_main/qml/ThumbnailListView.qml
+    RESOURCES
+        ui/alcedo_main/qml/util/qmldir
 )
 set_target_properties(alcedo_main PROPERTIES
     QT_QMLCACHEGEN_ARGUMENTS "--only-bytecode"
