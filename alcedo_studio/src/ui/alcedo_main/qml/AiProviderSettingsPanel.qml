@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
+import QtQuick.Effects
 
 SwipeView {
     id: panel
@@ -18,6 +19,7 @@ SwipeView {
     property string dataFontFamily: appTheme.dataFontFamily
     property int dataRevision: 0
     property string editingProfileId: ""
+    property Item backgroundSource: null
     readonly property bool hasProfilesController: profileController !== null
     readonly property bool hasAnalysis: analysisController !== null
     readonly property var profiles: hasProfilesController ? profileController.profiles : []
@@ -78,6 +80,91 @@ SwipeView {
         }
     }
 
+    function withAlpha(color, alpha) {
+        return Qt.rgba(color.r, color.g, color.b, alpha)
+    }
+
+    // Reusable rounded-rectangle action button. Primary = blue (confirm) bg with
+    // white text, danger = destructive bg with white text, otherwise gray bg with
+    // white text. Optional leading SVG icon. Content-sized so labels never elide.
+    component AiButton: Button {
+        id: aiBtn
+        property bool primary: false
+        property bool danger: false
+        property string iconSrc: ""
+
+        Layout.preferredHeight: 40
+        font.pixelSize: 14
+        font.weight: 700
+        Material.foreground: panel.textColor
+        hoverEnabled: true
+        spacing: 8
+        leftPadding: 18
+        rightPadding: 18
+        topPadding: 8
+        bottomPadding: 8
+        icon.source: aiBtn.iconSrc.length > 0 ? aiBtn.iconSrc : ""
+        icon.color: panel.textColor
+        icon.width: 16
+        icon.height: 16
+
+        background: Rectangle {
+            radius: 10
+            color: aiBtn.primary
+                   ? (aiBtn.down
+                      ? Qt.darker(panel.primaryAccent, 1.16)
+                      : (aiBtn.hovered ? Qt.lighter(panel.primaryAccent, 1.06)
+                                        : panel.primaryAccent))
+                   : aiBtn.danger
+                     ? (aiBtn.down
+                        ? Qt.darker(panel.dangerColor, 1.16)
+                        : (aiBtn.hovered ? Qt.lighter(panel.dangerColor, 1.06)
+                                          : panel.dangerColor))
+                     : (aiBtn.down
+                        ? Qt.rgba(1, 1, 1, 0.06)
+                        : (aiBtn.hovered ? Qt.rgba(1, 1, 1, 0.16)
+                                          : Qt.rgba(1, 1, 1, 0.10)))
+            border.width: 1
+            border.color: aiBtn.primary
+                          ? Qt.rgba(panel.secondaryAccent.r,
+                                    panel.secondaryAccent.g,
+                                    panel.secondaryAccent.b, 0.18)
+                          : aiBtn.danger
+                            ? Qt.rgba(panel.dangerColor.r,
+                                      panel.dangerColor.g,
+                                      panel.dangerColor.b, 0.30)
+                            : Qt.rgba(1, 1, 1, 0.12)
+            opacity: aiBtn.enabled ? 1.0 : 0.45
+        }
+    }
+
+    // Blurred modal backdrop shared by the panel's dialogs — matches the
+    // MultiEffect + overlayColor used by SettingDialog / ActivateModelDialog.
+    component BlurOverlay: Item {
+        anchors.fill: parent
+
+        MultiEffect {
+            visible: panel.backgroundSource !== null
+            anchors.fill: parent
+            source: panel.backgroundSource
+            blurEnabled: true
+            blur: 0.6
+            blurMax: 64
+            saturation: -0.2
+            brightness: -0.08
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            color: appTheme.overlayColor
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            hoverEnabled: true
+        }
+    }
+
     readonly property var languageModel: [
         { label: qsTr("Follow app language"), value: "follow" },
         { label: qsTr("English"), value: "en" },
@@ -117,13 +204,13 @@ SwipeView {
                         }
                     }
 
-                    Button {
+                    AiButton {
                         id: addButton
-                        Layout.preferredWidth: 116
                         Layout.preferredHeight: 42
+                        primary: true
+                        iconSrc: "qrc:/panel_icons/plus.svg"
                         text: qsTr("Add")
                         enabled: panel.hasProfilesController
-                        Material.foreground: panel.textColor
                         onClicked: addDialog.open()
                     }
                 }
@@ -198,20 +285,21 @@ SwipeView {
                                 }
                             }
 
-                            Button {
-                                Layout.preferredWidth: 96
+                            AiButton {
                                 Layout.preferredHeight: 38
-                                text: modelData.active ? qsTr("✓ In use") : qsTr("Use")
+                                primary: true
+                                iconSrc: modelData.active
+                                         ? "qrc:/panel_icons/stop.svg"
+                                         : "qrc:/panel_icons/play.svg"
+                                text: modelData.active ? qsTr("In use") : qsTr("Use")
                                 enabled: !modelData.active && panel.hasProfilesController
-                                Material.foreground: panel.textColor
                                 onClicked: panel.profileController.SetActiveProfile(modelData.uuid)
                             }
 
-                            Button {
-                                Layout.preferredWidth: 82
+                            AiButton {
                                 Layout.preferredHeight: 38
                                 text: qsTr("Edit")
-                                Material.foreground: panel.textColor
+                                enabled: panel.hasProfilesController
                                 onClicked: panel.openEditor(modelData.uuid)
                             }
                         }
@@ -229,7 +317,7 @@ SwipeView {
                     anchors.centerIn: parent
                     width: Math.min(parent.width - 40, 420)
                     visible: panel.profiles.length === 0
-                    spacing: 12
+                    spacing: 8
 
                     Label {
                         Layout.fillWidth: true
@@ -240,14 +328,12 @@ SwipeView {
                         horizontalAlignment: Text.AlignHCenter
                     }
 
-                    Button {
-                        Layout.alignment: Qt.AlignHCenter
-                        Layout.preferredWidth: 170
-                        Layout.preferredHeight: 42
-                        text: qsTr("Add provider")
-                        enabled: panel.hasProfilesController
-                        Material.foreground: panel.textColor
-                        onClicked: addDialog.open()
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("Use the Add button to create one.")
+                        color: panel.mutedTextColor
+                        font.pixelSize: 13
+                        horizontalAlignment: Text.AlignHCenter
                     }
                 }
             }
@@ -262,34 +348,89 @@ SwipeView {
             x: parent ? Math.round((parent.width - width) / 2) : 0
             y: parent ? Math.round((parent.height - height) / 2) : 0
             width: Math.min((parent ? parent.width : 620) - 72, 560)
-            title: qsTr("Add provider")
+            padding: 0
+
+            Overlay.modal: Component { BlurOverlay {} }
 
             background: Rectangle {
-                radius: 12
-                color: Qt.rgba(46 / 255, 46 / 255, 46 / 255, 0.98)
-                border.width: 1
-                border.color: panel.dividerColor
+                radius: 14
+                color: appTheme.toneGraphite
+                border.width: 0
             }
 
             contentItem: ColumnLayout {
-                spacing: 10
+                spacing: 16
+                Layout.margins: 24
 
-                Repeater {
-                    model: panel.templates
-                    delegate: Button {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 52
-                        text: modelData.label
-                        Material.foreground: panel.textColor
-                        onClicked: {
-                            const id = panel.profileController.AddProfileFromTemplate(modelData.templateId)
-                            addDialog.close()
-                            if (id.length > 0) {
-                                panel.openEditor(id)
+                Label {
+                    Layout.fillWidth: true
+                    text: qsTr("Add provider")
+                    color: appTheme.textColor
+                    font.family: appTheme.headlineFontFamily
+                    font.pixelSize: 22
+                    font.weight: 700
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    text: qsTr("Choose a template to create a profile from.")
+                    color: appTheme.textMutedColor
+                    font.pixelSize: 13
+                    font.weight: 500
+                    wrapMode: Text.WordWrap
+                }
+
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: 10
+
+                    Repeater {
+                        model: panel.templates
+                        delegate: Rectangle {
+                            id: chip
+                            readonly property string templateId: modelData.templateId
+                            readonly property string chipLabel: modelData.label
+
+                            height: 40
+                            radius: 20
+                            implicitWidth: Math.min(chipLbl.implicitWidth + 36, 280)
+                            color: chipHit.containsMouse
+                                   ? panel.withAlpha(appTheme.hoverColor, 0.78)
+                                   : panel.withAlpha(appTheme.bgBaseColor, 0.62)
+                            border.width: 1
+                            border.color: panel.withAlpha(appTheme.glassStrokeColor, 0.35)
+
+                            MouseArea {
+                                id: chipHit
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                hoverEnabled: true
+                                onClicked: {
+                                    const id = panel.profileController.AddProfileFromTemplate(chip.templateId)
+                                    addDialog.close()
+                                    if (id.length > 0) {
+                                        panel.openEditor(id)
+                                    }
+                                }
+                            }
+
+                            Label {
+                                id: chipLbl
+                                anchors.centerIn: parent
+                                width: Math.min(implicitWidth, 244)
+                                text: chip.chipLabel
+                                color: appTheme.textColor
+                                font.family: appTheme.uiFontFamily
+                                font.pixelSize: 13
+                                font.weight: 600
+                                elide: Text.ElideRight
+                                horizontalAlignment: Text.AlignHCenter
                             }
                         }
                     }
                 }
+
+                Item { Layout.fillWidth: true }
             }
         }
     }
@@ -368,11 +509,11 @@ SwipeView {
                             Layout.fillWidth: true
                             spacing: 12
 
-                            Button {
+                            AiButton {
                                 Layout.preferredHeight: 38
+                                primary: true
                                 text: qsTr("Save Key")
                                 enabled: panel.hasProfilesController && keyField.text.length > 0
-                                Material.foreground: panel.textColor
                                 onClicked: {
                                     const err = panel.profileController.SaveApiKey(panel.editingProfileId, keyField.text)
                                     keyField.text = ""
@@ -380,11 +521,11 @@ SwipeView {
                                 }
                             }
 
-                            Button {
+                            AiButton {
                                 Layout.preferredHeight: 38
+                                danger: true
                                 text: qsTr("Delete Key")
                                 enabled: panel.editProfile.credentialAvailable
-                                Material.foreground: panel.dangerColor
                                 onClicked: {
                                     panel.profileController.DeleteApiKey(panel.editingProfileId)
                                     panel.messageRequested(qsTr("API key deleted"))
@@ -431,13 +572,12 @@ SwipeView {
                                 }
                             }
 
-                            Button {
-                                Layout.preferredWidth: 178
+                            AiButton {
                                 Layout.preferredHeight: 42
+                                primary: true
                                 text: qsTr("Test & Refresh")
                                 enabled: panel.hasAnalysis && panel.editingProfileId.length > 0
                                          && (panel.editProfile.credentialAvailable || panel.editProfile.authType === "none")
-                                Material.foreground: panel.textColor
                                 onClicked: panel.analysisController.ValidateConnectionForProfile(panel.editingProfileId)
                             }
                         }
@@ -491,11 +631,10 @@ SwipeView {
                         Layout.bottomMargin: 28
                         spacing: 12
 
-                        Button {
+                        AiButton {
                             Layout.preferredHeight: 40
                             text: qsTr("Duplicate")
                             enabled: panel.hasProfilesController && panel.editingProfileId.length > 0
-                            Material.foreground: panel.textColor
                             onClicked: {
                                 const id = panel.profileController.CloneProfile(panel.editingProfileId)
                                 if (id.length > 0) {
@@ -504,11 +643,11 @@ SwipeView {
                             }
                         }
 
-                        Button {
+                        AiButton {
                             Layout.preferredHeight: 40
+                            danger: true
                             text: qsTr("Delete")
                             enabled: panel.hasProfilesController && panel.editingProfileId.length > 0
-                            Material.foreground: panel.dangerColor
                             onClicked: deleteDialog.open()
                         }
 
@@ -523,26 +662,38 @@ SwipeView {
             parent: Overlay.overlay
             modal: true
             focus: true
-            title: qsTr("Delete provider")
             x: parent ? Math.round((parent.width - width) / 2) : 0
             y: parent ? Math.round((parent.height - height) / 2) : 0
             width: Math.min((parent ? parent.width : 520) - 72, 460)
+            padding: 0
+
+            Overlay.modal: Component { BlurOverlay {} }
 
             background: Rectangle {
-                radius: 12
-                color: Qt.rgba(46 / 255, 46 / 255, 46 / 255, 0.98)
-                border.width: 1
-                border.color: panel.dividerColor
+                radius: 14
+                color: appTheme.toneGraphite
+                border.width: 0
             }
 
             contentItem: ColumnLayout {
                 spacing: 14
+                Layout.margins: 24
+
+                Label {
+                    Layout.fillWidth: true
+                    text: qsTr("Delete provider")
+                    color: appTheme.textColor
+                    font.family: appTheme.headlineFontFamily
+                    font.pixelSize: 20
+                    font.weight: 700
+                }
 
                 Label {
                     Layout.fillWidth: true
                     text: qsTr("Delete this provider profile?")
-                    color: panel.textColor
-                    font.pixelSize: 14
+                    color: appTheme.textMutedColor
+                    font.pixelSize: 13
+                    font.weight: 500
                     wrapMode: Text.WordWrap
                 }
 
@@ -550,7 +701,7 @@ SwipeView {
                     id: wipeKeyCheck
                     checked: true
                     text: qsTr("Delete saved key")
-                    Material.foreground: panel.textColor
+                    Material.foreground: appTheme.textColor
                 }
 
                 RowLayout {
@@ -559,15 +710,14 @@ SwipeView {
 
                     Item { Layout.fillWidth: true }
 
-                    Button {
+                    AiButton {
                         text: qsTr("Cancel")
-                        Material.foreground: panel.textColor
                         onClicked: deleteDialog.close()
                     }
 
-                    Button {
+                    AiButton {
+                        danger: true
                         text: qsTr("Delete")
-                        Material.foreground: panel.dangerColor
                         onClicked: {
                             panel.profileController.DeleteProfile(panel.editingProfileId, wipeKeyCheck.checked)
                             deleteDialog.close()

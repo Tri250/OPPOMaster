@@ -772,6 +772,7 @@ Dialog {
                             width: parent ? parent.width : 0
                             profileController: albumBackend.aiProviderProfileController
                             analysisController: albumBackend.imageAnalysisController
+                            backgroundSource: dialog.blurSource
                             primaryAccent: dialog.primaryAccent
                             secondaryAccent: dialog.secondaryAccent
                             textColor: dialog.textColor
