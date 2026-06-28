@@ -193,16 +193,25 @@ Execution behavior:
 
 - The Dialog sends `selectionState.currentSelectedItems()` to the analysis
   controller.
-- If both description and rating/reason are selected, the UI may run the
-  existing backend task calls sequentially until a combined backend RPC exists:
-  describe first, score second.
-- Progress should count item-task units so a 10-image describe+score run reads
-  as 20 units, not an ambiguous 10.
+- The selected task checkboxes describe the desired output fields for each
+  selected image. They must not fan out into one provider request per task.
+  For a selected image, the controller sends one remote analysis request whose
+  request JSON/schema/tool definition is adjusted to include only the requested
+  outputs: description, rating, and/or rating reason.
+- OpenAI-compatible providers should receive one `response_format.json_schema`
+  request for the selected output bundle. Anthropic-compatible providers should
+  receive one forced tool-use request for the selected output bundle. The
+  protocol mechanism changes the structured-output envelope only; it must not
+  multiply provider round-trips.
+- Progress counts per-image remote request units, not item-task units. A
+  10-image describe+score run reads as 10 remote requests because each image is
+  uploaded and analyzed once.
 - If overwrite for a selected field is disabled, the controller/frontend should
   skip items that already have that field. If overwrite is enabled, successful
   results replace the active value.
 - Cancel stops remaining work and leaves already-persisted successful results in
-  place; failed/canceled item-task units must not create active annotations.
+  place; failed/canceled per-image request units must not create active
+  annotations for any requested output field.
 
 ## Right Inspector Redesign
 
@@ -658,7 +667,7 @@ Acceptance:
 - Completion does not automatically switch the inspector page.
 - Dialog hint explains where to review/edit results.
 
-### Frontend 3 - Inspector Shell And Album Page Extraction
+### Frontend 3 - Inspector Shell And Album Page Extraction  ✅ complete (2026-06-28)
 
 - Refactor `InspectorPanel.qml` into a shell with vertical nav and page stack.
 - Move existing album overview/stats/search-filter UI into
@@ -714,8 +723,8 @@ Acceptance:
 - The UI should not present remote analysis as "free background labeling." Its
   placement, selected-images requirement, and progress Dialog should make the
   paid remote-call nature clear without being alarming.
-- If a combined describe+rating backend call lands later, replace sequential
-  Dialog orchestration with one controller call. The UI shape should remain the
-  same.
+- Multi-output analysis is a single per-image backend/provider request. Adding
+  or removing selected tasks changes the request schema/tool JSON, not the
+  number of provider calls made for that image.
 - The model list UX depends on the backend's provider-config merge story. Do not
   let the user select a model id that will be rejected locally as unknown.

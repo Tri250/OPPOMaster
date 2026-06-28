@@ -45,7 +45,7 @@ Dialog {
     readonly property int selectedImageCount: selectionTargets ? selectionTargets.length : 0
     readonly property int selectedTaskCount: (descriptionTask.checked ? 1 : 0)
                                            + ((ratingTask.checked || ratingReasonTask.checked) ? 1 : 0)
-    readonly property int totalUnits: selectedImageCount * selectedTaskCount
+    readonly property int totalUnits: selectedTaskCount > 0 ? selectedImageCount : 0
     readonly property int controllerDone: analysisController
                                           ? Number(analysisController.analyzed)
                                             + Number(analysisController.failed)
@@ -172,7 +172,7 @@ Dialog {
     }
 
     function resetSession() {
-        completedBefore = 0
+        completedBefore = skippedUnits
         phaseIndex = -1
         startedOnce = false
         finalReady = false
@@ -187,6 +187,10 @@ Dialog {
 
     function buildPhaseQueue() {
         const phases = []
+        if (descriptionTask.checked && (ratingTask.checked || ratingReasonTask.checked)) {
+            phases.push("analyze")
+            return phases
+        }
         if (descriptionTask.checked) {
             phases.push("describe")
         }
@@ -225,11 +229,12 @@ Dialog {
         const source = selectionTargets ? selectionTargets : []
         for (let i = 0; i < source.length; ++i) {
             const target = source[i]
-            if (phase === "describe" && !overwriteDescription.checked
+            if ((phase === "describe" || phase === "analyze") && descriptionTask.checked
+                    && !overwriteDescription.checked
                     && hasExistingDescription(target)) {
                 continue
             }
-            if (phase === "score") {
+            if (phase === "score" || phase === "analyze") {
                 const skipRating = ratingTask.checked && !overwriteRating.checked
                                    && hasExistingRating(target)
                 const skipReason = ratingReasonTask.checked && !overwriteReason.checked
@@ -244,6 +249,9 @@ Dialog {
     }
 
     function taskLabel(task) {
+        if (task === "analyze") {
+            return qsTr("Analysis")
+        }
         return task === "describe" ? qsTr("Description") : qsTr("Rating")
     }
 
@@ -348,7 +356,9 @@ Dialog {
             advanceAfterControllerStopped()
             return
         }
-        if (phase === "describe") {
+        if (phase === "analyze") {
+            analysisController.StartAnalyzeForTargets(targets)
+        } else if (phase === "describe") {
             analysisController.StartDescribeForTargets(targets)
         } else {
             analysisController.StartScoreForTargets(targets)
@@ -389,7 +399,7 @@ Dialog {
             finalFailureDetails = failedResultSummary()
             finalSummary = qsTr("Finished with %1 successful item(s) and %2 failed item(s).").arg(ok).arg(failed)
         } else if (skippedUnits > 0) {
-            finalSummary = qsTr("Analysis complete. Skipped %1 existing item-task(s).").arg(skippedUnits)
+            finalSummary = qsTr("Analysis complete. Skipped %1 existing image(s).").arg(skippedUnits)
         } else {
             finalSummary = qsTr("Analysis complete.")
         }
@@ -727,7 +737,7 @@ Dialog {
 
                                     Label {
                                         Layout.fillWidth: true
-                                        text: qsTr("%1 / %2 item-task(s)").arg(root.completedUnits).arg(root.totalUnits)
+                                        text: qsTr("%1 / %2 image(s)").arg(root.completedUnits).arg(root.totalUnits)
                                         color: root.mutedTextColor
                                         font.family: root.dataFontFamily
                                         font.pixelSize: 14

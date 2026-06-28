@@ -34,6 +34,7 @@ struct ImageAnalysisItem {
 enum class ImageAnalysisTask : uint8_t {
   kDescribe = 0,
   kScore,
+  kAnalyze,
 };
 
 enum class ImageAnalysisItemStatus : uint8_t {
@@ -207,6 +208,8 @@ class IImageAnalysisClient {
       -> ImageAnalysisUnderstandingResult = 0;
   virtual auto ScoreImage(const ImageAnalysisRequest& request, std::chrono::milliseconds timeout)
       -> ImageAnalysisRatingResult                                                            = 0;
+  virtual auto AnalyzeImage(const ImageAnalysisRequest& request, std::chrono::milliseconds timeout)
+      -> ImageAnalysisCombinedResult                                                          = 0;
   // Phase 6c: dry-run model discovery (validate-connection flow). `provider_id`
   // selects the configured endpoint ("" = sidecar default); `credential_ref` is
   // the opaque vault handle. Returns unverified candidates; no persistence.
@@ -230,6 +233,8 @@ class AiSidecarRuntimeImageAnalysisClient final : public IImageAnalysisClient {
       -> ImageAnalysisUnderstandingResult override;
   auto ScoreImage(const ImageAnalysisRequest& request, std::chrono::milliseconds timeout)
       -> ImageAnalysisRatingResult override;
+  auto AnalyzeImage(const ImageAnalysisRequest& request, std::chrono::milliseconds timeout)
+      -> ImageAnalysisCombinedResult override;
   auto ListModels(const std::string& provider_id, const std::string& credential_ref,
                   std::chrono::milliseconds timeout) -> ImageAnalysisListModelsResult override;
   auto CancelTask(const std::string& request_id, std::chrono::milliseconds timeout, bool* cancelled,

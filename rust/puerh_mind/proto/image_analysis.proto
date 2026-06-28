@@ -39,6 +39,8 @@ service ImageAnalysisService {
   rpc DescribeImage(DescribeImageRequest) returns (DescribeImageResponse);
   // Score one image against a rubric.
   rpc ScoreImage(ScoreImageRequest) returns (ScoreImageResponse);
+  // Analyze one image for multiple requested outputs in a single provider call.
+  rpc AnalyzeImage(AnalyzeImageRequest) returns (AnalyzeImageResponse);
   // Phase 6c: list the model ids the configured endpoint exposes (dry-run
   // discovery, no annotations persisted). Used by the host's "validate
   // connection" flow and model-discovery merge.
@@ -163,4 +165,30 @@ message ScoreImageResponse {
   UsageMetadata usage = 4;
   string provider_request_id = 5;
   string prompt_profile_id = 6;
+}
+
+message AnalyzeImageRequest {
+  AiRequestHeader header = 1;
+  bytes image_bytes = 2;
+  // Encoded image bytes hint; see DescribeImageRequest.image_format_hint.
+  string image_format_hint = 3;
+  RenditionMetadata rendition = 4;
+  string provider_id = 5;
+  string model_id = 6;
+  string prompt_profile_id = 7;
+  bool include_understanding = 8;
+  bool include_rating = 9;
+  string rubric_id = 10;
+  string output_language = 11;
+  string rating_severity = 12;
+}
+
+message AnalyzeImageResponse {
+  AiResponseHeader header = 1;
+  ImageUnderstandingResult understanding = 2;
+  ImageRatingResult rating = 3;
+  RenditionMetadata rendition = 4;
+  UsageMetadata usage = 5;
+  string provider_request_id = 6;
+  string prompt_profile_id = 7;
 }

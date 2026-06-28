@@ -20,6 +20,8 @@ class ImageAnalysisClient {
       -> ImageAnalysisUnderstandingResult = 0;
   virtual auto ScoreImage(const ImageAnalysisRequest& request, std::chrono::milliseconds timeout)
       -> ImageAnalysisRatingResult = 0;
+  virtual auto AnalyzeImage(const ImageAnalysisRequest& request, std::chrono::milliseconds timeout)
+      -> ImageAnalysisCombinedResult = 0;
   virtual auto ListModels(const std::string& provider_id, const std::string& credential_ref,
                           std::chrono::milliseconds timeout) -> ImageAnalysisListModelsResult = 0;
 };

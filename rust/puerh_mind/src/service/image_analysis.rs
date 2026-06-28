@@ -75,6 +75,18 @@ pub struct ScoreOutcome {
     pub provider_request_id: String,
 }
 
+/// Combined per-image outcome for runs that ask for multiple outputs. This is
+/// still one provider request; persistence can split the typed results into the
+/// existing understanding/rating tables.
+#[derive(Debug, Clone)]
+pub struct AnalyzeOutcome {
+    pub understanding: Option<DescribeOutcome>,
+    pub rating: Option<ScoreOutcome>,
+    pub model_id: String,
+    pub usage: Usage,
+    pub provider_request_id: String,
+}
+
 /// Why a provider call did not produce a usable typed result. The service maps
 /// these (plus the credential/timeout/cancel paths it owns) into the
 /// `AiResponseHeader` status/error fields. Messages here must stay free of secret
@@ -138,6 +150,41 @@ pub const IMAGE_RATING_SCHEMA: &str = r#"{
   }
 }"#;
 
+/// Code-owned JSON Schema for combined multi-output image analysis. The nested
+/// result shapes intentionally match the standalone understanding/rating
+/// contracts so one provider call can still be persisted as distinct task rows.
+pub const IMAGE_ANALYSIS_BUNDLE_SCHEMA: &str = r#"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AlcedoImageAnalysisBundle",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["understanding", "rating"],
+  "properties": {
+    "understanding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["caption", "tags"],
+      "properties": {
+        "caption": { "type": "string", "minLength": 1 },
+        "tags": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "scene": { "type": "string" },
+        "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 }
+      }
+    },
+    "rating": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rating", "rubric_id"],
+      "properties": {
+        "rating": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "rubric_id": { "type": "string", "minLength": 1 },
+        "rubric_version": { "type": "string" },
+        "reasons": { "type": "string" }
+      }
+    }
+  }
+}"#;
+
 /// Validate + normalize a `image_understanding.describe` outcome against the
 /// code-owned contract. Returns `ProviderError::SchemaValidation` on any breach
 /// so the service maps it to a non-active provider error (Phase 5b: a schema
@@ -168,6 +215,19 @@ pub fn validate_rating(out: &ScoreOutcome) -> Result<(), ProviderError> {
         return Err(ProviderError::SchemaValidation);
     }
     if !(1..=5).contains(&out.rating) {
+        return Err(ProviderError::SchemaValidation);
+    }
+    Ok(())
+}
+
+pub fn validate_analyze(out: &AnalyzeOutcome) -> Result<(), ProviderError> {
+    if let Some(understanding) = &out.understanding {
+        validate_understanding(understanding)?;
+    }
+    if let Some(rating) = &out.rating {
+        validate_rating(rating)?;
+    }
+    if out.understanding.is_none() && out.rating.is_none() {
         return Err(ProviderError::SchemaValidation);
     }
     Ok(())
@@ -298,6 +358,20 @@ pub trait ImageAnalysisProvider: Send + Sync {
         output_language: &str,
         credential: Option<&SecretString>,
     ) -> Result<ScoreOutcome, ProviderError>;
+    async fn analyze_image(
+        &self,
+        _image_bytes: &[u8],
+        _model_id: &str,
+        _prompt_profile_id: &str,
+        _rubric_id: &str,
+        _rating_severity: &str,
+        _output_language: &str,
+        _credential: Option<&SecretString>,
+    ) -> Result<AnalyzeOutcome, ProviderError> {
+        Err(ProviderError::Provider(
+            "combined image analysis is not supported by this provider driver".to_string(),
+        ))
+    }
     /// Phase 6c: list the model ids the configured endpoint exposes (a dry-run
     /// discovery probe, not an image-analysis call). The credential is the
     /// resolved vault secret when `requires_credential()` is true; it is
@@ -494,6 +568,44 @@ impl ImageAnalysisProvider for MockImageAnalysisProvider {
             out.rating = 0;
         }
         Ok(out)
+    }
+
+    async fn analyze_image(
+        &self,
+        _image_bytes: &[u8],
+        _model_id: &str,
+        _prompt_profile_id: &str,
+        _rubric_id: &str,
+        _rating_severity: &str,
+        _output_language: &str,
+        _credential: Option<&SecretString>,
+    ) -> Result<AnalyzeOutcome, ProviderError> {
+        if let MockFailure::Slow(d) = self.failure {
+            tokio::time::sleep(d).await;
+        }
+        if matches!(self.failure, MockFailure::Error) {
+            return Err(ProviderError::Provider("mock provider failed".to_string()));
+        }
+        if matches!(self.failure, MockFailure::Transient) {
+            return Err(ProviderError::Transient);
+        }
+        let mut understanding = self.canned_describe();
+        let mut rating = self.canned_score();
+        if matches!(self.failure, MockFailure::InvalidOutput) {
+            understanding.caption.clear();
+            rating.rating = 0;
+        }
+        Ok(AnalyzeOutcome {
+            model_id: self.model_id.clone(),
+            usage: Usage {
+                input_tokens: 128,
+                output_tokens: 72,
+                total_tokens: 200,
+            },
+            provider_request_id: "mock-req-combined".to_string(),
+            understanding: Some(understanding),
+            rating: Some(rating),
+        })
     }
 
     /// Phase 6c: when the mock was given discovered candidates, return them;

@@ -47,8 +47,9 @@ use tracing::warn;
 
 use crate::service::credential_vault::SecretString;
 use crate::service::image_analysis::{
-    DescribeOutcome, DiscoveredModel, IMAGE_RATING_SCHEMA, IMAGE_UNDERSTANDING_SCHEMA,
-    ImageAnalysisProvider, ProviderError, ScoreOutcome, validate_rating, validate_understanding,
+    AnalyzeOutcome, DescribeOutcome, DiscoveredModel, IMAGE_ANALYSIS_BUNDLE_SCHEMA,
+    IMAGE_RATING_SCHEMA, IMAGE_UNDERSTANDING_SCHEMA, ImageAnalysisProvider, ProviderError,
+    ScoreOutcome, validate_analyze, validate_rating, validate_understanding,
 };
 use crate::service::provider_config::{ModelConfig, ProviderConfig};
 use crate::service::providers::http_util::{
@@ -62,6 +63,7 @@ use crate::service::providers::http_util::{
 /// contract unambiguously.
 const UNDERSTANDING_SCHEMA_NAME: &str = "alcedo_image_understanding";
 const RATING_SCHEMA_NAME: &str = "alcedo_image_rating";
+const ANALYSIS_BUNDLE_SCHEMA_NAME: &str = "alcedo_image_analysis_bundle";
 
 pub struct OpenAiChatCompatibleProvider {
     config: ProviderConfig,
@@ -403,6 +405,105 @@ impl OpenAiChatCompatibleProvider {
         validate_rating(&out)?;
         Ok(out)
     }
+
+    fn parse_analyze(
+        &self,
+        body: &Value,
+        model_id: &str,
+        header_req_id: &str,
+    ) -> Result<AnalyzeOutcome, ProviderError> {
+        let content_pointer = self
+            .config
+            .response
+            .content_json_pointer
+            .as_deref()
+            .unwrap_or("/choices/0/message/content");
+        let content = json_pointer_str(body, content_pointer).ok_or_else(|| {
+            ProviderError::SchemaValidationMessage(format!(
+                "provider response did not contain JSON content at pointer {content_pointer}; expected OpenAI-compatible choices[0].message.content"
+            ))
+        })?;
+        let parsed = match content {
+            Value::String(s) => parse_content_json(s)?,
+            other => other.clone(),
+        };
+        let understanding = parsed.get("understanding").ok_or_else(|| {
+            ProviderError::SchemaValidationMessage(
+                "provider response did not contain understanding object".to_string(),
+            )
+        })?;
+        let rating = parsed.get("rating").ok_or_else(|| {
+            ProviderError::SchemaValidationMessage(
+                "provider response did not contain rating object".to_string(),
+            )
+        })?;
+        let usage = extract_usage(
+            self.config
+                .response
+                .usage_json_pointer
+                .as_deref()
+                .and_then(|p| json_pointer_str(body, p)),
+        );
+        let understanding = DescribeOutcome {
+            caption: understanding
+                .get("caption")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string(),
+            tags: understanding
+                .get("tags")
+                .and_then(|v| v.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|t| t.as_str().map(|s| s.trim().to_string()))
+                        .collect()
+                })
+                .unwrap_or_default(),
+            scene: understanding
+                .get("scene")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            confidence: understanding
+                .get("confidence")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(f64::NAN),
+            model_id: model_id.to_string(),
+            usage: usage.clone(),
+            provider_request_id: header_req_id.to_string(),
+        };
+        let rating = ScoreOutcome {
+            rating: rating.get("rating").and_then(parse_rating_int).unwrap_or(0),
+            rubric_id: rating
+                .get("rubric_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            rubric_version: rating
+                .get("rubric_version")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            reasons: rating
+                .get("reasons")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            model_id: model_id.to_string(),
+            usage: usage.clone(),
+            provider_request_id: header_req_id.to_string(),
+        };
+        let out = AnalyzeOutcome {
+            understanding: Some(understanding),
+            rating: Some(rating),
+            model_id: model_id.to_string(),
+            usage,
+            provider_request_id: header_req_id.to_string(),
+        };
+        validate_analyze(&out)?;
+        Ok(out)
+    }
 }
 
 /// Alcedo-owned prompt for `image_understanding.describe`. The prompt profile id is
@@ -449,6 +550,30 @@ fn score_prompt(
     instruction.push_str(
         " Return only the JSON object described above, with an integer \"rating\" between 1 and 5.",
     );
+    (system, instruction)
+}
+
+fn analyze_prompt(
+    prompt_profile_id: &str,
+    rubric_id: &str,
+    rating_severity: &str,
+    output_language: &str,
+) -> (String, String) {
+    let mut system = "You are an image analysis assistant for Alcedo Studio. Analyze the supplied image and respond with one JSON object matching the provided schema. The top-level object must contain \"understanding\" (caption, tags, scene, confidence) and \"rating\" (rating, rubric_id, rubric_version, reasons). The rating is a 1-5 integer star rating; do not include a rating confidence.".to_string();
+    match rating_severity.trim().to_ascii_lowercase().as_str() {
+        "lite" => system.push_str(" Be generous when rating: ordinary competent photos default to 3-4 stars with mild reasons."),
+        "xhigh" | "x_high" | "high" => system.push_str(" Be exacting when rating: judge composition, exposure, focus, lighting, and intent strictly, and write reasons in a harsh critic voice."),
+        _ => system.push_str(" Use a balanced rating standard."),
+    }
+    system.push_str(&crate::service::image_analysis::language_directive(output_language));
+    let mut instruction = "Analyze and rate this image in one pass.".to_string();
+    if !rubric_id.trim().is_empty() {
+        instruction.push_str(&format!(" Rubric: {rubric_id}."));
+    }
+    if !prompt_profile_id.trim().is_empty() {
+        instruction.push_str(&format!(" Prompt profile: {prompt_profile_id}."));
+    }
+    instruction.push_str(" Return only the JSON object described above.");
     (system, instruction)
 }
 
@@ -591,6 +716,61 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
             model = %slug,
             provider_request_id = %outcome.provider_request_id,
             "ScoreImage completed"
+        );
+        Ok(outcome)
+    }
+
+    async fn analyze_image(
+        &self,
+        image_bytes: &[u8],
+        model_id: &str,
+        prompt_profile_id: &str,
+        rubric_id: &str,
+        rating_severity: &str,
+        output_language: &str,
+        credential: Option<&SecretString>,
+    ) -> Result<AnalyzeOutcome, ProviderError> {
+        let (slug, model) = self.resolve_model(model_id)?;
+        self.ensure_structured_output(model.as_ref())?;
+        let bearer = self.bearer(credential)?;
+        let data_uri = build_image_data_uri(image_bytes)?;
+        let schema = strict_schema_value(IMAGE_ANALYSIS_BUNDLE_SCHEMA)?;
+        let (system, instruction) =
+            analyze_prompt(prompt_profile_id, rubric_id, rating_severity, output_language);
+        let body = self.build_chat_body(
+            &slug,
+            model.as_ref(),
+            &data_uri,
+            schema,
+            ANALYSIS_BUNDLE_SCHEMA_NAME,
+            &system,
+            &instruction,
+        );
+        let resp = send_with_retry(
+            &self.http,
+            &self.url(),
+            &body,
+            &self.attribution_headers(),
+            bearer,
+            MAX_TRANSIENT_RETRIES,
+        )
+        .await?;
+        let (headers, resp_body) = read_response(resp).await?;
+        let header_req_id = extract_provider_request_id(
+            &headers,
+            &resp_body,
+            self.config.response.provider_request_id_header.as_deref(),
+            self.config
+                .response
+                .provider_request_id_json_pointer
+                .as_deref(),
+        );
+        let outcome = self.parse_analyze(&resp_body, &slug, &header_req_id)?;
+        warn!(
+            provider = %self.config.provider_id,
+            model = %slug,
+            provider_request_id = %outcome.provider_request_id,
+            "AnalyzeImage completed"
         );
         Ok(outcome)
     }

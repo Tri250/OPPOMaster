@@ -140,6 +140,31 @@ class FakeClient : public alcedo::IImageAnalysisClient {
     }
     return MakeRating(req, score_outcome_);
   }
+  auto AnalyzeImage(const alcedo::ImageAnalysisRequest& req, std::chrono::milliseconds)
+      -> alcedo::ImageAnalysisCombinedResult override {
+    ++analyze_calls_;
+    last_output_language_ = req.output_language;
+    last_rating_severity_ = req.rating_severity;
+    if (block_mode_.load()) {
+      std::unique_lock lk(block_mutex_);
+      block_cv_.wait(lk, [this] { return release_blocked_.load(); });
+    }
+    alcedo::ImageAnalysisCombinedResult r;
+    r.request_id          = req.request_id;
+    r.ok                  = describe_outcome_ == Outcome::kSuccess && score_outcome_ == Outcome::kSuccess;
+    r.status              = r.ok ? kStatusOk : kStatusProviderError;
+    r.provider            = "fake";
+    r.model_id            = req.model_id.empty() ? std::string("fake-model") : req.model_id;
+    r.rendition           = req.rendition;
+    r.has_understanding   = true;
+    r.has_rating          = true;
+    r.understanding       = MakeUnderstanding(req, describe_outcome_);
+    r.rating              = MakeRating(req, score_outcome_);
+    if (!r.ok) {
+      r.error = !r.understanding.error.empty() ? r.understanding.error : r.rating.error;
+    }
+    return r;
+  }
   auto CancelTask(const std::string&, std::chrono::milliseconds, bool* cancelled, std::string*)
       -> bool override {
     ++cancel_calls_;
@@ -160,6 +185,7 @@ class FakeClient : public alcedo::IImageAnalysisClient {
 
   auto DescribeCalls() const -> int { return describe_calls_.load(); }
   auto ScoreCalls() const -> int { return score_calls_.load(); }
+  auto AnalyzeCalls() const -> int { return analyze_calls_.load(); }
   auto CancelCalls() const -> int { return cancel_calls_.load(); }
   auto RegisterCalls() const -> int { return register_calls_.load(); }
   auto ListModelsCalls() const -> int { return list_models_calls_.load(); }
@@ -245,6 +271,7 @@ class FakeClient : public alcedo::IImageAnalysisClient {
 
   std::atomic<int>        describe_calls_{0};
   std::atomic<int>        score_calls_{0};
+  std::atomic<int>        analyze_calls_{0};
   std::atomic<int>        cancel_calls_{0};
   std::atomic<int>        register_calls_{0};
   std::atomic<int>        list_models_calls_{0};
@@ -709,6 +736,30 @@ TEST_F(ImageAnalysisControllerTest, ScoreTaskReturnsRating) {
   const int rating = r.value("rating").toInt();
   EXPECT_GE(rating, 1);
   EXPECT_LE(rating, 5);
+}
+
+TEST_F(ImageAnalysisControllerTest, AnalyzeTaskUsesSingleCallAndPersistsBothOutputs) {
+  auto controller = MakeController();
+  controller->StartAnalyzeForTargets(Targets({{1, 100}}));
+  ASSERT_TRUE(WaitForFinished(*controller, std::chrono::seconds(10)));
+
+  EXPECT_EQ(controller->Analyzed(), 1);
+  EXPECT_EQ(last_bundle_->client->AnalyzeCalls(), 1);
+  EXPECT_EQ(last_bundle_->client->DescribeCalls(), 0);
+  EXPECT_EQ(last_bundle_->client->ScoreCalls(), 0);
+  ASSERT_EQ(controller->LastResults().size(), 1);
+  const auto r = controller->LastResults().front().toMap();
+  EXPECT_EQ(r.value("status").toString(), QStringLiteral("analyzed"));
+  EXPECT_EQ(r.value("caption").toString(), QStringLiteral("a caption"));
+  EXPECT_EQ(r.value("rating").toInt(), 4);
+  EXPECT_EQ(r.value("reasons").toString(), QStringLiteral("strong composition"));
+
+  auto& sink = *last_bundle_->sink;
+  EXPECT_EQ(sink.PersistUnderstandingCalls(), 1);
+  EXPECT_EQ(sink.PersistReasonsCalls(), 1);
+  EXPECT_EQ(sink.ApplyStarCalls(), 1);
+  EXPECT_EQ(sink.NotifyCalls(), 1);
+  EXPECT_EQ(sink.FlushCalls(), 1);
 }
 
 TEST_F(ImageAnalysisControllerTest, SharedGateSerializesTwoConcurrentRuns) {

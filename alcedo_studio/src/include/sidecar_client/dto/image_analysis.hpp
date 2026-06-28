@@ -43,6 +43,8 @@ struct ImageAnalysisRequest {
   // Selects the rating system prompt in the driver; does not change the JSON
   // contract. Ignored by DescribeImage.
   std::string            rating_severity;
+  bool                   include_understanding = true;
+  bool                   include_rating        = false;
 };
 
 struct ImageAnalysisUnderstandingResult {
@@ -81,6 +83,25 @@ struct ImageAnalysisRatingResult {
   ImageAnalysisRendition rendition;
   ImageAnalysisUsage     usage;
   uint64_t               elapsed_ms = 0;
+};
+
+struct ImageAnalysisCombinedResult {
+  std::string                    request_id;
+  bool                           ok         = false;
+  int                            status     = 0;
+  int                            error_code = 0;
+  std::string                    error;
+  std::string                    provider;
+  std::string                    model_id;
+  std::string                    provider_request_id;
+  std::string                    prompt_profile_id;
+  ImageAnalysisRendition         rendition;
+  ImageAnalysisUsage             usage;
+  uint64_t                       elapsed_ms = 0;
+  bool                           has_understanding = false;
+  bool                           has_rating        = false;
+  ImageAnalysisUnderstandingResult understanding;
+  ImageAnalysisRatingResult        rating;
 };
 
 struct AiDiscoveredModel {

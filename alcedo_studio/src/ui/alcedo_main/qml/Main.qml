@@ -1619,6 +1619,11 @@ ApplicationWindow {
                         InspectorPanel {
                             anchors.fill: parent
                             anchors.margins: 10
+                            // Frontend 3 focus proxy: the Image inspector page
+                            // shows the last right-clicked photo as its focused
+                            // placeholder. Frontend 4 will replace this with
+                            // true thumbnail-focus tracking.
+                            focusedImage: root.pendingDetailsTarget
                         }
                     }
 

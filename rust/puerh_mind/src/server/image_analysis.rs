@@ -21,16 +21,17 @@ use tonic::{Request, Response, Status};
 use tracing::info;
 
 use crate::proto::alcedo::ai::{
-    AiErrorCode, AiRequestHeader, AiResponseHeader, AiResponseStatus, DescribeImageRequest,
-    DescribeImageResponse, DiscoveredModel as DiscoveredModelProto, ImageRatingResult,
-    ImageUnderstandingResult, ListModelsRequest, ListModelsResponse, ScoreImageRequest,
-    ScoreImageResponse, UsageMetadata, image_analysis_service_server::ImageAnalysisService,
+    AiErrorCode, AiRequestHeader, AiResponseHeader, AiResponseStatus, AnalyzeImageRequest,
+    AnalyzeImageResponse, DescribeImageRequest, DescribeImageResponse,
+    DiscoveredModel as DiscoveredModelProto, ImageRatingResult, ImageUnderstandingResult,
+    ListModelsRequest, ListModelsResponse, ScoreImageRequest, ScoreImageResponse, UsageMetadata,
+    image_analysis_service_server::ImageAnalysisService,
 };
 use crate::service::cancellation_registry::CancellationRegistry;
 use crate::service::credential_vault::{CredentialError, CredentialVault, SecretString};
 use crate::service::image_analysis::{
-    DescribeOutcome, ImageAnalysisProvider, ProviderError, ScoreOutcome, validate_rating,
-    validate_understanding,
+    AnalyzeOutcome, DescribeOutcome, ImageAnalysisProvider, ProviderError, ScoreOutcome,
+    validate_analyze, validate_rating, validate_understanding,
 };
 
 /// Timeout used when the request header leaves `timeout_ms` at 0 (server default).
@@ -242,6 +243,11 @@ impl HasUsage for DescribeOutcome {
     }
 }
 impl HasUsage for ScoreOutcome {
+    fn usage(&self) -> &crate::service::image_analysis::Usage {
+        &self.usage
+    }
+}
+impl HasUsage for AnalyzeOutcome {
     fn usage(&self) -> &crate::service::image_analysis::Usage {
         &self.usage
     }
@@ -587,6 +593,188 @@ impl ImageAnalysisService for ImageAnalysisServiceImpl {
         Ok(Response::new(response))
     }
 
+    async fn analyze_image(
+        &self,
+        request: Request<AnalyzeImageRequest>,
+    ) -> Result<Response<AnalyzeImageResponse>, Status> {
+        info!("received AnalyzeImage request");
+        let start = std::time::Instant::now();
+        let req = request.into_inner();
+        let header = req.header.unwrap_or_default();
+
+        if req.image_bytes.is_empty() {
+            return Err(Status::invalid_argument("image_bytes must not be empty"));
+        }
+        if !req.include_understanding && !req.include_rating {
+            return Err(Status::invalid_argument(
+                "at least one analysis output must be requested",
+            ));
+        }
+
+        let provider = match self.lookup_provider(&req.provider_id) {
+            Some(p) => p,
+            None => {
+                return Ok(Response::new(AnalyzeImageResponse {
+                    header: self.failure_header(
+                        &header,
+                        AiResponseStatus::AiStatusUnsupportedTask,
+                        AiErrorCode::AiErrorTaskUnknown,
+                        "no provider registered for the requested provider_id",
+                        &req.provider_id,
+                        &req.model_id,
+                        start.elapsed().as_millis() as u64,
+                    ),
+                    understanding: None,
+                    rating: None,
+                    rendition: req.rendition.clone(),
+                    usage: None,
+                    provider_request_id: String::new(),
+                    prompt_profile_id: req.prompt_profile_id.clone(),
+                }));
+            }
+        };
+
+        let credential = match self.resolve_credential_secret(&header, provider.as_ref()) {
+            Ok(c) => c,
+            Err((status, code, msg)) => {
+                return Ok(Response::new(AnalyzeImageResponse {
+                    header: self.failure_header(
+                        &header,
+                        status,
+                        code,
+                        &msg,
+                        provider.provider_id(),
+                        &req.model_id,
+                        start.elapsed().as_millis() as u64,
+                    ),
+                    understanding: None,
+                    rating: None,
+                    rendition: req.rendition.clone(),
+                    usage: None,
+                    provider_request_id: String::new(),
+                    prompt_profile_id: req.prompt_profile_id.clone(),
+                }));
+            }
+        };
+
+        let cancel_rx = self.cancel_registry.register(&header.request_id);
+        let provider_fut = provider.analyze_image(
+            &req.image_bytes,
+            &req.model_id,
+            &req.prompt_profile_id,
+            &req.rubric_id,
+            &req.rating_severity,
+            &req.output_language,
+            credential.as_ref(),
+        );
+        tokio::pin!(provider_fut);
+        let timeout_dur = Self::timeout_duration(&header);
+
+        let outcome: Result<Result<AnalyzeOutcome, ProviderError>, _> = tokio::select! {
+            biased;
+            _ = cancel_rx => {
+                self.cancel_registry.complete(&header.request_id);
+                return Ok(Response::new(AnalyzeImageResponse {
+                    header: self.failure_header(
+                        &header,
+                        AiResponseStatus::AiStatusCancelled,
+                        AiErrorCode::AiErrorCancelledByClient,
+                        "task cancelled by client",
+                        provider.provider_id(),
+                        &req.model_id,
+                        start.elapsed().as_millis() as u64,
+                    ),
+                    understanding: None,
+                    rating: None,
+                    rendition: req.rendition.clone(),
+                    usage: None,
+                    provider_request_id: String::new(),
+                    prompt_profile_id: req.prompt_profile_id.clone(),
+                }));
+            }
+            result = tokio::time::timeout(timeout_dur, provider_fut) => result,
+        };
+        self.cancel_registry.complete(&header.request_id);
+        let elapsed = start.elapsed().as_millis() as u64;
+
+        let response = match outcome {
+            Ok(Ok(out)) => match validate_analyze(&out) {
+                Ok(()) => AnalyzeImageResponse {
+                    header: self.success_header(
+                        &header,
+                        provider.provider_id(),
+                        &out.model_id,
+                        elapsed,
+                    ),
+                    understanding: out.understanding.as_ref().map(to_proto_understanding),
+                    rating: out.rating.as_ref().map(to_proto_rating),
+                    rendition: req.rendition.clone(),
+                    usage: to_proto_usage(&out),
+                    provider_request_id: out.provider_request_id.clone(),
+                    prompt_profile_id: req.prompt_profile_id.clone(),
+                },
+                Err(err) => {
+                    let (status, code, msg) = Self::provider_error_to_header(&err);
+                    AnalyzeImageResponse {
+                        header: self.failure_header(
+                            &header,
+                            status,
+                            code,
+                            &msg,
+                            provider.provider_id(),
+                            &out.model_id,
+                            elapsed,
+                        ),
+                        understanding: None,
+                        rating: None,
+                        rendition: req.rendition.clone(),
+                        usage: None,
+                        provider_request_id: String::new(),
+                        prompt_profile_id: req.prompt_profile_id.clone(),
+                    }
+                }
+            },
+            Ok(Err(err)) => {
+                let (status, code, msg) = Self::provider_error_to_header(&err);
+                AnalyzeImageResponse {
+                    header: self.failure_header(
+                        &header,
+                        status,
+                        code,
+                        &msg,
+                        provider.provider_id(),
+                        &req.model_id,
+                        elapsed,
+                    ),
+                    understanding: None,
+                    rating: None,
+                    rendition: req.rendition.clone(),
+                    usage: None,
+                    provider_request_id: String::new(),
+                    prompt_profile_id: req.prompt_profile_id.clone(),
+                }
+            }
+            Err(_elapsed) => AnalyzeImageResponse {
+                header: self.failure_header(
+                    &header,
+                    AiResponseStatus::AiStatusDeadlineExceeded,
+                    AiErrorCode::AiErrorProviderTimeout,
+                    "provider call did not complete within the timeout",
+                    provider.provider_id(),
+                    &req.model_id,
+                    elapsed,
+                ),
+                understanding: None,
+                rating: None,
+                rendition: req.rendition.clone(),
+                usage: None,
+                provider_request_id: String::new(),
+                prompt_profile_id: req.prompt_profile_id.clone(),
+            },
+        };
+        Ok(Response::new(response))
+    }
+
     /// Phase 6c: dry-run model discovery. Resolves the credential (when the
     /// provider requires one), calls the provider's `list_models`, and returns
     /// unverified candidate DTOs. No annotations are persisted. A provider that
@@ -803,6 +991,41 @@ mod tests {
         // type: rating carries a single integer star rating, not caption/tags.
         assert_eq!(result.rating, 4);
         assert_eq!(inner.header.as_ref().unwrap().model_id, "alcedo-mock");
+    }
+
+    #[tokio::test]
+    async fn analyze_image_returns_understanding_and_rating_in_one_response() {
+        let svc = svc(MockImageAnalysisProvider::new("mock", "alcedo-mock"));
+        let req = Request::new(AnalyzeImageRequest {
+            header: Some(AiRequestHeader {
+                request_id: "req-analyze".into(),
+                task_id: "image_analysis.analyze".into(),
+                ..header("req-analyze", 5000, "")
+            }),
+            image_bytes: image_bytes(),
+            image_format_hint: "rgba8:2x2".to_string(),
+            rendition: rendition(),
+            provider_id: "mock".to_string(),
+            model_id: "alcedo-mock".to_string(),
+            prompt_profile_id: "profile-1".to_string(),
+            include_understanding: true,
+            include_rating: true,
+            rubric_id: "alcedo-default-v1".to_string(),
+            output_language: String::new(),
+            rating_severity: String::new(),
+        });
+        let resp = svc.analyze_image(req).await.expect("rpc ok");
+        let inner = resp.into_inner();
+        assert_eq!(
+            inner.header.as_ref().unwrap().status,
+            AiResponseStatus::AiStatusOk as i32
+        );
+        assert_eq!(inner.header.as_ref().unwrap().task_id, "image_analysis.analyze");
+        assert!(inner.understanding.is_some());
+        assert!(inner.rating.is_some());
+        assert_eq!(inner.rating.as_ref().unwrap().rating, 4);
+        assert_eq!(inner.provider_request_id, "mock-req-combined");
+        assert!(inner.usage.as_ref().unwrap().total_tokens > 0);
     }
 
     #[tokio::test]

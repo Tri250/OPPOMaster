@@ -112,6 +112,7 @@ class ImageAnalysisController final : public QObject {
   // never silently fall back to "whole view".
   Q_INVOKABLE void StartDescribeForTargets(const QVariantList& targetEntries);
   Q_INVOKABLE void StartScoreForTargets(const QVariantList& targetEntries);
+  Q_INVOKABLE void StartAnalyzeForTargets(const QVariantList& targetEntries);
   Q_INVOKABLE void CancelAnalysis();
   Q_INVOKABLE void RetryLast();
   // Dry-run model discovery against the selected profile (reuses the Phase 6c

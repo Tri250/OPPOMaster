@@ -946,6 +946,11 @@ Structured-output rule:
   "json_schema", ... }` when the endpoint supports it.
 - For Anthropic-compatible Messages, request Alcedo's schema through tool use (`tools` +
   `tool_choice`) and extract the tool input.
+- When a host analysis run asks for multiple outputs for the same image (for example description,
+  rating, and rating reason), the provider request is still a single per-image request. The selected
+  outputs adjust the JSON Schema / Anthropic tool `input_schema` and prompt instructions; they must
+  not fan out into separate `describe`, `score`, and `reason` provider round-trips for the same image.
+  Persistence can still split the combined result into distinct understanding and rating rows.
 - If an endpoint cannot enforce structured output through one of the supported protocol mechanisms,
   fail closed and do not expose it as a product preset. Do not add a "prompt it to return JSON" path
   as a fallback; that would hide provider incompatibility and make persistence ambiguous.
@@ -1064,7 +1069,8 @@ Deliverables:
 - Add album actions for:
   - generate/refresh captions and tags (`image_understanding.describe`);
   - generate/refresh rating (`image_rating.score`);
-  - optional combined run that still writes two separate task results.
+  - combined multi-output analysis that sends one provider request per image and still writes
+    separate understanding/rating task results.
 - Construct `ImageAnalysisService` with one shared `ImageAnalysisInFlightGate` owned by the album
   backend so jobs serialize across the whole album flow, not per service instance.
 - Start the sidecar on demand with `require_model_info=false` when only remote image analysis is
@@ -1498,7 +1504,9 @@ provider, modelId, rubricId, rubricVersion}`. No QML wiring in 7a.
 - No `SaveProject`/`Package` in 7a: the `.alcd` packaged snapshot is stale until the
   next normal save/close — same as any DB change between manual saves; the live DB
   is authoritative.
-- Combined describe+rating run: still deferred (6d).
+- Combined describe+rating was not part of this historical 7a persistence slice.
+  Future multi-output analysis follows the 2026-06-28 correction: one provider
+  request per image, with separate persisted task results.
 - QML UI: still deferred; `GetImageRatingReasons` read API lands ready for later.
 
 Review conclusion (handoff, 2026-06-27): bugs found — none; risk accepted —
@@ -1723,8 +1731,9 @@ provider credentials are available.
   compatibility driver is needed for any target deployment.
 - Exact rating rubric: whether score means aesthetic quality, technical quality, keeper priority, or
   a weighted combination.
-- Whether the first UI exposes rating separately or runs a combined understanding+rating job that
-  stores separate task results.
+- Exact first-UI control grouping for description/rating/rating-reason toggles. The backend/provider
+  request remains combined per image whenever multiple outputs are selected, while persistence stores
+  separate task results.
 - Exact user-provider config directory and whether C++ passes it to Rust or Rust resolves it from an
   app-specific config path.
 - When to rename C++ classes and the sidecar executable from semantic-oriented names to AI-sidecar
@@ -3752,10 +3761,12 @@ calls serialize through one shared `ImageAnalysisInFlightGate` owned by
 `AlbumBackend`; the Phase 5d encoded-rendition path is reused with a new
 `max_image_bytes` cap sourced from the preset. **No QML UI this phase** (the
 controller is QML-callable; menu actions / progress dialog deferred). **No
-combined describe+rating run** (deferred). **No database writes** (persistence +
-search refresh now moves to Phase 7a, after the sidecar-client refactor), so a
-cancelled or failed run leaves no active annotation trivially — failed/canceled
-items are never counted as `analyzed`.
+combined describe+rating run was implemented in this historical 6d slice**; the
+2026-06-28 protocol correction above supersedes that as a future direction:
+multi-output analysis must be one provider request per image. **No database
+writes** (persistence + search refresh now moves to Phase 7a, after the
+sidecar-client refactor), so a cancelled or failed run leaves no active
+annotation trivially — failed/canceled items are never counted as `analyzed`.
 
 Implemented (file-by-file, per the plan):
 
@@ -3912,7 +3923,9 @@ Next phase / renumbering note:
   land after the sidecar client boundary is clean.
 - QML UI (menu actions + progress dialog) remains deferred. The controller is
   QML-callable, but has no menu/dialog yet.
-- Combined describe+rating run remains deferred.
+- Combined describe+rating was not implemented in this historical 6d slice. The
+  2026-06-28 protocol correction above makes multi-output analysis a required
+  single-request-per-image shape for future UI/provider work.
 - Live Opencode smoke and capability pinning move to Phase 7b. `live_confirmed`
   stays false on the Opencode models; the controller's `ValidateConnection`
   dry-run is the closest 6d gets to live provider contact.
@@ -3933,7 +3946,9 @@ lib split were caught at compile/link time before any test ran); risk accepted �
 (2) no persistence (Phase 7a); the "no upsert on failure" guarantee is
 controller-level only ("nothing persisted" + failed/canceled never `analyzed`),
 with the storage-layer `IsValid()` backstop landing after the sidecar-client
-cutover, (3) combined describe+rating run deferred, (4) `ValidateConnection`
+cutover, (3) combined describe+rating not implemented in this historical 6d
+slice but superseded by the 2026-06-28 single-request-per-image correction,
+(4) `ValidateConnection`
 spawns a detached `std::thread` per call (acceptable for a dry-run; not
 exercised by UI this phase), (5) `max_image_bytes`
 rejects oversized items as `kPrepFailed` (error, not retried) — matches the

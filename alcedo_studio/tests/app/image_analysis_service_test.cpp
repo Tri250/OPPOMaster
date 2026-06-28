@@ -252,6 +252,36 @@ class FakeImageAnalysisClient : public IImageAnalysisClient {
     return MakeRating(request, score_outcome_);
   }
 
+  auto AnalyzeImage(const ImageAnalysisRequest& request, std::chrono::milliseconds /*timeout*/)
+      -> ImageAnalysisCombinedResult override {
+    ++analyze_calls_;
+    {
+      std::unique_lock lk(record_mutex_);
+      last_analyze_request_ = request;
+    }
+    if (block_mode_.load()) {
+      std::unique_lock lk(block_mutex_);
+      block_cv_.wait(lk, [this] { return release_blocked_.load(); });
+    }
+    ImageAnalysisCombinedResult result;
+    result.request_id          = request.request_id;
+    result.ok                  = describe_outcome_ == Outcome::kSuccess &&
+                 (score_outcome_ == Outcome::kSuccess || score_outcome_ == Outcome::kInvalidRating);
+    result.status              = result.ok ? kStatusOk : kStatusProviderError;
+    result.provider            = "fake";
+    result.model_id            = request.model_id.empty() ? "fake-model" : request.model_id;
+    result.rendition           = request.rendition;
+    result.has_understanding   = true;
+    result.has_rating          = true;
+    result.understanding       = MakeUnderstanding(request, describe_outcome_);
+    result.rating              = MakeRating(request, score_outcome_);
+    if (!result.ok) {
+      result.error = !result.understanding.error.empty() ? result.understanding.error
+                                                         : result.rating.error;
+    }
+    return result;
+  }
+
   auto CancelTask(const std::string& request_id, std::chrono::milliseconds /*timeout*/,
                   bool* cancelled, std::string* /*error*/) -> bool override {
     ++cancel_calls_;
@@ -303,6 +333,7 @@ class FakeImageAnalysisClient : public IImageAnalysisClient {
 
   auto DescribeCalls() const -> int { return describe_calls_.load(); }
   auto ScoreCalls() const -> int { return score_calls_.load(); }
+  auto AnalyzeCalls() const -> int { return analyze_calls_.load(); }
   auto CancelCalls() const -> int { return cancel_calls_.load(); }
   auto RegisterCalls() const -> int { return register_calls_.load(); }
   auto RevokeCalls() const -> int { return revoke_calls_.load(); }
@@ -317,6 +348,10 @@ class FakeImageAnalysisClient : public IImageAnalysisClient {
   auto LastDescribeRequest() const -> ImageAnalysisRequest {
     std::unique_lock lk(record_mutex_);
     return last_describe_request_;
+  }
+  auto LastAnalyzeRequest() const -> ImageAnalysisRequest {
+    std::unique_lock lk(record_mutex_);
+    return last_analyze_request_;
   }
   auto LastCancelledId() const -> std::string {
     std::unique_lock lk(record_mutex_);
@@ -395,6 +430,7 @@ class FakeImageAnalysisClient : public IImageAnalysisClient {
 
   std::atomic<int> describe_calls_{0};
   std::atomic<int> score_calls_{0};
+  std::atomic<int> analyze_calls_{0};
   std::atomic<int> cancel_calls_{0};
   std::atomic<int> register_calls_{0};
   std::atomic<int> list_models_calls_{0};
@@ -416,6 +452,7 @@ class FakeImageAnalysisClient : public IImageAnalysisClient {
   std::string        registered_secret_;
   ImageAnalysisRequest last_describe_request_;
   ImageAnalysisRequest last_score_request_;
+  ImageAnalysisRequest last_analyze_request_;
   std::string        last_cancelled_id_;
   std::string        last_list_models_provider_;
   std::string        last_list_models_credential_ref_;
@@ -520,6 +557,34 @@ TEST(ImageAnalysisServiceTest, DescribeSuccessReturnsAnalyzedResult) {
   EXPECT_EQ(results[0].rendition.kind, "thumbnail");
   EXPECT_EQ(results[0].understanding.rendition.max_edge, 16u);
   std::filesystem::remove_all(ScratchDir("success"));
+}
+
+TEST(ImageAnalysisServiceTest, AnalyzeSuccessUsesSingleCombinedProviderCall) {
+  auto provider = std::make_shared<FakeThumbnailProvider>();
+  auto client   = std::make_shared<FakeImageAnalysisClient>();
+  auto gate     = std::make_shared<ImageAnalysisInFlightGate>();
+
+  ImageAnalysisService service(provider, client, gate);
+  auto                 opts = BaseDescribeOpts("analyze-combined");
+  opts.task                = ImageAnalysisTask::kAnalyze;
+  opts.rubric_id           = "general";
+  auto job = service.StartAnalysis({ImageAnalysisItem{1, 100}}, opts, {}, {});
+  job->Wait();
+
+  auto results = job->Results();
+  ASSERT_EQ(results.size(), 1u);
+  EXPECT_EQ(results[0].status, ImageAnalysisItemStatus::kAnalyzed);
+  EXPECT_TRUE(results[0].understanding.ok);
+  EXPECT_TRUE(results[0].rating.ok);
+  EXPECT_EQ(results[0].understanding.caption, "a caption");
+  EXPECT_EQ(results[0].rating.rating, 4);
+  EXPECT_EQ(client->AnalyzeCalls(), 1);
+  EXPECT_EQ(client->DescribeCalls(), 0);
+  EXPECT_EQ(client->ScoreCalls(), 0);
+  const auto request = client->LastAnalyzeRequest();
+  EXPECT_TRUE(request.include_understanding);
+  EXPECT_TRUE(request.include_rating);
+  std::filesystem::remove_all(ScratchDir("analyze-combined"));
 }
 
 TEST(ImageAnalysisServiceTest, ScoreSuccessRequiresOneToFiveRating) {

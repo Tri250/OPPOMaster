@@ -196,6 +196,10 @@ void ImageAnalysisController::StartScoreForTargets(const QVariantList& targetEnt
   StartForTargets(targetEntries, alcedo::ImageAnalysisTask::kScore);
 }
 
+void ImageAnalysisController::StartAnalyzeForTargets(const QVariantList& targetEntries) {
+  StartForTargets(targetEntries, alcedo::ImageAnalysisTask::kAnalyze);
+}
+
 void ImageAnalysisController::StartForTargets(const QVariantList&       targetEntries,
                                               alcedo::ImageAnalysisTask task) {
   if (running_) {
@@ -289,7 +293,7 @@ void ImageAnalysisController::StartForTargets(const QVariantList&       targetEn
   options.temp_dir               = std::filesystem::temp_directory_path();
   options.prefetch               = 1;
   options.max_image_bytes        = profile.max_image_bytes;
-  if (task == alcedo::ImageAnalysisTask::kScore) {
+  if (task == alcedo::ImageAnalysisTask::kScore || task == alcedo::ImageAnalysisTask::kAnalyze) {
     options.rubric_id = "general";
   }
   ResetCounters();
@@ -299,6 +303,8 @@ void ImageAnalysisController::StartForTargets(const QVariantList&       targetEn
   last_items_  = items;
   status_text_ = task == alcedo::ImageAnalysisTask::kDescribe
                      ? PL_TEXT("Analyzing %1 image(s) for captions and tags...", total_)
+                 : task == alcedo::ImageAnalysisTask::kAnalyze
+                     ? PL_TEXT("Analyzing and scoring %1 image(s)...", total_)
                      : PL_TEXT("Scoring %1 image(s)...", total_);
   emit                              StateChanged();
 
@@ -480,6 +486,8 @@ void ImageAnalysisController::UpdateProgress(const alcedo::ImageAnalysisProgress
   const int pct       = total_ > 0 ? (completed * 100) / total_ : 0;
   status_text_        = (last_task_ == alcedo::ImageAnalysisTask::kDescribe)
                             ? PL_TEXT("Analyzing captions/tags: %1/%2 (%3%)", completed, total_, pct)
+                        : (last_task_ == alcedo::ImageAnalysisTask::kAnalyze)
+                            ? PL_TEXT("Analyzing/scoring: %1/%2 (%3%)", completed, total_, pct)
                             : PL_TEXT("Scoring: %1/%2 (%3%)", completed, total_, pct);
   emit StateChanged();
 }
@@ -498,6 +506,7 @@ void ImageAnalysisController::Finish(std::vector<alcedo::ImageAnalysisItemResult
   int          items_with_usage    = 0;
   int          items_without_usage = 0;
   const bool   describe            = (last_task_ == alcedo::ImageAnalysisTask::kDescribe);
+  const bool   analyze             = (last_task_ == alcedo::ImageAnalysisTask::kAnalyze);
 
   for (const auto& r : results) {
     QVariantMap m;
@@ -505,24 +514,29 @@ void ImageAnalysisController::Finish(std::vector<alcedo::ImageAnalysisItemResult
     m.insert("imageId", static_cast<uint>(r.item.image_id));
     m.insert("status", QString::fromUtf8(alcedo::ToString(r.status)));
     m.insert("error", QString::fromStdString(r.error));
-    m.insert("provider",
-             QString::fromStdString(describe ? r.understanding.provider : r.rating.provider));
-    m.insert("modelId",
-             QString::fromStdString(describe ? r.understanding.model_id : r.rating.model_id));
-    m.insert("providerStatus", describe ? r.understanding.status : r.rating.status);
-    m.insert("providerErrorCode", describe ? r.understanding.error_code : r.rating.error_code);
+    const std::string& provider =
+        (describe || analyze) ? r.understanding.provider : r.rating.provider;
+    const std::string& model_id =
+        (describe || analyze) ? r.understanding.model_id : r.rating.model_id;
+    const int provider_status =
+        (describe || analyze) ? r.understanding.status : r.rating.status;
+    const int provider_error_code =
+        (describe || analyze) ? r.understanding.error_code : r.rating.error_code;
+    const std::string& prompt_profile_id =
+        (describe || analyze) ? r.understanding.prompt_profile_id : r.rating.prompt_profile_id;
+    const std::string& provider_request_id =
+        (describe || analyze) ? r.understanding.provider_request_id : r.rating.provider_request_id;
+    const auto& usage = (describe || analyze) ? r.understanding.usage : r.rating.usage;
+    m.insert("provider", QString::fromStdString(provider));
+    m.insert("modelId", QString::fromStdString(model_id));
+    m.insert("providerStatus", provider_status);
+    m.insert("providerErrorCode", provider_error_code);
     // Identity on every job result so a prompt/model change does not reinterpret old
     // annotations: prompt-profile id + the provider's own request id (provider/modelId
     // already present above).
-    m.insert("promptProfileId", QString::fromStdString(describe ? r.understanding.prompt_profile_id
-                                                                : r.rating.prompt_profile_id));
-    m.insert("providerRequestId",
-             QString::fromStdString(describe ? r.understanding.provider_request_id
-                                             : r.rating.provider_request_id));
+    m.insert("promptProfileId", QString::fromStdString(prompt_profile_id));
+    m.insert("providerRequestId", QString::fromStdString(provider_request_id));
 
-    const auto& usage = describe ? r.understanding.usage : r.rating.usage;
-    const auto& provider_request_id =
-        describe ? r.understanding.provider_request_id : r.rating.provider_request_id;
     const bool item_has_usage = (usage.total_tokens != 0 || !provider_request_id.empty());
     if (item_has_usage) {
       ++items_with_usage;
@@ -537,7 +551,7 @@ void ImageAnalysisController::Finish(std::vector<alcedo::ImageAnalysisItemResult
     }
 
     if (r.status == alcedo::ImageAnalysisItemStatus::kAnalyzed) {
-      if (describe) {
+      if (describe || analyze) {
         m.insert("caption", QString::fromStdString(r.understanding.caption));
         QVariantList tags;
         for (const auto& t : r.understanding.tags) {
@@ -545,13 +559,13 @@ void ImageAnalysisController::Finish(std::vector<alcedo::ImageAnalysisItemResult
         }
         m.insert("tags", tags);
         m.insert("scene", QString::fromStdString(r.understanding.scene));
-        analyzed_++;
-      } else {
+      }
+      if (!describe) {
         m.insert("rating", r.rating.rating);
         m.insert("rubricId", QString::fromStdString(r.rating.rubric_id));
         m.insert("reasons", QString::fromStdString(r.rating.reasons));
-        analyzed_++;
       }
+      analyzed_++;
     } else if (r.status == alcedo::ImageAnalysisItemStatus::kCanceled) {
       canceled_++;
     } else {
@@ -578,6 +592,8 @@ void ImageAnalysisController::Finish(std::vector<alcedo::ImageAnalysisItemResult
     last_error_.clear();
     status_text_ = (last_task_ == alcedo::ImageAnalysisTask::kDescribe)
                        ? PL_TEXT("Analyzed %1 image(s).", analyzed_)
+                   : (last_task_ == alcedo::ImageAnalysisTask::kAnalyze)
+                       ? PL_TEXT("Analyzed and scored %1 image(s).", analyzed_)
                        : PL_TEXT("Scored %1 image(s).", analyzed_);
   } else if (any_failure) {
     status_text_ = PL_TEXT("Done: %1 ok, %2 failed, %3 canceled.", analyzed_, failed_, canceled_);
@@ -595,17 +611,19 @@ void ImageAnalysisController::Finish(std::vector<alcedo::ImageAnalysisItemResult
       if (r.status != alcedo::ImageAnalysisItemStatus::kAnalyzed) {
         continue;
       }
-      if (describe) {
+      if (describe || analyze) {
         sink_->PersistUnderstanding(r);
-      } else {
+      }
+      if (!describe) {
         sink_->PersistRatingReasons(r);
         sink_->ApplyStarRating(static_cast<uint32_t>(r.item.element_id),
                                static_cast<uint32_t>(r.item.image_id), r.rating.rating);
       }
     }
-    if (describe) {
+    if (describe || analyze) {
       sink_->NotifySearchDocumentChanged();
-    } else {
+    }
+    if (!describe) {
       sink_->FlushPendingStarRatings();
     }
   }

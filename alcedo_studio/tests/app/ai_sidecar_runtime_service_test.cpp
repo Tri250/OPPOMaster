@@ -340,6 +340,42 @@ class FakeImageAnalysisClient final : public sidecar_client::ImageAnalysisClient
     return result;
   }
 
+  auto AnalyzeImage(const ImageAnalysisRequest& request, std::chrono::milliseconds timeout)
+      -> ImageAnalysisCombinedResult override {
+    (void)timeout;
+    state_->describe_image_calls.fetch_add(1);
+    state_->score_image_calls.fetch_add(1);
+    ImageAnalysisCombinedResult result;
+    result.request_id          = request.request_id;
+    result.ok                  = true;
+    result.status              = 1;
+    result.provider            = "fake";
+    result.model_id            = request.model_id.empty() ? "fake-model" : request.model_id;
+    result.rendition           = request.rendition;
+    result.has_understanding   = true;
+    result.has_rating          = true;
+    result.understanding.request_id = request.request_id;
+    result.understanding.ok         = true;
+    result.understanding.status     = 1;
+    result.understanding.caption    = "fake caption";
+    result.understanding.tags       = {"fake", "tag"};
+    result.understanding.scene      = "fake scene";
+    result.understanding.confidence = 0.9;
+    result.understanding.provider   = "fake";
+    result.understanding.model_id   = result.model_id;
+    result.understanding.rendition  = request.rendition;
+    result.rating.request_id        = request.request_id;
+    result.rating.ok                = true;
+    result.rating.status            = 1;
+    result.rating.rating            = 4;
+    result.rating.rubric_id         = "alcedo-default-v1";
+    result.rating.rubric_version    = "1";
+    result.rating.provider          = "fake";
+    result.rating.model_id          = result.model_id;
+    result.rating.rendition         = request.rendition;
+    return result;
+  }
+
   auto ListModels(const std::string& provider_id, const std::string& credential_ref,
                   std::chrono::milliseconds timeout) -> ImageAnalysisListModelsResult override {
     (void)provider_id;

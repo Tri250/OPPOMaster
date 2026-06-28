@@ -62,8 +62,13 @@ auto ProviderFailureMessage(int status, int error_code, const std::string& provi
   return message;
 }
 auto MakeRequestId(const ImageAnalysisItem& item, ImageAnalysisTask task) -> std::string {
-  return std::string("image-analysis-") +
-         (task == ImageAnalysisTask::kScore ? "score-" : "describe-") +
+  const char* task_name = "describe-";
+  if (task == ImageAnalysisTask::kScore) {
+    task_name = "score-";
+  } else if (task == ImageAnalysisTask::kAnalyze) {
+    task_name = "analyze-";
+  }
+  return std::string("image-analysis-") + task_name +
          std::to_string(item.element_id) + "-" + std::to_string(item.image_id);
 }
 
@@ -387,6 +392,27 @@ auto AiSidecarRuntimeImageAnalysisClient::ScoreImage(const ImageAnalysisRequest&
     return r;
   }
   return session->image_analysis().ScoreImage(request, timeout);
+}
+
+auto AiSidecarRuntimeImageAnalysisClient::AnalyzeImage(const ImageAnalysisRequest& request,
+                                                       std::chrono::milliseconds timeout)
+    -> ImageAnalysisCombinedResult {
+  if (!runtime_) {
+    ImageAnalysisCombinedResult r;
+    r.request_id = request.request_id;
+    r.ok         = false;
+    r.error      = "ai sidecar runtime is not available";
+    return r;
+  }
+  const auto session = runtime_->ClientSession();
+  if (!session || runtime_->Status().state != AiSidecarRuntimeState::kReady) {
+    ImageAnalysisCombinedResult r;
+    r.request_id = request.request_id;
+    r.ok         = false;
+    r.error      = "ai sidecar runtime is not ready";
+    return r;
+  }
+  return session->image_analysis().AnalyzeImage(request, timeout);
 }
 
 auto AiSidecarRuntimeImageAnalysisClient::ListModels(const std::string&        provider_id,
@@ -926,11 +952,14 @@ void ImageAnalysisService::RunJob(const std::shared_ptr<ImageAnalysisJob>& job,
       continue;
     }
 
-    // The typed RPC. DescribeImage / ScoreImage are distinct contracts (distinct task_ids
-    // / result types) so a rating result can never overwrite an understanding. The in-flight
-    // slot is held across the call; an RAII guard releases it (and clears the published
-    // request_id + am_in_flight_) on scope exit — including if the provider throws, which
-    // would otherwise leave the service-wide gate locked and the job stuck in-flight. The
+    req.include_understanding = options.task != ImageAnalysisTask::kScore;
+    req.include_rating        = options.task != ImageAnalysisTask::kDescribe;
+
+    // The typed RPC. Multi-output analysis uses AnalyzeImage so one image upload/provider
+    // request can return both understanding and rating. The in-flight slot is held across
+    // the call; an RAII guard releases it (and clears the published request_id +
+    // am_in_flight_) on scope exit — including if the provider throws, which would
+    // otherwise leave the service-wide gate locked and the job stuck in-flight. The
     // provider call is wrapped so a thrown RPC becomes an item error instead of escaping.
     ImageAnalysisItemResult r;
     r.item      = e.item;
@@ -943,7 +972,32 @@ void ImageAnalysisService::RunJob(const std::shared_ptr<ImageAnalysisJob>& job,
         in_flight_gate->Release();
       });
       try {
-        if (options.task == ImageAnalysisTask::kScore) {
+        if (options.task == ImageAnalysisTask::kAnalyze) {
+          auto res     = analysis_client->AnalyzeImage(req, options.timeout);
+          r.request_id = res.request_id.empty() ? req.request_id : res.request_id;
+          if (res.ok && res.has_understanding) {
+            r.understanding = std::move(res.understanding);
+          }
+          if (res.ok && res.has_rating) {
+            r.rating = std::move(res.rating);
+          }
+          if (!res.ok) {
+            r.understanding.request_id = r.request_id;
+            r.understanding.ok         = false;
+            r.understanding.status     = res.status;
+            r.understanding.error_code = res.error_code;
+            r.understanding.error      = res.error;
+            r.understanding.provider   = res.provider;
+            r.understanding.model_id   = res.model_id;
+            r.rating.request_id        = r.request_id;
+            r.rating.ok                = false;
+            r.rating.status            = res.status;
+            r.rating.error_code        = res.error_code;
+            r.rating.error             = res.error;
+            r.rating.provider          = res.provider;
+            r.rating.model_id          = res.model_id;
+          }
+        } else if (options.task == ImageAnalysisTask::kScore) {
           auto res     = analysis_client->ScoreImage(req, options.timeout);
           r.request_id = res.request_id.empty() ? req.request_id : res.request_id;
           r.rating     = std::move(res);
@@ -975,7 +1029,9 @@ void ImageAnalysisService::RunJob(const std::shared_ptr<ImageAnalysisJob>& job,
     const bool rating_valid = r.rating.rating >= 1 && r.rating.rating <= 5;
     const bool ok = (options.task == ImageAnalysisTask::kScore)
                         ? (r.rating.ok && rating_valid)
-                        : r.understanding.ok;
+                        : (options.task == ImageAnalysisTask::kAnalyze
+                               ? (r.understanding.ok && r.rating.ok && rating_valid)
+                               : r.understanding.ok);
     if (ok) {
       r.status = ImageAnalysisItemStatus::kAnalyzed;
       // Prefer the sidecar-echoed rendition when present (records what was analyzed).
@@ -992,13 +1048,26 @@ void ImageAnalysisService::RunJob(const std::shared_ptr<ImageAnalysisJob>& job,
                       ? ProviderFailureMessage(r.rating.status, r.rating.error_code,
                                                r.rating.provider, r.rating.model_id)
                       : r.rating.error;
+      } else if (options.task == ImageAnalysisTask::kAnalyze) {
+        if (!r.understanding.ok && !r.understanding.error.empty()) {
+          r.error = r.understanding.error;
+        } else if (!r.rating.ok && !r.rating.error.empty()) {
+          r.error = r.rating.error;
+        } else if (!r.understanding.ok) {
+          r.error = ProviderFailureMessage(r.understanding.status, r.understanding.error_code,
+                                           r.understanding.provider, r.understanding.model_id);
+        } else {
+          r.error = ProviderFailureMessage(r.rating.status, r.rating.error_code,
+                                           r.rating.provider, r.rating.model_id);
+        }
       } else {
         r.error = r.understanding.error.empty()
                       ? ProviderFailureMessage(r.understanding.status, r.understanding.error_code,
                                                r.understanding.provider, r.understanding.model_id)
                       : r.understanding.error;
       }
-      if (options.task == ImageAnalysisTask::kScore && r.rating.ok && !rating_valid) {
+      if ((options.task == ImageAnalysisTask::kScore || options.task == ImageAnalysisTask::kAnalyze)
+          && r.rating.ok && !rating_valid) {
         r.rating.ok = false;
         r.error     = "invalid image rating returned by provider: " +
                     std::to_string(r.rating.rating) + " (expected 1..5)";
