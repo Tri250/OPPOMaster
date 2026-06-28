@@ -192,6 +192,71 @@ pub fn language_directive(output_language: &str) -> String {
     }
 }
 
+/// Rating strictness persona selected by the host's "评价严苛程度" toggle. Each
+/// persona is a distinct rating system prompt: Lite is generous, Normal is the
+/// balanced default, XHigh is an exacting "connoisseur" (懂哥) whose `reasons`
+/// carry a harsh-critic voice. The JSON contract is unchanged across personas —
+/// `rating` stays a 1..=5 integer and persona flavor lives inside `reasons`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RatingSeverity {
+    Lite,
+    Normal,
+    XHigh,
+}
+
+/// Normalize a host-supplied severity code to a persona. "" or "normal" (and
+/// any unrecognized value) resolve to `Normal` — fail open to the balanced
+/// default rather than injecting an unknown persona, mirroring
+/// `language_directive`'s unknown-code handling.
+pub fn normalize_rating_severity(severity: &str) -> RatingSeverity {
+    match severity.trim().to_ascii_lowercase().as_str() {
+        "lite" => RatingSeverity::Lite,
+        "xhigh" | "x_high" | "high" => RatingSeverity::XHigh,
+        _ => RatingSeverity::Normal,
+    }
+}
+
+/// The shared JSON-only contract every rating persona ends with — identical to
+/// the tail of the original single rating prompt, so the injected schema + the
+/// code-owned `validate_rating` remain the source of truth for the wire shape.
+const RATING_JSON_CONTRACT: &str = " Do not include any other field — in particular, do not output a confidence. Output only the JSON object — no prose, no markdown code fences.";
+
+/// The Lite (水) persona: generous and forgiving. Ordinary competent photos
+/// default to 3–4; reserve 1–2 for clear technical failures and 5 for genuinely
+/// exceptional work. Reasons are short and mild.
+const RATING_LITE_PERSONA: &str = "You are a generous, forgiving image rating assistant for Alcedo Studio. Rate the supplied image against the given rubric and respond with a single JSON object matching the provided schema. The object must contain: \"rating\" (an integer from 1 to 5, where 1 is a poor photo and 5 is an excellent photo — the app's star rating), \"rubric_id\" (the rubric you applied), \"rubric_version\" (the rubric version, or an empty string), and \"reasons\" (a short rationale). Be lenient: an ordinary, in-focus, well-exposed photo deserves a 3; a competent, pleasing photo deserves a 4; reserve 1–2 only for clear technical failures (missed focus, severe exposure error) and 5 for genuinely exceptional work. Keep the rationale short, concrete, and kind.";
+
+/// The Normal persona: the original balanced rubric, verbatim — the
+/// behavior-preserving baseline. No severity clause is injected.
+const RATING_NORMAL_PERSONA: &str = "You are an image rating assistant for Alcedo Studio. Rate the supplied image against the given rubric and respond with a single JSON object matching the provided schema. The object must contain: \"rating\" (an integer from 1 to 5, where 1 is a poor photo and 5 is an excellent photo — the app's star rating), \"rubric_id\" (the rubric you applied), \"rubric_version\" (the rubric version, or an empty string), and \"reasons\" (a short rationale).";
+
+/// The XHigh (懂哥) persona: an exacting, pretentious photo critic. Tends to
+/// rate lower, nitpicks composition/exposure/lighting, and writes `reasons` in
+/// a connoisseur voice that leans on 懂哥 catchphrases such as "没意义",
+/// "你这个……", and "建议多看看××大师的作品". The catchphrases live inside the
+/// `reasons` string only — the `rating` is still a plain 1..=5 integer and the
+/// response is still a single JSON object matching the schema.
+const RATING_XHIGH_PERSONA: &str = "You are an exacting, self-important photo connoisseur (懂哥) rating images for Alcedo Studio. Rate the supplied image against the given rubric and respond with a single JSON object matching the provided schema. The object must contain: \"rating\" (an integer from 1 to 5, where 1 is a poor photo and 5 is an excellent photo — the app's star rating), \"rubric_id\" (the rubric you applied), \"rubric_version\" (the rubric version, or an empty string), and \"reasons\" (a short rationale). Be harsh and nitpick composition, exposure, focus, lighting, and intent; default most photos to 2–3 and reserve 4–5 for work that genuinely impresses you. Write `reasons` in your pretentious critic voice and naturally lean on your habitual catchphrases where they fit — e.g. \"没意义\", \"你这个……\", \"建议多看看××大师的作品\", \"算不上摄影\". The catchphrases go inside the `reasons` string only; never emit them as separate fields.";
+
+/// Build the full rating system prompt for one severity, with the
+/// output-language directive appended. Centralized here so the three HTTP
+/// drivers share one definition of the personas instead of each hardcoding the
+/// rating prompt (Phase: 评价严苛程度 toggle). `Normal` reproduces the original
+/// single rating prompt verbatim, so a host that leaves severity at the default
+/// sees byte-identical prompt text to before this change.
+pub fn rating_system_prompt(rating_severity: &str, output_language: &str) -> String {
+    let persona = match normalize_rating_severity(rating_severity) {
+        RatingSeverity::Lite => RATING_LITE_PERSONA,
+        RatingSeverity::Normal => RATING_NORMAL_PERSONA,
+        RatingSeverity::XHigh => RATING_XHIGH_PERSONA,
+    };
+    let mut system = persona.to_string();
+    system.push_str(RATING_JSON_CONTRACT);
+    system.push_str(&language_directive(output_language));
+    system
+}
+
+
 /// A remote/local image-analysis provider. Phase 5b ships one implementation
 /// (`MockImageAnalysisProvider`); Phase 5c adds `OpenRouterChatProvider` and
 /// `VolcengineArkResponsesProvider` behind the same trait; Phase 6b generalizes the
@@ -229,6 +294,7 @@ pub trait ImageAnalysisProvider: Send + Sync {
         model_id: &str,
         prompt_profile_id: &str,
         rubric_id: &str,
+        rating_severity: &str,
         output_language: &str,
         credential: Option<&SecretString>,
     ) -> Result<ScoreOutcome, ProviderError>;
@@ -407,6 +473,7 @@ impl ImageAnalysisProvider for MockImageAnalysisProvider {
         _model_id: &str,
         _prompt_profile_id: &str,
         _rubric_id: &str,
+        _rating_severity: &str,
         _output_language: &str,
         _credential: Option<&SecretString>,
     ) -> Result<ScoreOutcome, ProviderError> {
@@ -629,9 +696,79 @@ mod schema_tests {
         assert!(!d.tags.is_empty());
         validate_understanding(&d).expect("canned describe validates");
         let s = mock
-            .score_image(&[], "", "", "", "", None)
+            .score_image(&[], "", "", "", "", "", None)
             .await
             .expect("score");
         validate_rating(&s).expect("canned score validates");
+    }
+
+    #[test]
+    fn rating_system_prompt_normal_matches_legacy_text() {
+        // Normal is the behavior-preserving baseline: its system prompt must
+        // equal the original single rating prompt (persona + JSON contract),
+        // with no language directive appended for English.
+        let prompt = rating_system_prompt("normal", "");
+        assert!(prompt.starts_with("You are an image rating assistant for Alcedo Studio."));
+        assert!(prompt.contains("\"rating\" (an integer from 1 to 5"));
+        assert!(prompt.contains("Do not include any other field"));
+        assert!(prompt.contains("no prose, no markdown code fences"));
+        // No language directive for English.
+        assert!(!prompt.contains("Respond in Simplified Chinese"));
+    }
+
+    #[test]
+    fn rating_system_prompt_lite_is_generous_persona() {
+        let prompt = rating_system_prompt("lite", "");
+        assert!(prompt.contains("generous, forgiving"));
+        assert!(prompt.contains("Be lenient"));
+        // Still bound by the same JSON-only contract.
+        assert!(prompt.contains("no prose, no markdown code fences"));
+        // Lite must differ from Normal.
+        assert_ne!(prompt, rating_system_prompt("normal", ""));
+    }
+
+    #[test]
+    fn rating_system_prompt_xhigh_contains_connoisseur_catchphrases() {
+        // XHigh is the 懂哥 persona: its system prompt must carry the harsh
+        // critic clause and the habitual catchphrases, and still end with the
+        // JSON-only contract so the wire shape is unchanged.
+        let prompt = rating_system_prompt("xhigh", "");
+        assert!(prompt.contains("exacting, self-important photo connoisseur"));
+        assert!(prompt.contains("没意义"));
+        assert!(prompt.contains("建议多看看"));
+        assert!(prompt.contains("你这个"));
+        // Catchphrases are described as living inside `reasons` only.
+        assert!(prompt.contains("inside the `reasons` string only"));
+        assert!(prompt.contains("no prose, no markdown code fences"));
+        assert_ne!(prompt, rating_system_prompt("normal", ""));
+    }
+
+    #[test]
+    fn rating_system_prompt_appends_zh_language_directive() {
+        let en = rating_system_prompt("normal", "");
+        let zh = rating_system_prompt("normal", "zh");
+        assert!(zh.ends_with(" Respond in Simplified Chinese (简体中文)."));
+        assert_eq!(zh.len(), en.len() + " Respond in Simplified Chinese (简体中文).".len());
+    }
+
+    #[test]
+    fn rating_system_prompt_unknown_severity_falls_open_to_normal() {
+        // "" / "normal" / any unrecognized code resolve to the Normal persona
+        // (fail open), mirroring language_directive's unknown-code handling.
+        let baseline = rating_system_prompt("normal", "");
+        assert_eq!(rating_system_prompt("", ""), baseline);
+        assert_eq!(rating_system_prompt("does-not-exist", ""), baseline);
+        assert_eq!(rating_system_prompt("  NORMAL  ", ""), baseline);
+    }
+
+    #[test]
+    fn normalize_rating_severity_maps_known_codes() {
+        assert_eq!(normalize_rating_severity("lite"), RatingSeverity::Lite);
+        assert_eq!(normalize_rating_severity("xhigh"), RatingSeverity::XHigh);
+        assert_eq!(normalize_rating_severity("x_high"), RatingSeverity::XHigh);
+        assert_eq!(normalize_rating_severity("high"), RatingSeverity::XHigh);
+        assert_eq!(normalize_rating_severity("normal"), RatingSeverity::Normal);
+        assert_eq!(normalize_rating_severity(""), RatingSeverity::Normal);
+        assert_eq!(normalize_rating_severity("bogus"), RatingSeverity::Normal);
     }
 }

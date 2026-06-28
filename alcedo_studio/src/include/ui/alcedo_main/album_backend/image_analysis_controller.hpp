@@ -80,6 +80,10 @@ class ImageAnalysisController final : public QObject {
   Q_PROPERTY(QVariantMap lastUsage READ LastUsage NOTIFY StateChanged)
   Q_PROPERTY(QVariantList discoveredModels READ DiscoveredModels NOTIFY StateChanged)
   Q_PROPERTY(QString connectionStatus READ ConnectionStatus NOTIFY StateChanged)
+  // Rating strictness persona for the ScoreImage task: "lite" | "normal" |
+  // "xhigh". Persisted across sessions via QSettings (ai/analysis/ratingSeverity),
+  // default "normal". Drives the rating system prompt the sidecar builds.
+  Q_PROPERTY(QString ratingSeverity READ RatingSeverity NOTIFY StateChanged)
 
  public:
   ImageAnalysisController(std::shared_ptr<IImageAnalysisEnvironment> env,
@@ -100,6 +104,7 @@ class ImageAnalysisController final : public QObject {
   QVariantMap      LastUsage() const { return last_usage_; }
   QVariantList     DiscoveredModels() const { return discovered_models_; }
   QString          ConnectionStatus() const { return connection_status_; }
+  QString          RatingSeverity() const { return rating_severity_; }
 
   // Album selection is a QVariantList of {elementId, imageId} maps (the same
   // convention as ImportExportHandler::CollectExportTargets). Empty selection is
@@ -117,6 +122,10 @@ class ImageAnalysisController final : public QObject {
   Q_INVOKABLE void ValidateConnection();
   Q_INVOKABLE void ValidateConnectionForProfile(const QString& profileId);
   Q_INVOKABLE void RefreshCredentialState();
+  // Set the rating strictness persona ("lite" | "normal" | "xhigh"). Unknown
+  // values clamp to "normal". Persisted to QSettings (ai/analysis/ratingSeverity)
+  // so the choice survives across sessions.
+  Q_INVOKABLE bool SetRatingSeverity(const QString& value);
 
  signals:
   void StateChanged();
@@ -140,6 +149,7 @@ class ImageAnalysisController final : public QObject {
   i18n::LocalizedText                        status_text_{};
   QString                                    last_error_;
   QString                                    connection_status_;
+  QString                                    rating_severity_ = QStringLiteral("normal");
   QVariantList                               last_results_;
   QVariantList                               discovered_models_;
   QVariantMap                                last_usage_;

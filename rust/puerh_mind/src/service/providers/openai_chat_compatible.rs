@@ -429,15 +429,16 @@ fn describe_prompt(prompt_profile_id: &str, output_language: &str) -> (String, S
 /// scored image is never confused with an unrated one). No confidence is requested
 /// (Phase 5f rating-contract change). `output_language` controls the language of
 /// the generated `reasons` (the integer rating is language-independent).
+/// `rating_severity` ("lite" | "normal" | "xhigh") selects the rating persona via
+/// the shared `rating_system_prompt` — generous / balanced / exacting 懂哥 — so the
+/// three drivers share one definition of the personas.
 fn score_prompt(
     prompt_profile_id: &str,
     rubric_id: &str,
+    rating_severity: &str,
     output_language: &str,
 ) -> (String, String) {
-    let mut system = "You are an image rating assistant for Alcedo Studio. Rate the supplied image against the given rubric and respond with a single JSON object matching the provided schema. The object must contain: \"rating\" (an integer from 1 to 5, where 1 is a poor photo and 5 is an excellent photo — the app's star rating), \"rubric_id\" (the rubric you applied), \"rubric_version\" (the rubric version, or an empty string), and \"reasons\" (a short rationale). Do not include any other field — in particular, do not output a confidence. Output only the JSON object — no prose, no markdown code fences.".to_string();
-    system.push_str(&crate::service::image_analysis::language_directive(
-        output_language,
-    ));
+    let system = crate::service::image_analysis::rating_system_prompt(rating_severity, output_language);
     let mut instruction = "Rate this image on a 1–5 star scale.".to_string();
     if !rubric_id.trim().is_empty() {
         instruction.push_str(&format!(" Rubric: {rubric_id}."));
@@ -546,6 +547,7 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
         model_id: &str,
         prompt_profile_id: &str,
         rubric_id: &str,
+        rating_severity: &str,
         output_language: &str,
         credential: Option<&SecretString>,
     ) -> Result<ScoreOutcome, ProviderError> {
@@ -554,7 +556,7 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
         let bearer = self.bearer(credential)?;
         let data_uri = build_image_data_uri(image_bytes)?;
         let schema = strict_schema_value(IMAGE_RATING_SCHEMA)?;
-        let (system, instruction) = score_prompt(prompt_profile_id, rubric_id, output_language);
+        let (system, instruction) = score_prompt(prompt_profile_id, rubric_id, rating_severity, output_language);
         let body = self.build_chat_body(
             &slug,
             model.as_ref(),
@@ -836,6 +838,7 @@ mod tests {
                 "",
                 "",
                 "alcedo-default-v1",
+                "",
                 "",
                 Some(&secret()),
             )

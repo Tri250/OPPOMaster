@@ -74,6 +74,10 @@ struct ImageAnalysisOptions {
   // English; "zh" = Simplified Chinese). Set from the active profile's
   // `output_language` ("follow" resolves to the current app language here).
   std::string               output_language;
+  // Rating strictness persona for ScoreImage only: "" or "normal" = the default
+  // balanced rubric; "lite" = generous; "xhigh" = exacting 懂哥 connoisseur.
+  // Selects the rating system prompt in the driver; ignored by DescribeImage.
+  std::string               rating_severity;
   ImageAnalysisCredential   credential;
   std::filesystem::path     temp_dir;  // empty => std::filesystem::temp_directory_path()
   int64_t                   credential_ttl_ms = 0;  // 0 => sidecar default

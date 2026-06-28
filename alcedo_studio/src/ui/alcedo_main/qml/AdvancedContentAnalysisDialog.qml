@@ -69,6 +69,42 @@ Dialog {
         }
         return qsTr("Follow app language")
     }
+    // 评价严苛程度 — bound to the controller's persisted Q_PROPERTY so the
+    // three-segment toggle reflects (and writes) the rating severity persona.
+    readonly property string severityCode: analysisController
+                                           ? String(analysisController.ratingSeverity || "normal")
+                                           : "normal"
+    // UI language drives which degree name + flavor text is shown (中文界面显示中文
+    // 程度，英文界面显示英文程度), mirroring the app's effective language, not the AI
+    // output language. `languageManager` is a root-context property (main.cpp).
+    readonly property bool uiIsChinese: {
+        if (typeof languageManager === "undefined" || languageManager === null) {
+            return false
+        }
+        return String(languageManager.effectiveLanguageCode || "").toLowerCase().indexOf("zh") === 0
+    }
+    readonly property string severityTitle: root.uiIsChinese
+                                            ? qsTr("评价严苛程度") : qsTr("Rating strictness")
+    readonly property var severityModel: [
+        { code: "lite",   en: "Lite",   zh: "水",
+          flavorEn: "Generous scoring — ordinary photos default to 3–4 stars with mild reasons.",
+          flavorZh: "宽容打分——普通照片默认 3–4 星，理由温和。" },
+        { code: "normal", en: "Normal", zh: "正常",
+          flavorEn: "Balanced 1–5 star rating with a short rationale.",
+          flavorZh: "正常评分，平衡的 1–5 星，简短理由。" },
+        { code: "xhigh",  en: "XHigh",  zh: "懂哥",
+          flavorEn: "Harsh connoisseur mode — nitpicks and drops catchphrases like “没意义” and “建议多看看××大师的作品” in the reasons.",
+          flavorZh: "懂哥模式——苛刻挑刺，理由里带“没意义”、“建议多看看××大师的作品”等语录。" }
+    ]
+    readonly property string severityFlavor: {
+        for (let i = 0; i < severityModel.length; ++i) {
+            if (severityModel[i].code === severityCode) {
+                return root.uiIsChinese ? severityModel[i].flavorZh : severityModel[i].flavorEn
+            }
+        }
+        const fallback = severityModel[1]
+        return root.uiIsChinese ? fallback.flavorZh : fallback.flavorEn
+    }
 
     property int completedBefore: 0
     property int phaseIndex: -1
@@ -563,6 +599,89 @@ Dialog {
                                     CheckBox { id: overwriteRating; text: qsTr("Overwrite photo rating"); checked: true; enabled: !root.running; Material.foreground: root.textColor; Material.accent: root.accentColor }
                                     CheckBox { id: overwriteReason; text: qsTr("Overwrite rating reason"); checked: true; enabled: !root.running; Material.foreground: root.textColor; Material.accent: root.accentColor }
                                     CheckBox { id: overwriteDescription; text: qsTr("Overwrite image description"); checked: true; enabled: !root.running; Material.foreground: root.textColor; Material.accent: root.accentColor }
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            // 评价严苛程度 — only relevant when a rating task is
+                            // selected. Hidden while running (the persona is fixed
+                            // for the in-flight job).
+                            id: severityCard
+                            Layout.fillWidth: true
+                            Layout.leftMargin: 28
+                            Layout.rightMargin: 28
+                            visible: (ratingTask.checked || ratingReasonTask.checked) && !root.running
+                            Layout.preferredHeight: severityColumn.implicitHeight + 28
+                            radius: 8
+                            color: root.sectionColor
+                            border.width: 0
+
+                            ColumnLayout {
+                                id: severityColumn
+                                anchors.fill: parent
+                                anchors.margins: 14
+                                spacing: 10
+
+                                Label {
+                                    text: root.severityTitle
+                                    color: root.textColor
+                                    font.pixelSize: 15
+                                    font.weight: 800
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 8
+
+                                    Repeater {
+                                        model: root.severityModel
+                                        delegate: Rectangle {
+                                            id: severityTile
+                                            property bool active: root.severityCode === modelData.code
+                                            Layout.fillWidth: true
+                                            Layout.preferredHeight: 52
+                                            radius: 8
+                                            color: active ? root.withAlpha(root.accentColor, 0.18)
+                                                          : (tapArea.containsMouse
+                                                             ? root.withAlpha(root.textColor, 0.07)
+                                                             : root.withAlpha(root.textColor, 0.04))
+                                            border.width: active ? 1 : 0
+                                            border.color: root.accentColor
+
+                                            Label {
+                                                anchors.centerIn: parent
+                                                text: root.uiIsChinese ? modelData.zh : modelData.en
+                                                color: active ? root.accentColor : root.textColor
+                                                font.pixelSize: 15
+                                                font.weight: 800
+                                                horizontalAlignment: Text.AlignHCenter
+                                            }
+
+                                            // Declared LAST so it sits on top and reliably
+                                            // receives every click (the label above is
+                                            // transparent to mouse events).
+                                            MouseArea {
+                                                id: tapArea
+                                                anchors.fill: parent
+                                                cursorShape: Qt.PointingHandCursor
+                                                hoverEnabled: true
+                                                onClicked: {
+                                                    if (root.analysisController) {
+                                                        root.analysisController.SetRatingSeverity(modelData.code)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: root.severityFlavor
+                                    color: root.mutedTextColor
+                                    font.pixelSize: 12
+                                    wrapMode: Text.WordWrap
                                 }
                             }
                         }

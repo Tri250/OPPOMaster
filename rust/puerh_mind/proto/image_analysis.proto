@@ -147,6 +147,13 @@ message ScoreImageRequest {
   string rubric_id = 8;             // rubric to apply; "" = provider default
   // Target language for generated reasons; see DescribeImageRequest.output_language.
   string output_language = 9;
+  // Rating strictness persona: "lite" | "normal" | "xhigh". "" or "normal" =
+  // the default balanced rubric. Selects the rating system prompt the driver
+  // builds (a more generous Lite rubric, the balanced Normal rubric, or an
+  // exacting XHigh "connoisseur" rubric whose `reasons` carry a harsh-critic
+  // voice). Does NOT change the JSON contract — `rating` stays a 1..=5 integer
+  // and any persona flavor lives inside the `reasons` string.
+  string rating_severity = 10;
 }
 
 message ScoreImageResponse {

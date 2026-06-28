@@ -207,6 +207,7 @@ mod tests {
                 "",
                 "alcedo-default-v1",
                 "",
+                "",
                 Some(&secret()),
             )
             .await
@@ -245,6 +246,7 @@ mod tests {
                 "",
                 "alcedo-default-v1",
                 "",
+                "",
                 Some(&secret()),
             )
             .await
@@ -278,6 +280,7 @@ mod tests {
                 "",
                 "alcedo-default-v1",
                 "",
+                "",
                 Some(&secret()),
             )
             .await
@@ -307,6 +310,7 @@ mod tests {
                 "",
                 "",
                 "alcedo-default-v1",
+                "",
                 "",
                 Some(&secret()),
             )

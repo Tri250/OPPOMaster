@@ -480,6 +480,7 @@ impl ImageAnalysisService for ImageAnalysisServiceImpl {
             &req.model_id,
             &req.prompt_profile_id,
             &req.rubric_id,
+            &req.rating_severity,
             &req.output_language,
             credential.as_ref(),
         );
@@ -788,6 +789,7 @@ mod tests {
             prompt_profile_id: "profile-1".to_string(),
             rubric_id: "alcedo-default-v1".to_string(),
             output_language: String::new(),
+            rating_severity: String::new(),
         });
         let resp = svc.score_image(req).await.expect("rpc ok");
         let inner = resp.into_inner();

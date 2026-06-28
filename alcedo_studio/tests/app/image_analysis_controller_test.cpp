@@ -13,6 +13,7 @@
 #include <gtest/gtest.h>
 
 #include <QCoreApplication>
+#include <QSettings>
 #include <QString>
 #include <QTemporaryDir>
 #include <QVariantList>
@@ -131,7 +132,8 @@ class FakeClient : public alcedo::IImageAnalysisClient {
   auto ScoreImage(const alcedo::ImageAnalysisRequest& req, std::chrono::milliseconds)
       -> alcedo::ImageAnalysisRatingResult override {
     ++score_calls_;
-    last_output_language_ = req.output_language;
+    last_output_language_   = req.output_language;
+    last_rating_severity_   = req.rating_severity;
     if (block_mode_.load()) {
       std::unique_lock lk(block_mutex_);
       block_cv_.wait(lk, [this] { return release_blocked_.load(); });
@@ -162,6 +164,7 @@ class FakeClient : public alcedo::IImageAnalysisClient {
   auto RegisterCalls() const -> int { return register_calls_.load(); }
   auto ListModelsCalls() const -> int { return list_models_calls_.load(); }
   auto LastOutputLanguage() const -> std::string { return last_output_language_; }
+  auto LastRatingSeverity() const -> std::string { return last_rating_severity_; }
 
  private:
   auto MakeUnderstanding(const alcedo::ImageAnalysisRequest& req, Outcome o)
@@ -247,6 +250,7 @@ class FakeClient : public alcedo::IImageAnalysisClient {
   std::atomic<int>        list_models_calls_{0};
   std::atomic<int>        revoke_calls_{0};
   std::string             last_output_language_;
+  std::string             last_rating_severity_;
   Outcome                 describe_outcome_ = Outcome::kSuccess;
   Outcome                 score_outcome_    = Outcome::kSuccess;
   bool                    usage_enabled_    = true;
@@ -880,6 +884,44 @@ TEST_F(ImageAnalysisControllerTest, OutputLanguageExplicitEnReachesProvider) {
   controller->StartScoreForTargets(Targets({{1, 100}}));
   ASSERT_TRUE(WaitForFinished(*controller, std::chrono::seconds(10)));
   EXPECT_EQ(last_bundle_->client->LastOutputLanguage(), "en");
+}
+
+// ── Rating severity (评价严苛程度) ───────────────────────────────────────────
+
+TEST_F(ImageAnalysisControllerTest, RatingSeverityDefaultsToNormal) {
+  // Clear any residue from a prior test so the ctor reads the unset/default path.
+  QSettings().remove(QStringLiteral("ai/analysis/ratingSeverity"));
+  auto controller = MakeController();
+  EXPECT_EQ(controller->RatingSeverity(), QStringLiteral("normal"));
+}
+
+TEST_F(ImageAnalysisControllerTest, SetRatingSeverityClampsUnknownToNormal) {
+  QSettings().remove(QStringLiteral("ai/analysis/ratingSeverity"));
+  auto controller = MakeController();
+  EXPECT_TRUE(controller->SetRatingSeverity(QStringLiteral("bogus")));
+  EXPECT_EQ(controller->RatingSeverity(), QStringLiteral("normal"));
+  EXPECT_TRUE(controller->SetRatingSeverity(QStringLiteral("x_high")));
+  EXPECT_EQ(controller->RatingSeverity(), QStringLiteral("xhigh"));
+  EXPECT_TRUE(controller->SetRatingSeverity(QStringLiteral("LITE")));
+  EXPECT_EQ(controller->RatingSeverity(), QStringLiteral("lite"));
+  // Cleanup so the persisted value does not leak into other cases.
+  QSettings().remove(QStringLiteral("ai/analysis/ratingSeverity"));
+}
+
+TEST_F(ImageAnalysisControllerTest, RatingSeverityPersistsAndReachesScoreProvider) {
+  QSettings().remove(QStringLiteral("ai/analysis/ratingSeverity"));
+  auto controller = MakeController();
+  ASSERT_TRUE(controller->SetRatingSeverity(QStringLiteral("xhigh")));
+  controller->StartScoreForTargets(Targets({{1, 100}}));
+  ASSERT_TRUE(WaitForFinished(*controller, std::chrono::seconds(10)));
+  // The severity is threaded into the ScoreImage request and reaches the provider.
+  EXPECT_EQ(last_bundle_->client->LastRatingSeverity(), "xhigh");
+
+  // A fresh controller in the same process reads the persisted value back.
+  auto controller2 = MakeController();
+  EXPECT_EQ(controller2->RatingSeverity(), QStringLiteral("xhigh"));
+  // Cleanup so the persisted value does not leak into other cases.
+  QSettings().remove(QStringLiteral("ai/analysis/ratingSeverity"));
 }
 
 // ── Discovered models surface (Frontend 1) ───────────────────────────────────

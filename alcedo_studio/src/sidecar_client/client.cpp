@@ -730,6 +730,7 @@ class GrpcImageAnalysisClient final : public ImageAnalysisClient {
     req.set_prompt_profile_id(request.prompt_profile_id);
     req.set_rubric_id(request.rubric_id);
     req.set_output_language(request.output_language);
+    req.set_rating_severity(request.rating_severity);
     alcedo::ai::ScoreImageResponse response;
     const auto status = stub->ScoreImage(&context, req, &response);
     if (status.ok()) {

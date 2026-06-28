@@ -38,6 +38,11 @@ struct ImageAnalysisRequest {
   // English; "zh" = Simplified Chinese). The host resolves a "follow app
   // language" preference before sending, so the sidecar never sees "follow".
   std::string            output_language;
+  // Rating strictness persona for ScoreImage only: "" or "normal" = the default
+  // balanced rubric; "lite" = generous; "xhigh" = exacting 懂哥 connoisseur.
+  // Selects the rating system prompt in the driver; does not change the JSON
+  // contract. Ignored by DescribeImage.
+  std::string            rating_severity;
 };
 
 struct ImageAnalysisUnderstandingResult {

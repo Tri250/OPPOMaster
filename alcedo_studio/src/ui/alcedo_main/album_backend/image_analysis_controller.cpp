@@ -68,6 +68,24 @@ QString ResolveOutputLanguage(const QString& preference) {
                                                                     : QStringLiteral("en");
 }
 
+// Clamp a host-supplied rating-severity code to one of the three personas the
+// sidecar understands. "" / "normal" / any unrecognized value -> "normal"
+// (fail open to the balanced default, matching the Rust
+// `normalize_rating_severity`). QSettings key: ai/analysis/ratingSeverity.
+QString NormalizeRatingSeverity(const QString& value) {
+  const QString v = value.trimmed().toLower();
+  if (v == QLatin1String("lite")) {
+    return QStringLiteral("lite");
+  }
+  if (v == QLatin1String("xhigh") || v == QLatin1String("x_high")
+      || v == QLatin1String("high")) {
+    return QStringLiteral("xhigh");
+  }
+  return QStringLiteral("normal");
+}
+
+constexpr const char* kRatingSeveritySettingsKey = "ai/analysis/ratingSeverity";
+
 }  // namespace
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -78,6 +96,10 @@ ImageAnalysisController::ImageAnalysisController(std::shared_ptr<IImageAnalysisE
                                                  std::shared_ptr<IImageAnalysisSink> sink,
                                                  QObject*                            parent)
     : QObject(parent), env_(std::move(env)), profiles_(profiles), sink_(std::move(sink)) {
+  rating_severity_ = NormalizeRatingSeverity(
+      QSettings().value(QLatin1String(kRatingSeveritySettingsKey),
+                        QStringLiteral("normal"))
+          .toString());
   if (profiles_) {
     connect(profiles_, &AiProviderProfileController::ProfilesChanged, this,
             [this] { RefreshConfiguredState(); });
@@ -115,6 +137,17 @@ void ImageAnalysisController::RefreshConfiguredState() {
 }
 
 void ImageAnalysisController::RefreshCredentialState() { RefreshConfiguredState(); }
+
+bool ImageAnalysisController::SetRatingSeverity(const QString& value) {
+  const QString normalized = NormalizeRatingSeverity(value);
+  if (normalized == rating_severity_) {
+    return true;
+  }
+  rating_severity_ = normalized;
+  QSettings().setValue(QLatin1String(kRatingSeveritySettingsKey), normalized);
+  emit StateChanged();
+  return true;
+}
 auto ImageAnalysisController::CollectItems(const QVariantList& targetEntries)
     -> std::vector<alcedo::ImageAnalysisItem> {
   std::vector<alcedo::ImageAnalysisItem> items;
@@ -249,6 +282,7 @@ void ImageAnalysisController::StartForTargets(const QVariantList&       targetEn
   options.provider_id            = profile.provider_id.toStdString();
   options.model_id               = profile.model_id.toStdString();
   options.output_language        = ResolveOutputLanguage(profiles_->OutputLanguage()).toStdString();
+  options.rating_severity        = rating_severity_.toStdString();
   options.credential.provider_id = profile.provider_id.toStdString();
   options.credential.secret      = std::move(secret);
   options.credential_ttl_ms      = kCredentialTtlMs;
