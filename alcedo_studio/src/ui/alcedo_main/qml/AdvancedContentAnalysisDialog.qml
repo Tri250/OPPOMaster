@@ -8,12 +8,12 @@ Dialog {
     id: root
 
     modal: true
-    focus: true
+    focus: visible
     padding: 0
-    width: Math.min(parent ? parent.width - 48 : 760, 760)
-    height: Math.min(parent ? parent.height - 48 : 660, 660)
-    x: parent ? Math.round((parent.width - width) / 2) : 0
-    y: parent ? Math.round((parent.height - height) / 2) : 0
+    width: parent ? parent.width : 0
+    height: parent ? parent.height : 0
+    x: 0
+    y: 0
     closePolicy: running ? Popup.NoAutoClose
                          : Popup.CloseOnEscape | Popup.CloseOnPressOutside
     font.family: appTheme.uiFontFamily
@@ -24,6 +24,22 @@ Dialog {
     property var backend: null
     property var selectionTargets: []
     property bool backendInteractive: false
+    property real cornerRadius: 0
+
+    property color panelColor: appTheme.toneGraphite
+    property color canvasColor: appTheme.bgDeepColor
+    property color sectionColor: appTheme.bgBaseColor
+    property color summaryCardColor: Qt.rgba(1, 1, 1, 0.04)
+    property color textColor: appTheme.textColor
+    property color mutedTextColor: appTheme.textMutedColor
+    property color accentColor: appTheme.accentColor
+    property color secondaryAccentColor: appTheme.accentSecondaryColor
+    property color dangerColor: appTheme.dangerColor
+    property color hoverColor: appTheme.hoverColor
+    property color dividerColor: appTheme.dividerColor
+    property color overlayColor: appTheme.overlayColor
+    property string headlineFontFamily: appTheme.headlineFontFamily
+    readonly property string dataFontFamily: appTheme.dataFontFamily
 
     readonly property bool running: analysisController && analysisController.running
     readonly property int selectedImageCount: selectionTargets ? selectionTargets.length : 0
@@ -60,6 +76,7 @@ Dialog {
     property bool finalReady: false
     property bool cancelRequested: false
     property string finalSummary: ""
+    property string finalFailureDetails: ""
     property string localError: ""
     property var phaseQueue: []
     property var phaseTargets: ({})
@@ -67,23 +84,46 @@ Dialog {
 
     signal messageRequested(string message)
 
+    function withAlpha(colorValue, alphaValue) {
+        return Qt.rgba(colorValue.r, colorValue.g, colorValue.b, alphaValue)
+    }
+
     Overlay.modal: Item {
         anchors.fill: parent
 
-        MultiEffect {
+        Rectangle {
+            id: backdropMask
             anchors.fill: parent
-            source: root.blurSource
-            visible: root.blurSource !== null
-            blurEnabled: true
-            blur: 0.62
-            blurMax: 64
-            saturation: -0.2
-            brightness: -0.08
+            radius: root.cornerRadius
+            color: "white"
+            visible: false
+            layer.enabled: true
+            layer.smooth: true
         }
 
-        Rectangle {
+        Item {
             anchors.fill: parent
-            color: appTheme.overlayColor
+            layer.enabled: true
+            layer.smooth: true
+            layer.effect: MultiEffect {
+                maskEnabled: root.cornerRadius > 0
+                maskSource: backdropMask
+            }
+
+            MultiEffect {
+                anchors.fill: parent
+                source: root.blurSource
+                blurEnabled: root.blurSource !== null
+                blur: 0.64
+                blurMax: 68
+                saturation: -0.22
+                brightness: -0.08
+            }
+
+            Rectangle {
+                anchors.fill: parent
+                color: root.overlayColor
+            }
         }
 
         MouseArea { anchors.fill: parent; hoverEnabled: true }
@@ -102,6 +142,7 @@ Dialog {
         finalReady = false
         cancelRequested = false
         finalSummary = ""
+        finalFailureDetails = ""
         localError = ""
         phaseQueue = []
         phaseTargets = ({})
@@ -174,6 +215,55 @@ Dialog {
         return analysisController ? String(analysisController.lastError || "") : ""
     }
 
+    function failedResultDetail(row) {
+        const error = String(row.error || "")
+        if (error.length > 0) {
+            return error
+        }
+        const details = []
+        const providerStatus = Number(row.providerStatus || 0)
+        const providerErrorCode = Number(row.providerErrorCode || 0)
+        if (providerStatus !== 0) {
+            details.push(qsTr("provider status %1").arg(providerStatus))
+        }
+        if (providerErrorCode !== 0) {
+            details.push(qsTr("error code %1").arg(providerErrorCode))
+        }
+        const provider = String(row.provider || "")
+        const modelId = String(row.modelId || "")
+        const providerRequestId = String(row.providerRequestId || "")
+        if (provider.length > 0) {
+            details.push(qsTr("provider %1").arg(provider))
+        }
+        if (modelId.length > 0) {
+            details.push(qsTr("model %1").arg(modelId))
+        }
+        if (providerRequestId.length > 0) {
+            details.push(qsTr("request %1").arg(providerRequestId))
+        }
+        return details.length > 0 ? details.join(", ") : qsTr("No provider error message was returned.")
+    }
+
+    function failedResultSummary() {
+        if (!analysisController || !analysisController.lastResults) {
+            return ""
+        }
+        const parts = []
+        const results = analysisController.lastResults
+        for (let i = 0; i < results.length; ++i) {
+            const row = results[i]
+            const status = String(row.status || "")
+            if (status === "analyzed") {
+                continue
+            }
+            const label = row.fileName && String(row.fileName).length > 0
+                    ? String(row.fileName)
+                    : qsTr("Image %1").arg(Number(row.imageId || row.elementId || i + 1))
+            parts.push(qsTr("%1: %2").arg(label).arg(failedResultDetail(row)))
+        }
+        return parts.join("\n")
+    }
+
     function startAnalysis() {
         if (!analysisController || running) {
             return
@@ -205,6 +295,7 @@ Dialog {
         startedOnce = true
         finalReady = false
         cancelRequested = false
+        finalFailureDetails = ""
         completedBefore = 0
         phaseIndex = 0
         startCurrentPhase()
@@ -253,11 +344,13 @@ Dialog {
         const failed = analysisController ? Number(analysisController.failed) : 0
         const canceled = analysisController ? Number(analysisController.canceled) : 0
         const error = controllerError()
+        finalFailureDetails = ""
         if (cancelRequested || canceled > 0) {
             finalSummary = qsTr("Canceled. Successful results already saved remain in place.")
         } else if (error.length > 0) {
             finalSummary = error
         } else if (failed > 0) {
+            finalFailureDetails = failedResultSummary()
             finalSummary = qsTr("Finished with %1 successful item(s) and %2 failed item(s).").arg(ok).arg(failed)
         } else if (skippedUnits > 0) {
             finalSummary = qsTr("Analysis complete. Skipped %1 existing item-task(s).").arg(skippedUnits)
@@ -280,12 +373,6 @@ Dialog {
         }
     }
 
-    onClosing: function(close) {
-        if (running) {
-            close.accepted = false
-        }
-    }
-
     Connections {
         target: root.analysisController
         ignoreUnknownSignals: true
@@ -297,241 +384,102 @@ Dialog {
         }
     }
 
-    background: Rectangle {
-        radius: appTheme.panelRadius
-        color: appTheme.bgDeepColor
-        border.width: 1
-        border.color: appTheme.glassStrokeColor
-    }
+    background: Item {}
 
-    contentItem: ColumnLayout {
-        spacing: 0
+    contentItem: Item {
+        implicitWidth: root.width
+        implicitHeight: root.height
 
         Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 86
-            radius: appTheme.panelRadius
-            color: appTheme.bgPanelColor
-
-            RowLayout {
-                anchors.fill: parent
-                anchors.leftMargin: 28
-                anchors.rightMargin: 22
-                spacing: 16
-
-                Image {
-                    Layout.preferredWidth: 28
-                    Layout.preferredHeight: 28
-                    source: "qrc:/panel_icons/flask.svg"
-                    sourceSize.width: 28
-                    sourceSize.height: 28
-                }
-
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 4
-
-                    Label {
-                        text: qsTr("Advanced Content Analysis")
-                        color: appTheme.textColor
-                        font.family: appTheme.headlineFontFamily
-                        font.pixelSize: 24
-                        font.weight: 700
-                    }
-
-                    Label {
-                        text: qsTr("%1 selected image(s)").arg(root.selectedImageCount)
-                        color: appTheme.textMutedColor
-                        font.pixelSize: 13
-                    }
-                }
-
-                Button {
-                    text: qsTr("Close")
-                    enabled: !root.running
-                    visible: !root.running
-                    onClicked: root.close()
-                }
-            }
-        }
-
-        ScrollView {
-            id: analysisScroll
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            contentWidth: availableWidth
+            id: shell
+            anchors.centerIn: parent
+            width: Math.min(parent.width - 56, 860)
+            height: Math.min(parent.height - 72, 680)
+            radius: 14
+            color: root.panelColor
+            border.width: 0
             clip: true
 
             ColumnLayout {
-                width: analysisScroll.availableWidth
-                spacing: 18
-
-                GridLayout {
-                    Layout.fillWidth: true
-                    Layout.topMargin: 24
-                    Layout.leftMargin: 28
-                    Layout.rightMargin: 28
-                    columns: width > 560 ? 3 : 1
-                    columnSpacing: 12
-                    rowSpacing: 12
-
-                    component SummaryTile: Rectangle {
-                        property string label: ""
-                        property string value: ""
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 76
-                        radius: 8
-                        color: appTheme.bgBaseColor
-                        border.width: 1
-                        border.color: appTheme.glassStrokeColor
-
-                        ColumnLayout {
-                            anchors.fill: parent
-                            anchors.margins: 12
-                            spacing: 6
-                            Label {
-                                text: label
-                                color: appTheme.textMutedColor
-                                font.pixelSize: 11
-                                font.weight: 700
-                                elide: Text.ElideRight
-                                Layout.fillWidth: true
-                            }
-                            Label {
-                                text: value
-                                color: appTheme.textColor
-                                font.pixelSize: 15
-                                font.weight: 700
-                                elide: Text.ElideRight
-                                Layout.fillWidth: true
-                            }
-                        }
-                    }
-
-                    SummaryTile { label: qsTr("Provider"); value: root.providerDisplay }
-                    SummaryTile { label: qsTr("Model"); value: root.modelDisplay }
-                    SummaryTile { label: qsTr("Output language"); value: root.outputLanguageDisplay }
-                }
+                anchors.fill: parent
+                spacing: 0
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.leftMargin: 28
-                    Layout.rightMargin: 28
-                    Layout.preferredHeight: taskColumn.implicitHeight + 26
-                    radius: 8
-                    color: appTheme.bgPanelColor
-                    border.width: 1
-                    border.color: appTheme.glassStrokeColor
-
-                    ColumnLayout {
-                        id: taskColumn
-                        anchors.fill: parent
-                        anchors.margins: 13
-                        spacing: 12
-
-                        Label {
-                            text: qsTr("Tasks")
-                            color: appTheme.textColor
-                            font.pixelSize: 15
-                            font.weight: 800
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 14
-
-                            CheckBox { id: descriptionTask; text: qsTr("Description"); checked: true; enabled: !root.running }
-                            CheckBox { id: ratingTask; text: qsTr("Rating"); checked: true; enabled: !root.running }
-                            CheckBox { id: ratingReasonTask; text: qsTr("Rating reason"); checked: true; enabled: !root.running }
-                        }
-
-                        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: appTheme.dividerColor }
-
-                        Label {
-                            text: qsTr("Overwrite")
-                            color: appTheme.textMutedColor
-                            font.pixelSize: 12
-                            font.weight: 700
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 14
-
-                            CheckBox { id: overwriteRating; text: qsTr("Overwrite photo rating"); checked: true; enabled: !root.running }
-                            CheckBox { id: overwriteReason; text: qsTr("Overwrite rating reason"); checked: true; enabled: !root.running }
-                            CheckBox { id: overwriteDescription; text: qsTr("Overwrite image description"); checked: true; enabled: !root.running }
-                        }
-                    }
-                }
-
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.leftMargin: 28
-                    Layout.rightMargin: 28
-                    Layout.preferredHeight: 190
-                    radius: 8
-                    color: appTheme.bgBaseColor
-                    border.width: 1
-                    border.color: appTheme.glassStrokeColor
+                    Layout.preferredHeight: 96
+                    color: root.withAlpha(root.canvasColor, 0.36)
 
                     RowLayout {
                         anchors.fill: parent
-                        anchors.margins: 18
-                        spacing: 22
+                        anchors.leftMargin: 28
+                        anchors.rightMargin: 22
+                        spacing: 16
 
-                        ImportProgressRing {
-                            Layout.preferredWidth: 118
-                            Layout.preferredHeight: 118
-                            ringWidth: 11
-                            progress: root.progressValue
-                            indeterminate: root.running && root.totalUnits <= 0
-                            fillColor: appTheme.accentColor
-                            trackColor: appTheme.hoverColor
+                        Rectangle {
+                            Layout.preferredWidth: 42
+                            Layout.preferredHeight: 42
+                            radius: 10
+                            color: root.withAlpha(root.accentColor, 0.12)
+                            border.width: 0
+
+                            Image {
+                                anchors.centerIn: parent
+                                width: 24
+                                height: 24
+                                source: "qrc:/panel_icons/flask.svg"
+                                sourceSize.width: 24
+                                sourceSize.height: 24
+                                opacity: 0.9
+                            }
                         }
 
                         ColumnLayout {
                             Layout.fillWidth: true
-                            spacing: 8
+                            spacing: 4
 
                             Label {
-                                text: root.running && root.phaseIndex >= 0
-                                      ? qsTr("Running %1").arg(root.taskLabel(root.phaseQueue[root.phaseIndex]))
-                                      : (root.finalReady ? qsTr("Finished") : qsTr("Ready"))
-                                color: appTheme.textColor
-                                font.pixelSize: 20
+                                Layout.fillWidth: true
+                                text: qsTr("Advanced Content Analysis")
+                                color: root.textColor
+                                font.family: root.headlineFontFamily
+                                font.pixelSize: 28
                                 font.weight: 800
-                            }
-
-                            Label {
-                                text: qsTr("%1 / %2 item-task(s)").arg(root.completedUnits).arg(root.totalUnits)
-                                color: appTheme.textMutedColor
-                                font.family: appTheme.dataFontFamily
-                                font.pixelSize: 14
+                                elide: Text.ElideRight
                             }
 
                             Label {
                                 Layout.fillWidth: true
-                                text: root.localError.length > 0
-                                      ? root.localError
-                                      : (root.finalReady
-                                         ? root.finalSummary
-                                         : (root.analysisController ? root.analysisController.statusText : ""))
-                                color: root.localError.length > 0 || root.controllerError().length > 0
-                                       ? appTheme.dangerColor
-                                       : appTheme.textMutedColor
-                                wrapMode: Text.WordWrap
+                                text: qsTr("%1 selected image(s)").arg(root.selectedImageCount)
+                                color: root.mutedTextColor
+                                font.family: root.dataFontFamily
                                 font.pixelSize: 13
+                                font.weight: 600
+                                elide: Text.ElideRight
                             }
+                        }
 
-                            Label {
-                                Layout.fillWidth: true
-                                visible: root.analysisController && Number(root.analysisController.lastUsage.totalTokens || 0) > 0
-                                text: qsTr("Usage: %1 token(s)").arg(root.analysisController
-                                                                     ? Number(root.analysisController.lastUsage.totalTokens || 0)
-                                                                     : 0)
-                                color: appTheme.textMutedColor
-                                font.pixelSize: 12
+                        ToolButton {
+                            Layout.preferredWidth: 40
+                            Layout.preferredHeight: 40
+                            enabled: !root.running
+                            visible: !root.running
+                            text: "\u00d7"
+                            font.pixelSize: 28
+                            font.weight: 300
+                            onClicked: root.close()
+                            contentItem: Label {
+                                text: parent.text
+                                color: parent.enabled ? root.withAlpha(root.textColor, 0.82)
+                                                      : root.withAlpha(root.mutedTextColor, 0.48)
+                                font: parent.font
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            background: Rectangle {
+                                radius: 8
+                                color: parent.down
+                                       ? root.withAlpha(root.textColor, 0.08)
+                                       : (parent.hovered ? root.hoverColor : "transparent")
                             }
                         }
                     }
@@ -539,72 +487,310 @@ Dialog {
 
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.leftMargin: 28
-                    Layout.rightMargin: 28
-                    Layout.preferredHeight: hintText.implicitHeight + 24
-                    radius: 8
-                    color: Qt.rgba(appTheme.accentColor.r, appTheme.accentColor.g, appTheme.accentColor.b, 0.10)
-                    border.width: 1
-                    border.color: Qt.rgba(appTheme.accentColor.r, appTheme.accentColor.g, appTheme.accentColor.b, 0.22)
+                    Layout.preferredHeight: 1
+                    color: root.dividerColor
+                }
 
-                    Label {
-                        id: hintText
-                        anchors.fill: parent
-                        anchors.margins: 12
-                        text: qsTr("Results refresh the focused photo's Image inspector. Open the Image page to review and edit description, rating, and reasons.")
-                        color: appTheme.textColor
-                        wrapMode: Text.WordWrap
-                        font.pixelSize: 13
+                ScrollView {
+                    id: analysisScroll
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    contentWidth: availableWidth
+                    clip: true
+
+                    ColumnLayout {
+                        width: analysisScroll.availableWidth
+                        spacing: 18
+
+                        GridLayout {
+                            Layout.fillWidth: true
+                            Layout.topMargin: 24
+                            Layout.leftMargin: 28
+                            Layout.rightMargin: 28
+                            columns: width > 560 ? 3 : 1
+                            columnSpacing: 12
+                            rowSpacing: 12
+
+                            SummaryTile { label: qsTr("Provider"); value: root.providerDisplay }
+                            SummaryTile { label: qsTr("Model"); value: root.modelDisplay }
+                            SummaryTile { label: qsTr("Output language"); value: root.outputLanguageDisplay }
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: 28
+                            Layout.rightMargin: 28
+                            Layout.preferredHeight: taskColumn.implicitHeight + 28
+                            radius: 8
+                            color: root.sectionColor
+                            border.width: 0
+
+                            ColumnLayout {
+                                id: taskColumn
+                                anchors.fill: parent
+                                anchors.margins: 14
+                                spacing: 12
+
+                                Label {
+                                    text: qsTr("Tasks")
+                                    color: root.textColor
+                                    font.pixelSize: 15
+                                    font.weight: 800
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 14
+
+                                    CheckBox { id: descriptionTask; text: qsTr("Description"); checked: true; enabled: !root.running; Material.foreground: root.textColor; Material.accent: root.accentColor }
+                                    CheckBox { id: ratingTask; text: qsTr("Rating"); checked: true; enabled: !root.running; Material.foreground: root.textColor; Material.accent: root.accentColor }
+                                    CheckBox { id: ratingReasonTask; text: qsTr("Rating reason"); checked: true; enabled: !root.running; Material.foreground: root.textColor; Material.accent: root.accentColor }
+                                }
+
+                                Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: root.dividerColor }
+
+                                Label {
+                                    text: qsTr("Overwrite")
+                                    color: root.mutedTextColor
+                                    font.pixelSize: 12
+                                    font.weight: 700
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 14
+
+                                    CheckBox { id: overwriteRating; text: qsTr("Overwrite photo rating"); checked: true; enabled: !root.running; Material.foreground: root.textColor; Material.accent: root.accentColor }
+                                    CheckBox { id: overwriteReason; text: qsTr("Overwrite rating reason"); checked: true; enabled: !root.running; Material.foreground: root.textColor; Material.accent: root.accentColor }
+                                    CheckBox { id: overwriteDescription; text: qsTr("Overwrite image description"); checked: true; enabled: !root.running; Material.foreground: root.textColor; Material.accent: root.accentColor }
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: 28
+                            Layout.rightMargin: 28
+                            Layout.preferredHeight: 190
+                            radius: 8
+                            color: root.sectionColor
+                            border.width: 0
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.margins: 18
+                                spacing: 22
+
+                                ImportProgressRing {
+                                    Layout.preferredWidth: 118
+                                    Layout.preferredHeight: 118
+                                    ringWidth: 11
+                                    progress: root.progressValue
+                                    indeterminate: root.running && root.totalUnits <= 0
+                                    fillColor: root.accentColor
+                                    trackColor: root.hoverColor
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 8
+
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: root.running && root.phaseIndex >= 0
+                                              ? qsTr("Running %1").arg(root.taskLabel(root.phaseQueue[root.phaseIndex]))
+                                              : (root.finalReady ? qsTr("Finished") : qsTr("Ready"))
+                                        color: root.textColor
+                                        font.pixelSize: 20
+                                        font.weight: 800
+                                        elide: Text.ElideRight
+                                    }
+
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: qsTr("%1 / %2 item-task(s)").arg(root.completedUnits).arg(root.totalUnits)
+                                        color: root.mutedTextColor
+                                        font.family: root.dataFontFamily
+                                        font.pixelSize: 14
+                                        elide: Text.ElideRight
+                                    }
+
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: root.localError.length > 0
+                                              ? root.localError
+                                              : (root.finalReady
+                                                 ? root.finalSummary
+                                                 : (root.analysisController ? root.analysisController.statusText : ""))
+                                        color: root.localError.length > 0 || root.controllerError().length > 0
+                                               || root.finalFailureDetails.length > 0
+                                               ? root.dangerColor
+                                               : root.mutedTextColor
+                                        wrapMode: Text.WordWrap
+                                        font.pixelSize: 13
+                                    }
+
+                                    Label {
+                                        Layout.fillWidth: true
+                                        visible: root.analysisController && Number(root.analysisController.lastUsage.totalTokens || 0) > 0
+                                        text: qsTr("Usage: %1 token(s)").arg(root.analysisController
+                                                                             ? Number(root.analysisController.lastUsage.totalTokens || 0)
+                                                                             : 0)
+                                        color: root.mutedTextColor
+                                        font.pixelSize: 12
+                                    }
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: 28
+                            Layout.rightMargin: 28
+                            Layout.preferredHeight: Math.min(failureContent.implicitHeight + 28, 220)
+                            visible: root.finalReady && root.finalFailureDetails.length > 0
+                            radius: 8
+                            color: root.withAlpha(root.dangerColor, 0.10)
+                            border.width: 1
+                            border.color: root.withAlpha(root.dangerColor, 0.26)
+                            clip: true
+
+                            ColumnLayout {
+                                anchors.fill: parent
+                                anchors.margins: 14
+                                spacing: 8
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Failure details")
+                                    color: root.dangerColor
+                                    font.pixelSize: 13
+                                    font.weight: 800
+                                    elide: Text.ElideRight
+                                }
+
+                                ScrollView {
+                                    Layout.fillWidth: true
+                                    Layout.fillHeight: true
+                                    clip: true
+                                    contentWidth: availableWidth
+
+                                    Label {
+                                        id: failureContent
+                                        width: parent.width
+                                        text: root.finalFailureDetails
+                                        color: root.textColor
+                                        font.family: root.dataFontFamily
+                                        font.pixelSize: 12
+                                        lineHeight: 1.18
+                                        wrapMode: Text.WrapAnywhere
+                                    }
+                                }
+                            }
+                        }
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: 28
+                            Layout.rightMargin: 28
+                            Layout.preferredHeight: hintText.implicitHeight + 24
+                            radius: 8
+                            color: root.summaryCardColor
+                            border.width: 0
+
+                            Label {
+                                id: hintText
+                                anchors.fill: parent
+                                anchors.margins: 12
+                                text: qsTr("Results refresh the focused photo's Image inspector. Open the Image page to review and edit description, rating, and reasons.")
+                                color: root.textColor
+                                wrapMode: Text.WordWrap
+                                font.pixelSize: 13
+                            }
+                        }
+
+                        Item { Layout.preferredHeight: 8 }
                     }
                 }
 
-                Item { Layout.preferredHeight: 8 }
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 82
+                    color: root.withAlpha(root.canvasColor, 0.34)
+                    border.width: 0
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 28
+                        anchors.rightMargin: 28
+                        spacing: 12
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: root.running ? qsTr("Remote provider calls may incur cost.") : ""
+                            color: root.mutedTextColor
+                            font.pixelSize: 12
+                            elide: Text.ElideRight
+                        }
+
+                        DialogActionButton {
+                            kind: "warning"
+                            text: qsTr("Cancel")
+                            visible: root.running
+                            enabled: root.running
+                            onClicked: root.cancelAnalysis()
+                        }
+
+                        DialogActionButton {
+                            kind: "accent"
+                            text: qsTr("Analyze Selected")
+                            visible: !root.running && !root.finalReady
+                            enabled: root.backendInteractive && root.selectedImageCount > 0
+                            onClicked: root.startAnalysis()
+                        }
+
+                        DialogActionButton {
+                            kind: "normal"
+                            text: qsTr("Close")
+                            visible: !root.running && root.finalReady
+                            onClicked: root.close()
+                        }
+                    }
+                }
             }
         }
+    }
 
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 74
-            color: appTheme.bgPanelColor
-            border.width: 1
-            border.color: appTheme.glassStrokeColor
+    component SummaryTile: Rectangle {
+        property string label: ""
+        property string value: ""
 
-            RowLayout {
-                anchors.fill: parent
-                anchors.leftMargin: 28
-                anchors.rightMargin: 28
-                spacing: 12
+        Layout.fillWidth: true
+        Layout.preferredHeight: 76
+        radius: 8
+        color: root.summaryCardColor
+        border.width: 0
 
-                Label {
-                    Layout.fillWidth: true
-                    text: root.running ? qsTr("Remote provider calls may incur cost.") : ""
-                    color: appTheme.textMutedColor
-                    font.pixelSize: 12
-                }
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 12
+            spacing: 6
 
-                Button {
-                    text: qsTr("Cancel")
-                    visible: root.running
-                    enabled: root.running
-                    Material.background: appTheme.dangerColor
-                    Material.foreground: appTheme.textColor
-                    onClicked: root.cancelAnalysis()
-                }
+            Label {
+                Layout.fillWidth: true
+                text: label
+                color: root.mutedTextColor
+                font.pixelSize: 11
+                font.weight: 700
+                elide: Text.ElideRight
+            }
 
-                Button {
-                    text: qsTr("Analyze Selected")
-                    visible: !root.running && !root.finalReady
-                    enabled: root.backendInteractive && root.selectedImageCount > 0
-                    Material.background: appTheme.accentColor
-                    Material.foreground: appTheme.textColor
-                    onClicked: root.startAnalysis()
-                }
-
-                Button {
-                    text: qsTr("Close")
-                    visible: !root.running && root.finalReady
-                    onClicked: root.close()
-                }
+            Label {
+                Layout.fillWidth: true
+                text: value
+                color: root.textColor
+                font.pixelSize: 15
+                font.weight: 700
+                elide: Text.ElideRight
             }
         }
     }

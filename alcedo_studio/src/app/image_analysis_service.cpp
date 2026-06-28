@@ -41,6 +41,26 @@ class ScopeExit {
 template <typename F>
 ScopeExit(F) -> ScopeExit<F>;
 
+auto ProviderFailureMessage(int status, int error_code, const std::string& provider,
+                            const std::string& model_id) -> std::string {
+  std::string message = "provider call failed without an error message";
+  if (status != 0) {
+    message += " (status " + std::to_string(status);
+    if (error_code != 0) {
+      message += ", error code " + std::to_string(error_code);
+    }
+    message += ")";
+  } else if (error_code != 0) {
+    message += " (error code " + std::to_string(error_code) + ")";
+  }
+  if (!provider.empty()) {
+    message += "; provider=" + provider;
+  }
+  if (!model_id.empty()) {
+    message += "; model=" + model_id;
+  }
+  return message;
+}
 auto MakeRequestId(const ImageAnalysisItem& item, ImageAnalysisTask task) -> std::string {
   return std::string("image-analysis-") +
          (task == ImageAnalysisTask::kScore ? "score-" : "describe-") +
@@ -949,8 +969,10 @@ void ImageAnalysisService::RunJob(const std::shared_ptr<ImageAnalysisJob>& job,
       continue;
     }
 
-    const bool ok =
-        (options.task == ImageAnalysisTask::kScore) ? r.rating.ok : r.understanding.ok;
+    const bool rating_valid = r.rating.rating >= 1 && r.rating.rating <= 5;
+    const bool ok = (options.task == ImageAnalysisTask::kScore)
+                        ? (r.rating.ok && rating_valid)
+                        : r.understanding.ok;
     if (ok) {
       r.status = ImageAnalysisItemStatus::kAnalyzed;
       // Prefer the sidecar-echoed rendition when present (records what was analyzed).
@@ -962,8 +984,22 @@ void ImageAnalysisService::RunJob(const std::shared_ptr<ImageAnalysisJob>& job,
       update_and_dispatch([&](ImageAnalysisProgress& p) { p.analyzed += 1; });
     } else {
       r.status = ImageAnalysisItemStatus::kError;
-      r.error  = (options.task == ImageAnalysisTask::kScore) ? r.rating.error
-                                                             : r.understanding.error;
+      if (options.task == ImageAnalysisTask::kScore) {
+        r.error = r.rating.error.empty()
+                      ? ProviderFailureMessage(r.rating.status, r.rating.error_code,
+                                               r.rating.provider, r.rating.model_id)
+                      : r.rating.error;
+      } else {
+        r.error = r.understanding.error.empty()
+                      ? ProviderFailureMessage(r.understanding.status, r.understanding.error_code,
+                                               r.understanding.provider, r.understanding.model_id)
+                      : r.understanding.error;
+      }
+      if (options.task == ImageAnalysisTask::kScore && r.rating.ok && !rating_valid) {
+        r.rating.ok = false;
+        r.error     = "invalid image rating returned by provider: " +
+                    std::to_string(r.rating.rating) + " (expected 1..5)";
+      }
       update_and_dispatch([&](ImageAnalysisProgress& p) { p.failed += 1; });
     }
     job->AppendResult(std::move(r));

@@ -211,6 +211,47 @@ TEST_F(AiProviderProfileTest, SettingsPersistInOneAiProvidersJsonFile) {
   EXPECT_TRUE(root.contains(QStringLiteral("profiles")));
 }
 
+TEST_F(AiProviderProfileTest, ReloadMigratesOldOpencodeGoDefaultModels) {
+  const QString openai_id = controller_.AddProfileFromTemplate(QStringLiteral("opencode_go_openai"));
+  const QString anthropic_id =
+      controller_.AddProfileFromTemplate(QStringLiteral("opencode_go_anthropic"));
+
+  QFile file(StorageFileQt());
+  ASSERT_TRUE(file.open(QIODevice::ReadOnly));
+  QJsonObject root = QJsonDocument::fromJson(file.readAll()).object();
+  file.close();
+
+  QJsonArray profiles = root.value(QStringLiteral("profiles")).toArray();
+  for (auto value : profiles) {
+    QJsonObject profile = value.toObject();
+    if (profile.value(QStringLiteral("uuid")).toString() == openai_id) {
+      profile.insert(QStringLiteral("model_id"), QStringLiteral("gpt-4o"));
+      profile.insert(QStringLiteral("model_display_name"), QStringLiteral("GPT-4o"));
+    } else if (profile.value(QStringLiteral("uuid")).toString() == anthropic_id) {
+      profile.insert(QStringLiteral("model_id"), QStringLiteral("claude-sonnet-4-5"));
+      profile.insert(QStringLiteral("model_display_name"), QStringLiteral("Claude Sonnet 4.5"));
+    }
+    for (int i = 0; i < profiles.size(); ++i) {
+      if (profiles.at(i).toObject().value(QStringLiteral("uuid")) ==
+          profile.value(QStringLiteral("uuid"))) {
+        profiles.replace(i, profile);
+        break;
+      }
+    }
+  }
+  root.insert(QStringLiteral("profiles"), profiles);
+  ASSERT_TRUE(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+  file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+  file.close();
+
+  alcedo::AiProviderProfileController reloaded(StorageFile(), ConfigDir(), store_);
+  EXPECT_EQ(reloaded.Profile(openai_id).value(QStringLiteral("modelId")).toString(),
+            QStringLiteral("kimi-k2.7-code"));
+  EXPECT_EQ(reloaded.Profile(anthropic_id).value(QStringLiteral("modelId")).toString(),
+            QStringLiteral("qwen3.7-plus"));
+  EXPECT_EQ(reloaded.Profile(anthropic_id).value(QStringLiteral("authType")).toString(),
+            QStringLiteral("api_key_header"));
+}
 TEST_F(AiProviderProfileTest, PrepareSidecarConfigDirWritesProviderConfigsAndRemovesStaleFiles) {
   const QString     id      = controller_.AddProfileFromTemplate(QStringLiteral("volcengine_ark"));
   const QVariantMap profile = Profile(id);
@@ -243,11 +284,29 @@ TEST_F(AiProviderProfileTest, PrepareSidecarConfigDirWritesProviderConfigsAndRem
   EXPECT_FALSE(controller_.SidecarConfigsDirty());
 }
 
+TEST_F(AiProviderProfileTest, OpenCodeOpenAiConfigIncludesDocumentedAndDiscoverableKimiIds) {
+  const QString     id = controller_.AddProfileFromTemplate(QStringLiteral("opencode_go_openai"));
+  const QVariantMap profile = Profile(id);
+  std::string       error;
+  ASSERT_TRUE(controller_.PrepareSidecarConfigDir(&error)) << error;
+
+  const QJsonObject root =
+      ReadJsonFile(ConfigFileQt(profile.value(QStringLiteral("providerId")).toString()));
+  QSet<QString> model_ids;
+  for (const auto& value : root.value(QStringLiteral("models")).toArray()) {
+    model_ids.insert(value.toObject().value(QStringLiteral("slug")).toString());
+  }
+  EXPECT_TRUE(model_ids.contains(QStringLiteral("kimi-k2.7-code")));
+  EXPECT_TRUE(model_ids.contains(QStringLiteral("kimi-k2.7")));
+}
+
 TEST_F(AiProviderProfileTest, DiscoveredModelsPersistAndBecomeSidecarModels) {
   const QString id = controller_.AddProfileFromTemplate(QStringLiteral("opencode_go_openai"));
   QVariantMap   discovered;
   discovered.insert(QStringLiteral("modelId"), QStringLiteral("live-vision-model"));
   discovered.insert(QStringLiteral("displayName"), QStringLiteral("Live Vision Model"));
+  discovered.insert(QStringLiteral("supportsVision"), true);
+  discovered.insert(QStringLiteral("supportsStructuredOutput"), true);
   QVariantList models;
   models.push_back(discovered);
 
@@ -274,6 +333,25 @@ TEST_F(AiProviderProfileTest, DiscoveredModelsPersistAndBecomeSidecarModels) {
             QStringLiteral("live-vision-model"));
 }
 
+TEST_F(AiProviderProfileTest, DiscoveredModelsDefaultToImageAnalysisCandidate) {
+  const QString id = controller_.AddProfileFromTemplate(QStringLiteral("opencode_go_openai"));
+  QVariantMap   discovered;
+  discovered.insert(QStringLiteral("modelId"), QStringLiteral("listed-code-model"));
+  discovered.insert(QStringLiteral("displayName"), QStringLiteral("Listed Code Model"));
+  QVariantList models;
+  models.push_back(discovered);
+
+  controller_.SetDiscoveredModels(id, models);
+  const auto options = controller_.ModelOptions(id);
+  auto it = std::find_if(options.begin(), options.end(), [](const QVariant& value) {
+    return value.toMap().value(QStringLiteral("modelId")).toString() ==
+           QStringLiteral("listed-code-model");
+  });
+  ASSERT_NE(it, options.end());
+  const auto model = it->toMap();
+  EXPECT_TRUE(model.value(QStringLiteral("supportsVision")).toBool());
+  EXPECT_TRUE(model.value(QStringLiteral("supportsStructuredOutput")).toBool());
+}
 TEST_F(AiProviderProfileTest, RawApiKeyNeverEntersProfileJsonOrSidecarConfig) {
   const QString id  = controller_.AddProfileFromTemplate(QStringLiteral("opencode_go_anthropic"));
   const QString raw = QStringLiteral("sk-never-persist-this-secret-123456");

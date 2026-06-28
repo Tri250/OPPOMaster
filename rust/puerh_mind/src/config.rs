@@ -95,7 +95,9 @@ impl AppConfig {
                 batch_wait_ms: parse_env("ALCEDO_MIND_BATCH_WAIT_MS", 25)?,
             },
             credential_ttl_ms: parse_env("ALCEDO_MIND_CREDENTIAL_TTL_MS", 3_600_000)?,
-            provider_config_dir: env::var("ALCEDO_MIND_PROVIDER_CONFIG_DIR").ok().filter(|s| !s.trim().is_empty()),
+            provider_config_dir: env::var("ALCEDO_MIND_PROVIDER_CONFIG_DIR")
+                .ok()
+                .filter(|s| !s.trim().is_empty()),
         })
     }
 
@@ -238,7 +240,8 @@ mod tests {
 
     #[test]
     fn rejects_empty_model_root() {
-        let err = AppConfig::from_args(["--model-root", ""]).expect_err("empty model-root rejected");
+        let err =
+            AppConfig::from_args(["--model-root", ""]).expect_err("empty model-root rejected");
         assert!(err.to_string().contains("model-root must not be empty"));
     }
 
@@ -256,15 +259,18 @@ mod tests {
 
     #[test]
     fn rejects_non_numeric_port() {
-        let err = AppConfig::from_args(["--port", "not-a-port"])
-            .expect_err("non-numeric port rejected");
+        let err =
+            AppConfig::from_args(["--port", "not-a-port"]).expect_err("non-numeric port rejected");
         assert!(err.to_string().contains("failed to parse --port"));
     }
 
     #[test]
     fn rejects_zero_batch_cap() {
         let err = AppConfig::from_args(["--batch-cap", "0"]).expect_err("zero batch-cap rejected");
-        assert!(err.to_string().contains("batch-cap must be greater than zero"));
+        assert!(
+            err.to_string()
+                .contains("batch-cap must be greater than zero")
+        );
     }
 
     #[test]

@@ -47,8 +47,8 @@ use tracing::warn;
 
 use crate::service::credential_vault::SecretString;
 use crate::service::image_analysis::{
-    DescribeOutcome, DiscoveredModel, ImageAnalysisProvider, ProviderError, ScoreOutcome,
-    IMAGE_RATING_SCHEMA, IMAGE_UNDERSTANDING_SCHEMA, validate_rating, validate_understanding,
+    DescribeOutcome, DiscoveredModel, IMAGE_RATING_SCHEMA, IMAGE_UNDERSTANDING_SCHEMA,
+    ImageAnalysisProvider, ProviderError, ScoreOutcome, validate_rating, validate_understanding,
 };
 use crate::service::provider_config::{ModelConfig, ProviderConfig};
 use crate::service::providers::http_util::{
@@ -81,7 +81,11 @@ impl OpenAiChatCompatibleProvider {
     /// `reqwest::Client`. Used by `main.rs` for the shipped sidecar.
     pub fn new(config: ProviderConfig) -> Result<Self, ProviderError> {
         let http = build_rustls_client()?;
-        Ok(Self { config, http, discovered_models: Mutex::new(Vec::new()) })
+        Ok(Self {
+            config,
+            http,
+            discovered_models: Mutex::new(Vec::new()),
+        })
     }
 
     /// Construct with an injected HTTP client. Used by tests to point the driver
@@ -89,7 +93,11 @@ impl OpenAiChatCompatibleProvider {
     /// `http://127.0.0.1` so tests can also use `new` with a localhost base_url.
     #[allow(dead_code)]
     pub fn with_client(config: ProviderConfig, http: reqwest::Client) -> Self {
-        Self { config, http, discovered_models: Mutex::new(Vec::new()) }
+        Self {
+            config,
+            http,
+            discovered_models: Mutex::new(Vec::new()),
+        }
     }
 
     fn url(&self) -> String {
@@ -100,11 +108,7 @@ impl OpenAiChatCompatibleProvider {
     /// `{base_url}/models` (the OpenAI-compatible default); a config
     /// `models_endpoint` override replaces the path.
     fn models_url(&self) -> String {
-        let path = self
-            .config
-            .models_endpoint
-            .as_deref()
-            .unwrap_or("/models");
+        let path = self.config.models_endpoint.as_deref().unwrap_or("/models");
         format!("{}{}", self.config.base_url, path)
     }
 
@@ -119,7 +123,10 @@ impl OpenAiChatCompatibleProvider {
     /// being the default) and may yield `None` when the default is not itself
     /// listed. Returns an owned `ModelConfig` clone because committed discovered
     /// models live behind a `Mutex` whose guard cannot outlive the call.
-    fn resolve_model(&self, requested: &str) -> Result<(String, Option<ModelConfig>), ProviderError> {
+    fn resolve_model(
+        &self,
+        requested: &str,
+    ) -> Result<(String, Option<ModelConfig>), ProviderError> {
         if requested.trim().is_empty() {
             let slug = self.config.defaults.model.clone();
             let entry = self.config.models.iter().find(|m| m.slug == slug).cloned();
@@ -128,7 +135,10 @@ impl OpenAiChatCompatibleProvider {
         if let Some(m) = self.config.models.iter().find(|m| m.slug == requested) {
             return Ok((m.slug.clone(), Some(m.clone())));
         }
-        let committed = self.discovered_models.lock().expect("discovered_models mutex poisoned");
+        let committed = self
+            .discovered_models
+            .lock()
+            .expect("discovered_models mutex poisoned");
         if let Some(m) = committed.iter().find(|m| m.slug == requested) {
             return Ok((m.slug.clone(), Some(m.clone())));
         }
@@ -144,7 +154,10 @@ impl OpenAiChatCompatibleProvider {
     /// provider HTTP call as a normal per-item error rather than being silently
     /// dropped.
     fn commit_discovered_models(&self, models: &[DiscoveredModel]) {
-        let mut committed = self.discovered_models.lock().expect("discovered_models mutex poisoned");
+        let mut committed = self
+            .discovered_models
+            .lock()
+            .expect("discovered_models mutex poisoned");
         for m in models {
             let already_known = self.config.models.iter().any(|c| c.slug == m.model_id)
                 || committed.iter().any(|c| c.slug == m.model_id);
@@ -197,7 +210,9 @@ impl OpenAiChatCompatibleProvider {
             ("bearer", None) => Err(ProviderError::Provider(
                 "bearer provider called without a credential".to_string(),
             )),
-            (other, _) => Err(ProviderError::Provider(format!("unsupported auth type {other}"))),
+            (other, _) => Err(ProviderError::Provider(format!(
+                "unsupported auth type {other}"
+            ))),
         }
     }
 
@@ -270,14 +285,23 @@ impl OpenAiChatCompatibleProvider {
         body
     }
 
-    fn parse_describe(&self, body: &Value, model_id: &str, header_req_id: &str) -> Result<DescribeOutcome, ProviderError> {
+    fn parse_describe(
+        &self,
+        body: &Value,
+        model_id: &str,
+        header_req_id: &str,
+    ) -> Result<DescribeOutcome, ProviderError> {
         let content_pointer = self
             .config
             .response
             .content_json_pointer
             .as_deref()
             .unwrap_or("/choices/0/message/content");
-        let content = json_pointer_str(body, content_pointer).ok_or(ProviderError::SchemaValidation)?;
+        let content = json_pointer_str(body, content_pointer).ok_or_else(|| {
+            ProviderError::SchemaValidationMessage(format!(
+                "provider response did not contain JSON content at pointer {content_pointer}; expected OpenAI-compatible choices[0].message.content"
+            ))
+        })?;
         let parsed = match content {
             Value::String(s) => parse_content_json(s)?,
             other => other.clone(),
@@ -303,7 +327,10 @@ impl OpenAiChatCompatibleProvider {
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string(),
-            confidence: parsed.get("confidence").and_then(|v| v.as_f64()).unwrap_or(f64::NAN),
+            confidence: parsed
+                .get("confidence")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(f64::NAN),
             model_id: model_id.to_string(),
             usage: extract_usage(
                 self.config
@@ -318,14 +345,23 @@ impl OpenAiChatCompatibleProvider {
         Ok(out)
     }
 
-    fn parse_score(&self, body: &Value, model_id: &str, header_req_id: &str) -> Result<ScoreOutcome, ProviderError> {
+    fn parse_score(
+        &self,
+        body: &Value,
+        model_id: &str,
+        header_req_id: &str,
+    ) -> Result<ScoreOutcome, ProviderError> {
         let content_pointer = self
             .config
             .response
             .content_json_pointer
             .as_deref()
             .unwrap_or("/choices/0/message/content");
-        let content = json_pointer_str(body, content_pointer).ok_or(ProviderError::SchemaValidation)?;
+        let content = json_pointer_str(body, content_pointer).ok_or_else(|| {
+            ProviderError::SchemaValidationMessage(format!(
+                "provider response did not contain JSON content at pointer {content_pointer}; expected OpenAI-compatible choices[0].message.content"
+            ))
+        })?;
         let parsed = match content {
             Value::String(s) => parse_content_json(s)?,
             other => other.clone(),
@@ -336,10 +372,7 @@ impl OpenAiChatCompatibleProvider {
         // schema-invalid and is NOT truncated — `parse_rating_int` returns None,
         // the rating falls back to 0 (outside the 1..=5 contract), and
         // `validate_rating` rejects it (fail closed, no active annotation).
-        let rating = parsed
-            .get("rating")
-            .and_then(parse_rating_int)
-            .unwrap_or(0);
+        let rating = parsed.get("rating").and_then(parse_rating_int).unwrap_or(0);
         let out = ScoreOutcome {
             rating,
             rubric_id: parsed
@@ -379,7 +412,9 @@ impl OpenAiChatCompatibleProvider {
 /// Chinese) appends a response-language directive to the system message.
 fn describe_prompt(prompt_profile_id: &str, output_language: &str) -> (String, String) {
     let mut system = "You are an image understanding assistant for Alcedo Studio. Analyze the supplied image and respond with a single JSON object matching the provided schema. The object must contain: \"caption\" (a concise one-line description of the image), \"tags\" (an array of short lowercase searchable tags, with at least one tag), \"scene\" (a short scene or category hint, or an empty string if none), and \"confidence\" (your confidence in the description, a number between 0.0 and 1.0). Output only the JSON object — no prose, no markdown code fences.".to_string();
-    system.push_str(&crate::service::image_analysis::language_directive(output_language));
+    system.push_str(&crate::service::image_analysis::language_directive(
+        output_language,
+    ));
     let mut instruction = "Describe this image for a photo library.".to_string();
     if !prompt_profile_id.trim().is_empty() {
         instruction.push_str(&format!(" Prompt profile: {prompt_profile_id}."));
@@ -394,9 +429,15 @@ fn describe_prompt(prompt_profile_id: &str, output_language: &str) -> (String, S
 /// scored image is never confused with an unrated one). No confidence is requested
 /// (Phase 5f rating-contract change). `output_language` controls the language of
 /// the generated `reasons` (the integer rating is language-independent).
-fn score_prompt(prompt_profile_id: &str, rubric_id: &str, output_language: &str) -> (String, String) {
+fn score_prompt(
+    prompt_profile_id: &str,
+    rubric_id: &str,
+    output_language: &str,
+) -> (String, String) {
     let mut system = "You are an image rating assistant for Alcedo Studio. Rate the supplied image against the given rubric and respond with a single JSON object matching the provided schema. The object must contain: \"rating\" (an integer from 1 to 5, where 1 is a poor photo and 5 is an excellent photo — the app's star rating), \"rubric_id\" (the rubric you applied), \"rubric_version\" (the rubric version, or an empty string), and \"reasons\" (a short rationale). Do not include any other field — in particular, do not output a confidence. Output only the JSON object — no prose, no markdown code fences.".to_string();
-    system.push_str(&crate::service::image_analysis::language_directive(output_language));
+    system.push_str(&crate::service::image_analysis::language_directive(
+        output_language,
+    ));
     let mut instruction = "Rate this image on a 1–5 star scale.".to_string();
     if !rubric_id.trim().is_empty() {
         instruction.push_str(&format!(" Rubric: {rubric_id}."));
@@ -404,7 +445,9 @@ fn score_prompt(prompt_profile_id: &str, rubric_id: &str, output_language: &str)
     if !prompt_profile_id.trim().is_empty() {
         instruction.push_str(&format!(" Prompt profile: {prompt_profile_id}."));
     }
-    instruction.push_str(" Return only the JSON object described above, with an integer \"rating\" between 1 and 5.");
+    instruction.push_str(
+        " Return only the JSON object described above, with an integer \"rating\" between 1 and 5.",
+    );
     (system, instruction)
 }
 
@@ -482,7 +525,10 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
             &headers,
             &resp_body,
             self.config.response.provider_request_id_header.as_deref(),
-            self.config.response.provider_request_id_json_pointer.as_deref(),
+            self.config
+                .response
+                .provider_request_id_json_pointer
+                .as_deref(),
         );
         let outcome = self.parse_describe(&resp_body, &slug, &header_req_id)?;
         warn!(
@@ -532,7 +578,10 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
             &headers,
             &resp_body,
             self.config.response.provider_request_id_header.as_deref(),
-            self.config.response.provider_request_id_json_pointer.as_deref(),
+            self.config
+                .response
+                .provider_request_id_json_pointer
+                .as_deref(),
         );
         let outcome = self.parse_score(&resp_body, &slug, &header_req_id)?;
         warn!(
@@ -627,12 +676,8 @@ mod tests {
             .expect("opencode_go_openai built-in")
             .clone();
         config.base_url = server.uri();
-        // The Opencode model ships unverified (`supports_structured_output = false`).
-        // Flip it on for these driver-shape tests so `ensure_structured_output`
-        // does not fail closed before the HTTP call — the advertisement gate
-        // (Phase 6a) is tested separately in `provider_config`. Here we exercise
-        // the wire shape, not the advertisement rule.
-        config.models[0].supports_structured_output = true;
+        // OpenCode built-ins are already structured-output capable; these tests
+        // exercise the wire shape against a mock endpoint.
         OpenAiChatCompatibleProvider::new(config).expect("provider builds")
     }
 
@@ -697,25 +742,30 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/chat/completions"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(ok_understanding_body(
-                r#"{"caption":"c","tags":["t"],"scene":"","confidence":0.5}"#,
-            )))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(ok_understanding_body(
+                    r#"{"caption":"c","tags":["t"],"scene":"","confidence":0.5}"#,
+                )),
+            )
             .mount(&server)
             .await;
 
         let provider = provider_for(&server);
         provider
-            .describe_image(&test_image_png(), "gpt-4o", "", "", Some(&secret()))
+            .describe_image(&test_image_png(), "kimi-k2.7-code", "", "", Some(&secret()))
             .await
             .expect("describe ok");
 
         let reqs = server.received_requests().await.expect("requests captured");
         assert_eq!(reqs.len(), 1);
         let body: Value = serde_json::from_slice(&reqs[0].body).expect("body json");
-        assert_eq!(body["model"], "gpt-4o");
+        assert_eq!(body["model"], "kimi-k2.7-code");
         assert_eq!(body["stream"], false);
         assert_eq!(body["response_format"]["type"], "json_schema");
-        assert_eq!(body["response_format"]["json_schema"]["name"], "alcedo_image_understanding");
+        assert_eq!(
+            body["response_format"]["json_schema"]["name"],
+            "alcedo_image_understanding"
+        );
         assert_eq!(body["response_format"]["json_schema"]["strict"], true);
         let schema = &body["response_format"]["json_schema"]["schema"];
         assert_eq!(schema["type"], "object");
@@ -730,7 +780,12 @@ mod tests {
         assert!(required.contains(&"tags"));
         // The image is carried as a data URI in the user message.
         let img_url = &body["messages"][1]["content"][1]["image_url"]["url"];
-        assert!(img_url.as_str().unwrap().starts_with("data:image/png;base64,"));
+        assert!(
+            img_url
+                .as_str()
+                .unwrap()
+                .starts_with("data:image/png;base64,")
+        );
     }
 
     #[tokio::test]
@@ -752,7 +807,7 @@ mod tests {
         assert_eq!(out.tags.len(), 3);
         assert_eq!(out.scene, "outdoor");
         assert!((out.confidence - 0.82).abs() < 1e-9);
-        assert_eq!(out.model_id, "gpt-4o");
+        assert_eq!(out.model_id, "kimi-k2.7-code");
         assert_eq!(out.usage.input_tokens, 100);
         assert_eq!(out.usage.output_tokens, 40);
         assert_eq!(out.usage.total_tokens, 140);
@@ -776,7 +831,14 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let out = provider
-            .score_image(&test_image_png(), "", "", "alcedo-default-v1", "", Some(&secret()))
+            .score_image(
+                &test_image_png(),
+                "",
+                "",
+                "alcedo-default-v1",
+                "",
+                Some(&secret()),
+            )
             .await
             .expect("score ok");
         assert_eq!(out.rating, 4);
@@ -815,9 +877,11 @@ mod tests {
             .await;
         Mock::given(method("POST"))
             .and(path("/chat/completions"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(ok_understanding_body(
-                r#"{"caption":"c","tags":["t"],"scene":"","confidence":0.5}"#,
-            )))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(ok_understanding_body(
+                    r#"{"caption":"c","tags":["t"],"scene":"","confidence":0.5}"#,
+                )),
+            )
             .mount(&server)
             .await;
         let provider = provider_for(&server);
@@ -848,7 +912,10 @@ mod tests {
         assert!(matches!(err, ProviderError::Provider(_)), "{err:?}");
         assert_eq!(server.received_requests().await.unwrap().len(), 1);
         // The raw provider body is NOT surfaced in the error string.
-        assert!(!err.to_string().contains(RAW_BODY_SENTINEL), "raw body leaked: {err}");
+        assert!(
+            !err.to_string().contains(RAW_BODY_SENTINEL),
+            "raw body leaked: {err}"
+        );
     }
 
     #[tokio::test]
@@ -860,9 +927,11 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/chat/completions"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(ok_understanding_body(
-                "Sorry, I can only describe images in plain text.",
-            )))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(ok_understanding_body(
+                    "Sorry, I can only describe images in plain text.",
+                )),
+            )
             .mount(&server)
             .await;
         let provider = provider_for(&server);
@@ -880,9 +949,11 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/chat/completions"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(ok_understanding_body(
-                r#"{"caption":"","tags":["t"],"scene":"","confidence":0.5}"#,
-            )))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(ok_understanding_body(
+                    r#"{"caption":"","tags":["t"],"scene":"","confidence":0.5}"#,
+                )),
+            )
             .mount(&server)
             .await;
         let provider = provider_for(&server);
@@ -898,9 +969,11 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/chat/completions"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(ok_understanding_body(
-                r#"{"caption":"c","tags":["t"],"scene":"","confidence":0.5}"#,
-            )))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(ok_understanding_body(
+                    r#"{"caption":"c","tags":["t"],"scene":"","confidence":0.5}"#,
+                )),
+            )
             .mount(&server)
             .await;
         let provider = provider_for(&server);
@@ -966,7 +1039,9 @@ mod tests {
         impl<'a> MakeWriter<'a> for BufWriter {
             type Writer = BufWriteImpl;
             fn make_writer(&'a self) -> Self::Writer {
-                BufWriteImpl { inner: self.0.clone() }
+                BufWriteImpl {
+                    inner: self.0.clone(),
+                }
             }
         }
         struct BufWriteImpl {
@@ -1023,15 +1098,30 @@ mod tests {
             captured.contains("retrying"),
             "log capture did not work (no retry warn captured): {captured}"
         );
-        assert!(!captured.contains(TEST_SECRET), "secret in logs: {captured}");
+        assert!(
+            !captured.contains(TEST_SECRET),
+            "secret in logs: {captured}"
+        );
         assert!(
             !captured.contains("data:image/png;base64,"),
             "image in logs: {captured}"
         );
-        assert!(!captured.contains(TEST_PROMPT), "prompt in logs: {captured}");
-        assert!(!captured.contains(RAW_BODY_SENTINEL), "raw body in logs: {captured}");
-        assert!(!err.to_string().contains(TEST_SECRET), "secret in error: {err}");
-        assert!(!err.to_string().contains(RAW_BODY_SENTINEL), "raw body in error: {err}");
+        assert!(
+            !captured.contains(TEST_PROMPT),
+            "prompt in logs: {captured}"
+        );
+        assert!(
+            !captured.contains(RAW_BODY_SENTINEL),
+            "raw body in logs: {captured}"
+        );
+        assert!(
+            !err.to_string().contains(TEST_SECRET),
+            "secret in error: {err}"
+        );
+        assert!(
+            !err.to_string().contains(RAW_BODY_SENTINEL),
+            "raw body in error: {err}"
+        );
     }
 
     // ----- Phase 6c: model_id tightening + model discovery -----
@@ -1047,10 +1137,19 @@ mod tests {
         let provider = provider_for(&server);
 
         let err = provider
-            .describe_image(&test_image_png(), "not-a-real-model-slug", "", "", Some(&secret()))
+            .describe_image(
+                &test_image_png(),
+                "not-a-real-model-slug",
+                "",
+                "",
+                Some(&secret()),
+            )
             .await
             .expect_err("unknown model id should fail closed");
-        assert_eq!(err, ProviderError::UnknownModel("not-a-real-model-slug".to_string()));
+        assert_eq!(
+            err,
+            ProviderError::UnknownModel("not-a-real-model-slug".to_string())
+        );
         // No request should have hit the server.
         assert_eq!(server.received_requests().await.unwrap().len(), 0);
     }
@@ -1065,20 +1164,23 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "object": "list",
                 "data": [
-                    { "id": "gpt-4o", "object": "model", "owned_by": "openai" },
-                    { "id": "gpt-4o-mini", "display_name": "GPT-4o mini" }
+                    { "id": "kimi-k2.7-code", "object": "model", "owned_by": "openai" },
+                    { "id": "kimi-k2.7-code-mini", "display_name": "Kimi K2.6" }
                 ]
             })))
             .mount(&server)
             .await;
         let provider = provider_for(&server);
 
-        let models = provider.list_models(Some(&secret())).await.expect("list ok");
+        let models = provider
+            .list_models(Some(&secret()))
+            .await
+            .expect("list ok");
         assert_eq!(models.len(), 2);
-        assert_eq!(models[0].model_id, "gpt-4o");
-        assert_eq!(models[0].display_name, "gpt-4o"); // falls back to id
-        assert_eq!(models[1].model_id, "gpt-4o-mini");
-        assert_eq!(models[1].display_name, "GPT-4o mini"); // uses display_name
+        assert_eq!(models[0].model_id, "kimi-k2.7-code");
+        assert_eq!(models[0].display_name, "kimi-k2.7-code"); // falls back to id
+        assert_eq!(models[1].model_id, "kimi-k2.7-code-mini");
+        assert_eq!(models[1].display_name, "Kimi K2.6"); // uses display_name
         assert_eq!(models[0].source_provider_id, "opencode_go_openai");
     }
 
@@ -1095,7 +1197,10 @@ mod tests {
             .await;
         let provider = provider_for(&server);
 
-        provider.list_models(Some(&secret())).await.expect("list ok");
+        provider
+            .list_models(Some(&secret()))
+            .await
+            .expect("list ok");
         let reqs = server.received_requests().await.unwrap();
         assert_eq!(reqs.len(), 1);
         assert_eq!(reqs[0].method, "GET");
@@ -1121,7 +1226,10 @@ mod tests {
             .await;
         let provider = provider_for(&server);
 
-        let err = provider.list_models(Some(&secret())).await.expect_err("401 fails");
+        let err = provider
+            .list_models(Some(&secret()))
+            .await
+            .expect_err("401 fails");
         match err {
             ProviderError::Provider(_) => {}
             other => panic!("expected Provider for 401, got {other:?}"),
@@ -1144,13 +1252,16 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/models"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "data": [
-                { "id": "gpt-4o" }
+                { "id": "kimi-k2.7-code" }
             ] })))
             .mount(&server)
             .await;
         let provider = provider_for(&server);
 
-        let models = provider.list_models(Some(&secret())).await.expect("list ok after retry");
+        let models = provider
+            .list_models(Some(&secret()))
+            .await
+            .expect("list ok after retry");
         assert_eq!(models.len(), 1);
         assert_eq!(server.received_requests().await.unwrap().len(), 2);
     }
@@ -1167,7 +1278,10 @@ mod tests {
             .await;
         let provider = provider_for(&server);
 
-        let err = provider.list_models(Some(&secret())).await.expect_err("500 fails");
+        let err = provider
+            .list_models(Some(&secret()))
+            .await
+            .expect_err("500 fails");
         assert_eq!(err, ProviderError::Transient);
         assert!(!err.to_string().contains(TEST_SECRET));
         assert!(!err.to_string().contains(RAW_BODY_SENTINEL));
@@ -1184,7 +1298,10 @@ mod tests {
             .await;
         let provider = provider_for(&server);
 
-        let err = provider.list_models(Some(&secret())).await.expect_err("bad shape");
+        let err = provider
+            .list_models(Some(&secret()))
+            .await
+            .expect_err("bad shape");
         assert_eq!(err, ProviderError::SchemaValidation);
     }
 
@@ -1205,33 +1322,53 @@ mod tests {
             .await;
         Mock::given(method("POST"))
             .and(path("/chat/completions"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(ok_understanding_body(
-                r#"{"caption":"c","tags":["t"],"scene":"","confidence":0.5}"#,
-            )))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(ok_understanding_body(
+                    r#"{"caption":"c","tags":["t"],"scene":"","confidence":0.5}"#,
+                )),
+            )
             .mount(&server)
             .await;
         let provider = provider_for(&server);
 
         // Before discovery, the slug is unknown -> fail closed before HTTP.
         let err = provider
-            .describe_image(&test_image_png(), "discovered-vision-model", "", "", Some(&secret()))
+            .describe_image(
+                &test_image_png(),
+                "discovered-vision-model",
+                "",
+                "",
+                Some(&secret()),
+            )
             .await
             .expect_err("unknown slug fails before discovery");
         assert!(matches!(err, ProviderError::UnknownModel(_)));
 
         // Discovery commits the slug.
-        let models = provider.list_models(Some(&secret())).await.expect("list ok");
+        let models = provider
+            .list_models(Some(&secret()))
+            .await
+            .expect("list ok");
         assert_eq!(models.len(), 1);
 
         // After discovery, the same slug resolves and the call proceeds.
         let out = provider
-            .describe_image(&test_image_png(), "discovered-vision-model", "", "", Some(&secret()))
+            .describe_image(
+                &test_image_png(),
+                "discovered-vision-model",
+                "",
+                "",
+                Some(&secret()),
+            )
             .await
             .expect("discovered slug selectable after list_models");
         assert_eq!(out.caption, "c");
         // The committed slug is sent in the request body.
         let reqs = server.received_requests().await.expect("requests captured");
-        let post = reqs.iter().find(|r| r.method.as_str() == "POST").expect("POST captured");
+        let post = reqs
+            .iter()
+            .find(|r| r.method.as_str() == "POST")
+            .expect("POST captured");
         let body: Value = serde_json::from_slice(&post.body).expect("body json");
         assert_eq!(body["model"], "discovered-vision-model");
     }
@@ -1243,9 +1380,11 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/chat/completions"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(ok_understanding_body(
-                r#"{"caption":"c","tags":["t"],"scene":"","confidence":0.5}"#,
-            )))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(ok_understanding_body(
+                    r#"{"caption":"c","tags":["t"],"scene":"","confidence":0.5}"#,
+                )),
+            )
             .mount(&server)
             .await;
         let provider = provider_for(&server);
@@ -1255,7 +1394,12 @@ mod tests {
             .expect("describe ok");
         let reqs = server.received_requests().await.expect("requests captured");
         let body: Value = serde_json::from_slice(&reqs[0].body).expect("body json");
-        let system = body["messages"][0]["content"].as_str().expect("system content");
-        assert!(system.contains("Simplified Chinese"), "zh directive missing: {system}");
+        let system = body["messages"][0]["content"]
+            .as_str()
+            .expect("system content");
+        assert!(
+            system.contains("Simplified Chinese"),
+            "zh directive missing: {system}"
+        );
     }
 }

@@ -20,11 +20,11 @@
 //! startup ([`build_real_image_providers`]); the secret is resolved from the
 //! credential vault per request and never travels through args, options, or logs.
 
+pub mod anthropic_messages;
 pub mod http_util;
 pub mod openai_chat_compatible;
 pub mod openrouter;
 pub mod volcengine_ark;
-pub mod anthropic_messages;
 
 #[cfg(test)]
 mod live_smoke;
@@ -96,7 +96,10 @@ pub fn build_real_image_providers(
 pub fn is_driver_wired(driver: &str) -> bool {
     matches!(
         driver,
-        "openai_chat_compatible" | "openrouter_chat" | "volcengine_ark_responses" | "anthropic_messages"
+        "openai_chat_compatible"
+            | "openrouter_chat"
+            | "volcengine_ark_responses"
+            | "anthropic_messages"
     )
 }
 

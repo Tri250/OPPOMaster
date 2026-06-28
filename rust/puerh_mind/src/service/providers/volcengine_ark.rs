@@ -27,14 +27,13 @@ use tracing::warn;
 
 use crate::service::credential_vault::SecretString;
 use crate::service::image_analysis::{
-    DescribeOutcome, ImageAnalysisProvider, ProviderError, ScoreOutcome,
-    IMAGE_RATING_SCHEMA, IMAGE_UNDERSTANDING_SCHEMA, validate_rating, validate_understanding,
+    DescribeOutcome, IMAGE_RATING_SCHEMA, IMAGE_UNDERSTANDING_SCHEMA, ImageAnalysisProvider,
+    ProviderError, ScoreOutcome, validate_rating, validate_understanding,
 };
 use crate::service::provider_config::{ModelConfig, ProviderConfig};
 use crate::service::providers::http_util::{
     MAX_TRANSIENT_RETRIES, build_image_data_uri, build_rustls_client, extract_usage,
-    json_pointer_str, parse_content_json, parse_rating_int, send_with_retry,
-    strict_schema_value,
+    json_pointer_str, parse_content_json, parse_rating_int, send_with_retry, strict_schema_value,
 };
 
 const UNDERSTANDING_SCHEMA_NAME: &str = "alcedo_image_understanding";
@@ -91,14 +90,19 @@ impl VolcengineArkResponsesProvider {
         Ok(())
     }
 
-    fn bearer<'a>(&self, credential: Option<&'a SecretString>) -> Result<Option<&'a str>, ProviderError> {
+    fn bearer<'a>(
+        &self,
+        credential: Option<&'a SecretString>,
+    ) -> Result<Option<&'a str>, ProviderError> {
         match (self.config.auth.auth_type.as_str(), credential) {
             ("none", _) => Ok(None),
             ("bearer", Some(s)) => Ok(Some(s.expose())),
             ("bearer", None) => Err(ProviderError::Provider(
                 "bearer provider called without a credential".to_string(),
             )),
-            (other, _) => Err(ProviderError::Provider(format!("unsupported auth type {other}"))),
+            (other, _) => Err(ProviderError::Provider(format!(
+                "unsupported auth type {other}"
+            ))),
         }
     }
 
@@ -164,7 +168,11 @@ impl VolcengineArkResponsesProvider {
         None
     }
 
-    fn parse_describe(&self, body: &Value, model_id: &str) -> Result<DescribeOutcome, ProviderError> {
+    fn parse_describe(
+        &self,
+        body: &Value,
+        model_id: &str,
+    ) -> Result<DescribeOutcome, ProviderError> {
         let text = Self::extract_output_text(body).ok_or(ProviderError::SchemaValidation)?;
         let parsed = parse_content_json(&text)?;
         let out = DescribeOutcome {
@@ -188,7 +196,10 @@ impl VolcengineArkResponsesProvider {
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string(),
-            confidence: parsed.get("confidence").and_then(|v| v.as_f64()).unwrap_or(f64::NAN),
+            confidence: parsed
+                .get("confidence")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(f64::NAN),
             model_id: model_id.to_string(),
             usage: extract_usage(
                 self.config
@@ -218,10 +229,7 @@ impl VolcengineArkResponsesProvider {
         // float (e.g. `4.0`); a fractional float (e.g. `4.9`) is NOT truncated —
         // `parse_rating_int` returns None, the rating falls back to 0 (outside the
         // 1..=5 contract), and `validate_rating` rejects it (fail closed).
-        let rating = parsed
-            .get("rating")
-            .and_then(parse_rating_int)
-            .unwrap_or(0);
+        let rating = parsed.get("rating").and_then(parse_rating_int).unwrap_or(0);
         let out = ScoreOutcome {
             rating,
             rubric_id: parsed
@@ -264,7 +272,9 @@ impl VolcengineArkResponsesProvider {
 
 fn describe_prompt(prompt_profile_id: &str, output_language: &str) -> (String, String) {
     let mut system = "You are an image understanding assistant for Alcedo Studio. Analyze the supplied image and respond with a single JSON object matching the provided schema. The object must contain: \"caption\" (a concise one-line description of the image), \"tags\" (an array of short lowercase searchable tags, with at least one tag), \"scene\" (a short scene or category hint, or an empty string if none), and \"confidence\" (your confidence in the description, a number between 0.0 and 1.0). Output only the JSON object — no prose, no markdown code fences.".to_string();
-    system.push_str(&crate::service::image_analysis::language_directive(output_language));
+    system.push_str(&crate::service::image_analysis::language_directive(
+        output_language,
+    ));
     let mut instruction = "Describe this image for a photo library.".to_string();
     if !prompt_profile_id.trim().is_empty() {
         instruction.push_str(&format!(" Prompt profile: {prompt_profile_id}."));
@@ -273,9 +283,15 @@ fn describe_prompt(prompt_profile_id: &str, output_language: &str) -> (String, S
     (system, instruction)
 }
 
-fn score_prompt(prompt_profile_id: &str, rubric_id: &str, output_language: &str) -> (String, String) {
+fn score_prompt(
+    prompt_profile_id: &str,
+    rubric_id: &str,
+    output_language: &str,
+) -> (String, String) {
     let mut system = "You are an image rating assistant for Alcedo Studio. Rate the supplied image against the given rubric and respond with a single JSON object matching the provided schema. The object must contain: \"rating\" (an integer from 1 to 5, where 1 is a poor photo and 5 is an excellent photo — the app's star rating), \"rubric_id\" (the rubric you applied), \"rubric_version\" (the rubric version, or an empty string), and \"reasons\" (a short rationale). Do not include any other field — in particular, do not output a confidence. Output only the JSON object — no prose, no markdown code fences.".to_string();
-    system.push_str(&crate::service::image_analysis::language_directive(output_language));
+    system.push_str(&crate::service::image_analysis::language_directive(
+        output_language,
+    ));
     let mut instruction = "Rate this image on a 1–5 star scale.".to_string();
     if !rubric_id.trim().is_empty() {
         instruction.push_str(&format!(" Rubric: {rubric_id}."));
@@ -283,7 +299,9 @@ fn score_prompt(prompt_profile_id: &str, rubric_id: &str, output_language: &str)
     if !prompt_profile_id.trim().is_empty() {
         instruction.push_str(&format!(" Prompt profile: {prompt_profile_id}."));
     }
-    instruction.push_str(" Return only the JSON object described above, with an integer \"rating\" between 1 and 5.");
+    instruction.push_str(
+        " Return only the JSON object described above, with an integer \"rating\" between 1 and 5.",
+    );
     (system, instruction)
 }
 
@@ -344,8 +362,15 @@ impl ImageAnalysisProvider for VolcengineArkResponsesProvider {
             &system,
             &instruction,
         );
-        let resp = send_with_retry(&self.http, &self.url(), &body, &self.attribution_headers(), bearer, MAX_TRANSIENT_RETRIES)
-            .await?;
+        let resp = send_with_retry(
+            &self.http,
+            &self.url(),
+            &body,
+            &self.attribution_headers(),
+            bearer,
+            MAX_TRANSIENT_RETRIES,
+        )
+        .await?;
         let resp_body: Value = resp
             .json()
             .await
@@ -383,8 +408,15 @@ impl ImageAnalysisProvider for VolcengineArkResponsesProvider {
             &system,
             &instruction,
         );
-        let resp = send_with_retry(&self.http, &self.url(), &body, &self.attribution_headers(), bearer, MAX_TRANSIENT_RETRIES)
-            .await?;
+        let resp = send_with_retry(
+            &self.http,
+            &self.url(),
+            &body,
+            &self.attribution_headers(),
+            bearer,
+            MAX_TRANSIENT_RETRIES,
+        )
+        .await?;
         let resp_body: Value = resp
             .json()
             .await
@@ -493,7 +525,13 @@ mod tests {
 
         let provider = provider_for(&server);
         provider
-            .describe_image(&test_image_png(), "doubao-seed-2-0-lite-260428", "", "", Some(&secret()))
+            .describe_image(
+                &test_image_png(),
+                "doubao-seed-2-0-lite-260428",
+                "",
+                "",
+                Some(&secret()),
+            )
             .await
             .expect("describe ok");
 
@@ -509,7 +547,12 @@ mod tests {
         // input_image carries the data URI as a flat string (Responses shape).
         let img = &body["input"][1]["content"][0];
         assert_eq!(img["type"], "input_image");
-        assert!(img["image_url"].as_str().unwrap().starts_with("data:image/png;base64,"));
+        assert!(
+            img["image_url"]
+                .as_str()
+                .unwrap()
+                .starts_with("data:image/png;base64,")
+        );
         assert_eq!(body["input"][1]["content"][1]["type"], "input_text");
         // max_output_tokens (Responses field name), not max_tokens.
         assert_eq!(body["max_output_tokens"], 1200);
@@ -571,7 +614,14 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let out = provider
-            .score_image(&test_image_png(), "", "", "alcedo-default-v1", "", Some(&secret()))
+            .score_image(
+                &test_image_png(),
+                "",
+                "",
+                "alcedo-default-v1",
+                "",
+                Some(&secret()),
+            )
             .await
             .expect("score ok");
         // Single 1..=5 integer star rating; no scores array, no confidence.
@@ -599,7 +649,14 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let err = provider
-            .score_image(&test_image_png(), "", "", "alcedo-default-v1", "", Some(&secret()))
+            .score_image(
+                &test_image_png(),
+                "",
+                "",
+                "alcedo-default-v1",
+                "",
+                Some(&secret()),
+            )
             .await
             .expect_err("fractional rating rejected");
         assert_eq!(err, ProviderError::SchemaValidation);
@@ -673,8 +730,15 @@ mod tests {
             .expect_err("400 not retried");
         assert!(matches!(err, ProviderError::Provider(_)), "{err:?}");
         assert_eq!(server.received_requests().await.unwrap().len(), 1);
-        assert!(!err.to_string().contains(RAW_BODY_SENTINEL), "raw body leaked: {err}");
-        assert!(!err.to_string().contains("BadRequest.ParameterValidationError"), "error code leaked: {err}");
+        assert!(
+            !err.to_string().contains(RAW_BODY_SENTINEL),
+            "raw body leaked: {err}"
+        );
+        assert!(
+            !err.to_string()
+                .contains("BadRequest.ParameterValidationError"),
+            "error code leaked: {err}"
+        );
     }
 
     #[tokio::test]
@@ -753,7 +817,9 @@ mod tests {
         impl<'a> MakeWriter<'a> for BufWriter {
             type Writer = BufWriteImpl;
             fn make_writer(&'a self) -> Self::Writer {
-                BufWriteImpl { inner: self.0.clone() }
+                BufWriteImpl {
+                    inner: self.0.clone(),
+                }
             }
         }
         struct BufWriteImpl {
@@ -791,10 +857,9 @@ mod tests {
                     .await;
                 Mock::given(method("POST"))
                     .and(path("/responses"))
-                    .respond_with(
-                        ResponseTemplate::new(400)
-                            .set_body_json(json!({ "error": { "code": "X", "message": RAW_BODY_SENTINEL } })),
-                    )
+                    .respond_with(ResponseTemplate::new(400).set_body_json(
+                        json!({ "error": { "code": "X", "message": RAW_BODY_SENTINEL } }),
+                    ))
                     .mount(&server)
                     .await;
                 let provider = provider_for(&server);
@@ -811,24 +876,39 @@ mod tests {
             captured.contains("retrying"),
             "log capture did not work (no retry warn captured): {captured}"
         );
-        assert!(!captured.contains(TEST_SECRET), "secret in logs: {captured}");
+        assert!(
+            !captured.contains(TEST_SECRET),
+            "secret in logs: {captured}"
+        );
         assert!(
             !captured.contains("data:image/png;base64,"),
             "image in logs: {captured}"
         );
-        assert!(!captured.contains(TEST_PROMPT), "prompt in logs: {captured}");
-        assert!(!captured.contains(RAW_BODY_SENTINEL), "raw body in logs: {captured}");
-        assert!(!err.to_string().contains(TEST_SECRET), "secret in error: {err}");
-        assert!(!err.to_string().contains(RAW_BODY_SENTINEL), "raw body in error: {err}");
+        assert!(
+            !captured.contains(TEST_PROMPT),
+            "prompt in logs: {captured}"
+        );
+        assert!(
+            !captured.contains(RAW_BODY_SENTINEL),
+            "raw body in logs: {captured}"
+        );
+        assert!(
+            !err.to_string().contains(TEST_SECRET),
+            "secret in error: {err}"
+        );
+        assert!(
+            !err.to_string().contains(RAW_BODY_SENTINEL),
+            "raw body in error: {err}"
+        );
     }
 
     #[tokio::test]
     async fn cancellation_drops_in_flight_request() {
-        use crate::server::image_analysis::ImageAnalysisServiceImpl;
         use crate::proto::alcedo::ai::{
-            AiErrorCode, AiRequestHeader, AiPriority, AiResponseStatus, DescribeImageRequest,
+            AiErrorCode, AiPriority, AiRequestHeader, AiResponseStatus, DescribeImageRequest,
             RenditionMetadata as ProtoRendition,
         };
+        use crate::server::image_analysis::ImageAnalysisServiceImpl;
         use crate::service::cancellation_registry::CancellationRegistry;
         use crate::service::credential_vault::CredentialVault;
 
@@ -851,7 +931,8 @@ mod tests {
         let mut providers: HashMap<String, Arc<dyn ImageAnalysisProvider>> = HashMap::new();
         let pid = provider.provider_id().to_string();
         providers.insert(pid.clone(), Arc::new(provider));
-        let svc = ImageAnalysisServiceImpl::new(providers, pid, vault.clone(), cancel_registry.clone());
+        let svc =
+            ImageAnalysisServiceImpl::new(providers, pid, vault.clone(), cancel_registry.clone());
 
         let handle = vault.register("volcengine_ark", TEST_SECRET.to_string(), None);
         let request_id = "req-cancel-ark".to_string();
@@ -899,11 +980,11 @@ mod tests {
 
     #[tokio::test]
     async fn timeout_returns_deadline_exceeded() {
-        use crate::server::image_analysis::ImageAnalysisServiceImpl;
         use crate::proto::alcedo::ai::{
-            AiErrorCode, AiRequestHeader, AiPriority, AiResponseStatus, DescribeImageRequest,
+            AiErrorCode, AiPriority, AiRequestHeader, AiResponseStatus, DescribeImageRequest,
             RenditionMetadata as ProtoRendition,
         };
+        use crate::server::image_analysis::ImageAnalysisServiceImpl;
         use crate::service::cancellation_registry::CancellationRegistry;
         use crate::service::credential_vault::CredentialVault;
 
@@ -926,7 +1007,8 @@ mod tests {
         let mut providers: HashMap<String, Arc<dyn ImageAnalysisProvider>> = HashMap::new();
         let pid = provider.provider_id().to_string();
         providers.insert(pid.clone(), Arc::new(provider));
-        let svc = ImageAnalysisServiceImpl::new(providers, pid, vault.clone(), cancel_registry.clone());
+        let svc =
+            ImageAnalysisServiceImpl::new(providers, pid, vault.clone(), cancel_registry.clone());
 
         let handle = vault.register("volcengine_ark", TEST_SECRET.to_string(), None);
         let req = DescribeImageRequest {

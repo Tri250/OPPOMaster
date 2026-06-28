@@ -4,9 +4,9 @@ use std::sync::Arc;
 use tonic::transport::Server;
 
 use crate::config::AppConfig;
+use crate::proto::alcedo::ai::AiCapability;
 use crate::proto::alcedo::ai::ai_runtime_service_server::AiRuntimeServiceServer;
 use crate::proto::alcedo::ai::image_analysis_service_server::ImageAnalysisServiceServer;
-use crate::proto::alcedo::ai::AiCapability;
 use crate::proto::common::health_service_server::HealthServiceServer;
 use crate::proto::semantic::model_manager_service_server::ModelManagerServiceServer;
 use crate::proto::semantic::semantic_service_server::SemanticServiceServer;
@@ -41,12 +41,17 @@ pub fn register_services(
         ModelManagerServiceImpl::new(&config.semantic.model_root, &config.semantic.hf_endpoint);
     // Phase 3: the AI runtime service owns the credential vault, the
     // cancellation registry, and the advertised capability descriptors.
-    let ai_runtime_service = AiRuntimeServiceImpl::new(vault.clone(), cancel_registry.clone(), capabilities);
+    let ai_runtime_service =
+        AiRuntimeServiceImpl::new(vault.clone(), cancel_registry.clone(), capabilities);
     // Phase 5b: the image analysis service routes DescribeImage / ScoreImage to
     // a registered provider (the mock in 5b; real drivers in 5c), with the vault
     // and cancellation registry shared with the AI runtime service.
-    let image_analysis_service =
-        ImageAnalysisServiceImpl::new(image_providers, default_image_provider_id, vault, cancel_registry);
+    let image_analysis_service = ImageAnalysisServiceImpl::new(
+        image_providers,
+        default_image_provider_id,
+        vault,
+        cancel_registry,
+    );
 
     let reflection_service = tonic_reflection::server::Builder::configure()
         .register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET)

@@ -134,6 +134,15 @@ QString NewIdSuffix() {
   return id;
 }
 
+bool VariantBoolWithFallback(const QVariantMap& map, const QString& camel_key,
+                             const QString& snake_key, bool fallback) {
+  const QVariant camel = map.value(camel_key);
+  if (camel.isValid()) {
+    return camel.toBool();
+  }
+  const QVariant snake = map.value(snake_key);
+  return snake.isValid() ? snake.toBool() : fallback;
+}
 QString MaskedKeyLabel(const std::string& secret) {
   if (secret.empty()) {
     return {};
@@ -177,13 +186,13 @@ struct TemplateConfig {
 
 constexpr TemplateConfig kTemplates[] = {
     {"opencode_go_anthropic", "OpenCode - Anthropic-compatible messages", "anthropic_messages",
-     "https://opencode.ai/zen/go/v1", "/messages", "", "bearer", "claude-sonnet-4-5",
-     "Claude Sonnet 4.5", "tool", "", "/usage", "", "request-id", "preview", false, false, 60000,
+     "https://opencode.ai/zen/go/v1", "/messages", "", "api_key_header", "qwen3.7-plus",
+     "Qwen3.7 Plus", "tool", "", "/usage", "", "request-id", "preview", true, true, 60000,
      4194304},
     {"opencode_go_openai", "OpenCode - OpenAI-compatible chat", "openai_chat_compatible",
-     "https://opencode.ai/zen/go/v1", "/chat/completions", "", "bearer", "gpt-4o", "GPT-4o",
-     "response_format_json_schema", "/choices/0/message/content", "/usage", "/id", "", "preview",
-     false, false, 60000, 4194304},
+     "https://opencode.ai/zen/go/v1", "/chat/completions", "", "bearer", "kimi-k2.7-code",
+     "Kimi K2.7 Code", "response_format_json_schema", "/choices/0/message/content", "/usage", "/id", "",
+     "preview", true, true, 60000, 4194304},
     {"volcengine_ark", "Volcengine Ark / 火山方舟", "volcengine_ark_responses",
      "https://ark.cn-beijing.volces.com/api/v3", "/responses", "", "bearer",
      "doubao-seed-2-0-lite-260428", "Doubao Seed 2.0 Lite (260428)", "responses_json_schema", "",
@@ -218,6 +227,61 @@ AiProviderModelEntry ModelFromTemplate(const TemplateConfig& t) {
   return m;
 }
 
+void AddOrUpdateModel(AiProviderProfile* profile, const QString& model_id, const QString& display_name,
+                      bool supports_vision, bool supports_structured_output) {
+  if (profile == nullptr || model_id.isEmpty()) {
+    return;
+  }
+  auto it = std::find_if(profile->models.begin(), profile->models.end(),
+                         [&](const auto& model) { return model.model_id == model_id; });
+  if (it == profile->models.end()) {
+    AiProviderModelEntry model;
+    model.model_id                   = model_id;
+    model.display_name               = display_name.isEmpty() ? model_id : display_name;
+    model.supports_vision            = supports_vision;
+    model.supports_structured_output = supports_structured_output;
+    model.max_image_bytes            = profile->max_image_bytes;
+    model.recommended_rendition      = profile->recommended_rendition;
+    profile->models.push_back(model);
+    return;
+  }
+  if (!display_name.isEmpty()) {
+    it->display_name = display_name;
+  }
+  it->supports_vision            = supports_vision;
+  it->supports_structured_output = supports_structured_output;
+}
+
+void EnsureOpenCodeGoOpenAiModelAliases(AiProviderProfile* profile) {
+  if (profile == nullptr || profile->based_on_template != QStringLiteral("opencode_go_openai")) {
+    return;
+  }
+  AddOrUpdateModel(profile, QStringLiteral("kimi-k2.7-code"), QStringLiteral("Kimi K2.7 Code"), true,
+                   true);
+  AddOrUpdateModel(profile, QStringLiteral("kimi-k2.7"), QStringLiteral("Kimi K2.7"), true, true);
+}
+
+void MigrateOpenCodeGoProfileDefaults(AiProviderProfile* profile) {
+  if (profile == nullptr) {
+    return;
+  }
+  if (profile->based_on_template == QStringLiteral("opencode_go_anthropic") &&
+      profile->auth_type != QStringLiteral("api_key_header")) {
+    profile->auth_type = QStringLiteral("api_key_header");
+  }
+  if (profile->based_on_template == QStringLiteral("opencode_go_anthropic") &&
+      profile->model_id == QStringLiteral("claude-sonnet-4-5")) {
+    profile->model_id           = QStringLiteral("qwen3.7-plus");
+    profile->model_display_name = QStringLiteral("Qwen3.7 Plus");
+    AddOrUpdateModel(profile, profile->model_id, profile->model_display_name, true, true);
+  } else if (profile->based_on_template == QStringLiteral("opencode_go_openai") &&
+             profile->model_id == QStringLiteral("gpt-4o")) {
+    profile->model_id           = QStringLiteral("kimi-k2.7-code");
+    profile->model_display_name = QStringLiteral("Kimi K2.7 Code");
+    AddOrUpdateModel(profile, profile->model_id, profile->model_display_name, true, true);
+  }
+  EnsureOpenCodeGoOpenAiModelAliases(profile);
+}
 AiProviderProfile ProfileFromTemplate(const TemplateConfig& t) {
   const QString     suffix = NewIdSuffix();
   AiProviderProfile p;
@@ -244,6 +308,7 @@ AiProviderProfile ProfileFromTemplate(const TemplateConfig& t) {
   p.max_image_bytes       = t.max_image_bytes;
   p.recommended_rendition = QString::fromLatin1(t.recommended_rendition);
   p.models.push_back(ModelFromTemplate(t));
+  EnsureOpenCodeGoOpenAiModelAliases(&p);
   return p;
 }
 
@@ -828,19 +893,44 @@ void AiProviderProfileController::SetDiscoveredModels(const QString&      profil
         SanitizedNonSecretString(map.value(QStringLiteral("displayName")).toString());
     auto it = std::find_if(p->models.begin(), p->models.end(),
                            [&](const auto& model) { return model.model_id == id; });
+    const bool discovered_supports_vision =
+        VariantBoolWithFallback(map, QStringLiteral("supportsVision"),
+                                QStringLiteral("supports_vision"), true);
+    const bool discovered_supports_structured_output =
+        VariantBoolWithFallback(map, QStringLiteral("supportsStructuredOutput"),
+                                QStringLiteral("supports_structured_output"),
+                                p->structured_output_mode != QStringLiteral("none"));
+    const bool discovered_live_confirmed =
+        VariantBoolWithFallback(map, QStringLiteral("liveConfirmed"),
+                                QStringLiteral("live_confirmed"), false);
     if (it == p->models.end()) {
       AiProviderModelEntry model;
       model.model_id                   = id;
       model.display_name               = display.isEmpty() ? id : display;
-      model.supports_vision            = true;
-      model.supports_structured_output = true;
+      model.supports_vision            = discovered_supports_vision;
+      model.supports_structured_output = discovered_supports_structured_output;
+      model.live_confirmed             = discovered_live_confirmed;
       model.max_image_bytes            = p->max_image_bytes;
       model.recommended_rendition      = p->recommended_rendition;
       p->models.push_back(model);
       changed = true;
-    } else if (!display.isEmpty() && it->display_name != display) {
-      it->display_name = display;
-      changed          = true;
+    } else {
+      if (!display.isEmpty() && it->display_name != display) {
+        it->display_name = display;
+        changed          = true;
+      }
+      if (it->supports_vision != discovered_supports_vision) {
+        it->supports_vision = discovered_supports_vision;
+        changed             = true;
+      }
+      if (it->supports_structured_output != discovered_supports_structured_output) {
+        it->supports_structured_output = discovered_supports_structured_output;
+        changed                        = true;
+      }
+      if (it->live_confirmed != discovered_live_confirmed) {
+        it->live_confirmed = discovered_live_confirmed;
+        changed            = true;
+      }
     }
   }
   if (changed) {
@@ -940,6 +1030,7 @@ void AiProviderProfileController::Load() {
   for (const auto& value : profiles) {
     auto p = ProfileFromStoreJson(value.toObject());
     if (!p.uuid.isEmpty() && !p.provider_id.isEmpty() && !p.credential_slot.isEmpty()) {
+      MigrateOpenCodeGoProfileDefaults(&p);
       profiles_.push_back(std::move(p));
     }
   }

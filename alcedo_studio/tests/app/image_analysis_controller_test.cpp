@@ -84,7 +84,7 @@ class FakeThumbProvider : public alcedo::IImageAnalysisThumbnailProvider {
 
 class FakeClient : public alcedo::IImageAnalysisClient {
  public:
-  enum class Outcome { kSuccess, kMissingCredential, kUnsupported, kSchemaError };
+  enum class Outcome { kSuccess, kMissingCredential, kUnsupported, kSchemaError, kEmptyProviderError };
 
   void SetDescribeOutcome(Outcome o) { describe_outcome_ = o; }
   void SetScoreOutcome(Outcome o) { score_outcome_ = o; }
@@ -195,6 +195,10 @@ class FakeClient : public alcedo::IImageAnalysisClient {
       r.status     = kStatusUnsupportedTask;
       r.error_code = kErrorTaskUnknown;
       r.error      = "unsupported provider";
+    } else if (o == Outcome::kEmptyProviderError) {
+      r.ok         = false;
+      r.status     = kStatusProviderError;
+      r.error_code = kErrorPayloadDecode;
     } else {
       r.ok         = false;
       r.status     = kStatusProviderError;
@@ -224,6 +228,10 @@ class FakeClient : public alcedo::IImageAnalysisClient {
         r.usage.output_tokens = 7;
         r.usage.total_tokens  = 12;
       }
+    } else if (o == Outcome::kEmptyProviderError) {
+      r.ok         = false;
+      r.status     = kStatusProviderError;
+      r.error_code = kErrorPayloadDecode;
     } else {
       r.ok     = false;
       r.status = kStatusProviderError;
@@ -462,7 +470,13 @@ struct EnvBundle {
                  store) {
     const QString id = profiles.AddProfileFromTemplate(QStringLiteral("opencode_go_anthropic"));
     EXPECT_FALSE(id.isEmpty());
-    profiles.SetProfileField(id, QStringLiteral("modelId"), QStringLiteral("claude-sonnet-4-5"));
+    QVariantMap discovered;
+    discovered.insert(QStringLiteral("modelId"), QStringLiteral("qwen3.7-plus"));
+    discovered.insert(QStringLiteral("displayName"), QStringLiteral("Qwen3.7 Plus"));
+    discovered.insert(QStringLiteral("supportsVision"), true);
+    discovered.insert(QStringLiteral("supportsStructuredOutput"), true);
+    profiles.SetDiscoveredModels(id, QVariantList{discovered});
+    profiles.SetProfileField(id, QStringLiteral("modelId"), QStringLiteral("qwen3.7-plus"));
     store->SaveCredential(ActiveCredentialSlot(), "sk-fake-test-key", nullptr);
     env = std::make_shared<FakeEnv>(thumbs, client, gate, store);
   }
@@ -631,6 +645,40 @@ TEST_F(ImageAnalysisControllerTest, SchemaErrorPropagatesAndNoActiveAnnotation) 
   EXPECT_EQ(controller->Failed(), 1);
   EXPECT_EQ(controller->LastResults().front().toMap().value("status").toString(),
             QStringLiteral("error"));
+}
+
+TEST_F(ImageAnalysisControllerTest, EmptyProviderErrorStillSurfacesDiagnosticFields) {
+  auto controller = MakeController();
+  last_bundle_->client->SetDescribeOutcome(FakeClient::Outcome::kEmptyProviderError);
+  controller->StartDescribeForTargets(Targets({{1, 100}}));
+  ASSERT_TRUE(WaitForFinished(*controller, std::chrono::seconds(10)));
+  EXPECT_EQ(controller->Analyzed(), 0);
+  EXPECT_EQ(controller->Failed(), 1);
+  ASSERT_EQ(controller->LastResults().size(), 1);
+  const auto r = controller->LastResults().front().toMap();
+  EXPECT_EQ(r.value("status").toString(), QStringLiteral("error"));
+  EXPECT_EQ(r.value("providerStatus").toInt(), kStatusProviderError);
+  EXPECT_EQ(r.value("providerErrorCode").toInt(), kErrorPayloadDecode);
+  EXPECT_TRUE(r.value("error").toString().contains(QStringLiteral("status")));
+  EXPECT_TRUE(r.value("error").toString().contains(QStringLiteral("fake")));
+}
+
+
+TEST_F(ImageAnalysisControllerTest, StructuredOutputNoneProviderDoesNotStartSidecar) {
+  auto controller = MakeController();
+  const QString profile_id = last_bundle_->profiles.AddProfileFromTemplate(QStringLiteral("custom"));
+  ASSERT_FALSE(profile_id.isEmpty());
+  ASSERT_TRUE(last_bundle_->profiles.SetProfileField(profile_id, QStringLiteral("structuredOutputMode"),
+                                                     QStringLiteral("none")));
+  ASSERT_TRUE(last_bundle_->profiles.SetActiveProfile(profile_id));
+
+  controller->StartScoreForTargets(Targets({{1, 100}}));
+
+  EXPECT_FALSE(controller->Running());
+  EXPECT_FALSE(controller->LastError().isEmpty());
+  EXPECT_TRUE(controller->LastError().contains(QStringLiteral("structured output")));
+  EXPECT_FALSE(last_bundle_->env->SidecarEnsured());
+  EXPECT_EQ(last_bundle_->client->ScoreCalls(), 0);
 }
 
 TEST_F(ImageAnalysisControllerTest, MissingCredentialSetsErrorAndDoesNotStart) {

@@ -7,8 +7,7 @@ use crate::proto::alcedo::ai::{
     AiCapability, AiRequestHeader, AiResponseHeader, AiResponseStatus, CancelTaskRequest,
     CancelTaskResponse, ListCapabilitiesRequest, ListCapabilitiesResponse,
     RegisterCredentialRequest, RegisterCredentialResponse, RevokeCredentialRequest,
-    RevokeCredentialResponse,
-    ai_runtime_service_server::AiRuntimeService,
+    RevokeCredentialResponse, ai_runtime_service_server::AiRuntimeService,
 };
 use crate::service::cancellation_registry::CancellationRegistry;
 use crate::service::credential_vault::CredentialVault;
@@ -214,7 +213,10 @@ mod tests {
             ttl_ms: 0,
         });
 
-        let response = svc.register_credential(request).await.expect("rpc succeeds");
+        let response = svc
+            .register_credential(request)
+            .await
+            .expect("rpc succeeds");
         let inner = response.into_inner();
         let header = inner.header.expect("response header present");
         assert_eq!(header.request_id, "reg-1");
@@ -243,9 +245,7 @@ mod tests {
     async fn revoke_credential_revokes_live_handle_and_is_idempotent() {
         let svc = test_impl();
         // Register a credential to get a live handle.
-        let handle = svc
-            .vault
-            .register("remote", "sk-test".to_string(), None);
+        let handle = svc.vault.register("remote", "sk-test".to_string(), None);
         // The handle currently resolves.
         assert!(svc.vault.resolve(&handle).is_ok());
 
@@ -257,7 +257,10 @@ mod tests {
             .await
             .unwrap()
             .into_inner();
-        assert_eq!(resp.header.unwrap().status, AiResponseStatus::AiStatusOk as i32);
+        assert_eq!(
+            resp.header.unwrap().status,
+            AiResponseStatus::AiStatusOk as i32
+        );
         assert!(resp.revoked, "first revoke of a live handle reports true");
         // After revoke the handle no longer resolves.
         assert!(svc.vault.resolve(&handle).is_err());
@@ -272,7 +275,10 @@ mod tests {
             .unwrap()
             .into_inner();
         assert!(!resp2.revoked, "second revoke reports false");
-        assert_eq!(resp2.header.unwrap().status, AiResponseStatus::AiStatusOk as i32);
+        assert_eq!(
+            resp2.header.unwrap().status,
+            AiResponseStatus::AiStatusOk as i32
+        );
     }
 
     #[tokio::test]

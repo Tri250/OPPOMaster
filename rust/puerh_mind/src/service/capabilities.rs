@@ -42,9 +42,7 @@ pub fn build_capability_descriptors(
     };
 
     let mut caps = vec![local_semantic];
-    caps.extend(crate::service::provider_config::build_provider_capability_descriptors(
-        registry,
-    ));
+    caps.extend(crate::service::provider_config::build_provider_capability_descriptors(registry));
     caps.extend_from_slice(extra);
     caps
 }
@@ -64,7 +62,10 @@ mod tests {
         let engine = MockEmbeddingEngine;
         let registry = builtin_registry();
         let caps = build_capability_descriptors(&engine, 4096, &registry, &[]);
-        let local = caps.iter().find(|c| c.task_id == "semantic.embed_*").expect("local cap");
+        let local = caps
+            .iter()
+            .find(|c| c.task_id == "semantic.embed_*")
+            .expect("local cap");
         assert_eq!(local.provider_id, "local");
         assert_eq!(local.model_id, "mock-model-v1");
         assert_eq!(
@@ -74,7 +75,10 @@ mod tests {
                 AiInputKind::AiInputThumbnail as i32,
             ]
         );
-        assert_eq!(local.output_kinds, vec![AiOutputKind::AiOutputEmbedding as i32]);
+        assert_eq!(
+            local.output_kinds,
+            vec![AiOutputKind::AiOutputEmbedding as i32]
+        );
         assert!(local.supports_batch);
         assert!(local.supports_cancel);
         assert!(!local.requires_credential);
@@ -116,6 +120,9 @@ mod tests {
             max_payload_bytes: 0,
         };
         let caps = build_capability_descriptors(&engine, 4096, &registry, &[mock.clone()]);
-        assert!(caps.iter().any(|c| c.provider_id == "mock" && c.model_id == "alcedo-mock"));
+        assert!(
+            caps.iter()
+                .any(|c| c.provider_id == "mock" && c.model_id == "alcedo-mock")
+        );
     }
 }

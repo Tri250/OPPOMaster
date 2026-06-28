@@ -47,6 +47,9 @@ void              ClearSecret(std::string* secret) {
 // as semantic_generation_controller.cpp's CurrentUiSemanticLabelLanguage. The
 // sidecar only understands "" / "en" / "zh", so "follow" never crosses the
 // wire. Returns "" (English default) for any unknown value.
+bool ProfileSupportsStructuredImageAnalysis(const alcedo::AiProviderProfile& profile) {
+  return !profile.model_id.isEmpty() && profile.structured_output_mode != QStringLiteral("none");
+}
 QString ResolveOutputLanguage(const QString& preference) {
   const QString v = preference.trimmed().toLower();
   if (v == "en") {
@@ -191,6 +194,11 @@ void ImageAnalysisController::StartForTargets(const QVariantList&       targetEn
     return;
   }
   provider_configured_ = true;
+  if (!ProfileSupportsStructuredImageAnalysis(profile)) {
+    SetError(Tr("Selected provider is not configured for structured output. Choose a "
+                "structured-output capable Advanced Content Analysis provider."));
+    return;
+  }
 
   std::string secret;
   if (profile.auth_type != QStringLiteral("none")) {
@@ -467,6 +475,8 @@ void ImageAnalysisController::Finish(std::vector<alcedo::ImageAnalysisItemResult
              QString::fromStdString(describe ? r.understanding.provider : r.rating.provider));
     m.insert("modelId",
              QString::fromStdString(describe ? r.understanding.model_id : r.rating.model_id));
+    m.insert("providerStatus", describe ? r.understanding.status : r.rating.status);
+    m.insert("providerErrorCode", describe ? r.understanding.error_code : r.rating.error_code);
     // Identity on every job result so a prompt/model change does not reinterpret old
     // annotations: prompt-profile id + the provider's own request id (provider/modelId
     // already present above).

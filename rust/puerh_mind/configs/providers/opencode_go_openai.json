@@ -10,7 +10,7 @@
     "credential_slot": "opencode_api_key"
   },
   "defaults": {
-    "model": "gpt-4o",
+    "model": "kimi-k2.7-code",
     "stream": false,
     "temperature": 0.2
   },
@@ -31,10 +31,19 @@
   },
   "models": [
     {
-      "slug": "gpt-4o",
-      "display_name": "GPT-4o (Opencode Go, unverified)",
-      "supports_vision": false,
-      "supports_structured_output": false,
+      "slug": "kimi-k2.7-code",
+      "display_name": "Kimi K2.7 Code",
+      "supports_vision": true,
+      "supports_structured_output": true,
+      "live_confirmed": false,
+      "max_image_bytes": 4194304,
+      "recommended_rendition": "preview"
+    },
+    {
+      "slug": "kimi-k2.7",
+      "display_name": "Kimi K2.7",
+      "supports_vision": true,
+      "supports_structured_output": true,
       "live_confirmed": false,
       "max_image_bytes": 4194304,
       "recommended_rendition": "preview"

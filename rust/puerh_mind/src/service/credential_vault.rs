@@ -213,7 +213,10 @@ mod tests {
         let vault = CredentialVault::new(Some(SHORT_TTL));
         let handle = vault.register("remote", "sk-test".to_string(), None);
         thread::sleep(SHORT_TTL + TTL_MARGIN);
-        assert_eq!(vault.resolve(&handle).unwrap_err(), CredentialError::Expired);
+        assert_eq!(
+            vault.resolve(&handle).unwrap_err(),
+            CredentialError::Expired
+        );
     }
 
     #[test]
@@ -223,7 +226,10 @@ mod tests {
         let vault = CredentialVault::new(Some(Duration::from_secs(60)));
         let handle = vault.register("remote", "sk-test".to_string(), Some(SHORT_TTL));
         thread::sleep(SHORT_TTL + TTL_MARGIN);
-        assert_eq!(vault.resolve(&handle).unwrap_err(), CredentialError::Expired);
+        assert_eq!(
+            vault.resolve(&handle).unwrap_err(),
+            CredentialError::Expired
+        );
     }
 
     #[test]
@@ -265,7 +271,10 @@ mod tests {
             CredentialError::Revoked,
         ] {
             let msg = format!("{err}");
-            assert!(!msg.contains("sk-super-secret"), "error leaked secret: {msg}");
+            assert!(
+                !msg.contains("sk-super-secret"),
+                "error leaked secret: {msg}"
+            );
             assert!(!msg.contains(&handle), "error leaked handle: {msg}");
         }
     }

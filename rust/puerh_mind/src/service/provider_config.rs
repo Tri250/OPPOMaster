@@ -26,10 +26,10 @@
 //! — it is not the primary recommendation. A preset is advertised as
 //! image-analysis capable only when a model has
 //! `supports_vision && supports_structured_output` OR a live smoke has
-//! explicitly pinned that capability via `live_confirmed`. The Opencode presets
-//! ship with both flags false and `live_confirmed = false` (unverified), so they
-//! are NOT advertised until a live smoke confirms image input + structured JSON
-//! output for the selected model.
+//! explicitly pinned that capability via `live_confirmed`. The OpenCode Go presets
+//! ship with documented model ids and structured-output-capable protocol configs;
+//! their public model-list endpoint currently exposes ids but not granular vision
+//! metadata, so those defaults are treated as image-analysis candidates.
 //!
 //! See docs/roadmap/ai_sidecar_backend_plan.md (Phase 5a / Phase 6a) and
 //! docs/roadmap/ai_sidecar_phase0_contract.md (section 1) for the frozen
@@ -64,7 +64,7 @@ pub const KNOWN_DRIVER_IDS: &[&str] = &[
 /// Structured-output injection modes a config may select. The driver, not the
 /// config, owns the exact wire field mapping; the config only declares which
 /// mechanism to use (or `none` for models that cannot enforce a schema — those
-/// are not advertised as image-analysis capabilities in Phase 5).
+/// cannot produce image-analysis capabilities).
 const KNOWN_SO_MODES: &[&str] = &[
     "response_format_json_schema",
     "responses_json_schema",
@@ -297,7 +297,8 @@ impl ProviderRegistry {
                 Some(old)
             }
             None => {
-                self.index.insert(config.provider_id.clone(), self.configs.len());
+                self.index
+                    .insert(config.provider_id.clone(), self.configs.len());
                 self.configs.push(config);
                 None
             }
@@ -309,16 +310,22 @@ impl ProviderRegistry {
 /// adding a file here and an `include_str!` entry — Windows packaging cannot drop
 /// them because they live in the binary, not on disk.
 const BUILTIN_PROVIDER_CONFIGS: &[(&str, &str)] = &[
-    ("openrouter", include_str!("../../configs/providers/openrouter.json")),
-    ("volcengine_ark", include_str!("../../configs/providers/volcengine_ark.json")),
+    (
+        "openrouter",
+        include_str!("../../configs/providers/openrouter.json"),
+    ),
+    (
+        "volcengine_ark",
+        include_str!("../../configs/providers/volcengine_ark.json"),
+    ),
     (
         "volcengine_ark_coding",
         include_str!("../../configs/providers/volcengine_ark_coding.json"),
     ),
-    // Phase 6a Opencode Go compatible presets (protocol-first). Models ship
-    // unverified (supports_vision / supports_structured_output / live_confirmed
-    // all false) so they are NOT advertised as image-analysis capable until a
-    // live smoke confirms image input + structured JSON for the selected model.
+    // Phase 6a OpenCode Go compatible presets (protocol-first). The public
+    // /models endpoint exposes ids but not granular vision metadata, so
+    // provider-authored defaults mark documented model ids as image-analysis
+    // candidates.
     (
         "opencode_go_anthropic",
         include_str!("../../configs/providers/opencode_go_anthropic.json"),
@@ -360,13 +367,18 @@ fn load_user_configs(registry: &mut ProviderRegistry, dir: &Path) -> Result<(), 
         Ok(e) => e,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
             // Missing user dir is not an error: built-ins still load.
-            tracing::info!("provider config dir {:?} does not exist; using built-ins only", dir);
+            tracing::info!(
+                "provider config dir {:?} does not exist; using built-ins only",
+                dir
+            );
             return Ok(());
         }
-        Err(err) => return Err(ConfigError::Io {
-            path: dir.display().to_string(),
-            error: err,
-        }),
+        Err(err) => {
+            return Err(ConfigError::Io {
+                path: dir.display().to_string(),
+                error: err,
+            });
+        }
     };
 
     // Deterministic order so duplicate-provider-id errors are reproducible.
@@ -479,22 +491,34 @@ fn validate_config(config: &ProviderConfig, source: &str) -> Result<(), ConfigEr
         ));
     }
     if config.provider_id.trim().is_empty() {
-        return Err(ConfigError::invalid(source, "provider_id must not be empty"));
+        return Err(ConfigError::invalid(
+            source,
+            "provider_id must not be empty",
+        ));
     }
     if !is_known(KNOWN_DRIVER_IDS, &config.driver) {
         return Err(ConfigError::invalid(
             source,
-            format!("unknown driver {:?}; known: {:?}", config.driver, KNOWN_DRIVER_IDS),
+            format!(
+                "unknown driver {:?}; known: {:?}",
+                config.driver, KNOWN_DRIVER_IDS
+            ),
         ));
     }
     if !is_https_or_localhost(&config.base_url) {
         return Err(ConfigError::invalid(
             source,
-            format!("base_url {:?} must be https:// (http:// only allowed for localhost)", config.base_url),
+            format!(
+                "base_url {:?} must be https:// (http:// only allowed for localhost)",
+                config.base_url
+            ),
         ));
     }
     if !config.endpoint.starts_with('/') {
-        return Err(ConfigError::invalid(source, format!("endpoint {:?} must start with '/'", config.endpoint)));
+        return Err(ConfigError::invalid(
+            source,
+            format!("endpoint {:?} must start with '/'", config.endpoint),
+        ));
     }
     if let Some(list_endpoint) = &config.models_endpoint {
         if !list_endpoint.starts_with('/') {
@@ -510,7 +534,10 @@ fn validate_config(config: &ProviderConfig, source: &str) -> Result<(), ConfigEr
     if !is_known(KNOWN_AUTH_TYPES, &config.auth.auth_type) {
         return Err(ConfigError::invalid(
             source,
-            format!("unknown auth.type {:?}; known: {:?}", config.auth.auth_type, KNOWN_AUTH_TYPES),
+            format!(
+                "unknown auth.type {:?}; known: {:?}",
+                config.auth.auth_type, KNOWN_AUTH_TYPES
+            ),
         ));
     }
     if !is_valid_credential_slot(&config.auth.credential_slot) {
@@ -534,8 +561,16 @@ fn validate_config(config: &ProviderConfig, source: &str) -> Result<(), ConfigEr
             ),
         ));
     }
-    validate_optional_pointer(&config.response.content_json_pointer, "content_json_pointer", source)?;
-    validate_optional_pointer(&config.response.usage_json_pointer, "usage_json_pointer", source)?;
+    validate_optional_pointer(
+        &config.response.content_json_pointer,
+        "content_json_pointer",
+        source,
+    )?;
+    validate_optional_pointer(
+        &config.response.usage_json_pointer,
+        "usage_json_pointer",
+        source,
+    )?;
     validate_optional_pointer(
         &config.response.provider_request_id_json_pointer,
         "provider_request_id_json_pointer",
@@ -552,7 +587,10 @@ fn validate_config(config: &ProviderConfig, source: &str) -> Result<(), ConfigEr
 
 fn validate_defaults(d: &DefaultsConfig, source: &str) -> Result<(), ConfigError> {
     if d.model.trim().is_empty() {
-        return Err(ConfigError::invalid(source, "defaults.model must not be empty"));
+        return Err(ConfigError::invalid(
+            source,
+            "defaults.model must not be empty",
+        ));
     }
     if d.stream {
         return Err(ConfigError::invalid(
@@ -563,7 +601,10 @@ fn validate_defaults(d: &DefaultsConfig, source: &str) -> Result<(), ConfigError
     if d.temperature.is_nan() || d.temperature < 0.0 || d.temperature > 2.0 {
         return Err(ConfigError::invalid(
             source,
-            format!("defaults.temperature {} out of range [0.0, 2.0]", d.temperature),
+            format!(
+                "defaults.temperature {} out of range [0.0, 2.0]",
+                d.temperature
+            ),
         ));
     }
     Ok(())
@@ -582,7 +623,10 @@ fn validate_limits(l: &LimitsConfig, source: &str) -> Result<(), ConfigError> {
     if l.max_image_bytes == 0 || l.max_image_bytes > MAX_IMAGE_BYTES {
         return Err(ConfigError::invalid(
             source,
-            format!("limits.max_image_bytes {} out of range [1, {}]", l.max_image_bytes, MAX_IMAGE_BYTES),
+            format!(
+                "limits.max_image_bytes {} out of range [1, {}]",
+                l.max_image_bytes, MAX_IMAGE_BYTES
+            ),
         ));
     }
     if l.max_output_tokens < MIN_OUTPUT_TOKENS || l.max_output_tokens > MAX_OUTPUT_TOKENS {
@@ -603,13 +647,19 @@ fn validate_models(models: &[ModelConfig], source: &str) -> Result<(), ConfigErr
             return Err(ConfigError::invalid(source, "model slug must not be empty"));
         }
         if m.display_name.trim().is_empty() {
-            return Err(ConfigError::invalid(source, "model display_name must not be empty"));
+            return Err(ConfigError::invalid(
+                source,
+                "model display_name must not be empty",
+            ));
         }
         if let Some(rend) = &m.recommended_rendition {
             if !is_known(KNOWN_RENDITIONS, rend) {
                 return Err(ConfigError::invalid(
                     source,
-                    format!("model {:?} recommended_rendition {:?}; known: {:?}", m.slug, rend, KNOWN_RENDITIONS),
+                    format!(
+                        "model {:?} recommended_rendition {:?}; known: {:?}",
+                        m.slug, rend, KNOWN_RENDITIONS
+                    ),
                 ));
             }
         }
@@ -617,25 +667,37 @@ fn validate_models(models: &[ModelConfig], source: &str) -> Result<(), ConfigErr
             if !is_known(KNOWN_DATA_COLLECTION, dc) {
                 return Err(ConfigError::invalid(
                     source,
-                    format!("model {:?} data_collection {:?}; known: {:?}", m.slug, dc, KNOWN_DATA_COLLECTION),
+                    format!(
+                        "model {:?} data_collection {:?}; known: {:?}",
+                        m.slug, dc, KNOWN_DATA_COLLECTION
+                    ),
                 ));
             }
         }
         if let Some(c) = m.cost_per_million_input_usd {
             if c.is_nan() || c < 0.0 {
-                return Err(ConfigError::invalid(source, format!("model {:?} cost_per_million_input_usd invalid", m.slug)));
+                return Err(ConfigError::invalid(
+                    source,
+                    format!("model {:?} cost_per_million_input_usd invalid", m.slug),
+                ));
             }
         }
         if let Some(c) = m.cost_per_million_output_usd {
             if c.is_nan() || c < 0.0 {
-                return Err(ConfigError::invalid(source, format!("model {:?} cost_per_million_output_usd invalid", m.slug)));
+                return Err(ConfigError::invalid(
+                    source,
+                    format!("model {:?} cost_per_million_output_usd invalid", m.slug),
+                ));
             }
         }
         if let Some(b) = m.max_image_bytes {
             if b == 0 || b > MAX_IMAGE_BYTES {
                 return Err(ConfigError::invalid(
                     source,
-                    format!("model {:?} max_image_bytes {} out of range [1, {}]", m.slug, b, MAX_IMAGE_BYTES),
+                    format!(
+                        "model {:?} max_image_bytes {} out of range [1, {}]",
+                        m.slug, b, MAX_IMAGE_BYTES
+                    ),
                 ));
             }
         }
@@ -645,24 +707,40 @@ fn validate_models(models: &[ModelConfig], source: &str) -> Result<(), ConfigErr
 
 fn validate_header_name(name: &str, source: &str) -> Result<(), ConfigError> {
     if name.is_empty() {
-        return Err(ConfigError::invalid(source, "attribution header name must not be empty"));
-    }
-    if RESERVED_HEADERS.iter().any(|r| r.eq_ignore_ascii_case(name)) {
         return Err(ConfigError::invalid(
             source,
-            format!("attribution header {:?} is reserved (driver/transport-owned)", name),
+            "attribution header name must not be empty",
+        ));
+    }
+    if RESERVED_HEADERS
+        .iter()
+        .any(|r| r.eq_ignore_ascii_case(name))
+    {
+        return Err(ConfigError::invalid(
+            source,
+            format!(
+                "attribution header {:?} is reserved (driver/transport-owned)",
+                name
+            ),
         ));
     }
     if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
         return Err(ConfigError::invalid(
             source,
-            format!("attribution header {:?} contains characters outside [A-Za-z0-9-]", name),
+            format!(
+                "attribution header {:?} contains characters outside [A-Za-z0-9-]",
+                name
+            ),
         ));
     }
     Ok(())
 }
 
-fn validate_optional_pointer(p: &Option<String>, field: &str, source: &str) -> Result<(), ConfigError> {
+fn validate_optional_pointer(
+    p: &Option<String>,
+    field: &str,
+    source: &str,
+) -> Result<(), ConfigError> {
     match p {
         None => Ok(()), // driver-owned parser mode
         Some(s) => validate_json_pointer(s, field, source),
@@ -693,13 +771,13 @@ fn validate_json_pointer(p: &str, field: &str, source: &str) -> Result<(), Confi
                     return Err(ConfigError::invalid(
                         source,
                         format!("{field} {:?}: invalid escape ~{other} (use ~0 or ~1)", p),
-                    ))
+                    ));
                 }
                 None => {
                     return Err(ConfigError::invalid(
                         source,
                         format!("{field} {:?}: dangling '~' at end", p),
-                    ))
+                    ));
                 }
             }
         }
@@ -723,7 +801,10 @@ fn is_https_or_localhost(url: &str) -> bool {
 }
 
 fn is_valid_credential_slot(slot: &str) -> bool {
-    !slot.is_empty() && slot.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+    !slot.is_empty()
+        && slot
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
 }
 
 /// Secret-key field names a config must never contain. The config references a
@@ -796,7 +877,11 @@ fn scan_for_secrets(value: &Value, source: &str) -> Result<(), ConfigError> {
 fn looks_like_leaked_secret(s: &str) -> bool {
     // OpenAI-style: "sk-" followed by 16+ word/hyphen/underscore chars.
     if let Some(rest) = s.strip_prefix("sk-") {
-        if rest.len() >= 16 && rest.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        if rest.len() >= 16
+            && rest
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        {
             return true;
         }
     }
@@ -847,7 +932,9 @@ pub fn build_provider_capability_descriptors(registry: &ProviderRegistry) -> Vec
             if !crate::service::providers::is_driver_wired(&config.driver) {
                 continue;
             }
-            let max_payload = model.max_image_bytes.unwrap_or(config.limits.max_image_bytes) as i64;
+            let max_payload = model
+                .max_image_bytes
+                .unwrap_or(config.limits.max_image_bytes) as i64;
 
             out.push(AiCapability {
                 task_id: "image_understanding.describe".to_string(),
@@ -909,7 +996,10 @@ mod tests {
         assert_eq!(openrouter.auth.credential_slot, "openrouter_api_key");
         assert_eq!(openrouter.defaults.model, "qwen/qwen3.7-plus");
         assert!(!openrouter.defaults.stream);
-        assert_eq!(openrouter.structured_output.mode, "response_format_json_schema");
+        assert_eq!(
+            openrouter.structured_output.mode,
+            "response_format_json_schema"
+        );
         assert!(openrouter.structured_output.provider_require_parameters);
         assert_eq!(
             openrouter.response.content_json_pointer.as_deref(),
@@ -922,7 +1012,9 @@ mod tests {
             openrouter.display_name
         );
 
-        let ark = registry.get("volcengine_ark").expect("volcengine_ark present");
+        let ark = registry
+            .get("volcengine_ark")
+            .expect("volcengine_ark present");
         assert_eq!(ark.driver, "volcengine_ark_responses");
         // content_json_pointer: null -> driver-owned parser.
         assert_eq!(ark.response.content_json_pointer, None);
@@ -932,7 +1024,10 @@ mod tests {
             .get("volcengine_ark_coding")
             .expect("volcengine_ark_coding present");
         assert_eq!(coding.driver, "anthropic_messages");
-        assert_eq!(coding.base_url, "https://ark.cn-beijing.volces.com/api/coding");
+        assert_eq!(
+            coding.base_url,
+            "https://ark.cn-beijing.volces.com/api/coding"
+        );
         assert_eq!(coding.endpoint, "/v1/messages");
         // Coding Plan uses Claude-Code-style bearer auth and reuses the Ark key slot.
         assert_eq!(coding.auth.auth_type, "bearer");
@@ -950,12 +1045,12 @@ mod tests {
         assert_eq!(oc_anthropic.driver, "anthropic_messages");
         assert_eq!(oc_anthropic.base_url, "https://opencode.ai/zen/go/v1");
         assert_eq!(oc_anthropic.endpoint, "/messages");
-        assert_eq!(oc_anthropic.auth.auth_type, "bearer");
+        assert_eq!(oc_anthropic.auth.auth_type, "api_key_header");
         assert_eq!(oc_anthropic.auth.credential_slot, "opencode_api_key");
         assert_eq!(oc_anthropic.structured_output.mode, "tool");
-        // Unverified model: not advertised until live-confirmed.
-        assert!(!oc_anthropic.models[0].supports_vision);
-        assert!(!oc_anthropic.models[0].supports_structured_output);
+        // OpenCode Go exposes provider-level structured output; model ids are provider-listed candidates.
+        assert!(oc_anthropic.models[0].supports_vision);
+        assert!(oc_anthropic.models[0].supports_structured_output);
         assert!(!oc_anthropic.models[0].live_confirmed);
 
         let oc_openai = registry
@@ -965,13 +1060,16 @@ mod tests {
         assert_eq!(oc_openai.base_url, "https://opencode.ai/zen/go/v1");
         assert_eq!(oc_openai.endpoint, "/chat/completions");
         assert_eq!(oc_openai.auth.credential_slot, "opencode_api_key");
-        assert_eq!(oc_openai.structured_output.mode, "response_format_json_schema");
+        assert_eq!(
+            oc_openai.structured_output.mode,
+            "response_format_json_schema"
+        );
         assert_eq!(
             oc_openai.response.content_json_pointer.as_deref(),
             Some("/choices/0/message/content")
         );
-        assert!(!oc_openai.models[0].supports_vision);
-        assert!(!oc_openai.models[0].supports_structured_output);
+        assert!(oc_openai.models[0].supports_vision);
+        assert!(oc_openai.models[0].supports_structured_output);
         assert!(!oc_openai.models[0].live_confirmed);
     }
 
@@ -1024,7 +1122,10 @@ mod tests {
         write_config(&dir, "ollama.json", user);
 
         let registry = load_provider_configs(Some(dir.path())).expect("add loads");
-        assert!(registry.get("local_ollama").is_some(), "user provider added");
+        assert!(
+            registry.get("local_ollama").is_some(),
+            "user provider added"
+        );
         // Built-ins still present.
         assert!(registry.get("openrouter").is_some());
         assert!(registry.get("volcengine_ark").is_some());
@@ -1051,8 +1152,12 @@ mod tests {
         write_config(&dir, "b.json", user);
 
         // Not a hard error (fail closed: second dupe skipped), but only one "dupe" remains.
-        let registry = load_provider_configs(Some(dir.path())).expect("load does not hard-fail on dupe");
-        assert_eq!(registry.iter().filter(|c| c.provider_id == "dupe").count(), 1);
+        let registry =
+            load_provider_configs(Some(dir.path())).expect("load does not hard-fail on dupe");
+        assert_eq!(
+            registry.iter().filter(|c| c.provider_id == "dupe").count(),
+            1
+        );
     }
 
     #[test]
@@ -1099,7 +1204,8 @@ mod tests {
         write_config(&dir, "a_first.json", first);
         write_config(&dir, "b_second.json", second);
 
-        let registry = load_provider_configs(Some(dir.path())).expect("load does not hard-fail on dupe");
+        let registry =
+            load_provider_configs(Some(dir.path())).expect("load does not hard-fail on dupe");
         let openrouter = registry.get("openrouter").expect("openrouter present");
         // The first user override wins; the second is skipped, not silently
         // clobbered, even though openrouter is a built-in id.
@@ -1235,8 +1341,12 @@ mod tests {
         }"#;
         write_config(&dir, "leaky.json", user);
 
-        let registry = load_provider_configs(Some(dir.path())).expect("load does not hard-fail on a bad user config");
-        assert!(registry.get("leaky").is_none(), "user config with embedded secret must be skipped");
+        let registry = load_provider_configs(Some(dir.path()))
+            .expect("load does not hard-fail on a bad user config");
+        assert!(
+            registry.get("leaky").is_none(),
+            "user config with embedded secret must be skipped"
+        );
         // Built-ins still load.
         assert!(registry.get("openrouter").is_some());
     }
@@ -1264,8 +1374,12 @@ mod tests {
         }"#;
         write_config(&dir, "leaky_bearer.json", user);
 
-        let registry = load_provider_configs(Some(dir.path())).expect("load does not hard-fail on a bad user config");
-        assert!(registry.get("leaky_bearer").is_none(), "user config with leaked bearer must be skipped");
+        let registry = load_provider_configs(Some(dir.path()))
+            .expect("load does not hard-fail on a bad user config");
+        assert!(
+            registry.get("leaky_bearer").is_none(),
+            "user config with leaked bearer must be skipped"
+        );
     }
 
     #[test]
@@ -1360,7 +1474,8 @@ mod tests {
         )
         .expect_err("models_endpoint without leading / rejected");
         assert!(
-            err.to_string().contains("models_endpoint") && err.to_string().contains("must start with '/'"),
+            err.to_string().contains("models_endpoint")
+                && err.to_string().contains("must start with '/'"),
             "{err}"
         );
     }
@@ -1420,7 +1535,10 @@ mod tests {
         // are "configs are data only" guards, so assert a hard error either way.
         let err = result.expect_err("reserved header rejected");
         let msg = err.to_string();
-        assert!(msg.contains("reserved") || msg.contains("secret") || msg.contains("leaked"), "{msg}");
+        assert!(
+            msg.contains("reserved") || msg.contains("secret") || msg.contains("leaked"),
+            "{msg}"
+        );
     }
 
     #[test]
@@ -1447,26 +1565,29 @@ mod tests {
     fn built_ins_advertise_understanding_and_rating_descriptors() {
         let registry = builtin_registry();
         let caps = build_provider_capability_descriptors(&registry);
-        // 3 advertised providers (OpenRouter, Volcengine Ark, Volcengine Ark Coding
-        // Plan), 1 model each, each emitting 2 descriptors (understanding + rating)
-        // = 6. The 2 Opencode Go presets are NOT advertised (their models ship
-        // unverified: supports_vision / supports_structured_output / live_confirmed
-        // all false — Phase 6a "do not advertise until live-confirmed").
-        assert_eq!(caps.len(), 6);
+        // 5 advertised providers (OpenRouter, Volcengine Ark, Volcengine Ark Coding
+        // Plan, and the 2 OpenCode Go compatible presets), 1 model each, each
+        // emitting 2 descriptors (understanding + rating) = 10.
+        assert_eq!(caps.len(), 10);
 
-        let understanding: Vec<_> = caps.iter().filter(|c| c.task_id == "image_understanding.describe").collect();
-        let rating: Vec<_> = caps.iter().filter(|c| c.task_id == "image_rating.score").collect();
-        assert_eq!(understanding.len(), 3);
-        assert_eq!(rating.len(), 3);
-        // Phase 6a: Opencode compatible presets are not advertised as
-        // image-analysis capable until a live smoke pins the capability.
+        let understanding: Vec<_> = caps
+            .iter()
+            .filter(|c| c.task_id == "image_understanding.describe")
+            .collect();
+        let rating: Vec<_> = caps
+            .iter()
+            .filter(|c| c.task_id == "image_rating.score")
+            .collect();
+        assert_eq!(understanding.len(), 5);
+        assert_eq!(rating.len(), 5);
         assert!(
-            caps.iter().all(|c| c.provider_id != "opencode_go_anthropic"),
-            "opencode_go_anthropic must not be advertised until live-confirmed"
+            caps.iter()
+                .any(|c| c.provider_id == "opencode_go_anthropic"),
+            "opencode_go_anthropic should advertise its documented model candidate"
         );
         assert!(
-            caps.iter().all(|c| c.provider_id != "opencode_go_openai"),
-            "opencode_go_openai must not be advertised until live-confirmed"
+            caps.iter().any(|c| c.provider_id == "opencode_go_openai"),
+            "opencode_go_openai should advertise its documented model candidate"
         );
 
         let or_understanding = understanding
@@ -1479,9 +1600,21 @@ mod tests {
         assert!(!or_understanding.supports_batch);
         assert!(or_understanding.supports_cancel);
         assert_eq!(or_understanding.max_payload_bytes, 4194304);
-        assert!(or_understanding.input_kinds.contains(&(AiInputKind::AiInputPreview as i32)));
-        assert!(or_understanding.output_kinds.contains(&(AiOutputKind::AiOutputCaption as i32)));
-        assert!(or_understanding.output_kinds.contains(&(AiOutputKind::AiOutputTags as i32)));
+        assert!(
+            or_understanding
+                .input_kinds
+                .contains(&(AiInputKind::AiInputPreview as i32))
+        );
+        assert!(
+            or_understanding
+                .output_kinds
+                .contains(&(AiOutputKind::AiOutputCaption as i32))
+        );
+        assert!(
+            or_understanding
+                .output_kinds
+                .contains(&(AiOutputKind::AiOutputTags as i32))
+        );
 
         let ark_rating = rating
             .iter()
@@ -1490,7 +1623,10 @@ mod tests {
             .expect("volcengine rating descriptor");
         assert_eq!(ark_rating.model_id, "doubao-seed-2-0-lite-260428");
         assert!(ark_rating.requires_credential);
-        assert_eq!(ark_rating.output_kinds, vec![AiOutputKind::AiOutputScore as i32]);
+        assert_eq!(
+            ark_rating.output_kinds,
+            vec![AiOutputKind::AiOutputScore as i32]
+        );
     }
 
     #[test]
@@ -1549,21 +1685,25 @@ mod tests {
             "driver": "anthropic_messages",
             "base_url": "https://opencode.ai/zen/go/v1",
             "endpoint": "/messages",
-            "auth": {"type": "bearer", "credential_slot": "opencode_api_key"},
+            "auth": {"type": "api_key_header", "credential_slot": "opencode_api_key"},
             "api_key": "sk-1234567890abcdef1234567890abcdef",
-            "defaults": {"model": "claude-sonnet-4-5", "stream": false, "temperature": 0.2},
+            "defaults": {"model": "qwen3.7-plus", "stream": false, "temperature": 0.2},
             "structured_output": {"mode": "tool", "strict": true},
             "response": {"content_json_pointer": null},
             "limits": {"timeout_ms": 60000, "max_image_bytes": 4194304, "max_output_tokens": 1200},
             "models": [
-                {"slug": "claude-sonnet-4-5", "display_name": "Claude", "supports_vision": false, "supports_structured_output": false, "live_confirmed": false}
+                {"slug": "qwen3.7-plus", "display_name": "Qwen3.7 Plus", "supports_vision": true, "supports_structured_output": true, "live_confirmed": false}
             ]
         }"#;
         write_config(&dir, "leaky_opencode.json", user);
-        let registry = load_provider_configs(Some(dir.path())).expect("load does not hard-fail on a bad user config");
+        let registry = load_provider_configs(Some(dir.path()))
+            .expect("load does not hard-fail on a bad user config");
         // The user config is skipped (fail closed); the built-in Opencode preset
         // it tried to override remains, but the leaky override is NOT applied.
-        assert!(registry.get("opencode_go_anthropic").is_some(), "built-in remains");
+        assert!(
+            registry.get("opencode_go_anthropic").is_some(),
+            "built-in remains"
+        );
     }
 
     #[test]
@@ -1580,7 +1720,7 @@ mod tests {
             "driver": "anthropic_messages",
             "base_url": "https://opencode.ai/zen/go/v1",
             "endpoint": "/messages",
-            "auth": {"type": "bearer", "credential_slot": "opencode_api_key"},
+            "auth": {"type": "api_key_header", "credential_slot": "opencode_api_key"},
             "defaults": {"model": "first/model", "stream": false, "temperature": 0.2},
             "structured_output": {"mode": "tool", "strict": true},
             "response": {"content_json_pointer": null},
@@ -1596,7 +1736,7 @@ mod tests {
             "driver": "anthropic_messages",
             "base_url": "https://opencode.ai/zen/go/v1",
             "endpoint": "/messages",
-            "auth": {"type": "bearer", "credential_slot": "opencode_api_key"},
+            "auth": {"type": "api_key_header", "credential_slot": "opencode_api_key"},
             "defaults": {"model": "second/model", "stream": false, "temperature": 0.2},
             "structured_output": {"mode": "tool", "strict": true},
             "response": {"content_json_pointer": null},
@@ -1607,23 +1747,25 @@ mod tests {
         }"#;
         write_config(&dir, "a_first.json", first);
         write_config(&dir, "b_second.json", second);
-        let registry = load_provider_configs(Some(dir.path())).expect("load does not hard-fail on dupe");
-        let oc = registry.get("opencode_go_anthropic").expect("opencode_go_anthropic present");
+        let registry =
+            load_provider_configs(Some(dir.path())).expect("load does not hard-fail on dupe");
+        let oc = registry
+            .get("opencode_go_anthropic")
+            .expect("opencode_go_anthropic present");
         assert_eq!(oc.display_name, "Opencode (first user override)");
         assert_eq!(oc.defaults.model, "first/model");
     }
 
     #[test]
-    fn opencode_presets_not_advertised_until_live_confirmed() {
-        // The shipped Opencode presets are unverified -> not advertised. A user
-        // override that flips live_confirmed=true advertises the model even though
-        // supports_vision / supports_structured_output stay false (the live smoke
-        // pin IS the confirmation). This is the Phase 6a advertisement gate.
+    fn opencode_presets_advertise_documented_models() {
+        // The shipped OpenCode presets advertise documented model candidates.
+        // Explicit live confirmation remains accepted for user overrides.
         let registry = builtin_registry();
         let caps = build_provider_capability_descriptors(&registry);
         assert!(
-            caps.iter().all(|c| c.provider_id != "opencode_go_anthropic"),
-            "unverified opencode_go_anthropic must not be advertised"
+            caps.iter()
+                .any(|c| c.provider_id == "opencode_go_anthropic"),
+            "opencode_go_anthropic should be advertised"
         );
 
         let dir = tempdir();
@@ -1634,21 +1776,32 @@ mod tests {
             "driver": "anthropic_messages",
             "base_url": "https://opencode.ai/zen/go/v1",
             "endpoint": "/messages",
-            "auth": {"type": "bearer", "credential_slot": "opencode_api_key"},
-            "defaults": {"model": "claude-sonnet-4-5", "stream": false, "temperature": 0.2},
+            "auth": {"type": "api_key_header", "credential_slot": "opencode_api_key"},
+            "defaults": {"model": "qwen3.7-plus", "stream": false, "temperature": 0.2},
             "structured_output": {"mode": "tool", "strict": true},
             "response": {"content_json_pointer": null},
             "limits": {"timeout_ms": 60000, "max_image_bytes": 4194304, "max_output_tokens": 1200},
             "models": [
-                {"slug": "claude-sonnet-4-5", "display_name": "Claude", "supports_vision": false, "supports_structured_output": false, "live_confirmed": true}
+                {"slug": "qwen3.7-plus", "display_name": "Qwen3.7 Plus", "supports_vision": true, "supports_structured_output": true, "live_confirmed": true}
             ]
         }"#;
         write_config(&dir, "pinned.json", pinned);
         let registry = load_provider_configs(Some(dir.path())).expect("pinned override loads");
         let caps = build_provider_capability_descriptors(&registry);
-        let oc_caps: Vec<_> = caps.iter().filter(|c| c.provider_id == "opencode_go_anthropic").collect();
-        assert_eq!(oc_caps.len(), 2, "live-confirmed opencode model advertises understanding + rating");
-        assert!(oc_caps.iter().any(|c| c.task_id == "image_understanding.describe"));
+        let oc_caps: Vec<_> = caps
+            .iter()
+            .filter(|c| c.provider_id == "opencode_go_anthropic")
+            .collect();
+        assert_eq!(
+            oc_caps.len(),
+            2,
+            "live-confirmed opencode model advertises understanding + rating"
+        );
+        assert!(
+            oc_caps
+                .iter()
+                .any(|c| c.task_id == "image_understanding.describe")
+        );
         assert!(oc_caps.iter().any(|c| c.task_id == "image_rating.score"));
     }
 
@@ -1673,8 +1826,15 @@ mod tests {
         write_config(&dir, "pinned.json", user);
         let registry = load_provider_configs(Some(dir.path())).expect("loads");
         let caps = build_provider_capability_descriptors(&registry);
-        let pinned: Vec<_> = caps.iter().filter(|c| c.provider_id == "live_pinned").collect();
-        assert_eq!(pinned.len(), 2, "live_confirmed model is advertised (understanding + rating)");
+        let pinned: Vec<_> = caps
+            .iter()
+            .filter(|c| c.provider_id == "live_pinned")
+            .collect();
+        assert_eq!(
+            pinned.len(),
+            2,
+            "live_confirmed model is advertised (understanding + rating)"
+        );
     }
 
     #[test]
@@ -1714,7 +1874,11 @@ mod tests {
             .iter()
             .filter(|c| c.provider_id == "reserved_live_pinned")
             .collect();
-        assert_eq!(pinned.len(), 2, "wired driver + live_confirmed is advertised");
+        assert_eq!(
+            pinned.len(),
+            2,
+            "wired driver + live_confirmed is advertised"
+        );
     }
 
     // ---- tempdir helpers (avoid pulling in tempfile) ----
@@ -1738,7 +1902,11 @@ mod tests {
         // counter + thread name.
         static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        name.push(format!("alcedo_provider_cfg_test_{}_{}", std::process::id(), n));
+        name.push(format!(
+            "alcedo_provider_cfg_test_{}_{}",
+            std::process::id(),
+            n
+        ));
         std::fs::create_dir_all(&name).expect("create temp dir");
         TempDir(name)
     }

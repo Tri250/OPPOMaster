@@ -648,7 +648,11 @@ impl SemanticService for SemanticServiceImpl {
         let inner = inner.into_inner();
 
         Ok(Response::new(EmbeddingResponseV2 {
-            header: Some(build_response_header(&header, &inner.model_name, inner.elapsed_ms)),
+            header: Some(build_response_header(
+                &header,
+                &inner.model_name,
+                inner.elapsed_ms,
+            )),
             embedding: inner.embedding,
             dimension: inner.dimension,
             model_name: inner.model_name,
@@ -675,7 +679,11 @@ impl SemanticService for SemanticServiceImpl {
         let inner = inner.into_inner();
 
         Ok(Response::new(EmbeddingResponseV2 {
-            header: Some(build_response_header(&header, &inner.model_name, inner.elapsed_ms)),
+            header: Some(build_response_header(
+                &header,
+                &inner.model_name,
+                inner.elapsed_ms,
+            )),
             embedding: inner.embedding,
             dimension: inner.dimension,
             model_name: inner.model_name,
@@ -1266,7 +1274,11 @@ mod tests {
         assert!(response.items[0].ok);
         assert_eq!(response.items[1].request_id, "img-bad");
         assert!(!response.items[1].ok);
-        assert!(response.items[1].error.contains("rgba8 byte length mismatch"));
+        assert!(
+            response.items[1]
+                .error
+                .contains("rgba8 byte length mismatch")
+        );
     }
 
     #[tokio::test]

@@ -1089,7 +1089,7 @@ Item {
                 Label {
                     id: ratingLabel
                     text: displayTags.length > 0
-                          ? qsTr("%1 | %2").arg(captureDate).arg(displayTags)
+                          ? qsTr("%1 | Rating %2/5 | %3").arg(captureDate).arg(rating).arg(displayTags)
                           : qsTr("%1 | Rating %2/5").arg(captureDate).arg(rating)
                     color: root.cardMuted
                     font.family: appTheme.dataFontFamily

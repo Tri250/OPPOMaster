@@ -99,15 +99,23 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/chat/completions"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(ok_understanding_body(
-                r#"{"caption":"c","tags":["t"],"scene":"","confidence":0.5}"#,
-            )))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(ok_understanding_body(
+                    r#"{"caption":"c","tags":["t"],"scene":"","confidence":0.5}"#,
+                )),
+            )
             .mount(&server)
             .await;
 
         let provider = provider_for(&server);
         provider
-            .describe_image(&test_image_png(), "qwen/qwen3.7-plus", "", "", Some(&secret()))
+            .describe_image(
+                &test_image_png(),
+                "qwen/qwen3.7-plus",
+                "",
+                "",
+                Some(&secret()),
+            )
             .await
             .expect("describe ok");
 
@@ -117,7 +125,10 @@ mod tests {
         assert_eq!(body["model"], "qwen/qwen3.7-plus");
         assert_eq!(body["stream"], false);
         assert_eq!(body["response_format"]["type"], "json_schema");
-        assert_eq!(body["response_format"]["json_schema"]["name"], "alcedo_image_understanding");
+        assert_eq!(
+            body["response_format"]["json_schema"]["name"],
+            "alcedo_image_understanding"
+        );
         assert_eq!(body["response_format"]["json_schema"]["strict"], true);
         // The code-owned schema is injected (sanitized to strict-compatible: all
         // properties required, additionalProperties false, constraints dropped).
@@ -139,7 +150,12 @@ mod tests {
         assert_eq!(body["provider"]["data_collection"], "deny");
         // The image is carried as a data URI in the user message.
         let img_url = &body["messages"][1]["content"][1]["image_url"]["url"];
-        assert!(img_url.as_str().unwrap().starts_with("data:image/png;base64,"));
+        assert!(
+            img_url
+                .as_str()
+                .unwrap()
+                .starts_with("data:image/png;base64,")
+        );
     }
 
     #[tokio::test]
@@ -185,7 +201,14 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let out = provider
-            .score_image(&test_image_png(), "", "", "alcedo-default-v1", "", Some(&secret()))
+            .score_image(
+                &test_image_png(),
+                "",
+                "",
+                "alcedo-default-v1",
+                "",
+                Some(&secret()),
+            )
             .await
             .expect("score ok");
         // Single 1..=5 integer star rating; no scores array, no confidence.
@@ -216,7 +239,14 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let out = provider
-            .score_image(&test_image_png(), "", "", "alcedo-default-v1", "", Some(&secret()))
+            .score_image(
+                &test_image_png(),
+                "",
+                "",
+                "alcedo-default-v1",
+                "",
+                Some(&secret()),
+            )
             .await
             .expect("score ok");
         assert_eq!(out.rating, 5);
@@ -242,7 +272,14 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let err = provider
-            .score_image(&test_image_png(), "", "", "alcedo-default-v1", "", Some(&secret()))
+            .score_image(
+                &test_image_png(),
+                "",
+                "",
+                "alcedo-default-v1",
+                "",
+                Some(&secret()),
+            )
             .await
             .expect_err("fractional rating rejected");
         assert_eq!(err, ProviderError::SchemaValidation);
@@ -265,7 +302,14 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let err = provider
-            .score_image(&test_image_png(), "", "", "alcedo-default-v1", "", Some(&secret()))
+            .score_image(
+                &test_image_png(),
+                "",
+                "",
+                "alcedo-default-v1",
+                "",
+                Some(&secret()),
+            )
             .await
             .expect_err("rating 0 rejected");
         assert_eq!(err, ProviderError::SchemaValidation);
@@ -302,9 +346,11 @@ mod tests {
             .await;
         Mock::given(method("POST"))
             .and(path("/chat/completions"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(ok_understanding_body(
-                r#"{"caption":"c","tags":["t"],"scene":"","confidence":0.5}"#,
-            )))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(ok_understanding_body(
+                    r#"{"caption":"c","tags":["t"],"scene":"","confidence":0.5}"#,
+                )),
+            )
             .mount(&server)
             .await;
         let provider = provider_for(&server);
@@ -337,7 +383,10 @@ mod tests {
         // No retry: exactly one request.
         assert_eq!(server.received_requests().await.unwrap().len(), 1);
         // The raw provider body is NOT surfaced in the error string.
-        assert!(!err.to_string().contains(RAW_BODY_SENTINEL), "raw body leaked: {err}");
+        assert!(
+            !err.to_string().contains(RAW_BODY_SENTINEL),
+            "raw body leaked: {err}"
+        );
     }
 
     #[tokio::test]
@@ -347,9 +396,11 @@ mod tests {
         // caption that is fine but tags=[] is rejected by validate_understanding.
         Mock::given(method("POST"))
             .and(path("/chat/completions"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(ok_understanding_body(
-                r#"{"caption":"c","tags":[],"scene":"","confidence":0.5}"#,
-            )))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(ok_understanding_body(
+                    r#"{"caption":"c","tags":[],"scene":"","confidence":0.5}"#,
+                )),
+            )
             .mount(&server)
             .await;
         let provider = provider_for(&server);
@@ -365,9 +416,11 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/chat/completions"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(ok_understanding_body(
-                "```json\n{\"caption\":\"c\",\"tags\":[\"t\"]}\n```",
-            )))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(ok_understanding_body(
+                    "```json\n{\"caption\":\"c\",\"tags\":[\"t\"]}\n```",
+                )),
+            )
             .mount(&server)
             .await;
         let provider = provider_for(&server);
@@ -383,9 +436,11 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/chat/completions"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(ok_understanding_body(
-                r#"{"caption":"c","tags":["t"],"scene":"","confidence":0.5}"#,
-            )))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(ok_understanding_body(
+                    r#"{"caption":"c","tags":["t"],"scene":"","confidence":0.5}"#,
+                )),
+            )
             .mount(&server)
             .await;
         let provider = provider_for(&server);
@@ -417,7 +472,9 @@ mod tests {
         impl<'a> MakeWriter<'a> for BufWriter {
             type Writer = BufWriteImpl;
             fn make_writer(&'a self) -> Self::Writer {
-                BufWriteImpl { inner: self.0.clone() }
+                BufWriteImpl {
+                    inner: self.0.clone(),
+                }
             }
         }
         struct BufWriteImpl {
@@ -477,22 +534,37 @@ mod tests {
             "log capture did not work (no retry warn captured): {captured}"
         );
         // The captured logs must not leak the secret, image, prompt, or raw body.
-        assert!(!captured.contains(TEST_SECRET), "secret in logs: {captured}");
+        assert!(
+            !captured.contains(TEST_SECRET),
+            "secret in logs: {captured}"
+        );
         assert!(
             !captured.contains("data:image/png;base64,"),
             "image in logs: {captured}"
         );
-        assert!(!captured.contains(TEST_PROMPT), "prompt in logs: {captured}");
-        assert!(!captured.contains(RAW_BODY_SENTINEL), "raw body in logs: {captured}");
+        assert!(
+            !captured.contains(TEST_PROMPT),
+            "prompt in logs: {captured}"
+        );
+        assert!(
+            !captured.contains(RAW_BODY_SENTINEL),
+            "raw body in logs: {captured}"
+        );
         // The error string must not leak either.
-        assert!(!err.to_string().contains(TEST_SECRET), "secret in error: {err}");
-        assert!(!err.to_string().contains(RAW_BODY_SENTINEL), "raw body in error: {err}");
+        assert!(
+            !err.to_string().contains(TEST_SECRET),
+            "secret in error: {err}"
+        );
+        assert!(
+            !err.to_string().contains(RAW_BODY_SENTINEL),
+            "raw body in error: {err}"
+        );
     }
 
     #[tokio::test]
     async fn cancellation_drops_in_flight_request() {
         use crate::proto::alcedo::ai::{
-            AiErrorCode, AiRequestHeader, AiPriority, AiResponseStatus, DescribeImageRequest,
+            AiErrorCode, AiPriority, AiRequestHeader, AiResponseStatus, DescribeImageRequest,
             RenditionMetadata as ProtoRendition,
         };
         use crate::server::image_analysis::ImageAnalysisServiceImpl;
@@ -518,7 +590,8 @@ mod tests {
         let mut providers: HashMap<String, Arc<dyn ImageAnalysisProvider>> = HashMap::new();
         let pid = provider.provider_id().to_string();
         providers.insert(pid.clone(), Arc::new(provider));
-        let svc = ImageAnalysisServiceImpl::new(providers, pid, vault.clone(), cancel_registry.clone());
+        let svc =
+            ImageAnalysisServiceImpl::new(providers, pid, vault.clone(), cancel_registry.clone());
 
         let handle = vault.register("openrouter", TEST_SECRET.to_string(), None);
         let request_id = "req-cancel-or".to_string();
@@ -567,7 +640,7 @@ mod tests {
     #[tokio::test]
     async fn timeout_returns_deadline_exceeded() {
         use crate::proto::alcedo::ai::{
-            AiErrorCode, AiRequestHeader, AiPriority, AiResponseStatus, DescribeImageRequest,
+            AiErrorCode, AiPriority, AiRequestHeader, AiResponseStatus, DescribeImageRequest,
             RenditionMetadata as ProtoRendition,
         };
         use crate::server::image_analysis::ImageAnalysisServiceImpl;
@@ -593,7 +666,8 @@ mod tests {
         let mut providers: HashMap<String, Arc<dyn ImageAnalysisProvider>> = HashMap::new();
         let pid = provider.provider_id().to_string();
         providers.insert(pid.clone(), Arc::new(provider));
-        let svc = ImageAnalysisServiceImpl::new(providers, pid, vault.clone(), cancel_registry.clone());
+        let svc =
+            ImageAnalysisServiceImpl::new(providers, pid, vault.clone(), cancel_registry.clone());
 
         let handle = vault.register("openrouter", TEST_SECRET.to_string(), None);
         let req = DescribeImageRequest {

@@ -30,6 +30,7 @@ const RETRY_BACKOFF: Duration = Duration::from_millis(100);
 /// honor, so a misbehaving or hostile server cannot stall the sidecar for longer
 /// than the policy intends.
 const MAX_RETRY_AFTER: Duration = Duration::from_secs(5);
+const MAX_ERROR_BODY_CHARS: usize = 700;
 
 /// Maximum number of retries after a transient failure. With the initial attempt
 /// this is at most 2 calls for a transient transport / 429 / 5xx failure; a 4xx
@@ -37,6 +38,21 @@ const MAX_RETRY_AFTER: Duration = Duration::from_secs(5);
 /// bad request or an unauthorized/forbidden call, and retrying a paid
 /// non-idempotent POST would only duplicate cost without changing the outcome.
 pub const MAX_TRANSIENT_RETRIES: u32 = 1;
+
+async fn http_error_message(resp: reqwest::Response, prefix: &str, code: u16) -> String {
+    let body = resp.text().await.unwrap_or_default();
+    let body = body.split_whitespace().collect::<Vec<_>>().join(" ");
+    if body.is_empty() {
+        return format!("{prefix} HTTP {code}");
+    }
+    let excerpt: String = body.chars().take(MAX_ERROR_BODY_CHARS).collect();
+    let suffix = if body.chars().count() > MAX_ERROR_BODY_CHARS {
+        "..."
+    } else {
+        ""
+    };
+    format!("{prefix} HTTP {code}: {excerpt}{suffix}")
+}
 
 /// Install `ring` as the rustls default crypto provider and build a rustls-backed
 /// `reqwest::Client`. `ring` is already used by `ort`'s `tls-rustls`, so this
@@ -95,11 +111,14 @@ fn detect_image_base64(bytes: &[u8]) -> Result<(String, String), ProviderError> 
     // Re-encode to PNG via the `image` crate (lossless, universally accepted by
     // vision providers). The host's container format is not one we recognize by
     // magic bytes, so decode + re-encode rather than guessing a mime.
-    let img = image::load_from_memory(bytes)
-        .map_err(|_| ProviderError::Provider("could not decode image for provider upload".to_string()))?;
+    let img = image::load_from_memory(bytes).map_err(|_| {
+        ProviderError::Provider("could not decode image for provider upload".to_string())
+    })?;
     let mut cursor = std::io::Cursor::new(Vec::new());
     img.write_to(&mut cursor, image::ImageFormat::Png)
-        .map_err(|_| ProviderError::Provider("could not encode image for provider upload".to_string()))?;
+        .map_err(|_| {
+            ProviderError::Provider("could not encode image for provider upload".to_string())
+        })?;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&cursor.into_inner());
     Ok(("image/png".to_string(), b64))
 }
@@ -243,14 +262,14 @@ pub async fn send_with_retry(
                     attempt += 1;
                     continue;
                 }
-                // Exhausted retries or non-retryable 4xx. Drain without logging.
-                let _ = resp.text().await;
+                // Exhausted retries or non-retryable 4xx. The body is never logged,
+                // but a bounded summary is returned to the host and then redacted by
+                // the service vault before it reaches the UI.
+                let provider_message = http_error_message(resp, "provider returned", code).await;
                 if retryable {
                     return Err(ProviderError::Transient);
                 }
-                return Err(ProviderError::Provider(format!(
-                    "provider returned HTTP {code}"
-                )));
+                return Err(ProviderError::Provider(provider_message));
             }
             Err(err) => {
                 if attempt < max_retries {
@@ -315,13 +334,12 @@ pub async fn send_get_with_retry(
                     attempt += 1;
                     continue;
                 }
-                let _ = resp.text().await;
+                let provider_message =
+                    http_error_message(resp, "provider model-list returned", code).await;
                 if retryable {
                     return Err(ProviderError::Transient);
                 }
-                return Err(ProviderError::Provider(format!(
-                    "provider model-list returned HTTP {code}"
-                )));
+                return Err(ProviderError::Provider(provider_message));
             }
             Err(err) => {
                 if attempt < max_retries {
@@ -365,7 +383,14 @@ fn retry_after(resp: &reqwest::Response) -> Option<Duration> {
 /// content string maps to `SchemaValidation` so the service reports a
 /// payload-decode failure and creates no active annotation.
 pub fn parse_content_json(content: &str) -> Result<Value, ProviderError> {
-    serde_json::from_str::<Value>(content).map_err(|_| ProviderError::SchemaValidation)
+    serde_json::from_str::<Value>(content).map_err(|err| {
+        let compact = content.split_whitespace().collect::<Vec<_>>().join(" ");
+        let excerpt: String = compact.chars().take(220).collect();
+        let suffix = if compact.chars().count() > 220 { "..." } else { "" };
+        ProviderError::SchemaValidationMessage(format!(
+            "provider response content was not valid JSON: {err}; content excerpt: {excerpt}{suffix}"
+        ))
+    })
 }
 
 /// Coerce a model-emitted `rating` value to the 1..=5 integer the contract
@@ -400,7 +425,9 @@ pub fn parse_rating_int(value: &Value) -> Option<i32> {
 /// Responses follows OpenAI Responses (`input_tokens` / `output_tokens` /
 /// `total_tokens`). Accept either field name; 0 means "not reported".
 pub fn extract_usage(usage: Option<&Value>) -> Usage {
-    let Some(usage) = usage else { return Usage::default() };
+    let Some(usage) = usage else {
+        return Usage::default();
+    };
     let input = usage
         .get("input_tokens")
         .or_else(|| usage.get("prompt_tokens"))
@@ -411,7 +438,10 @@ pub fn extract_usage(usage: Option<&Value>) -> Usage {
         .or_else(|| usage.get("completion_tokens"))
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
-    let total = usage.get("total_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
+    let total = usage
+        .get("total_tokens")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
     Usage {
         input_tokens: input,
         output_tokens: output,
@@ -473,12 +503,24 @@ pub async fn read_response(
     resp: reqwest::Response,
 ) -> Result<(reqwest::header::HeaderMap, Value), ProviderError> {
     let headers = resp.headers().clone();
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|_| ProviderError::SchemaValidation)?;
-    let body: Value =
-        serde_json::from_slice(&bytes).map_err(|_| ProviderError::SchemaValidation)?;
+    let bytes = resp.bytes().await.map_err(|err| {
+        ProviderError::SchemaValidationMessage(format!(
+            "provider response body could not be read: {err}"
+        ))
+    })?;
+    let body: Value = serde_json::from_slice(&bytes).map_err(|err| {
+        let text = String::from_utf8_lossy(&bytes);
+        let compact = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        let excerpt: String = compact.chars().take(220).collect();
+        let suffix = if compact.chars().count() > 220 {
+            "..."
+        } else {
+            ""
+        };
+        ProviderError::SchemaValidationMessage(format!(
+            "provider response body was not valid JSON: {err}; body excerpt: {excerpt}{suffix}"
+        ))
+    })?;
     Ok((headers, body))
 }
 
@@ -511,10 +553,7 @@ mod tests {
         let png = cursor.into_inner();
         let (mime, b64) = build_image_base64(&png).expect("png passes through");
         assert_eq!(mime, "image/png");
-        assert_eq!(
-            b64,
-            base64::engine::general_purpose::STANDARD.encode(&png)
-        );
+        assert_eq!(b64, base64::engine::general_purpose::STANDARD.encode(&png));
         assert_eq!(
             build_image_data_uri(&png).unwrap(),
             format!("data:image/png;base64,{b64}")
@@ -585,7 +624,10 @@ mod tests {
             .iter()
             .map(|x| x.as_str().unwrap())
             .collect();
-        assert_eq!(required, vec!["rating", "reasons", "rubric_id", "rubric_version"]);
+        assert_eq!(
+            required,
+            vec!["rating", "reasons", "rubric_id", "rubric_version"]
+        );
         assert_eq!(v["additionalProperties"], false);
         assert_eq!(v["properties"]["rating"]["type"], "integer");
         assert!(
@@ -597,8 +639,14 @@ mod tests {
             "maximum dropped by strict sanitization"
         );
         // No nested `scores` array and no `confidence` remain after sanitization.
-        assert!(v["properties"].get("scores").is_none(), "scores array still present");
-        assert!(v["properties"].get("confidence").is_none(), "confidence still present");
+        assert!(
+            v["properties"].get("scores").is_none(),
+            "scores array still present"
+        );
+        assert!(
+            v["properties"].get("confidence").is_none(),
+            "confidence still present"
+        );
     }
 
     #[test]
@@ -698,10 +746,7 @@ mod tests {
         );
         // Neither set / empty header value -> empty string (not reported).
         let headers = HeaderMap::new();
-        assert_eq!(
-            extract_provider_request_id(&headers, &body, None, None),
-            ""
-        );
+        assert_eq!(extract_provider_request_id(&headers, &body, None, None), "");
         let mut headers = HeaderMap::new();
         headers.insert("request-id", HeaderValue::from_str("").unwrap());
         assert_eq!(

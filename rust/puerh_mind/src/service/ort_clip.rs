@@ -1194,8 +1194,14 @@ mod tests {
 
     #[test]
     fn fixed_batch_size_detects_static_batch_dimension() {
-        assert_eq!(OrtClipEngine::fixed_batch_size_from_shape(&[1, 64]), Some(1));
-        assert_eq!(OrtClipEngine::fixed_batch_size_from_shape(&[8, 3, 256, 256]), Some(8));
+        assert_eq!(
+            OrtClipEngine::fixed_batch_size_from_shape(&[1, 64]),
+            Some(1)
+        );
+        assert_eq!(
+            OrtClipEngine::fixed_batch_size_from_shape(&[8, 3, 256, 256]),
+            Some(8)
+        );
         assert_eq!(OrtClipEngine::fixed_batch_size_from_shape(&[-1, 64]), None);
         assert_eq!(OrtClipEngine::fixed_batch_size_from_shape(&[0, 64]), None);
         assert_eq!(OrtClipEngine::fixed_batch_size_from_shape(&[]), None);

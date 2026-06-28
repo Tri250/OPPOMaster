@@ -22,13 +22,12 @@ use tracing::info;
 
 use crate::proto::alcedo::ai::{
     AiErrorCode, AiRequestHeader, AiResponseHeader, AiResponseStatus, DescribeImageRequest,
-    DescribeImageResponse, DiscoveredModel as DiscoveredModelProto, ImageUnderstandingResult,
-    ImageRatingResult, ListModelsRequest, ListModelsResponse, ScoreImageRequest, ScoreImageResponse,
-    UsageMetadata,
-    image_analysis_service_server::ImageAnalysisService,
+    DescribeImageResponse, DiscoveredModel as DiscoveredModelProto, ImageRatingResult,
+    ImageUnderstandingResult, ListModelsRequest, ListModelsResponse, ScoreImageRequest,
+    ScoreImageResponse, UsageMetadata, image_analysis_service_server::ImageAnalysisService,
 };
-use crate::service::credential_vault::{CredentialError, CredentialVault, SecretString};
 use crate::service::cancellation_registry::CancellationRegistry;
+use crate::service::credential_vault::{CredentialError, CredentialVault, SecretString};
 use crate::service::image_analysis::{
     DescribeOutcome, ImageAnalysisProvider, ProviderError, ScoreOutcome, validate_rating,
     validate_understanding,
@@ -166,15 +165,28 @@ impl ImageAnalysisServiceImpl {
                 AiErrorCode::AiErrorPayloadDecode,
                 "provider response failed schema validation".to_string(),
             ),
+            ProviderError::SchemaValidationMessage(message) => (
+                AiResponseStatus::AiStatusProviderError,
+                AiErrorCode::AiErrorPayloadDecode,
+                if message.trim().is_empty() {
+                    "provider response failed schema validation".to_string()
+                } else {
+                    message.clone()
+                },
+            ),
             ProviderError::Transient => (
                 AiResponseStatus::AiStatusProviderUnavailable,
                 AiErrorCode::AiErrorProvider5xx,
                 "provider returned a transient error".to_string(),
             ),
-            ProviderError::Provider(_) => (
+            ProviderError::Provider(message) => (
                 AiResponseStatus::AiStatusProviderError,
                 AiErrorCode::AiErrorInternal,
-                "provider returned an error".to_string(),
+                if message.trim().is_empty() {
+                    "provider returned an error".to_string()
+                } else {
+                    message.clone()
+                },
             ),
             // Phase 6c: an unknown explicit model_id fails before any provider
             // HTTP call. Map to INVALID_ARGUMENT so the host surfaces a
@@ -334,7 +346,12 @@ impl ImageAnalysisService for ImageAnalysisServiceImpl {
         let response = match outcome {
             Ok(Ok(out)) => match validate_understanding(&out) {
                 Ok(()) => DescribeImageResponse {
-                    header: self.success_header(&header, provider.provider_id(), &out.model_id, elapsed),
+                    header: self.success_header(
+                        &header,
+                        provider.provider_id(),
+                        &out.model_id,
+                        elapsed,
+                    ),
                     result: Some(to_proto_understanding(&out)),
                     rendition: req.rendition.clone(),
                     usage: to_proto_usage(&out),
@@ -345,7 +362,13 @@ impl ImageAnalysisService for ImageAnalysisServiceImpl {
                     let (status, code, msg) = Self::provider_error_to_header(&err);
                     DescribeImageResponse {
                         header: self.failure_header(
-                            &header, status, code, &msg, provider.provider_id(), &out.model_id, elapsed,
+                            &header,
+                            status,
+                            code,
+                            &msg,
+                            provider.provider_id(),
+                            &out.model_id,
+                            elapsed,
                         ),
                         result: None,
                         rendition: req.rendition.clone(),
@@ -359,7 +382,13 @@ impl ImageAnalysisService for ImageAnalysisServiceImpl {
                 let (status, code, msg) = Self::provider_error_to_header(&err);
                 DescribeImageResponse {
                     header: self.failure_header(
-                        &header, status, code, &msg, provider.provider_id(), &req.model_id, elapsed,
+                        &header,
+                        status,
+                        code,
+                        &msg,
+                        provider.provider_id(),
+                        &req.model_id,
+                        elapsed,
                     ),
                     result: None,
                     rendition: req.rendition.clone(),
@@ -486,7 +515,12 @@ impl ImageAnalysisService for ImageAnalysisServiceImpl {
         let response = match outcome {
             Ok(Ok(out)) => match validate_rating(&out) {
                 Ok(()) => ScoreImageResponse {
-                    header: self.success_header(&header, provider.provider_id(), &out.model_id, elapsed),
+                    header: self.success_header(
+                        &header,
+                        provider.provider_id(),
+                        &out.model_id,
+                        elapsed,
+                    ),
                     result: Some(to_proto_rating(&out)),
                     rendition: req.rendition.clone(),
                     usage: to_proto_usage(&out),
@@ -497,7 +531,13 @@ impl ImageAnalysisService for ImageAnalysisServiceImpl {
                     let (status, code, msg) = Self::provider_error_to_header(&err);
                     ScoreImageResponse {
                         header: self.failure_header(
-                            &header, status, code, &msg, provider.provider_id(), &out.model_id, elapsed,
+                            &header,
+                            status,
+                            code,
+                            &msg,
+                            provider.provider_id(),
+                            &out.model_id,
+                            elapsed,
                         ),
                         result: None,
                         rendition: req.rendition.clone(),
@@ -511,7 +551,13 @@ impl ImageAnalysisService for ImageAnalysisServiceImpl {
                 let (status, code, msg) = Self::provider_error_to_header(&err);
                 ScoreImageResponse {
                     header: self.failure_header(
-                        &header, status, code, &msg, provider.provider_id(), &req.model_id, elapsed,
+                        &header,
+                        status,
+                        code,
+                        &msg,
+                        provider.provider_id(),
+                        &req.model_id,
+                        elapsed,
                     ),
                     result: None,
                     rendition: req.rendition.clone(),
@@ -626,12 +672,7 @@ impl ImageAnalysisService for ImageAnalysisServiceImpl {
                     })
                     .collect();
                 Ok(Response::new(ListModelsResponse {
-                    header: self.success_header(
-                        &header,
-                        provider.provider_id(),
-                        "",
-                        elapsed,
-                    ),
+                    header: self.success_header(&header, provider.provider_id(), "", elapsed),
                     models: proto_models,
                 }))
             }
@@ -657,7 +698,9 @@ impl ImageAnalysisService for ImageAnalysisServiceImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::proto::alcedo::ai::{AiInputKind, AiOutputKind, AiPriority, RenditionMetadata as ProtoRendition};
+    use crate::proto::alcedo::ai::{
+        AiInputKind, AiOutputKind, AiPriority, RenditionMetadata as ProtoRendition,
+    };
     use crate::service::image_analysis::{DiscoveredModel, MockFailure, MockImageAnalysisProvider};
 
     fn svc(mock: MockImageAnalysisProvider) -> ImageAnalysisServiceImpl {
@@ -710,7 +753,10 @@ mod tests {
         let resp = svc.describe_image(req).await.expect("rpc ok");
         let inner = resp.into_inner();
         assert_eq!(inner.header.as_ref().unwrap().request_id, "req-1");
-        assert_eq!(inner.header.as_ref().unwrap().status, AiResponseStatus::AiStatusOk as i32);
+        assert_eq!(
+            inner.header.as_ref().unwrap().status,
+            AiResponseStatus::AiStatusOk as i32
+        );
         let result = inner.result.expect("understanding result present");
         assert!(!result.caption.is_empty());
         assert!(!result.tags.is_empty());
@@ -745,7 +791,10 @@ mod tests {
         });
         let resp = svc.score_image(req).await.expect("rpc ok");
         let inner = resp.into_inner();
-        assert_eq!(inner.header.as_ref().unwrap().status, AiResponseStatus::AiStatusOk as i32);
+        assert_eq!(
+            inner.header.as_ref().unwrap().status,
+            AiResponseStatus::AiStatusOk as i32
+        );
         assert_eq!(inner.header.as_ref().unwrap().task_id, "image_rating.score");
         let result = inner.result.expect("rating result present");
         // The canned mock rating is 4 (1..=5 contract); distinct task_id + result
@@ -756,9 +805,9 @@ mod tests {
 
     #[tokio::test]
     async fn describe_image_missing_credential_returns_unauthenticated() {
-        let svc = svc(
-            MockImageAnalysisProvider::new("mock", "alcedo-mock").with_requires_credential(true),
-        );
+        let svc =
+            svc(MockImageAnalysisProvider::new("mock", "alcedo-mock")
+                .with_requires_credential(true));
         let req = Request::new(DescribeImageRequest {
             header: Some(header("req-3", 5000, "")), // empty credential_ref
             image_bytes: image_bytes(),
@@ -769,7 +818,10 @@ mod tests {
             prompt_profile_id: "".to_string(),
             output_language: String::new(),
         });
-        let resp = svc.describe_image(req).await.expect("rpc ok (failure in header)");
+        let resp = svc
+            .describe_image(req)
+            .await
+            .expect("rpc ok (failure in header)");
         let inner = resp.into_inner();
         let h = inner.header.expect("header present");
         assert_eq!(h.status, AiResponseStatus::AiStatusUnauthenticated as i32);
@@ -781,9 +833,9 @@ mod tests {
 
     #[tokio::test]
     async fn describe_image_with_valid_credential_succeeds() {
-        let svc = svc(
-            MockImageAnalysisProvider::new("mock", "alcedo-mock").with_requires_credential(true),
-        );
+        let svc =
+            svc(MockImageAnalysisProvider::new("mock", "alcedo-mock")
+                .with_requires_credential(true));
         // Register a credential in the vault and pass its handle.
         let handle = svc.vault.register("mock", "sk-test-key".to_string(), None);
         let req = Request::new(DescribeImageRequest {
@@ -798,7 +850,10 @@ mod tests {
         });
         let resp = svc.describe_image(req).await.expect("rpc ok");
         let inner = resp.into_inner();
-        assert_eq!(inner.header.as_ref().unwrap().status, AiResponseStatus::AiStatusOk as i32);
+        assert_eq!(
+            inner.header.as_ref().unwrap().status,
+            AiResponseStatus::AiStatusOk as i32
+        );
         assert!(inner.result.is_some());
         // The secret never appears in the response.
         assert!(!format!("{:?}", inner).contains("sk-test-key"));
@@ -806,10 +861,8 @@ mod tests {
 
     #[tokio::test]
     async fn describe_image_timeout_returns_deadline_exceeded() {
-        let svc = svc(
-            MockImageAnalysisProvider::new("mock", "alcedo-mock")
-                .with_failure(MockFailure::Slow(Duration::from_millis(500))),
-        );
+        let svc = svc(MockImageAnalysisProvider::new("mock", "alcedo-mock")
+            .with_failure(MockFailure::Slow(Duration::from_millis(500))));
         let req = Request::new(DescribeImageRequest {
             header: Some(header("req-4", 50, "")), // 50ms timeout
             image_bytes: image_bytes(),
@@ -820,7 +873,10 @@ mod tests {
             prompt_profile_id: "".to_string(),
             output_language: String::new(),
         });
-        let resp = svc.describe_image(req).await.expect("rpc ok (timeout in header)");
+        let resp = svc
+            .describe_image(req)
+            .await
+            .expect("rpc ok (timeout in header)");
         let inner = resp.into_inner();
         let h = inner.header.expect("header present");
         assert_eq!(h.status, AiResponseStatus::AiStatusDeadlineExceeded as i32);
@@ -830,10 +886,8 @@ mod tests {
 
     #[tokio::test]
     async fn describe_image_schema_validation_failure_returns_provider_error() {
-        let svc = svc(
-            MockImageAnalysisProvider::new("mock", "alcedo-mock")
-                .with_failure(MockFailure::InvalidOutput),
-        );
+        let svc = svc(MockImageAnalysisProvider::new("mock", "alcedo-mock")
+            .with_failure(MockFailure::InvalidOutput));
         let req = Request::new(DescribeImageRequest {
             header: Some(header("req-5", 5000, "")),
             image_bytes: image_bytes(),
@@ -844,23 +898,28 @@ mod tests {
             prompt_profile_id: "".to_string(),
             output_language: String::new(),
         });
-        let resp = svc.describe_image(req).await.expect("rpc ok (schema failure in header)");
+        let resp = svc
+            .describe_image(req)
+            .await
+            .expect("rpc ok (schema failure in header)");
         let inner = resp.into_inner();
         let h = inner.header.expect("header present");
         assert_eq!(h.status, AiResponseStatus::AiStatusProviderError as i32);
         assert_eq!(h.error_code, AiErrorCode::AiErrorPayloadDecode as i32);
-        assert!(inner.result.is_none(), "schema failure produces no active result");
+        assert!(
+            inner.result.is_none(),
+            "schema failure produces no active result"
+        );
     }
 
     #[tokio::test]
     async fn describe_image_provider_error_returns_provider_error() {
         // Exercises the `ProviderError::Provider(_)` -> PROVIDER_ERROR / INTERNAL
-        // arm of `provider_error_to_header`. The inner provider string is dropped
-        // before placement, so provider text is not leaked in the header.
-        let svc = svc(
-            MockImageAnalysisProvider::new("mock", "alcedo-mock")
-                .with_failure(MockFailure::Error),
-        );
+        // arm of `provider_error_to_header`. The provider string is preserved so
+        // the host can show the actionable, vault-redacted failure reason.
+        let svc =
+            svc(MockImageAnalysisProvider::new("mock", "alcedo-mock")
+                .with_failure(MockFailure::Error));
         let req = Request::new(DescribeImageRequest {
             header: Some(header("req-err", 5000, "")),
             image_bytes: image_bytes(),
@@ -871,14 +930,19 @@ mod tests {
             prompt_profile_id: "".to_string(),
             output_language: String::new(),
         });
-        let resp = svc.describe_image(req).await.expect("rpc ok (provider error in header)");
+        let resp = svc
+            .describe_image(req)
+            .await
+            .expect("rpc ok (provider error in header)");
         let inner = resp.into_inner();
         let h = inner.header.expect("header present");
         assert_eq!(h.status, AiResponseStatus::AiStatusProviderError as i32);
         assert_eq!(h.error_code, AiErrorCode::AiErrorInternal as i32);
-        assert!(inner.result.is_none(), "provider error produces no active result");
-        // The mock's inner error text is NOT placed in the header.
-        assert!(!h.error_message.contains("mock provider failed"));
+        assert!(
+            inner.result.is_none(),
+            "provider error produces no active result"
+        );
+        assert!(h.error_message.contains("mock provider failed"));
     }
 
     #[tokio::test]
@@ -886,10 +950,8 @@ mod tests {
         // Exercises the `ProviderError::Transient` -> PROVIDER_UNAVAILABLE /
         // PROVIDER_5XX arm of `provider_error_to_header`. Real 5xx / rate-limit
         // detection is a Phase 5c driver concern; this covers the service mapping.
-        let svc = svc(
-            MockImageAnalysisProvider::new("mock", "alcedo-mock")
-                .with_failure(MockFailure::Transient),
-        );
+        let svc = svc(MockImageAnalysisProvider::new("mock", "alcedo-mock")
+            .with_failure(MockFailure::Transient));
         let req = Request::new(DescribeImageRequest {
             header: Some(header("req-tx", 5000, "")),
             image_bytes: image_bytes(),
@@ -900,20 +962,28 @@ mod tests {
             prompt_profile_id: "".to_string(),
             output_language: String::new(),
         });
-        let resp = svc.describe_image(req).await.expect("rpc ok (transient in header)");
+        let resp = svc
+            .describe_image(req)
+            .await
+            .expect("rpc ok (transient in header)");
         let inner = resp.into_inner();
         let h = inner.header.expect("header present");
-        assert_eq!(h.status, AiResponseStatus::AiStatusProviderUnavailable as i32);
+        assert_eq!(
+            h.status,
+            AiResponseStatus::AiStatusProviderUnavailable as i32
+        );
         assert_eq!(h.error_code, AiErrorCode::AiErrorProvider5xx as i32);
         assert!(inner.result.is_none());
     }
 
     #[tokio::test]
     async fn describe_image_cancellation_returns_cancelled() {
-        let svc = svc(MockImageAnalysisProvider::new("mock", "alcedo-mock").with_failure(
-            // Long enough that the cancel branch wins the select! first.
-            MockFailure::Slow(Duration::from_secs(30)),
-        ));
+        let svc = svc(
+            MockImageAnalysisProvider::new("mock", "alcedo-mock").with_failure(
+                // Long enough that the cancel branch wins the select! first.
+                MockFailure::Slow(Duration::from_secs(30)),
+            ),
+        );
         let request_id = "req-cancel".to_string();
         let req = Request::new(DescribeImageRequest {
             header: Some(header(&request_id, 60000, "")),
@@ -934,7 +1004,10 @@ mod tests {
             cancel_registry.cancel(&rid);
         });
 
-        let resp = svc.describe_image(req).await.expect("rpc ok (cancel in header)");
+        let resp = svc
+            .describe_image(req)
+            .await
+            .expect("rpc ok (cancel in header)");
         let inner = resp.into_inner();
         let h = inner.header.expect("header present");
         assert_eq!(h.status, AiResponseStatus::AiStatusCancelled as i32);
@@ -954,7 +1027,10 @@ mod tests {
             prompt_profile_id: "".to_string(),
             output_language: String::new(),
         });
-        let resp = svc.describe_image(req).await.expect("rpc ok (unsupported in header)");
+        let resp = svc
+            .describe_image(req)
+            .await
+            .expect("rpc ok (unsupported in header)");
         let inner = resp.into_inner();
         let h = inner.header.expect("header present");
         assert_eq!(h.status, AiResponseStatus::AiStatusUnsupportedTask as i32);
@@ -974,7 +1050,10 @@ mod tests {
             prompt_profile_id: "".to_string(),
             output_language: String::new(),
         });
-        let err = svc.describe_image(req).await.expect_err("empty image is a transport error");
+        let err = svc
+            .describe_image(req)
+            .await
+            .expect_err("empty image is a transport error");
         assert_eq!(err.code(), tonic::Code::InvalidArgument);
     }
 
@@ -997,17 +1076,18 @@ mod tests {
 
     #[tokio::test]
     async fn list_models_returns_candidates_without_persisting() {
-        let svc = svc(
-            MockImageAnalysisProvider::new("mock", "alcedo-mock")
-                .with_discovered_models(discovered()),
-        );
+        let svc = svc(MockImageAnalysisProvider::new("mock", "alcedo-mock")
+            .with_discovered_models(discovered()));
         let req = Request::new(ListModelsRequest {
             header: Some(header("list-1", 5000, "")),
             provider_id: "mock".to_string(),
         });
         let resp = svc.list_models(req).await.expect("rpc ok");
         let inner = resp.into_inner();
-        assert_eq!(inner.header.as_ref().unwrap().status, AiResponseStatus::AiStatusOk as i32);
+        assert_eq!(
+            inner.header.as_ref().unwrap().status,
+            AiResponseStatus::AiStatusOk as i32
+        );
         assert_eq!(inner.models.len(), 2);
         assert_eq!(inner.models[0].model_id, "gpt-4o");
         assert_eq!(inner.models[1].display_name, "gpt-4o-mini");
@@ -1016,11 +1096,9 @@ mod tests {
 
     #[tokio::test]
     async fn list_models_missing_credential_returns_unauthenticated() {
-        let svc = svc(
-            MockImageAnalysisProvider::new("mock", "alcedo-mock")
-                .with_requires_credential(true)
-                .with_discovered_models(discovered()),
-        );
+        let svc = svc(MockImageAnalysisProvider::new("mock", "alcedo-mock")
+            .with_requires_credential(true)
+            .with_discovered_models(discovered()));
         // No credential_ref -> the call must fail closed before list_models.
         let req = Request::new(ListModelsRequest {
             header: Some(header("list-2", 5000, "")),
@@ -1050,11 +1128,9 @@ mod tests {
 
     #[tokio::test]
     async fn list_models_with_valid_credential_succeeds() {
-        let svc = svc(
-            MockImageAnalysisProvider::new("mock", "alcedo-mock")
-                .with_requires_credential(true)
-                .with_discovered_models(discovered()),
-        );
+        let svc = svc(MockImageAnalysisProvider::new("mock", "alcedo-mock")
+            .with_requires_credential(true)
+            .with_discovered_models(discovered()));
         let handle = svc.vault.register("mock", "sk-test-key".to_string(), None);
         let req = Request::new(ListModelsRequest {
             header: Some(header("list-4", 5000, &handle)),
@@ -1062,7 +1138,10 @@ mod tests {
         });
         let resp = svc.list_models(req).await.expect("rpc ok");
         let inner = resp.into_inner();
-        assert_eq!(inner.header.as_ref().unwrap().status, AiResponseStatus::AiStatusOk as i32);
+        assert_eq!(
+            inner.header.as_ref().unwrap().status,
+            AiResponseStatus::AiStatusOk as i32
+        );
         assert_eq!(inner.models.len(), 2);
         assert!(!format!("{:?}", inner).contains("sk-test-key"));
     }
@@ -1077,7 +1156,13 @@ mod tests {
         assert!(!cap.requires_credential);
         assert!(cap.supports_cancel);
         assert!(!cap.supports_batch);
-        assert!(cap.input_kinds.contains(&(AiInputKind::AiInputPreview as i32)));
-        assert!(cap.output_kinds.contains(&(AiOutputKind::AiOutputCaption as i32)));
+        assert!(
+            cap.input_kinds
+                .contains(&(AiInputKind::AiInputPreview as i32))
+        );
+        assert!(
+            cap.output_kinds
+                .contains(&(AiOutputKind::AiOutputCaption as i32))
+        );
     }
 }

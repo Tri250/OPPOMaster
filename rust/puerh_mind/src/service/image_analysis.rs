@@ -83,6 +83,8 @@ pub struct ScoreOutcome {
 pub enum ProviderError {
     #[error("provider response failed schema validation")]
     SchemaValidation,
+    #[error("{0}")]
+    SchemaValidationMessage(String),
     #[error("provider returned a transient error")]
     Transient,
     #[error("provider returned an error")]
@@ -452,7 +454,12 @@ mod schema_tests {
         let v: Value = serde_json::from_str(IMAGE_UNDERSTANDING_SCHEMA).expect("valid json");
         assert_eq!(v["type"], "object");
         assert!(v["required"].is_array());
-        let required: Vec<&str> = v["required"].as_array().unwrap().iter().map(|x| x.as_str().unwrap()).collect();
+        let required: Vec<&str> = v["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x.as_str().unwrap())
+            .collect();
         assert!(required.contains(&"caption"));
         assert!(required.contains(&"tags"));
         assert_eq!(v["properties"]["caption"]["type"], "string");
@@ -468,7 +475,12 @@ mod schema_tests {
     fn rating_schema_is_well_formed_json() {
         let v: Value = serde_json::from_str(IMAGE_RATING_SCHEMA).expect("valid json");
         assert_eq!(v["type"], "object");
-        let required: Vec<&str> = v["required"].as_array().unwrap().iter().map(|x| x.as_str().unwrap()).collect();
+        let required: Vec<&str> = v["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x.as_str().unwrap())
+            .collect();
         assert!(required.contains(&"rating"));
         assert!(required.contains(&"rubric_id"));
         // The rating is a 1..=5 integer; no `scores` array and no `confidence`
@@ -476,8 +488,14 @@ mod schema_tests {
         assert_eq!(v["properties"]["rating"]["type"], "integer");
         assert_eq!(v["properties"]["rating"]["minimum"], 1);
         assert_eq!(v["properties"]["rating"]["maximum"], 5);
-        assert!(v["properties"].get("scores").is_none(), "scores array still present");
-        assert!(v["properties"].get("confidence").is_none(), "confidence still present");
+        assert!(
+            v["properties"].get("scores").is_none(),
+            "scores array still present"
+        );
+        assert!(
+            v["properties"].get("confidence").is_none(),
+            "confidence still present"
+        );
     }
 
     #[test]
@@ -505,7 +523,10 @@ mod schema_tests {
             usage: Usage::default(),
             provider_request_id: "r".into(),
         };
-        assert_eq!(validate_understanding(&out).unwrap_err(), ProviderError::SchemaValidation);
+        assert_eq!(
+            validate_understanding(&out).unwrap_err(),
+            ProviderError::SchemaValidation
+        );
     }
 
     #[test]
@@ -519,7 +540,10 @@ mod schema_tests {
             usage: Usage::default(),
             provider_request_id: "r".into(),
         };
-        assert_eq!(validate_understanding(&out).unwrap_err(), ProviderError::SchemaValidation);
+        assert_eq!(
+            validate_understanding(&out).unwrap_err(),
+            ProviderError::SchemaValidation
+        );
     }
 
     #[test]
@@ -534,7 +558,10 @@ mod schema_tests {
             usage: Usage::default(),
             provider_request_id: "r".into(),
         };
-        assert_eq!(validate_understanding(&bad_tags).unwrap_err(), ProviderError::SchemaValidation);
+        assert_eq!(
+            validate_understanding(&bad_tags).unwrap_err(),
+            ProviderError::SchemaValidation
+        );
 
         // An out-of-range rating (0 is the app's "unrated" sentinel and outside
         // the 1..=5 remote contract) is rejected for rating.
@@ -547,7 +574,10 @@ mod schema_tests {
             usage: Usage::default(),
             provider_request_id: "r".into(),
         };
-        assert_eq!(validate_rating(&bad_rating).unwrap_err(), ProviderError::SchemaValidation);
+        assert_eq!(
+            validate_rating(&bad_rating).unwrap_err(),
+            ProviderError::SchemaValidation
+        );
 
         // 6 is also out of range (the upper bound is inclusive 5).
         let too_high = ScoreOutcome {
@@ -559,7 +589,10 @@ mod schema_tests {
             usage: Usage::default(),
             provider_request_id: "r".into(),
         };
-        assert_eq!(validate_rating(&too_high).unwrap_err(), ProviderError::SchemaValidation);
+        assert_eq!(
+            validate_rating(&too_high).unwrap_err(),
+            ProviderError::SchemaValidation
+        );
     }
 
     #[test]
@@ -579,17 +612,26 @@ mod schema_tests {
             usage: Usage::default(),
             provider_request_id: "r".into(),
         };
-        assert_eq!(validate_understanding(&empty_tags).unwrap_err(), ProviderError::SchemaValidation);
+        assert_eq!(
+            validate_understanding(&empty_tags).unwrap_err(),
+            ProviderError::SchemaValidation
+        );
     }
 
     #[tokio::test]
     async fn mock_returns_canned_valid_results() {
         let mock = MockImageAnalysisProvider::new("mock", "alcedo-mock");
-        let d = mock.describe_image(&[], "", "", "", None).await.expect("describe");
+        let d = mock
+            .describe_image(&[], "", "", "", None)
+            .await
+            .expect("describe");
         assert_eq!(d.caption, "A mock caption describing the image.");
         assert!(!d.tags.is_empty());
         validate_understanding(&d).expect("canned describe validates");
-        let s = mock.score_image(&[], "", "", "", "", None).await.expect("score");
+        let s = mock
+            .score_image(&[], "", "", "", "", None)
+            .await
+            .expect("score");
         validate_rating(&s).expect("canned score validates");
     }
 }

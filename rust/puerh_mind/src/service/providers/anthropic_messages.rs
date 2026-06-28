@@ -64,8 +64,8 @@ use tracing::warn;
 
 use crate::service::credential_vault::SecretString;
 use crate::service::image_analysis::{
-    DescribeOutcome, DiscoveredModel, ImageAnalysisProvider, ProviderError, ScoreOutcome,
-    IMAGE_RATING_SCHEMA, IMAGE_UNDERSTANDING_SCHEMA, validate_rating, validate_understanding,
+    DescribeOutcome, DiscoveredModel, IMAGE_RATING_SCHEMA, IMAGE_UNDERSTANDING_SCHEMA,
+    ImageAnalysisProvider, ProviderError, ScoreOutcome, validate_rating, validate_understanding,
 };
 use crate::service::provider_config::{ModelConfig, ProviderConfig};
 use crate::service::providers::http_util::{
@@ -90,12 +90,20 @@ pub struct AnthropicMessagesProvider {
 impl AnthropicMessagesProvider {
     pub fn new(config: ProviderConfig) -> Result<Self, ProviderError> {
         let http = build_rustls_client()?;
-        Ok(Self { config, http, discovered_models: Mutex::new(Vec::new()) })
+        Ok(Self {
+            config,
+            http,
+            discovered_models: Mutex::new(Vec::new()),
+        })
     }
 
     #[allow(dead_code)]
     pub fn with_client(config: ProviderConfig, http: reqwest::Client) -> Self {
-        Self { config, http, discovered_models: Mutex::new(Vec::new()) }
+        Self {
+            config,
+            http,
+            discovered_models: Mutex::new(Vec::new()),
+        }
     }
 
     fn url(&self) -> String {
@@ -106,15 +114,14 @@ impl AnthropicMessagesProvider {
     /// `{base_url}/models` (the Anthropic-compatible default); a config
     /// `models_endpoint` override replaces the path.
     fn models_url(&self) -> String {
-        let path = self
-            .config
-            .models_endpoint
-            .as_deref()
-            .unwrap_or("/models");
+        let path = self.config.models_endpoint.as_deref().unwrap_or("/models");
         format!("{}{}", self.config.base_url, path)
     }
 
-    fn resolve_model(&self, requested: &str) -> Result<(String, Option<ModelConfig>), ProviderError> {
+    fn resolve_model(
+        &self,
+        requested: &str,
+    ) -> Result<(String, Option<ModelConfig>), ProviderError> {
         if requested.trim().is_empty() {
             let slug = self.config.defaults.model.clone();
             let entry = self.config.models.iter().find(|m| m.slug == slug).cloned();
@@ -123,7 +130,10 @@ impl AnthropicMessagesProvider {
         if let Some(m) = self.config.models.iter().find(|m| m.slug == requested) {
             return Ok((m.slug.clone(), Some(m.clone())));
         }
-        let committed = self.discovered_models.lock().expect("discovered_models mutex poisoned");
+        let committed = self
+            .discovered_models
+            .lock()
+            .expect("discovered_models mutex poisoned");
         if let Some(m) = committed.iter().find(|m| m.slug == requested) {
             return Ok((m.slug.clone(), Some(m.clone())));
         }
@@ -134,7 +144,10 @@ impl AnthropicMessagesProvider {
     /// `OpenAiChatCompatibleProvider::commit_discovered_models` for the rationale
     /// (idempotent, synthesized `supports_structured_output = true`).
     fn commit_discovered_models(&self, models: &[DiscoveredModel]) {
-        let mut committed = self.discovered_models.lock().expect("discovered_models mutex poisoned");
+        let mut committed = self
+            .discovered_models
+            .lock()
+            .expect("discovered_models mutex poisoned");
         for m in models {
             let already_known = self.config.models.iter().any(|c| c.slug == m.model_id)
                 || committed.iter().any(|c| c.slug == m.model_id);
@@ -187,13 +200,16 @@ impl AnthropicMessagesProvider {
             ("bearer", None) => Err(ProviderError::Provider(
                 "bearer provider called without a credential".to_string(),
             )),
-            ("api_key_header", Some(s)) => {
-                Ok((None, Some(("x-api-key".to_string(), s.expose().to_string()))))
-            }
+            ("api_key_header", Some(s)) => Ok((
+                None,
+                Some(("x-api-key".to_string(), s.expose().to_string())),
+            )),
             ("api_key_header", None) => Err(ProviderError::Provider(
                 "api_key_header provider called without a credential".to_string(),
             )),
-            (other, _) => Err(ProviderError::Provider(format!("unsupported auth type {other}"))),
+            (other, _) => Err(ProviderError::Provider(format!(
+                "unsupported auth type {other}"
+            ))),
         }
     }
 
@@ -264,8 +280,11 @@ impl AnthropicMessagesProvider {
         model_id: &str,
         header_req_id: &str,
     ) -> Result<DescribeOutcome, ProviderError> {
-        let parsed = Self::extract_tool_use_input(body, UNDERSTANDING_SCHEMA_NAME)
-            .ok_or(ProviderError::SchemaValidation)?;
+        let parsed = Self::extract_tool_use_input(body, UNDERSTANDING_SCHEMA_NAME).ok_or_else(|| {
+            ProviderError::SchemaValidationMessage(format!(
+                "provider response did not contain tool_use input named {UNDERSTANDING_SCHEMA_NAME}; expected Anthropic-compatible structured tool output"
+            ))
+        })?;
         let out = DescribeOutcome {
             caption: parsed
                 .get("caption")
@@ -287,7 +306,10 @@ impl AnthropicMessagesProvider {
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string(),
-            confidence: parsed.get("confidence").and_then(|v| v.as_f64()).unwrap_or(f64::NAN),
+            confidence: parsed
+                .get("confidence")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(f64::NAN),
             model_id: model_id.to_string(),
             usage: extract_usage(
                 self.config
@@ -310,16 +332,16 @@ impl AnthropicMessagesProvider {
         model_id: &str,
         header_req_id: &str,
     ) -> Result<ScoreOutcome, ProviderError> {
-        let parsed = Self::extract_tool_use_input(body, RATING_SCHEMA_NAME)
-            .ok_or(ProviderError::SchemaValidation)?;
+        let parsed = Self::extract_tool_use_input(body, RATING_SCHEMA_NAME).ok_or_else(|| {
+            ProviderError::SchemaValidationMessage(format!(
+                "provider response did not contain tool_use input named {RATING_SCHEMA_NAME}; expected Anthropic-compatible structured tool output"
+            ))
+        })?;
         // 1..=5 integer star rating. Accept an exact integer or an integer-valued
         // float (e.g. `4.0`); a fractional float (e.g. `4.9`) is NOT truncated —
         // `parse_rating_int` returns None, the rating falls back to 0 (outside the
         // 1..=5 contract), and `validate_rating` rejects it (fail closed).
-        let rating = parsed
-            .get("rating")
-            .and_then(parse_rating_int)
-            .unwrap_or(0);
+        let rating = parsed.get("rating").and_then(parse_rating_int).unwrap_or(0);
         let out = ScoreOutcome {
             rating,
             rubric_id: parsed
@@ -356,8 +378,14 @@ impl AnthropicMessagesProvider {
     /// bearer (when applicable) is returned separately and applied by
     /// `send_with_retry` via `bearer_auth`; it never appears in this vec, so it is
     /// never logged.
-    fn request_headers(&self, extra_auth_header: Option<(String, String)>) -> Vec<(String, String)> {
-        let mut headers = vec![("anthropic-version".to_string(), ANTHROPIC_VERSION.to_string())];
+    fn request_headers(
+        &self,
+        extra_auth_header: Option<(String, String)>,
+    ) -> Vec<(String, String)> {
+        let mut headers = vec![(
+            "anthropic-version".to_string(),
+            ANTHROPIC_VERSION.to_string(),
+        )];
         headers.extend(self.attribution_headers());
         if let Some((k, v)) = extra_auth_header {
             headers.push((k, v));
@@ -368,7 +396,9 @@ impl AnthropicMessagesProvider {
 
 fn describe_prompt(prompt_profile_id: &str, output_language: &str) -> (String, String) {
     let mut system = "You are an image understanding assistant for Alcedo Studio. Analyze the supplied image and respond with a single JSON object matching the provided schema. The object must contain: \"caption\" (a concise one-line description of the image), \"tags\" (an array of short lowercase searchable tags, with at least one tag), \"scene\" (a short scene or category hint, or an empty string if none), and \"confidence\" (your confidence in the description, a number between 0.0 and 1.0). Output only the JSON object — no prose, no markdown code fences.".to_string();
-    system.push_str(&crate::service::image_analysis::language_directive(output_language));
+    system.push_str(&crate::service::image_analysis::language_directive(
+        output_language,
+    ));
     let mut instruction = "Describe this image for a photo library.".to_string();
     if !prompt_profile_id.trim().is_empty() {
         instruction.push_str(&format!(" Prompt profile: {prompt_profile_id}."));
@@ -377,9 +407,15 @@ fn describe_prompt(prompt_profile_id: &str, output_language: &str) -> (String, S
     (system, instruction)
 }
 
-fn score_prompt(prompt_profile_id: &str, rubric_id: &str, output_language: &str) -> (String, String) {
+fn score_prompt(
+    prompt_profile_id: &str,
+    rubric_id: &str,
+    output_language: &str,
+) -> (String, String) {
     let mut system = "You are an image rating assistant for Alcedo Studio. Rate the supplied image against the given rubric and respond with a single JSON object matching the provided schema. The object must contain: \"rating\" (an integer from 1 to 5, where 1 is a poor photo and 5 is an excellent photo — the app's star rating), \"rubric_id\" (the rubric you applied), \"rubric_version\" (the rubric version, or an empty string), and \"reasons\" (a short rationale). Do not include any other field — in particular, do not output a confidence. Output only the JSON object — no prose, no markdown code fences.".to_string();
-    system.push_str(&crate::service::image_analysis::language_directive(output_language));
+    system.push_str(&crate::service::image_analysis::language_directive(
+        output_language,
+    ));
     let mut instruction = "Rate this image on a 1–5 star scale.".to_string();
     if !rubric_id.trim().is_empty() {
         instruction.push_str(&format!(" Rubric: {rubric_id}."));
@@ -387,7 +423,9 @@ fn score_prompt(prompt_profile_id: &str, rubric_id: &str, output_language: &str)
     if !prompt_profile_id.trim().is_empty() {
         instruction.push_str(&format!(" Prompt profile: {prompt_profile_id}."));
     }
-    instruction.push_str(" Return only the JSON object described above, with an integer \"rating\" between 1 and 5.");
+    instruction.push_str(
+        " Return only the JSON object described above, with an integer \"rating\" between 1 and 5.",
+    );
     (system, instruction)
 }
 
@@ -450,14 +488,24 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
             &instruction,
         );
         let headers = self.request_headers(extra_auth_header);
-        let resp = send_with_retry(&self.http, &self.url(), &body, &headers, bearer, MAX_TRANSIENT_RETRIES)
-            .await?;
+        let resp = send_with_retry(
+            &self.http,
+            &self.url(),
+            &body,
+            &headers,
+            bearer,
+            MAX_TRANSIENT_RETRIES,
+        )
+        .await?;
         let (resp_headers, resp_body) = read_response(resp).await?;
         let header_req_id = extract_provider_request_id(
             &resp_headers,
             &resp_body,
             self.config.response.provider_request_id_header.as_deref(),
-            self.config.response.provider_request_id_json_pointer.as_deref(),
+            self.config
+                .response
+                .provider_request_id_json_pointer
+                .as_deref(),
         );
         let outcome = self.parse_describe(&resp_body, &slug, &header_req_id)?;
         warn!(
@@ -494,14 +542,24 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
             &instruction,
         );
         let headers = self.request_headers(extra_auth_header);
-        let resp = send_with_retry(&self.http, &self.url(), &body, &headers, bearer, MAX_TRANSIENT_RETRIES)
-            .await?;
+        let resp = send_with_retry(
+            &self.http,
+            &self.url(),
+            &body,
+            &headers,
+            bearer,
+            MAX_TRANSIENT_RETRIES,
+        )
+        .await?;
         let (resp_headers, resp_body) = read_response(resp).await?;
         let header_req_id = extract_provider_request_id(
             &resp_headers,
             &resp_body,
             self.config.response.provider_request_id_header.as_deref(),
-            self.config.response.provider_request_id_json_pointer.as_deref(),
+            self.config
+                .response
+                .provider_request_id_json_pointer
+                .as_deref(),
         );
         let outcome = self.parse_score(&resp_body, &slug, &header_req_id)?;
         warn!(
@@ -536,14 +594,9 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
                 Some(id) => format!("{}?limit=100&after_id={}", self.models_url(), id),
                 None => format!("{}?limit=100", self.models_url()),
             };
-            let resp = send_get_with_retry(
-                &self.http,
-                &url,
-                &headers,
-                bearer,
-                MAX_TRANSIENT_RETRIES,
-            )
-            .await?;
+            let resp =
+                send_get_with_retry(&self.http, &url, &headers, bearer, MAX_TRANSIENT_RETRIES)
+                    .await?;
             let (_resp_headers, body) = read_response(resp).await?;
             let data = body
                 .get("data")
@@ -564,7 +617,10 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
                     source_provider_id: self.config.provider_id.clone(),
                 });
             }
-            let has_more = body.get("has_more").and_then(|v| v.as_bool()).unwrap_or(false);
+            let has_more = body
+                .get("has_more")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             if !has_more {
                 break;
             }
@@ -577,7 +633,9 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string())
                 .or_else(|| out.last().map(|m| m.model_id.clone()));
-            let Some(next_after) = next_after else { break; };
+            let Some(next_after) = next_after else {
+                break;
+            };
             after_id = Some(next_after);
         }
         // Commit discovered candidates so a later explicit `model_id` resolves
@@ -686,7 +744,13 @@ mod tests {
 
         let provider = provider_for(&server);
         provider
-            .describe_image(&test_image_png(), "doubao-seed-2.0-lite", "", "", Some(&secret()))
+            .describe_image(
+                &test_image_png(),
+                "doubao-seed-2.0-lite",
+                "",
+                "",
+                Some(&secret()),
+            )
             .await
             .expect("describe ok");
 
@@ -705,13 +769,19 @@ mod tests {
         assert_eq!(img["source"]["type"], "base64");
         assert_eq!(img["source"]["media_type"], "image/png");
         let data = img["source"]["data"].as_str().expect("data string");
-        assert!(!data.starts_with("data:"), "image data is a data URI: {data}");
+        assert!(
+            !data.starts_with("data:"),
+            "image data is a data URI: {data}"
+        );
         assert!(!data.is_empty(), "image base64 empty");
         assert_eq!(body["messages"][0]["content"][1]["type"], "text");
         // Structured output via tools + tool_choice, not text.format.json_schema.
         assert_eq!(body["tools"][0]["name"], "alcedo_image_understanding");
         assert_eq!(body["tools"][0]["input_schema"]["type"], "object");
-        assert_eq!(body["tools"][0]["input_schema"]["additionalProperties"], false);
+        assert_eq!(
+            body["tools"][0]["input_schema"]["additionalProperties"],
+            false
+        );
         let required = body["tools"][0]["input_schema"]["required"]
             .as_array()
             .expect("required array");
@@ -720,9 +790,15 @@ mod tests {
         assert_eq!(body["tool_choice"]["type"], "tool");
         assert_eq!(body["tool_choice"]["name"], "alcedo_image_understanding");
         // No Responses-shape fields leak in.
-        assert!(body.get("input").is_none(), "Responses `input` field present");
+        assert!(
+            body.get("input").is_none(),
+            "Responses `input` field present"
+        );
         assert!(body.get("text").is_none(), "Responses `text` field present");
-        assert!(body.get("max_output_tokens").is_none(), "Responses `max_output_tokens` present");
+        assert!(
+            body.get("max_output_tokens").is_none(),
+            "Responses `max_output_tokens` present"
+        );
     }
 
     #[tokio::test]
@@ -802,7 +878,14 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let out = provider
-            .score_image(&test_image_png(), "", "", "alcedo-default-v1", "", Some(&secret()))
+            .score_image(
+                &test_image_png(),
+                "",
+                "",
+                "alcedo-default-v1",
+                "",
+                Some(&secret()),
+            )
             .await
             .expect("score ok");
         // Single 1..=5 integer star rating; no scores array, no confidence.
@@ -830,7 +913,14 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let err = provider
-            .score_image(&test_image_png(), "", "", "alcedo-default-v1", "", Some(&secret()))
+            .score_image(
+                &test_image_png(),
+                "",
+                "",
+                "alcedo-default-v1",
+                "",
+                Some(&secret()),
+            )
             .await
             .expect_err("fractional rating rejected");
         assert_eq!(err, ProviderError::SchemaValidation);
@@ -902,7 +992,10 @@ mod tests {
             .expect_err("400 not retried");
         assert!(matches!(err, ProviderError::Provider(_)), "{err:?}");
         assert_eq!(server.received_requests().await.unwrap().len(), 1);
-        assert!(!err.to_string().contains(RAW_BODY_SENTINEL), "raw body leaked: {err}");
+        assert!(
+            !err.to_string().contains(RAW_BODY_SENTINEL),
+            "raw body leaked: {err}"
+        );
         assert!(
             !err.to_string().contains("invalid_request_error"),
             "error type leaked: {err}"
@@ -947,7 +1040,15 @@ mod tests {
             .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect_err("no tool_use");
-        assert_eq!(err, ProviderError::SchemaValidation);
+        match err {
+            ProviderError::SchemaValidationMessage(message) => {
+                assert!(
+                    message.contains("tool_use input named alcedo_image_understanding"),
+                    "{message}"
+                );
+            }
+            other => panic!("expected detailed schema validation message, got {other:?}"),
+        }
     }
 
     #[tokio::test]
@@ -1049,7 +1150,9 @@ mod tests {
         impl<'a> MakeWriter<'a> for BufWriter {
             type Writer = BufWriteImpl;
             fn make_writer(&'a self) -> Self::Writer {
-                BufWriteImpl { inner: self.0.clone() }
+                BufWriteImpl {
+                    inner: self.0.clone(),
+                }
             }
         }
         struct BufWriteImpl {
@@ -1110,17 +1213,26 @@ mod tests {
             captured.contains("retrying"),
             "log capture did not work (no retry warn captured): {captured}"
         );
-        assert!(!captured.contains(TEST_SECRET), "secret in logs: {captured}");
+        assert!(
+            !captured.contains(TEST_SECRET),
+            "secret in logs: {captured}"
+        );
         assert!(
             !captured.contains(img_b64.as_str()),
             "image base64 in logs: {captured}"
         );
-        assert!(!captured.contains(TEST_PROMPT), "prompt in logs: {captured}");
+        assert!(
+            !captured.contains(TEST_PROMPT),
+            "prompt in logs: {captured}"
+        );
         assert!(
             !captured.contains(RAW_BODY_SENTINEL),
             "raw body in logs: {captured}"
         );
-        assert!(!err.to_string().contains(TEST_SECRET), "secret in error: {err}");
+        assert!(
+            !err.to_string().contains(TEST_SECRET),
+            "secret in error: {err}"
+        );
         assert!(
             !err.to_string().contains(RAW_BODY_SENTINEL),
             "raw body in error: {err}"
@@ -1130,7 +1242,7 @@ mod tests {
     #[tokio::test]
     async fn cancellation_drops_in_flight_request() {
         use crate::proto::alcedo::ai::{
-            AiErrorCode, AiRequestHeader, AiPriority, AiResponseStatus, DescribeImageRequest,
+            AiErrorCode, AiPriority, AiRequestHeader, AiResponseStatus, DescribeImageRequest,
             RenditionMetadata as ProtoRendition,
         };
         use crate::server::image_analysis::ImageAnalysisServiceImpl;
@@ -1157,7 +1269,8 @@ mod tests {
         let mut providers: HashMap<String, Arc<dyn ImageAnalysisProvider>> = HashMap::new();
         let pid = provider.provider_id().to_string();
         providers.insert(pid.clone(), Arc::new(provider));
-        let svc = ImageAnalysisServiceImpl::new(providers, pid, vault.clone(), cancel_registry.clone());
+        let svc =
+            ImageAnalysisServiceImpl::new(providers, pid, vault.clone(), cancel_registry.clone());
 
         let handle = vault.register("volcengine_ark_coding", TEST_SECRET.to_string(), None);
         let request_id = "req-cancel-ark-coding".to_string();
@@ -1206,7 +1319,7 @@ mod tests {
     #[tokio::test]
     async fn timeout_returns_deadline_exceeded() {
         use crate::proto::alcedo::ai::{
-            AiErrorCode, AiRequestHeader, AiPriority, AiResponseStatus, DescribeImageRequest,
+            AiErrorCode, AiPriority, AiRequestHeader, AiResponseStatus, DescribeImageRequest,
             RenditionMetadata as ProtoRendition,
         };
         use crate::server::image_analysis::ImageAnalysisServiceImpl;
@@ -1233,7 +1346,8 @@ mod tests {
         let mut providers: HashMap<String, Arc<dyn ImageAnalysisProvider>> = HashMap::new();
         let pid = provider.provider_id().to_string();
         providers.insert(pid.clone(), Arc::new(provider));
-        let svc = ImageAnalysisServiceImpl::new(providers, pid, vault.clone(), cancel_registry.clone());
+        let svc =
+            ImageAnalysisServiceImpl::new(providers, pid, vault.clone(), cancel_registry.clone());
 
         let handle = vault.register("volcengine_ark_coding", TEST_SECRET.to_string(), None);
         let req = DescribeImageRequest {
@@ -1287,12 +1401,8 @@ mod tests {
             .expect("opencode_go_anthropic built-in")
             .clone();
         config.base_url = server.uri();
-        // The Opencode model ships unverified (`supports_structured_output = false`).
-        // Flip it on for these driver-shape tests so `ensure_structured_output`
-        // does not fail closed before the HTTP call — the advertisement gate
-        // (Phase 6a) is tested separately in `provider_config`. Here we exercise
-        // the wire shape, not the advertisement rule.
-        config.models[0].supports_structured_output = true;
+        // OpenCode built-ins are already structured-output capable; these tests
+        // exercise the wire shape against a mock endpoint.
         AnthropicMessagesProvider::new(config).expect("provider builds")
     }
 
@@ -1301,7 +1411,7 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/messages"))
-            .and(header("authorization", format!("Bearer {TEST_SECRET}")))
+            .and(header("x-api-key", TEST_SECRET))
             .and(header("anthropic-version", ANTHROPIC_VERSION))
             .respond_with(ResponseTemplate::new(200).set_body_json(ok_messages_body(
                 UNDERSTANDING_SCHEMA_NAME,
@@ -1312,7 +1422,7 @@ mod tests {
 
         let provider = opencode_provider_for(&server);
         provider
-            .describe_image(&test_image_png(), "claude-sonnet-4-5", "", "", Some(&secret()))
+            .describe_image(&test_image_png(), "qwen3.7-plus", "", "", Some(&secret()))
             .await
             .expect("describe ok");
 
@@ -1321,27 +1431,40 @@ mod tests {
         // The Opencode endpoint is `/messages` (not the Coding Plan `/v1/messages`).
         assert_eq!(reqs[0].url.path(), "/messages");
         let body: Value = serde_json::from_slice(&reqs[0].body).expect("body json");
-        assert_eq!(body["model"], "claude-sonnet-4-5");
+        assert_eq!(body["model"], "qwen3.7-plus");
         // Anthropic image block: source.type=base64, media_type, raw base64 data.
         let img = &body["messages"][0]["content"][0];
         assert_eq!(img["type"], "image");
         assert_eq!(img["source"]["type"], "base64");
         assert_eq!(img["source"]["media_type"], "image/png");
         let data = img["source"]["data"].as_str().expect("data string");
-        assert!(!data.starts_with("data:"), "image data is a data URI: {data}");
+        assert!(
+            !data.starts_with("data:"),
+            "image data is a data URI: {data}"
+        );
         // Structured output via tools + tool_choice, not response_format.
         assert_eq!(body["tools"][0]["name"], "alcedo_image_understanding");
         assert_eq!(body["tools"][0]["input_schema"]["type"], "object");
-        assert_eq!(body["tools"][0]["input_schema"]["additionalProperties"], false);
+        assert_eq!(
+            body["tools"][0]["input_schema"]["additionalProperties"],
+            false
+        );
         assert_eq!(body["tool_choice"]["type"], "tool");
         assert_eq!(body["tool_choice"]["name"], "alcedo_image_understanding");
         // No OpenRouter / OpenAI-Chat fields leak in.
-        assert!(body.get("provider").is_none(), "OpenRouter `provider` object present");
-        assert!(body.get("response_format").is_none(), "OpenAI `response_format` present");
-        // No x-api-key in bearer mode.
         assert!(
-            reqs[0].headers.get("x-api-key").is_none(),
-            "x-api-key present in bearer mode"
+            body.get("provider").is_none(),
+            "OpenRouter `provider` object present"
+        );
+        assert!(
+            body.get("response_format").is_none(),
+            "OpenAI `response_format` present"
+        );
+        // OpenCode's Anthropic-compatible /messages endpoint expects Anthropic
+        // x-api-key auth; bearer returns a fast 401 "Missing API key".
+        assert!(
+            reqs[0].headers.get("authorization").is_none(),
+            "authorization present in api_key_header mode"
         );
     }
 
@@ -1397,7 +1520,15 @@ mod tests {
             .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect_err("no tool_use");
-        assert_eq!(err, ProviderError::SchemaValidation);
+        match err {
+            ProviderError::SchemaValidationMessage(message) => {
+                assert!(
+                    message.contains("tool_use input named alcedo_image_understanding"),
+                    "{message}"
+                );
+            }
+            other => panic!("expected detailed schema validation message, got {other:?}"),
+        }
     }
 
     #[tokio::test]
@@ -1424,8 +1555,14 @@ mod tests {
             .expect_err("400 not retried");
         assert!(matches!(err, ProviderError::Provider(_)), "{err:?}");
         assert_eq!(server.received_requests().await.unwrap().len(), 1);
-        assert!(!err.to_string().contains(RAW_BODY_SENTINEL), "raw body leaked: {err}");
-        assert!(!err.to_string().contains(TEST_SECRET), "secret in error: {err}");
+        assert!(
+            !err.to_string().contains(RAW_BODY_SENTINEL),
+            "raw body leaked: {err}"
+        );
+        assert!(
+            !err.to_string().contains(TEST_SECRET),
+            "secret in error: {err}"
+        );
     }
 
     // ----- Phase 6c: model_id tightening + model discovery -----
@@ -1435,7 +1572,13 @@ mod tests {
         let server = MockServer::start().await;
         let provider = opencode_provider_for(&server);
         let err = provider
-            .describe_image(&test_image_png(), "not-a-real-anthropic-model", "", "", Some(&secret()))
+            .describe_image(
+                &test_image_png(),
+                "not-a-real-anthropic-model",
+                "",
+                "",
+                Some(&secret()),
+            )
             .await
             .expect_err("unknown model id should fail closed");
         assert_eq!(
@@ -1448,11 +1591,12 @@ mod tests {
     /// Phase 6c: Anthropic-compatible discovery follows `has_more` + `last_id`
     /// pagination and merges all pages into unverified candidates.
     #[tokio::test]
-    async fn list_models_anthropic_bearer_parses_and_paginates() {
+    async fn list_models_anthropic_opencode_x_api_key_parses_and_paginates() {
         let server = MockServer::start().await;
         // Page 1 (no after_id): has_more=true, last_id=claude-a.
         Mock::given(method("GET"))
             .and(path("/models"))
+            .and(header("x-api-key", TEST_SECRET))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "data": [ { "id": "claude-a", "display_name": "Claude A" } ],
                 "has_more": true,
@@ -1466,6 +1610,7 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/models"))
             .and(query_param("after_id", "claude-a"))
+            .and(header("x-api-key", TEST_SECRET))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "data": [ { "id": "claude-b" } ],
                 "has_more": false,
@@ -1475,7 +1620,10 @@ mod tests {
             .await;
         let provider = opencode_provider_for(&server);
 
-        let models = provider.list_models(Some(&secret())).await.expect("list ok");
+        let models = provider
+            .list_models(Some(&secret()))
+            .await
+            .expect("list ok");
         assert_eq!(models.len(), 2);
         assert_eq!(models[0].model_id, "claude-a");
         assert_eq!(models[0].display_name, "Claude A");
@@ -1487,6 +1635,8 @@ mod tests {
         assert_eq!(reqs.len(), 2);
         assert_eq!(reqs[0].method, "GET");
         assert_eq!(reqs[1].method, "GET");
+        assert!(reqs[0].headers.get("authorization").is_none());
+        assert!(reqs[1].headers.get("authorization").is_none());
     }
 
     /// Phase 6c: `api_key_header` mode sends `x-api-key` + `anthropic-version`
@@ -1515,11 +1665,17 @@ mod tests {
         config.auth.auth_type = "api_key_header".to_string();
         let provider = AnthropicMessagesProvider::new(config).expect("provider builds");
 
-        let models = provider.list_models(Some(&secret())).await.expect("list ok");
+        let models = provider
+            .list_models(Some(&secret()))
+            .await
+            .expect("list ok");
         assert_eq!(models.len(), 1);
         let reqs = server.received_requests().await.unwrap();
         assert_eq!(reqs.len(), 1);
-        assert!(reqs[0].headers.get("authorization").is_none(), "Authorization present in x-api-key mode");
+        assert!(
+            reqs[0].headers.get("authorization").is_none(),
+            "Authorization present in x-api-key mode"
+        );
     }
 
     /// Phase 6c: a 401 on the model-list maps to a non-retryable `Provider`
@@ -1534,10 +1690,19 @@ mod tests {
             .await;
         let provider = opencode_provider_for(&server);
 
-        let err = provider.list_models(Some(&secret())).await.expect_err("401 fails");
+        let err = provider
+            .list_models(Some(&secret()))
+            .await
+            .expect_err("401 fails");
         assert!(matches!(err, ProviderError::Provider(_)), "{err:?}");
         assert_eq!(server.received_requests().await.unwrap().len(), 1);
-        assert!(!err.to_string().contains(TEST_SECRET), "secret in error: {err}");
-        assert!(!err.to_string().contains(RAW_BODY_SENTINEL), "raw body leaked: {err}");
+        assert!(
+            !err.to_string().contains(TEST_SECRET),
+            "secret in error: {err}"
+        );
+        assert!(
+            !err.to_string().contains(RAW_BODY_SENTINEL),
+            "raw body leaked: {err}"
+        );
     }
 }

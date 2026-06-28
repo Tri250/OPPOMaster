@@ -171,9 +171,18 @@ class FakeThumbnailProvider : public IImageAnalysisThumbnailProvider {
 
 class FakeImageAnalysisClient : public IImageAnalysisClient {
  public:
-  enum class Outcome { kSuccess, kMissingCredential, kUnsupported, kTimeout, kSchemaError };
+  enum class Outcome {
+    kSuccess,
+    kMissingCredential,
+    kUnsupported,
+    kTimeout,
+    kSchemaError,
+    kEmptyProviderError,
+    kInvalidRating
+  };
 
   void SetDescribeOutcome(Outcome o) { describe_outcome_ = o; }
+  void SetScoreOutcome(Outcome o) { score_outcome_ = o; }
   // When true, DescribeImage throws instead of returning — simulates a provider / RPC
   // wrapper that propagates an exception. Used to exercise the RunJob exception-safety
   // guard around the in-flight slot.
@@ -240,7 +249,7 @@ class FakeImageAnalysisClient : public IImageAnalysisClient {
       std::unique_lock lk(block_mutex_);
       block_cv_.wait(lk, [this] { return release_blocked_.load(); });
     }
-    return MakeRating(request, describe_outcome_);
+    return MakeRating(request, score_outcome_);
   }
 
   auto CancelTask(const std::string& request_id, std::chrono::milliseconds /*timeout*/,
@@ -354,6 +363,11 @@ class FakeImageAnalysisClient : public IImageAnalysisClient {
         r.error_code = kErrorPayloadDecode;
         r.error = "schema validation failed";
         break;
+      case Outcome::kEmptyProviderError:
+        r.ok = false;
+        r.status = kStatusProviderError;
+        r.error_code = kErrorPayloadDecode;
+        break;
     }
     return r;
   }
@@ -364,11 +378,11 @@ class FakeImageAnalysisClient : public IImageAnalysisClient {
     r.rendition  = req.rendition;
     r.provider   = "fake";
     r.model_id   = req.model_id.empty() ? std::string("fake-model") : req.model_id;
-    if (o == Outcome::kSuccess) {
+    if (o == Outcome::kSuccess || o == Outcome::kInvalidRating) {
       r.ok = true;
       r.status = kStatusOk;
       // 1..=5 integer star rating (Phase 5f contract); no scores array, no confidence.
-      r.rating = 4;
+      r.rating = (o == Outcome::kInvalidRating) ? 0 : 4;
       r.rubric_id = "alcedo-default-v1";
       r.rubric_version = "1";
     } else {
@@ -387,6 +401,7 @@ class FakeImageAnalysisClient : public IImageAnalysisClient {
   std::atomic<int> revoke_calls_{0};
 
   Outcome describe_outcome_             = Outcome::kSuccess;
+  Outcome score_outcome_                = Outcome::kSuccess;
   Outcome list_models_outcome_          = Outcome::kSuccess;
   std::vector<AiDiscoveredModel> list_models_canned_;
 
@@ -507,6 +522,27 @@ TEST(ImageAnalysisServiceTest, DescribeSuccessReturnsAnalyzedResult) {
   std::filesystem::remove_all(ScratchDir("success"));
 }
 
+TEST(ImageAnalysisServiceTest, ScoreSuccessRequiresOneToFiveRating) {
+  auto provider = std::make_shared<FakeThumbnailProvider>();
+  auto client   = std::make_shared<FakeImageAnalysisClient>();
+  client->SetScoreOutcome(FakeImageAnalysisClient::Outcome::kInvalidRating);
+
+  ImageAnalysisService service(provider, client, nullptr);
+  auto                 opts = BaseDescribeOpts("invalid-score-rating");
+  opts.task                 = ImageAnalysisTask::kScore;
+  auto job = service.StartAnalysis({ImageAnalysisItem{1, 100}}, opts, {}, {});
+  ASSERT_TRUE(WaitWithTimeout(job, std::chrono::seconds(10)));
+
+  auto results = job->Results();
+  ASSERT_EQ(results.size(), 1u);
+  EXPECT_EQ(results[0].status, ImageAnalysisItemStatus::kError);
+  EXPECT_FALSE(results[0].rating.ok);
+  EXPECT_EQ(results[0].rating.rating, 0);
+  EXPECT_NE(results[0].error.find("invalid image rating"), std::string::npos);
+  EXPECT_EQ(client->ScoreCalls(), 1);
+  std::filesystem::remove_all(ScratchDir("invalid-score-rating"));
+}
+
 TEST(ImageAnalysisServiceTest, OversizedImageBytesRejectedBeforeProviderCall) {
   // Phase 6d: a preset `max_image_bytes` cap smaller than the encoded JPEG must
   // fail closed — the item is a prep failure (no provider call, no pin held),
@@ -579,6 +615,22 @@ TEST(ImageAnalysisServiceTest, SchemaErrorPropagatesAsErrorWithoutActiveResult) 
   // No active annotation: caption stays empty on a schema failure.
   EXPECT_TRUE(results[0].understanding.caption.empty());
   std::filesystem::remove_all(ScratchDir("schema"));
+}
+
+TEST(ImageAnalysisServiceTest, EmptyProviderErrorSynthesizesDiagnosticMessage) {
+  auto provider = std::make_shared<FakeThumbnailProvider>();
+  auto client   = std::make_shared<FakeImageAnalysisClient>();
+  client->SetDescribeOutcome(FakeImageAnalysisClient::Outcome::kEmptyProviderError);
+  auto results = RunDescribe(provider, client, nullptr, "empty-provider-error");
+  ASSERT_EQ(results.size(), 1u);
+  EXPECT_EQ(results[0].status, ImageAnalysisItemStatus::kError);
+  EXPECT_FALSE(results[0].understanding.ok);
+  EXPECT_EQ(results[0].understanding.status, kStatusProviderError);
+  EXPECT_EQ(results[0].understanding.error_code, kErrorPayloadDecode);
+  EXPECT_NE(results[0].error.find("provider call failed"), std::string::npos);
+  EXPECT_NE(results[0].error.find("status"), std::string::npos);
+  EXPECT_NE(results[0].error.find("fake"), std::string::npos);
+  std::filesystem::remove_all(ScratchDir("empty-provider-error"));
 }
 
 TEST(ImageAnalysisServiceTest, CancelRunningJobCallsCancelTaskAndDiscardsResult) {
