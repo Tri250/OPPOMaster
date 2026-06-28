@@ -537,6 +537,26 @@ auto AlbumBackend::GetImageRatingReasons(uint elementId) -> QVariantMap {
   result["rubricVersion"] = QString::fromStdString(row->rubric_version_);
   return result;
 }
+
+auto AlbumBackend::GetImageDescription(uint elementId) -> QVariantMap {
+  QVariantMap result{{"hasDescription", false}, {"caption", QString{}}, {"scene", QString{}},
+                     {"provider", QString{}},   {"modelId", QString{}}};
+  auto        project = project_handler_.project();
+  if (!project) {
+    return result;
+  }
+  const auto row =
+      project->GetStorageService()->GetAiStorageController().GetActiveUnderstanding(elementId);
+  if (!row.has_value() || row->caption_.empty()) {
+    return result;
+  }
+  result["hasDescription"] = true;
+  result["caption"]        = QString::fromStdString(row->caption_);
+  result["scene"]          = QString::fromStdString(row->scene_);
+  result["provider"]       = QString::fromStdString(row->provider_id_);
+  result["modelId"]        = QString::fromStdString(row->model_id_);
+  return result;
+}
 bool AlbumBackend::OpenDirectoryInFileManager(const QString& dirUrlOrPath) {
   const auto dir_path_opt = InputToPath(dirUrlOrPath);
   if (!dir_path_opt.has_value()) {

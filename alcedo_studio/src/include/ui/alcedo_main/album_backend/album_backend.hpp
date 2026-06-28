@@ -250,6 +250,7 @@ class AlbumBackend final : public QObject {
   // `Rating` value (use `GetImageRating`); this returns the AI rationale row. Returns
   // {hasReasons, reasons, provider, modelId, rubricId, rubricVersion}. No QML UI in 7a.
   Q_INVOKABLE QVariantMap GetImageRatingReasons(uint elementId);
+  Q_INVOKABLE QVariantMap GetImageDescription(uint elementId);
   Q_INVOKABLE bool        OpenDirectoryInFileManager(const QString& dirUrlOrPath);
 
   Q_INVOKABLE void        StartImport(const QStringList& fileUrlsOrPaths);

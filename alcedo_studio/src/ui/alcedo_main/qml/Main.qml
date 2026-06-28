@@ -221,6 +221,14 @@ ApplicationWindow {
         settingsDialog.open()
     }
 
+    function openAdvancedAnalysisDialog() {
+        const targets = selectionState.currentSelectedItems()
+        advancedContentAnalysisDialog.openWithTargets(targets)
+        if (targets.length <= 0) {
+            root.showSnackbar(qsTr("Select at least one image to analyze."))
+        }
+    }
+
     function dismissWelcomeForProjectLaunch() {
         root.welcomeDismissedForLaunch = true
     }
@@ -266,6 +274,7 @@ ApplicationWindow {
                || imageDetailsDialog.opened
                || nikonHeRecoveryDialog.opened
                || semanticGenerationDialog.opened
+               || advancedContentAnalysisDialog.opened
                || deleteConfirmDialog.opened
                || welcomeDialog.opened
     }
@@ -808,6 +817,19 @@ ApplicationWindow {
         onExitRequested: albumBackend.ExitNikonHeRecovery()
     }
 
+    AdvancedContentAnalysisDialog {
+        id: advancedContentAnalysisDialog
+        parent: Overlay.overlay
+        blurSource: mainContent
+        backend: albumBackend
+        analysisController: albumBackend.imageAnalysisController
+        profileController: albumBackend.aiProviderProfileController
+        backendInteractive: root.backendInteractive
+        onMessageRequested: function(message) {
+            root.showSnackbar(message)
+        }
+    }
+
     SemanticGenerationDialog {
         id: semanticGenerationDialog
         parent: Overlay.overlay
@@ -1310,8 +1332,10 @@ ApplicationWindow {
                 backend: albumBackend
                 theme: root
                 backendInteractive: root.backendInteractive
+                selectedCount: root.selectedCount
                 onImportRequested: importDialog.open()
                 onSearchRequested: globalSearchDialog.openFromCollection()
+                onAdvancedAnalysisRequested: root.openAdvancedAnalysisDialog()
             }
 
             ColumnLayout {
