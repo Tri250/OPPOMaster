@@ -91,6 +91,8 @@ SwipeView {
         id: aiBtn
         property bool primary: false
         property bool danger: false
+        property bool iconOnly: false
+        property int iconSize: 16
         property string iconSrc: ""
 
         Layout.preferredHeight: 40
@@ -99,14 +101,18 @@ SwipeView {
         Material.foreground: panel.textColor
         hoverEnabled: true
         spacing: 8
-        leftPadding: 18
-        rightPadding: 18
-        topPadding: 8
-        bottomPadding: 8
+        display: aiBtn.iconOnly ? AbstractButton.IconOnly : AbstractButton.TextBesideIcon
+        leftPadding: aiBtn.iconOnly ? 0 : 18
+        rightPadding: aiBtn.iconOnly ? 0 : 18
+        topPadding: aiBtn.iconOnly ? 0 : 8
+        bottomPadding: aiBtn.iconOnly ? 0 : 8
         icon.source: aiBtn.iconSrc.length > 0 ? aiBtn.iconSrc : ""
         icon.color: panel.textColor
-        icon.width: 16
-        icon.height: 16
+        icon.width: aiBtn.iconSize
+        icon.height: aiBtn.iconSize
+        ToolTip.visible: aiBtn.hovered && aiBtn.iconOnly && aiBtn.text.length > 0
+        ToolTip.delay: 400
+        ToolTip.text: aiBtn.text
 
         background: Rectangle {
             radius: 10
@@ -348,7 +354,7 @@ SwipeView {
             x: parent ? Math.round((parent.width - width) / 2) : 0
             y: parent ? Math.round((parent.height - height) / 2) : 0
             width: Math.min((parent ? parent.width : 620) - 72, 560)
-            padding: 0
+            padding: 24
 
             Overlay.modal: Component { BlurOverlay {} }
 
@@ -360,7 +366,6 @@ SwipeView {
 
             contentItem: ColumnLayout {
                 spacing: 16
-                Layout.margins: 24
 
                 Label {
                     Layout.fillWidth: true
@@ -557,6 +562,7 @@ SwipeView {
                             spacing: 12
 
                             ComboBox {
+                                id: modelCombo
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 42
                                 enabled: panel.modelOptions.length > 0
@@ -572,13 +578,48 @@ SwipeView {
                                 }
                             }
 
-                            AiButton {
-                                Layout.preferredHeight: 42
-                                primary: true
-                                text: qsTr("Test & Refresh")
-                                enabled: panel.hasAnalysis && panel.editingProfileId.length > 0
-                                         && (panel.editProfile.credentialAvailable || panel.editProfile.authType === "none")
-                                onClicked: panel.analysisController.ValidateConnectionForProfile(panel.editingProfileId)
+                            Rectangle {
+                                id: retryButton
+                                // Square side tracks the ComboBox's actual rendered
+                                // height so the two are always exactly equal — plain
+                                // Rectangle has no style padding, mirroring the
+                                // browse-button pattern in SemanticGenerationSettingsPanel.
+                                Layout.preferredWidth: modelCombo.height
+                                Layout.preferredHeight: modelCombo.height
+                                Layout.alignment: Qt.AlignBottom
+                                radius: 10
+                                color: retryHit.pressed
+                                       ? Qt.rgba(1, 1, 1, 0.06)
+                                       : (retryHit.containsMouse
+                                          ? Qt.rgba(1, 1, 1, 0.16)
+                                          : Qt.rgba(1, 1, 1, 0.10))
+                                border.width: 1
+                                border.color: Qt.rgba(1, 1, 1, 0.12)
+                                opacity: retryHit.enabled ? 1.0 : 0.45
+                                ToolTip.text: qsTr("Test & Refresh")
+                                ToolTip.visible: retryHit.containsMouse && retryHit.enabled
+                                ToolTip.delay: 400
+
+                                Image {
+                                    anchors.centerIn: parent
+                                    width: 20
+                                    height: 20
+                                    source: "qrc:/panel_icons/retry.svg"
+                                    sourceSize.width: 20
+                                    sourceSize.height: 20
+                                    fillMode: Image.Pad
+                                    asynchronous: true
+                                }
+
+                                MouseArea {
+                                    id: retryHit
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    enabled: panel.hasAnalysis && panel.editingProfileId.length > 0
+                                             && (panel.editProfile.credentialAvailable || panel.editProfile.authType === "none")
+                                    onClicked: panel.analysisController.ValidateConnectionForProfile(panel.editingProfileId)
+                                }
                             }
                         }
 
@@ -665,7 +706,7 @@ SwipeView {
             x: parent ? Math.round((parent.width - width) / 2) : 0
             y: parent ? Math.round((parent.height - height) / 2) : 0
             width: Math.min((parent ? parent.width : 520) - 72, 460)
-            padding: 0
+            padding: 24
 
             Overlay.modal: Component { BlurOverlay {} }
 
@@ -677,7 +718,6 @@ SwipeView {
 
             contentItem: ColumnLayout {
                 spacing: 14
-                Layout.margins: 24
 
                 Label {
                     Layout.fillWidth: true
