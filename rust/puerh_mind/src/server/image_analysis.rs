@@ -22,16 +22,17 @@ use tracing::{info, warn};
 
 use crate::proto::alcedo::ai::{
     AiErrorCode, AiRequestHeader, AiResponseHeader, AiResponseStatus, AnalyzeImageRequest,
-    AnalyzeImageResponse, DescribeImageRequest, DescribeImageResponse,
+    AnalyzeImageResponse, BatchAnalyzeImageItemResponse, BatchAnalyzeImageRequest,
+    BatchAnalyzeImageResponse, DescribeImageRequest, DescribeImageResponse,
     DiscoveredModel as DiscoveredModelProto, ImageRatingResult, ImageUnderstandingResult,
-    ListModelsRequest, ListModelsResponse, ScoreImageRequest, ScoreImageResponse, UsageMetadata,
-    image_analysis_service_server::ImageAnalysisService,
+    ListModelsRequest, ListModelsResponse, RenditionMetadata, ScoreImageRequest,
+    ScoreImageResponse, UsageMetadata, image_analysis_service_server::ImageAnalysisService,
 };
 use crate::service::cancellation_registry::CancellationRegistry;
 use crate::service::credential_vault::{CredentialError, CredentialVault, SecretString};
 use crate::service::image_analysis::{
-    AnalyzeOutcome, DescribeOutcome, ImageAnalysisProvider, ProviderError, ScoreOutcome,
-    validate_analyze, validate_rating, validate_understanding,
+    AnalyzeImageInput, AnalyzeOutcome, BatchAnalyzeOutcome, DescribeOutcome, ImageAnalysisProvider,
+    ProviderError, ScoreOutcome, validate_analyze, validate_rating, validate_understanding,
 };
 
 /// Timeout used when the request header leaves `timeout_ms` at 0 (server default).
@@ -262,6 +263,36 @@ impl HasUsage for ScoreOutcome {
 impl HasUsage for AnalyzeOutcome {
     fn usage(&self) -> &crate::service::image_analysis::Usage {
         &self.usage
+    }
+}
+impl HasUsage for BatchAnalyzeOutcome {
+    fn usage(&self) -> &crate::service::image_analysis::Usage {
+        &self.usage
+    }
+}
+
+fn batch_item_failure(
+    service: &ImageAnalysisServiceImpl,
+    batch_header: &AiRequestHeader,
+    request_id: &str,
+    provider: &str,
+    model_id: &str,
+    rendition: Option<RenditionMetadata>,
+    prompt_profile_id: &str,
+    err: &ProviderError,
+    elapsed: u64,
+) -> BatchAnalyzeImageItemResponse {
+    let mut header = batch_header.clone();
+    header.request_id = request_id.to_string();
+    let (status, code, msg) = ImageAnalysisServiceImpl::provider_error_to_header(err);
+    BatchAnalyzeImageItemResponse {
+        header: service.failure_header(&header, status, code, &msg, provider, model_id, elapsed),
+        understanding: None,
+        rating: None,
+        rendition,
+        usage: None,
+        provider_request_id: String::new(),
+        prompt_profile_id: prompt_profile_id.to_string(),
     }
 }
 
@@ -784,6 +815,209 @@ impl ImageAnalysisService for ImageAnalysisServiceImpl {
                 usage: None,
                 provider_request_id: String::new(),
                 prompt_profile_id: req.prompt_profile_id.clone(),
+            },
+        };
+        Ok(Response::new(response))
+    }
+
+    async fn batch_analyze_image(
+        &self,
+        request: Request<BatchAnalyzeImageRequest>,
+    ) -> Result<Response<BatchAnalyzeImageResponse>, Status> {
+        info!("received BatchAnalyzeImage request");
+        let start = std::time::Instant::now();
+        let req = request.into_inner();
+        let header = req.header.unwrap_or_default();
+
+        if req.items.is_empty() {
+            return Err(Status::invalid_argument("items must not be empty"));
+        }
+        if !req.include_understanding && !req.include_rating {
+            return Err(Status::invalid_argument(
+                "at least one batch output must be requested",
+            ));
+        }
+        if req.items.iter().any(|item| item.image_bytes.is_empty()) {
+            return Err(Status::invalid_argument(
+                "batch item image_bytes must not be empty",
+            ));
+        }
+
+        let provider = match self.lookup_provider(&req.provider_id) {
+            Some(p) => p,
+            None => {
+                return Ok(Response::new(BatchAnalyzeImageResponse {
+                    header: self.failure_header(
+                        &header,
+                        AiResponseStatus::AiStatusUnsupportedTask,
+                        AiErrorCode::AiErrorTaskUnknown,
+                        "no provider registered for the requested provider_id",
+                        &req.provider_id,
+                        &req.model_id,
+                        start.elapsed().as_millis() as u64,
+                    ),
+                    items: Vec::new(),
+                }));
+            }
+        };
+
+        let credential = match self.resolve_credential_secret(&header, provider.as_ref()) {
+            Ok(c) => c,
+            Err((status, code, msg)) => {
+                return Ok(Response::new(BatchAnalyzeImageResponse {
+                    header: self.failure_header(
+                        &header,
+                        status,
+                        code,
+                        &msg,
+                        provider.provider_id(),
+                        &req.model_id,
+                        start.elapsed().as_millis() as u64,
+                    ),
+                    items: Vec::new(),
+                }));
+            }
+        };
+
+        let inputs: Vec<AnalyzeImageInput<'_>> = req
+            .items
+            .iter()
+            .map(|item| AnalyzeImageInput {
+                image_bytes: item.image_bytes.as_slice(),
+                camera_context: item.camera_context.as_str(),
+            })
+            .collect();
+        let cancel_rx = self.cancel_registry.register(&header.request_id);
+        let provider_fut = provider.batch_analyze_images(
+            &inputs,
+            &req.model_id,
+            &req.prompt_profile_id,
+            &req.rubric_id,
+            &req.rating_severity,
+            &req.output_language,
+            credential.as_ref(),
+        );
+        tokio::pin!(provider_fut);
+        let timeout_dur = Self::timeout_duration(&header);
+
+        let outcome: Result<Result<BatchAnalyzeOutcome, ProviderError>, _> = tokio::select! {
+            biased;
+            _ = cancel_rx => {
+                self.cancel_registry.complete(&header.request_id);
+                return Ok(Response::new(BatchAnalyzeImageResponse {
+                    header: self.failure_header(
+                        &header,
+                        AiResponseStatus::AiStatusCancelled,
+                        AiErrorCode::AiErrorCancelledByClient,
+                        "task cancelled by client",
+                        provider.provider_id(),
+                        &req.model_id,
+                        start.elapsed().as_millis() as u64,
+                    ),
+                    items: Vec::new(),
+                }));
+            }
+            result = tokio::time::timeout(timeout_dur, provider_fut) => result,
+        };
+        self.cancel_registry.complete(&header.request_id);
+        let elapsed = start.elapsed().as_millis() as u64;
+
+        let response = match outcome {
+            Ok(Ok(out)) if out.items.len() == req.items.len() => {
+                let items = out
+                    .items
+                    .iter()
+                    .zip(req.items.iter())
+                    .map(|(item_out, req_item)| match validate_analyze(item_out) {
+                        Ok(()) => BatchAnalyzeImageItemResponse {
+                            header: self.success_header(
+                                &AiRequestHeader {
+                                    request_id: req_item.request_id.clone(),
+                                    ..header.clone()
+                                },
+                                provider.provider_id(),
+                                &item_out.model_id,
+                                elapsed,
+                            ),
+                            understanding: item_out
+                                .understanding
+                                .as_ref()
+                                .map(to_proto_understanding),
+                            rating: item_out.rating.as_ref().map(to_proto_rating),
+                            rendition: req_item.rendition.clone(),
+                            usage: to_proto_usage(item_out),
+                            provider_request_id: item_out.provider_request_id.clone(),
+                            prompt_profile_id: req.prompt_profile_id.clone(),
+                        },
+                        Err(err) => batch_item_failure(
+                            self,
+                            &header,
+                            &req_item.request_id,
+                            provider.provider_id(),
+                            &item_out.model_id,
+                            req_item.rendition.clone(),
+                            &req.prompt_profile_id,
+                            &err,
+                            elapsed,
+                        ),
+                    })
+                    .collect();
+                BatchAnalyzeImageResponse {
+                    header: self.success_header(
+                        &header,
+                        provider.provider_id(),
+                        &out.model_id,
+                        elapsed,
+                    ),
+                    items,
+                }
+            }
+            Ok(Ok(out)) => {
+                let err = ProviderError::SchemaValidationMessage(format!(
+                    "provider returned {} batch results for {} request items",
+                    out.items.len(),
+                    req.items.len()
+                ));
+                let (status, code, msg) = Self::provider_error_to_header(&err);
+                BatchAnalyzeImageResponse {
+                    header: self.failure_header(
+                        &header,
+                        status,
+                        code,
+                        &msg,
+                        provider.provider_id(),
+                        &out.model_id,
+                        elapsed,
+                    ),
+                    items: Vec::new(),
+                }
+            }
+            Ok(Err(err)) => {
+                let (status, code, msg) = Self::provider_error_to_header(&err);
+                BatchAnalyzeImageResponse {
+                    header: self.failure_header(
+                        &header,
+                        status,
+                        code,
+                        &msg,
+                        provider.provider_id(),
+                        &req.model_id,
+                        elapsed,
+                    ),
+                    items: Vec::new(),
+                }
+            }
+            Err(_elapsed) => BatchAnalyzeImageResponse {
+                header: self.failure_header(
+                    &header,
+                    AiResponseStatus::AiStatusDeadlineExceeded,
+                    AiErrorCode::AiErrorProviderTimeout,
+                    "provider call did not complete within the timeout",
+                    provider.provider_id(),
+                    &req.model_id,
+                    elapsed,
+                ),
+                items: Vec::new(),
             },
         };
         Ok(Response::new(response))

@@ -47,9 +47,10 @@ use tracing::warn;
 
 use crate::service::credential_vault::SecretString;
 use crate::service::image_analysis::{
-    AnalyzeOutcome, DescribeOutcome, DiscoveredModel, IMAGE_ANALYSIS_FLAT_SCHEMA,
-    IMAGE_RATING_SCHEMA, IMAGE_UNDERSTANDING_SCHEMA, ImageAnalysisProvider, ProviderError,
-    ScoreOutcome, validate_analyze, validate_rating, validate_understanding,
+    AnalyzeImageInput, AnalyzeOutcome, BatchAnalyzeOutcome, DescribeOutcome, DiscoveredModel,
+    IMAGE_ANALYSIS_BATCH_SCHEMA, IMAGE_ANALYSIS_FLAT_SCHEMA, IMAGE_RATING_SCHEMA,
+    IMAGE_UNDERSTANDING_SCHEMA, ImageAnalysisProvider, ProviderError, ScoreOutcome, Usage,
+    validate_analyze, validate_batch_analyze, validate_rating, validate_understanding,
 };
 use crate::service::provider_config::{ModelConfig, ProviderConfig};
 use crate::service::providers::http_util::{
@@ -65,6 +66,20 @@ use crate::service::providers::http_util::{
 const UNDERSTANDING_SCHEMA_NAME: &str = "alcedo_image_understanding";
 const RATING_SCHEMA_NAME: &str = "alcedo_image_rating";
 const ANALYSIS_FLAT_SCHEMA_NAME: &str = "alcedo_image_analysis_flat";
+const ANALYSIS_BATCH_SCHEMA_NAME: &str = "alcedo_image_analysis_batch";
+const SCHEMA_REPAIR_RETRIES: u32 = 1;
+
+#[derive(Debug, Clone)]
+struct BatchItemRepair {
+    index: usize,
+    bad_json: String,
+    error: ProviderError,
+}
+
+struct BatchRepairContext<'a> {
+    previous_content: &'a str,
+    failures: &'a [BatchItemRepair],
+}
 
 pub struct OpenAiChatCompatibleProvider {
     config: ProviderConfig,
@@ -254,14 +269,25 @@ impl OpenAiChatCompatibleProvider {
         schema_name: &str,
         system: &str,
         instruction: &str,
+        repair: Option<(&str, &ProviderError)>,
     ) -> Value {
-        let messages = json!([
-            { "role": "system", "content": system },
-            { "role": "user", "content": [
-                { "type": "text", "text": instruction },
-                { "type": "image_url", "image_url": { "url": data_uri } }
-            ]}
+        let user_content = json!([
+            { "type": "text", "text": instruction },
+            { "type": "image_url", "image_url": { "url": data_uri } }
         ]);
+        let messages = if let Some((previous_content, error)) = repair {
+            json!([
+                { "role": "system", "content": system },
+                { "role": "user", "content": user_content },
+                { "role": "assistant", "content": previous_content },
+                { "role": "user", "content": schema_repair_instruction(schema_name, error) }
+            ])
+        } else {
+            json!([
+                { "role": "system", "content": system },
+                { "role": "user", "content": user_content }
+            ])
+        };
         let mut body = json!({
             "model": slug,
             "messages": messages,
@@ -286,6 +312,420 @@ impl OpenAiChatCompatibleProvider {
             body["provider"] = provider;
         }
         body
+    }
+
+    fn build_batch_chat_body(
+        &self,
+        slug: &str,
+        model: Option<&ModelConfig>,
+        data_uris: &[String],
+        schema: Value,
+        system: &str,
+        instruction: &str,
+        repair: Option<BatchRepairContext<'_>>,
+    ) -> Value {
+        let mut user_content = vec![json!({ "type": "text", "text": instruction })];
+        for (index, data_uri) in data_uris.iter().enumerate() {
+            user_content.push(json!({ "type": "text", "text": format!("Image index {index}:") }));
+            user_content.push(json!({ "type": "image_url", "image_url": { "url": data_uri } }));
+        }
+        let user_content = Value::Array(user_content);
+        let messages = if let Some(repair) = repair {
+            json!([
+                { "role": "system", "content": system },
+                { "role": "user", "content": user_content },
+                { "role": "assistant", "content": repair.previous_content },
+                { "role": "user", "content": batch_schema_repair_instruction(repair.failures) }
+            ])
+        } else {
+            json!([
+                { "role": "system", "content": system },
+                { "role": "user", "content": user_content }
+            ])
+        };
+        let mut body = json!({
+            "model": slug,
+            "messages": messages,
+            "stream": false,
+            "temperature": self.config.defaults.temperature,
+            "max_tokens": self.config.limits.max_output_tokens,
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": ANALYSIS_BATCH_SCHEMA_NAME,
+                    "strict": self.config.structured_output.strict,
+                    "schema": schema
+                }
+            }
+        });
+        let provider = self.provider_knobs(model);
+        let is_empty = provider.as_object().map(|o| o.is_empty()).unwrap_or(false);
+        if !is_empty {
+            body["provider"] = provider;
+        }
+        body
+    }
+
+    async fn send_and_parse_describe(
+        &self,
+        slug: &str,
+        model: Option<&ModelConfig>,
+        data_uri: &str,
+        schema: Value,
+        system: &str,
+        instruction: &str,
+        bearer: Option<&str>,
+    ) -> Result<(DescribeOutcome, String, u32), ProviderError> {
+        let mut attempt = 0u32;
+        let mut repair: Option<(String, ProviderError)> = None;
+        loop {
+            let body = self.build_chat_body(
+                slug,
+                model,
+                data_uri,
+                schema.clone(),
+                UNDERSTANDING_SCHEMA_NAME,
+                system,
+                instruction,
+                repair
+                    .as_ref()
+                    .map(|(content, err)| (content.as_str(), err)),
+            );
+            let resp = send_with_retry(
+                &self.http,
+                &self.url(),
+                &body,
+                &self.attribution_headers(),
+                bearer,
+                MAX_TRANSIENT_RETRIES,
+            )
+            .await?;
+            let (headers, resp_body) = read_response(resp).await?;
+            let header_req_id = extract_provider_request_id(
+                &headers,
+                &resp_body,
+                self.config.response.provider_request_id_header.as_deref(),
+                self.config
+                    .response
+                    .provider_request_id_json_pointer
+                    .as_deref(),
+            );
+            let provider_content = self.response_content_excerpt(&resp_body);
+            match self.parse_describe(&resp_body, slug, &header_req_id) {
+                Ok(outcome) => break Ok((outcome, provider_content, attempt)),
+                Err(err) => {
+                    warn!(
+                        provider = %self.config.provider_id,
+                        model = %slug,
+                        provider_request_id = %header_req_id,
+                        provider_content = %provider_content,
+                        error = %err,
+                        schema_repair_attempt = attempt,
+                        "DescribeImage provider response parse failed"
+                    );
+                    if attempt >= SCHEMA_REPAIR_RETRIES {
+                        return Err(err);
+                    }
+                    attempt += 1;
+                    repair = Some((provider_content, err));
+                    warn!(
+                        provider = %self.config.provider_id,
+                        model = %slug,
+                        schema_repair_attempt = attempt,
+                        "DescribeImage retrying after schema validation failure"
+                    );
+                }
+            }
+        }
+    }
+
+    async fn send_and_parse_score(
+        &self,
+        slug: &str,
+        model: Option<&ModelConfig>,
+        data_uri: &str,
+        schema: Value,
+        system: &str,
+        instruction: &str,
+        bearer: Option<&str>,
+    ) -> Result<(ScoreOutcome, String, u32), ProviderError> {
+        let mut attempt = 0u32;
+        let mut repair: Option<(String, ProviderError)> = None;
+        loop {
+            let body = self.build_chat_body(
+                slug,
+                model,
+                data_uri,
+                schema.clone(),
+                RATING_SCHEMA_NAME,
+                system,
+                instruction,
+                repair
+                    .as_ref()
+                    .map(|(content, err)| (content.as_str(), err)),
+            );
+            let resp = send_with_retry(
+                &self.http,
+                &self.url(),
+                &body,
+                &self.attribution_headers(),
+                bearer,
+                MAX_TRANSIENT_RETRIES,
+            )
+            .await?;
+            let (headers, resp_body) = read_response(resp).await?;
+            let header_req_id = extract_provider_request_id(
+                &headers,
+                &resp_body,
+                self.config.response.provider_request_id_header.as_deref(),
+                self.config
+                    .response
+                    .provider_request_id_json_pointer
+                    .as_deref(),
+            );
+            let provider_content = self.response_content_excerpt(&resp_body);
+            match self.parse_score(&resp_body, slug, &header_req_id) {
+                Ok(outcome) => break Ok((outcome, provider_content, attempt)),
+                Err(err) => {
+                    warn!(
+                        provider = %self.config.provider_id,
+                        model = %slug,
+                        provider_request_id = %header_req_id,
+                        provider_content = %provider_content,
+                        error = %err,
+                        schema_repair_attempt = attempt,
+                        "ScoreImage provider response parse failed"
+                    );
+                    if attempt >= SCHEMA_REPAIR_RETRIES {
+                        return Err(err);
+                    }
+                    attempt += 1;
+                    repair = Some((provider_content, err));
+                    warn!(
+                        provider = %self.config.provider_id,
+                        model = %slug,
+                        schema_repair_attempt = attempt,
+                        "ScoreImage retrying after schema validation failure"
+                    );
+                }
+            }
+        }
+    }
+
+    async fn send_and_parse_analyze(
+        &self,
+        slug: &str,
+        model: Option<&ModelConfig>,
+        data_uri: &str,
+        schema: Value,
+        system: &str,
+        instruction: &str,
+        bearer: Option<&str>,
+    ) -> Result<(AnalyzeOutcome, String, u32), ProviderError> {
+        let mut attempt = 0u32;
+        let mut repair: Option<(String, ProviderError)> = None;
+        loop {
+            let body = self.build_chat_body(
+                slug,
+                model,
+                data_uri,
+                schema.clone(),
+                ANALYSIS_FLAT_SCHEMA_NAME,
+                system,
+                instruction,
+                repair
+                    .as_ref()
+                    .map(|(content, err)| (content.as_str(), err)),
+            );
+            let resp = send_with_retry(
+                &self.http,
+                &self.url(),
+                &body,
+                &self.attribution_headers(),
+                bearer,
+                MAX_TRANSIENT_RETRIES,
+            )
+            .await?;
+            let (headers, resp_body) = read_response(resp).await?;
+            let header_req_id = extract_provider_request_id(
+                &headers,
+                &resp_body,
+                self.config.response.provider_request_id_header.as_deref(),
+                self.config
+                    .response
+                    .provider_request_id_json_pointer
+                    .as_deref(),
+            );
+            let provider_content = self.response_content_excerpt(&resp_body);
+            match self.parse_analyze(&resp_body, slug, &header_req_id) {
+                Ok(outcome) => break Ok((outcome, provider_content, attempt)),
+                Err(err) => {
+                    warn!(
+                        provider = %self.config.provider_id,
+                        model = %slug,
+                        provider_request_id = %header_req_id,
+                        provider_content = %provider_content,
+                        error = %err,
+                        schema_repair_attempt = attempt,
+                        "AnalyzeImage provider response parse failed"
+                    );
+                    if attempt >= SCHEMA_REPAIR_RETRIES {
+                        return Err(err);
+                    }
+                    attempt += 1;
+                    repair = Some((provider_content, err));
+                    warn!(
+                        provider = %self.config.provider_id,
+                        model = %slug,
+                        schema_repair_attempt = attempt,
+                        "AnalyzeImage retrying after schema validation failure"
+                    );
+                }
+            }
+        }
+    }
+
+    async fn send_and_parse_batch_analyze(
+        &self,
+        slug: &str,
+        model: Option<&ModelConfig>,
+        data_uris: &[String],
+        schema: Value,
+        system: &str,
+        instruction: &str,
+        bearer: Option<&str>,
+    ) -> Result<(BatchAnalyzeOutcome, String, u32), ProviderError> {
+        let mut attempt = 0u32;
+        let mut merged: Vec<Option<AnalyzeOutcome>> = vec![None; data_uris.len()];
+        let mut required_indices: Vec<usize> = (0..data_uris.len()).collect();
+        let mut repair_content: Option<String> = None;
+        let mut repair_failures: Vec<BatchItemRepair> = Vec::new();
+        loop {
+            let repair = repair_content
+                .as_deref()
+                .map(|previous_content| BatchRepairContext {
+                    previous_content,
+                    failures: &repair_failures,
+                });
+            let body = self.build_batch_chat_body(
+                slug,
+                model,
+                data_uris,
+                schema.clone(),
+                system,
+                instruction,
+                repair,
+            );
+            let resp = send_with_retry(
+                &self.http,
+                &self.url(),
+                &body,
+                &self.attribution_headers(),
+                bearer,
+                MAX_TRANSIENT_RETRIES,
+            )
+            .await?;
+            let (headers, resp_body) = read_response(resp).await?;
+            let header_req_id = extract_provider_request_id(
+                &headers,
+                &resp_body,
+                self.config.response.provider_request_id_header.as_deref(),
+                self.config
+                    .response
+                    .provider_request_id_json_pointer
+                    .as_deref(),
+            );
+            let provider_content = self.response_content_excerpt(&resp_body);
+            match self.parse_batch_analyze_items(
+                &resp_body,
+                slug,
+                &header_req_id,
+                data_uris.len(),
+                &required_indices,
+            ) {
+                Ok(items) => {
+                    for (index, outcome) in items {
+                        if index < merged.len() {
+                            merged[index] = Some(outcome);
+                        }
+                    }
+                    let missing: Vec<_> = merged
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(index, item)| item.is_none().then_some(index))
+                        .collect();
+                    if missing.is_empty() {
+                        let items = merged
+                            .into_iter()
+                            .map(|item| item.expect("checked no missing batch item"))
+                            .collect::<Vec<_>>();
+                        let mut usage = Usage::default();
+                        let mut provider_request_id = String::new();
+                        for item in &items {
+                            usage.input_tokens += item.usage.input_tokens;
+                            usage.output_tokens += item.usage.output_tokens;
+                            usage.total_tokens += item.usage.total_tokens;
+                            if provider_request_id.is_empty() {
+                                provider_request_id = item.provider_request_id.clone();
+                            }
+                        }
+                        let out = BatchAnalyzeOutcome {
+                            items,
+                            model_id: slug.to_string(),
+                            usage,
+                            provider_request_id,
+                        };
+                        validate_batch_analyze(&out)?;
+                        break Ok((out, provider_content, attempt));
+                    }
+                    repair_failures = missing
+                        .into_iter()
+                        .map(|index| BatchItemRepair {
+                            index,
+                            bad_json: "null".to_string(),
+                            error: ProviderError::SchemaValidationMessage(format!(
+                                "batch response omitted required result index {index}"
+                            )),
+                        })
+                        .collect();
+                }
+                Err((items, failures)) => {
+                    for (index, outcome) in items {
+                        if index < merged.len() {
+                            merged[index] = Some(outcome);
+                        }
+                    }
+                    repair_failures = failures
+                        .into_iter()
+                        .filter(|failure| failure.index < data_uris.len())
+                        .collect();
+                }
+            }
+            warn!(
+                provider = %self.config.provider_id,
+                model = %slug,
+                provider_content = %provider_content,
+                failed_indices = ?repair_failures.iter().map(|f| f.index).collect::<Vec<_>>(),
+                schema_repair_attempt = attempt,
+                "BatchAnalyzeImage provider response parse failed"
+            );
+            if attempt >= SCHEMA_REPAIR_RETRIES || repair_failures.is_empty() {
+                return Err(repair_failures
+                    .first()
+                    .map(|f| f.error.clone())
+                    .unwrap_or(ProviderError::SchemaValidation));
+            }
+            attempt += 1;
+            required_indices = repair_failures.iter().map(|f| f.index).collect();
+            repair_content = Some(provider_content);
+            warn!(
+                provider = %self.config.provider_id,
+                model = %slug,
+                schema_repair_attempt = attempt,
+                failed_indices = ?required_indices,
+                "BatchAnalyzeImage retrying failed items after schema validation failure"
+            );
+        }
     }
 
     fn parse_describe(
@@ -345,6 +785,116 @@ impl OpenAiChatCompatibleProvider {
             provider_request_id: header_req_id.to_string(),
         };
         validate_understanding(&out)?;
+        Ok(out)
+    }
+
+    fn parsed_chat_content(&self, body: &Value) -> Result<Value, ProviderError> {
+        let content_pointer = self
+            .config
+            .response
+            .content_json_pointer
+            .as_deref()
+            .unwrap_or("/choices/0/message/content");
+        let content = json_pointer_str(body, content_pointer).ok_or_else(|| {
+            ProviderError::SchemaValidationMessage(format!(
+                "provider response did not contain JSON content at pointer {content_pointer}; expected OpenAI-compatible choices[0].message.content"
+            ))
+        })?;
+        Ok(match content {
+            Value::String(s) => parse_content_json(s)?,
+            other => other.clone(),
+        })
+    }
+
+    fn analyze_from_flat_value(
+        parsed: &Value,
+        model_id: &str,
+        header_req_id: &str,
+        usage: Usage,
+    ) -> Result<AnalyzeOutcome, ProviderError> {
+        if parsed.get("caption").is_none() {
+            return Err(ProviderError::SchemaValidationMessage(
+                "provider response did not contain caption".to_string(),
+            ));
+        }
+        if parsed.get("tags").is_none() {
+            return Err(ProviderError::SchemaValidationMessage(
+                "provider response did not contain tags array".to_string(),
+            ));
+        }
+        if !parsed.get("tags").is_some_and(|v| v.is_array()) {
+            return Err(ProviderError::SchemaValidationMessage(
+                "provider response tags was not an array; expected tags: [\"...\"]".to_string(),
+            ));
+        }
+        if parsed.get("rating").is_none() {
+            return Err(ProviderError::SchemaValidationMessage(
+                "provider response did not contain rating".to_string(),
+            ));
+        }
+        if parsed.get("rubric_id").is_none() {
+            return Err(ProviderError::SchemaValidationMessage(
+                "provider response did not contain rubric_id".to_string(),
+            ));
+        }
+        let understanding = DescribeOutcome {
+            caption: parsed
+                .get("caption")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string(),
+            tags: parsed
+                .get("tags")
+                .and_then(|v| v.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|t| t.as_str().map(|s| s.trim().to_string()))
+                        .collect()
+                })
+                .unwrap_or_default(),
+            scene: parsed
+                .get("scene")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            confidence: parsed
+                .get("confidence")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(f64::NAN),
+            model_id: model_id.to_string(),
+            usage: usage.clone(),
+            provider_request_id: header_req_id.to_string(),
+        };
+        let rating = ScoreOutcome {
+            rating: parsed.get("rating").and_then(parse_rating_int).unwrap_or(0),
+            rubric_id: parsed
+                .get("rubric_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            rubric_version: parsed
+                .get("rubric_version")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            reasons: parsed
+                .get("reasons")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            model_id: model_id.to_string(),
+            usage: usage.clone(),
+            provider_request_id: header_req_id.to_string(),
+        };
+        let out = AnalyzeOutcome {
+            understanding: Some(understanding),
+            rating: Some(rating),
+            model_id: model_id.to_string(),
+            usage,
+            provider_request_id: header_req_id.to_string(),
+        };
+        validate_analyze(&out)?;
         Ok(out)
     }
 
@@ -413,46 +963,7 @@ impl OpenAiChatCompatibleProvider {
         model_id: &str,
         header_req_id: &str,
     ) -> Result<AnalyzeOutcome, ProviderError> {
-        let content_pointer = self
-            .config
-            .response
-            .content_json_pointer
-            .as_deref()
-            .unwrap_or("/choices/0/message/content");
-        let content = json_pointer_str(body, content_pointer).ok_or_else(|| {
-            ProviderError::SchemaValidationMessage(format!(
-                "provider response did not contain JSON content at pointer {content_pointer}; expected OpenAI-compatible choices[0].message.content"
-            ))
-        })?;
-        let parsed = match content {
-            Value::String(s) => parse_content_json(s)?,
-            other => other.clone(),
-        };
-        if parsed.get("caption").is_none() {
-            return Err(ProviderError::SchemaValidationMessage(
-                "provider response did not contain caption".to_string(),
-            ));
-        }
-        if parsed.get("tags").is_none() {
-            return Err(ProviderError::SchemaValidationMessage(
-                "provider response did not contain tags array".to_string(),
-            ));
-        }
-        if !parsed.get("tags").is_some_and(|v| v.is_array()) {
-            return Err(ProviderError::SchemaValidationMessage(
-                "provider response tags was not an array; expected tags: [\"...\"]".to_string(),
-            ));
-        }
-        if parsed.get("rating").is_none() {
-            return Err(ProviderError::SchemaValidationMessage(
-                "provider response did not contain rating".to_string(),
-            ));
-        }
-        if parsed.get("rubric_id").is_none() {
-            return Err(ProviderError::SchemaValidationMessage(
-                "provider response did not contain rubric_id".to_string(),
-            ));
-        }
+        let parsed = self.parsed_chat_content(body)?;
         let usage = extract_usage(
             self.config
                 .response
@@ -460,65 +971,102 @@ impl OpenAiChatCompatibleProvider {
                 .as_deref()
                 .and_then(|p| json_pointer_str(body, p)),
         );
-        let understanding = DescribeOutcome {
-            caption: parsed
-                .get("caption")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim()
-                .to_string(),
-            tags: parsed
-                .get("tags")
-                .and_then(|v| v.as_array())
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|t| t.as_str().map(|s| s.trim().to_string()))
-                        .collect()
-                })
-                .unwrap_or_default(),
-            scene: parsed
-                .get("scene")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            confidence: parsed
-                .get("confidence")
-                .and_then(|v| v.as_f64())
-                .unwrap_or(f64::NAN),
-            model_id: model_id.to_string(),
-            usage: usage.clone(),
-            provider_request_id: header_req_id.to_string(),
+        Self::analyze_from_flat_value(&parsed, model_id, header_req_id, usage)
+    }
+
+    fn parse_batch_analyze_items(
+        &self,
+        body: &Value,
+        model_id: &str,
+        header_req_id: &str,
+        expected_len: usize,
+        required_indices: &[usize],
+    ) -> Result<Vec<(usize, AnalyzeOutcome)>, (Vec<(usize, AnalyzeOutcome)>, Vec<BatchItemRepair>)>
+    {
+        let usage = extract_usage(
+            self.config
+                .response
+                .usage_json_pointer
+                .as_deref()
+                .and_then(|p| json_pointer_str(body, p)),
+        );
+        let parsed = match self.parsed_chat_content(body) {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                return Err((
+                    Vec::new(),
+                    required_indices
+                        .iter()
+                        .map(|index| BatchItemRepair {
+                            index: *index,
+                            bad_json: self.response_content_excerpt(body),
+                            error: error.clone(),
+                        })
+                        .collect(),
+                ));
+            }
         };
-        let rating = ScoreOutcome {
-            rating: parsed.get("rating").and_then(parse_rating_int).unwrap_or(0),
-            rubric_id: parsed
-                .get("rubric_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            rubric_version: parsed
-                .get("rubric_version")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            reasons: parsed
-                .get("reasons")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
-            model_id: model_id.to_string(),
-            usage: usage.clone(),
-            provider_request_id: header_req_id.to_string(),
+        let Some(results) = parsed.get("results").and_then(|v| v.as_array()) else {
+            return Err((
+                Vec::new(),
+                required_indices
+                    .iter()
+                    .map(|index| BatchItemRepair {
+                        index: *index,
+                        bad_json: compact_json_excerpt(&parsed, 1200),
+                        error: ProviderError::SchemaValidationMessage(
+                            "batch response did not contain results array".to_string(),
+                        ),
+                    })
+                    .collect(),
+            ));
         };
-        let out = AnalyzeOutcome {
-            understanding: Some(understanding),
-            rating: Some(rating),
-            model_id: model_id.to_string(),
-            usage,
-            provider_request_id: header_req_id.to_string(),
-        };
-        validate_analyze(&out)?;
-        Ok(out)
+        let mut found = vec![false; expected_len];
+        let mut ok = Vec::new();
+        let mut failures = Vec::new();
+        for (position, item) in results.iter().enumerate() {
+            let index = item
+                .get("index")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as usize)
+                .unwrap_or(position);
+            if index >= expected_len {
+                failures.push(BatchItemRepair {
+                    index,
+                    bad_json: compact_json_excerpt(item, 1200),
+                    error: ProviderError::SchemaValidationMessage(format!(
+                        "batch item index {index} is outside expected range 0..{}",
+                        expected_len.saturating_sub(1)
+                    )),
+                });
+                continue;
+            }
+            found[index] = true;
+            match Self::analyze_from_flat_value(item, model_id, header_req_id, usage.clone()) {
+                Ok(outcome) => ok.push((index, outcome)),
+                Err(error) => failures.push(BatchItemRepair {
+                    index,
+                    bad_json: compact_json_excerpt(item, 1200),
+                    error,
+                }),
+            }
+        }
+        for index in required_indices {
+            if *index < found.len() && !found[*index] {
+                failures.push(BatchItemRepair {
+                    index: *index,
+                    bad_json: "null".to_string(),
+                    error: ProviderError::SchemaValidationMessage(format!(
+                        "batch response omitted required result index {index}"
+                    )),
+                });
+            }
+        }
+        if failures.is_empty() {
+            Ok(ok)
+        } else {
+            Err((ok, failures))
+        }
     }
 
     fn response_content_excerpt(&self, body: &Value) -> String {
@@ -579,6 +1127,117 @@ fn analyze_prompt(
     Ok((prompt.system, prompt.instruction))
 }
 
+fn batch_analyze_prompt(
+    prompt_profile_id: &str,
+    rubric_id: &str,
+    rating_severity: &str,
+    output_language: &str,
+    images: &[AnalyzeImageInput<'_>],
+) -> Result<(String, String), ProviderError> {
+    let camera_context = images
+        .iter()
+        .enumerate()
+        .filter(|(_, image)| !image.camera_context.trim().is_empty())
+        .map(|(index, image)| format!("Image index {index}: {}", image.camera_context.trim()))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let (system, mut instruction) = analyze_prompt(
+        prompt_profile_id,
+        rubric_id,
+        rating_severity,
+        output_language,
+        &camera_context,
+    )?;
+    instruction.push_str(&format!(
+        r#"
+
+Analyze exactly {} images in this one request. Return one result object per image in a top-level "results" array. Each result object must include its zero-based "index" matching the image order. Do not omit images."#,
+        images.len()
+    ));
+    Ok((system, instruction))
+}
+
+fn schema_repair_instruction(schema_name: &str, error: &ProviderError) -> String {
+    let shape = match schema_name {
+        UNDERSTANDING_SCHEMA_NAME => {
+            r#"{
+  "caption": "non-empty string",
+  "tags": ["one or more non-empty strings"],
+  "scene": "string",
+  "confidence": 0.0
+}"#
+        }
+        RATING_SCHEMA_NAME => {
+            r#"{
+  "rating": 1,
+  "rubric_id": "non-empty string",
+  "rubric_version": "string",
+  "reasons": "string"
+}"#
+        }
+        ANALYSIS_FLAT_SCHEMA_NAME => {
+            r#"{
+  "caption": "non-empty string",
+  "tags": ["one or more non-empty strings"],
+  "scene": "string",
+  "confidence": 0.0,
+  "rating": 1,
+  "rubric_id": "non-empty string",
+  "rubric_version": "string",
+  "reasons": "string"
+}"#
+        }
+        _ => "{}",
+    };
+    format!(
+        r#"The previous response did not match the required schema: {error}
+
+Using the same image and task context, respond again with a JSON object matching `{schema_name}` exactly:
+{shape}
+
+Do not include prose or markdown. Do not add extra fields. For `{ANALYSIS_FLAT_SCHEMA_NAME}`, the object must be flat; do not nest fields under "understanding" or "rating". `tags` must be an array, not a string."#
+    )
+}
+
+fn batch_schema_repair_instruction(failures: &[BatchItemRepair]) -> String {
+    let failed = failures
+        .iter()
+        .map(|failure| {
+            format!(
+                r#"index {index}
+bad_json: {bad_json}
+error: {error}"#,
+                index = failure.index,
+                bad_json = failure.bad_json,
+                error = failure.error
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    format!(
+        r#"Some result items from the previous batch response did not match the required per-item schema.
+
+Repair only the failed item indexes below. Call the same schema again and return a JSON object with a "results" array containing only corrected objects for these failed indexes.
+
+{failed}
+
+Each corrected item must match this exact shape:
+{{
+  "index": 0,
+  "caption": "non-empty string",
+  "tags": ["one or more non-empty strings"],
+  "scene": "string",
+  "confidence": 0.0,
+  "rating": 1,
+  "rubric_id": "non-empty string",
+  "rubric_version": "string",
+  "reasons": "string"
+}}
+
+Do not include prose or markdown. Do not add extra fields. Do not return already-valid indexes. tags must be an array, not a string."#
+    )
+}
+
 #[tonic::async_trait]
 impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
     fn provider_id(&self) -> &str {
@@ -630,49 +1289,17 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
         let data_uri = build_image_data_uri(image_bytes)?;
         let schema = strict_schema_value(IMAGE_UNDERSTANDING_SCHEMA)?;
         let (system, instruction) = describe_prompt(prompt_profile_id, output_language)?;
-        let body = self.build_chat_body(
-            &slug,
-            model.as_ref(),
-            &data_uri,
-            schema,
-            UNDERSTANDING_SCHEMA_NAME,
-            &system,
-            &instruction,
-        );
-        let resp = send_with_retry(
-            &self.http,
-            &self.url(),
-            &body,
-            &self.attribution_headers(),
-            bearer,
-            MAX_TRANSIENT_RETRIES,
-        )
-        .await?;
-        let (headers, resp_body) = read_response(resp).await?;
-        let header_req_id = extract_provider_request_id(
-            &headers,
-            &resp_body,
-            self.config.response.provider_request_id_header.as_deref(),
-            self.config
-                .response
-                .provider_request_id_json_pointer
-                .as_deref(),
-        );
-        let provider_content = self.response_content_excerpt(&resp_body);
-        let outcome = match self.parse_describe(&resp_body, &slug, &header_req_id) {
-            Ok(outcome) => outcome,
-            Err(err) => {
-                warn!(
-                    provider = %self.config.provider_id,
-                    model = %slug,
-                    provider_request_id = %header_req_id,
-                    provider_content = %provider_content,
-                    error = %err,
-                    "DescribeImage provider response parse failed"
-                );
-                return Err(err);
-            }
-        };
+        let (outcome, provider_content, schema_repair_attempt) = self
+            .send_and_parse_describe(
+                &slug,
+                model.as_ref(),
+                &data_uri,
+                schema,
+                &system,
+                &instruction,
+                bearer,
+            )
+            .await?;
         warn!(
             provider = %self.config.provider_id,
             model = %slug,
@@ -680,6 +1307,7 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
             caption = %compact_text_excerpt(&outcome.caption, 240),
             tags = ?outcome.tags,
             provider_content = %provider_content,
+            schema_repair_attempt,
             "DescribeImage completed"
         );
         Ok(outcome)
@@ -708,49 +1336,17 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
             output_language,
             camera_context,
         )?;
-        let body = self.build_chat_body(
-            &slug,
-            model.as_ref(),
-            &data_uri,
-            schema,
-            RATING_SCHEMA_NAME,
-            &system,
-            &instruction,
-        );
-        let resp = send_with_retry(
-            &self.http,
-            &self.url(),
-            &body,
-            &self.attribution_headers(),
-            bearer,
-            MAX_TRANSIENT_RETRIES,
-        )
-        .await?;
-        let (headers, resp_body) = read_response(resp).await?;
-        let header_req_id = extract_provider_request_id(
-            &headers,
-            &resp_body,
-            self.config.response.provider_request_id_header.as_deref(),
-            self.config
-                .response
-                .provider_request_id_json_pointer
-                .as_deref(),
-        );
-        let provider_content = self.response_content_excerpt(&resp_body);
-        let outcome = match self.parse_score(&resp_body, &slug, &header_req_id) {
-            Ok(outcome) => outcome,
-            Err(err) => {
-                warn!(
-                    provider = %self.config.provider_id,
-                    model = %slug,
-                    provider_request_id = %header_req_id,
-                    provider_content = %provider_content,
-                    error = %err,
-                    "ScoreImage provider response parse failed"
-                );
-                return Err(err);
-            }
-        };
+        let (outcome, provider_content, schema_repair_attempt) = self
+            .send_and_parse_score(
+                &slug,
+                model.as_ref(),
+                &data_uri,
+                schema,
+                &system,
+                &instruction,
+                bearer,
+            )
+            .await?;
         warn!(
             provider = %self.config.provider_id,
             model = %slug,
@@ -758,6 +1354,7 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
             rating = outcome.rating,
             reasons = %compact_text_excerpt(&outcome.reasons, 360),
             provider_content = %provider_content,
+            schema_repair_attempt,
             "ScoreImage completed"
         );
         Ok(outcome)
@@ -786,49 +1383,17 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
             output_language,
             camera_context,
         )?;
-        let body = self.build_chat_body(
-            &slug,
-            model.as_ref(),
-            &data_uri,
-            schema,
-            ANALYSIS_FLAT_SCHEMA_NAME,
-            &system,
-            &instruction,
-        );
-        let resp = send_with_retry(
-            &self.http,
-            &self.url(),
-            &body,
-            &self.attribution_headers(),
-            bearer,
-            MAX_TRANSIENT_RETRIES,
-        )
-        .await?;
-        let (headers, resp_body) = read_response(resp).await?;
-        let header_req_id = extract_provider_request_id(
-            &headers,
-            &resp_body,
-            self.config.response.provider_request_id_header.as_deref(),
-            self.config
-                .response
-                .provider_request_id_json_pointer
-                .as_deref(),
-        );
-        let provider_content = self.response_content_excerpt(&resp_body);
-        let outcome = match self.parse_analyze(&resp_body, &slug, &header_req_id) {
-            Ok(outcome) => outcome,
-            Err(err) => {
-                warn!(
-                    provider = %self.config.provider_id,
-                    model = %slug,
-                    provider_request_id = %header_req_id,
-                    provider_content = %provider_content,
-                    error = %err,
-                    "AnalyzeImage provider response parse failed"
-                );
-                return Err(err);
-            }
-        };
+        let (outcome, provider_content, schema_repair_attempt) = self
+            .send_and_parse_analyze(
+                &slug,
+                model.as_ref(),
+                &data_uri,
+                schema,
+                &system,
+                &instruction,
+                bearer,
+            )
+            .await?;
         let caption = outcome
             .understanding
             .as_ref()
@@ -848,17 +1413,65 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
             rating,
             reasons = %reasons,
             provider_content = %provider_content,
+            schema_repair_attempt,
             "AnalyzeImage completed"
         );
         Ok(outcome)
     }
 
-    /// Phase 6c: discover models by listing the configured OpenAI-compatible
-    /// `/models` endpoint. The standard OpenAI shape is `{ "data": [{ "id": ...
-    /// }] }` with no pagination; a non-`data`-array body fails closed as
-    /// `SchemaValidation`. Discovered models are unverified candidates — no
-    /// capability flags are inferred (listing proves only that the endpoint can
-    /// see the id, not image/structured-output support).
+    async fn batch_analyze_images(
+        &self,
+        images: &[AnalyzeImageInput<'_>],
+        model_id: &str,
+        prompt_profile_id: &str,
+        rubric_id: &str,
+        rating_severity: &str,
+        output_language: &str,
+        credential: Option<&SecretString>,
+    ) -> Result<BatchAnalyzeOutcome, ProviderError> {
+        if images.is_empty() {
+            return Err(ProviderError::SchemaValidationMessage(
+                "batch_analyze_images requires at least one image".to_string(),
+            ));
+        }
+        let (slug, model) = self.resolve_model(model_id)?;
+        self.ensure_structured_output(model.as_ref())?;
+        let bearer = self.bearer(credential)?;
+        let data_uris = images
+            .iter()
+            .map(|image| build_image_data_uri(image.image_bytes))
+            .collect::<Result<Vec<_>, _>>()?;
+        let schema = strict_schema_value(IMAGE_ANALYSIS_BATCH_SCHEMA)?;
+        let (system, instruction) = batch_analyze_prompt(
+            prompt_profile_id,
+            rubric_id,
+            rating_severity,
+            output_language,
+            images,
+        )?;
+        let (outcome, provider_content, schema_repair_attempt) = self
+            .send_and_parse_batch_analyze(
+                &slug,
+                model.as_ref(),
+                &data_uris,
+                schema,
+                &system,
+                &instruction,
+                bearer,
+            )
+            .await?;
+        warn!(
+            provider = %self.config.provider_id,
+            model = %slug,
+            provider_request_id = %outcome.provider_request_id,
+            items = outcome.items.len(),
+            provider_content = %provider_content,
+            schema_repair_attempt,
+            "BatchAnalyzeImage completed"
+        );
+        Ok(outcome)
+    }
+
     async fn list_models(
         &self,
         credential: Option<&SecretString>,
@@ -1166,6 +1779,79 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn analyze_image_repairs_schema_once_as_second_turn_only_after_failure() {
+        let server = MockServer::start().await;
+        let bad_body = json!({
+            "id": "opencode-req-bad",
+            "choices": [ { "message": { "content":
+                r#"{"caption":"c","tags":"not-an-array","scene":"","confidence":0.5,"rating":4,"rubric_id":"general","rubric_version":"","reasons":"solid"}"# } } ],
+            "usage": { "prompt_tokens": 120, "completion_tokens": 60, "total_tokens": 180 }
+        });
+        let repaired_body = json!({
+            "id": "opencode-req-repaired",
+            "choices": [ { "message": { "content":
+                r#"{"caption":"c","tags":["t"],"scene":"","confidence":0.5,"rating":4,"rubric_id":"general","rubric_version":"","reasons":"solid"}"# } } ],
+            "usage": { "prompt_tokens": 150, "completion_tokens": 45, "total_tokens": 195 }
+        });
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(bad_body))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(repaired_body))
+            .mount(&server)
+            .await;
+        let provider = provider_for(&server);
+
+        let out = provider
+            .analyze_image(
+                &test_image_png(),
+                "",
+                "",
+                "general",
+                "normal",
+                "",
+                "",
+                Some(&secret()),
+            )
+            .await
+            .expect("repair succeeds");
+
+        validate_analyze(&out).expect("repaired analyze outcome validates");
+        assert_eq!(out.provider_request_id, "opencode-req-repaired");
+
+        let reqs = server.received_requests().await.expect("requests captured");
+        assert_eq!(reqs.len(), 2);
+        let first: Value = serde_json::from_slice(&reqs[0].body).expect("first body json");
+        let second: Value = serde_json::from_slice(&reqs[1].body).expect("second body json");
+        assert_eq!(first["messages"].as_array().unwrap().len(), 2);
+        assert_eq!(second["messages"].as_array().unwrap().len(), 4);
+        assert_eq!(second["messages"][2]["role"], "assistant");
+        assert!(
+            second["messages"][2]["content"]
+                .as_str()
+                .unwrap()
+                .contains("not-an-array")
+        );
+        assert_eq!(second["messages"][3]["role"], "user");
+        assert!(
+            second["messages"][3]["content"]
+                .as_str()
+                .unwrap()
+                .contains("previous response did not match")
+        );
+        assert!(
+            second["messages"][1]["content"][1]["image_url"]["url"]
+                .as_str()
+                .unwrap()
+                .starts_with("data:image/png;base64,")
+        );
+    }
+
+    #[tokio::test]
     async fn rate_limit_maps_to_transient() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
@@ -1239,8 +1925,8 @@ mod tests {
     async fn ignored_response_format_produces_no_active_annotation() {
         // Explicit "unsupported structured output" fail-closed path: a compatible
         // endpoint that IGNORES `response_format` and returns plain prose (not JSON)
-        // must not create an active annotation. The content string is non-JSON, so
-        // `parse_content_json` maps it to `SchemaValidation`.
+        // must not create an active annotation. The first schema failure gets one
+        // repair turn; if the endpoint still ignores JSON, the call fails closed.
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/chat/completions"))
@@ -1256,7 +1942,11 @@ mod tests {
             .describe_image(&test_image_png(), "", "", "", Some(&secret()))
             .await
             .expect_err("ignored response_format rejected");
-        assert_eq!(err, ProviderError::SchemaValidation);
+        match err {
+            ProviderError::SchemaValidation | ProviderError::SchemaValidationMessage(_) => {}
+            other => panic!("expected schema validation, got {other:?}"),
+        }
+        assert_eq!(server.received_requests().await.unwrap().len(), 2);
     }
 
     #[tokio::test]

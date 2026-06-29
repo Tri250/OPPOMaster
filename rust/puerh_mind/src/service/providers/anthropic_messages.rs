@@ -64,9 +64,10 @@ use tracing::warn;
 
 use crate::service::credential_vault::SecretString;
 use crate::service::image_analysis::{
-    AnalyzeOutcome, DescribeOutcome, DiscoveredModel, IMAGE_ANALYSIS_FLAT_SCHEMA,
-    IMAGE_RATING_SCHEMA, IMAGE_UNDERSTANDING_SCHEMA, ImageAnalysisProvider, ProviderError,
-    ScoreOutcome, validate_analyze, validate_rating, validate_understanding,
+    AnalyzeImageInput, AnalyzeOutcome, BatchAnalyzeOutcome, DescribeOutcome, DiscoveredModel,
+    IMAGE_ANALYSIS_BATCH_SCHEMA, IMAGE_ANALYSIS_FLAT_SCHEMA, IMAGE_RATING_SCHEMA,
+    IMAGE_UNDERSTANDING_SCHEMA, ImageAnalysisProvider, ProviderError, ScoreOutcome, Usage,
+    validate_analyze, validate_batch_analyze, validate_rating, validate_understanding,
 };
 use crate::service::provider_config::{ModelConfig, ProviderConfig};
 use crate::service::providers::http_util::{
@@ -78,8 +79,21 @@ use crate::service::providers::http_util::{
 const UNDERSTANDING_SCHEMA_NAME: &str = "alcedo_image_understanding";
 const RATING_SCHEMA_NAME: &str = "alcedo_image_rating";
 const ANALYSIS_FLAT_SCHEMA_NAME: &str = "alcedo_image_analysis_flat";
+const ANALYSIS_BATCH_SCHEMA_NAME: &str = "alcedo_image_analysis_batch";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 const ANALYZE_SCHEMA_REPAIR_RETRIES: u32 = 1;
+
+#[derive(Debug, Clone)]
+struct BatchItemRepair {
+    index: usize,
+    bad_json: String,
+    error: ProviderError,
+}
+
+struct BatchRepairContext<'a> {
+    previous_content: &'a str,
+    failures: &'a [BatchItemRepair],
+}
 
 pub struct AnthropicMessagesProvider {
     config: ProviderConfig,
@@ -233,27 +247,86 @@ impl AnthropicMessagesProvider {
         schema_name: &str,
         system: &str,
         instruction: &str,
+        repair: Option<(&str, &ProviderError)>,
     ) -> Value {
+        let user_content = json!([
+            { "type": "image", "source": {
+                "type": "base64", "media_type": media_type, "data": image_b64
+            }},
+            { "type": "text", "text": instruction }
+        ]);
+        let messages = if let Some((previous_content, error)) = repair {
+            json!([
+                { "role": "user", "content": user_content },
+                { "role": "assistant", "content": previous_content },
+                { "role": "user", "content": [
+                    { "type": "text", "text": analyze_schema_repair_instruction(error) }
+                ]}
+            ])
+        } else {
+            json!([
+                { "role": "user", "content": user_content }
+            ])
+        };
         json!({
             "model": slug,
             "max_tokens": self.config.limits.max_output_tokens,
             "system": system,
             "temperature": self.config.defaults.temperature,
             "stream": false,
-            "messages": [
-                { "role": "user", "content": [
-                    { "type": "image", "source": {
-                        "type": "base64", "media_type": media_type, "data": image_b64
-                    }},
-                    { "type": "text", "text": instruction }
-                ]}
-            ],
+            "messages": messages,
             "tools": [
                 { "name": schema_name,
                   "description": "Return the Alcedo image-analysis result as a JSON object matching input_schema.",
                   "input_schema": schema }
             ],
             "tool_choice": { "type": "tool", "name": schema_name }
+        })
+    }
+
+    fn build_batch_messages_body(
+        &self,
+        slug: &str,
+        images: &[(String, String)],
+        schema: Value,
+        system: &str,
+        instruction: &str,
+        repair: Option<BatchRepairContext<'_>>,
+    ) -> Value {
+        let mut user_content = Vec::new();
+        user_content.push(json!({ "type": "text", "text": instruction }));
+        for (index, (media_type, image_b64)) in images.iter().enumerate() {
+            user_content.push(json!({ "type": "text", "text": format!("Image index {index}:") }));
+            user_content.push(json!({ "type": "image", "source": {
+                "type": "base64", "media_type": media_type, "data": image_b64
+            }}));
+        }
+        let messages = if let Some(repair) = repair {
+            json!([
+                { "role": "user", "content": user_content },
+                { "role": "assistant", "content": repair.previous_content },
+                { "role": "user", "content": [
+                    { "type": "text", "text": batch_schema_repair_instruction(repair.failures) }
+                ]}
+            ])
+        } else {
+            json!([
+                { "role": "user", "content": user_content }
+            ])
+        };
+        json!({
+            "model": slug,
+            "max_tokens": self.config.limits.max_output_tokens,
+            "system": system,
+            "temperature": self.config.defaults.temperature,
+            "stream": false,
+            "messages": messages,
+            "tools": [
+                { "name": ANALYSIS_BATCH_SCHEMA_NAME,
+                  "description": "Return Alcedo batch image-analysis results as JSON matching input_schema.",
+                  "input_schema": schema }
+            ],
+            "tool_choice": { "type": "tool", "name": ANALYSIS_BATCH_SCHEMA_NAME }
         })
     }
 
@@ -376,6 +449,98 @@ impl AnthropicMessagesProvider {
         Ok(out)
     }
 
+    fn analyze_from_flat_value(
+        parsed: &Value,
+        model_id: &str,
+        header_req_id: &str,
+        usage: Usage,
+    ) -> Result<AnalyzeOutcome, ProviderError> {
+        if parsed.get("caption").is_none() {
+            return Err(ProviderError::SchemaValidationMessage(
+                "provider response did not contain caption".to_string(),
+            ));
+        }
+        if parsed.get("tags").is_none() {
+            return Err(ProviderError::SchemaValidationMessage(
+                "provider response did not contain tags array".to_string(),
+            ));
+        }
+        if !parsed.get("tags").is_some_and(|v| v.is_array()) {
+            return Err(ProviderError::SchemaValidationMessage(
+                "provider response tags was not an array; expected tags: [\"...\"]".to_string(),
+            ));
+        }
+        if parsed.get("rating").is_none() {
+            return Err(ProviderError::SchemaValidationMessage(
+                "provider response did not contain rating".to_string(),
+            ));
+        }
+        if parsed.get("rubric_id").is_none() {
+            return Err(ProviderError::SchemaValidationMessage(
+                "provider response did not contain rubric_id".to_string(),
+            ));
+        }
+        let understanding = DescribeOutcome {
+            caption: parsed
+                .get("caption")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string(),
+            tags: parsed
+                .get("tags")
+                .and_then(|v| v.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|t| t.as_str().map(|s| s.trim().to_string()))
+                        .collect()
+                })
+                .unwrap_or_default(),
+            scene: parsed
+                .get("scene")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            confidence: parsed
+                .get("confidence")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(f64::NAN),
+            model_id: model_id.to_string(),
+            usage: usage.clone(),
+            provider_request_id: header_req_id.to_string(),
+        };
+        let rating = ScoreOutcome {
+            rating: parsed.get("rating").and_then(parse_rating_int).unwrap_or(0),
+            rubric_id: parsed
+                .get("rubric_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            rubric_version: parsed
+                .get("rubric_version")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            reasons: parsed
+                .get("reasons")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            model_id: model_id.to_string(),
+            usage: usage.clone(),
+            provider_request_id: header_req_id.to_string(),
+        };
+        let out = AnalyzeOutcome {
+            understanding: Some(understanding),
+            rating: Some(rating),
+            model_id: model_id.to_string(),
+            usage,
+            provider_request_id: header_req_id.to_string(),
+        };
+        validate_analyze(&out)?;
+        Ok(out)
+    }
+
     fn parse_analyze(
         &self,
         body: &Value,
@@ -480,6 +645,103 @@ impl AnthropicMessagesProvider {
         Ok(out)
     }
 
+    fn parse_batch_analyze_items(
+        &self,
+        body: &Value,
+        model_id: &str,
+        header_req_id: &str,
+        expected_len: usize,
+        required_indices: &[usize],
+    ) -> Result<Vec<(usize, AnalyzeOutcome)>, (Vec<(usize, AnalyzeOutcome)>, Vec<BatchItemRepair>)>
+    {
+        let usage = extract_usage(
+            self.config
+                .response
+                .usage_json_pointer
+                .as_deref()
+                .and_then(|p| json_pointer_str(body, p)),
+        );
+        let parsed = match Self::extract_tool_use_input(body, ANALYSIS_BATCH_SCHEMA_NAME) {
+            Some(parsed) => parsed,
+            None => {
+                return Err((
+                    Vec::new(),
+                    required_indices
+                        .iter()
+                        .map(|index| BatchItemRepair {
+                            index: *index,
+                            bad_json: Self::response_content_excerpt(body),
+                            error: ProviderError::SchemaValidationMessage(format!(
+                                "provider response did not contain tool_use input named {ANALYSIS_BATCH_SCHEMA_NAME}; expected Anthropic-compatible structured tool output"
+                            )),
+                        })
+                        .collect(),
+                ));
+            }
+        };
+        let Some(results) = parsed.get("results").and_then(|v| v.as_array()) else {
+            return Err((
+                Vec::new(),
+                required_indices
+                    .iter()
+                    .map(|index| BatchItemRepair {
+                        index: *index,
+                        bad_json: compact_json_excerpt(parsed, 1200),
+                        error: ProviderError::SchemaValidationMessage(
+                            "batch response did not contain results array".to_string(),
+                        ),
+                    })
+                    .collect(),
+            ));
+        };
+        let mut found = vec![false; expected_len];
+        let mut ok = Vec::new();
+        let mut failures = Vec::new();
+        for (position, item) in results.iter().enumerate() {
+            let index = item
+                .get("index")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as usize)
+                .unwrap_or(position);
+            if index >= expected_len {
+                failures.push(BatchItemRepair {
+                    index,
+                    bad_json: compact_json_excerpt(item, 1200),
+                    error: ProviderError::SchemaValidationMessage(format!(
+                        "batch item index {index} is outside expected range 0..{}",
+                        expected_len.saturating_sub(1)
+                    )),
+                });
+                continue;
+            }
+            found[index] = true;
+            match Self::analyze_from_flat_value(item, model_id, header_req_id, usage.clone()) {
+                Ok(outcome) => ok.push((index, outcome)),
+                Err(error) => failures.push(BatchItemRepair {
+                    index,
+                    bad_json: compact_json_excerpt(item, 1200),
+                    error,
+                }),
+            }
+        }
+        for index in required_indices {
+            if *index < found.len() && !found[*index] {
+                failures.push(BatchItemRepair {
+                    index: *index,
+                    bad_json: "null".to_string(),
+                    error: ProviderError::SchemaValidationMessage(format!(
+                        "batch response omitted required result index {index}"
+                    )),
+                });
+            }
+        }
+        if failures.is_empty() {
+            Ok(ok)
+        } else {
+            Err((ok, failures))
+        }
+    }
+
     fn response_content_excerpt(body: &Value) -> String {
         compact_json_excerpt(body.get("content").unwrap_or(body), 1200)
     }
@@ -548,11 +810,39 @@ fn analyze_prompt(
     Ok((prompt.system, prompt.instruction))
 }
 
-fn analyze_schema_repair_instruction(instruction: &str, error: &ProviderError) -> String {
-    format!(
-        r#"{instruction}
+fn batch_analyze_prompt(
+    prompt_profile_id: &str,
+    rubric_id: &str,
+    rating_severity: &str,
+    output_language: &str,
+    images: &[AnalyzeImageInput<'_>],
+) -> Result<(String, String), ProviderError> {
+    let camera_context = images
+        .iter()
+        .enumerate()
+        .filter(|(_, image)| !image.camera_context.trim().is_empty())
+        .map(|(index, image)| format!("Image index {index}: {}", image.camera_context.trim()))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let (system, mut instruction) = analyze_prompt(
+        prompt_profile_id,
+        rubric_id,
+        rating_severity,
+        output_language,
+        &camera_context,
+    )?;
+    instruction.push_str(&format!(
+        r#"
 
-Your previous tool input did not match the required schema: {error}
+Analyze exactly {} images in this one request. Return one result object per image in a top-level "results" array. Each result object must include its zero-based "index" matching the image order. Do not omit images."#,
+        images.len()
+    ));
+    Ok((system, instruction))
+}
+
+fn analyze_schema_repair_instruction(error: &ProviderError) -> String {
+    format!(
+        r#"Your previous tool input did not match the required schema: {error}
 
 Call the tool again with exactly this shape:
 {{
@@ -567,6 +857,45 @@ Call the tool again with exactly this shape:
 }}
 
 The tool input must be a flat object. Do not nest fields under "understanding" or a rating object. tags must be an array, not a string."#
+    )
+}
+
+fn batch_schema_repair_instruction(failures: &[BatchItemRepair]) -> String {
+    let failed = failures
+        .iter()
+        .map(|failure| {
+            format!(
+                r#"index {index}
+bad_json: {bad_json}
+error: {error}"#,
+                index = failure.index,
+                bad_json = failure.bad_json,
+                error = failure.error
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    format!(
+        r#"Some result items from the previous batch tool input did not match the required per-item schema.
+
+Repair only the failed item indexes below. Call the tool again and return a JSON object with a "results" array containing only corrected objects for these failed indexes.
+
+{failed}
+
+Each corrected item must match this exact shape:
+{{
+  "index": 0,
+  "caption": "non-empty string",
+  "tags": ["one or more non-empty strings"],
+  "scene": "string",
+  "confidence": 0.0,
+  "rating": 1,
+  "rubric_id": "non-empty string",
+  "rubric_version": "string",
+  "reasons": "string"
+}}
+
+Do not include prose or markdown. Do not add extra fields. Do not return already-valid indexes. tags must be an array, not a string."#
     )
 }
 
@@ -627,6 +956,7 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
             UNDERSTANDING_SCHEMA_NAME,
             &system,
             &instruction,
+            None,
         );
         let headers = self.request_headers(extra_auth_header);
         let resp = send_with_retry(
@@ -706,6 +1036,7 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
             RATING_SCHEMA_NAME,
             &system,
             &instruction,
+            None,
         );
         let headers = self.request_headers(extra_auth_header);
         let resp = send_with_retry(
@@ -779,7 +1110,7 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
         )?;
         let headers = self.request_headers(extra_auth_header);
         let mut attempt = 0u32;
-        let mut instruction_for_attempt = instruction;
+        let mut repair: Option<(String, ProviderError)> = None;
         let (outcome, provider_content, schema_repair_attempt) = loop {
             let body = self.build_messages_body(
                 &slug,
@@ -788,7 +1119,10 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
                 schema.clone(),
                 ANALYSIS_FLAT_SCHEMA_NAME,
                 &system,
-                &instruction_for_attempt,
+                &instruction,
+                repair
+                    .as_ref()
+                    .map(|(content, err)| (content.as_str(), err)),
             );
             let resp = send_with_retry(
                 &self.http,
@@ -826,8 +1160,7 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
                         return Err(err);
                     }
                     attempt += 1;
-                    instruction_for_attempt =
-                        analyze_schema_repair_instruction(&instruction_for_attempt, &err);
+                    repair = Some((provider_content, err));
                     warn!(
                         provider = %self.config.provider_id,
                         model = %slug,
@@ -860,6 +1193,171 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
             "AnalyzeImage completed"
         );
         Ok(outcome)
+    }
+
+    async fn batch_analyze_images(
+        &self,
+        images: &[AnalyzeImageInput<'_>],
+        model_id: &str,
+        prompt_profile_id: &str,
+        rubric_id: &str,
+        rating_severity: &str,
+        output_language: &str,
+        credential: Option<&SecretString>,
+    ) -> Result<BatchAnalyzeOutcome, ProviderError> {
+        if images.is_empty() {
+            return Err(ProviderError::SchemaValidationMessage(
+                "batch_analyze_images requires at least one image".to_string(),
+            ));
+        }
+        let (slug, model) = self.resolve_model(model_id)?;
+        self.ensure_structured_output(model.as_ref())?;
+        let (bearer, extra_auth_header) = self.build_auth(credential)?;
+        let encoded_images = images
+            .iter()
+            .map(|image| build_image_base64(image.image_bytes))
+            .collect::<Result<Vec<_>, _>>()?;
+        let schema = strict_schema_value(IMAGE_ANALYSIS_BATCH_SCHEMA)?;
+        let (system, instruction) = batch_analyze_prompt(
+            prompt_profile_id,
+            rubric_id,
+            rating_severity,
+            output_language,
+            images,
+        )?;
+        let headers = self.request_headers(extra_auth_header);
+        let mut attempt = 0u32;
+        let mut merged: Vec<Option<AnalyzeOutcome>> = vec![None; images.len()];
+        let mut required_indices: Vec<usize> = (0..images.len()).collect();
+        let mut repair_content: Option<String> = None;
+        let mut repair_failures: Vec<BatchItemRepair> = Vec::new();
+        loop {
+            let repair = repair_content
+                .as_deref()
+                .map(|previous_content| BatchRepairContext {
+                    previous_content,
+                    failures: &repair_failures,
+                });
+            let body = self.build_batch_messages_body(
+                &slug,
+                &encoded_images,
+                schema.clone(),
+                &system,
+                &instruction,
+                repair,
+            );
+            let resp = send_with_retry(
+                &self.http,
+                &self.url(),
+                &body,
+                &headers,
+                bearer,
+                MAX_TRANSIENT_RETRIES,
+            )
+            .await?;
+            let (resp_headers, resp_body) = read_response(resp).await?;
+            let header_req_id = extract_provider_request_id(
+                &resp_headers,
+                &resp_body,
+                self.config.response.provider_request_id_header.as_deref(),
+                self.config
+                    .response
+                    .provider_request_id_json_pointer
+                    .as_deref(),
+            );
+            let provider_content = Self::response_content_excerpt(&resp_body);
+            match self.parse_batch_analyze_items(
+                &resp_body,
+                &slug,
+                &header_req_id,
+                images.len(),
+                &required_indices,
+            ) {
+                Ok(items) => {
+                    for (index, outcome) in items {
+                        if index < merged.len() {
+                            merged[index] = Some(outcome);
+                        }
+                    }
+                    let missing: Vec<_> = merged
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(index, item)| item.is_none().then_some(index))
+                        .collect();
+                    if missing.is_empty() {
+                        let items = merged
+                            .into_iter()
+                            .map(|item| item.expect("checked no missing batch item"))
+                            .collect::<Vec<_>>();
+                        let mut usage = Usage::default();
+                        let mut provider_request_id = String::new();
+                        for item in &items {
+                            usage.input_tokens += item.usage.input_tokens;
+                            usage.output_tokens += item.usage.output_tokens;
+                            usage.total_tokens += item.usage.total_tokens;
+                            if provider_request_id.is_empty() {
+                                provider_request_id = item.provider_request_id.clone();
+                            }
+                        }
+                        let out = BatchAnalyzeOutcome {
+                            items,
+                            model_id: slug.clone(),
+                            usage,
+                            provider_request_id,
+                        };
+                        validate_batch_analyze(&out)?;
+                        warn!(
+                            provider = %self.config.provider_id,
+                            model = %slug,
+                            provider_request_id = %out.provider_request_id,
+                            items = out.items.len(),
+                            provider_content = %provider_content,
+                            schema_repair_attempt = attempt,
+                            "BatchAnalyzeImage completed"
+                        );
+                        return Ok(out);
+                    }
+                    repair_failures = missing
+                        .into_iter()
+                        .map(|index| BatchItemRepair {
+                            index,
+                            bad_json: "null".to_string(),
+                            error: ProviderError::SchemaValidationMessage(format!(
+                                "batch response omitted required result index {index}"
+                            )),
+                        })
+                        .collect();
+                }
+                Err((items, failures)) => {
+                    for (index, outcome) in items {
+                        if index < merged.len() {
+                            merged[index] = Some(outcome);
+                        }
+                    }
+                    repair_failures = failures
+                        .into_iter()
+                        .filter(|failure| failure.index < images.len())
+                        .collect();
+                }
+            }
+            warn!(
+                provider = %self.config.provider_id,
+                model = %slug,
+                provider_content = %provider_content,
+                failed_indices = ?repair_failures.iter().map(|f| f.index).collect::<Vec<_>>(),
+                schema_repair_attempt = attempt,
+                "BatchAnalyzeImage provider response parse failed"
+            );
+            if attempt >= ANALYZE_SCHEMA_REPAIR_RETRIES || repair_failures.is_empty() {
+                return Err(repair_failures
+                    .first()
+                    .map(|f| f.error.clone())
+                    .unwrap_or(ProviderError::SchemaValidation));
+            }
+            attempt += 1;
+            required_indices = repair_failures.iter().map(|f| f.index).collect();
+            repair_content = Some(provider_content);
+        }
     }
 
     /// Phase 6c: discover models by listing the configured Anthropic-compatible
@@ -1342,12 +1840,24 @@ mod tests {
         let reqs = server.received_requests().await.expect("requests captured");
         assert_eq!(reqs.len(), 2);
         let second_body: Value = serde_json::from_slice(&reqs[1].body).expect("body json");
-        let second_instruction = second_body["messages"][0]["content"][1]["text"]
+        let messages = second_body["messages"].as_array().expect("messages array");
+        assert_eq!(messages.len(), 3);
+        assert_eq!(messages[0]["role"], "user");
+        assert_eq!(messages[1]["role"], "assistant");
+        assert_eq!(messages[2]["role"], "user");
+        let original_instruction = messages[0]["content"][1]["text"]
             .as_str()
-            .expect("instruction string");
+            .expect("original instruction string");
         assert!(
-            second_instruction.contains("tags must be an array, not a string"),
-            "{second_instruction}"
+            !original_instruction.contains("tags must be an array, not a string"),
+            "{original_instruction}"
+        );
+        let repair_instruction = messages[2]["content"][0]["text"]
+            .as_str()
+            .expect("repair instruction string");
+        assert!(
+            repair_instruction.contains("tags must be an array, not a string"),
+            "{repair_instruction}"
         );
     }
 

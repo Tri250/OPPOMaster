@@ -55,13 +55,11 @@ struct ImageAnalysisCredential {
   std::string secret;
 };
 
-// Phase 5e prefill queue depth upper bound. The plan calls for "initially 1 or 2"; this
-// cap keeps a caller from requesting an unbounded prefill depth, which would let the
-// producer encode most of a large album while one RPC is blocked and weaken the
-// bounded-memory promise. RunJob clamps `ImageAnalysisOptions::prefetch` to
-// [1, kMaxImageAnalysisPrefetch]. Each queued entry is one encoded k1024 JPEG buffer, so
-// raise this only with a matching memory-budget review.
-inline constexpr int kMaxImageAnalysisPrefetch = 4;
+inline constexpr int kImageAnalysisBatchSize = 3;
+// Phase 5e prefill queue depth upper bound. Analyze runs consume 3 encoded items per
+// provider call, so the default/cap leave room for one in-flight batch plus the next
+// prefilled batch. Each queued entry is one encoded k1024 JPEG buffer.
+inline constexpr int kMaxImageAnalysisPrefetch = kImageAnalysisBatchSize * 2;
 
 struct ImageAnalysisOptions {
   ImageAnalysisTask         task                 = ImageAnalysisTask::kDescribe;
@@ -85,12 +83,10 @@ struct ImageAnalysisOptions {
   std::filesystem::path     temp_dir;  // empty => std::filesystem::temp_directory_path()
   int64_t                   credential_ttl_ms = 0;  // 0 => sidecar default
   // Phase 5e prefill queue depth: the maximum number of encoded JPEG renditions
-  // buffered ahead of the single in-flight remote call. The gate still caps remote
-  // concurrency at one; this only overlaps local thumbnail/encode prep with the
-  // active provider call. Clamped to [1, kMaxImageAnalysisPrefetch] in RunJob. A
-  // large album cannot accumulate more than `prefetch` encoded byte buffers in
-  // memory (plus the one in flight).
-  int                       prefetch          = 1;
+  // buffered ahead of the single in-flight remote call. Analyze consumes up to
+  // kImageAnalysisBatchSize items per RPC; the default keeps the next batch warm
+  // while the current batch is in flight. Clamped in RunJob.
+  int                       prefetch          = kMaxImageAnalysisPrefetch;
   // Phase 6d: optional cap on the encoded-rendition byte size, sourced from the
   // selected profile's `max_image_bytes`. 0 = no cap. When > 0, RunJob marks an
   // item as a prep failure (no provider call, no pin held) if the encoded JPEG
@@ -212,6 +208,9 @@ class IImageAnalysisClient {
       -> ImageAnalysisRatingResult = 0;
   virtual auto AnalyzeImage(const ImageAnalysisRequest& request, std::chrono::milliseconds timeout)
       -> ImageAnalysisCombinedResult                                                          = 0;
+  virtual auto BatchAnalyzeImage(const std::vector<ImageAnalysisRequest>& requests,
+                                 std::chrono::milliseconds timeout)
+      -> std::vector<ImageAnalysisCombinedResult>                                              = 0;
   // Phase 6c: dry-run model discovery (validate-connection flow). `provider_id`
   // selects the configured endpoint ("" = sidecar default); `credential_ref` is
   // the opaque vault handle. Returns unverified candidates; no persistence.
@@ -237,6 +236,9 @@ class AiSidecarRuntimeImageAnalysisClient final : public IImageAnalysisClient {
       -> ImageAnalysisRatingResult override;
   auto AnalyzeImage(const ImageAnalysisRequest& request, std::chrono::milliseconds timeout)
       -> ImageAnalysisCombinedResult override;
+  auto BatchAnalyzeImage(const std::vector<ImageAnalysisRequest>& requests,
+                         std::chrono::milliseconds timeout)
+      -> std::vector<ImageAnalysisCombinedResult> override;
   auto ListModels(const std::string& provider_id, const std::string& credential_ref,
                   std::chrono::milliseconds timeout) -> ImageAnalysisListModelsResult override;
   auto CancelTask(const std::string& request_id, std::chrono::milliseconds timeout, bool* cancelled,

@@ -168,6 +168,17 @@ class FakeClient : public alcedo::IImageAnalysisClient {
     }
     return r;
   }
+
+  auto BatchAnalyzeImage(const std::vector<alcedo::ImageAnalysisRequest>& requests,
+                         std::chrono::milliseconds timeout)
+      -> std::vector<alcedo::ImageAnalysisCombinedResult> override {
+    std::vector<alcedo::ImageAnalysisCombinedResult> results;
+    results.reserve(requests.size());
+    for (const auto& request : requests) {
+      results.push_back(AnalyzeImage(request, timeout));
+    }
+    return results;
+  }
   auto CancelTask(const std::string&, std::chrono::milliseconds, bool* cancelled, std::string*)
       -> bool override {
     ++cancel_calls_;

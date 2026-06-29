@@ -208,6 +208,32 @@ class PrefillQueue {
     return item;
   }
 
+  auto PopBatch(size_t max_items, std::function<bool()> is_canceled)
+      -> std::vector<EncodedAnalysisItem> {
+    std::vector<EncodedAnalysisItem> batch;
+    if (max_items == 0) {
+      return batch;
+    }
+    std::unique_lock lk(mutex_);
+    while (items_.empty() && !producer_done_ && !is_canceled()) {
+      not_empty_cv_.wait_for(lk, std::chrono::milliseconds(25));
+    }
+    while (items_.size() < max_items && !producer_done_ && !is_canceled()) {
+      not_empty_cv_.wait_for(lk, std::chrono::milliseconds(25));
+    }
+    if (is_canceled() || items_.empty()) {
+      return batch;
+    }
+    const auto count = std::min(max_items, items_.size());
+    batch.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
+      batch.push_back(std::move(items_.front()));
+      items_.pop_front();
+    }
+    not_full_cv_.notify_all();
+    return batch;
+  }
+
   void MarkProducerDone() {
     {
       std::unique_lock lk(mutex_);
@@ -224,6 +250,26 @@ class PrefillQueue {
   size_t                         capacity_;
   bool                           producer_done_ = false;
 };
+
+auto MakeRequestFromEncoded(EncodedAnalysisItem e, const ImageAnalysisOptions& options)
+    -> ImageAnalysisRequest {
+  ImageAnalysisRequest req;
+  req.request_id            = std::move(e.request_id);
+  req.image_bytes           = std::move(e.bytes);
+  req.image_format_hint     = std::move(e.image_format_hint);
+  req.rendition             = e.rendition;
+  req.provider_id           = std::move(e.provider_id);
+  req.model_id              = std::move(e.model_id);
+  req.prompt_profile_id     = std::move(e.prompt_profile_id);
+  req.credential_ref        = std::move(e.credential_ref);
+  req.rubric_id             = std::move(e.rubric_id);
+  req.output_language       = std::move(e.output_language);
+  req.rating_severity       = std::move(e.rating_severity);
+  req.camera_context        = std::move(e.camera_context);
+  req.include_understanding = options.task != ImageAnalysisTask::kScore;
+  req.include_rating        = options.task != ImageAnalysisTask::kDescribe;
+  return req;
+}
 
 }  // namespace
 
@@ -414,6 +460,37 @@ auto AiSidecarRuntimeImageAnalysisClient::AnalyzeImage(const ImageAnalysisReques
     return r;
   }
   return session->image_analysis().AnalyzeImage(request, timeout);
+}
+
+auto AiSidecarRuntimeImageAnalysisClient::BatchAnalyzeImage(
+    const std::vector<ImageAnalysisRequest>& requests, std::chrono::milliseconds timeout)
+    -> std::vector<ImageAnalysisCombinedResult> {
+  if (!runtime_) {
+    std::vector<ImageAnalysisCombinedResult> results;
+    results.reserve(requests.size());
+    for (const auto& request : requests) {
+      ImageAnalysisCombinedResult r;
+      r.request_id = request.request_id;
+      r.ok         = false;
+      r.error      = "ai sidecar runtime is not available";
+      results.push_back(std::move(r));
+    }
+    return results;
+  }
+  const auto session = runtime_->ClientSession();
+  if (!session || runtime_->Status().state != AiSidecarRuntimeState::kReady) {
+    std::vector<ImageAnalysisCombinedResult> results;
+    results.reserve(requests.size());
+    for (const auto& request : requests) {
+      ImageAnalysisCombinedResult r;
+      r.request_id = request.request_id;
+      r.ok         = false;
+      r.error      = "ai sidecar runtime is not ready";
+      results.push_back(std::move(r));
+    }
+    return results;
+  }
+  return session->image_analysis().BatchAnalyzeImage(requests, timeout);
 }
 
 auto AiSidecarRuntimeImageAnalysisClient::ListModels(const std::string&        provider_id,
@@ -737,11 +814,13 @@ void ImageAnalysisService::RunJob(const std::shared_ptr<ImageAnalysisJob>& job,
     }
   });
 
-  // Clamp the prefill depth to [1, kMaxImageAnalysisPrefetch]: the lower bound keeps the
-  // queue non-empty, the upper bound keeps a caller from requesting an unbounded depth
-  // (which would let the producer encode most of a large album while one RPC is blocked,
-  // weakening the Phase 5e bounded-memory promise). The gate still caps remote at one.
-  const int effective_prefetch = std::clamp(options.prefetch, 1, kMaxImageAnalysisPrefetch);
+  // Clamp the prefill depth: describe/score need one ready image; analyze needs one full
+  // batch ready, and the default/cap allow the next batch to fill while the current
+  // batch is in flight. The gate still caps remote at one provider call.
+  const int min_prefetch = (options.task == ImageAnalysisTask::kAnalyze) ? kImageAnalysisBatchSize
+                                                                         : 1;
+  const int effective_prefetch =
+      std::clamp(options.prefetch, min_prefetch, kMaxImageAnalysisPrefetch);
   if (effective_prefetch != options.prefetch) {
     qCInfo(diag::semanticLog).noquote()
         << QStringLiteral("image_analysis.prefetch clamped requested=%1 effective=%2 max=%3")
@@ -862,6 +941,169 @@ void ImageAnalysisService::RunJob(const std::shared_ptr<ImageAnalysisJob>& job,
   while (consumed < items.size()) {
     if (job->IsCanceled()) {
       break;
+    }
+    if (options.task == ImageAnalysisTask::kAnalyze) {
+      auto batch = queue->PopBatch(static_cast<size_t>(kImageAnalysisBatchSize),
+                                   [job] { return job->IsCanceled(); });
+      if (batch.empty()) {
+        break;
+      }
+      std::vector<EncodedAnalysisItem> encoded_entries;
+      std::vector<ImageAnalysisRequest> requests;
+      encoded_entries.reserve(batch.size());
+      requests.reserve(batch.size());
+      for (auto& e : batch) {
+        if (e.kind == EncodedItemKind::kPrepFailed) {
+          ImageAnalysisItemResult r;
+          r.item      = e.item;
+          r.request_id = e.request_id;
+          r.rendition = e.rendition;
+          r.status    = ImageAnalysisItemStatus::kError;
+          r.error     = e.error;
+          job->AppendResult(std::move(r));
+          update_and_dispatch([&](ImageAnalysisProgress& p) { p.failed += 1; });
+          ++consumed;
+          continue;
+        }
+        encoded_entries.push_back(e);
+        requests.push_back(MakeRequestFromEncoded(std::move(e), options));
+      }
+      if (requests.empty()) {
+        continue;
+      }
+      const auto batch_request_id = requests.front().request_id + "-batch";
+      if (!in_flight_gate->AcquireAndPublish(batch_request_id,
+                                             [job]() { return job->IsCanceled(); })) {
+        for (size_t i = 0; i < requests.size(); ++i) {
+          ImageAnalysisItemResult r;
+          r.item      = encoded_entries[i].item;
+          r.request_id = requests[i].request_id;
+          r.rendition = requests[i].rendition;
+          r.status    = ImageAnalysisItemStatus::kCanceled;
+          job->AppendResult(std::move(r));
+        }
+        update_and_dispatch([&](ImageAnalysisProgress& p) { p.canceled += requests.size(); });
+        consumed += requests.size();
+        continue;
+      }
+      job->am_in_flight_.store(true);
+      if (job->IsCanceled()) {
+        in_flight_gate->ClearRequestId();
+        job->am_in_flight_.store(false);
+        in_flight_gate->Release();
+        for (size_t i = 0; i < requests.size(); ++i) {
+          ImageAnalysisItemResult r;
+          r.item      = encoded_entries[i].item;
+          r.request_id = requests[i].request_id;
+          r.rendition = requests[i].rendition;
+          r.status    = ImageAnalysisItemStatus::kCanceled;
+          job->AppendResult(std::move(r));
+        }
+        update_and_dispatch([&](ImageAnalysisProgress& p) { p.canceled += requests.size(); });
+        consumed += requests.size();
+        continue;
+      }
+
+      std::vector<ImageAnalysisCombinedResult> rpc_results;
+      std::optional<std::string>               rpc_error;
+      {
+        ScopeExit slot_guard([&] {
+          job->am_in_flight_.store(false);
+          in_flight_gate->ClearRequestId();
+          in_flight_gate->Release();
+        });
+        try {
+          rpc_results = analysis_client->BatchAnalyzeImage(requests, options.timeout);
+        } catch (const std::exception& ex) {
+          rpc_error = std::string("image analysis batch rpc failed: ") + ex.what();
+        }
+      }
+
+      for (size_t i = 0; i < requests.size(); ++i) {
+        ImageAnalysisItemResult r;
+        r.item      = encoded_entries[i].item;
+        r.request_id = requests[i].request_id;
+        r.rendition = requests[i].rendition;
+        if (job->IsCanceled()) {
+          r.status = ImageAnalysisItemStatus::kCanceled;
+          job->AppendResult(std::move(r));
+          update_and_dispatch([&](ImageAnalysisProgress& p) { p.canceled += 1; });
+          ++consumed;
+          continue;
+        }
+        if (rpc_error.has_value()) {
+          r.status = ImageAnalysisItemStatus::kError;
+          r.error  = *rpc_error;
+          job->AppendResult(std::move(r));
+          update_and_dispatch([&](ImageAnalysisProgress& p) { p.failed += 1; });
+          ++consumed;
+          continue;
+        }
+        ImageAnalysisCombinedResult res;
+        if (i < rpc_results.size()) {
+          res = std::move(rpc_results[i]);
+        } else {
+          res.request_id = requests[i].request_id;
+          res.ok         = false;
+          res.error      = "batch analysis response omitted item result";
+        }
+        r.request_id = res.request_id.empty() ? requests[i].request_id : res.request_id;
+        if (res.ok && res.has_understanding) {
+          r.understanding = std::move(res.understanding);
+        }
+        if (res.ok && res.has_rating) {
+          r.rating = std::move(res.rating);
+        }
+        if (!res.ok) {
+          r.understanding.request_id = r.request_id;
+          r.understanding.ok         = false;
+          r.understanding.status     = res.status;
+          r.understanding.error_code = res.error_code;
+          r.understanding.error      = res.error;
+          r.understanding.provider   = res.provider;
+          r.understanding.model_id   = res.model_id;
+          r.rating.request_id        = r.request_id;
+          r.rating.ok                = false;
+          r.rating.status            = res.status;
+          r.rating.error_code        = res.error_code;
+          r.rating.error             = res.error;
+          r.rating.provider          = res.provider;
+          r.rating.model_id          = res.model_id;
+        }
+
+        const bool rating_valid = r.rating.rating >= 1 && r.rating.rating <= 5;
+        const bool ok           = r.understanding.ok && r.rating.ok && rating_valid;
+        if (ok) {
+          r.status = ImageAnalysisItemStatus::kAnalyzed;
+          if (r.understanding.rendition.width != 0 || r.understanding.rendition.height != 0 ||
+              r.rating.rendition.width != 0 || r.rating.rendition.height != 0) {
+            r.rendition = r.understanding.rendition;
+          }
+          update_and_dispatch([&](ImageAnalysisProgress& p) { p.analyzed += 1; });
+        } else {
+          r.status = ImageAnalysisItemStatus::kError;
+          if (!r.understanding.ok && !r.understanding.error.empty()) {
+            r.error = r.understanding.error;
+          } else if (!r.rating.ok && !r.rating.error.empty()) {
+            r.error = r.rating.error;
+          } else if (!r.understanding.ok) {
+            r.error = ProviderFailureMessage(r.understanding.status, r.understanding.error_code,
+                                             r.understanding.provider, r.understanding.model_id);
+          } else {
+            r.error = ProviderFailureMessage(r.rating.status, r.rating.error_code,
+                                             r.rating.provider, r.rating.model_id);
+          }
+          if (r.rating.ok && !rating_valid) {
+            r.rating.ok = false;
+            r.error     = "invalid image rating returned by provider: " +
+                      std::to_string(r.rating.rating) + " (expected 1..5)";
+          }
+          update_and_dispatch([&](ImageAnalysisProgress& p) { p.failed += 1; });
+        }
+        job->AppendResult(std::move(r));
+        ++consumed;
+      }
+      continue;
     }
     auto entry = queue->Pop([job] { return job->IsCanceled(); });
     if (!entry.has_value()) {

@@ -41,6 +41,8 @@ service ImageAnalysisService {
   rpc ScoreImage(ScoreImageRequest) returns (ScoreImageResponse);
   // Analyze one image for multiple requested outputs in a single provider call.
   rpc AnalyzeImage(AnalyzeImageRequest) returns (AnalyzeImageResponse);
+  // Analyze multiple images for the same requested outputs in a single provider call.
+  rpc BatchAnalyzeImage(BatchAnalyzeImageRequest) returns (BatchAnalyzeImageResponse);
   // Phase 6c: list the model ids the configured endpoint exposes (dry-run
   // discovery, no annotations persisted). Used by the host's "validate
   // connection" flow and model-discovery merge.
@@ -194,4 +196,40 @@ message AnalyzeImageResponse {
   UsageMetadata usage = 5;
   string provider_request_id = 6;
   string prompt_profile_id = 7;
+}
+
+message BatchAnalyzeImageItem {
+  string request_id = 1;  // per-image correlation id from the host
+  bytes image_bytes = 2;
+  string image_format_hint = 3;
+  RenditionMetadata rendition = 4;
+  string camera_context = 5;
+}
+
+message BatchAnalyzeImageRequest {
+  AiRequestHeader header = 1;       // batch-level request/cancel id
+  repeated BatchAnalyzeImageItem items = 2;
+  string provider_id = 3;
+  string model_id = 4;
+  string prompt_profile_id = 5;
+  bool include_understanding = 6;
+  bool include_rating = 7;
+  string rubric_id = 8;
+  string output_language = 9;
+  string rating_severity = 10;
+}
+
+message BatchAnalyzeImageItemResponse {
+  AiResponseHeader header = 1;       // per-image outcome; request_id matches item.request_id
+  ImageUnderstandingResult understanding = 2;
+  ImageRatingResult rating = 3;
+  RenditionMetadata rendition = 4;
+  UsageMetadata usage = 5;
+  string provider_request_id = 6;
+  string prompt_profile_id = 7;
+}
+
+message BatchAnalyzeImageResponse {
+  AiResponseHeader header = 1;       // batch-level status
+  repeated BatchAnalyzeImageItemResponse items = 2;
 }

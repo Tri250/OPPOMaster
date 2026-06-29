@@ -350,6 +350,65 @@ auto ToCombinedResult(const alcedo::ai::AnalyzeImageResponse& response,
   return result;
 }
 
+auto ToCombinedResult(const alcedo::ai::BatchAnalyzeImageItemResponse& response,
+                      const std::string& fallback_request_id) -> ImageAnalysisCombinedResult {
+  ImageAnalysisCombinedResult result;
+  const auto& header = response.header();
+  result.request_id          = header.request_id().empty() ? fallback_request_id : header.request_id();
+  result.status              = static_cast<int>(header.status());
+  result.error_code          = static_cast<int>(header.error_code());
+  result.error               = header.error_message();
+  result.provider            = header.provider();
+  result.model_id            = header.model_id();
+  result.elapsed_ms          = static_cast<uint64_t>(header.elapsed_ms());
+  result.provider_request_id = response.provider_request_id();
+  result.prompt_profile_id   = response.prompt_profile_id();
+  result.rendition           = ToRendition(response.rendition());
+  result.has_understanding   = response.has_understanding();
+  result.has_rating          = response.has_rating();
+  if (response.has_usage()) {
+    result.usage = ToUsage(response.usage());
+  }
+  result.ok = header.status() == alcedo::ai::AI_STATUS_OK;
+  if (result.ok && result.has_understanding) {
+    const auto& body = response.understanding();
+    result.understanding.request_id          = result.request_id;
+    result.understanding.ok                  = true;
+    result.understanding.status              = result.status;
+    result.understanding.error_code          = result.error_code;
+    result.understanding.provider            = result.provider;
+    result.understanding.model_id            = result.model_id;
+    result.understanding.provider_request_id = result.provider_request_id;
+    result.understanding.prompt_profile_id   = result.prompt_profile_id;
+    result.understanding.rendition           = result.rendition;
+    result.understanding.usage               = result.usage;
+    result.understanding.elapsed_ms          = result.elapsed_ms;
+    result.understanding.caption             = body.caption();
+    result.understanding.tags.assign(body.tags().begin(), body.tags().end());
+    result.understanding.scene      = body.scene();
+    result.understanding.confidence = body.confidence();
+  }
+  if (result.ok && result.has_rating) {
+    const auto& body = response.rating();
+    result.rating.request_id          = result.request_id;
+    result.rating.ok                  = true;
+    result.rating.status              = result.status;
+    result.rating.error_code          = result.error_code;
+    result.rating.provider            = result.provider;
+    result.rating.model_id            = result.model_id;
+    result.rating.provider_request_id = result.provider_request_id;
+    result.rating.prompt_profile_id   = result.prompt_profile_id;
+    result.rating.rendition           = result.rendition;
+    result.rating.usage               = result.usage;
+    result.rating.elapsed_ms          = result.elapsed_ms;
+    result.rating.rating              = body.rating();
+    result.rating.rubric_id           = body.rubric_id();
+    result.rating.rubric_version      = body.rubric_version();
+    result.rating.reasons             = body.reasons();
+  }
+  return result;
+}
+
 auto ToListModelsResult(const alcedo::ai::ListModelsResponse& response,
                         const std::string& fallback_request_id,
                         const std::string& transport_error = {}) -> ImageAnalysisListModelsResult {
@@ -836,6 +895,62 @@ class GrpcImageAnalysisClient final : public ImageAnalysisClient {
     result.status     = static_cast<int>(alcedo::ai::AI_STATUS_UNIMPLEMENTED);
     result.error      = GrpcErrorMessage(status);
     return result;
+  }
+
+  auto BatchAnalyzeImage(const std::vector<ImageAnalysisRequest>& requests,
+                         std::chrono::milliseconds timeout)
+      -> std::vector<ImageAnalysisCombinedResult> override {
+    if (requests.empty()) {
+      return {};
+    }
+    auto stub = alcedo::ai::ImageAnalysisService::NewStub(MakeChannel(endpoint_));
+    grpc::ClientContext context;
+    context.set_deadline(DeadlineFromNow(timeout));
+    alcedo::ai::BatchAnalyzeImageRequest req;
+    const auto batch_id = MakeRequestId();
+    FillAiRequestHeader(req.mutable_header(), batch_id, "image_analysis.batch_analyze", timeout,
+                        requests.front().credential_ref, batch_id);
+    req.set_provider_id(requests.front().provider_id);
+    req.set_model_id(requests.front().model_id);
+    req.set_prompt_profile_id(requests.front().prompt_profile_id);
+    req.set_include_understanding(requests.front().include_understanding);
+    req.set_include_rating(requests.front().include_rating);
+    req.set_rubric_id(requests.front().rubric_id);
+    req.set_output_language(requests.front().output_language);
+    req.set_rating_severity(requests.front().rating_severity);
+    for (const auto& request : requests) {
+      auto* item = req.add_items();
+      item->set_request_id(request.request_id);
+      item->set_image_bytes(reinterpret_cast<const char*>(request.image_bytes.data()),
+                            request.image_bytes.size());
+      item->set_image_format_hint(request.image_format_hint);
+      FillRendition(item->mutable_rendition(), request.rendition);
+      item->set_camera_context(request.camera_context);
+    }
+    alcedo::ai::BatchAnalyzeImageResponse response;
+    const auto status = stub->BatchAnalyzeImage(&context, req, &response);
+    if (status.ok()) {
+      std::vector<ImageAnalysisCombinedResult> results;
+      results.reserve(static_cast<size_t>(response.items_size()));
+      for (int i = 0; i < response.items_size(); ++i) {
+        const auto fallback =
+            static_cast<size_t>(i) < requests.size() ? requests[static_cast<size_t>(i)].request_id
+                                                     : std::string{};
+        results.push_back(ToCombinedResult(response.items(i), fallback));
+      }
+      return results;
+    }
+    std::vector<ImageAnalysisCombinedResult> results;
+    results.reserve(requests.size());
+    for (const auto& request : requests) {
+      ImageAnalysisCombinedResult result;
+      result.request_id = request.request_id;
+      result.ok         = false;
+      result.status     = static_cast<int>(alcedo::ai::AI_STATUS_UNIMPLEMENTED);
+      result.error      = GrpcErrorMessage(status);
+      results.push_back(std::move(result));
+    }
+    return results;
   }
 
   auto ListModels(const std::string& provider_id, const std::string& credential_ref,

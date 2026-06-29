@@ -87,6 +87,20 @@ pub struct AnalyzeOutcome {
     pub provider_request_id: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct AnalyzeImageInput<'a> {
+    pub image_bytes: &'a [u8],
+    pub camera_context: &'a str,
+}
+
+#[derive(Debug, Clone)]
+pub struct BatchAnalyzeOutcome {
+    pub items: Vec<AnalyzeOutcome>,
+    pub model_id: String,
+    pub usage: Usage,
+    pub provider_request_id: String,
+}
+
 /// Why a provider call did not produce a usable typed result. The service maps
 /// these (plus the credential/timeout/cancel paths it owns) into the
 /// `AiResponseHeader` status/error fields. Messages here must stay free of secret
@@ -173,6 +187,36 @@ pub const IMAGE_ANALYSIS_FLAT_SCHEMA: &str = r#"{
   }
 }"#;
 
+pub const IMAGE_ANALYSIS_BATCH_SCHEMA: &str = r#"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AlcedoImageAnalysisBatch",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["results"],
+  "properties": {
+    "results": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["index", "caption", "tags", "rating", "rubric_id"],
+        "properties": {
+          "index": { "type": "integer", "minimum": 0 },
+          "caption": { "type": "string", "minLength": 1 },
+          "tags": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+          "scene": { "type": "string" },
+          "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+          "rating": { "type": "integer", "minimum": 1, "maximum": 5 },
+          "rubric_id": { "type": "string", "minLength": 1 },
+          "rubric_version": { "type": "string" },
+          "reasons": { "type": "string" }
+        }
+      }
+    }
+  }
+}"#;
+
 /// Validate + normalize a `image_understanding.describe` outcome against the
 /// code-owned contract. Returns `ProviderError::SchemaValidation` on any breach
 /// so the service maps it to a non-active provider error (Phase 5b: a schema
@@ -217,6 +261,16 @@ pub fn validate_analyze(out: &AnalyzeOutcome) -> Result<(), ProviderError> {
     }
     if out.understanding.is_none() && out.rating.is_none() {
         return Err(ProviderError::SchemaValidation);
+    }
+    Ok(())
+}
+
+pub fn validate_batch_analyze(out: &BatchAnalyzeOutcome) -> Result<(), ProviderError> {
+    if out.items.is_empty() {
+        return Err(ProviderError::SchemaValidation);
+    }
+    for item in &out.items {
+        validate_analyze(item)?;
     }
     Ok(())
 }
@@ -375,6 +429,51 @@ pub trait ImageAnalysisProvider: Send + Sync {
         Err(ProviderError::Provider(
             "combined image analysis is not supported by this provider driver".to_string(),
         ))
+    }
+    async fn batch_analyze_images(
+        &self,
+        images: &[AnalyzeImageInput<'_>],
+        model_id: &str,
+        prompt_profile_id: &str,
+        rubric_id: &str,
+        rating_severity: &str,
+        output_language: &str,
+        credential: Option<&SecretString>,
+    ) -> Result<BatchAnalyzeOutcome, ProviderError> {
+        let mut items = Vec::with_capacity(images.len());
+        let mut usage = Usage::default();
+        let mut provider_request_id = String::new();
+        let mut model = String::new();
+        for image in images {
+            let out = self
+                .analyze_image(
+                    image.image_bytes,
+                    model_id,
+                    prompt_profile_id,
+                    rubric_id,
+                    rating_severity,
+                    output_language,
+                    image.camera_context,
+                    credential,
+                )
+                .await?;
+            if model.is_empty() {
+                model = out.model_id.clone();
+            }
+            if provider_request_id.is_empty() {
+                provider_request_id = out.provider_request_id.clone();
+            }
+            usage.input_tokens += out.usage.input_tokens;
+            usage.output_tokens += out.usage.output_tokens;
+            usage.total_tokens += out.usage.total_tokens;
+            items.push(out);
+        }
+        Ok(BatchAnalyzeOutcome {
+            items,
+            model_id: model,
+            usage,
+            provider_request_id,
+        })
     }
     /// Phase 6c: list the model ids the configured endpoint exposes (a dry-run
     /// discovery probe, not an image-analysis call). The credential is the

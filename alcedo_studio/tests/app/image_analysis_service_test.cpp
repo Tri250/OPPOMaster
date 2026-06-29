@@ -282,6 +282,27 @@ class FakeImageAnalysisClient : public IImageAnalysisClient {
     return result;
   }
 
+  auto BatchAnalyzeImage(const std::vector<ImageAnalysisRequest>& requests,
+                         std::chrono::milliseconds /*timeout*/)
+      -> std::vector<ImageAnalysisCombinedResult> override {
+    ++batch_analyze_calls_;
+    {
+      std::unique_lock lk(record_mutex_);
+      last_batch_analyze_requests_ = requests;
+      batch_sizes_.push_back(requests.size());
+    }
+    if (block_mode_.load()) {
+      std::unique_lock lk(block_mutex_);
+      block_cv_.wait(lk, [this] { return release_blocked_.load(); });
+    }
+    std::vector<ImageAnalysisCombinedResult> results;
+    results.reserve(requests.size());
+    for (const auto& request : requests) {
+      results.push_back(AnalyzeImage(request, std::chrono::milliseconds(0)));
+    }
+    return results;
+  }
+
   auto CancelTask(const std::string& request_id, std::chrono::milliseconds /*timeout*/,
                   bool* cancelled, std::string* /*error*/) -> bool override {
     ++cancel_calls_;
@@ -334,6 +355,11 @@ class FakeImageAnalysisClient : public IImageAnalysisClient {
   auto DescribeCalls() const -> int { return describe_calls_.load(); }
   auto ScoreCalls() const -> int { return score_calls_.load(); }
   auto AnalyzeCalls() const -> int { return analyze_calls_.load(); }
+  auto BatchAnalyzeCalls() const -> int { return batch_analyze_calls_.load(); }
+  auto BatchSizes() const -> std::vector<size_t> {
+    std::unique_lock lk(record_mutex_);
+    return batch_sizes_;
+  }
   auto CancelCalls() const -> int { return cancel_calls_.load(); }
   auto RegisterCalls() const -> int { return register_calls_.load(); }
   auto RevokeCalls() const -> int { return revoke_calls_.load(); }
@@ -431,6 +457,7 @@ class FakeImageAnalysisClient : public IImageAnalysisClient {
   std::atomic<int> describe_calls_{0};
   std::atomic<int> score_calls_{0};
   std::atomic<int> analyze_calls_{0};
+  std::atomic<int> batch_analyze_calls_{0};
   std::atomic<int> cancel_calls_{0};
   std::atomic<int> register_calls_{0};
   std::atomic<int> list_models_calls_{0};
@@ -453,6 +480,8 @@ class FakeImageAnalysisClient : public IImageAnalysisClient {
   ImageAnalysisRequest last_describe_request_;
   ImageAnalysisRequest last_score_request_;
   ImageAnalysisRequest last_analyze_request_;
+  std::vector<ImageAnalysisRequest> last_batch_analyze_requests_;
+  std::vector<size_t>   batch_sizes_;
   std::string        last_cancelled_id_;
   std::string        last_list_models_provider_;
   std::string        last_list_models_credential_ref_;
@@ -578,6 +607,7 @@ TEST(ImageAnalysisServiceTest, AnalyzeSuccessUsesSingleCombinedProviderCall) {
   EXPECT_TRUE(results[0].rating.ok);
   EXPECT_EQ(results[0].understanding.caption, "a caption");
   EXPECT_EQ(results[0].rating.rating, 4);
+  EXPECT_EQ(client->BatchAnalyzeCalls(), 1);
   EXPECT_EQ(client->AnalyzeCalls(), 1);
   EXPECT_EQ(client->DescribeCalls(), 0);
   EXPECT_EQ(client->ScoreCalls(), 0);
@@ -585,6 +615,33 @@ TEST(ImageAnalysisServiceTest, AnalyzeSuccessUsesSingleCombinedProviderCall) {
   EXPECT_TRUE(request.include_understanding);
   EXPECT_TRUE(request.include_rating);
   std::filesystem::remove_all(ScratchDir("analyze-combined"));
+}
+
+TEST(ImageAnalysisServiceTest, AnalyzeBatchesThreeImagesPerRemoteCall) {
+  auto provider = std::make_shared<FakeThumbnailProvider>();
+  auto client   = std::make_shared<FakeImageAnalysisClient>();
+  auto gate     = std::make_shared<ImageAnalysisInFlightGate>();
+
+  ImageAnalysisService service(provider, client, gate);
+  auto                 opts = BaseDescribeOpts("analyze-batch-three");
+  opts.task                = ImageAnalysisTask::kAnalyze;
+  opts.rubric_id           = "general";
+  auto job = service.StartAnalysis({ImageAnalysisItem{1, 100}, ImageAnalysisItem{2, 200},
+                                    ImageAnalysisItem{3, 300}, ImageAnalysisItem{4, 400},
+                                    ImageAnalysisItem{5, 500}},
+                                   opts, {}, {});
+  ASSERT_TRUE(WaitWithTimeout(job, std::chrono::seconds(10)));
+
+  auto results = job->Results();
+  ASSERT_EQ(results.size(), 5u);
+  for (const auto& result : results) {
+    EXPECT_EQ(result.status, ImageAnalysisItemStatus::kAnalyzed);
+    EXPECT_TRUE(result.understanding.ok);
+    EXPECT_TRUE(result.rating.ok);
+  }
+  EXPECT_EQ(client->BatchAnalyzeCalls(), 2);
+  EXPECT_EQ(client->BatchSizes(), (std::vector<size_t>{3u, 2u}));
+  std::filesystem::remove_all(ScratchDir("analyze-batch-three"));
 }
 
 TEST(ImageAnalysisServiceTest, ScoreSuccessRequiresOneToFiveRating) {

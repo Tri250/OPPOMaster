@@ -376,6 +376,17 @@ class FakeImageAnalysisClient final : public sidecar_client::ImageAnalysisClient
     return result;
   }
 
+  auto BatchAnalyzeImage(const std::vector<ImageAnalysisRequest>& requests,
+                         std::chrono::milliseconds timeout)
+      -> std::vector<ImageAnalysisCombinedResult> override {
+    std::vector<ImageAnalysisCombinedResult> results;
+    results.reserve(requests.size());
+    for (const auto& request : requests) {
+      results.push_back(AnalyzeImage(request, timeout));
+    }
+    return results;
+  }
+
   auto ListModels(const std::string& provider_id, const std::string& credential_ref,
                   std::chrono::milliseconds timeout) -> ImageAnalysisListModelsResult override {
     (void)provider_id;

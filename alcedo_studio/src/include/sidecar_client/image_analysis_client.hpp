@@ -6,6 +6,7 @@
 
 #include <chrono>
 #include <string>
+#include <vector>
 
 #include "sidecar_client/dto/image_analysis.hpp"
 
@@ -22,6 +23,9 @@ class ImageAnalysisClient {
       -> ImageAnalysisRatingResult = 0;
   virtual auto AnalyzeImage(const ImageAnalysisRequest& request, std::chrono::milliseconds timeout)
       -> ImageAnalysisCombinedResult = 0;
+  virtual auto BatchAnalyzeImage(const std::vector<ImageAnalysisRequest>& requests,
+                                 std::chrono::milliseconds timeout)
+      -> std::vector<ImageAnalysisCombinedResult> = 0;
   virtual auto ListModels(const std::string& provider_id, const std::string& credential_ref,
                           std::chrono::milliseconds timeout) -> ImageAnalysisListModelsResult = 0;
 };
