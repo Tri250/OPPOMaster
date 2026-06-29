@@ -77,7 +77,8 @@ struct ImageAnalysisOptions {
   // `output_language` ("follow" resolves to the current app language here).
   std::string               output_language;
   // Rating strictness persona for ScoreImage only: "" or "normal" = the default
-  // balanced rubric; "lite" = generous; "xhigh" = exacting 懂哥 connoisseur.
+  // balanced rubric; "lite" = generous; "high" = master-guided critique;
+  // "xhigh" = 老法师; "max" = exacting 懂哥 connoisseur.
   // Selects the rating system prompt in the driver; ignored by DescribeImage.
   std::string               rating_severity;
   ImageAnalysisCredential   credential;
@@ -208,7 +209,7 @@ class IImageAnalysisClient {
   virtual auto DescribeImage(const ImageAnalysisRequest& request, std::chrono::milliseconds timeout)
       -> ImageAnalysisUnderstandingResult = 0;
   virtual auto ScoreImage(const ImageAnalysisRequest& request, std::chrono::milliseconds timeout)
-      -> ImageAnalysisRatingResult                                                            = 0;
+      -> ImageAnalysisRatingResult = 0;
   virtual auto AnalyzeImage(const ImageAnalysisRequest& request, std::chrono::milliseconds timeout)
       -> ImageAnalysisCombinedResult                                                          = 0;
   // Phase 6c: dry-run model discovery (validate-connection flow). `provider_id`

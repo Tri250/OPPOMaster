@@ -161,8 +161,8 @@ struct EncodedAnalysisItem {
   std::string              prompt_profile_id;
   std::string              rubric_id;
   std::string              output_language;  // host-resolved; "" or "en" or "zh"
-  std::string              rating_severity;  // host-resolved; "" or "lite"/"normal"/"xhigh"
-  std::string              camera_context;   // optional XHigh-only EXIF/camera context
+  std::string              rating_severity;  // host-resolved; "" or one known severity code
+  std::string              camera_context;   // optional gear-sensitive EXIF/camera context
   std::string              credential_ref;  // opaque vault handle
   std::string              error;           // kPrepFailed: thumbnail/encode error message
 };

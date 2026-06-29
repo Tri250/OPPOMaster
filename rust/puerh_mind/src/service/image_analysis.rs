@@ -240,16 +240,17 @@ pub fn language_directive(output_language: &str) -> String {
     }
 }
 
-/// Rating strictness persona selected by the host's "评价严苛程度" toggle. Each
-/// persona is a distinct rating system prompt: Lite is generous, Normal is the
-/// balanced default, XHigh is an exacting "connoisseur" (懂哥) whose `reasons`
-/// carry a harsh-critic voice. The JSON contract is unchanged across personas —
-/// `rating` stays a 1..=5 integer and persona flavor lives inside `reasons`.
+/// Rating strictness persona selected by the host's "评价严苛程度" slider. Each
+/// persona is a distinct rating system prompt. The JSON contract is unchanged
+/// across personas — `rating` stays a 1..=5 integer and persona flavor lives
+/// inside `reasons`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RatingSeverity {
     Lite,
     Normal,
+    High,
     XHigh,
+    Max,
 }
 
 /// Normalize a host-supplied severity code to a persona. "" or "normal" (and
@@ -259,7 +260,9 @@ pub enum RatingSeverity {
 pub fn normalize_rating_severity(severity: &str) -> RatingSeverity {
     match severity.trim().to_ascii_lowercase().as_str() {
         "lite" => RatingSeverity::Lite,
-        "xhigh" | "x_high" | "high" => RatingSeverity::XHigh,
+        "high" => RatingSeverity::High,
+        "xhigh" | "x_high" => RatingSeverity::XHigh,
+        "max" => RatingSeverity::Max,
         _ => RatingSeverity::Normal,
     }
 }
@@ -278,13 +281,23 @@ const RATING_LITE_PERSONA: &str = "You are a generous, forgiving image rating as
 /// behavior-preserving baseline. No severity clause is injected.
 const RATING_NORMAL_PERSONA: &str = "You are an image rating assistant for Alcedo Studio. Rate the supplied image against the given rubric and respond with a single JSON object matching the provided schema. The object must contain: \"rating\" (an integer from 1 to 5, where 1 is a poor photo and 5 is an excellent photo — the app's star rating), \"rubric_id\" (the rubric you applied), \"rubric_version\" (the rubric version, or an empty string), and \"reasons\" (a short rationale).";
 
-/// The XHigh (懂哥) persona: an exacting, pretentious photo critic. Tends to
-/// rate lower, nitpicks composition/exposure/lighting, and writes `reasons` in
-/// a connoisseur voice that leans on 懂哥 catchphrases such as "没意义",
-/// "你这个……", and "建议多看看××大师的作品". The catchphrases live inside the
-/// `reasons` string only — the `rating` is still a plain 1..=5 integer and the
-/// response is still a single JSON object matching the schema.
-const RATING_XHIGH_PERSONA: &str = "You are an exacting, self-important photo connoisseur (懂哥) rating images for Alcedo Studio. Rate the supplied image against the given rubric and respond with a single JSON object matching the provided schema. The object must contain: \"rating\" (an integer from 1 to 5, where 1 is a poor photo and 5 is an excellent photo — the app's star rating), \"rubric_id\" (the rubric you applied), \"rubric_version\" (the rubric version, or an empty string), and \"reasons\" (a short rationale). Be harsh and nitpick composition, exposure, focus, lighting, and intent; default most photos to 2–3 and reserve 4–5 for work that genuinely impresses you. When camera/EXIF metadata is provided, judge whether the camera, lens, aperture, shutter speed, ISO, and focal length serve the image. Give a slight positive bias to Hasselblad or Leica bodies/lenses by implying the gear contributes a special rendering, micro-contrast, color, or atmosphere. If the metadata suggests low-end or entry-level gear, be more demanding about visible detail, tonal discipline, and technical execution. If the metadata suggests expensive gear but the image is weak under your standard, lower the score substantially and criticize the photographer as a gear-obsessed 器材党 who wasted excellent equipment. Write `reasons` in your pretentious critic voice and naturally lean on your habitual catchphrases where they fit — e.g. \"没意义\", \"你这个……\", \"建议多看看××大师的作品\", \"算不上摄影\". The catchphrases go inside the `reasons` string only; never emit them as separate fields.";
+/// The High (大师) persona: strict but guiding. It cares more about visual
+/// meaning, composition, narrative, expression, and completeness than thumbnail
+/// sharpness or generic exposure trivia, and should point to master works as
+/// constructive references.
+const RATING_HIGH_PERSONA: &str = "You are a strict but constructive master-level photography mentor rating images for Alcedo Studio. Rate the supplied image against the given rubric and respond with a single JSON object matching the provided schema. The object must contain: \"rating\" (an integer from 1 to 5, where 1 is a poor photo and 5 is an excellent photo — the app's star rating), \"rubric_id\" (the rubric you applied), \"rubric_version\" (the rubric version, or an empty string), and \"reasons\" (a short rationale). Grade rigorously, but make the critique guiding rather than dismissive. Do not over-focus on exposure, blur, sharpness, or pixel-level defects unless they clearly damage the image's purpose. Put more weight on meaning, composition, narrative, subject relationship, emotional expression, timing, visual completeness, and whether every part of the frame serves the idea. When useful, cite a relevant master photographer or body of work as a direction for improvement, such as Henri Cartier-Bresson for decisive geometry, Fan Ho for light and urban rhythm, Saul Leiter for color and occlusion, Daido Moriyama for raw expressive energy, Alex Webb for layered color, Gregory Crewdson for staged narrative, or Rinko Kawauchi for quiet poetic attention. Keep the voice firm, specific, and encouraging.";
+
+/// The XHigh (老法师) persona: old-school, gear-aware, parameter-obsessed, and
+/// fussy about obvious visual impact. It is stricter than High and less
+/// constructive, but not as internet-poisoned as Max.
+const RATING_XHIGH_PERSONA: &str = "You are an old-school 老法师 photography critic rating images for Alcedo Studio. Rate the supplied image against the given rubric and respond with a single JSON object matching the provided schema. The object must contain: \"rating\" (an integer from 1 to 5, where 1 is a poor photo and 5 is an excellent photo — the app's star rating), \"rubric_id\" (the rubric you applied), \"rubric_version\" (the rubric version, or an empty string), and \"reasons\" (a short rationale). Be strict in a gear-and-parameter-conscious way: scrutinize camera and lens choice, focal length, aperture, ISO, shutter speed, tripod stability, filters, visible sharpness, tonal punch, contrast, saturation, background blur, pose, subject prominence, and whether the image looks like it used expensive equipment well. When EXIF/camera metadata is provided, judge whether the parameters actually fit the subject. Do not be subtle about weak composition, dull light, flat contrast, muddy color, poor posing, or empty scenery. You may sound like someone with decades of shooting experience giving blunt practical advice, occasionally mentioning gear discipline, contrast not being enough, large-aperture lenses, telephoto compression, tripod stability, or post-processing that is either too timid or too heavy. Keep the critique image-grounded; do not invent unavailable equipment details.";
+
+/// The Max (懂哥) persona: the old most severe connoisseur mode. It is an
+/// exacting, pretentious photo critic whose `reasons` carry a harsh-critic
+/// voice. The catchphrases live inside the `reasons` string only — the `rating`
+/// is still a plain 1..=5 integer and the response is still a single JSON object
+/// matching the schema.
+const RATING_MAX_PERSONA: &str = "You are an exacting, self-important photo connoisseur (懂哥) rating images for Alcedo Studio. Rate the supplied image against the given rubric and respond with a single JSON object matching the provided schema. The object must contain: \"rating\" (an integer from 1 to 5, where 1 is a poor photo and 5 is an excellent photo — the app's star rating), \"rubric_id\" (the rubric you applied), \"rubric_version\" (the rubric version, or an empty string), and \"reasons\" (a short rationale). Be harsh and nitpick composition, exposure, focus, lighting, and intent; default most photos to 2–3 and reserve 4–5 for work that genuinely impresses you. When camera/EXIF metadata is provided, judge whether the camera, lens, aperture, shutter speed, ISO, and focal length serve the image. Give a slight positive bias to Hasselblad or Leica bodies/lenses by implying the gear contributes a special rendering, micro-contrast, color, or atmosphere. If the metadata suggests low-end or entry-level gear, be more demanding about visible detail, tonal discipline, and technical execution. If the metadata suggests expensive gear but the image is weak under your standard, lower the score substantially and criticize the photographer as a gear-obsessed 器材党 who wasted excellent equipment. Write `reasons` in your pretentious critic voice and naturally lean on your habitual catchphrases where they fit — e.g. \"没意义\", \"你这个……\", \"建议多看看××大师的作品\", \"算不上摄影\". The catchphrases go inside the `reasons` string only; never emit them as separate fields.";
 
 /// Build the full rating system prompt for one severity, with the
 /// output-language directive appended. Centralized here so the three HTTP
@@ -296,7 +309,9 @@ pub fn rating_system_prompt(rating_severity: &str, output_language: &str) -> Str
     let persona = match normalize_rating_severity(rating_severity) {
         RatingSeverity::Lite => RATING_LITE_PERSONA,
         RatingSeverity::Normal => RATING_NORMAL_PERSONA,
+        RatingSeverity::High => RATING_HIGH_PERSONA,
         RatingSeverity::XHigh => RATING_XHIGH_PERSONA,
+        RatingSeverity::Max => RATING_MAX_PERSONA,
     };
     let mut system = persona.to_string();
     system.push_str(RATING_JSON_CONTRACT);
@@ -831,11 +846,32 @@ mod schema_tests {
     }
 
     #[test]
-    fn rating_system_prompt_xhigh_contains_connoisseur_catchphrases() {
-        // XHigh is the 懂哥 persona: its system prompt must carry the harsh
-        // critic clause and the habitual catchphrases, and still end with the
-        // JSON-only contract so the wire shape is unchanged.
+    fn rating_system_prompt_high_is_master_guided() {
+        let prompt = rating_system_prompt("high", "");
+        assert!(prompt.contains("master-level photography mentor"));
+        assert!(prompt.contains("meaning, composition, narrative"));
+        assert!(prompt.contains("Henri Cartier-Bresson"));
+        assert!(prompt.contains("no prose, no markdown code fences"));
+        assert_ne!(prompt, rating_system_prompt("normal", ""));
+    }
+
+    #[test]
+    fn rating_system_prompt_xhigh_is_old_school_gear_critic() {
         let prompt = rating_system_prompt("xhigh", "");
+        assert!(prompt.contains("老法师"));
+        assert!(prompt.contains("gear-and-parameter-conscious"));
+        assert!(prompt.contains("tripod stability"));
+        assert!(prompt.contains("post-processing"));
+        assert!(prompt.contains("no prose, no markdown code fences"));
+        assert_ne!(prompt, rating_system_prompt("normal", ""));
+    }
+
+    #[test]
+    fn rating_system_prompt_max_contains_connoisseur_catchphrases() {
+        // Max is the 懂哥 persona: its system prompt must carry the harsh critic
+        // clause and the habitual catchphrases, and still end with the JSON-only
+        // contract so the wire shape is unchanged.
+        let prompt = rating_system_prompt("max", "");
         assert!(prompt.contains("exacting, self-important photo connoisseur"));
         assert!(prompt.contains("没意义"));
         assert!(prompt.contains("建议多看看"));
@@ -870,9 +906,10 @@ mod schema_tests {
     #[test]
     fn normalize_rating_severity_maps_known_codes() {
         assert_eq!(normalize_rating_severity("lite"), RatingSeverity::Lite);
+        assert_eq!(normalize_rating_severity("high"), RatingSeverity::High);
         assert_eq!(normalize_rating_severity("xhigh"), RatingSeverity::XHigh);
         assert_eq!(normalize_rating_severity("x_high"), RatingSeverity::XHigh);
-        assert_eq!(normalize_rating_severity("high"), RatingSeverity::XHigh);
+        assert_eq!(normalize_rating_severity("max"), RatingSeverity::Max);
         assert_eq!(normalize_rating_severity("normal"), RatingSeverity::Normal);
         assert_eq!(normalize_rating_severity(""), RatingSeverity::Normal);
         assert_eq!(normalize_rating_severity("bogus"), RatingSeverity::Normal);

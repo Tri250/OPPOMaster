@@ -33,14 +33,15 @@ class AlbumBackend;
 /// fake thumbnail/client/credential-store seams and a shared gate.
 class IImageAnalysisEnvironment {
  public:
-  virtual ~IImageAnalysisEnvironment()                                                 = default;
-  virtual auto ThumbnailProvider() -> std::shared_ptr<IImageAnalysisThumbnailProvider> = 0;
-  virtual auto AnalysisClient() -> std::shared_ptr<IImageAnalysisClient>               = 0;
-  virtual auto CredentialStore() -> std::shared_ptr<IAiCredentialStore>                = 0;
-  virtual auto Gate() -> std::shared_ptr<ImageAnalysisInFlightGate>                    = 0;
+  virtual ~IImageAnalysisEnvironment()                                                    = default;
+  virtual auto ThumbnailProvider() -> std::shared_ptr<IImageAnalysisThumbnailProvider>    = 0;
+  virtual auto AnalysisClient() -> std::shared_ptr<IImageAnalysisClient>                  = 0;
+  virtual auto CredentialStore() -> std::shared_ptr<IAiCredentialStore>                   = 0;
+  virtual auto Gate() -> std::shared_ptr<ImageAnalysisInFlightGate>                       = 0;
   /// Optional per-image context for remote analysis. Production reads non-secret
   /// EXIF/camera metadata; tests may return any deterministic string. The
-  /// controller only requests and forwards it for XHigh rating/analyze runs.
+  /// controller only requests and forwards it for gear-sensitive rating/analyze
+  /// runs.
   virtual auto CameraContextForItem(const alcedo::ImageAnalysisItem& item) -> std::string = 0;
   /// Start the AI sidecar on demand with `require_model_info=false` (remote image
   /// analysis uses the HTTP-provider path; no CLIP model is needed). Returns true
@@ -85,8 +86,9 @@ class ImageAnalysisController final : public QObject {
   Q_PROPERTY(QVariantList discoveredModels READ DiscoveredModels NOTIFY StateChanged)
   Q_PROPERTY(QString connectionStatus READ ConnectionStatus NOTIFY StateChanged)
   // Rating strictness persona for the ScoreImage task: "lite" | "normal" |
-  // "xhigh". Persisted across sessions via QSettings (ai/analysis/ratingSeverity),
-  // default "normal". Drives the rating system prompt the sidecar builds.
+  // "high" | "xhigh" | "max". Persisted across sessions via QSettings
+  // (ai/analysis/ratingSeverity), default "normal". Drives the rating system
+  // prompt the sidecar builds.
   Q_PROPERTY(QString ratingSeverity READ RatingSeverity NOTIFY StateChanged)
 
  public:
@@ -127,9 +129,9 @@ class ImageAnalysisController final : public QObject {
   Q_INVOKABLE void ValidateConnection();
   Q_INVOKABLE void ValidateConnectionForProfile(const QString& profileId);
   Q_INVOKABLE void RefreshCredentialState();
-  // Set the rating strictness persona ("lite" | "normal" | "xhigh"). Unknown
-  // values clamp to "normal". Persisted to QSettings (ai/analysis/ratingSeverity)
-  // so the choice survives across sessions.
+  // Set the rating strictness persona ("lite" | "normal" | "high" | "xhigh" |
+  // "max"). Unknown values clamp to "normal". Persisted to QSettings
+  // (ai/analysis/ratingSeverity) so the choice survives across sessions.
   Q_INVOKABLE bool SetRatingSeverity(const QString& value);
 
  signals:

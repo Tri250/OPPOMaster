@@ -39,12 +39,13 @@ struct ImageAnalysisRequest {
   // language" preference before sending, so the sidecar never sees "follow".
   std::string            output_language;
   // Rating strictness persona for ScoreImage only: "" or "normal" = the default
-  // balanced rubric; "lite" = generous; "xhigh" = exacting 懂哥 connoisseur.
+  // balanced rubric; "lite" = generous; "high" = master-guided critique;
+  // "xhigh" = 老法师; "max" = exacting 懂哥 connoisseur.
   // Selects the rating system prompt in the driver; does not change the JSON
   // contract. Ignored by DescribeImage.
   std::string            rating_severity;
-  // Optional non-secret camera/EXIF context for rating personas. The host only
-  // fills this for XHigh scoring/analyze requests; other modes leave it empty.
+  // Optional non-secret camera/EXIF context for gear/parameter-sensitive rating
+  // personas. Other modes leave it empty.
   std::string            camera_context;
   bool                   include_understanding = true;
   bool                   include_rating        = false;

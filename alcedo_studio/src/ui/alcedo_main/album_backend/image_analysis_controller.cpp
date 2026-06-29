@@ -68,7 +68,7 @@ QString ResolveOutputLanguage(const QString& preference) {
                                                                     : QStringLiteral("en");
 }
 
-// Clamp a host-supplied rating-severity code to one of the three personas the
+// Clamp a host-supplied rating-severity code to one of the five personas the
 // sidecar understands. "" / "normal" / any unrecognized value -> "normal"
 // (fail open to the balanced default, matching the Rust
 // `normalize_rating_severity`). QSettings key: ai/analysis/ratingSeverity.
@@ -77,9 +77,14 @@ QString NormalizeRatingSeverity(const QString& value) {
   if (v == QLatin1String("lite")) {
     return QStringLiteral("lite");
   }
-  if (v == QLatin1String("xhigh") || v == QLatin1String("x_high")
-      || v == QLatin1String("high")) {
+  if (v == QLatin1String("high")) {
+    return QStringLiteral("high");
+  }
+  if (v == QLatin1String("xhigh") || v == QLatin1String("x_high")) {
     return QStringLiteral("xhigh");
+  }
+  if (v == QLatin1String("max")) {
+    return QStringLiteral("max");
   }
   return QStringLiteral("normal");
 }
@@ -89,7 +94,8 @@ bool TaskIncludesRating(alcedo::ImageAnalysisTask task) {
 }
 
 bool ShouldAttachCameraContext(alcedo::ImageAnalysisTask task, const QString& rating_severity) {
-  return TaskIncludesRating(task) && rating_severity == QStringLiteral("xhigh");
+  return TaskIncludesRating(task) &&
+         (rating_severity == QStringLiteral("xhigh") || rating_severity == QStringLiteral("max"));
 }
 
 constexpr const char* kRatingSeveritySettingsKey = "ai/analysis/ratingSeverity";
@@ -105,8 +111,8 @@ ImageAnalysisController::ImageAnalysisController(std::shared_ptr<IImageAnalysisE
                                                  QObject*                            parent)
     : QObject(parent), env_(std::move(env)), profiles_(profiles), sink_(std::move(sink)) {
   rating_severity_ = NormalizeRatingSeverity(
-      QSettings().value(QLatin1String(kRatingSeveritySettingsKey),
-                        QStringLiteral("normal"))
+      QSettings()
+          .value(QLatin1String(kRatingSeveritySettingsKey), QStringLiteral("normal"))
           .toString());
   if (profiles_) {
     connect(profiles_, &AiProviderProfileController::ProfilesChanged, this,
@@ -246,8 +252,9 @@ void ImageAnalysisController::StartForTargets(const QVariantList&       targetEn
   }
   provider_configured_ = true;
   if (!ProfileSupportsStructuredImageAnalysis(profile)) {
-    SetError(Tr("Selected provider is not configured for structured output. Choose a "
-                "structured-output capable Advanced Content Analysis provider."));
+    SetError(
+        Tr("Selected provider is not configured for structured output. Choose a "
+           "structured-output capable Advanced Content Analysis provider."));
     return;
   }
 
@@ -532,8 +539,7 @@ void ImageAnalysisController::Finish(std::vector<alcedo::ImageAnalysisItemResult
         (describe || analyze) ? r.understanding.provider : r.rating.provider;
     const std::string& model_id =
         (describe || analyze) ? r.understanding.model_id : r.rating.model_id;
-    const int provider_status =
-        (describe || analyze) ? r.understanding.status : r.rating.status;
+    const int provider_status = (describe || analyze) ? r.understanding.status : r.rating.status;
     const int provider_error_code =
         (describe || analyze) ? r.understanding.error_code : r.rating.error_code;
     const std::string& prompt_profile_id =

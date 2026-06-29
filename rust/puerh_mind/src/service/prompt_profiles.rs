@@ -250,7 +250,7 @@ fn validate_simple_task(name: &str, task: &SimpleTaskPrompt) -> Result<(), Provi
 fn validate_score_task(task: &ScoreTaskPrompt) -> Result<(), ProviderError> {
     require_non_empty("score.instruction", &task.instruction)?;
     require_non_empty("score.return_instruction", &task.return_instruction)?;
-    for key in ["lite", "normal", "xhigh"] {
+    for key in ["lite", "normal", "high", "xhigh", "max"] {
         let value = task
             .system_by_severity
             .get(key)
@@ -267,7 +267,7 @@ fn validate_analyze_task(name: &str, task: &AnalyzeTaskPrompt) -> Result<(), Pro
         &format!("{name}.return_instruction"),
         &task.return_instruction,
     )?;
-    for key in ["lite", "normal", "xhigh"] {
+    for key in ["lite", "normal", "high", "xhigh", "max"] {
         let value = task
             .severity_append
             .get(key)
@@ -301,7 +301,9 @@ fn select_profile<'a>(
 fn normalize_rating_severity(severity: &str) -> &'static str {
     match severity.trim().to_ascii_lowercase().as_str() {
         "lite" => "lite",
-        "xhigh" | "x_high" | "high" => "xhigh",
+        "high" => "high",
+        "xhigh" | "x_high" => "xhigh",
+        "max" => "max",
         _ => "normal",
     }
 }
@@ -362,10 +364,10 @@ mod tests {
     }
 
     #[test]
-    fn score_severity_normalizes_to_xhigh() {
+    fn score_severity_accepts_high() {
         let prompt = score_prompt("profile-1", "default", "high", "", "").expect("prompt loads");
-        assert!(prompt.system.contains("Act as a condescending"));
-        assert!(prompt.system.contains("passive-aggressive"));
+        assert!(prompt.system.contains("master-level photography mentor"));
+        assert!(prompt.system.contains("Henri Cartier-Bresson"));
         assert!(prompt.instruction.contains("Rubric: default."));
         assert!(prompt.instruction.contains("Prompt profile: profile-1."));
     }

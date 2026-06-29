@@ -966,6 +966,10 @@ TEST_F(ImageAnalysisControllerTest, SetRatingSeverityClampsUnknownToNormal) {
   EXPECT_EQ(controller->RatingSeverity(), QStringLiteral("normal"));
   EXPECT_TRUE(controller->SetRatingSeverity(QStringLiteral("x_high")));
   EXPECT_EQ(controller->RatingSeverity(), QStringLiteral("xhigh"));
+  EXPECT_TRUE(controller->SetRatingSeverity(QStringLiteral("HIGH")));
+  EXPECT_EQ(controller->RatingSeverity(), QStringLiteral("high"));
+  EXPECT_TRUE(controller->SetRatingSeverity(QStringLiteral("max")));
+  EXPECT_EQ(controller->RatingSeverity(), QStringLiteral("max"));
   EXPECT_TRUE(controller->SetRatingSeverity(QStringLiteral("LITE")));
   EXPECT_EQ(controller->RatingSeverity(), QStringLiteral("lite"));
   // Cleanup so the persisted value does not leak into other cases.
@@ -975,20 +979,20 @@ TEST_F(ImageAnalysisControllerTest, SetRatingSeverityClampsUnknownToNormal) {
 TEST_F(ImageAnalysisControllerTest, RatingSeverityPersistsAndReachesScoreProvider) {
   QSettings().remove(QStringLiteral("ai/analysis/ratingSeverity"));
   auto controller = MakeController();
-  ASSERT_TRUE(controller->SetRatingSeverity(QStringLiteral("xhigh")));
+  ASSERT_TRUE(controller->SetRatingSeverity(QStringLiteral("max")));
   controller->StartScoreForTargets(Targets({{1, 100}}));
   ASSERT_TRUE(WaitForFinished(*controller, std::chrono::seconds(10)));
   // The severity is threaded into the ScoreImage request and reaches the provider.
-  EXPECT_EQ(last_bundle_->client->LastRatingSeverity(), "xhigh");
+  EXPECT_EQ(last_bundle_->client->LastRatingSeverity(), "max");
 
   // A fresh controller in the same process reads the persisted value back.
   auto controller2 = MakeController();
-  EXPECT_EQ(controller2->RatingSeverity(), QStringLiteral("xhigh"));
+  EXPECT_EQ(controller2->RatingSeverity(), QStringLiteral("max"));
   // Cleanup so the persisted value does not leak into other cases.
   QSettings().remove(QStringLiteral("ai/analysis/ratingSeverity"));
 }
 
-TEST_F(ImageAnalysisControllerTest, CameraContextOnlyReachesXHighRatingRequests) {
+TEST_F(ImageAnalysisControllerTest, CameraContextOnlyReachesGearSensitiveRatingRequests) {
   QSettings().remove(QStringLiteral("ai/analysis/ratingSeverity"));
 
   auto normal = MakeController();
@@ -997,18 +1001,32 @@ TEST_F(ImageAnalysisControllerTest, CameraContextOnlyReachesXHighRatingRequests)
   ASSERT_TRUE(WaitForFinished(*normal, std::chrono::seconds(10)));
   EXPECT_TRUE(last_bundle_->client->LastCameraContext().empty());
 
-  auto xhigh = MakeController();
+  auto high = MakeController();
   last_bundle_->env->SetCameraContext(101, "Camera/EXIF metadata: camera_make=Hasselblad.");
+  ASSERT_TRUE(high->SetRatingSeverity(QStringLiteral("high")));
+  high->StartScoreForTargets(Targets({{1, 101}}));
+  ASSERT_TRUE(WaitForFinished(*high, std::chrono::seconds(10)));
+  EXPECT_TRUE(last_bundle_->client->LastCameraContext().empty());
+
+  auto xhigh = MakeController();
+  last_bundle_->env->SetCameraContext(102, "Camera/EXIF metadata: camera_make=Hasselblad.");
   ASSERT_TRUE(xhigh->SetRatingSeverity(QStringLiteral("xhigh")));
-  xhigh->StartScoreForTargets(Targets({{1, 101}}));
+  xhigh->StartScoreForTargets(Targets({{1, 102}}));
   ASSERT_TRUE(WaitForFinished(*xhigh, std::chrono::seconds(10)));
   EXPECT_EQ(last_bundle_->client->LastCameraContext(),
             "Camera/EXIF metadata: camera_make=Hasselblad.");
 
+  auto max = MakeController();
+  last_bundle_->env->SetCameraContext(103, "Camera/EXIF metadata: camera_make=Leica.");
+  ASSERT_TRUE(max->SetRatingSeverity(QStringLiteral("max")));
+  max->StartScoreForTargets(Targets({{1, 103}}));
+  ASSERT_TRUE(WaitForFinished(*max, std::chrono::seconds(10)));
+  EXPECT_EQ(last_bundle_->client->LastCameraContext(), "Camera/EXIF metadata: camera_make=Leica.");
+
   auto describe = MakeController();
-  last_bundle_->env->SetCameraContext(102, "Camera/EXIF metadata: camera_make=Leica.");
-  ASSERT_TRUE(describe->SetRatingSeverity(QStringLiteral("xhigh")));
-  describe->StartDescribeForTargets(Targets({{1, 102}}));
+  last_bundle_->env->SetCameraContext(104, "Camera/EXIF metadata: camera_make=Leica.");
+  ASSERT_TRUE(describe->SetRatingSeverity(QStringLiteral("max")));
+  describe->StartDescribeForTargets(Targets({{1, 104}}));
   ASSERT_TRUE(WaitForFinished(*describe, std::chrono::seconds(10)));
   EXPECT_TRUE(last_bundle_->client->LastCameraContext().empty());
 
