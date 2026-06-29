@@ -84,6 +84,14 @@ QString NormalizeRatingSeverity(const QString& value) {
   return QStringLiteral("normal");
 }
 
+bool TaskIncludesRating(alcedo::ImageAnalysisTask task) {
+  return task == alcedo::ImageAnalysisTask::kScore || task == alcedo::ImageAnalysisTask::kAnalyze;
+}
+
+bool ShouldAttachCameraContext(alcedo::ImageAnalysisTask task, const QString& rating_severity) {
+  return TaskIncludesRating(task) && rating_severity == QStringLiteral("xhigh");
+}
+
 constexpr const char* kRatingSeveritySettingsKey = "ai/analysis/ratingSeverity";
 
 }  // namespace
@@ -212,6 +220,12 @@ void ImageAnalysisController::StartForTargets(const QVariantList&       targetEn
   if (items.empty()) {
     SetError(Tr("Select at least one image to analyze."));
     return;
+  }
+
+  if (env_ && ShouldAttachCameraContext(task, rating_severity_)) {
+    for (auto& item : items) {
+      item.camera_context = env_->CameraContextForItem(item);
+    }
   }
 
   if (!profiles_) {

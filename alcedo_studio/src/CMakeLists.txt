@@ -1673,6 +1673,8 @@ endif()
 
 set(ALCEDO_MIND_SOURCE_DIR "${CMAKE_SOURCE_DIR}/rust/puerh_mind"
     CACHE INTERNAL "Alcedo semantic sidecar source directory.")
+set(ALCEDO_MIND_PROMPTS_DIR "${ALCEDO_MIND_SOURCE_DIR}/configs/prompts"
+    CACHE INTERNAL "Alcedo semantic sidecar prompt profile config directory.")
 set(ALCEDO_MIND_BUILD_PROFILE "release"
     CACHE INTERNAL "Alcedo semantic sidecar cargo profile.")
 set(ALCEDO_MIND_TARGET_DIR "${ALCEDO_MIND_SOURCE_DIR}/target/${ALCEDO_MIND_BUILD_PROFILE}"
@@ -1797,6 +1799,7 @@ if(ALCEDO_BUILD_SEMANTIC_SIDECAR AND TARGET alcedo_mind_sidecar)
         COMMAND ${CMAKE_COMMAND}
             "-DALCEDO_MIND_BINARY=${ALCEDO_MIND_BINARY}"
             "-DALCEDO_MIND_TARGET_DIR=${ALCEDO_MIND_TARGET_DIR}"
+            "-DALCEDO_MIND_PROMPTS_DIR=${ALCEDO_MIND_PROMPTS_DIR}"
             "-DALCEDO_MIND_DEST_DIR=$<TARGET_FILE_DIR:alcedo_main>"
             -P "${CMAKE_SOURCE_DIR}/scripts/cmake/copy_semantic_sidecar.cmake"
         DEPENDS alcedo_mind_sidecar

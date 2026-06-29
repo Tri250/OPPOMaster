@@ -162,6 +162,7 @@ struct EncodedAnalysisItem {
   std::string              rubric_id;
   std::string              output_language;  // host-resolved; "" or "en" or "zh"
   std::string              rating_severity;  // host-resolved; "" or "lite"/"normal"/"xhigh"
+  std::string              camera_context;   // optional XHigh-only EXIF/camera context
   std::string              credential_ref;  // opaque vault handle
   std::string              error;           // kPrepFailed: thumbnail/encode error message
 };
@@ -779,6 +780,7 @@ void ImageAnalysisService::RunJob(const std::shared_ptr<ImageAnalysisJob>& job,
       e.rubric_id         = options.rubric_id;
       e.output_language   = options.output_language;
       e.rating_severity   = options.rating_severity;
+      e.camera_context    = item.camera_context;
       e.credential_ref    = credential_ref;  // opaque handle; secret already cleared
 
       auto thumb = WaitForOneThumbnail(job, thumbnail_provider, item, resolution);
@@ -908,6 +910,7 @@ void ImageAnalysisService::RunJob(const std::shared_ptr<ImageAnalysisJob>& job,
     req.rubric_id         = std::move(e.rubric_id);
     req.output_language   = std::move(e.output_language);
     req.rating_severity   = std::move(e.rating_severity);
+    req.camera_context    = std::move(e.camera_context);
 
     // Acquire the service-wide in-flight slot (max one remote analysis at a time across
     // all services sharing this gate) AND publish this request_id atomically with the

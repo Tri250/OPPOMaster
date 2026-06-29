@@ -500,6 +500,7 @@ impl ImageAnalysisService for ImageAnalysisServiceImpl {
             &req.rubric_id,
             &req.rating_severity,
             &req.output_language,
+            &req.camera_context,
             credential.as_ref(),
         );
         tokio::pin!(provider_fut);
@@ -677,6 +678,7 @@ impl ImageAnalysisService for ImageAnalysisServiceImpl {
             &req.rubric_id,
             &req.rating_severity,
             &req.output_language,
+            &req.camera_context,
             credential.as_ref(),
         );
         tokio::pin!(provider_fut);
@@ -990,6 +992,7 @@ mod tests {
             rubric_id: "alcedo-default-v1".to_string(),
             output_language: String::new(),
             rating_severity: String::new(),
+            camera_context: String::new(),
         });
         let resp = svc.score_image(req).await.expect("rpc ok");
         let inner = resp.into_inner();
@@ -1025,6 +1028,7 @@ mod tests {
             rubric_id: "alcedo-default-v1".to_string(),
             output_language: String::new(),
             rating_severity: String::new(),
+            camera_context: String::new(),
         });
         let resp = svc.analyze_image(req).await.expect("rpc ok");
         let inner = resp.into_inner();

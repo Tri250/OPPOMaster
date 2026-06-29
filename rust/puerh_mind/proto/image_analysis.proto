@@ -156,6 +156,10 @@ message ScoreImageRequest {
   // voice). Does NOT change the JSON contract — `rating` stays a 1..=5 integer
   // and any persona flavor lives inside the `reasons` string.
   string rating_severity = 10;
+  // Optional non-secret camera/EXIF context supplied by the host. Currently only
+  // filled for XHigh (懂哥) rating so the prompt can judge gear choice and exposure
+  // metadata; other modes leave it empty.
+  string camera_context = 11;
 }
 
 message ScoreImageResponse {
@@ -181,6 +185,7 @@ message AnalyzeImageRequest {
   string rubric_id = 10;
   string output_language = 11;
   string rating_severity = 12;
+  string camera_context = 13;
 }
 
 message AnalyzeImageResponse {

@@ -791,6 +791,7 @@ class GrpcImageAnalysisClient final : public ImageAnalysisClient {
     req.set_rubric_id(request.rubric_id);
     req.set_output_language(request.output_language);
     req.set_rating_severity(request.rating_severity);
+    req.set_camera_context(request.camera_context);
     alcedo::ai::ScoreImageResponse response;
     const auto status = stub->ScoreImage(&context, req, &response);
     if (status.ok()) {
@@ -823,6 +824,7 @@ class GrpcImageAnalysisClient final : public ImageAnalysisClient {
     req.set_rubric_id(request.rubric_id);
     req.set_output_language(request.output_language);
     req.set_rating_severity(request.rating_severity);
+    req.set_camera_context(request.camera_context);
     alcedo::ai::AnalyzeImageResponse response;
     const auto status = stub->AnalyzeImage(&context, req, &response);
     if (status.ok()) {

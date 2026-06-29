@@ -47,10 +47,6 @@ Item {
         draftReason = ratingReasonText
     }
 
-    function starText(index) {
-        return index <= currentRating ? "\u2605" : "\u2606"
-    }
-
     function toggleDescriptionEdit() {
         if (editingDescription) {
             editingDescription = false
@@ -84,6 +80,7 @@ Item {
         default property alias content: contentColumn.data
 
         Layout.fillWidth: true
+        Layout.fillHeight: true
         Layout.preferredHeight: Math.max(tall ? 178 : 104, contentColumn.implicitHeight + 24)
         Layout.minimumHeight: tall ? 160 : 96
         radius: 8
@@ -127,6 +124,7 @@ Item {
             icon.width: 15
             icon.height: 15
             icon.color: tile.editing ? root.accentColor : root.mutedTextColor
+            Material.foreground: tile.editing ? root.accentColor : root.mutedTextColor
             ToolTip.visible: hovered && tile.editToolTip.length > 0
             ToolTip.text: tile.editToolTip
             background: Rectangle {
@@ -317,9 +315,12 @@ Item {
                         visible: !root.editingDescription
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        text: root.tileFor("description").value
+                        text: root.descriptionText.length > 0
+                              ? root.tileFor("description").value
+                              : qsTr("No description yet.")
                         color: root.descriptionText.length > 0 ? root.textColor : root.mutedTextColor
                         font.pixelSize: 12
+                        font.italic: root.descriptionText.length === 0
                         wrapMode: Text.WordWrap
                     }
                 }
@@ -332,52 +333,68 @@ Item {
                     editToolTip: root.editingReason ? qsTr("Save rating reason") : qsTr("Edit rating reason")
                     onEditToggled: root.toggleReasonEdit()
 
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 2
+                    // Click-to-rate star row. Left-click a star to set that rating;
+                    // right-click any star to clear (rating 0). An unrated slot shows
+                    // a muted empty star (no rating); a rated slot shows a filled star
+                    // in the accent color. Hover previews the rating a click would
+                    // commit, so the row never flashes back during the backend round-trip.
+                    Item {
+                        id: starRow
+                        Layout.fillWidth: false
+                        Layout.preferredHeight: 26
+                        readonly property int slotCount: 5
+                        readonly property real slotWidth: 26
+                        readonly property real slotSpacing: 2
+                        Layout.preferredWidth: slotCount * slotWidth + (slotCount - 1) * slotSpacing
+                        property int hoverRating: 0
+                        readonly property int displayRating: hoverRating > 0 ? hoverRating : root.currentRating
 
-                        Repeater {
-                            model: 5
-                            delegate: Button {
-                                id: starButton
-                                Layout.preferredWidth: 30
-                                Layout.preferredHeight: 30
-                                padding: 0
-                                text: root.starText(index + 1)
-                                font.pixelSize: 18
-                                font.family: appTheme.dataFontFamily
-                                background: Item {}
-                                contentItem: Label {
-                                    text: starButton.text
-                                    color: index < root.currentRating ? root.accentColor : root.mutedTextColor
+                        function slotAt(x) {
+                            const step = slotWidth + slotSpacing
+                            let idx = Math.floor(x / step) + 1
+                            return Math.max(1, Math.min(slotCount, idx))
+                        }
+
+                        Row {
+                            spacing: starRow.slotSpacing
+                            Repeater {
+                                model: starRow.slotCount
+                                delegate: Label {
+                                    width: starRow.slotWidth
+                                    height: starRow.slotWidth
+                                    text: (index + 1) <= starRow.displayRating ? "\u2605" : "\u2606"
+                                    color: (index + 1) <= starRow.displayRating
+                                           ? root.accentColor : root.mutedTextColor
+                                    font.family: appTheme.dataFontFamily
+                                    font.pixelSize: 18
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
-                                    font: starButton.font
                                 }
-                                onClicked: root.ratingRequested(index + 1)
                             }
                         }
 
-                        Button {
-                            id: clearRatingButton
-                            text: qsTr("Clear")
-                            Layout.preferredHeight: 26
-                            padding: 8
-                            font.pixelSize: 11
-                            font.weight: 700
-                            background: Rectangle {
-                                radius: 6
-                                color: root.withAlpha(root.mutedTextColor,
-                                                     clearRatingButton.down ? 0.14 : 0.06)
+                        MouseArea {
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            acceptedButtons: Qt.LeftButton | Qt.RightButton
+                            onPositionChanged: (mouse) => {
+                                starRow.hoverRating = starRow.slotAt(mouse.x)
                             }
-                            contentItem: Label {
-                                text: clearRatingButton.text
-                                color: root.mutedTextColor
-                                font: clearRatingButton.font
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
+                            onExited: starRow.hoverRating = 0
+                            onClicked: (mouse) => {
+                                if (mouse.button === Qt.RightButton) {
+                                    root.ratingRequested(0)
+                                    starRow.hoverRating = 0
+                                } else {
+                                    root.ratingRequested(starRow.slotAt(mouse.x))
+                                }
                             }
-                            onClicked: root.ratingRequested(0)
+                        }
+
+                        Connections {
+                            target: root
+                            function onFocusedImageChanged() { starRow.hoverRating = 0 }
                         }
                     }
 
@@ -403,9 +420,12 @@ Item {
                         visible: !root.editingReason
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        text: root.tileFor("rating").detail
+                        text: root.ratingReasonText.length > 0
+                              ? root.tileFor("rating").detail
+                              : qsTr("No rating reason yet.")
                         color: root.ratingReasonText.length > 0 ? root.textColor : root.mutedTextColor
                         font.pixelSize: 12
+                        font.italic: root.ratingReasonText.length === 0
                         wrapMode: Text.WordWrap
                     }
                 }

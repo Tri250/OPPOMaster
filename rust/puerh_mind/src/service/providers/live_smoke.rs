@@ -100,6 +100,7 @@ async fn live_openrouter_smoke_describe_and_score() {
             "alcedo-default-v1",
             "",
             "",
+            "",
             Some(&secret),
         )
         .await
@@ -144,6 +145,7 @@ async fn live_volcengine_ark_smoke_describe_and_score() {
             "",
             "alcedo-live-smoke",
             "alcedo-default-v1",
+            "",
             "",
             "",
             Some(&secret),
@@ -199,6 +201,7 @@ async fn live_volcengine_ark_coding_smoke_describe_and_score() {
             "",
             "alcedo-live-smoke",
             "alcedo-default-v1",
+            "",
             "",
             "",
             Some(&secret),

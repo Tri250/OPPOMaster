@@ -38,6 +38,10 @@ class IImageAnalysisEnvironment {
   virtual auto AnalysisClient() -> std::shared_ptr<IImageAnalysisClient>               = 0;
   virtual auto CredentialStore() -> std::shared_ptr<IAiCredentialStore>                = 0;
   virtual auto Gate() -> std::shared_ptr<ImageAnalysisInFlightGate>                    = 0;
+  /// Optional per-image context for remote analysis. Production reads non-secret
+  /// EXIF/camera metadata; tests may return any deterministic string. The
+  /// controller only requests and forwards it for XHigh rating/analyze runs.
+  virtual auto CameraContextForItem(const alcedo::ImageAnalysisItem& item) -> std::string = 0;
   /// Start the AI sidecar on demand with `require_model_info=false` (remote image
   /// analysis uses the HTTP-provider path; no CLIP model is needed). Returns true
   /// if the sidecar is ready. Does NOT check `model_info` (it is unpopulated when

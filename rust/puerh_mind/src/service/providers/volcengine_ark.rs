@@ -295,6 +295,7 @@ fn score_prompt(
     rubric_id: &str,
     rating_severity: &str,
     output_language: &str,
+    camera_context: &str,
 ) -> (String, String) {
     let system =
         crate::service::image_analysis::rating_system_prompt(rating_severity, output_language);
@@ -304,6 +305,11 @@ fn score_prompt(
     }
     if !prompt_profile_id.trim().is_empty() {
         instruction.push_str(&format!(" Prompt profile: {prompt_profile_id}."));
+    }
+    let camera_context = camera_context.trim();
+    if !camera_context.is_empty() {
+        instruction.push_str("\n\nUse this camera/EXIF metadata as additional context for the rating only when it is relevant:\n");
+        instruction.push_str(camera_context);
     }
     instruction.push_str(
         " Return only the JSON object described above, with an integer \"rating\" between 1 and 5.",
@@ -412,6 +418,7 @@ impl ImageAnalysisProvider for VolcengineArkResponsesProvider {
         rubric_id: &str,
         rating_severity: &str,
         output_language: &str,
+        camera_context: &str,
         credential: Option<&SecretString>,
     ) -> Result<ScoreOutcome, ProviderError> {
         let (slug, model) = self.resolve_model(model_id)?;
@@ -424,6 +431,7 @@ impl ImageAnalysisProvider for VolcengineArkResponsesProvider {
             rubric_id,
             rating_severity,
             output_language,
+            camera_context,
         );
         let body = self.build_responses_body(
             &slug,
@@ -659,6 +667,7 @@ mod tests {
                 "alcedo-default-v1",
                 "",
                 "",
+                "",
                 Some(&secret()),
             )
             .await
@@ -693,6 +702,7 @@ mod tests {
                 "",
                 "",
                 "alcedo-default-v1",
+                "",
                 "",
                 "",
                 Some(&secret()),

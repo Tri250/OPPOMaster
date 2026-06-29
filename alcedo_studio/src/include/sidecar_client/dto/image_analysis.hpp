@@ -43,6 +43,9 @@ struct ImageAnalysisRequest {
   // Selects the rating system prompt in the driver; does not change the JSON
   // contract. Ignored by DescribeImage.
   std::string            rating_severity;
+  // Optional non-secret camera/EXIF context for rating personas. The host only
+  // fills this for XHigh scoring/analyze requests; other modes leave it empty.
+  std::string            camera_context;
   bool                   include_understanding = true;
   bool                   include_rating        = false;
 };

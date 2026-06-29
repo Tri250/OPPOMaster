@@ -594,6 +594,7 @@ if(TARGET ${ALCEDO_MAIN_BIN})
             install(CODE
                 "set(ALCEDO_MIND_BINARY \"${ALCEDO_MIND_BINARY}\")
                  set(ALCEDO_MIND_TARGET_DIR \"${ALCEDO_MIND_TARGET_DIR}\")
+                 set(ALCEDO_MIND_PROMPTS_DIR \"${ALCEDO_MIND_PROMPTS_DIR}\")
                  set(ALCEDO_MIND_DEST_DIR \"\${CMAKE_INSTALL_PREFIX}/${_bundle_macos_dest}\")
                  include(\"${CMAKE_SOURCE_DIR}/scripts/cmake/copy_semantic_sidecar.cmake\")
                 "
@@ -710,6 +711,7 @@ if(TARGET ${ALCEDO_MAIN_BIN})
             install(CODE
                 "set(ALCEDO_MIND_BINARY \"${ALCEDO_MIND_BINARY}\")
                  set(ALCEDO_MIND_TARGET_DIR \"${ALCEDO_MIND_TARGET_DIR}\")
+                 set(ALCEDO_MIND_PROMPTS_DIR \"${ALCEDO_MIND_PROMPTS_DIR}\")
                  set(ALCEDO_MIND_DEST_DIR \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}\")
                  include(\"${CMAKE_SOURCE_DIR}/scripts/cmake/copy_semantic_sidecar.cmake\")
                 "

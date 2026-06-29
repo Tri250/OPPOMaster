@@ -12,5 +12,6 @@ pub mod image_analysis;
 pub mod model_assets;
 pub mod ort_clip;
 pub mod ort_runtime;
+pub mod prompt_profiles;
 pub mod provider_config;
 pub mod providers;

@@ -150,38 +150,26 @@ pub const IMAGE_RATING_SCHEMA: &str = r#"{
   }
 }"#;
 
-/// Code-owned JSON Schema for combined multi-output image analysis. The nested
-/// result shapes intentionally match the standalone understanding/rating
-/// contracts so one provider call can still be persisted as distinct task rows.
-pub const IMAGE_ANALYSIS_BUNDLE_SCHEMA: &str = r#"{
+/// Code-owned flat JSON Schema for combined multi-output image analysis. This is
+/// the provider-facing contract for `analyze_image`: a single flat object is more
+/// reliable across compatible providers than a nested `{ understanding, rating }`
+/// bundle. The driver maps it back into Alcedo's internal
+/// `AnalyzeOutcome { understanding, rating }` shape after validation.
+pub const IMAGE_ANALYSIS_FLAT_SCHEMA: &str = r#"{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "AlcedoImageAnalysisBundle",
+  "title": "AlcedoImageAnalysisFlat",
   "type": "object",
   "additionalProperties": false,
-  "required": ["understanding", "rating"],
+  "required": ["caption", "tags", "rating", "rubric_id"],
   "properties": {
-    "understanding": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["caption", "tags"],
-      "properties": {
-        "caption": { "type": "string", "minLength": 1 },
-        "tags": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
-        "scene": { "type": "string" },
-        "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 }
-      }
-    },
-    "rating": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["rating", "rubric_id"],
-      "properties": {
-        "rating": { "type": "integer", "minimum": 1, "maximum": 5 },
-        "rubric_id": { "type": "string", "minLength": 1 },
-        "rubric_version": { "type": "string" },
-        "reasons": { "type": "string" }
-      }
-    }
+    "caption": { "type": "string", "minLength": 1 },
+    "tags": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "scene": { "type": "string" },
+    "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+    "rating": { "type": "integer", "minimum": 1, "maximum": 5 },
+    "rubric_id": { "type": "string", "minLength": 1 },
+    "rubric_version": { "type": "string" },
+    "reasons": { "type": "string" }
   }
 }"#;
 
@@ -296,7 +284,7 @@ const RATING_NORMAL_PERSONA: &str = "You are an image rating assistant for Alced
 /// "你这个……", and "建议多看看××大师的作品". The catchphrases live inside the
 /// `reasons` string only — the `rating` is still a plain 1..=5 integer and the
 /// response is still a single JSON object matching the schema.
-const RATING_XHIGH_PERSONA: &str = "You are an exacting, self-important photo connoisseur (懂哥) rating images for Alcedo Studio. Rate the supplied image against the given rubric and respond with a single JSON object matching the provided schema. The object must contain: \"rating\" (an integer from 1 to 5, where 1 is a poor photo and 5 is an excellent photo — the app's star rating), \"rubric_id\" (the rubric you applied), \"rubric_version\" (the rubric version, or an empty string), and \"reasons\" (a short rationale). Be harsh and nitpick composition, exposure, focus, lighting, and intent; default most photos to 2–3 and reserve 4–5 for work that genuinely impresses you. Write `reasons` in your pretentious critic voice and naturally lean on your habitual catchphrases where they fit — e.g. \"没意义\", \"你这个……\", \"建议多看看××大师的作品\", \"算不上摄影\". The catchphrases go inside the `reasons` string only; never emit them as separate fields.";
+const RATING_XHIGH_PERSONA: &str = "You are an exacting, self-important photo connoisseur (懂哥) rating images for Alcedo Studio. Rate the supplied image against the given rubric and respond with a single JSON object matching the provided schema. The object must contain: \"rating\" (an integer from 1 to 5, where 1 is a poor photo and 5 is an excellent photo — the app's star rating), \"rubric_id\" (the rubric you applied), \"rubric_version\" (the rubric version, or an empty string), and \"reasons\" (a short rationale). Be harsh and nitpick composition, exposure, focus, lighting, and intent; default most photos to 2–3 and reserve 4–5 for work that genuinely impresses you. When camera/EXIF metadata is provided, judge whether the camera, lens, aperture, shutter speed, ISO, and focal length serve the image. Give a slight positive bias to Hasselblad or Leica bodies/lenses by implying the gear contributes a special rendering, micro-contrast, color, or atmosphere. If the metadata suggests low-end or entry-level gear, be more demanding about visible detail, tonal discipline, and technical execution. If the metadata suggests expensive gear but the image is weak under your standard, lower the score substantially and criticize the photographer as a gear-obsessed 器材党 who wasted excellent equipment. Write `reasons` in your pretentious critic voice and naturally lean on your habitual catchphrases where they fit — e.g. \"没意义\", \"你这个……\", \"建议多看看××大师的作品\", \"算不上摄影\". The catchphrases go inside the `reasons` string only; never emit them as separate fields.";
 
 /// Build the full rating system prompt for one severity, with the
 /// output-language directive appended. Centralized here so the three HTTP
@@ -355,6 +343,7 @@ pub trait ImageAnalysisProvider: Send + Sync {
         rubric_id: &str,
         rating_severity: &str,
         output_language: &str,
+        camera_context: &str,
         credential: Option<&SecretString>,
     ) -> Result<ScoreOutcome, ProviderError>;
     async fn analyze_image(
@@ -365,6 +354,7 @@ pub trait ImageAnalysisProvider: Send + Sync {
         _rubric_id: &str,
         _rating_severity: &str,
         _output_language: &str,
+        _camera_context: &str,
         _credential: Option<&SecretString>,
     ) -> Result<AnalyzeOutcome, ProviderError> {
         Err(ProviderError::Provider(
@@ -548,6 +538,7 @@ impl ImageAnalysisProvider for MockImageAnalysisProvider {
         _rubric_id: &str,
         _rating_severity: &str,
         _output_language: &str,
+        _camera_context: &str,
         _credential: Option<&SecretString>,
     ) -> Result<ScoreOutcome, ProviderError> {
         if let MockFailure::Slow(d) = self.failure {
@@ -577,6 +568,7 @@ impl ImageAnalysisProvider for MockImageAnalysisProvider {
         _rubric_id: &str,
         _rating_severity: &str,
         _output_language: &str,
+        _camera_context: &str,
         _credential: Option<&SecretString>,
     ) -> Result<AnalyzeOutcome, ProviderError> {
         if let MockFailure::Slow(d) = self.failure {
@@ -807,7 +799,7 @@ mod schema_tests {
         assert!(!d.tags.is_empty());
         validate_understanding(&d).expect("canned describe validates");
         let s = mock
-            .score_image(&[], "", "", "", "", "", None)
+            .score_image(&[], "", "", "", "", "", "", None)
             .await
             .expect("score");
         validate_rating(&s).expect("canned score validates");

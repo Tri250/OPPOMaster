@@ -29,6 +29,7 @@ namespace alcedo {
 struct ImageAnalysisItem {
   sl_element_id_t element_id = 0;
   image_id_t      image_id   = 0;
+  std::string     camera_context;
 };
 
 enum class ImageAnalysisTask : uint8_t {

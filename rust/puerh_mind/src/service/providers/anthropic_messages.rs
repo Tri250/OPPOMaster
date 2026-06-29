@@ -64,9 +64,9 @@ use tracing::warn;
 
 use crate::service::credential_vault::SecretString;
 use crate::service::image_analysis::{
-    AnalyzeOutcome, DescribeOutcome, DiscoveredModel, IMAGE_RATING_SCHEMA,
-    IMAGE_UNDERSTANDING_SCHEMA, ImageAnalysisProvider, ProviderError, ScoreOutcome,
-    validate_analyze, validate_rating, validate_understanding,
+    AnalyzeOutcome, DescribeOutcome, DiscoveredModel, IMAGE_ANALYSIS_FLAT_SCHEMA,
+    IMAGE_RATING_SCHEMA, IMAGE_UNDERSTANDING_SCHEMA, ImageAnalysisProvider, ProviderError,
+    ScoreOutcome, validate_analyze, validate_rating, validate_understanding,
 };
 use crate::service::provider_config::{ModelConfig, ProviderConfig};
 use crate::service::providers::http_util::{
@@ -77,31 +77,9 @@ use crate::service::providers::http_util::{
 
 const UNDERSTANDING_SCHEMA_NAME: &str = "alcedo_image_understanding";
 const RATING_SCHEMA_NAME: &str = "alcedo_image_rating";
-const ANALYSIS_BUNDLE_SCHEMA_NAME: &str = "alcedo_image_analysis_bundle";
+const ANALYSIS_FLAT_SCHEMA_NAME: &str = "alcedo_image_analysis_flat";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 const ANALYZE_SCHEMA_REPAIR_RETRIES: u32 = 1;
-
-/// Anthropic-compatible tool adapters such as Minimax through Opencode have
-/// proven much more reliable when the tool input is flat. The provider-facing
-/// contract is flat, then the driver maps it back into Alcedo's internal
-/// `AnalyzeOutcome { understanding, rating }` shape.
-const ANTHROPIC_ANALYSIS_FLAT_SCHEMA: &str = r#"{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "AlcedoAnthropicImageAnalysis",
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["caption", "tags", "rating", "rubric_id"],
-  "properties": {
-    "caption": { "type": "string", "minLength": 1 },
-    "tags": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
-    "scene": { "type": "string" },
-    "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
-    "rating": { "type": "integer", "minimum": 1, "maximum": 5 },
-    "rubric_id": { "type": "string", "minLength": 1 },
-    "rubric_version": { "type": "string" },
-    "reasons": { "type": "string" }
-  }
-}"#;
 
 pub struct AnthropicMessagesProvider {
     config: ProviderConfig,
@@ -404,9 +382,9 @@ impl AnthropicMessagesProvider {
         model_id: &str,
         header_req_id: &str,
     ) -> Result<AnalyzeOutcome, ProviderError> {
-        let parsed = Self::extract_tool_use_input(body, ANALYSIS_BUNDLE_SCHEMA_NAME).ok_or_else(|| {
+        let parsed = Self::extract_tool_use_input(body, ANALYSIS_FLAT_SCHEMA_NAME).ok_or_else(|| {
             ProviderError::SchemaValidationMessage(format!(
-                "provider response did not contain tool_use input named {ANALYSIS_BUNDLE_SCHEMA_NAME}; expected Anthropic-compatible structured tool output"
+                "provider response did not contain tool_use input named {ANALYSIS_FLAT_SCHEMA_NAME}; expected Anthropic-compatible structured tool output"
             ))
         })?;
         if parsed.get("caption").is_none() {
@@ -527,17 +505,13 @@ impl AnthropicMessagesProvider {
     }
 }
 
-fn describe_prompt(prompt_profile_id: &str, output_language: &str) -> (String, String) {
-    let mut system = "You are an image understanding assistant for Alcedo Studio. Analyze the supplied image and respond with a single JSON object matching the provided schema. The object must contain: \"caption\" (a concise one-line description of the image), \"tags\" (an array of short lowercase searchable tags, with at least one tag), \"scene\" (a short scene or category hint, or an empty string if none), and \"confidence\" (your confidence in the description, a number between 0.0 and 1.0). Output only the JSON object — no prose, no markdown code fences.".to_string();
-    system.push_str(&crate::service::image_analysis::language_directive(
-        output_language,
-    ));
-    let mut instruction = "Describe this image for a photo library.".to_string();
-    if !prompt_profile_id.trim().is_empty() {
-        instruction.push_str(&format!(" Prompt profile: {prompt_profile_id}."));
-    }
-    instruction.push_str(" Return only the JSON object described above.");
-    (system, instruction)
+fn describe_prompt(
+    prompt_profile_id: &str,
+    output_language: &str,
+) -> Result<(String, String), ProviderError> {
+    let prompt =
+        crate::service::prompt_profiles::describe_prompt(prompt_profile_id, output_language)?;
+    Ok((prompt.system, prompt.instruction))
 }
 
 fn score_prompt(
@@ -545,20 +519,16 @@ fn score_prompt(
     rubric_id: &str,
     rating_severity: &str,
     output_language: &str,
-) -> (String, String) {
-    let system =
-        crate::service::image_analysis::rating_system_prompt(rating_severity, output_language);
-    let mut instruction = "Rate this image on a 1–5 star scale.".to_string();
-    if !rubric_id.trim().is_empty() {
-        instruction.push_str(&format!(" Rubric: {rubric_id}."));
-    }
-    if !prompt_profile_id.trim().is_empty() {
-        instruction.push_str(&format!(" Prompt profile: {prompt_profile_id}."));
-    }
-    instruction.push_str(
-        " Return only the JSON object described above, with an integer \"rating\" between 1 and 5.",
-    );
-    (system, instruction)
+    camera_context: &str,
+) -> Result<(String, String), ProviderError> {
+    let prompt = crate::service::prompt_profiles::score_prompt(
+        prompt_profile_id,
+        rubric_id,
+        rating_severity,
+        output_language,
+        camera_context,
+    )?;
+    Ok((prompt.system, prompt.instruction))
 }
 
 fn analyze_prompt(
@@ -566,64 +536,16 @@ fn analyze_prompt(
     rubric_id: &str,
     rating_severity: &str,
     output_language: &str,
-) -> (String, String) {
-    let mut system = r#"
-You are an image analysis assistant. Analyze the supplied image and return one tool input object matching the schema.
-
-The tool input object is flat. It must contain these top-level fields:
-caption, tags, scene, confidence, rating, rubric_id, rubric_version, reasons.
-
-tags must be a JSON array of strings, not a comma-separated string.
-rating must be a 1-5 integer star rating. Do not include a rating confidence.
-
-Evaluate the image as an intentional photograph, not as a generic technical test image. Before judging technical quality, infer the likely visual intent, mood, genre, subject hierarchy, and visual premise from the image itself. Judge whether the technical and aesthetic choices serve that intent.
-
-Exposure must be evaluated relative to the intended look. Do not treat a dark, low-key, silhouette-driven, nocturnal, moody, cinematic, or deliberately muted image as defective merely because shadows are deep, the overall luminance is low, or some areas are intentionally unreadable.
-
-Deep blacks, restrained midtones, limited visibility, selective illumination, haze, grain, soft focus, muted color, and ambiguity can be valid compositional or emotional choices when they support the image.
-
-Distinguish intentional darkness from accidental underexposure:
-
-Intentional darkness preserves a meaningful visual hierarchy, directs attention, supports atmosphere, or uses shadow as part of the image's structure.
-Accidental underexposure obscures the intended subject without expressive purpose, collapses important tonal relationships, destroys necessary information, or makes the image feel visually unresolved.
-Do not recommend brightening an image simply to reveal more shadow detail.
-Do not penalize clipped blacks unless the clipping visibly harms the subject, composition, tonal structure, or intended reading.
-
-The supplied image may be a compressed or low-resolution preview. Do not treat thumbnail limitations as evidence of poor image quality.
-
-Do not diagnose low sharpness, missed focus, motion blur, camera shake, poor lens performance, noise, compression artifacts, or insufficient resolution unless the issue is clearly and directly visible at the supplied viewing scale.
-
-In particular:
-
-Do not call an image "soft," "not sharp enough," "out of focus," "slightly shaken," or "lacking detail" merely because fine detail cannot be resolved in a thumbnail.
-Only criticize focus or sharpness when the primary subject is visibly and consistently blurred in a way that weakens the image, and the blur cannot reasonably be explained by depth of field, intentional softness, motion, atmosphere, low resolution, compression, or downsampling.
-Do not infer autofocus failure, lens softness, sensor quality, image processing defects, or camera shake from limited visual evidence.
-When pixel-level quality is not reliably assessable, focus instead on visible large-scale evidence: composition, subject hierarchy, timing, tonal structure, lighting direction, color relationships, gesture, framing, and emotional effect.
-Lack of visible micro-detail is not itself a flaw.
-
-Assess composition, subject separation, focus, lighting, color, tonal control, timing, and visual intent in context. Give greater weight to the image's actual artistic goal than to generic rules such as evenly exposed shadows, centered sharpness, maximum visible detail, or technically neutral processing.
-
-Reasons must be specific, image-grounded, and concise. Name both what works and what limits the image. Avoid generic advice. Do not treat stylistic choices as mistakes unless they visibly fail to support the image.
-"#.to_string();
-    match rating_severity.trim().to_ascii_lowercase().as_str() {
-        "lite" => system.push_str(" Be generous when rating: ordinary competent photos default to 3-4 stars with mild reasons."),
-        "xhigh" | "x_high" | "high" => system.push_str(r#"
-        Act as a condescending internet 'expert' photography critic who is utterly confident but full of half-baked textbook clichés. Do not just obsess over/under exposure; instead, be a general gatekeeper. Judge composition, gear choice, and intent with extreme cynicism. Write reasons in a passive-aggressive, insufferable keyboard-warrior voice. Be stubborn, dismissive, and impossible to please.
-        "#),
-        _ => system.push_str(" Use a balanced rating standard."),
-    }
-    system.push_str(&crate::service::image_analysis::language_directive(
+    camera_context: &str,
+) -> Result<(String, String), ProviderError> {
+    let prompt = crate::service::prompt_profiles::analyze_prompt(
+        prompt_profile_id,
+        rubric_id,
+        rating_severity,
         output_language,
-    ));
-    let mut instruction = "Analyze and rate this image in one pass.".to_string();
-    if !rubric_id.trim().is_empty() {
-        instruction.push_str(&format!(" Rubric: {rubric_id}."));
-    }
-    if !prompt_profile_id.trim().is_empty() {
-        instruction.push_str(&format!(" Prompt profile: {prompt_profile_id}."));
-    }
-    instruction.push_str(" Return only the requested tool input object.");
-    (system, instruction)
+        camera_context,
+    )?;
+    Ok((prompt.system, prompt.instruction))
 }
 
 fn analyze_schema_repair_instruction(instruction: &str, error: &ProviderError) -> String {
@@ -696,7 +618,7 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
         let (bearer, extra_auth_header) = self.build_auth(credential)?;
         let (media_type, image_b64) = build_image_base64(image_bytes)?;
         let schema = strict_schema_value(IMAGE_UNDERSTANDING_SCHEMA)?;
-        let (system, instruction) = describe_prompt(prompt_profile_id, output_language);
+        let (system, instruction) = describe_prompt(prompt_profile_id, output_language)?;
         let body = self.build_messages_body(
             &slug,
             &media_type,
@@ -761,6 +683,7 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
         rubric_id: &str,
         rating_severity: &str,
         output_language: &str,
+        camera_context: &str,
         credential: Option<&SecretString>,
     ) -> Result<ScoreOutcome, ProviderError> {
         let (slug, model) = self.resolve_model(model_id)?;
@@ -773,7 +696,8 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
             rubric_id,
             rating_severity,
             output_language,
-        );
+            camera_context,
+        )?;
         let body = self.build_messages_body(
             &slug,
             &media_type,
@@ -838,19 +762,21 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
         rubric_id: &str,
         rating_severity: &str,
         output_language: &str,
+        camera_context: &str,
         credential: Option<&SecretString>,
     ) -> Result<AnalyzeOutcome, ProviderError> {
         let (slug, model) = self.resolve_model(model_id)?;
         self.ensure_structured_output(model.as_ref())?;
         let (bearer, extra_auth_header) = self.build_auth(credential)?;
         let (media_type, image_b64) = build_image_base64(image_bytes)?;
-        let schema = strict_schema_value(ANTHROPIC_ANALYSIS_FLAT_SCHEMA)?;
+        let schema = strict_schema_value(IMAGE_ANALYSIS_FLAT_SCHEMA)?;
         let (system, instruction) = analyze_prompt(
             prompt_profile_id,
             rubric_id,
             rating_severity,
             output_language,
-        );
+            camera_context,
+        )?;
         let headers = self.request_headers(extra_auth_header);
         let mut attempt = 0u32;
         let mut instruction_for_attempt = instruction;
@@ -860,7 +786,7 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
                 &media_type,
                 &image_b64,
                 schema.clone(),
-                ANALYSIS_BUNDLE_SCHEMA_NAME,
+                ANALYSIS_FLAT_SCHEMA_NAME,
                 &system,
                 &instruction_for_attempt,
             );
@@ -900,10 +826,8 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
                         return Err(err);
                     }
                     attempt += 1;
-                    instruction_for_attempt = analyze_schema_repair_instruction(
-                        &instruction_for_attempt,
-                        &err,
-                    );
+                    instruction_for_attempt =
+                        analyze_schema_repair_instruction(&instruction_for_attempt, &err);
                     warn!(
                         provider = %self.config.provider_id,
                         model = %slug,
@@ -1252,6 +1176,7 @@ mod tests {
                 "alcedo-default-v1",
                 "",
                 "",
+                "",
                 Some(&secret()),
             )
             .await
@@ -1288,6 +1213,7 @@ mod tests {
                 "alcedo-default-v1",
                 "",
                 "",
+                "",
                 Some(&secret()),
             )
             .await
@@ -1301,7 +1227,7 @@ mod tests {
         Mock::given(method("POST"))
             .and(path("/v1/messages"))
             .respond_with(ResponseTemplate::new(200).set_body_json(ok_messages_body(
-                ANALYSIS_BUNDLE_SCHEMA_NAME,
+                ANALYSIS_FLAT_SCHEMA_NAME,
                 r#"{
                     "caption": "a macaque on a branch",
                     "tags": ["wildlife", "monkey"],
@@ -1322,6 +1248,7 @@ mod tests {
                 "",
                 "",
                 "general",
+                "",
                 "",
                 "",
                 Some(&secret()),
@@ -1361,7 +1288,7 @@ mod tests {
         Mock::given(method("POST"))
             .and(path("/v1/messages"))
             .respond_with(ResponseTemplate::new(200).set_body_json(ok_messages_body(
-                ANALYSIS_BUNDLE_SCHEMA_NAME,
+                ANALYSIS_FLAT_SCHEMA_NAME,
                 r#"{
                     "caption": "a macaque on a branch",
                     "tags": "wildlife, monkey",
@@ -1379,7 +1306,7 @@ mod tests {
         Mock::given(method("POST"))
             .and(path("/v1/messages"))
             .respond_with(ResponseTemplate::new(200).set_body_json(ok_messages_body(
-                ANALYSIS_BUNDLE_SCHEMA_NAME,
+                ANALYSIS_FLAT_SCHEMA_NAME,
                 r#"{
                     "caption": "a macaque on a branch",
                     "tags": ["wildlife", "monkey"],
@@ -1400,6 +1327,7 @@ mod tests {
                 "",
                 "",
                 "general",
+                "",
                 "",
                 "",
                 Some(&secret()),
@@ -1644,7 +1572,7 @@ mod tests {
         Mock::given(method("POST"))
             .and(path("/v1/messages"))
             .respond_with(ResponseTemplate::new(200).set_body_json(ok_messages_body(
-                ANALYSIS_BUNDLE_SCHEMA_NAME,
+                ANALYSIS_FLAT_SCHEMA_NAME,
                 r#"{
                     "caption": "a macaque on a branch",
                     "tags": "wildlife, RAW_ARK_CODING_BODY_SENTINEL",
@@ -1660,7 +1588,16 @@ mod tests {
             .await;
         let provider = provider_for(&server);
         let err = provider
-            .analyze_image(&img, "", "profile-1", "general", "", "", Some(&secret()))
+            .analyze_image(
+                &img,
+                "",
+                "profile-1",
+                "general",
+                "",
+                "",
+                "",
+                Some(&secret()),
+            )
             .await
             .expect_err("schema repair budget exhausted");
         let err = err.to_string();
@@ -1670,10 +1607,7 @@ mod tests {
             "image base64 in error: {err}"
         );
         assert!(!err.contains(TEST_PROMPT), "prompt in error: {err}");
-        assert!(
-            !err.contains(RAW_BODY_SENTINEL),
-            "raw body in error: {err}"
-        );
+        assert!(!err.contains(RAW_BODY_SENTINEL), "raw body in error: {err}");
         assert_eq!(server.received_requests().await.unwrap().len(), 2);
     }
 

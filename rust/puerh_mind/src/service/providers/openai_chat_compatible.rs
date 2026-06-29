@@ -47,7 +47,7 @@ use tracing::warn;
 
 use crate::service::credential_vault::SecretString;
 use crate::service::image_analysis::{
-    AnalyzeOutcome, DescribeOutcome, DiscoveredModel, IMAGE_ANALYSIS_BUNDLE_SCHEMA,
+    AnalyzeOutcome, DescribeOutcome, DiscoveredModel, IMAGE_ANALYSIS_FLAT_SCHEMA,
     IMAGE_RATING_SCHEMA, IMAGE_UNDERSTANDING_SCHEMA, ImageAnalysisProvider, ProviderError,
     ScoreOutcome, validate_analyze, validate_rating, validate_understanding,
 };
@@ -64,7 +64,7 @@ use crate::service::providers::http_util::{
 /// contract unambiguously.
 const UNDERSTANDING_SCHEMA_NAME: &str = "alcedo_image_understanding";
 const RATING_SCHEMA_NAME: &str = "alcedo_image_rating";
-const ANALYSIS_BUNDLE_SCHEMA_NAME: &str = "alcedo_image_analysis_bundle";
+const ANALYSIS_FLAT_SCHEMA_NAME: &str = "alcedo_image_analysis_flat";
 
 pub struct OpenAiChatCompatibleProvider {
     config: ProviderConfig,
@@ -428,16 +428,31 @@ impl OpenAiChatCompatibleProvider {
             Value::String(s) => parse_content_json(s)?,
             other => other.clone(),
         };
-        let understanding = parsed.get("understanding").ok_or_else(|| {
-            ProviderError::SchemaValidationMessage(
-                "provider response did not contain understanding object".to_string(),
-            )
-        })?;
-        let rating = parsed.get("rating").ok_or_else(|| {
-            ProviderError::SchemaValidationMessage(
-                "provider response did not contain rating object".to_string(),
-            )
-        })?;
+        if parsed.get("caption").is_none() {
+            return Err(ProviderError::SchemaValidationMessage(
+                "provider response did not contain caption".to_string(),
+            ));
+        }
+        if parsed.get("tags").is_none() {
+            return Err(ProviderError::SchemaValidationMessage(
+                "provider response did not contain tags array".to_string(),
+            ));
+        }
+        if !parsed.get("tags").is_some_and(|v| v.is_array()) {
+            return Err(ProviderError::SchemaValidationMessage(
+                "provider response tags was not an array; expected tags: [\"...\"]".to_string(),
+            ));
+        }
+        if parsed.get("rating").is_none() {
+            return Err(ProviderError::SchemaValidationMessage(
+                "provider response did not contain rating".to_string(),
+            ));
+        }
+        if parsed.get("rubric_id").is_none() {
+            return Err(ProviderError::SchemaValidationMessage(
+                "provider response did not contain rubric_id".to_string(),
+            ));
+        }
         let usage = extract_usage(
             self.config
                 .response
@@ -446,13 +461,13 @@ impl OpenAiChatCompatibleProvider {
                 .and_then(|p| json_pointer_str(body, p)),
         );
         let understanding = DescribeOutcome {
-            caption: understanding
+            caption: parsed
                 .get("caption")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .trim()
                 .to_string(),
-            tags: understanding
+            tags: parsed
                 .get("tags")
                 .and_then(|v| v.as_array())
                 .map(|a| {
@@ -461,12 +476,12 @@ impl OpenAiChatCompatibleProvider {
                         .collect()
                 })
                 .unwrap_or_default(),
-            scene: understanding
+            scene: parsed
                 .get("scene")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string(),
-            confidence: understanding
+            confidence: parsed
                 .get("confidence")
                 .and_then(|v| v.as_f64())
                 .unwrap_or(f64::NAN),
@@ -475,18 +490,18 @@ impl OpenAiChatCompatibleProvider {
             provider_request_id: header_req_id.to_string(),
         };
         let rating = ScoreOutcome {
-            rating: rating.get("rating").and_then(parse_rating_int).unwrap_or(0),
-            rubric_id: rating
+            rating: parsed.get("rating").and_then(parse_rating_int).unwrap_or(0),
+            rubric_id: parsed
                 .get("rubric_id")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string(),
-            rubric_version: rating
+            rubric_version: parsed
                 .get("rubric_version")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string(),
-            reasons: rating
+            reasons: parsed
                 .get("reasons")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
@@ -521,52 +536,30 @@ impl OpenAiChatCompatibleProvider {
     }
 }
 
-/// Alcedo-owned prompt for `image_understanding.describe`. The prompt profile id is
-/// echoed into the instruction for traceability; the JSON contract is enforced by
-/// the injected schema + the code-owned validator, not by the prompt text.
-/// `output_language` (host-resolved; "" or "en" = English, "zh" = Simplified
-/// Chinese) appends a response-language directive to the system message.
-fn describe_prompt(prompt_profile_id: &str, output_language: &str) -> (String, String) {
-    let mut system = "You are an image understanding assistant for Alcedo Studio. Analyze the supplied image and respond with a single JSON object matching the provided schema. The object must contain: \"caption\" (a concise one-line description of the image), \"tags\" (an array of short lowercase searchable tags, with at least one tag), \"scene\" (a short scene or category hint, or an empty string if none), and \"confidence\" (your confidence in the description, a number between 0.0 and 1.0). Output only the JSON object — no prose, no markdown code fences.".to_string();
-    system.push_str(&crate::service::image_analysis::language_directive(
-        output_language,
-    ));
-    let mut instruction = "Describe this image for a photo library.".to_string();
-    if !prompt_profile_id.trim().is_empty() {
-        instruction.push_str(&format!(" Prompt profile: {prompt_profile_id}."));
-    }
-    instruction.push_str(" Return only the JSON object described above.");
-    (system, instruction)
+fn describe_prompt(
+    prompt_profile_id: &str,
+    output_language: &str,
+) -> Result<(String, String), ProviderError> {
+    let prompt =
+        crate::service::prompt_profiles::describe_prompt(prompt_profile_id, output_language)?;
+    Ok((prompt.system, prompt.instruction))
 }
 
-/// Alcedo-owned prompt for `image_rating.score`. Asks the remote LLM for a single
-/// 1–5 integer star rating aligned with the EXIF-standard Rating the app already
-/// stores per file (0 = unrated in the app; the remote contract requires 1..=5 so a
-/// scored image is never confused with an unrated one). No confidence is requested
-/// (Phase 5f rating-contract change). `output_language` controls the language of
-/// the generated `reasons` (the integer rating is language-independent).
-/// `rating_severity` ("lite" | "normal" | "xhigh") selects the rating persona via
-/// the shared `rating_system_prompt` — generous / balanced / exacting 懂哥 — so the
-/// three drivers share one definition of the personas.
 fn score_prompt(
     prompt_profile_id: &str,
     rubric_id: &str,
     rating_severity: &str,
     output_language: &str,
-) -> (String, String) {
-    let system =
-        crate::service::image_analysis::rating_system_prompt(rating_severity, output_language);
-    let mut instruction = "Rate this image on a 1–5 star scale.".to_string();
-    if !rubric_id.trim().is_empty() {
-        instruction.push_str(&format!(" Rubric: {rubric_id}."));
-    }
-    if !prompt_profile_id.trim().is_empty() {
-        instruction.push_str(&format!(" Prompt profile: {prompt_profile_id}."));
-    }
-    instruction.push_str(
-        " Return only the JSON object described above, with an integer \"rating\" between 1 and 5.",
-    );
-    (system, instruction)
+    camera_context: &str,
+) -> Result<(String, String), ProviderError> {
+    let prompt = crate::service::prompt_profiles::score_prompt(
+        prompt_profile_id,
+        rubric_id,
+        rating_severity,
+        output_language,
+        camera_context,
+    )?;
+    Ok((prompt.system, prompt.instruction))
 }
 
 fn analyze_prompt(
@@ -574,25 +567,16 @@ fn analyze_prompt(
     rubric_id: &str,
     rating_severity: &str,
     output_language: &str,
-) -> (String, String) {
-    let mut system = "You are an image analysis assistant for Alcedo Studio. Analyze the supplied image and respond with one JSON object matching the provided schema. The top-level object must contain \"understanding\" (caption, tags, scene, confidence) and \"rating\" (rating, rubric_id, rubric_version, reasons). The rating is a 1-5 integer star rating; do not include a rating confidence.".to_string();
-    match rating_severity.trim().to_ascii_lowercase().as_str() {
-        "lite" => system.push_str(" Be generous when rating: ordinary competent photos default to 3-4 stars with mild reasons."),
-        "xhigh" | "x_high" | "high" => system.push_str(" Be exacting when rating: judge composition, exposure, focus, lighting, and intent strictly, and write reasons in a harsh critic voice."),
-        _ => system.push_str(" Use a balanced rating standard."),
-    }
-    system.push_str(&crate::service::image_analysis::language_directive(
+    camera_context: &str,
+) -> Result<(String, String), ProviderError> {
+    let prompt = crate::service::prompt_profiles::analyze_prompt(
+        prompt_profile_id,
+        rubric_id,
+        rating_severity,
         output_language,
-    ));
-    let mut instruction = "Analyze and rate this image in one pass.".to_string();
-    if !rubric_id.trim().is_empty() {
-        instruction.push_str(&format!(" Rubric: {rubric_id}."));
-    }
-    if !prompt_profile_id.trim().is_empty() {
-        instruction.push_str(&format!(" Prompt profile: {prompt_profile_id}."));
-    }
-    instruction.push_str(" Return only the JSON object described above.");
-    (system, instruction)
+        camera_context,
+    )?;
+    Ok((prompt.system, prompt.instruction))
 }
 
 #[tonic::async_trait]
@@ -645,7 +629,7 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
         let bearer = self.bearer(credential)?;
         let data_uri = build_image_data_uri(image_bytes)?;
         let schema = strict_schema_value(IMAGE_UNDERSTANDING_SCHEMA)?;
-        let (system, instruction) = describe_prompt(prompt_profile_id, output_language);
+        let (system, instruction) = describe_prompt(prompt_profile_id, output_language)?;
         let body = self.build_chat_body(
             &slug,
             model.as_ref(),
@@ -709,6 +693,7 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
         rubric_id: &str,
         rating_severity: &str,
         output_language: &str,
+        camera_context: &str,
         credential: Option<&SecretString>,
     ) -> Result<ScoreOutcome, ProviderError> {
         let (slug, model) = self.resolve_model(model_id)?;
@@ -721,7 +706,8 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
             rubric_id,
             rating_severity,
             output_language,
-        );
+            camera_context,
+        )?;
         let body = self.build_chat_body(
             &slug,
             model.as_ref(),
@@ -785,25 +771,27 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
         rubric_id: &str,
         rating_severity: &str,
         output_language: &str,
+        camera_context: &str,
         credential: Option<&SecretString>,
     ) -> Result<AnalyzeOutcome, ProviderError> {
         let (slug, model) = self.resolve_model(model_id)?;
         self.ensure_structured_output(model.as_ref())?;
         let bearer = self.bearer(credential)?;
         let data_uri = build_image_data_uri(image_bytes)?;
-        let schema = strict_schema_value(IMAGE_ANALYSIS_BUNDLE_SCHEMA)?;
+        let schema = strict_schema_value(IMAGE_ANALYSIS_FLAT_SCHEMA)?;
         let (system, instruction) = analyze_prompt(
             prompt_profile_id,
             rubric_id,
             rating_severity,
             output_language,
-        );
+            camera_context,
+        )?;
         let body = self.build_chat_body(
             &slug,
             model.as_ref(),
             &data_uri,
             schema,
-            ANALYSIS_BUNDLE_SCHEMA_NAME,
+            ANALYSIS_FLAT_SCHEMA_NAME,
             &system,
             &instruction,
         );
@@ -1110,6 +1098,7 @@ mod tests {
                 "alcedo-default-v1",
                 "",
                 "",
+                "",
                 Some(&secret()),
             )
             .await
@@ -1119,6 +1108,61 @@ mod tests {
         assert_eq!(out.usage.total_tokens, 130);
         assert_eq!(out.provider_request_id, "opencode-req-456");
         validate_rating(&out).expect("canned rating validates");
+    }
+
+    #[tokio::test]
+    async fn analyze_image_uses_flat_schema_and_parses_flat_response() {
+        let server = MockServer::start().await;
+        let body = json!({
+            "id": "opencode-req-flat",
+            "choices": [ { "message": { "content":
+                r#"{"caption":"c","tags":["t"],"scene":"","confidence":0.5,"rating":4,"rubric_id":"general","rubric_version":"","reasons":"solid"}"# } } ],
+            "usage": { "prompt_tokens": 120, "completion_tokens": 60, "total_tokens": 180 }
+        });
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&server)
+            .await;
+        let provider = provider_for(&server);
+
+        let out = provider
+            .analyze_image(
+                &test_image_png(),
+                "",
+                "",
+                "general",
+                "normal",
+                "",
+                "",
+                Some(&secret()),
+            )
+            .await
+            .expect("flat analyze ok");
+
+        validate_analyze(&out).expect("flat analyze outcome validates");
+        assert_eq!(out.understanding.as_ref().unwrap().caption, "c");
+        assert_eq!(out.rating.as_ref().unwrap().rating, 4);
+        assert_eq!(out.provider_request_id, "opencode-req-flat");
+
+        let reqs = server.received_requests().await.expect("requests captured");
+        let req_body: Value = serde_json::from_slice(&reqs[0].body).expect("body json");
+        assert_eq!(
+            req_body["response_format"]["json_schema"]["name"],
+            "alcedo_image_analysis_flat"
+        );
+        let schema = &req_body["response_format"]["json_schema"]["schema"];
+        let required: Vec<&str> = schema["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert!(required.contains(&"caption"));
+        assert!(required.contains(&"tags"));
+        assert!(required.contains(&"rating"));
+        assert!(required.contains(&"rubric_id"));
+        assert!(schema["properties"].get("understanding").is_none());
     }
 
     #[tokio::test]

@@ -28,6 +28,7 @@
 #include <opencv2/core.hpp>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -134,6 +135,7 @@ class FakeClient : public alcedo::IImageAnalysisClient {
     ++score_calls_;
     last_output_language_   = req.output_language;
     last_rating_severity_   = req.rating_severity;
+    last_camera_context_    = req.camera_context;
     if (block_mode_.load()) {
       std::unique_lock lk(block_mutex_);
       block_cv_.wait(lk, [this] { return release_blocked_.load(); });
@@ -145,6 +147,7 @@ class FakeClient : public alcedo::IImageAnalysisClient {
     ++analyze_calls_;
     last_output_language_ = req.output_language;
     last_rating_severity_ = req.rating_severity;
+    last_camera_context_  = req.camera_context;
     if (block_mode_.load()) {
       std::unique_lock lk(block_mutex_);
       block_cv_.wait(lk, [this] { return release_blocked_.load(); });
@@ -191,6 +194,7 @@ class FakeClient : public alcedo::IImageAnalysisClient {
   auto ListModelsCalls() const -> int { return list_models_calls_.load(); }
   auto LastOutputLanguage() const -> std::string { return last_output_language_; }
   auto LastRatingSeverity() const -> std::string { return last_rating_severity_; }
+  auto LastCameraContext() const -> std::string { return last_camera_context_; }
 
  private:
   auto MakeUnderstanding(const alcedo::ImageAnalysisRequest& req, Outcome o)
@@ -278,6 +282,7 @@ class FakeClient : public alcedo::IImageAnalysisClient {
   std::atomic<int>        revoke_calls_{0};
   std::string             last_output_language_;
   std::string             last_rating_severity_;
+  std::string             last_camera_context_;
   Outcome                 describe_outcome_ = Outcome::kSuccess;
   Outcome                 score_outcome_    = Outcome::kSuccess;
   bool                    usage_enabled_    = true;
@@ -424,12 +429,19 @@ class FakeEnv : public IImageAnalysisEnvironment {
   }
   auto CredentialStore() -> std::shared_ptr<alcedo::IAiCredentialStore> override { return store_; }
   auto Gate() -> std::shared_ptr<alcedo::ImageAnalysisInFlightGate> override { return gate_; }
+  auto CameraContextForItem(const alcedo::ImageAnalysisItem& item) -> std::string override {
+    const auto it = camera_contexts_.find(item.image_id);
+    return it == camera_contexts_.end() ? std::string{} : it->second;
+  }
   auto EnsureSidecarReady(bool provider_configs_dirty, std::string*) -> bool override {
     last_provider_configs_dirty_ = provider_configs_dirty;
     sidecar_ensured_             = true;
     return sidecar_ready_;
   }
   void SetSidecarReady(bool r) { sidecar_ready_ = r; }
+  void SetCameraContext(uint32_t image_id, std::string context) {
+    camera_contexts_[image_id] = std::move(context);
+  }
   auto SidecarEnsured() const -> bool { return sidecar_ensured_.load(); }
   auto LastProviderConfigsDirty() const -> bool { return last_provider_configs_dirty_.load(); }
 
@@ -438,6 +450,7 @@ class FakeEnv : public IImageAnalysisEnvironment {
   std::shared_ptr<FakeClient>                        client_;
   std::shared_ptr<alcedo::ImageAnalysisInFlightGate> gate_;
   std::shared_ptr<alcedo::IAiCredentialStore>        store_;
+  std::unordered_map<uint32_t, std::string>           camera_contexts_;
   std::atomic<bool>                                  sidecar_ensured_{false};
   std::atomic<bool>                                  last_provider_configs_dirty_{false};
   bool                                               sidecar_ready_ = true;
@@ -972,6 +985,33 @@ TEST_F(ImageAnalysisControllerTest, RatingSeverityPersistsAndReachesScoreProvide
   auto controller2 = MakeController();
   EXPECT_EQ(controller2->RatingSeverity(), QStringLiteral("xhigh"));
   // Cleanup so the persisted value does not leak into other cases.
+  QSettings().remove(QStringLiteral("ai/analysis/ratingSeverity"));
+}
+
+TEST_F(ImageAnalysisControllerTest, CameraContextOnlyReachesXHighRatingRequests) {
+  QSettings().remove(QStringLiteral("ai/analysis/ratingSeverity"));
+
+  auto normal = MakeController();
+  last_bundle_->env->SetCameraContext(100, "Camera/EXIF metadata: camera_make=Leica.");
+  normal->StartScoreForTargets(Targets({{1, 100}}));
+  ASSERT_TRUE(WaitForFinished(*normal, std::chrono::seconds(10)));
+  EXPECT_TRUE(last_bundle_->client->LastCameraContext().empty());
+
+  auto xhigh = MakeController();
+  last_bundle_->env->SetCameraContext(101, "Camera/EXIF metadata: camera_make=Hasselblad.");
+  ASSERT_TRUE(xhigh->SetRatingSeverity(QStringLiteral("xhigh")));
+  xhigh->StartScoreForTargets(Targets({{1, 101}}));
+  ASSERT_TRUE(WaitForFinished(*xhigh, std::chrono::seconds(10)));
+  EXPECT_EQ(last_bundle_->client->LastCameraContext(),
+            "Camera/EXIF metadata: camera_make=Hasselblad.");
+
+  auto describe = MakeController();
+  last_bundle_->env->SetCameraContext(102, "Camera/EXIF metadata: camera_make=Leica.");
+  ASSERT_TRUE(describe->SetRatingSeverity(QStringLiteral("xhigh")));
+  describe->StartDescribeForTargets(Targets({{1, 102}}));
+  ASSERT_TRUE(WaitForFinished(*describe, std::chrono::seconds(10)));
+  EXPECT_TRUE(last_bundle_->client->LastCameraContext().empty());
+
   QSettings().remove(QStringLiteral("ai/analysis/ratingSeverity"));
 }
 
