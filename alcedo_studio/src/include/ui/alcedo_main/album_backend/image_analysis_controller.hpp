@@ -117,8 +117,10 @@ class ImageAnalysisController final : public QObject {
   // a no-op with a clear error — image analysis is a paid remote call, so it must
   // never silently fall back to "whole view".
   Q_INVOKABLE void StartDescribeForTargets(const QVariantList& targetEntries);
-  Q_INVOKABLE void StartScoreForTargets(const QVariantList& targetEntries);
-  Q_INVOKABLE void StartAnalyzeForTargets(const QVariantList& targetEntries);
+  Q_INVOKABLE void StartScoreForTargets(const QVariantList& targetEntries,
+                                        bool includeRatingReasons);
+  Q_INVOKABLE void StartAnalyzeForTargets(const QVariantList& targetEntries,
+                                          bool includeRatingReasons);
   Q_INVOKABLE void CancelAnalysis();
   Q_INVOKABLE void RetryLast();
   // Dry-run model discovery against the selected profile (reuses the Phase 6c
@@ -138,7 +140,8 @@ class ImageAnalysisController final : public QObject {
   void StateChanged();
 
  private:
-  void StartForTargets(const QVariantList& targetEntries, alcedo::ImageAnalysisTask task);
+  void StartForTargets(const QVariantList& targetEntries, alcedo::ImageAnalysisTask task,
+                       bool includeRatingReasons);
   auto CollectItems(const QVariantList& targetEntries) -> std::vector<alcedo::ImageAnalysisItem>;
   void RefreshConfiguredState();
   void UpdateProgress(const alcedo::ImageAnalysisProgress& progress);
@@ -152,6 +155,7 @@ class ImageAnalysisController final : public QObject {
   std::shared_ptr<alcedo::ImageAnalysisJob>  job_;
   std::vector<alcedo::ImageAnalysisItem>     last_items_;
   alcedo::ImageAnalysisTask                  last_task_ = alcedo::ImageAnalysisTask::kDescribe;
+  bool                                       last_include_rating_reasons_ = true;
 
   i18n::LocalizedText                        status_text_{};
   QString                                    last_error_;

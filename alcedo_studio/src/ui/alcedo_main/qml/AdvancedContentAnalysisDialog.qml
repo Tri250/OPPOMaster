@@ -43,8 +43,9 @@ Dialog {
 
     readonly property bool running: analysisController && analysisController.running
     readonly property int selectedImageCount: selectionTargets ? selectionTargets.length : 0
+    readonly property bool ratingReasonSelected: ratingTask.checked && ratingReasonTask.checked
     readonly property int selectedTaskCount: (descriptionTask.checked ? 1 : 0)
-                                           + ((ratingTask.checked || ratingReasonTask.checked) ? 1 : 0)
+                                           + (ratingTask.checked ? 1 : 0)
     readonly property int totalUnits: selectedTaskCount > 0 ? selectedImageCount : 0
     readonly property int controllerDone: analysisController
                                           ? Number(analysisController.analyzed)
@@ -198,14 +199,14 @@ Dialog {
 
     function buildPhaseQueue() {
         const phases = []
-        if (descriptionTask.checked && (ratingTask.checked || ratingReasonTask.checked)) {
+        if (descriptionTask.checked && ratingTask.checked) {
             phases.push("analyze")
             return phases
         }
         if (descriptionTask.checked) {
             phases.push("describe")
         }
-        if (ratingTask.checked || ratingReasonTask.checked) {
+        if (ratingTask.checked) {
             phases.push("score")
         }
         return phases
@@ -248,7 +249,7 @@ Dialog {
             if (phase === "score" || phase === "analyze") {
                 const skipRating = ratingTask.checked && !overwriteRating.checked
                                    && hasExistingRating(target)
-                const skipReason = ratingReasonTask.checked && !overwriteReason.checked
+                const skipReason = root.ratingReasonSelected && !overwriteReason.checked
                                    && hasExistingReason(target)
                 if (skipRating || skipReason) {
                     continue
@@ -379,11 +380,11 @@ Dialog {
             return
         }
         if (phase === "analyze") {
-            analysisController.StartAnalyzeForTargets(targets)
+            analysisController.StartAnalyzeForTargets(targets, root.ratingReasonSelected)
         } else if (phase === "describe") {
             analysisController.StartDescribeForTargets(targets)
         } else {
-            analysisController.StartScoreForTargets(targets)
+            analysisController.StartScoreForTargets(targets, root.ratingReasonSelected)
         }
     }
 
@@ -618,8 +619,27 @@ Dialog {
                                     spacing: 14
 
                                     CheckBox { id: descriptionTask; text: qsTr("Description"); checked: true; enabled: !root.running; Material.foreground: root.textColor; Material.accent: root.accentColor }
-                                    CheckBox { id: ratingTask; text: qsTr("Rating"); checked: true; enabled: !root.running; Material.foreground: root.textColor; Material.accent: root.accentColor }
-                                    CheckBox { id: ratingReasonTask; text: qsTr("Rating reason"); checked: true; enabled: !root.running; Material.foreground: root.textColor; Material.accent: root.accentColor }
+                                    CheckBox {
+                                        id: ratingTask
+                                        text: qsTr("Rating")
+                                        checked: true
+                                        enabled: !root.running
+                                        Material.foreground: root.textColor
+                                        Material.accent: root.accentColor
+                                        onCheckedChanged: {
+                                            if (!checked) {
+                                                ratingReasonTask.checked = false
+                                            }
+                                        }
+                                    }
+                                    CheckBox {
+                                        id: ratingReasonTask
+                                        text: qsTr("Rating reason")
+                                        checked: true
+                                        enabled: !root.running && ratingTask.checked
+                                        Material.foreground: root.textColor
+                                        Material.accent: root.accentColor
+                                    }
                                 }
 
                                 Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: root.dividerColor }
@@ -636,7 +656,7 @@ Dialog {
                                     spacing: 14
 
                                     CheckBox { id: overwriteRating; text: qsTr("Overwrite photo rating"); checked: true; enabled: !root.running; Material.foreground: root.textColor; Material.accent: root.accentColor }
-                                    CheckBox { id: overwriteReason; text: qsTr("Overwrite rating reason"); checked: true; enabled: !root.running; Material.foreground: root.textColor; Material.accent: root.accentColor }
+                                    CheckBox { id: overwriteReason; text: qsTr("Overwrite rating reason"); checked: true; enabled: !root.running && root.ratingReasonSelected; Material.foreground: root.textColor; Material.accent: root.accentColor }
                                     CheckBox { id: overwriteDescription; text: qsTr("Overwrite image description"); checked: true; enabled: !root.running; Material.foreground: root.textColor; Material.accent: root.accentColor }
                                 }
                             }
@@ -650,7 +670,7 @@ Dialog {
                             Layout.fillWidth: true
                             Layout.leftMargin: 28
                             Layout.rightMargin: 28
-                            visible: (ratingTask.checked || ratingReasonTask.checked) && !root.running
+                            visible: ratingTask.checked && !root.running
                             Layout.preferredHeight: severityColumn.implicitHeight + 28
                             radius: 8
                             color: root.sectionColor

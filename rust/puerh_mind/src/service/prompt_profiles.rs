@@ -8,7 +8,9 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::service::image_analysis::{ProviderError, language_directive};
+use crate::service::image_analysis::{
+    ImageAnalysisSchemaSpec, ProviderError, image_analysis_schema_json, language_directive,
+};
 
 const KNOWN_SCHEMA_VERSION: u32 = 1;
 const DEFAULT_PROMPT_PATH: &str = "configs/prompts/image_analysis_system_prompts.json";
@@ -46,7 +48,8 @@ struct SimpleTaskPrompt {
 
 #[derive(Debug, serde::Deserialize)]
 struct ScoreTaskPrompt {
-    system_by_severity: HashMap<String, String>,
+    system: String,
+    severity_append: HashMap<String, String>,
     instruction: String,
     return_instruction: String,
 }
@@ -69,6 +72,7 @@ pub fn describe_prompt(
         &profile.describe,
         prompt_profile_id,
         output_language,
+        ImageAnalysisSchemaSpec::describe(),
     ))
 }
 
@@ -78,18 +82,24 @@ pub fn score_prompt(
     rating_severity: &str,
     output_language: &str,
     camera_context: &str,
+    include_rating_reasons: bool,
 ) -> Result<PromptPair, ProviderError> {
     let file = load_prompt_file()?;
     let profile = select_profile(&file, prompt_profile_id)?;
     let severity = normalize_rating_severity(rating_severity);
-    let system = profile
+    let mut system = profile.score.system.trim().to_string();
+    if let Some(append) = profile
         .score
-        .system_by_severity
+        .severity_append
         .get(severity)
-        .or_else(|| profile.score.system_by_severity.get("normal"))
-        .ok_or_else(|| prompt_error("score.system_by_severity.normal is required"))?;
-
-    let mut system = system.trim().to_string();
+        .or_else(|| profile.score.severity_append.get("normal"))
+    {
+        append_sentence(&mut system, append);
+    }
+    append_schema_contract(
+        &mut system,
+        ImageAnalysisSchemaSpec::score(include_rating_reasons),
+    );
     system.push_str(&language_directive(output_language));
 
     let mut instruction = profile.score.instruction.trim().to_string();
@@ -109,6 +119,9 @@ pub fn analyze_prompt(
     rating_severity: &str,
     output_language: &str,
     camera_context: &str,
+    include_understanding: bool,
+    include_rating: bool,
+    include_rating_reasons: bool,
 ) -> Result<PromptPair, ProviderError> {
     let file = load_prompt_file()?;
     let profile = select_profile(&file, prompt_profile_id)?;
@@ -116,13 +129,23 @@ pub fn analyze_prompt(
     let severity = normalize_rating_severity(rating_severity);
 
     let mut system = task.system.trim().to_string();
-    if let Some(append) = task
-        .severity_append
-        .get(severity)
-        .or_else(|| task.severity_append.get("normal"))
-    {
-        append_sentence(&mut system, append);
+    if include_rating {
+        if let Some(append) = task
+            .severity_append
+            .get(severity)
+            .or_else(|| task.severity_append.get("normal"))
+        {
+            append_sentence(&mut system, append);
+        }
     }
+    append_schema_contract(
+        &mut system,
+        ImageAnalysisSchemaSpec::analyze(
+            include_understanding,
+            include_rating,
+            include_rating_reasons,
+        ),
+    );
     system.push_str(&language_directive(output_language));
 
     let mut instruction = task.instruction.trim().to_string();
@@ -140,8 +163,10 @@ fn simple_prompt(
     task: &SimpleTaskPrompt,
     prompt_profile_id: &str,
     output_language: &str,
+    schema_spec: ImageAnalysisSchemaSpec,
 ) -> PromptPair {
     let mut system = task.system.trim().to_string();
+    append_schema_contract(&mut system, schema_spec);
     system.push_str(&language_directive(output_language));
     let mut instruction = task.instruction.trim().to_string();
     append_profile_trace(&mut instruction, prompt_profile_id);
@@ -248,14 +273,15 @@ fn validate_simple_task(name: &str, task: &SimpleTaskPrompt) -> Result<(), Provi
 }
 
 fn validate_score_task(task: &ScoreTaskPrompt) -> Result<(), ProviderError> {
+    require_non_empty("score.system", &task.system)?;
     require_non_empty("score.instruction", &task.instruction)?;
     require_non_empty("score.return_instruction", &task.return_instruction)?;
     for key in ["lite", "normal", "high", "xhigh", "max"] {
         let value = task
-            .system_by_severity
+            .severity_append
             .get(key)
-            .ok_or_else(|| prompt_error(format!("score.system_by_severity.{key} is required")))?;
-        require_non_empty(&format!("score.system_by_severity.{key}"), value)?;
+            .ok_or_else(|| prompt_error(format!("score.severity_append.{key} is required")))?;
+        require_non_empty(&format!("score.severity_append.{key}"), value)?;
     }
     Ok(())
 }
@@ -340,6 +366,16 @@ fn append_sentence(target: &mut String, sentence: &str) {
     target.push_str(sentence);
 }
 
+fn append_schema_contract(target: &mut String, schema_spec: ImageAnalysisSchemaSpec) {
+    append_sentence(
+        target,
+        "Return exactly one valid JSON object. The entire response must validate against this JSON Schema:",
+    );
+    target.push_str("\n\n");
+    target.push_str(&image_analysis_schema_json(schema_spec));
+    target.push_str("\n\nOutput contract:\n- Output only the JSON object, starting with { and ending with }.\n- Do not wrap the object in markdown code fences.\n- Do not include prose, comments, explanations, schema text, or examples.\n- Do not include fields not defined in the schema.\n- Use double quotes for all JSON strings and object keys.\n- Do not use trailing commas.");
+}
+
 fn require_non_empty(field: &str, value: &str) -> Result<(), ProviderError> {
     if value.trim().is_empty() {
         return Err(prompt_error(format!("{field} must not be empty")));
@@ -365,22 +401,35 @@ mod tests {
 
     #[test]
     fn score_severity_accepts_high() {
-        let prompt = score_prompt("profile-1", "default", "high", "", "").expect("prompt loads");
-        assert!(prompt.system.contains("master-level photography mentor"));
+        let prompt =
+            score_prompt("profile-1", "default", "high", "", "", true).expect("prompt loads");
+        assert!(
+            prompt
+                .system
+                .contains("strict but constructive master-level standard")
+        );
         assert!(prompt.system.contains("Henri Cartier-Bresson"));
+        assert!(prompt.system.contains("AlcedoImageRating"));
+        assert!(prompt.system.contains("\"reasons\""));
         assert!(prompt.instruction.contains("Rubric: default."));
         assert!(prompt.instruction.contains("Prompt profile: profile-1."));
     }
 
     #[test]
     fn analyze_prompt_uses_flat_contract() {
-        let prompt = analyze_prompt("", "", "normal", "", "").expect("prompt loads");
-        assert!(prompt.system.contains("flat"));
-        assert!(
-            prompt
-                .system
-                .contains("caption, tags, scene, confidence, rating")
-        );
-        assert!(prompt.instruction.contains("requested tool input object"));
+        let prompt =
+            analyze_prompt("", "", "normal", "", "", true, true, true).expect("prompt loads");
+        assert!(prompt.system.contains("AlcedoImageAnalysisFlat"));
+        for field in [
+            "caption",
+            "tags",
+            "scene",
+            "confidence",
+            "rating",
+            "reasons",
+        ] {
+            assert!(prompt.system.contains(&format!("\"{field}\"")));
+        }
+        assert!(prompt.instruction.contains("requested JSON object"));
     }
 }

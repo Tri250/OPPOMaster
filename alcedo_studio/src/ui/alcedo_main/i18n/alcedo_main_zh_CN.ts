@@ -2054,6 +2054,22 @@ Alcedo 将改用 %1。</translation>
         <source>Import</source>
         <translation>导入</translation>
     </message>
+    <message>
+        <source>Advanced Content Analysis</source>
+        <translation>高级内容分析</translation>
+    </message>
+    <message>
+        <source>全部图片</source>
+        <translation>全部图片</translation>
+    </message>
+    <message>
+        <source>Open a project before running remote analysis.</source>
+        <translation>运行远程分析前请先打开项目。</translation>
+    </message>
+    <message>
+        <source>Select one or more images for remote analysis.</source>
+        <translation>请选择一张或多张图像进行远程分析。</translation>
+    </message>
 </context>
 <context>
     <name>ExportQueueState</name>
@@ -2473,6 +2489,10 @@ Original source files on disk will be kept.</source>
         <source>Exported %1 image(s).</source>
         <translation>已导出 %1 张图像。</translation>
     </message>
+    <message>
+        <source>Select at least one image to analyze.</source>
+        <translation>请至少选择一张图像进行分析。</translation>
+    </message>
 </context>
 <context>
     <name>NikonHeRecoveryDialog</name>
@@ -2887,6 +2907,14 @@ Original source files on disk will be kept.</source>
         <source>About</source>
         <translation>关于</translation>
     </message>
+    <message>
+        <source>Local Content Recognition</source>
+        <translation>本地内容识别</translation>
+    </message>
+    <message>
+        <source>Advanced Content Analysis</source>
+        <translation>高级内容分析</translation>
+    </message>
 </context>
 <context>
     <name>WelcomeDialog</name>
@@ -3268,6 +3296,590 @@ Original source files on disk will be kept.</source>
     <message>
         <source>View all %1 licenses</source>
         <translation>查看全部 %1 项许可证</translation>
+    </message>
+</context>
+<context>
+    <name>AdvancedContentAnalysisDialog</name>
+    <message>
+        <source>No provider selected</source>
+        <translation>未选择提供商</translation>
+    </message>
+    <message>
+        <source>No model selected</source>
+        <translation>未选择模型</translation>
+    </message>
+    <message>
+        <source>Chinese</source>
+        <translation>中文</translation>
+    </message>
+    <message>
+        <source>English</source>
+        <translation>English</translation>
+    </message>
+    <message>
+        <source>Follow app language</source>
+        <translation>跟随应用语言</translation>
+    </message>
+    <message>
+        <source>评价严苛程度</source>
+        <translation>评价严苛程度</translation>
+    </message>
+    <message>
+        <source>Rating strictness</source>
+        <translation>评价严苛程度</translation>
+    </message>
+    <message>
+        <source>Analysis</source>
+        <translation>分析</translation>
+    </message>
+    <message>
+        <source>Description</source>
+        <translation>描述</translation>
+    </message>
+    <message>
+        <source>Rating</source>
+        <translation>评分</translation>
+    </message>
+    <message>
+        <source>provider status %1</source>
+        <translation>提供商状态 %1</translation>
+    </message>
+    <message>
+        <source>error code %1</source>
+        <translation>错误码 %1</translation>
+    </message>
+    <message>
+        <source>provider %1</source>
+        <translation>提供商 %1</translation>
+    </message>
+    <message>
+        <source>model %1</source>
+        <translation>模型 %1</translation>
+    </message>
+    <message>
+        <source>request %1</source>
+        <translation>请求 %1</translation>
+    </message>
+    <message>
+        <source>No provider error message was returned.</source>
+        <translation>提供商未返回错误信息。</translation>
+    </message>
+    <message>
+        <source>Image %1</source>
+        <translation>图像 %1</translation>
+    </message>
+    <message>
+        <source>%1: %2</source>
+        <translation>%1：%2</translation>
+    </message>
+    <message>
+        <source>Open a project before running remote analysis.</source>
+        <translation>运行远程分析前请先打开项目。</translation>
+    </message>
+    <message>
+        <source>Select at least one image to analyze.</source>
+        <translation>请至少选择一张图像进行分析。</translation>
+    </message>
+    <message>
+        <source>Choose at least one analysis task.</source>
+        <translation>请至少选择一个分析任务。</translation>
+    </message>
+    <message>
+        <source>Canceled. Successful results already saved remain in place.</source>
+        <translation>已取消。已保存的成功结果予以保留。</translation>
+    </message>
+    <message>
+        <source>Finished with %1 successful item(s) and %2 failed item(s). First failure: %3</source>
+        <translation>完成：%1 项成功，%2 项失败。首项失败：%3</translation>
+    </message>
+    <message>
+        <source>Finished with %1 successful item(s) and %2 failed item(s).</source>
+        <translation>完成：%1 项成功，%2 项失败。</translation>
+    </message>
+    <message>
+        <source>Analysis complete. Skipped %1 existing image(s).</source>
+        <translation>分析完成。跳过 %1 张已有结果的图像。</translation>
+    </message>
+    <message>
+        <source>Analysis complete.</source>
+        <translation>分析完成。</translation>
+    </message>
+    <message>
+        <source>Advanced Content Analysis</source>
+        <translation>高级内容分析</translation>
+    </message>
+    <message>
+        <source>%1 selected image(s)</source>
+        <translation>已选择 %1 张图像</translation>
+    </message>
+    <message>
+        <source>Provider</source>
+        <translation>提供商</translation>
+    </message>
+    <message>
+        <source>Model</source>
+        <translation>模型</translation>
+    </message>
+    <message>
+        <source>Output language</source>
+        <translation>输出语言</translation>
+    </message>
+    <message>
+        <source>Tasks</source>
+        <translation>任务</translation>
+    </message>
+    <message>
+        <source>Rating reason</source>
+        <translation>评分理由</translation>
+    </message>
+    <message>
+        <source>Overwrite</source>
+        <translation>覆盖</translation>
+    </message>
+    <message>
+        <source>Overwrite photo rating</source>
+        <translation>覆盖照片评分</translation>
+    </message>
+    <message>
+        <source>Overwrite rating reason</source>
+        <translation>覆盖评分理由</translation>
+    </message>
+    <message>
+        <source>Overwrite image description</source>
+        <translation>覆盖图像描述</translation>
+    </message>
+    <message>
+        <source>Running %1</source>
+        <translation>正在运行 %1</translation>
+    </message>
+    <message>
+        <source>Finished</source>
+        <translation>已完成</translation>
+    </message>
+    <message>
+        <source>Ready</source>
+        <translation>就绪</translation>
+    </message>
+    <message>
+        <source>%1 / %2 image(s)</source>
+        <translation>%1 / %2 张图像</translation>
+    </message>
+    <message>
+        <source>Usage: %1 token(s)</source>
+        <translation>用量：%1 个 token</translation>
+    </message>
+    <message>
+        <source>Failure details</source>
+        <translation>失败详情</translation>
+    </message>
+    <message>
+        <source>Results refresh the focused photo's Image inspector. Open the Image page to review and edit description, rating, and reasons.</source>
+        <translation>结果会刷新焦点照片的图像检查器。打开图像页面可查看并编辑描述、评分和理由。</translation>
+    </message>
+    <message>
+        <source>Remote provider calls may incur cost.</source>
+        <translation>远程提供商调用可能产生费用。</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <source>Analyze Selected</source>
+        <translation>分析所选图像</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>关闭</translation>
+    </message>
+</context>
+<context>
+    <name>AiProviderSettingsPanel</name>
+    <message>
+        <source>The field value could not be saved.</source>
+        <translation>字段值无法保存。</translation>
+    </message>
+    <message>
+        <source>Follow app language</source>
+        <translation>跟随应用语言</translation>
+    </message>
+    <message>
+        <source>English</source>
+        <translation>English</translation>
+    </message>
+    <message>
+        <source>中文</source>
+        <translation>中文</translation>
+    </message>
+    <message>
+        <source>Output language</source>
+        <translation>输出语言</translation>
+    </message>
+    <message>
+        <source>Add</source>
+        <translation>添加</translation>
+    </message>
+    <message>
+        <source>Default Rating Strictness</source>
+        <translation>默认评分严苛程度</translation>
+    </message>
+    <message>
+        <source>In use</source>
+        <translation>使用中</translation>
+    </message>
+    <message>
+        <source>Use</source>
+        <translation>使用</translation>
+    </message>
+    <message>
+        <source>Edit</source>
+        <translation>编辑</translation>
+    </message>
+    <message>
+        <source>No provider profiles</source>
+        <translation>暂无提供商配置</translation>
+    </message>
+    <message>
+        <source>Use the Add button to create one.</source>
+        <translation>点击“添加”按钮创建一个。</translation>
+    </message>
+    <message>
+        <source>Add provider</source>
+        <translation>添加提供商</translation>
+    </message>
+    <message>
+        <source>Choose a template to create a profile from.</source>
+        <translation>选择一个模板以创建配置。</translation>
+    </message>
+    <message>
+        <source>Provider</source>
+        <translation>提供商</translation>
+    </message>
+    <message>
+        <source>API key</source>
+        <translation>API 密钥</translation>
+    </message>
+    <message>
+        <source>Paste API key</source>
+        <translation>粘贴 API 密钥</translation>
+    </message>
+    <message>
+        <source>Save Key</source>
+        <translation>保存密钥</translation>
+    </message>
+    <message>
+        <source>API key saved</source>
+        <translation>API 密钥已保存</translation>
+    </message>
+    <message>
+        <source>Delete Key</source>
+        <translation>删除密钥</translation>
+    </message>
+    <message>
+        <source>API key deleted</source>
+        <translation>API 密钥已删除</translation>
+    </message>
+    <message>
+        <source>Key saved</source>
+        <translation>密钥已保存</translation>
+    </message>
+    <message>
+        <source>No key saved</source>
+        <translation>未保存密钥</translation>
+    </message>
+    <message>
+        <source>Model</source>
+        <translation>模型</translation>
+    </message>
+    <message>
+        <source>Search models</source>
+        <translation>搜索模型</translation>
+    </message>
+    <message>
+        <source>No matching models</source>
+        <translation>未找到匹配的模型</translation>
+    </message>
+    <message>
+        <source>Test &amp; Refresh</source>
+        <translation>测试并刷新</translation>
+    </message>
+    <message>
+        <source>Advanced</source>
+        <translation>高级</translation>
+    </message>
+    <message>
+        <source>Display name</source>
+        <translation>显示名称</translation>
+    </message>
+    <message>
+        <source>Provider id</source>
+        <translation>提供商 ID</translation>
+    </message>
+    <message>
+        <source>Driver</source>
+        <translation>驱动</translation>
+    </message>
+    <message>
+        <source>Base URL</source>
+        <translation>基础 URL</translation>
+    </message>
+    <message>
+        <source>Endpoint</source>
+        <translation>端点</translation>
+    </message>
+    <message>
+        <source>Models endpoint</source>
+        <translation>模型端点</translation>
+    </message>
+    <message>
+        <source>Auth type</source>
+        <translation>认证类型</translation>
+    </message>
+    <message>
+        <source>Credential slot</source>
+        <translation>凭证槽位</translation>
+    </message>
+    <message>
+        <source>Structured output</source>
+        <translation>结构化输出</translation>
+    </message>
+    <message>
+        <source>Timeout ms</source>
+        <translation>超时（毫秒）</translation>
+    </message>
+    <message>
+        <source>Max image bytes</source>
+        <translation>最大图像字节数</translation>
+    </message>
+    <message>
+        <source>Recommended rendition</source>
+        <translation>推荐渲染版本</translation>
+    </message>
+    <message>
+        <source>Duplicate</source>
+        <translation>复制</translation>
+    </message>
+    <message>
+        <source>Delete</source>
+        <translation>删除</translation>
+    </message>
+    <message>
+        <source>Delete provider</source>
+        <translation>删除提供商</translation>
+    </message>
+    <message>
+        <source>Delete this provider profile?</source>
+        <translation>删除此提供商配置？</translation>
+    </message>
+    <message>
+        <source>Delete saved key</source>
+        <translation>删除已保存的密钥</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+</context>
+<context>
+    <name>SemanticGenerationDialog</name>
+    <message>
+        <source>Generating semantic labels</source>
+        <translation>正在生成语义标签</translation>
+    </message>
+    <message>
+        <source>Use AI to analyze image content?</source>
+        <translation>使用 AI 分析图像内容？</translation>
+    </message>
+    <message>
+        <source>Starting semantic generation...</source>
+        <translation>正在启动语义生成…</translation>
+    </message>
+    <message>
+        <source>%1 / %2</source>
+        <translation>%1 / %2</translation>
+    </message>
+    <message>
+        <source>Preparing</source>
+        <translation>准备中</translation>
+    </message>
+    <message>
+        <source>Elapsed %1 · ~%2 remaining</source>
+        <translation>已用 %1 · 剩余约 %2</translation>
+    </message>
+    <message>
+        <source>Elapsed %1 · estimating…</source>
+        <translation>已用 %1 · 估算中…</translation>
+    </message>
+    <message>
+        <source>Remember My Choice</source>
+        <translation>记住我的选择</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <source>Skip</source>
+        <translation>跳过</translation>
+    </message>
+    <message>
+        <source>Generate</source>
+        <translation>生成</translation>
+    </message>
+</context>
+<context>
+    <name>SemanticGenerationSettingsPanel</name>
+    <message>
+        <source>No active model</source>
+        <translation>未激活模型</translation>
+    </message>
+    <message>
+        <source>Select Model Download Folder</source>
+        <translation>选择模型下载文件夹</translation>
+    </message>
+    <message>
+        <source>AI content recognition</source>
+        <translation>AI 内容识别</translation>
+    </message>
+    <message>
+        <source>Images</source>
+        <translation>图像</translation>
+    </message>
+    <message>
+        <source>With labels</source>
+        <translation>已含标签</translation>
+    </message>
+    <message>
+        <source>Need labels</source>
+        <translation>需生成标签</translation>
+    </message>
+    <message>
+        <source>Generate labels only for images that do not have AI content labels.</source>
+        <translation>仅为没有 AI 内容标签的图像生成标签。</translation>
+    </message>
+    <message>
+        <source>%1 / %2</source>
+        <translation>%1 / %2</translation>
+    </message>
+    <message>
+        <source>Elapsed %1 · ~%2 remaining</source>
+        <translation>已用 %1 · 剩余约 %2</translation>
+    </message>
+    <message>
+        <source>Elapsed %1 · estimating…</source>
+        <translation>已用 %1 · 估算中…</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+    <message>
+        <source>Generate</source>
+        <translation>生成</translation>
+    </message>
+    <message>
+        <source>Regenerate</source>
+        <translation>重新生成</translation>
+    </message>
+    <message>
+        <source>Model</source>
+        <translation>模型</translation>
+    </message>
+    <message>
+        <source>Download directory</source>
+        <translation>下载目录</translation>
+    </message>
+    <message>
+        <source>Source</source>
+        <translation>来源</translation>
+    </message>
+    <message>
+        <source>HF Mirror</source>
+        <translation>HF 镜像</translation>
+    </message>
+    <message>
+        <source>Hugging Face</source>
+        <translation>Hugging Face</translation>
+    </message>
+    <message>
+        <source>Sufy CDN</source>
+        <translation>Sufy CDN</translation>
+    </message>
+    <message>
+        <source>Custom</source>
+        <translation>自定义</translation>
+    </message>
+    <message>
+        <source>https://example.com</source>
+        <translation>https://example.com</translation>
+    </message>
+    <message>
+        <source>Check</source>
+        <translation>检查</translation>
+    </message>
+    <message>
+        <source>Download</source>
+        <translation>下载</translation>
+    </message>
+    <message>
+        <source>Delete</source>
+        <translation>删除</translation>
+    </message>
+    <message>
+        <source>Activate</source>
+        <translation>激活</translation>
+    </message>
+    <message>
+        <source>Import</source>
+        <translation>导入</translation>
+    </message>
+    <message>
+        <source>是否生成标签</source>
+        <translation>是否生成标签</translation>
+    </message>
+    <message>
+        <source>Always</source>
+        <translation>总是生成</translation>
+    </message>
+    <message>
+        <source>Always Ask</source>
+        <translation>总是询问</translation>
+    </message>
+    <message>
+        <source>Always Skip</source>
+        <translation>总是跳过</translation>
+    </message>
+    <message>
+        <source>Activating…</source>
+        <translation>激活中…</translation>
+    </message>
+    <message>
+        <source>Downloading %1%</source>
+        <translation>下载中 %1%</translation>
+    </message>
+    <message>
+        <source>Active</source>
+        <translation>已激活</translation>
+    </message>
+    <message>
+        <source>Activate to generate labels</source>
+        <translation>激活以生成标签</translation>
+    </message>
+    <message>
+        <source>Not downloaded</source>
+        <translation>未下载</translation>
+    </message>
+    <message>
+        <source>Preparing model runtime…</source>
+        <translation>正在准备模型运行时…</translation>
+    </message>
+    <message>
+        <source>File %1 / %2</source>
+        <translation>文件 %1 / %2</translation>
+    </message>
+    <message>
+        <source>↓ %1</source>
+        <translation>↓ %1</translation>
     </message>
 </context>
 </TS>

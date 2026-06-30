@@ -65,15 +65,16 @@ use tracing::warn;
 use crate::service::credential_vault::SecretString;
 use crate::service::image_analysis::{
     AnalyzeImageInput, AnalyzeOutcome, BatchAnalyzeOutcome, DescribeOutcome, DiscoveredModel,
-    IMAGE_ANALYSIS_BATCH_SCHEMA, IMAGE_ANALYSIS_FLAT_SCHEMA, IMAGE_RATING_SCHEMA,
-    IMAGE_UNDERSTANDING_SCHEMA, ImageAnalysisProvider, ProviderError, ScoreOutcome, Usage,
-    validate_analyze, validate_batch_analyze, validate_rating, validate_understanding,
+    ImageAnalysisProvider, ImageAnalysisSchemaSpec, ProviderError, ScoreOutcome, Usage,
+    image_analysis_schema_json, validate_analyze, validate_batch_analyze, validate_rating,
+    validate_understanding,
 };
 use crate::service::provider_config::{ModelConfig, ProviderConfig};
 use crate::service::providers::http_util::{
     MAX_TRANSIENT_RETRIES, build_image_base64, build_rustls_client, compact_json_excerpt,
-    compact_text_excerpt, extract_provider_request_id, extract_usage, json_pointer_str,
-    parse_rating_int, read_response, send_get_with_retry, send_with_retry, strict_schema_value,
+    compact_text_excerpt, extract_json_from_text_block, extract_provider_request_id,
+    extract_usage, json_pointer_str, parse_rating_int, read_response,
+    sanitized_provider_json_excerpt, send_get_with_retry, send_with_retry, strict_schema_value,
 };
 
 const UNDERSTANDING_SCHEMA_NAME: &str = "alcedo_image_understanding";
@@ -91,7 +92,6 @@ struct BatchItemRepair {
 }
 
 struct BatchRepairContext<'a> {
-    previous_content: &'a str,
     failures: &'a [BatchItemRepair],
 }
 
@@ -247,27 +247,23 @@ impl AnthropicMessagesProvider {
         schema_name: &str,
         system: &str,
         instruction: &str,
-        repair: Option<(&str, &ProviderError)>,
+        repair: Option<&ProviderError>,
     ) -> Value {
-        let user_content = json!([
-            { "type": "image", "source": {
+        let mut user_content = vec![
+            json!({ "type": "image", "source": {
                 "type": "base64", "media_type": media_type, "data": image_b64
-            }},
-            { "type": "text", "text": instruction }
+            }}),
+            json!({ "type": "text", "text": instruction }),
+        ];
+        if let Some(error) = repair {
+            user_content.push(json!({
+                "type": "text",
+                "text": analyze_schema_repair_instruction(error)
+            }));
+        }
+        let messages = json!([
+            { "role": "user", "content": user_content }
         ]);
-        let messages = if let Some((previous_content, error)) = repair {
-            json!([
-                { "role": "user", "content": user_content },
-                { "role": "assistant", "content": previous_content },
-                { "role": "user", "content": [
-                    { "type": "text", "text": analyze_schema_repair_instruction(error) }
-                ]}
-            ])
-        } else {
-            json!([
-                { "role": "user", "content": user_content }
-            ])
-        };
         json!({
             "model": slug,
             "max_tokens": self.config.limits.max_output_tokens,
@@ -301,19 +297,15 @@ impl AnthropicMessagesProvider {
                 "type": "base64", "media_type": media_type, "data": image_b64
             }}));
         }
-        let messages = if let Some(repair) = repair {
-            json!([
-                { "role": "user", "content": user_content },
-                { "role": "assistant", "content": repair.previous_content },
-                { "role": "user", "content": [
-                    { "type": "text", "text": batch_schema_repair_instruction(repair.failures) }
-                ]}
-            ])
-        } else {
-            json!([
-                { "role": "user", "content": user_content }
-            ])
-        };
+        if let Some(repair) = repair {
+            user_content.push(json!({
+                "type": "text",
+                "text": batch_schema_repair_instruction(repair.failures)
+            }));
+        }
+        let messages = json!([
+            { "role": "user", "content": user_content }
+        ]);
         json!({
             "model": slug,
             "max_tokens": self.config.limits.max_output_tokens,
@@ -330,21 +322,38 @@ impl AnthropicMessagesProvider {
         })
     }
 
-    /// Driver-owned typed content extraction: walk `content[]` and return the
-    /// `input` object of the first `tool_use` item whose `name` matches
-    /// `expected_name`. The config sets `content_json_pointer = null` for this
-    /// driver, so the parser is code-owned — Anthropic's `content` array may hold
-    /// `text` / `thinking` / `tool_use` blocks in any order, so a typed walk by
-    /// tool name is more robust than a fixed pointer. A missing or wrong-name
-    /// `tool_use` returns `None` (the caller maps that to `SchemaValidation`,
-    /// fail-closed — no active annotation is produced).
-    fn extract_tool_use_input<'a>(body: &'a Value, expected_name: &str) -> Option<&'a Value> {
-        let content = body.get("content")?.as_array()?;
+    /// Driver-owned typed content extraction. First walks `content[]` for a
+    /// `tool_use` item whose `name` matches `expected_name` — the native,
+    /// reliable Anthropic path. If none is found, falls back to extracting a JSON
+    /// object from a `text` content block: many Anthropic-compatible shims
+    /// serving non-Claude models (e.g. Qwen on the Volcengine Ark Coding Plan)
+    /// accept `tools` / `tool_choice` at the API layer but the model writes the
+    /// tool arguments out as a `text` block (often markdown-fenced) instead of a
+    /// native `tool_use` block. The text fallback keeps those responses usable
+    /// instead of discarding a valid result and burning a paid retry the model
+    /// tends to repeat the same way. `thinking` / `reasoning` blocks are never
+    /// scanned — they hold draft reasoning, not the final output; the code-owned
+    /// `validate_*` still enforces the contract on whatever is extracted.
+    ///
+    /// Returns an owned `Value` because the text-block path parses JSON that
+    /// does not exist as a node in the response body; the `tool_use` path clones
+    /// the `input` object for a uniform return type.
+    fn extract_tool_input(body: &Value, expected_name: &str) -> Option<Value> {
+        let content = body.get("content").and_then(|c| c.as_array())?;
         for item in content {
             if item.get("type").and_then(|t| t.as_str()) == Some("tool_use")
                 && item.get("name").and_then(|n| n.as_str()) == Some(expected_name)
             {
-                return item.get("input");
+                return item.get("input").cloned();
+            }
+        }
+        for item in content {
+            if item.get("type").and_then(|t| t.as_str()) == Some("text") {
+                if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
+                    if let Some(v) = extract_json_from_text_block(text) {
+                        return Some(v);
+                    }
+                }
             }
         }
         None
@@ -356,9 +365,9 @@ impl AnthropicMessagesProvider {
         model_id: &str,
         header_req_id: &str,
     ) -> Result<DescribeOutcome, ProviderError> {
-        let parsed = Self::extract_tool_use_input(body, UNDERSTANDING_SCHEMA_NAME).ok_or_else(|| {
+        let parsed = Self::extract_tool_input(body, UNDERSTANDING_SCHEMA_NAME).ok_or_else(|| {
             ProviderError::SchemaValidationMessage(format!(
-                "provider response did not contain tool_use input named {UNDERSTANDING_SCHEMA_NAME}; expected Anthropic-compatible structured tool output"
+                "provider response did not contain tool_use input named {UNDERSTANDING_SCHEMA_NAME} and no JSON object was found in a text block; expected Anthropic-compatible structured tool output"
             ))
         })?;
         let out = DescribeOutcome {
@@ -408,9 +417,9 @@ impl AnthropicMessagesProvider {
         model_id: &str,
         header_req_id: &str,
     ) -> Result<ScoreOutcome, ProviderError> {
-        let parsed = Self::extract_tool_use_input(body, RATING_SCHEMA_NAME).ok_or_else(|| {
+        let parsed = Self::extract_tool_input(body, RATING_SCHEMA_NAME).ok_or_else(|| {
             ProviderError::SchemaValidationMessage(format!(
-                "provider response did not contain tool_use input named {RATING_SCHEMA_NAME}; expected Anthropic-compatible structured tool output"
+                "provider response did not contain tool_use input named {RATING_SCHEMA_NAME} and no JSON object was found in a text block; expected Anthropic-compatible structured tool output"
             ))
         })?;
         // 1..=5 integer star rating. Accept an exact integer or an integer-valued
@@ -547,9 +556,9 @@ impl AnthropicMessagesProvider {
         model_id: &str,
         header_req_id: &str,
     ) -> Result<AnalyzeOutcome, ProviderError> {
-        let parsed = Self::extract_tool_use_input(body, ANALYSIS_FLAT_SCHEMA_NAME).ok_or_else(|| {
+        let parsed = Self::extract_tool_input(body, ANALYSIS_FLAT_SCHEMA_NAME).ok_or_else(|| {
             ProviderError::SchemaValidationMessage(format!(
-                "provider response did not contain tool_use input named {ANALYSIS_FLAT_SCHEMA_NAME}; expected Anthropic-compatible structured tool output"
+                "provider response did not contain tool_use input named {ANALYSIS_FLAT_SCHEMA_NAME} and no JSON object was found in a text block; expected Anthropic-compatible structured tool output"
             ))
         })?;
         if parsed.get("caption").is_none() {
@@ -661,7 +670,7 @@ impl AnthropicMessagesProvider {
                 .as_deref()
                 .and_then(|p| json_pointer_str(body, p)),
         );
-        let parsed = match Self::extract_tool_use_input(body, ANALYSIS_BATCH_SCHEMA_NAME) {
+        let parsed = match Self::extract_tool_input(body, ANALYSIS_BATCH_SCHEMA_NAME) {
             Some(parsed) => parsed,
             None => {
                 return Err((
@@ -672,7 +681,7 @@ impl AnthropicMessagesProvider {
                             index: *index,
                             bad_json: Self::response_content_excerpt(body),
                             error: ProviderError::SchemaValidationMessage(format!(
-                                "provider response did not contain tool_use input named {ANALYSIS_BATCH_SCHEMA_NAME}; expected Anthropic-compatible structured tool output"
+                                "provider response did not contain tool_use input named {ANALYSIS_BATCH_SCHEMA_NAME} and no JSON object was found in a text block; expected Anthropic-compatible structured tool output"
                             )),
                         })
                         .collect(),
@@ -686,7 +695,7 @@ impl AnthropicMessagesProvider {
                     .iter()
                     .map(|index| BatchItemRepair {
                         index: *index,
-                        bad_json: compact_json_excerpt(parsed, 1200),
+                        bad_json: compact_json_excerpt(&parsed, 1200),
                         error: ProviderError::SchemaValidationMessage(
                             "batch response did not contain results array".to_string(),
                         ),
@@ -743,7 +752,7 @@ impl AnthropicMessagesProvider {
     }
 
     fn response_content_excerpt(body: &Value) -> String {
-        compact_json_excerpt(body.get("content").unwrap_or(body), 1200)
+        sanitized_provider_json_excerpt(body.get("content").unwrap_or(body), 1200)
     }
 
     /// Build the per-request header set: `anthropic-version` always, then
@@ -782,6 +791,7 @@ fn score_prompt(
     rating_severity: &str,
     output_language: &str,
     camera_context: &str,
+    include_rating_reasons: bool,
 ) -> Result<(String, String), ProviderError> {
     let prompt = crate::service::prompt_profiles::score_prompt(
         prompt_profile_id,
@@ -789,6 +799,7 @@ fn score_prompt(
         rating_severity,
         output_language,
         camera_context,
+        include_rating_reasons,
     )?;
     Ok((prompt.system, prompt.instruction))
 }
@@ -799,6 +810,9 @@ fn analyze_prompt(
     rating_severity: &str,
     output_language: &str,
     camera_context: &str,
+    include_understanding: bool,
+    include_rating: bool,
+    include_rating_reasons: bool,
 ) -> Result<(String, String), ProviderError> {
     let prompt = crate::service::prompt_profiles::analyze_prompt(
         prompt_profile_id,
@@ -806,6 +820,9 @@ fn analyze_prompt(
         rating_severity,
         output_language,
         camera_context,
+        include_understanding,
+        include_rating,
+        include_rating_reasons,
     )?;
     Ok((prompt.system, prompt.instruction))
 }
@@ -816,6 +833,9 @@ fn batch_analyze_prompt(
     rating_severity: &str,
     output_language: &str,
     images: &[AnalyzeImageInput<'_>],
+    include_understanding: bool,
+    include_rating: bool,
+    include_rating_reasons: bool,
 ) -> Result<(String, String), ProviderError> {
     let camera_context = images
         .iter()
@@ -830,6 +850,9 @@ fn batch_analyze_prompt(
         rating_severity,
         output_language,
         &camera_context,
+        include_understanding,
+        include_rating,
+        include_rating_reasons,
     )?;
     instruction.push_str(&format!(
         r#"
@@ -946,7 +969,9 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
         self.ensure_structured_output(model.as_ref())?;
         let (bearer, extra_auth_header) = self.build_auth(credential)?;
         let (media_type, image_b64) = build_image_base64(image_bytes)?;
-        let schema = strict_schema_value(IMAGE_UNDERSTANDING_SCHEMA)?;
+        let schema = strict_schema_value(&image_analysis_schema_json(
+            ImageAnalysisSchemaSpec::describe(),
+        ))?;
         let (system, instruction) = describe_prompt(prompt_profile_id, output_language)?;
         let body = self.build_messages_body(
             &slug,
@@ -1014,19 +1039,23 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
         rating_severity: &str,
         output_language: &str,
         camera_context: &str,
+        include_rating_reasons: bool,
         credential: Option<&SecretString>,
     ) -> Result<ScoreOutcome, ProviderError> {
         let (slug, model) = self.resolve_model(model_id)?;
         self.ensure_structured_output(model.as_ref())?;
         let (bearer, extra_auth_header) = self.build_auth(credential)?;
         let (media_type, image_b64) = build_image_base64(image_bytes)?;
-        let schema = strict_schema_value(IMAGE_RATING_SCHEMA)?;
+        let schema = strict_schema_value(&image_analysis_schema_json(
+            ImageAnalysisSchemaSpec::score(include_rating_reasons),
+        ))?;
         let (system, instruction) = score_prompt(
             prompt_profile_id,
             rubric_id,
             rating_severity,
             output_language,
             camera_context,
+            include_rating_reasons,
         )?;
         let body = self.build_messages_body(
             &slug,
@@ -1094,23 +1123,35 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
         rating_severity: &str,
         output_language: &str,
         camera_context: &str,
+        include_understanding: bool,
+        include_rating: bool,
+        include_rating_reasons: bool,
         credential: Option<&SecretString>,
     ) -> Result<AnalyzeOutcome, ProviderError> {
         let (slug, model) = self.resolve_model(model_id)?;
         self.ensure_structured_output(model.as_ref())?;
         let (bearer, extra_auth_header) = self.build_auth(credential)?;
         let (media_type, image_b64) = build_image_base64(image_bytes)?;
-        let schema = strict_schema_value(IMAGE_ANALYSIS_FLAT_SCHEMA)?;
+        let schema = strict_schema_value(&image_analysis_schema_json(
+            ImageAnalysisSchemaSpec::analyze(
+                include_understanding,
+                include_rating,
+                include_rating_reasons,
+            ),
+        ))?;
         let (system, instruction) = analyze_prompt(
             prompt_profile_id,
             rubric_id,
             rating_severity,
             output_language,
             camera_context,
+            include_understanding,
+            include_rating,
+            include_rating_reasons,
         )?;
         let headers = self.request_headers(extra_auth_header);
         let mut attempt = 0u32;
-        let mut repair: Option<(String, ProviderError)> = None;
+        let mut repair: Option<ProviderError> = None;
         let (outcome, provider_content, schema_repair_attempt) = loop {
             let body = self.build_messages_body(
                 &slug,
@@ -1120,9 +1161,7 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
                 ANALYSIS_FLAT_SCHEMA_NAME,
                 &system,
                 &instruction,
-                repair
-                    .as_ref()
-                    .map(|(content, err)| (content.as_str(), err)),
+                repair.as_ref(),
             );
             let resp = send_with_retry(
                 &self.http,
@@ -1160,7 +1199,7 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
                         return Err(err);
                     }
                     attempt += 1;
-                    repair = Some((provider_content, err));
+                    repair = Some(err);
                     warn!(
                         provider = %self.config.provider_id,
                         model = %slug,
@@ -1203,6 +1242,9 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
         rubric_id: &str,
         rating_severity: &str,
         output_language: &str,
+        include_understanding: bool,
+        include_rating: bool,
+        include_rating_reasons: bool,
         credential: Option<&SecretString>,
     ) -> Result<BatchAnalyzeOutcome, ProviderError> {
         if images.is_empty() {
@@ -1217,27 +1259,32 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
             .iter()
             .map(|image| build_image_base64(image.image_bytes))
             .collect::<Result<Vec<_>, _>>()?;
-        let schema = strict_schema_value(IMAGE_ANALYSIS_BATCH_SCHEMA)?;
+        let schema = strict_schema_value(&image_analysis_schema_json(
+            ImageAnalysisSchemaSpec::batch_analyze(
+                include_understanding,
+                include_rating,
+                include_rating_reasons,
+            ),
+        ))?;
         let (system, instruction) = batch_analyze_prompt(
             prompt_profile_id,
             rubric_id,
             rating_severity,
             output_language,
             images,
+            include_understanding,
+            include_rating,
+            include_rating_reasons,
         )?;
         let headers = self.request_headers(extra_auth_header);
         let mut attempt = 0u32;
         let mut merged: Vec<Option<AnalyzeOutcome>> = vec![None; images.len()];
         let mut required_indices: Vec<usize> = (0..images.len()).collect();
-        let mut repair_content: Option<String> = None;
         let mut repair_failures: Vec<BatchItemRepair> = Vec::new();
         loop {
-            let repair = repair_content
-                .as_deref()
-                .map(|previous_content| BatchRepairContext {
-                    previous_content,
-                    failures: &repair_failures,
-                });
+            let repair = (!repair_failures.is_empty()).then_some(BatchRepairContext {
+                failures: &repair_failures,
+            });
             let body = self.build_batch_messages_body(
                 &slug,
                 &encoded_images,
@@ -1356,7 +1403,6 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
             }
             attempt += 1;
             required_indices = repair_failures.iter().map(|f| f.index).collect();
-            repair_content = Some(provider_content);
         }
     }
 
@@ -1626,6 +1672,37 @@ mod tests {
         validate_understanding(&out).expect("canned outcome validates");
     }
 
+    #[test]
+    fn response_content_excerpt_omits_thinking_blocks() {
+        let body = json!({
+            "content": [
+                {
+                    "type": "thinking",
+                    "thinking": "private provider reasoning",
+                    "signature": "reasoning-signature"
+                },
+                {
+                    "type": "tool_use",
+                    "id": "toolu_02",
+                    "name": UNDERSTANDING_SCHEMA_NAME,
+                    "input": {
+                        "caption": "sunrise",
+                        "tags": ["sun", "sky"],
+                        "scene": "outdoor",
+                        "confidence": 0.8
+                    }
+                }
+            ]
+        });
+
+        let excerpt = AnthropicMessagesProvider::response_content_excerpt(&body);
+        assert!(!excerpt.contains("private provider reasoning"), "{excerpt}");
+        assert!(!excerpt.contains("reasoning-signature"), "{excerpt}");
+        assert!(excerpt.contains("provider reasoning omitted"), "{excerpt}");
+        assert!(excerpt.contains(UNDERSTANDING_SCHEMA_NAME), "{excerpt}");
+        assert!(excerpt.contains("sunrise"), "{excerpt}");
+    }
+
     #[tokio::test]
     async fn parses_understanding_response_and_captures_usage() {
         let server = MockServer::start().await;
@@ -1675,6 +1752,7 @@ mod tests {
                 "",
                 "",
                 "",
+                true,
                 Some(&secret()),
             )
             .await
@@ -1712,6 +1790,7 @@ mod tests {
                 "",
                 "",
                 "",
+                true,
                 Some(&secret()),
             )
             .await
@@ -1749,6 +1828,9 @@ mod tests {
                 "",
                 "",
                 "",
+                true,
+                true,
+                true,
                 Some(&secret()),
             )
             .await
@@ -1828,6 +1910,9 @@ mod tests {
                 "",
                 "",
                 "",
+                true,
+                true,
+                true,
                 Some(&secret()),
             )
             .await
@@ -1841,10 +1926,8 @@ mod tests {
         assert_eq!(reqs.len(), 2);
         let second_body: Value = serde_json::from_slice(&reqs[1].body).expect("body json");
         let messages = second_body["messages"].as_array().expect("messages array");
-        assert_eq!(messages.len(), 3);
+        assert_eq!(messages.len(), 1);
         assert_eq!(messages[0]["role"], "user");
-        assert_eq!(messages[1]["role"], "assistant");
-        assert_eq!(messages[2]["role"], "user");
         let original_instruction = messages[0]["content"][1]["text"]
             .as_str()
             .expect("original instruction string");
@@ -1852,12 +1935,124 @@ mod tests {
             !original_instruction.contains("tags must be an array, not a string"),
             "{original_instruction}"
         );
-        let repair_instruction = messages[2]["content"][0]["text"]
+        let repair_instruction = messages[0]["content"][2]["text"]
             .as_str()
             .expect("repair instruction string");
         assert!(
             repair_instruction.contains("tags must be an array, not a string"),
             "{repair_instruction}"
+        );
+        assert_eq!(
+            second_body["tool_choice"]["name"], ANALYSIS_FLAT_SCHEMA_NAME,
+            "repair request still forces the Anthropic tool"
+        );
+        assert!(
+            !messages.iter().any(|m| m["role"] == "assistant"),
+            "repair request must not fake an assistant turn without tool_result"
+        );
+    }
+
+    #[tokio::test]
+    async fn batch_analyze_repair_request_keeps_single_tool_call_turn() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/messages"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(ok_messages_body(
+                ANALYSIS_BATCH_SCHEMA_NAME,
+                r#"{
+                    "results": [
+                        {
+                            "index": 0,
+                            "caption": "a red tram",
+                            "tags": "tram, city",
+                            "scene": "urban",
+                            "confidence": 0.8,
+                            "rating": 3,
+                            "rubric_id": "general",
+                            "rubric_version": "v1",
+                            "reasons": "competent but ordinary"
+                        }
+                    ]
+                }"#,
+            )))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v1/messages"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(ok_messages_body(
+                ANALYSIS_BATCH_SCHEMA_NAME,
+                r#"{
+                    "results": [
+                        {
+                            "index": 0,
+                            "caption": "a red tram",
+                            "tags": ["tram", "city"],
+                            "scene": "urban",
+                            "confidence": 0.8,
+                            "rating": 3,
+                            "rubric_id": "general",
+                            "rubric_version": "v1",
+                            "reasons": "competent but ordinary"
+                        }
+                    ]
+                }"#,
+            )))
+            .mount(&server)
+            .await;
+        let provider = provider_for(&server);
+        let img = test_image_png();
+        let input = AnalyzeImageInput {
+            image_bytes: &img,
+            camera_context: "",
+        };
+        let out = provider
+            .batch_analyze_images(
+                &[input],
+                "",
+                "",
+                "general",
+                "",
+                "",
+                true,
+                true,
+                true,
+                Some(&secret()),
+            )
+            .await
+            .expect("batch item repaired");
+        assert_eq!(out.items.len(), 1);
+        assert_eq!(
+            out.items[0]
+                .understanding
+                .as_ref()
+                .expect("understanding present")
+                .tags,
+            vec!["tram".to_string(), "city".to_string()]
+        );
+
+        let reqs = server.received_requests().await.expect("requests captured");
+        assert_eq!(reqs.len(), 2);
+        let second_body: Value = serde_json::from_slice(&reqs[1].body).expect("body json");
+        let messages = second_body["messages"].as_array().expect("messages array");
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0]["role"], "user");
+        assert!(
+            !messages.iter().any(|m| m["role"] == "assistant"),
+            "batch repair request must not fake an assistant turn without tool_result"
+        );
+        let content = messages[0]["content"].as_array().expect("content array");
+        assert!(
+            content.iter().any(|c| c["type"] == "text"
+                && c["text"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .contains("Repair only the failed item indexes")),
+            "batch repair instruction missing from single user turn: {content:?}"
+        );
+        assert_eq!(
+            second_body["tool_choice"]["name"], ANALYSIS_BATCH_SCHEMA_NAME,
+            "batch repair request still forces the Anthropic batch tool"
         );
     }
 
@@ -2015,6 +2210,130 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn describe_accepts_text_block_json_without_tool_use() {
+        // Real-world Volcengine Ark Coding Plan + Qwen behavior: the shim honors
+        // `tool_choice` at the API layer but the model emits the JSON as a
+        // markdown-fenced `text` block (after a `thinking` block) instead of a
+        // native `tool_use` block. The driver must accept the text-block JSON on
+        // the FIRST attempt instead of discarding a valid result and burning a
+        // paid repair retry.
+        let server = MockServer::start().await;
+        let body = json!({
+            "id": "ark-coding-resp-text",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+                { "type": "thinking", "thinking": "draft reasoning that must be ignored", "signature": "sig" },
+                { "type": "text", "text":
+                    "```json\n{\n  \"caption\": \"a red tram at dusk\",\n  \"tags\": [\"tram\", \"dusk\"],\n  \"scene\": \"urban\",\n  \"confidence\": 0.86\n}\n```" }
+            ],
+            "usage": { "input_tokens": 70, "output_tokens": 30 }
+        });
+        Mock::given(method("POST"))
+            .and(path("/v1/messages"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&server)
+            .await;
+        let provider = provider_for(&server);
+        let out = provider
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
+            .await
+            .expect("text-block JSON accepted on first attempt");
+        assert_eq!(out.caption, "a red tram at dusk");
+        assert_eq!(out.tags, vec!["tram".to_string(), "dusk".to_string()]);
+        assert_eq!(out.scene, "urban");
+        assert!((out.confidence - 0.86).abs() < 1e-9);
+        validate_understanding(&out).expect("text-block outcome validates");
+        // Crucially, only ONE provider call was made — no paid repair retry.
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn describe_accepts_raw_json_text_block_without_fences() {
+        // Same fallback, but the model emits raw JSON (no markdown fence).
+        let server = MockServer::start().await;
+        let body = json!({
+            "id": "ark-coding-resp-raw",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+                { "type": "text", "text":
+                    "{\"caption\":\"sunrise\",\"tags\":[\"sun\",\"sky\"],\"scene\":\"outdoor\",\"confidence\":0.8}" }
+            ],
+            "usage": { "input_tokens": 60, "output_tokens": 25 }
+        });
+        Mock::given(method("POST"))
+            .and(path("/v1/messages"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&server)
+            .await;
+        let provider = provider_for(&server);
+        let out = provider
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
+            .await
+            .expect("raw text-block JSON accepted");
+        assert_eq!(out.caption, "sunrise");
+        assert_eq!(out.tags, vec!["sun".to_string(), "sky".to_string()]);
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn batch_analyze_accepts_text_block_json_without_tool_use() {
+        // The exact failure pattern from the production log: a `thinking` block
+        // followed by a `text` block holding the fenced `{"results":[...]}` JSON,
+        // with NO `tool_use` block. Previously this failed with
+        // "did not contain tool_use input named alcedo_image_analysis_batch"
+        // and triggered a repair retry; now it succeeds on the first attempt.
+        let server = MockServer::start().await;
+        let body = json!({
+            "id": "ark-coding-resp-batch-text",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+                { "type": "thinking", "thinking": "draft reasoning that must be ignored", "signature": "sig" },
+                { "type": "text", "text":
+                    "```json\n{\n  \"results\": [\n    {\n      \"index\": 0,\n      \"caption\": \"a red tram\",\n      \"tags\": [\"tram\", \"city\"],\n      \"scene\": \"urban\",\n      \"confidence\": 0.8,\n      \"rating\": 3,\n      \"rubric_id\": \"general\",\n      \"rubric_version\": \"v1\",\n      \"reasons\": \"competent but ordinary\"\n    }\n  ]\n}\n```" }
+            ],
+            "usage": { "input_tokens": 90, "output_tokens": 40 }
+        });
+        Mock::given(method("POST"))
+            .and(path("/v1/messages"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&server)
+            .await;
+        let provider = provider_for(&server);
+        let img = test_image_png();
+        let input = AnalyzeImageInput {
+            image_bytes: &img,
+            camera_context: "",
+        };
+        let out = provider
+            .batch_analyze_images(
+                &[input],
+                "",
+                "",
+                "general",
+                "",
+                "",
+                true,
+                true,
+                true,
+                Some(&secret()),
+            )
+            .await
+            .expect("text-block batch JSON accepted on first attempt");
+        assert_eq!(out.items.len(), 1);
+        let understanding = out.items[0].understanding.as_ref().expect("understanding");
+        assert_eq!(understanding.caption, "a red tram");
+        assert_eq!(understanding.tags, vec!["tram".to_string(), "city".to_string()]);
+        let rating = out.items[0].rating.as_ref().expect("rating");
+        assert_eq!(rating.rating, 3);
+        assert_eq!(rating.rubric_id, "general");
+        // No paid repair retry: exactly one provider call.
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
     async fn bearer_required_without_credential_errors() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
@@ -2106,6 +2425,9 @@ mod tests {
                 "",
                 "",
                 "",
+                true,
+                true,
+                true,
                 Some(&secret()),
             )
             .await

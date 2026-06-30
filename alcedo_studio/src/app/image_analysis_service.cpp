@@ -268,6 +268,7 @@ auto MakeRequestFromEncoded(EncodedAnalysisItem e, const ImageAnalysisOptions& o
   req.camera_context        = std::move(e.camera_context);
   req.include_understanding = options.task != ImageAnalysisTask::kScore;
   req.include_rating        = options.task != ImageAnalysisTask::kDescribe;
+  req.include_rating_reasons = req.include_rating && options.include_rating_reasons;
   return req;
 }
 
@@ -1199,6 +1200,7 @@ void ImageAnalysisService::RunJob(const std::shared_ptr<ImageAnalysisJob>& job,
 
     req.include_understanding = options.task != ImageAnalysisTask::kScore;
     req.include_rating        = options.task != ImageAnalysisTask::kDescribe;
+    req.include_rating_reasons = req.include_rating && options.include_rating_reasons;
 
     // The typed RPC. Multi-output analysis uses AnalyzeImage so one image upload/provider
     // request can return both understanding and rating. The in-flight slot is held across

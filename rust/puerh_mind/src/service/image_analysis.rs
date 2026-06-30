@@ -16,6 +16,8 @@
 
 use std::time::Duration;
 
+use serde_json::{Map, Value, json};
+
 use crate::service::credential_vault::SecretString;
 
 /// Provider-reported usage. Fields are optional in spirit: a provider may report
@@ -127,95 +129,221 @@ pub enum ProviderError {
     UnknownModel(String),
 }
 
-/// Code-owned JSON Schema for `image_understanding.describe` output. Phase 5c
-/// drivers inject this as the provider's structured-output schema and validate
-/// parsed provider JSON against it before normalizing into `DescribeOutcome`.
-pub const IMAGE_UNDERSTANDING_SCHEMA: &str = r#"{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "AlcedoImageUnderstanding",
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["caption", "tags"],
-  "properties": {
-    "caption": { "type": "string", "minLength": 1 },
-    "tags": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
-    "scene": { "type": "string" },
-    "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 }
-  }
-}"#;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ImageAnalysisSchemaSpec {
+    pub include_understanding: bool,
+    pub include_rating: bool,
+    pub include_rating_reasons: bool,
+    pub batch: bool,
+}
 
-/// Code-owned JSON Schema for `image_rating.score` output. The remote LLM is
-/// asked for a single 1–5 integer star rating plus rubric identity and a short
-/// rationale; no `confidence` is requested (Phase 5f rating-contract change). The
-/// code-owned validator (`validate_rating`) still enforces `minimum`/`maximum` on
-/// the parsed response even though strict-mode injection drops those constraints,
-/// so fail-closed behavior is preserved.
-pub const IMAGE_RATING_SCHEMA: &str = r#"{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "AlcedoImageRating",
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["rating", "rubric_id"],
-  "properties": {
-    "rating": { "type": "integer", "minimum": 1, "maximum": 5 },
-    "rubric_id": { "type": "string", "minLength": 1 },
-    "rubric_version": { "type": "string" },
-    "reasons": { "type": "string" }
-  }
-}"#;
+impl ImageAnalysisSchemaSpec {
+    pub fn describe() -> Self {
+        Self {
+            include_understanding: true,
+            include_rating: false,
+            include_rating_reasons: false,
+            batch: false,
+        }
+    }
 
-/// Code-owned flat JSON Schema for combined multi-output image analysis. This is
-/// the provider-facing contract for `analyze_image`: a single flat object is more
-/// reliable across compatible providers than a nested `{ understanding, rating }`
-/// bundle. The driver maps it back into Alcedo's internal
-/// `AnalyzeOutcome { understanding, rating }` shape after validation.
-pub const IMAGE_ANALYSIS_FLAT_SCHEMA: &str = r#"{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "AlcedoImageAnalysisFlat",
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["caption", "tags", "rating", "rubric_id"],
-  "properties": {
-    "caption": { "type": "string", "minLength": 1 },
-    "tags": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
-    "scene": { "type": "string" },
-    "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
-    "rating": { "type": "integer", "minimum": 1, "maximum": 5 },
-    "rubric_id": { "type": "string", "minLength": 1 },
-    "rubric_version": { "type": "string" },
-    "reasons": { "type": "string" }
-  }
-}"#;
+    pub fn score(include_rating_reasons: bool) -> Self {
+        Self {
+            include_understanding: false,
+            include_rating: true,
+            include_rating_reasons,
+            batch: false,
+        }
+    }
 
-pub const IMAGE_ANALYSIS_BATCH_SCHEMA: &str = r#"{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "AlcedoImageAnalysisBatch",
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["results"],
-  "properties": {
-    "results": {
-      "type": "array",
-      "minItems": 1,
-      "items": {
+    pub fn analyze(
+        include_understanding: bool,
+        include_rating: bool,
+        include_rating_reasons: bool,
+    ) -> Self {
+        Self {
+            include_understanding,
+            include_rating,
+            include_rating_reasons: include_rating && include_rating_reasons,
+            batch: false,
+        }
+    }
+
+    pub fn batch_analyze(
+        include_understanding: bool,
+        include_rating: bool,
+        include_rating_reasons: bool,
+    ) -> Self {
+        Self {
+            include_understanding,
+            include_rating,
+            include_rating_reasons: include_rating && include_rating_reasons,
+            batch: true,
+        }
+    }
+}
+
+pub fn image_analysis_schema_value(spec: ImageAnalysisSchemaSpec) -> Value {
+    let mut required = Vec::<String>::new();
+    let mut properties = Map::<String, Value>::new();
+    if spec.batch {
+        required.push("index".to_string());
+        properties.insert(
+            "index".to_string(),
+            json!({ "type": "integer", "minimum": 0 }),
+        );
+    }
+    append_understanding_schema_fields(&mut required, &mut properties, spec.include_understanding);
+    append_rating_schema_fields(
+        &mut required,
+        &mut properties,
+        spec.include_rating,
+        spec.include_rating_reasons,
+    );
+
+    let title = if spec.batch {
+        "AlcedoImageAnalysisBatch"
+    } else if spec.include_understanding && spec.include_rating {
+        "AlcedoImageAnalysisFlat"
+    } else if spec.include_rating {
+        "AlcedoImageRating"
+    } else {
+        "AlcedoImageUnderstanding"
+    };
+
+    let item_schema = json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": title,
         "type": "object",
         "additionalProperties": false,
-        "required": ["index", "caption", "tags", "rating", "rubric_id"],
-        "properties": {
-          "index": { "type": "integer", "minimum": 0 },
-          "caption": { "type": "string", "minLength": 1 },
-          "tags": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
-          "scene": { "type": "string" },
-          "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
-          "rating": { "type": "integer", "minimum": 1, "maximum": 5 },
-          "rubric_id": { "type": "string", "minLength": 1 },
-          "rubric_version": { "type": "string" },
-          "reasons": { "type": "string" }
-        }
-      }
+        "required": required,
+        "properties": properties,
+    });
+
+    if spec.batch {
+        json!({
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "title": title,
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["results"],
+            "properties": {
+                "results": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": item_schema,
+                }
+            }
+        })
+    } else {
+        item_schema
     }
-  }
-}"#;
+}
+
+pub fn image_analysis_schema_json(spec: ImageAnalysisSchemaSpec) -> String {
+    serde_json::to_string_pretty(&image_analysis_schema_value(spec))
+        .expect("generated image analysis schema is serializable")
+}
+
+fn append_understanding_schema_fields(
+    required: &mut Vec<String>,
+    properties: &mut Map<String, Value>,
+    include: bool,
+) {
+    if !include {
+        return;
+    }
+    required.extend(
+        ["caption", "tags", "scene", "confidence"]
+            .into_iter()
+            .map(str::to_string),
+    );
+    properties.insert(
+        "caption".to_string(),
+        json!({
+            "type": "string",
+            "minLength": 1,
+            "description": "A concise one-line description of the image."
+        }),
+    );
+    properties.insert(
+        "tags".to_string(),
+        json!({
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 },
+            "description": "Searchable tags as a JSON array of strings, not a comma-separated string."
+        }),
+    );
+    properties.insert(
+        "scene".to_string(),
+        json!({
+            "type": "string",
+            "description": "A short scene or category hint, or an empty string."
+        }),
+    );
+    properties.insert(
+        "confidence".to_string(),
+        json!({
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "description": "Confidence in the description."
+        }),
+    );
+}
+
+fn append_rating_schema_fields(
+    required: &mut Vec<String>,
+    properties: &mut Map<String, Value>,
+    include: bool,
+    include_reasons: bool,
+) {
+    if !include {
+        return;
+    }
+    required.extend(
+        ["rating", "rubric_id", "rubric_version"]
+            .into_iter()
+            .map(str::to_string),
+    );
+    if include_reasons {
+        required.push("reasons".to_string());
+    }
+    properties.insert(
+        "rating".to_string(),
+        json!({
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5,
+            "description": "The app star rating, from 1 (poor) to 5 (excellent)."
+        }),
+    );
+    properties.insert(
+        "rubric_id".to_string(),
+        json!({
+            "type": "string",
+            "minLength": 1,
+            "description": "The rubric id that was applied."
+        }),
+    );
+    properties.insert(
+        "rubric_version".to_string(),
+        json!({
+            "type": "string",
+            "description": "The rubric version, or an empty string."
+        }),
+    );
+    if include_reasons {
+        properties.insert(
+            "reasons".to_string(),
+            json!({
+                "type": "string",
+                "description": "A concise image-grounded rationale for the rating."
+            }),
+        );
+    }
+}
 
 /// Validate + normalize a `image_understanding.describe` outcome against the
 /// code-owned contract. Returns `ProviderError::SchemaValidation` on any breach
@@ -223,8 +351,7 @@ pub const IMAGE_ANALYSIS_BATCH_SCHEMA: &str = r#"{
 /// failure must not produce an active annotation).
 ///
 /// Rejects an empty `tags` list as well as any blank tag string, mirroring the
-/// `IMAGE_UNDERSTANDING_SCHEMA` `minItems: 1` / `minLength: 1` and matching
-/// `validate_rating`'s empty-scores handling.
+/// generated schema's `minItems: 1` / `minLength: 1`.
 pub fn validate_understanding(out: &DescribeOutcome) -> Result<(), ProviderError> {
     if out.caption.trim().is_empty() {
         return Err(ProviderError::SchemaValidation);
@@ -298,6 +425,7 @@ pub fn language_directive(output_language: &str) -> String {
 /// persona is a distinct rating system prompt. The JSON contract is unchanged
 /// across personas — `rating` stays a 1..=5 integer and persona flavor lives
 /// inside `reasons`.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RatingSeverity {
     Lite,
@@ -311,6 +439,7 @@ pub enum RatingSeverity {
 /// any unrecognized value) resolve to `Normal` — fail open to the balanced
 /// default rather than injecting an unknown persona, mirroring
 /// `language_directive`'s unknown-code handling.
+#[cfg(test)]
 pub fn normalize_rating_severity(severity: &str) -> RatingSeverity {
     match severity.trim().to_ascii_lowercase().as_str() {
         "lite" => RatingSeverity::Lite,
@@ -324,26 +453,31 @@ pub fn normalize_rating_severity(severity: &str) -> RatingSeverity {
 /// The shared JSON-only contract every rating persona ends with — identical to
 /// the tail of the original single rating prompt, so the injected schema + the
 /// code-owned `validate_rating` remain the source of truth for the wire shape.
+#[cfg(test)]
 const RATING_JSON_CONTRACT: &str = " Do not include any other field — in particular, do not output a confidence. Output only the JSON object — no prose, no markdown code fences.";
 
 /// The Lite (水) persona: generous and forgiving. Ordinary competent photos
 /// default to 3–4; reserve 1–2 for clear technical failures and 5 for genuinely
 /// exceptional work. Reasons are short and mild.
+#[cfg(test)]
 const RATING_LITE_PERSONA: &str = "You are a generous, forgiving image rating assistant for Alcedo Studio. Rate the supplied image against the given rubric and respond with a single JSON object matching the provided schema. The object must contain: \"rating\" (an integer from 1 to 5, where 1 is a poor photo and 5 is an excellent photo — the app's star rating), \"rubric_id\" (the rubric you applied), \"rubric_version\" (the rubric version, or an empty string), and \"reasons\" (a short rationale). Be lenient: an ordinary, in-focus, well-exposed photo deserves a 3; a competent, pleasing photo deserves a 4; reserve 1–2 only for clear technical failures (missed focus, severe exposure error) and 5 for genuinely exceptional work. Keep the rationale short, concrete, and kind.";
 
 /// The Normal persona: the original balanced rubric, verbatim — the
 /// behavior-preserving baseline. No severity clause is injected.
+#[cfg(test)]
 const RATING_NORMAL_PERSONA: &str = "You are an image rating assistant for Alcedo Studio. Rate the supplied image against the given rubric and respond with a single JSON object matching the provided schema. The object must contain: \"rating\" (an integer from 1 to 5, where 1 is a poor photo and 5 is an excellent photo — the app's star rating), \"rubric_id\" (the rubric you applied), \"rubric_version\" (the rubric version, or an empty string), and \"reasons\" (a short rationale).";
 
 /// The High (大师) persona: strict but guiding. It cares more about visual
 /// meaning, composition, narrative, expression, and completeness than thumbnail
 /// sharpness or generic exposure trivia, and should point to master works as
 /// constructive references.
+#[cfg(test)]
 const RATING_HIGH_PERSONA: &str = "You are a strict but constructive master-level photography mentor rating images for Alcedo Studio. Rate the supplied image against the given rubric and respond with a single JSON object matching the provided schema. The object must contain: \"rating\" (an integer from 1 to 5, where 1 is a poor photo and 5 is an excellent photo — the app's star rating), \"rubric_id\" (the rubric you applied), \"rubric_version\" (the rubric version, or an empty string), and \"reasons\" (a short rationale). Grade rigorously, but make the critique guiding rather than dismissive. Do not over-focus on exposure, blur, sharpness, or pixel-level defects unless they clearly damage the image's purpose. Put more weight on meaning, composition, narrative, subject relationship, emotional expression, timing, visual completeness, and whether every part of the frame serves the idea. When useful, cite a relevant master photographer or body of work as a direction for improvement, such as Henri Cartier-Bresson for decisive geometry, Fan Ho for light and urban rhythm, Saul Leiter for color and occlusion, Daido Moriyama for raw expressive energy, Alex Webb for layered color, Gregory Crewdson for staged narrative, or Rinko Kawauchi for quiet poetic attention. Keep the voice firm, specific, and encouraging.";
 
 /// The XHigh (老法师) persona: old-school, gear-aware, parameter-obsessed, and
 /// fussy about obvious visual impact. It is stricter than High and less
 /// constructive, but not as internet-poisoned as Max.
+#[cfg(test)]
 const RATING_XHIGH_PERSONA: &str = "You are an old-school 老法师 photography critic rating images for Alcedo Studio. Rate the supplied image against the given rubric and respond with a single JSON object matching the provided schema. The object must contain: \"rating\" (an integer from 1 to 5, where 1 is a poor photo and 5 is an excellent photo — the app's star rating), \"rubric_id\" (the rubric you applied), \"rubric_version\" (the rubric version, or an empty string), and \"reasons\" (a short rationale). Be strict in a gear-and-parameter-conscious way: scrutinize camera and lens choice, focal length, aperture, ISO, shutter speed, tripod stability, filters, visible sharpness, tonal punch, contrast, saturation, background blur, pose, subject prominence, and whether the image looks like it used expensive equipment well. When EXIF/camera metadata is provided, judge whether the parameters actually fit the subject. Do not be subtle about weak composition, dull light, flat contrast, muddy color, poor posing, or empty scenery. You may sound like someone with decades of shooting experience giving blunt practical advice, occasionally mentioning gear discipline, contrast not being enough, large-aperture lenses, telephoto compression, tripod stability, or post-processing that is either too timid or too heavy. Keep the critique image-grounded; do not invent unavailable equipment details.";
 
 /// The Max (懂哥) persona: the old most severe connoisseur mode. It is an
@@ -351,6 +485,7 @@ const RATING_XHIGH_PERSONA: &str = "You are an old-school 老法师 photography 
 /// voice. The catchphrases live inside the `reasons` string only — the `rating`
 /// is still a plain 1..=5 integer and the response is still a single JSON object
 /// matching the schema.
+#[cfg(test)]
 const RATING_MAX_PERSONA: &str = "You are an exacting, self-important photo connoisseur (懂哥) rating images for Alcedo Studio. Rate the supplied image against the given rubric and respond with a single JSON object matching the provided schema. The object must contain: \"rating\" (an integer from 1 to 5, where 1 is a poor photo and 5 is an excellent photo — the app's star rating), \"rubric_id\" (the rubric you applied), \"rubric_version\" (the rubric version, or an empty string), and \"reasons\" (a short rationale). Be harsh and nitpick composition, exposure, focus, lighting, and intent; default most photos to 2–3 and reserve 4–5 for work that genuinely impresses you. When camera/EXIF metadata is provided, judge whether the camera, lens, aperture, shutter speed, ISO, and focal length serve the image. Give a slight positive bias to Hasselblad or Leica bodies/lenses by implying the gear contributes a special rendering, micro-contrast, color, or atmosphere. If the metadata suggests low-end or entry-level gear, be more demanding about visible detail, tonal discipline, and technical execution. If the metadata suggests expensive gear but the image is weak under your standard, lower the score substantially and criticize the photographer as a gear-obsessed 器材党 who wasted excellent equipment. Write `reasons` in your pretentious critic voice and naturally lean on your habitual catchphrases where they fit — e.g. \"没意义\", \"你这个……\", \"建议多看看××大师的作品\", \"算不上摄影\". The catchphrases go inside the `reasons` string only; never emit them as separate fields.";
 
 /// Build the full rating system prompt for one severity, with the
@@ -359,6 +494,7 @@ const RATING_MAX_PERSONA: &str = "You are an exacting, self-important photo conn
 /// rating prompt (Phase: 评价严苛程度 toggle). `Normal` reproduces the original
 /// single rating prompt verbatim, so a host that leaves severity at the default
 /// sees byte-identical prompt text to before this change.
+#[cfg(test)]
 pub fn rating_system_prompt(rating_severity: &str, output_language: &str) -> String {
     let persona = match normalize_rating_severity(rating_severity) {
         RatingSeverity::Lite => RATING_LITE_PERSONA,
@@ -413,6 +549,7 @@ pub trait ImageAnalysisProvider: Send + Sync {
         rating_severity: &str,
         output_language: &str,
         camera_context: &str,
+        include_rating_reasons: bool,
         credential: Option<&SecretString>,
     ) -> Result<ScoreOutcome, ProviderError>;
     async fn analyze_image(
@@ -424,6 +561,9 @@ pub trait ImageAnalysisProvider: Send + Sync {
         _rating_severity: &str,
         _output_language: &str,
         _camera_context: &str,
+        _include_understanding: bool,
+        _include_rating: bool,
+        _include_rating_reasons: bool,
         _credential: Option<&SecretString>,
     ) -> Result<AnalyzeOutcome, ProviderError> {
         Err(ProviderError::Provider(
@@ -438,6 +578,9 @@ pub trait ImageAnalysisProvider: Send + Sync {
         rubric_id: &str,
         rating_severity: &str,
         output_language: &str,
+        include_understanding: bool,
+        include_rating: bool,
+        include_rating_reasons: bool,
         credential: Option<&SecretString>,
     ) -> Result<BatchAnalyzeOutcome, ProviderError> {
         let mut items = Vec::with_capacity(images.len());
@@ -454,6 +597,9 @@ pub trait ImageAnalysisProvider: Send + Sync {
                     rating_severity,
                     output_language,
                     image.camera_context,
+                    include_understanding,
+                    include_rating,
+                    include_rating_reasons,
                     credential,
                 )
                 .await?;
@@ -653,6 +799,7 @@ impl ImageAnalysisProvider for MockImageAnalysisProvider {
         _rating_severity: &str,
         _output_language: &str,
         _camera_context: &str,
+        include_rating_reasons: bool,
         _credential: Option<&SecretString>,
     ) -> Result<ScoreOutcome, ProviderError> {
         if let MockFailure::Slow(d) = self.failure {
@@ -671,6 +818,9 @@ impl ImageAnalysisProvider for MockImageAnalysisProvider {
             // valid scored rating, and outside the 1..=5 contract).
             out.rating = 0;
         }
+        if !include_rating_reasons {
+            out.reasons.clear();
+        }
         Ok(out)
     }
 
@@ -683,6 +833,9 @@ impl ImageAnalysisProvider for MockImageAnalysisProvider {
         _rating_severity: &str,
         _output_language: &str,
         _camera_context: &str,
+        include_understanding: bool,
+        include_rating: bool,
+        include_rating_reasons: bool,
         _credential: Option<&SecretString>,
     ) -> Result<AnalyzeOutcome, ProviderError> {
         if let MockFailure::Slow(d) = self.failure {
@@ -700,6 +853,9 @@ impl ImageAnalysisProvider for MockImageAnalysisProvider {
             understanding.caption.clear();
             rating.rating = 0;
         }
+        if !include_rating_reasons {
+            rating.reasons.clear();
+        }
         Ok(AnalyzeOutcome {
             model_id: self.model_id.clone(),
             usage: Usage {
@@ -708,8 +864,8 @@ impl ImageAnalysisProvider for MockImageAnalysisProvider {
                 total_tokens: 200,
             },
             provider_request_id: "mock-req-combined".to_string(),
-            understanding: Some(understanding),
-            rating: Some(rating),
+            understanding: include_understanding.then_some(understanding),
+            rating: include_rating.then_some(rating),
         })
     }
 
@@ -731,11 +887,9 @@ impl ImageAnalysisProvider for MockImageAnalysisProvider {
 #[cfg(test)]
 mod schema_tests {
     use super::*;
-    use serde_json::Value;
-
     #[test]
     fn understanding_schema_is_well_formed_json() {
-        let v: Value = serde_json::from_str(IMAGE_UNDERSTANDING_SCHEMA).expect("valid json");
+        let v = image_analysis_schema_value(ImageAnalysisSchemaSpec::describe());
         assert_eq!(v["type"], "object");
         assert!(v["required"].is_array());
         let required: Vec<&str> = v["required"]
@@ -746,6 +900,8 @@ mod schema_tests {
             .collect();
         assert!(required.contains(&"caption"));
         assert!(required.contains(&"tags"));
+        assert!(required.contains(&"scene"));
+        assert!(required.contains(&"confidence"));
         assert_eq!(v["properties"]["caption"]["type"], "string");
         assert_eq!(v["properties"]["confidence"]["maximum"], 1.0);
         // tags must be a non-empty array of non-empty strings (matches the
@@ -757,7 +913,7 @@ mod schema_tests {
 
     #[test]
     fn rating_schema_is_well_formed_json() {
-        let v: Value = serde_json::from_str(IMAGE_RATING_SCHEMA).expect("valid json");
+        let v = image_analysis_schema_value(ImageAnalysisSchemaSpec::score(true));
         assert_eq!(v["type"], "object");
         let required: Vec<&str> = v["required"]
             .as_array()
@@ -767,6 +923,8 @@ mod schema_tests {
             .collect();
         assert!(required.contains(&"rating"));
         assert!(required.contains(&"rubric_id"));
+        assert!(required.contains(&"rubric_version"));
+        assert!(required.contains(&"reasons"));
         // The rating is a 1..=5 integer; no `scores` array and no `confidence`
         // are requested from the remote LLM (Phase 5f rating-contract change).
         assert_eq!(v["properties"]["rating"]["type"], "integer");
@@ -780,6 +938,22 @@ mod schema_tests {
             v["properties"].get("confidence").is_none(),
             "confidence still present"
         );
+    }
+
+    #[test]
+    fn rating_schema_omits_reasons_when_not_requested() {
+        let v = image_analysis_schema_value(ImageAnalysisSchemaSpec::score(false));
+        assert!(
+            v["properties"].get("reasons").is_none(),
+            "reasons present despite include_rating_reasons=false"
+        );
+        let required: Vec<&str> = v["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x.as_str().unwrap())
+            .collect();
+        assert!(!required.contains(&"reasons"));
     }
 
     #[test]
@@ -913,7 +1087,7 @@ mod schema_tests {
         assert!(!d.tags.is_empty());
         validate_understanding(&d).expect("canned describe validates");
         let s = mock
-            .score_image(&[], "", "", "", "", "", "", None)
+            .score_image(&[], "", "", "", "", "", "", true, None)
             .await
             .expect("score");
         validate_rating(&s).expect("canned score validates");

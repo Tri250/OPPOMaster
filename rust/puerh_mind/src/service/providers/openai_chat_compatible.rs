@@ -48,16 +48,16 @@ use tracing::warn;
 use crate::service::credential_vault::SecretString;
 use crate::service::image_analysis::{
     AnalyzeImageInput, AnalyzeOutcome, BatchAnalyzeOutcome, DescribeOutcome, DiscoveredModel,
-    IMAGE_ANALYSIS_BATCH_SCHEMA, IMAGE_ANALYSIS_FLAT_SCHEMA, IMAGE_RATING_SCHEMA,
-    IMAGE_UNDERSTANDING_SCHEMA, ImageAnalysisProvider, ProviderError, ScoreOutcome, Usage,
-    validate_analyze, validate_batch_analyze, validate_rating, validate_understanding,
+    ImageAnalysisProvider, ImageAnalysisSchemaSpec, ProviderError, ScoreOutcome, Usage,
+    image_analysis_schema_json, validate_analyze, validate_batch_analyze, validate_rating,
+    validate_understanding,
 };
 use crate::service::provider_config::{ModelConfig, ProviderConfig};
 use crate::service::providers::http_util::{
     MAX_TRANSIENT_RETRIES, build_image_data_uri, build_rustls_client, compact_json_excerpt,
     compact_text_excerpt, extract_provider_request_id, extract_usage, json_pointer_str,
-    parse_content_json, parse_rating_int, read_response, send_get_with_retry, send_with_retry,
-    strict_schema_value,
+    parse_content_json, parse_rating_int, read_response, sanitized_provider_json_excerpt,
+    send_get_with_retry, send_with_retry, strict_schema_value,
 };
 
 /// Schema names injected into `response_format.json_schema.name`. Kept stable and
@@ -1078,8 +1078,8 @@ impl OpenAiChatCompatibleProvider {
             .unwrap_or("/choices/0/message/content");
         match json_pointer_str(body, content_pointer) {
             Some(Value::String(s)) => compact_text_excerpt(s, 1200),
-            Some(other) => compact_json_excerpt(other, 1200),
-            None => compact_json_excerpt(body, 1200),
+            Some(other) => sanitized_provider_json_excerpt(other, 1200),
+            None => sanitized_provider_json_excerpt(body, 1200),
         }
     }
 }
@@ -1099,6 +1099,7 @@ fn score_prompt(
     rating_severity: &str,
     output_language: &str,
     camera_context: &str,
+    include_rating_reasons: bool,
 ) -> Result<(String, String), ProviderError> {
     let prompt = crate::service::prompt_profiles::score_prompt(
         prompt_profile_id,
@@ -1106,6 +1107,7 @@ fn score_prompt(
         rating_severity,
         output_language,
         camera_context,
+        include_rating_reasons,
     )?;
     Ok((prompt.system, prompt.instruction))
 }
@@ -1116,6 +1118,9 @@ fn analyze_prompt(
     rating_severity: &str,
     output_language: &str,
     camera_context: &str,
+    include_understanding: bool,
+    include_rating: bool,
+    include_rating_reasons: bool,
 ) -> Result<(String, String), ProviderError> {
     let prompt = crate::service::prompt_profiles::analyze_prompt(
         prompt_profile_id,
@@ -1123,6 +1128,9 @@ fn analyze_prompt(
         rating_severity,
         output_language,
         camera_context,
+        include_understanding,
+        include_rating,
+        include_rating_reasons,
     )?;
     Ok((prompt.system, prompt.instruction))
 }
@@ -1133,6 +1141,9 @@ fn batch_analyze_prompt(
     rating_severity: &str,
     output_language: &str,
     images: &[AnalyzeImageInput<'_>],
+    include_understanding: bool,
+    include_rating: bool,
+    include_rating_reasons: bool,
 ) -> Result<(String, String), ProviderError> {
     let camera_context = images
         .iter()
@@ -1147,6 +1158,9 @@ fn batch_analyze_prompt(
         rating_severity,
         output_language,
         &camera_context,
+        include_understanding,
+        include_rating,
+        include_rating_reasons,
     )?;
     instruction.push_str(&format!(
         r#"
@@ -1287,7 +1301,9 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
         self.ensure_structured_output(model.as_ref())?;
         let bearer = self.bearer(credential)?;
         let data_uri = build_image_data_uri(image_bytes)?;
-        let schema = strict_schema_value(IMAGE_UNDERSTANDING_SCHEMA)?;
+        let schema = strict_schema_value(&image_analysis_schema_json(
+            ImageAnalysisSchemaSpec::describe(),
+        ))?;
         let (system, instruction) = describe_prompt(prompt_profile_id, output_language)?;
         let (outcome, provider_content, schema_repair_attempt) = self
             .send_and_parse_describe(
@@ -1322,19 +1338,23 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
         rating_severity: &str,
         output_language: &str,
         camera_context: &str,
+        include_rating_reasons: bool,
         credential: Option<&SecretString>,
     ) -> Result<ScoreOutcome, ProviderError> {
         let (slug, model) = self.resolve_model(model_id)?;
         self.ensure_structured_output(model.as_ref())?;
         let bearer = self.bearer(credential)?;
         let data_uri = build_image_data_uri(image_bytes)?;
-        let schema = strict_schema_value(IMAGE_RATING_SCHEMA)?;
+        let schema = strict_schema_value(&image_analysis_schema_json(
+            ImageAnalysisSchemaSpec::score(include_rating_reasons),
+        ))?;
         let (system, instruction) = score_prompt(
             prompt_profile_id,
             rubric_id,
             rating_severity,
             output_language,
             camera_context,
+            include_rating_reasons,
         )?;
         let (outcome, provider_content, schema_repair_attempt) = self
             .send_and_parse_score(
@@ -1369,19 +1389,31 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
         rating_severity: &str,
         output_language: &str,
         camera_context: &str,
+        include_understanding: bool,
+        include_rating: bool,
+        include_rating_reasons: bool,
         credential: Option<&SecretString>,
     ) -> Result<AnalyzeOutcome, ProviderError> {
         let (slug, model) = self.resolve_model(model_id)?;
         self.ensure_structured_output(model.as_ref())?;
         let bearer = self.bearer(credential)?;
         let data_uri = build_image_data_uri(image_bytes)?;
-        let schema = strict_schema_value(IMAGE_ANALYSIS_FLAT_SCHEMA)?;
+        let schema = strict_schema_value(&image_analysis_schema_json(
+            ImageAnalysisSchemaSpec::analyze(
+                include_understanding,
+                include_rating,
+                include_rating_reasons,
+            ),
+        ))?;
         let (system, instruction) = analyze_prompt(
             prompt_profile_id,
             rubric_id,
             rating_severity,
             output_language,
             camera_context,
+            include_understanding,
+            include_rating,
+            include_rating_reasons,
         )?;
         let (outcome, provider_content, schema_repair_attempt) = self
             .send_and_parse_analyze(
@@ -1427,6 +1459,9 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
         rubric_id: &str,
         rating_severity: &str,
         output_language: &str,
+        include_understanding: bool,
+        include_rating: bool,
+        include_rating_reasons: bool,
         credential: Option<&SecretString>,
     ) -> Result<BatchAnalyzeOutcome, ProviderError> {
         if images.is_empty() {
@@ -1441,13 +1476,22 @@ impl ImageAnalysisProvider for OpenAiChatCompatibleProvider {
             .iter()
             .map(|image| build_image_data_uri(image.image_bytes))
             .collect::<Result<Vec<_>, _>>()?;
-        let schema = strict_schema_value(IMAGE_ANALYSIS_BATCH_SCHEMA)?;
+        let schema = strict_schema_value(&image_analysis_schema_json(
+            ImageAnalysisSchemaSpec::batch_analyze(
+                include_understanding,
+                include_rating,
+                include_rating_reasons,
+            ),
+        ))?;
         let (system, instruction) = batch_analyze_prompt(
             prompt_profile_id,
             rubric_id,
             rating_severity,
             output_language,
             images,
+            include_understanding,
+            include_rating,
+            include_rating_reasons,
         )?;
         let (outcome, provider_content, schema_repair_attempt) = self
             .send_and_parse_batch_analyze(
@@ -1712,6 +1756,7 @@ mod tests {
                 "",
                 "",
                 "",
+                true,
                 Some(&secret()),
             )
             .await
@@ -1748,6 +1793,9 @@ mod tests {
                 "normal",
                 "",
                 "",
+                true,
+                true,
+                true,
                 Some(&secret()),
             )
             .await
@@ -1815,6 +1863,9 @@ mod tests {
                 "normal",
                 "",
                 "",
+                true,
+                true,
+                true,
                 Some(&secret()),
             )
             .await
@@ -1947,6 +1998,32 @@ mod tests {
             other => panic!("expected schema validation, got {other:?}"),
         }
         assert_eq!(server.received_requests().await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn describe_accepts_markdown_fenced_json_content() {
+        // Some compatible models wrap the JSON in a ```json fence despite the
+        // `response_format: json_schema` request. The driver must parse the JSON
+        // out of the fence rather than failing on the leading ``` and burning a
+        // paid repair retry the model tends to repeat.
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(ok_understanding_body(
+                "```json\n{\"caption\":\"a small image\",\"tags\":[\"test\"],\"scene\":\"studio\",\"confidence\":0.7}\n```",
+            )))
+            .mount(&server)
+            .await;
+        let provider = provider_for(&server);
+        let out = provider
+            .describe_image(&test_image_png(), "", "", "", Some(&secret()))
+            .await
+            .expect("fenced JSON content accepted on first attempt");
+        assert_eq!(out.caption, "a small image");
+        assert_eq!(out.tags, vec!["test".to_string()]);
+        assert!((out.confidence - 0.7).abs() < 1e-9);
+        // No repair retry: exactly one provider call.
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
     }
 
     #[tokio::test]

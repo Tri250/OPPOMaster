@@ -47,6 +47,66 @@ pub fn compact_json_excerpt(value: &Value, max_chars: usize) -> String {
     compact_text_excerpt(&text, max_chars)
 }
 
+pub fn sanitized_provider_json_excerpt(value: &Value, max_chars: usize) -> String {
+    let sanitized = sanitize_provider_observability_value(value);
+    compact_json_excerpt(&sanitized, max_chars)
+}
+
+/// Remove provider-internal reasoning from values that may be written to logs or
+/// replayed into schema-repair prompts. Structured parsers should still consume
+/// the original provider body; this is only for observability and repair context.
+pub fn sanitize_provider_observability_value(value: &Value) -> Value {
+    match value {
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(sanitize_provider_observability_value)
+                .collect(),
+        ),
+        Value::Object(map) => {
+            if let Some(block_type) = map.get("type").and_then(Value::as_str) {
+                if is_provider_reasoning_block_type(block_type) {
+                    return serde_json::json!({
+                        "type": block_type,
+                        "omitted": "provider reasoning omitted"
+                    });
+                }
+            }
+
+            let mut sanitized = serde_json::Map::new();
+            for (key, item) in map {
+                if is_provider_reasoning_key(key) {
+                    sanitized.insert(
+                        key.clone(),
+                        Value::String("[provider reasoning omitted]".to_string()),
+                    );
+                } else {
+                    sanitized.insert(key.clone(), sanitize_provider_observability_value(item));
+                }
+            }
+            Value::Object(sanitized)
+        }
+        other => other.clone(),
+    }
+}
+
+fn is_provider_reasoning_block_type(block_type: &str) -> bool {
+    matches!(block_type, "thinking" | "redacted_thinking" | "reasoning")
+}
+
+fn is_provider_reasoning_key(key: &str) -> bool {
+    matches!(
+        key,
+        "thinking"
+            | "signature"
+            | "reasoning"
+            | "reasoning_content"
+            | "chain_of_thought"
+            | "thoughts"
+            | "redacted_thinking"
+    )
+}
+
 /// Maximum number of retries after a transient failure. With the initial attempt
 /// this is at most 2 calls for a transient transport / 429 / 5xx failure; a 4xx
 /// (non-429) is never retried — it is a non-transient provider error such as a
@@ -391,16 +451,142 @@ fn retry_after(resp: &reqwest::Response) -> Option<Duration> {
     Some(Duration::from_secs(secs).min(MAX_RETRY_AFTER))
 }
 
-/// Parse a content string (the model's JSON text) into a `Value`. A non-JSON
-/// content string maps to `SchemaValidation` so the service reports a
+/// Parse a content string (the model's JSON text) into a `Value`. Tolerates a
+/// model that wraps the JSON in markdown fences (``` ```json … ``` ``` or
+/// ``` ``` … ``` ```) or embeds it in prose, since many compatible providers /
+/// models emit structured output as text despite a `json_schema`
+/// `response_format`. A content string with no JSON object/array at all still
+/// fails closed as a `SchemaValidationMessage` so the service reports a
 /// payload-decode failure and creates no active annotation.
 pub fn parse_content_json(content: &str) -> Result<Value, ProviderError> {
-    serde_json::from_str::<Value>(content).map_err(|err| {
-        ProviderError::SchemaValidationMessage(format!(
-            "provider response content was not valid JSON: {err}; content excerpt: {}",
-            compact_text_excerpt(content, 220)
-        ))
-    })
+    // Fast path: the content is clean JSON.
+    if let Ok(v) = serde_json::from_str::<Value>(content) {
+        return Ok(v);
+    }
+    // Fallback: fenced or prose-embedded JSON. Accept it rather than discarding
+    // a valid result and burning a paid retry the model tends to repeat.
+    if let Some(v) = extract_json_from_text_block(content) {
+        return Ok(v);
+    }
+    Err(ProviderError::SchemaValidationMessage(format!(
+        "provider response content was not valid JSON; content excerpt: {}",
+        compact_text_excerpt(content, 220)
+    )))
+}
+
+/// Tolerantly extract a JSON object or array from a model text block that may
+/// wrap the JSON in markdown fences (``` ```json … ``` ``` or ``` ``` … ``` ```)
+/// or embed it in surrounding prose. Returns the first `Value` that parses, or
+/// `None` when no JSON object/array can be found.
+///
+/// This is the fallback path for providers that accept a structured-output
+/// request (Anthropic `tools` + `tool_choice`, or OpenAI
+/// `response_format: json_schema`) but whose underlying model emits the
+/// tool/json arguments as a `text` content block instead of a native structured
+/// block. The Volcengine Ark Coding Plan serving Qwen does this consistently:
+/// the shim honors `tool_choice` at the API layer but the model writes the JSON
+/// out as text (often markdown-fenced). Accepting the JSON from the text block
+/// keeps those responses usable instead of discarding a valid result and
+/// burning a paid retry on a repair that the model typically repeats the same
+/// way.
+pub fn extract_json_from_text_block(text: &str) -> Option<Value> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    // 1) Markdown-fenced block: ```json\n{...}\n``` (or ```\n{...}\n```). The
+    //    fence itself contains no braces, so the JSON inside is extracted whole.
+    if let Some(inner) = extract_fenced_inner(trimmed) {
+        if let Ok(v) = serde_json::from_str::<Value>(inner.trim()) {
+            return Some(v);
+        }
+        // The fenced content may still carry framing prose; scan it for the
+        // first balanced JSON region.
+        if let Some(v) = first_balanced_json(inner) {
+            return Some(v);
+        }
+    }
+    // 2) The whole text is JSON.
+    if let Ok(v) = serde_json::from_str::<Value>(trimmed) {
+        return Some(v);
+    }
+    // 3) JSON embedded in prose: scan for the first balanced object/array.
+    first_balanced_json(trimmed)
+}
+
+/// Extract the inner content of the first markdown code fence (```…```),
+/// without the opening ``` (and its optional language-tag line) or the closing
+/// ```.
+fn extract_fenced_inner(text: &str) -> Option<&str> {
+    let start = text.find("```")?;
+    let after_open = &text[start + 3..];
+    // The opening fence line may carry a language tag (e.g. `json`); skip to
+    // the newline that ends it.
+    let nl = after_open.find('\n')?;
+    let content_start = start + 3 + nl + 1;
+    let rest = &text[content_start..];
+    let close = rest.find("```")?;
+    Some(&rest[..close])
+}
+
+/// Scan `text` for the first balanced `{ … }` or `[ … ]` region that parses as
+/// valid JSON, restarting the search after each candidate so a stray non-JSON
+/// brace in prose does not prevent a later valid object from being found.
+/// String literals and `\` escapes are respected so braces inside strings do
+/// not unbalance the scan.
+fn first_balanced_json(text: &str) -> Option<Value> {
+    let bytes = text.as_bytes();
+    let mut search_from = 0usize;
+    while search_from < bytes.len() {
+        let rel = bytes[search_from..]
+            .iter()
+            .position(|&c| c == b'{' || c == b'[')?;
+        let start = search_from + rel;
+        let open = bytes[start];
+        let close = if open == b'{' { b'}' } else { b']' };
+        match balanced_end(bytes, start, open, close) {
+            Some(end) => {
+                let candidate = &text[start..=end];
+                if let Ok(v) = serde_json::from_str::<Value>(candidate) {
+                    return Some(v);
+                }
+                // This region did not parse; try the next one after it.
+                search_from = end + 1;
+            }
+            None => break,
+        }
+    }
+    None
+}
+
+/// Find the index of the bracket that closes the `open` at `start`, respecting
+/// nested brackets of the same kind, string literals, and `\` escapes. Returns
+/// `None` if the opener is never closed.
+fn balanced_end(bytes: &[u8], start: usize, open: u8, close: u8) -> Option<usize> {
+    let mut depth = 0i32;
+    let mut in_string = false;
+    let mut escape = false;
+    for (i, &c) in bytes[start..].iter().enumerate() {
+        if in_string {
+            if escape {
+                escape = false;
+            } else if c == b'\\' {
+                escape = true;
+            } else if c == b'"' {
+                in_string = false;
+            }
+        } else if c == b'"' {
+            in_string = true;
+        } else if c == open {
+            depth += 1;
+        } else if c == close {
+            depth -= 1;
+            if depth == 0 {
+                return Some(start + i);
+            }
+        }
+    }
+    None
 }
 
 /// Coerce a model-emitted `rating` value to the 1..=5 integer the contract
@@ -593,8 +779,10 @@ mod tests {
 
     #[test]
     fn strict_schema_drops_unsupported_keys_and_forces_required() {
-        let v = strict_schema_value(crate::service::image_analysis::IMAGE_UNDERSTANDING_SCHEMA)
-            .expect("understanding schema sanitizes");
+        let schema = crate::service::image_analysis::image_analysis_schema_json(
+            crate::service::image_analysis::ImageAnalysisSchemaSpec::describe(),
+        );
+        let v = strict_schema_value(&schema).expect("understanding schema sanitizes");
         // $schema and title dropped.
         assert!(v.get("$schema").is_none());
         assert!(v.get("title").is_none());
@@ -615,8 +803,10 @@ mod tests {
 
     #[test]
     fn strict_schema_forces_required_on_rating_properties() {
-        let v = strict_schema_value(crate::service::image_analysis::IMAGE_RATING_SCHEMA)
-            .expect("rating schema sanitizes");
+        let schema = crate::service::image_analysis::image_analysis_schema_json(
+            crate::service::image_analysis::ImageAnalysisSchemaSpec::score(true),
+        );
+        let v = strict_schema_value(&schema).expect("rating schema sanitizes");
         // The rating contract is a flat object: rating + rubric_id + rubric_version
         // + reasons. Strict mode forces every property to be required (sorted), and
         // drops the `minimum`/`maximum` range constraints (the code-owned
@@ -654,6 +844,43 @@ mod tests {
     }
 
     #[test]
+    fn sanitized_provider_excerpt_omits_reasoning_but_keeps_final_output() {
+        let body = serde_json::json!({
+            "content": [
+                {
+                    "type": "thinking",
+                    "thinking": "private chain of thought",
+                    "signature": "signed-reasoning"
+                },
+                {
+                    "type": "tool_use",
+                    "name": "alcedo_image_understanding",
+                    "input": {
+                        "caption": "sunrise",
+                        "tags": ["sun"],
+                        "scene": "outdoor",
+                        "confidence": 0.9
+                    }
+                }
+            ],
+            "choices": [{
+                "message": {
+                    "reasoning_content": "hidden reasoning",
+                    "content": "{\"caption\":\"sunrise\"}"
+                }
+            }]
+        });
+
+        let excerpt = sanitized_provider_json_excerpt(&body, 1200);
+        assert!(!excerpt.contains("private chain of thought"), "{excerpt}");
+        assert!(!excerpt.contains("signed-reasoning"), "{excerpt}");
+        assert!(!excerpt.contains("hidden reasoning"), "{excerpt}");
+        assert!(excerpt.contains("provider reasoning omitted"), "{excerpt}");
+        assert!(excerpt.contains("alcedo_image_understanding"), "{excerpt}");
+        assert!(excerpt.contains("sunrise"), "{excerpt}");
+    }
+
+    #[test]
     fn extract_usage_tolerates_openai_chat_and_responses_field_names() {
         // OpenAI Chat shape.
         let chat: Value = serde_json::from_str(
@@ -681,9 +908,68 @@ mod tests {
     #[test]
     fn parse_content_json_rejects_non_json() {
         let err = parse_content_json("not json").unwrap_err();
-        assert_eq!(err, ProviderError::SchemaValidation);
+        assert!(
+            matches!(err, ProviderError::SchemaValidation | ProviderError::SchemaValidationMessage(_)),
+            "expected schema validation, got {err:?}"
+        );
         let ok = parse_content_json(r#"{"caption": "c"}"#).expect("valid json");
         assert_eq!(ok["caption"], "c");
+    }
+
+    #[test]
+    fn parse_content_json_tolerates_markdown_fenced_json() {
+        // A model that wraps its JSON in a ```json fence despite a json_schema
+        // response_format must still parse: the fence is not a reason to discard
+        // a valid result.
+        let fenced = "```json\n{\"caption\": \"c\", \"tags\": [\"t\"]}\n```";
+        let v = parse_content_json(fenced).expect("fenced json parses");
+        assert_eq!(v["caption"], "c");
+        assert_eq!(v["tags"][0], "t");
+
+        // Fence without a language tag also parses.
+        let bare_fence = "```\n{\"caption\": \"c\"}\n```";
+        let v = parse_content_json(bare_fence).expect("bare-fenced json parses");
+        assert_eq!(v["caption"], "c");
+    }
+
+    #[test]
+    fn parse_content_json_tolerates_json_embedded_in_prose() {
+        let prose = "Here is the analysis:\n{\"caption\": \"c\", \"tags\": [\"t\"]}\nHope it helps.";
+        let v = parse_content_json(prose).expect("embedded json parses");
+        assert_eq!(v["caption"], "c");
+        assert_eq!(v["tags"][0], "t");
+    }
+
+    #[test]
+    fn extract_json_from_text_block_handles_fenced_raw_and_prose() {
+        // Raw JSON.
+        let v = extract_json_from_text_block(r#"{"caption": "c"}"#).expect("raw");
+        assert_eq!(v["caption"], "c");
+        // ```json-fenced.
+        let v = extract_json_from_text_block("```json\n{\"a\": 1}\n```").expect("fenced");
+        assert_eq!(v["a"], 1);
+        // Bare-fenced.
+        let v = extract_json_from_text_block("```\n{\"a\": 2}\n```").expect("bare fenced");
+        assert_eq!(v["a"], 2);
+        // Embedded in prose (a stray non-JSON brace before the real object must
+        // not stop the scan from finding the valid JSON later).
+        let v = extract_json_from_text_block("result: {bad} but real: {\"a\": 3}").expect("prose");
+        assert_eq!(v["a"], 3);
+        // Top-level array.
+        let v = extract_json_from_text_block("[1, 2, 3]").expect("array");
+        assert_eq!(v[2], 3);
+        // Braces inside strings do not unbalance the scan.
+        let v = extract_json_from_text_block(r#"{"caption": "a {b} c"}"#).expect("braces in string");
+        assert_eq!(v["caption"], "a {b} c");
+    }
+
+    #[test]
+    fn extract_json_from_text_block_returns_none_for_non_json() {
+        assert!(extract_json_from_text_block("not json at all").is_none());
+        assert!(extract_json_from_text_block("").is_none());
+        assert!(extract_json_from_text_block("   ").is_none());
+        // Unclosed brace is not valid JSON.
+        assert!(extract_json_from_text_block(r#"{"caption": "c""#).is_none());
     }
 
     #[test]

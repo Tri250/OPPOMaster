@@ -49,6 +49,7 @@ struct ImageAnalysisRequest {
   std::string            camera_context;
   bool                   include_understanding = true;
   bool                   include_rating        = false;
+  bool                   include_rating_reasons = true;
 };
 
 struct ImageAnalysisUnderstandingResult {

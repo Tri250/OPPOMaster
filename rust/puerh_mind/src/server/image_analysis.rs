@@ -532,6 +532,7 @@ impl ImageAnalysisService for ImageAnalysisServiceImpl {
             &req.rating_severity,
             &req.output_language,
             &req.camera_context,
+            req.include_rating_reasons,
             credential.as_ref(),
         );
         tokio::pin!(provider_fut);
@@ -710,6 +711,9 @@ impl ImageAnalysisService for ImageAnalysisServiceImpl {
             &req.rating_severity,
             &req.output_language,
             &req.camera_context,
+            req.include_understanding,
+            req.include_rating,
+            req.include_rating_reasons,
             credential.as_ref(),
         );
         tokio::pin!(provider_fut);
@@ -895,6 +899,9 @@ impl ImageAnalysisService for ImageAnalysisServiceImpl {
             &req.rubric_id,
             &req.rating_severity,
             &req.output_language,
+            req.include_understanding,
+            req.include_rating,
+            req.include_rating_reasons,
             credential.as_ref(),
         );
         tokio::pin!(provider_fut);
@@ -1227,6 +1234,7 @@ mod tests {
             output_language: String::new(),
             rating_severity: String::new(),
             camera_context: String::new(),
+            include_rating_reasons: true,
         });
         let resp = svc.score_image(req).await.expect("rpc ok");
         let inner = resp.into_inner();
@@ -1263,6 +1271,7 @@ mod tests {
             output_language: String::new(),
             rating_severity: String::new(),
             camera_context: String::new(),
+            include_rating_reasons: true,
         });
         let resp = svc.analyze_image(req).await.expect("rpc ok");
         let inner = resp.into_inner();

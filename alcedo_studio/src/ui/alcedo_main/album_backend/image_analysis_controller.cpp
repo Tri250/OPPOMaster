@@ -27,8 +27,10 @@ using namespace std::chrono_literals;
 
 namespace {
 
-// Credential handle TTL for a remote image-analysis job (matches the 6c default).
-constexpr int64_t kCredentialTtlMs = 60000;
+// Remote analysis jobs may span many serialized provider calls. Use the sidecar
+// default credential TTL (currently one hour) and still revoke explicitly when
+// the job finishes; a short host TTL can expire mid-run on slow batch analysis.
+constexpr int64_t kAnalysisCredentialTtlMs = 0;
 
 void              ClearSecret(std::string* secret) {
   if (secret == nullptr) {
@@ -203,24 +205,30 @@ void ImageAnalysisController::SetError(const QString& error) {
 }
 
 void ImageAnalysisController::StartDescribeForTargets(const QVariantList& targetEntries) {
-  StartForTargets(targetEntries, alcedo::ImageAnalysisTask::kDescribe);
+  StartForTargets(targetEntries, alcedo::ImageAnalysisTask::kDescribe, false);
 }
 
-void ImageAnalysisController::StartScoreForTargets(const QVariantList& targetEntries) {
-  StartForTargets(targetEntries, alcedo::ImageAnalysisTask::kScore);
+void ImageAnalysisController::StartScoreForTargets(const QVariantList& targetEntries,
+                                                   bool includeRatingReasons) {
+  StartForTargets(targetEntries, alcedo::ImageAnalysisTask::kScore, includeRatingReasons);
 }
 
-void ImageAnalysisController::StartAnalyzeForTargets(const QVariantList& targetEntries) {
-  StartForTargets(targetEntries, alcedo::ImageAnalysisTask::kAnalyze);
+void ImageAnalysisController::StartAnalyzeForTargets(const QVariantList& targetEntries,
+                                                     bool includeRatingReasons) {
+  StartForTargets(targetEntries, alcedo::ImageAnalysisTask::kAnalyze, includeRatingReasons);
 }
 
 void ImageAnalysisController::StartForTargets(const QVariantList&       targetEntries,
-                                              alcedo::ImageAnalysisTask task) {
+                                              alcedo::ImageAnalysisTask task,
+                                              bool                      includeRatingReasons) {
   if (running_) {
     return;
   }
   last_error_.clear();
-  last_task_ = task;
+  last_task_                   = task;
+  last_include_rating_reasons_ = task == alcedo::ImageAnalysisTask::kDescribe
+                                     ? false
+                                     : includeRatingReasons;
 
   auto items = CollectItems(targetEntries);
   if (items.empty()) {
@@ -308,9 +316,10 @@ void ImageAnalysisController::StartForTargets(const QVariantList&       targetEn
   options.model_id               = profile.model_id.toStdString();
   options.output_language        = ResolveOutputLanguage(profiles_->OutputLanguage()).toStdString();
   options.rating_severity        = rating_severity_.toStdString();
+  options.include_rating_reasons = last_include_rating_reasons_;
   options.credential.provider_id = profile.provider_id.toStdString();
   options.credential.secret      = std::move(secret);
-  options.credential_ttl_ms      = kCredentialTtlMs;
+  options.credential_ttl_ms      = kAnalysisCredentialTtlMs;
   options.temp_dir               = std::filesystem::temp_directory_path();
   options.prefetch               = 1;
   options.max_image_bytes        = profile.max_image_bytes;
@@ -378,8 +387,9 @@ void ImageAnalysisController::RetryLast() {
   if (running_ || last_items_.empty()) {
     return;
   }
-  auto         items = last_items_;
-  auto         task  = last_task_;
+  auto         items                 = last_items_;
+  auto         task                  = last_task_;
+  const bool   includeRatingReasons  = last_include_rating_reasons_;
   // Re-run via StartForTargets by reconstructing the target entries from items.
   QVariantList entries;
   for (const auto& it : items) {
@@ -388,7 +398,7 @@ void ImageAnalysisController::RetryLast() {
     m.insert("imageId", static_cast<uint>(it.image_id));
     entries.push_back(m);
   }
-  StartForTargets(entries, task);
+  StartForTargets(entries, task, includeRatingReasons);
 }
 
 void ImageAnalysisController::ValidateConnection() {
@@ -458,7 +468,7 @@ void ImageAnalysisController::ValidateConnectionForProfile(const QString& profil
     opts.provider_id       = provider_id;
     opts.credential_slot   = slot;
     opts.timeout           = std::chrono::milliseconds(timeout_ms);
-    opts.credential_ttl_ms = kCredentialTtlMs;
+    opts.credential_ttl_ms = 60000;
     auto result            = service.ValidateConnection(opts, *store);
     QMetaObject::invokeMethod(
         self,
@@ -635,7 +645,9 @@ void ImageAnalysisController::Finish(std::vector<alcedo::ImageAnalysisItemResult
         sink_->PersistUnderstanding(r);
       }
       if (!describe) {
-        sink_->PersistRatingReasons(r);
+        if (last_include_rating_reasons_) {
+          sink_->PersistRatingReasons(r);
+        }
         sink_->ApplyStarRating(static_cast<uint32_t>(r.item.element_id),
                                static_cast<uint32_t>(r.item.image_id), r.rating.rating);
       }

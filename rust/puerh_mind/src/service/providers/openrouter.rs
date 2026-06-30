@@ -209,6 +209,7 @@ mod tests {
                 "",
                 "",
                 "",
+                true,
                 Some(&secret()),
             )
             .await
@@ -249,6 +250,7 @@ mod tests {
                 "",
                 "",
                 "",
+                true,
                 Some(&secret()),
             )
             .await
@@ -284,6 +286,7 @@ mod tests {
                 "",
                 "",
                 "",
+                true,
                 Some(&secret()),
             )
             .await
@@ -316,6 +319,7 @@ mod tests {
                 "",
                 "",
                 "",
+                true,
                 Some(&secret()),
             )
             .await

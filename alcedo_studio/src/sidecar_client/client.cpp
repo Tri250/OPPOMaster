@@ -851,6 +851,7 @@ class GrpcImageAnalysisClient final : public ImageAnalysisClient {
     req.set_output_language(request.output_language);
     req.set_rating_severity(request.rating_severity);
     req.set_camera_context(request.camera_context);
+    req.set_include_rating_reasons(request.include_rating_reasons);
     alcedo::ai::ScoreImageResponse response;
     const auto status = stub->ScoreImage(&context, req, &response);
     if (status.ok()) {
@@ -880,6 +881,7 @@ class GrpcImageAnalysisClient final : public ImageAnalysisClient {
     req.set_prompt_profile_id(request.prompt_profile_id);
     req.set_include_understanding(request.include_understanding);
     req.set_include_rating(request.include_rating);
+    req.set_include_rating_reasons(request.include_rating_reasons);
     req.set_rubric_id(request.rubric_id);
     req.set_output_language(request.output_language);
     req.set_rating_severity(request.rating_severity);
@@ -915,6 +917,7 @@ class GrpcImageAnalysisClient final : public ImageAnalysisClient {
     req.set_prompt_profile_id(requests.front().prompt_profile_id);
     req.set_include_understanding(requests.front().include_understanding);
     req.set_include_rating(requests.front().include_rating);
+    req.set_include_rating_reasons(requests.front().include_rating_reasons);
     req.set_rubric_id(requests.front().rubric_id);
     req.set_output_language(requests.front().output_language);
     req.set_rating_severity(requests.front().rating_severity);

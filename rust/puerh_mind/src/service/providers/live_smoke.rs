@@ -101,6 +101,7 @@ async fn live_openrouter_smoke_describe_and_score() {
             "",
             "",
             "",
+            true,
             Some(&secret),
         )
         .await
@@ -148,6 +149,7 @@ async fn live_volcengine_ark_smoke_describe_and_score() {
             "",
             "",
             "",
+            true,
             Some(&secret),
         )
         .await
@@ -204,6 +206,7 @@ async fn live_volcengine_ark_coding_smoke_describe_and_score() {
             "",
             "",
             "",
+            true,
             Some(&secret),
         )
         .await

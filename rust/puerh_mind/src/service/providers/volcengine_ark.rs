@@ -27,14 +27,14 @@ use tracing::warn;
 
 use crate::service::credential_vault::SecretString;
 use crate::service::image_analysis::{
-    DescribeOutcome, IMAGE_RATING_SCHEMA, IMAGE_UNDERSTANDING_SCHEMA, ImageAnalysisProvider,
-    ProviderError, ScoreOutcome, validate_rating, validate_understanding,
+    DescribeOutcome, ImageAnalysisProvider, ImageAnalysisSchemaSpec, ProviderError, ScoreOutcome,
+    image_analysis_schema_json, validate_rating, validate_understanding,
 };
 use crate::service::provider_config::{ModelConfig, ProviderConfig};
 use crate::service::providers::http_util::{
-    MAX_TRANSIENT_RETRIES, build_image_data_uri, build_rustls_client, compact_json_excerpt,
-    compact_text_excerpt, extract_usage, json_pointer_str, parse_content_json, parse_rating_int,
-    read_response, send_with_retry, strict_schema_value,
+    MAX_TRANSIENT_RETRIES, build_image_data_uri, build_rustls_client, compact_text_excerpt,
+    extract_usage, json_pointer_str, parse_content_json, parse_rating_int, read_response,
+    sanitized_provider_json_excerpt, send_with_retry, strict_schema_value,
 };
 
 const UNDERSTANDING_SCHEMA_NAME: &str = "alcedo_image_understanding";
@@ -273,21 +273,17 @@ impl VolcengineArkResponsesProvider {
     fn response_content_excerpt(body: &Value) -> String {
         Self::extract_output_text(body)
             .map(|text| compact_text_excerpt(&text, 1200))
-            .unwrap_or_else(|| compact_json_excerpt(body, 1200))
+            .unwrap_or_else(|| sanitized_provider_json_excerpt(body, 1200))
     }
 }
 
-fn describe_prompt(prompt_profile_id: &str, output_language: &str) -> (String, String) {
-    let mut system = "You are an image understanding assistant for Alcedo Studio. Analyze the supplied image and respond with a single JSON object matching the provided schema. The object must contain: \"caption\" (a concise one-line description of the image), \"tags\" (an array of short lowercase searchable tags, with at least one tag), \"scene\" (a short scene or category hint, or an empty string if none), and \"confidence\" (your confidence in the description, a number between 0.0 and 1.0). Output only the JSON object — no prose, no markdown code fences.".to_string();
-    system.push_str(&crate::service::image_analysis::language_directive(
-        output_language,
-    ));
-    let mut instruction = "Describe this image for a photo library.".to_string();
-    if !prompt_profile_id.trim().is_empty() {
-        instruction.push_str(&format!(" Prompt profile: {prompt_profile_id}."));
-    }
-    instruction.push_str(" Return only the JSON object described above.");
-    (system, instruction)
+fn describe_prompt(
+    prompt_profile_id: &str,
+    output_language: &str,
+) -> Result<(String, String), ProviderError> {
+    let prompt =
+        crate::service::prompt_profiles::describe_prompt(prompt_profile_id, output_language)?;
+    Ok((prompt.system, prompt.instruction))
 }
 
 fn score_prompt(
@@ -296,25 +292,17 @@ fn score_prompt(
     rating_severity: &str,
     output_language: &str,
     camera_context: &str,
-) -> (String, String) {
-    let system =
-        crate::service::image_analysis::rating_system_prompt(rating_severity, output_language);
-    let mut instruction = "Rate this image on a 1–5 star scale.".to_string();
-    if !rubric_id.trim().is_empty() {
-        instruction.push_str(&format!(" Rubric: {rubric_id}."));
-    }
-    if !prompt_profile_id.trim().is_empty() {
-        instruction.push_str(&format!(" Prompt profile: {prompt_profile_id}."));
-    }
-    let camera_context = camera_context.trim();
-    if !camera_context.is_empty() {
-        instruction.push_str("\n\nUse this camera/EXIF metadata as additional context for the rating only when it is relevant:\n");
-        instruction.push_str(camera_context);
-    }
-    instruction.push_str(
-        " Return only the JSON object described above, with an integer \"rating\" between 1 and 5.",
-    );
-    (system, instruction)
+    include_rating_reasons: bool,
+) -> Result<(String, String), ProviderError> {
+    let prompt = crate::service::prompt_profiles::score_prompt(
+        prompt_profile_id,
+        rubric_id,
+        rating_severity,
+        output_language,
+        camera_context,
+        include_rating_reasons,
+    )?;
+    Ok((prompt.system, prompt.instruction))
 }
 
 #[tonic::async_trait]
@@ -364,8 +352,10 @@ impl ImageAnalysisProvider for VolcengineArkResponsesProvider {
         self.ensure_structured_output(model)?;
         let bearer = self.bearer(credential)?;
         let data_uri = build_image_data_uri(image_bytes)?;
-        let schema = strict_schema_value(IMAGE_UNDERSTANDING_SCHEMA)?;
-        let (system, instruction) = describe_prompt(prompt_profile_id, output_language);
+        let schema = strict_schema_value(&image_analysis_schema_json(
+            ImageAnalysisSchemaSpec::describe(),
+        ))?;
+        let (system, instruction) = describe_prompt(prompt_profile_id, output_language)?;
         let body = self.build_responses_body(
             &slug,
             &data_uri,
@@ -419,20 +409,24 @@ impl ImageAnalysisProvider for VolcengineArkResponsesProvider {
         rating_severity: &str,
         output_language: &str,
         camera_context: &str,
+        include_rating_reasons: bool,
         credential: Option<&SecretString>,
     ) -> Result<ScoreOutcome, ProviderError> {
         let (slug, model) = self.resolve_model(model_id)?;
         self.ensure_structured_output(model)?;
         let bearer = self.bearer(credential)?;
         let data_uri = build_image_data_uri(image_bytes)?;
-        let schema = strict_schema_value(IMAGE_RATING_SCHEMA)?;
+        let schema = strict_schema_value(&image_analysis_schema_json(
+            ImageAnalysisSchemaSpec::score(include_rating_reasons),
+        ))?;
         let (system, instruction) = score_prompt(
             prompt_profile_id,
             rubric_id,
             rating_severity,
             output_language,
             camera_context,
-        );
+            include_rating_reasons,
+        )?;
         let body = self.build_responses_body(
             &slug,
             &data_uri,
@@ -668,6 +662,7 @@ mod tests {
                 "",
                 "",
                 "",
+                true,
                 Some(&secret()),
             )
             .await
@@ -705,6 +700,7 @@ mod tests {
                 "",
                 "",
                 "",
+                true,
                 Some(&secret()),
             )
             .await

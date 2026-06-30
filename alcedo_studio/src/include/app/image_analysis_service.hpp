@@ -79,6 +79,9 @@ struct ImageAnalysisOptions {
   // "xhigh" = 老法师; "max" = exacting 懂哥 connoisseur.
   // Selects the rating system prompt in the driver; ignored by DescribeImage.
   std::string               rating_severity;
+  // Rating rationale is optional UI-selected content under the rating task.
+  // Rating itself may still be requested without persisting or generating reasons.
+  bool                      include_rating_reasons = true;
   ImageAnalysisCredential   credential;
   std::filesystem::path     temp_dir;  // empty => std::filesystem::temp_directory_path()
   int64_t                   credential_ttl_ms = 0;  // 0 => sidecar default

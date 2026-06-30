@@ -106,10 +106,11 @@ class FakeClient : public alcedo::IImageAnalysisClient {
   }
 
   auto Ready() -> bool override { return true; }
-  auto RegisterCredential(const std::string&, const std::string&, int64_t,
+  auto RegisterCredential(const std::string&, const std::string&, int64_t ttl_ms,
                           std::chrono::milliseconds, std::string* handle, std::string*)
       -> bool override {
     ++register_calls_;
+    last_registered_ttl_ms_ = ttl_ms;
     if (handle) {
       *handle = "fake-handle";
     }
@@ -202,6 +203,7 @@ class FakeClient : public alcedo::IImageAnalysisClient {
   auto AnalyzeCalls() const -> int { return analyze_calls_.load(); }
   auto CancelCalls() const -> int { return cancel_calls_.load(); }
   auto RegisterCalls() const -> int { return register_calls_.load(); }
+  auto LastRegisteredTtlMs() const -> int64_t { return last_registered_ttl_ms_.load(); }
   auto ListModelsCalls() const -> int { return list_models_calls_.load(); }
   auto LastOutputLanguage() const -> std::string { return last_output_language_; }
   auto LastRatingSeverity() const -> std::string { return last_rating_severity_; }
@@ -291,6 +293,7 @@ class FakeClient : public alcedo::IImageAnalysisClient {
   std::atomic<int>        register_calls_{0};
   std::atomic<int>        list_models_calls_{0};
   std::atomic<int>        revoke_calls_{0};
+  std::atomic<int64_t>    last_registered_ttl_ms_{-1};
   std::string             last_output_language_;
   std::string             last_rating_severity_;
   std::string             last_camera_context_;
@@ -638,6 +641,16 @@ TEST_F(ImageAnalysisControllerTest, OneImageDescribeSucceeds) {
   EXPECT_EQ(r.value("caption").toString(), QStringLiteral("a caption"));
 }
 
+TEST_F(ImageAnalysisControllerTest, AnalysisJobUsesSidecarDefaultCredentialTtl) {
+  auto controller = MakeController();
+  controller->StartAnalyzeForTargets(Targets({{1, 100}, {2, 200}, {3, 300}, {4, 400}}), true);
+  ASSERT_TRUE(WaitForFinished(*controller, std::chrono::seconds(15)));
+  EXPECT_EQ(controller->Analyzed(), 4);
+  EXPECT_EQ(controller->Failed(), 0);
+  EXPECT_EQ(last_bundle_->client->RegisterCalls(), 1);
+  EXPECT_EQ(last_bundle_->client->LastRegisteredTtlMs(), 0);
+}
+
 TEST_F(ImageAnalysisControllerTest, MultiImageDescribeSucceeds) {
   auto controller = MakeController();
   controller->StartDescribeForTargets(Targets({{1, 100}, {2, 200}, {3, 300}}));
@@ -727,7 +740,7 @@ TEST_F(ImageAnalysisControllerTest, StructuredOutputNoneProviderDoesNotStartSide
                                                      QStringLiteral("none")));
   ASSERT_TRUE(last_bundle_->profiles.SetActiveProfile(profile_id));
 
-  controller->StartScoreForTargets(Targets({{1, 100}}));
+  controller->StartScoreForTargets(Targets({{1, 100}}), true);
 
   EXPECT_FALSE(controller->Running());
   EXPECT_FALSE(controller->LastError().isEmpty());
@@ -750,7 +763,7 @@ TEST_F(ImageAnalysisControllerTest, MissingCredentialSetsErrorAndDoesNotStart) {
 
 TEST_F(ImageAnalysisControllerTest, ScoreTaskReturnsRating) {
   auto controller = MakeController();
-  controller->StartScoreForTargets(Targets({{1, 100}}));
+  controller->StartScoreForTargets(Targets({{1, 100}}), true);
   ASSERT_TRUE(WaitForFinished(*controller, std::chrono::seconds(10)));
   EXPECT_EQ(controller->Analyzed(), 1);
   EXPECT_EQ(last_bundle_->client->ScoreCalls(), 1);
@@ -764,7 +777,7 @@ TEST_F(ImageAnalysisControllerTest, ScoreTaskReturnsRating) {
 
 TEST_F(ImageAnalysisControllerTest, AnalyzeTaskUsesSingleCallAndPersistsBothOutputs) {
   auto controller = MakeController();
-  controller->StartAnalyzeForTargets(Targets({{1, 100}}));
+  controller->StartAnalyzeForTargets(Targets({{1, 100}}), true);
   ASSERT_TRUE(WaitForFinished(*controller, std::chrono::seconds(10)));
 
   EXPECT_EQ(controller->Analyzed(), 1);
@@ -839,7 +852,7 @@ TEST_F(ImageAnalysisControllerTest, DescribeSuccessPersistsUnderstandingAndNotif
 // the batched star writes at job end; no understanding / search-notify path is touched.
 TEST_F(ImageAnalysisControllerTest, ScoreSuccessPersistsReasonsAppliesStarAndFlushes) {
   auto controller = MakeController();
-  controller->StartScoreForTargets(Targets({{7, 700}, {8, 800}}));
+  controller->StartScoreForTargets(Targets({{7, 700}, {8, 800}}), true);
   ASSERT_TRUE(WaitForFinished(*controller, std::chrono::seconds(15)));
   EXPECT_EQ(controller->Analyzed(), 2);
 
@@ -882,7 +895,7 @@ TEST_F(ImageAnalysisControllerTest, SchemaErrorMakesNoSinkCalls) {
 TEST_F(ImageAnalysisControllerTest, CancelMakesNoSinkCalls) {
   auto controller = MakeController();
   last_bundle_->client->SetBlockMode(true);
-  controller->StartScoreForTargets(Targets({{1, 100}}));
+  controller->StartScoreForTargets(Targets({{1, 100}}), true);
   ASSERT_TRUE(SpinWaitFor([&] { return last_bundle_->client->ScoreCalls() >= 1; },
                           std::chrono::seconds(5)));
   controller->CancelAnalysis();
@@ -956,7 +969,7 @@ TEST_F(ImageAnalysisControllerTest, OutputLanguageExplicitZhReachesProvider) {
 TEST_F(ImageAnalysisControllerTest, OutputLanguageExplicitEnReachesProvider) {
   auto controller = MakeController();
   last_bundle_->profiles.SetOutputLanguage(QStringLiteral("en"));
-  controller->StartScoreForTargets(Targets({{1, 100}}));
+  controller->StartScoreForTargets(Targets({{1, 100}}), true);
   ASSERT_TRUE(WaitForFinished(*controller, std::chrono::seconds(10)));
   EXPECT_EQ(last_bundle_->client->LastOutputLanguage(), "en");
 }
@@ -991,7 +1004,7 @@ TEST_F(ImageAnalysisControllerTest, RatingSeverityPersistsAndReachesScoreProvide
   QSettings().remove(QStringLiteral("ai/analysis/ratingSeverity"));
   auto controller = MakeController();
   ASSERT_TRUE(controller->SetRatingSeverity(QStringLiteral("max")));
-  controller->StartScoreForTargets(Targets({{1, 100}}));
+  controller->StartScoreForTargets(Targets({{1, 100}}), true);
   ASSERT_TRUE(WaitForFinished(*controller, std::chrono::seconds(10)));
   // The severity is threaded into the ScoreImage request and reaches the provider.
   EXPECT_EQ(last_bundle_->client->LastRatingSeverity(), "max");
@@ -1008,21 +1021,21 @@ TEST_F(ImageAnalysisControllerTest, CameraContextOnlyReachesGearSensitiveRatingR
 
   auto normal = MakeController();
   last_bundle_->env->SetCameraContext(100, "Camera/EXIF metadata: camera_make=Leica.");
-  normal->StartScoreForTargets(Targets({{1, 100}}));
+  normal->StartScoreForTargets(Targets({{1, 100}}), true);
   ASSERT_TRUE(WaitForFinished(*normal, std::chrono::seconds(10)));
   EXPECT_TRUE(last_bundle_->client->LastCameraContext().empty());
 
   auto high = MakeController();
   last_bundle_->env->SetCameraContext(101, "Camera/EXIF metadata: camera_make=Hasselblad.");
   ASSERT_TRUE(high->SetRatingSeverity(QStringLiteral("high")));
-  high->StartScoreForTargets(Targets({{1, 101}}));
+  high->StartScoreForTargets(Targets({{1, 101}}), true);
   ASSERT_TRUE(WaitForFinished(*high, std::chrono::seconds(10)));
   EXPECT_TRUE(last_bundle_->client->LastCameraContext().empty());
 
   auto xhigh = MakeController();
   last_bundle_->env->SetCameraContext(102, "Camera/EXIF metadata: camera_make=Hasselblad.");
   ASSERT_TRUE(xhigh->SetRatingSeverity(QStringLiteral("xhigh")));
-  xhigh->StartScoreForTargets(Targets({{1, 102}}));
+  xhigh->StartScoreForTargets(Targets({{1, 102}}), true);
   ASSERT_TRUE(WaitForFinished(*xhigh, std::chrono::seconds(10)));
   EXPECT_EQ(last_bundle_->client->LastCameraContext(),
             "Camera/EXIF metadata: camera_make=Hasselblad.");
@@ -1030,7 +1043,7 @@ TEST_F(ImageAnalysisControllerTest, CameraContextOnlyReachesGearSensitiveRatingR
   auto max = MakeController();
   last_bundle_->env->SetCameraContext(103, "Camera/EXIF metadata: camera_make=Leica.");
   ASSERT_TRUE(max->SetRatingSeverity(QStringLiteral("max")));
-  max->StartScoreForTargets(Targets({{1, 103}}));
+  max->StartScoreForTargets(Targets({{1, 103}}), true);
   ASSERT_TRUE(WaitForFinished(*max, std::chrono::seconds(10)));
   EXPECT_EQ(last_bundle_->client->LastCameraContext(), "Camera/EXIF metadata: camera_make=Leica.");
 

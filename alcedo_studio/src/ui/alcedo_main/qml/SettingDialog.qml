@@ -253,7 +253,7 @@ Dialog {
                                     { label: qsTr("Theme and color"), icon: "qrc:/panel_icons/palette.svg" },
                                     { label: qsTr("Cache"), icon: "qrc:/panel_icons/box.svg" },
                                     { label: qsTr("Local Content Recognition"), icon: "qrc:/panel_icons/search.svg" },
-                                    { label: qsTr("Advanced Content Analysis"), icon: "qrc:/panel_icons/color-filter.svg" },
+                                    { label: qsTr("Advanced Content Analysis"), icon: "qrc:/panel_icons/flask.svg" },
                                     { label: qsTr("About"), icon: "qrc:/panel_icons/aperture.svg" }
                                 ]
 

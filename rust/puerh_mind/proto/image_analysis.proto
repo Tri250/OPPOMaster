@@ -160,6 +160,8 @@ message ScoreImageRequest {
   // gear/parameter-sensitive personas such as xHigh (老法师) and Max (懂哥);
   // other modes leave it empty.
   string camera_context = 11;
+  // Whether the JSON contract should include the rating rationale field.
+  bool include_rating_reasons = 12;
 }
 
 message ScoreImageResponse {
@@ -186,6 +188,7 @@ message AnalyzeImageRequest {
   string output_language = 11;
   string rating_severity = 12;
   string camera_context = 13;
+  bool include_rating_reasons = 14;
 }
 
 message AnalyzeImageResponse {
@@ -217,6 +220,7 @@ message BatchAnalyzeImageRequest {
   string rubric_id = 8;
   string output_language = 9;
   string rating_severity = 10;
+  bool include_rating_reasons = 11;
 }
 
 message BatchAnalyzeImageItemResponse {
