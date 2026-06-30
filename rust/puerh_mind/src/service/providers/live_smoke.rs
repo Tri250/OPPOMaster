@@ -3,9 +3,11 @@
 //!
 //! These are NOT part of the default CI gate — they call real provider endpoints
 //! and may incur cost. Each test loads a gitignored `.env.test` (via `dotenvy`) and
-//! skips (prints + returns) when its API key is unset or empty, so `cargo test`
-//! without credentials is a clean no-op pass. To run them, copy
-//! `.env.test.example` to `.env.test`, fill in real keys, and run `cargo test`.
+//! skips (prints + returns) unless explicitly opted in with
+//! `ALCEDO_MIND_LIVE_SMOKE=1`, so `cargo test` without real-model intent is a
+//! clean no-op pass even if the shell happens to contain stale provider keys. To
+//! run them, copy `.env.test.example` to `.env.test`, fill in real keys, set
+//! `ALCEDO_MIND_LIVE_SMOKE=1`, and run `cargo test`.
 //!
 //! Purpose: the mock-server tests in `openrouter.rs` / `volcengine_ark.rs` /
 //! `anthropic_messages.rs` cover the drivers' request/response shapes against
@@ -25,6 +27,17 @@ use crate::service::provider_config::load_provider_configs;
 use crate::service::providers::anthropic_messages::AnthropicMessagesProvider;
 use crate::service::providers::openrouter::OpenRouterChatProvider;
 use crate::service::providers::volcengine_ark::VolcengineArkResponsesProvider;
+
+fn live_smoke_enabled_or_skip() -> bool {
+    let enabled = std::env::var("ALCEDO_MIND_LIVE_SMOKE")
+        .ok()
+        .map(|v| matches!(v.trim(), "1" | "true" | "TRUE" | "yes" | "YES"))
+        .unwrap_or(false);
+    if !enabled {
+        eprintln!("skip: ALCEDO_MIND_LIVE_SMOKE=1 not set (live smoke)");
+    }
+    enabled
+}
 
 /// Return the first non-empty env var from `keys`, or `None` after printing a
 /// skip line. Existing process env vars take precedence over `.env.test`
@@ -68,6 +81,9 @@ fn smoke_image_png() -> Vec<u8> {
 #[tokio::test]
 async fn live_openrouter_smoke_describe_and_score() {
     let _ = dotenvy::from_filename(".env.test").ok();
+    if !live_smoke_enabled_or_skip() {
+        return;
+    }
     let key = env_or_skip(&["ALCEDO_OPENROUTER_API_KEY", "OPENROUTER_API_KEY"]);
     let Some(key) = key else {
         return;
@@ -116,6 +132,9 @@ async fn live_openrouter_smoke_describe_and_score() {
 #[tokio::test]
 async fn live_volcengine_ark_smoke_describe_and_score() {
     let _ = dotenvy::from_filename(".env.test").ok();
+    if !live_smoke_enabled_or_skip() {
+        return;
+    }
     let key = env_or_skip(&["ALCEDO_VOLCENGINE_ARK_API_KEY", "ALCEDO_ARK_API_KEY"]);
     let Some(key) = key else {
         return;
@@ -173,6 +192,9 @@ async fn live_volcengine_ark_coding_smoke_describe_and_score() {
     // 404s on the model or rejects the image, adjust the `slug` to a confirmed
     // vision-capable Coding Plan model.
     let _ = dotenvy::from_filename(".env.test").ok();
+    if !live_smoke_enabled_or_skip() {
+        return;
+    }
     let key = env_or_skip(&["ALCEDO_VOLCENGINE_ARK_API_KEY", "ALCEDO_ARK_API_KEY"]);
     let Some(key) = key else {
         return;
