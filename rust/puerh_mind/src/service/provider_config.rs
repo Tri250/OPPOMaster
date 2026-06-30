@@ -246,6 +246,11 @@ pub struct ProviderConfig {
     #[serde(default)]
     #[allow(dead_code)]
     pub models_endpoint: Option<String>,
+    /// Optional parser knobs for model-list discovery responses. When omitted,
+    /// drivers keep the compatible default: a top-level `data` array whose items
+    /// are model objects with `id` plus optional `display_name` / `name`.
+    #[serde(default)]
+    pub models_response: ModelListResponseConfig,
     pub auth: AuthConfig,
     #[serde(default)]
     pub attribution_headers: HashMap<String, String>,
@@ -255,6 +260,23 @@ pub struct ProviderConfig {
     pub limits: LimitsConfig,
     #[serde(default)]
     pub models: Vec<ModelConfig>,
+}
+
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct ModelListResponseConfig {
+    /// JSON Pointer to the model array. `None` or blank means the compatible
+    /// default `/data`; local routers such as cc-switch can use `/models`.
+    #[serde(default)]
+    pub data_json_pointer: Option<String>,
+    /// Optional JSON Pointer relative to each object item for the model id.
+    /// Blank or absent keeps the default `id`; string array items are accepted
+    /// as model ids regardless of this field.
+    #[serde(default)]
+    pub id_json_pointer: Option<String>,
+    /// Optional JSON Pointer relative to each object item for display text.
+    /// Blank or absent keeps the default `display_name`, then `name`, then id.
+    #[serde(default)]
+    pub display_name_json_pointer: Option<String>,
 }
 
 /// Ordered set of validated provider configs keyed by `provider_id` for lookup.
@@ -333,6 +355,17 @@ const BUILTIN_PROVIDER_CONFIGS: &[(&str, &str)] = &[
     (
         "opencode_go_openai",
         include_str!("../../configs/providers/opencode_go_openai.json"),
+    ),
+    // CC Switch local routing presets. Credentials and upstream provider state
+    // are owned by CC Switch; Alcedo only points compatible clients at the local
+    // router.
+    (
+        "ccswitch_anthropic",
+        include_str!("../../configs/providers/ccswitch_anthropic.json"),
+    ),
+    (
+        "ccswitch_openai",
+        include_str!("../../configs/providers/ccswitch_openai.json"),
     ),
 ];
 
@@ -531,6 +564,7 @@ fn validate_config(config: &ProviderConfig, source: &str) -> Result<(), ConfigEr
             ));
         }
     }
+    validate_model_list_response(&config.models_response, source)?;
     if !is_known(KNOWN_AUTH_TYPES, &config.auth.auth_type) {
         return Err(ConfigError::invalid(
             source,
@@ -733,6 +767,28 @@ fn validate_header_name(name: &str, source: &str) -> Result<(), ConfigError> {
             ),
         ));
     }
+    Ok(())
+}
+
+fn validate_model_list_response(
+    response: &ModelListResponseConfig,
+    source: &str,
+) -> Result<(), ConfigError> {
+    validate_optional_pointer(
+        &response.data_json_pointer,
+        "models_response.data_json_pointer",
+        source,
+    )?;
+    validate_optional_pointer(
+        &response.id_json_pointer,
+        "models_response.id_json_pointer",
+        source,
+    )?;
+    validate_optional_pointer(
+        &response.display_name_json_pointer,
+        "models_response.display_name_json_pointer",
+        source,
+    )?;
     Ok(())
 }
 
@@ -987,8 +1043,8 @@ mod tests {
     fn loads_built_in_configs() {
         let registry = builtin_registry();
         // OpenRouter + Volcengine Ark + Volcengine Ark Coding Plan + Opencode Go
-        // (Anthropic) + Opencode Go (OpenAI) = 5 built-in presets.
-        assert_eq!(registry.len(), 5);
+        // (Anthropic) + Opencode Go (OpenAI) + 2 CC Switch routing presets.
+        assert_eq!(registry.len(), 7);
         let openrouter = registry.get("openrouter").expect("openrouter present");
         assert_eq!(openrouter.driver, "openrouter_chat");
         assert_eq!(openrouter.base_url, "https://openrouter.ai/api/v1");
@@ -1071,6 +1127,39 @@ mod tests {
         assert!(oc_openai.models[0].supports_vision);
         assert!(oc_openai.models[0].supports_structured_output);
         assert!(!oc_openai.models[0].live_confirmed);
+
+        let cc_anthropic = registry
+            .get("ccswitch_anthropic")
+            .expect("ccswitch_anthropic present");
+        assert_eq!(cc_anthropic.driver, "anthropic_messages");
+        assert_eq!(cc_anthropic.base_url, "http://127.0.0.1:15721");
+        assert_eq!(cc_anthropic.endpoint, "/v1/messages");
+        assert_eq!(cc_anthropic.models_endpoint.as_deref(), Some("/v1/models"));
+        assert_eq!(
+            cc_anthropic.models_response.data_json_pointer.as_deref(),
+            Some("/models")
+        );
+        assert_eq!(cc_anthropic.auth.auth_type, "none");
+        assert_eq!(cc_anthropic.auth.credential_slot, "ccswitch_local_route");
+        assert_eq!(cc_anthropic.defaults.model, "ccswitch-routed");
+        assert!(cc_anthropic.models[0].supports_vision);
+        assert!(cc_anthropic.models[0].supports_structured_output);
+
+        let cc_openai = registry
+            .get("ccswitch_openai")
+            .expect("ccswitch_openai present");
+        assert_eq!(cc_openai.driver, "openai_chat_compatible");
+        assert_eq!(cc_openai.base_url, "http://127.0.0.1:15721/v1");
+        assert_eq!(cc_openai.endpoint, "/chat/completions");
+        assert_eq!(
+            cc_openai.models_response.data_json_pointer.as_deref(),
+            Some("/models")
+        );
+        assert_eq!(cc_openai.auth.auth_type, "none");
+        assert_eq!(cc_openai.auth.credential_slot, "ccswitch_local_route");
+        assert_eq!(cc_openai.defaults.model, "ccswitch-routed");
+        assert!(cc_openai.models[0].supports_vision);
+        assert!(cc_openai.models[0].supports_structured_output);
     }
 
     #[test]
@@ -1481,6 +1570,54 @@ mod tests {
     }
 
     #[test]
+    fn models_response_pointers_validated() {
+        let cfg = parse_and_validate(
+            r#"{
+                "schema_version": 1, "provider_id": "x", "display_name": "X",
+                "driver": "openai_chat_compatible", "base_url": "https://example.com",
+                "endpoint": "/x",
+                "models_response": {
+                    "data_json_pointer": "/models",
+                    "id_json_pointer": "/model/id",
+                    "display_name_json_pointer": "/model/name"
+                },
+                "auth": {"type": "bearer", "credential_slot": "x_key"},
+                "defaults": {"model": "m", "stream": false, "temperature": 0.2},
+                "structured_output": {"mode": "tool"},
+                "response": {}, "limits": {"timeout_ms": 60000, "max_image_bytes": 4194304, "max_output_tokens": 1200},
+                "models": []
+            }"#,
+            "test".to_string(),
+        )
+        .expect("valid model-list pointers accepted");
+        assert_eq!(
+            cfg.models_response.data_json_pointer.as_deref(),
+            Some("/models")
+        );
+
+        let err = parse_and_validate(
+            r#"{
+                "schema_version": 1, "provider_id": "x", "display_name": "X",
+                "driver": "openai_chat_compatible", "base_url": "https://example.com",
+                "endpoint": "/x",
+                "models_response": {"data_json_pointer": "models"},
+                "auth": {"type": "bearer", "credential_slot": "x_key"},
+                "defaults": {"model": "m", "stream": false, "temperature": 0.2},
+                "structured_output": {"mode": "tool"},
+                "response": {}, "limits": {"timeout_ms": 60000, "max_image_bytes": 4194304, "max_output_tokens": 1200},
+                "models": []
+            }"#,
+            "test".to_string(),
+        )
+        .expect_err("relative model-list pointer rejected");
+        assert!(
+            err.to_string()
+                .contains("models_response.data_json_pointer"),
+            "{err}"
+        );
+    }
+
+    #[test]
     fn schema_version_mismatch_rejected() {
         let result = parse_and_validate(
             r#"{
@@ -1565,10 +1702,11 @@ mod tests {
     fn built_ins_advertise_understanding_and_rating_descriptors() {
         let registry = builtin_registry();
         let caps = build_provider_capability_descriptors(&registry);
-        // 5 advertised providers (OpenRouter, Volcengine Ark, Volcengine Ark Coding
-        // Plan, and the 2 OpenCode Go compatible presets), 1 model each, each
-        // emitting 2 descriptors (understanding + rating) = 10.
-        assert_eq!(caps.len(), 10);
+        // 8 advertised provider/model pairs (OpenRouter, Volcengine Ark,
+        // Volcengine Ark Coding Plan, OpenCode Go Anthropic, and 2 OpenCode Go
+        // OpenAI models, plus the 2 CC Switch routing presets), each emitting 2
+        // descriptors (understanding + rating) = 16.
+        assert_eq!(caps.len(), 16);
 
         let understanding: Vec<_> = caps
             .iter()
@@ -1578,8 +1716,8 @@ mod tests {
             .iter()
             .filter(|c| c.task_id == "image_rating.score")
             .collect();
-        assert_eq!(understanding.len(), 5);
-        assert_eq!(rating.len(), 5);
+        assert_eq!(understanding.len(), 8);
+        assert_eq!(rating.len(), 8);
         assert!(
             caps.iter()
                 .any(|c| c.provider_id == "opencode_go_anthropic"),
@@ -1589,6 +1727,15 @@ mod tests {
             caps.iter().any(|c| c.provider_id == "opencode_go_openai"),
             "opencode_go_openai should advertise its documented model candidate"
         );
+        for id in ["ccswitch_anthropic", "ccswitch_openai"] {
+            let cap = understanding
+                .iter()
+                .copied()
+                .find(|c| c.provider_id == id)
+                .unwrap_or_else(|| panic!("{id} understanding descriptor"));
+            assert_eq!(cap.model_id, "ccswitch-routed");
+            assert!(!cap.requires_credential);
+        }
 
         let or_understanding = understanding
             .iter()

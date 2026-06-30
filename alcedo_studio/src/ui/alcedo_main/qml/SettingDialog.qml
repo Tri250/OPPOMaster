@@ -131,6 +131,35 @@ Dialog {
                               .arg(value.substring(separatorIndex + separator.length))
     }
 
+    function currentPageTitle() {
+        if (currentCategory === 0) {
+            return qsTr("Language")
+        }
+        if (currentCategory === 1) {
+            return qsTr("Theme and color")
+        }
+        if (currentCategory === 2) {
+            return qsTr("Cache")
+        }
+        if (currentCategory === 3) {
+            return qsTr("Local Content Recognition")
+        }
+        if (currentCategory === 4) {
+            return qsTr("Advanced Content Analysis")
+        }
+        return qsTr("About")
+    }
+
+    function currentPageInfoText() {
+        if (currentCategory === 3) {
+            return qsTr("本地 AI 功能运行在本机 AI 模型上，图片内容不会上传至云端。识别速度和可处理规模取决于你的 CPU、GPU、内存与磁盘性能。\n\n默认推荐使用 SigLIP2 模型：它是当前最均衡的选择，多语言语义理解更稳，适合大多数相册标注和自然语言搜索。\n\n本地模型特点：\nSigLIP2 B/32 256 Multilingual：默认推荐，多语言、质量稳定、适合长期使用。\nMobileCLIP2 S2 English：更轻更快，偏英文场景，适合低配电脑或快速试用。\nJina CLIP v2 INT8 Multilingual：多语言，512px 输入，模型更大，适合需要更细图文语义的场景。\nSigLIP2 Base CoreML macOS：macOS 原生 CoreML 版本，适合 Apple Silicon 设备。\n\nCLIP / SigLIP 这类视觉语言模型会把图像和文字映射到同一语义空间，因此可以理解“海边日落”“人像”“建筑细节”等自然语言概念，并用于生成标签和语义检索。")
+        }
+        if (currentCategory === 4) {
+            return qsTr("高级内容识别会通过你配置的 Anthropic / OpenAI 兼容提供商，与指定 agent 交互来识别图像内容并进行评分。数据保留、隐私与合规政策请咨询你使用的 AI 提供商；Alcedo Studio 不会保留任何内容。\n\n这个设置界面的灵感来自 ccswitch，使用方式也类似。")
+        }
+        return ""
+    }
+
     function applySettings() {
         if (appTheme.currentThemeIndex !== pendingThemeIndex) {
             appTheme.currentThemeIndex = pendingThemeIndex
@@ -328,22 +357,36 @@ Dialog {
                             anchors.rightMargin: 34
                             spacing: 5
 
-                            Label {
-                                text: dialog.currentCategory === 0
-                                      ? qsTr("Language")
-                                      : (dialog.currentCategory === 1
-                                         ? qsTr("Theme and color")
-                                         : (dialog.currentCategory === 2
-                                            ? qsTr("Cache")
-                                            : (dialog.currentCategory === 3
-                                               ? qsTr("Local Content Recognition")
-                                               : (dialog.currentCategory === 4
-                                                  ? qsTr("Advanced Content Analysis")
-                                                  : qsTr("About")))))
-                                color: dialog.textColor
-                                font.family: dialog.headlineFontFamily
-                                font.pixelSize: 34
-                                font.weight: 800
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 10
+
+                                Label {
+                                    text: dialog.currentPageTitle()
+                                    color: dialog.textColor
+                                    font.family: dialog.headlineFontFamily
+                                    font.pixelSize: 34
+                                    font.weight: 800
+                                    elide: Text.ElideRight
+                                }
+
+                                InfoBadge {
+                                    visible: dialog.currentPageInfoText().length > 0
+                                    Layout.alignment: Qt.AlignVCenter
+                                    text: dialog.currentPageInfoText()
+                                    textColor: dialog.textColor
+                                    mutedTextColor: dialog.mutedTextColor
+                                    accentColor: dialog.secondaryAccent
+                                    panelColor: dialog.panelColor
+                                    dividerColor: dialog.dividerColor
+                                    dataFontFamily: dialog.dataFontFamily
+                                    boundsItem: shell
+                                    toolTipWidth: Math.min(420, shell.width - 48)
+                                }
+
+                                Item {
+                                    Layout.fillWidth: true
+                                }
                             }
 
                         }
@@ -871,6 +914,122 @@ Dialog {
             Layout.fillWidth: true
             Layout.preferredHeight: 1
             color: dividerColor
+        }
+    }
+
+    component InfoBadge: Item {
+        id: badge
+
+        property string text: ""
+        property color textColor: "white"
+        property color mutedTextColor: "#999999"
+        property color accentColor: "#9FC7D8"
+        property color panelColor: "#1C1C1D"
+        property color dividerColor: Qt.rgba(1, 1, 1, 0.08)
+        property string dataFontFamily: ""
+        property Item boundsItem: null
+        property int toolTipWidth: 360
+
+        implicitWidth: 24
+        implicitHeight: 24
+
+        function popupBounds() {
+            const overlay = Overlay.overlay
+            if (overlay === null) {
+                return Qt.rect(12, 12, 800, 600)
+            }
+            if (badge.boundsItem !== null) {
+                const topLeft = badge.boundsItem.mapToItem(overlay, 0, 0)
+                return Qt.rect(topLeft.x + 12, topLeft.y + 12,
+                               Math.max(0, badge.boundsItem.width - 24),
+                               Math.max(0, badge.boundsItem.height - 24))
+            }
+            return Qt.rect(12, 12, Math.max(0, overlay.width - 24), Math.max(0, overlay.height - 24))
+        }
+
+        function cursorInOverlay() {
+            const overlay = Overlay.overlay
+            if (overlay === null) {
+                return Qt.point(infoMouse.mouseX, infoMouse.mouseY)
+            }
+            return badge.mapToItem(overlay, infoMouse.mouseX, infoMouse.mouseY)
+        }
+
+        function popupX() {
+            const bounds = popupBounds()
+            const cursor = cursorInOverlay()
+            const maxX = bounds.x + bounds.width - infoPopup.width
+            let x = cursor.x + 14
+            if (x > maxX) {
+                x = cursor.x - infoPopup.width - 14
+            }
+            return Math.max(bounds.x, Math.min(x, Math.max(bounds.x, maxX)))
+        }
+
+        function popupY() {
+            const bounds = popupBounds()
+            const cursor = cursorInOverlay()
+            const maxY = bounds.y + bounds.height - infoPopup.height
+            let y = cursor.y + 14
+            if (y > maxY) {
+                y = cursor.y - infoPopup.height - 14
+            }
+            return Math.max(bounds.y, Math.min(y, Math.max(bounds.y, maxY)))
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            radius: width / 2
+            color: "transparent"
+            border.width: 1
+            border.color: infoMouse.containsMouse
+                          ? Qt.rgba(badge.accentColor.r, badge.accentColor.g, badge.accentColor.b, 0.68)
+                          : Qt.rgba(badge.textColor.r, badge.textColor.g, badge.textColor.b, 0.22)
+
+            Label {
+                anchors.centerIn: parent
+                text: "i"
+                color: infoMouse.containsMouse ? badge.accentColor : badge.mutedTextColor
+                font.family: badge.dataFontFamily
+                font.pixelSize: 14
+                font.weight: 800
+            }
+        }
+
+        MouseArea {
+            id: infoMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            acceptedButtons: Qt.NoButton
+        }
+
+        ToolTip {
+            id: infoPopup
+
+            parent: Overlay.overlay
+            visible: infoMouse.containsMouse
+            delay: 260
+            timeout: 12000
+            text: badge.text
+            x: badge.popupX()
+            y: badge.popupY()
+            width: Math.max(260, badge.toolTipWidth)
+            padding: 12
+            contentItem: Label {
+                width: Math.max(236, badge.toolTipWidth - 24)
+                text: badge.text
+                color: badge.textColor
+                font.pixelSize: 13
+                font.weight: 500
+                wrapMode: Text.WordWrap
+                lineHeight: 1.22
+            }
+            background: Rectangle {
+                color: Qt.rgba(badge.panelColor.r, badge.panelColor.g, badge.panelColor.b, 0.98)
+                radius: 8
+                border.width: 1
+                border.color: badge.dividerColor
+            }
         }
     }
 

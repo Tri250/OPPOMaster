@@ -101,6 +101,7 @@ struct ImageAnalysisOptions {
 struct ImageAnalysisConnectionValidationOptions {
   std::string               provider_id;
   std::string               credential_slot;
+  bool                      requires_credential = true;
   std::chrono::milliseconds timeout{60000};
   int64_t                   credential_ttl_ms = 60000;
 };
@@ -304,7 +305,7 @@ class ImageAnalysisService final {
                      ImageAnalysisFinishedCallback on_finished = {})
       -> std::shared_ptr<ImageAnalysisJob>;
   auto ValidateConnection(const ImageAnalysisConnectionValidationOptions& options,
-                          IAiCredentialStore&                             credential_store)
+                          IAiCredentialStore*                             credential_store)
       -> ImageAnalysisConnectionValidationResult;
 
  private:

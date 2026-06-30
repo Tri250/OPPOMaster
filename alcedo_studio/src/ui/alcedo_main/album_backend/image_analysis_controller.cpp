@@ -415,7 +415,8 @@ void ImageAnalysisController::ValidateConnectionForProfile(const QString& profil
     return;
   }
   const auto profile = *profile_opt;
-  if (profile.provider_id.isEmpty() || profile.credential_slot.isEmpty()) {
+  const bool requires_credential = profile.auth_type != QStringLiteral("none");
+  if (profile.provider_id.isEmpty() || (requires_credential && profile.credential_slot.isEmpty())) {
     SetError(Tr("Configure a provider id and credential slot before validating."));
     return;
   }
@@ -424,12 +425,12 @@ void ImageAnalysisController::ValidateConnectionForProfile(const QString& profil
   if (!store) {
     store = env_->CredentialStore();
   }
-  if (!store) {
+  if (requires_credential && !store) {
     SetError(Tr("Image analysis runtime is unavailable."));
     return;
   }
   std::string slot = profile.credential_slot.toStdString();
-  if (profile.auth_type != QStringLiteral("none") && !store->HasCredential(slot)) {
+  if (requires_credential && !store->HasCredential(slot)) {
     credential_available_ = false;
     SetError(Tr("No API key stored for credential slot '%1'. Save a key first.")
                  .arg(profile.credential_slot));
@@ -461,15 +462,16 @@ void ImageAnalysisController::ValidateConnectionForProfile(const QString& profil
   int64_t                           timeout_ms  = profile.timeout_ms;
   const QString                     profile_id  = profile.uuid;
   QPointer<ImageAnalysisController> self(this);
-  std::thread([self, provider_id, profile_id, slot, timeout_ms, thumbnail_provider, analysis_client,
-               gate, store]() {
+  std::thread([self, provider_id, profile_id, slot, timeout_ms, requires_credential,
+               thumbnail_provider, analysis_client, gate, store]() {
     alcedo::ImageAnalysisService service(thumbnail_provider, analysis_client, gate);
     alcedo::ImageAnalysisConnectionValidationOptions opts;
-    opts.provider_id       = provider_id;
-    opts.credential_slot   = slot;
-    opts.timeout           = std::chrono::milliseconds(timeout_ms);
-    opts.credential_ttl_ms = 60000;
-    auto result            = service.ValidateConnection(opts, *store);
+    opts.provider_id          = provider_id;
+    opts.credential_slot      = slot;
+    opts.requires_credential = requires_credential;
+    opts.timeout              = std::chrono::milliseconds(timeout_ms);
+    opts.credential_ttl_ms    = 60000;
+    auto result               = service.ValidateConnection(opts, store.get());
     QMetaObject::invokeMethod(
         self,
         [self, result, profile_id]() {

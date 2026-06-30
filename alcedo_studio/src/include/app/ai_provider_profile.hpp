@@ -50,6 +50,7 @@ struct AiProviderProfile {
   QString                           base_url;
   QString                           endpoint;
   QString                           models_endpoint;
+  QString                           models_response_data_json_pointer;
   QString                           auth_type = "bearer";
   QString                           model_id;
   QString                           model_display_name;

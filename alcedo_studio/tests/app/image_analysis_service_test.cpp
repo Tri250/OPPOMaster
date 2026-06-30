@@ -897,7 +897,7 @@ TEST(ImageAnalysisServiceTest, ValidateConnectionLoadsCredentialListsModelsAndRe
   opts.credential_slot = "opencode_api_key";
   opts.timeout         = std::chrono::milliseconds(5000);
 
-  const auto result = service.ValidateConnection(opts, store);
+  const auto result = service.ValidateConnection(opts, &store);
 
   EXPECT_TRUE(result.ok) << result.error;
   EXPECT_EQ(result.models.size(), 2u);
@@ -911,6 +911,31 @@ TEST(ImageAnalysisServiceTest, ValidateConnectionLoadsCredentialListsModelsAndRe
   EXPECT_EQ(result.error.find("sk-VALIDATE-CONNECTION"), std::string::npos);
 }
 
+TEST(ImageAnalysisServiceTest, ValidateConnectionWithoutCredentialListsModelsDirectly) {
+  auto provider = std::make_shared<FakeThumbnailProvider>();
+  auto client   = std::make_shared<FakeImageAnalysisClient>();
+  client->SetListModelsCanned({
+      AiDiscoveredModel{"ccswitch-routed", "CC Switch routed model", "ccswitch_openai"},
+  });
+  ImageAnalysisService service(provider, client);
+
+  ImageAnalysisConnectionValidationOptions opts;
+  opts.provider_id          = "ccswitch_openai";
+  opts.requires_credential = false;
+  opts.timeout              = std::chrono::milliseconds(5000);
+
+  const auto result = service.ValidateConnection(opts, nullptr);
+
+  EXPECT_TRUE(result.ok) << result.error;
+  ASSERT_EQ(result.models.size(), 1u);
+  EXPECT_EQ(result.models[0].model_id, "ccswitch-routed");
+  EXPECT_EQ(client->RegisterCalls(), 0);
+  EXPECT_EQ(client->ListModelsCalls(), 1);
+  EXPECT_EQ(client->LastListModelsCredentialRef(), "");
+  EXPECT_EQ(client->RevokeCalls(), 0);
+  EXPECT_FALSE(result.credential_revoked);
+}
+
 TEST(ImageAnalysisServiceTest, ValidateConnectionMissingCredentialFailsBeforeSidecar) {
   auto provider = std::make_shared<FakeThumbnailProvider>();
   auto client   = std::make_shared<FakeImageAnalysisClient>();
@@ -921,7 +946,7 @@ TEST(ImageAnalysisServiceTest, ValidateConnectionMissingCredentialFailsBeforeSid
   opts.provider_id     = "opencode_go_openai";
   opts.credential_slot = "missing_slot";
 
-  const auto result = service.ValidateConnection(opts, store);
+  const auto result = service.ValidateConnection(opts, &store);
 
   EXPECT_FALSE(result.ok);
   EXPECT_FALSE(result.error.empty());
@@ -942,7 +967,7 @@ TEST(ImageAnalysisServiceTest, ValidateConnectionListModelsFailureStillRevokesHa
   opts.provider_id     = "opencode_go_openai";
   opts.credential_slot = "opencode_api_key";
 
-  const auto result = service.ValidateConnection(opts, store);
+  const auto result = service.ValidateConnection(opts, &store);
 
   EXPECT_FALSE(result.ok);
   EXPECT_EQ(result.error, "fake list-models failure");
@@ -1005,7 +1030,7 @@ TEST(ImageAnalysisServiceLiveTest, ValidateConnectionDiscoversOpencodeModels) {
   opts.timeout         = std::chrono::milliseconds(120000);
   opts.credential_ttl_ms = 120000;
 
-  const auto result = service.ValidateConnection(opts, store);
+  const auto result = service.ValidateConnection(opts, &store);
   runtime->Stop();
   std::error_code ec;
   std::filesystem::remove_all(runtime_opts.model_root, ec);

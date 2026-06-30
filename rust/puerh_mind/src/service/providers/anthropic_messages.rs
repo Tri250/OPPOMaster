@@ -72,8 +72,8 @@ use crate::service::image_analysis::{
 use crate::service::provider_config::{ModelConfig, ProviderConfig};
 use crate::service::providers::http_util::{
     MAX_TRANSIENT_RETRIES, build_image_base64, build_rustls_client, compact_json_excerpt,
-    compact_text_excerpt, extract_json_from_text_block, extract_provider_request_id,
-    extract_usage, json_pointer_str, parse_rating_int, read_response,
+    compact_text_excerpt, extract_json_from_text_block, extract_provider_request_id, extract_usage,
+    json_pointer_str, parse_discovered_models, parse_rating_int, read_response,
     sanitized_provider_json_excerpt, send_get_with_retry, send_with_retry, strict_schema_value,
 };
 
@@ -1433,25 +1433,13 @@ impl ImageAnalysisProvider for AnthropicMessagesProvider {
                 send_get_with_retry(&self.http, &url, &headers, bearer, MAX_TRANSIENT_RETRIES)
                     .await?;
             let (_resp_headers, body) = read_response(resp).await?;
-            let data = body
-                .get("data")
-                .and_then(|d| d.as_array())
-                .ok_or(ProviderError::SchemaValidation)?;
-            for item in data {
-                let Some(id) = item.get("id").and_then(|v| v.as_str()) else {
-                    continue;
-                };
-                let display_name = item
-                    .get("display_name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or(id)
-                    .to_string();
-                out.push(DiscoveredModel {
-                    model_id: id.to_string(),
-                    display_name,
-                    source_provider_id: self.config.provider_id.clone(),
-                });
-            }
+            let page = parse_discovered_models(
+                &body,
+                &self.config.models_response,
+                &self.config.provider_id,
+                "Anthropic-compatible",
+            )?;
+            out.extend(page);
             let has_more = body
                 .get("has_more")
                 .and_then(|v| v.as_bool())
@@ -2325,7 +2313,10 @@ mod tests {
         assert_eq!(out.items.len(), 1);
         let understanding = out.items[0].understanding.as_ref().expect("understanding");
         assert_eq!(understanding.caption, "a red tram");
-        assert_eq!(understanding.tags, vec!["tram".to_string(), "city".to_string()]);
+        assert_eq!(
+            understanding.tags,
+            vec!["tram".to_string(), "city".to_string()]
+        );
         let rating = out.items[0].rating.as_ref().expect("rating");
         assert_eq!(rating.rating, 3);
         assert_eq!(rating.rubric_id, "general");
@@ -2841,6 +2832,71 @@ mod tests {
         assert_eq!(reqs[1].method, "GET");
         assert!(reqs[0].headers.get("authorization").is_none());
         assert!(reqs[1].headers.get("authorization").is_none());
+    }
+
+    /// A malformed model-list body stays a provider payload-decode failure, but
+    /// includes the sanitized body shape so local routers can be diagnosed from
+    /// the app logs instead of a generic schema-validation string.
+    #[tokio::test]
+    async fn list_models_anthropic_non_data_body_reports_response_excerpt() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/models"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "models": "oops",
+                "api_key": TEST_SECRET
+            })))
+            .mount(&server)
+            .await;
+        let provider = opencode_provider_for(&server);
+
+        let err = provider
+            .list_models(Some(&secret()))
+            .await
+            .expect_err("bad shape");
+        let ProviderError::SchemaValidationMessage(message) = err else {
+            panic!("expected schema validation detail, got {err:?}");
+        };
+        assert!(message.contains("Anthropic-compatible model list"));
+        assert!(message.contains("\"data\""));
+        assert!(message.contains("\"models\":\"oops\""));
+        assert!(
+            !message.contains(TEST_SECRET),
+            "secret leaked in diagnostic: {message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn list_models_anthropic_uses_configured_models_response_path_for_ccswitch_shape() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/models"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "models": [
+                    "route-a",
+                    { "id": "route-b", "name": "Route B" }
+                ],
+                "has_more": false
+            })))
+            .mount(&server)
+            .await;
+        let mut config = load_provider_configs(None)
+            .expect("built-ins load")
+            .get("ccswitch_anthropic")
+            .expect("ccswitch_anthropic built-in")
+            .clone();
+        config.base_url = server.uri();
+        let provider = AnthropicMessagesProvider::new(config).expect("provider builds");
+
+        let models = provider
+            .list_models(None)
+            .await
+            .expect("ccswitch shape parses");
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].model_id, "route-a");
+        assert_eq!(models[0].display_name, "route-a");
+        assert_eq!(models[1].model_id, "route-b");
+        assert_eq!(models[1].display_name, "Route B");
     }
 
     /// Phase 6c: `api_key_header` mode sends `x-api-key` + `anthropic-version`

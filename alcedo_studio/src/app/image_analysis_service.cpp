@@ -679,7 +679,7 @@ auto ImageAnalysisService::StartAnalysis(std::vector<ImageAnalysisItem> items,
 }
 
 auto ImageAnalysisService::ValidateConnection(
-    const ImageAnalysisConnectionValidationOptions& options, IAiCredentialStore& credential_store)
+    const ImageAnalysisConnectionValidationOptions& options, IAiCredentialStore* credential_store)
     -> ImageAnalysisConnectionValidationResult {
   ImageAnalysisConnectionValidationResult result;
   if (!analysis_client_->Ready()) {
@@ -690,33 +690,39 @@ auto ImageAnalysisService::ValidateConnection(
     result.error = "provider id is required";
     return result;
   }
-  if (options.credential_slot.empty()) {
+  if (options.requires_credential && options.credential_slot.empty()) {
     result.error = "credential slot is required";
     return result;
   }
 
-  std::string secret;
-  std::string store_error;
-  if (!credential_store.LoadCredential(options.credential_slot, &secret, &store_error)) {
-    result.error = store_error.empty() ? std::string("credential is missing") : store_error;
-    return result;
-  }
-
   std::string handle;
-  std::string register_error;
-  const bool  registered = analysis_client_->RegisterCredential(
-      options.provider_id, secret, options.credential_ttl_ms, options.timeout, &handle,
-      &register_error);
-  if (!secret.empty()) {
-    std::fill(secret.begin(), secret.end(), '0');
-  }
-  secret.clear();
-  secret.shrink_to_fit();
+  std::string secret;
+  if (options.requires_credential) {
+    if (credential_store == nullptr) {
+      result.error = "credential store is unavailable";
+      return result;
+    }
+    std::string store_error;
+    if (!credential_store->LoadCredential(options.credential_slot, &secret, &store_error)) {
+      result.error = store_error.empty() ? std::string("credential is missing") : store_error;
+      return result;
+    }
 
-  if (!registered) {
-    result.error =
-        register_error.empty() ? std::string("credential registration failed") : register_error;
-    return result;
+    std::string register_error;
+    const bool  registered = analysis_client_->RegisterCredential(
+        options.provider_id, secret, options.credential_ttl_ms, options.timeout, &handle,
+        &register_error);
+    if (!secret.empty()) {
+      std::fill(secret.begin(), secret.end(), '0');
+    }
+    secret.clear();
+    secret.shrink_to_fit();
+
+    if (!registered) {
+      result.error =
+          register_error.empty() ? std::string("credential registration failed") : register_error;
+      return result;
+    }
   }
 
   try {
@@ -735,15 +741,18 @@ auto ImageAnalysisService::ValidateConnection(
     result.error = "model discovery failed";
   }
 
-  std::string revoke_error;
-  bool        revoked = false;
-  if (!analysis_client_->RevokeCredential(handle, options.timeout, &revoked, &revoke_error)) {
-    if (result.ok) {
-      result.ok = false;
-      result.error = revoke_error.empty() ? std::string("credential revoke failed") : revoke_error;
+  if (!handle.empty()) {
+    std::string revoke_error;
+    bool        revoked = false;
+    if (!analysis_client_->RevokeCredential(handle, options.timeout, &revoked, &revoke_error)) {
+      if (result.ok) {
+        result.ok = false;
+        result.error =
+            revoke_error.empty() ? std::string("credential revoke failed") : revoke_error;
+      }
     }
+    result.credential_revoked = revoked;
   }
-  result.credential_revoked = revoked;
   return result;
 }
 

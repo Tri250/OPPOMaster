@@ -169,6 +169,7 @@ struct TemplateConfig {
   const char* base_url;
   const char* endpoint;
   const char* models_endpoint;
+  const char* models_response_data_json_pointer;
   const char* auth_type;
   const char* model_id;
   const char* model_display_name;
@@ -185,24 +186,32 @@ struct TemplateConfig {
 };
 
 constexpr TemplateConfig kTemplates[] = {
+    {"ccswitch_anthropic", "CC Switch Routing - Anthropic-compatible", "anthropic_messages",
+     "http://127.0.0.1:15721", "/v1/messages", "/v1/models", "/models", "none", "ccswitch-routed",
+     "CC Switch routed model", "tool", "", "/usage", "", "request-id", "preview", true, true,
+     60000, 4194304},
+    {"ccswitch_openai", "CC Switch Routing - OpenAI-compatible", "openai_chat_compatible",
+     "http://127.0.0.1:15721/v1", "/chat/completions", "", "/models", "none", "ccswitch-routed",
+     "CC Switch routed model", "response_format_json_schema", "/choices/0/message/content",
+     "/usage", "/id", "", "preview", true, true, 60000, 4194304},
     {"opencode_go_anthropic", "OpenCode - Anthropic-compatible messages", "anthropic_messages",
-     "https://opencode.ai/zen/go/v1", "/messages", "", "api_key_header", "qwen3.7-plus",
+     "https://opencode.ai/zen/go/v1", "/messages", "", "", "api_key_header", "qwen3.7-plus",
      "Qwen3.7 Plus", "tool", "", "/usage", "", "request-id", "preview", true, true, 60000,
      4194304},
     {"opencode_go_openai", "OpenCode - OpenAI-compatible chat", "openai_chat_compatible",
-     "https://opencode.ai/zen/go/v1", "/chat/completions", "", "bearer", "kimi-k2.7-code",
+     "https://opencode.ai/zen/go/v1", "/chat/completions", "", "", "bearer", "kimi-k2.7-code",
      "Kimi K2.7 Code", "response_format_json_schema", "/choices/0/message/content", "/usage", "/id", "",
      "preview", true, true, 60000, 4194304},
     {"volcengine_ark", "Volcengine Ark / 火山方舟", "volcengine_ark_responses",
-     "https://ark.cn-beijing.volces.com/api/v3", "/responses", "", "bearer",
+     "https://ark.cn-beijing.volces.com/api/v3", "/responses", "", "", "bearer",
      "doubao-seed-2-0-lite-260428", "Doubao Seed 2.0 Lite (260428)", "responses_json_schema", "",
      "/usage", "/id", "", "preview", true, true, 60000, 4194304},
     {"volcengine_ark_coding", "Volcengine Ark Coding Plan - Anthropic-compatible",
-     "anthropic_messages", "https://ark.cn-beijing.volces.com/api/coding", "/v1/messages", "",
+     "anthropic_messages", "https://ark.cn-beijing.volces.com/api/coding", "/v1/messages", "", "",
      "bearer", "doubao-seed-2.0-lite", "Doubao Seed 2.0 Lite", "tool", "", "/usage", "/id", "",
      "preview", true, true, 60000, 4194304},
     {"custom", "Custom", "openai_chat_compatible", "http://localhost:11434/v1", "/chat/completions",
-     "", "none", "unconfigured", "Unconfigured", "response_format_json_schema",
+     "", "", "none", "unconfigured", "Unconfigured", "response_format_json_schema",
      "/choices/0/message/content", "/usage", "/id", "", "preview", true, true, 60000, 4194304},
 };
 
@@ -282,6 +291,18 @@ void MigrateOpenCodeGoProfileDefaults(AiProviderProfile* profile) {
   }
   EnsureOpenCodeGoOpenAiModelAliases(profile);
 }
+
+void MigrateCcSwitchProfileDefaults(AiProviderProfile* profile) {
+  if (profile == nullptr ||
+      (profile->based_on_template != QStringLiteral("ccswitch_openai") &&
+       profile->based_on_template != QStringLiteral("ccswitch_anthropic"))) {
+    return;
+  }
+  if (profile->models_response_data_json_pointer.trimmed().isEmpty()) {
+    profile->models_response_data_json_pointer = QStringLiteral("/models");
+  }
+}
+
 AiProviderProfile ProfileFromTemplate(const TemplateConfig& t) {
   const QString     suffix = NewIdSuffix();
   AiProviderProfile p;
@@ -294,6 +315,7 @@ AiProviderProfile ProfileFromTemplate(const TemplateConfig& t) {
   p.base_url                      = QString::fromLatin1(t.base_url);
   p.endpoint                      = QString::fromLatin1(t.endpoint);
   p.models_endpoint               = QString::fromLatin1(t.models_endpoint);
+  p.models_response_data_json_pointer = QString::fromLatin1(t.models_response_data_json_pointer);
   p.auth_type                     = QString::fromLatin1(t.auth_type);
   p.model_id                      = QString::fromLatin1(t.model_id);
   p.model_display_name            = QString::fromUtf8(t.model_display_name);
@@ -309,6 +331,7 @@ AiProviderProfile ProfileFromTemplate(const TemplateConfig& t) {
   p.recommended_rendition = QString::fromLatin1(t.recommended_rendition);
   p.models.push_back(ModelFromTemplate(t));
   EnsureOpenCodeGoOpenAiModelAliases(&p);
+  MigrateCcSwitchProfileDefaults(&p);
   return p;
 }
 
@@ -392,6 +415,8 @@ QJsonObject ProfileToStoreJson(const AiProviderProfile& p) {
   o.insert(QStringLiteral("base_url"), p.base_url);
   o.insert(QStringLiteral("endpoint"), p.endpoint);
   o.insert(QStringLiteral("models_endpoint"), p.models_endpoint);
+  o.insert(QStringLiteral("models_response_data_json_pointer"),
+           p.models_response_data_json_pointer);
   o.insert(QStringLiteral("auth_type"), p.auth_type);
   o.insert(QStringLiteral("model_id"), p.model_id);
   o.insert(QStringLiteral("model_display_name"), p.model_display_name);
@@ -435,6 +460,8 @@ AiProviderProfile ProfileFromStoreJson(const QJsonObject& o) {
   p.endpoint     = SanitizedNonSecretString(o.value(QStringLiteral("endpoint")).toString());
   p.models_endpoint =
       SanitizedNonSecretString(o.value(QStringLiteral("models_endpoint")).toString());
+  p.models_response_data_json_pointer = SanitizedNonSecretString(
+      o.value(QStringLiteral("models_response_data_json_pointer")).toString());
   p.auth_type = NormalizedAuthType(o.value(QStringLiteral("auth_type")).toString());
   p.model_id  = SanitizedNonSecretString(o.value(QStringLiteral("model_id")).toString());
   p.model_display_name =
@@ -480,6 +507,7 @@ AiProviderProfile ProfileFromStoreJson(const QJsonObject& o) {
     model.recommended_rendition = p.recommended_rendition;
     p.models.push_back(model);
   }
+  MigrateCcSwitchProfileDefaults(&p);
   return p;
 }
 
@@ -493,6 +521,12 @@ QJsonObject ProfileToSidecarConfigJson(const AiProviderProfile& p) {
   root.insert(QStringLiteral("endpoint"), p.endpoint);
   if (!p.models_endpoint.trimmed().isEmpty()) {
     root.insert(QStringLiteral("models_endpoint"), p.models_endpoint.trimmed());
+  }
+  if (!p.models_response_data_json_pointer.trimmed().isEmpty()) {
+    QJsonObject models_response;
+    models_response.insert(QStringLiteral("data_json_pointer"),
+                           p.models_response_data_json_pointer.trimmed());
+    root.insert(QStringLiteral("models_response"), models_response);
   }
 
   QJsonObject auth;
@@ -554,6 +588,8 @@ QVariantMap ProfileToVariant(const AiProviderProfile&                   p,
   m.insert(QStringLiteral("baseUrl"), p.base_url);
   m.insert(QStringLiteral("endpoint"), p.endpoint);
   m.insert(QStringLiteral("modelsEndpoint"), p.models_endpoint);
+  m.insert(QStringLiteral("modelsResponseDataJsonPointer"),
+           p.models_response_data_json_pointer);
   m.insert(QStringLiteral("authType"), p.auth_type);
   m.insert(QStringLiteral("modelId"), p.model_id);
   m.insert(QStringLiteral("modelDisplayName"), p.model_display_name);
@@ -793,6 +829,8 @@ bool AiProviderProfileController::SetProfileField(const QString& profile_id, con
     p->endpoint = SanitizedNonSecretString(text);
   } else if (name == QStringLiteral("modelsEndpoint")) {
     p->models_endpoint = SanitizedNonSecretString(text);
+  } else if (name == QStringLiteral("modelsResponseDataJsonPointer")) {
+    p->models_response_data_json_pointer = SanitizedNonSecretString(text);
   } else if (name == QStringLiteral("authType")) {
     p->auth_type = NormalizedAuthType(text);
   } else if (name == QStringLiteral("credentialSlot")) {

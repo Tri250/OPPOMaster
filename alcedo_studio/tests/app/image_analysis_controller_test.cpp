@@ -188,9 +188,10 @@ class FakeClient : public alcedo::IImageAnalysisClient {
     }
     return true;
   }
-  auto ListModels(const std::string&, const std::string&, std::chrono::milliseconds)
+  auto ListModels(const std::string&, const std::string& credential_ref, std::chrono::milliseconds)
       -> alcedo::ImageAnalysisListModelsResult override {
     ++list_models_calls_;
+    last_list_models_credential_ref_ = credential_ref;
     alcedo::ImageAnalysisListModelsResult r;
     r.ok     = true;
     r.status = kStatusOk;
@@ -205,6 +206,7 @@ class FakeClient : public alcedo::IImageAnalysisClient {
   auto RegisterCalls() const -> int { return register_calls_.load(); }
   auto LastRegisteredTtlMs() const -> int64_t { return last_registered_ttl_ms_.load(); }
   auto ListModelsCalls() const -> int { return list_models_calls_.load(); }
+  auto LastListModelsCredentialRef() const -> std::string { return last_list_models_credential_ref_; }
   auto LastOutputLanguage() const -> std::string { return last_output_language_; }
   auto LastRatingSeverity() const -> std::string { return last_rating_severity_; }
   auto LastCameraContext() const -> std::string { return last_camera_context_; }
@@ -294,6 +296,7 @@ class FakeClient : public alcedo::IImageAnalysisClient {
   std::atomic<int>        list_models_calls_{0};
   std::atomic<int>        revoke_calls_{0};
   std::atomic<int64_t>    last_registered_ttl_ms_{-1};
+  std::string             last_list_models_credential_ref_;
   std::string             last_output_language_;
   std::string             last_rating_severity_;
   std::string             last_camera_context_;
@@ -628,6 +631,27 @@ TEST_F(ImageAnalysisControllerTest, ValidateConnectionMissingCredentialDoesNotSt
   EXPECT_EQ(last_bundle_->client->RegisterCalls(), 0);
   EXPECT_EQ(last_bundle_->client->ListModelsCalls(), 0);
 }
+
+TEST_F(ImageAnalysisControllerTest, ValidateConnectionForNoneCredentialProfileRefreshesModels) {
+  auto controller = MakeController();
+  const QString profile_id =
+      last_bundle_->profiles.AddProfileFromTemplate(QStringLiteral("ccswitch_openai"));
+  ASSERT_FALSE(profile_id.isEmpty());
+  ASSERT_TRUE(last_bundle_->profiles.SetActiveProfile(profile_id));
+
+  controller->ValidateConnectionForProfile(profile_id);
+
+  ASSERT_TRUE(SpinWaitFor([&] { return !controller->ConnectionStatus().isEmpty(); },
+                          std::chrono::seconds(5)));
+  EXPECT_TRUE(controller->LastError().isEmpty());
+  EXPECT_TRUE(controller->CredentialAvailable());
+  EXPECT_TRUE(last_bundle_->env->SidecarEnsured());
+  EXPECT_EQ(last_bundle_->client->RegisterCalls(), 0);
+  EXPECT_EQ(last_bundle_->client->ListModelsCalls(), 1);
+  EXPECT_EQ(last_bundle_->client->LastListModelsCredentialRef(), "");
+  EXPECT_FALSE(controller->DiscoveredModels().isEmpty());
+}
+
 TEST_F(ImageAnalysisControllerTest, OneImageDescribeSucceeds) {
   auto controller = MakeController();
   controller->StartDescribeForTargets(Targets({{1, 100}}));

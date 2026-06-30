@@ -300,6 +300,50 @@ TEST_F(AiProviderProfileTest, OpenCodeOpenAiConfigIncludesDocumentedAndDiscovera
   EXPECT_TRUE(model_ids.contains(QStringLiteral("kimi-k2.7")));
 }
 
+TEST_F(AiProviderProfileTest, CcSwitchTemplatesWriteModelsResponsePath) {
+  const QString     id = controller_.AddProfileFromTemplate(QStringLiteral("ccswitch_openai"));
+  const QVariantMap profile = Profile(id);
+  EXPECT_EQ(profile.value(QStringLiteral("modelsResponseDataJsonPointer")).toString(),
+            QStringLiteral("/models"));
+
+  std::string error;
+  ASSERT_TRUE(controller_.PrepareSidecarConfigDir(&error)) << error;
+
+  const QJsonObject root =
+      ReadJsonFile(ConfigFileQt(profile.value(QStringLiteral("providerId")).toString()));
+  EXPECT_EQ(root.value(QStringLiteral("models_response"))
+                .toObject()
+                .value(QStringLiteral("data_json_pointer"))
+                .toString(),
+            QStringLiteral("/models"));
+}
+
+TEST_F(AiProviderProfileTest, ExistingCcSwitchProfilesMigrateModelsResponsePath) {
+  const QString id = controller_.AddProfileFromTemplate(QStringLiteral("ccswitch_openai"));
+
+  QFile file(StorageFileQt());
+  ASSERT_TRUE(file.open(QIODevice::ReadOnly));
+  QJsonObject root = QJsonDocument::fromJson(file.readAll()).object();
+  file.close();
+  QJsonArray profiles = root.value(QStringLiteral("profiles")).toArray();
+  for (int i = 0; i < profiles.size(); ++i) {
+    QJsonObject profile = profiles.at(i).toObject();
+    if (profile.value(QStringLiteral("uuid")).toString() == id) {
+      profile.remove(QStringLiteral("models_response_data_json_pointer"));
+      profiles.replace(i, profile);
+      break;
+    }
+  }
+  root.insert(QStringLiteral("profiles"), profiles);
+  ASSERT_TRUE(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+  file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+  file.close();
+
+  alcedo::AiProviderProfileController reloaded(StorageFile(), ConfigDir(), store_);
+  EXPECT_EQ(reloaded.Profile(id).value(QStringLiteral("modelsResponseDataJsonPointer")).toString(),
+            QStringLiteral("/models"));
+}
+
 TEST_F(AiProviderProfileTest, DiscoveredModelsPersistAndBecomeSidecarModels) {
   const QString id = controller_.AddProfileFromTemplate(QStringLiteral("opencode_go_openai"));
   QVariantMap   discovered;

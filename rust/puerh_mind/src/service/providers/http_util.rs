@@ -17,7 +17,8 @@ use base64::Engine;
 use serde_json::Value;
 use tracing::warn;
 
-use crate::service::image_analysis::{ProviderError, Usage};
+use crate::service::image_analysis::{DiscoveredModel, ProviderError, Usage};
+use crate::service::provider_config::ModelListResponseConfig;
 
 /// Backoff between retry attempts. Kept small and fixed because a provider call
 /// is paid and non-idempotent — the plan's review focus is that retries stay
@@ -52,6 +53,81 @@ pub fn sanitized_provider_json_excerpt(value: &Value, max_chars: usize) -> Strin
     compact_json_excerpt(&sanitized, max_chars)
 }
 
+pub fn parse_discovered_models(
+    body: &Value,
+    response: &ModelListResponseConfig,
+    source_provider_id: &str,
+    protocol_label: &str,
+) -> Result<Vec<DiscoveredModel>, ProviderError> {
+    let data_pointer = configured_pointer(response.data_json_pointer.as_deref(), "/data");
+    let data = json_pointer_str(body, data_pointer)
+        .and_then(|d| d.as_array())
+        .ok_or_else(|| {
+            let expectation = if data_pointer == "/data" {
+                "expected top-level \"data\" array of model objects".to_string()
+            } else {
+                format!("expected model array at JSON pointer {data_pointer:?}")
+            };
+            ProviderError::SchemaValidationMessage(format!(
+                "{protocol_label} model list response failed schema validation: {expectation}; response excerpt: {}",
+                sanitized_provider_json_excerpt(body, 1200)
+            ))
+        })?;
+    let mut out = Vec::with_capacity(data.len());
+    for item in data {
+        let Some(id) = model_item_id(item, response.id_json_pointer.as_deref()) else {
+            continue;
+        };
+        let display_name =
+            model_item_display_name(item, response.display_name_json_pointer.as_deref(), id);
+        out.push(DiscoveredModel {
+            model_id: id.to_string(),
+            display_name,
+            source_provider_id: source_provider_id.to_string(),
+        });
+    }
+    Ok(out)
+}
+
+fn configured_pointer<'a>(pointer: Option<&'a str>, default_pointer: &'a str) -> &'a str {
+    pointer
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .unwrap_or(default_pointer)
+}
+
+fn model_item_id<'a>(item: &'a Value, id_pointer: Option<&'a str>) -> Option<&'a str> {
+    if let Some(id) = item.as_str() {
+        return Some(id);
+    }
+    let pointer = id_pointer.map(str::trim).filter(|p| !p.is_empty());
+    if let Some(pointer) = pointer {
+        return json_pointer_str(item, pointer).and_then(|v| v.as_str());
+    }
+    item.get("id").and_then(|v| v.as_str())
+}
+
+fn model_item_display_name(
+    item: &Value,
+    display_name_pointer: Option<&str>,
+    fallback_id: &str,
+) -> String {
+    let pointer = display_name_pointer
+        .map(str::trim)
+        .filter(|p| !p.is_empty());
+    if let Some(display_name) = pointer
+        .and_then(|p| json_pointer_str(item, p))
+        .and_then(|v| v.as_str())
+    {
+        return display_name.to_string();
+    }
+    item.get("display_name")
+        .or_else(|| item.get("name"))
+        .and_then(|v| v.as_str())
+        .unwrap_or(fallback_id)
+        .to_string()
+}
+
 /// Remove provider-internal reasoning from values that may be written to logs or
 /// replayed into schema-repair prompts. Structured parsers should still consume
 /// the original provider body; this is only for observability and repair context.
@@ -75,7 +151,9 @@ pub fn sanitize_provider_observability_value(value: &Value) -> Value {
 
             let mut sanitized = serde_json::Map::new();
             for (key, item) in map {
-                if is_provider_reasoning_key(key) {
+                if is_provider_sensitive_key(key) {
+                    sanitized.insert(key.clone(), Value::String("[redacted]".to_string()));
+                } else if is_provider_reasoning_key(key) {
                     sanitized.insert(
                         key.clone(),
                         Value::String("[provider reasoning omitted]".to_string()),
@@ -104,6 +182,22 @@ fn is_provider_reasoning_key(key: &str) -> bool {
             | "chain_of_thought"
             | "thoughts"
             | "redacted_thinking"
+    )
+}
+
+fn is_provider_sensitive_key(key: &str) -> bool {
+    let normalized = key.to_ascii_lowercase().replace(['-', '_'], "");
+    matches!(
+        normalized.as_str(),
+        "apikey"
+            | "authorization"
+            | "bearer"
+            | "credential"
+            | "password"
+            | "refreshtoken"
+            | "secret"
+            | "token"
+            | "accesstoken"
     )
 }
 
@@ -909,7 +1003,10 @@ mod tests {
     fn parse_content_json_rejects_non_json() {
         let err = parse_content_json("not json").unwrap_err();
         assert!(
-            matches!(err, ProviderError::SchemaValidation | ProviderError::SchemaValidationMessage(_)),
+            matches!(
+                err,
+                ProviderError::SchemaValidation | ProviderError::SchemaValidationMessage(_)
+            ),
             "expected schema validation, got {err:?}"
         );
         let ok = parse_content_json(r#"{"caption": "c"}"#).expect("valid json");
@@ -934,7 +1031,8 @@ mod tests {
 
     #[test]
     fn parse_content_json_tolerates_json_embedded_in_prose() {
-        let prose = "Here is the analysis:\n{\"caption\": \"c\", \"tags\": [\"t\"]}\nHope it helps.";
+        let prose =
+            "Here is the analysis:\n{\"caption\": \"c\", \"tags\": [\"t\"]}\nHope it helps.";
         let v = parse_content_json(prose).expect("embedded json parses");
         assert_eq!(v["caption"], "c");
         assert_eq!(v["tags"][0], "t");
@@ -959,7 +1057,8 @@ mod tests {
         let v = extract_json_from_text_block("[1, 2, 3]").expect("array");
         assert_eq!(v[2], 3);
         // Braces inside strings do not unbalance the scan.
-        let v = extract_json_from_text_block(r#"{"caption": "a {b} c"}"#).expect("braces in string");
+        let v =
+            extract_json_from_text_block(r#"{"caption": "a {b} c"}"#).expect("braces in string");
         assert_eq!(v["caption"], "a {b} c");
     }
 
