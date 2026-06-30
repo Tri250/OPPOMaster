@@ -114,9 +114,53 @@ if [[ -n "$codesign_identity" && "$codesign_identity" != "-" ]]; then
   fi
 fi
 
+duckdb_extensions_dir="${build_dir}/duckdb_extensions"
+
+resolve_duckdb_extension() {
+  local extension_name="$1"
+  local env_name="$2"
+  local extension_file_name="$3"
+  local configured_path="${!env_name:-}"
+
+  if [[ -n "$configured_path" ]]; then
+    if [[ ! -f "$configured_path" ]]; then
+      echo "${env_name} points to a missing file: ${configured_path}" >&2
+      exit 1
+    fi
+    printf '%s' "$configured_path"
+    return
+  fi
+
+  if ! command -v duckdb >/dev/null 2>&1; then
+    echo "duckdb CLI is required to prepare ${extension_name}; install Homebrew duckdb or set ${env_name}." >&2
+    exit 1
+  fi
+
+  mkdir -p "$duckdb_extensions_dir"
+  duckdb -c "SET extension_directory='${duckdb_extensions_dir}'; INSTALL ${extension_name};" >/dev/null
+
+  local resolved_path
+  resolved_path="$(find "$duckdb_extensions_dir" -name "${extension_file_name}" -type f | head -n1)"
+  if [[ -z "$resolved_path" ]]; then
+    echo "Failed to locate installed ${extension_file_name} under ${duckdb_extensions_dir}" >&2
+    find "$duckdb_extensions_dir" -type f >&2 || true
+    exit 1
+  fi
+
+  printf '%s' "$resolved_path"
+}
+
+alcedo_duckdb_vss_extension="$(resolve_duckdb_extension vss ALCEDO_DUCKDB_VSS_EXTENSION vss.duckdb_extension)"
+alcedo_duckdb_fts_extension="$(resolve_duckdb_extension fts ALCEDO_DUCKDB_FTS_EXTENSION fts.duckdb_extension)"
+export ALCEDO_DUCKDB_VSS_EXTENSION="$alcedo_duckdb_vss_extension"
+export ALCEDO_DUCKDB_FTS_EXTENSION="$alcedo_duckdb_fts_extension"
+
 echo "========================================"
 echo "  Alcedo Studio macOS Packager"
 echo "========================================"
+echo
+echo "DuckDB VSS extension: ${ALCEDO_DUCKDB_VSS_EXTENSION}"
+echo "DuckDB FTS extension: ${ALCEDO_DUCKDB_FTS_EXTENSION}"
 echo
 
 configure_args=(
@@ -128,6 +172,8 @@ configure_args=(
   "-DALCEDO_MACOS_CODESIGN_IDENTITY=${codesign_identity}"
   "-DALCEDO_MACOS_CODESIGN_OPTIONS=${codesign_options}"
   "-DALCEDO_MACOS_CODESIGN_TIMESTAMP=${codesign_timestamp}"
+  "-DALCEDO_DUCKDB_VSS_EXTENSION=${ALCEDO_DUCKDB_VSS_EXTENSION}"
+  "-DALCEDO_DUCKDB_FTS_EXTENSION=${ALCEDO_DUCKDB_FTS_EXTENSION}"
 )
 if [[ -n "$qt_prefix" ]]; then
   configure_args+=("-DALCEDO_QT_PREFIX=${qt_prefix}")

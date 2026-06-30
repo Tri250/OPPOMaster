@@ -54,9 +54,9 @@ using namespace std::chrono_literals;
 
 // On-demand sidecar startup timeout for the remote image-analysis path. The
 // semantic path uses 60s; image analysis cold-starts the same binary, so match.
-constexpr auto                      kImageAnalysisSidecarStartupTimeout = 60s;
+constexpr auto kImageAnalysisSidecarStartupTimeout = 60s;
 
-auto TrimAscii(std::string value) -> std::string {
+auto           TrimAscii(std::string value) -> std::string {
   auto is_space = [](unsigned char ch) { return std::isspace(ch) != 0; };
   while (!value.empty() && is_space(static_cast<unsigned char>(value.front()))) {
     value.erase(value.begin());
@@ -295,20 +295,22 @@ class AlbumImageAnalysisSink final : public IImageAnalysisSink {
     if (!project) {
       return false;
     }
-    auto&         ai = project->GetStorageService()->GetAiStorageController();
-    AiDescription d;
-    d.file_id_           = result.item.element_id;
-    d.task_id_           = kDescribeTaskId;
-    d.provider_id_       = result.understanding.provider;
-    d.model_id_          = result.understanding.model_id;
-    d.prompt_profile_id_ = result.understanding.prompt_profile_id;
-    d.rendition_kind_    = result.understanding.rendition.kind;
-    d.caption_           = result.understanding.caption;
-    d.scene_             = result.understanding.scene;
-    d.confidence_        = result.understanding.confidence;
-    d.active_            = true;
-    d.SetTags(result.understanding.tags);
-    return ai.UpsertUnderstanding(d);
+    auto& ai = project->GetStorageService()->GetAiStorageController();
+    return ai.UpsertUnderstanding(MakeDescription(result));
+  }
+
+  size_t PersistUnderstandings(const std::vector<ImageAnalysisItemResult>& results) override {
+    auto project = backend_.project_handler_.project();
+    if (!project || results.empty()) {
+      return 0;
+    }
+    std::vector<AiDescription> descriptions;
+    descriptions.reserve(results.size());
+    for (const auto& result : results) {
+      descriptions.push_back(MakeDescription(result));
+    }
+    auto& ai = project->GetStorageService()->GetAiStorageController();
+    return ai.UpsertUnderstandings(descriptions);
   }
 
   bool PersistRatingReasons(const ImageAnalysisItemResult& result) override {
@@ -343,14 +345,30 @@ class AlbumImageAnalysisSink final : public IImageAnalysisSink {
   void FlushPendingStarRatings() override { backend_.image_ctrl_.FlushPendingStarRatings(); }
 
   void NotifySearchDocumentChanged() override {
-    // AiUnderstandingExpr is a live correlated subquery against AiImageUnderstanding, so
-    // newly-persisted active rows match immediately — there is no materialized index to
-    // rebuild. Re-running the thumbnail view against the current search/filter picks up
-    // the new captions/tags. Mirrors SearchController's search-apply hook.
+    // Storage refreshes the derived FTS index during persistence when DuckDB's fts
+    // extension is available. Re-running the thumbnail view against the current
+    // search/filter picks up the new captions/tags either through BM25 or the legacy LIKE
+    // fallback. Mirrors SearchController's search-apply hook.
     backend_.stats_.RebuildThumbnailView();
   }
 
  private:
+  static auto MakeDescription(const ImageAnalysisItemResult& result) -> AiDescription {
+    AiDescription d;
+    d.file_id_           = result.item.element_id;
+    d.task_id_           = kDescribeTaskId;
+    d.provider_id_       = result.understanding.provider;
+    d.model_id_          = result.understanding.model_id;
+    d.prompt_profile_id_ = result.understanding.prompt_profile_id;
+    d.rendition_kind_    = result.understanding.rendition.kind;
+    d.caption_           = result.understanding.caption;
+    d.scene_             = result.understanding.scene;
+    d.confidence_        = result.understanding.confidence;
+    d.active_            = true;
+    d.SetTags(result.understanding.tags);
+    return d;
+  }
+
   AlbumBackend& backend_;
 };
 
@@ -673,8 +691,11 @@ auto AlbumBackend::GetImageRatingReasons(uint elementId) -> QVariantMap {
 }
 
 auto AlbumBackend::GetImageDescription(uint elementId) -> QVariantMap {
-  QVariantMap result{{"hasDescription", false}, {"caption", QString{}}, {"scene", QString{}},
-                     {"provider", QString{}},   {"modelId", QString{}}};
+  QVariantMap result{{"hasDescription", false},
+                     {"caption", QString{}},
+                     {"scene", QString{}},
+                     {"provider", QString{}},
+                     {"modelId", QString{}}};
   auto        project = project_handler_.project();
   if (!project) {
     return result;

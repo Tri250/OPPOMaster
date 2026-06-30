@@ -153,15 +153,13 @@ auto SemanticLabelExpr(const std::string& active_model_key) -> std::wstring {
   std::wstring alias_case = L"CASE";
   for (const auto& label : DefaultSemanticPhotographyLabelDefinitions()) {
     const auto canonical = conv::FromBytes(label.canonical_label);
-    const auto en = conv::FromBytes(label.english_label);
-    const auto zh = conv::FromBytes(label.chinese_label);
-    const auto aliases = SqlStringLiteral(canonical + L" " + en + L" " + zh);
-    alias_case += L" WHEN LOWER(sl.label) = LOWER(" + SqlStringLiteral(canonical) + L") THEN " +
-                  aliases;
-    alias_case += L" WHEN LOWER(sl.label) = LOWER(" + SqlStringLiteral(en) + L") THEN " +
-                  aliases;
-    alias_case += L" WHEN LOWER(sl.label) = LOWER(" + SqlStringLiteral(zh) + L") THEN " +
-                  aliases;
+    const auto en        = conv::FromBytes(label.english_label);
+    const auto zh        = conv::FromBytes(label.chinese_label);
+    const auto aliases   = SqlStringLiteral(canonical + L" " + en + L" " + zh);
+    alias_case +=
+        L" WHEN LOWER(sl.label) = LOWER(" + SqlStringLiteral(canonical) + L") THEN " + aliases;
+    alias_case += L" WHEN LOWER(sl.label) = LOWER(" + SqlStringLiteral(en) + L") THEN " + aliases;
+    alias_case += L" WHEN LOWER(sl.label) = LOWER(" + SqlStringLiteral(zh) + L") THEN " + aliases;
   }
   alias_case += L" ELSE sl.label END";
   return L"(SELECT string_agg(" + alias_case +
@@ -425,6 +423,11 @@ auto SearchDocumentClause(const std::wstring& query, const std::string& active_m
   return L"(" + JoinWith(clauses, L" OR ") + L")";
 }
 
+auto AiUnderstandingFtsClause(const std::wstring& query) -> std::wstring {
+  return L"(fts_main_AiImageFtsDocument.match_bm25(e.id, " + SqlStringLiteral(query) +
+         L") IS NOT NULL)";
+}
+
 }  // namespace
 
 auto SleeveFilterService::CreateFilterCombo(const FilterNode& root) -> filter_id_t {
@@ -535,6 +538,8 @@ auto SleeveFilterService::BuildFuzzySearchWhere(const std::wstring& query) const
   const auto active_model_key =
       storage_service_ ? storage_service_->GetSemanticStorageController().ActiveModelKey()
                        : std::string{};
+  const bool has_ai_fts =
+      storage_service_ && storage_service_->GetAiStorageController().HasUnderstandingFtsIndex();
 
   std::vector<std::wstring> token_clauses;
   token_clauses.reserve(tokens.size());
@@ -545,6 +550,9 @@ auto SleeveFilterService::BuildFuzzySearchWhere(const std::wstring& query) const
   std::wstring where = L"(" + JoinWith(token_clauses, L" AND ") + L")";
   if (tokens.size() > 1) {
     where = L"(" + where + L" OR " + SearchDocumentClause(trimmed, active_model_key) + L")";
+  }
+  if (has_ai_fts) {
+    where = L"(" + where + L" OR " + AiUnderstandingFtsClause(trimmed) + L")";
   }
   return where;
 }

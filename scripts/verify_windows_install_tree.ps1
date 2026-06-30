@@ -49,6 +49,7 @@ $requiredFiles = @(
     'DirectML.dll',
     'aria2c.exe',
     'duckdb.dll',
+    'duckdb_extensions\fts.duckdb_extension',
     'duckdb_extensions\vss.duckdb_extension',
     'Qt6Core.dll',
     'Qt6Gui.dll',

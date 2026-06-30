@@ -14,6 +14,8 @@ param(
     [string]$Preset = "win_release",
     [string]$QtPrefix = "D:/Qt/6.9.3/msvc2022_64/lib/cmake",
     [string]$PackageOutDir = "$PSScriptRoot\..\build\release\package",
+    [string]$DuckDbVssExtension = $env:ALCEDO_DUCKDB_VSS_EXTENSION,
+    [string]$DuckDbFtsExtension = $env:ALCEDO_DUCKDB_FTS_EXTENSION,
     [bool]$RequireOpenCLAssets = $true
 )
 
@@ -25,16 +27,73 @@ function Test-CommandAvailable {
     return ($null -ne (Get-Command $Name -ErrorAction SilentlyContinue))
 }
 
+function Resolve-DuckDbExtension {
+    param(
+        [Parameter(Mandatory = $true)][string]$ExtensionName,
+        [Parameter(Mandatory = $true)][string]$FileName,
+        [string]$ConfiguredPath,
+        [string]$FallbackPath
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($ConfiguredPath)) {
+        if (-not (Test-Path -LiteralPath $ConfiguredPath -PathType Leaf)) {
+            throw "$ExtensionName DuckDB extension path does not exist: $ConfiguredPath"
+        }
+        return (Resolve-Path -LiteralPath $ConfiguredPath).Path
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($FallbackPath) -and
+        (Test-Path -LiteralPath $FallbackPath -PathType Leaf)) {
+        return (Resolve-Path -LiteralPath $FallbackPath).Path
+    }
+
+    if (-not (Test-CommandAvailable "duckdb")) {
+        throw "DuckDB CLI is required to prepare the $ExtensionName extension. Install DuckDB or pass -DuckDb$($ExtensionName.Substring(0,1).ToUpper())$($ExtensionName.Substring(1))Extension."
+    }
+
+    $extensionRoot = Join-Path $BuildDir "duckdb_extensions"
+    New-Item -ItemType Directory -Force -Path $extensionRoot | Out-Null
+
+    $sqlExtensionRoot = $extensionRoot.Replace("'", "''")
+    & duckdb -c "SET extension_directory='$sqlExtensionRoot'; INSTALL $ExtensionName;" | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to install DuckDB $ExtensionName extension."
+    }
+
+    $installed = Get-ChildItem -Path $extensionRoot -Filter $FileName -Recurse -File |
+        Select-Object -First 1
+    if (-not $installed) {
+        throw "Failed to locate installed $FileName under $extensionRoot."
+    }
+
+    return $installed.FullName
+}
+
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  Alcedo Studio Windows Packager" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
+Write-Host ""
+
+$repoVssExtension = Join-Path $repoRoot "alcedo_studio\third_party\libduckdb-windows\extensions\vss.duckdb_extension"
+$resolvedDuckDbVssExtension = Resolve-DuckDbExtension `
+    -ExtensionName "vss" `
+    -FileName "vss.duckdb_extension" `
+    -ConfiguredPath $DuckDbVssExtension `
+    -FallbackPath $repoVssExtension
+$resolvedDuckDbFtsExtension = Resolve-DuckDbExtension `
+    -ExtensionName "fts" `
+    -FileName "fts.duckdb_extension" `
+    -ConfiguredPath $DuckDbFtsExtension
+
+Write-Host "DuckDB VSS extension: $resolvedDuckDbVssExtension" -ForegroundColor Gray
+Write-Host "DuckDB FTS extension: $resolvedDuckDbFtsExtension" -ForegroundColor Gray
 Write-Host ""
 
 # ------------------------------------------------------------------
 # 1. Configure (re-run to pick up new packaging tools like WiX/NSIS)
 # ------------------------------------------------------------------
 Write-Host "Configuring CMake with preset '$Preset' ..." -ForegroundColor Yellow
-$configureCmd = "cmd /c `"$repoRoot\scripts\msvc_env.cmd`" --preset $Preset -DCMAKE_PREFIX_PATH=`"$QtPrefix`""
+$configureCmd = "cmd /c `"$repoRoot\scripts\msvc_env.cmd`" --preset $Preset -DCMAKE_PREFIX_PATH=`"$QtPrefix`" -DALCEDO_DUCKDB_VSS_EXTENSION=`"$resolvedDuckDbVssExtension`" -DALCEDO_DUCKDB_FTS_EXTENSION=`"$resolvedDuckDbFtsExtension`""
 Write-Host "> $configureCmd"
 Invoke-Expression $configureCmd
 if ($LASTEXITCODE -ne 0) {

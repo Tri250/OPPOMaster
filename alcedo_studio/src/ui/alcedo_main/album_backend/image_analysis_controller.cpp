@@ -209,12 +209,12 @@ void ImageAnalysisController::StartDescribeForTargets(const QVariantList& target
 }
 
 void ImageAnalysisController::StartScoreForTargets(const QVariantList& targetEntries,
-                                                   bool includeRatingReasons) {
+                                                   bool                includeRatingReasons) {
   StartForTargets(targetEntries, alcedo::ImageAnalysisTask::kScore, includeRatingReasons);
 }
 
 void ImageAnalysisController::StartAnalyzeForTargets(const QVariantList& targetEntries,
-                                                     bool includeRatingReasons) {
+                                                     bool                includeRatingReasons) {
   StartForTargets(targetEntries, alcedo::ImageAnalysisTask::kAnalyze, includeRatingReasons);
 }
 
@@ -225,10 +225,9 @@ void ImageAnalysisController::StartForTargets(const QVariantList&       targetEn
     return;
   }
   last_error_.clear();
-  last_task_                   = task;
-  last_include_rating_reasons_ = task == alcedo::ImageAnalysisTask::kDescribe
-                                     ? false
-                                     : includeRatingReasons;
+  last_task_ = task;
+  last_include_rating_reasons_ =
+      task == alcedo::ImageAnalysisTask::kDescribe ? false : includeRatingReasons;
 
   auto items = CollectItems(targetEntries);
   if (items.empty()) {
@@ -387,9 +386,9 @@ void ImageAnalysisController::RetryLast() {
   if (running_ || last_items_.empty()) {
     return;
   }
-  auto         items                 = last_items_;
-  auto         task                  = last_task_;
-  const bool   includeRatingReasons  = last_include_rating_reasons_;
+  auto         items                = last_items_;
+  auto         task                 = last_task_;
+  const bool   includeRatingReasons = last_include_rating_reasons_;
   // Re-run via StartForTargets by reconstructing the target entries from items.
   QVariantList entries;
   for (const auto& it : items) {
@@ -414,7 +413,7 @@ void ImageAnalysisController::ValidateConnectionForProfile(const QString& profil
     SetError(Tr("Select a provider profile before validating."));
     return;
   }
-  const auto profile = *profile_opt;
+  const auto profile             = *profile_opt;
   const bool requires_credential = profile.auth_type != QStringLiteral("none");
   if (profile.provider_id.isEmpty() || (requires_credential && profile.credential_slot.isEmpty())) {
     SetError(Tr("Configure a provider id and credential slot before validating."));
@@ -466,12 +465,12 @@ void ImageAnalysisController::ValidateConnectionForProfile(const QString& profil
                thumbnail_provider, analysis_client, gate, store]() {
     alcedo::ImageAnalysisService service(thumbnail_provider, analysis_client, gate);
     alcedo::ImageAnalysisConnectionValidationOptions opts;
-    opts.provider_id          = provider_id;
-    opts.credential_slot      = slot;
+    opts.provider_id         = provider_id;
+    opts.credential_slot     = slot;
     opts.requires_credential = requires_credential;
-    opts.timeout              = std::chrono::milliseconds(timeout_ms);
-    opts.credential_ttl_ms    = 60000;
-    auto result               = service.ValidateConnection(opts, store.get());
+    opts.timeout             = std::chrono::milliseconds(timeout_ms);
+    opts.credential_ttl_ms   = 60000;
+    auto result              = service.ValidateConnection(opts, store.get());
     QMetaObject::invokeMethod(
         self,
         [self, result, profile_id]() {
@@ -639,12 +638,16 @@ void ImageAnalysisController::Finish(std::vector<alcedo::ImageAnalysisItemResult
   // so a fully failed/cancelled job produces ZERO sink calls. The sink is nullable so the
   // controller stays usable in contexts without host-state wiring (e.g. a dry unit test).
   if (sink_ && analyzed_ > 0) {
+    std::vector<alcedo::ImageAnalysisItemResult> understanding_results;
+    if (describe || analyze) {
+      understanding_results.reserve(static_cast<size_t>(analyzed_));
+    }
     for (const auto& r : results) {
       if (r.status != alcedo::ImageAnalysisItemStatus::kAnalyzed) {
         continue;
       }
       if (describe || analyze) {
-        sink_->PersistUnderstanding(r);
+        understanding_results.push_back(r);
       }
       if (!describe) {
         if (last_include_rating_reasons_) {
@@ -655,6 +658,7 @@ void ImageAnalysisController::Finish(std::vector<alcedo::ImageAnalysisItemResult
       }
     }
     if (describe || analyze) {
+      sink_->PersistUnderstandings(understanding_results);
       sink_->NotifySearchDocumentChanged();
     }
     if (!describe) {

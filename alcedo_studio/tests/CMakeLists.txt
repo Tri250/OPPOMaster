@@ -72,6 +72,33 @@ function(alcedo_assign_test_category category option_name category_target)
   endforeach()
 endfunction()
 
+function(alcedo_copy_duckdb_extension target_name extension_path extension_file_name)
+  if(TARGET ${target_name} AND NOT "${extension_path}" STREQUAL "" AND EXISTS "${extension_path}")
+    add_custom_command(TARGET ${target_name} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E make_directory
+              "$<TARGET_FILE_DIR:${target_name}>/duckdb_extensions"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${extension_path}"
+              "$<TARGET_FILE_DIR:${target_name}>/duckdb_extensions/${extension_file_name}"
+      VERBATIM)
+  endif()
+endfunction()
+
+function(alcedo_copy_duckdb_extensions target_name)
+  alcedo_copy_duckdb_extension(${target_name}
+    "${ALCEDO_DUCKDB_VSS_EXTENSION}"
+    "vss.duckdb_extension")
+  alcedo_copy_duckdb_extension(${target_name}
+    "${ALCEDO_DUCKDB_FTS_EXTENSION}"
+    "fts.duckdb_extension")
+endfunction()
+
+function(alcedo_copy_duckdb_fts_extension target_name)
+  alcedo_copy_duckdb_extension(${target_name}
+    "${ALCEDO_DUCKDB_FTS_EXTENSION}"
+    "fts.duckdb_extension")
+endfunction()
+
 add_executable(SampleTest sample_test.cpp)
 target_link_libraries(SampleTest PRIVATE GTest::gtest_main)
 
@@ -572,6 +599,7 @@ gtest_discover_tests(SearchQueryClassifierTest TEST_PREFIX "SearchQueryClassifie
 if(WIN32)
   target_link_libraries(FilterServiceTest)
 endif()
+alcedo_copy_duckdb_fts_extension(FilterServiceTest)
 
 add_executable(PipelineServiceTest app/pipeline_service_test.cpp)
 target_include_directories(PipelineServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
@@ -707,16 +735,8 @@ if(WIN32)
               "$<TARGET_FILE_DIR:SemanticStorageControllerTest>/duckdb.dll"
       VERBATIM)
   endif()
-  if(ALCEDO_DUCKDB_VSS_EXTENSION)
-    add_custom_command(TARGET SemanticStorageControllerTest POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E make_directory
-              "$<TARGET_FILE_DIR:SemanticStorageControllerTest>/duckdb_extensions"
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different
-              "${ALCEDO_DUCKDB_VSS_EXTENSION}"
-              "$<TARGET_FILE_DIR:SemanticStorageControllerTest>/duckdb_extensions/vss.duckdb_extension"
-      VERBATIM)
-  endif()
 endif()
+alcedo_copy_duckdb_extensions(SemanticStorageControllerTest)
 
 add_executable(AiStorageControllerTest storage/ai_storage_controller_test.cpp)
 target_include_directories(AiStorageControllerTest PUBLIC ${ALCEDO_INCLUDE_DIR})
@@ -739,16 +759,8 @@ if(WIN32)
               "$<TARGET_FILE_DIR:AiStorageControllerTest>/duckdb.dll"
       VERBATIM)
   endif()
-  if(ALCEDO_DUCKDB_VSS_EXTENSION)
-    add_custom_command(TARGET AiStorageControllerTest POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E make_directory
-              "$<TARGET_FILE_DIR:AiStorageControllerTest>/duckdb_extensions"
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different
-              "${ALCEDO_DUCKDB_VSS_EXTENSION}"
-              "$<TARGET_FILE_DIR:AiStorageControllerTest>/duckdb_extensions/vss.duckdb_extension"
-      VERBATIM)
-  endif()
 endif()
+alcedo_copy_duckdb_extensions(AiStorageControllerTest)
 
 add_executable(SemanticGenerationServiceTest app/semantic_generation_service_test.cpp)
 target_include_directories(SemanticGenerationServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})

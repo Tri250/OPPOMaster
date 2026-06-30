@@ -1787,12 +1787,15 @@ if(WIN32 AND TARGET alcedo_lensfun)
     )
 endif()
 
-if(WIN32 AND ALCEDO_DUCKDB_VSS_EXTENSION)
+if(TARGET alcedo_main AND ALCEDO_DUCKDB_VSS_EXTENSION AND ALCEDO_DUCKDB_FTS_EXTENSION)
     add_custom_command(TARGET alcedo_main POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:alcedo_main>/duckdb_extensions"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${ALCEDO_DUCKDB_VSS_EXTENSION}"
             "$<TARGET_FILE_DIR:alcedo_main>/duckdb_extensions/vss.duckdb_extension"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${ALCEDO_DUCKDB_FTS_EXTENSION}"
+            "$<TARGET_FILE_DIR:alcedo_main>/duckdb_extensions/fts.duckdb_extension"
         VERBATIM
     )
 endif()

@@ -475,14 +475,90 @@ else()
   endif()
 endif()
 
+set(ALCEDO_DUCKDB_VSS_EXTENSION ""
+    CACHE FILEPATH "DuckDB VSS extension matching the bundled DuckDB runtime.")
+set(ALCEDO_DUCKDB_FTS_EXTENSION ""
+    CACHE FILEPATH "DuckDB FTS extension matching the bundled DuckDB runtime.")
+set(ALCEDO_DUCKDB_EXTENSION_VERSION "v1.2.1"
+    CACHE STRING "DuckDB extension version matching the bundled DuckDB runtime.")
+
+function(alcedo_find_cached_duckdb_extension output_var extension_file_name)
+    set(_duckdb_extension_platform "")
+    if(WIN32)
+        set(_duckdb_extension_platform "windows_amd64")
+    elseif(APPLE)
+        if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
+            set(_duckdb_extension_platform "osx_arm64")
+        else()
+            set(_duckdb_extension_platform "osx_amd64")
+        endif()
+    endif()
+
+    if(NOT _duckdb_extension_platform OR NOT ALCEDO_DUCKDB_EXTENSION_VERSION)
+        return()
+    endif()
+
+    set(_duckdb_extension_home_dirs "")
+    if(DEFINED ENV{USERPROFILE})
+        file(TO_CMAKE_PATH "$ENV{USERPROFILE}" _duckdb_userprofile)
+        list(APPEND _duckdb_extension_home_dirs "${_duckdb_userprofile}")
+    endif()
+    if(DEFINED ENV{HOME})
+        file(TO_CMAKE_PATH "$ENV{HOME}" _duckdb_home)
+        list(APPEND _duckdb_extension_home_dirs "${_duckdb_home}")
+    endif()
+    list(REMOVE_DUPLICATES _duckdb_extension_home_dirs)
+
+    foreach(_duckdb_home_dir IN LISTS _duckdb_extension_home_dirs)
+        set(_duckdb_extension_candidate
+            "${_duckdb_home_dir}/.duckdb/extensions/${ALCEDO_DUCKDB_EXTENSION_VERSION}/${_duckdb_extension_platform}/${extension_file_name}")
+        if(EXISTS "${_duckdb_extension_candidate}")
+            set(${output_var} "${_duckdb_extension_candidate}" PARENT_SCOPE)
+            return()
+        endif()
+    endforeach()
+endfunction()
+
+if(NOT ALCEDO_DUCKDB_VSS_EXTENSION AND DEFINED ENV{ALCEDO_DUCKDB_VSS_EXTENSION})
+    set(ALCEDO_DUCKDB_VSS_EXTENSION "$ENV{ALCEDO_DUCKDB_VSS_EXTENSION}"
+        CACHE FILEPATH "DuckDB VSS extension matching the bundled DuckDB runtime." FORCE)
+endif()
+if(NOT ALCEDO_DUCKDB_FTS_EXTENSION AND DEFINED ENV{ALCEDO_DUCKDB_FTS_EXTENSION})
+    set(ALCEDO_DUCKDB_FTS_EXTENSION "$ENV{ALCEDO_DUCKDB_FTS_EXTENSION}"
+        CACHE FILEPATH "DuckDB FTS extension matching the bundled DuckDB runtime." FORCE)
+endif()
+if(NOT ALCEDO_DUCKDB_VSS_EXTENSION)
+    alcedo_find_cached_duckdb_extension(_alcedo_cached_vss_duckdb_extension vss.duckdb_extension)
+    if(_alcedo_cached_vss_duckdb_extension)
+        set(ALCEDO_DUCKDB_VSS_EXTENSION "${_alcedo_cached_vss_duckdb_extension}"
+            CACHE FILEPATH "DuckDB VSS extension matching the bundled DuckDB runtime." FORCE)
+    endif()
+endif()
+if(NOT ALCEDO_DUCKDB_FTS_EXTENSION)
+    alcedo_find_cached_duckdb_extension(_alcedo_cached_fts_duckdb_extension fts.duckdb_extension)
+    if(_alcedo_cached_fts_duckdb_extension)
+        set(ALCEDO_DUCKDB_FTS_EXTENSION "${_alcedo_cached_fts_duckdb_extension}"
+            CACHE FILEPATH "DuckDB FTS extension matching the bundled DuckDB runtime." FORCE)
+    endif()
+endif()
 if(WIN32)
-    set(ALCEDO_DUCKDB_VSS_EXTENSION
-        "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/libduckdb-windows/extensions/vss.duckdb_extension"
-        CACHE FILEPATH "DuckDB VSS extension matching the bundled Windows DuckDB runtime.")
+    if(NOT ALCEDO_DUCKDB_VSS_EXTENSION)
+        set(ALCEDO_DUCKDB_VSS_EXTENSION
+            "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/libduckdb-windows/extensions/vss.duckdb_extension"
+            CACHE FILEPATH "DuckDB VSS extension matching the bundled Windows DuckDB runtime." FORCE)
+    endif()
+endif()
+if(WIN32 OR (APPLE AND (ALCEDO_BUILD_TESTS OR ALCEDO_MACOS_BUNDLE)))
     if(NOT EXISTS "${ALCEDO_DUCKDB_VSS_EXTENSION}")
         message(FATAL_ERROR
             "DuckDB VSS extension is required for semantic search. "
-            "Expected: ${ALCEDO_DUCKDB_VSS_EXTENSION}")
+            "Set ALCEDO_DUCKDB_VSS_EXTENSION to a vss.duckdb_extension file that matches the DuckDB runtime.")
+    endif()
+    if(NOT EXISTS "${ALCEDO_DUCKDB_FTS_EXTENSION}")
+        message(FATAL_ERROR
+            "DuckDB FTS extension is required for offline full-text search. "
+            "Install it with `duckdb -c \"INSTALL fts;\"`, then set ALCEDO_DUCKDB_FTS_EXTENSION "
+            "to the matching fts.duckdb_extension file, or run scripts/package_windows.ps1 to prepare it automatically.")
     endif()
 endif()
 
@@ -529,6 +605,19 @@ function(alcedo_install_packaged_luts config_dir destination)
     )
     if(_alcedo_packaged_luts)
         install(FILES ${_alcedo_packaged_luts} DESTINATION "${destination}")
+    endif()
+endfunction()
+
+function(alcedo_install_duckdb_extensions destination)
+    set(_alcedo_duckdb_extensions "")
+    if(ALCEDO_DUCKDB_VSS_EXTENSION AND EXISTS "${ALCEDO_DUCKDB_VSS_EXTENSION}")
+        list(APPEND _alcedo_duckdb_extensions "${ALCEDO_DUCKDB_VSS_EXTENSION}")
+    endif()
+    if(ALCEDO_DUCKDB_FTS_EXTENSION AND EXISTS "${ALCEDO_DUCKDB_FTS_EXTENSION}")
+        list(APPEND _alcedo_duckdb_extensions "${ALCEDO_DUCKDB_FTS_EXTENSION}")
+    endif()
+    if(_alcedo_duckdb_extensions)
+        install(FILES ${_alcedo_duckdb_extensions} DESTINATION "${destination}/duckdb_extensions")
     endif()
 endfunction()
 
@@ -590,6 +679,7 @@ if(TARGET ${ALCEDO_MAIN_BIN})
                 DESTINATION "${_bundle_resources_dest}/metallib"
             )
         endif()
+        alcedo_install_duckdb_extensions("${_bundle_macos_dest}")
         if(ALCEDO_BUILD_SEMANTIC_SIDECAR AND ALCEDO_MIND_BINARY)
             install(CODE
                 "set(ALCEDO_MIND_BINARY \"${ALCEDO_MIND_BINARY}\")
@@ -701,11 +791,7 @@ if(TARGET ${ALCEDO_MAIN_BIN})
             install(DIRECTORY "${CMAKE_SOURCE_DIR}/alcedo_studio/src/opencl/opencl_shader/"
                 DESTINATION "${CMAKE_INSTALL_BINDIR}/opencl/opencl/opencl_shader")
         endif()
-        if(WIN32 AND ALCEDO_DUCKDB_VSS_EXTENSION)
-            install(FILES "${ALCEDO_DUCKDB_VSS_EXTENSION}"
-                DESTINATION "${CMAKE_INSTALL_BINDIR}/duckdb_extensions"
-            )
-        endif()
+        alcedo_install_duckdb_extensions("${CMAKE_INSTALL_BINDIR}")
 
         if(ALCEDO_BUILD_SEMANTIC_SIDECAR AND ALCEDO_MIND_BINARY)
             install(CODE

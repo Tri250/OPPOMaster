@@ -29,8 +29,8 @@ namespace {
 // for the file. This is test verification, not production ser/deser, so a raw COUNT query
 // is appropriate here.
 auto CountUnderstandingRows(DBController& db) -> size_t {
-  auto guard = db.GetConnectionGuard();
-  auto lock  = guard.Lock();
+  auto          guard = db.GetConnectionGuard();
+  auto          lock  = guard.Lock();
   duckdb_result result;
   if (duckdb_query(guard.conn_, "SELECT COUNT(*) FROM AiImageUnderstanding;", &result) !=
       DuckDBSuccess) {
@@ -40,6 +40,50 @@ auto CountUnderstandingRows(DBController& db) -> size_t {
   const auto n = static_cast<size_t>(duckdb_value_int64(&result, 0, 0));
   duckdb_destroy_result(&result);
   return n;
+}
+
+auto CountFtsDocumentRows(DBController& db) -> size_t {
+  auto          guard = db.GetConnectionGuard();
+  auto          lock  = guard.Lock();
+  duckdb_result result;
+  if (duckdb_query(guard.conn_, "SELECT COUNT(*) FROM AiImageFtsDocument;", &result) !=
+      DuckDBSuccess) {
+    duckdb_destroy_result(&result);
+    return 0;
+  }
+  const auto n = static_cast<size_t>(duckdb_value_int64(&result, 0, 0));
+  duckdb_destroy_result(&result);
+  return n;
+}
+
+void DropFtsDocumentTable(DBController& db) {
+  auto          guard = db.GetConnectionGuard();
+  auto          lock  = guard.Lock();
+  duckdb_result result;
+  duckdb_query(guard.conn_, "DROP TABLE IF EXISTS AiImageFtsDocument;", &result);
+  duckdb_destroy_result(&result);
+}
+
+auto FtsDocumentBody(DBController& db, sl_element_id_t file_id) -> std::string {
+  auto          guard = db.GetConnectionGuard();
+  auto          lock  = guard.Lock();
+  duckdb_result result;
+  const auto    sql = std::string("SELECT body FROM AiImageFtsDocument WHERE file_id = ") +
+                   std::to_string(file_id) + ";";
+  if (duckdb_query(guard.conn_, sql.c_str(), &result) != DuckDBSuccess) {
+    duckdb_destroy_result(&result);
+    return {};
+  }
+  std::string body;
+  if (duckdb_row_count(&result) > 0 && !duckdb_value_is_null(&result, 0, 0)) {
+    char* raw = duckdb_value_varchar(&result, 0, 0);
+    if (raw) {
+      body = raw;
+      duckdb_free(raw);
+    }
+  }
+  duckdb_destroy_result(&result);
+  return body;
 }
 
 auto MakeUnderstanding(sl_element_id_t file_id, const std::string& task_id,
@@ -82,7 +126,7 @@ class AiStorageControllerTest : public ::testing::Test {
   std::filesystem::path db_path_;
   std::filesystem::path meta_path_;
 
-  void SetUp() override {
+  void                  SetUp() override {
     RegisterAllOperators();
     const auto*       test_info = ::testing::UnitTest::GetInstance()->current_test_info();
     const std::string suffix = std::string(test_info->test_suite_name()) + "_" + test_info->name();
@@ -125,7 +169,7 @@ TEST_F(AiStorageControllerTest, UpsertAndRetrieveUnderstanding) {
   ProjectService project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
   const auto     file_id = CreateSyntheticFile(project, L"ai_understanding_alpha.dng");
   ASSERT_NE(file_id, 0u);
-  auto&          ai = project.GetStorageService()->GetAiStorageController();
+  auto& ai = project.GetStorageService()->GetAiStorageController();
   ASSERT_TRUE(ai.UpsertUnderstanding(
       MakeUnderstanding(file_id, "describe", "Sahara dunes at sunset", {"desert", "sand"})));
 
@@ -155,9 +199,11 @@ TEST_F(AiStorageControllerTest, ReplaceUnderstandingForSamePairKeepsOneRow) {
   ASSERT_NE(file_id, 0u);
   auto& ai = project.GetStorageService()->GetAiStorageController();
 
-  ASSERT_TRUE(ai.UpsertUnderstanding(MakeUnderstanding(file_id, "describe", "old caption", {"old"})));
+  ASSERT_TRUE(
+      ai.UpsertUnderstanding(MakeUnderstanding(file_id, "describe", "old caption", {"old"})));
   ASSERT_EQ(CountUnderstandingRows(project.GetStorageService()->GetDBController()), 1u);
-  ASSERT_TRUE(ai.UpsertUnderstanding(MakeUnderstanding(file_id, "describe", "new caption", {"new"})));
+  ASSERT_TRUE(
+      ai.UpsertUnderstanding(MakeUnderstanding(file_id, "describe", "new caption", {"new"})));
   EXPECT_EQ(CountUnderstandingRows(project.GetStorageService()->GetDBController()), 1u)
       << "insert_or_replace must not append a second row for the same (file_id, task_id)";
 
@@ -177,11 +223,53 @@ TEST_F(AiStorageControllerTest, DifferentTaskIdsForSameFileCoexist) {
   ASSERT_NE(file_id, 0u);
   auto& ai = project.GetStorageService()->GetAiStorageController();
 
-  ASSERT_TRUE(ai.UpsertUnderstanding(MakeUnderstanding(file_id, "describe-v1", "caption v1", {"a"})));
-  ASSERT_TRUE(ai.UpsertUnderstanding(MakeUnderstanding(file_id, "describe-v2", "caption v2", {"b"})));
+  ASSERT_TRUE(
+      ai.UpsertUnderstanding(MakeUnderstanding(file_id, "describe-v1", "caption v1", {"a"})));
+  ASSERT_TRUE(
+      ai.UpsertUnderstanding(MakeUnderstanding(file_id, "describe-v2", "caption v2", {"b"})));
   EXPECT_EQ(CountUnderstandingRows(project.GetStorageService()->GetDBController()), 2u);
   EXPECT_EQ(ai.GetUnderstanding(file_id, "describe-v1")->caption_, "caption v1");
   EXPECT_EQ(ai.GetUnderstanding(file_id, "describe-v2")->caption_, "caption v2");
+}
+
+TEST_F(AiStorageControllerTest, BatchUpsertUnderstandingUpdatesFtsDocumentsOnce) {
+  ProjectService project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
+  const auto     alpha_id = CreateSyntheticFile(project, L"ai_batch_alpha.dng");
+  const auto     beta_id  = CreateSyntheticFile(project, L"ai_batch_beta.dng");
+  ASSERT_NE(alpha_id, 0u);
+  ASSERT_NE(beta_id, 0u);
+  auto&                            ai = project.GetStorageService()->GetAiStorageController();
+
+  const std::vector<AiDescription> descriptions{
+      MakeUnderstanding(alpha_id, "describe", "sahara dunes at sunset", {"desert", "sand"}),
+      MakeUnderstanding(beta_id, "describe", "city street at night", {"urban"})};
+  EXPECT_EQ(ai.UpsertUnderstandings(descriptions), 2u);
+  EXPECT_EQ(CountUnderstandingRows(project.GetStorageService()->GetDBController()), 2u);
+  EXPECT_EQ(CountFtsDocumentRows(project.GetStorageService()->GetDBController()), 2u);
+
+  const auto alpha_body = FtsDocumentBody(project.GetStorageService()->GetDBController(), alpha_id);
+  EXPECT_NE(alpha_body.find("sahara dunes"), std::string::npos);
+  EXPECT_NE(alpha_body.find("desert"), std::string::npos);
+
+  const auto beta_body = FtsDocumentBody(project.GetStorageService()->GetDBController(), beta_id);
+  EXPECT_NE(beta_body.find("city street"), std::string::npos);
+  EXPECT_NE(beta_body.find("urban"), std::string::npos);
+}
+
+TEST_F(AiStorageControllerTest, UpsertUnderstandingCreatesMissingFtsDocumentTable) {
+  ProjectService project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
+  const auto     file_id = CreateSyntheticFile(project, L"ai_missing_fts_doc_alpha.dng");
+  ASSERT_NE(file_id, 0u);
+
+  DropFtsDocumentTable(project.GetStorageService()->GetDBController());
+  auto& ai = project.GetStorageService()->GetAiStorageController();
+  ASSERT_TRUE(ai.UpsertUnderstanding(
+      MakeUnderstanding(file_id, "describe", "sahara dunes at sunset", {"desert"})));
+
+  EXPECT_EQ(CountFtsDocumentRows(project.GetStorageService()->GetDBController()), 1u);
+  const auto body = FtsDocumentBody(project.GetStorageService()->GetDBController(), file_id);
+  EXPECT_NE(body.find("sahara dunes"), std::string::npos);
+  EXPECT_NE(body.find("desert"), std::string::npos);
 }
 
 // A partial/invalid understanding (missing provider/model identity) is rejected so a
@@ -190,9 +278,9 @@ TEST_F(AiStorageControllerTest, InvalidUnderstandingNotPersisted) {
   ProjectService project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
   const auto     file_id = CreateSyntheticFile(project, L"ai_invalid_alpha.dng");
   ASSERT_NE(file_id, 0u);
-  auto& ai = project.GetStorageService()->GetAiStorageController();
+  auto& ai         = project.GetStorageService()->GetAiStorageController();
 
-  auto bad = MakeUnderstanding(file_id, "describe", "partial", {});
+  auto  bad        = MakeUnderstanding(file_id, "describe", "partial", {});
   bad.provider_id_ = "";  // IsValid() == false
   EXPECT_FALSE(ai.UpsertUnderstanding(bad));
   EXPECT_FALSE(ai.GetUnderstanding(file_id, "describe").has_value());
@@ -203,7 +291,7 @@ TEST_F(AiStorageControllerTest, GetActiveUnderstandingReturnsPersistedRow) {
   ProjectService project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
   const auto     file_id = CreateSyntheticFile(project, L"ai_active_alpha.dng");
   ASSERT_NE(file_id, 0u);
-  auto&          ai = project.GetStorageService()->GetAiStorageController();
+  auto& ai = project.GetStorageService()->GetAiStorageController();
   ASSERT_TRUE(ai.UpsertUnderstanding(MakeUnderstanding(file_id, "describe", "active caption", {})));
   const auto got = ai.GetActiveUnderstanding(file_id);
   ASSERT_TRUE(got.has_value());
@@ -247,10 +335,10 @@ TEST_F(AiStorageControllerTest, UnsetRatingNotPersisted) {
 // non-empty reasons. A rating=0 row (the 7a sentinel) is storable through this path even
 // though `IsValid()` rejects it.
 TEST_F(AiStorageControllerTest, IsValidReasonsOnlyAcceptsZeroSentinelAndRejectsEmptyReasons) {
-  const auto file_id = static_cast<sl_element_id_t>(42);
+  const auto file_id  = static_cast<sl_element_id_t>(42);
   // rating=0 sentinel with reasons — reasons-only valid, but IsValid (strict) rejects it.
   const auto sentinel = MakeRating(file_id, "rate", 0, "rationale");
-  EXPECT_FALSE(sentinel.IsValid());          // 5f strict gate: rating must be 1..5
+  EXPECT_FALSE(sentinel.IsValid());            // 5f strict gate: rating must be 1..5
   EXPECT_TRUE(sentinel.IsValidReasonsOnly());  // 7a gate: rating ignored, reasons present
   // Empty reasons — rejected by the reasons-only gate.
   const auto no_reasons = MakeRating(file_id, "rate", 0, "");
@@ -355,9 +443,9 @@ TEST_F(AiStorageControllerTest, ProviderModelPromptIdentityPreserved) {
   ProjectService project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
   const auto     file_id = CreateSyntheticFile(project, L"ai_identity_alpha.dng");
   ASSERT_NE(file_id, 0u);
-  auto& ai = project.GetStorageService()->GetAiStorageController();
+  auto& ai             = project.GetStorageService()->GetAiStorageController();
 
-  auto u = MakeUnderstanding(file_id, "describe", "caption", {"tag"});
+  auto  u              = MakeUnderstanding(file_id, "describe", "caption", {"tag"});
   u.provider_id_       = "volcengine_ark";
   u.model_id_          = "doubao-vision";
   u.prompt_profile_id_ = "profile-7";
@@ -368,7 +456,7 @@ TEST_F(AiStorageControllerTest, ProviderModelPromptIdentityPreserved) {
   EXPECT_EQ(gu->model_id_, "doubao-vision");
   EXPECT_EQ(gu->prompt_profile_id_, "profile-7");
 
-  auto r = MakeRating(file_id, "rate", 3, "ok");
+  auto r            = MakeRating(file_id, "rate", 3, "ok");
   r.rubric_id_      = "curated-rubric";
   r.rubric_version_ = "v2";
   ASSERT_TRUE(ai.UpsertRating(r));
@@ -400,8 +488,8 @@ TEST_F(AiStorageControllerTest, DeleteForFilesRemovesBothKinds) {
 // matching Element row is refused so no orphan AI annotation can ever be
 // written (the FK is enforced at the write boundary, not via a DDL constraint).
 TEST_F(AiStorageControllerTest, OrphanFileIdNotPersisted) {
-  ProjectService project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
-  auto&          ai = project.GetStorageService()->GetAiStorageController();
+  ProjectService            project(db_path_, meta_path_, ProjectOpenMode::kCreateNew);
+  auto&                     ai            = project.GetStorageService()->GetAiStorageController();
   // A file_id that was never created — no Element row exists for it.
   constexpr sl_element_id_t kOrphanFileId = 999'999'999;
 
@@ -422,12 +510,13 @@ TEST_F(AiStorageControllerTest, ElementDeletionCascadesAiRows) {
   const auto     file_id = CreateSyntheticFile(project, L"ai_cascade_alpha.dng");
   ASSERT_NE(file_id, 0u);
   auto& ai = project.GetStorageService()->GetAiStorageController();
-  ASSERT_TRUE(ai.UpsertUnderstanding(MakeUnderstanding(file_id, "describe", "cascade caption", {})));
+  ASSERT_TRUE(
+      ai.UpsertUnderstanding(MakeUnderstanding(file_id, "describe", "cascade caption", {})));
   ASSERT_TRUE(ai.UpsertRating(MakeRating(file_id, "rate", 2, "cascade reasons")));
   ASSERT_TRUE(ai.GetUnderstanding(file_id, "describe").has_value());
 
-  auto&       el_ctrl = project.GetStorageService()->GetElementController();
-  const auto  element = el_ctrl.GetElementById(file_id);
+  auto&      el_ctrl = project.GetStorageService()->GetElementController();
+  const auto element = el_ctrl.GetElementById(file_id);
   ASSERT_NE(element, nullptr);
   const std::vector<std::shared_ptr<SleeveElement>> elements = {element};
   el_ctrl.RemoveElements(elements);
@@ -448,7 +537,8 @@ TEST_F(AiStorageControllerTest, SleeveServiceDeleteElementCascadesAiRows) {
   const auto     file_id = CreateSyntheticFile(project, L"ai_cascade_id_alpha.dng");
   ASSERT_NE(file_id, 0u);
   auto& ai = project.GetStorageService()->GetAiStorageController();
-  ASSERT_TRUE(ai.UpsertUnderstanding(MakeUnderstanding(file_id, "describe", "cascade id caption", {})));
+  ASSERT_TRUE(
+      ai.UpsertUnderstanding(MakeUnderstanding(file_id, "describe", "cascade id caption", {})));
   ASSERT_TRUE(ai.UpsertRating(MakeRating(file_id, "rate", 4, "cascade id reasons")));
   ASSERT_TRUE(ai.GetUnderstanding(file_id, "describe").has_value());
   ASSERT_TRUE(ai.GetRating(file_id, "rate").has_value());

@@ -6,9 +6,11 @@
 
 #include <duckdb.h>
 
+#include <cstddef>
 #include <optional>
 #include <span>
 #include <string>
+#include <vector>
 
 #include "ai/ai_description.hpp"
 #include "ai/ai_rating.hpp"
@@ -47,10 +49,16 @@ class AiStorageController {
   // storage-layer backstop). Throws on a DuckDB error.
   [[nodiscard]] auto UpsertUnderstanding(const AiDescription& description) const -> bool;
 
+  // Persist multiple successful image-understanding results in one DB transaction. Valid
+  // rows are upserted together, then the derived FTS document table and DuckDB FTS index
+  // are refreshed once after commit. Invalid rows or orphan file_ids are skipped; the
+  // return value is the number of rows accepted by storage.
+  [[nodiscard]] auto UpsertUnderstandings(std::span<const AiDescription> descriptions) const
+      -> size_t;
+
   // Read the row for an exact (file_id, task_id) pair — a deterministic primary-key
   // lookup. Returns std::nullopt when no such row exists.
-  [[nodiscard]] auto GetUnderstanding(sl_element_id_t      file_id,
-                                      const std::string& task_id) const
+  [[nodiscard]] auto GetUnderstanding(sl_element_id_t file_id, const std::string& task_id) const
       -> std::optional<AiDescription>;
 
   // Read the active-for-search understanding for a file (the first active row). The host
@@ -58,6 +66,12 @@ class AiStorageController {
   // recently wrote. Returns std::nullopt when no active row exists.
   [[nodiscard]] auto GetActiveUnderstanding(sl_element_id_t file_id) const
       -> std::optional<AiDescription>;
+
+  // True when the derived AI-description FTS index exists and exposes its DuckDB
+  // `match_bm25` function. Search callers use this to add the BM25 predicate only when
+  // it is safe; old project files or runtimes without the fts extension keep using the
+  // compatibility LIKE search path.
+  [[nodiscard]] auto HasUnderstandingFtsIndex() const -> bool;
 
   // Persist a successful image-rating result (1..5 integer). Same upsert/identity
   // contract as `UpsertUnderstanding`; rejected when `IsValid()` is false (a rating of 0
@@ -85,7 +99,7 @@ class AiStorageController {
   // connection. The file-deletion cascade (element_controller) calls the free function
   // below on its own connection so the cleanup is atomic with element deletion; this
   // convenience overload is for non-cascade callers and tests. A no-op for an empty list.
-  void DeleteForFiles(std::span<const sl_element_id_t> file_ids) const;
+  void               DeleteForFiles(std::span<const sl_element_id_t> file_ids) const;
 };
 
 // Delete every `AiImageUnderstanding` and `AiImageRating` row for the given files on the
@@ -93,7 +107,7 @@ class AiStorageController {
 // DELETE statements — only the `file_id IN (...)` predicate). The element-deletion
 // cascade passes its own connection so the AI row cleanup shares the caller's
 // transaction. A no-op for an empty file list.
-void DeleteAiAnnotationRowsForFiles(duckdb_connection               conn,
+void DeleteAiAnnotationRowsForFiles(duckdb_connection                conn,
                                     std::span<const sl_element_id_t> file_ids);
 
 }  // namespace alcedo
