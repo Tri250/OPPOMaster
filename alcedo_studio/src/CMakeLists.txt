@@ -1117,6 +1117,8 @@ def_library(AiCredentialStore
 )
 if(WIN32)
     target_link_libraries(AiCredentialStore PRIVATE Advapi32)
+elseif(APPLE)
+    target_link_libraries(AiCredentialStore PRIVATE "-framework Security" "-framework CoreFoundation")
 endif()
 
 # Frontend 1b: multi-profile provider settings controller. Profiles persist in

@@ -60,11 +60,44 @@ class WinCredAiCredentialStore final : public IAiCredentialStore {
   auto HasCredential(const std::string& slot) -> bool override;
 };
 
+// macOS Keychain Services backed store. Entries are generic-password items in
+// the user's keychain with service `AlcedoStudio.AiCredential` and account =
+// <slot>; the secret is stored as raw bytes in kSecValueData. Uses the modern
+// SecItem API against the Data Protection keychain
+// (kSecUseDataProtectionKeychain + kSecAttrAccessibleAfterFirstUnlock), which
+// gates access by app code-signature and unlock state rather than per-access
+// password/biometric prompts — the right trade-off for low-sensitivity,
+// frequently-read provider API keys, where per-access prompts would hurt
+// usability. No kSecAttrAccessControl is set, so no biometric/passcode is
+// required. On unsigned/dev builds where the Data Protection keychain is
+// unavailable (errSecMissingEntitlement, -34018), the store transparently falls
+// back to the legacy file-based login keychain (whose default ACL trusts the
+// creating app, also no per-access prompt). This is the production store on
+// macOS.
+class MacKeychainAiCredentialStore final : public IAiCredentialStore {
+ public:
+  MacKeychainAiCredentialStore();
+
+  auto SaveCredential(const std::string& slot, const std::string& secret, std::string* error)
+      -> bool override;
+  auto LoadCredential(const std::string& slot, std::string* secret, std::string* error)
+      -> bool override;
+  auto DeleteCredential(const std::string& slot, std::string* error) -> bool override;
+  auto HasCredential(const std::string& slot) -> bool override;
+
+ private:
+  // Resolved once in the constructor. When true, SecItem queries carry
+  // kSecUseDataProtectionKeychain = true; when false, they target the legacy
+  // file-based default (login) keychain. Set before any concurrent access
+  // (construction is single-threaded), so reads need no synchronization.
+  bool use_data_protection_keychain_ = false;
+};
+
 // In-memory store: used by unit tests (so they do not touch the real OS
-// credential store) and as the non-Windows fallback. NOT for production use on
-// a shipping build — secrets do not survive process exit. On macOS a native
-// Keychain Services impl is deferred (Phase 6c ships Windows wincred + this
-// fallback; see the plan's Phase 6c review notes).
+// credential store) and as the fallback on platforms without a native impl
+// (e.g. Linux). NOT for production use on a shipping build — secrets do not
+// survive process exit. Windows uses WinCredAiCredentialStore and macOS uses
+// MacKeychainAiCredentialStore.
 class InMemoryAiCredentialStore final : public IAiCredentialStore {
  public:
   auto SaveCredential(const std::string& slot, const std::string& secret, std::string* error)
@@ -80,10 +113,10 @@ class InMemoryAiCredentialStore final : public IAiCredentialStore {
   std::unordered_map<std::string, std::string> entries_;
 };
 
-// Factory returning the platform-default production store. On Windows this is
-// the wincred store; on other platforms it returns the in-memory fallback (a
-// deferred-native-store placeholder) so the controller still compiles and tests
-// run, with the documented caveat that secrets are not persisted off-Windows.
+// Factory returning the platform-default production store: WinCred on Windows,
+// MacKeychain on macOS, and the in-memory fallback elsewhere (e.g. Linux, where
+// a native impl is not yet provided). The in-memory fallback does not persist
+// secrets across process exit.
 auto MakeDefaultAiCredentialStore() -> std::shared_ptr<IAiCredentialStore>;
 
 }  // namespace alcedo
