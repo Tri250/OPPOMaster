@@ -339,7 +339,7 @@ fn append_rating_schema_fields(
             "reasons".to_string(),
             json!({
                 "type": "string",
-                "description": "A concise image-grounded rationale for the rating."
+                "description": "A concise image-grounded rationale for the rating. Do not restate a numeric score, star count, grade, or a different rating here."
             }),
         );
     }
