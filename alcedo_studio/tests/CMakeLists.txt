@@ -1033,6 +1033,7 @@ def_ui_test(AlbumBackendRatingTest album_backend_rating_test.cpp "ci_raw_flow")
 def_ui_test(AlbumBackendThumbnailTest album_backend_thumbnail_test.cpp)
 def_ui_test(AlbumBackendI18nTest album_backend_i18n_test.cpp)
 def_ui_test(AlbumBackendCiWorkflowTest album_backend_ci_workflow_test.cpp "ci_raw_flow")
+def_ui_test(AlbumBackendBackgroundTaskTest album_backend_background_task_test.cpp)
 
 add_executable(GlobalSearchDialogQmlTest
     ui/global_search_dialog_qml_test.cpp
@@ -1154,6 +1155,7 @@ alcedo_assign_test_category(ui ALCEDO_BUILD_UI_TESTS alcedo_tests_ui
   AlbumBackendImageDetailsTest
   AlbumBackendThumbnailTest
   AlbumBackendI18nTest
+  AlbumBackendBackgroundTaskTest
   GlobalSearchDialogQmlTest
   LanguageManagerTest
 )

@@ -24,6 +24,7 @@
 #include "app/model_asset_catalog.hpp"
 #include "storage/controller/semantic/semantic_label_config.hpp"
 #include "ui/alcedo_main/album_backend/album_backend.hpp"
+#include "ui/alcedo_main/album_backend/background_task_controller.hpp"
 #include "ui/alcedo_main/album_backend/model_download_controller.hpp"
 
 namespace alcedo::ui {
@@ -531,6 +532,10 @@ void SemanticGenerationController::ActivateSelectedModel() {
 void SemanticGenerationController::CancelGeneration() {
   if (job_) {
     job_->Cancel();
+    if (!background_task_id_.isEmpty()) {
+      backend_.background_task_.UpdateTaskState(background_task_id_,
+                                                 BackgroundTaskState::Canceling);
+    }
     status_text_ = PL_TEXT("Cancelling semantic generation...");
     emit StateChanged();
   }
@@ -925,6 +930,7 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
       });
 
   job_             = std::move(job);
+  background_task_id_ = RegisterBackgroundTask();
 }
 
 auto SemanticGenerationController::RuntimeOptionsForProfile(const QString& profileId,
@@ -954,10 +960,14 @@ void SemanticGenerationController::UpdateProgress(const SemanticGenerationProgre
   failed_             = static_cast<int>(progress.failed);
   canceled_           = static_cast<int>(progress.canceled);
   const int completed = embedded_ + skipped_ + failed_ + canceled_;
+  const int pct       = total_ > 0 ? (completed * 100) / total_ : 0;
   status_text_ =
       PL_TEXT("Generating semantic labels... %1/%2 complete", completed, std::max(total_, 1));
-  backend_.SetTaskState(status_text_, total_ > 0 ? (completed * 100) / total_ : 0, true);
+  backend_.SetTaskState(status_text_, pct, true);
   RefreshAlbumSummary();
+  if (!background_task_id_.isEmpty()) {
+    backend_.background_task_.UpdateTask(background_task_id_, status_text_.Render(), QString(), pct);
+  }
   emit StateChanged();
 }
 
@@ -1005,6 +1015,14 @@ void SemanticGenerationController::Finish(std::vector<SemanticGenerationItemResu
     QString ignored_error;
     (void)backend_.project_handler_.PackageCurrentProjectFiles(&ignored_error);
   }
+  if (!background_task_id_.isEmpty()) {
+    const BackgroundTaskState final_state =
+        canceled > 0 ? BackgroundTaskState::Canceled
+                     : (embedded > 0 ? BackgroundTaskState::Succeeded
+                                        : BackgroundTaskState::Failed);
+    backend_.background_task_.FinishTask(background_task_id_, final_state, status_text_.Render());
+    background_task_id_.clear();
+  }
   emit StateChanged();
 }
 
@@ -1020,6 +1038,34 @@ void SemanticGenerationController::ResetCounters() {
   skipped_  = 0;
   failed_   = 0;
   canceled_ = 0;
+}
+
+auto SemanticGenerationController::BuildAffectedTargets() const -> QVariantList {
+  QVariantList out;
+  for (const auto& it : pending_items_) {
+    QVariantMap m;
+    m.insert(QStringLiteral("elementId"), static_cast<uint>(it.element_id));
+    m.insert(QStringLiteral("imageId"), static_cast<uint>(it.image_id));
+    out.append(m);
+  }
+  return out;
+}
+
+auto SemanticGenerationController::RegisterBackgroundTask() -> QString {
+  BackgroundTaskSnapshot snapshot;
+  snapshot.kind_             = BackgroundTaskKind::SemanticGeneration;
+  snapshot.state_            = BackgroundTaskState::Running;
+  snapshot.title_            = status_text_.Render();
+  snapshot.progress_percent_ = 0;
+  snapshot.cancelable_       = true;
+  snapshot.shutdown_policy_  = BackgroundTaskShutdownPolicy::CancelAndWait;
+  snapshot.affected_targets_ = BuildAffectedTargets();
+  QPointer<SemanticGenerationController> self(this);
+  return backend_.background_task_.RegisterTask(snapshot, [self]() {
+    if (self) {
+      self->CancelGeneration();
+    }
+  });
 }
 
 }  // namespace alcedo::ui

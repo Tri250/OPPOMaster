@@ -107,6 +107,12 @@ class SemanticGenerationController final : public QObject {
   void Finish(std::vector<SemanticGenerationItemResult> results);
   void ClearPrompt();
   void ResetCounters();
+  // Build the `affectedTargets` list ({elementId,imageId} maps) for the task
+  // snapshot from the in-flight `pending_items_` set.
+  auto BuildAffectedTargets() const -> QVariantList;
+  // Register this run as a background task (Phase 1 mirroring) and return the
+  // assigned task id. No-op (returns empty) when no registry is reachable.
+  auto RegisterBackgroundTask() -> QString;
   // Recomputes selected_model_active_ from the download controller's install
   // state and the project's active-model record. Does not emit StateChanged;
   // callers emit.
@@ -124,6 +130,8 @@ class SemanticGenerationController final : public QObject {
   AlbumBackend&                                backend_;
   std::vector<SemanticGenerationItem>          pending_items_{};
   std::shared_ptr<SemanticGenerationJob>       job_{};
+  // Phase 1 background-task mirroring id; empty when no task is registered.
+  QString                                       background_task_id_;
   i18n::LocalizedText                          status_text_{};
   i18n::LocalizedText                          album_summary_text_{};
   std::string                                  model_key_{};

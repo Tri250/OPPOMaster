@@ -4,6 +4,8 @@
 
 #include "ui/alcedo_main/album_backend/image_analysis_controller.hpp"
 
+#include "ui/alcedo_main/album_backend/background_task_controller.hpp"
+
 #include <QLocale>
 #include <QMetaObject>
 #include <QPointer>
@@ -110,8 +112,13 @@ constexpr const char* kRatingSeveritySettingsKey = "ai/analysis/ratingSeverity";
 ImageAnalysisController::ImageAnalysisController(std::shared_ptr<IImageAnalysisEnvironment> env,
                                                  AiProviderProfileController*        profiles,
                                                  std::shared_ptr<IImageAnalysisSink> sink,
+                                                 BackgroundTaskController*           registry,
                                                  QObject*                            parent)
-    : QObject(parent), env_(std::move(env)), profiles_(profiles), sink_(std::move(sink)) {
+    : QObject(parent),
+      env_(std::move(env)),
+      profiles_(profiles),
+      sink_(std::move(sink)),
+      registry_(registry) {
   rating_severity_ = NormalizeRatingSeverity(
       QSettings()
           .value(QLatin1String(kRatingSeveritySettingsKey), QStringLiteral("normal"))
@@ -191,6 +198,37 @@ void ImageAnalysisController::ResetCounters() {
   canceled_ = 0;
 }
 
+auto ImageAnalysisController::BuildAffectedTargets() const -> QVariantList {
+  QVariantList out;
+  for (const auto& it : last_items_) {
+    QVariantMap m;
+    m.insert(QStringLiteral("elementId"), static_cast<uint>(it.element_id));
+    m.insert(QStringLiteral("imageId"), static_cast<uint>(it.image_id));
+    out.append(m);
+  }
+  return out;
+}
+
+auto ImageAnalysisController::RegisterBackgroundTask() -> QString {
+  if (!registry_) {
+    return {};
+  }
+  BackgroundTaskSnapshot snapshot;
+  snapshot.kind_             = BackgroundTaskKind::ImageAnalysis;
+  snapshot.state_            = BackgroundTaskState::Running;
+  snapshot.title_            = status_text_.Render();
+  snapshot.progress_percent_ = 0;
+  snapshot.cancelable_       = true;
+  snapshot.shutdown_policy_  = BackgroundTaskShutdownPolicy::CancelAndWait;
+  snapshot.affected_targets_ = BuildAffectedTargets();
+  QPointer<ImageAnalysisController> self(this);
+  return registry_->RegisterTask(snapshot, [self]() {
+    if (self) {
+      self->CancelAnalysis();
+    }
+  });
+}
+
 void ImageAnalysisController::SetError(const QString& error) {
   last_error_  = error;
   status_text_ = i18n::LocalizedText{};
@@ -201,6 +239,10 @@ void ImageAnalysisController::SetError(const QString& error) {
   last_results_.clear();
   last_usage_.clear();
   ResetCounters();
+  if (registry_ && !background_task_id_.isEmpty()) {
+    registry_->FinishTask(background_task_id_, BackgroundTaskState::Failed, error);
+    background_task_id_.clear();
+  }
   emit StateChanged();
 }
 
@@ -336,6 +378,9 @@ void ImageAnalysisController::StartForTargets(const QVariantList&       targetEn
                      ? PL_TEXT("Analyzing and scoring %1 image(s)...", total_)
                      : PL_TEXT("Scoring %1 image(s)...", total_);
   emit                              StateChanged();
+  if (registry_) {
+    background_task_id_ = RegisterBackgroundTask();
+  }
 
   // Build a fresh service per job, passing the SHARED gate so remote calls
   // serialize app-wide across every controller/service instance.
@@ -380,6 +425,9 @@ void ImageAnalysisController::CancelAnalysis() {
   status_text_ = PL_TEXT("Cancelling...");
   emit StateChanged();
   job_->Cancel();
+  if (registry_ && !background_task_id_.isEmpty()) {
+    registry_->UpdateTaskState(background_task_id_, BackgroundTaskState::Canceling);
+  }
 }
 
 void ImageAnalysisController::RetryLast() {
@@ -521,6 +569,9 @@ void ImageAnalysisController::UpdateProgress(const alcedo::ImageAnalysisProgress
                         : (last_task_ == alcedo::ImageAnalysisTask::kAnalyze)
                             ? PL_TEXT("Analyzing/scoring: %1/%2 (%3%)", completed, total_, pct)
                             : PL_TEXT("Scoring: %1/%2 (%3%)", completed, total_, pct);
+  if (registry_ && !background_task_id_.isEmpty()) {
+    registry_->UpdateTask(background_task_id_, status_text_.Render(), QString(), pct);
+  }
   emit StateChanged();
 }
 
@@ -667,6 +718,14 @@ void ImageAnalysisController::Finish(std::vector<alcedo::ImageAnalysisItemResult
   }
 
   RefreshConfiguredState();
+  if (registry_ && !background_task_id_.isEmpty()) {
+    const BackgroundTaskState final_state =
+        canceled_ > 0 ? BackgroundTaskState::Canceled
+                      : (analyzed_ > 0 ? BackgroundTaskState::Succeeded
+                                       : BackgroundTaskState::Failed);
+    registry_->FinishTask(background_task_id_, final_state, status_text_.Render());
+    background_task_id_.clear();
+  }
   emit StateChanged();
 }
 

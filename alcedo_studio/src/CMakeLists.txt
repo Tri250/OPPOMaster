@@ -1320,6 +1320,7 @@ endif()
 add_library(AlbumBackendLib STATIC
     ui/alcedo_main/album_backend/album_backend.cpp
     ui/alcedo_main/album_backend/album_thumbnail_model.cpp
+    ui/alcedo_main/album_backend/background_task_controller.cpp
     ui/alcedo_main/album_backend/project_handler.cpp
     ui/alcedo_main/album_backend/thumbnail_manager.cpp
     ui/alcedo_main/album_backend/folder_controller.cpp
@@ -1335,6 +1336,7 @@ add_library(AlbumBackendLib STATIC
     include/ui/alcedo_main/album_backend/album_backend.hpp
     include/ui/alcedo_main/album_backend/album_thumbnail_model.hpp
     include/ui/alcedo_main/album_backend/album_types.hpp
+    include/ui/alcedo_main/album_backend/background_task_controller.hpp
     include/ui/alcedo_main/album_backend/path_utils.hpp
     include/ui/alcedo_main/album_backend/project_handler.hpp
     include/ui/alcedo_main/album_backend/thumbnail_manager.hpp
@@ -1625,6 +1627,8 @@ qt_add_qml_module(alcedo_main
         ui/alcedo_main/qml/ImageContextMenu.qml
         ui/alcedo_main/qml/ThumbnailGridView.qml
         ui/alcedo_main/qml/ThumbnailListView.qml
+        ui/alcedo_main/qml/BackgroundTaskBar.qml
+        ui/alcedo_main/qml/BackgroundTaskPopover.qml
     RESOURCES
         ui/alcedo_main/qml/util/qmldir
 )

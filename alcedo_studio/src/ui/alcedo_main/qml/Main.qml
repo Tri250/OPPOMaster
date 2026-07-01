@@ -1848,6 +1848,10 @@ ApplicationWindow {
             }
         }
 
+        BackgroundTaskBar {
+            Layout.fillWidth: true
+        }
+
         GlobalSearchDialog {
             id: globalSearchDialog
             backend: albumBackend

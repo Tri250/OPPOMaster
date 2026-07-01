@@ -22,6 +22,7 @@
 namespace alcedo::ui {
 
 class AlbumBackend;
+class BackgroundTaskController;
 
 /// Phase 6d — the runtime seams `ImageAnalysisController` needs, as an interface
 /// so the controller is unit-testable without a live project / sidecar.
@@ -94,7 +95,9 @@ class ImageAnalysisController final : public QObject {
  public:
   ImageAnalysisController(std::shared_ptr<IImageAnalysisEnvironment> env,
                           AiProviderProfileController*               profiles,
-                          std::shared_ptr<IImageAnalysisSink> sink, QObject* parent = nullptr);
+                          std::shared_ptr<IImageAnalysisSink>       sink,
+                          BackgroundTaskController*                 registry = nullptr,
+                          QObject*                                  parent = nullptr);
 
   bool             Running() const { return running_; }
   int              Total() const { return total_; }
@@ -148,11 +151,22 @@ class ImageAnalysisController final : public QObject {
   void Finish(std::vector<alcedo::ImageAnalysisItemResult> results);
   void SetError(const QString& error);
   void ResetCounters();
+  // Build the `affectedTargets` list ({elementId,imageId} maps) for the task
+  // snapshot from the in-flight `last_items_` set.
+  auto BuildAffectedTargets() const -> QVariantList;
+  // Register this run as a background task (Phase 1 mirroring) and return the
+  // assigned task id. No-op (returns empty) when no registry was injected.
+  auto RegisterBackgroundTask() -> QString;
 
   std::shared_ptr<IImageAnalysisEnvironment> env_;
   AiProviderProfileController*               profiles_;
   std::shared_ptr<IImageAnalysisSink>        sink_;
   std::shared_ptr<alcedo::ImageAnalysisJob>  job_;
+  // Phase 1 background-task mirroring. `registry_` is optional (tests inject
+  // none); when present, the controller registers/updates/finishes a task the
+  // QML task bar mirrors. Cancel from the bar routes back to CancelAnalysis().
+  BackgroundTaskController*                 registry_           = nullptr;
+  QString                                   background_task_id_;
   std::vector<alcedo::ImageAnalysisItem>     last_items_;
   alcedo::ImageAnalysisTask                  last_task_ = alcedo::ImageAnalysisTask::kDescribe;
   bool                                       last_include_rating_reasons_ = true;
