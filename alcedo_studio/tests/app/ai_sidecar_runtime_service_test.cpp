@@ -540,6 +540,25 @@ TEST(AiSidecarRuntimeServiceTest, StartStopReportsReadyAndStopped) {
   EXPECT_EQ(service.ClientSession(), nullptr);
 }
 
+TEST(AiSidecarRuntimeServiceTest, StartAndWaitNormalizesSharedProviderConfigDir) {
+  auto                    client = std::make_shared<FakeSidecarClient>();
+  AiSidecarRuntimeService service(FakeFactory(client));
+
+  auto options            = BaseOptions();
+  options.extra_arguments = {"--sleep-ms", "30000"};
+
+  ASSERT_TRUE(service.StartAndWait(options));
+  const auto first_pid = service.Status().process_id;
+  ASSERT_GT(first_pid, 0);
+  EXPECT_FALSE(service.Options().provider_config_dir.empty());
+
+  ASSERT_TRUE(service.StartAndWait(options));
+  const auto second_pid = service.Status().process_id;
+  EXPECT_EQ(second_pid, first_pid);
+
+  service.Stop();
+}
+
 TEST(AiSidecarRuntimeServiceTest, MissingBinaryFailsBeforeProcessStart) {
   auto                    client = std::make_shared<FakeSidecarClient>();
   AiSidecarRuntimeService service(FakeFactory(client));
@@ -674,6 +693,7 @@ TEST(AiSidecarRuntimeServiceTest, RuntimeArgumentsCarryModelAndDeviceConfigurati
   EXPECT_NE(args.find("--revision\nabc123"), std::string::npos);
   EXPECT_NE(args.find("--device\ndirectml:0"), std::string::npos);
   EXPECT_NE(args.find("--no-download"), std::string::npos);
+  EXPECT_NE(args.find("--provider-config-dir\n"), std::string::npos);
   std::filesystem::remove(record_path);
 }
 

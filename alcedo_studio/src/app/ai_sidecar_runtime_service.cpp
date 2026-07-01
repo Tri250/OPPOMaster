@@ -5,8 +5,10 @@
 #include "app/ai_sidecar_runtime_service.hpp"
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QHostAddress>
 #include <QMetaObject>
+#include <QStandardPaths>
 #include <QStringList>
 #include <QTcpServer>
 #include <QThread>
@@ -44,6 +46,55 @@ auto TailAppend(std::string* target, const QByteArray& bytes) -> void {
 
 auto BuildEndpoint(const std::string& host, uint16_t port) -> std::string {
   return host + ":" + std::to_string(port);
+}
+
+auto FsPathFromQString(const QString& value) -> std::filesystem::path {
+#ifdef _WIN32
+  return std::filesystem::path(value.toStdWString());
+#else
+  return std::filesystem::path(value.toStdString());
+#endif
+}
+
+auto DefaultProviderConfigDir() -> std::filesystem::path {
+  QString root = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+  if (root.isEmpty()) {
+    root = QDir::homePath() + QStringLiteral("/.alcedo_studio");
+  }
+  return FsPathFromQString(root) / "ai_provider_configs";
+}
+
+auto DefaultRuntimeBinary() -> std::filesystem::path;
+auto DefaultRuntimeModelRoot() -> std::filesystem::path;
+
+auto NormalizeRuntimeOptions(AiSidecarRuntimeOptions options) -> AiSidecarRuntimeOptions {
+  if (options.runtime_binary.empty()) {
+    options.runtime_binary = DefaultRuntimeBinary();
+  }
+  if (options.model_root.empty()) {
+    options.model_root = DefaultRuntimeModelRoot();
+  }
+  if (options.provider_config_dir.empty()) {
+    options.provider_config_dir = DefaultProviderConfigDir();
+  }
+  return options;
+}
+
+auto RuntimeOptionsCompatible(const AiSidecarRuntimeOptions& running,
+                              const AiSidecarRuntimeOptions& requested) -> bool {
+  const bool requested_default_port = requested.port == 0;
+  return running.runtime_binary == requested.runtime_binary &&
+         running.model_id == requested.model_id &&
+         running.revision == requested.revision && running.model_root == requested.model_root &&
+         running.provider_config_dir == requested.provider_config_dir &&
+         running.host == requested.host &&
+         (requested_default_port || running.port == requested.port) &&
+         running.hf_endpoint == requested.hf_endpoint && running.device == requested.device &&
+         running.batch_cap == requested.batch_cap &&
+         running.batch_wait_ms == requested.batch_wait_ms &&
+         running.max_message_bytes == requested.max_message_bytes &&
+         running.allow_download == requested.allow_download &&
+         running.extra_arguments == requested.extra_arguments;
 }
 
 auto DefaultRuntimeBinary() -> std::filesystem::path {
@@ -193,24 +244,20 @@ auto AiSidecarRuntimeService::StartAndWait(const AiSidecarRuntimeOptions& option
   }
 
   if (IsRunning()) {
-    const auto requested_root =
-        options.model_root.empty() ? DefaultRuntimeModelRoot() : options.model_root;
-    if (options_.model_id == options.model_id && options_.revision == options.revision &&
-        options_.model_root == requested_root && options_.device == options.device &&
-        options_.allow_download == options.allow_download &&
-        options_.require_model_info == options.require_model_info) {
+    const auto requested_options = NormalizeRuntimeOptions(options);
+    if (RuntimeOptionsCompatible(options_, requested_options)) {
+      if (requested_options.require_model_info && !status_.model_info.has_value()) {
+        options_.require_model_info = true;
+        options_.startup_timeout = requested_options.startup_timeout;
+        options_.health_poll_interval = requested_options.health_poll_interval;
+        return WaitForReadiness();
+      }
       return true;
     }
     Stop();
   }
 
-  options_ = options;
-  if (options_.runtime_binary.empty()) {
-    options_.runtime_binary = DefaultRuntimeBinary();
-  }
-  if (options_.model_root.empty()) {
-    options_.model_root = DefaultRuntimeModelRoot();
-  }
+  options_ = NormalizeRuntimeOptions(options);
   if (options_.port == 0) {
     options_.port = ChoosePort();
   }
@@ -426,6 +473,10 @@ auto AiSidecarRuntimeService::BuildArguments() const -> QStringList {
   args << "--batch-cap" << QString::number(options_.batch_cap);
   args << "--batch-wait-ms" << QString::number(options_.batch_wait_ms);
   args << "--max-message-bytes" << QString::number(options_.max_message_bytes);
+  if (!options_.provider_config_dir.empty()) {
+    args << "--provider-config-dir"
+         << QString::fromStdString(options_.provider_config_dir.string());
+  }
   for (const auto& arg : options_.extra_arguments) {
     args << QString::fromStdString(arg);
   }

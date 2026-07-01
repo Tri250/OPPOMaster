@@ -56,6 +56,7 @@ struct AiSidecarRuntimeStatusSnapshot {
 struct AiSidecarRuntimeOptions {
   std::filesystem::path     runtime_binary;
   std::filesystem::path     model_root;
+  std::filesystem::path     provider_config_dir;
   std::string               host     = "127.0.0.1";
   uint16_t                  port     = 0;
   std::string               model_id = "plhery/mobileclip2-onnx:s2";

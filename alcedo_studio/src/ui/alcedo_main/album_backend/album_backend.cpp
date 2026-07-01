@@ -246,11 +246,6 @@ class AlbumImageAnalysisEnvironment final : public IImageAnalysisEnvironment {
     options.require_model_info =
         false;  // remote image analysis: HTTP-provider path, no CLIP model.
     options.startup_timeout = kImageAnalysisSidecarStartupTimeout;
-    const auto config_dir   = backend_.ai_provider_profiles_.SidecarConfigDir();
-    if (!config_dir.empty()) {
-      options.extra_arguments.push_back("--provider-config-dir");
-      options.extra_arguments.push_back(config_dir.string());
-    }
     if (!runtime->StartAndWait(options)) {
       if (error) {
         *error = runtime->Status().message;
