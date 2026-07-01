@@ -16,6 +16,7 @@
 #include "image/image.hpp"
 #include "sleeve/sleeve_element/sleeve_file.hpp"
 #include "ui/album_backend_test_fixture.hpp"
+#include "ui/alcedo_main/album_backend/background_task_controller.hpp"
 
 namespace alcedo::ui::test {
 namespace {
@@ -203,6 +204,33 @@ TEST_F(DeleteTests, DeleteImages_BestEffortPartialFailure) {
   EXPECT_TRUE(result.value("success").toBool());
   EXPECT_EQ(result.value("deletedCount").toInt(), 1);
   EXPECT_EQ(result.value("failedCount").toInt(), 1);
+}
+
+TEST_F(DeleteTests, DeleteImages_BlockedByInteractionPolicyLock) {
+  AlbumBackend backend;
+  auto* registry =
+      qobject_cast<BackgroundTaskController*>(backend.BackgroundTaskControllerObject());
+  ASSERT_NE(registry, nullptr);
+
+  BackgroundTaskSnapshot snapshot;
+  snapshot.kind_            = BackgroundTaskKind::ImageAnalysis;
+  snapshot.state_           = BackgroundTaskState::Running;
+  snapshot.title_           = QStringLiteral("analysis");
+  snapshot.cancelable_      = false;
+  snapshot.shutdown_policy_ = BackgroundTaskShutdownPolicy::CancelAndWait;
+  snapshot.locks_.push_back(InteractionLock{
+      InteractionCapability::DeleteImages, 42,
+      QStringLiteral("This image is being analyzed and cannot be deleted or removed.")});
+  registry->RegisterTask(snapshot);
+
+  QVariantList targets;
+  targets.push_back(QVariantMap{{"elementId", 42u}, {"imageId", 7u}});
+  const QVariantMap result = backend.DeleteImages(targets);
+
+  EXPECT_FALSE(result.value("success").toBool());
+  EXPECT_EQ(result.value("deletedCount").toInt(), 0);
+  EXPECT_EQ(result.value("failedCount").toInt(), 1);
+  EXPECT_TRUE(result.value("message").toString().contains(QStringLiteral("analyzed")));
 }
 
 TEST_F(DeleteTests, AddToAlbumThenDeleteFromAlbum_KeepsRootFile) {

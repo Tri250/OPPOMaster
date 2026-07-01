@@ -113,7 +113,7 @@ Popup {
                         text: qsTr("Cancel")
                         flat: true
                         Material.foreground: appTheme.dangerColor
-                        onClicked: root.controller.cancelTask(modelData.id)
+                        onClicked: root.controller.CancelTask(modelData.id)
                     }
                 }
 

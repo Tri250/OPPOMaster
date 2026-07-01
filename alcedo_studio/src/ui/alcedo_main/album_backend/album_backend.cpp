@@ -696,6 +696,20 @@ void AlbumBackend::CreateFolder(const QString& folderName) {
 }
 void AlbumBackend::DeleteFolder(uint folderId) { folder_ctrl_.DeleteFolder(folderId); }
 auto AlbumBackend::DeleteImages(const QVariantList& targetEntries) -> QVariantMap {
+  const QVariantMap policy = interaction_policy_.EvaluateDeleteImages(targetEntries);
+  if (!policy.value(QStringLiteral("allowed")).toBool()) {
+    QString reason = policy.value(QStringLiteral("reason")).toString();
+    if (reason.isEmpty()) {
+      reason = PL_TEXT("These images cannot be deleted right now.").Render();
+    }
+    SetTaskState(PL_TEXT("%1", reason), 0, false);
+    return QVariantMap{{QStringLiteral("success"), false},
+                       {QStringLiteral("deletedCount"), 0},
+                       {QStringLiteral("failedCount"), targetEntries.size()},
+                       {QStringLiteral("deletedElementIds"), QVariantList{}},
+                       {QStringLiteral("failedElementIds"), QVariantList{}},
+                       {QStringLiteral("message"), reason}};
+  }
   return image_ctrl_.DeleteImages(targetEntries);
 }
 auto AlbumBackend::AddImagesToFolder(const QVariantList& targetEntries, uint targetFolderId)

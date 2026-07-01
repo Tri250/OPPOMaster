@@ -236,10 +236,8 @@ auto ImageAnalysisController::RegisterBackgroundTask() -> QString {
         InteractionLock{InteractionCapability::EditImageDescription, eid, edit_reason});
     snapshot.locks_.push_back(
         InteractionLock{InteractionCapability::EditImageRating, eid, edit_reason});
-    if (last_include_rating_reasons_) {
-      snapshot.locks_.push_back(
-          InteractionLock{InteractionCapability::EditImageRatingReason, eid, edit_reason});
-    }
+    snapshot.locks_.push_back(
+        InteractionLock{InteractionCapability::EditImageRatingReason, eid, edit_reason});
     snapshot.locks_.push_back(
         InteractionLock{InteractionCapability::RunImageAnalysis, eid, rerun_reason});
     snapshot.locks_.push_back(

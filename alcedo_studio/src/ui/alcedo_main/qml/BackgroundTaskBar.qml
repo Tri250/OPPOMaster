@@ -100,7 +100,7 @@ Item {
                 Material.foreground: appTheme.dangerColor
                 onClicked: {
                     if (root.primary && root.primary.id) {
-                        root.controller.cancelTask(root.primary.id)
+                        root.controller.CancelTask(root.primary.id)
                     }
                 }
             }
