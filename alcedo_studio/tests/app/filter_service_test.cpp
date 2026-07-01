@@ -21,10 +21,14 @@
 #include "sleeve/sleeve_element/sleeve_element.hpp"
 #include "sleeve/sleeve_element/sleeve_file.hpp"
 #include "sleeve/sleeve_filter/filter_combo.hpp"
+#include "storage/controller/ai/ai_storage_controller.hpp"
 #include "storage/controller/semantic/semantic_storage_controller.hpp"
 #include "type/supported_file_type.hpp"
 #include "utils/clock/time_provider.hpp"
 #include "utils/string/convert.hpp"
+
+#include "ai/ai_description.hpp"
+#include "ai/ai_rating.hpp"
 
 namespace alcedo {
 namespace {
@@ -83,6 +87,69 @@ void StoreSemanticLabel(ProjectService& project, const std::string& model_key,
                                    .embedding_ = OneHot(embedding_index)},
       &record, &error))
       << error;
+}
+
+// Persist a remote image-understanding result (Phase 5f) for a file via the
+// AiStorageController, so a search test can exercise the AI caption/tags/scene
+// contribution to the search document.
+void StoreAiUnderstanding(ProjectService& project, sl_element_id_t file_id,
+                          const std::string& task_id, const std::string& caption,
+                          const std::vector<std::string>& tags, const std::string& scene) {
+  auto&          ai = project.GetStorageService()->GetAiStorageController();
+  AiDescription d;
+  d.file_id_           = file_id;
+  d.task_id_           = task_id;
+  d.provider_id_       = "openrouter";
+  d.model_id_          = "test-model";
+  d.prompt_profile_id_ = "profile-v1";
+  d.rendition_kind_    = "thumbnail_k1024";
+  d.caption_           = caption;
+  d.scene_             = scene;
+  d.confidence_        = 0.8;
+  d.active_            = true;
+  d.SetTags(tags);
+  ASSERT_TRUE(ai.UpsertUnderstanding(d));
+}
+
+// Persist a remote image-rating result (Phase 5f). Rating is intentionally NOT part of
+// full-text search; these tests use it to prove that exclusion.
+void StoreAiRating(ProjectService& project, sl_element_id_t file_id, const std::string& task_id,
+                   int rating, const std::string& reasons) {
+  auto&       ai = project.GetStorageService()->GetAiStorageController();
+  AiRating r;
+  r.file_id_           = file_id;
+  r.task_id_           = task_id;
+  r.provider_id_       = "openrouter";
+  r.model_id_          = "test-model";
+  r.prompt_profile_id_ = "profile-v1";
+  r.rendition_kind_    = "thumbnail_k1024";
+  r.rating_            = rating;
+  r.rubric_id_         = "default-rubric";
+  r.rubric_version_    = "v1";
+  r.reasons_           = reasons;
+  r.active_            = true;
+  ASSERT_TRUE(ai.UpsertRating(r));
+}
+
+// Phase 7a: persist a rating's *reasons* only (rating = 0 sentinel) through the new
+// UpsertRatingReasons path — the path AlbumImageAnalysisSink uses. The reasons must still
+// be excluded from full-text search.
+void StoreAiRatingReasons(ProjectService& project, sl_element_id_t file_id,
+                          const std::string& task_id, const std::string& reasons) {
+  auto&       ai = project.GetStorageService()->GetAiStorageController();
+  AiRating r;
+  r.file_id_           = file_id;
+  r.task_id_           = task_id;
+  r.provider_id_       = "openrouter";
+  r.model_id_          = "test-model";
+  r.prompt_profile_id_ = "profile-v1";
+  r.rendition_kind_    = "thumbnail_k1024";
+  r.rating_            = 0;  // 7a sentinel — the real star is the EXIF Rating column
+  r.rubric_id_         = "default-rubric";
+  r.rubric_version_    = "v1";
+  r.reasons_           = reasons;
+  r.active_            = true;
+  ASSERT_TRUE(ai.UpsertRatingReasons(r));
 }
 
 struct SyntheticFileSpec {
@@ -571,6 +638,113 @@ TEST_F(FilterServiceTests, FuzzySearchIgnoresSemanticLabelsWhenNoModelIsActive) 
   EXPECT_TRUE(filter_service.SearchFolder(0, L"landscape", 0, 10).empty());
   EXPECT_EQ(filter_service.CountSearchResults(0, L"landscape"), 0u);
   EXPECT_TRUE(filter_service.BuildFolderStats(0).label_stats_.empty());
+}
+
+// Phase 5f: an active AI understanding's caption + tags + scene participate in full-text
+// search, but only once an active row is actually persisted. The filename and metadata
+// below deliberately do not contain the caption/tag tokens, so a match can only come from
+// the AiImageUnderstanding row.
+TEST_F(FilterServiceTests, AiUnderstandingCaptionAndTagsSearchableOnlyAfterActivePersistence) {
+  ProjectService project(db_path_, meta_path_);
+  const auto     alpha_id =
+      CreateSyntheticFile(project, SyntheticFileSpec{.file_name_    = L"ai_search_alpha.dng",
+                                                     .camera_model_ = "Neutral Body",
+                                                     .lens_         = "Plain Lens"});
+  const auto beta_id =
+      CreateSyntheticFile(project, SyntheticFileSpec{.file_name_    = L"ai_search_beta.dng",
+                                                     .camera_model_ = "Neutral Body",
+                                                     .lens_         = "Plain Lens"});
+  ASSERT_NE(alpha_id, 0u);
+  ASSERT_NE(beta_id, 0u);
+
+  SleeveFilterService filter_service(project.GetStorageService());
+  // Before any AI understanding is persisted, neither caption nor tag token is searchable.
+  EXPECT_TRUE(filter_service.SearchFolder(0, L"sahara", 0, 10).empty());
+  EXPECT_EQ(filter_service.CountSearchResults(0, L"sahara"), 0u);
+  EXPECT_TRUE(filter_service.SearchFolder(0, L"desert", 0, 10).empty());
+
+  // Persist an active understanding for alpha with a distinctive caption + tag + scene.
+  StoreAiUnderstanding(project, alpha_id, "describe", "sahara dunes at sunset", {"desert"},
+                       "saharasunset");
+
+  // The caption word is now searchable and returns only alpha (beta has no such caption).
+  const auto caption_rows = filter_service.SearchFolder(0, L"sahara", 0, 10);
+  ASSERT_EQ(caption_rows.size(), 1u);
+  EXPECT_EQ(caption_rows.front().file_id_, alpha_id);
+  EXPECT_EQ(filter_service.CountSearchResults(0, L"sahara"), 1u);
+
+  // The tag word is searchable too (the JSON syntax around the tag is stripped by folding).
+  const auto tag_rows = filter_service.SearchFolder(0, L"desert", 0, 10);
+  ASSERT_EQ(tag_rows.size(), 1u);
+  EXPECT_EQ(tag_rows.front().file_id_, alpha_id);
+  EXPECT_EQ(filter_service.CountSearchResults(0, L"desert"), 1u);
+
+  // The scene word is searchable as well.
+  ASSERT_EQ(filter_service.SearchFolder(0, L"saharasunset", 0, 10).size(), 1u);
+}
+
+// Phase 5f: the remote LLM rating is NOT part of full-text search. A distinctive word that
+// appears only in the rating's reasons must not be searchable, even though the rating row
+// is persisted and the word exists in the database.
+TEST_F(FilterServiceTests, AiRatingReasonsAreNotInFullScreenSearch) {
+  ProjectService project(db_path_, meta_path_);
+  const auto     alpha_id =
+      CreateSyntheticFile(project, SyntheticFileSpec{.file_name_    = L"ai_rating_search_alpha.dng",
+                                                     .camera_model_ = "Neutral Body",
+                                                     .lens_         = "Plain Lens"});
+  ASSERT_NE(alpha_id, 0u);
+
+  StoreAiUnderstanding(project, alpha_id, "describe", "sahara caption", {"desert"}, "");
+  StoreAiRating(project, alpha_id, "rate", 5, "flibbertigibbet golden ratio");
+
+  SleeveFilterService filter_service(project.GetStorageService());
+  // The understanding caption is searchable.
+  const auto caption_rows = filter_service.SearchFolder(0, L"sahara", 0, 10);
+  ASSERT_EQ(caption_rows.size(), 1u);
+  EXPECT_EQ(caption_rows.front().file_id_, alpha_id);
+
+  // The rating's distinctive reasons word must NOT be searchable.
+  EXPECT_TRUE(filter_service.SearchFolder(0, L"flibbertigibbet", 0, 10).empty());
+  EXPECT_EQ(filter_service.CountSearchResults(0, L"flibbertigibbet"), 0u);
+
+  // Sanity: the rating was actually persisted, so the empty search result is meaningful —
+  // the word exists in the DB, it is simply excluded from the search document.
+  const auto rating =
+      project.GetStorageService()->GetAiStorageController().GetRating(alpha_id, "rate");
+  ASSERT_TRUE(rating.has_value());
+  EXPECT_EQ(rating->rating_, 5);
+  EXPECT_NE(rating->reasons_.find("flibbertigibbet"), std::string::npos);
+}
+
+// Phase 7a: the reasons-only path (UpsertRatingReasons, rating = 0 sentinel — the path
+// AlbumImageAnalysisSink uses) still keeps rating reasons out of full-text search. A
+// distinctive word that appears only in the reasons must not be searchable.
+TEST_F(FilterServiceTests, AiRatingReasonsOnlyRowIsNotInFullScreenSearch) {
+  ProjectService project(db_path_, meta_path_);
+  const auto     alpha_id =
+      CreateSyntheticFile(project, SyntheticFileSpec{.file_name_    = L"ai_reasons_search_alpha.dng",
+                                                     .camera_model_ = "Neutral Body",
+                                                     .lens_         = "Plain Lens"});
+  ASSERT_NE(alpha_id, 0u);
+
+  StoreAiUnderstanding(project, alpha_id, "describe", "sahara caption", {"desert"}, "");
+  StoreAiRatingReasons(project, alpha_id, "rate", "flibbertigibbet golden ratio");
+
+  SleeveFilterService filter_service(project.GetStorageService());
+  // The understanding caption is searchable.
+  ASSERT_EQ(filter_service.SearchFolder(0, L"sahara", 0, 10).size(), 1u);
+
+  // The reasons-only row's distinctive word must NOT be searchable, even though the row
+  // is persisted and active and the word exists in the DB.
+  EXPECT_TRUE(filter_service.SearchFolder(0, L"flibbertigibbet", 0, 10).empty());
+  EXPECT_EQ(filter_service.CountSearchResults(0, L"flibbertigibbet"), 0u);
+
+  // Sanity: the reasons row was persisted as an active rating row (rating = 0 sentinel).
+  const auto rating =
+      project.GetStorageService()->GetAiStorageController().GetActiveRating(alpha_id);
+  ASSERT_TRUE(rating.has_value());
+  EXPECT_EQ(rating->rating_, 0);
+  EXPECT_NE(rating->reasons_.find("flibbertigibbet"), std::string::npos);
 }
 
 TEST_F(FilterServiceTests, FuzzySearchEscapesSqlLikeWildcardsAndQuotesInWideInput) {

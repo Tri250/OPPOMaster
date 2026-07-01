@@ -7,11 +7,14 @@ use tracing::info;
 
 use tonic::{Request, Response, Status};
 
+use crate::proto::alcedo::ai::{AiRequestHeader, AiResponseHeader, AiResponseStatus};
 use crate::proto::semantic::{
-    EmbedImageBatchRequest, EmbedImageRequest, EmbedTextBatchRequest, EmbedTextRequest,
-    EmbeddingBatchItem, EmbeddingBatchResponse, EmbeddingResponse, GetModelInfoRequest,
-    GetModelInfoResponse, GetRuntimeStatusRequest, GetRuntimeStatusResponse, PingRequest,
-    PingResponse, semantic_service_server::SemanticService,
+    EmbedImageBatchRequest, EmbedImageBatchRequestV2, EmbedImageItemV2, EmbedImageRequest,
+    EmbedImageRequestV2, EmbedTextBatchRequest, EmbedTextBatchRequestV2, EmbedTextItemV2,
+    EmbedTextRequest, EmbedTextRequestV2, EmbeddingBatchItem, EmbeddingBatchItemV2,
+    EmbeddingBatchResponse, EmbeddingBatchResponseV2, EmbeddingResponse, EmbeddingResponseV2,
+    GetModelInfoRequest, GetModelInfoResponse, GetRuntimeStatusRequest, GetRuntimeStatusResponse,
+    PingRequest, PingResponse, semantic_service_server::SemanticService,
 };
 use crate::service::embedding::EmbeddingEngine;
 
@@ -246,6 +249,43 @@ impl SemanticServiceImpl {
                 }
             }
         }
+    }
+}
+
+/// Build a success `AiResponseHeader` for a v2 embedding call, echoing the caller's correlation
+/// ids and recording the model that actually served. Mirrors the success-only `ok_header` in
+/// `ai_runtime.rs`; the full structured-error-in-body mapping is deferred to Phase 5 (Phase 0
+/// §1.5), so v2 hard failures still propagate the v1 `tonic::Status` and the header travels only
+/// on success.
+fn build_response_header(
+    req: &AiRequestHeader,
+    model_id: &str,
+    elapsed_ms: u64,
+) -> AiResponseHeader {
+    AiResponseHeader {
+        request_id: req.request_id.clone(),
+        task_id: req.task_id.clone(),
+        status: AiResponseStatus::AiStatusOk as i32,
+        error_code: 0,
+        error_message: String::new(),
+        provider: "local".to_string(),
+        model_id: model_id.to_string(),
+        elapsed_ms: elapsed_ms as i64,
+    }
+}
+
+/// Map a v1 `EmbeddingBatchItem` to its v2 shape. The two messages carry identical fields; only
+/// the v2 batch *response* gains a header (handled by the caller). Per-item `request_id` is
+/// copied across unchanged so the C++ host's request-id↔file-identity mapping is preserved.
+fn to_v2_batch_item(item: EmbeddingBatchItem) -> EmbeddingBatchItemV2 {
+    EmbeddingBatchItemV2 {
+        request_id: item.request_id,
+        embedding: item.embedding,
+        dimension: item.dimension,
+        model_name: item.model_name,
+        elapsed_ms: item.elapsed_ms,
+        ok: item.ok,
+        error: item.error,
     }
 }
 
@@ -581,6 +621,135 @@ impl SemanticService for SemanticServiceImpl {
             image_batch_cap: self.image_batch_cap as u32,
             image_batch_wait_ms: self.image_batch_wait.as_millis() as u32,
             uptime_ms: self.started_at.elapsed().as_millis() as u64,
+        }))
+    }
+
+    // v2 embedding RPCs (Phase 4): carry the shared `AiRequestHeader`/`AiResponseHeader` inline
+    // for uniform request correlation, timeout, and (future) cancellation. Each v2 method
+    // delegates to its frozen v1 counterpart and wraps the result with a success header; v1
+    // hard failures propagate as the v1 `tonic::Status` (Phase 0 §2.3, §1.5). Batching, the
+    // micro-batch worker, per-item errors, validation, dimensions, and model keys are all
+    // preserved because the v1 methods are not edited.
+    async fn embed_text_v2(
+        &self,
+        request: Request<EmbedTextRequestV2>,
+    ) -> Result<Response<EmbeddingResponseV2>, Status> {
+        info!("[SemanticService]: received EmbedTextV2 request");
+        let req = request.into_inner();
+        let header = req.header.unwrap_or_default();
+
+        let inner = self
+            .embed_text(Request::new(EmbedTextRequest {
+                request_id: header.request_id.clone(),
+                text: req.text,
+                model_name: req.model_name,
+            }))
+            .await?;
+        let inner = inner.into_inner();
+
+        Ok(Response::new(EmbeddingResponseV2 {
+            header: Some(build_response_header(
+                &header,
+                &inner.model_name,
+                inner.elapsed_ms,
+            )),
+            embedding: inner.embedding,
+            dimension: inner.dimension,
+            model_name: inner.model_name,
+            elapsed_ms: inner.elapsed_ms,
+        }))
+    }
+
+    async fn embed_image_v2(
+        &self,
+        request: Request<EmbedImageRequestV2>,
+    ) -> Result<Response<EmbeddingResponseV2>, Status> {
+        info!("[SemanticService]: received EmbedImageV2 request");
+        let req = request.into_inner();
+        let header = req.header.unwrap_or_default();
+
+        let inner = self
+            .embed_image(Request::new(EmbedImageRequest {
+                request_id: header.request_id.clone(),
+                image_bytes: req.image_bytes,
+                image_format_hint: req.image_format_hint,
+                model_name: req.model_name,
+            }))
+            .await?;
+        let inner = inner.into_inner();
+
+        Ok(Response::new(EmbeddingResponseV2 {
+            header: Some(build_response_header(
+                &header,
+                &inner.model_name,
+                inner.elapsed_ms,
+            )),
+            embedding: inner.embedding,
+            dimension: inner.dimension,
+            model_name: inner.model_name,
+            elapsed_ms: inner.elapsed_ms,
+        }))
+    }
+
+    async fn embed_text_batch_v2(
+        &self,
+        request: Request<EmbedTextBatchRequestV2>,
+    ) -> Result<Response<EmbeddingBatchResponseV2>, Status> {
+        info!("[SemanticService]: received EmbedTextBatchV2 request");
+        let req = request.into_inner();
+        let header = req.header.unwrap_or_default();
+
+        let inner = self
+            .embed_text_batch(Request::new(EmbedTextBatchRequest {
+                items: req
+                    .items
+                    .into_iter()
+                    .map(|item| EmbedTextRequest {
+                        request_id: item.request_id,
+                        text: item.text,
+                        model_name: item.model_name,
+                    })
+                    .collect(),
+            }))
+            .await?;
+        let inner = inner.into_inner();
+
+        Ok(Response::new(EmbeddingBatchResponseV2 {
+            // Batch header model_id is empty: per-item model_name is authoritative.
+            header: Some(build_response_header(&header, "", inner.elapsed_ms)),
+            items: inner.items.into_iter().map(to_v2_batch_item).collect(),
+            elapsed_ms: inner.elapsed_ms,
+        }))
+    }
+
+    async fn embed_image_batch_v2(
+        &self,
+        request: Request<EmbedImageBatchRequestV2>,
+    ) -> Result<Response<EmbeddingBatchResponseV2>, Status> {
+        info!("[SemanticService]: received EmbedImageBatchV2 request");
+        let req = request.into_inner();
+        let header = req.header.unwrap_or_default();
+
+        let inner = self
+            .embed_image_batch(Request::new(EmbedImageBatchRequest {
+                items: req
+                    .items
+                    .into_iter()
+                    .map(|item| EmbedImageRequest {
+                        request_id: item.request_id,
+                        image_bytes: item.image_bytes,
+                        image_format_hint: item.image_format_hint,
+                        model_name: item.model_name,
+                    })
+                    .collect(),
+            }))
+            .await?;
+        let inner = inner.into_inner();
+
+        Ok(Response::new(EmbeddingBatchResponseV2 {
+            header: Some(build_response_header(&header, "", inner.elapsed_ms)),
+            items: inner.items.into_iter().map(to_v2_batch_item).collect(),
+            elapsed_ms: inner.elapsed_ms,
         }))
     }
 }
@@ -969,5 +1138,273 @@ mod tests {
         assert_eq!(status.state, "ready");
         assert_eq!(status.image_batch_cap, 7);
         assert_eq!(status.image_batch_wait_ms, 11);
+    }
+
+    // ---- v2 embedding RPCs (Phase 4) ----
+    // The v2 methods delegate to the frozen v1 methods and wrap the result with a shared
+    // AiResponseHeader. These tests mirror the v1 batch tests plus assert the header contract.
+
+    fn v2_header(request_id: &str, task_id: &str) -> AiRequestHeader {
+        AiRequestHeader {
+            request_id: request_id.to_string(),
+            task_id: task_id.to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn embed_text_v2_echoes_header_request_id() {
+        let service = SemanticServiceImpl::new(
+            Arc::new(MockEmbeddingEngine),
+            512,
+            Duration::from_millis(25),
+        );
+
+        let response = service
+            .embed_text_v2(Request::new(EmbedTextRequestV2 {
+                header: Some(v2_header("echo-1", "semantic.embed_text")),
+                text: "a red tea cake".to_string(),
+                model_name: String::new(),
+            }))
+            .await
+            .expect("v2 embed text should succeed")
+            .into_inner();
+
+        let header = response.header.expect("v2 response has a header");
+        assert_eq!(header.request_id, "echo-1");
+        assert_eq!(header.task_id, "semantic.embed_text");
+        assert_eq!(header.status, AiResponseStatus::AiStatusOk as i32);
+        assert_eq!(header.provider, "local");
+        // Single-call header carries the serving model_id (the v1 response's model_name).
+        assert_eq!(header.model_id, response.model_name);
+        assert!(!header.model_id.is_empty());
+        assert_eq!(response.dimension as usize, response.embedding.len());
+    }
+
+    #[tokio::test]
+    async fn text_batch_v2_preserves_request_order_and_item_errors() {
+        let service = SemanticServiceImpl::new(
+            Arc::new(MockEmbeddingEngine),
+            512,
+            Duration::from_millis(25),
+        );
+
+        let response = service
+            .embed_text_batch_v2(Request::new(EmbedTextBatchRequestV2 {
+                header: Some(v2_header("batch-1", "semantic.embed_text_batch")),
+                items: vec![
+                    EmbedTextItemV2 {
+                        request_id: "ok-1".to_string(),
+                        text: "tea".to_string(),
+                        model_name: String::new(),
+                    },
+                    EmbedTextItemV2 {
+                        request_id: "bad-1".to_string(),
+                        text: "   ".to_string(),
+                        model_name: String::new(),
+                    },
+                    EmbedTextItemV2 {
+                        request_id: "ok-2".to_string(),
+                        text: "cake".to_string(),
+                        model_name: "custom".to_string(),
+                    },
+                ],
+            }))
+            .await
+            .expect("v2 batch should return")
+            .into_inner();
+
+        let header = response.header.expect("v2 batch response has a header");
+        assert_eq!(header.request_id, "batch-1");
+        assert_eq!(header.task_id, "semantic.embed_text_batch");
+        assert_eq!(header.status, AiResponseStatus::AiStatusOk as i32);
+        assert_eq!(header.provider, "local");
+        // Batch header model_id is empty; per-item model_name is authoritative.
+        assert_eq!(header.model_id, "");
+
+        assert_eq!(response.items.len(), 3);
+        assert_eq!(response.items[0].request_id, "ok-1");
+        assert!(response.items[0].ok);
+        assert_eq!(response.items[1].request_id, "bad-1");
+        assert!(!response.items[1].ok);
+        assert!(response.items[1].error.contains("text must not be empty"));
+        assert_eq!(response.items[2].request_id, "ok-2");
+        assert!(response.items[2].ok);
+        assert_eq!(response.items[2].model_name, "custom");
+    }
+
+    #[tokio::test]
+    async fn image_batch_v2_preserves_request_order_and_item_errors() {
+        let service = SemanticServiceImpl::new(
+            Arc::new(MockEmbeddingEngine),
+            512,
+            Duration::from_millis(25),
+        );
+        let (rgba8, format_hint) = raw_rgba8_image(16, 12, [64, 128, 192, 255]);
+
+        let response = service
+            .embed_image_batch_v2(Request::new(EmbedImageBatchRequestV2 {
+                header: Some(v2_header("img-batch-1", "semantic.embed_image_batch")),
+                items: vec![
+                    EmbedImageItemV2 {
+                        request_id: "img-1".to_string(),
+                        image_bytes: rgba8,
+                        image_format_hint: format_hint,
+                        model_name: String::new(),
+                    },
+                    EmbedImageItemV2 {
+                        request_id: "img-bad".to_string(),
+                        image_bytes: b"not rgba8".to_vec(),
+                        image_format_hint: "rgba8:16x12".to_string(),
+                        model_name: String::new(),
+                    },
+                ],
+            }))
+            .await
+            .expect("v2 batch should return")
+            .into_inner();
+
+        let header = response.header.expect("v2 batch response has a header");
+        assert_eq!(header.request_id, "img-batch-1");
+        assert_eq!(header.status, AiResponseStatus::AiStatusOk as i32);
+        assert_eq!(header.provider, "local");
+
+        assert_eq!(response.items.len(), 2);
+        assert_eq!(response.items[0].request_id, "img-1");
+        assert!(response.items[0].ok);
+        assert_eq!(response.items[1].request_id, "img-bad");
+        assert!(!response.items[1].ok);
+        assert!(
+            response.items[1]
+                .error
+                .contains("rgba8 byte length mismatch")
+        );
+    }
+
+    #[tokio::test]
+    async fn rejects_non_finite_batch_embedding_as_item_error_v2() {
+        struct NonFiniteEngine;
+
+        impl EmbeddingEngine for NonFiniteEngine {
+            fn embed_text(&self, _text: &str) -> AnyResult<Vec<f32>> {
+                Ok(vec![1.0, f32::NAN])
+            }
+
+            fn embed_image(&self, rgb: &image::RgbImage) -> AnyResult<Vec<f32>> {
+                MockEmbeddingEngine.embed_image(rgb)
+            }
+
+            fn default_text_model_name(&self) -> &str {
+                "non-finite"
+            }
+
+            fn default_image_model_name(&self) -> &str {
+                "mock-image-v1"
+            }
+
+            fn model_info(&self) -> EngineModelInfo {
+                MockEmbeddingEngine.model_info()
+            }
+        }
+
+        let service =
+            SemanticServiceImpl::new(Arc::new(NonFiniteEngine), 512, Duration::from_millis(25));
+        let response = service
+            .embed_text_batch_v2(Request::new(EmbedTextBatchRequestV2 {
+                header: Some(v2_header("nf-batch-1", "semantic.embed_text_batch")),
+                items: vec![EmbedTextItemV2 {
+                    request_id: "bad-embedding".to_string(),
+                    text: "tea".to_string(),
+                    model_name: String::new(),
+                }],
+            }))
+            .await
+            .expect("v2 batch should return")
+            .into_inner();
+
+        assert_eq!(response.items.len(), 1);
+        assert_eq!(response.items[0].request_id, "bad-embedding");
+        assert!(!response.items[0].ok);
+        assert!(response.items[0].error.contains("non-finite"));
+    }
+
+    #[tokio::test]
+    async fn embed_image_v2_routes_through_micro_batch_worker() {
+        struct RecordingEngine {
+            batches: Mutex<Vec<usize>>,
+        }
+
+        impl EmbeddingEngine for RecordingEngine {
+            fn embed_text(&self, text: &str) -> AnyResult<Vec<f32>> {
+                MockEmbeddingEngine.embed_text(text)
+            }
+
+            fn embed_image(&self, rgb: &image::RgbImage) -> AnyResult<Vec<f32>> {
+                MockEmbeddingEngine.embed_image(rgb)
+            }
+
+            fn embed_images(&self, rgbs: &[image::RgbImage]) -> AnyResult<Vec<Vec<f32>>> {
+                self.batches.lock().unwrap().push(rgbs.len());
+                MockEmbeddingEngine.embed_images(rgbs)
+            }
+
+            fn default_text_model_name(&self) -> &str {
+                "mock-text-v1"
+            }
+
+            fn default_image_model_name(&self) -> &str {
+                "mock-image-v1"
+            }
+
+            fn model_info(&self) -> EngineModelInfo {
+                MockEmbeddingEngine.model_info()
+            }
+        }
+
+        let engine = Arc::new(RecordingEngine {
+            batches: Mutex::new(Vec::new()),
+        });
+        let service = Arc::new(SemanticServiceImpl::new(
+            engine.clone(),
+            512,
+            Duration::from_millis(25),
+        ));
+        let (rgba8, format_hint) = raw_rgba8_image(16, 12, [64, 128, 192, 255]);
+
+        let mut tasks = Vec::new();
+        const TEST_REQUEST_COUNT: usize = 64;
+
+        for index in 0..TEST_REQUEST_COUNT {
+            let service = service.clone();
+            let rgba8 = rgba8.clone();
+            let format_hint = format_hint.clone();
+            tasks.push(tokio::spawn(async move {
+                let request_id = format!("img-{index}");
+                let response = service
+                    .embed_image_v2(Request::new(EmbedImageRequestV2 {
+                        header: Some(v2_header(&request_id, "semantic.embed_image")),
+                        image_bytes: rgba8,
+                        image_format_hint: format_hint,
+                        model_name: String::new(),
+                    }))
+                    .await
+                    .expect("v2 embed image should succeed")
+                    .into_inner();
+                (request_id, response)
+            }));
+        }
+
+        for task in tasks {
+            let (request_id, response) = task.await.expect("task should join");
+            let header = response.header.expect("v2 response has a header");
+            assert_eq!(header.request_id, request_id);
+            assert_eq!(response.model_name, "mock-image-v1");
+        }
+
+        // 64 single-v2 calls coalesce into one micro-batch, exactly like the v1 path.
+        assert_eq!(
+            engine.batches.lock().unwrap().as_slice(),
+            &[TEST_REQUEST_COUNT]
+        );
     }
 }

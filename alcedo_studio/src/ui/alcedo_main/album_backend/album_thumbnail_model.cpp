@@ -237,7 +237,10 @@ QVariantMap AlbumThumbnailModel::getItemAt(int idx) const {
   const auto& item = rows_[static_cast<size_t>(idx)];
   return {
       {"elementId", static_cast<uint>(item.element_id)},
+      {"fileId", static_cast<uint>(item.file_id)},
       {"imageId", static_cast<uint>(item.image_id)},
+      {"folderId", static_cast<uint>(item.folder_id)},
+      {"scopeType", item.scope_type},
       {"fileName", item.file_name.isEmpty() ? QStringLiteral("(unnamed)") : item.file_name},
       {"rating", item.rating},
       {"isHdr", item.is_hdr},

@@ -75,6 +75,23 @@ cmd /c scripts\msvc_env.cmd --build --preset win_release --parallel 8
 cmd /c scripts\msvc_env.cmd --install build/release --prefix build/install
 ```
 
+DuckDB FTS is packaged from a local extension install, not from Git. If CMake
+cannot find `fts.duckdb_extension`, install it locally with:
+
+```powershell
+duckdb -c "INSTALL fts;"
+```
+
+Then either reconfigure, or pass the matching extension path explicitly:
+
+```powershell
+cmd /c scripts\msvc_env.cmd --preset win_release `
+  -DALCEDO_DUCKDB_FTS_EXTENSION="$env:USERPROFILE\.duckdb\extensions\v1.2.1\windows_amd64\fts.duckdb_extension"
+```
+
+The Windows packaging script can prepare the extension automatically when the
+`duckdb` CLI is available.
+
 ### 3.4 Release tests preset (`win_release_test`) / 发布测试预设（`win_release_test`）
 
 ```powershell

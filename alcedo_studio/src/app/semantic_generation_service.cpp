@@ -149,8 +149,8 @@ auto MaterializeThumbnailRgba8(const ThumbnailGuard& guard, std::vector<uint8_t>
   return true;
 }
 
-auto MatchesExpectedModelInfo(const SemanticRuntimeModelInfo& actual,
-                              const SemanticRuntimeModelInfo& expected, std::string* error)
+auto MatchesExpectedModelInfo(const AiSidecarRuntimeModelInfo& actual,
+                              const AiSidecarRuntimeModelInfo& expected, std::string* error)
     -> bool {
   if (actual.model_id != expected.model_id) {
     if (error) {
@@ -604,7 +604,7 @@ void MockSemanticImageEmbeddingClient::EmbedImageBatch(
   }).detach();
 }
 
-auto MockSemanticImageEmbeddingClient::GetModelInfo(SemanticRuntimeModelInfo* info,
+auto MockSemanticImageEmbeddingClient::GetModelInfo(AiSidecarRuntimeModelInfo* info,
                                                     std::string*              error) -> bool {
   (void)error;
   if (info) {
@@ -645,11 +645,11 @@ void MockSemanticImageEmbeddingClient::FailRequestIds(std::unordered_set<std::st
   fail_request_ids_ = std::move(request_ids);
 }
 
-SemanticRuntimeImageEmbeddingClient::SemanticRuntimeImageEmbeddingClient(
-    std::shared_ptr<SemanticRuntimeService> runtime)
+AiSidecarRuntimeImageEmbeddingClient::AiSidecarRuntimeImageEmbeddingClient(
+    std::shared_ptr<AiSidecarRuntimeService> runtime)
     : runtime_(std::move(runtime)) {}
 
-auto SemanticRuntimeImageEmbeddingClient::GetModelInfo(SemanticRuntimeModelInfo* info,
+auto AiSidecarRuntimeImageEmbeddingClient::GetModelInfo(AiSidecarRuntimeModelInfo* info,
                                                        std::string*              error) -> bool {
   if (!runtime_) {
     if (error) {
@@ -659,7 +659,7 @@ auto SemanticRuntimeImageEmbeddingClient::GetModelInfo(SemanticRuntimeModelInfo*
   }
 
   const auto status = runtime_->Status();
-  if (status.state != SemanticRuntimeState::kReady) {
+  if (status.state != AiSidecarRuntimeState::kReady) {
     if (error) {
       *error = "semantic runtime is not ready";
     }
@@ -677,7 +677,7 @@ auto SemanticRuntimeImageEmbeddingClient::GetModelInfo(SemanticRuntimeModelInfo*
   return true;
 }
 
-auto SemanticRuntimeImageEmbeddingClient::EmbedText(const std::string&        request_id,
+auto AiSidecarRuntimeImageEmbeddingClient::EmbedText(const std::string&        request_id,
                                                     const std::string&        text,
                                                     std::chrono::milliseconds timeout)
     -> SemanticEmbeddingResult {
@@ -688,10 +688,18 @@ auto SemanticRuntimeImageEmbeddingClient::EmbedText(const std::string&        re
     result.error      = "semantic runtime service is not available";
     return result;
   }
-  return runtime_->EmbedText(request_id, text, timeout);
+  const auto session = runtime_->ClientSession();
+  if (!session || runtime_->Status().state != AiSidecarRuntimeState::kReady) {
+    SemanticEmbeddingResult result;
+    result.request_id = request_id;
+    result.ok         = false;
+    result.error      = "semantic runtime is not ready";
+    return result;
+  }
+  return session->semantic().EmbedText(request_id, text, timeout);
 }
 
-auto SemanticRuntimeImageEmbeddingClient::EmbedTextBatch(
+auto AiSidecarRuntimeImageEmbeddingClient::EmbedTextBatch(
     const std::vector<SemanticTextEmbeddingRequest>& requests, std::chrono::milliseconds timeout)
     -> std::vector<SemanticEmbeddingResult> {
   if (!runtime_) {
@@ -706,10 +714,23 @@ auto SemanticRuntimeImageEmbeddingClient::EmbedTextBatch(
     }
     return results;
   }
-  return runtime_->EmbedTextBatch(requests, timeout);
+  const auto session = runtime_->ClientSession();
+  if (!session || runtime_->Status().state != AiSidecarRuntimeState::kReady) {
+    std::vector<SemanticEmbeddingResult> results;
+    results.reserve(requests.size());
+    for (const auto& request : requests) {
+      SemanticEmbeddingResult result;
+      result.request_id = request.request_id;
+      result.ok         = false;
+      result.error      = "semantic runtime is not ready";
+      results.push_back(std::move(result));
+    }
+    return results;
+  }
+  return session->semantic().EmbedTextBatch(requests, timeout);
 }
 
-void SemanticRuntimeImageEmbeddingClient::EmbedImageBatch(
+void AiSidecarRuntimeImageEmbeddingClient::EmbedImageBatch(
     std::vector<SemanticImageEmbeddingInput> inputs, std::chrono::milliseconds timeout,
     SemanticImageEmbeddingBatchCallback callback) {
   auto runtime = runtime_;
@@ -742,7 +763,20 @@ void SemanticRuntimeImageEmbeddingClient::EmbedImageBatch(
       requests.push_back(std::move(request));
     }
 
-    const auto runtime_results = runtime->EmbedImageBatch(std::move(requests), timeout);
+    const auto session = runtime->ClientSession();
+    std::vector<SemanticEmbeddingResult> runtime_results;
+    if (!session || runtime->Status().state != AiSidecarRuntimeState::kReady) {
+      runtime_results.reserve(requests.size());
+      for (const auto& request : requests) {
+        SemanticEmbeddingResult result;
+        result.request_id = request.request_id;
+        result.ok         = false;
+        result.error      = "semantic runtime is not ready";
+        runtime_results.push_back(std::move(result));
+      }
+    } else {
+      runtime_results = session->semantic().EmbedImageBatch(std::move(requests), timeout);
+    }
     results.reserve(runtime_results.size());
     for (size_t i = 0; i < runtime_results.size(); ++i) {
       SemanticImageEmbeddingBatchResult result;
@@ -895,7 +929,7 @@ void SemanticGenerationService::RunJob(
   };
 
   if (options.expected_model_info.has_value()) {
-    SemanticRuntimeModelInfo actual_model_info;
+    AiSidecarRuntimeModelInfo actual_model_info;
     std::string              model_error;
     if (!embedding_client->GetModelInfo(&actual_model_info, &model_error) ||
         !MatchesExpectedModelInfo(actual_model_info, *options.expected_model_info, &model_error)) {

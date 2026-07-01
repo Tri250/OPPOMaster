@@ -819,6 +819,15 @@ def_library(SleeveMapper
     PUBLIC_DEPS DuckDB DuckORM Image SleeveElement ImagePool EditPipeline PipelineScheduler
 )
 
+# AI domain objects (Phase 5f): standalone image understanding/rating objects, FK=file_id
+# (Sleeve element id / inode). Not members of Image/SleeveFile. DB ser/deser lives in the
+# duckorm-backed `AiStorageController` (storage layer); this lib is JSON-only at the
+# object layer so it can be reused without pulling storage deps.
+def_library(Ai
+    SOURCES ai/ai_description.cpp ai/ai_rating.cpp
+    PUBLIC_DEPS JSON
+)
+
 # Services
 set(SERVICE_SRCS
     sleeve/storage_service.cpp
@@ -826,6 +835,7 @@ set(SERVICE_SRCS
     storage/controller/db_controller.cpp
     storage/controller/image/image_controller.cpp
     storage/controller/semantic/semantic_storage_controller.cpp
+    storage/controller/ai/ai_storage_controller.cpp
     storage/controller/sleeve/element_controller.cpp
     storage/service/image/image_service.cpp
     storage/service/sleeve/base/base_service.cpp
@@ -840,7 +850,7 @@ set(SERVICE_SRCS
 
 def_library(StorageService
     SOURCES ${SERVICE_SRCS}
-    PUBLIC_DEPS DuckDB DuckORM SleeveMapper StrConv PipelineScheduler
+    PUBLIC_DEPS Ai DuckDB DuckORM SleeveMapper StrConv PipelineScheduler
     PRIVATE_DEPS AppDiagnostics
 )
 
@@ -945,6 +955,17 @@ set(ALCEDO_SEMANTIC_PROTO_HDRS
     "${ALCEDO_SEMANTIC_PROTO_GEN_DIR}/semantic.grpc.pb.h"
 )
 
+# AI proto path vars are hoisted here (ahead of the SemanticProto custom command and library)
+# because semantic.proto now imports ai_common.proto (Phase 4): the SemanticProto protoc
+# command DEPENDS the ai_common.proto source, semantic.pb.h includes ai_common.pb.h, and the
+# SemanticProto library links AiProto. The AI custom commands and AiProto target still live
+# below; only these path vars are defined early.
+set(ALCEDO_AI_PROTO_DIR "${ALCEDO_SEMANTIC_PROTO_DIR}")
+set(ALCEDO_AI_COMMON_PROTO "${ALCEDO_AI_PROTO_DIR}/ai_common.proto")
+set(ALCEDO_AI_RUNTIME_PROTO "${ALCEDO_AI_PROTO_DIR}/ai_runtime.proto")
+set(ALCEDO_AI_IMAGE_ANALYSIS_PROTO "${ALCEDO_AI_PROTO_DIR}/image_analysis.proto")
+set(ALCEDO_AI_PROTO_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/ai")
+
 add_custom_command(
     OUTPUT ${ALCEDO_SEMANTIC_PROTO_SRCS} ${ALCEDO_SEMANTIC_PROTO_HDRS}
     COMMAND ${CMAKE_COMMAND} -E make_directory "${ALCEDO_SEMANTIC_PROTO_GEN_DIR}"
@@ -956,21 +977,159 @@ add_custom_command(
         "${ALCEDO_SEMANTIC_PROTO}"
     DEPENDS
         "${ALCEDO_SEMANTIC_PROTO}"
+        "${ALCEDO_AI_COMMON_PROTO}"
     VERBATIM
 )
 
-add_library(SemanticProto ${ALCEDO_SEMANTIC_PROTO_SRCS} ${ALCEDO_SEMANTIC_PROTO_HDRS})
-target_include_directories(SemanticProto PUBLIC "${ALCEDO_SEMANTIC_PROTO_GEN_DIR}")
-target_link_libraries(SemanticProto PUBLIC puerhlab::grpc++ puerhlab::protobuf)
-
-def_library(SemanticRuntimeService
-    SOURCES
-        app/semantic_runtime_service.cpp
-        include/app/semantic_runtime_service.hpp
-    PUBLIC_DEPS Qt6::Core Qt6::Network
-    PRIVATE_DEPS SemanticProto AppDiagnostics
+# ------------------------------------------------------------------------------
+# AI sidecar protobuf generation (package alcedo.ai).
+#
+# Sibling to SemanticProto. The two new protos live in the same proto directory
+# (ALCEDO_SEMANTIC_PROTO_DIR), already on the --proto_path, so ai_runtime.proto's
+# `import "ai_common.proto";` resolves at generation time. ai_common.proto has
+# no service, so it only gets .pb.{h,cc}; ai_runtime.proto also gets a .grpc.pb
+# stub. SemanticProto is left frozen — existing consumers are untouched.
+# Phase 1 only requires the generated headers and stub to compile; no C++
+# service implementation consumes AiProto yet (Phase 2 wires the runtime).
+# ------------------------------------------------------------------------------
+set(ALCEDO_AI_PROTO_SRCS
+    "${ALCEDO_AI_PROTO_GEN_DIR}/ai_common.pb.cc"
+    "${ALCEDO_AI_PROTO_GEN_DIR}/ai_runtime.pb.cc"
+    "${ALCEDO_AI_PROTO_GEN_DIR}/ai_runtime.grpc.pb.cc"
+    "${ALCEDO_AI_PROTO_GEN_DIR}/image_analysis.pb.cc"
+    "${ALCEDO_AI_PROTO_GEN_DIR}/image_analysis.grpc.pb.cc"
+)
+set(ALCEDO_AI_PROTO_HDRS
+    "${ALCEDO_AI_PROTO_GEN_DIR}/ai_common.pb.h"
+    "${ALCEDO_AI_PROTO_GEN_DIR}/ai_runtime.pb.h"
+    "${ALCEDO_AI_PROTO_GEN_DIR}/ai_runtime.grpc.pb.h"
+    "${ALCEDO_AI_PROTO_GEN_DIR}/image_analysis.pb.h"
+    "${ALCEDO_AI_PROTO_GEN_DIR}/image_analysis.grpc.pb.h"
 )
 
+# ai_common.proto: messages + enums only (no service -> no grpc stub).
+add_custom_command(
+    OUTPUT
+        "${ALCEDO_AI_PROTO_GEN_DIR}/ai_common.pb.cc"
+        "${ALCEDO_AI_PROTO_GEN_DIR}/ai_common.pb.h"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${ALCEDO_AI_PROTO_GEN_DIR}"
+    COMMAND ${PUERHLAB_PROTOC_EXECUTABLE}
+        --proto_path=${ALCEDO_AI_PROTO_DIR}
+        --cpp_out=${ALCEDO_AI_PROTO_GEN_DIR}
+        "${ALCEDO_AI_COMMON_PROTO}"
+    DEPENDS
+        "${ALCEDO_AI_COMMON_PROTO}"
+    VERBATIM
+)
+
+# ai_runtime.proto: imports ai_common.proto; emits .pb + .grpc.pb. DEPENDS the
+# ai_common.proto *source* (not a generated artifact) so import resolution and
+# ordering are correct under Make/Ninja. protoc generates output only for files
+# named on the command line, so this command does not regenerate ai_common.*.
+add_custom_command(
+    OUTPUT
+        "${ALCEDO_AI_PROTO_GEN_DIR}/ai_runtime.pb.cc"
+        "${ALCEDO_AI_PROTO_GEN_DIR}/ai_runtime.pb.h"
+        "${ALCEDO_AI_PROTO_GEN_DIR}/ai_runtime.grpc.pb.h"
+        "${ALCEDO_AI_PROTO_GEN_DIR}/ai_runtime.grpc.pb.cc"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${ALCEDO_AI_PROTO_GEN_DIR}"
+    COMMAND ${PUERHLAB_PROTOC_EXECUTABLE}
+        --proto_path=${ALCEDO_AI_PROTO_DIR}
+        --cpp_out=${ALCEDO_AI_PROTO_GEN_DIR}
+        --grpc_out=${ALCEDO_AI_PROTO_GEN_DIR}
+        --plugin=protoc-gen-grpc=${PUERHLAB_GRPC_CPP_PLUGIN_EXECUTABLE}
+        "${ALCEDO_AI_RUNTIME_PROTO}"
+    DEPENDS
+        "${ALCEDO_AI_RUNTIME_PROTO}"
+        "${ALCEDO_AI_COMMON_PROTO}"
+    VERBATIM
+)
+
+# image_analysis.proto: imports ai_common.proto; emits .pb + .grpc.pb (Phase 5b).
+# Same pattern as ai_runtime.proto: protoc generates output only for files named on
+# the command line, so this does not regenerate ai_common.*; DEPENDS the ai_common.proto
+# *source* (not a generated artifact) so import resolution + ordering are correct
+# under Make/Ninja. Shares the single alcedo.ai package, so AiProto picks it up with
+# no new package / cross-package extern_path.
+add_custom_command(
+    OUTPUT
+        "${ALCEDO_AI_PROTO_GEN_DIR}/image_analysis.pb.cc"
+        "${ALCEDO_AI_PROTO_GEN_DIR}/image_analysis.pb.h"
+        "${ALCEDO_AI_PROTO_GEN_DIR}/image_analysis.grpc.pb.h"
+        "${ALCEDO_AI_PROTO_GEN_DIR}/image_analysis.grpc.pb.cc"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${ALCEDO_AI_PROTO_GEN_DIR}"
+    COMMAND ${PUERHLAB_PROTOC_EXECUTABLE}
+        --proto_path=${ALCEDO_AI_PROTO_DIR}
+        --cpp_out=${ALCEDO_AI_PROTO_GEN_DIR}
+        --grpc_out=${ALCEDO_AI_PROTO_GEN_DIR}
+        --plugin=protoc-gen-grpc=${PUERHLAB_GRPC_CPP_PLUGIN_EXECUTABLE}
+        "${ALCEDO_AI_IMAGE_ANALYSIS_PROTO}"
+    DEPENDS
+        "${ALCEDO_AI_IMAGE_ANALYSIS_PROTO}"
+        "${ALCEDO_AI_COMMON_PROTO}"
+    VERBATIM
+)
+
+add_library(AiProto ${ALCEDO_AI_PROTO_SRCS} ${ALCEDO_AI_PROTO_HDRS})
+target_include_directories(AiProto PUBLIC "${ALCEDO_AI_PROTO_GEN_DIR}")
+target_link_libraries(AiProto PUBLIC puerhlab::grpc++ puerhlab::protobuf)
+
+# SemanticProto links AiProto and adds the AI generated include dir because semantic.proto
+# imports ai_common.proto (Phase 4): semantic.pb.h includes ai_common.pb.h and references
+# alcedo::ai types. AiProto is defined just above so the link resolves; the target dependency
+# also orders the AI custom commands (which generate ai_common.pb.h) before SemanticProto
+# compiles semantic.pb.cc.
+add_library(SemanticProto ${ALCEDO_SEMANTIC_PROTO_SRCS} ${ALCEDO_SEMANTIC_PROTO_HDRS})
+target_include_directories(SemanticProto PUBLIC "${ALCEDO_SEMANTIC_PROTO_GEN_DIR}"
+                                           "${ALCEDO_AI_PROTO_GEN_DIR}")
+target_link_libraries(SemanticProto PUBLIC puerhlab::grpc++ puerhlab::protobuf AiProto)
+
+def_library(SidecarClient
+    SOURCES
+        sidecar_client/client.cpp
+        include/sidecar_client/client.hpp
+        include/sidecar_client/credential_client.hpp
+        include/sidecar_client/image_analysis_client.hpp
+        include/sidecar_client/model_manager_client.hpp
+        include/sidecar_client/proto_dto.hpp
+        include/sidecar_client/runtime_control_client.hpp
+        include/sidecar_client/semantic_embedding_client.hpp
+        include/sidecar_client/dto/image_analysis.hpp
+        include/sidecar_client/dto/model_manager.hpp
+        include/sidecar_client/dto/runtime.hpp
+        include/sidecar_client/dto/semantic_embedding.hpp
+    PUBLIC_DEPS Qt6::Core
+    PRIVATE_DEPS SemanticProto AiProto AppDiagnostics
+)
+
+def_library(AiSidecarRuntimeService
+    SOURCES
+        app/ai_sidecar_runtime_service.cpp
+        include/app/ai_sidecar_runtime_service.hpp
+    PUBLIC_DEPS Qt6::Core Qt6::Network SidecarClient
+    PRIVATE_DEPS AppDiagnostics
+)
+
+def_library(AiCredentialStore
+    SOURCES
+        app/ai_credential_store.cpp
+        include/app/ai_credential_store.hpp
+)
+if(WIN32)
+    target_link_libraries(AiCredentialStore PRIVATE Advapi32)
+elseif(APPLE)
+    target_link_libraries(AiCredentialStore PRIVATE "-framework Security" "-framework CoreFoundation")
+endif()
+
+# Frontend 1b: multi-profile provider settings controller. Profiles persist in
+# ai_providers.json and generated sidecar ProviderConfig JSON; raw API keys stay
+# only in AiCredentialStore.
+def_library(AiProviderProfile
+    SOURCES
+        app/ai_provider_profile.cpp
+        include/app/ai_provider_profile.hpp
+    PUBLIC_DEPS AiCredentialStore Qt6::Core
+)
 def_library(ModelDownloadService
     SOURCES
         app/model_download_service.cpp
@@ -987,7 +1146,7 @@ def_library(ProjectService
         app/project_package_service.cpp
         ui/alcedo_main/album_backend/path_utils.cpp
     PUBLIC_DEPS FSService StorageService ImagePoolService AlbumBrowseService SleeveFilterService
-                SemanticRuntimeService ModelDownloadService
+                AiSidecarRuntimeService ModelDownloadService
                 StrConv JSON xxHash stduuid
     PRIVATE_DEPS
         UiLocalization
@@ -1027,8 +1186,36 @@ def_library(SemanticGenerationService
         app/semantic_generation_service.cpp
         include/app/semantic_generation_service.hpp
         include/storage/controller/semantic/semantic_label_config.hpp
-    PUBLIC_DEPS SemanticRuntimeService ThumbnailService StorageService opencv_core opencv_imgproc
+    PUBLIC_DEPS AiSidecarRuntimeService ThumbnailService StorageService opencv_core opencv_imgproc
     PRIVATE_DEPS AppDiagnostics
+)
+
+# Phase 5d: host-side encoded-rendition encoder (OIIO primary codec, no OpenCV
+# imgcodecs in the primary path) + the host ImageAnalysisService that owns rendition
+# selection, credential registration, serialized dispatch, and cancellation.
+def_library(ImageAnalysisEncoder
+    SOURCES
+        app/image_analysis_encoder.cpp
+        include/app/image_analysis_encoder.hpp
+    PUBLIC_DEPS ThumbnailService ImageBuffer OpenImageIO::OpenImageIO opencv_core opencv_imgproc
+)
+
+def_library(ImageAnalysisService
+    SOURCES
+        app/image_analysis_service.cpp
+        include/app/image_analysis_service.hpp
+    PUBLIC_DEPS AiSidecarRuntimeService AiCredentialStore ThumbnailService ImageAnalysisEncoder ImageBuffer
+    PRIVATE_DEPS AppDiagnostics
+)
+
+# Phase 6d: standalone QML-exposed album image-analysis controller. Owns NO
+# AlbumBackend coupling (the production IImageAnalysisEnvironment lives in
+# album_backend.cpp); unit-testable with fakes. AlbumBackendLib links this.
+def_library(ImageAnalysisController
+    SOURCES
+        ui/alcedo_main/album_backend/image_analysis_controller.cpp
+        include/ui/alcedo_main/album_backend/image_analysis_controller.hpp
+    PUBLIC_DEPS ImageAnalysisService AiProviderProfile AiCredentialStore UiLocalization Qt6::Core
 )
 
 def_library(ThumbnailDiskCacheService
@@ -1187,6 +1374,10 @@ target_link_libraries(AlbumBackendLib
         EditHistoryMgmtService
         ThumbnailService
         SemanticGenerationService
+        ImageAnalysisService
+        ImageAnalysisController
+        AiProviderProfile
+        AiCredentialStore
         ModelDownloadService
         SleeveFilterService
         FSService
@@ -1410,17 +1601,23 @@ qt_add_qml_module(alcedo_main
         ui/alcedo_main/qml/Main.qml
         ui/alcedo_main/qml/ExportQueueState.qml
         ui/alcedo_main/qml/AlbumExportDialog.qml
-        ui/alcedo_main/qml/ImageDetailsDialog.qml
         ui/alcedo_main/qml/AdjustmentTransferDialog.qml
         ui/alcedo_main/qml/SettingDialog.qml
         ui/alcedo_main/qml/WelcomeDialog.qml
         ui/alcedo_main/qml/NikonHeRecoveryDialog.qml
         ui/alcedo_main/qml/SemanticGenerationDialog.qml
+        ui/alcedo_main/qml/AdvancedContentAnalysisDialog.qml
+        ui/alcedo_main/qml/DialogActionButton.qml
         ui/alcedo_main/qml/ActivateModelDialog.qml
         ui/alcedo_main/qml/SemanticGenerationSettingsPanel.qml
+        ui/alcedo_main/qml/AiProviderSettingsPanel.qml
+        ui/alcedo_main/qml/SeveritySegmentedSlider.qml
+        ui/alcedo_main/qml/util/SearchComboBox.qml
         ui/alcedo_main/qml/AboutPage.qml
         ui/alcedo_main/qml/ImportProgressRing.qml
         ui/alcedo_main/qml/InspectorPanel.qml
+        ui/alcedo_main/qml/AlbumInspectorPanel.qml
+        ui/alcedo_main/qml/ImageInspectorPanel.qml
         ui/alcedo_main/qml/CollectionsPanel.qml
         ui/alcedo_main/qml/GlobalSearchDialog.qml
         ui/alcedo_main/qml/StatsCard.qml
@@ -1428,6 +1625,8 @@ qt_add_qml_module(alcedo_main
         ui/alcedo_main/qml/ImageContextMenu.qml
         ui/alcedo_main/qml/ThumbnailGridView.qml
         ui/alcedo_main/qml/ThumbnailListView.qml
+    RESOURCES
+        ui/alcedo_main/qml/util/qmldir
 )
 set_target_properties(alcedo_main PROPERTIES
     QT_QMLCACHEGEN_ARGUMENTS "--only-bytecode"
@@ -1477,6 +1676,8 @@ endif()
 
 set(ALCEDO_MIND_SOURCE_DIR "${CMAKE_SOURCE_DIR}/rust/puerh_mind"
     CACHE INTERNAL "Alcedo semantic sidecar source directory.")
+set(ALCEDO_MIND_PROMPTS_DIR "${ALCEDO_MIND_SOURCE_DIR}/configs/prompts"
+    CACHE INTERNAL "Alcedo semantic sidecar prompt profile config directory.")
 set(ALCEDO_MIND_BUILD_PROFILE "release"
     CACHE INTERNAL "Alcedo semantic sidecar cargo profile.")
 set(ALCEDO_MIND_TARGET_DIR "${ALCEDO_MIND_SOURCE_DIR}/target/${ALCEDO_MIND_BUILD_PROFILE}"
@@ -1586,12 +1787,15 @@ if(WIN32 AND TARGET alcedo_lensfun)
     )
 endif()
 
-if(WIN32 AND ALCEDO_DUCKDB_VSS_EXTENSION)
+if(TARGET alcedo_main AND ALCEDO_DUCKDB_VSS_EXTENSION AND ALCEDO_DUCKDB_FTS_EXTENSION)
     add_custom_command(TARGET alcedo_main POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:alcedo_main>/duckdb_extensions"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${ALCEDO_DUCKDB_VSS_EXTENSION}"
             "$<TARGET_FILE_DIR:alcedo_main>/duckdb_extensions/vss.duckdb_extension"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${ALCEDO_DUCKDB_FTS_EXTENSION}"
+            "$<TARGET_FILE_DIR:alcedo_main>/duckdb_extensions/fts.duckdb_extension"
         VERBATIM
     )
 endif()
@@ -1601,6 +1805,7 @@ if(ALCEDO_BUILD_SEMANTIC_SIDECAR AND TARGET alcedo_mind_sidecar)
         COMMAND ${CMAKE_COMMAND}
             "-DALCEDO_MIND_BINARY=${ALCEDO_MIND_BINARY}"
             "-DALCEDO_MIND_TARGET_DIR=${ALCEDO_MIND_TARGET_DIR}"
+            "-DALCEDO_MIND_PROMPTS_DIR=${ALCEDO_MIND_PROMPTS_DIR}"
             "-DALCEDO_MIND_DEST_DIR=$<TARGET_FILE_DIR:alcedo_main>"
             -P "${CMAKE_SOURCE_DIR}/scripts/cmake/copy_semantic_sidecar.cmake"
         DEPENDS alcedo_mind_sidecar

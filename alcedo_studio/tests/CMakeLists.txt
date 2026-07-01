@@ -72,6 +72,33 @@ function(alcedo_assign_test_category category option_name category_target)
   endforeach()
 endfunction()
 
+function(alcedo_copy_duckdb_extension target_name extension_path extension_file_name)
+  if(TARGET ${target_name} AND NOT "${extension_path}" STREQUAL "" AND EXISTS "${extension_path}")
+    add_custom_command(TARGET ${target_name} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E make_directory
+              "$<TARGET_FILE_DIR:${target_name}>/duckdb_extensions"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${extension_path}"
+              "$<TARGET_FILE_DIR:${target_name}>/duckdb_extensions/${extension_file_name}"
+      VERBATIM)
+  endif()
+endfunction()
+
+function(alcedo_copy_duckdb_extensions target_name)
+  alcedo_copy_duckdb_extension(${target_name}
+    "${ALCEDO_DUCKDB_VSS_EXTENSION}"
+    "vss.duckdb_extension")
+  alcedo_copy_duckdb_extension(${target_name}
+    "${ALCEDO_DUCKDB_FTS_EXTENSION}"
+    "fts.duckdb_extension")
+endfunction()
+
+function(alcedo_copy_duckdb_fts_extension target_name)
+  alcedo_copy_duckdb_extension(${target_name}
+    "${ALCEDO_DUCKDB_FTS_EXTENSION}"
+    "fts.duckdb_extension")
+endfunction()
+
 add_executable(SampleTest sample_test.cpp)
 target_link_libraries(SampleTest PRIVATE GTest::gtest_main)
 
@@ -572,6 +599,7 @@ gtest_discover_tests(SearchQueryClassifierTest TEST_PREFIX "SearchQueryClassifie
 if(WIN32)
   target_link_libraries(FilterServiceTest)
 endif()
+alcedo_copy_duckdb_fts_extension(FilterServiceTest)
 
 add_executable(PipelineServiceTest app/pipeline_service_test.cpp)
 target_include_directories(PipelineServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
@@ -653,15 +681,28 @@ if(WIN32)
   endif()
 endif()
 
-add_executable(SemanticFakeRuntime app/semantic_fake_runtime_main.cpp)
+add_executable(AiSidecarFakeRuntime app/ai_sidecar_fake_runtime_main.cpp)
 
-add_executable(SemanticRuntimeServiceTest app/semantic_runtime_service_test.cpp)
-target_include_directories(SemanticRuntimeServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
-target_compile_definitions(SemanticRuntimeServiceTest PRIVATE
-  ALCEDO_SEMANTIC_FAKE_RUNTIME_PATH="$<TARGET_FILE:SemanticFakeRuntime>")
-target_link_libraries(SemanticRuntimeServiceTest SemanticRuntimeService ProjectService GTest::gtest_main)
-add_dependencies(SemanticRuntimeServiceTest SemanticFakeRuntime)
-gtest_discover_tests(SemanticRuntimeServiceTest TEST_PREFIX "SemanticRuntimeServiceTest."
+add_executable(AiSidecarRuntimeServiceTest app/ai_sidecar_runtime_service_test.cpp)
+target_include_directories(AiSidecarRuntimeServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_compile_definitions(AiSidecarRuntimeServiceTest PRIVATE
+  ALCEDO_AI_SIDECAR_FAKE_RUNTIME_PATH="$<TARGET_FILE:AiSidecarFakeRuntime>")
+target_link_libraries(AiSidecarRuntimeServiceTest AiSidecarRuntimeService ProjectService GTest::gtest_main)
+add_dependencies(AiSidecarRuntimeServiceTest AiSidecarFakeRuntime)
+gtest_discover_tests(AiSidecarRuntimeServiceTest TEST_PREFIX "AiSidecarRuntimeServiceTest."
+  PROPERTIES LABELS "ci_core_flow")
+
+# Frontend 1b: multi-profile provider cards, JSON persistence, and generated sidecar configs.
+add_executable(AiProviderProfileTest app/ai_provider_profile_test.cpp)
+target_include_directories(AiProviderProfileTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(AiProviderProfileTest AiProviderProfile AiCredentialStore GTest::gtest_main)
+gtest_discover_tests(AiProviderProfileTest TEST_PREFIX "AiProviderProfileTest."
+  PROPERTIES LABELS "ci_core_flow")
+
+add_executable(AiCredentialStoreTest app/ai_credential_store_test.cpp)
+target_include_directories(AiCredentialStoreTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(AiCredentialStoreTest AiCredentialStore GTest::gtest_main)
+gtest_discover_tests(AiCredentialStoreTest TEST_PREFIX "AiCredentialStoreTest."
   PROPERTIES LABELS "ci_core_flow")
 
 add_executable(SemanticGrpcDependencySmokeTest app/semantic_grpc_dependency_smoke_test.cpp)
@@ -694,16 +735,32 @@ if(WIN32)
               "$<TARGET_FILE_DIR:SemanticStorageControllerTest>/duckdb.dll"
       VERBATIM)
   endif()
-  if(ALCEDO_DUCKDB_VSS_EXTENSION)
-    add_custom_command(TARGET SemanticStorageControllerTest POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E make_directory
-              "$<TARGET_FILE_DIR:SemanticStorageControllerTest>/duckdb_extensions"
+endif()
+alcedo_copy_duckdb_extensions(SemanticStorageControllerTest)
+
+add_executable(AiStorageControllerTest storage/ai_storage_controller_test.cpp)
+target_include_directories(AiStorageControllerTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(AiStorageControllerTest ProjectService GTest::gtest_main)
+gtest_discover_tests(AiStorageControllerTest TEST_PREFIX "AiStorageControllerTest."
+  PROPERTIES LABELS "ci_core_flow")
+if(WIN32)
+  target_link_libraries(AiStorageControllerTest)
+  if(TARGET alcedo_lensfun)
+    add_custom_command(TARGET AiStorageControllerTest POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E copy_if_different
-              "${ALCEDO_DUCKDB_VSS_EXTENSION}"
-              "$<TARGET_FILE_DIR:SemanticStorageControllerTest>/duckdb_extensions/vss.duckdb_extension"
+              "$<TARGET_FILE:alcedo_lensfun>"
+              "$<TARGET_FILE_DIR:AiStorageControllerTest>/lensfun.dll"
+      VERBATIM)
+  endif()
+  if(EXISTS "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/libduckdb-windows/duckdb.dll")
+    add_custom_command(TARGET AiStorageControllerTest POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${CMAKE_SOURCE_DIR}/alcedo_studio/third_party/libduckdb-windows/duckdb.dll"
+              "$<TARGET_FILE_DIR:AiStorageControllerTest>/duckdb.dll"
       VERBATIM)
   endif()
 endif()
+alcedo_copy_duckdb_extensions(AiStorageControllerTest)
 
 add_executable(SemanticGenerationServiceTest app/semantic_generation_service_test.cpp)
 target_include_directories(SemanticGenerationServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
@@ -714,6 +771,44 @@ target_link_libraries(SemanticGenerationServiceTest
   DuckDB
   GTest::gtest_main)
 gtest_discover_tests(SemanticGenerationServiceTest TEST_PREFIX "SemanticGenerationServiceTest."
+  PROPERTIES LABELS "ci_raw_flow")
+
+# Phase 5d: encoded-rendition encoder + host image-analysis service tests.
+add_executable(ImageAnalysisEncoderTest app/image_analysis_encoder_test.cpp)
+target_include_directories(ImageAnalysisEncoderTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(ImageAnalysisEncoderTest ImageAnalysisEncoder ImageBuffer
+  GTest::gtest_main)
+gtest_discover_tests(ImageAnalysisEncoderTest TEST_PREFIX "ImageAnalysisEncoderTest.")
+
+add_executable(ImageAnalysisServiceTest app/image_analysis_service_test.cpp)
+target_include_directories(ImageAnalysisServiceTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_compile_definitions(ImageAnalysisServiceTest PRIVATE
+  ALCEDO_REPO_ROOT="${CMAKE_SOURCE_DIR}")
+target_link_libraries(ImageAnalysisServiceTest ImageAnalysisService
+  GTest::gtest_main)
+gtest_discover_tests(ImageAnalysisServiceTest TEST_PREFIX "ImageAnalysisServiceTest."
+  PROPERTIES LABELS "ci_raw_flow")
+
+# Phase 6d: album image-analysis job controller. Standalone QObject module
+# (IImageAnalysisEnvironment seam + AiProviderProfileController) driven by fakes.
+add_executable(ImageAnalysisControllerTest app/image_analysis_controller_test.cpp)
+target_include_directories(ImageAnalysisControllerTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(ImageAnalysisControllerTest ImageAnalysisController AiProviderProfile
+  AiCredentialStore GTest::gtest_main)
+gtest_discover_tests(ImageAnalysisControllerTest TEST_PREFIX "ImageAnalysisControllerTest."
+  PROPERTIES LABELS "ci_core_flow")
+
+# Env-gated live smoke: opens a real packed .alcd, materializes one k1024 thumbnail, starts the
+# real Rust sidecar (no CLIP model; describe uses the HTTP provider path), and asks a live LLM to
+# describe the image through ImageAnalysisService. Skipped unless ALCEDO_IA_LIVE_RUNTIME_PATH,
+# ALCEDO_TEST_PACKED_PROJECT_PATH, and ALCEDO_IA_LIVE_ENV_TEST_PATH are set. ProjectService
+# transitively provides ProjectPackageService (unpack), AlbumBrowseService (enumerate), and
+# AiSidecarRuntimeService (sidecar); ThumbnailService provides the k1024 materialization.
+add_executable(ImageAnalysisLiveSmokeTest app/image_analysis_live_smoke_test.cpp)
+target_include_directories(ImageAnalysisLiveSmokeTest PUBLIC ${ALCEDO_INCLUDE_DIR})
+target_link_libraries(ImageAnalysisLiveSmokeTest ImageAnalysisService ProjectService
+  GTest::gtest_main)
+gtest_discover_tests(ImageAnalysisLiveSmokeTest TEST_PREFIX "ImageAnalysisLiveSmokeTest."
   PROPERTIES LABELS "ci_raw_flow")
 
 add_executable(ThumbnailServiceTest app/thumbnail_service_test.cpp)
@@ -1073,6 +1168,8 @@ alcedo_assign_test_category(app ALCEDO_BUILD_APP_TESTS alcedo_tests_app
   ThumbnailServiceTest
   ThumbnailDiskCacheServiceTest
   ExportServiceTest
+  ImageAnalysisEncoderTest
+  ImageAnalysisServiceTest
 )
 
 alcedo_assign_test_category(storage ALCEDO_BUILD_STORAGE_TESTS alcedo_tests_storage
@@ -1096,8 +1193,11 @@ alcedo_assign_test_category(ci_core ALCEDO_BUILD_CI_TESTS alcedo_tests_ci_core
   EditHistoryMgmtServiceTest
   CropRotateOpTest
   SemanticGrpcDependencySmokeTest
-  SemanticRuntimeServiceTest
+  AiSidecarRuntimeServiceTest
   SemanticStorageControllerTest
+  AiStorageControllerTest
+  AiProviderProfileTest
+  ImageAnalysisControllerTest
 )
 
 alcedo_assign_test_category(ci_raw ALCEDO_BUILD_CI_TESTS alcedo_tests_ci_raw
@@ -1105,6 +1205,7 @@ alcedo_assign_test_category(ci_raw ALCEDO_BUILD_CI_TESTS alcedo_tests_ci_raw
   AlbumBackendRatingTest
   AlbumBackendCiWorkflowTest
   SemanticGenerationServiceTest
+  ImageAnalysisServiceTest
 )
 
 alcedo_assign_test_category(ci_metal ALCEDO_BUILD_CI_TESTS alcedo_tests_ci_metal

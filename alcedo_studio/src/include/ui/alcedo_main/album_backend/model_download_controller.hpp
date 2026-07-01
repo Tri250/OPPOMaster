@@ -11,7 +11,7 @@
 #include <optional>
 
 #include "app/model_download_service.hpp"
-#include "app/semantic_runtime_service.hpp"
+#include "app/ai_sidecar_runtime_service.hpp"
 #include "ui/alcedo_main/i18n.hpp"
 
 namespace alcedo::ui {

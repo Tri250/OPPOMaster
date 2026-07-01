@@ -41,8 +41,27 @@ class ImageController {
   auto AddImagesToFolder(const QVariantList& targetEntries, uint targetFolderId) -> QVariantMap;
   auto DeleteTargets(const std::vector<DeleteTarget>& targets) -> DeleteExecutionResult;
   auto GetImageDetails(uint elementId, uint imageId) -> QVariantMap;
+  auto GetFocusedImageInspection(uint elementId, uint imageId) -> QVariantMap;
   auto GetImageRating(uint elementId, uint imageId) -> QVariantMap;
   auto SetImageRating(uint elementId, uint imageId, int rating) -> QVariantMap;
+  auto SetImageDescription(uint elementId, const QString& caption) -> QVariantMap;
+  auto SetImageRatingReasons(uint elementId, const QString& reasons) -> QVariantMap;
+
+  // Phase 7a: the light half of the star-rating path, extracted from `SetImageRating`.
+  // Writes the 1..5 value into the in-memory EXIF/metadata `Rating` column via
+  // `Write_NoSync` (sets MODIFIED, no DB flush), patches the album view-state item, and
+  // emits the thumbnail-model `Rating` dataChanged. NO `SyncWithStorage`/`SaveProject`/
+  // `Package`/`RefreshStats` — those are `FlushPendingStarRatings`, called once at batch
+  // end by the AI image-analysis sink so a batch AI scoring run does one DB flush, not
+  // one per image. `SetImageRating` (manual single star click) is unchanged and still
+  // does a full sync+save per one-off user action.
+  void ApplyStarRatingLight(uint elementId, uint imageId, int rating);
+  // Phase 7a: the batched flush half — `SyncWithStorage` (one transaction for all
+  // MODIFIED image rows) + `RefreshStats` (re-run the rating-bucket GROUP BY so
+  // star-filter stats are correct). No `SaveProject`/`Package` (the `.alcd` packaged
+  // snapshot is left stale until the next normal save/close; the live DB is
+  // authoritative).
+  void FlushPendingStarRatings();
 
  private:
   struct RatingTarget {
@@ -53,6 +72,7 @@ class ImageController {
   [[nodiscard]] auto CollectDeleteTargets(const QVariantList& targetEntries) const
       -> std::vector<DeleteTarget>;
   [[nodiscard]] auto ResolveRatingTarget(uint elementId, uint imageId) const -> RatingTarget;
+  [[nodiscard]] auto SaveProjectSnapshot() -> bool;
 
   AlbumBackend&      backend_;
 };

@@ -2,235 +2,140 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-ScrollView {
+// Inspector shell (Frontend 3). A low-emphasis horizontal tab strip at the top
+// switches the page stack between Album and Image — modeled on VSCode's
+// secondary-sidebar / editor-tab selection: all-caps text labels, equal weight,
+// evenly split across the full width (extensible — add a tab and the strip
+// redistributes), no icons, no card, no filled background, no rounded
+// rectangle. The active tab is white text with a refined text-width underline;
+// inactive tabs are muted gray. The whole content tree below swaps with the
+// tab (Album stats vs. Image tiles).
+//
+// `focusedImage` is the compact focused-image inspection DTO supplied by Main.qml.
+// The shell owns only navigation; ImageInspectorPanel owns the page layout and edit
+// state.
+//
+// Top inset: the shell is placed with a 10px outer margin in Main.qml; the tab
+// strip's topMargin of 4 lands it at 14px from the panel-card top — matching
+// the CollectionsPanel search row so the two side panels read as a symmetric
+// pair, with the center viewport header sitting slightly higher.
+Item {
     id: root
-    contentWidth: availableWidth
+
+    property var focusedImage: ({})
+    property int currentPage: 0  // 0 = Album, 1 = Image
+    signal ratingRequested(int rating)
+    signal descriptionSaveRequested(string caption)
+    signal ratingReasonSaveRequested(string reasons)
+
     readonly property color textColor: appTheme.textColor
     readonly property color mutedTextColor: appTheme.textMutedColor
+    readonly property color dividerColor: appTheme.dividerColor
 
     function withAlpha(color, alpha) {
         return Qt.rgba(color.r, color.g, color.b, alpha)
     }
 
-    Component.onCompleted: {
-        contentItem.interactive = false
+    // Nested inline component (matches the Main.qml CaptionButton pattern;
+    // file-level inline components are rejected by this qmlcachegen).
+    // Low-emphasis tab: text only, no background/border. Active = white text +
+    // underline; inactive = muted text, brightens on hover. Fills its share of
+    // the strip width so N tabs redistribute evenly (extensible navbar).
+    component InspectorTab: Item {
+        id: tab
+        property string label: ""
+        property bool active: false
+        signal clicked()
+
+        implicitWidth: tabLabel.implicitWidth + 28  // minimum; fillWidth stretches it
+        implicitHeight: 36
+
+        Label {
+            id: tabLabel
+            anchors.centerIn: parent
+            text: tab.label
+            color: tab.active
+                   ? appTheme.textColor
+                   : (tabMouseArea.containsMouse ? appTheme.textColor : appTheme.textMutedColor)
+            font.family: appTheme.uiFontFamily
+            font.pixelSize: 11
+            font.weight: tab.active ? 700 : 600
+            font.letterSpacing: 1.4
+            font.capitalization: Font.AllUppercase
+        }
+
+        // Underline beneath the active tab — text-width (capped at tab width),
+        // centered, project white. Refined rather than a heavy full-bleed bar.
+        Rectangle {
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: 2
+            anchors.horizontalCenter: parent.horizontalCenter
+            width: Math.min(parent.width, tabLabel.implicitWidth + 24)
+            height: 2
+            color: appTheme.textColor
+            visible: tab.active
+        }
+
+        MouseArea {
+            id: tabMouseArea
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            hoverEnabled: true
+            onClicked: tab.clicked()
+        }
     }
 
     ColumnLayout {
-        width: root.availableWidth
+        anchors.fill: parent
         spacing: 0
 
-        // Library Overview hero
-        Item {
+        // ── Horizontal tab strip: tabs evenly split the full width ──
+        RowLayout {
             Layout.fillWidth: true
-            Layout.topMargin: 24
             Layout.leftMargin: 16
             Layout.rightMargin: 16
+            Layout.topMargin: 4
             Layout.bottomMargin: 4
-            implicitHeight: heroCol.implicitHeight
+            spacing: 0
 
-            ColumnLayout {
-                id: heroCol
-                anchors.left: parent.left
-                anchors.right: parent.right
-                spacing: 14
+            InspectorTab {
+                Layout.fillWidth: true
+                label: qsTr("Album")
+                active: root.currentPage === 0
+                onClicked: root.currentPage = 0
+            }
 
-                Label {
-                    text: qsTr("LIBRARY OVERVIEW")
-                    color: root.mutedTextColor
-                    font.pixelSize: 10
-                    font.weight: 700
-                    font.letterSpacing: 1.8
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-
-                    Label {
-                        text: qsTr("Total Photos")
-                        color: root.mutedTextColor
-                        font.family: appTheme.uiFontFamily
-                        font.pixelSize: 13
-                        font.weight: 400
-                        Layout.alignment: Qt.AlignVCenter
-                    }
-
-                    Item { Layout.fillWidth: true }
-
-                    Label {
-                        text: albumBackend.totalPhotoCount
-                        color: root.textColor
-                        font.family: appTheme.headlineFontFamily
-                        font.pixelSize: 34
-                        font.weight: 300
-                        Layout.alignment: Qt.AlignVCenter
-                    }
-                }
-
-                Label {
-                    visible: albumBackend.filterInfo !== ""
-                    text: albumBackend.filterInfo
-                    color: root.mutedTextColor
-                    font.family: appTheme.uiFontFamily
-                    font.pixelSize: 11
-                    font.weight: 400
-                    Layout.topMargin: -6
-                }
-
+            InspectorTab {
+                Layout.fillWidth: true
+                label: qsTr("Image")
+                active: root.currentPage === 1
+                onClicked: root.currentPage = 1
             }
         }
 
-        // Stats sections
-        ColumnLayout {
+        // ── Page stack: the whole content tree swaps with the tab ──
+        StackLayout {
             Layout.fillWidth: true
-            Layout.topMargin: 28
-            Layout.leftMargin: 16
-            Layout.rightMargin: 16
-            Layout.bottomMargin: 20
-            spacing: 24
+            Layout.fillHeight: true
+            currentIndex: root.currentPage
 
-            StatsCard {
+            AlbumInspectorPanel {
                 Layout.fillWidth: true
-                title: qsTr("By Capture Date")
-                accentColor: appTheme.toneSteel
-                model: albumBackend.dateStats
-                selectedLabel: albumBackend.statsFilterDate
-                displayMode: "grouped"
-                onBarClicked: function(label) { albumBackend.ToggleStatsFilter("date", label) }
+                Layout.fillHeight: true
             }
 
-            StatsCard {
+            ImageInspectorPanel {
                 Layout.fillWidth: true
-                title: qsTr("By Camera Model")
-                accentColor: appTheme.toneGold
-                model: albumBackend.cameraStats
-                selectedLabel: albumBackend.statsFilterCamera
-                displayMode: "chips"
-                onBarClicked: function(label) { albumBackend.ToggleStatsFilter("camera", label) }
-            }
-
-            StatsCard {
-                Layout.fillWidth: true
-                title: qsTr("By Labels")
-                accentColor: appTheme.toneSteel
-                model: albumBackend.labelStats
-                selectedLabel: albumBackend.statsFilterLabel
-                displayMode: "chips"
-                onBarClicked: function(label) { albumBackend.ToggleStatsFilter("label", label) }
-            }
-
-            StarRatingFilter {
-                Layout.fillWidth: true
-                selectedRating: albumBackend.statsFilterRating
-                accentColor: appTheme.toneGold
-                onStarClicked: function(rating) {
-                    albumBackend.ToggleStatsFilter("rating", rating);
+                Layout.fillHeight: true
+                focusedImage: root.focusedImage
+                onRatingRequested: function(rating) {
+                    root.ratingRequested(rating)
                 }
-            }
-
-            StatsCard {
-                Layout.fillWidth: true
-                title: qsTr("By Lens")
-                accentColor: appTheme.toneGold
-                model: albumBackend.lensStats
-                selectedLabel: albumBackend.statsFilterLens
-                displayMode: "dots"
-                onBarClicked: function(label) { albumBackend.ToggleStatsFilter("lens", label) }
-            }
-
-            Item {
-                Layout.fillWidth: true
-                visible: albumBackend.searchController.activeSearchQuery.length > 0
-                implicitHeight: searchFilterCard.implicitHeight
-
-                ColumnLayout {
-                    id: searchFilterCard
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    spacing: 8
-
-                    Label {
-                        text: qsTr("SEARCH FILTER")
-                        color: root.mutedTextColor
-                        font.pixelSize: 10
-                        font.weight: 700
-                        font.letterSpacing: 1.6
-                    }
-
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 58
-                        radius: 6
-                        color: root.withAlpha(appTheme.bgBaseColor, 0.62)
-                        border.width: 1
-                        border.color: root.withAlpha(appTheme.glassStrokeColor, 0.36)
-
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: 12
-                            anchors.rightMargin: 8
-                            spacing: 10
-
-                            Rectangle {
-                                Layout.preferredWidth: 9
-                                Layout.preferredHeight: 9
-                                radius: 4.5
-                                color: appTheme.toneGold
-                                Layout.alignment: Qt.AlignVCenter
-                            }
-
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 2
-                                Layout.alignment: Qt.AlignVCenter
-
-                                Label {
-                                    Layout.fillWidth: true
-                                    text: qsTr("Filtered by search")
-                                    color: root.withAlpha(root.textColor, 0.86)
-                                    font.family: appTheme.uiFontFamily
-                                    font.pixelSize: 12
-                                    font.weight: 700
-                                    elide: Text.ElideRight
-                                }
-
-                                Label {
-                                    Layout.fillWidth: true
-                                    text: albumBackend.searchController.activeSearchQuery
-                                    color: root.mutedTextColor
-                                    font.family: appTheme.dataFontFamily
-                                    font.pixelSize: 11
-                                    font.weight: 500
-                                    elide: Text.ElideRight
-                                }
-                            }
-
-                            ToolButton {
-                                id: clearSearchButton
-                                Layout.preferredWidth: 28
-                                Layout.preferredHeight: 28
-                                text: "\u00d7"
-                                font.pixelSize: 18
-                                font.weight: 400
-                                onClicked: albumBackend.searchController.ClearFuzzySearch()
-                                background: Rectangle {
-                                    radius: 6
-                                    color: clearSearchButton.down
-                                           ? root.withAlpha(appTheme.textColor, 0.10)
-                                           : (clearSearchButton.hovered
-                                              ? root.withAlpha(appTheme.hoverColor, 0.86)
-                                              : "transparent")
-                                }
-                                contentItem: Text {
-                                    text: clearSearchButton.text
-                                    color: root.withAlpha(root.textColor, 0.76)
-                                    font: clearSearchButton.font
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
-                                }
-                            }
-                        }
-                    }
+                onDescriptionSaveRequested: function(caption) {
+                    root.descriptionSaveRequested(caption)
+                }
+                onRatingReasonSaveRequested: function(reasons) {
+                    root.ratingReasonSaveRequested(reasons)
                 }
             }
         }

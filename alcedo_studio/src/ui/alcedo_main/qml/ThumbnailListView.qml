@@ -26,6 +26,7 @@ ListView {
     signal imageSelectionChanged(int elementId, int imageId, string fileName, bool isHdr,
                                  bool selected)
     signal replaceSelection(var items)
+    signal imageFocused(var item)
     signal contextMenuRequested(var item, real sceneX, real sceneY)
 
     function maybeLoadMoreThumbnails() {
@@ -71,7 +72,10 @@ ListView {
 
     delegate: Rectangle {
         required property int elementId
+        required property int fileId
         required property int imageId
+        required property int folderId
+        required property string scopeType
         required property string fileName
         required property string cameraModel
         required property string extension
@@ -313,33 +317,55 @@ ListView {
                 if (mouse.button !== Qt.RightButton) {
                     return
                 }
-                const scenePoint = rowHoverArea.mapToItem(null, mouse.x, mouse.y)
-                root.contextMenuRequested({
+                const item = {
                     elementId: elementId,
+                    fileId: fileId,
                     imageId: imageId,
+                    folderId: folderId,
+                    scopeType: scopeType,
                     fileName: fileName,
                     rating: rating,
                     isHdr: isHdr
-                }, scenePoint.x, scenePoint.y)
+                }
+                root.imageFocused(item)
+                const scenePoint = rowHoverArea.mapToItem(null, mouse.x, mouse.y)
+                root.contextMenuRequested(item, scenePoint.x, scenePoint.y)
             }
             onClicked: function(mouse) {
                 if (mouse.button !== Qt.LeftButton) {
                     return
                 }
+                const focusedItem = {
+                    elementId: elementId,
+                    fileId: fileId,
+                    imageId: imageId,
+                    folderId: folderId,
+                    scopeType: scopeType,
+                    fileName: fileName,
+                    rating: rating,
+                    isHdr: isHdr
+                }
+                root.imageFocused(focusedItem)
                 if (root.hasMultiSelectModifier(mouse.modifiers)) {
                     const nextSelected = !root.isImageSelected(elementId)
                     root.imageSelectionChanged(elementId, imageId, fileName, isHdr, nextSelected)
                 } else {
-                    root.replaceSelection([{
-                        elementId: elementId,
-                        imageId: imageId,
-                        fileName: fileName,
-                        rating: rating,
-                        isHdr: isHdr
-                    }])
+                    root.replaceSelection([focusedItem])
                 }
             }
-            onDoubleClicked: albumBackend.OpenEditor(elementId, imageId)
+            onDoubleClicked: {
+                root.imageFocused({
+                    elementId: elementId,
+                    fileId: fileId,
+                    imageId: imageId,
+                    folderId: folderId,
+                    scopeType: scopeType,
+                    fileName: fileName,
+                    rating: rating,
+                    isHdr: isHdr
+                })
+                albumBackend.OpenEditor(elementId, imageId)
+            }
         }
     }
 }

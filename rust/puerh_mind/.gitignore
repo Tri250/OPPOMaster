@@ -27,3 +27,9 @@ target
 /.pydeps/
 
 /testdata/
+
+# Phase 5c live-smoke secrets: .env.test holds real provider API keys for the
+# env-gated live smoke tests (cargo test). It is loaded by dotenvy and MUST NOT be
+# committed. The .env.test.example template (same shape, empty values) IS
+# committed so the expected keys are visible without leaking secrets.
+.env.test

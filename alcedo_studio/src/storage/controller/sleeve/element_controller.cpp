@@ -17,6 +17,7 @@
 #include "sleeve/sleeve_element/sleeve_element.hpp"
 #include "sleeve/sleeve_element/sleeve_file.hpp"
 #include "sleeve/sleeve_element/sleeve_folder.hpp"
+#include "storage/controller/ai/ai_storage_controller.hpp"
 #include "storage/mapper/duckorm/duckdb_orm.hpp"
 #include "type/type.hpp"
 #include "utils/string/convert.hpp"
@@ -116,7 +117,7 @@ auto JoinIds(std::span<const sl_element_id_t> ids) -> std::string {
   return out;
 }
 
-void DeleteSemanticRowsForFiles(duckdb_connection conn, std::span<const sl_element_id_t> file_ids) {
+void DeleteSemanticAndAiRowsForFiles(duckdb_connection conn, std::span<const sl_element_id_t> file_ids) {
   if (file_ids.empty()) {
     return;
   }
@@ -135,6 +136,13 @@ void DeleteSemanticRowsForFiles(duckdb_connection conn, std::span<const sl_eleme
                std::format("DELETE FROM SemanticImageLabel WHERE file_id IN ({});", ids).c_str(),
                &result);
   duckdb_destroy_result(&result);
+  // Phase 5f: AI image understanding + rating rows. Routed through the duckorm `remove`
+  // path (`DeleteAiAnnotationRowsForFiles`) rather than a hand-written DELETE so the AI
+  // ser/deser stays ORM-faithful. This runs on the ElementController's own connection so
+  // the cleanup is atomic with element deletion; rating rows are dropped here too even
+  // though they are not part of full-text search, so a re-import does not resurrect an
+  // old AI rating under a new image id.
+  DeleteAiAnnotationRowsForFiles(conn, file_ids);
 }
 }  // namespace
 
@@ -256,6 +264,14 @@ auto ElementController::GetFolderContent(const sl_element_id_t folder_id)
  * @brief Remove an element by its ID from the database, only be called when the ref count to the
  * element is 0.
  *
+ * Low-level row delete: removes the Element row only. It does NOT cascade
+ * AI / semantic / history / pipeline / file-binding rows — that orchestration
+ * lives at the service layer (SleeveServiceImpl::DeleteElement flows through
+ * Write -> Sync -> RemoveElements / RemoveElement(shared_ptr), which call
+ * DeleteSemanticAndAiRowsForFiles on the same connection). Keep this primitive
+ * a pure row delete so the storage-controller layer does not reach back up
+ * into element-fetch / cascade orchestration.
+ *
  * @param id
  */
 void ElementController::RemoveElement(const sl_element_id_t id) {
@@ -267,7 +283,7 @@ void ElementController::RemoveElement(const std::shared_ptr<SleeveElement> eleme
   auto db_lock = guard_.Lock();
   if (element->type_ == ElementType::FILE) {
     auto file = std::static_pointer_cast<SleeveFile>(element);
-    DeleteSemanticRowsForFiles(guard_.conn_,
+    DeleteSemanticAndAiRowsForFiles(guard_.conn_,
                                std::span<const sl_element_id_t>(&file->element_id_, 1));
     history_service_.RemoveById(file->element_id_);
     pipeline_service_.RemoveById(file->element_id_);
@@ -309,7 +325,7 @@ void ElementController::RemoveElements(std::span<const std::shared_ptr<SleeveEle
   }
 
   if (!file_ids.empty()) {
-    DeleteSemanticRowsForFiles(guard_.conn_, file_ids);
+    DeleteSemanticAndAiRowsForFiles(guard_.conn_, file_ids);
     history_service_.RemoveByIds(file_ids);
     pipeline_service_.RemoveByIds(file_ids);
     file_service_.RemoveByIds(file_ids);

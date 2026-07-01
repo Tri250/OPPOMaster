@@ -40,7 +40,7 @@ constexpr auto   kSemanticGenerationImportPreferenceKey = "semantic/importGenera
 constexpr auto   kSemanticPreferenceAsk                 = "ask";
 constexpr auto   kSemanticPreferenceAlways              = "always";
 constexpr auto   kSemanticPreferenceNever               = "never";
-constexpr auto   kSemanticRuntimeStartupTimeout         = 60s;
+constexpr auto   kAiSidecarRuntimeStartupTimeout         = 60s;
 constexpr auto   kJinaClipProfileId                     = "jina-clip-v2-int8-multilingual";
 constexpr auto   kSiglip2ProfileId                      = "siglip2-b32-256-multilingual";
 constexpr auto   kSiglip2CoreMlProfileId                = "siglip2-base-256-coreml-macos";
@@ -50,7 +50,7 @@ constexpr size_t kSiglip2BatchSize                      = 8;
 constexpr size_t kCoreMlImageBatchSize                  = 1;
 constexpr size_t kCoreMlTextBatchSize                   = 8;
 
-auto             SemanticModelKeyFromInfo(const SemanticRuntimeModelInfo& info) -> std::string {
+auto             SemanticModelKeyFromInfo(const AiSidecarRuntimeModelInfo& info) -> std::string {
   if (info.revision.empty()) {
     return info.model_id;
   }
@@ -100,7 +100,7 @@ auto CurrentUiSemanticLabelLanguage() -> SemanticLabelLanguage {
              : SemanticLabelLanguage::kEnglish;
 }
 
-auto ModelLabelLanguage(const SemanticRuntimeModelInfo& info) -> SemanticLabelLanguage {
+auto ModelLabelLanguage(const AiSidecarRuntimeModelInfo& info) -> SemanticLabelLanguage {
   return SemanticLabelLanguageForModel(info.profile_id.empty() ? info.model_id : info.profile_id,
                                        info.language);
 }
@@ -110,7 +110,7 @@ auto ModelLabelLanguage(const SemanticResolvedModelManifest& manifest) -> Semant
       manifest.profile_id.empty() ? manifest.model_id : manifest.profile_id, manifest.language);
 }
 
-auto EmbeddingBatchSizeForProfile(const SemanticRuntimeModelInfo& info) -> size_t {
+auto EmbeddingBatchSizeForProfile(const AiSidecarRuntimeModelInfo& info) -> size_t {
   const auto profile_id = info.profile_id.empty() ? info.model_id : info.profile_id;
   if (profile_id == kJinaClipProfileId) {
     return kJinaClipBatchSize;
@@ -124,7 +124,7 @@ auto EmbeddingBatchSizeForProfile(const SemanticRuntimeModelInfo& info) -> size_
   return kMobileClipBatchSize;
 }
 
-auto LabelPrototypeBatchSizeForProfile(const SemanticRuntimeModelInfo& info) -> size_t {
+auto LabelPrototypeBatchSizeForProfile(const AiSidecarRuntimeModelInfo& info) -> size_t {
   const auto profile_id = info.profile_id.empty() ? info.model_id : info.profile_id;
   if (profile_id == kSiglip2CoreMlProfileId) {
     return kCoreMlTextBatchSize;
@@ -133,12 +133,12 @@ auto LabelPrototypeBatchSizeForProfile(const SemanticRuntimeModelInfo& info) -> 
 }
 
 auto LabelPrototypeBatchSizeForProfile(const SemanticResolvedModelManifest& manifest) -> size_t {
-  const SemanticRuntimeModelInfo info{.profile_id = manifest.profile_id,
+  const AiSidecarRuntimeModelInfo info{.profile_id = manifest.profile_id,
                                       .model_id   = manifest.model_id};
   return LabelPrototypeBatchSizeForProfile(info);
 }
 
-auto EmbeddingTimeoutForProfile(const SemanticRuntimeModelInfo& info) -> std::chrono::milliseconds {
+auto EmbeddingTimeoutForProfile(const AiSidecarRuntimeModelInfo& info) -> std::chrono::milliseconds {
   const auto profile_id = info.profile_id.empty() ? info.model_id : info.profile_id;
   if (profile_id == kJinaClipProfileId) {
     return 120s;
@@ -154,7 +154,7 @@ auto EmbeddingTimeoutForProfile(const SemanticRuntimeModelInfo& info) -> std::ch
 
 auto EmbeddingTimeoutForProfile(const SemanticResolvedModelManifest& manifest)
     -> std::chrono::milliseconds {
-  const SemanticRuntimeModelInfo info{.profile_id = manifest.profile_id,
+  const AiSidecarRuntimeModelInfo info{.profile_id = manifest.profile_id,
                                       .model_id   = manifest.model_id};
   return EmbeddingTimeoutForProfile(info);
 }
@@ -388,7 +388,7 @@ void SemanticGenerationController::ActivateSelectedModel() {
     emit StateChanged();
     return;
   }
-  auto runtime = project->GetSemanticRuntimeService();
+  auto runtime = project->GetAiSidecarRuntimeService();
   if (!runtime) {
     backend_.model_download_controller_.SetStatusText(
         PL_TEXT("Semantic runtime service is unavailable."));
@@ -474,7 +474,7 @@ void SemanticGenerationController::ActivateSelectedModel() {
     prototype_warm             = query_count > 0 && prototype_count >= query_count;
     if (query_count == 0 || prototype_count < query_count) {
       auto runtime_status = runtime->Status();
-      if (runtime_status.state == SemanticRuntimeState::kReady &&
+      if (runtime_status.state == AiSidecarRuntimeState::kReady &&
           runtime_status.model_info.has_value() &&
           (runtime_status.model_info->model_id != runtime_options.model_id ||
            runtime_status.model_info->revision != runtime_options.revision ||
@@ -482,7 +482,7 @@ void SemanticGenerationController::ActivateSelectedModel() {
         runtime->Stop();
         runtime_status = runtime->Status();
       }
-      if (runtime_status.state != SemanticRuntimeState::kReady ||
+      if (runtime_status.state != AiSidecarRuntimeState::kReady ||
           !runtime_status.model_info.has_value()) {
         if (!runtime->StartAndWait(runtime_options)) {
           runtime_status = runtime->Status();
@@ -493,7 +493,7 @@ void SemanticGenerationController::ActivateSelectedModel() {
         }
         runtime_status = runtime->Status();
       }
-      if (runtime_status.state != SemanticRuntimeState::kReady ||
+      if (runtime_status.state != AiSidecarRuntimeState::kReady ||
           !runtime_status.model_info.has_value()) {
         message = runtime_status.message.empty()
                       ? "semantic runtime did not report model information"
@@ -502,7 +502,7 @@ void SemanticGenerationController::ActivateSelectedModel() {
         return;
       }
 
-      auto embedder        = std::make_shared<SemanticRuntimeImageEmbeddingClient>(runtime);
+      auto embedder        = std::make_shared<AiSidecarRuntimeImageEmbeddingClient>(runtime);
       SemanticGenerationPersistenceOptions persistence;
       persistence.storage_controller         = &semantic;
       persistence.model_key                  = model_key;
@@ -771,7 +771,7 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
     return;
   }
 
-  auto runtime = project->GetSemanticRuntimeService();
+  auto runtime = project->GetAiSidecarRuntimeService();
   if (!runtime) {
     running_ = false;
     pending_items_.clear();
@@ -785,9 +785,9 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
   if (active_profile_id.isEmpty()) {
     active_profile_id = backend_.model_download_controller_.SelectedModelProfileId();
   }
-  SemanticRuntimeOptions runtime_options = RuntimeOptionsForProfile(active_profile_id, true);
+  AiSidecarRuntimeOptions runtime_options = RuntimeOptionsForProfile(active_profile_id, true);
   auto                   runtime_status  = runtime->Status();
-  if (runtime_status.state == SemanticRuntimeState::kReady &&
+  if (runtime_status.state == AiSidecarRuntimeState::kReady &&
       runtime_status.model_info.has_value() &&
       (runtime_status.model_info->model_id != runtime_options.model_id ||
        runtime_status.model_info->revision != runtime_options.revision ||
@@ -795,7 +795,7 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
     runtime->Stop();
     runtime_status = runtime->Status();
   }
-  if (runtime_status.state != SemanticRuntimeState::kReady ||
+  if (runtime_status.state != AiSidecarRuntimeState::kReady ||
       !runtime_status.model_info.has_value()) {
     status_text_ = PL_TEXT("Starting semantic runtime...");
     emit StateChanged();
@@ -814,7 +814,7 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
     }
 
     runtime_status = runtime->Status();
-    if (runtime_status.state != SemanticRuntimeState::kReady ||
+    if (runtime_status.state != AiSidecarRuntimeState::kReady ||
         !runtime_status.model_info.has_value()) {
       const QString message = QString::fromStdString(runtime_status.message);
       running_              = false;
@@ -892,7 +892,7 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
   options.persistence = persistence;
 
   auto thumbnails = std::make_shared<ThumbnailServiceSemanticThumbnailProvider>(thumbnail_service);
-  auto embedder   = std::make_shared<SemanticRuntimeImageEmbeddingClient>(runtime);
+  auto embedder   = std::make_shared<AiSidecarRuntimeImageEmbeddingClient>(runtime);
   auto service    = std::make_shared<SemanticGenerationService>(thumbnails, embedder);
   QPointer<SemanticGenerationController> self(this);
   auto                                   job = service->StartGeneration(
@@ -929,12 +929,12 @@ void SemanticGenerationController::ContinueGenerationForItems(bool forceRegenera
 
 auto SemanticGenerationController::RuntimeOptionsForProfile(const QString& profileId,
                                                             bool           profileRoot) const
-    -> SemanticRuntimeOptions {
+    -> AiSidecarRuntimeOptions {
   const auto* profile = FindSemanticProfile(profileId.toStdString());
   if (profile == nullptr) {
     profile = &SemanticModelProfiles().front();
   }
-  SemanticRuntimeOptions options;
+  AiSidecarRuntimeOptions options;
   options.model_root =
       profileRoot ? backend_.model_download_controller_.ModelRootForProfile(profileId)
                   : QStringToPath(backend_.model_download_controller_.ModelDownloadDirectory());
@@ -943,7 +943,7 @@ auto SemanticGenerationController::RuntimeOptionsForProfile(const QString& profi
   options.hf_endpoint        = backend_.model_download_controller_.EffectiveModelEndpoint().toStdString();
   options.allow_download     = false;
   options.require_model_info = profileRoot;
-  options.startup_timeout    = kSemanticRuntimeStartupTimeout;
+  options.startup_timeout    = kAiSidecarRuntimeStartupTimeout;
   return options;
 }
 

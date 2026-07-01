@@ -254,12 +254,16 @@ impl CoreMlClipEngine {
             );
         }
 
-        let pixel_buffer = CVPixelBuffer::create(self.image_size, self.image_size, BGRA_PIXEL_FORMAT)
-            .map_err(|status| anyhow::anyhow!("failed to allocate CoreML pixel buffer: {status}"))?;
+        let pixel_buffer =
+            CVPixelBuffer::create(self.image_size, self.image_size, BGRA_PIXEL_FORMAT).map_err(
+                |status| anyhow::anyhow!("failed to allocate CoreML pixel buffer: {status}"),
+            )?;
         {
             let mut guard = pixel_buffer
                 .lock(CVPixelBufferLockFlags::NONE)
-                .map_err(|status| anyhow::anyhow!("failed to lock CoreML pixel buffer: {status}"))?;
+                .map_err(|status| {
+                    anyhow::anyhow!("failed to lock CoreML pixel buffer: {status}")
+                })?;
             let bytes_per_row = guard.bytes_per_row();
             let dst = guard
                 .as_slice_mut()

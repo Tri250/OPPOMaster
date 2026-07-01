@@ -24,6 +24,7 @@
 #include "app/model_asset_catalog.hpp"
 #include "app/project_package_backend.hpp"
 #include "app/project_package_service.hpp"
+#include "sidecar_client/dto/semantic_embedding.hpp"
 #include "utils/diagnostics/app_logging.hpp"
 #include "utils/string/convert.hpp"
 #include "uuid.h"
@@ -36,7 +37,7 @@ using namespace std::chrono_literals;
 constexpr auto kSemanticModelDirectoryKey     = "semantic/modelDirectory";
 constexpr auto kSemanticEndpointPresetKey     = "semantic/modelEndpointPreset";
 constexpr auto kSemanticCustomEndpointKey     = "semantic/customModelEndpoint";
-constexpr auto kSemanticRuntimeStartupTimeout = 60s;
+constexpr auto kAiSidecarRuntimeStartupTimeout = 60s;
 constexpr auto kJinaClipProfileId             = "jina-clip-v2-int8-multilingual";
 constexpr auto kSiglip2ProfileId              = "siglip2-b32-256-multilingual";
 
@@ -80,7 +81,7 @@ auto EffectiveSemanticModelEndpoint() -> QString {
   return QStringLiteral("https://hf-mirror.com");
 }
 
-auto SemanticModelKeyFromInfo(const SemanticRuntimeModelInfo& info) -> std::string {
+auto SemanticModelKeyFromInfo(const AiSidecarRuntimeModelInfo& info) -> std::string {
   if (info.revision.empty()) {
     return info.model_id;
   }
@@ -110,7 +111,7 @@ auto EmbeddingTimeoutForModel(const SemanticModelRecord& model) -> std::chrono::
   return 30s;
 }
 
-auto RuntimeOptionsForSemanticModel(const SemanticModelRecord& model) -> SemanticRuntimeOptions {
+auto RuntimeOptionsForSemanticModel(const SemanticModelRecord& model) -> AiSidecarRuntimeOptions {
   QSettings     settings;
   const QString base_dir =
       settings.value(QLatin1String(kSemanticModelDirectoryKey), DefaultSemanticModelDirectory())
@@ -119,14 +120,14 @@ auto RuntimeOptionsForSemanticModel(const SemanticModelRecord& model) -> Semanti
   const QString root =
       profile_id.empty() ? base_dir : QDir(base_dir).filePath(QString::fromStdString(profile_id));
 
-  SemanticRuntimeOptions options;
+  AiSidecarRuntimeOptions options;
   options.model_root         = QStringToPath(root);
   options.model_id           = model.model_id_;
   options.revision           = model.revision_;
   options.hf_endpoint        = EffectiveSemanticModelEndpoint().toStdString();
   options.allow_download     = false;
   options.require_model_info = true;
-  options.startup_timeout    = kSemanticRuntimeStartupTimeout;
+  options.startup_timeout    = kAiSidecarRuntimeStartupTimeout;
   return options;
 }
 
@@ -163,28 +164,28 @@ auto MakeSemanticSearchRequestId(sl_element_id_t folder_id, const std::wstring& 
   return "semantic-search-" + std::to_string(folder_id) + "-" + std::to_string(hash);
 }
 
-class SemanticRuntimeSearchSession final {
+class AiSidecarRuntimeSearchSession final {
  public:
-  explicit SemanticRuntimeSearchSession(std::shared_ptr<SemanticRuntimeService> runtime)
+  explicit AiSidecarRuntimeSearchSession(std::shared_ptr<AiSidecarRuntimeService> runtime)
       : runtime_(std::move(runtime)) {}
-  ~SemanticRuntimeSearchSession() {
+  ~AiSidecarRuntimeSearchSession() {
     if (runtime_) {
       runtime_->Stop();
     }
   }
 
-  SemanticRuntimeSearchSession(const SemanticRuntimeSearchSession&)            = delete;
-  SemanticRuntimeSearchSession& operator=(const SemanticRuntimeSearchSession&) = delete;
+  AiSidecarRuntimeSearchSession(const AiSidecarRuntimeSearchSession&)            = delete;
+  AiSidecarRuntimeSearchSession& operator=(const AiSidecarRuntimeSearchSession&) = delete;
 
  private:
-  std::shared_ptr<SemanticRuntimeService> runtime_;
+  std::shared_ptr<AiSidecarRuntimeService> runtime_;
 };
 
 class ProjectSemanticSearchProvider final : public SemanticSearchProvider {
  public:
   ProjectSemanticSearchProvider(
       std::shared_ptr<StorageService>                          storage_service,
-      std::function<std::shared_ptr<SemanticRuntimeService>()> runtime_factory)
+      std::function<std::shared_ptr<AiSidecarRuntimeService>()> runtime_factory)
       : storage_service_(std::move(storage_service)),
         runtime_factory_(std::move(runtime_factory)) {}
 
@@ -217,7 +218,7 @@ class ProjectSemanticSearchProvider final : public SemanticSearchProvider {
 
     const auto runtime_options = RuntimeOptionsForSemanticModel(*active_model);
     auto       runtime_status  = runtime->Status();
-    if (runtime_status.state == SemanticRuntimeState::kReady &&
+    if (runtime_status.state == AiSidecarRuntimeState::kReady &&
         runtime_status.model_info.has_value() &&
         (runtime_status.model_info->model_id != runtime_options.model_id ||
          runtime_status.model_info->revision != runtime_options.revision ||
@@ -225,7 +226,7 @@ class ProjectSemanticSearchProvider final : public SemanticSearchProvider {
       runtime->Stop();
       runtime_status = runtime->Status();
     }
-    if (runtime_status.state != SemanticRuntimeState::kReady ||
+    if (runtime_status.state != AiSidecarRuntimeState::kReady ||
         !runtime_status.model_info.has_value()) {
       if (!runtime->StartAndWait(runtime_options)) {
         runtime_status = runtime->Status();
@@ -235,7 +236,7 @@ class ProjectSemanticSearchProvider final : public SemanticSearchProvider {
       }
       runtime_status = runtime->Status();
     }
-    if (runtime_status.state != SemanticRuntimeState::kReady ||
+    if (runtime_status.state != AiSidecarRuntimeState::kReady ||
         !runtime_status.model_info.has_value()) {
       throw std::runtime_error(runtime_status.message.empty()
                                    ? "Semantic runtime did not report model information."
@@ -253,15 +254,19 @@ class ProjectSemanticSearchProvider final : public SemanticSearchProvider {
       throw std::runtime_error("Semantic runtime image size does not match storage.");
     }
 
-    const SemanticRuntimeSearchSession session(runtime);
+    const AiSidecarRuntimeSearchSession session(runtime);
     const auto                         request_id = MakeSemanticSearchRequestId(folder_id, query);
     const auto                         text       = conv::ToBytes(query);
     qCInfo(diag::semanticLog).noquote()
         << QStringLiteral("semantic.search.embedding.request request_id=%1 model_key=%2")
                .arg(QString::fromStdString(request_id),
                     QString::fromStdString(active_model->model_key_));
-    const auto                         embedding =
-        runtime->EmbedText(request_id, text, EmbeddingTimeoutForModel(*active_model));
+    const auto client_session = runtime->ClientSession();
+    if (!client_session) {
+      throw std::runtime_error("Semantic runtime client session is unavailable.");
+    }
+    const auto embedding =
+        client_session->semantic().EmbedText(request_id, text, EmbeddingTimeoutForModel(*active_model));
     if (const auto validation =
             ValidateSearchEmbedding(embedding, request_id, active_model->embedding_dim_);
         validation.has_value()) {
@@ -289,7 +294,7 @@ class ProjectSemanticSearchProvider final : public SemanticSearchProvider {
 
  private:
   std::shared_ptr<StorageService>                          storage_service_;
-  std::function<std::shared_ptr<SemanticRuntimeService>()> runtime_factory_;
+  std::function<std::shared_ptr<AiSidecarRuntimeService>()> runtime_factory_;
 };
 
 auto ParseSemVer(std::string_view version, std::array<int, 3>* out) -> bool {
@@ -341,9 +346,9 @@ auto GenerateProjectUUID() -> std::string {
   return uuids::to_string(uuid_gen());
 }
 
-auto MakeSemanticRuntimeService() -> std::shared_ptr<SemanticRuntimeService> {
-  return std::shared_ptr<SemanticRuntimeService>(
-      new SemanticRuntimeService(), [](SemanticRuntimeService* runtime) {
+auto MakeAiSidecarRuntimeService() -> std::shared_ptr<AiSidecarRuntimeService> {
+  return std::shared_ptr<AiSidecarRuntimeService>(
+      new AiSidecarRuntimeService(), [](AiSidecarRuntimeService* runtime) {
         if (runtime == nullptr) {
           return;
         }
@@ -478,10 +483,10 @@ ProjectService::ProjectService(const std::filesystem::path& db_path,
 
 ProjectService::~ProjectService() {
   package_service_.reset();
-  std::shared_ptr<SemanticRuntimeService> runtime;
+  std::shared_ptr<AiSidecarRuntimeService> runtime;
   {
-    std::lock_guard lock(semantic_runtime_mutex_);
-    runtime = std::move(semantic_runtime_service_);
+    std::lock_guard lock(ai_sidecar_runtime_mutex_);
+    runtime = std::move(ai_sidecar_runtime_service_);
   }
   if (runtime) {
     runtime->StopForProjectClose();
@@ -523,10 +528,10 @@ void ProjectService::SaveProject(const std::filesystem::path& meta_path) {
 }
 
 void ProjectService::LoadProject(const std::filesystem::path& meta_path) {
-  std::shared_ptr<SemanticRuntimeService> previous_runtime;
+  std::shared_ptr<AiSidecarRuntimeService> previous_runtime;
   {
-    std::lock_guard lock(semantic_runtime_mutex_);
-    previous_runtime = std::move(semantic_runtime_service_);
+    std::lock_guard lock(ai_sidecar_runtime_mutex_);
+    previous_runtime = std::move(ai_sidecar_runtime_service_);
   }
   if (previous_runtime) {
     previous_runtime->StopForProjectClose();
@@ -631,14 +636,14 @@ void ProjectService::RegisterSemanticSearchProvider() {
     return;
   }
   filter_service_->SetSemanticSearchProvider(std::make_shared<ProjectSemanticSearchProvider>(
-      storage_service_, [this]() { return GetSemanticRuntimeService(); }));
+      storage_service_, [this]() { return GetAiSidecarRuntimeService(); }));
 }
 
-auto ProjectService::GetSemanticRuntimeService() const -> std::shared_ptr<SemanticRuntimeService> {
-  std::lock_guard lock(semantic_runtime_mutex_);
-  if (!semantic_runtime_service_) {
-    semantic_runtime_service_ = MakeSemanticRuntimeService();
+auto ProjectService::GetAiSidecarRuntimeService() const -> std::shared_ptr<AiSidecarRuntimeService> {
+  std::lock_guard lock(ai_sidecar_runtime_mutex_);
+  if (!ai_sidecar_runtime_service_) {
+    ai_sidecar_runtime_service_ = MakeAiSidecarRuntimeService();
   }
-  return semantic_runtime_service_;
+  return ai_sidecar_runtime_service_;
 }
 };  // namespace alcedo

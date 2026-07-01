@@ -13,10 +13,14 @@
 #include <exception>
 #include <json.hpp>
 #include <numeric>
+#include <optional>
 #include <unordered_set>
 #include <utility>
 
+#include "ai/ai_description.hpp"
+#include "ai/ai_rating.hpp"
 #include "image/image.hpp"
+#include "sleeve/storage_service.hpp"
 #include "ui/alcedo_main/album_backend/album_backend.hpp"
 #include "ui/alcedo_main/album_backend/path_utils.hpp"
 
@@ -54,7 +58,26 @@ using json                                                      = nlohmann::json
     QT_TRANSLATE_NOOP("Alcedo", "Rating"),
     QT_TRANSLATE_NOOP("Alcedo", "Source Directory"),
     QT_TRANSLATE_NOOP("Alcedo", "Open in file manager"),
+    QT_TRANSLATE_NOOP("Alcedo", "Camera"),
+    QT_TRANSLATE_NOOP("Alcedo", "Lens"),
+    QT_TRANSLATE_NOOP("Alcedo", "Aperture / Shutter"),
+    QT_TRANSLATE_NOOP("Alcedo", "Description"),
+    QT_TRANSLATE_NOOP("Alcedo", "Rating Reason"),
+    QT_TRANSLATE_NOOP("Alcedo", "No AI description yet"),
+    QT_TRANSLATE_NOOP("Alcedo", "No rating reason yet"),
+    QT_TRANSLATE_NOOP("Alcedo", "Manual edit"),
+    QT_TRANSLATE_NOOP("Alcedo", "Description cannot be empty."),
+    QT_TRANSLATE_NOOP("Alcedo", "Rating reason cannot be empty."),
+    QT_TRANSLATE_NOOP("Alcedo", "Description saved."),
+    QT_TRANSLATE_NOOP("Alcedo", "Rating reason saved."),
+    QT_TRANSLATE_NOOP("Alcedo", "Failed to save image description."),
+    QT_TRANSLATE_NOOP("Alcedo", "Failed to save rating reason."),
 });
+
+constexpr const char* kManualAnnotationIdentity = "manual";
+constexpr const char* kManualAnnotationModel    = "user";
+constexpr const char* kDescribeTaskId           = "describe";
+constexpr const char* kScoreTaskId              = "rate";
 
 auto ToVariantIdList(const std::vector<sl_element_id_t>& ids) -> QVariantList {
   QVariantList out;
@@ -74,6 +97,17 @@ auto ToDisplayText(const std::string& value) -> QString {
 
 auto ToOptionalDisplayText(const std::string& value) -> QString {
   return QString::fromUtf8(value.c_str()).trimmed();
+}
+
+auto DashIfEmpty(const QString& value) -> QString {
+  const QString trimmed = value.trimmed();
+  return trimmed.isEmpty() ? DashValue() : trimmed;
+}
+
+auto PathToGenericText(const std::filesystem::path& path) -> QString {
+  QString text = album_util::PathToQString(path);
+  text.replace('\\', '/');
+  return text;
 }
 
 auto FormatUnsigned(uint64_t value) -> QString {
@@ -198,6 +232,16 @@ auto MakeDetailsRow(const QString& section, const QString& label, const QString&
                      {"actionTooltip", actionTooltip}};
 }
 
+auto MakeInspectionTile(const QString& id, const QString& label, const QString& value,
+                        const QString& detail = QString{}, bool editable = false)
+    -> QVariantMap {
+  return QVariantMap{{"id", id},
+                     {"label", label},
+                     {"value", value},
+                     {"detail", detail},
+                     {"editable", editable}};
+}
+
 void AppendDetailsRow(QVariantList& rows, const QString& section, const QString& label,
                       const QString& value, bool emphasized = false,
                       const QString& actionId = QString{}, const QString& actionValue = QString{},
@@ -212,17 +256,23 @@ struct SourceDirectoryInfo {
   bool    canOpen = false;
 };
 
-auto ResolveSourceDirectory(const std::shared_ptr<Image>& image) -> SourceDirectoryInfo {
-  if (!image || image->image_path_.empty()) {
+auto ResolveSourceDirectory(const AlbumItem* item, const std::shared_ptr<Image>& image)
+    -> SourceDirectoryInfo {
+  (void)item;
+  std::filesystem::path source_path;
+  if (image && !image->image_path_.empty()) {
+    source_path = image->image_path_;
+  }
+  if (source_path.empty()) {
     return {};
   }
 
-  const std::filesystem::path directory = image->image_path_.parent_path().lexically_normal();
+  const std::filesystem::path directory = source_path.parent_path();
   if (directory.empty()) {
     return {};
   }
 
-  const QString pathText = album_util::PathToQString(directory);
+  const QString pathText = PathToGenericText(directory);
   if (pathText.trimmed().isEmpty()) {
     return {};
   }
@@ -240,6 +290,17 @@ auto ComposeSubtitle(const json& metadata) -> QString {
   }
   if (!lens.isEmpty()) {
     parts.push_back(lens);
+  }
+  return parts.join(QStringLiteral(" · "));
+}
+
+auto ComposeModelIdentity(const QString& provider, const QString& model_id) -> QString {
+  QStringList parts;
+  if (!provider.trimmed().isEmpty()) {
+    parts.push_back(provider.trimmed());
+  }
+  if (!model_id.trimmed().isEmpty()) {
+    parts.push_back(model_id.trimmed());
   }
   return parts.join(QStringLiteral(" · "));
 }
@@ -282,7 +343,7 @@ auto BuildDetailsResult(const AlbumItem* item, const std::shared_ptr<Image>& ima
   const QString             section_storage  = Tr("Storage");
   const uint32_t            width            = JsonUnsignedOrZero(metadata, "ImageWidth");
   const uint32_t            height           = JsonUnsignedOrZero(metadata, "ImageHeight");
-  const SourceDirectoryInfo source_directory = ResolveSourceDirectory(image);
+  const SourceDirectoryInfo source_directory = ResolveSourceDirectory(item, image);
 
   QVariantList              rows;
   rows.reserve(15);
@@ -328,9 +389,139 @@ auto BuildDetailsResult(const AlbumItem* item, const std::shared_ptr<Image>& ima
                      {"semanticTags", semantic_tags},
                      {"rows", rows}};
 }
+
+auto BuildInspectionResult(const AlbumItem* item, const std::shared_ptr<Image>& image,
+                           sl_element_id_t file_id, image_id_t image_id,
+                           const QString& semantic_tags,
+                           const std::optional<AiDescription>& description,
+                           const std::optional<AiRating>& rating_reason) -> QVariantMap {
+  const json                metadata         = ParseExifDisplayJson(image);
+  const uint32_t            width            = JsonUnsignedOrZero(metadata, "ImageWidth");
+  const uint32_t            height           = JsonUnsignedOrZero(metadata, "ImageHeight");
+  const SourceDirectoryInfo source_directory = ResolveSourceDirectory(item, image);
+
+  const QString camera_make  = ToOptionalDisplayText(JsonStringOrEmpty(metadata, "Make"));
+  const QString camera_model = ToOptionalDisplayText(JsonStringOrEmpty(metadata, "Model"));
+  const QString lens_make    = ToOptionalDisplayText(JsonStringOrEmpty(metadata, "LensMake"));
+  const QString lens_model   = ToOptionalDisplayText(JsonStringOrEmpty(metadata, "Lens"));
+  const QString aperture     = FormatFixed(JsonNumberOrZero(metadata, "Aperture"), 1, "f/");
+  const QString shutter      = FormatShutterSpeed(metadata);
+  const QString iso          = FormatUnsigned(JsonUnsignedOrZero(metadata, "ISO"));
+  const QString focal =
+      FormatFixed(JsonNumberOrZero(metadata, "FocalLength"), 0, QString{}, "mm");
+  const int     rating = static_cast<int>(JsonUnsignedOrZero(metadata, "Rating"));
+  QString       lens_value = DashIfEmpty(lens_model);
+  if (focal != DashValue()) {
+    lens_value = lens_value == DashValue() ? focal : QStringLiteral("%1@%2").arg(lens_value, focal);
+  }
+
+  const QString caption =
+      description.has_value() ? QString::fromStdString(description->caption_).trimmed() : QString{};
+  const QString scene =
+      description.has_value() ? QString::fromStdString(description->scene_).trimmed() : QString{};
+  const QString description_identity =
+      description.has_value()
+          ? ComposeModelIdentity(QString::fromStdString(description->provider_id_),
+                                 QString::fromStdString(description->model_id_))
+          : QString{};
+
+  const QString reasons =
+      rating_reason.has_value() ? QString::fromStdString(rating_reason->reasons_).trimmed()
+                                : QString{};
+  const QString reason_identity =
+      rating_reason.has_value()
+          ? ComposeModelIdentity(QString::fromStdString(rating_reason->provider_id_),
+                                 QString::fromStdString(rating_reason->model_id_))
+          : QString{};
+
+  QVariantList tiles;
+  tiles.reserve(6);
+  tiles.push_back(MakeInspectionTile(QStringLiteral("camera"), Tr("Camera"),
+                                     DashIfEmpty(camera_model), DashIfEmpty(camera_make)));
+  tiles.push_back(MakeInspectionTile(QStringLiteral("lens"), Tr("Lens"), lens_value,
+                                     DashIfEmpty(lens_make)));
+  tiles.push_back(MakeInspectionTile(
+      QStringLiteral("exposure"), Tr("Aperture / Shutter"),
+      QStringLiteral("%1 · %2").arg(aperture, shutter)));
+  tiles.push_back(MakeInspectionTile(QStringLiteral("iso"), Tr("ISO"), iso));
+  tiles.push_back(MakeInspectionTile(QStringLiteral("description"), Tr("Description"),
+                                     caption.isEmpty() ? Tr("No AI description yet") : caption,
+                                     scene.isEmpty() ? description_identity : scene, true));
+  tiles.push_back(MakeInspectionTile(QStringLiteral("rating"), Tr("Rating"),
+                                     FormatRating(rating),
+                                     reasons.isEmpty() ? Tr("No rating reason yet") : reasons, true));
+
+  return QVariantMap{{"success", true},
+                     {"message", QString{}},
+                     {"elementId", static_cast<uint>(file_id)},
+                     {"fileId", static_cast<uint>(file_id)},
+                     {"imageId", static_cast<uint>(image_id)},
+                     {"title", ResolveTitle(item, image)},
+                     {"subtitle", ComposeSubtitle(metadata)},
+                     {"semanticTags", semantic_tags},
+                     {"dimensions", FormatDimensions(width, height)},
+                     {"aspectRatio", FormatAspectRatio(width, height)},
+                     {"capturedAt", ToDisplayText(JsonStringOrEmpty(metadata, "DateTimeString"))},
+                     {"sourceDirectory", source_directory.displayText},
+                     {"sourceDirectoryPath", source_directory.pathText},
+                     {"sourceDirectoryCanOpen", source_directory.canOpen},
+                     {"rating", rating},
+                     {"description", caption},
+                     {"descriptionScene", scene},
+                     {"descriptionProvider", description.has_value()
+                                                ? QString::fromStdString(description->provider_id_)
+                                                : QString{}},
+                     {"descriptionModelId", description.has_value()
+                                               ? QString::fromStdString(description->model_id_)
+                                               : QString{}},
+                     {"ratingReason", reasons},
+                     {"ratingReasonProvider", rating_reason.has_value()
+                                                  ? QString::fromStdString(rating_reason->provider_id_)
+                                                  : QString{}},
+                     {"ratingReasonModelId", rating_reason.has_value()
+                                                 ? QString::fromStdString(rating_reason->model_id_)
+                                                 : QString{}},
+                     {"tiles", tiles}};
+}
+
+void FillManualDescriptionIdentity(AiDescription& description) {
+  if (description.task_id_.empty()) description.task_id_ = kDescribeTaskId;
+  if (description.provider_id_.empty()) description.provider_id_ = kManualAnnotationIdentity;
+  if (description.model_id_.empty()) description.model_id_ = kManualAnnotationModel;
+  if (description.prompt_profile_id_.empty()) {
+    description.prompt_profile_id_ = kManualAnnotationIdentity;
+  }
+  if (description.rendition_kind_.empty()) description.rendition_kind_ = kManualAnnotationIdentity;
+}
+
+void FillManualRatingIdentity(AiRating& rating) {
+  if (rating.task_id_.empty()) rating.task_id_ = kScoreTaskId;
+  if (rating.provider_id_.empty()) rating.provider_id_ = kManualAnnotationIdentity;
+  if (rating.model_id_.empty()) rating.model_id_ = kManualAnnotationModel;
+  if (rating.prompt_profile_id_.empty()) rating.prompt_profile_id_ = kManualAnnotationIdentity;
+  if (rating.rendition_kind_.empty()) rating.rendition_kind_ = kManualAnnotationIdentity;
+  if (rating.rubric_id_.empty()) rating.rubric_id_ = kManualAnnotationIdentity;
+  if (rating.rubric_version_.empty()) rating.rubric_version_ = kManualAnnotationIdentity;
+}
 }  // namespace
 
 ImageController::ImageController(AlbumBackend& backend) : backend_(backend) {}
+
+auto ImageController::SaveProjectSnapshot() -> bool {
+  bool save_ok = true;
+  try {
+    if (!backend_.project_handler_.meta_path().empty()) {
+      backend_.project_handler_.project()->SaveProject(backend_.project_handler_.meta_path());
+    }
+    QString ignored_error;
+    if (!backend_.project_handler_.PackageCurrentProjectFiles(&ignored_error)) {
+      save_ok = false;
+    }
+  } catch (...) {
+    save_ok = false;
+  }
+  return save_ok;
+}
 
 auto ImageController::CollectDeleteTargets(const QVariantList& targetEntries) const
     -> std::vector<DeleteTarget> {
@@ -798,6 +989,83 @@ auto ImageController::GetImageDetails(uint elementId, uint imageId) -> QVariantM
   }
 }
 
+auto ImageController::GetFocusedImageInspection(uint elementId, uint imageId) -> QVariantMap {
+  QVariantMap result{{"success", false},
+                     {"message", QString{}},
+                     {"elementId", elementId},
+                     {"imageId", imageId},
+                     {"title", QString{}},
+                     {"subtitle", QString{}},
+                     {"semanticTags", QString{}},
+                     {"rating", 0},
+                     {"description", QString{}},
+                     {"ratingReason", QString{}},
+                     {"tiles", QVariantList{}}};
+
+  auto& ph = backend_.project_handler_;
+  if (ph.project_loading()) {
+    const auto msg = PL_TEXT("Project is loading. Please wait.");
+    backend_.SetTaskState(msg, 0, false);
+    result["message"] = msg.Render();
+    return result;
+  }
+  if (!ph.project()) {
+    const auto msg = PL_TEXT("No project is loaded.");
+    backend_.SetTaskState(msg, 0, false);
+    result["message"] = msg.Render();
+    return result;
+  }
+
+  image_id_t  resolved_image_id   = static_cast<image_id_t>(imageId);
+  const auto  resolved_element_id = static_cast<sl_element_id_t>(elementId);
+  const auto* item =
+      resolved_element_id != 0 ? backend_.FindAlbumItem(resolved_element_id) : nullptr;
+  const auto resolved_file_id =
+      item != nullptr && item->file_id != 0 ? item->file_id : resolved_element_id;
+  if (resolved_image_id == 0 && item) {
+    resolved_image_id = item->image_id;
+  }
+  if (resolved_image_id == 0 || resolved_file_id == 0) {
+    const auto msg = PL_TEXT("No valid image was selected.");
+    backend_.SetTaskState(msg, 0, false);
+    result["message"] = msg.Render();
+    return result;
+  }
+
+  auto project     = ph.project();
+  auto image_pool  = project->GetImagePoolService();
+  auto storage_svc = project->GetStorageService();
+  if (!image_pool || !storage_svc) {
+    const auto msg = PL_TEXT("Image service is unavailable.");
+    backend_.SetTaskState(msg, 0, false);
+    result["message"] = msg.Render();
+    return result;
+  }
+
+  try {
+    auto& ai = storage_svc->GetAiStorageController();
+    const std::optional<AiDescription> description = ai.GetActiveUnderstanding(resolved_file_id);
+    const std::optional<AiRating>      rating_reason = ai.GetActiveRating(resolved_file_id);
+    const QString semantic_tags = backend_.SemanticLabelDisplayText(resolved_file_id);
+    return image_pool->Read<QVariantMap>(
+        resolved_image_id, [item, resolved_file_id, resolved_image_id, semantic_tags, description,
+                            rating_reason](const std::shared_ptr<Image>& image) {
+          return BuildInspectionResult(item, image, resolved_file_id, resolved_image_id,
+                                       semantic_tags, description, rating_reason);
+        });
+  } catch (const std::exception&) {
+    const auto msg = PL_TEXT("Failed to load image details.");
+    backend_.SetTaskState(msg, 0, false);
+    result["message"] = msg.Render();
+    return result;
+  } catch (...) {
+    const auto msg = PL_TEXT("Failed to load image details.");
+    backend_.SetTaskState(msg, 0, false);
+    result["message"] = msg.Render();
+    return result;
+  }
+}
+
 auto ImageController::GetImageRating(uint elementId, uint imageId) -> QVariantMap {
   QVariantMap result{{"success", false}, {"message", QString{}}, {"rating", 0}};
 
@@ -964,6 +1232,237 @@ auto ImageController::SetImageRating(uint elementId, uint imageId, int rating) -
     result["message"] = msg.Render();
     return result;
   }
+}
+
+auto ImageController::SetImageDescription(uint elementId, const QString& caption) -> QVariantMap {
+  QVariantMap result{{"success", false}, {"message", QString{}}, {"caption", QString{}}};
+
+  const QString trimmed_caption = caption.trimmed();
+  if (trimmed_caption.isEmpty()) {
+    const auto msg    = PL_TEXT("Description cannot be empty.");
+    result["message"] = msg.Render();
+    return result;
+  }
+
+  auto& ph = backend_.project_handler_;
+  if (ph.project_loading()) {
+    const auto msg = PL_TEXT("Project is loading. Please wait.");
+    backend_.SetTaskState(msg, 0, false);
+    result["message"] = msg.Render();
+    return result;
+  }
+  auto project = ph.project();
+  if (!project) {
+    const auto msg = PL_TEXT("No project is loaded.");
+    backend_.SetTaskState(msg, 0, false);
+    result["message"] = msg.Render();
+    return result;
+  }
+
+  const auto raw_element_id = static_cast<sl_element_id_t>(elementId);
+  const auto* item = raw_element_id != 0 ? backend_.FindAlbumItem(raw_element_id) : nullptr;
+  const auto file_id = item != nullptr && item->file_id != 0 ? item->file_id : raw_element_id;
+  if (file_id == 0) {
+    const auto msg = PL_TEXT("No valid image was selected.");
+    backend_.SetTaskState(msg, 0, false);
+    result["message"] = msg.Render();
+    return result;
+  }
+
+  auto storage_svc = project->GetStorageService();
+  if (!storage_svc) {
+    const auto msg = PL_TEXT("Image service is unavailable.");
+    backend_.SetTaskState(msg, 0, false);
+    result["message"] = msg.Render();
+    return result;
+  }
+
+  try {
+    auto&         ai       = storage_svc->GetAiStorageController();
+    AiDescription updated  = ai.GetActiveUnderstanding(file_id).value_or(AiDescription{});
+    updated.file_id_       = file_id;
+    updated.caption_       = trimmed_caption.toStdString();
+    updated.active_        = true;
+    FillManualDescriptionIdentity(updated);
+    if (!ai.UpsertUnderstanding(updated)) {
+      const auto msg    = PL_TEXT("Failed to save image description.");
+      result["message"] = msg.Render();
+      return result;
+    }
+
+    backend_.stats_.RebuildThumbnailView();
+    bool      save_ok = SaveProjectSnapshot();
+    auto      msg     = PL_TEXT("Description saved.");
+    if (!save_ok) {
+      msg = PL_TEXT("%1 Project state save failed.", msg.Render());
+    }
+    backend_.SetServiceMessageForCurrentProject(msg);
+    backend_.SetTaskState(msg, save_ok ? 100 : 0, false);
+    if (save_ok) {
+      backend_.ScheduleIdleTaskStateReset(1200);
+    }
+
+    result["success"] = true;
+    result["caption"] = trimmed_caption;
+    result["message"] = msg.Render();
+    return result;
+  } catch (...) {
+    const auto msg = PL_TEXT("Failed to save image description.");
+    backend_.SetTaskState(msg, 0, false);
+    result["message"] = msg.Render();
+    return result;
+  }
+}
+
+auto ImageController::SetImageRatingReasons(uint elementId, const QString& reasons)
+    -> QVariantMap {
+  QVariantMap result{{"success", false}, {"message", QString{}}, {"reasons", QString{}}};
+
+  const QString trimmed_reasons = reasons.trimmed();
+  if (trimmed_reasons.isEmpty()) {
+    const auto msg    = PL_TEXT("Rating reason cannot be empty.");
+    result["message"] = msg.Render();
+    return result;
+  }
+
+  auto& ph = backend_.project_handler_;
+  if (ph.project_loading()) {
+    const auto msg = PL_TEXT("Project is loading. Please wait.");
+    backend_.SetTaskState(msg, 0, false);
+    result["message"] = msg.Render();
+    return result;
+  }
+  auto project = ph.project();
+  if (!project) {
+    const auto msg = PL_TEXT("No project is loaded.");
+    backend_.SetTaskState(msg, 0, false);
+    result["message"] = msg.Render();
+    return result;
+  }
+
+  const auto raw_element_id = static_cast<sl_element_id_t>(elementId);
+  const auto* item = raw_element_id != 0 ? backend_.FindAlbumItem(raw_element_id) : nullptr;
+  const auto file_id = item != nullptr && item->file_id != 0 ? item->file_id : raw_element_id;
+  if (file_id == 0) {
+    const auto msg = PL_TEXT("No valid image was selected.");
+    backend_.SetTaskState(msg, 0, false);
+    result["message"] = msg.Render();
+    return result;
+  }
+
+  auto storage_svc = project->GetStorageService();
+  if (!storage_svc) {
+    const auto msg = PL_TEXT("Image service is unavailable.");
+    backend_.SetTaskState(msg, 0, false);
+    result["message"] = msg.Render();
+    return result;
+  }
+
+  try {
+    auto&    ai      = storage_svc->GetAiStorageController();
+    AiRating updated = ai.GetActiveRating(file_id).value_or(AiRating{});
+    updated.file_id_ = file_id;
+    updated.rating_  = 0;
+    updated.reasons_ = trimmed_reasons.toStdString();
+    updated.active_  = true;
+    FillManualRatingIdentity(updated);
+    if (!ai.UpsertRatingReasons(updated)) {
+      const auto msg    = PL_TEXT("Failed to save rating reason.");
+      result["message"] = msg.Render();
+      return result;
+    }
+
+    bool save_ok = SaveProjectSnapshot();
+    auto msg     = PL_TEXT("Rating reason saved.");
+    if (!save_ok) {
+      msg = PL_TEXT("%1 Project state save failed.", msg.Render());
+    }
+    backend_.SetServiceMessageForCurrentProject(msg);
+    backend_.SetTaskState(msg, save_ok ? 100 : 0, false);
+    if (save_ok) {
+      backend_.ScheduleIdleTaskStateReset(1200);
+    }
+
+    result["success"] = true;
+    result["reasons"] = trimmed_reasons;
+    result["message"] = msg.Render();
+    return result;
+  } catch (...) {
+    const auto msg = PL_TEXT("Failed to save rating reason.");
+    backend_.SetTaskState(msg, 0, false);
+    result["message"] = msg.Render();
+    return result;
+  }
+}
+
+// Phase 7a: the light half of the star-rating path (extracted from `SetImageRating`
+// above). `Write_NoSync` sets the image MODIFIED and mutates the in-memory
+// `exif_display_.rating_`; the view-state patch + `thumbnail_model_.updateRating` keep
+// the UI in sync without a DB round-trip. No `SyncWithStorage`/`SaveProject`/`Package`/
+// `RefreshStats` — the batched AI scoring run flushes once at job end via
+// `FlushPendingStarRatings`, so a batch does one DB flush instead of one per image.
+// `SetImageRating` (manual single click) is unchanged and still does a full sync+save.
+void ImageController::ApplyStarRatingLight(uint elementId, uint imageId, int rating) {
+  const RatingTarget target = ResolveRatingTarget(elementId, imageId);
+  if (target.image_id_ == 0) {
+    return;
+  }
+  auto proj = backend_.project_handler_.project();
+  if (!proj) {
+    return;
+  }
+  auto image_pool = proj->GetImagePoolService();
+  if (!image_pool) {
+    return;
+  }
+  try {
+    image_pool->Write_NoSync<void>(target.image_id_,
+                                   [rating](const std::shared_ptr<Image>& image) {
+                                     if (!image) {
+                                       return;
+                                     }
+                                     ExifDisplayMetaData metadata;
+                                     if (image->has_exif_display_.load()) {
+                                       metadata = image->exif_display_;
+                                     } else if (image->has_exif_json_.load()) {
+                                       metadata.FromJson(image->exif_json_);
+                                     }
+                                     metadata.rating_ = ExifDisplayMetaData::NormalizeRating(rating);
+                                     image->SetExifDisplayMetaData(std::move(metadata));
+                                   });
+    for (auto& item : backend_.view_state_.all_images_) {
+      if ((target.element_id_ != 0 && item.element_id == target.element_id_) ||
+          (target.element_id_ == 0 && item.image_id == target.image_id_)) {
+        item.rating = rating;
+      }
+    }
+    backend_.thumbnail_model_.updateRating(target.element_id_, target.image_id_, rating);
+  } catch (...) {
+    // Best-effort light write: a transient pool failure leaves the prior rating; the
+    // batch flush at job end is the durability point. Match `PersistImageHdrFlag`'s
+    // swallow-and-return policy for the light path.
+  }
+}
+
+// Phase 7a: the batched flush half. `SyncWithStorage` flushes every MODIFIED image row
+// (the pending star writes from `ApplyStarRatingLight`) in a single transaction;
+// `RefreshStats` re-runs the rating-bucket GROUP BY so star-filter stats reflect the
+// new stars. No `SaveProject`/`Package` — the `.alcd` packaged snapshot is left stale
+// until the next normal save/close; the live DB is authoritative (same as any DB change
+// between manual saves).
+void ImageController::FlushPendingStarRatings() {
+  auto proj = backend_.project_handler_.project();
+  if (!proj) {
+    return;
+  }
+  try {
+    auto image_pool = proj->GetImagePoolService();
+    if (image_pool) {
+      image_pool->SyncWithStorage();
+    }
+  } catch (...) {
+  }
+  backend_.stats_.RefreshStats();
 }
 
 }  // namespace alcedo::ui

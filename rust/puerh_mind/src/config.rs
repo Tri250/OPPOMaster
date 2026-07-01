@@ -6,6 +6,11 @@ pub struct AppConfig {
     pub port: u16,
     pub semantic: SemanticConfig,
     pub max_message_bytes: usize,
+    pub credential_ttl_ms: u64,
+    /// Optional directory of user-provider JSON configs, loaded after the built-in
+    /// configs and allowed to add providers or override model defaults. `None`
+    /// means built-ins only. See `service::provider_config`.
+    pub provider_config_dir: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -55,6 +60,13 @@ impl AppConfig {
                 "--max-message-bytes" => {
                     config.max_message_bytes = parse_next(&mut args, "--max-message-bytes")?
                 }
+                "--credential-ttl-ms" => {
+                    config.credential_ttl_ms = parse_next(&mut args, "--credential-ttl-ms")?
+                }
+                "--provider-config-dir" => {
+                    config.provider_config_dir =
+                        Some(next_value(&mut args, "--provider-config-dir")?)
+                }
                 "--help" | "-h" => anyhow::bail!("{}", Self::usage()),
                 other => anyhow::bail!("unknown argument {other:?}\n{}", Self::usage()),
             }
@@ -82,6 +94,10 @@ impl AppConfig {
                 batch_cap: parse_env("ALCEDO_MIND_BATCH_CAP", 512)?,
                 batch_wait_ms: parse_env("ALCEDO_MIND_BATCH_WAIT_MS", 25)?,
             },
+            credential_ttl_ms: parse_env("ALCEDO_MIND_CREDENTIAL_TTL_MS", 3_600_000)?,
+            provider_config_dir: env::var("ALCEDO_MIND_PROVIDER_CONFIG_DIR")
+                .ok()
+                .filter(|s| !s.trim().is_empty()),
         })
     }
 
@@ -115,7 +131,7 @@ impl AppConfig {
     }
 
     fn usage() -> &'static str {
-        "usage: alcedo_mind [--host HOST] [--port PORT] [--model-root PATH] [--model-id ID] [--revision REV] [--hf-endpoint URL] [--device auto|cpu|directml[:N]|coreml[:MODE]] [--no-download] [--allow-download] [--batch-cap N] [--batch-wait-ms N] [--max-message-bytes N]"
+        "usage: alcedo_mind [--host HOST] [--port PORT] [--model-root PATH] [--model-id ID] [--revision REV] [--hf-endpoint URL] [--device auto|cpu|directml[:N]|coreml[:MODE]] [--no-download] [--allow-download] [--batch-cap N] [--batch-wait-ms N] [--max-message-bytes N] [--credential-ttl-ms N] [--provider-config-dir PATH]"
     }
 }
 
@@ -224,7 +240,8 @@ mod tests {
 
     #[test]
     fn rejects_empty_model_root() {
-        let err = AppConfig::from_args(["--model-root", ""]).expect_err("empty model-root rejected");
+        let err =
+            AppConfig::from_args(["--model-root", ""]).expect_err("empty model-root rejected");
         assert!(err.to_string().contains("model-root must not be empty"));
     }
 
@@ -242,14 +259,34 @@ mod tests {
 
     #[test]
     fn rejects_non_numeric_port() {
-        let err = AppConfig::from_args(["--port", "not-a-port"])
-            .expect_err("non-numeric port rejected");
+        let err =
+            AppConfig::from_args(["--port", "not-a-port"]).expect_err("non-numeric port rejected");
         assert!(err.to_string().contains("failed to parse --port"));
     }
 
     #[test]
     fn rejects_zero_batch_cap() {
         let err = AppConfig::from_args(["--batch-cap", "0"]).expect_err("zero batch-cap rejected");
-        assert!(err.to_string().contains("batch-cap must be greater than zero"));
+        assert!(
+            err.to_string()
+                .contains("batch-cap must be greater than zero")
+        );
+    }
+
+    #[test]
+    fn parses_provider_config_dir_override() {
+        let config =
+            AppConfig::from_args(["--provider-config-dir", "C:/Users/me/alcedo/providers"])
+                .expect("config should parse");
+        assert_eq!(
+            config.provider_config_dir.as_deref(),
+            Some("C:/Users/me/alcedo/providers")
+        );
+    }
+
+    #[test]
+    fn provider_config_dir_defaults_to_none() {
+        let config = AppConfig::from_env().expect("env config should parse");
+        assert!(config.provider_config_dir.is_none());
     }
 }

@@ -2,12 +2,21 @@ syntax = "proto3";
 
 package semantic;
 
+import "ai_common.proto";
+
 service SemanticService {
   rpc Ping(PingRequest) returns (PingResponse);
   rpc EmbedText(EmbedTextRequest) returns (EmbeddingResponse);
   rpc EmbedImage(EmbedImageRequest) returns (EmbeddingResponse);
   rpc EmbedTextBatch(EmbedTextBatchRequest) returns (EmbeddingBatchResponse);
   rpc EmbedImageBatch(EmbedImageBatchRequest) returns (EmbeddingBatchResponse);
+  // v2 embedding RPCs (Phase 4): carry the shared AI control-surface headers
+  // (alcedo.ai.AiRequestHeader / AiResponseHeader) inline. v1 RPCs above stay frozen; the C++
+  // host migrates call sites to v2 with an automatic v1 fallback (Phase 0 contract §2.3).
+  rpc EmbedTextV2(EmbedTextRequestV2) returns (EmbeddingResponseV2);
+  rpc EmbedImageV2(EmbedImageRequestV2) returns (EmbeddingResponseV2);
+  rpc EmbedTextBatchV2(EmbedTextBatchRequestV2) returns (EmbeddingBatchResponseV2);
+  rpc EmbedImageBatchV2(EmbedImageBatchRequestV2) returns (EmbeddingBatchResponseV2);
   rpc GetModelInfo(GetModelInfoRequest) returns (GetModelInfoResponse);
   rpc GetRuntimeStatus(GetRuntimeStatusRequest) returns (GetRuntimeStatusResponse);
 }
@@ -71,6 +80,69 @@ message EmbeddingBatchItem {
 message EmbeddingBatchResponse {
   repeated EmbeddingBatchItem items = 1;
   uint64 elapsed_ms = 2;
+}
+
+// v2 embedding messages (Phase 4): the shared AI control-surface headers ride inline. Single-call
+// correlation is header.request_id (no body request_id); batch items keep a per-item request_id
+// that the C++ host maps back to file identity, unchanged from the v1 EmbeddingBatchItem shape.
+message EmbedTextRequestV2 {
+  alcedo.ai.AiRequestHeader header = 1;
+  string text = 2;
+  string model_name = 3;
+}
+
+message EmbedImageRequestV2 {
+  alcedo.ai.AiRequestHeader header = 1;
+  bytes image_bytes = 2;
+  string image_format_hint = 3;
+  string model_name = 4;
+}
+
+message EmbedTextItemV2 {
+  string request_id = 1;
+  string text = 2;
+  string model_name = 3;
+}
+
+message EmbedImageItemV2 {
+  string request_id = 1;
+  bytes image_bytes = 2;
+  string image_format_hint = 3;
+  string model_name = 4;
+}
+
+message EmbedTextBatchRequestV2 {
+  alcedo.ai.AiRequestHeader header = 1;
+  repeated EmbedTextItemV2 items = 2;
+}
+
+message EmbedImageBatchRequestV2 {
+  alcedo.ai.AiRequestHeader header = 1;
+  repeated EmbedImageItemV2 items = 2;
+}
+
+message EmbeddingResponseV2 {
+  alcedo.ai.AiResponseHeader header = 1;
+  repeated float embedding = 2;
+  uint32 dimension = 3;
+  string model_name = 4;
+  uint64 elapsed_ms = 5;
+}
+
+message EmbeddingBatchItemV2 {
+  string request_id = 1;
+  repeated float embedding = 2;
+  uint32 dimension = 3;
+  string model_name = 4;
+  uint64 elapsed_ms = 5;
+  bool ok = 6;
+  string error = 7;
+}
+
+message EmbeddingBatchResponseV2 {
+  alcedo.ai.AiResponseHeader header = 1;
+  repeated EmbeddingBatchItemV2 items = 2;
+  uint64 elapsed_ms = 3;
 }
 
 message GetModelInfoRequest {}

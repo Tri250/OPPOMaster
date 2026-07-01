@@ -20,16 +20,24 @@
 #include <QTimer>
 #include <QUrl>
 #include <algorithm>
+#include <cctype>
 #include <chrono>
+#include <cmath>
 #include <exception>
+#include <iomanip>
 #include <limits>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
 
+#include "ai/ai_description.hpp"
+#include "ai/ai_rating.hpp"
 #include "app/album_browse_service.hpp"
 #include "app/project_package_service.hpp"
 #include "image/image.hpp"
+#include "storage/controller/ai/ai_storage_controller.hpp"
 #ifdef HAVE_OPENCL
 #include "opencl/opencl_runtime.hpp"
 #endif
@@ -39,9 +47,329 @@
 namespace alcedo::ui {
 
 using namespace album_util;
+using namespace std::chrono_literals;
 #define PL_TEXT(text, ...)                     \
   i18n::MakeLocalizedText(ALCEDO_I18N_CONTEXT, \
                           QT_TRANSLATE_NOOP(ALCEDO_I18N_CONTEXT, text) __VA_OPT__(, ) __VA_ARGS__)
+
+// On-demand sidecar startup timeout for the remote image-analysis path. The
+// semantic path uses 60s; image analysis cold-starts the same binary, so match.
+constexpr auto kImageAnalysisSidecarStartupTimeout = 60s;
+
+auto           TrimAscii(std::string value) -> std::string {
+  auto is_space = [](unsigned char ch) { return std::isspace(ch) != 0; };
+  while (!value.empty() && is_space(static_cast<unsigned char>(value.front()))) {
+    value.erase(value.begin());
+  }
+  while (!value.empty() && is_space(static_cast<unsigned char>(value.back()))) {
+    value.pop_back();
+  }
+  return value;
+}
+
+auto CleanContextValue(std::string value) -> std::string {
+  value = TrimAscii(std::move(value));
+  for (char& ch : value) {
+    if (ch == '\r' || ch == '\n' || ch == '\t') {
+      ch = ' ';
+    }
+  }
+  return value;
+}
+
+auto FormatOneDecimal(float value) -> std::string {
+  std::ostringstream ss;
+  ss << std::fixed << std::setprecision(1) << value;
+  std::string out = ss.str();
+  while (out.size() > 1 && out.back() == '0') {
+    out.pop_back();
+  }
+  if (!out.empty() && out.back() == '.') {
+    out.pop_back();
+  }
+  return out;
+}
+
+auto FormatShutterSpeed(std::pair<int, int> shutter) -> std::string {
+  const auto [num, den] = shutter;
+  if (num <= 0 || den <= 0) {
+    return {};
+  }
+  if (den == 1) {
+    return std::to_string(num) + "s";
+  }
+  return std::to_string(num) + "/" + std::to_string(den) + "s";
+}
+
+void AppendContextField(std::vector<std::string>* fields, std::string key, std::string value) {
+  if (fields == nullptr) {
+    return;
+  }
+  value = CleanContextValue(std::move(value));
+  if (!value.empty()) {
+    fields->push_back(std::move(key) + "=" + std::move(value));
+  }
+}
+
+auto BuildCameraContext(const ExifDisplayMetaData& exif) -> std::string {
+  std::vector<std::string> fields;
+  fields.reserve(12);
+  AppendContextField(&fields, "camera_make", exif.make_);
+  AppendContextField(&fields, "camera_model", exif.model_);
+  AppendContextField(&fields, "lens_make", exif.lens_make_);
+  AppendContextField(&fields, "lens_model", exif.lens_);
+  if (std::isfinite(exif.aperture_) && exif.aperture_ > 0.0f) {
+    AppendContextField(&fields, "aperture", "f/" + FormatOneDecimal(exif.aperture_));
+  }
+  AppendContextField(&fields, "shutter_speed", FormatShutterSpeed(exif.shutter_speed_));
+  if (exif.iso_ > 0) {
+    AppendContextField(&fields, "iso", std::to_string(exif.iso_));
+  }
+  if (std::isfinite(exif.focal_) && exif.focal_ > 0.0f) {
+    AppendContextField(&fields, "focal_length", FormatOneDecimal(exif.focal_) + "mm");
+  }
+  if (std::isfinite(exif.focal_35mm_) && exif.focal_35mm_ > 0.0f) {
+    AppendContextField(&fields, "focal_length_35mm", FormatOneDecimal(exif.focal_35mm_) + "mm");
+  }
+  if (std::isfinite(exif.focus_distance_m_) && exif.focus_distance_m_ > 0.0f) {
+    AppendContextField(&fields, "focus_distance", FormatOneDecimal(exif.focus_distance_m_) + "m");
+  }
+  if (exif.width_ > 0 && exif.height_ > 0) {
+    AppendContextField(&fields, "image_size",
+                       std::to_string(exif.width_) + "x" + std::to_string(exif.height_));
+  }
+  AppendContextField(&fields, "captured_at", exif.date_time_str_);
+  if (exif.is_hdr_) {
+    AppendContextField(&fields, "hdr", "true");
+  }
+  if (fields.empty()) {
+    return {};
+  }
+  std::ostringstream ss;
+  ss << "Camera/EXIF metadata for this image: ";
+  for (size_t i = 0; i < fields.size(); ++i) {
+    if (i != 0) {
+      ss << "; ";
+    }
+    ss << fields[i];
+  }
+  ss << ".";
+  return ss.str();
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Production IImageAnalysisEnvironment: resolves the runtime seams lazily from
+// AlbumBackend's open project (mirrors SemanticGenerationController's lazy
+// resolution). Declared a friend of AlbumBackend so it can reach
+// project_handler_ / image_analysis_gate_.
+// ────────────────────────────────────────────────────────────────────────────
+class AlbumImageAnalysisEnvironment final : public IImageAnalysisEnvironment {
+ public:
+  explicit AlbumImageAnalysisEnvironment(AlbumBackend& backend) : backend_(backend) {}
+
+  auto ThumbnailProvider() -> std::shared_ptr<IImageAnalysisThumbnailProvider> override {
+    if (thumbnail_provider_) {
+      return thumbnail_provider_;
+    }
+    auto ts = backend_.project_handler_.thumbnail_service();
+    if (!ts) {
+      return nullptr;
+    }
+    thumbnail_provider_ = std::make_shared<ThumbnailServiceImageAnalysisProvider>(ts);
+    return thumbnail_provider_;
+  }
+
+  auto AnalysisClient() -> std::shared_ptr<IImageAnalysisClient> override {
+    auto project = backend_.project_handler_.project();
+    if (!project) {
+      return nullptr;
+    }
+    auto runtime = project->GetAiSidecarRuntimeService();
+    if (!runtime) {
+      return nullptr;
+    }
+    // Rebuild per call: the runtime is lazily created by ProjectService and may
+    // differ across calls if the project is reopened. Cheap wrapper.
+    return std::make_shared<AiSidecarRuntimeImageAnalysisClient>(runtime);
+  }
+
+  auto CredentialStore() -> std::shared_ptr<IAiCredentialStore> override {
+    return backend_.ai_provider_profiles_.CredentialStore();
+  }
+
+  auto Gate() -> std::shared_ptr<ImageAnalysisInFlightGate> override {
+    return backend_.image_analysis_gate_;
+  }
+
+  auto CameraContextForItem(const ImageAnalysisItem& item) -> std::string override {
+    auto project = backend_.project_handler_.project();
+    if (!project || item.image_id == 0) {
+      return {};
+    }
+    auto image_pool = project->GetImagePoolService();
+    if (!image_pool) {
+      return {};
+    }
+    std::string context;
+    image_pool->Read<void>(item.image_id, [&context](const std::shared_ptr<Image>& image) {
+      if (!image || !image->has_exif_display_.load()) {
+        return;
+      }
+      context = BuildCameraContext(image->exif_display_);
+    });
+    return context;
+  }
+
+  auto EnsureSidecarReady(bool provider_configs_dirty, std::string* error) -> bool override {
+    auto project = backend_.project_handler_.project();
+    if (!project) {
+      if (error) {
+        *error = "no project is open";
+      }
+      return false;
+    }
+    auto runtime = project->GetAiSidecarRuntimeService();
+    if (!runtime) {
+      if (error) {
+        *error = "ai sidecar runtime service is unavailable";
+      }
+      return false;
+    }
+    if (provider_configs_dirty && runtime->IsRunning()) {
+      runtime->Stop();
+    }
+    if (runtime->Status().state == AiSidecarRuntimeState::kReady) {
+      return true;
+    }
+    AiSidecarRuntimeOptions options;
+    options.allow_download = false;
+    options.require_model_info =
+        false;  // remote image analysis: HTTP-provider path, no CLIP model.
+    options.startup_timeout = kImageAnalysisSidecarStartupTimeout;
+    if (!runtime->StartAndWait(options)) {
+      if (error) {
+        *error = runtime->Status().message;
+        if (error->empty()) {
+          *error = "ai sidecar failed to start";
+        }
+      }
+      return false;
+    }
+    // require_model_info=false means model_info is unpopulated; only state matters.
+    return runtime->Status().state == AiSidecarRuntimeState::kReady;
+  }
+
+ private:
+  AlbumBackend&                                    backend_;
+  std::shared_ptr<IImageAnalysisThumbnailProvider> thumbnail_provider_;
+};
+
+std::shared_ptr<IImageAnalysisEnvironment> MakeAlbumImageAnalysisEnvironment(
+    AlbumBackend& backend) {
+  return std::make_shared<AlbumImageAnalysisEnvironment>(backend);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Phase 7a production IImageAnalysisSink. Declared a friend of AlbumBackend so it
+// can reach project_handler_ / image_ctrl_ / stats_. Delegates persistence to
+// AiStorageController, the star write to ImageController's light path, and the
+// search refresh to StatsEngine. The controller calls these at job end (see
+// ImageAnalysisController::Finish); a failed/cancelled job never reaches here.
+// ────────────────────────────────────────────────────────────────────────────
+class AlbumImageAnalysisSink final : public IImageAnalysisSink {
+ public:
+  explicit AlbumImageAnalysisSink(AlbumBackend& backend) : backend_(backend) {}
+
+  // task_id "describe" matches the Phase 5g live-smoke persistence convention so a
+  // 7a-persisted row lands in the same (file_id, "describe") slot the live path uses.
+  static constexpr const char* kDescribeTaskId = "describe";
+  static constexpr const char* kScoreTaskId    = "rate";
+
+  bool PersistUnderstanding(const ImageAnalysisItemResult& result) override {
+    auto project = backend_.project_handler_.project();
+    if (!project) {
+      return false;
+    }
+    auto& ai = project->GetStorageService()->GetAiStorageController();
+    return ai.UpsertUnderstanding(MakeDescription(result));
+  }
+
+  size_t PersistUnderstandings(const std::vector<ImageAnalysisItemResult>& results) override {
+    auto project = backend_.project_handler_.project();
+    if (!project || results.empty()) {
+      return 0;
+    }
+    std::vector<AiDescription> descriptions;
+    descriptions.reserve(results.size());
+    for (const auto& result : results) {
+      descriptions.push_back(MakeDescription(result));
+    }
+    auto& ai = project->GetStorageService()->GetAiStorageController();
+    return ai.UpsertUnderstandings(descriptions);
+  }
+
+  bool PersistRatingReasons(const ImageAnalysisItemResult& result) override {
+    auto project = backend_.project_handler_.project();
+    if (!project) {
+      return false;
+    }
+    auto&    ai = project->GetStorageService()->GetAiStorageController();
+    AiRating r;
+    r.file_id_           = result.item.element_id;
+    r.task_id_           = kScoreTaskId;
+    r.provider_id_       = result.rating.provider;
+    r.model_id_          = result.rating.model_id;
+    r.prompt_profile_id_ = result.rating.prompt_profile_id;
+    r.rendition_kind_    = result.rating.rendition.kind;
+    // rating_ = 0 SENTINEL: the real star is the EXIF/metadata `Rating` value written by
+    // ApplyStarRating. IsValidReasonsOnly ignores the rating value; GetActiveRating
+    // consumers must not treat this 0 as the real score.
+    r.rating_            = 0;
+    r.rubric_id_         = result.rating.rubric_id;
+    r.rubric_version_    = result.rating.rubric_version;
+    r.reasons_           = result.rating.reasons;
+    r.active_            = true;
+    return ai.UpsertRatingReasons(r);
+  }
+
+  bool ApplyStarRating(uint32_t elementId, uint32_t imageId, int rating) override {
+    backend_.image_ctrl_.ApplyStarRatingLight(elementId, imageId, rating);
+    return true;
+  }
+
+  void FlushPendingStarRatings() override { backend_.image_ctrl_.FlushPendingStarRatings(); }
+
+  void NotifySearchDocumentChanged() override {
+    // Storage refreshes the derived FTS index during persistence when DuckDB's fts
+    // extension is available. Re-running the thumbnail view against the current
+    // search/filter picks up the new captions/tags either through BM25 or the legacy LIKE
+    // fallback. Mirrors SearchController's search-apply hook.
+    backend_.stats_.RebuildThumbnailView();
+  }
+
+ private:
+  static auto MakeDescription(const ImageAnalysisItemResult& result) -> AiDescription {
+    AiDescription d;
+    d.file_id_           = result.item.element_id;
+    d.task_id_           = kDescribeTaskId;
+    d.provider_id_       = result.understanding.provider;
+    d.model_id_          = result.understanding.model_id;
+    d.prompt_profile_id_ = result.understanding.prompt_profile_id;
+    d.rendition_kind_    = result.understanding.rendition.kind;
+    d.caption_           = result.understanding.caption;
+    d.scene_             = result.understanding.scene;
+    d.confidence_        = result.understanding.confidence;
+    d.active_            = true;
+    d.SetTags(result.understanding.tags);
+    return d;
+  }
+
+  AlbumBackend& backend_;
+};
+
+std::shared_ptr<IImageAnalysisSink> MakeAlbumImageAnalysisSink(AlbumBackend& backend) {
+  return std::make_shared<AlbumImageAnalysisSink>(backend);
+}
 
 namespace {
 
@@ -52,7 +380,7 @@ constexpr int    kMaxRecentProjects                 = 12;
 constexpr size_t kAlbumMetadataPageSize             = 1000;
 constexpr size_t kSearchMetadataPageSize            = 120;
 
-auto FormatCacheSize(size_t bytes) -> QString {
+auto             FormatCacheSize(size_t bytes) -> QString {
   if (bytes == 0) {
     return QStringLiteral("0 KiB");
   }
@@ -229,6 +557,10 @@ AlbumBackend::AlbumBackend(QObject* parent)
       search_(*this),
       model_download_controller_(*this),
       semantic_generation_(*this),
+      ai_provider_profiles_(this),
+      image_analysis_gate_(std::make_shared<alcedo::ImageAnalysisInFlightGate>()),
+      image_analysis_(MakeAlbumImageAnalysisEnvironment(*this), &ai_provider_profiles_,
+                      MakeAlbumImageAnalysisSink(*this)),
       import_export_(*this),
       nikon_he_recovery_(*this),
       editor_(*this),
@@ -312,11 +644,68 @@ auto AlbumBackend::AddImagesToFolder(const QVariantList& targetEntries, uint tar
 auto AlbumBackend::GetImageDetails(uint elementId, uint imageId) -> QVariantMap {
   return image_ctrl_.GetImageDetails(elementId, imageId);
 }
+auto AlbumBackend::GetFocusedImageInspection(uint elementId, uint imageId) -> QVariantMap {
+  return image_ctrl_.GetFocusedImageInspection(elementId, imageId);
+}
 auto AlbumBackend::GetImageRating(uint elementId, uint imageId) -> QVariantMap {
   return image_ctrl_.GetImageRating(elementId, imageId);
 }
 auto AlbumBackend::SetImageRating(uint elementId, uint imageId, int rating) -> QVariantMap {
   return image_ctrl_.SetImageRating(elementId, imageId, rating);
+}
+auto AlbumBackend::SetImageDescription(uint elementId, const QString& caption) -> QVariantMap {
+  return image_ctrl_.SetImageDescription(elementId, caption);
+}
+auto AlbumBackend::SetImageRatingReasons(uint elementId, const QString& reasons) -> QVariantMap {
+  return image_ctrl_.SetImageRatingReasons(elementId, reasons);
+}
+
+// Phase 7a: read the AI rating *reasons* row persisted by AlbumImageAnalysisSink. The
+// numeric star is the EXIF/metadata `Rating` value (GetImageRating); this returns the
+// AI rationale + identity. The stored `rating_` is a 0 sentinel for 7a rows and is NOT
+// returned as the score.
+auto AlbumBackend::GetImageRatingReasons(uint elementId) -> QVariantMap {
+  QVariantMap result{{"hasReasons", false},  {"reasons", QString{}},  {"provider", QString{}},
+                     {"modelId", QString{}}, {"rubricId", QString{}}, {"rubricVersion", QString{}}};
+  auto        project = project_handler_.project();
+  if (!project) {
+    return result;
+  }
+  const auto row =
+      project->GetStorageService()->GetAiStorageController().GetActiveRating(elementId);
+  if (!row.has_value() || row->reasons_.empty()) {
+    return result;
+  }
+  result["hasReasons"]    = true;
+  result["reasons"]       = QString::fromStdString(row->reasons_);
+  result["provider"]      = QString::fromStdString(row->provider_id_);
+  result["modelId"]       = QString::fromStdString(row->model_id_);
+  result["rubricId"]      = QString::fromStdString(row->rubric_id_);
+  result["rubricVersion"] = QString::fromStdString(row->rubric_version_);
+  return result;
+}
+
+auto AlbumBackend::GetImageDescription(uint elementId) -> QVariantMap {
+  QVariantMap result{{"hasDescription", false},
+                     {"caption", QString{}},
+                     {"scene", QString{}},
+                     {"provider", QString{}},
+                     {"modelId", QString{}}};
+  auto        project = project_handler_.project();
+  if (!project) {
+    return result;
+  }
+  const auto row =
+      project->GetStorageService()->GetAiStorageController().GetActiveUnderstanding(elementId);
+  if (!row.has_value() || row->caption_.empty()) {
+    return result;
+  }
+  result["hasDescription"] = true;
+  result["caption"]        = QString::fromStdString(row->caption_);
+  result["scene"]          = QString::fromStdString(row->scene_);
+  result["provider"]       = QString::fromStdString(row->provider_id_);
+  result["modelId"]        = QString::fromStdString(row->model_id_);
+  return result;
 }
 bool AlbumBackend::OpenDirectoryInFileManager(const QString& dirUrlOrPath) {
   const auto dir_path_opt = InputToPath(dirUrlOrPath);
@@ -362,7 +751,7 @@ void AlbumBackend::StartImport(const QStringList& fileUrlsOrPaths) {
 }
 void AlbumBackend::CancelImport() { import_export_.CancelImport(); }
 
-void AlbumBackend::SetAcceleratorPreparationState(bool preparing,
+void AlbumBackend::SetAcceleratorPreparationState(bool                       preparing,
                                                   const i18n::LocalizedText& status) {
   accelerator_preparing_               = preparing;
   accelerator_preparation_status_text_ = status;
@@ -378,7 +767,8 @@ void AlbumBackend::StartOpenClPreparationIfNeeded() {
   accelerator_prepare_started_ = true;
 
 #ifdef HAVE_OPENCL
-  SetAcceleratorPreparationState(true, PL_TEXT("Compiling OpenCL kernels. This happens every launch."));
+  SetAcceleratorPreparationState(true,
+                                 PL_TEXT("Compiling OpenCL kernels. This happens every launch."));
   QPointer<AlbumBackend> self(this);
   std::thread([self]() {
     QString error_text;
@@ -624,10 +1014,9 @@ void AlbumBackend::StartExportWithOptionsForTargets(
 
 void AlbumBackend::StartExportWithSplitOptionsForTargets(
     const QString& outputDirUrlOrPath, bool sdrResizeEnabled, int sdrMaxLengthSide,
-    int ultraHdrMaxLengthSide,
-    const QString& sdrFormatName, int sdrQuality, int sdrBitDepth, int sdrPngCompressionLevel,
-    const QString& sdrTiffCompression, int ultraHdrQuality, bool ultraHdrDitherEnabled,
-    const QVariantList& targetEntries) {
+    int ultraHdrMaxLengthSide, const QString& sdrFormatName, int sdrQuality, int sdrBitDepth,
+    int sdrPngCompressionLevel, const QString& sdrTiffCompression, int ultraHdrQuality,
+    bool ultraHdrDitherEnabled, const QVariantList& targetEntries) {
   import_export_.StartExportWithSplitOptionsForTargets(
       outputDirUrlOrPath, sdrResizeEnabled, sdrMaxLengthSide, ultraHdrMaxLengthSide, sdrFormatName,
       sdrQuality, sdrBitDepth, sdrPngCompressionLevel, sdrTiffCompression, ultraHdrQuality,
@@ -716,7 +1105,7 @@ bool AlbumBackend::LoadThumbnailsThroughIndex(int index) {
     return false;
   }
 
-  const int target = TotalCount() > 0 ? std::min(index, TotalCount() - 1) : index;
+  const int target     = TotalCount() > 0 ? std::min(index, TotalCount() - 1) : index;
   bool      loaded_any = false;
   while (thumbnail_model_.hasMore() && thumbnail_model_.count() <= target) {
     if (!stats_.LoadMoreThumbnailView()) {
@@ -1175,8 +1564,8 @@ bool AlbumBackend::LoadThumbnailWindow(const std::optional<std::wstring>& filter
     return false;
   }
 
-  const auto page_size = search_.HasActiveSearchFilter() ? kSearchMetadataPageSize
-                                                         : kAlbumMetadataPageSize;
+  const auto page_size =
+      search_.HasActiveSearchFilter() ? kSearchMetadataPageSize : kAlbumMetadataPageSize;
   const auto files =
       browse->ListFilesInFolderById(folder_id, oldSize, page_size, effective_filter_where);
   for (const auto& file : files) {
@@ -1305,12 +1694,12 @@ void AlbumBackend::PersistImageHdrFlag(sl_element_id_t elementId, image_id_t ima
   }
 
   try {
-    proj->GetImagePoolService()->Write_NoSync<void>(
-        imageId, [isHdr](const std::shared_ptr<Image>& image) {
-          if (image) {
-            image->SetHdrDisplayMetadata(isHdr);
-          }
-        });
+    proj->GetImagePoolService()->Write_NoSync<void>(imageId,
+                                                    [isHdr](const std::shared_ptr<Image>& image) {
+                                                      if (image) {
+                                                        image->SetHdrDisplayMetadata(isHdr);
+                                                      }
+                                                    });
     SetAlbumItemHdrFlag(elementId, imageId, isHdr);
   } catch (...) {
   }
@@ -1360,7 +1749,8 @@ void AlbumBackend::SaveThumbnailDiskCacheSettings() {
   settings.setValue(QStringLiteral("thumbnailCache/enabled"), thumbnail_disk_cache_enabled_);
   settings.setValue(QStringLiteral("thumbnailCache/rootPath"), thumbnail_disk_cache_root_);
   settings.setValue(QStringLiteral("thumbnailCache/maxEntries"), thumbnail_disk_cache_max_entries_);
-  settings.setValue(QStringLiteral("thumbnailCache/jpegQuality"), thumbnail_disk_cache_jpeg_quality_);
+  settings.setValue(QStringLiteral("thumbnailCache/jpegQuality"),
+                    thumbnail_disk_cache_jpeg_quality_);
 }
 
 void AlbumBackend::ApplyThumbnailDiskCacheSettingsToService() {
@@ -1369,16 +1759,13 @@ void AlbumBackend::ApplyThumbnailDiskCacheSettingsToService() {
 
   thumb_svc->SetDiskCacheEnabled(thumbnail_disk_cache_enabled_);
   if (!thumbnail_disk_cache_root_.isEmpty()) {
-    thumb_svc->SetDiskCacheRoot(
-        std::filesystem::path(thumbnail_disk_cache_root_.toStdWString()));
+    thumb_svc->SetDiskCacheRoot(std::filesystem::path(thumbnail_disk_cache_root_.toStdWString()));
   }
   thumb_svc->SetDiskCacheMaxEntries(static_cast<size_t>(thumbnail_disk_cache_max_entries_));
   thumb_svc->SetDiskCacheJpegQuality(thumbnail_disk_cache_jpeg_quality_);
 }
 
-bool AlbumBackend::ThumbnailDiskCacheEnabled() const {
-  return thumbnail_disk_cache_enabled_;
-}
+bool    AlbumBackend::ThumbnailDiskCacheEnabled() const { return thumbnail_disk_cache_enabled_; }
 
 QString AlbumBackend::ThumbnailDiskCacheRoot() const {
   auto thumb_svc = project_handler_.thumbnail_service();
@@ -1440,10 +1827,11 @@ void AlbumBackend::SetThumbnailDiskCacheEnabled(bool enabled) {
 }
 
 void AlbumBackend::SetThumbnailDiskCacheRoot(const QString& rootPath) {
-  const auto root_path_opt = InputToPath(rootPath);
-  const QString normalized_root =
-      root_path_opt.has_value() ? PathToQString(root_path_opt.value().lexically_normal()) : rootPath;
-  thumbnail_disk_cache_root_ = normalized_root;
+  const auto    root_path_opt   = InputToPath(rootPath);
+  const QString normalized_root = root_path_opt.has_value()
+                                      ? PathToQString(root_path_opt.value().lexically_normal())
+                                      : rootPath;
+  thumbnail_disk_cache_root_    = normalized_root;
   SaveThumbnailDiskCacheSettings();
   auto thumb_svc = project_handler_.thumbnail_service();
   if (thumb_svc && !thumbnail_disk_cache_root_.isEmpty()) {
@@ -1490,11 +1878,11 @@ void AlbumBackend::ClearProjectThumbnailDiskCache() {
   SetServiceMessageForCurrentProject(PL_TEXT("Current project thumbnail disk cache cleared."));
 }
 
-int AlbumBackend::PromptForInt(const QString& title, const QString& label,
-                               int defaultValue, int minValue, int maxValue) {
+int AlbumBackend::PromptForInt(const QString& title, const QString& label, int defaultValue,
+                               int minValue, int maxValue) {
   bool accepted = false;
-  int  value    = QInputDialog::getInt(nullptr, title, label, defaultValue, minValue, maxValue, 1,
-                                      &accepted);
+  int  value =
+      QInputDialog::getInt(nullptr, title, label, defaultValue, minValue, maxValue, 1, &accepted);
   return accepted ? value : defaultValue;
 }
 

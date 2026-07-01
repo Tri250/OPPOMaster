@@ -119,7 +119,7 @@ class SemanticGenerationController final : public QObject {
   // selection signal and from RefreshSemanticState (project open).
   void TryAutoActivateSelectedModel();
   [[nodiscard]] auto RuntimeOptionsForProfile(const QString& profileId, bool profileRoot) const
-      -> SemanticRuntimeOptions;
+      -> AiSidecarRuntimeOptions;
 
   AlbumBackend&                                backend_;
   std::vector<SemanticGenerationItem>          pending_items_{};

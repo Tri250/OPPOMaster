@@ -1174,19 +1174,6 @@ Alcedo will use %1 instead.</translation>
     </message>
 </context>
 <context>
-    <name>ImageDetailsDialog</name>
-    <message>
-        <location filename="../qml/ImageDetailsDialog.qml" line="346"/>
-        <source>Open in file manager</source>
-        <translation>Open in file manager</translation>
-    </message>
-    <message>
-        <location filename="../qml/ImageDetailsDialog.qml" line="369"/>
-        <source>Close</source>
-        <translation>Close</translation>
-    </message>
-</context>
-<context>
     <name>InspectorPanel</name>
     <message>
         <location filename="../qml/InspectorPanel.qml" line="35"/>

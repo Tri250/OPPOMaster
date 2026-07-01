@@ -1,0 +1,239 @@
+syntax = "proto3";
+
+package alcedo.ai;
+
+import "ai_common.proto";
+
+// Image analysis task contracts (Phase 5b).
+//
+// These are Alcedo's provider-independent result contracts for the two Phase 5
+// remote tasks. Each request/response carries the shared control-surface headers
+// (alcedo.ai.AiRequestHeader / AiResponseHeader) inline, exactly like the v2
+// embedding RPCs. The two tasks are distinct contracts even if a single provider
+// HTTP call could return both:
+//
+//   - image_understanding.describe: objective-ish image content -> caption, tags,
+//     scene/category hint, confidence. These fields can participate in the search
+//     document when marked active (Phase 5e).
+//   - image_rating.score: subjective / product-policy scoring -> a single 1–5
+//     integer star rating (aligned with the EXIF-standard Rating the app already
+//     stores per file), plus rubric id/version and reasons. Rating is NOT full-text
+//     search content; it drives sort/filter/recommendation only after the product
+//     contract is clear (Phase 5e). Confidence is NOT requested from the remote
+//     LLM (Phase 5f rating-contract change).
+//
+// They carry distinct task_ids ("image_understanding.describe" vs
+// "image_rating.score") and distinct result message types, so a rating result can
+// never overwrite or be reinterpreted as an understanding result. Provider-specific
+// raw JSON is never exposed here; the Rust driver (Phase 5c) validates and
+// normalizes provider output against the code-owned JSON Schemas and returns these
+// typed fields.
+//
+// This file shares the single `alcedo.ai` package with ai_common.proto and
+// ai_runtime.proto (Phase 0 §1.1 single-package decision), so the Rust
+// `tonic::include_proto!("alcedo.ai")` and the C++ `AiProto` library pick it up
+// without a new package / cross-package extern_path.
+
+service ImageAnalysisService {
+  // Generate a caption / tags / scene hint for one image.
+  rpc DescribeImage(DescribeImageRequest) returns (DescribeImageResponse);
+  // Score one image against a rubric.
+  rpc ScoreImage(ScoreImageRequest) returns (ScoreImageResponse);
+  // Analyze one image for multiple requested outputs in a single provider call.
+  rpc AnalyzeImage(AnalyzeImageRequest) returns (AnalyzeImageResponse);
+  // Analyze multiple images for the same requested outputs in a single provider call.
+  rpc BatchAnalyzeImage(BatchAnalyzeImageRequest) returns (BatchAnalyzeImageResponse);
+  // Phase 6c: list the model ids the configured endpoint exposes (dry-run
+  // discovery, no annotations persisted). Used by the host's "validate
+  // connection" flow and model-discovery merge.
+  rpc ListModels(ListModelsRequest) returns (ListModelsResponse);
+}
+
+// Phase 6c: a model id discovered by live-listing the configured endpoint.
+// Carries NO capability verdict — listing proves only that the endpoint can see
+// the id, not image input or structured-output support. The host merges
+// candidates into preset state but keeps them unadvertised until a validation
+// smoke pins capability.
+message DiscoveredModel {
+  string model_id = 1;
+  string display_name = 2;
+  string source_provider_id = 3;  // which configured endpoint produced this
+}
+
+message ListModelsRequest {
+  AiRequestHeader header = 1;
+  string provider_id = 2;  // selected provider; "" = sidecar default
+}
+
+message ListModelsResponse {
+  AiResponseHeader header = 1;
+  repeated DiscoveredModel models = 2;  // empty on failure or unsupported
+}
+
+// Metadata describing the image rendition the host selected and sent. The host
+// owns rendition selection; the response echoes this so the recorded result
+// metadata states exactly what was analyzed (Phase 5d review focus).
+message RenditionMetadata {
+  string kind = 1;     // "thumbnail" | "preview" | "image"
+  uint32 width = 2;
+  uint32 height = 3;
+  uint64 bytes = 4;
+}
+
+// Provider-reported usage, captured for UI/cost summaries (Phase 6). Fields are
+// optional in spirit: a provider may report only some of them; 0 = not reported.
+message UsageMetadata {
+  int64 input_tokens = 1;
+  int64 output_tokens = 2;
+  int64 total_tokens = 3;
+}
+
+// image_understanding.describe result.
+message ImageUnderstandingResult {
+  string caption = 1;          // one-line caption; non-empty on success
+  repeated string tags = 2;    // searchable tags
+  string scene = 3;             // scene / category hint (may be empty)
+  double confidence = 4;       // [0.0, 1.0]
+}
+
+// image_rating.score result. A single 1–5 integer star rating aligned with the
+// EXIF-standard Rating the app already stores per file (0=unrated; the remote
+// contract requires 1..=5 so a scored image is never confused with an unrated
+// one). Carries rubric identity so a future rubric change does not silently
+// reinterpret earlier ratings (Phase 5e review focus). Confidence is NOT requested
+// from the remote LLM (Phase 5f rating-contract change).
+message ImageRatingResult {
+  int32 rating = 1;            // 1..=5 integer star rating
+  string rubric_id = 2;         // which rubric produced this rating
+  string rubric_version = 3;   // rubric version
+  string reasons = 4;          // short human-readable rationale
+}
+
+message DescribeImageRequest {
+  AiRequestHeader header = 1;
+  bytes image_bytes = 2;
+  // Encoded image bytes for a remote multimodal provider. Phase 5d sends an
+  // encoded rendition (host-rendered thumbnail) with a hint such as
+  // "image/jpeg;max_edge=1024" or "image/png;max_edge=1024". The raw "rgba8:WxH"
+  // shape belongs to the local semantic embedding RPC (semantic.proto) only and
+  // must NOT be sent here: remote multimodal APIs expect provider-native encoded
+  // inputs, not multi-megabyte raw RGBA.
+  string image_format_hint = 3;
+  RenditionMetadata rendition = 4;
+  string provider_id = 5;         // selected provider; "" = sidecar default
+  string model_id = 6;            // selected model; "" = provider default
+  string prompt_profile_id = 7;   // prompt/profile used (may be empty)
+  // Target language for generated caption/reasons. "" or "en" = English (the
+  // default prompt language); "zh" = Simplified Chinese. The host resolves a
+  // "follow app language" preference to one of these before sending, so the
+  // sidecar never sees "follow".
+  string output_language = 8;
+}
+
+message DescribeImageResponse {
+  AiResponseHeader header = 1;
+  ImageUnderstandingResult result = 2;  // unset on failure
+  RenditionMetadata rendition = 3;      // echoes the selected rendition
+  UsageMetadata usage = 4;              // unset if the provider did not report usage
+  string provider_request_id = 5;      // provider's request id when available
+  string prompt_profile_id = 6;         // echoes the prompt profile used
+}
+
+message ScoreImageRequest {
+  AiRequestHeader header = 1;
+  bytes image_bytes = 2;
+  // Encoded image bytes hint; see DescribeImageRequest.image_format_hint.
+  string image_format_hint = 3;
+  RenditionMetadata rendition = 4;
+  string provider_id = 5;
+  string model_id = 6;
+  string prompt_profile_id = 7;
+  string rubric_id = 8;             // rubric to apply; "" = provider default
+  // Target language for generated reasons; see DescribeImageRequest.output_language.
+  string output_language = 9;
+  // Rating strictness persona: "lite" | "normal" | "high" | "xhigh" | "max".
+  // "" or "normal" = the default balanced rubric. Selects the rating system
+  // prompt the driver builds. Does NOT change the JSON contract — `rating`
+  // stays a 1..=5 integer and any persona flavor lives inside `reasons`.
+  string rating_severity = 10;
+  // Optional non-secret camera/EXIF context supplied by the host. Filled for
+  // gear/parameter-sensitive personas such as xHigh (老法师) and Max (懂哥);
+  // other modes leave it empty.
+  string camera_context = 11;
+  // Whether the JSON contract should include the rating rationale field.
+  bool include_rating_reasons = 12;
+}
+
+message ScoreImageResponse {
+  AiResponseHeader header = 1;
+  ImageRatingResult result = 2;
+  RenditionMetadata rendition = 3;
+  UsageMetadata usage = 4;
+  string provider_request_id = 5;
+  string prompt_profile_id = 6;
+}
+
+message AnalyzeImageRequest {
+  AiRequestHeader header = 1;
+  bytes image_bytes = 2;
+  // Encoded image bytes hint; see DescribeImageRequest.image_format_hint.
+  string image_format_hint = 3;
+  RenditionMetadata rendition = 4;
+  string provider_id = 5;
+  string model_id = 6;
+  string prompt_profile_id = 7;
+  bool include_understanding = 8;
+  bool include_rating = 9;
+  string rubric_id = 10;
+  string output_language = 11;
+  string rating_severity = 12;
+  string camera_context = 13;
+  bool include_rating_reasons = 14;
+}
+
+message AnalyzeImageResponse {
+  AiResponseHeader header = 1;
+  ImageUnderstandingResult understanding = 2;
+  ImageRatingResult rating = 3;
+  RenditionMetadata rendition = 4;
+  UsageMetadata usage = 5;
+  string provider_request_id = 6;
+  string prompt_profile_id = 7;
+}
+
+message BatchAnalyzeImageItem {
+  string request_id = 1;  // per-image correlation id from the host
+  bytes image_bytes = 2;
+  string image_format_hint = 3;
+  RenditionMetadata rendition = 4;
+  string camera_context = 5;
+}
+
+message BatchAnalyzeImageRequest {
+  AiRequestHeader header = 1;       // batch-level request/cancel id
+  repeated BatchAnalyzeImageItem items = 2;
+  string provider_id = 3;
+  string model_id = 4;
+  string prompt_profile_id = 5;
+  bool include_understanding = 6;
+  bool include_rating = 7;
+  string rubric_id = 8;
+  string output_language = 9;
+  string rating_severity = 10;
+  bool include_rating_reasons = 11;
+}
+
+message BatchAnalyzeImageItemResponse {
+  AiResponseHeader header = 1;       // per-image outcome; request_id matches item.request_id
+  ImageUnderstandingResult understanding = 2;
+  ImageRatingResult rating = 3;
+  RenditionMetadata rendition = 4;
+  UsageMetadata usage = 5;
+  string provider_request_id = 6;
+  string prompt_profile_id = 7;
+}
+
+message BatchAnalyzeImageResponse {
+  AiResponseHeader header = 1;       // batch-level status
+  repeated BatchAnalyzeImageItemResponse items = 2;
+}

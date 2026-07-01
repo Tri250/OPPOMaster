@@ -135,10 +135,11 @@ ApplicationWindow {
     readonly property int exportQueueCount: exportQueueState.exportQueueCount
     readonly property var languageOptions: languageManager.availableLanguages
     property var pendingDeleteTargets: []
-    property var pendingDetailsTarget: ({})
     property var pendingRatingTarget: ({})
     property var pendingAdjustmentSource: ({})
     property var pendingAdjustmentPasteTargets: []
+    property var focusedImageTarget: ({})
+    property var focusedImageInspection: ({ success: false, tiles: [] })
     property string deleteConfirmText: ""
     property string snackbarText: ""
     property bool importSessionObserved: false
@@ -150,13 +151,6 @@ ApplicationWindow {
     readonly property bool projectLaunchBusy: root.projectLoadingOverlayVisible || root.pendingProjectLaunchAction !== null
     property var pendingProjectLaunchAction: null
     property bool restoreWelcomeOnProjectLaunchFailure: false
-    property var imageDetailsData: ({
-        title: "",
-        subtitle: "",
-        semanticTags: "",
-        rows: []
-    })
-
     onWelcomeDismissedForLaunchChanged: updateWelcomeDialogVisibility()
     Component.onCompleted: {
         updateWelcomeDialogVisibility()
@@ -221,6 +215,14 @@ ApplicationWindow {
         settingsDialog.open()
     }
 
+    function openAdvancedAnalysisDialog() {
+        const targets = selectionState.currentSelectedItems()
+        advancedContentAnalysisDialog.openWithTargets(targets)
+        if (targets.length <= 0) {
+            root.showSnackbar(qsTr("Select at least one image to analyze."))
+        }
+    }
+
     function dismissWelcomeForProjectLaunch() {
         root.welcomeDismissedForLaunch = true
     }
@@ -263,9 +265,9 @@ ApplicationWindow {
         return exportDialog.opened
                || settingsDialog.opened
                || adjustmentTransferDialog.opened
-               || imageDetailsDialog.opened
                || nikonHeRecoveryDialog.opened
                || semanticGenerationDialog.opened
+               || advancedContentAnalysisDialog.opened
                || deleteConfirmDialog.opened
                || welcomeDialog.opened
     }
@@ -280,11 +282,85 @@ ApplicationWindow {
         }
         return {
             elementId: elementId,
+            fileId: Number(row.fileId || row.elementId),
             imageId: Number(row.imageId),
+            folderId: Number(row.folderId || albumBackend.currentFolderId),
+            scopeType: row.scopeType ? String(row.scopeType) : "",
             fileName: row.fileName ? row.fileName : qsTr("(unnamed)"),
             rating: Number(row.rating),
             isHdr: row.isHdr === true
         }
+    }
+
+    function setFocusedImage(item) {
+        if (!item || Number(item.imageId) <= 0) {
+            root.focusedImageTarget = ({})
+            root.focusedImageInspection = ({ success: false, tiles: [] })
+            return
+        }
+        root.focusedImageTarget = {
+            elementId: Number(item.elementId || item.fileId),
+            fileId: Number(item.fileId || item.elementId),
+            imageId: Number(item.imageId),
+            folderId: Number(item.folderId || albumBackend.currentFolderId),
+            scopeType: item.scopeType ? String(item.scopeType) : "",
+            fileName: item.fileName ? item.fileName : qsTr("(unnamed)"),
+            rating: Number(item.rating || 0),
+            isHdr: item.isHdr === true
+        }
+        root.refreshFocusedImageInspection()
+    }
+
+    function refreshFocusedImageInspection() {
+        if (!root.focusedImageTarget || Number(root.focusedImageTarget.imageId) <= 0) {
+            root.focusedImageInspection = ({ success: false, tiles: [] })
+            return
+        }
+        const result = albumBackend.GetFocusedImageInspection(
+            Number(root.focusedImageTarget.elementId || root.focusedImageTarget.fileId),
+            Number(root.focusedImageTarget.imageId))
+        if (!result || result.success !== true) {
+            root.focusedImageInspection = Object.assign({}, root.focusedImageTarget, {
+                success: false,
+                tiles: []
+            })
+            if (result && result.message) {
+                root.showSnackbar(result.message)
+            }
+            return
+        }
+        root.focusedImageInspection = result
+        root.focusedImageTarget = Object.assign({}, root.focusedImageTarget, {
+            fileId: Number(result.fileId || result.elementId || root.focusedImageTarget.fileId),
+            imageId: Number(result.imageId || root.focusedImageTarget.imageId),
+            fileName: result.title ? String(result.title) : root.focusedImageTarget.fileName,
+            rating: Number(result.rating || 0)
+        })
+    }
+
+    function analysisResultTouchesFocusedImage() {
+        if (!root.focusedImageTarget || Number(root.focusedImageTarget.imageId) <= 0
+                || !albumBackend.imageAnalysisController
+                || !albumBackend.imageAnalysisController.lastResults) {
+            return false
+        }
+        const results = albumBackend.imageAnalysisController.lastResults
+        const targetElementId = Number(root.focusedImageTarget.elementId || 0)
+        const targetFileId = Number(root.focusedImageTarget.fileId || 0)
+        const targetImageId = Number(root.focusedImageTarget.imageId || 0)
+        for (let i = 0; i < results.length; ++i) {
+            const row = results[i]
+            if (!row) {
+                continue
+            }
+            const elementId = Number(row.elementId || 0)
+            const imageId = Number(row.imageId || 0)
+            if ((elementId > 0 && (elementId === targetElementId || elementId === targetFileId))
+                    || (imageId > 0 && imageId === targetImageId)) {
+                return true
+            }
+        }
+        return false
     }
 
     function selectAllCurrentAlbum() {
@@ -358,17 +434,14 @@ ApplicationWindow {
         if (!targets || targets.length === 0) {
             return
         }
+        root.setFocusedImage(clickedItem)
         root.pendingDeleteTargets = targets
-        root.pendingDetailsTarget = {
-            elementId: Number(clickedItem.elementId),
-            imageId: Number(clickedItem.imageId),
-            fileName: clickedItem.fileName ? clickedItem.fileName : qsTr("(unnamed)")
-        }
         const ratingResult = albumBackend.GetImageRating(
             Number(clickedItem.elementId),
             Number(clickedItem.imageId))
         root.pendingRatingTarget = {
             elementId: Number(clickedItem.elementId),
+            fileId: Number(clickedItem.fileId || clickedItem.elementId),
             imageId: Number(clickedItem.imageId),
             fileName: clickedItem.fileName ? clickedItem.fileName : qsTr("(unnamed)"),
             rating: ratingResult && ratingResult.success === true
@@ -377,6 +450,7 @@ ApplicationWindow {
         }
         root.pendingAdjustmentSource = {
             elementId: Number(clickedItem.elementId),
+            fileId: Number(clickedItem.fileId || clickedItem.elementId),
             imageId: Number(clickedItem.imageId),
             fileName: clickedItem.fileName ? clickedItem.fileName : qsTr("(unnamed)")
         }
@@ -420,28 +494,17 @@ ApplicationWindow {
         if (deletedIds.length > 0) {
             selectionState.pruneDeletedElements(deletedIds)
             exportQueueState.pruneDeletedElements(deletedIds)
+            const focusedElementId = Number(root.focusedImageTarget.elementId || 0)
+            const focusedFileId = Number(root.focusedImageTarget.fileId || 0)
+            for (let i = 0; i < deletedIds.length; ++i) {
+                const deletedId = Number(deletedIds[i])
+                if (deletedId === focusedElementId || deletedId === focusedFileId) {
+                    root.setFocusedImage(null)
+                    break
+                }
+            }
         }
         root.pendingDeleteTargets = []
-    }
-
-    function requestImageDetails() {
-        if (!root.pendingDetailsTarget || Number(root.pendingDetailsTarget.imageId) <= 0) {
-            return
-        }
-        const result = albumBackend.GetImageDetails(
-            Number(root.pendingDetailsTarget.elementId),
-            Number(root.pendingDetailsTarget.imageId))
-        if (!result || result.success !== true) {
-            imageDetailsDialog.close()
-            return
-        }
-        root.imageDetailsData = {
-            title: result.title ? result.title : qsTr("(unnamed)"),
-            subtitle: result.subtitle ? result.subtitle : "",
-            semanticTags: result.semanticTags ? result.semanticTags : "",
-            rows: result.rows ? result.rows : []
-        }
-        imageDetailsDialog.open()
     }
 
     function requestSetImageRating(rating) {
@@ -457,6 +520,62 @@ ApplicationWindow {
             root.pendingRatingTarget = Object.assign({}, root.pendingRatingTarget, {
                 rating: Number(result.rating)
             })
+            if (Number(root.focusedImageTarget.imageId || 0)
+                    === Number(root.pendingRatingTarget.imageId || 0)) {
+                root.refreshFocusedImageInspection()
+            }
+        }
+        if (result && result.message) {
+            root.showSnackbar(result.message)
+        }
+    }
+
+    function requestSetFocusedImageRating(rating) {
+        if (!root.focusedImageTarget || Number(root.focusedImageTarget.imageId) <= 0) {
+            return
+        }
+        const normalizedRating = Math.max(0, Math.min(5, Number(rating)))
+        const result = albumBackend.SetImageRating(
+            Number(root.focusedImageTarget.elementId || root.focusedImageTarget.fileId),
+            Number(root.focusedImageTarget.imageId),
+            normalizedRating)
+        if (result && result.success === true) {
+            root.focusedImageTarget = Object.assign({}, root.focusedImageTarget, {
+                rating: Number(result.rating)
+            })
+            root.refreshFocusedImageInspection()
+        }
+        if (result && result.message) {
+            root.showSnackbar(result.message)
+        }
+    }
+
+    function requestSaveFocusedDescription(caption) {
+        if (!root.focusedImageTarget || Number(root.focusedImageTarget.fileId
+                || root.focusedImageTarget.elementId) <= 0) {
+            return
+        }
+        const result = albumBackend.SetImageDescription(
+            Number(root.focusedImageTarget.fileId || root.focusedImageTarget.elementId),
+            String(caption || ""))
+        if (result && result.success === true) {
+            root.refreshFocusedImageInspection()
+        }
+        if (result && result.message) {
+            root.showSnackbar(result.message)
+        }
+    }
+
+    function requestSaveFocusedRatingReason(reasons) {
+        if (!root.focusedImageTarget || Number(root.focusedImageTarget.fileId
+                || root.focusedImageTarget.elementId) <= 0) {
+            return
+        }
+        const result = albumBackend.SetImageRatingReasons(
+            Number(root.focusedImageTarget.fileId || root.focusedImageTarget.elementId),
+            String(reasons || ""))
+        if (result && result.success === true) {
+            root.refreshFocusedImageInspection()
         }
         if (result && result.message) {
             root.showSnackbar(result.message)
@@ -523,6 +642,7 @@ ApplicationWindow {
             if (selected) {
                 next[key] = {
                     elementId: Number(elementId),
+                    fileId: Number(elementId),
                     imageId: Number(imageId),
                     fileName: fileName ? fileName : qsTr("(unnamed)"),
                     isHdr: isHdr === true
@@ -544,6 +664,7 @@ ApplicationWindow {
                 const key = keyForElement(item.elementId)
                 next[key] = {
                     elementId: Number(item.elementId),
+                    fileId: Number(item.fileId || item.elementId),
                     imageId: Number(item.imageId),
                     fileName: item.fileName ? item.fileName : qsTr("(unnamed)"),
                     isHdr: item.isHdr === true
@@ -563,6 +684,7 @@ ApplicationWindow {
                     if (current && Number(current.elementId) === Number(item.elementId)) {
                         items.push({
                             elementId: Number(current.elementId),
+                            fileId: Number(current.fileId || current.elementId),
                             imageId: Number(current.imageId),
                             fileName: current.fileName ? current.fileName : qsTr("(unnamed)"),
                             isHdr: current.isHdr === true
@@ -572,6 +694,7 @@ ApplicationWindow {
                 }
                 items.push({
                     elementId: Number(item.elementId),
+                    fileId: Number(item.fileId || item.elementId),
                     imageId: Number(item.imageId),
                     fileName: item.fileName ? item.fileName : qsTr("(unnamed)"),
                     isHdr: item.isHdr === true
@@ -706,11 +829,6 @@ ApplicationWindow {
         currentRating: Math.max(0, Math.min(5, Number(root.pendingRatingTarget.rating || 0)))
         actions: [
             {
-                id: "details",
-                label: qsTr("Details"),
-                enabled: Number(root.pendingDetailsTarget.imageId) > 0
-            },
-            {
                 id: "copy-adjustments",
                 label: qsTr("Copy Adjustments"),
                 enabled: Number(root.pendingAdjustmentSource.elementId) > 0
@@ -733,10 +851,6 @@ ApplicationWindow {
         }
         onActionRequested: function(actionId) {
             imageContextMenu.close()
-            if (actionId === "details") {
-                requestImageDetails()
-                return
-            }
             if (actionId === "copy-adjustments") {
                 requestCopyAdjustments()
                 return
@@ -755,35 +869,20 @@ ApplicationWindow {
         }
     }
 
-    ImageDetailsDialog {
-        id: imageDetailsDialog
-        parent: Overlay.overlay
-        blurSource: mainContent
-        cornerRadius: root.windowCornerRadius
-        titleText: root.imageDetailsData.title
-        subtitleText: root.imageDetailsData.subtitle
-        semanticTags: root.imageDetailsData.semanticTags
-        detailRows: root.imageDetailsData.rows
-        onRowActionRequested: function(actionId, actionValue) {
-            if (actionId === "open-directory") {
-                albumBackend.OpenDirectoryInFileManager(actionValue)
-            }
+    Connections {
+        target: languageManager
+        function onLanguageChanged() {
+            root.refreshFocusedImageInspection()
         }
-        onClosed: {
-            root.imageDetailsData = {
-                title: "",
-                subtitle: "",
-                semanticTags: "",
-                rows: []
-            }
-        }
+    }
 
-        Connections {
-            target: languageManager
-            function onLanguageChanged() {
-                if (imageDetailsDialog.opened) {
-                    root.requestImageDetails()
-                }
+    Connections {
+        target: albumBackend.imageAnalysisController
+        ignoreUnknownSignals: true
+        function onStateChanged() {
+            if (!albumBackend.imageAnalysisController.running
+                    && root.analysisResultTouchesFocusedImage()) {
+                root.refreshFocusedImageInspection()
             }
         }
     }
@@ -806,6 +905,19 @@ ApplicationWindow {
         onBrowseRequested: albumBackend.BrowseNikonHeConverter()
         onConvertRequested: albumBackend.StartNikonHeConversion()
         onExitRequested: albumBackend.ExitNikonHeRecovery()
+    }
+
+    AdvancedContentAnalysisDialog {
+        id: advancedContentAnalysisDialog
+        parent: Overlay.overlay
+        blurSource: mainContent
+        backend: albumBackend
+        analysisController: albumBackend.imageAnalysisController
+        profileController: albumBackend.aiProviderProfileController
+        backendInteractive: root.backendInteractive
+        onMessageRequested: function(message) {
+            root.showSnackbar(message)
+        }
     }
 
     SemanticGenerationDialog {
@@ -840,7 +952,7 @@ ApplicationWindow {
         promptVisible: root.semanticGeneration.activatePromptVisible
         onOpenSettingsRequested: {
             root.semanticGeneration.DismissActivatePrompt()
-            root.openSettingsDialog(3) // 3 == "AI" category (model install/activate)
+            root.openSettingsDialog(3) // 3 == "Local Content Recognition" (model install/activate)
         }
         onDismissed: root.semanticGeneration.DismissActivatePrompt()
     }
@@ -952,10 +1064,9 @@ ApplicationWindow {
             selectionState.clearSelectedImages()
             exportQueueState.clearQueue()
             root.pendingDeleteTargets = []
-            root.pendingDetailsTarget = ({})
             root.pendingRatingTarget = ({})
+            root.setFocusedImage(null)
             deleteConfirmDialog.close()
-            imageDetailsDialog.close()
             root.showSnackbar(albumBackend.serviceMessage)
 
             // Auto-maximize when a project is successfully opened.
@@ -967,10 +1078,9 @@ ApplicationWindow {
         function onFolderSelectionChanged() {
             selectionState.clearSelectedImages()
             root.pendingDeleteTargets = []
-            root.pendingDetailsTarget = ({})
             root.pendingRatingTarget = ({})
+            root.setFocusedImage(null)
             deleteConfirmDialog.close()
-            imageDetailsDialog.close()
         }
         function onServiceStateChanged() {
             root.updateWelcomeDialogVisibility()
@@ -1310,8 +1420,10 @@ ApplicationWindow {
                 backend: albumBackend
                 theme: root
                 backendInteractive: root.backendInteractive
+                selectedCount: root.selectedCount
                 onImportRequested: importDialog.open()
                 onSearchRequested: globalSearchDialog.openFromCollection()
+                onAdvancedAnalysisRequested: root.openAdvancedAnalysisDialog()
             }
 
             ColumnLayout {
@@ -1595,6 +1707,16 @@ ApplicationWindow {
                         InspectorPanel {
                             anchors.fill: parent
                             anchors.margins: 10
+                            focusedImage: root.focusedImageInspection
+                            onRatingRequested: function(rating) {
+                                root.requestSetFocusedImageRating(rating)
+                            }
+                            onDescriptionSaveRequested: function(caption) {
+                                root.requestSaveFocusedDescription(caption)
+                            }
+                            onRatingReasonSaveRequested: function(reasons) {
+                                root.requestSaveFocusedRatingReason(reasons)
+                            }
                         }
                     }
 
@@ -2229,6 +2351,14 @@ ApplicationWindow {
             }
             onReplaceSelection: function(items) {
                 selectionState.replaceSelectedImages(items)
+                if (items && items.length > 0) {
+                    root.setFocusedImage(items[0])
+                } else {
+                    root.setFocusedImage(null)
+                }
+            }
+            onImageFocused: function(item) {
+                root.setFocusedImage(item)
             }
             onContextMenuRequested: function(item, sceneX, sceneY) {
                 root.openImageContextMenu(item, sceneX, sceneY)
@@ -2246,6 +2376,14 @@ ApplicationWindow {
             }
             onReplaceSelection: function(items) {
                 selectionState.replaceSelectedImages(items)
+                if (items && items.length > 0) {
+                    root.setFocusedImage(items[0])
+                } else {
+                    root.setFocusedImage(null)
+                }
+            }
+            onImageFocused: function(item) {
+                root.setFocusedImage(item)
             }
             onContextMenuRequested: function(item, sceneX, sceneY) {
                 root.openImageContextMenu(item, sceneX, sceneY)

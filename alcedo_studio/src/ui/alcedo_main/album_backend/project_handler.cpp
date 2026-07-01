@@ -215,7 +215,7 @@ bool ProjectHandler::InitializeServices(const std::filesystem::path& dbPath,
           ph.project_workspace_dir_ = std::move(result->workspace_dir_);
 
           if (ph.project_) {
-            (void)ph.project_->GetSemanticRuntimeService();
+            (void)ph.project_->GetAiSidecarRuntimeService();
           }
 
           const auto preferred_folder_path = self->folder_ctrl_.current_folder_path();
