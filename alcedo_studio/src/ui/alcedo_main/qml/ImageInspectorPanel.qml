@@ -26,6 +26,19 @@ Item {
     property string draftDescription: ""
     property string draftReason: ""
 
+    // Phase 2: the interaction-policy controller. When present, the focused-image
+    // edit gates come from its cached Q_PROPERTYs (re-evaluated on PolicyChanged);
+    // when absent (no policy wired) the controls stay editable.
+    property var interactionPolicy: null
+    readonly property bool canEditDescription: !root.interactionPolicy
+                                               || root.interactionPolicy.canEditFocusedDescription
+    readonly property bool canEditRating: !root.interactionPolicy
+                                          || root.interactionPolicy.canEditFocusedRating
+    readonly property bool canEditRatingReason: !root.interactionPolicy
+                                                 || root.interactionPolicy.canEditFocusedRatingReason
+    readonly property string editDisabledReason: root.interactionPolicy
+                                                   ? root.interactionPolicy.focusedEditReason : ""
+
     function withAlpha(color, alpha) {
         return Qt.rgba(color.r, color.g, color.b, alpha)
     }
@@ -76,6 +89,10 @@ Item {
         property bool editable: false
         property bool editing: false
         property string editToolTip: ""
+        // Phase 2: callers set this to the focused-image policy gate for the field
+        // this tile edits, so the shared edit button is disabled (not just hidden)
+        // while a background task holds the matching interaction lock.
+        property bool editEnabled: true
         signal editToggled()
         default property alias content: contentColumn.data
 
@@ -111,6 +128,7 @@ Item {
         Button {
             id: editButton
             visible: tile.editable
+            enabled: tile.editEnabled
             anchors.top: parent.top
             anchors.right: parent.right
             anchors.margins: 8
@@ -290,11 +308,13 @@ Item {
                     tall: true
                     editable: true
                     editing: root.editingDescription
+                    editEnabled: root.canEditDescription
                     editToolTip: root.editingDescription ? qsTr("Save description") : qsTr("Edit description")
                     onEditToggled: root.toggleDescriptionEdit()
 
                     TextArea {
                         visible: root.editingDescription
+                        enabled: root.canEditDescription
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         text: root.draftDescription
@@ -330,6 +350,7 @@ Item {
                     tall: true
                     editable: true
                     editing: root.editingReason
+                    editEnabled: root.canEditRatingReason
                     editToolTip: root.editingReason ? qsTr("Save rating reason") : qsTr("Edit rating reason")
                     onEditToggled: root.toggleReasonEdit()
 
@@ -375,6 +396,7 @@ Item {
 
                         MouseArea {
                             anchors.fill: parent
+                            enabled: root.canEditRating
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
                             acceptedButtons: Qt.LeftButton | Qt.RightButton
@@ -400,6 +422,7 @@ Item {
 
                     TextArea {
                         visible: root.editingReason
+                        enabled: root.canEditRatingReason
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         text: root.draftReason
@@ -426,6 +449,18 @@ Item {
                         color: root.ratingReasonText.length > 0 ? root.textColor : root.mutedTextColor
                         font.pixelSize: 12
                         font.italic: root.ratingReasonText.length === 0
+                        wrapMode: Text.WordWrap
+                    }
+
+                    // Phase 2: surface why the focused-image edit controls are
+                    // disabled (e.g. "This image is being analyzed.").
+                    Label {
+                        Layout.fillWidth: true
+                        visible: root.editDisabledReason.length > 0
+                        text: root.editDisabledReason
+                        color: root.mutedTextColor
+                        font.pixelSize: 10
+                        font.italic: true
                         wrapMode: Text.WordWrap
                     }
                 }

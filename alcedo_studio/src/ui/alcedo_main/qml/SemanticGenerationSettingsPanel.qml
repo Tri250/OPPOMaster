@@ -9,6 +9,10 @@ ColumnLayout {
 
     property var semanticController: null
     property var downloadController: null
+    // Phase 2: the interaction-policy controller. The model/download/activate/
+    // generate gates below bind to its cached Q_PROPERTYs (re-evaluated on
+    // PolicyChanged) instead of the coarse !modelTaskRunning flags.
+    property var interactionPolicy: null
     property string importPreference: "ask"
     property color primaryAccent: "#457B9D"
     property color secondaryAccent: "#9FC7D8"
@@ -317,7 +321,10 @@ ColumnLayout {
                 Layout.preferredHeight: 48
                 text: panel.generationRunning ? qsTr("Cancel") : qsTr("Generate")
                 enabled: panel.hasController
-                         && (panel.generationRunning || panel.albumUnlabeledCount > 0)
+                         && (panel.generationRunning
+                             || (panel.albumUnlabeledCount > 0
+                                 && (!panel.interactionPolicy
+                                     || panel.interactionPolicy.canRunSemanticGeneration)))
                 font.pixelSize: 15
                 font.weight: 800
                 Material.foreground: panel.textColor
@@ -354,6 +361,8 @@ ColumnLayout {
                 Layout.preferredHeight: 48
                 text: qsTr("Regenerate")
                 enabled: panel.hasController && panel.albumTotalCount > 0
+                         && (!panel.interactionPolicy
+                             || panel.interactionPolicy.canRunSemanticGeneration)
                 font.pixelSize: 15
                 font.weight: 800
                 Material.foreground: panel.textColor
@@ -399,7 +408,9 @@ ColumnLayout {
                 id: modelBox
                 Layout.fillWidth: true
                 Layout.preferredHeight: 44
-                enabled: panel.hasDownloadController && !panel.modelTaskRunning
+                enabled: panel.hasDownloadController
+                         && (!panel.interactionPolicy
+                             || panel.interactionPolicy.canChangeSemanticModel)
                 model: panel.hasDownloadController ? panel.downloadController.modelProfileOptions : []
                 textRole: "label"
                 currentIndex: panel.hasDownloadController
@@ -483,7 +494,9 @@ ColumnLayout {
                 MouseArea {
                     id: modelBrowseMouse
                     anchors.fill: parent
-                    enabled: panel.hasController && !panel.modelTaskRunning
+                    enabled: panel.hasController
+                             && (!panel.interactionPolicy
+                                 || panel.interactionPolicy.canChangeModelDownloadSettings)
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: modelFolderDialog.open()
@@ -507,7 +520,9 @@ ColumnLayout {
                 id: endpointBox
                 Layout.preferredWidth: 210
                 Layout.preferredHeight: 44
-                enabled: panel.hasDownloadController && !panel.modelTaskRunning
+                enabled: panel.hasDownloadController
+                         && (!panel.interactionPolicy
+                             || panel.interactionPolicy.canChangeModelDownloadSettings)
                 model: [
                     qsTr("HF Mirror"),
                     qsTr("Hugging Face"),
@@ -528,7 +543,9 @@ ColumnLayout {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 44
                 visible: panel.hasDownloadController && panel.downloadController.modelEndpointPreset === "custom"
-                enabled: panel.hasDownloadController && !panel.modelTaskRunning
+                enabled: panel.hasDownloadController
+                         && (!panel.interactionPolicy
+                             || panel.interactionPolicy.canChangeModelDownloadSettings)
                 text: panel.hasDownloadController ? panel.downloadController.customModelEndpoint : ""
                 placeholderText: qsTr("https://example.com")
                 color: panel.textColor
@@ -547,7 +564,9 @@ ColumnLayout {
             Button {
                 Layout.preferredHeight: 42
                 text: qsTr("Check")
-                enabled: panel.hasDownloadController && !panel.modelTaskRunning
+                enabled: panel.hasDownloadController
+                         && (!panel.interactionPolicy
+                             || panel.interactionPolicy.canChangeModelDownloadSettings)
                 Material.foreground: panel.textColor
                 onClicked: panel.downloadController.RefreshSelectedModelStatus()
             }
@@ -557,7 +576,12 @@ ColumnLayout {
                 text: panel.modelDownloadRunning
                       ? qsTr("Cancel")
                       : qsTr("Download")
-                enabled: panel.hasDownloadController && !panel.modelActivationRunning
+                enabled: panel.hasDownloadController
+                         && (panel.modelDownloadRunning
+                             ? true
+                             : (!panel.modelActivationRunning
+                                 && (!panel.interactionPolicy
+                                     || panel.interactionPolicy.canChangeModelDownloadSettings)))
                 Material.foreground: panel.textColor
                 onClicked: {
                     if (panel.modelDownloadRunning) {
@@ -571,7 +595,9 @@ ColumnLayout {
             Button {
                 Layout.preferredHeight: 42
                 text: qsTr("Delete")
-                enabled: panel.hasDownloadController && !panel.modelTaskRunning
+                enabled: panel.hasDownloadController
+                         && (!panel.interactionPolicy
+                             || panel.interactionPolicy.canChangeModelDownloadSettings)
                 Material.foreground: panel.dangerColor
                 onClicked: panel.downloadController.DeleteSelectedModel()
             }
@@ -580,8 +606,8 @@ ColumnLayout {
                 Layout.preferredHeight: 42
                 text: qsTr("Activate")
                 enabled: panel.hasController
-                         && !panel.modelDownloadRunning
-                         && !panel.modelActivationRunning
+                         && (!panel.interactionPolicy
+                             || panel.interactionPolicy.canChangeSemanticModel)
                 Material.foreground: panel.textColor
                 onClicked: panel.semanticController.ActivateSelectedModel()
             }

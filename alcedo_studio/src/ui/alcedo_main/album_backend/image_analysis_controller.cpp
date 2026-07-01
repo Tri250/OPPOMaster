@@ -221,6 +221,32 @@ auto ImageAnalysisController::RegisterBackgroundTask() -> QString {
   snapshot.cancelable_       = true;
   snapshot.shutdown_policy_  = BackgroundTaskShutdownPolicy::CancelAndWait;
   snapshot.affected_targets_ = BuildAffectedTargets();
+  // Phase 2: publish interaction locks so the policy controller disables only
+  // the controls that conflict with this run. Image-field locks are per-element
+  // (so the inspector for an unrelated image stays editable); the provider-change
+  // lock is global. `EditImageRatingReason` is published only when this run will
+  // actually write reasons. `EditImageRating` is published even for a describe
+  // job (conservative; the plan's acceptance disables rating for affected images).
+  const QString edit_reason   = Tr("This image is being analyzed.");
+  const QString delete_reason = Tr("This image is being analyzed and cannot be deleted or removed.");
+  const QString rerun_reason  = Tr("An analysis is already running for this image.");
+  for (const auto& item : last_items_) {
+    const quint64 eid = static_cast<quint64>(item.element_id);
+    snapshot.locks_.push_back(
+        InteractionLock{InteractionCapability::EditImageDescription, eid, edit_reason});
+    snapshot.locks_.push_back(
+        InteractionLock{InteractionCapability::EditImageRating, eid, edit_reason});
+    if (last_include_rating_reasons_) {
+      snapshot.locks_.push_back(
+          InteractionLock{InteractionCapability::EditImageRatingReason, eid, edit_reason});
+    }
+    snapshot.locks_.push_back(
+        InteractionLock{InteractionCapability::RunImageAnalysis, eid, rerun_reason});
+    snapshot.locks_.push_back(
+        InteractionLock{InteractionCapability::DeleteImages, eid, delete_reason});
+  }
+  snapshot.locks_.push_back(InteractionLock{InteractionCapability::ChangeImageAnalysisProvider, 0,
+                                            Tr("An analysis is running; change the provider after it finishes.")});
   QPointer<ImageAnalysisController> self(this);
   return registry_->RegisterTask(snapshot, [self]() {
     if (self) {
@@ -718,13 +744,37 @@ void ImageAnalysisController::Finish(std::vector<alcedo::ImageAnalysisItemResult
   }
 
   RefreshConfiguredState();
+  // Phase 2 (Step 4): if writes are queued behind the project DB write barrier,
+  // keep the task Running (locks held) until they actually commit, so the
+  // inspector stays disabled across the gap and a user can't edit a
+  // just-analyzed image's rating in the window before the queued AI rating
+  // would overwrite it. The drain-complete callback (fired by the barrier's
+  // on_release_ → sink FlushPendingWrites → queue Drain) finishes the task then.
+  // Otherwise finish now — no barrier, writes already committed (today's path).
   if (registry_ && !background_task_id_.isEmpty()) {
     const BackgroundTaskState final_state =
         canceled_ > 0 ? BackgroundTaskState::Canceled
                       : (analyzed_ > 0 ? BackgroundTaskState::Succeeded
                                        : BackgroundTaskState::Failed);
-    registry_->FinishTask(background_task_id_, final_state, status_text_.Render());
-    background_task_id_.clear();
+    const QString detail = status_text_.Render();
+    if (sink_ && sink_->HasPendingWrites()) {
+      // Capture the task id by value — it is independent of the background_task_id_
+      // member, which a subsequent job's RegisterBackgroundTask may overwrite. The
+      // drain-complete FIFO in the queue handles multiple deferred jobs.
+      const QString                     task_id = background_task_id_;
+      QPointer<ImageAnalysisController> self(this);
+      sink_->SetOnDrainComplete(
+          [self, registry = registry_, task_id, final_state, detail] {
+            if (self && registry) {
+              registry->FinishTask(task_id, final_state, detail);
+            }
+          });
+      // Intentionally do NOT clear background_task_id_ here: the captured task_id
+      // is what finishes the task, and the member is overwritten on the next run.
+    } else {
+      registry_->FinishTask(background_task_id_, final_state, detail);
+      background_task_id_.clear();
+    }
   }
   emit StateChanged();
 }

@@ -27,11 +27,14 @@
 #include "ui/alcedo_main/album_backend/editor_controller.hpp"
 #include "ui/alcedo_main/album_backend/folder_controller.hpp"
 #include "ui/alcedo_main/album_backend/image_analysis_controller.hpp"
+#include "ui/alcedo_main/album_backend/image_analysis_sink.hpp"
 #include "ui/alcedo_main/album_backend/image_controller.hpp"
 #include "ui/alcedo_main/album_backend/import_export.hpp"
+#include "ui/alcedo_main/album_backend/interaction_policy_controller.hpp"
 #include "ui/alcedo_main/album_backend/model_download_controller.hpp"
 #include "ui/alcedo_main/album_backend/nikon_he_recovery_controller.hpp"
 #include "ui/alcedo_main/album_backend/nikon_he_recovery_types.hpp"
+#include "ui/alcedo_main/album_backend/project_db_write_barrier.hpp"
 #include "ui/alcedo_main/album_backend/project_handler.hpp"
 #include "ui/alcedo_main/album_backend/search_controller.hpp"
 #include "ui/alcedo_main/album_backend/semantic_generation_controller.hpp"
@@ -51,6 +54,7 @@ class AlbumBackend final : public QObject {
   Q_PROPERTY(QObject* aiProviderProfileController READ AiProviderProfileControllerObject CONSTANT)
   Q_PROPERTY(QObject* imageAnalysisController READ ImageAnalysisControllerObject CONSTANT)
   Q_PROPERTY(QObject* backgroundTaskController READ BackgroundTaskControllerObject CONSTANT)
+  Q_PROPERTY(QObject* interactionPolicyController READ InteractionPolicyControllerObject CONSTANT)
   Q_PROPERTY(QVariantList folders READ Folders NOTIFY FoldersChanged)
   Q_PROPERTY(uint currentFolderId READ CurrentFolderId NOTIFY FolderSelectionChanged)
   Q_PROPERTY(QString currentFolderPath READ CurrentFolderPath NOTIFY FolderSelectionChanged)
@@ -156,6 +160,7 @@ class AlbumBackend final : public QObject {
   QObject*     AiProviderProfileControllerObject() { return &ai_provider_profiles_; }
   QObject*     ImageAnalysisControllerObject() { return &image_analysis_; }
   QObject*     BackgroundTaskControllerObject() { return &background_task_; }
+  QObject*     InteractionPolicyControllerObject() { return &interaction_policy_; }
   QVariantList Folders() const { return folder_ctrl_.folders(); }
   uint CurrentFolderId() const { return static_cast<uint>(folder_ctrl_.current_folder_id()); }
   const QString& CurrentFolderPath() const { return folder_ctrl_.current_folder_path_text(); }
@@ -416,6 +421,10 @@ class AlbumBackend final : public QObject {
   // order). It is also destroyed after them (reverse order), so cancel
   // callbacks capturing QPointer<Controller> never dangle.
   BackgroundTaskController                           background_task_;
+  // Phase 2: consumes `background_task_`'s `ActiveLocks()` in its ctor, so it
+  // must be constructed after `background_task_` (declared immediately after it
+  // to guarantee that). Standalone QObject, no AlbumBackend dependency.
+  InteractionPolicyController                        interaction_policy_;
   alcedo::ModelDownloadService                       model_download_service_;
   ModelDownloadController                            model_download_controller_;
   SemanticGenerationController                       semantic_generation_;
@@ -423,6 +432,16 @@ class AlbumBackend final : public QObject {
   // One app-wide in-flight gate so remote image-analysis calls serialize across
   // the whole album flow, not per service instance (Phase 6d mandate).
   std::shared_ptr<alcedo::ImageAnalysisInFlightGate> image_analysis_gate_;
+  // Phase 2 (Step 4): the project DB write barrier. Declared BEFORE
+  // image_analysis_sink_ so it is constructed first — the sink's
+  // AnalysisResultWriteQueue holds a reference to it. It is destroyed AFTER the
+  // sink (reverse declaration order); `~AlbumBackend()` clears on_release_ as its
+  // first line so a stale closure can't dereference the destroyed sink.
+  ProjectDbWriteBarrier                              db_write_barrier_;
+  // Phase 2 (Step 4): the production image-analysis sink, stored as a member so
+  // the barrier's on_release_ callback can drain its queued writes. Declared
+  // before image_analysis_ (which is constructed with it).
+  std::shared_ptr<IImageAnalysisSink>                image_analysis_sink_;
   ImageAnalysisController                            image_analysis_;
   ImportExportHandler                                import_export_;
   NikonHeRecoveryController                          nikon_he_recovery_;

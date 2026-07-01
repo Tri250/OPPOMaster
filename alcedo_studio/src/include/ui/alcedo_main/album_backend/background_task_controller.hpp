@@ -69,6 +69,14 @@ struct InteractionLock {
   QString               reason_;
 };
 
+/// An interaction lock paired with the id of the task that holds it. Returned by
+/// `BackgroundTaskController::ActiveLocks()` so `InteractionPolicyController`
+/// (Phase 2) can populate `blockingTaskIds` in its policy answers.
+struct ActiveLock {
+  QString         task_id_;
+  InteractionLock lock_;
+};
+
 /// Immutable-ish description of a task at a point in time. Owning controllers
 /// build one at start, then push progress/title/detail updates into the
 /// registry by id.
@@ -132,6 +140,13 @@ class BackgroundTaskController final : public QObject {
   // most once.
   Q_INVOKABLE void CancelAll();
 
+  // ── C++ policy read (Phase 2: InteractionPolicyController consumes this) ─
+  // All locks held by active (non-terminal) tasks, each paired with its task
+  // id. `Canceling` counts as active so a cancel-in-flight task's locks stay
+  // published until it reaches a terminal state (it may still be writing
+  // results). Called only on the UI thread.
+  std::vector<ActiveLock> ActiveLocks() const;
+
   // ── C++ registration helpers (called by owning controllers) ─────────────
   // Register a new task and return the assigned task id (the registry owns id
   // assignment; any `id_` on the input snapshot is overwritten). The cancel
@@ -167,6 +182,7 @@ class BackgroundTaskController final : public QObject {
   static auto KindToString(BackgroundTaskKind kind) -> QString;
   static auto StateToString(BackgroundTaskState state) -> QString;
   static auto ShutdownPolicyToString(BackgroundTaskShutdownPolicy policy) -> QString;
+  static auto CapabilityToString(InteractionCapability capability) -> QString;
   static auto IsTerminal(BackgroundTaskState state) -> bool;
   static auto IsActive(BackgroundTaskState state) -> bool;
   void PruneFinished();

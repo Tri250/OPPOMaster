@@ -113,6 +113,13 @@ class SemanticGenerationController final : public QObject {
   // Register this run as a background task (Phase 1 mirroring) and return the
   // assigned task id. No-op (returns empty) when no registry is reachable.
   auto RegisterBackgroundTask() -> QString;
+  // Phase 2: register the model-activation run as a background task (non-
+  // cancelable — activation runs on a detached thread with no cancel path; Phase
+  // 5 owns the shutdown wait) and return its id. No-op (returns empty) when no
+  // registry is reachable. Publishes ChangeSemanticModel/RunSemanticGeneration/
+  // ChangeModelDownloadSettings locks so the policy blocks model swap, a second
+  // generation, and model-file changes during activation.
+  auto RegisterActivationTask() -> QString;
   // Recomputes selected_model_active_ from the download controller's install
   // state and the project's active-model record. Does not emit StateChanged;
   // callers emit.
@@ -132,6 +139,10 @@ class SemanticGenerationController final : public QObject {
   std::shared_ptr<SemanticGenerationJob>       job_{};
   // Phase 1 background-task mirroring id; empty when no task is registered.
   QString                                       background_task_id_;
+  // Phase 2: the model-activation background-task id (separate from the
+  // generation task id so the two task lifecycles never collide). Empty when no
+  // activation task is registered.
+  QString                                       model_activation_task_id_;
   i18n::LocalizedText                          status_text_{};
   i18n::LocalizedText                          album_summary_text_{};
   std::string                                  model_key_{};

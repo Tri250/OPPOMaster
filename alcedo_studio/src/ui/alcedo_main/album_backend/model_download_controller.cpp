@@ -766,6 +766,15 @@ auto ModelDownloadController::RegisterBackgroundTask() -> QString {
   snapshot.cancelable_       = true;
   snapshot.shutdown_policy_  = BackgroundTaskShutdownPolicy::CancelAndWait;
   snapshot.affected_targets_ = QVariantList{SelectedModelProfileId()};
+  // Phase 2: download blocks changing download settings (directory/endpoint/
+  // selected model/delete) and blocks swapping/activating the model it is
+  // fetching. Both are global locks.
+  snapshot.locks_.push_back(InteractionLock{
+      InteractionCapability::ChangeModelDownloadSettings, 0,
+      PL_TEXT("A model download is running; wait for it to finish or cancel.").Render()});
+  snapshot.locks_.push_back(InteractionLock{
+      InteractionCapability::ChangeSemanticModel, 0,
+      PL_TEXT("A model download is running; change the model after it finishes.").Render()});
   QPointer<ModelDownloadController> self(this);
   return backend_.background_task_.RegisterTask(snapshot, [self]() {
     if (self) {

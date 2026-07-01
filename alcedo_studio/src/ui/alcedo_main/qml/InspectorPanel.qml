@@ -23,6 +23,9 @@ Item {
     id: root
 
     property var focusedImage: ({})
+    // Phase 2: the interaction-policy controller (forwarded to ImageInspectorPanel
+    // so its edit controls can bind enabled to the focused-image policy gates).
+    property var interactionPolicy: null
     property int currentPage: 0  // 0 = Album, 1 = Image
     signal ratingRequested(int rating)
     signal descriptionSaveRequested(string caption)
@@ -128,6 +131,7 @@ Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 focusedImage: root.focusedImage
+                interactionPolicy: root.interactionPolicy
                 onRatingRequested: function(rating) {
                     root.ratingRequested(rating)
                 }

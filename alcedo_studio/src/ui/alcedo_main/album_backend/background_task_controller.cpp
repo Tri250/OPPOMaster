@@ -62,6 +62,19 @@ bool BackgroundTaskController::HasBlockingShutdownTasks() const {
   return false;
 }
 
+std::vector<ActiveLock> BackgroundTaskController::ActiveLocks() const {
+  std::vector<ActiveLock> out;
+  for (const auto& record : tasks_) {
+    if (!IsActive(record.snapshot_.state_)) {
+      continue;
+    }
+    for (const auto& lock : record.snapshot_.locks_) {
+      out.push_back(ActiveLock{record.snapshot_.id_, lock});
+    }
+  }
+  return out;
+}
+
 bool BackgroundTaskController::CancelTask(const QString& taskId) {
   auto* record = Find(taskId);
   if (!record) return false;
@@ -168,6 +181,19 @@ auto BackgroundTaskController::ToVariantMap(const TaskRecord& record) -> QVarian
   m.insert(QStringLiteral("cancelable"), s.cancelable_);
   m.insert(QStringLiteral("shutdownPolicy"), ShutdownPolicyToString(s.shutdown_policy_));
   m.insert(QStringLiteral("affectedTargets"), s.affected_targets_);
+  // Surface the interaction locks so QML (and debug tooling) can show why a
+  // control is disabled. `elementId` is a quint64 so QML reads a real number,
+  // not a raw enum int.
+  QVariantList locks;
+  locks.reserve(static_cast<int>(s.locks_.size()));
+  for (const auto& lock : s.locks_) {
+    QVariantMap lm;
+    lm.insert(QStringLiteral("capability"), CapabilityToString(lock.capability_));
+    lm.insert(QStringLiteral("elementId"), static_cast<quint64>(lock.element_id_));
+    lm.insert(QStringLiteral("reason"), lock.reason_);
+    locks.append(lm);
+  }
+  m.insert(QStringLiteral("locks"), locks);
   return m;
 }
 
@@ -216,6 +242,34 @@ auto BackgroundTaskController::ShutdownPolicyToString(BackgroundTaskShutdownPoli
       return QStringLiteral("waitForFinish");
     case BackgroundTaskShutdownPolicy::DetachNotAllowed:
       return QStringLiteral("detachNotAllowed");
+  }
+  return QStringLiteral("unknown");
+}
+
+auto BackgroundTaskController::CapabilityToString(InteractionCapability capability) -> QString {
+  switch (capability) {
+    case InteractionCapability::EditImageDescription:
+      return QStringLiteral("editImageDescription");
+    case InteractionCapability::EditImageRating:
+      return QStringLiteral("editImageRating");
+    case InteractionCapability::EditImageRatingReason:
+      return QStringLiteral("editImageRatingReason");
+    case InteractionCapability::RunImageAnalysis:
+      return QStringLiteral("runImageAnalysis");
+    case InteractionCapability::CommitImageAnalysisResults:
+      return QStringLiteral("commitImageAnalysisResults");
+    case InteractionCapability::ChangeImageAnalysisProvider:
+      return QStringLiteral("changeImageAnalysisProvider");
+    case InteractionCapability::ChangeSemanticModel:
+      return QStringLiteral("changeSemanticModel");
+    case InteractionCapability::RunSemanticGeneration:
+      return QStringLiteral("runSemanticGeneration");
+    case InteractionCapability::ChangeModelDownloadSettings:
+      return QStringLiteral("changeModelDownloadSettings");
+    case InteractionCapability::DeleteImages:
+      return QStringLiteral("deleteImages");
+    case InteractionCapability::CloseProject:
+      return QStringLiteral("closeProject");
   }
   return QStringLiteral("unknown");
 }

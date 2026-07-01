@@ -24,7 +24,19 @@ Dialog {
     property var backend: null
     property var selectionTargets: []
     property bool backendInteractive: false
+    // Phase 2: the interaction-policy controller. The Start button binds to its
+    // canRunAnalysis Q_PROPERTY so a running analysis on the selected images
+    // blocks starting another, with a reason shown in the footer.
+    property var interactionPolicy: null
     property real cornerRadius: 0
+
+    // Phase 2: push the dialog's selected targets into the policy controller so
+    // canRunAnalysis re-evaluates on PolicyChanged.
+    Binding {
+        target: root.interactionPolicy
+        property: "pendingAnalysisTargets"
+        value: root.selectionTargets
+    }
 
     property color panelColor: appTheme.toneGraphite
     property color canvasColor: appTheme.bgDeepColor
@@ -877,7 +889,10 @@ Dialog {
 
                         Label {
                             Layout.fillWidth: true
-                            text: root.running ? qsTr("Remote provider calls may incur cost.") : ""
+                            text: root.running
+                                  ? qsTr("Remote provider calls may incur cost.")
+                                  : (root.interactionPolicy && !root.interactionPolicy.canRunAnalysis
+                                       ? root.interactionPolicy.runAnalysisReason : "")
                             color: root.mutedTextColor
                             font.pixelSize: 12
                             elide: Text.ElideRight
@@ -896,6 +911,8 @@ Dialog {
                             text: qsTr("Analyze Selected")
                             visible: !root.running && !root.finalReady
                             enabled: root.backendInteractive && root.selectedImageCount > 0
+                                      && (!root.interactionPolicy
+                                          || root.interactionPolicy.canRunAnalysis)
                             onClicked: root.startAnalysis()
                         }
 

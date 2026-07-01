@@ -406,6 +406,9 @@ void SemanticGenerationController::ActivateSelectedModel() {
   backend_.model_download_controller_.SetStatusText(
       PL_TEXT("Activating model and preparing labels..."));
   emit StateChanged();
+  // Phase 2: surface activation in the task bar and publish its interaction
+  // locks (blocks model swap, a second generation, and model-file changes).
+  model_activation_task_id_ = RegisterActivationTask();
 
   auto runtime_options = RuntimeOptionsForProfile(profile_id, true);
   QPointer<SemanticGenerationController> self(this);
@@ -426,6 +429,13 @@ void SemanticGenerationController::ActivateSelectedModel() {
               return;
             }
             self->model_activation_running_ = false;
+            if (!self->model_activation_task_id_.isEmpty()) {
+              self->backend_.background_task_.FinishTask(
+                  self->model_activation_task_id_,
+                  ok ? BackgroundTaskState::Succeeded : BackgroundTaskState::Failed,
+                  self->backend_.model_download_controller_.ModelDownloadStatusText());
+              self->model_activation_task_id_.clear();
+            }
             if (ok) {
               self->model_key_ = model_key;
               self->backend_.model_download_controller_.SetStatusText(
@@ -1060,12 +1070,48 @@ auto SemanticGenerationController::RegisterBackgroundTask() -> QString {
   snapshot.cancelable_       = true;
   snapshot.shutdown_policy_  = BackgroundTaskShutdownPolicy::CancelAndWait;
   snapshot.affected_targets_ = BuildAffectedTargets();
+  // Phase 2: generation holds the model + download settings stable (don't
+  // delete/swap the model files it is using) and blocks a second run. All three
+  // are global locks (element_id_ == 0).
+  snapshot.locks_.push_back(InteractionLock{
+      InteractionCapability::ChangeSemanticModel, 0,
+      PL_TEXT("Semantic generation is running; change the model after it finishes.").Render()});
+  snapshot.locks_.push_back(InteractionLock{
+      InteractionCapability::RunSemanticGeneration, 0,
+      PL_TEXT("Semantic generation is already running.").Render()});
+  snapshot.locks_.push_back(InteractionLock{
+      InteractionCapability::ChangeModelDownloadSettings, 0,
+      PL_TEXT("Semantic generation is running; don't change model files now.").Render()});
   QPointer<SemanticGenerationController> self(this);
   return backend_.background_task_.RegisterTask(snapshot, [self]() {
     if (self) {
       self->CancelGeneration();
     }
   });
+}
+
+auto SemanticGenerationController::RegisterActivationTask() -> QString {
+  BackgroundTaskSnapshot snapshot;
+  snapshot.kind_             = BackgroundTaskKind::ModelActivation;
+  snapshot.state_            = BackgroundTaskState::Running;
+  snapshot.title_            = PL_TEXT("Activating model and preparing labels...").Render();
+  snapshot.progress_percent_ = -1;  // indeterminate — activation has no progress ticks
+  snapshot.cancelable_       = false;  // no cancel path; Phase 5 owns the shutdown wait
+  snapshot.shutdown_policy_  = BackgroundTaskShutdownPolicy::WaitForFinish;
+  snapshot.affected_targets_ = QVariantList{backend_.model_download_controller_.SelectedModelProfileId()};
+  snapshot.locks_.push_back(InteractionLock{
+      InteractionCapability::ChangeSemanticModel, 0,
+      PL_TEXT("A model activation is running; change the model after it finishes.").Render()});
+  snapshot.locks_.push_back(InteractionLock{
+      InteractionCapability::RunSemanticGeneration, 0,
+      PL_TEXT("A model activation is running; wait for it to finish before generating labels.")
+          .Render()});
+  snapshot.locks_.push_back(InteractionLock{
+      InteractionCapability::ChangeModelDownloadSettings, 0,
+      PL_TEXT("A model activation is running; don't change model files now.").Render()});
+  // Non-cancelable: no cancel callback. The activation finish callback
+  // (hopped back to the UI thread) calls FinishTask on this id.
+  return backend_.background_task_.RegisterTask(snapshot);
 }
 
 }  // namespace alcedo::ui

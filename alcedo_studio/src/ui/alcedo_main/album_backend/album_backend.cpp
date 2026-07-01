@@ -278,26 +278,71 @@ std::shared_ptr<IImageAnalysisEnvironment> MakeAlbumImageAnalysisEnvironment(
 // ────────────────────────────────────────────────────────────────────────────
 class AlbumImageAnalysisSink final : public IImageAnalysisSink {
  public:
-  explicit AlbumImageAnalysisSink(AlbumBackend& backend) : backend_(backend) {}
+  explicit AlbumImageAnalysisSink(AlbumBackend& backend)
+      : backend_(backend), queue_(backend.db_write_barrier_) {}
 
   // task_id "describe" matches the Phase 5g live-smoke persistence convention so a
   // 7a-persisted row lands in the same (file_id, "describe") slot the live path uses.
   static constexpr const char* kDescribeTaskId = "describe";
   static constexpr const char* kScoreTaskId    = "rate";
 
+  // Phase 2 (Step 4): each write is funneled through the deferred-write queue. When
+  // the project DB write barrier is NOT held (the common case), `Submit` runs the
+  // write immediately — identical to the pre-Phase-2 behavior. When the barrier IS
+  // held (export in flight), the write queues and commits when the barrier releases
+  // (drained by the barrier's on_release_ callback, wired in AlbumBackend's ctor).
+  // The controller ignores every return value, so queued writes return an
+  // "accepted" placeholder; the `DoX` helpers hold the real storage-touching bodies.
   bool PersistUnderstanding(const ImageAnalysisItemResult& result) override {
-    auto project = backend_.project_handler_.project();
-    if (!project) {
-      return false;
-    }
-    auto& ai = project->GetStorageService()->GetAiStorageController();
-    return ai.UpsertUnderstanding(MakeDescription(result));
+    queue_.Submit([this, result] { DoPersistUnderstanding(result); });
+    return true;
   }
 
   size_t PersistUnderstandings(const std::vector<ImageAnalysisItemResult>& results) override {
+    const size_t n = results.size();
+    queue_.Submit([this, results] { DoPersistUnderstandings(results); });
+    return n;
+  }
+
+  bool PersistRatingReasons(const ImageAnalysisItemResult& result) override {
+    queue_.Submit([this, result] { DoPersistRatingReasons(result); });
+    return true;
+  }
+
+  bool ApplyStarRating(uint32_t elementId, uint32_t imageId, int rating) override {
+    queue_.Submit([this, elementId, imageId, rating] {
+      DoApplyStarRating(elementId, imageId, rating);
+    });
+    return true;
+  }
+
+  void FlushPendingStarRatings() override { queue_.Submit([this] { DoFlushPendingStarRatings(); }); }
+
+  void NotifySearchDocumentChanged() override {
+    queue_.Submit([this] { DoNotifySearchDocumentChanged(); });
+  }
+
+  // Phase 2 (Step 4) barrier/queue hooks.
+  bool HasPendingWrites() const override { return queue_.IsPending(); }
+  void SetOnDrainComplete(std::function<void()> cb) override {
+    queue_.SetOnDrainComplete(std::move(cb));
+  }
+  void FlushPendingWrites() override { queue_.Drain(); }
+
+ private:
+  void DoPersistUnderstanding(const ImageAnalysisItemResult& result) {
+    auto project = backend_.project_handler_.project();
+    if (!project) {
+      return;
+    }
+    auto& ai = project->GetStorageService()->GetAiStorageController();
+    (void)ai.UpsertUnderstanding(MakeDescription(result));
+  }
+
+  void DoPersistUnderstandings(const std::vector<ImageAnalysisItemResult>& results) {
     auto project = backend_.project_handler_.project();
     if (!project || results.empty()) {
-      return 0;
+      return;
     }
     std::vector<AiDescription> descriptions;
     descriptions.reserve(results.size());
@@ -305,13 +350,13 @@ class AlbumImageAnalysisSink final : public IImageAnalysisSink {
       descriptions.push_back(MakeDescription(result));
     }
     auto& ai = project->GetStorageService()->GetAiStorageController();
-    return ai.UpsertUnderstandings(descriptions);
+    (void)ai.UpsertUnderstandings(descriptions);
   }
 
-  bool PersistRatingReasons(const ImageAnalysisItemResult& result) override {
+  void DoPersistRatingReasons(const ImageAnalysisItemResult& result) {
     auto project = backend_.project_handler_.project();
     if (!project) {
-      return false;
+      return;
     }
     auto&    ai = project->GetStorageService()->GetAiStorageController();
     AiRating r;
@@ -329,17 +374,16 @@ class AlbumImageAnalysisSink final : public IImageAnalysisSink {
     r.rubric_version_    = result.rating.rubric_version;
     r.reasons_           = result.rating.reasons;
     r.active_            = true;
-    return ai.UpsertRatingReasons(r);
+    (void)ai.UpsertRatingReasons(r);
   }
 
-  bool ApplyStarRating(uint32_t elementId, uint32_t imageId, int rating) override {
+  void DoApplyStarRating(uint32_t elementId, uint32_t imageId, int rating) {
     backend_.image_ctrl_.ApplyStarRatingLight(elementId, imageId, rating);
-    return true;
   }
 
-  void FlushPendingStarRatings() override { backend_.image_ctrl_.FlushPendingStarRatings(); }
+  void DoFlushPendingStarRatings() { backend_.image_ctrl_.FlushPendingStarRatings(); }
 
-  void NotifySearchDocumentChanged() override {
+  void DoNotifySearchDocumentChanged() {
     // Storage refreshes the derived FTS index during persistence when DuckDB's fts
     // extension is available. Re-running the thumbnail view against the current
     // search/filter picks up the new captions/tags either through BM25 or the legacy LIKE
@@ -347,7 +391,6 @@ class AlbumImageAnalysisSink final : public IImageAnalysisSink {
     backend_.stats_.RebuildThumbnailView();
   }
 
- private:
   static auto MakeDescription(const ImageAnalysisItemResult& result) -> AiDescription {
     AiDescription d;
     d.file_id_           = result.item.element_id;
@@ -364,7 +407,8 @@ class AlbumImageAnalysisSink final : public IImageAnalysisSink {
     return d;
   }
 
-  AlbumBackend& backend_;
+  AlbumBackend&            backend_;
+  AnalysisResultWriteQueue queue_;
 };
 
 std::shared_ptr<IImageAnalysisSink> MakeAlbumImageAnalysisSink(AlbumBackend& backend) {
@@ -556,16 +600,28 @@ AlbumBackend::AlbumBackend(QObject* parent)
       stats_(*this),
       search_(*this),
       background_task_(),
+      interaction_policy_(&background_task_, this),
       model_download_controller_(*this),
       semantic_generation_(*this),
       ai_provider_profiles_(this),
       image_analysis_gate_(std::make_shared<alcedo::ImageAnalysisInFlightGate>()),
+      db_write_barrier_(),
+      image_analysis_sink_(MakeAlbumImageAnalysisSink(*this)),
       image_analysis_(MakeAlbumImageAnalysisEnvironment(*this), &ai_provider_profiles_,
-                      MakeAlbumImageAnalysisSink(*this), &background_task_),
+                      image_analysis_sink_, &background_task_),
       import_export_(*this),
       nikon_he_recovery_(*this),
       editor_(*this),
       adjustment_transfer_(*this) {
+  // Phase 2 (Step 4): when the project DB write barrier releases (export
+  // finished), drain any analysis-result writes that queued behind it. The
+  // destructor clears this callback as its first line so a closure can't
+  // dereference the destroyed sink during teardown.
+  db_write_barrier_.SetOnRelease([this] {
+    if (image_analysis_sink_) {
+      image_analysis_sink_->FlushPendingWrites();
+    }
+  });
   LoadRecentProjectsFromSettings();
   LoadThumbnailDiskCacheSettings();
   QObject::connect(&i18n::TranslationNotifier::Instance(),
@@ -579,6 +635,10 @@ AlbumBackend::AlbumBackend(QObject* parent)
 }
 
 AlbumBackend::~AlbumBackend() {
+  // Phase 2 (Step 4): clear the barrier's on_release_ callback before any member
+  // is destroyed so a stale closure can't dereference the (soon-destroyed) sink
+  // during teardown. The full shutdown drain is Phase 5's job.
+  db_write_barrier_.SetOnRelease({});
   try {
     semantic_generation_.CancelGeneration();
     search_.CancelSearchPreviewThumbnails();
