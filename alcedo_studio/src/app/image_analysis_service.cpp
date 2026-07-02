@@ -341,19 +341,19 @@ void ThumbnailServiceImageAnalysisProvider::RequestThumbnail(const ImageAnalysis
     callback(std::move(r));
     return;
   }
-  service_->GetThumbnailDetailed(item.element_id, item.image_id, std::move(callback), true, nullptr,
-                                 resolution);
+  service_->RequestAnalysisRendition(item.element_id, item.image_id, resolution,
+                                      std::move(callback));
 }
 
 void ThumbnailServiceImageAnalysisProvider::CancelThumbnail(const ThumbnailCacheKey& key) {
   if (service_) {
-    service_->CancelPending(key);
+    service_->CancelAnalysisRendition(key);
   }
 }
 
 void ThumbnailServiceImageAnalysisProvider::ReleaseThumbnail(const ThumbnailCacheKey& key) {
   if (service_) {
-    service_->ReleaseThumbnail(key);
+    service_->ReleaseAnalysisRendition(key);
   }
 }
 

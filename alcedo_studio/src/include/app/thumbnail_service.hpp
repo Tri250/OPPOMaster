@@ -89,6 +89,17 @@ class ThumbnailService {
                             CallbackDispatcher dispatcher = nullptr,
                             ThumbnailResolution resolution = ThumbnailResolution::k1024);
 
+  // Phase 3: render an analysis rendition from a captured pipeline snapshot. Does
+  // NOT pin the live pipeline guard, does NOT call SavePipeline on the live guard,
+  // and does NOT cache the result in thumbnail_cache_/disk cache. One-shot delivery
+  // to the single callback. Used by background image analysis so the editor's live
+  // pipeline is never disturbed by an analysis thumbnail render.
+  void RequestAnalysisRendition(sl_element_id_t element_id, image_id_t image_id,
+                                ThumbnailResolution resolution,
+                                ThumbnailResultCallback callback);
+  void CancelAnalysisRendition(const ThumbnailCacheKey& key);
+  void ReleaseAnalysisRendition(const ThumbnailCacheKey& key);
+
   // Cancel a pending thumbnail request for one element/resolution key.
   // Also increments the key generation token so queued tasks skip execution.
   void CancelPending(const ThumbnailCacheKey& key);

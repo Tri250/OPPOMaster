@@ -1215,7 +1215,7 @@ def_library(ImageAnalysisController
     SOURCES
         ui/alcedo_main/album_backend/image_analysis_controller.cpp
         include/ui/alcedo_main/album_backend/image_analysis_controller.hpp
-    PUBLIC_DEPS ImageAnalysisService AiProviderProfile AiCredentialStore UiLocalization Qt6::Core
+    PUBLIC_DEPS ImageAnalysisService AiProviderProfile AiCredentialStore BackgroundTaskController UiLocalization Qt6::Core
 )
 
 def_library(ThumbnailDiskCacheService
@@ -1316,11 +1316,21 @@ if(ALCEDO_REAL_WIDGET_EDITOR)
     endif()
 endif()
 
+# ── BackgroundTaskController: standalone QObject task registry (Phase 1). Kept
+# as its own lightweight lib so ImageAnalysisController and other controllers can
+# link it without pulling in the full AlbumBackendLib. AlbumBackendLib links it
+# transitively for the album shell and the def_ui_test-based controller tests.
+def_library(BackgroundTaskController
+    SOURCES
+        ui/alcedo_main/album_backend/background_task_controller.cpp
+        include/ui/alcedo_main/album_backend/background_task_controller.hpp
+    PUBLIC_DEPS Qt6::Core
+)
+
 # ── AlbumBackendLib: reusable static library for album_backend ──────────────
 add_library(AlbumBackendLib STATIC
     ui/alcedo_main/album_backend/album_backend.cpp
     ui/alcedo_main/album_backend/album_thumbnail_model.cpp
-    ui/alcedo_main/album_backend/background_task_controller.cpp
     ui/alcedo_main/album_backend/interaction_policy_controller.cpp
     ui/alcedo_main/album_backend/project_db_write_barrier.cpp
     ui/alcedo_main/album_backend/project_handler.cpp
@@ -1338,7 +1348,6 @@ add_library(AlbumBackendLib STATIC
     include/ui/alcedo_main/album_backend/album_backend.hpp
     include/ui/alcedo_main/album_backend/album_thumbnail_model.hpp
     include/ui/alcedo_main/album_backend/album_types.hpp
-    include/ui/alcedo_main/album_backend/background_task_controller.hpp
     include/ui/alcedo_main/album_backend/interaction_policy_controller.hpp
     include/ui/alcedo_main/album_backend/project_db_write_barrier.hpp
     include/ui/alcedo_main/album_backend/path_utils.hpp
@@ -1368,6 +1377,7 @@ target_include_directories(AlbumBackendLib
 target_link_libraries(AlbumBackendLib
     PUBLIC
         UiLocalization
+        BackgroundTaskController
         Qt6::Quick
         Qt6::Qml
         Qt6::QuickControls2

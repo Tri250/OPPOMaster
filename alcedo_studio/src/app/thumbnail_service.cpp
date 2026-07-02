@@ -171,6 +171,12 @@ struct ThumbnailService::State {
   std::unordered_map<ThumbnailCacheKey, std::shared_ptr<std::atomic<uint64_t>>>
       generation_tokens_{};
 
+  // Phase 3: cancel tokens for analysis renditions. Separate from
+  // generation_tokens_ to avoid collision when the same {element, resolution}
+  // is rendered both via the live thumbnail path and the snapshot path.
+  std::unordered_map<ThumbnailCacheKey, std::shared_ptr<std::atomic<uint64_t>>>
+      analysis_tokens_{};
+
   // Pipeline scheduler (global/shared), must outlive tasks.
   std::shared_ptr<PipelineScheduler> pipeline_scheduler_ = nullptr;
 
@@ -213,6 +219,26 @@ struct ThumbnailService::State {
   void IncrementGenerationTokenLocked(const ThumbnailCacheKey& key) {
     auto token = GetOrCreateGenerationToken(key);
     token->fetch_add(1);
+  }
+
+  // Phase 3: analysis-rendition cancel token. Mirrors the generation-token
+  // helpers but keys off analysis_tokens_ so the two render paths never collide.
+  auto GetOrCreateAnalysisToken(const ThumbnailCacheKey& key)
+      -> std::shared_ptr<std::atomic<uint64_t>> {
+    auto it = analysis_tokens_.find(key);
+    if (it != analysis_tokens_.end() && it->second) {
+      return it->second;
+    }
+    auto token = std::make_shared<std::atomic<uint64_t>>(0);
+    analysis_tokens_[key] = token;
+    return token;
+  }
+
+  // Acquires cache_lock_ internally; called from CancelAnalysisRendition with no
+  // lock held.
+  void IncrementAnalysisToken(const ThumbnailCacheKey& key) {
+    std::unique_lock<std::mutex> lk(cache_lock_);
+    GetOrCreateAnalysisToken(key)->fetch_add(1);
   }
 
   auto ReadCurrentVersionHash(sl_element_id_t id) -> std::string {
@@ -687,6 +713,215 @@ void ThumbnailService::GetThumbnailDetailed(sl_element_id_t id, image_id_t image
   }
 
   schedule_pipeline_render();
+}
+
+void ThumbnailService::RequestAnalysisRendition(sl_element_id_t element_id, image_id_t image_id,
+                                                 ThumbnailResolution resolution,
+                                                 ThumbnailResultCallback callback) {
+  auto st = state_;
+  if (!st || !st->image_pool_service_ || !st->pipeline_service_ || !st->pipeline_scheduler_) {
+    throw std::runtime_error("[ERROR] ThumbnailService: Services not initialized.");
+  }
+
+  const ThumbnailCacheKey cache_key{element_id, resolution};
+
+  std::shared_ptr<std::atomic<uint64_t>> gen_token;
+  uint64_t                                expected_gen = 0;
+  {
+    std::unique_lock<std::mutex> lk(st->cache_lock_);
+    gen_token    = st->GetOrCreateAnalysisToken(cache_key);
+    expected_gen = gen_token->load();
+  }
+
+  std::string err;
+  auto        snapshot = st->pipeline_service_->LoadPipelineSnapshot(element_id, image_id, &err);
+  if (!snapshot) {
+    DispatchThumbnailResultCallback(
+        callback, nullptr,
+        ThumbnailRequestResult{.guard = nullptr,
+                                .status = ThumbnailRequestStatus::kError,
+                                .message = err,
+                                .key = cache_key});
+    return;
+  }
+
+  // The closure holds the only strong ref to the snapshot. No analysis_snapshots_
+  // map is needed: the snapshot is released from one of the task callbacks and the
+  // shared_ptr then drops naturally. `delivered` guards against any double-dispatch
+  // (e.g. a stray callback_ firing after prepare_ returned false).
+  struct AnalysisTaskContext {
+    std::shared_ptr<PipelineSnapshot> snapshot;
+    std::atomic<bool>                  released{false};
+    std::atomic<bool>                  delivered{false};
+  };
+  auto ctx             = std::make_shared<AnalysisTaskContext>();
+  ctx->snapshot        = std::move(snapshot);
+
+  auto release_snapshot = [st, ctx]() {
+    if (!ctx->snapshot || ctx->released.exchange(true)) {
+      return;
+    }
+    try {
+      st->pipeline_service_->ReleasePipelineSnapshot(ctx->snapshot);
+    } catch (...) {
+    }
+  };
+
+  auto deliver = [callback, ctx](ThumbnailRequestResult result) {
+    if (ctx->delivered.exchange(true)) {
+      return;
+    }
+    DispatchThumbnailResultCallback(callback, nullptr, std::move(result));
+  };
+
+  auto fail = [release_snapshot, deliver, cache_key](const std::string& msg) -> bool {
+    release_snapshot();
+    deliver(ThumbnailRequestResult{.guard = nullptr,
+                                   .status = ThumbnailRequestStatus::kError,
+                                   .message = msg,
+                                   .key = cache_key});
+    return false;
+  };
+
+  const uint32_t  max_edge   = ResolutionToMaxEdge(resolution);
+  const DecodeRes decode_res = ResolutionToDecodeRes(resolution);
+
+  PipelineTask task;
+  task.options_.render_desc_.render_type_ = RenderType::THUMBNAIL;
+  task.options_.render_desc_.max_edge_    = max_edge;
+  task.options_.render_desc_.decode_res_  = decode_res;
+  task.options_.is_blocking_              = false;
+  task.options_.is_callback_              = true;
+  task.options_.is_seq_callback_          = false;
+  task.cancel_requested_ = [gen_token, expected_gen]() {
+    return gen_token && gen_token->load() != expected_gen;
+  };
+
+  task.prepare_ = [st, element_id, image_id, ctx, cache_key, gen_token, expected_gen,
+                   deliver, fail](PipelineTask& t) mutable -> bool {
+    // Early cancel: avoid a wasted one-shot render. The scheduler will not call
+    // callback_ when prepare_ returns false, so we dispatch kCanceled here.
+    if (gen_token && gen_token->load() != expected_gen) {
+      if (ctx->snapshot && !ctx->released.exchange(true)) {
+        try {
+          st->pipeline_service_->ReleasePipelineSnapshot(ctx->snapshot);
+        } catch (...) {
+        }
+      }
+      deliver(ThumbnailRequestResult{.guard = nullptr,
+                                      .status = ThumbnailRequestStatus::kCanceled,
+                                      .message = "Analysis rendition was canceled.",
+                                      .key = cache_key});
+      return false;
+    }
+
+    auto exec = ctx->snapshot->executor_;
+    if (!exec) {
+      return fail("analysis rendition: snapshot executor missing");
+    }
+
+    exec->SetForceCPUOutput(true);
+
+    std::shared_ptr<Image> img_result;
+    try {
+      img_result = st->image_pool_service_->Read<std::shared_ptr<Image>>(
+          image_id, [](const std::shared_ptr<Image>& img) { return img; });
+    } catch (const std::exception& e) {
+      return fail(std::format("analysis rendition: failed to load image ID {} for element {}: {}",
+                              image_id, element_id, e.what()));
+    } catch (...) {
+      return fail(std::format(
+          "analysis rendition: failed to load image ID {} for element {}: unknown error.",
+          image_id, element_id));
+    }
+    if (!img_result) {
+      return fail(std::format("analysis rendition: image with ID {} not found in pool.", image_id));
+    }
+
+    // No pre-render color-temp read / post-render dirty check: the snapshot
+    // executor is throwaway, so the check (used by the live path to mark the live
+    // guard dirty when a render mutates color-temp) is meaningless here.
+    t.pipeline_executor_ = exec;
+    t.input_desc_        = std::move(img_result);
+    return true;
+  };
+
+  task.callback_ = [element_id, cache_key, gen_token, expected_gen, release_snapshot,
+                    deliver](ImageBuffer& result_buffer) {
+    if (gen_token && gen_token->load() != expected_gen) {
+      release_snapshot();
+      deliver(ThumbnailRequestResult{.guard = nullptr,
+                                      .status = ThumbnailRequestStatus::kCanceled,
+                                      .message = "Analysis rendition was canceled.",
+                                      .key = cache_key});
+      return;
+    }
+
+    std::unique_ptr<ImageBuffer> display_buffer;
+    try {
+      if (IsRenderableThumbnailResult(result_buffer)) {
+        display_buffer = MakeDisplayCacheThumbnailBuffer(result_buffer);
+      }
+    } catch (...) {
+      display_buffer.reset();
+    }
+
+    // One-shot delivery: NOT recorded in thumbnail_cache_ and NOT enqueued to the
+    // disk cache. The single caller owns the guard and releases after encode.
+    auto guard = std::make_shared<ThumbnailGuard>();
+    if (display_buffer) {
+      guard->thumbnail_buffer_ = std::move(display_buffer);
+      guard->pin_count_       = 1;
+    }
+
+    release_snapshot();
+
+    const bool        ok      = static_cast<bool>(guard->thumbnail_buffer_);
+    const auto        status  = ok ? ThumbnailRequestStatus::kReady : ThumbnailRequestStatus::kError;
+    const std::string message =
+        ok ? std::string{}
+            : std::format("analysis rendition: render for element {} produced no thumbnail buffer.",
+                          element_id);
+    deliver(ThumbnailRequestResult{.guard = ok ? guard : nullptr,
+                                    .status = status,
+                                    .message = message,
+                                    .key = cache_key});
+  };
+
+  try {
+    st->pipeline_scheduler_->ScheduleTask(std::move(task));
+  } catch (const std::exception& e) {
+    release_snapshot();
+    deliver(ThumbnailRequestResult{
+        .guard = nullptr,
+        .status = ThumbnailRequestStatus::kError,
+        .message = std::format("analysis rendition: failed to schedule: {}", e.what()),
+        .key = cache_key});
+  } catch (...) {
+    release_snapshot();
+    deliver(ThumbnailRequestResult{
+        .guard = nullptr,
+        .status = ThumbnailRequestStatus::kError,
+        .message = "analysis rendition: failed to schedule: unknown error.",
+        .key = cache_key});
+  }
+}
+
+void ThumbnailService::CancelAnalysisRendition(const ThumbnailCacheKey& key) {
+  auto st = state_;
+  if (!st) {
+    return;
+  }
+  st->IncrementAnalysisToken(key);
+}
+
+void ThumbnailService::ReleaseAnalysisRendition(const ThumbnailCacheKey& key) {
+  auto st = state_;
+  if (!st) {
+    return;
+  }
+  std::unique_lock<std::mutex> lk(st->cache_lock_);
+  st->analysis_tokens_.erase(key);
 }
 
 void ThumbnailService::CancelPending(const ThumbnailCacheKey& key) {
