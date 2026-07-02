@@ -10,6 +10,7 @@ SwipeView {
 
     property var profileController: null       // albumBackend.aiProviderProfileController
     property var analysisController: null      // albumBackend.imageAnalysisController
+    property var interactionPolicy: null
     property color primaryAccent: "#457B9D"
     property color secondaryAccent: "#9FC7D8"
     property color textColor: "#F5F1EA"
@@ -23,6 +24,8 @@ SwipeView {
     property Item backgroundSource: null
     readonly property bool hasProfilesController: profileController !== null
     readonly property bool hasAnalysis: analysisController !== null
+    readonly property bool canChangeProvider: !interactionPolicy
+                                               || interactionPolicy.canChangeImageAnalysisProvider
     readonly property var profiles: hasProfilesController ? profileController.profiles : []
     readonly property var templates: hasProfilesController ? profileController.templateOptions : []
     readonly property var editProfile: {
@@ -66,6 +69,10 @@ SwipeView {
 
     function setField(field, value) {
         if (!hasProfilesController || editingProfileId.length === 0) {
+            return
+        }
+        if (!canChangeProvider) {
+            messageRequested(qsTr("Finish the current AI task before changing provider settings."))
             return
         }
         if (!profileController.SetProfileField(editingProfileId, field, value)) {
@@ -192,7 +199,7 @@ SwipeView {
                     ComboBox {
                         Layout.fillWidth: true
                         Layout.preferredHeight: 42
-                        enabled: panel.hasProfilesController
+                        enabled: panel.hasProfilesController && panel.canChangeProvider
                         model: panel.languageModel
                         textRole: "label"
                         currentIndex: panel.languageIndexFor(panel.hasProfilesController ? panel.profileController.outputLanguage : "follow")
@@ -209,7 +216,7 @@ SwipeView {
                         primary: true
                         iconSrc: "qrc:/panel_icons/plus.svg"
                         text: qsTr("Add")
-                        enabled: panel.hasProfilesController
+                        enabled: panel.hasProfilesController && panel.canChangeProvider
                         onClicked: addDialog.open()
                     }
                 }
@@ -286,13 +293,14 @@ SwipeView {
                                          : "qrc:/panel_icons/play.svg"
                                 text: modelData.active ? qsTr("In use") : qsTr("Use")
                                 enabled: !modelData.active && panel.hasProfilesController
+                                         && panel.canChangeProvider
                                 onClicked: panel.profileController.SetActiveProfile(modelData.uuid)
                             }
 
                             AiButton {
                                 Layout.preferredHeight: 38
                                 text: qsTr("Edit")
-                                enabled: panel.hasProfilesController
+                                enabled: panel.hasProfilesController && panel.canChangeProvider
                                 onClicked: panel.openEditor(modelData.uuid)
                             }
                         }
@@ -398,6 +406,10 @@ SwipeView {
                                 cursorShape: Qt.PointingHandCursor
                                 hoverEnabled: true
                                 onClicked: {
+                                    if (!panel.canChangeProvider) {
+                                        panel.messageRequested(qsTr("Finish the current AI task before changing provider settings."))
+                                        return
+                                    }
                                     const id = panel.profileController.AddProfileFromTemplate(chip.templateId)
                                     addDialog.close()
                                     if (id.length > 0) {
@@ -495,7 +507,7 @@ SwipeView {
                             echoMode: TextInput.Password
                             placeholderText: qsTr("Paste API key")
                             color: panel.textColor
-                            enabled: panel.hasProfilesController
+                            enabled: panel.hasProfilesController && panel.canChangeProvider
                             font.family: panel.dataFontFamily
                             selectByMouse: true
                         }
@@ -508,7 +520,8 @@ SwipeView {
                                 Layout.preferredHeight: 38
                                 primary: true
                                 text: qsTr("Save Key")
-                                enabled: panel.hasProfilesController && keyField.text.length > 0
+                                enabled: panel.hasProfilesController && panel.canChangeProvider
+                                         && keyField.text.length > 0
                                 onClicked: {
                                     const err = panel.profileController.SaveApiKey(panel.editingProfileId, keyField.text)
                                     keyField.text = ""
@@ -520,7 +533,7 @@ SwipeView {
                                 Layout.preferredHeight: 38
                                 danger: true
                                 text: qsTr("Delete Key")
-                                enabled: panel.editProfile.credentialAvailable
+                                enabled: panel.editProfile.credentialAvailable && panel.canChangeProvider
                                 onClicked: {
                                     panel.profileController.DeleteApiKey(panel.editingProfileId)
                                     panel.messageRequested(qsTr("API key deleted"))
@@ -555,7 +568,7 @@ SwipeView {
                                 id: modelCombo
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 42
-                                enabled: panel.modelOptions.length > 0
+                                enabled: panel.modelOptions.length > 0 && panel.canChangeProvider
                                 options: panel.modelOptions
                                 selectedValue: panel.editProfile.modelId || ""
                                 selectedLabel: panel.editProfile.modelDisplayName || ""
@@ -616,7 +629,8 @@ SwipeView {
                                     anchors.fill: parent
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
-                                    enabled: panel.hasAnalysis && panel.editingProfileId.length > 0
+                                    enabled: panel.hasAnalysis && panel.canChangeProvider
+                                             && panel.editingProfileId.length > 0
                                              && (panel.editProfile.credentialAvailable || panel.editProfile.authType === "none")
                                     onClicked: panel.analysisController.ValidateConnectionForProfile(panel.editingProfileId)
                                 }
@@ -676,7 +690,8 @@ SwipeView {
                         AiButton {
                             Layout.preferredHeight: 40
                             text: qsTr("Duplicate")
-                            enabled: panel.hasProfilesController && panel.editingProfileId.length > 0
+                            enabled: panel.hasProfilesController && panel.canChangeProvider
+                                     && panel.editingProfileId.length > 0
                             onClicked: {
                                 const id = panel.profileController.CloneProfile(panel.editingProfileId)
                                 if (id.length > 0) {
@@ -689,7 +704,8 @@ SwipeView {
                             Layout.preferredHeight: 40
                             danger: true
                             text: qsTr("Delete")
-                            enabled: panel.hasProfilesController && panel.editingProfileId.length > 0
+                            enabled: panel.hasProfilesController && panel.canChangeProvider
+                                     && panel.editingProfileId.length > 0
                             onClicked: deleteDialog.open()
                         }
 
@@ -812,6 +828,7 @@ SwipeView {
             text: value
             color: panel.textColor
             font.family: panel.dataFontFamily
+            enabled: panel.canChangeProvider
             selectByMouse: true
             onEditingFinished: {
                 panel.setField(field, numeric ? parseInt(text, 10) : text)

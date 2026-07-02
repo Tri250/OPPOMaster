@@ -86,7 +86,13 @@ class FakeThumbProvider : public alcedo::IImageAnalysisThumbnailProvider {
 
 class FakeClient : public alcedo::IImageAnalysisClient {
  public:
-  enum class Outcome { kSuccess, kMissingCredential, kUnsupported, kSchemaError, kEmptyProviderError };
+  enum class Outcome {
+    kSuccess,
+    kMissingCredential,
+    kUnsupported,
+    kSchemaError,
+    kEmptyProviderError
+  };
 
   void SetDescribeOutcome(Outcome o) { describe_outcome_ = o; }
   void SetScoreOutcome(Outcome o) { score_outcome_ = o; }
@@ -134,9 +140,9 @@ class FakeClient : public alcedo::IImageAnalysisClient {
   auto ScoreImage(const alcedo::ImageAnalysisRequest& req, std::chrono::milliseconds)
       -> alcedo::ImageAnalysisRatingResult override {
     ++score_calls_;
-    last_output_language_   = req.output_language;
-    last_rating_severity_   = req.rating_severity;
-    last_camera_context_    = req.camera_context;
+    last_output_language_ = req.output_language;
+    last_rating_severity_ = req.rating_severity;
+    last_camera_context_  = req.camera_context;
     if (block_mode_.load()) {
       std::unique_lock lk(block_mutex_);
       block_cv_.wait(lk, [this] { return release_blocked_.load(); });
@@ -154,16 +160,16 @@ class FakeClient : public alcedo::IImageAnalysisClient {
       block_cv_.wait(lk, [this] { return release_blocked_.load(); });
     }
     alcedo::ImageAnalysisCombinedResult r;
-    r.request_id          = req.request_id;
-    r.ok                  = describe_outcome_ == Outcome::kSuccess && score_outcome_ == Outcome::kSuccess;
-    r.status              = r.ok ? kStatusOk : kStatusProviderError;
-    r.provider            = "fake";
-    r.model_id            = req.model_id.empty() ? std::string("fake-model") : req.model_id;
-    r.rendition           = req.rendition;
-    r.has_understanding   = true;
-    r.has_rating          = true;
-    r.understanding       = MakeUnderstanding(req, describe_outcome_);
-    r.rating              = MakeRating(req, score_outcome_);
+    r.request_id = req.request_id;
+    r.ok         = describe_outcome_ == Outcome::kSuccess && score_outcome_ == Outcome::kSuccess;
+    r.status     = r.ok ? kStatusOk : kStatusProviderError;
+    r.provider   = "fake";
+    r.model_id   = req.model_id.empty() ? std::string("fake-model") : req.model_id;
+    r.rendition  = req.rendition;
+    r.has_understanding = true;
+    r.has_rating        = true;
+    r.understanding     = MakeUnderstanding(req, describe_outcome_);
+    r.rating            = MakeRating(req, score_outcome_);
     if (!r.ok) {
       r.error = !r.understanding.error.empty() ? r.understanding.error : r.rating.error;
     }
@@ -171,7 +177,7 @@ class FakeClient : public alcedo::IImageAnalysisClient {
   }
 
   auto BatchAnalyzeImage(const std::vector<alcedo::ImageAnalysisRequest>& requests,
-                         std::chrono::milliseconds timeout)
+                         std::chrono::milliseconds                        timeout)
       -> std::vector<alcedo::ImageAnalysisCombinedResult> override {
     std::vector<alcedo::ImageAnalysisCombinedResult> results;
     results.reserve(requests.size());
@@ -206,7 +212,9 @@ class FakeClient : public alcedo::IImageAnalysisClient {
   auto RegisterCalls() const -> int { return register_calls_.load(); }
   auto LastRegisteredTtlMs() const -> int64_t { return last_registered_ttl_ms_.load(); }
   auto ListModelsCalls() const -> int { return list_models_calls_.load(); }
-  auto LastListModelsCredentialRef() const -> std::string { return last_list_models_credential_ref_; }
+  auto LastListModelsCredentialRef() const -> std::string {
+    return last_list_models_credential_ref_;
+  }
   auto LastOutputLanguage() const -> std::string { return last_output_language_; }
   auto LastRatingSeverity() const -> std::string { return last_rating_severity_; }
   auto LastCameraContext() const -> std::string { return last_camera_context_; }
@@ -450,6 +458,13 @@ class FakeEnv : public IImageAnalysisEnvironment {
     const auto it = camera_contexts_.find(item.image_id);
     return it == camera_contexts_.end() ? std::string{} : it->second;
   }
+  auto AcquireSidecarLease() -> std::shared_ptr<void> override {
+    sidecar_lease_count_.fetch_add(1);
+    return std::shared_ptr<void>(new int(0), [this](int* token) {
+      delete token;
+      sidecar_lease_count_.fetch_sub(1);
+    });
+  }
   auto EnsureSidecarReady(bool provider_configs_dirty, std::string*) -> bool override {
     last_provider_configs_dirty_ = provider_configs_dirty;
     sidecar_ensured_             = true;
@@ -461,15 +476,17 @@ class FakeEnv : public IImageAnalysisEnvironment {
   }
   auto SidecarEnsured() const -> bool { return sidecar_ensured_.load(); }
   auto LastProviderConfigsDirty() const -> bool { return last_provider_configs_dirty_.load(); }
+  auto SidecarLeaseCount() const -> int { return sidecar_lease_count_.load(); }
 
  private:
   std::shared_ptr<FakeThumbProvider>                 thumbs_;
   std::shared_ptr<FakeClient>                        client_;
   std::shared_ptr<alcedo::ImageAnalysisInFlightGate> gate_;
   std::shared_ptr<alcedo::IAiCredentialStore>        store_;
-  std::unordered_map<uint32_t, std::string>           camera_contexts_;
+  std::unordered_map<uint32_t, std::string>          camera_contexts_;
   std::atomic<bool>                                  sidecar_ensured_{false};
   std::atomic<bool>                                  last_provider_configs_dirty_{false};
+  std::atomic<int>                                   sidecar_lease_count_{0};
   bool                                               sidecar_ready_ = true;
 };
 
@@ -633,7 +650,7 @@ TEST_F(ImageAnalysisControllerTest, ValidateConnectionMissingCredentialDoesNotSt
 }
 
 TEST_F(ImageAnalysisControllerTest, ValidateConnectionForNoneCredentialProfileRefreshesModels) {
-  auto controller = MakeController();
+  auto          controller = MakeController();
   const QString profile_id =
       last_bundle_->profiles.AddProfileFromTemplate(QStringLiteral("ccswitch_openai"));
   ASSERT_FALSE(profile_id.isEmpty());
@@ -755,13 +772,13 @@ TEST_F(ImageAnalysisControllerTest, EmptyProviderErrorStillSurfacesDiagnosticFie
   EXPECT_TRUE(r.value("error").toString().contains(QStringLiteral("fake")));
 }
 
-
 TEST_F(ImageAnalysisControllerTest, StructuredOutputNoneProviderDoesNotStartSidecar) {
-  auto controller = MakeController();
-  const QString profile_id = last_bundle_->profiles.AddProfileFromTemplate(QStringLiteral("custom"));
+  auto          controller = MakeController();
+  const QString profile_id =
+      last_bundle_->profiles.AddProfileFromTemplate(QStringLiteral("custom"));
   ASSERT_FALSE(profile_id.isEmpty());
-  ASSERT_TRUE(last_bundle_->profiles.SetProfileField(profile_id, QStringLiteral("structuredOutputMode"),
-                                                     QStringLiteral("none")));
+  ASSERT_TRUE(last_bundle_->profiles.SetProfileField(
+      profile_id, QStringLiteral("structuredOutputMode"), QStringLiteral("none")));
   ASSERT_TRUE(last_bundle_->profiles.SetActiveProfile(profile_id));
 
   controller->StartScoreForTargets(Targets({{1, 100}}), true);

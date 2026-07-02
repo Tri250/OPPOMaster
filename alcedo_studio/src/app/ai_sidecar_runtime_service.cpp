@@ -8,6 +8,7 @@
 #include <QDir>
 #include <QHostAddress>
 #include <QMetaObject>
+#include <QPointer>
 #include <QStandardPaths>
 #include <QStringList>
 #include <QTcpServer>
@@ -80,23 +81,6 @@ auto NormalizeRuntimeOptions(AiSidecarRuntimeOptions options) -> AiSidecarRuntim
   return options;
 }
 
-auto RuntimeOptionsCompatible(const AiSidecarRuntimeOptions& running,
-                              const AiSidecarRuntimeOptions& requested) -> bool {
-  const bool requested_default_port = requested.port == 0;
-  return running.runtime_binary == requested.runtime_binary &&
-         running.model_id == requested.model_id &&
-         running.revision == requested.revision && running.model_root == requested.model_root &&
-         running.provider_config_dir == requested.provider_config_dir &&
-         running.host == requested.host &&
-         (requested_default_port || running.port == requested.port) &&
-         running.hf_endpoint == requested.hf_endpoint && running.device == requested.device &&
-         running.batch_cap == requested.batch_cap &&
-         running.batch_wait_ms == requested.batch_wait_ms &&
-         running.max_message_bytes == requested.max_message_bytes &&
-         running.allow_download == requested.allow_download &&
-         running.extra_arguments == requested.extra_arguments;
-}
-
 auto DefaultRuntimeBinary() -> std::filesystem::path {
   const QByteArray env_binary = qgetenv(kAiSidecarRuntimeBinaryEnv);
   if (!env_binary.isEmpty()) {
@@ -110,7 +94,7 @@ auto DefaultRuntimeBinary() -> std::filesystem::path {
   const auto app_path = std::filesystem::path(app_dir.toStdString());
 #endif
 
-  const auto append_ancestor_runtime_binaries = [](const std::filesystem::path& start,
+  const auto append_ancestor_runtime_binaries = [](const std::filesystem::path&        start,
                                                    std::vector<std::filesystem::path>* candidates) {
     if (start.empty()) {
       return;
@@ -208,7 +192,7 @@ auto ToString(AiSidecarRuntimeIssue issue) -> const char* {
 }
 
 AiSidecarRuntimeService::AiSidecarRuntimeService(AiSidecarClientFactory client_factory,
-                                                 QObject* parent)
+                                                 QObject*               parent)
     : QObject(parent), client_factory_(std::move(client_factory)) {
   if (!client_factory_) {
     client_factory_ = [](const std::string& endpoint) {
@@ -245,16 +229,18 @@ auto AiSidecarRuntimeService::StartAndWait(const AiSidecarRuntimeOptions& option
 
   if (IsRunning()) {
     const auto requested_options = NormalizeRuntimeOptions(options);
-    if (RuntimeOptionsCompatible(options_, requested_options)) {
-      if (requested_options.require_model_info && !status_.model_info.has_value()) {
-        options_.require_model_info = true;
-        options_.startup_timeout = requested_options.startup_timeout;
-        options_.health_poll_interval = requested_options.health_poll_interval;
-        return WaitForReadiness();
-      }
-      return true;
+    if (requested_options.require_model_info && !status_.model_info.has_value()) {
+      options_.require_model_info   = true;
+      options_.startup_timeout      = requested_options.startup_timeout;
+      options_.health_poll_interval = requested_options.health_poll_interval;
+      return WaitForReadiness(false);
     }
-    Stop();
+    if (status_.state != AiSidecarRuntimeState::kReady) {
+      options_.startup_timeout      = requested_options.startup_timeout;
+      options_.health_poll_interval = requested_options.health_poll_interval;
+      return WaitForReadiness(false);
+    }
+    return true;
   }
 
   options_ = NormalizeRuntimeOptions(options);
@@ -318,7 +304,25 @@ auto AiSidecarRuntimeService::StartAndWait(const AiSidecarRuntimeOptions& option
     return false;
   }
 
-  return WaitForReadiness();
+  return WaitForReadiness(true);
+}
+
+auto AiSidecarRuntimeService::AcquireLease() -> std::shared_ptr<void> {
+  if (QThread::currentThread() != thread()) {
+    std::shared_ptr<void> lease;
+    QMetaObject::invokeMethod(
+        this, [this, &lease]() { lease = AcquireLease(); }, Qt::BlockingQueuedConnection);
+    return lease;
+  }
+
+  ++active_leases_;
+  QPointer<AiSidecarRuntimeService> self(this);
+  return std::shared_ptr<void>(new int(0), [self](int* token) {
+    delete token;
+    if (self) {
+      self->ReleaseLease();
+    }
+  });
 }
 
 void AiSidecarRuntimeService::Stop() {
@@ -355,7 +359,29 @@ void AiSidecarRuntimeService::Stop() {
             "Semantic runtime is stopped");
 }
 
-void AiSidecarRuntimeService::StopForProjectClose() { Stop(); }
+void AiSidecarRuntimeService::StopForProjectClose() {
+  if (QThread::currentThread() != thread()) {
+    QMetaObject::invokeMethod(
+        this, [this]() { StopForProjectClose(); }, Qt::BlockingQueuedConnection);
+    return;
+  }
+  active_leases_ = 0;
+  Stop();
+}
+
+void AiSidecarRuntimeService::ReleaseLease() {
+  if (QThread::currentThread() != thread()) {
+    QMetaObject::invokeMethod(this, [this]() { ReleaseLease(); }, Qt::BlockingQueuedConnection);
+    return;
+  }
+
+  if (active_leases_ > 0) {
+    --active_leases_;
+  }
+  if (active_leases_ == 0 && IsRunning()) {
+    Stop();
+  }
+}
 
 auto AiSidecarRuntimeService::Status() -> AiSidecarRuntimeStatusSnapshot {
   if (QThread::currentThread() != thread()) {
@@ -493,7 +519,7 @@ auto AiSidecarRuntimeService::ChoosePort() const -> uint16_t {
   return 50051;
 }
 
-auto AiSidecarRuntimeService::WaitForReadiness() -> bool {
+auto AiSidecarRuntimeService::WaitForReadiness(bool terminate_on_timeout) -> bool {
   const auto  deadline = std::chrono::steady_clock::now() + options_.startup_timeout;
   std::string last_error;
   while (std::chrono::steady_clock::now() < deadline) {
@@ -526,8 +552,15 @@ auto AiSidecarRuntimeService::WaitForReadiness() -> bool {
     std::this_thread::sleep_for(options_.health_poll_interval);
   }
 
-  SetStatus(AiSidecarRuntimeState::kFailed, AiSidecarRuntimeIssue::kReadinessTimeout,
-            last_error.empty() ? "Timed out waiting for semantic runtime readiness" : last_error);
+  const std::string message =
+      last_error.empty() ? "Timed out waiting for semantic runtime readiness" : last_error;
+  if (!terminate_on_timeout && IsRunning()) {
+    status_.message = message;
+    emit statusChanged();
+    return false;
+  }
+
+  SetStatus(AiSidecarRuntimeState::kFailed, AiSidecarRuntimeIssue::kReadinessTimeout, message);
   if (process_.state() != QProcess::NotRunning) {
     process_.terminate();
     if (!process_.waitForFinished(static_cast<int>(options_.graceful_stop_timeout.count()))) {

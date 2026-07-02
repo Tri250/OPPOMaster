@@ -25,6 +25,7 @@ ColumnLayout {
 
     signal importPreferenceRequested(string preference)
     signal messageRequested(string message)
+    signal backgroundRequested()
 
     readonly property bool hasController: semanticController !== null
     readonly property bool hasDownloadController: downloadController !== null
@@ -382,6 +383,33 @@ ColumnLayout {
                     opacity: regenerateButton.enabled ? 1.0 : 0.45
                 }
             }
+
+            Button {
+                id: generationBackgroundButton
+                visible: panel.generationRunning
+                Layout.preferredWidth: 172
+                Layout.preferredHeight: 48
+                text: qsTr("Run in Background")
+                enabled: panel.generationRunning
+                font.pixelSize: 15
+                font.weight: 800
+                Material.foreground: panel.textColor
+                onClicked: panel.backgroundRequested()
+                background: Rectangle {
+                    radius: 10
+                    color: generationBackgroundButton.down
+                           ? Qt.darker(panel.primaryAccent, 1.16)
+                           : (generationBackgroundButton.hovered
+                              ? Qt.lighter(panel.primaryAccent, 1.06)
+                              : panel.primaryAccent)
+                    border.width: 1
+                    border.color: Qt.rgba(panel.secondaryAccent.r,
+                                          panel.secondaryAccent.g,
+                                          panel.secondaryAccent.b,
+                                          0.18)
+                    opacity: generationBackgroundButton.enabled ? 1.0 : 0.45
+                }
+            }
         }
     }
 
@@ -479,7 +507,7 @@ ColumnLayout {
                           : Qt.rgba(1, 1, 1, 0.07))
                 border.width: 1
                 border.color: Qt.rgba(panel.textColor.r, panel.textColor.g, panel.textColor.b, 0.14)
-                opacity: panel.hasController && !panel.modelTaskRunning ? 1 : 0.45
+                opacity: modelBrowseMouse.enabled ? 1 : 0.45
 
                 Image {
                     anchors.centerIn: parent

@@ -26,14 +26,20 @@ enum class ThumbnailCacheFormat : uint8_t {
   kBmp  = 2,
 };
 
-struct ThumbnailDiskCacheKey {
-  std::string         project_uuid;
-  sl_element_id_t     element_id          = 0;
-  ThumbnailResolution resolution          = ThumbnailResolution::k1024;
-  std::string         edit_version_hash;
-  uint32_t            cache_schema_version = 1;
+enum class ThumbnailDiskCachePurpose : uint8_t {
+  kThumbnail = 0,
+  kAnalysis  = 1,
+};
 
-  bool                operator==(const ThumbnailDiskCacheKey& other) const = default;
+struct ThumbnailDiskCacheKey {
+  std::string               project_uuid;
+  sl_element_id_t           element_id = 0;
+  ThumbnailResolution       resolution = ThumbnailResolution::k1024;
+  ThumbnailDiskCachePurpose purpose    = ThumbnailDiskCachePurpose::kThumbnail;
+  std::string               edit_version_hash;
+  uint32_t                  cache_schema_version                                 = 1;
+
+  bool                      operator==(const ThumbnailDiskCacheKey& other) const = default;
 };
 
 }  // namespace alcedo
@@ -44,6 +50,8 @@ struct std::hash<alcedo::ThumbnailDiskCacheKey> {
     size_t h = std::hash<std::string>{}(key.project_uuid);
     h ^= std::hash<uint32_t>{}(key.element_id) + 0x9e3779b9 + (h << 6) + (h >> 2);
     h ^= std::hash<uint32_t>{}(static_cast<uint32_t>(key.resolution)) + 0x9e3779b9 + (h << 6) +
+         (h >> 2);
+    h ^= std::hash<uint32_t>{}(static_cast<uint32_t>(key.purpose)) + 0x9e3779b9 + (h << 6) +
          (h >> 2);
     h ^= std::hash<std::string>{}(key.edit_version_hash) + 0x9e3779b9 + (h << 6) + (h >> 2);
     h ^= std::hash<uint32_t>{}(key.cache_schema_version) + 0x9e3779b9 + (h << 6) + (h >> 2);
@@ -56,12 +64,12 @@ namespace alcedo {
 class ThumbnailDiskCacheService {
  public:
   struct Stats {
-    size_t total_entries   = 0;
-    size_t total_size_bytes = 0;
-    size_t hit_count        = 0;
-    size_t miss_count       = 0;
-    size_t max_entries      = 0;
-    bool   enabled          = true;
+    size_t      total_entries    = 0;
+    size_t      total_size_bytes = 0;
+    size_t      hit_count        = 0;
+    size_t      miss_count       = 0;
+    size_t      max_entries      = 0;
+    bool        enabled          = true;
     std::string cache_root_path;
   };
 
@@ -72,48 +80,46 @@ class ThumbnailDiskCacheService {
   ThumbnailDiskCacheService(const ThumbnailDiskCacheService&)            = delete;
   ThumbnailDiskCacheService& operator=(const ThumbnailDiskCacheService&) = delete;
   ThumbnailDiskCacheService(ThumbnailDiskCacheService&&)                 = delete;
-  ThumbnailDiskCacheService& operator=(ThumbnailDiskCacheService&&)      = delete;
+  ThumbnailDiskCacheService&   operator=(ThumbnailDiskCacheService&&)    = delete;
 
-  void Initialize(const std::string& project_uuid);
-  void Shutdown();
+  void                         Initialize(const std::string& project_uuid);
+  void                         Shutdown();
 
-  bool                        Lookup(const ThumbnailDiskCacheKey& key);
+  bool                         Lookup(const ThumbnailDiskCacheKey& key);
   std::unique_ptr<ImageBuffer> Read(const ThumbnailDiskCacheKey& key);
-  void                        EnqueueWrite(const ThumbnailDiskCacheKey& key,
-                                           ImageBuffer                  buffer,
-                                           ThumbnailCacheFormat         format = ThumbnailCacheFormat::kJpeg);
-  void                        EnqueueWrite(const ThumbnailDiskCacheKey& key,
-                                           std::shared_ptr<ImageBuffer> buffer,
-                                           ThumbnailCacheFormat         format = ThumbnailCacheFormat::kJpeg);
-  void                        Invalidate(const std::string& project_uuid, sl_element_id_t element_id);
+  void                         EnqueueWrite(const ThumbnailDiskCacheKey& key, ImageBuffer buffer,
+                                            ThumbnailCacheFormat format = ThumbnailCacheFormat::kJpeg);
+  void  EnqueueWrite(const ThumbnailDiskCacheKey& key, std::shared_ptr<ImageBuffer> buffer,
+                     ThumbnailCacheFormat format = ThumbnailCacheFormat::kJpeg);
+  void  Invalidate(const std::string& project_uuid, sl_element_id_t element_id);
 
-  Stats                       GetStats() const;
+  Stats GetStats() const;
 
   // ── Phase 4: Configuration ────────────────────────────────────────────
-  void SetEnabled(bool enabled);
-  bool IsEnabled() const;
-  void SetCacheRoot(const std::filesystem::path& cache_root);
+  void  SetEnabled(bool enabled);
+  bool  IsEnabled() const;
+  void  SetCacheRoot(const std::filesystem::path& cache_root);
   const std::filesystem::path& GetCacheRoot() const;
-  void SetMaxEntries(size_t max_entries);
-  size_t GetMaxEntries() const;
-  void SetJpegQuality(int quality);
-  int  GetJpegQuality() const;
-  void SetWebPQuality(int quality);
-  int  GetWebPQuality() const;
+  void                         SetMaxEntries(size_t max_entries);
+  size_t                       GetMaxEntries() const;
+  void                         SetJpegQuality(int quality);
+  int                          GetJpegQuality() const;
+  void                         SetWebPQuality(int quality);
+  int                          GetWebPQuality() const;
 
   // ── Phase 4: Operations ───────────────────────────────────────────────
-  void ClearAll();
-  void ClearProject(const std::string& project_uuid);
-  void FlushMetadata();
+  void                         ClearAll();
+  void                         ClearProject(const std::string& project_uuid);
+  void                         FlushMetadata();
 
  private:
   friend class ThumbnailService;
 
   struct EntryMeta {
-    ThumbnailDiskCacheKey  key;
-    size_t                 file_size_bytes = 0;
-    std::filesystem::path  file_path;
-    int64_t                last_access_time = 0;
+    ThumbnailDiskCacheKey key;
+    size_t                file_size_bytes = 0;
+    std::filesystem::path file_path;
+    int64_t               last_access_time = 0;
   };
 
   struct WriteTask {
@@ -128,19 +134,19 @@ class ThumbnailDiskCacheService {
   struct State;
   std::unique_ptr<State> state_;
 
-  static std::string MakeKeyHashString(const ThumbnailDiskCacheKey& key);
-  std::filesystem::path DeriveFilePath(const std::string& key_hash,
+  static std::string     MakeKeyHashString(const ThumbnailDiskCacheKey& key);
+  std::filesystem::path  DeriveFilePath(const std::string&   key_hash,
                                         ThumbnailCacheFormat format) const;
-  void                  WriterThreadLoop();
-  void                  LoadGlobalMetadata();
-  void                  LoadMetadata();
-  void                  RecordLruAccessLocked(const std::string& key_hash);
-  void                  RemoveEntryFromIndexLocked(const std::string& key_hash);
-  void                  EvictLruLocked(size_t target_count);
-  void                  RebuildFromDirectoryScan();
-  void                  ReopenWithCacheRoot(const std::filesystem::path& cache_root);
-  void                  BumpClearGenerationLocked();
-  int64_t               CurrentTimeSeconds() const;
+  void                   WriterThreadLoop();
+  void                   LoadGlobalMetadata();
+  void                   LoadMetadata();
+  void                   RecordLruAccessLocked(const std::string& key_hash);
+  void                   RemoveEntryFromIndexLocked(const std::string& key_hash);
+  void                   EvictLruLocked(size_t target_count);
+  void                   RebuildFromDirectoryScan();
+  void                   ReopenWithCacheRoot(const std::filesystem::path& cache_root);
+  void                   BumpClearGenerationLocked();
+  int64_t                CurrentTimeSeconds() const;
 };
 
 }  // namespace alcedo

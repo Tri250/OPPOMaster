@@ -220,7 +220,17 @@ class AlbumImageAnalysisEnvironment final : public IImageAnalysisEnvironment {
     return context;
   }
 
+  auto AcquireSidecarLease() -> std::shared_ptr<void> override {
+    auto project = backend_.project_handler_.project();
+    if (!project) {
+      return {};
+    }
+    auto runtime = project->GetAiSidecarRuntimeService();
+    return runtime ? runtime->AcquireLease() : std::shared_ptr<void>{};
+  }
+
   auto EnsureSidecarReady(bool provider_configs_dirty, std::string* error) -> bool override {
+    (void)provider_configs_dirty;
     auto project = backend_.project_handler_.project();
     if (!project) {
       if (error) {
@@ -235,17 +245,14 @@ class AlbumImageAnalysisEnvironment final : public IImageAnalysisEnvironment {
       }
       return false;
     }
-    if (provider_configs_dirty && runtime->IsRunning()) {
-      runtime->Stop();
-    }
     if (runtime->Status().state == AiSidecarRuntimeState::kReady) {
       return true;
     }
-    AiSidecarRuntimeOptions options;
-    options.allow_download = false;
-    options.require_model_info =
-        false;  // remote image analysis: HTTP-provider path, no CLIP model.
-    options.startup_timeout = kImageAnalysisSidecarStartupTimeout;
+    AiSidecarRuntimeOptions options =
+        backend_.semantic_generation_.RuntimeOptionsForCurrentSidecarSnapshot(false);
+    options.allow_download     = false;
+    options.require_model_info = false;  // remote image analysis: HTTP-provider path.
+    options.startup_timeout    = kImageAnalysisSidecarStartupTimeout;
     if (!runtime->StartAndWait(options)) {
       if (error) {
         *error = runtime->Status().message;
@@ -310,13 +317,14 @@ class AlbumImageAnalysisSink final : public IImageAnalysisSink {
   }
 
   bool ApplyStarRating(uint32_t elementId, uint32_t imageId, int rating) override {
-    queue_.Submit([this, elementId, imageId, rating] {
-      DoApplyStarRating(elementId, imageId, rating);
-    });
+    queue_.Submit(
+        [this, elementId, imageId, rating] { DoApplyStarRating(elementId, imageId, rating); });
     return true;
   }
 
-  void FlushPendingStarRatings() override { queue_.Submit([this] { DoFlushPendingStarRatings(); }); }
+  void FlushPendingStarRatings() override {
+    queue_.Submit([this] { DoFlushPendingStarRatings(); });
+  }
 
   void NotifySearchDocumentChanged() override {
     queue_.Submit([this] { DoNotifySearchDocumentChanged(); });

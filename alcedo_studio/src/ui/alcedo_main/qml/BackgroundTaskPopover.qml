@@ -19,6 +19,8 @@ Popup {
 
     readonly property var controller: bar && bar.controller ? bar.controller : null
 
+    signal taskDetailsRequested(var task)
+
     parent: Overlay.overlay
     modal: false
     focus: true
@@ -89,6 +91,23 @@ Popup {
                         spacing: 2
 
                         Label {
+                            // Kind badge so concurrent tasks are distinguishable at a
+                            // glance — e.g. "AI ANALYSIS" vs "SEMANTIC LABELS" vs "MODEL
+                            // ACTIVATION". Without this, two "24 image(s)" tasks in the
+                            // popover are easy to mix up, and a failed semantic task gets
+                            // misread as a failed AI-analysis task.
+                            Layout.fillWidth: true
+                            visible: root.kindLabel(modelData.kind).length > 0
+                            text: root.kindLabel(modelData.kind)
+                            color: appTheme.textMutedColor
+                            elide: Text.ElideRight
+                            font.family: appTheme.uiFontFamily
+                            font.pixelSize: 10
+                            font.capitalization: Font.AllUppercase
+                            font.bold: true
+                        }
+
+                        Label {
                             Layout.fillWidth: true
                             text: modelData.title ? modelData.title : qsTr("Task")
                             color: appTheme.textColor
@@ -104,6 +123,18 @@ Popup {
                             elide: Text.ElideRight
                             font.family: appTheme.uiFontFamily
                             font.pixelSize: 11
+                        }
+                    }
+
+                    Button {
+                        visible: modelData.kind === "imageAnalysis"
+                                && (modelData.state === "running" || modelData.state === "canceling")
+                        text: qsTr("Details")
+                        flat: true
+                        Material.foreground: appTheme.textColor
+                        onClicked: {
+                            root.taskDetailsRequested(modelData)
+                            root.close()
                         }
                     }
 
@@ -140,5 +171,15 @@ Popup {
         if (state === "succeeded") return appTheme.accentSecondaryColor
         if (state === "canceled") return appTheme.textMutedColor
         return appTheme.hoverColor
+    }
+
+    function kindLabel(kind) {
+        if (kind === "imageAnalysis") return qsTr("AI Analysis")
+        if (kind === "semanticGeneration") return qsTr("Semantic Labels")
+        if (kind === "modelActivation") return qsTr("Model Activation")
+        if (kind === "modelDownload") return qsTr("Model Download")
+        if (kind === "import") return qsTr("Import")
+        if (kind === "export") return qsTr("Export")
+        return ""
     }
 }

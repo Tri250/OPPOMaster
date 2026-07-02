@@ -466,7 +466,10 @@ auto QueryHasHnswIndex(duckdb_connection conn, bool* hasHnswIndexOut,
   return true;
 }
 
-auto LoadVssExtensionForSnapshot(duckdb_connection conn, QString* errorOut) -> bool {
+// Renamed from LoadVssExtensionForSnapshot: the vss extension load is now used
+// both by the snapshot import path and by EnsureVssExtensionForExistingHnswIndexes
+// (normal project open), so the "ForSnapshot" suffix was misleading.
+auto LoadVssExtension(duckdb_connection conn, QString* errorOut) -> bool {
   std::vector<std::filesystem::path> candidates;
   if (const char* env_path = std::getenv("ALCEDO_DUCKDB_VSS_EXTENSION")) {
     if (*env_path != '\0') {
@@ -505,10 +508,29 @@ auto LoadVssExtensionForSnapshot(duckdb_connection conn, QString* errorOut) -> b
   }
   load_errors += Tr("\nDuckDB extension load failed by name: %1").arg(load_error);
   if (errorOut) {
-    *errorOut = Tr("DuckDB snapshot requires the VSS extension for existing HNSW indexes.%1")
+    *errorOut = Tr("DuckDB requires the VSS extension for existing HNSW indexes.%1")
                     .arg(load_errors);
   }
   return false;
+}
+
+auto EnsureVssExtensionForExistingHnswIndexes(duckdb_connection conn, QString* errorOut) -> bool {
+  // Normal project open: if the DB already has an HNSW index (the semantic
+  // embedding tables use HNSW), the vss extension must be LOADed before any write
+  // to those tables, or DuckDB fails with "Cannot bind index '...', unknown index
+  // type 'HNSW'". Snapshot import already loads vss; this wrapper covers the
+  // regular LoadProject path so semantic-generation embedding persists don't
+  // silently fail. Returns true when no HNSW index is present (nothing to do) or
+  // vss loaded successfully; false only when an HNSW index exists but vss could
+  // not be loaded — non-fatal, callers should log a warning and continue.
+  bool has_hnsw = false;
+  if (!QueryHasHnswIndex(conn, &has_hnsw, errorOut)) {
+    return false;
+  }
+  if (!has_hnsw) {
+    return true;
+  }
+  return LoadVssExtension(conn, errorOut);
 }
 
 auto QueryCurrentCatalog(duckdb_connection conn, std::string* catalogOut,
@@ -616,7 +638,7 @@ auto CreateLiveDbSnapshot(const std::shared_ptr<ProjectService>& project,
 
     bool has_hnsw_index = false;
     if (!QueryHasHnswIndex(guard.conn_, &has_hnsw_index, errorOut) ||
-        (has_hnsw_index && !LoadVssExtensionForSnapshot(guard.conn_, errorOut))) {
+        (has_hnsw_index && !LoadVssExtension(guard.conn_, errorOut))) {
       std::filesystem::remove(snapshotPath, ec);
       return false;
     }

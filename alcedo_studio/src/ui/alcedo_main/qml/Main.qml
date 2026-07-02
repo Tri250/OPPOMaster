@@ -811,6 +811,9 @@ ApplicationWindow {
         onMessageRequested: function(message) {
             root.showSnackbar(message)
         }
+        onSemanticGenerationBackgroundRequested: {
+            semanticGenerationDialog.runInBackground()
+        }
     }
 
     AdjustmentTransferDialog {
@@ -1876,6 +1879,11 @@ ApplicationWindow {
 
         BackgroundTaskBar {
             Layout.fillWidth: true
+            onTaskDetailsRequested: function(task) {
+                if (task && task.kind === "imageAnalysis") {
+                    advancedContentAnalysisDialog.openTaskDetails(task)
+                }
+            }
         }
 
         GlobalSearchDialog {

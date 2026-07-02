@@ -21,6 +21,8 @@ Item {
     readonly property int runningCount: controller ? controller.runningCount : 0
     readonly property bool hasTasks: controller && controller.tasks.length > 0
 
+    signal taskDetailsRequested(var task)
+
     visible: hasTasks
     Layout.fillWidth: true
     Layout.preferredHeight: hasTasks ? 38 : 0
@@ -57,7 +59,14 @@ Item {
             }
 
             Label {
-                text: root.primary && root.primary.title ? root.primary.title : qsTr("Background tasks")
+                // Prefix the primary task title with its kind so the bar itself
+                // disambiguates concurrent tasks (e.g. "AI Analysis · Analyzing..."
+                // vs "Semantic Labels · Generating..."), matching the popover badge.
+                text: {
+                    if (!(root.primary && root.primary.title)) return qsTr("Background tasks")
+                    const kl = root.kindLabel(root.primary.kind)
+                    return kl.length > 0 ? (kl + " · " + root.primary.title) : root.primary.title
+                }
                 color: appTheme.textColor
                 elide: Text.ElideRight
                 font.family: appTheme.uiFontFamily
@@ -114,8 +123,21 @@ Item {
         return appTheme.hoverColor
     }
 
+    function kindLabel(kind) {
+        if (kind === "imageAnalysis") return qsTr("AI Analysis")
+        if (kind === "semanticGeneration") return qsTr("Semantic Labels")
+        if (kind === "modelActivation") return qsTr("Model Activation")
+        if (kind === "modelDownload") return qsTr("Model Download")
+        if (kind === "import") return qsTr("Import")
+        if (kind === "export") return qsTr("Export")
+        return ""
+    }
+
     BackgroundTaskPopover {
         id: popover
         bar: root
+        onTaskDetailsRequested: function(task) {
+            root.taskDetailsRequested(task)
+        }
     }
 }

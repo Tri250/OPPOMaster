@@ -25,19 +25,19 @@ class ThumbnailDiskCacheService;
 namespace alcedo {
 
 struct ThumbnailGuard {
-  std::unique_ptr<ImageBuffer> thumbnail_buffer_ = nullptr;
-  int                          pin_count_        = 0;
+  std::unique_ptr<ImageBuffer> thumbnail_buffer_   = nullptr;
+  int                          pin_count_          = 0;
 
-  ThumbnailGuard()  = default;
-  ~ThumbnailGuard() = default;
+  ThumbnailGuard()                                 = default;
+  ~ThumbnailGuard()                                = default;
 
   // Non-copyable
   ThumbnailGuard(const ThumbnailGuard&)            = delete;
   ThumbnailGuard& operator=(const ThumbnailGuard&) = delete;
 
   // Movable
-  ThumbnailGuard(ThumbnailGuard&&)            = default;
-  ThumbnailGuard& operator=(ThumbnailGuard&&) = default;
+  ThumbnailGuard(ThumbnailGuard&&)                 = default;
+  ThumbnailGuard& operator=(ThumbnailGuard&&)      = default;
 };
 
 enum class ThumbnailRequestStatus {
@@ -53,9 +53,9 @@ struct ThumbnailRequestResult {
   ThumbnailCacheKey               key{};
 };
 
-using ThumbnailCallback  = std::function<void(std::shared_ptr<ThumbnailGuard>)>;
+using ThumbnailCallback       = std::function<void(std::shared_ptr<ThumbnailGuard>)>;
 using ThumbnailResultCallback = std::function<void(ThumbnailRequestResult)>;
-using CallbackDispatcher = std::function<void(std::function<void()>)>;
+using CallbackDispatcher      = std::function<void(std::function<void()>)>;
 
 class ThumbnailService {
  private:
@@ -66,19 +66,18 @@ class ThumbnailService {
 
  public:
   ThumbnailService() = delete;
-  ThumbnailService(std::shared_ptr<SleeveServiceImpl>     sleeve_service,
-                   std::shared_ptr<ImagePoolService>      image_pool_service,
-                   std::shared_ptr<PipelineMgmtService>   pipeline_service,
-                   std::shared_ptr<EditHistoryMgmtService> history_service = nullptr,
-                   const std::string&                     project_uuid = {},
-                   const std::filesystem::path&           thumbnail_cache_root = {});
+  ThumbnailService(std::shared_ptr<SleeveServiceImpl>      sleeve_service,
+                   std::shared_ptr<ImagePoolService>       image_pool_service,
+                   std::shared_ptr<PipelineMgmtService>    pipeline_service,
+                   std::shared_ptr<EditHistoryMgmtService> history_service      = nullptr,
+                   const std::string&                      project_uuid         = {},
+                   const std::filesystem::path&            thumbnail_cache_root = {});
   ~ThumbnailService() = default;
 
   // Request a thumbnail for the given element/image pair.
   // resolution selects the desired fixed tier (256, 512, 1024, 2048).
-  void GetThumbnail(sl_element_id_t id, image_id_t image_id,
-                    ThumbnailCallback callback, bool pin_if_found = true,
-                    CallbackDispatcher dispatcher = nullptr,
+  void GetThumbnail(sl_element_id_t id, image_id_t image_id, ThumbnailCallback callback,
+                    bool pin_if_found = true, CallbackDispatcher dispatcher = nullptr,
                     ThumbnailResolution resolution = ThumbnailResolution::k1024);
 
   // Request a thumbnail and receive a detailed result. This distinguishes
@@ -86,17 +85,16 @@ class ThumbnailService {
   // legacy guard/null callback contract.
   void GetThumbnailDetailed(sl_element_id_t id, image_id_t image_id,
                             ThumbnailResultCallback callback, bool pin_if_found = true,
-                            CallbackDispatcher dispatcher = nullptr,
+                            CallbackDispatcher  dispatcher = nullptr,
                             ThumbnailResolution resolution = ThumbnailResolution::k1024);
 
   // Phase 3: render an analysis rendition from a captured pipeline snapshot. Does
   // NOT pin the live pipeline guard, does NOT call SavePipeline on the live guard,
-  // and does NOT cache the result in thumbnail_cache_/disk cache. One-shot delivery
-  // to the single callback. Used by background image analysis so the editor's live
-  // pipeline is never disturbed by an analysis thumbnail render.
+  // and does NOT cache the result in thumbnail_cache_. Disk cache hits/writes use
+  // a separate analysis namespace. One-shot delivery to the single callback. Used
+  // by background image analysis so the editor's live pipeline is never disturbed.
   void RequestAnalysisRendition(sl_element_id_t element_id, image_id_t image_id,
-                                ThumbnailResolution resolution,
-                                ThumbnailResultCallback callback);
+                                ThumbnailResolution resolution, ThumbnailResultCallback callback);
   void CancelAnalysisRendition(const ThumbnailCacheKey& key);
   void ReleaseAnalysisRendition(const ThumbnailCacheKey& key);
 
@@ -129,24 +127,24 @@ class ThumbnailService {
   bool IsDiskCacheEnabled() const;
   void SetDiskCacheRoot(const std::filesystem::path& cache_root);
   std::filesystem::path GetDiskCacheRoot() const;
-  void SetDiskCacheMaxEntries(size_t max_entries);
-  size_t GetDiskCacheMaxEntries() const;
-  void SetDiskCacheJpegQuality(int quality);
-  int  GetDiskCacheJpegQuality() const;
-  void SetDiskCacheWebPQuality(int quality);
-  int  GetDiskCacheWebPQuality() const;
+  void                  SetDiskCacheMaxEntries(size_t max_entries);
+  size_t                GetDiskCacheMaxEntries() const;
+  void                  SetDiskCacheJpegQuality(int quality);
+  int                   GetDiskCacheJpegQuality() const;
+  void                  SetDiskCacheWebPQuality(int quality);
+  int                   GetDiskCacheWebPQuality() const;
 
-  void ClearAllDiskCache();
-  void ClearProjectDiskCache();
-  void FlushDiskCacheMetadata();
+  void                  ClearAllDiskCache();
+  void                  ClearProjectDiskCache();
+  void                  FlushDiskCacheMetadata();
 
   struct DiskCacheStats {
-    size_t total_entries   = 0;
-    size_t total_size_bytes = 0;
-    size_t hit_count        = 0;
-    size_t miss_count       = 0;
-    size_t max_entries      = 0;
-    bool   enabled          = true;
+    size_t      total_entries    = 0;
+    size_t      total_size_bytes = 0;
+    size_t      hit_count        = 0;
+    size_t      miss_count       = 0;
+    size_t      max_entries      = 0;
+    bool        enabled          = true;
     std::string cache_root_path;
   };
   DiskCacheStats GetDiskCacheStats() const;

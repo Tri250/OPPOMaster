@@ -2,13 +2,12 @@
 //  SPDX-License-Identifier: GPL-3.0-only
 //  Additional permission under GPLv3 section 7 applies; see the LICENSE file.
 
-#include "ui/album_backend_test_fixture.hpp"
-
 #include <QSignalSpy>
 #include <QString>
 #include <QVariantList>
 #include <QVariantMap>
 
+#include "ui/album_backend_test_fixture.hpp"
 #include "ui/alcedo_main/album_backend/background_task_controller.hpp"
 #include "ui/alcedo_main/album_backend/interaction_policy_controller.hpp"
 
@@ -36,8 +35,7 @@ auto Lock(InteractionCapability cap, uint64_t eid, const QString& reason) -> Int
 }
 
 // Register a task of `kind` holding `locks` and return its id.
-auto RegisterLockedTask(BackgroundTaskController&            registry,
-                        BackgroundTaskKind                  kind,
+auto RegisterLockedTask(BackgroundTaskController& registry, BackgroundTaskKind kind,
                         const std::vector<InteractionLock>& locks) -> QString {
   BackgroundTaskSnapshot s;
   s.kind_            = kind;
@@ -50,8 +48,8 @@ auto RegisterLockedTask(BackgroundTaskController&            registry,
 }
 
 TEST_F(AlbumBackendInteractionPolicyTests, NoTasks_AllCapabilitiesAllowed) {
-  BackgroundTaskController      registry;
-  InteractionPolicyController   policy(&registry);
+  BackgroundTaskController    registry;
+  InteractionPolicyController policy(&registry);
   EXPECT_TRUE(policy.EvaluateEditImageDescription(42).value("allowed").toBool());
   EXPECT_TRUE(policy.EvaluateEditImageRating(42).value("allowed").toBool());
   EXPECT_TRUE(policy.EvaluateEditImageRatingReason(42).value("allowed").toBool());
@@ -75,9 +73,9 @@ TEST_F(AlbumBackendInteractionPolicyTests, NoTasks_AllCapabilitiesAllowed) {
 }
 
 TEST_F(AlbumBackendInteractionPolicyTests, ImageAnalysisPerElementLocks_BlockAffectedOnly) {
-  BackgroundTaskController      registry;
-  InteractionPolicyController   policy(&registry);
-  const QString id = RegisterLockedTask(
+  BackgroundTaskController    registry;
+  InteractionPolicyController policy(&registry);
+  const QString               id = RegisterLockedTask(
       registry, BackgroundTaskKind::ImageAnalysis,
       {
           Lock(InteractionCapability::EditImageDescription, 42, QStringLiteral("analyzing")),
@@ -86,7 +84,10 @@ TEST_F(AlbumBackendInteractionPolicyTests, ImageAnalysisPerElementLocks_BlockAff
           Lock(InteractionCapability::RunImageAnalysis, 42, QStringLiteral("rerun")),
           Lock(InteractionCapability::DeleteImages, 42, QStringLiteral("no delete")),
           Lock(InteractionCapability::ChangeImageAnalysisProvider, 0,
-               QStringLiteral("provider locked")),
+                             QStringLiteral("provider locked")),
+          Lock(InteractionCapability::ChangeSemanticModel, 0, QStringLiteral("model locked")),
+          Lock(InteractionCapability::ChangeModelDownloadSettings, 0,
+                             QStringLiteral("model files locked")),
       });
 
   // Affected image 42 is blocked across the image-edit + run + delete caps.
@@ -105,8 +106,13 @@ TEST_F(AlbumBackendInteractionPolicyTests, ImageAnalysisPerElementLocks_BlockAff
   EXPECT_TRUE(policy.EvaluateEditImageRating(99).value("allowed").toBool());
   EXPECT_TRUE(policy.EvaluateDeleteImages(Targets({99})).value("allowed").toBool());
   EXPECT_TRUE(policy.EvaluateRunImageAnalysis(Targets({99})).value("allowed").toBool());
-  // The provider-change cap is global, so it is blocked regardless of element.
+  // Snapshot-setting caps are global, so they are blocked regardless of element.
   EXPECT_FALSE(policy.EvaluateChangeImageAnalysisProvider().value("allowed").toBool());
+  EXPECT_FALSE(policy.EvaluateChangeSemanticModel().value("allowed").toBool());
+  EXPECT_FALSE(policy.EvaluateChangeModelDownloadSettings().value("allowed").toBool());
+  // A semantic run may still reuse the already-running sidecar; it is not a
+  // startup-snapshot mutation.
+  EXPECT_TRUE(policy.EvaluateRunSemanticGeneration().value("allowed").toBool());
 
   // Cached focused-image gates track the focused element id.
   policy.SetFocusedElementId(42);
@@ -135,8 +141,8 @@ TEST_F(AlbumBackendInteractionPolicyTests, ImageAnalysisPerElementLocks_BlockAff
 }
 
 TEST_F(AlbumBackendInteractionPolicyTests, GlobalLock_BlocksEveryElement) {
-  BackgroundTaskController      registry;
-  InteractionPolicyController   policy(&registry);
+  BackgroundTaskController    registry;
+  InteractionPolicyController policy(&registry);
   RegisterLockedTask(
       registry, BackgroundTaskKind::ImageAnalysis,
       {
@@ -149,18 +155,21 @@ TEST_F(AlbumBackendInteractionPolicyTests, GlobalLock_BlocksEveryElement) {
 }
 
 TEST_F(AlbumBackendInteractionPolicyTests, SemanticGenerationLocks_BlockModelAndGeneration) {
-  BackgroundTaskController      registry;
-  InteractionPolicyController   policy(&registry);
+  BackgroundTaskController    registry;
+  InteractionPolicyController policy(&registry);
   RegisterLockedTask(
       registry, BackgroundTaskKind::SemanticGeneration,
       {
           Lock(InteractionCapability::ChangeSemanticModel, 0, QStringLiteral("model")),
           Lock(InteractionCapability::RunSemanticGeneration, 0, QStringLiteral("gen")),
           Lock(InteractionCapability::ChangeModelDownloadSettings, 0, QStringLiteral("dl")),
+          Lock(InteractionCapability::ChangeImageAnalysisProvider, 0, QStringLiteral("provider")),
       });
   EXPECT_FALSE(policy.EvaluateChangeSemanticModel().value("allowed").toBool());
   EXPECT_FALSE(policy.EvaluateRunSemanticGeneration().value("allowed").toBool());
   EXPECT_FALSE(policy.EvaluateChangeModelDownloadSettings().value("allowed").toBool());
+  EXPECT_FALSE(policy.EvaluateChangeImageAnalysisProvider().value("allowed").toBool());
+  EXPECT_TRUE(policy.EvaluateRunImageAnalysis(Targets({42})).value("allowed").toBool());
   EXPECT_FALSE(policy.CanChangeSemanticModel());
   EXPECT_FALSE(policy.CanRunSemanticGeneration());
   EXPECT_FALSE(policy.CanChangeModelDownloadSettings());
@@ -169,8 +178,8 @@ TEST_F(AlbumBackendInteractionPolicyTests, SemanticGenerationLocks_BlockModelAnd
 }
 
 TEST_F(AlbumBackendInteractionPolicyTests, ModelDownloadLocks_BlockSettingsAndModelNotGeneration) {
-  BackgroundTaskController      registry;
-  InteractionPolicyController   policy(&registry);
+  BackgroundTaskController    registry;
+  InteractionPolicyController policy(&registry);
   RegisterLockedTask(
       registry, BackgroundTaskKind::ModelDownload,
       {
@@ -184,24 +193,27 @@ TEST_F(AlbumBackendInteractionPolicyTests, ModelDownloadLocks_BlockSettingsAndMo
 }
 
 TEST_F(AlbumBackendInteractionPolicyTests, ModelActivationLocks_BlockAllThree) {
-  BackgroundTaskController      registry;
-  InteractionPolicyController   policy(&registry);
+  BackgroundTaskController    registry;
+  InteractionPolicyController policy(&registry);
   RegisterLockedTask(
       registry, BackgroundTaskKind::ModelActivation,
       {
           Lock(InteractionCapability::ChangeSemanticModel, 0, QStringLiteral("model")),
           Lock(InteractionCapability::RunSemanticGeneration, 0, QStringLiteral("gen")),
           Lock(InteractionCapability::ChangeModelDownloadSettings, 0, QStringLiteral("dl")),
+          Lock(InteractionCapability::ChangeImageAnalysisProvider, 0, QStringLiteral("provider")),
       });
   EXPECT_FALSE(policy.EvaluateChangeSemanticModel().value("allowed").toBool());
   EXPECT_FALSE(policy.EvaluateRunSemanticGeneration().value("allowed").toBool());
   EXPECT_FALSE(policy.EvaluateChangeModelDownloadSettings().value("allowed").toBool());
+  EXPECT_FALSE(policy.EvaluateChangeImageAnalysisProvider().value("allowed").toBool());
+  EXPECT_TRUE(policy.EvaluateRunImageAnalysis(Targets({42})).value("allowed").toBool());
 }
 
 TEST_F(AlbumBackendInteractionPolicyTests, FinishTask_ClearsLocks) {
-  BackgroundTaskController      registry;
-  InteractionPolicyController   policy(&registry);
-  const QString id = RegisterLockedTask(
+  BackgroundTaskController    registry;
+  InteractionPolicyController policy(&registry);
+  const QString               id = RegisterLockedTask(
       registry, BackgroundTaskKind::ImageAnalysis,
       {Lock(InteractionCapability::EditImageDescription, 42, QStringLiteral("analyzing"))});
   policy.SetFocusedElementId(42);
@@ -211,10 +223,10 @@ TEST_F(AlbumBackendInteractionPolicyTests, FinishTask_ClearsLocks) {
 }
 
 TEST_F(AlbumBackendInteractionPolicyTests, PolicyChanged_FiresOnlyOnLockSetChange) {
-  BackgroundTaskController      registry;
-  InteractionPolicyController   policy(&registry);
-  QSignalSpy                    spy(&policy, &InteractionPolicyController::PolicyChanged);
-  const QString id = RegisterLockedTask(
+  BackgroundTaskController    registry;
+  InteractionPolicyController policy(&registry);
+  QSignalSpy                  spy(&policy, &InteractionPolicyController::PolicyChanged);
+  const QString               id = RegisterLockedTask(
       registry, BackgroundTaskKind::ImageAnalysis,
       {Lock(InteractionCapability::EditImageDescription, 42, QStringLiteral("analyzing"))});
   const int after_register = spy.count();
@@ -228,15 +240,16 @@ TEST_F(AlbumBackendInteractionPolicyTests, PolicyChanged_FiresOnlyOnLockSetChang
 }
 
 TEST_F(AlbumBackendInteractionPolicyTests, BlockingTaskIds_AggregatesAcrossTasks) {
-  BackgroundTaskController      registry;
-  InteractionPolicyController   policy(&registry);
-  const QString a = RegisterLockedTask(
+  BackgroundTaskController    registry;
+  InteractionPolicyController policy(&registry);
+  const QString               a = RegisterLockedTask(
       registry, BackgroundTaskKind::SemanticGeneration,
       {Lock(InteractionCapability::ChangeSemanticModel, 0, QStringLiteral("a"))});
   const QString b = RegisterLockedTask(
       registry, BackgroundTaskKind::ModelActivation,
       {Lock(InteractionCapability::ChangeSemanticModel, 0, QStringLiteral("b"))});
-  const QStringList ids = policy.EvaluateChangeSemanticModel().value("blockingTaskIds").toStringList();
+  const QStringList ids =
+      policy.EvaluateChangeSemanticModel().value("blockingTaskIds").toStringList();
   EXPECT_TRUE(ids.contains(a));
   EXPECT_TRUE(ids.contains(b));
   EXPECT_EQ(ids.size(), 2);

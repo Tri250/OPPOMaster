@@ -4,8 +4,6 @@
 
 #include "ui/alcedo_main/album_backend/image_analysis_controller.hpp"
 
-#include "ui/alcedo_main/album_backend/background_task_controller.hpp"
-
 #include <QLocale>
 #include <QMetaObject>
 #include <QPointer>
@@ -18,6 +16,8 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
+
+#include "ui/alcedo_main/album_backend/background_task_controller.hpp"
 
 namespace alcedo::ui {
 
@@ -227,9 +227,10 @@ auto ImageAnalysisController::RegisterBackgroundTask() -> QString {
   // lock is global. `EditImageRatingReason` is published only when this run will
   // actually write reasons. `EditImageRating` is published even for a describe
   // job (conservative; the plan's acceptance disables rating for affected images).
-  const QString edit_reason   = Tr("This image is being analyzed.");
-  const QString delete_reason = Tr("This image is being analyzed and cannot be deleted or removed.");
-  const QString rerun_reason  = Tr("An analysis is already running for this image.");
+  const QString edit_reason  = Tr("This image is being analyzed.");
+  const QString delete_reason =
+      Tr("This image is being analyzed and cannot be deleted or removed.");
+  const QString rerun_reason = Tr("An analysis is already running for this image.");
   for (const auto& item : last_items_) {
     const quint64 eid = static_cast<quint64>(item.element_id);
     snapshot.locks_.push_back(
@@ -243,8 +244,15 @@ auto ImageAnalysisController::RegisterBackgroundTask() -> QString {
     snapshot.locks_.push_back(
         InteractionLock{InteractionCapability::DeleteImages, eid, delete_reason});
   }
-  snapshot.locks_.push_back(InteractionLock{InteractionCapability::ChangeImageAnalysisProvider, 0,
-                                            Tr("An analysis is running; change the provider after it finishes.")});
+  snapshot.locks_.push_back(
+      InteractionLock{InteractionCapability::ChangeImageAnalysisProvider, 0,
+                      Tr("An analysis is running; change the provider after it finishes.")});
+  snapshot.locks_.push_back(
+      InteractionLock{InteractionCapability::ChangeSemanticModel, 0,
+                      Tr("An analysis is running; change the local AI model after it finishes.")});
+  snapshot.locks_.push_back(
+      InteractionLock{InteractionCapability::ChangeModelDownloadSettings, 0,
+                      Tr("An analysis is running; don't change model files now.")});
   QPointer<ImageAnalysisController> self(this);
   return registry_->RegisterTask(snapshot, [self]() {
     if (self) {
@@ -259,6 +267,7 @@ void ImageAnalysisController::SetError(const QString& error) {
   running_     = false;
   can_retry_   = false;
   job_.reset();
+  sidecar_lease_.reset();
   last_items_.clear();
   last_results_.clear();
   last_usage_.clear();
@@ -357,8 +366,15 @@ void ImageAnalysisController::StartForTargets(const QVariantList&       targetEn
   }
 
   std::string sidecar_err;
+  sidecar_lease_ = env_->AcquireSidecarLease();
+  if (!sidecar_lease_) {
+    ClearSecret(&secret);
+    SetError(Tr("AI sidecar runtime is unavailable. Open a project first."));
+    return;
+  }
   if (!env_->EnsureSidecarReady(provider_configs_dirty, &sidecar_err)) {
     ClearSecret(&secret);
+    sidecar_lease_.reset();
     SetError(Tr("Could not start the AI sidecar: %1").arg(QString::fromStdString(sidecar_err)));
     return;
   }
@@ -368,6 +384,7 @@ void ImageAnalysisController::StartForTargets(const QVariantList&       targetEn
   auto gate               = env_->Gate();
   if (!thumbnail_provider || !analysis_client || !gate) {
     ClearSecret(&secret);
+    sidecar_lease_.reset();
     SetError(Tr("Image analysis runtime is unavailable. Open a project first."));
     return;
   }
@@ -401,7 +418,7 @@ void ImageAnalysisController::StartForTargets(const QVariantList&       targetEn
                  : task == alcedo::ImageAnalysisTask::kAnalyze
                      ? PL_TEXT("Analyzing and scoring %1 image(s)...", total_)
                      : PL_TEXT("Scoring %1 image(s)...", total_);
-  emit                              StateChanged();
+  emit StateChanged();
   if (registry_) {
     background_task_id_ = RegisterBackgroundTask();
   }
@@ -517,6 +534,11 @@ void ImageAnalysisController::ValidateConnectionForProfile(const QString& profil
   }
 
   std::string sidecar_err;
+  auto        sidecar_lease = env_->AcquireSidecarLease();
+  if (!sidecar_lease) {
+    SetError(Tr("AI sidecar runtime is unavailable. Open a project first."));
+    return;
+  }
   if (!env_->EnsureSidecarReady(provider_configs_dirty, &sidecar_err)) {
     SetError(Tr("Could not start the AI sidecar: %1").arg(QString::fromStdString(sidecar_err)));
     return;
@@ -534,7 +556,8 @@ void ImageAnalysisController::ValidateConnectionForProfile(const QString& profil
   const QString                     profile_id  = profile.uuid;
   QPointer<ImageAnalysisController> self(this);
   std::thread([self, provider_id, profile_id, slot, timeout_ms, requires_credential,
-               thumbnail_provider, analysis_client, gate, store]() {
+               thumbnail_provider, analysis_client, gate, store,
+               sidecar_lease = std::move(sidecar_lease)]() {
     alcedo::ImageAnalysisService service(thumbnail_provider, analysis_client, gate);
     alcedo::ImageAnalysisConnectionValidationOptions opts;
     opts.provider_id         = provider_id;
@@ -751,9 +774,9 @@ void ImageAnalysisController::Finish(std::vector<alcedo::ImageAnalysisItemResult
   // Otherwise finish now — no barrier, writes already committed (today's path).
   if (registry_ && !background_task_id_.isEmpty()) {
     const BackgroundTaskState final_state =
-        canceled_ > 0 ? BackgroundTaskState::Canceled
-                      : (analyzed_ > 0 ? BackgroundTaskState::Succeeded
-                                       : BackgroundTaskState::Failed);
+        canceled_ > 0
+            ? BackgroundTaskState::Canceled
+            : (analyzed_ > 0 ? BackgroundTaskState::Succeeded : BackgroundTaskState::Failed);
     const QString detail = status_text_.Render();
     if (sink_ && sink_->HasPendingWrites()) {
       // Capture the task id by value — it is independent of the background_task_id_
@@ -761,12 +784,11 @@ void ImageAnalysisController::Finish(std::vector<alcedo::ImageAnalysisItemResult
       // drain-complete FIFO in the queue handles multiple deferred jobs.
       const QString                     task_id = background_task_id_;
       QPointer<ImageAnalysisController> self(this);
-      sink_->SetOnDrainComplete(
-          [self, registry = registry_, task_id, final_state, detail] {
-            if (self && registry) {
-              registry->FinishTask(task_id, final_state, detail);
-            }
-          });
+      sink_->SetOnDrainComplete([self, registry = registry_, task_id, final_state, detail] {
+        if (self && registry) {
+          registry->FinishTask(task_id, final_state, detail);
+        }
+      });
       // Intentionally do NOT clear background_task_id_ here: the captured task_id
       // is what finishes the task, and the member is overwritten on the next run.
     } else {
@@ -774,6 +796,7 @@ void ImageAnalysisController::Finish(std::vector<alcedo::ImageAnalysisItemResult
       background_task_id_.clear();
     }
   }
+  sidecar_lease_.reset();
   emit StateChanged();
 }
 
