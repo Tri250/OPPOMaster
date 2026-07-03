@@ -3,6 +3,7 @@
 //  Additional permission under GPLv3 section 7 applies; see the LICENSE file.
 
 #include "edit/operators/basic/color_temp_op.hpp"
+#include "edit/operators/basic/planckian_locus_table.hpp"
 
 #include <iostream>
 #include <opencv2/core.hpp>
@@ -13,9 +14,9 @@
 #include <cstring>
 #include <functional>
 #include <limits>
+#include <span>
 #include <stdexcept>
 #include <string>
-#include <vector>
 
 namespace alcedo {
 namespace {
@@ -30,7 +31,6 @@ constexpr double kDeterminantEpsilon  = 1e-10;
 constexpr double kValueEpsilon        = 1e-10;
 constexpr double kAsShotSolveEpsilon  = 1e-8;
 constexpr int    kAsShotSolveMaxIter  = 16;
-constexpr double kOhnoTableStepRatio  = 1.0025;
 constexpr double kOhnoNearLocusDuv    = 0.002;
 constexpr double kD50X                = 0.34567;
 constexpr double kD50Y                = 0.35850;
@@ -253,40 +253,46 @@ struct PlanckianLocusPoint {
   bool      valid_;  // false when the perpendicular direction degenerates
 };
 
-struct OhnoPlanckianSample {
-  double    cct_;
-  cv::Vec2d uv_;
-};
-
 struct OhnoSolution {
   bool   valid_ = false;
   double cct_   = 0.0;
   double duv_   = 0.0;
 };
 
-auto PlanckianXYApprox(double cct) -> cv::Vec2d {
-  const double T = ClampFinite(cct, kCustomCCTMin, kCustomCCTMax);
+using PlanckianTable = std::span<const planckian_locus::PlanckianLocusEntry>;
 
-  double x = 0.0;
-  if (T <= 4000.0) {
-    x = -0.2661239e9 / (T * T * T) - 0.2343580e6 / (T * T) + 0.8776956e3 / T + 0.179910;
-  } else {
-    x = -3.0258469e9 / (T * T * T) + 2.1070379e6 / (T * T) + 0.2226347e3 / T + 0.240390;
-  }
-
-  double y = 0.0;
-  if (T <= 2222.0) {
-    y = -1.1063814 * x * x * x - 1.34811020 * x * x + 2.18555832 * x - 0.20219683;
-  } else if (T <= 4000.0) {
-    y = -0.9549476 * x * x * x - 1.37418593 * x * x + 2.09137015 * x - 0.16748867;
-  } else {
-    y = 3.0817580 * x * x * x - 5.87338670 * x * x + 3.75112997 * x - 0.37001483;
-  }
-
-  return cv::Vec2d(x, y);
+auto OhnoPlanckianTable() -> PlanckianTable {
+  return PlanckianTable(planckian_locus::kUvTable.data(), planckian_locus::kUvTable.size());
 }
 
-auto PlanckianUVApprox(double cct) -> cv::Vec2d { return XYToUV(PlanckianXYApprox(cct)); }
+auto EntryUV(const planckian_locus::PlanckianLocusEntry& entry) -> cv::Vec2d {
+  return cv::Vec2d(entry.u_, entry.v_);
+}
+
+auto PlanckianUVAtCCT(double cct) -> cv::Vec2d {
+  const auto table = OhnoPlanckianTable();
+  const double safe_cct =
+      ClampFinite(cct, planckian_locus::kMinCct, planckian_locus::kMaxCct);
+
+  if (safe_cct <= table.front().cct_) {
+    return EntryUV(table.front());
+  }
+  if (safe_cct >= table.back().cct_) {
+    return EntryUV(table.back());
+  }
+
+  const auto upper = std::lower_bound(table.begin(), table.end(), safe_cct,
+                                      [](const planckian_locus::PlanckianLocusEntry& entry,
+                                         double value) { return entry.cct_ < value; });
+  const auto lower = upper - 1;
+  const double denom = upper->cct_ - lower->cct_;
+  if (std::abs(denom) <= kValueEpsilon) {
+    return EntryUV(*upper);
+  }
+
+  const double t = std::clamp((safe_cct - lower->cct_) / denom, 0.0, 1.0);
+  return EntryUV(*lower) * (1.0 - t) + EntryUV(*upper) * t;
+}
 
 auto PlanckianLocusAtCCT(double cct) -> PlanckianLocusPoint {
   const double safe_cct = ClampFinite(cct, kCustomCCTMin, kCustomCCTMax);
@@ -296,14 +302,14 @@ auto PlanckianLocusAtCCT(double cct) -> PlanckianLocusPoint {
   const double high_cct = std::min(kCustomCCTMax, safe_cct + delta_k);
 
   PlanckianLocusPoint pt;
-  pt.uv_ = PlanckianUVApprox(safe_cct);
+  pt.uv_ = PlanckianUVAtCCT(safe_cct);
   if ((high_cct - low_cct) <= kValueEpsilon) {
     pt.perp_  = cv::Vec2d(0.0, 0.0);
     pt.valid_ = false;
     return pt;
   }
 
-  const cv::Vec2d tangent = (PlanckianUVApprox(high_cct) - PlanckianUVApprox(low_cct)) /
+  const cv::Vec2d tangent = (PlanckianUVAtCCT(high_cct) - PlanckianUVAtCCT(low_cct)) /
                             (high_cct - low_cct);
   const double tangent_len = std::sqrt(tangent[0] * tangent[0] + tangent[1] * tangent[1]);
 
@@ -317,19 +323,6 @@ auto PlanckianLocusAtCCT(double cct) -> PlanckianLocusPoint {
   return pt;
 }
 
-auto BuildOhnoPlanckianTable() -> const std::vector<OhnoPlanckianSample>& {
-  static const std::vector<OhnoPlanckianSample> table = [] {
-    std::vector<OhnoPlanckianSample> samples;
-    samples.reserve(1000);
-    for (double cct = kCustomCCTMin; cct < kCustomCCTMax; cct *= kOhnoTableStepRatio) {
-      samples.push_back(OhnoPlanckianSample{cct, PlanckianUVApprox(cct)});
-    }
-    samples.push_back(OhnoPlanckianSample{kCustomCCTMax, PlanckianUVApprox(kCustomCCTMax)});
-    return samples;
-  }();
-  return table;
-}
-
 auto Distance(const cv::Vec2d& a, const cv::Vec2d& b) -> double {
   const double du = a[0] - b[0];
   const double dv = a[1] - b[1];
@@ -338,14 +331,13 @@ auto Distance(const cv::Vec2d& a, const cv::Vec2d& b) -> double {
 
 auto SignFromDeltaV(double delta_v) -> double { return (delta_v < 0.0) ? -1.0 : 1.0; }
 
-auto FindClosestOhnoSample(const cv::Vec2d& uv, const std::vector<OhnoPlanckianSample>& table)
-    -> size_t {
+auto FindClosestOhnoSample(const cv::Vec2d& uv, PlanckianTable table) -> size_t {
   size_t best_index       = 0;
   double best_distance_sq = std::numeric_limits<double>::max();
 
   for (size_t i = 0; i < table.size(); ++i) {
-    const double du          = uv[0] - table[i].uv_[0];
-    const double dv          = uv[1] - table[i].uv_[1];
+    const double du          = uv[0] - table[i].u_;
+    const double dv          = uv[1] - table[i].v_;
     const double distance_sq = du * du + dv * dv;
     if (distance_sq < best_distance_sq) {
       best_distance_sq = distance_sq;
@@ -362,15 +354,16 @@ auto FindClosestOhnoSample(const cv::Vec2d& uv, const std::vector<OhnoPlanckianS
   return best_index;
 }
 
-auto SolveOhnoTriangular(const cv::Vec2d& uv, const std::vector<OhnoPlanckianSample>& table,
-                         size_t m) -> OhnoSolution {
+auto SolveOhnoTriangular(const cv::Vec2d& uv, PlanckianTable table, size_t m) -> OhnoSolution {
   const auto& p0 = table[m - 1];
   const auto& p2 = table[m + 1];
+  const cv::Vec2d p0_uv = EntryUV(p0);
+  const cv::Vec2d p2_uv = EntryUV(p2);
 
-  const double d0 = Distance(uv, p0.uv_);
-  const double d2 = Distance(uv, p2.uv_);
+  const double d0 = Distance(uv, p0_uv);
+  const double d2 = Distance(uv, p2_uv);
 
-  const cv::Vec2d chord = p2.uv_ - p0.uv_;
+  const cv::Vec2d chord = p2_uv - p0_uv;
   const double    l     = std::sqrt(chord[0] * chord[0] + chord[1] * chord[1]);
   if (l <= kValueEpsilon) {
     return {};
@@ -379,14 +372,13 @@ auto SolveOhnoTriangular(const cv::Vec2d& uv, const std::vector<OhnoPlanckianSam
   const double x     = std::clamp((d0 * d0 - d2 * d2 + l * l) / (2.0 * l), 0.0, l);
   const double alpha = x / l;
   const double cct   = p0.cct_ + (p2.cct_ - p0.cct_) * alpha;
-  const double v_tx  = p0.uv_[1] + (p2.uv_[1] - p0.uv_[1]) * alpha;
+  const double v_tx  = p0.v_ + (p2.v_ - p0.v_) * alpha;
   const double duv   = std::sqrt(std::max(0.0, d0 * d0 - x * x)) * SignFromDeltaV(uv[1] - v_tx);
 
   return OhnoSolution{std::isfinite(cct) && std::isfinite(duv), cct, duv};
 }
 
-auto SolveOhnoParabolic(const cv::Vec2d& uv, const std::vector<OhnoPlanckianSample>& table,
-                        size_t m) -> OhnoSolution {
+auto SolveOhnoParabolic(const cv::Vec2d& uv, PlanckianTable table, size_t m) -> OhnoSolution {
   const auto& p0 = table[m - 1];
   const auto& p1 = table[m];
   const auto& p2 = table[m + 1];
@@ -394,9 +386,9 @@ auto SolveOhnoParabolic(const cv::Vec2d& uv, const std::vector<OhnoPlanckianSamp
   const double t0 = p0.cct_ * 0.001;
   const double t1 = p1.cct_ * 0.001;
   const double t2 = p2.cct_ * 0.001;
-  const double d0 = Distance(uv, p0.uv_);
-  const double d1 = Distance(uv, p1.uv_);
-  const double d2 = Distance(uv, p2.uv_);
+  const double d0 = Distance(uv, EntryUV(p0));
+  const double d1 = Distance(uv, EntryUV(p1));
+  const double d2 = Distance(uv, EntryUV(p2));
 
   const double denom0 = (t0 - t1) * (t0 - t2);
   const double denom1 = (t1 - t0) * (t1 - t2);
@@ -418,7 +410,7 @@ auto SolveOhnoParabolic(const cv::Vec2d& uv, const std::vector<OhnoPlanckianSamp
   const double tx       = std::clamp(-b / (2.0 * a), t0, t2);
   const double cct      = tx * 1000.0;
   const double distance = std::max(0.0, a * tx * tx + b * tx + c);
-  const double v_tx     = PlanckianUVApprox(cct)[1];
+  const double v_tx     = PlanckianUVAtCCT(cct)[1];
   const double duv      = distance * SignFromDeltaV(uv[1] - v_tx);
 
   return OhnoSolution{std::isfinite(cct) && std::isfinite(duv), cct, duv};
@@ -429,7 +421,7 @@ auto OhnoTemperatureDuv(const cv::Vec2d& uv, double& out_cct, double& out_duv) -
     return false;
   }
 
-  const auto& table = BuildOhnoPlanckianTable();
+  const auto table = OhnoPlanckianTable();
   if (table.size() < 3) {
     return false;
   }
